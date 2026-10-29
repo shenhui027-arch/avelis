@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,8 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
 from avelis.collect.service import CollectionFailed
+from avelis.engines import engine_of, engines, get_engine
+from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
 from avelis.models import CollectionRun, Datasource, DatasourceCredential, EndpointAlias, Job, User
 from avelis.security import encrypt_secret
@@ -28,13 +30,22 @@ class Credential(BaseModel):
 
 class DatasourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    kind: Literal["starrocks", "mysql", "fake"]
+    kind: str = Field(description="引擎类型，取值见 GET /api/engines")
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=1, le=65535)
     options: dict = Field(default_factory=dict)
     collect_interval_minutes: int = Field(default=15, ge=1, le=1440)
     collect: Credential | None = None
     query: Credential | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def _known_engine(cls, kind: str) -> str:
+        try:
+            get_engine(kind)
+        except UnsupportedEngine as exc:
+            raise ValueError(str(exc)) from exc
+        return kind
 
 
 def datasource_view(session: Session, ds: Datasource) -> dict:
@@ -50,6 +61,7 @@ def datasource_view(session: Session, ds: Datasource) -> dict:
         "credentials": [{"purpose": c.purpose, "username": c.username, "password": "已设置（不回传）",
                          "updated_at": c.updated_at.isoformat()} for c in creds],
         "last_run": run_view(last) if last else None,
+        "engine": engine_of(ds).describe(),
         "aliases": [{"id": a.id, "host": a.host, "port": a.port, "note": a.note} for a in session.scalars(
             select(EndpointAlias).where(EndpointAlias.datasource_id == ds.id))],
     }
@@ -76,14 +88,23 @@ def list_datasources(user: User = Depends(current_user), session: Session = Depe
     return [datasource_view(session, ds) for ds in session.scalars(select(Datasource).order_by(Datasource.name))]
 
 
+@router.get("/engines", response_model=list[S.EngineOut])
+def list_engines(user: User = Depends(current_user)) -> list[dict]:
+    """已登记（真实环境联调过）的引擎及其能力。前端按能力决定表单项，不按类型写死。"""
+    return [e.describe() for e in engines() if not e.is_test_adapter]
+
+
 @router.post("/datasources", status_code=201, response_model=S.DatasourceOut)
 def create_datasource(body: DatasourceCreate, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
     if session.scalar(select(Datasource.id).where(Datasource.name == body.name)):
         raise HTTPException(409, f"数据源 {body.name} 已存在")
+    engine = get_engine(body.kind)
+    if body.query is not None and not engine.supports(QUERY):
+        raise HTTPException(422, f"{engine.label} 适配器不支持问数执行，不需要只读查询账号")
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,
-                    is_test_adapter=body.kind == "fake", collect_interval_minutes=body.collect_interval_minutes,
+                    is_test_adapter=engine.is_test_adapter, collect_interval_minutes=body.collect_interval_minutes,
                     created_by=user.id)
     session.add(ds)
     session.flush()

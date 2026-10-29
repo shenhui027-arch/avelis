@@ -296,6 +296,37 @@
     ]
    }
   },
+  "/api/engines": {
+   "get": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "List Engines",
+    "description": "已登记（真实环境联调过）的引擎及其能力。前端按能力决定表单项，不按类型写死。",
+    "operationId": "list_engines_api_engines_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/EngineOut"
+         },
+         "type": "array",
+         "title": "Response List Engines Api Engines Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/datasources/{datasource_id}/credentials/{purpose}": {
    "put": {
     "tags": [
@@ -4666,12 +4697,8 @@
      },
      "kind": {
       "type": "string",
-      "enum": [
-       "starrocks",
-       "mysql",
-       "fake"
-      ],
-      "title": "Kind"
+      "title": "Kind",
+      "description": "引擎类型，取值见 GET /api/engines"
      },
      "host": {
       "type": "string",
@@ -4798,6 +4825,9 @@
       },
       "type": "array",
       "title": "Aliases"
+     },
+     "engine": {
+      "$ref": "#/components/schemas/EngineOut"
      }
     },
     "additionalProperties": true,
@@ -4815,7 +4845,8 @@
      "server_identity",
      "collect_interval_minutes",
      "credentials",
-     "aliases"
+     "aliases",
+     "engine"
     ],
     "title": "DatasourceOut"
    },
@@ -5134,6 +5165,72 @@
      "code"
     ],
     "title": "DomainRef"
+   },
+   "EngineOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "dialect": {
+      "type": "string",
+      "title": "Dialect"
+     },
+     "default_catalog": {
+      "type": "string",
+      "title": "Default Catalog"
+     },
+     "name_levels": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Name Levels"
+     },
+     "capabilities": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Capabilities"
+     },
+     "default_port": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Port"
+     },
+     "is_test_adapter": {
+      "type": "boolean",
+      "title": "Is Test Adapter"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "kind",
+     "label",
+     "dialect",
+     "default_catalog",
+     "name_levels",
+     "capabilities",
+     "is_test_adapter",
+     "note"
+    ],
+    "title": "EngineOut"
    },
    "FetchedOut": {
     "properties": {

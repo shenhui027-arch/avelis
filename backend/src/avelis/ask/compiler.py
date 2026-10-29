@@ -13,7 +13,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from avelis.governance.metric_sql import BASE_ALIAS, DIALECT, column_ref, literal, parse_snippet, table_expr
+from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_snippet, table_expr
 
 FORBIDDEN = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Command, exp.Into,
              exp.Merge, exp.TruncateTable, exp.Set, exp.Use)
@@ -34,11 +34,12 @@ class ValidationFailed(Exception):
 
 
 def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[str, Any]], intent, max_rows: int,
-                         time_type: str) -> CompiledQuery:
+                         time_type: str, dialect: str) -> CompiledQuery:
+    """dialect：执行该查询的数据源引擎的 SQLGlot 方言。"""
     names = set(aliases)
 
     def col(text: str) -> exp.Expression:
-        return parse_snippet(text, label="列", aliases=names, require_aggregate=False).expression
+        return parse_snippet(text, dialect=dialect, label="列", aliases=names, require_aggregate=False).expression
 
     dims = {d["name"]: d for d in version.dimensions or []}
     select = exp.Select()
@@ -46,7 +47,8 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     for name in intent.group_by:
         select = select.select(exp.alias_(col(dims[name]["column"]), name))
         group_cols.append(col(dims[name]["column"]))
-    measure = parse_snippet(version.expression, label="表达式", aliases=names, require_aggregate=True).expression
+    measure = parse_snippet(version.expression, dialect=dialect, label="表达式", aliases=names,
+                            require_aggregate=True).expression
     select = select.select(exp.alias_(measure, "value"))
 
     base = aliases[BASE_ALIAS]
@@ -69,7 +71,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             for lc, rc in zip(path.left_columns, path.right_columns)])
         select = select.join(source, on=condition, join_type="inner")
 
-    t_alias, t_col = column_ref(version.time_column, label="时间字段", aliases=names)
+    t_alias, t_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
     time_column = exp.column(t_col, table=t_alias)
     conditions: list[exp.Expression] = []
     if time_type.startswith("date") and not time_type.startswith("datetime"):
@@ -79,8 +81,8 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         conditions.append(exp.LT(this=time_column,
                                  expression=literal(f"{intent.end_date + timedelta(days=1)} 00:00:00")))
     if version.filters:
-        conditions.append(exp.Paren(this=parse_snippet(version.filters, label="过滤条件", aliases=names,
-                                                       require_aggregate=False).expression))
+        conditions.append(exp.Paren(this=parse_snippet(version.filters, dialect=dialect, label="过滤条件",
+                                                       aliases=names, require_aggregate=False).expression))
     for f in intent.filters:
         target = col(dims[f.dimension]["column"])
         if len(f.values) == 1:
@@ -91,7 +93,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     if group_cols:
         select = select.group_by(*group_cols).order_by(*group_cols)
     select = select.limit(max_rows)
-    sql = select.sql(dialect=DIALECT, comments=False)
+    sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
     return CompiledQuery(sql=sql, tables=tables, columns=[*intent.group_by, "value"],
                          plan={"base": _qualified(base), "joins": [
@@ -101,15 +103,32 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
                              "filters": [f.model_dump() for f in intent.filters]})
 
 
+def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: str) -> str:
+    """维度可选值：SELECT DISTINCT 列 FROM 表 WHERE 列 IS NOT NULL LIMIT n。"""
+    col = exp.column(column, table="t")
+    return (exp.select(col).distinct().from_(table_expr(qualified, "t")).where(exp.Not(this=exp.Is(
+        this=col.copy(), expression=exp.Null()))).limit(limit).sql(dialect=dialect, identify=True))
+
+
+def duplicate_key_sql(qualified: str, columns: list[str], *, dialect: str) -> str:
+    """粒度核验：按键分组找重复，取一条样例。"""
+    keys = [exp.column(c, table="t") for c in columns]
+    return (exp.select(*keys, exp.alias_(exp.Count(this=exp.Star()), "n")).from_(table_expr(qualified, "t"))
+            .group_by(*[k.copy() for k in keys]).having(exp.GT(this=exp.Count(this=exp.Star()),
+                                                                 expression=exp.Literal.number(1)))
+            .limit(1).sql(dialect=dialect, identify=True))
+
+
 def _qualified(asset) -> str:
     return f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
 
 
-def validate_sql(sql: str, *, allowed_tables: set[str], schema: dict[str, set[str]], max_rows: int) -> None:
+def validate_sql(sql: str, *, dialect: str, allowed_tables: set[str], schema: dict[str, set[str]],
+                 max_rows: int) -> None:
     """对实际要执行的 SQL 做确定性校验。schema：表 → 允许的列。"""
     reasons = []
     try:
-        statements = [s for s in sqlglot.parse(sql, read=DIALECT) if s is not None]
+        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
     except ParseError as exc:
         raise ValidationFailed([f"SQL 无法解析，拒绝执行：{str(exc).splitlines()[0][:200]}"]) from exc
     if len(statements) != 1:
@@ -143,7 +162,7 @@ def validate_sql(sql: str, *, allowed_tables: set[str], schema: dict[str, set[st
         target = aliases.get(table)
         if target is None:
             if table:
-                reasons.append(f"列 {column.sql(dialect=DIALECT)} 的来源未知")
+                reasons.append(f"列 {column.sql(dialect=dialect)} 的来源未知")
             continue
         if column.name not in schema.get(target, set()):
             reasons.append(f"列 {target}.{column.name} 不在已采集的表结构中")

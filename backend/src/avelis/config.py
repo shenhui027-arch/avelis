@@ -47,6 +47,10 @@ class Settings:
     query_max_rows: int = 1000
     answer_cache_seconds: int = 300
     collect_interval_minutes: int = 15
+    unassigned_asset_policy: str = "deny"
+    worker_schedule_seconds: int = 60
+    worker_stale_seconds: int = 30
+    worker_running_timeout_seconds: int = 3600
     env: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
 
 
@@ -77,6 +81,10 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),
         allow_self_review=env.get("AVELIS_ALLOW_SELF_REVIEW", "false").lower() == "true",
         cors_origins=tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins,
+        unassigned_asset_policy=env.get("AVELIS_UNASSIGNED_ASSET_POLICY", "deny").strip().lower(),
+        worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
+        worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
+        worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),
         env=env,
     )
 
