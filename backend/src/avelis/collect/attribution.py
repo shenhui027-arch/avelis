@@ -64,12 +64,14 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
     except Exception as exc:  # noqa: BLE001 - 读取审计失败只影响归因，不让采集失败
         if not isinstance(exc, AuditUnavailable):
             exc = AuditUnavailable(f"{type(exc).__name__}: {exc}")
+        cause, label = unavailable_cause(str(exc))
         for e in events:
             if e["kind"] in DERIVED:
                 _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
             else:
-                _set(e, "unavailable", source=source, window=window, reason=f"读取审计来源失败：{exc}")
-        return {"status": "unavailable", "source": source, "error": str(exc)[:500], "window": window}
+                _set(e, "unavailable", source=source, window=window, cause=cause,
+                     reason=f"{label}，无法归因（数据库报错：{exc}）")
+        return {"status": "unavailable", "source": source, "cause": cause, "error": str(exc)[:500], "window": window}
     by_object: dict[tuple[str, str], list[DdlEvent]] = {}
     for a in audit_events:
         for db, name in a.objects:
@@ -107,6 +109,21 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
             _set(e, "ambiguous", **basis, candidates=users, statements=statements,
                  reason=f"窗口内该对象的 DDL 来自多个用户（{'、'.join(users)}），无法确定是谁")
     return {"status": "ok", "source": source, "window": window, "audit_events": len(audit_events)}
+
+
+_NO_PERMISSION = ("permission denied", "access denied", "command denied", "not enough privileges", "code: 497")
+_NOT_ENABLED = ("does not exist", "unknown table", "code: 60.", "doesn't exist")
+
+
+def unavailable_cause(error: str) -> tuple[str, str]:
+    """把审计来源的读取报错归为：采集账号无权读取 / 数据源未开启 DDL 审计 / 其他。是否开启、是否授权由数据源方负责，
+    这里只如实说明为什么不可用，不做变通。"""
+    text = error.lower()
+    if any(k in text for k in _NO_PERMISSION):
+        return "no_permission", "采集账号无权读取 DDL 审计"
+    if any(k in text for k in _NOT_ENABLED):
+        return "not_enabled", "数据源未开启 DDL 审计（审计来源不存在）"
+    return "error", "读取 DDL 审计失败"
 
 
 def _set(event: dict[str, Any], status: str, actor: str | None = None, **detail: Any) -> None:
