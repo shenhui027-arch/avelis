@@ -505,6 +505,7 @@
 .av-analysis__composer .av-ask-examples { margin: 0; max-width: none; }
 .av-analysis__options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .av-analysis__options .av-field--inline { gap: var(--space-2); }
+.av-analysis__options .av-label { white-space: nowrap; }
 .av-analysis__options .av-input { height: var(--size-control-sm); }
 .av-analysis__list, .av-analysis__tasks { display: flex; flex-direction: column; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); }
 .av-analysis__list .av-row, .av-analysis__tasks .av-row { --row-cols: minmax(0, 1fr) auto; }

@@ -133,7 +133,8 @@ def _chart(d: dict, font: str):
                and any(_num(r[i]) is not None for r in rows) and cols[i] not in ("period",)]
     if not numeric:
         return None
-    value = next((i for i in numeric if cols[i] in ("change", "contribution")), numeric[0])
+    value = next((i for i in numeric if cols[i].endswith("·变化") or cols[i] in ("change", "contribution")),
+                 next((i for i in numeric if not cols[i].endswith("变化率") and cols[i] != "change_rate"), numeric[0]))
     drawing = Drawing(460, 200)
     if cols[0] == "period" and len(rows) > 2:
         series: dict[str, list[tuple[float, float]]] = {}
