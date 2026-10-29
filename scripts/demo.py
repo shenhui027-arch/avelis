@@ -28,6 +28,7 @@ from pathlib import Path
 
 import clickhouse_connect
 import psycopg
+import pymssql
 import pymysql
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ SEED_DIR = DEMO / "starrocks" / "seed"
 SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
 SHOP_PG_SEED = DEMO / "shop-pg" / "init" / "02-store.sql"
 SHOP_CH_SEED = DEMO / "shop-ch" / "store.sql"
+SHOP_MSSQL_SEED = DEMO / "shop-mssql" / "store.sql"
 
 DEMO_DATABASES = ("shop", "ads", "dim")
 CATALOG = "shop_mysql"
@@ -80,7 +82,7 @@ def init_env() -> None:
         if sep and not line.lstrip().startswith("#"):
             value = existing.get(key, value.strip())
             if key.endswith("_PASSWORD") and not value:
-                value = "".join(secrets.choice(alphabet) for _ in range(24))
+                value = _password(alphabet)
                 generated += 1
             elif key.endswith("_SECRET") and not value:
                 value = "".join(secrets.choice(alphabet) for _ in range(48))
@@ -89,6 +91,14 @@ def init_env() -> None:
         lines.append(line)
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log(f".env 已就绪（新生成 {generated} 个口令，未打印）")
+
+
+def _password(alphabet: str) -> str:
+    """24 位随机口令，至少含大写、小写、数字各一（满足 SQL Server、Oracle 的复杂度要求）。"""
+    while True:
+        value = "".join(secrets.choice(alphabet) for _ in range(24))
+        if any(c.isupper() for c in value) and any(c.islower() for c in value) and any(c.isdigit() for c in value):
+            return value
 
 
 def fetch_driver() -> None:
@@ -172,6 +182,14 @@ def ch_connect(env: dict[str, str], user: str = "default"):
                                          autogenerate_session_id=False)
 
 
+def mssql_connect(env: dict[str, str], user: str = "sa", database: str = "storedb") -> pymssql.Connection:
+    """Connect to the demo SQL Server store (shop-mssql). sa only seeds; avelis_reader only has SELECT."""
+    password = {"sa": "SHOP_MSSQL_SA_PASSWORD", "avelis_collector": "SHOP_MSSQL_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_MSSQL_READER_PASSWORD"}[user]
+    return pymssql.connect(server="127.0.0.1", port=env["SHOP_MSSQL_PORT"], user=user, password=env[password],
+                           database=database, login_timeout=5, autocommit=True, charset="UTF-8")
+
+
 def sr_root(env: dict[str, str]) -> pymysql.Connection:
     return sr_connect(env)
 
@@ -241,6 +259,16 @@ def _shop_ch_ready(env: dict[str, str]) -> bool:
         client.close()
 
 
+def _shop_mssql_ready(env: dict[str, str]) -> bool:
+    conn = mssql_connect(env, database="master")
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        return cur.fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def _shop_mysql_ready(env: dict[str, str]) -> bool:
     conn = mysql_connect(env, "avelis_collector")
     with conn.cursor() as cur:
@@ -263,6 +291,7 @@ def up(skip_seed: bool, engines: bool = False) -> None:
     wait_for("StarRocks FE + BE", lambda: _sr_ready(env), 420)
     if engines:
         wait_for("门店库 ClickHouse", lambda: _shop_ch_ready(env), 120)
+        wait_for("门店库 SQL Server", lambda: _shop_mssql_ready(env), 180)
     if not skip_seed:
         seed(env)
         check(env)
@@ -422,7 +451,7 @@ def seed(env: dict[str, str]) -> dict:
 def engines_running(env: dict[str, str]) -> dict[str, bool]:
     """更多引擎的演示库是否可连接（未用 --engines 启动时为 False）。"""
     out = {}
-    for name, probe in (("clickhouse", _shop_ch_ready),):
+    for name, probe in (("clickhouse", _shop_ch_ready), ("sqlserver", _shop_mssql_ready)):
         try:
             out[name] = bool(probe(env))
         except Exception:  # noqa: BLE001 - not started or not reachable
@@ -451,6 +480,37 @@ def seed_clickhouse(env: dict[str, str]) -> None:
         client.close()
 
 
+def seed_mssql(env: dict[str, str]) -> None:
+    """重建 storedb 与两个账号：采集账号只有 store 模式的 VIEW DEFINITION（读目录与视图定义、不能读数据），
+    查询账号有 store 模式的 SELECT 与 VIEW DEFINITION（执行前核对要读视图定义）。"""
+    users = {"avelis_collector": env["SHOP_MSSQL_COLLECTOR_PASSWORD"], "avelis_reader": env["SHOP_MSSQL_READER_PASSWORD"]}
+    conn = mssql_connect(env, database="master")
+    try:
+        cur = conn.cursor()
+        cur.execute("IF DB_ID('storedb') IS NOT NULL BEGIN "
+                    "ALTER DATABASE storedb SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE storedb; END")
+        cur.execute("CREATE DATABASE storedb")
+        for user, password in users.items():  # 口令为字母数字（init-env 生成），可直接写入 DDL
+            assert password.isalnum()
+            cur.execute(f"IF SUSER_ID('{user}') IS NULL CREATE LOGIN {user} WITH PASSWORD = '{password}' "
+                        f"ELSE ALTER LOGIN {user} WITH PASSWORD = '{password}'")
+    finally:
+        conn.close()
+    conn = mssql_connect(env)
+    try:
+        cur = conn.cursor()
+        for statement in sql_statements(SHOP_MSSQL_SEED):
+            cur.execute(statement)
+        for user in users:
+            cur.execute(f"CREATE USER {user} FOR LOGIN {user}")
+        cur.execute("GRANT VIEW DEFINITION ON SCHEMA::store TO avelis_collector")
+        cur.execute("GRANT SELECT ON SCHEMA::store TO avelis_reader")
+        # 执行前核对要读视图定义：只授予元数据，不额外授予数据权限
+        cur.execute("GRANT VIEW DEFINITION ON SCHEMA::store TO avelis_reader")
+    finally:
+        conn.close()
+
+
 def seed_engines(env: dict[str, str]) -> None:
     log("把更多引擎的演示库重置到验收基线 ...")
     running = engines_running(env)
@@ -458,7 +518,8 @@ def seed_engines(env: dict[str, str]) -> None:
     if missing:
         sys.exit(f"引擎演示库未启动：{', '.join(missing)}；先运行 uv run scripts/demo.py up --engines")
     seed_clickhouse(env)
-    log("  灌数完成：ClickHouse store")
+    seed_mssql(env)
+    log("  灌数完成：ClickHouse store、SQL Server storedb.store")
 
 
 ENGINE_BASELINE = [
@@ -468,23 +529,42 @@ ENGINE_BASELINE = [
     ("clickhouse", "门店库 city_daily_sales 2026-09-15 北京（ClickHouse）",
      "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '北京'",
      Decimal("80.00")),
+    ("sqlserver", "门店库 city_daily_sales 2026-09-15 上海（SQL Server）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = N'上海'",
+     Decimal("250.00")),
+    ("sqlserver", "门店库 city_daily_sales 2026-09-15 北京（SQL Server）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = N'北京'",
+     Decimal("80.00")),
 ]
+
+
+def _engine_value(env: dict[str, str], engine: str, sql: str):
+    if engine == "clickhouse":
+        client = ch_connect(env, "avelis_reader")
+        try:
+            rows = client.query(sql).result_rows
+        finally:
+            client.close()
+    else:
+        conn = mssql_connect(env, "avelis_reader")
+        try:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    return rows[0][0] if rows else "无数据"
 
 
 def engine_baseline_values(env: dict[str, str]) -> list[dict]:
     results = []
-    client = ch_connect(env, "avelis_reader")
-    try:
-        for _, label, sql, expected in ENGINE_BASELINE:
-            try:
-                rows = client.query(sql).result_rows
-                actual = rows[0][0] if rows else "无数据"
-            except Exception as exc:  # noqa: BLE001 - reported as a failed baseline line
-                actual = f"错误：{exc}"
-            results.append({"label": label, "expected": str(expected), "actual": str(actual),
-                            "passed": str(actual) == str(expected)})
-    finally:
-        client.close()
+    for engine, label, sql, expected in ENGINE_BASELINE:
+        try:
+            actual = _engine_value(env, engine, sql)
+        except Exception as exc:  # noqa: BLE001 - reported as a failed baseline line
+            actual = f"错误：{exc}"
+        results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                        "passed": str(actual) == str(expected)})
     return results
 
 

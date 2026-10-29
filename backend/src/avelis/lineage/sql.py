@@ -43,6 +43,8 @@ class SqlDialect:
     # 生成的 SQL 是否写 Catalog 段：库.表 两级命名、查询中不认 Catalog 的引擎（ClickHouse 等）为 False，
     # 表名写成 库.表，校验时再按 default_catalog 补齐
     catalog_in_sql: bool = True
+    # 生成的 SQL 中字符串字面量写成 N'...'（SQL Server：NVARCHAR 列在非 UTF-8 排序规则下才能正确比较中文）
+    national_strings: bool = False
 
     def prepare(self, expression: exp.Expression) -> exp.Expression:
         return self.normalize(expression) if self.normalize else expression

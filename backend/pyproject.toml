@@ -27,6 +27,7 @@ dependencies = [
     "langchain-openai==1.7.1",
     "pymssql>=2.3",
     "clickhouse-connect>=0.8",
+    "oracledb>=3.3",
 ]
 
 [dependency-groups]

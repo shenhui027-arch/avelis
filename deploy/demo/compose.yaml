@@ -8,6 +8,7 @@
 #
 # 以下服务属于 engines 配置（profile），用于更多引擎的真实联调：scripts/demo.py up --engines 时才启动。
 #   shop-ch               线下门店库（ClickHouse），与 shop-pg 同一份数据
+#   shop-mssql            线下门店库（SQL Server 2022 Developer；用户已确认接受其许可条款，2026-10-29）
 name: avelis-demo
 
 services:
@@ -106,6 +107,20 @@ services:
       timeout: 3s
       retries: 30
 
+  shop-mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:ba4c8329f48fb8f02e1416be6a930ebfd71268caee78aa985f3af4315e457c89
+    profiles: ["engines"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SHOP_MSSQL_SA_PASSWORD:?run scripts/demo.py init-env}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports:
+      - "127.0.0.1:${SHOP_MSSQL_PORT:-11433}:1433"
+    volumes:
+      - shop-mssql-data:/var/opt/mssql
+    mem_limit: 3g
+
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.14@sha256:5e1fa9c1a490f49457b8220b10ef2ea211af271b2626654ba151429f4603715f
     entrypoint: ["/bin/bash", "/opt/avelis/avelis-entrypoint.sh"]
@@ -148,5 +163,6 @@ volumes:
   shop-mysql-data:
   shop-pg-data:
   shop-ch-data:
+  shop-mssql-data:
   sr-fe-meta:
   sr-be-storage:

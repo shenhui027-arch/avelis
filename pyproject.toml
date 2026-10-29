@@ -9,6 +9,8 @@ dependencies = [
     "sqlglot==30.25.0",
     "psycopg[binary]==3.3.6",
     "clickhouse-connect==1.11.0",
+    "pymssql==2.4.6",
+    "oracledb==26.1.0",
 ]
 
 [tool.uv]

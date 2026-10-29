@@ -110,6 +110,8 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             select = select.order_by(*group_cols)
     limit = getattr(intent, "limit", None)
     select = select.limit(min(limit, max_rows) if limit else max_rows)
+    if sql_dialect.national_strings:
+        select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
     return CompiledQuery(sql=sql, tables=tables, columns=[*intent.group_by, "value"],
@@ -118,6 +120,12 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
                              for s in steps], "group_by": intent.group_by,
                              "time_range": [str(intent.start_date), str(intent.end_date)],
                              "filters": [f.model_dump() for f in intent.filters]})
+
+
+def _national(node: exp.Expression) -> exp.Expression:
+    if isinstance(node, exp.Literal) and node.is_string:
+        return exp.National(this=node.this)
+    return node
 
 
 def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: SqlDialect | str) -> str:
