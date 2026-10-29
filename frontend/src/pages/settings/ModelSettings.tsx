@@ -1,17 +1,17 @@
-// 模型配置：工作台模式三栏 —— 提供方列表 | 连接与模型 | 默认模型与数据外发。
-// 交互参考 LobeChat / Cherry Studio（提供方列表、检测、获取模型列表）、Open WebUI（模型白名单）、
-// Dify（按用途的默认模型）。密钥只写不读，界面只显示末四位掩码。
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+﻿// 模型配置：提供方导航与连接、默认用途、数据外发分区。
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { api, ApiError, unwrap, type Schemas } from "../../api/client";
 import { Hint, Icon } from "../../components/Icon";
+import { Banner, Drawer, Empty, QueryState, Select, Switch } from "../../components/ui";
 import { formatTime } from "../../format";
 import { SettingsTabs, useMe } from "../../layout/Shell";
 
 type Provider = Schemas["ProviderOut"];
 type Settings = Schemas["SettingsOut"];
 type PresetsOut = Schemas["PresetsOut"];
+type Message = { ok: boolean; text: string } | null;
 
 const PLAT: Record<string, string> = { openai_compatible: "OAI", anthropic: "ANT" };
 
@@ -35,12 +35,11 @@ function providerStatus(p: Provider): { cls: string; text: string } {
   return { cls: "", text: "未检测" };
 }
 
-function Switch({ checked, onChange, disabled, label }: {
-  checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string;
-}) {
+function ModelFeedback({ message, busy }: { message: Message; busy?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} className="av-switch"
-      disabled={disabled} onClick={() => onChange(!checked)} />
+    <div className="av-models__feedback" role={message?.ok === false && !busy ? "alert" : "status"} aria-busy={busy}>
+      {busy ? <span className="av-status">正在保存…</span> : <Banner message={message} />}
+    </div>
   );
 }
 
@@ -56,18 +55,23 @@ export function ModelSettings() {
   const list = providers.data ?? [];
   const selected = list.find((p) => p.id === selectedId) ?? list[0];
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["model-providers"] });
-    qc.invalidateQueries({ queryKey: ["model-settings"] });
+  const refresh = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["model-providers"] }),
+      qc.invalidateQueries({ queryKey: ["model-settings"] }),
+    ]);
   };
+  const addAction = isAdmin ? (
+    <button type="button" className="av-btn av-btn--secondary" onClick={() => setAdding(true)}>添加提供方</button>
+  ) : undefined;
 
   return (
-    <div className="av-fill">
+    <div className="av-fill av-models">
       <div className="av-pagehd">
         <div className="av-pagehd__title">
           <h1>设置</h1>
           <SettingsTabs current="models" />
-          {settings.data ? (
+          {settings.isSuccess ? (
             settings.data.mode === "configured"
               ? <span className="av-pill av-pill--ok">已配置</span>
               : <span className="av-pill av-pill--warn" title={settings.data.note ?? ""}>演示模型</span>
@@ -80,74 +84,79 @@ export function ModelSettings() {
         </div>
       </div>
 
-      <div className="av-workspace ms-workspace">
-        <section className="av-pane" aria-label="提供方">
-          <div className="av-pane-hd"><h2>提供方 <span className="av-count">{list.length}</span></h2></div>
+      <div className="av-workspace av-models__workspace">
+        <section className="av-pane av-models__providers" aria-label="提供方">
+          <div className="av-pane-hd"><h2>提供方 {providers.isSuccess ? <span className="av-count">{list.length}</span> : null}</h2></div>
           <div className="av-scroll">
-            {providers.isError ? <div className="av-stack"><div className="av-banner av-banner--danger">{errorText(providers.error)}</div></div> : null}
-            {list.map((p) => {
-              const status = providerStatus(p);
-              return (
-                <button key={p.id} type="button" className="av-provider" aria-current={p.id === selected?.id}
-                  onClick={() => setSelectedId(p.id)}>
-                  <span className="av-row__main">
-                    <span className="av-row__title">{p.name}</span>
-                    <span className="av-row__meta av-mono">{p.models.filter((m) => m.enabled).length} 个模型 · {p.code}</span>
-                  </span>
-                  <span>
-                    <span className="av-plat">{PLAT[p.kind]}</span>{" "}
-                    <span className={`av-status ${status.cls}`}>{status.text}</span>
-                  </span>
-                </button>
-              );
-            })}
-            {providers.isSuccess && list.length === 0 ? (
-              <div className="av-empty" style={{ padding: "var(--space-6)" }}>
-                <span>还没有模型提供方</span>
-                <button type="button" className="av-btn av-btn--secondary" disabled={!isAdmin} onClick={() => setAdding(true)}>添加</button>
-              </div>
-            ) : null}
+            <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText="还没有模型提供方" emptyAction={addAction} compact>
+              {(items) => items.map((p) => {
+                const status = providerStatus(p);
+                return (
+                  <button key={p.id} type="button" className="av-provider av-models__provider" aria-current={p.id === selected?.id}
+                    onClick={() => setSelectedId(p.id)}>
+                    <span className="av-row__main">
+                      <span className="av-row__title">{p.name}</span>
+                      <span className="av-row__meta av-mono">{p.models.filter((m) => m.enabled).length} 个模型 · {p.code}</span>
+                    </span>
+                    <span className="av-models__provider-status">
+                      <span className="av-plat">{PLAT[p.kind]}</span>
+                      <span className={`av-status ${status.cls}`}>{status.text}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </QueryState>
           </div>
         </section>
 
-        <section className="av-pane" aria-label="连接与模型">
-          {selected ? <ProviderDetail key={selected.id} provider={selected} isAdmin={isAdmin} onChanged={refresh} /> : (
-            <div className="av-empty">选择或添加一个提供方</div>
-          )}
-        </section>
-
-        <section className="av-pane av-pane--rail" aria-label="默认模型">
-          {settings.data ? (
-            <DefaultModels key={JSON.stringify(settings.data)} settings={settings.data} providers={list}
-              isAdmin={isAdmin} onSaved={refresh} />
-          ) : null}
+        <section className="av-pane av-models__main" aria-label="模型配置">
+          <div className="av-scroll av-models__sections">
+            <section className="av-panel" aria-label="连接与模型">
+              <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText="添加提供方，开始配置连接与模型" emptyAction={addAction} rows={5} compact>
+                {() => selected ? <ProviderDetail key={selected.id} provider={selected} isAdmin={isAdmin} onChanged={refresh} /> : null}
+              </QueryState>
+            </section>
+            <section className="av-panel" aria-label="默认用途与数据外发">
+              <QueryState query={settings} rows={4}>
+                {(data) => (
+                  <QueryState query={providers} rows={4}>
+                    {(items) => <DefaultModels settings={data} providers={items} isAdmin={isAdmin} onSaved={refresh} />}
+                  </QueryState>
+                )}
+              </QueryState>
+            </section>
+          </div>
         </section>
       </div>
 
-      {adding && presets.data ? (
-        <AddProvider presets={presets.data} onClose={() => setAdding(false)}
-          onCreated={(p) => { setAdding(false); setSelectedId(p.id); refresh(); }} />
+      {adding ? (
+        <AddProvider query={presets} onClose={() => setAdding(false)}
+          onCreated={async (p) => { setSelectedId(p.id); setAdding(false); await refresh(); }} />
       ) : null}
     </div>
   );
 }
 
-// --- 中栏：连接与模型 ---------------------------------------------------------------
-
-function ProviderDetail({ provider, isAdmin, onChanged }: { provider: Provider; isAdmin: boolean; onChanged: () => void }) {
+function ProviderDetail({ provider, isAdmin, onChanged }: {
+  provider: Provider; isAdmin: boolean; onChanged: () => Promise<void>;
+}) {
   const timeZone = useBusinessTimeZone();
   const [baseUrl, setBaseUrl] = useState(provider.base_url);
   const [newKey, setNewKey] = useState("");
   const [editingKey, setEditingKey] = useState(!provider.has_api_key);
   const [modelInput, setModelInput] = useState("");
   const [fetched, setFetched] = useState<string[]>([]);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Message>(null);
   const [checking, setChecking] = useState<string | null>(null);
 
   const patch = useMutation({
     mutationFn: (body: Schemas["ProviderUpdate"]) =>
       unwrap(api.PATCH("/api/model-providers/{provider_id}", { params: { path: { provider_id: provider.id } }, body })),
-    onSuccess: () => { setMessage({ ok: true, text: "已保存" }); setNewKey(""); setEditingKey(false); onChanged(); },
+    onSuccess: async (_, body) => {
+      setMessage({ ok: true, text: "已保存" });
+      if (body.api_key !== undefined) { setNewKey(""); setEditingKey(false); }
+      await onChanged();
+    },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
   const remove = useMutation({
@@ -160,17 +169,21 @@ function ProviderDetail({ provider, isAdmin, onChanged }: { provider: Provider; 
     onSuccess: (r) => { setFetched(r.models); setMessage({ ok: true, text: `获取到 ${r.models.length} 个模型` }); },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
+  const busy = patch.isPending || remove.isPending || fetchModels.isPending || checking !== null;
+  const disabled = !isAdmin || busy;
 
   async function check(modelId: string) {
+    if (disabled) return;
     setChecking(modelId);
     setMessage(null);
     try {
       const r = await unwrap(api.POST("/api/model-providers/{provider_id}/check", {
-        params: { path: { provider_id: provider.id } }, body: { model_id: modelId } }));
+        params: { path: { provider_id: provider.id } }, body: { model_id: modelId },
+      }));
       setMessage(r.ok
         ? { ok: true, text: `${modelId} 连接正常 · ${r.latency_ms} ms · ${r.tool_calling ? "支持工具调用" : "未发生工具调用"}` }
         : { ok: false, text: r.error ?? "检测失败" });
-      onChanged();
+      await onChanged();
     } catch (e) {
       setMessage({ ok: false, text: errorText(e) });
     } finally {
@@ -179,153 +192,146 @@ function ProviderDetail({ provider, isAdmin, onChanged }: { provider: Provider; 
   }
 
   const models = provider.models;
-  const setModels = (next: Schemas["ModelEntry"][]) => patch.mutate({ models: next });
+  const setModels = (next: Schemas["ModelEntry"][]) => { if (!disabled) patch.mutate({ models: next }); };
   const addable = fetched.filter((id) => !models.some((m) => m.id === id));
   const last = provider.last_check;
+  const connectionDirty = baseUrl.trim() !== provider.base_url || !!newKey.trim();
 
   return (
     <>
-      <div className="av-pane-hd">
+      <div className="av-pane-hd av-models__object-header">
         <h2>{provider.name}<span className="av-plat">{PLAT[provider.kind]}</span></h2>
         <div className="av-actions">
-          <Switch label="启用" checked={provider.enabled} disabled={!isAdmin || patch.isPending}
-            onChange={(v) => patch.mutate({ enabled: v })} />
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" title="删除提供方"
-            disabled={!isAdmin} onClick={() => { if (confirm(`删除提供方 ${provider.name}？`)) remove.mutate(); }}>
+          <span className="av-caption">启用</span>
+          <Switch label={`启用提供方 ${provider.name}`} checked={provider.enabled} disabled={disabled}
+            onChange={(v) => { if (!disabled) patch.mutate({ enabled: v }); }} />
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={`删除提供方 ${provider.name}`}
+            disabled={disabled} onClick={() => { if (!disabled && confirm(`删除提供方 ${provider.name}？`)) remove.mutate(); }}>
             <Icon name="trash" />
           </button>
         </div>
       </div>
-      <div className="av-scroll">
-        <div className="av-stack">
-          {message ? <div className={`av-banner ${message.ok ? "av-banner--ok" : "av-banner--danger"}`}>{message.text}</div> : null}
-
+      <div className="av-stack">
+        <ModelFeedback message={message} busy={patch.isPending || remove.isPending} />
+        <form className="av-models__connection" aria-label="连接配置" aria-busy={patch.isPending}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (disabled || !connectionDirty || !baseUrl.trim()) return;
+            patch.mutate({ base_url: baseUrl.trim(), ...(newKey.trim() ? { api_key: newKey.trim() } : {}) });
+          }}>
+          <h3 className="av-models__section-title">连接</h3>
+          <label className="av-field">
+            <span className="av-label">接口地址 <Hint text="填写根地址，下方显示实际请求端点" /></span>
+            <input className="av-input av-mono" value={baseUrl} required disabled={disabled} onChange={(e) => setBaseUrl(e.target.value)} />
+          </label>
+          <span className="av-caption av-mono av-models__endpoint">{provider.endpoint}</span>
           <div className="av-formrow">
             <label className="av-field">
-              <span className="av-label">接口地址 <Hint text="填根地址即可；下方显示实际请求的端点" /></span>
-              <input className="av-input av-mono" value={baseUrl} disabled={!isAdmin} onChange={(e) => setBaseUrl(e.target.value)} />
-            </label>
-            <button type="button" className="av-btn av-btn--secondary" disabled={!isAdmin || baseUrl === provider.base_url}
-              onClick={() => patch.mutate({ base_url: baseUrl })}>保存</button>
-          </div>
-          <span className="av-caption av-mono">{provider.endpoint}</span>
-
-          <div className="av-formrow">
-            <label className="av-field">
-              <span className="av-label">API 密钥 <Hint text="加密存储，只写不读；界面只显示末四位" /></span>
+              <span className="av-label">API 密钥 <Hint text="加密存储，只写不读；界面仅显示末四位" /></span>
               {editingKey ? (
-                <input className="av-input av-mono" type="password" autoComplete="off" placeholder="sk-…" value={newKey}
-                  disabled={!isAdmin} onChange={(e) => setNewKey(e.target.value)} />
-              ) : (
-                <input className="av-input av-mono" value={provider.api_key ?? "未设置"} disabled readOnly />
-              )}
+                <input className="av-input av-mono" type="password" autoComplete="new-password" placeholder="输入新密钥" value={newKey}
+                  disabled={disabled} onChange={(e) => setNewKey(e.target.value)} />
+              ) : <input className="av-input av-mono" value={provider.api_key ?? "未设置"} disabled readOnly />}
             </label>
-            {editingKey ? (
-              <button type="button" className="av-btn av-btn--secondary" disabled={!isAdmin || !newKey}
-                onClick={() => patch.mutate({ api_key: newKey })}>保存</button>
-            ) : (
-              <button type="button" className="av-btn av-btn--secondary" disabled={!isAdmin}
+            {!editingKey ? (
+              <button type="button" className="av-btn av-btn--secondary" disabled={disabled}
                 onClick={() => setEditingKey(true)}><Icon name="key" />更换</button>
-            )}
+            ) : provider.has_api_key ? (
+              <button type="button" className="av-btn av-btn--secondary" disabled={disabled}
+                onClick={() => { setEditingKey(false); setNewKey(""); }}>取消更换</button>
+            ) : null}
           </div>
-
-          <div className="av-pane-hd" style={{ margin: "0 calc(-1 * var(--space-4))", borderTop: "1px solid var(--line-subtle)" }}>
-            <h2>模型 <span className="av-count">{models.length}</span> <Hint text="只有启用的模型能被指定用途；问数理解需要通过工具调用检测" /></h2>
-            <div className="av-actions">
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!isAdmin || !provider.has_api_key || fetchModels.isPending}
-                onClick={() => fetchModels.mutate()}><Icon name="refresh" small />获取模型列表</button>
-            </div>
-          </div>
-
-          <div className="av-table-wrap">
-            <table className="av-table">
-              <thead>
-                <tr><th>模型</th><th>工具调用</th><th>启用</th><th className="end" /></tr>
-              </thead>
-              <tbody>
-                {models.map((m) => (
-                  <tr key={m.id}>
-                    <td className="av-mono">{m.id}</td>
-                    <td>
-                      {m.tool_calling === true ? <span className="av-status av-status--ok">支持</span>
-                        : m.tool_calling === false ? <span className="av-status av-status--danger">不支持</span>
-                          : <span className="av-status">未检测</span>}
-                    </td>
-                    <td>
-                      <Switch label={`启用 ${m.id}`} checked={m.enabled} disabled={!isAdmin}
-                        onChange={(v) => setModels(models.map((x) => (x.id === m.id ? { ...x, enabled: v } : x)))} />
-                    </td>
-                    <td className="end">
-                      <div className="av-actions">
-                        <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!isAdmin || checking !== null || !provider.has_api_key}
-                          onClick={() => check(m.id)}>{checking === m.id ? "检测中" : "检测"}</button>
-                        <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" title="移除" disabled={!isAdmin}
-                          onClick={() => setModels(models.filter((x) => x.id !== m.id))}><Icon name="trash" small /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {addable.map((id) => (
-                  <tr key={`f-${id}`}>
-                    <td className="av-mono av-muted">{id}</td>
-                    <td><span className="av-caption">可添加</span></td>
-                    <td />
-                    <td className="end">
-                      <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!isAdmin}
-                        onClick={() => setModels([...models, { id, enabled: true, tool_calling: null }])}>添加</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="av-formrow">
-            <label className="av-field">
-              <span className="av-label">手动添加模型 ID</span>
-              <input className="av-input av-mono" value={modelInput} disabled={!isAdmin} placeholder="例如 deepseek-flash"
-                onChange={(e) => setModelInput(e.target.value)} />
-            </label>
-            <button type="button" className="av-btn av-btn--secondary" disabled={!isAdmin || !modelInput.trim() || models.some((m) => m.id === modelInput.trim())}
-              onClick={() => { setModels([...models, { id: modelInput.trim(), enabled: true, tool_calling: null }]); setModelInput(""); }}>
-              <Icon name="plus" />添加
+          <div className="av-actions">
+            <button type="submit" className="av-btn av-btn--primary" disabled={disabled || !connectionDirty || !baseUrl.trim()}>
+              {patch.isPending ? "保存中…" : "保存连接"}
             </button>
           </div>
+        </form>
 
-          {last?.checked_at ? (
-            <dl className="av-kv">
-              <dt>最近检测</dt>
-              <dd>
-                <span className={`av-status ${last.ok ? "av-status--ok" : "av-status--danger"}`}>{last.ok ? "正常" : "失败"}</span>
-                {" · "}<span className="av-mono">{last.model_id}</span>{" · "}<span className="av-mono">{last.latency_ms} ms</span>
-              </dd>
-              <dt>时间</dt>
-              <dd className="av-mono">{formatTime(last.checked_at, timeZone)}</dd>
-              {last.error ? (<><dt>原因</dt><dd className="av-mono">{last.error}</dd></>) : null}
-            </dl>
-          ) : null}
-        </div>
+        <section className="av-models__models" aria-label="模型列表">
+          <div className="av-models__section-header">
+            <h3 className="av-models__section-title">模型 <span className="av-count">{models.length}</span><Hint text="启用与移除即时保存；问数理解模型需要通过工具调用检测" /></h3>
+            <div className="av-actions">
+              <span className="av-caption">即时保存</span>
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={disabled || !provider.has_api_key}
+                aria-busy={fetchModels.isPending} onClick={() => { if (!disabled) fetchModels.mutate(); }}>
+                <Icon name="refresh" small />{fetchModels.isPending ? "获取中…" : "获取模型列表"}
+              </button>
+            </div>
+          </div>
+          {models.length === 0 && addable.length === 0 ? <Empty text="还没有模型，请获取列表或手动添加" compact /> : (
+            <div className="av-table-wrap">
+              <table className="av-table av-models__table">
+                <thead><tr><th>模型</th><th>工具调用</th><th>启用</th><th className="end">操作</th></tr></thead>
+                <tbody>
+                  {models.map((m) => (
+                    <tr key={m.id} aria-busy={checking === m.id}>
+                      <td className="av-mono">{m.id}</td>
+                      <td>{m.tool_calling === true ? <span className="av-status av-status--ok">支持</span>
+                        : m.tool_calling === false ? <span className="av-status av-status--danger">不支持</span>
+                          : <span className="av-status">未检测</span>}</td>
+                      <td><Switch label={`启用模型 ${m.id}`} checked={m.enabled} disabled={disabled}
+                        onChange={(v) => setModels(models.map((x) => x.id === m.id ? { ...x, enabled: v } : x))} /></td>
+                      <td className="end"><div className="av-actions">
+                        <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={disabled || !provider.has_api_key}
+                          onClick={() => check(m.id)}>{checking === m.id ? "检测中…" : "检测"}</button>
+                        <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={`移除模型 ${m.id}`} disabled={disabled}
+                          onClick={() => setModels(models.filter((x) => x.id !== m.id))}><Icon name="trash" small /></button>
+                      </div></td>
+                    </tr>
+                  ))}
+                  {addable.map((id) => (
+                    <tr key={`f-${id}`}>
+                      <td className="av-mono av-muted">{id}</td><td><span className="av-caption">可添加</span></td><td />
+                      <td className="end"><button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={disabled}
+                        onClick={() => setModels([...models, { id, enabled: true, tool_calling: null }])}>添加</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <form className="av-formrow" aria-label="手动添加模型" onSubmit={(e) => {
+            e.preventDefault();
+            if (disabled || !modelInput.trim() || models.some((m) => m.id === modelInput.trim())) return;
+            patch.mutate({ models: [...models, { id: modelInput.trim(), enabled: true, tool_calling: null }] }, { onSuccess: () => setModelInput("") });
+          }}>
+            <label className="av-field">
+              <span className="av-label">模型 ID</span>
+              <input className="av-input av-mono" value={modelInput} disabled={disabled} placeholder="例如 deepseek-flash"
+                onChange={(e) => setModelInput(e.target.value)} />
+            </label>
+            <button type="submit" className="av-btn av-btn--secondary" disabled={disabled || !modelInput.trim() || models.some((m) => m.id === modelInput.trim())}>
+              <Icon name="plus" />添加
+            </button>
+          </form>
+        </section>
+        {last?.checked_at ? (
+          <dl className="av-kv">
+            <dt>最近检测</dt><dd><span className={`av-status ${last.ok ? "av-status--ok" : "av-status--danger"}`}>{last.ok ? "正常" : "失败"}</span>
+              {" · "}<span className="av-mono">{last.model_id}</span>{" · "}<span className="av-mono">{last.latency_ms} ms</span></dd>
+            <dt>时间</dt><dd className="av-mono">{formatTime(last.checked_at, timeZone)}</dd>
+            {last.error ? <><dt>原因</dt><dd className="av-mono">{last.error}</dd></> : null}
+          </dl>
+        ) : null}
       </div>
     </>
   );
 }
 
-// --- 右栏：默认模型与数据外发 ---------------------------------------------------------
-
 function DefaultModels({ settings, providers, isAdmin, onSaved }: {
-  settings: Settings; providers: Provider[]; isAdmin: boolean; onSaved: () => void;
+  settings: Settings; providers: Provider[]; isAdmin: boolean; onSaved: () => Promise<void>;
 }) {
   const purposes = Object.entries(settings.assignments);
   const initial = useMemo(() => Object.fromEntries(Object.entries(settings.assignments).map(([k, v]) =>
-    [k, v.provider_id && v.model_id ? `${v.provider_id}|${v.model_id}` : ""])), [settings]);
+    [k, v.provider_id && v.model_id ? `${v.provider_id}|${v.model_id}` : ""])), [settings.assignments]);
   const [choice, setChoice] = useState<Record<string, string>>(initial);
   const [policy, setPolicy] = useState(settings.policy);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Message>(null);
   useEffect(() => setChoice(initial), [initial]);
-
+  useEffect(() => setPolicy(settings.policy), [settings.policy]);
   const options = providers.filter((p) => p.enabled && p.has_api_key)
     .flatMap((p) => p.models.filter((m) => m.enabled).map((m) => ({ value: `${p.id}|${m.id}`, label: `${p.name} · ${m.id}`, tools: m.tool_calling })));
-
   const save = useMutation({
     mutationFn: () => unwrap(api.PUT("/api/model-settings", {
       body: {
@@ -336,132 +342,120 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
         policy,
       },
     })),
-    onSuccess: () => { setMessage({ ok: true, text: "已保存" }); onSaved(); },
+    onSuccess: async () => { setMessage({ ok: true, text: "已保存" }); await onSaved(); },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
-
   const dirty = JSON.stringify(choice) !== JSON.stringify(initial) || JSON.stringify(policy) !== JSON.stringify(settings.policy);
+  const disabled = !isAdmin || save.isPending;
 
   return (
-    <>
-      <div className="av-pane-hd"><h2>默认模型</h2></div>
-      <div className="av-scroll">
-        <div className="av-stack">
+    <form aria-label="默认用途与数据外发" aria-busy={save.isPending} onSubmit={(e) => { e.preventDefault(); if (!disabled && dirty) save.mutate(); }}>
+      <div className="av-pane-hd"><h2>默认用途</h2><span className="av-caption">与数据外发统一保存</span></div>
+      <div className="av-stack">
+        <div className="av-models__assignments">
           {purposes.map(([key, p]) => {
             const picked = options.find((o) => o.value === choice[key]);
             return (
               <label key={key} className="av-field">
                 <span className="av-label">{p.label} <Hint text={p.hint} /></span>
-                <span className="av-select-wrap" style={{ width: "100%" }}>
-                  <select className="av-select" value={choice[key] ?? ""} disabled={!isAdmin}
-                    onChange={(e) => setChoice({ ...choice, [key]: e.target.value })}>
-                    <option value="">{key === "explain" ? "同问数理解模型" : "演示模型（规则）"}</option>
-                    {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <Icon name="chevron" small />
-                </span>
-                {p.needs_tools && picked && picked.tools !== true ? (
-                  <span className="av-status av-status--warn">工具调用未检测通过</span>
-                ) : null}
+                <Select value={choice[key] ?? ""} disabled={disabled} onChange={(value) => setChoice({ ...choice, [key]: value })}>
+                  <option value="">{key === "explain" ? "同问数理解模型" : "演示模型（规则）"}</option>
+                  {choice[key] && !picked ? <option value={choice[key]} disabled>已配置模型当前不可用</option> : null}
+                  {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                {choice[key] && !picked ? <span className="av-status av-status--warn">请选择可用模型</span> : null}
+                {p.needs_tools && picked && picked.tools !== true ? <span className="av-status av-status--warn">工具调用未检测通过</span> : null}
               </label>
             );
           })}
-
-          <div className="av-section-label" style={{ marginTop: "var(--space-2)" }}>数据外发</div>
+        </div>
+        <section className="av-models__policy" aria-labelledby="model-policy-title">
+          <h3 id="model-policy-title" className="av-models__section-title">数据外发</h3>
           <div className="av-toggle-row">
-            <span className="av-toggle-row__text">
-              <span>发送查询结果 <Hint text="开启后，问数结果会发给“结果解释”模型生成说明；关闭时用模板解释" /></span>
-            </span>
-            <Switch label="发送查询结果" checked={policy.send_results} disabled={!isAdmin}
-              onChange={(v) => setPolicy({ ...policy, send_results: v })} />
+            <span className="av-toggle-row__text"><span>发送查询结果 <Hint text="问数结果发给结果解释模型；关闭时使用模板解释" /></span></span>
+            <Switch label="发送查询结果" checked={policy.send_results} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_results: v })} />
           </div>
           <div className="av-toggle-row">
-            <span className="av-toggle-row__text">
-              <span>发送代码片段 <Hint text="开启后，导入血缘中解析不了的代码片段（已脱敏）会发给“导入血缘推断”模型；关闭时用演示规则" /></span>
-            </span>
-            <Switch label="发送代码片段" checked={policy.send_code} disabled={!isAdmin}
-              onChange={(v) => setPolicy({ ...policy, send_code: v })} />
+            <span className="av-toggle-row__text"><span>发送代码片段 <Hint text="未能解析的脱敏代码发给导入血缘推断模型；关闭时使用演示规则" /></span></span>
+            <Switch label="发送代码片段" checked={policy.send_code} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_code: v })} />
           </div>
-          <div className="av-toggle-row">
-            <span className="av-toggle-row__text">
-              <span className="av-caption"><Icon name="shield" small /> 始终只发送：口径元数据、用户问题、与原话匹配的维度取值</span>
-            </span>
-          </div>
-
-          {message ? <div className={`av-banner ${message.ok ? "av-banner--ok" : "av-banner--danger"}`}>{message.text}</div> : null}
-          <div className="av-actions" style={{ justifyContent: "flex-end" }}>
-            <button type="button" className="av-btn av-btn--secondary" disabled={!dirty}
-              onClick={() => { setChoice(initial); setPolicy(settings.policy); setMessage(null); }}>还原</button>
-            <button type="button" className="av-btn av-btn--primary" disabled={!isAdmin || !dirty || save.isPending}
-              onClick={() => save.mutate()}>保存</button>
-          </div>
+          <p className="av-caption av-models__policy-note"><Icon name="shield" small />基础请求包含口径元数据、用户问题及匹配的维度取值</p>
+        </section>
+        <ModelFeedback message={message} busy={save.isPending} />
+        <div className="av-actions">
+          <button type="button" className="av-btn av-btn--secondary" disabled={disabled || !dirty}
+            onClick={() => { setChoice(initial); setPolicy(settings.policy); setMessage(null); }}>还原</button>
+          <button type="submit" className="av-btn av-btn--primary" disabled={disabled || !dirty}>{save.isPending ? "保存中…" : "保存配置"}</button>
         </div>
       </div>
-    </>
+    </form>
   );
 }
 
-// --- 添加提供方 -------------------------------------------------------------------
-
-function AddProvider({ presets, onClose, onCreated }: {
-  presets: PresetsOut; onClose: () => void; onCreated: (p: Provider) => void;
+function AddProvider({ query, onClose, onCreated }: {
+  query: UseQueryResult<PresetsOut>; onClose: () => void; onCreated: (p: Provider) => Promise<void>;
 }) {
-  const keys = Object.keys(presets.presets);
-  const [preset, setPreset] = useState(keys[0]);
-  const [code, setCode] = useState(keys[0]);
-  const [baseUrl, setBaseUrl] = useState(presets.presets[keys[0]].base_url);
+  const [preset, setPreset] = useState("");
+  const [code, setCode] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
+  const [message, setMessage] = useState<Message>(null);
+  useEffect(() => {
+    const first = query.data && Object.keys(query.data.presets)[0];
+    if (first && !preset) {
+      setPreset(first); setCode(first === "custom" ? "" : first); setBaseUrl(query.data!.presets[first].base_url);
+    }
+  }, [query.data, preset]);
   const create = useMutation({
     mutationFn: () => unwrap(api.POST("/api/model-providers", {
-      body: { code, preset: preset as Schemas["ProviderCreate"]["preset"], base_url: baseUrl || null, api_key: apiKey || null, models: [] },
+      body: { code: code.trim(), preset: preset as Schemas["ProviderCreate"]["preset"], base_url: baseUrl.trim() || null, api_key: apiKey.trim() || null, models: [] },
     })),
     onSuccess: onCreated,
-    onError: (e) => setError(errorText(e)),
+    onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
+  const validCode = /^[a-z0-9_-]+$/.test(code.trim());
+  const ready = query.isSuccess && !!query.data.presets[preset] && validCode && !!baseUrl.trim();
 
   return (
-    <>
-      <div className="av-backdrop" onClick={onClose} />
-      <aside className="av-drawer" role="dialog" aria-label="添加提供方">
-        <div className="av-pane-hd"><h2>添加提供方</h2></div>
-        <div className="av-drawer__bd">
-          <div className="av-field">
-            <span className="av-label">类型</span>
-            {keys.map((k) => (
-              <label key={k} className="av-option">
-                <input type="radio" name="preset" checked={preset === k} onChange={() => {
-                  setPreset(k);
-                  setCode(k === "custom" ? "" : k);
-                  setBaseUrl(presets.presets[k].base_url);
-                }} />
-                <span>
-                  <span className="av-option__title">{presets.presets[k].name}</span><br />
-                  <span className="av-option__meta av-mono">{presets.presets[k].base_url || "自填接口地址"}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <label className="av-field">
-            <span className="av-label">编码 <Hint text="小写字母、数字、- 或 _，用于区分同类提供方" /></span>
-            <input className="av-input av-mono" value={code} onChange={(e) => setCode(e.target.value)} />
-          </label>
-          <label className="av-field">
-            <span className="av-label">接口地址</span>
-            <input className="av-input av-mono" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-          </label>
-          <label className="av-field">
-            <span className="av-label">API 密钥</span>
-            <input className="av-input av-mono" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-          </label>
-          {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-        </div>
-        <div className="av-drawer__ft">
-          <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
-          <button type="button" className="av-btn av-btn--primary" disabled={!code || create.isPending} onClick={() => create.mutate()}>添加</button>
-        </div>
-      </aside>
-    </>
+    <Drawer title="添加提供方" onClose={onClose} footer={<>
+      <button type="button" className="av-btn av-btn--secondary" disabled={create.isPending} onClick={onClose}>取消</button>
+      <button type="submit" form="model-provider-create" className="av-btn av-btn--primary" disabled={!ready || create.isPending}>
+        {create.isPending ? "添加中…" : "添加"}
+      </button>
+    </>}>
+      <QueryState query={query} isEmpty={(data) => Object.keys(data.presets).length === 0} emptyText="暂无可用提供方预设"
+        emptyAction={<button type="button" className="av-btn av-btn--secondary" onClick={() => query.refetch()}>重新加载</button>} rows={5} compact>
+        {(presets) => (
+          <form id="model-provider-create" className="av-models__add-form" aria-busy={create.isPending} onSubmit={(e) => {
+            e.preventDefault(); if (ready && !create.isPending) create.mutate();
+          }}>
+            <fieldset className="av-models__presets" disabled={create.isPending}>
+              <legend className="av-label">提供方类型</legend>
+              {Object.keys(presets.presets).map((k) => (
+                <label key={k} className="av-option">
+                  <input type="radio" name="preset" checked={preset === k} onChange={() => {
+                    setPreset(k); setCode(k === "custom" ? "" : k); setBaseUrl(presets.presets[k].base_url); setMessage(null);
+                  }} />
+                  <span><span className="av-option__title">{presets.presets[k].name}</span><br />
+                    <span className="av-option__meta av-mono">{presets.presets[k].base_url || "自填接口地址"}</span></span>
+                </label>
+              ))}
+            </fieldset>
+            <label className="av-field">
+              <span className="av-label">编码 <Hint text="小写字母、数字、- 或 _，用于区分同类提供方" /></span>
+              <input className="av-input av-mono" value={code} required pattern="[a-z0-9_-]+" disabled={create.isPending}
+                aria-invalid={!!code && !validCode} aria-describedby={code && !validCode ? "model-code-error" : undefined}
+                onChange={(e) => setCode(e.target.value)} />
+              {code && !validCode ? <span id="model-code-error" className="av-status av-status--danger">仅支持小写字母、数字、- 和 _</span> : null}
+            </label>
+            <label className="av-field"><span className="av-label">接口地址</span>
+              <input className="av-input av-mono" value={baseUrl} required disabled={create.isPending} onChange={(e) => setBaseUrl(e.target.value)} /></label>
+            <label className="av-field"><span className="av-label">API 密钥</span>
+              <input className="av-input av-mono" type="password" autoComplete="new-password" value={apiKey} disabled={create.isPending} onChange={(e) => setApiKey(e.target.value)} /></label>
+            <ModelFeedback message={message} />
+          </form>
+        )}
+      </QueryState>
+    </Drawer>
   );
 }
