@@ -18,6 +18,7 @@ from avelis.connectors.postgres import PostgresConnector
 from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
 from avelis.engines.base import (
+    DDL_AUDIT,
     EXTERNAL_TABLES,
     IDENTITY_TARGET,
     LIVE_CHECK,
@@ -54,11 +55,12 @@ POSTGRES = Engine(
     kind="postgres", label="PostgreSQL",
     sql=SqlDialect(name="postgres", default_catalog="postgres"),
     name_levels=("database", "schema", "table"), catalog_option="database",
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
     collector=PostgresConnector, querier=PostgresConnector, default_port=5432,
     options=(OptionField("database", "库", type="text", required=True),
              OptionField("schemas", "采集的模式", required=True)),
-    note="采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度",
+    note="采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度；"
+         "DDL 归因需在库中部署事件触发器（avelis_audit.ddl_event），采集账号可读该表",
 )
 
 CLICKHOUSE = Engine(
@@ -66,10 +68,11 @@ CLICKHOUSE = Engine(
     # 库.表 两级；资产名补固定 Catalog 段，生成的 SQL 不写 Catalog 段
     sql=SqlDialect(name="clickhouse", default_catalog=CLICKHOUSE_CATALOG, catalog_in_sql=False),
     name_levels=("database", "table"),
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
     collector=ClickHouseConnector, querier=ClickHouseConnector, default_port=8123,
     options=(OptionField("databases", "采集的库", required=True),),
-    note="HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2",
+    note="HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2；"
+         "DDL 归因读 system.query_log（采集账号需其 SELECT）",
 )
 
 SQLSERVER = Engine(
@@ -101,11 +104,11 @@ DORIS = Engine(
     # 视图定义的存储写法与 StarRocks 相同（`internal`.`db`.`alias`.`col`），复用别名前缀规整
     sql=SqlDialect(name="doris", default_catalog=DORIS_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
     collector=DorisConnector, querier=DorisConnector, default_port=9030,
     options=(OptionField("databases", "采集的库", required=True),),
     note="采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；"
-         "外部 Catalog 尚未联调",
+         "外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）",
 )
 
 FAKE = Engine(

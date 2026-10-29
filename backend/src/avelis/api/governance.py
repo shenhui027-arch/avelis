@@ -295,7 +295,9 @@ def change_set_view(session: Session, cs: ChangeSet, full: bool, user: User | No
                 a = session.get(Asset, e.asset_id)
                 names[e.asset_id] = qualified(a) if a else None
         data["events"] = [{"id": e.id, "kind": e.kind, "asset_id": e.asset_id, "asset": names.get(e.asset_id),
-                           "column": e.column_name, "before": e.before, "after": e.after} for e in events]
+                           "column": e.column_name, "before": e.before, "after": e.after,
+                           "actor_db_user": e.actor_db_user, "attribution_status": e.attribution_status,
+                           "attribution": e.attribution} for e in events]
         data["impacts"] = [impact_view(i) for i in session.scalars(select(Impact).where(
             Impact.change_set_id == cs.id))
             if user is None or access.can_see_object(session, user, i.object_type, i.object_id)]

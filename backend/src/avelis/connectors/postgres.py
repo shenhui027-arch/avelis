@@ -5,20 +5,26 @@
 - 物理身份用 pg_class.oid：改名不变，删除后重建会变（与 StarRocks TABLE_ID 的用法一致）。
 - 会话 search_path 置空，pg_get_viewdef 输出完全限定的表名，解析时不需要猜模式。
 - 问数执行：只读事务 + statement_timeout；SQLSTATE 57014 归为超时，42703 / 42P01 归为对象无法解析。
+- DDL 审计（ADR 0008）：事件触发器（ddl_command_end + sql_drop）写入 avelis_audit.ddl_event，部署脚本见
+  deploy/demo/shop-pg/init/03-ddl-audit.sql；采集账号只需该表的 SELECT。db_user 为 session_user（登录用户）。
 """
 
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 import psycopg
 from psycopg import sql
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 KINDS = {"r": "table", "p": "table", "v": "view", "m": "materialized_view", "f": "external_table"}
+AUDIT_TABLE = "avelis_audit.ddl_event"
+AUDIT_OBJECT_TYPES = ("table", "view", "materialized view", "foreign table", "table column")
 
 
 def _checked(names: list[str], label: str) -> list[str]:
@@ -32,6 +38,7 @@ class PostgresConnector:
     kind = "postgres"
     dialect = "postgres"
     is_test_adapter = False
+    ddl_audit_source = f"postgres:{AUDIT_TABLE}"
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -148,6 +155,27 @@ class PostgresConnector:
         except psycopg.Error as exc:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+
+    def ddl_events(self, since: datetime, until: datetime) -> list[DdlEvent]:
+        schemas = set(self.options.get("schemas", []))
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    f"SELECT extract(epoch FROM at), db_user, command_tag, object_type, object_names, statement "
+                    f"FROM {AUDIT_TABLE} WHERE at >= %s AND at <= %s ORDER BY at, id",
+                    (since.replace(tzinfo=timezone.utc), until.replace(tzinfo=timezone.utc))).fetchall()
+        except psycopg.Error as exc:
+            raise AuditUnavailable(_message(exc)) from exc
+        events = []
+        for ts, user, tag, object_type, names, statement in rows:
+            if object_type not in AUDIT_OBJECT_TYPES or not names or len(names) < 2:
+                continue
+            if schemas and names[0] not in schemas:
+                continue
+            events.append(DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None),
+                                   db_user=user, objects=[(names[0], names[1])], statement_type=tag,
+                                   statement=statement or ""))
+        return events
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         """PostgreSQL 不记录表的最近修改时间，不报告新鲜度（不以统计信息冒充）。"""
