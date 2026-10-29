@@ -390,7 +390,7 @@ def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str,
     return out
 
 
-PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期"}
+PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期", "custom": "对比期"}
 
 
 def _scratch(answer: Answer, user: User) -> Answer:
@@ -458,7 +458,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
 
     periods = [("current", intent.start_date, intent.end_date)]
     if intent.compare:
-        periods.append((intent.compare, *comparison_range(intent.start_date, intent.end_date, intent.compare)))
+        periods.append((intent.compare, *((intent.compare_start, intent.compare_end) if intent.compare == "custom"
+                                          else comparison_range(intent.start_date, intent.end_date, intent.compare))))
     values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
     keys: list[tuple] = []
     plan, sqls, sources, lineage = [], [], {}, []

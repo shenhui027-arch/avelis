@@ -81,6 +81,11 @@ def test_segment_describe_and_outliers():
 def test_extract_numbers_skips_dates_and_ordinals():
     text = "2026 年 9 月华南门店成交额 196.94 万，比 8 月下降 7,625.24（-3.7%），前 3 名中第 1 是 D2 的深圳"
     assert [n["text"] for n in extract_numbers(text)] == ["196.94万", "7,625.24", "-3.7%"]
+    assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64，9/1–9/9 共 9 天")] == ["15,418.64", "9"]
+    assert [n["text"] for n in extract_numbers("2026-08-01~08-09 订单 168")] == ["168"]
+    assert [n["text"] for n in extract_numbers("8-9 月共 61 天")] == ["61"]
+    # 数字紧贴汉字（\w 在 Unicode 下包括汉字，曾导致只取到千分位逗号后面的部分）
+    assert [n["text"] for n in extract_numbers("9月订单数10,998单，减少1,899单，变化率-14.72%")] ==         ["10,998", "1,899", "-14.72%"]
 
 
 def test_verify_report_checks_fact_numbers_against_cited_datasets():
@@ -101,3 +106,20 @@ def test_verify_report_checks_fact_numbers_against_cited_datasets():
     assert out["claims"][3]["missing_refs"] == ["D9"]
     assert not out["ok"] and out["unverified"] == 2  # 按结论计：两条事实类结论未核实
     assert verify_report(claims[:2], datasets)["ok"]
+    # 计数：数据集的行数与列的不同值个数可以核实；自己推算的计数不行
+    stores = {"D3": {"rows": [{"store": f"S{i}", "v": i * 100} for i in range(10)]}}
+    counted = verify_report([{"type": "fact", "text": "华南共 10 家门店", "refs": ["D3"]},
+                             {"type": "fact", "text": "其余 9 家门店", "refs": ["D3"]}], stores)
+    assert [c["status"] for c in counted["claims"]] == ["verified", "unverified"]
+
+
+def test_coverage_counts_rows_and_missing_days():
+    rows = [{"store": "A", "period": "2026-09-27"}, {"store": "A", "period": "2026-09-28"},
+            {"store": "B", "period": "2026-09-27"}]
+    out = calc.coverage(rows, ["store"], "period", date(2026, 9, 27), date(2026, 9, 28))
+    assert out["rows"] == [
+        {"store": "A", "rows": 2, "periods": 2, "missing_count": 0, "missing_periods": ""},
+        {"store": "B", "rows": 1, "periods": 1, "missing_count": 1, "missing_periods": "2026-09-28"}]
+    assert out["summary"] == {"members": 2, "rows": 3, "expected_periods": 2, "members_with_gaps": 1,
+                              "members_complete": 1, "missing_total": 1}
+    assert calc.coverage(rows, [], None)["summary"]["rows"] == 3

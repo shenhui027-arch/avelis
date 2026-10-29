@@ -106,6 +106,9 @@ def main(argv: list[str]) -> None:
     cmd = argv[0] if argv else ""
     if cmd == "migrate":
         command.upgrade(alembic_config(), "head")
+        from avelis.ask.agent import graph
+
+        graph()  # 建好智能体会话状态表（不在任何请求的事务中建，见 devtools.reset_metadata_db）
         print("元数据库已迁移到最新版本")
     elif cmd == "demo":
         from avelis.demo_setup import setup
