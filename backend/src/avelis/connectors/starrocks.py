@@ -235,6 +235,32 @@ class StarRocksConnector:
         finally:
             conn.close()
 
+    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
+        """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）与视图定义。对象不存在时列为空。"""
+        names = {(db, name) for db, name in objects if IDENT.match(db) and IDENT.match(name)}
+        if not names:
+            return {}
+        dbs, tables = _in_list(sorted({d for d, _ in names})), _in_list(sorted({n for _, n in names}))
+        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None} for k in names}
+        conn = self._connect(read_timeout=30)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE "
+                        f"FROM information_schema.columns WHERE TABLE_SCHEMA IN ({dbs}) AND TABLE_NAME IN ({tables})")
+            for r in sorted(cur.fetchall(), key=lambda r: int(r["ORDINAL_POSITION"])):
+                key = (r["TABLE_SCHEMA"], r["TABLE_NAME"])
+                if key in out:
+                    out[key]["columns"].append([r["COLUMN_NAME"], r["COLUMN_TYPE"]])
+            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION FROM information_schema.views "
+                        f"WHERE TABLE_SCHEMA IN ({dbs}) AND TABLE_NAME IN ({tables})")
+            for r in cur.fetchall():
+                key = (r["TABLE_SCHEMA"], r["TABLE_NAME"])
+                if key in out:
+                    out[key]["definition"] = r["VIEW_DEFINITION"]
+            return out
+        finally:
+            conn.close()
+
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         """内表最近可见版本时间（partitions_meta.VISIBLE_VERSION_TIME，StarRocks 会话时区）。"""
         if not tables:

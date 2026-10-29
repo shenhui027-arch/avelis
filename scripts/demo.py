@@ -404,10 +404,10 @@ BASELINE = [
 ]
 
 
-def check(env: dict[str, str]) -> bool:
-    log("核对验收基线（avelis_reader 只读账号）：")
+def baseline_values(env: dict[str, str]) -> list[dict]:
+    """用只读账号逐项查询验收基线，返回 期望 / 实际 / 是否通过。"""
+    results = []
     conn = sr_connect(env, "avelis_reader")
-    ok = True
     with conn.cursor() as cur:
         for label, sql, expected in BASELINE:
             try:
@@ -416,11 +416,18 @@ def check(env: dict[str, str]) -> bool:
                 actual = row[0] if row else "无数据"
             except pymysql.MySQLError as exc:
                 actual = f"错误：{exc}"
-            passed = str(actual) == str(expected)
-            ok &= passed
-            log(f"  {'通过' if passed else '不符'}  {label}：期望 {expected}，实际 {actual}")
+            results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                            "passed": str(actual) == str(expected)})
     conn.close()
-    return ok
+    return results
+
+
+def check(env: dict[str, str]) -> bool:
+    log("核对验收基线（avelis_reader 只读账号）：")
+    results = baseline_values(env)
+    for r in results:
+        log(f"  {'通过' if r['passed'] else '不符'}  {r['label']}：期望 {r['expected']}，实际 {r['actual']}")
+    return all(r["passed"] for r in results)
 
 
 def main() -> None:

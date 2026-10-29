@@ -1,6 +1,6 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力（StarRocks 3.5、MySQL 8）。
 
-规划中的引擎（Doris、Hive、PostgreSQL、Oracle、SQL Server、DB2、ClickHouse）见 ADR 0004：
+规划中的引擎（Doris、Hive、PostgreSQL、Oracle、SQL Server、ClickHouse；只考虑 SQLGlot 支持的方言）见 ADR 0004：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 from avelis.connectors.fake import FakeConnector
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
-from avelis.engines.base import EXTERNAL_TABLES, IDENTITY_TARGET, METADATA, QUERY, VIEW_LINEAGE, Engine
+from avelis.engines.base import EXTERNAL_TABLES, IDENTITY_TARGET, LIVE_CHECK, METADATA, QUERY, VIEW_LINEAGE, Engine
 from avelis.lineage.sql import SqlDialect, strip_alias_prefixes
 
 STARROCKS = Engine(
@@ -17,7 +17,7 @@ STARROCKS = Engine(
     # StarRocks 存储的视图定义把别名列写成 `db`.`alias`.`col`，解析前规整
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES, LIVE_CHECK}),
     collector=StarRocksConnector, querier=StarRocksConnector, default_port=9030,
 )
 

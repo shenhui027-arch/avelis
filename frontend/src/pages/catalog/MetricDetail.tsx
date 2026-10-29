@@ -4,8 +4,8 @@ import { Link } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import {
-  errorText, useAction, useAsset, useAssets, useDomains, useJoinPaths, useMetrics, useMetricVersion, useTimeZone,
-  useUsers, type MetricVersion,
+  errorText, useAction, useAsset, useAssets, useDomains, useJoinPaths, useMetrics, useMetricVersion,
+  useQueryableDatasourceIds, useTimeZone, useUsers, type MetricVersion,
 } from "../../api/hooks";
 import {
   Banner, CARD_LABEL, Code, Drawer, Hint, Icon, Pill, Select, Status, Switch, shortName, useMessage,
@@ -234,6 +234,7 @@ function VersionEditor({ metricId, base, mode, onClose, onSaved }: {
   metricId: string; base?: MetricVersion; mode: "new" | "edit"; onClose: () => void; onSaved: (id: string) => void;
 }) {
   const assets = useAssets();
+  const queryable = useQueryableDatasourceIds();
   const paths = useJoinPaths();
   const [form, setForm] = useState({
     description: base?.description ?? "", base_asset_id: String(base?.base_asset?.id ?? ""), expression: base?.expression ?? "",
@@ -266,7 +267,7 @@ function VersionEditor({ metricId, base, mode, onClose, onSaved }: {
       <label className="av-field"><span className="av-label">说明</span><textarea className="av-textarea" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
       <label className="av-field"><span className="av-label">基础资产</span>
         <Select value={form.base_asset_id} onChange={(v) => setForm({ ...form, base_asset_id: v })}>
-          {(assets.data ?? []).filter((a) => a.datasource.kind === "starrocks").map((a) => <option key={a.id} value={a.id}>{a.qualified}</option>)}
+          {(assets.data ?? []).filter((a) => queryable.has(a.datasource.id)).map((a) => <option key={a.id} value={a.id}>{a.qualified}</option>)}
         </Select></label>
       <label className="av-field"><span className="av-label">表达式 <Hint text="只能用聚合与基础运算；基础资产的列直接写列名，关联资产写 别名.列" /></span>
         <input className="av-input av-mono" placeholder="SUM(sales_amount)" value={form.expression} onChange={(e) => setForm({ ...form, expression: e.target.value })} /></label>

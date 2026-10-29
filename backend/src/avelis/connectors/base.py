@@ -102,6 +102,8 @@ class QueryConnector(Protocol):
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]: ...
 
+    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]: ...
+
 
 def sha256_json(payload: Any) -> str:
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()

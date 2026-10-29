@@ -2,7 +2,9 @@
 import { useState } from "react";
 
 import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useAsset, useAssets, useDomains, useJoinPaths } from "../../api/hooks";
+import {
+  errorText, useAction, useAsset, useAssets, useDomains, useJoinPaths, useQueryableDatasourceIds,
+} from "../../api/hooks";
 import { Banner, CARD_LABEL, Drawer, Hint, Icon, Select, Status, shortName, useMessage } from "../../components/ui";
 import { useMe, useRoles } from "../../layout/Shell";
 
@@ -62,7 +64,8 @@ function NewPath({ onClose }: { onClose: () => void }) {
     ...form, left_columns: form.left_columns.split(",").map((s) => s.trim()).filter(Boolean),
     right_columns: form.right_columns.split(",").map((s) => s.trim()).filter(Boolean),
   } })), ["join-paths"]);
-  const assetOptions = (assets.data ?? []).filter((a) => a.datasource.kind === "starrocks");
+  const queryable = useQueryableDatasourceIds();
+  const assetOptions = (assets.data ?? []).filter((a) => queryable.has(a.datasource.id));
   return (
     <Drawer title="新建关联路径" width={520} onClose={onClose} footer={<>
       <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>

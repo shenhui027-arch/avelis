@@ -6,7 +6,7 @@ import pytest
 
 from avelis.ask.compiler import distinct_values_sql, duplicate_key_sql, validate_sql
 from avelis.engines import engines, get_engine, query_connector, register
-from avelis.engines.base import QUERY, VIEW_LINEAGE, CapabilityMissing, Engine, UnsupportedEngine
+from avelis.engines.base import LIVE_CHECK, QUERY, VIEW_LINEAGE, CapabilityMissing, Engine, UnsupportedEngine
 from avelis.lineage.sql import SqlDialect, canonical_hash_of, parse_query
 from avelis.models import Datasource
 
@@ -24,6 +24,8 @@ def test_capabilities_are_declared_not_guessed():
     sr, my = get_engine("starrocks"), get_engine("mysql")
     assert sr.supports(QUERY) and sr.supports(VIEW_LINEAGE)
     assert not my.supports(QUERY) and not my.supports(VIEW_LINEAGE)
+    # 执行前核对需要只读执行账号：只有能执行问数的引擎才声明
+    assert sr.supports(LIVE_CHECK) and not my.supports(LIVE_CHECK) and not get_engine("fake").supports(LIVE_CHECK)
     ds = Datasource(name="维表库", kind="mysql", host="127.0.0.1", port=3306, options={})
     with pytest.raises(CapabilityMissing, match="维表库（MySQL）不支持问数执行"):
         query_connector(None, ds)  # 不触达数据库、不读口令
