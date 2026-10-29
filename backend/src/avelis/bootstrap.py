@@ -50,9 +50,35 @@ def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动�
 
 
 def _local_metadata_db() -> bool:
+    """元数据库是否确定在本机：实际生效的全部连接目标都是回环地址或本机 socket 路径。
+
+    psycopg 会用连接串查询参数中的 host / hostaddr 覆盖 URL 中的主机，所以一并检查；
+    URL 与查询参数都没有主机时，目标取决于 PGHOST 等外部配置，无法确定，按非本机处理。"""
+    import ipaddress
+
     from sqlalchemy.engine import make_url
 
-    return make_url(get_settings().database_url).host in ("localhost", "127.0.0.1", "::1")
+    url = make_url(get_settings().database_url)
+    targets: list[str] = []
+    for key in ("host", "hostaddr"):
+        value = url.query.get(key)
+        for item in (value if isinstance(value, tuple) else (value,)):
+            if item:
+                targets += [t.strip() for t in str(item).split(",") if t.strip()]
+    if not targets and url.host:
+        targets = [url.host]
+    if not targets:
+        return False
+
+    def local(target: str) -> bool:
+        if target.startswith("/") or target.lower() == "localhost":
+            return True  # Unix socket 目录或本机名
+        try:
+            return ipaddress.ip_address(target.strip("[]")).is_loopback
+        except ValueError:
+            return False
+
+    return all(local(t) for t in targets)
 
 
 def ensure_superadmin(reset_password: bool = False) -> str | None:
@@ -144,6 +170,9 @@ def main(argv: list[str]) -> None:
         model_from_env()
         print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
     elif cmd == "admin":
+        if get_settings().env.get("AVELIS_ADMIN_PASSWORD") and not _local_metadata_db():
+            # 先拒绝再写入：不在远端库留下任何账号
+            raise SystemExit("本地超级管理员只用于本机元数据库（localhost / 127.0.0.1）；当前元数据库不在本机，已拒绝")
         ensure_admin()
         ready = ensure_superadmin(reset_password=True)
         print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")

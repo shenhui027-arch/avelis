@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from avelis import cache
 from avelis.db import session_factory
 from avelis.models import User
-from avelis.security import decode_access_token
+from avelis.security import decode_access_token, issued_before
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
@@ -48,7 +48,7 @@ def current_user(claims: dict = Depends(current_claims), session: Session = Depe
     user = session.get(User, claims["sub"])
     if user is None or not user.is_active:
         raise _unauthorized("用户不存在或已停用")
-    # 改口令、重置口令后，之前签发的令牌失效
-    if user.sessions_valid_after is not None and claims.get("iat", 0) < user.sessions_valid_after.timestamp():
+    # 改密码、重置密码后，之前签发的令牌失效
+    if user.sessions_valid_after is not None and issued_before(claims, user.sessions_valid_after):
         raise _unauthorized("会话已失效，请重新登录")
     return user
