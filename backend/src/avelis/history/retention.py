@@ -2,7 +2,7 @@
 
 - 截止时间 = 现在 − AVELIS_HISTORY_RETENTION_DAYS（默认 1095 天；0 表示不清理）。
 - 不删当前生效的版本、不删仍被非终态口径版本引用的版本、不删未处理的变更集。
-- 专用路径：同一事务内 SET LOCAL avelis.history_purge = on，只追加触发器只在此标志下放行 DELETE。
+- 专用路径：同一事务内 SET LOCAL avelis.history_purge = on，只追加触发器只在此标志下放行 DELETE（TRUNCATE 一律拒绝）。
 - 先核验、后清理：链不完整就不清理，如实报告。
 - 清理锚点：链上追加一条 history_anchor，登记本次形成的序号空洞及两端哈希，剩余的链仍可核验；清理写审计。
 """
@@ -15,11 +15,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from avelis import audit
 from avelis.config import get_settings
-from avelis.db import session_factory, utcnow
+from avelis.db import advisory_lock, session_factory, utcnow
 from avelis.history import integrity
 from avelis.models import HistoryAnchor, User
 
@@ -61,12 +62,22 @@ def _plan(session: Session, cutoff: datetime) -> dict[str, list[str]]:
     plan["lineage_edge"] = _ids(session, "SELECT id FROM lineage_edge WHERE status = 'superseded' "
                                          "AND superseded_at < :cutoff", **p)
     plan["grain"] = _ids(session, "SELECT id FROM grain WHERE superseded_at < :cutoff", **p)
+    # 受保护的资产版本：非终态口径版本自身的 asset_versions，以及派生口径在 components 中固定引用的
+    # 组成版本的 asset_versions（组成版本可能已归档，但派生口径仍按它发布）
     plan["asset_version"] = _ids(session, """
+        WITH active AS (SELECT id, asset_versions, components FROM metric_version WHERE status = ANY(:statuses)),
+             pinned AS (SELECT mv.asset_versions FROM metric_version mv
+                        WHERE mv.id IN (SELECT c->>'version_id' FROM active a, jsonb_array_elements(a.components) c
+                                        WHERE jsonb_typeof(a.components) = 'array')),
+             protected_versions AS (
+               SELECT e.value->>'version_id' AS version_id
+               FROM (SELECT asset_versions FROM active UNION ALL SELECT asset_versions FROM pinned) r,
+                    jsonb_each(r.asset_versions) e
+               WHERE jsonb_typeof(r.asset_versions) = 'object' AND e.value->>'version_id' IS NOT NULL)
         SELECT v.id FROM asset_version v
         WHERE v.superseded_at < :cutoff
           AND NOT EXISTS (SELECT 1 FROM asset a WHERE a.current_version_id = v.id)
-          AND v.id NOT IN (SELECT e.value->>'version_id' FROM metric_version mv, jsonb_each(mv.asset_versions) e
-                           WHERE mv.status = ANY(:statuses) AND e.value->>'version_id' IS NOT NULL)
+          AND v.id NOT IN (SELECT version_id FROM protected_versions)
           AND NOT EXISTS (SELECT 1 FROM lineage_edge l WHERE l.target_asset_version_id = v.id
                           AND NOT (l.status = 'superseded' AND l.superseded_at < :cutoff))
           AND NOT EXISTS (SELECT 1 FROM grain g WHERE g.asset_version_id = v.id
@@ -131,58 +142,87 @@ def _new_gaps(chain: integrity.Chain, deleted: set[int],
     return gaps
 
 
+RETRIES = 3
+
+
 def purge(*, retention_days: int | None = None, now: datetime | None = None, actor: User | None = None,
           dry_run: bool = False) -> dict[str, Any]:
-    """执行一次保留期清理并返回结果。retention_days 缺省取配置；now 只用于验收模拟时间推移。"""
+    """执行一次保留期清理并返回结果。retention_days 缺省取配置；now 只用于验收模拟时间推移。
+
+    两段：① REPEATABLE READ 只读快照里核验全链、挑出超期的行、算好空洞；② 普通事务里按 ID 删除并写锚点。
+    超期的行早已冻结，两段之间只可能有新行追加在链尾，不影响①的结论；删除数与计划不符（有人绕过触发器动过）时整个回滚。
+    遇到序列化失败或死锁时整个重跑（含重新核验）。同一时刻只允许一个清理（会话级咨询锁）。"""
     days = get_settings().history_retention_days if retention_days is None else retention_days
     if days <= 0:
         return {"status": "disabled", "retention_days": days}
     now = now or utcnow()
     cutoff = now - timedelta(days=days)
-    session = session_factory()()
+    with advisory_lock("history_purge"):
+        for attempt in range(1, RETRIES + 1):
+            try:
+                return _purge_once(cutoff, days, actor, dry_run)
+            except OperationalError as exc:
+                state = getattr(exc.orig, "sqlstate", None)
+                if state not in ("40001", "40P01") or attempt == RETRIES:
+                    raise
+                log.warning("保留期清理第 %s 次遇到并发冲突（%s），整体重跑", attempt, state)
+    raise AssertionError("unreachable")
+
+
+def _purge_once(cutoff: datetime, days: int, actor: User | None, dry_run: bool) -> dict[str, Any]:
+    snap = session_factory()()
     try:
-        session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('avelis:history_purge', 0))"))
-        actor = session.get(User, actor.id) if actor else None
-        chain = integrity.load_chain(session)
-        registered = integrity.registered_gaps(session)
+        snap.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        snap.execute(text("SET TRANSACTION READ ONLY"))
+        chain = integrity.load_chain(snap)
+        registered = integrity.registered_gaps(snap)
         issues = integrity.check(chain, registered)
         if issues:
             report = {"ok": False, "first_break": issues[0], "issue_count": len(issues),
                       "issues": issues[:integrity.ISSUE_LIMIT]}
-            session.rollback()
+            snap.rollback()
             _record_refusal(actor, cutoff, days, report)
             raise PurgeRefused(report)
-        plan = _plan(session, cutoff)
-        counts = {t: len(ids) for t, ids in plan.items() if ids}
-        if dry_run:
-            session.rollback()
-            return {"status": "dry_run", "cutoff": cutoff.isoformat(), "retention_days": days, "counts": counts}
+        plan = _plan(snap, cutoff)
+        marks: dict[str, list[str]] = {}
+        for table in ORDER:
+            if table in integrity.BY_NAME and plan.get(table):
+                marks[table] = _ids(snap, "SELECT id FROM history_mark WHERE table_name = :t AND row_id = ANY(:ids)",
+                                    t=table, ids=plan[table])
+        plan["history_mark"] = [m for ids in marks.values() for m in ids]
+    finally:
+        snap.rollback()
+        snap.close()
+    counts = {t: len(ids) for t, ids in plan.items() if ids}
+    if dry_run:
+        return {"status": "dry_run", "cutoff": cutoff.isoformat(), "retention_days": days, "counts": counts}
+    by_row = {(r.table, r.row_id): seq for seq, r in chain.rows.items()}
+    planned_seq = {by_row[(t, i)] for t, ids in plan.items() if t in integrity.BY_NAME for i in ids}
+    gaps = _new_gaps(chain, planned_seq, registered)
+    session = session_factory()()
+    try:
+        actor_row = session.get(User, actor.id) if actor else None
         if not counts:  # 没有超期历史：只记审计（worker 据此判断上次清理时间），不留锚点
-            audit.record(session, actor, "history.purge", "history", None, cutoff=cutoff.isoformat(),
+            audit.record(session, actor_row, "history.purge", "history", None, cutoff=cutoff.isoformat(),
                          retention_days=days, counts={}, gaps=0)
             session.commit()
             return {"status": "nothing", "cutoff": cutoff.isoformat(), "retention_days": days, "counts": {}}
         session.execute(text("SET LOCAL avelis.history_purge = 'on'"))
         deleted_seq: set[int] = set()
-        for table in ORDER:
+        for table in (*ORDER, "history_mark"):
             removed = _delete(session, table, plan.get(table, []))
-            ids = [r[0] for r in removed]
+            if len(removed) != len(plan.get(table, [])):
+                raise RuntimeError(f"{table} 实际删除 {len(removed)} 行，与计划的 {len(plan.get(table, []))} 行不符；"
+                                   "可能有人绕过触发器改动了历史，已整体回滚，请先核验")
             deleted_seq.update(r[1] for r in removed if r[1] is not None)
-            if table in integrity.BY_NAME and ids:
-                mark_ids = _ids(session, "SELECT id FROM history_mark WHERE table_name = :t AND row_id = ANY(:ids)",
-                                t=table, ids=ids)
-                marks = _delete(session, "history_mark", mark_ids)
-                deleted_seq.update(r[1] for r in marks if r[1] is not None)
-                if marks:
-                    counts["history_mark"] = counts.get("history_mark", 0) + len(marks)
         session.execute(text("SET LOCAL avelis.history_purge = 'off'"))
-        gaps = _new_gaps(chain, deleted_seq, registered)
+        if deleted_seq != planned_seq:
+            raise RuntimeError("删除的链上序号与核验时不一致，已整体回滚，请先核验")
         anchor = HistoryAnchor(kind="purge", cutoff=cutoff, retention_days=days, counts=counts, gaps=gaps,
-                               actor_name=actor.username if actor else audit.SYSTEM)
+                               actor_name=actor_row.username if actor_row else audit.SYSTEM)
         session.add(anchor)
         session.flush()
-        audit.record(session, actor, "history.purge", "history_anchor", anchor.id, cutoff=cutoff.isoformat(),
+        audit.record(session, actor_row, "history.purge", "history_anchor", anchor.id, cutoff=cutoff.isoformat(),
                      retention_days=days, counts=counts, gaps=len(gaps))
         session.commit()
         log.info("保留期清理完成：截止 %s，%s", cutoff.isoformat(), counts)

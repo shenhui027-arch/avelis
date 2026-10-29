@@ -1,9 +1,10 @@
 """历史表只追加与防篡改哈希链（ADR 0008）。
 
 数据库层（迁移 0007 安装，见 install_sql）：
-- 只追加：BEFORE UPDATE / DELETE / TRUNCATE 触发器。已封链的行只允许表配置里的“存活标记”前移、“状态列”按规则改一次；
-  状态列的每次合法变化追加一条 history_mark（也在链上）。DELETE / TRUNCATE 只在清理专用路径
-  （事务内 avelis.history_purge = on）放行。
+- 只追加：BEFORE UPDATE / DELETE / TRUNCATE 触发器。已封链的行只允许表配置里的“存活标记”前移、“状态列”作为一组
+  按规则同时改一次；状态列的每次合法变化追加一条 history_mark（也在链上）。DELETE 只在清理专用路径
+  （事务内 avelis.history_purge = on）放行；TRUNCATE 一律拒绝。未封链（本事务刚插入）的行可补全业务字段，但主键冻结，
+  已提交却未封链的行不能改。封链找不到行或链头时拒绝提交。
 - 封链：提交时的约束触发器（DEFERRABLE INITIALLY DEFERRED）为本事务插入的每一行锁住链头、取下一个序号，
   row_hash = sha256(prev_hash | chain_seq | 表名 | content_digest)，
   content_digest = sha256((to_jsonb(行) − 链列 − 存活标记)::text)。只有一把链锁，只在提交阶段持有。
@@ -34,7 +35,7 @@ class ChainedTable:
     name: str
     order_by: str  # 迁移补算哈希时的自然时间顺序（SQL 表达式，别名 x）
     live: dict[str, str] = field(default_factory=dict)  # 存活标记：forward 只能前移；any 可改。不进哈希
-    # 状态列：{"from": 旧值, "to": 新值（缺省 = 任意非空）}
+    # 状态列（一组，必须同时、按规则只改一次）：{列: {"from": 旧值, "to": 新值（缺省 = 任意非空）}}
     marks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
@@ -95,47 +96,71 @@ DECLARE
   n jsonb;
   k text;
   rule jsonb;
+  v_xmin text;
+  group_changed int := 0;
+  group_size int := 0;
 BEGIN
-  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
+  IF TG_OP = 'TRUNCATE' THEN
+    -- 清理只走逐行 DELETE 的专用路径；TRUNCATE 一律拒绝
+    RAISE EXCEPTION 'avelis_history_append_only: % 只允许追加，不能 TRUNCATE', TG_TABLE_NAME;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
     IF current_setting('avelis.history_purge', true) = 'on' THEN
-      IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
-      END IF;
-      RETURN NULL;
+      RETURN OLD;
     END IF;
-    RAISE EXCEPTION 'avelis_history_append_only: % 只允许追加，不能 %（超期历史只能由保留期清理删除）',
-      TG_TABLE_NAME, TG_OP;
+    RAISE EXCEPTION 'avelis_history_append_only: % 只允许追加，不能 DELETE（超期历史只能由保留期清理删除）',
+      TG_TABLE_NAME;
   END IF;
   o := to_jsonb(OLD);
   n := to_jsonb(NEW);
   IF OLD.chain_seq IS NULL THEN
-    -- 尚未封链：只可能是本事务刚插入的行，允许补全字段；链列只能由封链触发器写
+    -- 尚未封链：只允许本事务刚插入的行补全业务字段。已提交却未封链的行（绕过触发器写入的）不能借此改写
+    EXECUTE format('SELECT xmin::text FROM %I WHERE id = $1', TG_TABLE_NAME) INTO v_xmin USING OLD.id;
+    IF v_xmin IS DISTINCT FROM (pg_current_xact_id()::text::numeric % 4294967296)::bigint::text THEN
+      RAISE EXCEPTION 'avelis_history_append_only: %（行 %）已提交但未封链，不能修改', TG_TABLE_NAME, OLD.id;
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION 'avelis_history_append_only: %.id 不能修改', TG_TABLE_NAME;
+    END IF;
     IF (o->'chain_seq', o->'prev_hash', o->'row_hash') IS DISTINCT FROM (n->'chain_seq', n->'prev_hash', n->'row_hash')
        AND coalesce(current_setting('avelis.history_sealing', true), '') <> 'on' THEN
       RAISE EXCEPTION 'avelis_history_append_only: %.chain_* 只能由封链触发器写入', TG_TABLE_NAME;
     END IF;
     RETURN NEW;
   END IF;
+  -- 已封链：状态列是一组，必须按规则同时、只改一次（如 active/空 → superseded/非空）
+  FOR k IN SELECT jsonb_object_keys(coalesce(cfg->'marks', '{}'::jsonb)) LOOP
+    group_size := group_size + 1;
+    IF (o->k) IS DISTINCT FROM (n->k) THEN
+      group_changed := group_changed + 1;
+    END IF;
+  END LOOP;
+  IF group_changed > 0 THEN
+    IF group_changed <> group_size THEN
+      RAISE EXCEPTION 'avelis_history_append_only: % 的状态列 % 必须同时改（行 %）', TG_TABLE_NAME,
+        (SELECT string_agg(x, '、') FROM jsonb_object_keys(cfg->'marks') x), OLD.id;
+    END IF;
+    FOR k IN SELECT jsonb_object_keys(cfg->'marks') LOOP
+      rule := cfg->'marks'->k;
+      IF (o->k) IS DISTINCT FROM (rule->'from') OR jsonb_typeof(n->k) = 'null'
+         OR (rule ? 'to' AND (n->k) IS DISTINCT FROM (rule->'to')) THEN
+        RAISE EXCEPTION 'avelis_history_append_only: %.% 只能从 % 改为 %，且只改一次（行 %）', TG_TABLE_NAME, k,
+          rule->'from', coalesce(rule->'to', '"非空"'::jsonb), OLD.id;
+      END IF;
+      INSERT INTO history_mark (id, table_name, row_id, column_name, old_value, new_value, at)
+      VALUES (replace(gen_random_uuid()::text, '-', ''), TG_TABLE_NAME, OLD.id, k, o->k, n->k,
+              now() AT TIME ZONE 'UTC');
+    END LOOP;
+  END IF;
   FOR k IN SELECT jsonb_object_keys(n) LOOP
-    CONTINUE WHEN (o->k) IS NOT DISTINCT FROM (n->k);
+    CONTINUE WHEN (o->k) IS NOT DISTINCT FROM (n->k) OR coalesce(cfg->'marks', '{}'::jsonb) ? k;
     IF cfg->'live' ? k THEN
       IF cfg->'live'->>k = 'forward' AND ((n->>k) IS NULL OR (n->>k)::timestamp < (o->>k)::timestamp) THEN
         RAISE EXCEPTION 'avelis_history_append_only: %.% 只能前移', TG_TABLE_NAME, k;
       END IF;
       CONTINUE;
     END IF;
-    rule := cfg->'marks'->k;
-    IF rule IS NULL THEN
-      RAISE EXCEPTION 'avelis_history_append_only: %.% 是历史内容，不能修改（行 %）', TG_TABLE_NAME, k, OLD.id;
-    END IF;
-    IF (o->k) IS DISTINCT FROM (rule->'from') OR jsonb_typeof(n->k) = 'null'
-       OR (rule ? 'to' AND (n->k) IS DISTINCT FROM (rule->'to')) THEN
-      RAISE EXCEPTION 'avelis_history_append_only: %.% 只能从 % 改为 %，且只改一次（行 %）', TG_TABLE_NAME, k,
-        rule->'from', coalesce(rule->'to', '"非空"'::jsonb), OLD.id;
-    END IF;
-    INSERT INTO history_mark (id, table_name, row_id, column_name, old_value, new_value, at)
-    VALUES (replace(gen_random_uuid()::text, '-', ''), TG_TABLE_NAME, OLD.id, k, o->k, n->k,
-            now() AT TIME ZONE 'UTC');
+    RAISE EXCEPTION 'avelis_history_append_only: %.% 是历史内容，不能修改（行 %）', TG_TABLE_NAME, k, OLD.id;
   END LOOP;
   RETURN NEW;
 END $$;
@@ -148,19 +173,31 @@ DECLARE
   v_hash text;
   v_digest text;
   v_row_hash text;
+  v_count int;
 BEGIN
   EXECUTE format('SELECT to_jsonb(t) FROM %I t WHERE t.id = $1', TG_TABLE_NAME) INTO r USING NEW.id;
-  IF r IS NULL OR jsonb_typeof(r->'chain_seq') <> 'null' THEN
-    RETURN NULL;
+  -- 找不到本事务插入的行（主键被改、被删）或已有链字段：拒绝提交，不能留下未封链的历史
+  IF r IS NULL THEN
+    RAISE EXCEPTION 'avelis_history_seal: 封链时找不到 %（行 %），拒绝提交', TG_TABLE_NAME, NEW.id;
+  END IF;
+  IF jsonb_typeof(r->'chain_seq') <> 'null' THEN
+    RAISE EXCEPTION 'avelis_history_seal: %（行 %）封链前已有链字段，拒绝提交', TG_TABLE_NAME, NEW.id;
   END IF;
   SELECT h.last_seq, h.last_hash INTO v_seq, v_hash FROM history_chain_head h WHERE h.id = 1 FOR UPDATE;
+  IF v_seq IS NULL OR v_hash IS NULL THEN
+    RAISE EXCEPTION 'avelis_history_seal: 链头 history_chain_head 不存在，拒绝提交';
+  END IF;
   v_digest := encode(sha256(convert_to((r - excluded)::text, 'UTF8')), 'hex');
   v_row_hash := encode(sha256(convert_to(v_hash || '|' || (v_seq + 1)::text || '|' || TG_TABLE_NAME || '|' || v_digest,
                                          'UTF8')), 'hex');
   PERFORM set_config('avelis.history_sealing', 'on', true);
   EXECUTE format('UPDATE %I SET chain_seq = $1, prev_hash = $2, row_hash = $3 WHERE id = $4', TG_TABLE_NAME)
     USING v_seq + 1, v_hash, v_row_hash, NEW.id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
   PERFORM set_config('avelis.history_sealing', 'off', true);
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'avelis_history_seal: 写入 %（行 %）的链字段失败，拒绝提交', TG_TABLE_NAME, NEW.id;
+  END IF;
   UPDATE history_chain_head SET last_seq = v_seq + 1, last_hash = v_row_hash WHERE id = 1;
   RETURN NULL;
 END $$;
@@ -317,6 +354,10 @@ def check(chain: Chain, gaps: dict[tuple[int, int], dict[str, Any]]) -> list[dic
     if head is None:
         issues.append({"kind": "head_missing", "seq": None, "table": "history_chain_head", "row_id": None,
                        "detail": "链头不存在"})
+    elif not chain.rows and (head["seq"] != 0 or head["hash"] != GENESIS):
+        # 空链只有一种合法状态：链头还在起点。链头已前进而行全不见了，说明链上记录被整体删除
+        issues.append({"kind": "head_mismatch", "seq": head["seq"], "table": "history_chain_head", "row_id": None,
+                       "detail": f"链头已到序号 {head['seq']}，但链上没有任何记录（记录被整体删除）"})
     elif chain.rows and (head["seq"] != prev_seq or head["hash"] != prev_hash):
         issues.append({"kind": "head_mismatch", "seq": head["seq"], "table": "history_chain_head", "row_id": None,
                        "detail": f"链头（{head['seq']}）与最后一行（{prev_seq}）不一致"})

@@ -64,6 +64,8 @@ class Snapshot:
     assets: list[ObservedAsset]
     catalogs: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # 审计游标：连接器在读快照的同一事务里记下的位置（如 PostgreSQL pg_current_snapshot()），归因按它判断事务可见性
+    audit_cursor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

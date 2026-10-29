@@ -22,7 +22,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit
-from avelis.collect.attribution import attribute
+from avelis.collect.attribution import Window, attribute
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
 from avelis.engines import collect_connector, dialect_of, engine_of
@@ -60,6 +60,8 @@ class RunContext:
     stats: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     touched: set[str] = field(default_factory=set)  # 本次出现新身份的对象（新增或同名重建；catalog.db.name）
     connector: Any = None  # 采集连接器：归因时读 DDL 审计来源
+    snapshot_window: tuple[datetime, datetime] | None = None  # 本次读快照的开始、结束（归因窗口的边界）
+    audit_cursor: dict[str, Any] | None = None  # 连接器在快照里记下的审计游标（如 PostgreSQL 事务快照）
 
     def event(self, kind: str, asset_id: str | None, column: str | None = None, before=None, after=None) -> None:
         self.events.append({"kind": kind, "asset_id": asset_id, "column_name": column,
@@ -91,12 +93,16 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             run = session.get(CollectionRun, run_id)
             actor = session.get(User, actor_id) if actor_id else None
             connector = collect_connector(session, ds)
+            snapshot_started = utcnow()
             snapshot = connector.snapshot()
-            ctx = RunContext(run, dialect_of(ds), connector=connector)
+            ctx = RunContext(run, dialect_of(ds), connector=connector, snapshot_window=(snapshot_started, utcnow()),
+                             audit_cursor=snapshot.audit_cursor)
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
-            run.stats = {**dict(ctx.stats), "warnings": snapshot.warnings}
+            run.stats = {**dict(ctx.stats), "warnings": snapshot.warnings,
+                         "snapshot_window": [t.isoformat() for t in ctx.snapshot_window],
+                         **({"audit_cursor": ctx.audit_cursor} if ctx.audit_cursor else {})}
             audit.record(session, actor, "collect", "datasource", ds.id, run_id=run.id, trigger=trigger,
                          stats=run.stats)
     except Exception as exc:  # 记录失败原因（不含口令：连接器异常只含库返回的错误）
@@ -194,9 +200,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
         from avelis.governance.changes import analyze_change_set  # 避免循环导入
 
         previous = session.get(CollectionRun, run.previous_run_id) if run.previous_run_id else None
-        # 上次快照在上次采集开始后读取：审计窗口从上次开始时间算起，覆盖上次快照之后的全部改动
-        audit_window = attribute(session, engine_of(ds), ctx.connector, ctx.events,
-                                 previous.started_at.replace(tzinfo=None) if previous else None, now)
+        audit_window = attribute(session, engine_of(ds), ctx.connector, ctx.events, _audit_window(previous, ctx))
         change_set = ChangeSet(run_id=run.id, datasource_id=ds.id, status="open",
                                window_start=previous.finished_at if previous else None, window_end=now,
                                summary={**{k: v for k, v in ctx.stats.items() if k.startswith("event:")},
@@ -207,6 +211,21 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
             session.add(ChangeEvent(change_set_id=change_set.id, **e))
         session.flush()
         analyze_change_set(session, change_set, fp_changes)
+
+
+def _audit_window(previous: CollectionRun | None, ctx: RunContext) -> Window | None:
+    """归因窗口：上次与本次读快照的时间。旧的采集记录没有快照时间时，用开始与结束时间（更宽，边界候选更多）。"""
+    if previous is None:
+        return None
+    stats = previous.stats or {}
+    try:
+        p_start, p_done = (datetime.fromisoformat(t) for t in stats["snapshot_window"])
+    except (KeyError, TypeError, ValueError):
+        p_start = previous.started_at.replace(tzinfo=None)
+        p_done = (previous.finished_at or previous.started_at).replace(tzinfo=None)
+    c_start, c_done = ctx.snapshot_window or (utcnow(), utcnow())
+    return Window(p_start, p_done, c_start, c_done, previous_cursor=stats.get("audit_cursor"),
+                  current_cursor=ctx.audit_cursor)
 
 
 def _identity_key(identity: dict[str, Any]) -> Any:

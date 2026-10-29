@@ -1,15 +1,22 @@
 """把采集发现的变更关联到数据库里做改动的用户（ADR 0008 第 2 点）。不猜测：
 
-- matched       候选审计记录只来自一个数据库用户 → 记为该用户
-- ambiguous     候选来自多个用户 → 不记用户，列出全部候选
-- unmatched     窗口内没有该对象的审计记录 → 不记用户，说明原因
-- unavailable   引擎声明了审计能力，但本次读取失败（附数据库报错）
-- unsupported   引擎未接入审计来源
+- matched        候选审计记录只来自一个数据库用户，且至少一条确定发生在两次快照之间 → 记为该用户
+- ambiguous      候选来自多个用户，或候选只在窗口边界附近（无法确认是否在本窗口内生效）→ 不记用户，列出候选
+- unmatched      窗口内没有该对象（字段级变化：没有点名该列或整体重定义）的审计记录 → 不记用户，说明原因
+- unavailable    引擎声明了审计能力，但本次读取失败；cause 区分无权读取 / 未开启 / 来源结构不符 / 其他
+- unsupported    引擎未接入审计来源
 - not_applicable 推导出的变化（不是对该对象执行的 DDL），或首次采集
+
+窗口：上次快照读取期间 [P_start, P_done] 与本次 [C_start, C_done]。
+确定在窗口内 = 生效时间在 (P_done + 容差, C_start − 容差)；
+落在两次快照读取期间（± 容差）的语句只算“边界候选”；
+可能异步生效的语句（may_lag）在上次快照前 lag 秒内也算。连接器能按事务可见性判断的（PostgreSQL 记录了
+两次快照），以连接器的判断为准。对象名按数据库目录的真实写法精确匹配（区分大小写）。
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -23,30 +30,45 @@ from avelis.models import Asset
 DERIVED = {"derivation_changed", "upstream_broken", "identity_link_changed", "server_identity_changed"}
 STATUSES = ("matched", "ambiguous", "unmatched", "unavailable", "unsupported", "not_applicable")
 CANDIDATE_LIMIT = 10
+CAUSE_LABEL = {"no_permission": "采集账号无权读取 DDL 审计", "not_enabled": "数据源未开启 DDL 审计",
+               "incompatible": "DDL 审计来源的结构与连接器要求不符", "error": "读取 DDL 审计失败"}
+
+
+@dataclass
+class Window:
+    """两次快照读取的时间（Avelis 时钟，UTC 不带时区）与连接器的审计游标。"""
+    previous_start: datetime
+    previous_done: datetime
+    current_start: datetime
+    current_done: datetime
+    previous_cursor: dict[str, Any] | None = None
+    current_cursor: dict[str, Any] | None = None
 
 
 def _names_of(event: dict[str, Any], asset: Asset | None) -> set[tuple[str, str]]:
     names = set()
     if asset is not None:
-        names.add((asset.db_name.lower(), asset.name.lower()))
+        names.add((asset.db_name, asset.name))
     for side in ("before", "after"):
         qualified = (event.get(side) or {}).get("name")
         if isinstance(qualified, str) and qualified.count(".") >= 2:
             _, db, name = qualified.split(".", 2)
-            names.add((db.lower(), name.lower()))
+            names.add((db, name))
     return names
 
 
-def _candidate(e: DdlEvent) -> dict[str, Any]:
-    return {"at": e.at.isoformat(), "db_user": e.db_user, "statement_type": e.statement_type, "summary": e.summary}
+def _candidate(e: DdlEvent, certain: bool) -> dict[str, Any]:
+    # 摘要只在单条、无敏感值的语句上保存；否则只留命令类型（对象已在 basis.objects）
+    return {"at": e.at.isoformat(), "db_user": e.db_user, "statement_type": e.statement_type, "summary": e.summary,
+            "certain": certain}
 
 
 def attribute(session: Session, engine: Engine, connector: Any, events: list[dict[str, Any]],
-              since: datetime | None, until: datetime) -> dict[str, Any]:
+              window: Window | None) -> dict[str, Any]:
     """为 events（尚未写库的变更事件字典）补上 actor_db_user / attribution_status / attribution。
     返回本次审计读取的概况（写入变更集摘要）。"""
     source = getattr(connector, "ddl_audit_source", None)
-    if since is None:
+    if window is None:
         for e in events:
             _set(e, "not_applicable", reason="首次采集：对象在开始观察之前已存在，不对应本窗口内的 DDL")
         return {"status": "not_applicable", "reason": "首次采集"}
@@ -57,25 +79,45 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
                  else "推导出的变化，不是对该对象执行的 DDL")
         return {"status": "unsupported", "reason": f"{engine.label} 适配器未接入 DDL 审计来源"}
     slack = timedelta(seconds=get_settings().ddl_audit_slack_seconds)
-    window = {"since": (since - slack).isoformat(), "until": (until + slack).isoformat(),
-              "slack_seconds": int(slack.total_seconds()), "source": source}
+    lag = timedelta(seconds=getattr(connector, "ddl_effect_lag_seconds", 0))
+    since, until = window.previous_start - slack - lag, window.current_done + slack
+    certain_from, certain_to = window.previous_done + slack, window.current_start - slack
+    basis_window = {"since": since.isoformat(), "until": until.isoformat(), "certain_from": certain_from.isoformat(),
+                    "certain_to": certain_to.isoformat(), "slack_seconds": int(slack.total_seconds()),
+                    "effect_lag_seconds": int(lag.total_seconds()), "source": source,
+                    "by_transaction": bool(window.previous_cursor and window.current_cursor)}
     try:
-        audit_events = connector.ddl_events(since - slack, until + slack)
+        audit_events = connector.ddl_events(since, until, cursors=(window.previous_cursor, window.current_cursor))
     except Exception as exc:  # noqa: BLE001 - 读取审计失败只影响归因，不让采集失败
-        if not isinstance(exc, AuditUnavailable):
-            exc = AuditUnavailable(f"{type(exc).__name__}: {exc}")
-        cause, label = unavailable_cause(str(exc))
+        cause = exc.cause if isinstance(exc, AuditUnavailable) else "error"
+        message = str(exc) if isinstance(exc, AuditUnavailable) else f"{type(exc).__name__}: {exc}"
         for e in events:
             if e["kind"] in DERIVED:
                 _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
             else:
-                _set(e, "unavailable", source=source, window=window, cause=cause,
-                     reason=f"{label}，无法归因（数据库报错：{exc}）")
-        return {"status": "unavailable", "source": source, "cause": cause, "error": str(exc)[:500], "window": window}
+                _set(e, "unavailable", source=source, window=basis_window, cause=cause,
+                     reason=f"{CAUSE_LABEL[cause]}，无法归因（数据库报错：{message}）")
+        return {"status": "unavailable", "source": source, "cause": cause, "error": message[:500],
+                "window": basis_window}
+
+    def placement(a: DdlEvent) -> str | None:
+        """certain 确定在窗口内；boundary 边界候选；None 确定在上次快照之前（不参与）。"""
+        if a.certain is not None:
+            return "certain" if a.certain else "boundary"
+        if a.at < window.previous_start - slack:
+            return "boundary" if a.may_lag else None
+        return "certain" if certain_from < a.at < certain_to else "boundary"
+
+    audit_events = [a for a in audit_events if placement(a) is not None]
+
+    def certain(a: DdlEvent) -> bool:
+        return placement(a) == "certain"
+
+    fold = getattr(connector, "ddl_identifier_fold", "exact")
     by_object: dict[tuple[str, str], list[DdlEvent]] = {}
     for a in audit_events:
         for db, name in a.objects:
-            by_object.setdefault(((db or "").lower(), (name or "").lower()), []).append(a)
+            by_object.setdefault((db or "", name or ""), []).append(a)
     for e in events:
         if e["kind"] in DERIVED:
             _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
@@ -83,47 +125,41 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
         asset = session.get(Asset, e["asset_id"]) if e.get("asset_id") else None
         names = _names_of(e, asset)
         candidates = sorted({id(a): a for n in names for a in by_object.get(n, [])}.values(), key=lambda a: a.at)
-        basis = {"source": source, "window": window, "objects": sorted(".".join(n) for n in names)}
+        basis: dict[str, Any] = {"source": source, "window": basis_window,
+                                 "objects": sorted(".".join(n) for n in names)}
         if not candidates:
             _set(e, "unmatched", **basis,
                  reason=f"审计窗口内没有 {'、'.join(basis['objects'])} 的 DDL 记录"
                         "（可能是审计日志尚未落盘、改动发生在审计开启之前，或经由未审计的路径）")
             continue
-        if e.get("column_name"):
-            # 字段级变化只认点名了该列的语句；整体重定义（CREATE、ALTER VIEW … AS）可能不逐列点名，也算候选。
-            # 同一对象上只改了别的列的语句不算：那是猜测
-            by_column = [a for a in candidates if mentions_column(a.statement, e["column_name"])]
-            basis.update(column=e["column_name"], column_match=bool(by_column))
-            candidates = by_column or [a for a in candidates if redefines(a.statement)]
+        column = e.get("column_name")
+        if column:
+            # 字段级变化：点名了该列的语句与整体重定义（不一定逐列点名）都是候选，取并集；
+            # 同一对象上只改了别的列的语句不算
+            object_names = {n for _, n in names}
+            by_column = [a for a in candidates
+                         if any(mentions_column(a.statement, column, obj, fold) for obj in object_names)]
+            whole = [a for a in candidates if redefines(a.statement)]
+            basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole))
+            candidates = sorted({id(a): a for a in [*by_column, *whole]}.values(), key=lambda a: a.at)
             if not candidates:
                 _set(e, "unmatched", **basis,
-                     reason=f"窗口内有 {'、'.join(basis['objects'])} 的 DDL，但没有一条涉及列 {e['column_name']}"
+                     reason=f"窗口内有 {'、'.join(basis['objects'])} 的 DDL，但没有一条点名列 {column} 或整体重定义"
                             "（该列的改动可能经由未审计的路径）")
                 continue
         users = sorted({a.db_user for a in candidates})
-        statements = [_candidate(a) for a in candidates[-CANDIDATE_LIMIT:]]
-        if len(users) == 1:
+        sure_users = sorted({a.db_user for a in candidates if certain(a)})
+        statements = [_candidate(a, certain(a)) for a in candidates[-CANDIDATE_LIMIT:]]
+        if len(users) == 1 and sure_users:
             _set(e, "matched", actor=users[0], **basis, statements=statements,
                  reason=f"窗口内该对象的 {len(candidates)} 条 DDL 都来自 {users[0]}")
+        elif len(users) == 1:
+            _set(e, "ambiguous", **basis, candidates=users, statements=statements,
+                 reason=f"只有 {users[0]} 的语句，但都在快照读取期间或窗口边界附近，无法确认它在本窗口内生效")
         else:
             _set(e, "ambiguous", **basis, candidates=users, statements=statements,
                  reason=f"窗口内该对象的 DDL 来自多个用户（{'、'.join(users)}），无法确定是谁")
-    return {"status": "ok", "source": source, "window": window, "audit_events": len(audit_events)}
-
-
-_NO_PERMISSION = ("permission denied", "access denied", "command denied", "not enough privileges", "code: 497")
-_NOT_ENABLED = ("does not exist", "unknown table", "code: 60.", "doesn't exist")
-
-
-def unavailable_cause(error: str) -> tuple[str, str]:
-    """把审计来源的读取报错归为：采集账号无权读取 / 数据源未开启 DDL 审计 / 其他。是否开启、是否授权由数据源方负责，
-    这里只如实说明为什么不可用，不做变通。"""
-    text = error.lower()
-    if any(k in text for k in _NO_PERMISSION):
-        return "no_permission", "采集账号无权读取 DDL 审计"
-    if any(k in text for k in _NOT_ENABLED):
-        return "not_enabled", "数据源未开启 DDL 审计（审计来源不存在）"
-    return "error", "读取 DDL 审计失败"
+    return {"status": "ok", "source": source, "window": basis_window, "audit_events": len(audit_events)}
 
 
 def _set(event: dict[str, Any], status: str, actor: str | None = None, **detail: Any) -> None:

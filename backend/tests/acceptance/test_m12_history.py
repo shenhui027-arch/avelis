@@ -50,6 +50,13 @@ def _collect(api: Api, ds: str) -> None:
     assert run["status"] == "succeeded", run
 
 
+def _past_boundary() -> None:
+    """按时间判断窗口的引擎（ClickHouse、Doris）：快照开始前容差秒内的语句只算边界候选。等过容差再采集。"""
+    from avelis.config import get_settings
+
+    time.sleep(get_settings().ddl_audit_slack_seconds + 1)
+
+
 def _wait(probe, seconds: int, label: str) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -146,6 +153,19 @@ def test_01_postgres_attribution(ctx, admin: Api):
     assert e["attribution_status"] == "unmatched" and e["actor_db_user"] is None
     assert "没有" in e["attribution"]["reason"]
 
+    # 4：采集时事件触发器仍是关闭的 → 审计视为未开启，不能拿关闭前的残留记录当确定依据
+    with demo.pg_connect(env) as conn:
+        conn.execute("ALTER EVENT TRIGGER avelis_ddl_end DISABLE")
+        conn.execute("COMMENT ON COLUMN store.returns.return_date IS '退货日期'")
+    try:
+        _collect(admin, ds)
+    finally:
+        with demo.pg_connect(env) as conn:
+            conn.execute("ALTER EVENT TRIGGER avelis_ddl_end ENABLE")
+    e = _by(_events(admin, ds, kind="column_comment_changed"), "column_comment_changed", "store.returns", "return_date")
+    assert e["attribution_status"] == "unavailable" and e["attribution"]["cause"] == "not_enabled"
+    assert "未开启" in e["attribution"]["reason"] and e["actor_db_user"] is None
+
     # 审计来源不可读：撤销采集账号的读权限 → unavailable，附数据库报错；采集本身仍成功
     with demo.pg_connect(env) as conn:
         conn.execute("REVOKE SELECT ON avelis_audit.ddl_event FROM avelis_collector")
@@ -193,6 +213,7 @@ def test_02_clickhouse_attribution(ctx, admin: Api):
         root.command("SYSTEM FLUSH LOGS")  # query_log 默认每 7.5 秒落盘；验收直接落盘，不等待
     finally:
         root.close()
+    _past_boundary()
     _collect(admin, ds)
     events = _events(admin, ds)
     added = _by(events, "column_added", "store.sales", "channel")
@@ -257,6 +278,7 @@ def test_03_doris_attribution(ctx, admin: Api):
             c.close()
 
     _wait(schema_applied, 120, "Doris 加列完成")
+    _past_boundary()
     _collect(admin, ds)
     events = _events(admin, ds)
     added = _by(events, "column_added", "store.sales", "channel")

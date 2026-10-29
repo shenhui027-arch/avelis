@@ -29,6 +29,20 @@ uv run pytest -m acceptance tests/acceptance/test_m12_history.py
 
 单元测试 `tests/unit/test_history.py`：DDL 对象解析、口令遮蔽、列名点名与整体重定义的判断、六种归因结论（含窗口外记录不参与、读取异常归为 `unavailable`）、哈希链核验（改内容、删行、链头不符）、多次清理后空洞合并且剩余链仍可核验。
 
+## 开发库上的数据库级测试（`tests/metadb/`，标记 `db`）
+
+不 seed、不重置共用的演示库：只在库名以 `_dev` / `_test` 结尾的元数据库，以及同一实例上它的 `<库名>_src` 源库上运行；未设置时整组跳过。
+
+```bash
+cd backend
+AVELIS_DATABASE_URL=postgresql+psycopg://avelis:…@127.0.0.1:15432/avelis_hist_dev uv run pytest -m db tests/metadb
+```
+
+| 测试 | 覆盖（PR #9 审计编号） |
+|---|---|
+| `test_history_db.py` | 未封链行主键冻结、已提交未封链行不可改、封链找不到行拒绝提交（#2）；状态列成对改（#9）；清理开关下 TRUNCATE 仍被拒（#10）；导出同一快照、`cap + 1` 上限、CSV 防公式与按实际字节算哈希（#12、#13）；派生口径固定引用的组成版本不被清理（#3）；持续写入时清理成功且链完整（#14）；删光链上记录但链头未动会被发现（#11）；含数据的库“升级 → 降级 → 再升级”（迁移） |
+| `test_postgres_audit.py` | 跨采集提交的长事务归到它提交的窗口（#5）；事件触发器停用时为“未开启”（#4）；审计表缺列为 `incompatible`、表不存在为 `not_enabled`（#18）；多语句请求不落库原文（#1）；审计表的时间与事务号索引（#15） |
+
 ## 各引擎的审计来源
 
 | 引擎 | 结论 | 说明 |

@@ -58,10 +58,16 @@ def export_change_events(format: Literal["csv", "json"] = "csv", datasource_id: 
                          attribution_status: str | None = None, user: User = Depends(current_user),
                          session: Session = Depends(get_session)) -> Response:
     f = _filter(datasource_id, asset_id, column, kind, since, until, actor, attribution_status)
+    snap = session_factory()()  # 计数、链头与事件取自同一个只读快照；导出审计另写
     try:
-        body, manifest = records.export(session, user, f, format)
+        snap.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        snap.execute(text("SET TRANSACTION READ ONLY"))
+        body, manifest = records.export(snap, user, f, format)
     except records.ExportTooLarge as exc:
         raise HTTPException(413, str(exc)) from exc
+    finally:
+        snap.rollback()
+        snap.close()
     audit.record(session, user, "history.export", "change_event", None, format=format, filters=f.describe(),
                  rows=manifest["rows"], content_sha256=manifest["content_sha256"], chain_head=manifest["chain_head"])
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
