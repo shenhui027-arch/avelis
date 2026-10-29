@@ -228,7 +228,9 @@ def join_path_view(session: Session, path: JoinPath) -> dict:
 
 @router.get("/join-paths", response_model=list[S.JoinPathOut])
 def list_join_paths(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return [join_path_view(session, p) for p in session.scalars(select(JoinPath).order_by(JoinPath.code))]
+    allowed = access.domain_ids(session, user)
+    return [join_path_view(session, p) for p in session.scalars(select(JoinPath).order_by(JoinPath.code))
+            if access.can_see_object(session, user, "join_path", p.id, allowed)]
 
 
 @router.post("/join-paths", status_code=201, response_model=S.JoinPathOut)
@@ -265,7 +267,7 @@ def task_view(session: Session, t: ReviewTask) -> dict:
             "resolved_at": t.resolved_at.isoformat() if t.resolved_at else None}
 
 
-def change_set_view(session: Session, cs: ChangeSet, full: bool) -> dict:
+def change_set_view(session: Session, cs: ChangeSet, full: bool, user: User | None = None) -> dict:
     data = {"id": cs.id, "run_id": cs.run_id, "datasource_id": cs.datasource_id, "status": cs.status,
             "summary": cs.summary, "created_at": cs.created_at.isoformat(),
             "effective_window": {"after": cs.window_start.isoformat() if cs.window_start else None,
@@ -274,6 +276,11 @@ def change_set_view(session: Session, cs: ChangeSet, full: bool) -> dict:
     if full:
         names = {}
         events = list(session.scalars(select(ChangeEvent).where(ChangeEvent.change_set_id == cs.id)))
+        if user is not None:  # 只展示当前用户可见对象的事件、影响与任务
+            allowed = access.domain_ids(session, user)
+            events = [e for e in events if e.asset_id and access.can_see_object(session, user, "asset", e.asset_id,
+                                                                                allowed)
+                      or (e.asset_id is None and access.is_admin(session, user))]
         for e in events:
             if e.asset_id and e.asset_id not in names:
                 a = session.get(Asset, e.asset_id)
@@ -281,9 +288,12 @@ def change_set_view(session: Session, cs: ChangeSet, full: bool) -> dict:
         data["events"] = [{"id": e.id, "kind": e.kind, "asset_id": e.asset_id, "asset": names.get(e.asset_id),
                            "column": e.column_name, "before": e.before, "after": e.after} for e in events]
         data["impacts"] = [impact_view(i) for i in session.scalars(select(Impact).where(
-            Impact.change_set_id == cs.id))]
+            Impact.change_set_id == cs.id))
+            if user is None or access.can_see_object(session, user, i.object_type, i.object_id)]
         data["tasks"] = [task_view(session, t) for t in session.scalars(select(ReviewTask).where(
-            ReviewTask.change_set_id == cs.id))]
+            ReviewTask.change_set_id == cs.id))
+            if user is None or t.assignee_id == user.id
+            or access.can_see_object(session, user, t.object_type, t.object_id)]
     return data
 
 
@@ -293,7 +303,12 @@ def list_change_sets(status: str | None = None, user: User = Depends(current_use
     stmt = select(ChangeSet).order_by(ChangeSet.created_at.desc()).limit(100)
     if status:
         stmt = stmt.where(ChangeSet.status == status)
-    return [change_set_view(session, cs, full=False) for cs in session.scalars(stmt)]
+    out = []
+    for cs in session.scalars(stmt):
+        if not access.is_admin(session, user) and not change_set_view(session, cs, full=True, user=user)["events"]:
+            continue  # 完全不涉及可见对象的变更集不列出
+        out.append(change_set_view(session, cs, full=False))
+    return out
 
 
 @router.get("/change-sets/{change_set_id}", response_model=S.ChangeSetOut)
@@ -301,7 +316,10 @@ def get_change_set(change_set_id: str, user: User = Depends(current_user), sessi
     cs = session.get(ChangeSet, change_set_id)
     if cs is None:
         raise HTTPException(404, "变更集不存在")
-    return change_set_view(session, cs, full=True)
+    data = change_set_view(session, cs, full=True, user=user)
+    if not data["events"] and not access.is_admin(session, user):
+        raise HTTPException(404, "变更集不存在")
+    return data
 
 
 @router.get("/review-tasks", response_model=list[S.TaskOut])
@@ -312,7 +330,8 @@ def list_tasks(mine: bool = True, status: str | None = "open", user: User = Depe
         stmt = stmt.where(ReviewTask.assignee_id == user.id)
     if status:
         stmt = stmt.where(ReviewTask.status == status)
-    return [task_view(session, t) for t in session.scalars(stmt)]
+    return [task_view(session, t) for t in session.scalars(stmt)
+            if t.assignee_id == user.id or access.can_see_object(session, user, t.object_type, t.object_id)]
 
 
 class Resolve(BaseModel):

@@ -17,7 +17,7 @@ from avelis import audit, cache
 from avelis.db import utcnow
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
-from avelis.governance.metrics import dependency_drift, mark_affected, transition
+from avelis.governance.metrics import dependency_drift, mark_affected, status_before_affected, transition
 from avelis.models import (
     Answer,
     Asset,
@@ -100,8 +100,10 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         hits = [d for d in path.dependency or [] if (d["asset_id"], d["column"]) in changed]
         if not hits:
             continue
-        path.status = "affected"
         reason = "关联键的推导已变化：" + "、".join(d["column"] for d in hits)
+        from avelis.governance.joins import reset_approvals
+
+        reset_approvals(session, path, "affected", reason)
         session.add(Impact(change_set_id=change_set.id, object_type="join_path", object_id=path.id,
                            level="affected", reason=reason, path=hits))
         left = session.get(Asset, path.left_asset_id)
@@ -193,6 +195,10 @@ def _resolve_metric(session: Session, actor: User, task: ReviewTask, resolution:
         if drift:
             raise Conflict("当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集",
                            drift=drift)
+        if status_before_affected(session, version) != "published":
+            # 受影响前尚未批准：只能回到待批准，由复核者按正式流程批准（含禁止自审与发布检查）
+            transition(session, version, "pending_review", actor, f"复核：依赖已恢复，回到待批准。{note}")
+            return
         transition(session, version, "published", actor, f"复核：已恢复原定义。{note}")
         for answer in session.scalars(select(Answer).where(Answer.recheck_status == "needs_recheck")):
             if version.id in (answer.metric_version_ids or []):
@@ -217,7 +223,7 @@ def _resolve_join_path(session: Session, task: ReviewTask, resolution: str) -> N
 
         if drift(session, path):
             raise Conflict("关联键当前推导仍与批准时不一致")
-        path.status = "approved"
+        path.status = "pending"  # 依据已恢复：仍须涉及的各业务域负责人重新批准
     else:
         path.status = "rejected"
 

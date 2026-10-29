@@ -33,6 +33,7 @@ from avelis.governance.metrics import (
     dependency_drift,
     describe_version,
     latest_governed_version,
+    publish_check,
     validate_spec,
     visible_metrics,
 )
@@ -151,11 +152,21 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
 
     resolved = validate_spec(session, version)
     aliases, steps = resolved["aliases"], resolved["steps"]
+    from avelis.governance.joins import effectively_approved
+
     for step in steps:
-        if step["path"].status != "approved":
+        if not effectively_approved(session, step["path"]):
             answer.status = "blocked"
             answer.error_code = "join_path_not_approved"
             answer.message = f"关联路径 {step['path'].code} 当前为 {step['path'].status}，不能用于问数"
+            return
+    if steps:
+        # 关联基数按当前粒度重新判定：粒度被证伪、键变化后，发布时的 N:1 依据可能已不成立
+        fan_out = publish_check(session, version)["fan_out"]
+        if fan_out:
+            answer.status = "blocked"
+            answer.error_code = "fan_out"
+            answer.message = "关联会放大度量，已停止执行：" + "；".join(fan_out)
             return
 
     # 权限：查询会读到的全部来源（含视图背后的表）都必须可见
@@ -314,6 +325,8 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
         problems = []
         if not now["columns"]:
             problems.append("对象已不存在")
+        elif a.physical_id and now.get("physical_id") and now["physical_id"] != a.physical_id:
+            problems.append("对象已被删除后同名重建")
         elif now["columns"] != cols:
             before, after = {c[0]: c[1] for c in cols}, {c[0]: c[1] for c in now["columns"]}
             used = relevant.get(a.id) or set(before)
@@ -469,19 +482,26 @@ def _column_type(session: Session, asset: Asset, column: str) -> str:
 
 
 def _dimension_values(session: Session, user: User, version: MetricVersion, settings) -> dict[str, list[str]]:
-    """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。"""
+    """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。
+
+    与正式问数同一套守卫，且在读缓存之前执行：口径已发布且依赖未漂移；维度所在资产的完整来源闭包对当前用户都可见；
+    真正查库前再做执行前核对。取值会进入模型上下文，不能成为绕过权限读取来源数据的旁路。"""
     out: dict[str, list[str]] = {}
-    if version.status != "published":
+    if version.status != "published" or dependency_drift(session, version):
         return out
     try:
         resolved = validate_spec(session, version)
     except GovernanceError:
         return out
     aliases = resolved["aliases"]
+    allowed = access.domain_ids(session, user)
     for dim in version.dimensions or []:
         alias, column = dim["column"].split(".", 1) if "." in dim["column"] else ("b", dim["column"])
         asset = aliases.get(alias)
-        if asset is None or not access.can_read_asset(session, user, asset):
+        if asset is None:
+            continue
+        closure = upstream_closure(session, [asset.id])
+        if not all(access.can_read_asset(session, user, a, allowed) for a in closure.values()):
             continue
         key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}"
         try:
@@ -500,8 +520,11 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         try:
             validate_sql(sql, dialect=engine.sql.name, allowed_tables={qualified}, schema={qualified: {column}},
                          max_rows=200)
-            result = query_connector(session, ds).execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
-                                                                 max_rows=200)
+            connector = query_connector(session, ds)
+            dep = [{"asset_id": asset.id, "column": column}]
+            if _live_check(session, ds, connector, closure.values(), dep, settings):
+                continue  # 库侧已变、尚未采集：不读取（已排队采集）
+            result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2, max_rows=200)
         except (QueryError, ValidationFailed):
             continue
         values = [str(r[0]) for r in result.rows]

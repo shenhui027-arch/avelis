@@ -171,8 +171,10 @@ def workbench(user: User = Depends(current_user), session: Session = Depends(get
                            "status": v.status if v else "none", "grain": v.grain if v else [],
                            "asks_week": week or 0})
 
-    blocked = list(session.scalars(select(Answer).where(Answer.status.in_(("blocked", "denied", "clarify")))
-                                   .order_by(Answer.asked_at.desc()).limit(5)))
+    blocked_stmt = select(Answer).where(Answer.status.in_(("blocked", "denied", "clarify")))
+    if not access.is_admin(session, user):
+        blocked_stmt = blocked_stmt.where(Answer.asked_by == user.id)  # 答案只给提问人（管理员除外）
+    blocked = list(session.scalars(blocked_stmt.order_by(Answer.asked_at.desc()).limit(5)))
     if not (is_admin or "steward" in roles):
         blocked = [a for a in blocked if a.asked_by == user.id]
 

@@ -61,6 +61,8 @@ class PostgresConnector:
                 "SELECT system_identifier FROM pg_catalog.pg_control_system()").fetchone()[0])
         except psycopg.Error:
             identity["system_identifier"] = None  # 需要 pg_read_all_settings 或超级用户；默认不授予
+        if identity["system_identifier"]:
+            identity["instance_id"] = f"pg:{identity['system_identifier']}/{self.database}"
         return identity
 
     def snapshot(self) -> Snapshot:
@@ -154,7 +156,8 @@ class PostgresConnector:
     def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
-        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None} for k in names}
+        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
+                                                      for k in names}
         if not names:
             return out
         try:
@@ -165,6 +168,8 @@ class PostgresConnector:
                     "WHERE (n.nspname, c.relname) IN (SELECT * FROM unnest(%s::text[], %s::text[]))",
                     ([s for s, _ in names], [n for _, n in names])).fetchall()
                 by_oid = {oid: (schema, name) for oid, schema, name, _ in rows}
+                for oid, key in by_oid.items():
+                    out[key]["physical_id"] = str(oid)
                 for oid, cols in self._columns(conn, list(by_oid)).items():
                     out[by_oid[oid]]["columns"] = [[c[0], c[1]] for c in cols]
                 for oid, definition in self._definitions(
