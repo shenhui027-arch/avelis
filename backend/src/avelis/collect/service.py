@@ -19,11 +19,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit
-from avelis.connectors import collect_connector
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
+from avelis.engines import collect_connector, engine_of
+from avelis.engines.base import VIEW_LINEAGE
 from avelis.lineage.fingerprint import GraphState, compute_fingerprints
-from avelis.lineage.sql import PARSER_VERSION, canonical_hash_of, parse_query
+from avelis.lineage.sql import PARSER_VERSION, SqlDialect, canonical_hash_of, parse_query
 from avelis.models import (
     Asset,
     AssetColumn,
@@ -49,6 +50,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class RunContext:
     run: CollectionRun
+    sql: SqlDialect
     events: list[dict[str, Any]] = field(default_factory=list)
     new_versions: list[AssetVersion] = field(default_factory=list)
     stats: dict[str, int] = field(default_factory=lambda: defaultdict(int))
@@ -84,7 +86,7 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             actor = session.get(User, actor_id) if actor_id else None
             connector = collect_connector(session, ds)
             snapshot = connector.snapshot()
-            ctx = RunContext(run)
+            ctx = RunContext(run, engine_of(ds).sql)
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
@@ -172,7 +174,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
         ctx.event(kind, change["asset_id"], change["column"], change["before"], change["after"])
 
     run.snapshot_hash = sha256_json(sorted(
-        _content_hash(o) for o in snapshot.assets))
+        _content_hash(o, ctx.sql) for o in snapshot.assets))
     if ctx.events:
         from avelis.governance.changes import analyze_change_set  # 避免循环导入
 
@@ -192,14 +194,14 @@ def _identity_key(identity: dict[str, Any]) -> Any:
     return identity.get("server_uuid") or identity.get("cluster_id") or identity.get("endpoint")
 
 
-def _content_hash(obs: ObservedAsset) -> str:
-    _, digest = canonical_hash_of(obs.definition) if obs.definition else (None, None)
+def _content_hash(obs: ObservedAsset, sql: SqlDialect) -> str:
+    _, digest = canonical_hash_of(obs.definition, sql) if obs.definition else (None, None)
     return obs.content_hash(digest)
 
 
 def _record_version(session: Session, asset: Asset, obs: ObservedAsset, ctx: RunContext) -> None:
     run, now = ctx.run, utcnow()
-    canonical, def_hash = canonical_hash_of(obs.definition) if obs.definition else (None, None)
+    canonical, def_hash = canonical_hash_of(obs.definition, ctx.sql) if obs.definition else (None, None)
     content_hash = obs.content_hash(def_hash)
     current = session.get(AssetVersion, asset.current_version_id) if asset.current_version_id else None
     if current is not None and current.content_hash == content_hash:
@@ -237,7 +239,7 @@ def _record_version(session: Session, asset: Asset, obs: ObservedAsset, ctx: Run
             col.status = "deleted"
             col.deleted_at = now
     if obs.definition is not None:
-        session.add(Definition(asset_version_id=version.id, dialect="starrocks" if obs.catalog != "def" else "mysql",
+        session.add(Definition(asset_version_id=version.id, dialect=ctx.sql.name,
                                raw_sql=obs.definition, canonical_sql=canonical, canonical_hash=def_hash))
 
     if current is not None:
@@ -290,7 +292,7 @@ def _diff_versions(session: Session, asset: Asset, old: AssetVersion, new: Asset
     if old_hash != new_def_hash:
         ctx.event("definition_changed", asset.id,
                   before={"canonical_sql": old_def.canonical_sql if old_def else None, "hash": old_hash},
-                  after={"canonical_sql": canonical_hash_of(obs.definition)[0] if obs.definition else None,
+                  after={"canonical_sql": canonical_hash_of(obs.definition, ctx.sql)[0] if obs.definition else None,
                          "hash": new_def_hash})
     if (old.table_model, old.key_columns, sorted(old.unique_keys)) != (new.table_model, new.key_columns,
                                                                        sorted(new.unique_keys)):
@@ -315,7 +317,7 @@ def _view_rename_candidates(session: Session, deleted: list[Asset], added: list[
             gone[d.canonical_hash] = asset
     for asset, obs in added:
         if obs.kind == "view" and obs.definition:
-            _, digest = canonical_hash_of(obs.definition)
+            _, digest = canonical_hash_of(obs.definition, ctx.sql)
             if digest in gone:
                 old = gone[digest]
                 ctx.event("rename_candidate", asset.id,
@@ -354,17 +356,18 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
             pending.append((asset, definition))
     if not pending:
         return
-    if ds.kind != "starrocks":
+    engine = engine_of(ds)
+    if not engine.supports(VIEW_LINEAGE):
         for asset, definition in pending:
             session.add(ParseResult(definition_id=definition.id, parser_version=PARSER_VERSION,
-                                    status="unsupported", reason=f"v0.1 只解析 StarRocks 视图（当前为 {ds.kind}）"))
+                                    status="unsupported", reason=f"{engine.label} 适配器尚未支持视图血缘解析"))
         return
     schema = build_schema(session, ds.id)
     index = {(a.catalog_name, a.db_name, a.name): a.id for a in session.scalars(
         select(Asset).where(Asset.datasource_id == ds.id, Asset.status == "active"))}
     now = utcnow()
     for asset, definition in pending:
-        parsed = parse_query(definition.raw_sql, schema=schema, default_db=asset.db_name)
+        parsed = parse_query(definition.raw_sql, dialect=engine.sql, schema=schema, default_db=asset.db_name)
         result = ParseResult(definition_id=definition.id, parser_version=PARSER_VERSION, status=parsed.status,
                              reason=parsed.reason, details=parsed.details())
         session.add(result)

@@ -125,6 +125,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/engines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Engines
+         * @description 已登记（真实环境联调过）的引擎及其能力。前端按能力决定表单项，不按类型写死。
+         */
+        get: operations["list_engines_api_engines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasources/{datasource_id}/credentials/{purpose}": {
         parameters: {
             query?: never;
@@ -1430,9 +1450,9 @@ export interface components {
             name: string;
             /**
              * Kind
-             * @enum {string}
+             * @description 引擎类型，取值见 GET /api/engines
              */
-            kind: "starrocks" | "mysql" | "fake";
+            kind: string;
             /** Host */
             host: string;
             /** Port */
@@ -1482,6 +1502,7 @@ export interface components {
             last_run?: components["schemas"]["RunOut"] | null;
             /** Aliases */
             aliases: components["schemas"]["AliasOut"][];
+            engine: components["schemas"]["EngineOut"];
         } & {
             [key: string]: unknown;
         };
@@ -1585,6 +1606,29 @@ export interface components {
             name: string;
             /** Code */
             code: string;
+        };
+        /** EngineOut */
+        EngineOut: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Dialect */
+            dialect: string;
+            /** Default Catalog */
+            default_catalog: string;
+            /** Name Levels */
+            name_levels: string[];
+            /** Capabilities */
+            capabilities: string[];
+            /** Default Port */
+            default_port?: number | null;
+            /** Is Test Adapter */
+            is_test_adapter: boolean;
+            /** Note */
+            note: string;
+        } & {
+            [key: string]: unknown;
         };
         /** FetchedOut */
         FetchedOut: {
@@ -2774,6 +2818,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_engines_api_engines_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineOut"][];
                 };
             };
         };

@@ -10,6 +10,7 @@ from decimal import Decimal
 
 import pytest
 
+from avelis.demo_setup import PRODUCT_ASSETS, TRADE_ASSETS
 from tests.conftest import Api
 
 pytestmark = pytest.mark.acceptance
@@ -150,14 +151,14 @@ def test_01_collect_and_lineage(admin: Api):
     assert again["stats"].get("new_versions", 0) == 0
     assert len(admin.get("/api/change-sets")) == sets_before
 
-    # 资产归属业务域
+    # 资产归属业务域（未归属的资产默认只有管理员、维护者可见，查询者查不到，见 M4 用例）
     zhang, zhao = ctx["apis"]["zhang"], ctx["apis"]["zhao"]
-    for q in ("default_catalog.shop.orders", "default_catalog.shop.daily_sales", "default_catalog.shop.order_items",
-              "default_catalog.shop.refund_raw", "default_catalog.ads.region_board"):
-        zhang.patch(f"/api/assets/{ids[q]}", {"domain_id": ctx["trade"]})
-    for q in ("shop_mysql.shop_dim.dim_product", "shop_mysql.shop_dim.dim_category", "def.shop_dim.dim_product",
-              "default_catalog.dim.ext_region", "def.shop_dim.dim_region"):
-        zhao.patch(f"/api/assets/{ids[q]}", {"domain_id": ctx["product"]})
+    by_name = {a["qualified"]: a["id"] for a in admin.get("/api/assets")}
+    for q in TRADE_ASSETS:
+        zhang.patch(f"/api/assets/{by_name[q]}", {"domain_id": ctx["trade"]})
+    for q in PRODUCT_ASSETS:
+        zhao.patch(f"/api/assets/{by_name[q]}", {"domain_id": ctx["product"]})
+    assert not [a["qualified"] for a in admin.get("/api/assets") if a["domain_id"] is None]
 
 
 # --- 故事 2：创建并发布“实付销售额”V1 -------------------------------------------------------

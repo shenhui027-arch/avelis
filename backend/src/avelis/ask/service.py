@@ -19,13 +19,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from avelis import audit, cache
-from avelis.ask.compiler import ValidationFailed, compile_metric_query, validate_sql
+from avelis.ask.compiler import ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
 from avelis.ask.intent import Intent, MetricCard
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
-from avelis.connectors import query_connector
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
+from avelis.engines import engine_of, query_connector
+from avelis.engines.base import QUERY
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.governance.metrics import (
@@ -161,20 +162,25 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     if denied:
         answer.status = "denied"
         answer.error_code = "permission"
-        answer.message = "没有权限读取查询涉及的来源：" + "、".join(f"{a.db_name}.{a.name}" for a in denied)
+        unassigned = [a for a in denied if a.domain_id is None]
+        answer.message = "没有权限读取查询涉及的来源：" + "、".join(
+            f"{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied)
         return
 
     time_alias, time_col = version.time_column.split(".", 1) if "." in version.time_column else ("b",
                                                                                                  version.time_column)
     time_type = _column_type(session, aliases[time_alias], time_col)
+    base = aliases["b"]
+    ds = session.get(Datasource, base.datasource_id)
+    dialect = engine_of(ds).sql.name
     compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=intent,
-                                    max_rows=settings.query_max_rows, time_type=time_type)
+                                    max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect)
     answer.sql = compiled.sql
     answer.plan = {**compiled.plan, "metric_version_id": version.id,
                    "dependency_fingerprint": version.dependency_fingerprint}
     schema = {f"{a.catalog_name}.{a.db_name}.{a.name}": set(_columns(session, a)) for a in aliases.values()}
     try:
-        validate_sql(compiled.sql, allowed_tables=set(compiled.tables), schema=schema,
+        validate_sql(compiled.sql, dialect=dialect, allowed_tables=set(compiled.tables), schema=schema,
                      max_rows=settings.query_max_rows)
     except ValidationFailed as exc:
         answer.status = "denied"
@@ -182,8 +188,6 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.message = "SQL 校验未通过：" + "；".join(exc.reasons)
         return
 
-    base = aliases["b"]
-    ds = session.get(Datasource, base.datasource_id)
     connector = query_connector(session, ds)
     internal = [(a.db_name, a.name) for a in closure.values()
                 if a.datasource_id == ds.id and a.kind == "table"]
@@ -400,13 +404,14 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
             out[dim["name"]] = cached.split("\x1f") if cached else []
             continue
         ds = session.get(Datasource, asset.datasource_id)
-        if ds.kind != "starrocks":
+        engine = engine_of(ds)
+        if not engine.supports(QUERY):
             continue
-        sql = (f"SELECT DISTINCT `{column}` FROM `{asset.catalog_name}`.`{asset.db_name}`.`{asset.name}` "
-               f"WHERE `{column}` IS NOT NULL LIMIT 200")
+        qualified = f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
+        sql = distinct_values_sql(qualified, column, limit=200, dialect=engine.sql.name)
         try:
-            validate_sql(sql, allowed_tables={f"{asset.catalog_name}.{asset.db_name}.{asset.name}"},
-                         schema={f"{asset.catalog_name}.{asset.db_name}.{asset.name}": {column}}, max_rows=200)
+            validate_sql(sql, dialect=engine.sql.name, allowed_tables={qualified}, schema={qualified: {column}},
+                         max_rows=200)
             result = query_connector(session, ds).execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
                                                                  max_rows=200)
         except (QueryError, ValidationFailed):

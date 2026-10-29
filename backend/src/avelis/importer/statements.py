@@ -13,7 +13,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from avelis.lineage.sql import DIALECT, parse_query
+from avelis.lineage.sql import SqlDialect, parse_query
 
 
 @dataclass
@@ -50,10 +50,11 @@ def _schema_columns(schema: dict, qualified: str) -> list[str] | None:
     return list(cols) if cols else None
 
 
-def parse_statement(sql: str, *, schema: dict, default_catalog: str = "default_catalog",
+def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
                     default_db: str | None = None) -> ParsedStatement:
+    default_catalog = dialect.default_catalog
     try:
-        tree = sqlglot.parse_one(sql, read=DIALECT)
+        tree = sqlglot.parse_one(sql, read=dialect.name)
     except ParseError as exc:
         return ParsedStatement("failed", None, reason=f"SQL 无法解析：{str(exc).splitlines()[0][:200]}")
     if tree is None:
@@ -89,8 +90,8 @@ def parse_statement(sql: str, *, schema: dict, default_catalog: str = "default_c
     if target is None:
         return ParsedStatement("failed", statement_type, reason=f"目标表 {target_node.name} 缺少库名，且没有默认库")
 
-    parsed = parse_query(query.sql(dialect=DIALECT), schema=schema, default_catalog=default_catalog,
-                         default_db=default_db)
+    parsed = parse_query(query.sql(dialect=dialect.name), dialect=dialect, schema=schema,
+                         default_catalog=default_catalog, default_db=default_db)
     result = ParsedStatement("parsed" if parsed.status == "ok" else parsed.status, statement_type, target,
                              temporary=temporary, reason=parsed.reason)
     if parsed.status in ("failed", "unsupported"):

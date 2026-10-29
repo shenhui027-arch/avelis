@@ -1,6 +1,8 @@
 """后台任务：事实来源是 job 表，Redis 列表只负责唤醒 worker。
 
 Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务不会丢；同一数据源的采集用 Redis 锁互斥。
+worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
+（不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
 """
 
@@ -17,6 +19,7 @@ from sqlalchemy import select, update
 
 from avelis import cache
 from avelis.collect.service import CollectionFailed, run_collection
+from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
 from avelis.models import CollectionRun, Datasource, Job
 
@@ -83,10 +86,27 @@ def schedule_due() -> list[str]:
     return [enqueue("collect", {"datasource_id": ds_id, "trigger": "schedule"}, None) for ds_id in queued]
 
 
-def stale_jobs(older_than_seconds: int = 30) -> list[str]:
+def stale_jobs(older_than_seconds: int | None = None) -> list[str]:
+    older_than_seconds = get_settings().worker_stale_seconds if older_than_seconds is None else older_than_seconds
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
     with session_scope() as session:
         return list(session.scalars(select(Job.id).where(Job.status == "queued", Job.created_at < cutoff)))
+
+
+def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
+    """把运行超时（执行它的 worker 已退出）的任务记为失败，返回任务 ID。"""
+    older_than_seconds = (get_settings().worker_running_timeout_seconds if older_than_seconds is None
+                          else older_than_seconds)
+    cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+    with session_scope() as session:
+        ids = list(session.scalars(select(Job.id).where(Job.status == "running", Job.started_at < cutoff)))
+        if ids:
+            session.execute(update(Job).where(Job.id.in_(ids), Job.status == "running").values(
+                status="failed", finished_at=utcnow(),
+                error=f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"))
+    for job_id in ids:
+        log.warning("任务 %s 运行超时，已记为失败", job_id)
+    return ids
 
 
 def main() -> None:
@@ -103,12 +123,13 @@ def main() -> None:
     last_schedule = 0.0
     log.info("worker 已启动")
     while not stop:
-        if time.monotonic() - last_schedule > 60:
+        if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
             last_schedule = time.monotonic()
+            abandoned_jobs()
             for job_id in schedule_due() + stale_jobs():
                 run_job(job_id)
         try:
-            item = cache.client().brpop([cache.JOB_QUEUE], timeout=5)
+            item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
         except Exception:
             item = None
             time.sleep(5)

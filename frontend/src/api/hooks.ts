@@ -32,6 +32,7 @@ export const useAppSettings = () => useQuery({
 export const useTimeZone = () => useAppSettings().data?.business_timezone ?? "Asia/Shanghai";
 export const useWorkbench = () => useQuery({ queryKey: ["workbench"], queryFn: () => unwrap(api.GET("/api/workbench")) });
 export const useDatasources = () => useQuery({ queryKey: ["datasources"], queryFn: () => unwrap(api.GET("/api/datasources")) });
+export const useEngines = () => useQuery({ queryKey: ["engines"], queryFn: () => unwrap(api.GET("/api/engines")), staleTime: Infinity });
 export const useUsers = () => useQuery({ queryKey: ["users"], queryFn: () => unwrap(api.GET("/api/users")) });
 export const useDomains = () => useQuery({ queryKey: ["domains"], queryFn: () => unwrap(api.GET("/api/domains")) });
 export const useAssets = () => useQuery({ queryKey: ["assets"], queryFn: () => unwrap(api.GET("/api/assets")) });
