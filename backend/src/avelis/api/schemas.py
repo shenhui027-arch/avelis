@@ -1,0 +1,519 @@
+"""接口响应模型：给前端生成类型用。关键字段带类型，其余字段允许扩展（extra="allow"），
+视图函数仍返回 dict，由 FastAPI 按这些模型校验与序列化。"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+Json = dict[str, Any]
+
+
+class Out(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+# --- 数据源 -----------------------------------------------------------------------
+
+class RunOut(Out):
+    id: str
+    status: str
+    trigger: str
+    started_at: str
+    finished_at: str | None = None
+    stats: Json = Field(default_factory=dict)
+    error: str | None = None
+    snapshot_hash: str | None = None
+
+
+class CollectOut(Out):
+    id: str | None = None
+    job_id: str | None = None
+    status: str
+    stats: Json | None = None
+    error: str | None = None
+
+
+class CredentialOut(Out):
+    purpose: str
+    username: str
+    password: str
+    updated_at: str
+
+
+class AliasOut(Out):
+    id: str
+    host: str
+    port: int
+    note: str | None = None
+
+
+class DatasourceOut(Out):
+    id: str
+    name: str
+    kind: str
+    host: str
+    port: int
+    options: Json
+    is_test_adapter: bool
+    source_label: str
+    status: str
+    server_identity: Json
+    collect_interval_minutes: int
+    credentials: list[CredentialOut]
+    last_run: RunOut | None = None
+    aliases: list[AliasOut]
+
+
+class JobOut(Out):
+    id: str
+    kind: str
+    status: str
+    payload: Json
+    result: Json
+    error: str | None = None
+    created_at: str
+    finished_at: str | None = None
+
+
+# --- 目录、血缘 --------------------------------------------------------------------
+
+class MemberOut(Out):
+    user_id: str
+    role: str
+    username: str
+    display_name: str
+
+
+class DomainOut(Out):
+    id: str
+    code: str
+    name: str
+    description: str | None = None
+    owner_id: str
+    members: list[MemberOut]
+
+
+class DatasourceRef(Out):
+    id: str
+    name: str
+    kind: str
+    is_test_adapter: bool
+
+
+class GrainOut(Out):
+    columns: list[str]
+    origin: str
+    status: str
+    grain_id: str | None = None
+    note: str | None = None
+
+
+class AssetOut(Out):
+    id: str
+    qualified: str
+    kind: str
+    status: str
+    domain_id: str | None = None
+    datasource: DatasourceRef
+    physical_id: str | None = None
+    current_version_id: str | None = None
+    last_seen_at: str
+    deleted_at: str | None = None
+
+
+class ConfirmationOut(Out):
+    id: str
+    meaning: str
+    confirmed_by: str
+    created_at: str
+    valid: bool
+    note: str | None = None
+
+
+class ColumnOut(Out):
+    name: str
+    data_type: str
+    nullable: bool
+    comment: str | None = None
+    is_key: bool
+    column_id: str
+    fingerprint: str | None = None
+    fingerprint_status: str | None = None
+    fingerprint_reason: str | None = None
+    confirmations: list[ConfirmationOut]
+
+
+class AssetVersionOut(Out):
+    id: str
+    version_no: int
+    observed_at: str
+    last_seen_at: str
+    superseded_at: str | None = None
+    name: str
+    kind: str
+    table_model: str | None = None
+    key_columns: list[str]
+    unique_keys: list[list[str]]
+    comment: str | None = None
+    properties: Json
+    content_hash: str
+
+
+class LinkTarget(Out):
+    id: str
+    qualified: str
+    datasource_id: str
+
+
+class LinkOut(Out):
+    id: str
+    status: str
+    method: str
+    evidence: Json
+    column_match: Json
+    source: str
+    target: LinkTarget | None = None
+    created_at: str
+
+
+class DefinitionOut(Out):
+    raw_sql: str
+    canonical_sql: str | None = None
+    canonical_hash: str
+
+
+class ParseOut(Out):
+    status: str
+    reason: str | None = None
+    parser_version: str
+    details: Json
+
+
+class AssetDetailOut(AssetOut):
+    version: AssetVersionOut | None = None
+    columns: list[ColumnOut]
+    definition: DefinitionOut | None = None
+    parse: ParseOut | None = None
+    grains: list[GrainOut]
+    identity_link: LinkOut | None = None
+    linked_from: list[LinkOut]
+    versions: list[AssetVersionOut]
+
+
+class GraphNodeOut(Out):
+    id: str
+    qualified: str
+    kind: str
+    status: str
+    grains: list[GrainOut]
+    in_scope: bool
+    domain_id: str | None = None
+    datasource: DatasourceRef | None = None
+    note: str | None = None
+
+
+class ColumnEdgeOut(Out):
+    source_column: str | None = None
+    target_column: str | None = None
+    relation: str
+    expression: str | None = None
+    origin: str
+    attributes: Json
+
+
+class GraphEdgeOut(Out):
+    source: str
+    source_ref: str
+    target: str
+    columns: list[ColumnEdgeOut]
+    relations: list[str]
+    origins: list[str]
+
+
+class GraphOut(Out):
+    nodes: list[GraphNodeOut]
+    edges: list[GraphEdgeOut]
+    identity_links: list[LinkOut]
+
+
+# --- 口径、变更 --------------------------------------------------------------------
+
+class OwnerRef(Out):
+    id: str
+    display_name: str
+
+
+class VersionBrief(Out):
+    id: str
+    version_no: int
+    status: str
+    status_reason: str | None = None
+    published_at: str | None = None
+
+
+class MetricOut(Out):
+    id: str
+    code: str
+    name: str
+    aliases: list[str]
+    domain_id: str
+    owner: OwnerRef
+    versions: list[VersionBrief]
+
+
+class TransitionOut(Out):
+    from_: str | None = Field(default=None, alias="from")
+    to: str
+    actor_id: str | None = None
+    reason: str | None = None
+    at: str
+
+
+class ImpactOut(Out):
+    id: str
+    change_set_id: str
+    object_type: str
+    object_id: str
+    level: str
+    reason: str
+    path: list[Any]
+    created_at: str
+
+
+class MetricVersionOut(Out):
+    id: str
+    metric_id: str
+    metric_code: str
+    metric_name: str
+    version_no: int
+    status: str
+    status_reason: str | None = None
+    description: str
+    expression: str
+    base_asset: Json | None = None
+    time_column: str
+    timezone: str
+    filters: str | None = None
+    dimensions: list[Json]
+    joins: list[Json]
+    grain: list[str]
+    dedupe_basis: str | None = None
+    dependency: list[Json]
+    dependency_fingerprint: str | None = None
+    asset_versions: Json
+    publish_check: Json
+    created_by: str
+    submitted_by: str | None = None
+    reviewed_by: str | None = None
+    review_note: str | None = None
+    published_at: str | None = None
+    created_at: str | None = None
+    owner_id: str
+    domain_id: str
+    transitions: list[TransitionOut] = Field(default_factory=list)
+    impacts: list[ImpactOut] = Field(default_factory=list)
+    drift: list[Json] = Field(default_factory=list)
+
+
+class PublishCheckOut(Out):
+    ok: bool
+    blockers: list[str]
+    warnings: list[str]
+    joins: list[Json]
+    base_grains: list[Json]
+    dependency: list[Json]
+    checked_at: str
+
+
+class JoinPathOut(Out):
+    id: str
+    code: str
+    name: str
+    status: str
+    left: Json
+    right: Json
+    cardinality: str
+    cardinality_basis: Json
+    required_domains: list[str]
+    approvals: list[Json]
+
+
+class TaskOut(Out):
+    id: str
+    change_set_id: str
+    target: Json
+    assignee_id: str
+    status: str
+    resolution: str | None = None
+    note: str | None = None
+    resolved_by: str | None = None
+    linked_metric_version_id: str | None = None
+    created_at: str
+    resolved_at: str | None = None
+
+
+class ChangeEventOut(Out):
+    id: str
+    kind: str
+    asset_id: str | None = None
+    asset: str | None = None
+    column: str | None = None
+    before: Json
+    after: Json
+
+
+class ChangeSetOut(Out):
+    id: str
+    run_id: str
+    datasource_id: str
+    status: str
+    summary: Json
+    created_at: str
+    effective_window: Json
+    events: list[ChangeEventOut] | None = None
+    impacts: list[ImpactOut] | None = None
+    tasks: list[TaskOut] | None = None
+
+
+# --- 问数、审计 --------------------------------------------------------------------
+
+class AnswerOut(Out):
+    id: str
+    question: str
+    asked_by: str
+    asked_at: str
+    status: str
+    message: str | None = None
+    error_code: str | None = None
+    model_adapter: str
+    intent: Json
+    plan: Json
+    sql: str | None = None
+    metric_version_ids: list[str]
+    result: Json
+    evidence: Json
+    freshness: Json
+    executed_at: str | None = None
+    duration_ms: int | None = None
+    cache_hit: bool
+    recheck_status: str | None = None
+    thread_id: str | None = None
+    steps: list[Json] = Field(default_factory=list)
+    explanation: str | None = None
+    explanation_source: str | None = None
+
+
+class ThreadOut(Out):
+    id: str
+    title: str
+    status: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class ThreadDetailOut(Out):
+    id: str
+    title: str
+    status: str
+    answers: list[AnswerOut]
+
+
+class AuditOut(Out):
+    id: str
+    at: str
+    actor_id: str | None = None
+    actor: str
+    action: str
+    object_type: str
+    object_id: str | None = None
+    detail: Json
+
+
+# --- 导入血缘 ---------------------------------------------------------------------
+
+class StatementOut(Out):
+    id: str
+    seq: int
+    lines: list[int]
+    method: str
+    statement_type: str | None = None
+    target: str | None = None
+    status: str
+    reason: str | None = None
+    placeholders: list[str]
+    raw_text: str
+    sql_text: str | None = None
+
+
+class CandidateOut(Out):
+    id: str
+    statement_id: str | None = None
+    origin: str
+    status: str
+    source: str
+    target: str
+    source_ref: str
+    source_column: str | None = None
+    target_ref: str
+    target_column: str | None = None
+    relation: str
+    expression: str | None = None
+    confidence: float | None = None
+    evidence: Json
+    lineage_edge_id: str | None = None
+    modified: Json
+    reason: str | None = None
+    decided_by: str | None = None
+
+
+class ImportJobOut(Out):
+    id: str
+    filename: str
+    language: str
+    source_type: str | None = None
+    datasource_id: str | None = None
+    default_db: str | None = None
+    status: str
+    params: Json = Field(default_factory=dict)
+    stats: Json
+    model_adapter: str | None = None
+    model_payload: list[Json] = Field(default_factory=list)
+    content_hash: str | None = None
+    created_at: str
+    statements: list[StatementOut] = Field(default_factory=list)
+    candidates: list[CandidateOut] = Field(default_factory=list)
+    duplicate: bool | None = None
+    content: str | None = None
+
+
+# --- 工作台 -----------------------------------------------------------------------
+
+class StageOut(Out):
+    key: str
+    label: str
+    value: str
+    unit: str
+    status: str
+    note: str
+
+
+class TodoOut(Out):
+    kind: str
+    status: str
+    title: str
+    meta: str
+    ref: str
+    link: str
+    at: str
+
+
+class WorkbenchOut(Out):
+    stages: list[StageOut]
+    todos: list[TodoOut]
+    my_metrics: list[Json]
+    blocked_answers: list[AnswerOut]
+    datasources: list[Json]
+    cadence: list[Json]
+    recent_changes: list[Json]

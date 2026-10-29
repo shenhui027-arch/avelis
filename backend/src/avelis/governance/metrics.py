@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -279,7 +279,8 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
     if version.joins and not version.dedupe_basis:
         warnings.append("涉及关联但未说明避免重复计数的依据")
     return {"ok": not blockers, "blockers": blockers, "warnings": warnings, "joins": joins_report,
-            "base_grains": base_grains, "dependency": resolved["dependency"], "checked_at": utcnow().isoformat(),
+            "base_grains": base_grains, "dependency": resolved["dependency"],
+            "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
             "fingerprints": len(fps)}
 
 

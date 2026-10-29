@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.api import schemas as S
 from avelis.api.catalog import qualified
 from avelis.api.deps import current_user, get_session
 from avelis.governance import access, changes, joins, metrics
@@ -110,24 +111,24 @@ def _visible_metric(session: Session, user: User, metric_id: str) -> Metric:
     return metric
 
 
-@router.get("/metrics")
+@router.get("/metrics", response_model=list[S.MetricOut])
 def list_metrics(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [metric_view(session, m) for m in metrics.visible_metrics(session, user)]
 
 
-@router.post("/metrics", status_code=201)
+@router.post("/metrics", status_code=201, response_model=S.MetricOut)
 def create_metric(body: MetricCreate, user: User = Depends(current_user), session: Session = Depends(get_session)):
     m = metrics.create_metric(session, user, code=body.code, name=body.name, domain_id=body.domain_id,
                               owner_id=body.owner_id, aliases=body.aliases)
     return metric_view(session, m)
 
 
-@router.get("/metrics/{metric_id}")
+@router.get("/metrics/{metric_id}", response_model=S.MetricOut)
 def get_metric(metric_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return metric_view(session, _visible_metric(session, user, metric_id))
 
 
-@router.post("/metrics/{metric_id}/versions", status_code=201)
+@router.post("/metrics/{metric_id}/versions", status_code=201, response_model=S.MetricVersionOut)
 def create_version(metric_id: str, body: VersionSpec, user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> dict:
     metric = _visible_metric(session, user, metric_id)
@@ -140,25 +141,25 @@ def _visible_version(session: Session, user: User, version_id: str) -> MetricVer
     return version
 
 
-@router.get("/metric-versions/{version_id}")
+@router.get("/metric-versions/{version_id}", response_model=S.MetricVersionOut)
 def get_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     return version_view(session, _visible_version(session, user, version_id))
 
 
-@router.put("/metric-versions/{version_id}")
+@router.put("/metric-versions/{version_id}", response_model=S.MetricVersionOut)
 def update_version(version_id: str, body: VersionSpec, user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> dict:
     version = _visible_version(session, user, version_id)
     return version_view(session, metrics.update_draft(session, user, version, body.as_spec()))
 
 
-@router.post("/metric-versions/{version_id}/check")
+@router.post("/metric-versions/{version_id}/check", response_model=S.PublishCheckOut)
 def check_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """发布前检查（不改变状态）。"""
     return metrics.publish_check(session, _visible_version(session, user, version_id))
 
 
-@router.post("/metric-versions/{version_id}/submit")
+@router.post("/metric-versions/{version_id}/submit", response_model=S.MetricVersionOut)
 def submit_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     version = _visible_version(session, user, version_id)
     try:
@@ -169,14 +170,14 @@ def submit_version(version_id: str, user: User = Depends(current_user), session:
     return version_view(session, version)
 
 
-@router.post("/metric-versions/{version_id}/approve")
+@router.post("/metric-versions/{version_id}/approve", response_model=S.MetricVersionOut)
 def approve_version(version_id: str, body: Note, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> dict:
     version = _visible_version(session, user, version_id)
     return version_view(session, metrics.approve(session, user, version, body.note))
 
 
-@router.post("/metric-versions/{version_id}/reject")
+@router.post("/metric-versions/{version_id}/reject", response_model=S.MetricVersionOut)
 def reject_version(version_id: str, body: Note, user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> dict:
     if not body.note:
@@ -185,7 +186,7 @@ def reject_version(version_id: str, body: Note, user: User = Depends(current_use
     return version_view(session, metrics.reject(session, user, version, body.note))
 
 
-@router.post("/metric-versions/{version_id}/archive")
+@router.post("/metric-versions/{version_id}/archive", response_model=S.MetricVersionOut)
 def archive_version(version_id: str, body: Note, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> dict:
     version = _visible_version(session, user, version_id)
@@ -225,19 +226,19 @@ def join_path_view(session: Session, path: JoinPath) -> dict:
                            "at": a.at.isoformat()} for a in approvals]}
 
 
-@router.get("/join-paths")
+@router.get("/join-paths", response_model=list[S.JoinPathOut])
 def list_join_paths(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [join_path_view(session, p) for p in session.scalars(select(JoinPath).order_by(JoinPath.code))]
 
 
-@router.post("/join-paths", status_code=201)
+@router.post("/join-paths", status_code=201, response_model=S.JoinPathOut)
 def create_join_path(body: JoinPathCreate, user: User = Depends(current_user),
                      session: Session = Depends(get_session)) -> dict:
     path = joins.create(session, user, **body.model_dump())
     return join_path_view(session, path)
 
 
-@router.post("/join-paths/{path_id}/decisions")
+@router.post("/join-paths/{path_id}/decisions", response_model=S.JoinPathOut)
 def decide_join_path(path_id: str, body: Decision, user: User = Depends(current_user),
                      session: Session = Depends(get_session)) -> dict:
     path = joins.path_or_404(session, path_id)
@@ -286,7 +287,7 @@ def change_set_view(session: Session, cs: ChangeSet, full: bool) -> dict:
     return data
 
 
-@router.get("/change-sets")
+@router.get("/change-sets", response_model=list[S.ChangeSetOut])
 def list_change_sets(status: str | None = None, user: User = Depends(current_user),
                      session: Session = Depends(get_session)) -> list[dict]:
     stmt = select(ChangeSet).order_by(ChangeSet.created_at.desc()).limit(100)
@@ -295,7 +296,7 @@ def list_change_sets(status: str | None = None, user: User = Depends(current_use
     return [change_set_view(session, cs, full=False) for cs in session.scalars(stmt)]
 
 
-@router.get("/change-sets/{change_set_id}")
+@router.get("/change-sets/{change_set_id}", response_model=S.ChangeSetOut)
 def get_change_set(change_set_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     cs = session.get(ChangeSet, change_set_id)
     if cs is None:
@@ -303,7 +304,7 @@ def get_change_set(change_set_id: str, user: User = Depends(current_user), sessi
     return change_set_view(session, cs, full=True)
 
 
-@router.get("/review-tasks")
+@router.get("/review-tasks", response_model=list[S.TaskOut])
 def list_tasks(mine: bool = True, status: str | None = "open", user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> list[dict]:
     stmt = select(ReviewTask).order_by(ReviewTask.created_at.desc())
@@ -320,7 +321,7 @@ class Resolve(BaseModel):
     linked_metric_version_id: str | None = None
 
 
-@router.post("/review-tasks/{task_id}/resolve")
+@router.post("/review-tasks/{task_id}/resolve", response_model=S.TaskOut)
 def resolve_task(task_id: str, body: Resolve, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict:
     task = changes.task_or_404(session, task_id)

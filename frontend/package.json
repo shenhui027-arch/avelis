@@ -12,7 +12,9 @@
     "gen:api": "cd ../backend && uv run python -m avelis.bootstrap openapi ../frontend/src/api/openapi.json && cd ../frontend && openapi-typescript src/api/openapi.json -o src/api/schema.d.ts --default-non-nullable false"
   },
   "dependencies": {
+    "@dagrejs/dagre": "3.1.1",
     "@tanstack/react-query": "5.104.2",
+    "@xyflow/react": "12.12.0",
     "openapi-fetch": "0.17.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",

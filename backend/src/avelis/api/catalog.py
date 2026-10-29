@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis import audit
+from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.collect.service import current_fingerprints
 from avelis.connectors import query_connector
@@ -59,12 +60,12 @@ def domain_view(session: Session, d: Domain) -> dict:
             "members": [{"user_id": u, "role": r, "username": n, "display_name": dn} for u, r, n, dn in members]}
 
 
-@router.get("/domains")
+@router.get("/domains", response_model=list[S.DomainOut])
 def list_domains(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [domain_view(session, d) for d in session.scalars(select(Domain).order_by(Domain.code))]
 
 
-@router.post("/domains", status_code=201)
+@router.post("/domains", status_code=201, response_model=S.DomainOut)
 def create_domain(body: DomainCreate, user: User = Depends(current_user), session: Session = Depends(get_session)):
     access.require_role(session, user, "admin")
     if session.scalar(select(Domain.id).where(Domain.code == body.code)):
@@ -80,7 +81,7 @@ def create_domain(body: DomainCreate, user: User = Depends(current_user), sessio
     return domain_view(session, d)
 
 
-@router.put("/domains/{domain_id}/members")
+@router.put("/domains/{domain_id}/members", response_model=S.DomainOut)
 def set_member(domain_id: str, body: MemberSet, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     d = session.get(Domain, domain_id) or _404("业务域不存在")
@@ -113,7 +114,7 @@ def asset_summary(session: Session, a: Asset) -> dict:
             "deleted_at": a.deleted_at.isoformat() if a.deleted_at else None}
 
 
-@router.get("/assets")
+@router.get("/assets", response_model=list[S.AssetOut])
 def list_assets(datasource_id: str | None = None, domain_id: str | None = None, q: str | None = None,
                 include_deleted: bool = False, user: User = Depends(current_user),
                 session: Session = Depends(get_session)) -> list[dict]:
@@ -142,7 +143,7 @@ def readable_asset(session: Session, user: User, asset_id: str) -> Asset:
     return a
 
 
-@router.get("/assets/{asset_id}")
+@router.get("/assets/{asset_id}", response_model=S.AssetDetailOut)
 def asset_detail(asset_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     a = readable_asset(session, user, asset_id)
     fps = current_fingerprints(session)
@@ -213,7 +214,7 @@ class AssetPatch(BaseModel):
     domain_id: str | None
 
 
-@router.patch("/assets/{asset_id}")
+@router.patch("/assets/{asset_id}", response_model=S.AssetOut)
 def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
@@ -258,7 +259,7 @@ def declare_grain(asset_id: str, body: GrainDeclare, user: User = Depends(curren
     return {"id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status}
 
 
-@router.post("/grains/{grain_id}/verify")
+@router.post("/grains/{grain_id}/verify", response_model=S.GrainOut)
 def verify_grain(grain_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """只读核验唯一性：GROUP BY 键 HAVING COUNT(*) > 1 LIMIT 1，带超时；超时记为“未核验”。"""
     g = session.get(Grain, grain_id) or _404("粒度不存在")
@@ -286,7 +287,8 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     g.verified_at = utcnow()
     g.verify_detail = detail
     audit.record(session, user, "grain.verify", "asset", a.id, grain_id=g.id, status=g.status)
-    return {"id": g.id, "columns": g.columns, "status": g.status, "verify_detail": detail}
+    return {"id": g.id, "grain_id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status,
+            "verify_detail": detail}
 
 
 # --- 人工确认 ---------------------------------------------------------------------
@@ -317,7 +319,7 @@ def confirm_column(asset_id: str, column: str, body: ConfirmBody, user: User = D
 
 # --- 血缘 -------------------------------------------------------------------------
 
-@router.get("/lineage/graph")
+@router.get("/lineage/graph", response_model=S.GraphOut)
 def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔；多个域会串联显示"),
                   asset_id: str | None = None, user: User = Depends(current_user),
                   session: Session = Depends(get_session)) -> dict:
