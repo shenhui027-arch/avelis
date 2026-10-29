@@ -69,7 +69,7 @@ def test_02_repeated_failures_lock_login(stack, admin: Api):
     locked = login(client, "zhou", "Brand-new-2026")  # 口令正确也拒绝
     assert locked.status_code == 429 and int(locked.headers["Retry-After"]) > 0
     # 不透露账号是否存在：不存在的用户名同样计数、同样提示
-    assert login(client, "ghost", "x").json()["detail"].startswith("用户名或口令错误")
+    assert login(client, "ghost", "x").json()["detail"].startswith("用户名或密码错误")
     actions = [e["action"] for e in admin.get("/api/audit", params={"limit": 20})]
     assert "auth.login_locked" in actions and actions.count("auth.login_failed") >= 5
     keys = list(cache.client().scan_iter("avelis:login-fail:*"))

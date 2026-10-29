@@ -83,7 +83,7 @@ def ec_dataset_loaded() -> bool:
 def setup(reset: bool, metrics: bool = False, ec: bool | None = False) -> None:
     """ec：是否接入合成电商数据集；None 表示已灌入就接入（命令行默认）。验收默认不接入，避免改变既有用例的数据源与资产。"""
     from avelis.api.app import create_app
-    from avelis.bootstrap import ensure_admin
+    from avelis.bootstrap import AUTOMATION_ADMIN, ensure_admin
 
     if reset:
         reset_demo()
@@ -91,7 +91,7 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False) -> None:
     env = get_settings().env
     password = env["AVELIS_DEMO_USER_PASSWORD"]
     client = TestClient(create_app())
-    admin = _Api(client, "admin", password)
+    admin = _Api(client, AUTOMATION_ADMIN, password)
 
     existing = {u["username"]: u["id"] for u in admin("GET", "/api/users")}
     for username, (name, roles) in USERS.items():
@@ -157,7 +157,7 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False) -> None:
         _setup_ec(client, admin, password, existing, env, metrics)
     assets = admin("GET", "/api/assets")
     print(f"演示环境已就绪：{len(existing)} 个用户、{len(admin('GET', '/api/domains'))} 个业务域、"
-          f"{len(admin('GET', '/api/datasources'))} 个数据源、{len(assets)} 个资产（口令未打印）")
+          f"{len(admin('GET', '/api/datasources'))} 个数据源、{len(assets)} 个资产（密码未打印）")
     client.close()
 
 

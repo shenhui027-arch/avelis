@@ -83,7 +83,7 @@ function UserMenu() {
           </div>
           <button type="button" role="menuitem" className="av-menu__item"
             onClick={() => { setOpen(false); navigate("/account/password"); }}>
-            <Icon name="lock" />修改口令
+            <Icon name="lock" />修改密码
           </button>
           <button type="button" role="menuitem" className="av-menu__item"
             onClick={async () => {
@@ -107,7 +107,7 @@ export function Shell() {
   const settings = useAppSettings();
   const sources = useDatasources();
   if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
-  // 首次登录或口令被重置：先设置新口令
+  // 首次登录或密码被重置：先设置新密码
   if (me.data?.must_change_password) return <Navigate to="/account/password" replace state={{ from: location.pathname }} />;
   const crumbs = CRUMBS.find(([re]) => re.test(location.pathname))?.[1] ?? [];
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
