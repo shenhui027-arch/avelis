@@ -2306,6 +2306,440 @@
     }
    }
   },
+  "/api/change-events": {
+   "get": {
+    "tags": [
+     "变更留底"
+    ],
+    "summary": "List Change Events",
+    "operationId": "list_change_events_api_change_events_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasource Id"
+      }
+     },
+     {
+      "name": "asset_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "column",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Column"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "变更类型，逗号分隔",
+       "title": "Kind"
+      },
+      "description": "变更类型，逗号分隔"
+     },
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "发现时间下限（含）；不带时区按 UTC",
+       "title": "Since"
+      },
+      "description": "发现时间下限（含）；不带时区按 UTC"
+     },
+     {
+      "name": "until",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "发现时间上限（不含）；不带时区按 UTC",
+       "title": "Until"
+      },
+      "description": "发现时间上限（不含）；不带时区按 UTC"
+     },
+     {
+      "name": "actor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "数据库用户",
+       "title": "Actor"
+      },
+      "description": "数据库用户"
+     },
+     {
+      "name": "attribution_status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "归因结论，逗号分隔",
+       "title": "Attribution Status"
+      },
+      "description": "归因结论，逗号分隔"
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChangeEventPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/change-events/export": {
+   "get": {
+    "tags": [
+     "变更留底"
+    ],
+    "summary": "Export Change Events",
+    "operationId": "export_change_events_api_change_events_export_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "format",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "csv",
+        "json"
+       ],
+       "type": "string",
+       "default": "csv",
+       "title": "Format"
+      }
+     },
+     {
+      "name": "datasource_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasource Id"
+      }
+     },
+     {
+      "name": "asset_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "column",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Column"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Since"
+      }
+     },
+     {
+      "name": "until",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Until"
+      }
+     },
+     {
+      "name": "actor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Actor"
+      }
+     },
+     {
+      "name": "attribution_status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Attribution Status"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/history/verify": {
+   "get": {
+    "tags": [
+     "变更留底"
+    ],
+    "summary": "Verify History",
+    "description": "核验哈希链（管理员）。在独立的 REPEATABLE READ 事务中读同一快照；只读，不修复。",
+    "operationId": "verify_history_api_history_verify_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HistoryVerifyOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/history/status": {
+   "get": {
+    "tags": [
+     "变更留底"
+    ],
+    "summary": "History Status",
+    "operationId": "history_status_api_history_status_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HistoryStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/ask": {
    "post": {
     "tags": [
@@ -4343,6 +4777,52 @@
     ],
     "title": "CandidateOut"
    },
+   "ChainIssueOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "seq": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Seq"
+     },
+     "table": {
+      "type": "string",
+      "title": "Table"
+     },
+     "row_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Row Id"
+     },
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "kind",
+     "table",
+     "detail"
+    ],
+    "title": "ChainIssueOut"
+   },
    "ChangeEventOut": {
     "properties": {
      "id": {
@@ -4395,6 +4875,33 @@
       "additionalProperties": true,
       "type": "object",
       "title": "After"
+     },
+     "actor_db_user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Actor Db User"
+     },
+     "attribution_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Attribution Status"
+     },
+     "attribution": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Attribution"
      }
     },
     "additionalProperties": true,
@@ -4406,6 +4913,185 @@
      "after"
     ],
     "title": "ChangeEventOut"
+   },
+   "ChangeEventPage": {
+    "properties": {
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/ChangeRecordOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "actors": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Actors"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "total",
+     "limit",
+     "offset",
+     "items",
+     "actors"
+    ],
+    "title": "ChangeEventPage"
+   },
+   "ChangeRecordOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "asset": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     },
+     "before": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Before"
+     },
+     "after": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "After"
+     },
+     "actor_db_user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Actor Db User"
+     },
+     "attribution_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Attribution Status"
+     },
+     "attribution": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Attribution"
+     },
+     "change_set_id": {
+      "type": "string",
+      "title": "Change Set Id"
+     },
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "datasource": {
+      "type": "string",
+      "title": "Datasource"
+     },
+     "detected_at": {
+      "type": "string",
+      "title": "Detected At"
+     },
+     "window": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Window"
+     },
+     "chain_seq": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chain Seq"
+     },
+     "row_hash": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Row Hash"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "before",
+     "after",
+     "change_set_id",
+     "datasource_id",
+     "datasource",
+     "detected_at",
+     "window"
+    ],
+    "title": "ChangeRecordOut"
    },
    "ChangeSetOut": {
     "properties": {
@@ -5985,6 +6671,135 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "HistoryStatusOut": {
+    "properties": {
+     "retention_days": {
+      "type": "integer",
+      "title": "Retention Days"
+     },
+     "purge_interval_hours": {
+      "type": "integer",
+      "title": "Purge Interval Hours"
+     },
+     "export_max_rows": {
+      "type": "integer",
+      "title": "Export Max Rows"
+     },
+     "chain_head": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chain Head"
+     },
+     "last_purge": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Purge"
+     },
+     "anchors": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Anchors"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "retention_days",
+     "purge_interval_hours",
+     "export_max_rows",
+     "anchors"
+    ],
+    "title": "HistoryStatusOut"
+   },
+   "HistoryVerifyOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "verified_at": {
+      "type": "string",
+      "title": "Verified At"
+     },
+     "checked_rows": {
+      "type": "integer",
+      "title": "Checked Rows"
+     },
+     "tables": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Tables"
+     },
+     "head": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Head"
+     },
+     "first_break": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChainIssueOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "issue_count": {
+      "type": "integer",
+      "title": "Issue Count"
+     },
+     "issues": {
+      "items": {
+       "$ref": "#/components/schemas/ChainIssueOut"
+      },
+      "type": "array",
+      "title": "Issues"
+     },
+     "anchors": {
+      "type": "integer",
+      "title": "Anchors"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ok",
+     "verified_at",
+     "checked_rows",
+     "tables",
+     "issue_count",
+     "issues",
+     "anchors"
+    ],
+    "title": "HistoryVerifyOut"
    },
    "ImpactOut": {
     "properties": {

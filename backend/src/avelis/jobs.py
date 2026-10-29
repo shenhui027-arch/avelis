@@ -4,6 +4,7 @@ Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务�
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
+保留期清理：worker 每 AVELIS_HISTORY_PURGE_INTERVAL_HOURS 小时清理一次超期历史（ADR 0008）。
 """
 
 from __future__ import annotations
@@ -118,6 +119,19 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     return ids
 
 
+def purge_history_if_due() -> None:
+    from avelis.history import retention
+
+    try:
+        if retention.purge_due():
+            result = retention.purge()
+            log.info("保留期清理：%s", {k: result.get(k) for k in ("status", "cutoff", "counts")})
+    except retention.PurgeRefused as exc:
+        log.error("历史哈希链核验未通过，未清理：%s", exc.report["first_break"])
+    except Exception:  # noqa: BLE001 - 清理失败不影响采集
+        log.exception("保留期清理失败")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
@@ -137,6 +151,7 @@ def main() -> None:
             abandoned_jobs()
             for job_id in schedule_due() + stale_jobs():
                 run_job(job_id)
+            purge_history_if_due()
         try:
             item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
         except Exception:

@@ -21,7 +21,8 @@ QUERY = "query"  # 用只读账号执行已校验的 SELECT（问数、粒度核
 EXTERNAL_TABLES = "external_tables"  # 外部表 / Catalog 表，可追到另一个数据源的真实表
 IDENTITY_TARGET = "identity_target"  # 能作为外部表的追溯目标（有实例身份，如 server_uuid）
 LIVE_CHECK = "live_check"  # 执行前用只读账号核对来源对象的列与视图定义是否与上次采集一致
-CAPABILITIES = (METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES, IDENTITY_TARGET, LIVE_CHECK)
+DDL_AUDIT = "ddl_audit"  # 采集账号可读数据库的 DDL 审计来源，变更可归因到数据库用户（ADR 0008）
+CAPABILITIES = (METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES, IDENTITY_TARGET, LIVE_CHECK, DDL_AUDIT)
 
 CollectorFactory = Callable[[str, int, str, str, dict[str, Any]], Connector]
 QuerierFactory = Callable[[str, int, str, str, dict[str, Any]], QueryConnector]
@@ -90,4 +91,4 @@ class CapabilityMissing(Exception):
 
 CAPABILITY_LABEL = {METADATA: "元数据采集", VIEW_LINEAGE: "视图血缘解析", QUERY: "问数执行",
                     EXTERNAL_TABLES: "外部表追溯", IDENTITY_TARGET: "作为外部表的追溯目标",
-                    LIVE_CHECK: "执行前核对来源结构"}
+                    LIVE_CHECK: "执行前核对来源结构", DDL_AUDIT: "DDL 审计归因"}

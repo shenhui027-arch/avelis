@@ -12,15 +12,21 @@
   （query timeout 为超时，Access denied / command denied 为权限，Unknown column / does not exist 为对象无法解析）。
 - 查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV（执行前核对要读视图定义）。
 - 数据新鲜度：information_schema.tables.UPDATE_TIME（写入后更新，Doris 会话时区）。
+- DDL 审计（ADR 0008）：__internal_schema.audit_log（4.1 默认 enable_audit_plugin = true）中 state = OK、
+  stmt_type ∈ {CREATE, ALTER, DROP} 的记录。DDL 的 queried_tables_and_views 为空，对象从语句中解析。
+  采集账号需该表的 SELECT_PRIV。审计批量写入，最长延迟 audit_plugin_max_batch_interval_sec（默认 60 秒）。
+  时间按会话时区换算（与 FE 写入审计时的时区一致时准确）。
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import pymysql
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent, objects_in
 from avelis.connectors.starrocks import IDENT, _checked, _in_list
 
 INTERNAL_CATALOG = "internal"
@@ -31,6 +37,10 @@ class DorisConnector:
     kind = "doris"
     dialect = "doris"
     is_test_adapter = False
+    ddl_audit_source = "doris:__internal_schema.audit_log"
+    ddl_identifier_fold = "insensitive"  # 列名不区分大小写；库表名按语句写法精确匹配
+    # 重 schema change（如改类型）是异步作业，语句时间早于生效时间：上次快照前这么久的 ALTER 也算边界候选
+    ddl_effect_lag_seconds = 300
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self._conn_args = dict(host=host, port=port, user=user, password=password)
@@ -141,6 +151,32 @@ class DorisConnector:
         return {(r["TABLE_SCHEMA"], r["TABLE_NAME"]): r["VIEW_DEFINITION"] for r in cur.fetchall()
                 if r["VIEW_DEFINITION"]}
 
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
+        databases = set(self.options.get("databases", []))
+        conn = self._connect(read_timeout=60)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT @@enable_audit_plugin AS enabled")
+            if str((cur.fetchone() or {}).get("enabled")).lower() not in ("1", "true"):
+                raise AuditUnavailable("enable_audit_plugin = false：Doris 未写入内置审计表", "not_enabled")
+            cur.execute("SELECT UNIX_TIMESTAMP(`time`) AS ts, `user`, db, stmt_type, stmt "
+                        "FROM __internal_schema.audit_log WHERE `time` >= FROM_UNIXTIME(%s) "
+                        "AND `time` <= FROM_UNIXTIME(%s) AND state = 'OK' AND stmt_type IN ('CREATE', 'ALTER', 'DROP') "
+                        "ORDER BY `time`", (_epoch(since), _epoch(until)))
+            rows = cur.fetchall()
+        except pymysql.MySQLError as exc:
+            raise AuditUnavailable(_query_error(exc).message, _audit_cause(exc)) from exc
+        finally:
+            conn.close()
+        events = []
+        for r in rows:
+            objects = [o for o in objects_in(r["stmt"] or "", r["db"] or None) if not databases or o[0] in databases]
+            if objects:
+                events.append(DdlEvent(at=datetime.fromtimestamp(float(r["ts"]), tz=timezone.utc).replace(tzinfo=None),
+                                       db_user=r["user"], objects=objects, statement_type=r["stmt_type"],
+                                       statement=r["stmt"] or "", may_lag=r["stmt_type"] == "ALTER"))
+        return events
+
     # --- 只读执行 ------------------------------------------------------------------
 
     def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int) -> QueryResult:
@@ -207,6 +243,21 @@ class DorisConnector:
             r = found.get(f"{d}.{n}")
             out[f"{d}.{n}"] = str(r["UPDATE_TIME"]) if r and r["TABLE_TYPE"] == "BASE TABLE" and r["UPDATE_TIME"] else None
         return out
+
+
+def _audit_cause(exc: pymysql.MySQLError) -> str:
+    text = (str(exc.args[-1]) if exc.args else str(exc)).lower()
+    if "access denied" in text or "command denied" in text:
+        return "no_permission"
+    if "unknown column" in text:
+        return "incompatible"
+    if "unknown table" in text or "does not exist" in text or "unknown database" in text:
+        return "not_enabled"
+    return "error"
+
+
+def _epoch(at: datetime) -> int:
+    return int(at.replace(tzinfo=timezone.utc).timestamp())
 
 
 def _query_error(exc: pymysql.MySQLError) -> QueryError:
