@@ -35,7 +35,8 @@ import pymysql
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "deploy" / "demo"
-ENV_FILE = Path(os.environ.get("AVELIS_ENV_FILE", ROOT / ".env"))
+# AVELIS_ENV_FILE 的相对路径按仓库根目录解析（与后端 config.env_file 一致），子进程在任何工作目录下读到同一个文件
+ENV_FILE = ROOT / Path(os.environ.get("AVELIS_ENV_FILE") or ".env")
 ENV_EXAMPLE = ROOT / ".env.example"
 STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"

@@ -28,7 +28,7 @@ AVELIS_META_BACKEND=mysql uv run pytest -m acceptance
 
 | 账号 | 角色 |
 |---|---|
-| admin | 管理员 |
+| admin | 管理员（M1 时的约定；现在脚本使用 `ops_admin`，见 README） |
 | zhang | 交易域负责人 |
 | zhao | 商品域负责人 |
 | li | 复核者 |
