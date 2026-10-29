@@ -6,6 +6,7 @@
 - 连接器没有给出物理 ID 的对象（StarRocks 视图、外部表、Catalog 表）：按“Catalog + 库 + 名称 + 类型”匹配；
   名称变化只记为“改名候选”。
 重复采集幂等：内容哈希不变只更新 last_seen，不产生新版本、不产生变更。
+变更事件在写入前按数据库的 DDL 审计记录归因到数据库用户（avelis.collect.attribution，ADR 0008）。
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit
+from avelis.collect.attribution import Window, attribute
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
 from avelis.engines import collect_connector, dialect_of, engine_of
@@ -57,6 +59,10 @@ class RunContext:
     new_versions: list[AssetVersion] = field(default_factory=list)
     stats: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     touched: set[str] = field(default_factory=set)  # 本次出现新身份的对象（新增或同名重建；catalog.db.name）
+    connector: Any = None  # 采集连接器：归因时读 DDL 审计来源
+    snapshot_window: tuple[datetime, datetime] | None = None  # 本次读快照的开始、结束（归因窗口的边界）
+    audit_cursor: dict[str, Any] | None = None  # 连接器在快照里记下的审计游标（如 PostgreSQL 事务快照）
+    identity_changed: bool = False  # 本次与上次不是同一个实例：游标不可比，本轮不归因
 
     def event(self, kind: str, asset_id: str | None, column: str | None = None, before=None, after=None) -> None:
         self.events.append({"kind": kind, "asset_id": asset_id, "column_name": column,
@@ -88,12 +94,19 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             run = session.get(CollectionRun, run_id)
             actor = session.get(User, actor_id) if actor_id else None
             connector = collect_connector(session, ds)
+            snapshot_started = utcnow()
             snapshot = connector.snapshot()
-            ctx = RunContext(run, dialect_of(ds))
+            # 游标与实例身份绑定：切换实例后旧游标不能用来解释新实例的事务号。连接器给出了实例键时以它为准
+            cursor = ({"instance": _identity_key(snapshot.server_identity or {}), **snapshot.audit_cursor}
+                      if snapshot.audit_cursor else None)
+            ctx = RunContext(run, dialect_of(ds), connector=connector, snapshot_window=(snapshot_started, utcnow()),
+                             audit_cursor=cursor)
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
-            run.stats = {**dict(ctx.stats), "warnings": snapshot.warnings}
+            run.stats = {**dict(ctx.stats), "warnings": snapshot.warnings,
+                         "snapshot_window": [t.isoformat() for t in ctx.snapshot_window],
+                         **({"audit_cursor": ctx.audit_cursor} if ctx.audit_cursor else {})}
             audit.record(session, actor, "collect", "datasource", ds.id, run_id=run.id, trigger=trigger,
                          stats=run.stats)
     except Exception as exc:  # 记录失败原因（不含口令：连接器异常只含库返回的错误）
@@ -117,6 +130,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
     new_generation = bool(old_identity.get("instance_id") and new_identity.get("instance_id")
                           and old_identity["instance_id"] != new_identity["instance_id"])
     if old_identity and _identity_key(old_identity) != _identity_key(new_identity):
+        ctx.identity_changed = True
         ctx.event("server_identity_changed", None, before=old_identity,
                   after={**new_identity, "new_generation": new_generation})
     ds.server_identity = new_identity
@@ -191,15 +205,36 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
         from avelis.governance.changes import analyze_change_set  # 避免循环导入
 
         previous = session.get(CollectionRun, run.previous_run_id) if run.previous_run_id else None
+        audit_window = attribute(session, engine_of(ds), ctx.connector, ctx.events, _audit_window(previous, ctx))
         change_set = ChangeSet(run_id=run.id, datasource_id=ds.id, status="open",
                                window_start=previous.finished_at if previous else None, window_end=now,
-                               summary={k: v for k, v in ctx.stats.items() if k.startswith("event:")})
+                               summary={**{k: v for k, v in ctx.stats.items() if k.startswith("event:")},
+                                        "ddl_audit": audit_window})
         session.add(change_set)
         session.flush()
         for e in ctx.events:
             session.add(ChangeEvent(change_set_id=change_set.id, **e))
         session.flush()
         analyze_change_set(session, change_set, fp_changes)
+
+
+def _audit_window(previous: CollectionRun | None, ctx: RunContext) -> Window | None:
+    """归因窗口：上次与本次读快照的时间。旧的采集记录没有快照时间时，用开始与结束时间（更宽，边界候选更多）。"""
+    if previous is None:
+        return None
+    stats = previous.stats or {}
+    try:
+        p_start, p_done = (datetime.fromisoformat(t) for t in stats["snapshot_window"])
+    except (KeyError, TypeError, ValueError):
+        p_start = previous.started_at.replace(tzinfo=None)
+        p_done = (previous.finished_at or previous.started_at).replace(tzinfo=None)
+    c_start, c_done = ctx.snapshot_window or (utcnow(), utcnow())
+    p_cursor, c_cursor = stats.get("audit_cursor"), ctx.audit_cursor
+    # 两次游标的实例不同，或任一方无法确认实例：按实例已切换处理
+    changed = ctx.identity_changed or bool(p_cursor and c_cursor and (
+        p_cursor.get("instance") is None or p_cursor.get("instance") != c_cursor.get("instance")))
+    return Window(p_start, p_done, c_start, c_done, previous_cursor=p_cursor, current_cursor=c_cursor,
+                  instance_changed=changed)
 
 
 def _identity_key(identity: dict[str, Any]) -> Any:
@@ -289,11 +324,14 @@ def _diff_versions(session: Session, asset: Asset, old: AssetVersion, new: Asset
         ctx.event("column_removed", asset.id, name, before={"data_type": old_cols[name].data_type})
     for name in added:
         ctx.event("column_added", asset.id, name, after={"data_type": new_cols[name].data_type})
-    for name in set(old_cols) & set(new_cols):
+    for name in sorted(set(old_cols) & set(new_cols)):
         if old_cols[name].data_type != new_cols[name].data_type or old_cols[name].nullable != new_cols[name].nullable:
             ctx.event("column_type_changed", asset.id, name,
                       before={"data_type": old_cols[name].data_type, "nullable": old_cols[name].nullable},
                       after={"data_type": new_cols[name].data_type, "nullable": new_cols[name].nullable})
+        if (old_cols[name].comment or None) != (new_cols[name].comment or None):
+            ctx.event("column_comment_changed", asset.id, name, before={"comment": old_cols[name].comment},
+                      after={"comment": new_cols[name].comment})
     for r in removed:
         for a in added:
             if old_cols[r].data_type == new_cols[a].data_type and old_cols[r].ordinal == new_cols[a].ordinal:
