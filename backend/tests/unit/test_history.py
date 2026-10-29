@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from avelis.collect.attribution import attribute
+from avelis.collect.attribution import attribute, unavailable_cause
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent, mentions_column, objects_in, redefines, summarize
 from avelis.engines import get_engine
 from avelis.history import integrity
@@ -110,6 +110,11 @@ def test_attribution_unknown_reasons():
     assert events[0]["attribution_status"] == "unavailable"
     assert "permission denied" in events[0]["attribution"]["reason"]
     assert events[1]["attribution_status"] == "not_applicable"
+    assert events[0]["attribution"]["cause"] == "no_permission" and "无权读取" in events[0]["attribution"]["reason"]
+    assert unavailable_cause('relation "avelis_audit.ddl_event" does not exist')[0] == "not_enabled"
+    assert unavailable_cause("Code: 60. DB::Exception: Unknown table expression identifier")[0] == "not_enabled"
+    assert unavailable_cause("Code: 497. DB::Exception: avelis_collector: Not enough privileges")[0] == "no_permission"
+    assert unavailable_cause("errCode = 2, detailMessage = Access denied for user")[0] == "no_permission"
 
     events = [_event("column_added", "c")]
     _attribute(events, _Connector(error=ConnectionError("refused")))

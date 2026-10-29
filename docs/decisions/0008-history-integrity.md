@@ -60,6 +60,7 @@ ddl_events(since: datetime, until: datetime) -> list[DdlEvent]
   - `ambiguous`：候选来自多个用户 → `actor` 为空，列出全部候选用户和语句，由人判断；
   - `unmatched`：窗口内没有该对象的审计记录 → `actor` 为空，说明原因（例如审计日志尚未落盘、改动发生在审计开启之前）。
 - 另有三种“无法归因”：`unsupported`（引擎未接入审计来源）、`unavailable`（声明了能力但本次读取失败，附报错）、`not_applicable`（推导出的变化，如字段推导变化、上游缺失、身份映射变化，不是对该对象执行的 DDL）。
+- `unavailable` 按报错细分原因 `cause`：`no_permission`（采集账号无权读取 DDL 审计）、`not_enabled`（数据源未开启 DDL 审计，审计来源不存在）、`error`（其他）。是否开启审计、是否给采集账号授权由数据源方负责（用户决定，2026-10-30）：产品只如实说明该功能不可用及原因，不做兜底或变通。
 
 变更事件新增三列，在插入时写定，之后不再修改：
 

@@ -25,10 +25,14 @@ const ATTRIBUTION: { [status: string]: [("ok" | "warn" | "danger" | "info" | "")
   unavailable: ["danger", "未知 · 审计不可读"], unsupported: ["", "未知 · 未接入审计"], not_applicable: ["", "—"],
 };
 
+const CAUSE: { [cause: string]: string } = { no_permission: "未知 · 无权读审计", not_enabled: "未知 · 未开启审计" };
+
 /** 变更事件的数据库用户：只有匹配上唯一用户时显示用户名，其余如实写“未知”并给出原因。 */
 export function Actor({ e }: { e: { actor_db_user?: string | null; attribution_status?: string | null; attribution?: { [k: string]: unknown } } }) {
   const status = e.attribution_status ?? "unsupported";
-  const [tone, label] = ATTRIBUTION[status] ?? ["", status];
+  const cause = String(e.attribution?.cause ?? "");
+  const [tone, base] = ATTRIBUTION[status] ?? ["", status];
+  const label = status === "unavailable" && cause in CAUSE ? CAUSE[cause] : base;
   const reason = String(e.attribution?.reason ?? "");
   if (status === "matched") {
     return <span className="av-mono" title={reason}>{e.actor_db_user}</span>;

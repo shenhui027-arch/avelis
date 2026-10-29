@@ -157,6 +157,7 @@ def test_01_postgres_attribution(ctx, admin: Api):
             conn.execute("GRANT SELECT ON avelis_audit.ddl_event TO avelis_collector")
     e = _by(_events(admin, ds, kind="column_comment_changed"), "column_comment_changed", "store.shops", "shop_id")
     assert e["attribution_status"] == "unavailable" and "permission denied" in e["attribution"]["reason"]
+    assert e["attribution"]["cause"] == "no_permission" and "采集账号无权读取" in e["attribution"]["reason"]
 
     # 视图整体重定义：定义变化与新增列都归因到执行 CREATE OR REPLACE 的用户；旧血缘边被取代并保留
     with demo.pg_connect(env) as conn:
