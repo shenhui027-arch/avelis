@@ -2079,6 +2079,18 @@ export interface components {
         MetricVersionOut: {
             /** Id */
             id: string;
+            /**
+             * Kind
+             * @default base
+             */
+            kind?: string;
+            /**
+             * Components
+             * @default []
+             */
+            components?: {
+                [key: string]: unknown;
+            }[];
             /** Metric Id */
             metric_id: string;
             /** Metric Code */
@@ -2663,16 +2675,28 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** VersionSpec */
+        /**
+         * VersionSpec
+         * @description 基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。
+         *     派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。
+         */
         VersionSpec: {
+            /**
+             * Kind
+             * @default base
+             */
+            kind?: string;
             /** Description */
             description: string;
             /** Base Asset Id */
-            base_asset_id: string;
+            base_asset_id?: string | null;
             /** Expression */
             expression: string;
-            /** Time Column */
-            time_column: string;
+            /**
+             * Time Column
+             * @default
+             */
+            time_column?: string;
             /** Timezone */
             timezone?: string | null;
             /** Filters */

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -58,16 +58,25 @@ class JoinStep(BaseModel):
 
 
 class VersionSpec(BaseModel):
+    """基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。
+    派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"""
+    kind: str = Field(default="base", pattern=r"^(base|derived)$")
     description: str = Field(min_length=1)
-    base_asset_id: str
+    base_asset_id: str | None = None
     expression: str = Field(min_length=1)
-    time_column: str = Field(min_length=1)
+    time_column: str = ""
     timezone: str | None = None
     filters: str | None = None
     dimensions: list[Dimension] = Field(default_factory=list)
     joins: list[JoinStep] = Field(default_factory=list)
     grain: list[str] = Field(default_factory=list)
     dedupe_basis: str | None = None
+
+    @model_validator(mode="after")
+    def _base_fields(self) -> "VersionSpec":
+        if self.kind == "base" and (not self.base_asset_id or not self.time_column):
+            raise ValueError("基础指标需要 base_asset_id 与 time_column")
+        return self
 
     def as_spec(self) -> dict[str, Any]:
         data = self.model_dump(exclude={"dimensions", "joins"})

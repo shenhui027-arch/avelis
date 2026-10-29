@@ -369,8 +369,11 @@ class MetricVersion(Base):
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    base_asset_id: Mapped[str] = fk("asset.id", index=False)
+    # base：基于一张资产的度量；derived：由组成指标按公式计算（expression 存公式，components 锁定组成版本）
+    kind: Mapped[str] = mapped_column(String(16), default="base", server_default="base", nullable=False)
+    base_asset_id: Mapped[str | None] = fk("asset.id", nullable=True, index=False)
     expression: Mapped[str] = mapped_column(Text, nullable=False)
+    components: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
     time_column: Mapped[str] = mapped_column(String(255), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False)
     filters: Mapped[str | None] = mapped_column(Text)
