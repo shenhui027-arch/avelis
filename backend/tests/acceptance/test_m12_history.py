@@ -41,6 +41,10 @@ def _by(events: list[dict], kind: str, asset_suffix: str, column: str | None) ->
     return hits[0]
 
 
+def page_all(api: Api) -> int:
+    return api.get("/api/change-events", params={"limit": 1})["total"]
+
+
 def _collect(api: Api, ds: str) -> None:
     run = api.post(f"/api/datasources/{ds}/collect?wait=true")
     assert run["status"] == "succeeded", run
@@ -294,7 +298,10 @@ def test_05_search_and_export(ctx, admin: Api, stack):
     assert unknown["total"] >= 3 and all(e["actor_db_user"] is None for e in unknown["items"])
     # 查询者不是任何业务域成员时看不到未归属的资产事件
     wang = Api(client, "wang", env["AVELIS_DEMO_USER_PASSWORD"])
-    assert all(e["asset_id"] for e in wang.get("/api/change-events")["items"])
+    seen = wang.get("/api/change-events", params={"limit": 200})
+    assert all(e["asset_id"] for e in seen["items"]) and seen["total"] < page_all(admin)
+    # 用户下拉也只列可见事件里的数据库用户
+    assert set(seen["actors"]) == {e["actor_db_user"] for e in seen["items"] if e["actor_db_user"]}
 
     params = {"kind": "column_comment_changed,column_added"}
     expected = admin.get("/api/change-events", params={**params, "limit": 200})
