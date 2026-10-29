@@ -150,15 +150,14 @@ export function Shell() {
 }
 
 export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" }) {
-  const navigate = useNavigate();
   const items = [["datasources", "数据源"], ["models", "模型配置"], ["users", "用户"]] as const;
+  // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (
-    <div className="av-seg" role="group" aria-label="设置分区">
+    <nav className="av-seg" aria-label="设置分区">
       {items.map(([key, label]) => (
-        <button key={key} type="button" aria-pressed={key === current} onClick={() => navigate(`/settings/${key}`)}>
-          {label}
-        </button>
+        <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}
+          >{label}</Link>
       ))}
-    </div>
+    </nav>
   );
 }
