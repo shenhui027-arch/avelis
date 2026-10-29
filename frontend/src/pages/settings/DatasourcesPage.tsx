@@ -189,12 +189,12 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
           <CommentCoverage ds={ds} />
 
           <section className="av-datasources__section" aria-labelledby="datasource-credentials">
-            <h3 id="datasource-credentials">凭据 <Hint text="口令只写不读，更换后使用新凭据连接" /></h3>
+            <h3 id="datasource-credentials">凭据 <Hint text="密码只写不读，更换后使用新凭据连接" /></h3>
             {credentialPurposes.map((purpose) => {
               const credential = ds.credentials.find((c) => c.purpose === purpose);
               return <div className="av-datasources__credential" key={purpose}>
                 <span className="av-row__main"><span className="av-row__title">{purpose === "collect" ? "采集账号" : "只读查询账号"}</span>
-                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 口令已设置</> : "未设置"}</span>
+                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 密码已设置</> : "未设置"}</span>
                   {credential ? <span className="av-caption">更新于 {formatTime(credential.updated_at, tz)}</span> : null}
                 </span>
                 {isAdmin ? <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditingCredential(purpose)}>{credential ? "更换" : "设置"}</button> : null}
@@ -309,7 +309,7 @@ function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
       save.mutate(undefined, { onSuccess: onSaved, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
     }}>
       <label className="av-field"><span className="av-label">账号</span><input className="av-input av-mono" required maxLength={128} autoComplete="off" autoFocus disabled={save.isPending} value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-      <label className="av-field"><span className="av-label">新口令</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">新密码</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       <Banner message={message} />
     </form>
   </Drawer>;
@@ -373,14 +373,14 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
             </label>)}
           <fieldset className="av-datasources__credential-fields"><legend>采集凭据</legend><div className="av-datasources__field-pair">
             <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
-            <label className="av-field"><span className="av-label">口令</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
+            <label className="av-field"><span className="av-label">密码</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
           </div></fieldset>
           {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>只读查询凭据</legend><div className="av-datasources__field-pair">
             <label className="av-field"><span className="av-label">查询账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.queryUser} onChange={set("queryUser")} /></label>
-            <label className="av-field"><span className="av-label">口令</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
+            <label className="av-field"><span className="av-label">密码</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
           </div></fieldset> : null}
           {Boolean(form.collectUser.trim()) !== Boolean(form.collectPassword) || (canQuery && Boolean(form.queryUser.trim()) !== Boolean(form.queryPassword))
-            ? <span className="av-help av-help--danger" role="status">账号和口令需一起填写</span> : null}
+            ? <span className="av-help av-help--danger" role="status">账号和密码需一起填写</span> : null}
         </fieldset>
         <Banner message={message} />
       </form>}

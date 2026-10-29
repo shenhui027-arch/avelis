@@ -31,4 +31,6 @@ def stack(demo_env):
 @pytest.fixture(scope="module")
 def admin(stack):
     client, env, _ = stack
-    return Api(client, "admin", env["AVELIS_DEMO_USER_PASSWORD"])
+    from avelis.bootstrap import AUTOMATION_ADMIN
+
+    return Api(client, AUTOMATION_ADMIN, env["AVELIS_DEMO_USER_PASSWORD"])

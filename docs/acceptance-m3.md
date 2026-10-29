@@ -23,6 +23,7 @@ pnpm dev                                          # http://127.0.0.1:5173
 ```
 
 - 演示账号：admin、zhang（交易域负责人）、zhao（商品域负责人）、li（复核者）、wang、sun（分析师）。口令都是 `.env` 中的 `AVELIS_DEMO_USER_PASSWORD`。
+  （M3 时的约定。2026-10-30 起，`admin` 改为本地超级管理员，密码为 `AVELIS_ADMIN_PASSWORD`；脚本使用的管理员改为 `ops_admin`，见 README。）
 - 修改视图定义属于数据库侧操作，不在 Avelis 中完成。走查时用 `uv run scripts/demo_view.py v2`（改为净额）与 `v1`（改回原定义），以 root 执行 `ALTER VIEW`。
 
 ## 走查记录
