@@ -332,16 +332,24 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         seeds = {asset_id} if asset_id in assets else set()
     else:
         seeds = set(assets)
-    edges = [e for e in session.scalars(select(LineageEdge).where(LineageEdge.status == "active"))
-             if e.target_asset_id in assets and (e.source_asset_id in assets or e.source_asset_id is None)]
+    # 端点：已采集资产用资产 ID；导入的设计时血缘中未采集的表用 "ref:库表"
+    def endpoint(asset_id: str | None, ref: str | None) -> str | None:
+        if asset_id:
+            return asset_id if asset_id in assets else None
+        return f"ref:{ref}" if ref else None
+
+    edges = []
+    for e in session.scalars(select(LineageEdge).where(LineageEdge.status == "active")):
+        src, dst = endpoint(e.source_asset_id, e.source_ref), endpoint(e.target_asset_id, e.target_ref)
+        if src and dst:
+            edges.append((src, dst, e))
     links = [x for x in session.scalars(select(IdentityLink).where(IdentityLink.superseded_at.is_(None)))
              if x.source_asset_id in assets and (x.target_asset_id is None or x.target_asset_id in assets)]
     # 从种子出发向上下游扩展（含身份映射），多个域时自然串联
     neighbours: dict[str, set[str]] = {}
-    for e in edges:
-        if e.source_asset_id:
-            neighbours.setdefault(e.source_asset_id, set()).add(e.target_asset_id)
-            neighbours.setdefault(e.target_asset_id, set()).add(e.source_asset_id)
+    for src, dst, _ in edges:
+        neighbours.setdefault(src, set()).add(dst)
+        neighbours.setdefault(dst, set()).add(src)
     for x in links:
         if x.target_asset_id:
             neighbours.setdefault(x.source_asset_id, set()).add(x.target_asset_id)
@@ -354,16 +362,22 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         included.add(node)
         stack.extend(neighbours.get(node, ()))
     fpmap = current_fingerprint_map(session)
-    nodes = [{**asset_summary(session, assets[i]), "grains": [g.to_dict() for g in effective_grains(session, i, fpmap)],
-              "in_scope": i in seeds} for i in included]
+    nodes = []
+    for i in included:
+        if i.startswith("ref:"):
+            nodes.append({"id": i, "qualified": i[4:], "kind": "design_time", "status": "not_collected",
+                          "grains": [], "in_scope": False,
+                          "note": "导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"})
+        else:
+            nodes.append({**asset_summary(session, assets[i]),
+                          "grains": [g.to_dict() for g in effective_grains(session, i, fpmap)],
+                          "in_scope": i in seeds})
     grouped: dict[tuple, dict] = {}
-    for e in edges:
-        if e.target_asset_id not in included:
+    for src, dst, e in edges:
+        if dst not in included:
             continue
-        key = (e.source_asset_id or e.source_ref, e.target_asset_id)
-        g = grouped.setdefault(key, {"source": e.source_asset_id, "source_ref": e.source_ref,
-                                     "target": e.target_asset_id, "columns": [], "relations": set(),
-                                     "origins": set()})
+        g = grouped.setdefault((src, dst), {"source": src, "source_ref": e.source_ref, "target": dst,
+                                            "columns": [], "relations": set(), "origins": set()})
         g["columns"].append({"source_column": e.source_column, "target_column": e.target_column,
                              "relation": e.relation, "expression": e.expression, "origin": e.origin,
                              "attributes": e.attributes})

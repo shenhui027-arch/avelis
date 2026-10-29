@@ -448,3 +448,130 @@ def test_10_collect_via_job_queue(admin: Api):
     # 同一数据源的采集互斥
     with cache.lock(f"collect:{ctx['sr']}"):
         admin.post(f"/api/datasources/{ctx['sr']}/collect?wait=true", expect=409)
+
+
+# --- M2：问数智能体（LangGraph）-----------------------------------------------------------
+
+def test_11_agent_multi_turn_clarification_survives_restart(stack, admin: Api):
+    from sqlalchemy import text
+
+    from avelis.ask import agent
+    from avelis.db import get_engine
+
+    wang = ctx["apis"]["wang"]
+    first = wang.post("/api/ask", {"question": "华东区退款后净销售额是多少？"})
+    assert first["status"] == "clarify" and "日期" in first["message"] and first["sql"] is None
+    thread = first["thread_id"]
+    assert wang.get("/api/ask/threads")[0]["status"] == "waiting"
+    # 模拟服务重启：丢弃进程内的图与连接池，会话状态从 PostgreSQL 恢复
+    agent.reset_state_cache()
+    with get_engine().connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM avelis_agent.checkpoints WHERE thread_id = :t"),
+                            {"t": thread}).scalar() > 0
+    # 别人不能续接这个会话
+    ctx["apis"]["sun"].post("/api/ask", {"question": DAY, "thread_id": thread}, expect=404)
+    second = wang.post("/api/ask", {"question": DAY, "thread_id": thread})
+    assert value_of(second) == Decimal("270.00") and second["thread_id"] == thread
+    assert [s["node"] for s in second["steps"]][-4:] == ["clarify", "understand", "govern", "explain"]
+    history = wang.get(f"/api/ask/threads/{thread}")
+    assert [a["status"] for a in history["answers"]] == ["clarify", "answered"]
+
+
+def test_12_agent_ambiguity_offers_candidates(admin: Api):
+    wang = ctx["apis"]["wang"]
+    first = wang.post("/api/ask", {"question": f"{DAY} 华东区销售额"})
+    assert first["status"] == "clarify"
+    assert "退款后净销售额" in first["evidence"]["clarification"]["options"]
+    second = wang.post("/api/ask", {"question": "退款后净销售额", "thread_id": first["thread_id"]})
+    assert value_of(second) == Decimal("270.00")
+
+
+class _Scripted:
+    """按脚本依次返回模型回复的假模型：只用于验证工具调用循环与治理边界，不代表真实模型能力。"""
+
+    def __init__(self, replies):
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+
+        class Model(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        self.model = Model(messages=iter(replies))
+
+
+def _call(name, args, i):
+    from langchain_core.messages import AIMessage
+
+    return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": f"call_{i}"}])
+
+
+def test_13_agent_tool_loop_with_scripted_model(admin: Api, monkeypatch):
+    from avelis import modelcfg
+
+    replies = [
+        _call("search_metrics", {"keyword": "净销售额"}, 1),
+        _call("match_dimension_values", {"metric_code": "net_sales", "dimension": "region", "text": "华东区"}, 2),
+        # 编造的取值会被工具拒绝，模型必须更正
+        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+                                "filters": [{"dimension": "region", "values": ["火星区"]}]}, 3),
+        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+                                "filters": [{"dimension": "region", "values": ["华东"]}]}, 4),
+        # 同一会话的追问：“那华北呢？”
+        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+                                "filters": [{"dimension": "region", "values": ["华北"]}]}, 5),
+        # 试图越权使用不可见的指标
+        _call("submit_intent", {"metric_code": "secret_metric", "start_date": DAY, "end_date": DAY}, 6),
+        _call("ask_user", {"question": "没有找到该指标，请确认", "options": []}, 7),
+    ]
+    scripted = _Scripted(replies)
+    monkeypatch.setattr(modelcfg, "resolve",
+                        lambda session, purpose, **kw: modelcfg.Resolved(scripted.model, "scripted:test")
+                        if purpose == "ask" else None)
+    wang = ctx["apis"]["wang"]
+    answer = wang.post("/api/ask", {"question": "9月15日华东区的净销售额"})
+    assert value_of(answer) == Decimal("270.00")
+    tools = [c["tool"] for c in answer["steps"][0]["tool_calls"]]
+    assert tools == ["search_metrics", "match_dimension_values", "submit_intent", "submit_intent"]
+    assert answer["evidence"]["model"]["is_demo"] is False
+    follow = wang.post("/api/ask", {"question": "那华北呢？", "thread_id": answer["thread_id"]})
+    assert value_of(follow) == Decimal("150.00")
+    refused = wang.post("/api/ask", {"question": "查一下 secret_metric"})
+    assert refused["status"] == "clarify" and refused["sql"] is None
+
+
+@pytest.mark.llm
+def test_14_model_settings_and_real_model(stack, admin: Api):
+    """真实模型端到端：使用 .env 中的测试密钥（不进仓库），经模型配置接口登记。"""
+    _, env, _ = stack
+    key, name = env.get("AVELIS_MODEL_API_KEY"), env.get("AVELIS_MODEL_NAME")
+    if not key or not name:
+        pytest.skip("未配置 AVELIS_MODEL_API_KEY / AVELIS_MODEL_NAME")
+    ctx["apis"]["zhang"].post("/api/model-providers", {"code": "x", "preset": "deepseek"}, expect=403)
+    provider = admin.post("/api/model-providers", {
+        "code": "deepseek", "preset": "deepseek", "base_url": env.get("AVELIS_MODEL_BASE_URL") or None,
+        "api_key": key}, expect=201)
+    assert provider["api_key"].endswith(key[-4:]) and key not in str(admin.get("/api/model-providers"))
+    assert provider["endpoint"].endswith("/chat/completions")
+    fetched = admin.post(f"/api/model-providers/{provider['id']}/fetch-models")["models"]
+    assert name in fetched
+    # 未启用的模型不能被指定
+    admin.put("/api/model-settings", {"assignments": {"ask": {"provider_id": provider["id"], "model_id": name}}},
+              expect=409)
+    admin.patch(f"/api/model-providers/{provider['id']}", {"models": [{"id": name, "enabled": True}]})
+    checked = admin.post(f"/api/model-providers/{provider['id']}/check", {"model_id": name})
+    assert checked["ok"] is True and checked["tool_calling"] is True, checked
+    settings = admin.put("/api/model-settings", {"assignments": {
+        "ask": {"provider_id": provider["id"], "model_id": name}}})
+    assert settings["mode"] == "configured" and settings["policy"]["send_results"] is False
+
+    wang = ctx["apis"]["wang"]
+    answer = wang.post("/api/ask", {"question": "2026年9月15日华东区的退款后净销售额是多少？"})
+    assert answer["evidence"]["model"]["adapter"] == f"deepseek:{name}"
+    assert value_of(answer) == Decimal("270.00"), answer
+    assert answer["explanation_source"] == "template"  # 默认不把查询结果发给模型
+    follow = wang.post("/api/ask", {"question": "那华北呢？", "thread_id": answer["thread_id"]})
+    assert value_of(follow) == Decimal("150.00"), follow
+    audit = admin.get("/api/audit", params={"object_type": "model_provider"})
+    assert {"model_provider.create", "model_provider.check"} <= {e["action"] for e in audit}
+    assert key not in str(audit)
+    admin.put("/api/model-settings", {"assignments": {"ask": None}})

@@ -190,16 +190,6 @@ def _meta_pg_ready(env: dict[str, str]) -> bool:
         return conn.execute("SELECT 1").fetchone() == (1,)
 
 
-def _meta_mysql_ready(env: dict[str, str]) -> bool:
-    conn = pymysql.connect(host="127.0.0.1", port=int(env["AVELIS_META_MYSQL_PORT"]), user="avelis",
-                           password=env["AVELIS_META_MYSQL_PASSWORD"], database="avelis", connect_timeout=3)
-    with conn.cursor() as cur:
-        cur.execute("SELECT 1")
-        ready = cur.fetchone() == (1,)
-    conn.close()
-    return ready
-
-
 def _valkey_ready(env: dict[str, str]) -> bool:
     password = env["AVELIS_REDIS_PASSWORD"].encode()
     command = b"*2\r\n$4\r\nAUTH\r\n$%d\r\n%s\r\n*1\r\n$4\r\nPING\r\n" % (len(password), password)
@@ -230,7 +220,6 @@ def up(skip_seed: bool) -> None:
     compose("up", "-d", "--remove-orphans")
     log("等待服务就绪 ...")
     wait_for("元数据库 PostgreSQL", lambda: _meta_pg_ready(env), 120)
-    wait_for("元数据库 MySQL", lambda: _meta_mysql_ready(env), 240)
     wait_for("Valkey（Redis 协议）", lambda: _valkey_ready(env), 60)
     wait_for("电商维表库 MySQL", lambda: _shop_mysql_ready(env), 240)
     wait_for("StarRocks FE + BE", lambda: _sr_ready(env), 420)
