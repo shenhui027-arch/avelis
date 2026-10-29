@@ -1,0 +1,18 @@
+# Local secrets and generated state
+.env
+.demo/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Demo environment downloads (verified against deploy/demo/drivers.lock)
+deploy/demo/drivers/*.jar
+.demo-up.log

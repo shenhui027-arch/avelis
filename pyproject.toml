@@ -1,0 +1,14 @@
+[project]
+name = "avelis-dev"
+version = "0.1.0"
+description = "Avelis 开发与演示环境工具（演示库起停、灌数、StarRocks 实机核验）"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pymysql==1.2.3",
+    "cryptography==50.0.2",
+    "sqlglot==30.25.0",
+    "psycopg[binary]==3.3.6",
+]
+
+[tool.uv]
+package = false
