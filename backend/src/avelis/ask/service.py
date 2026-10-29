@@ -467,7 +467,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         for label, start, end in periods:
             sub = _scratch(answer, user)
             sub_intent = Intent(metric_code=code, start_date=start, end_date=end, filters=intent.filters,
-                                group_by=intent.group_by)
+                                group_by=intent.group_by, time_grain=intent.time_grain)
             _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
             plan.append({"metric_code": code, "metric_version_id": version.id, "period": label,
                          "range": [str(start), str(end)], "status": sub.status, "error_code": sub.error_code,
@@ -502,7 +502,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                                                  for c in version.components})
         return values[(code, label)].get(key)
 
-    columns = list(intent.group_by)
+    columns = (["period"] if intent.time_grain else []) + list(intent.group_by)
     for _, metric, _ in requested:
         columns.append(metric.name)
         if intent.compare:
@@ -519,8 +519,10 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                 rate = (delta / before).quantize(Decimal("0.0001")) if delta is not None and before else None
                 row += [before, delta, rate]
         rows_out.append(row)
+    if intent.time_grain and not intent.order:
+        rows_out.sort(key=lambda r: str(r[0]))
     if intent.order:  # 按第一个指标的本期值排序；空值排最后
-        first = len(intent.group_by)
+        first = len(intent.group_by) + (1 if intent.time_grain else 0)
         present = [r for r in rows_out if r[first] is not None]
         present.sort(key=lambda r: r[first], reverse=intent.order == "desc")
         rows_out = present + [r for r in rows_out if r[first] is None]

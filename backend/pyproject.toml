@@ -28,6 +28,7 @@ dependencies = [
     "pymssql>=2.3",
     "clickhouse-connect>=0.8",
     "oracledb>=3.3",
+    "reportlab>=4.2",
 ]
 
 [dependency-groups]

@@ -575,3 +575,74 @@ class WorkbenchOut(Out):
     datasources: list[Json]
     cadence: list[Json]
     recent_changes: list[Json]
+
+
+# --- 分析智能体（M8） ---------------------------------------------------------------
+
+class AnalysisStepOut(Out):
+    seq: int
+    kind: str
+    tool: str | None = None
+    status: str
+    reason: str | None = None
+    dataset: str | None = None
+    args: Json = Field(default_factory=dict)
+    output: Json = Field(default_factory=dict)
+
+
+class AnalysisDatasetOut(Out):
+    ref: str
+    seq: int
+    kind: str
+    title: str
+    columns: list[str]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool = False
+    inputs: list[str] = Field(default_factory=list)
+    sql: str | None = None
+    summary: Any = None
+    metric_version_ids: list[str] = Field(default_factory=list)
+
+
+class AnalysisRunOut(Out):
+    id: str
+    question: str
+    status: str
+    trigger: str
+    title: str | None = None
+    verified: bool | None = None
+    window: Json = Field(default_factory=dict)
+    budget: Json = Field(default_factory=dict)
+    model_adapter: str | None = None
+    error: str | None = None
+    created_at: str
+    finished_at: str | None = None
+    task_id: str | None = None
+    plan: Json | None = None
+    report: Json | None = None
+    verification: Json | None = None
+    steps: list[AnalysisStepOut] | None = None
+    datasets: list[AnalysisDatasetOut] | None = None
+
+
+class AnalysisTaskOut(Out):
+    id: str
+    title: str
+    question: str
+    status: str
+    schedule_cron: str | None = None
+    paused_reason: str | None = None
+    next_run_at: str | None = None
+    last_run_id: str | None = None
+    window: Json = Field(default_factory=dict)
+
+
+class NotificationOut(Out):
+    id: str
+    kind: str
+    title: str
+    body: str | None = None
+    link: str | None = None
+    read_at: str | None = None
+    created_at: str
