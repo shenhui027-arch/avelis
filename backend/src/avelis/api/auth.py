@@ -10,9 +10,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import audit, cache
+from avelis import audit, cache, modelcfg
 from avelis.api.deps import current_claims, current_user, get_session
-from avelis.ask.intent import get_model
 from avelis.config import get_settings
 from avelis.governance import access
 from avelis.models import Domain, DomainMember, User, UserRole
@@ -21,7 +20,29 @@ from avelis.security import create_access_token, hash_password, verify_password
 router = APIRouter(prefix="/api", tags=["认证与用户"])
 
 
-@router.post("/auth/token")
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str
+    expires_at: str
+
+
+class DomainRef(BaseModel):
+    id: str
+    role: str
+    name: str
+    code: str
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    is_active: bool
+    roles: list[str]
+    domains: list[DomainRef]
+
+
+@router.post("/auth/token", response_model=TokenOut)
 def login(form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)) -> dict:
     user = session.scalar(select(User).where(User.username == form.username))
     if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
@@ -52,7 +73,7 @@ def user_view(session: Session, user: User) -> dict:
             "domains": [{"id": d, "role": r, "name": n, "code": c} for d, r, n, c in memberships]}
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserOut)
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return user_view(session, user)
 
@@ -89,20 +110,17 @@ def create_user(body: UserCreate, user: User = Depends(current_user), session: S
 
 
 @router.get("/settings")
-def settings_view(user: User = Depends(current_user)) -> dict:
+def settings_view(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     s = get_settings()
-    model = get_model()
     return {
         "business_timezone": s.business_timezone,
         "allow_self_review": s.allow_self_review,
         "self_review_policy": "允许自审" if s.allow_self_review else "禁止自审：提交人、创建人不能批准同一版本",
-        "meta_backend": s.meta_backend,
         "query_limits": {"timeout_seconds": s.query_timeout_seconds, "mem_limit_bytes": s.query_mem_limit_bytes,
                          "max_rows": s.query_max_rows},
         "answer_cache_seconds": s.answer_cache_seconds,
         "collect_interval_minutes": s.collect_interval_minutes,
-        "model": {"adapter": model.name, "is_demo": model.is_demo,
-                  "status": "演示模型；真实模型端到端未验证" if model.is_demo else "已配置"},
+        "model": {**modelcfg.settings_view(session), "orchestrator": "langgraph"},
         "roles": {"admin": "管理员", "steward": "维护者", "reviewer": "复核者", "analyst": "查询者"},
         "discovery_note": "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。",
     }

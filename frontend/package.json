@@ -1,0 +1,29 @@
+{
+  "name": "avelis-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "gen:tokens": "node scripts/gen-tokens.mjs",
+    "gen:api": "cd ../backend && uv run python -m avelis.bootstrap openapi ../frontend/src/api/openapi.json && cd ../frontend && openapi-typescript src/api/openapi.json -o src/api/schema.d.ts --default-non-nullable false"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.2",
+    "openapi-fetch": "0.17.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router": "7.18.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "openapi-typescript": "7.13.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

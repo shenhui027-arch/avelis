@@ -11,14 +11,16 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from avelis import audit, cache
 from avelis.ask.compiler import ValidationFailed, compile_metric_query, validate_sql
-from avelis.ask.intent import Intent, MetricCard, business_today, get_model
+from avelis.ask.intent import Intent, MetricCard
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors import query_connector
@@ -50,48 +52,62 @@ TRACEABLE_NOTE = "可追溯 ≠ 可复现：保存了 SQL、口径与元数据�
 DISCOVERY_NOTE = "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
 
 
-def ask(session: Session, user: User, question: str) -> Answer:
-    settings = get_settings()
-    model = get_model()
-    answer = Answer(question=question, asked_by=user.id, status="error", model_adapter=model.name)
-    session.add(answer)
-    started = time.monotonic()
-    try:
-        _run(session, user, question, answer, model, settings)
-    except GovernanceError as exc:
-        answer.status = "error"
-        answer.message = exc.message
-        answer.error_code = "governance"
-    answer.duration_ms = int((time.monotonic() - started) * 1000)
-    session.flush()
-    audit.record(session, user, "ask", "answer", answer.id, status=answer.status, error_code=answer.error_code,
-                 metric_version_ids=answer.metric_version_ids, cache_hit=answer.cache_hit)
-    return answer
+@dataclass
+class Catalog:
+    """当前用户可检索的口径：只含有权业务域、且进入过发布流程的指标。"""
+
+    cards: list[MetricCard]
+    versions: dict[str, tuple[Metric, MetricVersion]]
 
 
-def _run(session: Session, user: User, question: str, answer: Answer, model, settings) -> None:
+def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catalog:
     access.require_role(session, user, "analyst", "steward", "reviewer")
-    metrics = visible_metrics(session, user)
+    settings = get_settings()
     cards, versions = [], {}
-    for metric in metrics:
+    for metric in visible_metrics(session, user):
         version = latest_governed_version(session, metric)
         if version is None:
             continue
         versions[metric.code] = (metric, version)
-        cards.append(MetricCard(code=metric.code, name=metric.name, aliases=metric.aliases or [],
-                                dimensions=version.dimensions or [],
-                                dimension_values=_dimension_values(session, user, version, settings)))
-    answer.evidence = {"model": {"adapter": model.name, "is_demo": model.is_demo,
-                                 "note": "演示模型（规则匹配），真实模型端到端未验证" if model.is_demo else None},
-                       "visible_metrics": [c.code for c in cards]}
-    today = business_today(settings.business_timezone)
-    intent: Intent = model.parse(question, cards, today=today)
-    answer.intent = intent.model_dump(mode="json")
+        cards.append(MetricCard(
+            code=metric.code, name=metric.name, aliases=metric.aliases or [], dimensions=version.dimensions or [],
+            dimension_values=_dimension_values(session, user, version, settings) if with_values else {},
+            description=version.description, status=version.status))
+    return Catalog(cards, versions)
 
-    if intent.clarification:
-        answer.status = "clarify"
-        answer.message = intent.clarification
-        return
+
+def start_answer(session: Session, user: User, question: str, adapter: str, thread_id: str | None) -> Answer:
+    answer = Answer(question=question, asked_by=user.id, status="error", model_adapter=adapter, thread_id=thread_id)
+    session.add(answer)
+    session.flush()
+    return answer
+
+
+def finish_answer(session: Session, user: User, answer: Answer, started: float) -> Answer:
+    answer.duration_ms = int((time.monotonic() - started) * 1000)
+    # JSON 字段在管线中被原地修改；显式标记，确保持久化的依据与返回给用户的一致
+    for name in ("intent", "plan", "metric_version_ids", "evidence", "result", "freshness", "steps"):
+        flag_modified(answer, name)
+    session.flush()
+    audit.record(session, user, "ask", "answer", answer.id, status=answer.status, error_code=answer.error_code,
+                 metric_version_ids=answer.metric_version_ids, cache_hit=answer.cache_hit,
+                 thread_id=answer.thread_id)
+    return answer
+
+
+def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog) -> None:
+    """意图已由模型（或演示规则）给出：其余全部是确定性的治理、编译、校验与执行。"""
+    try:
+        _fulfil(session, user, intent, answer, catalog.versions, get_settings())
+    except GovernanceError as exc:
+        answer.status = "error"
+        answer.message = exc.message
+        answer.error_code = "governance"
+
+
+def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
+            versions: dict[str, tuple[Metric, MetricVersion]], settings) -> None:
+    answer.intent = intent.model_dump(mode="json")
     if intent.metric_code not in versions:
         answer.status = "denied"
         answer.message = "意图引用了不可见或不存在的指标，已拒绝"

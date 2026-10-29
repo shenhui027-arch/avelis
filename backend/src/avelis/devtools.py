@@ -15,16 +15,13 @@ def alembic_config() -> Config:
 
 
 def reset_metadata_db() -> None:
-    """删除元数据库中的全部表并迁移到最新版本。"""
+    """删除元数据库中的全部表（含智能体会话状态）并迁移到最新版本。"""
     engine = get_engine()
     with engine.begin() as conn:
-        tables = inspect(conn).get_table_names()
-        if engine.dialect.name == "mysql":
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-            for table in tables:
-                conn.execute(text(f"DROP TABLE IF EXISTS `{table}`"))
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-        else:
-            for table in tables:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+        for table in inspect(conn).get_table_names():
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+        conn.execute(text("DROP SCHEMA IF EXISTS avelis_agent CASCADE"))
     command.upgrade(alembic_config(), "head")
+    from avelis.ask.agent import reset_state_cache
+
+    reset_state_cache()
