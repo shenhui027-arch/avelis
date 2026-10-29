@@ -23,3 +23,4 @@ deploy/demo/drivers/*.jar
 
 # Browser profiles left by design previews
 .brand-qa-chrome/
+.worktrees/
