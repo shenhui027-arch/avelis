@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { api, ApiError, unwrap } from "../../api/client";
 import { errorText, useAction, useAsset, useDomains, useTimeZone, type AssetDetail as AssetDetailT } from "../../api/hooks";
 import {
-  Banner, Code, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Status, Tabs, useMessage,
+  Banner, Code, CommentDoc, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Status, Tabs, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
@@ -98,7 +98,7 @@ function Columns({ a }: { a: AssetDetailT }) {
     <section className="av-panel">
       <Banner message={message} />
       <div className="av-table-wrap"><table className="av-table av-asset-table av-asset-table--columns">
-        <thead><tr><th>字段</th><th>类型</th><th>推导 <Hint text="字段推导指纹：上游字段、表达式、过滤与关联条件。指纹变化时，绑定它的确认与口径不再生效" /></th><th>业务含义</th><th className="end" /></tr></thead>
+        <thead><tr><th>字段 <Hint text="字段含义以数据库列注释为准；缺注释请在数据库中补齐" /></th><th>类型</th><th>推导 <Hint text="字段推导指纹：上游字段、表达式、过滤与关联条件。指纹变化时，绑定它的确认与口径不再生效" /></th><th>业务含义</th><th className="end" /></tr></thead>
         <tbody>
           {a.columns.map((c) => {
             const valid = c.confirmations.find((x) => x.valid);
@@ -106,7 +106,7 @@ function Columns({ a }: { a: AssetDetailT }) {
             return (
               <tr key={c.name}>
                 <td className="av-mono">{c.name}{c.is_key ? <span className="av-tag av-asset-inline-gap">键</span> : null}
-                  {c.comment ? <div className="av-caption">{c.comment}</div> : null}</td>
+                  <div><CommentDoc doc={c.doc} /></div></td>
                 <td className="av-mono av-muted">{c.data_type}</td>
                 <td title={c.fingerprint_reason ?? undefined}><Status value={c.fingerprint_status ?? "unknown"} />
                   <span className="av-mono av-muted av-asset-inline-gap">{c.fingerprint?.slice(0, 8)}</span></td>

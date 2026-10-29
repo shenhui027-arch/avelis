@@ -1,5 +1,5 @@
 // 指标详情：固定对象标题、版本轨道和口径 / 依赖 / 历史；新建指标与版本编辑。
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
@@ -114,7 +114,7 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
     {tab === "definition" ? <>
       <section className="av-panel">
         <div className="av-panel__hd av-metric-panel__header">
-          <h2 className="av-panel__title">口径 V{v.version_no} <Status value={v.status} /></h2>
+          <h2 className="av-panel__title">口径 V{v.version_no} <Status value={v.status} />{v.kind === "derived" ? <Pill>派生</Pill> : null}</h2>
           {canEdit && (v.status === "draft" || v.status === "rejected") ? <div className="av-actions av-metric-detail__actions">
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={submit.isPending || check.isPending} onClick={onEdit}>编辑</button>
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={check.isPending || submit.isPending}
@@ -127,6 +127,11 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
           {v.status_reason ? <p className="av-caption av-metric-detail__reason">{v.status_reason}</p> : null}
           <dl className="av-kv av-metric-detail__kv">
             <dt>说明</dt><dd>{v.description}</dd>
+            {v.kind === "derived" ? <>
+              <dt>公式</dt><dd><pre className="av-code av-metric-derived__formula">{v.expression}</pre></dd>
+              <dt>锁定组成版本</dt><dd><DerivedComponents components={v.components ?? []} /></dd>
+              <dt>共有维度</dt><dd className="av-metric-detail__tags">{v.dimensions.length ? v.dimensions.map((d) => <span key={String(d.name)} className="av-tag">{String(d.label ?? d.name)}</span>) : "—"}</dd>
+            </> : <>
             <dt>基础资产</dt><dd className="av-mono">{v.base_asset ? <Link to={`/catalog/assets/${String(v.base_asset.id)}`}>{String(v.base_asset.qualified)}</Link> : "—"}</dd>
             <dt>表达式</dt><dd><Code sql={v.expression} raw /></dd>
             <dt>时间字段</dt><dd className="av-mono">{v.time_column} <span className="av-tag">{v.timezone}</span></dd>
@@ -135,6 +140,7 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
             <dt>统计粒度</dt><dd className="av-mono">{v.grain.join(" × ") || "—"}</dd>
             {v.joins.length ? <><dt>关联</dt><dd className="av-metric-detail__tags">{v.joins.map((j) => <span key={String(j.alias)} className="av-tag">{String(j.from ?? "b")} → {String(j.alias)}{j.pre_aggregate ? " · 先聚合" : ""}</span>)}</dd></> : null}
             {v.dedupe_basis ? <><dt>防重复依据</dt><dd>{v.dedupe_basis}</dd></> : null}
+            </>}
           </dl>
         </div>
       </section>
@@ -171,7 +177,11 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
         </div> : null}
       </section> : null}
     </> : null}
-    {tab === "dependency" ? <section className="av-panel">
+    {tab === "dependency" && v.kind === "derived" ? <section className="av-panel">
+      <div className="av-panel__hd"><h2 className="av-panel__title">锁定组成版本 <Hint text="提交时锁定组成指标版本" /></h2></div>
+      <div className="av-panel__bd"><DerivedComponents components={v.components ?? []} /></div>
+    </section> : null}
+    {tab === "dependency" && v.kind !== "derived" ? <section className="av-panel">
       <div className="av-panel__hd"><h2 className="av-panel__title">依赖与指纹 <Hint text="提交时记录依赖字段指纹；指纹变化后需重新复核" /></h2></div>
       {v.dependency.length ? <div className="av-table-wrap"><table className="av-table av-metric-detail__table">
         <thead><tr><th>字段</th><th>用途</th><th>提交时指纹</th><th>当前</th></tr></thead>
@@ -198,6 +208,23 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
       </ol></div> : <Empty text="暂无状态历史" compact />}
     </section> : null}
   </>;
+}
+
+function DerivedComponents({ components }: { components: NonNullable<MetricVersion["components"]> }) {
+  const metrics = useMetrics();
+  if (!components.length) return <span className="av-caption">提交后锁定组成版本</span>;
+  return <ul className="av-metric-derived__components">
+    {components.map((component, index) => {
+      const code = String(component.metric_code ?? "");
+      const metric = metrics.data?.find((item) => item.code === code);
+      const metricId = typeof component.metric_id === "string" ? component.metric_id : metric?.id;
+      const label = `${String(component.metric_name ?? metric?.name ?? code)} · V${String(component.version_no ?? "—")}`;
+      return <li key={String(component.version_id ?? `${code}-${index}`)}>
+        {metricId ? <Link to={`/catalog/metrics/${metricId}`}>{label}</Link> : <span>{label}</span>}
+        <span className="av-caption av-mono">{code}</span>
+      </li>;
+    })}
+  </ul>;
 }
 
 function grainText(basis: Record<string, unknown> | undefined): string {
@@ -245,10 +272,78 @@ export function NewMetric({ onClose, onCreated }: { onClose: () => void; onCreat
 
 type Dim = { name: string; column: string; label: string };
 type JoinRow = { alias: string; join_path_id: string; from: string; pre_aggregate: boolean };
-
-function VersionEditor({ metricId, base, mode, onClose, onSaved }: {
+type VersionEditorProps = {
   metricId: string; base?: MetricVersion; mode: "new" | "edit"; onClose: () => void; onSaved: (id: string) => void;
-}) {
+};
+
+function VersionEditor(props: VersionEditorProps) {
+  const [kind, setKind] = useState(props.base?.kind === "derived" ? "derived" : "base");
+  const kindControl = props.mode === "new" ? <label className="av-field"><span className="av-label">版本类型</span>
+    <Select label="版本类型" value={kind} onChange={setKind}>
+      <option value="base">基础</option><option value="derived">派生</option>
+    </Select>
+  </label> : null;
+  const base = (props.base?.kind ?? "base") === kind ? props.base : undefined;
+  return kind === "derived"
+    ? <DerivedVersionEditor {...props} base={base} kindControl={kindControl} />
+    : <BaseVersionEditor {...props} base={base} kindControl={kindControl} />;
+}
+
+function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl }: VersionEditorProps & { kindControl: ReactNode }) {
+  const queryClient = useQueryClient();
+  const roles = useRoles();
+  const canEdit = roles.has("steward") || roles.has("admin");
+  const metrics = useMetrics();
+  const editorId = useId();
+  const [description, setDescription] = useState(base?.description ?? "");
+  const [expression, setExpression] = useState(base?.expression ?? "");
+  const [message, setMessage] = useMessage();
+  // Consume Python numeric literals first, including digit separators and base prefixes.
+  const codes = [...new Set((expression.match(/0[xX](?:_?[\da-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+|(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
+    .filter((token) => /^[A-Za-z_]/.test(token)))];
+  const body = { kind: "derived", description: description.trim(), expression: expression.trim() } satisfies Schemas["VersionSpec"];
+  const save = useAction(() => mode === "edit" && base
+    ? unwrap(api.PUT("/api/metric-versions/{version_id}", { params: { path: { version_id: base.id } }, body }))
+    : unwrap(api.POST("/api/metrics/{metric_id}/versions", { params: { path: { metric_id: metricId } }, body })), ["metrics", "metric-version"]);
+  const valid = canEdit && !!description.trim() && !!expression.trim();
+
+  return <Drawer title={mode === "edit" ? `编辑派生草稿 V${base?.version_no}` : "新建版本（草稿）"} width={640} onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
+    <button type="submit" form={`${editorId}-form`} className="av-btn av-btn--primary" disabled={!valid || save.isPending}
+      aria-busy={save.isPending}>{save.isPending ? "保存中…" : "保存草稿"}</button>
+  </>}>
+    <form id={`${editorId}-form`} className="av-metric-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (!valid || save.isPending) return;
+      save.mutate(undefined, {
+        onSuccess: (version) => {
+          queryClient.setQueryData(["metric-version", version.id], version);
+          onSaved(version.id);
+        },
+        onError: (error) => setMessage({ ok: false, text: errorText(error) }),
+      });
+    }}>
+      {kindControl}
+      <label className="av-field"><span className="av-label">说明</span>
+        <textarea required className="av-textarea" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+      <label className="av-field"><span className="av-label">公式 <Hint text="使用指标编码、数字、加减乘除和括号" /></span>
+        <textarea required className="av-textarea av-mono av-metric-derived__formula-input" rows={3} placeholder="paid_sales / orders_cnt"
+          aria-describedby={`${editorId}-references`} spellCheck={false} value={expression} onChange={(event) => setExpression(event.target.value)} /></label>
+      <div id={`${editorId}-references`} className="av-metric-derived__references" role="status" aria-live="polite">
+        {metrics.isPending ? <span className="av-help">指标目录加载中…</span>
+          : metrics.isError ? <span className="av-help">指标目录暂不可用，保存时由后端校验</span>
+          : codes.length ? <div className="av-metric-detail__tags">{codes.map((code) => {
+            const metric = metrics.data.find((item) => item.code === code);
+            return <Pill key={code} tone={metric ? "ok" : "danger"}>{code} · {metric ? "已存在" : "不存在"}</Pill>;
+          })}</div> : <span className="av-help">输入公式以查看引用指标</span>}
+        <span className="av-help">引用提示仅检查编码，最终以后端校验为准</span>
+      </div>
+      <Banner message={message} />
+    </form>
+  </Drawer>;
+}
+
+function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl }: VersionEditorProps & { kindControl: ReactNode }) {
   const queryClient = useQueryClient();
   const roles = useRoles();
   const canEdit = roles.has("steward") || roles.has("admin");
@@ -306,6 +401,7 @@ function VersionEditor({ metricId, base, mode, onClose, onSaved }: {
         onError: (e) => setMessage({ ok: false, text: errorText(e) }),
       });
     }}>
+      {kindControl}
       <label className="av-field"><span className="av-label">说明</span><textarea required className="av-textarea" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
       <QueryState query={sources} rows={1}>{() => <QueryState query={assets} rows={1} compact isEmpty={() => !availableAssets.length} emptyText="暂无支持查询的基础资产">
         {() => <label className="av-field"><span className="av-label">基础资产</span>
