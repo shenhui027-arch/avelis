@@ -67,8 +67,17 @@ def is_local_target(host: str | None, hostaddr: str | None) -> bool:
 def _connection_is_local(session) -> bool:
     """读这条连接实际连上的地址（libpq 解析完连接串、服务文件、环境变量与多主机之后的结果），
     而不是解析连接串：连接串的写法太多，解析难免与驱动不一致。"""
+    from sqlalchemy import text
+
     info = session.connection().connection.driver_connection.info
-    return is_local_target(info.host, getattr(info, "hostaddr", None))
+    hostaddr = getattr(info, "hostaddr", None)
+    if not is_local_target(info.host, hostaddr):
+        return False
+    if not hostaddr:
+        # 驱动报告为 socket 连接：再由服务器确认（TCP 连接的 inet_server_addr() 一定非空），
+        # 避免 libpq 未能记录实际 IP 时把远端 TCP 误当作本机 socket
+        return session.scalar(text("SELECT inet_server_addr() IS NULL")) is True
+    return True
 
 
 def ensure_superadmin(reset_password: bool = False) -> str | None:
@@ -161,7 +170,9 @@ def main(argv: list[str]) -> None:
         print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
     elif cmd == "admin":
         if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
-            with session_scope() as session:  # 先拒绝再写入：不在远端库留下任何账号
+            # 先检查：连到的元数据库不在本机就直接拒绝，不写入任何账号。随后每个写入步骤用的是各自的连接，
+            # 写 admin 时还会在那条连接上再检查一次
+            with session_scope() as session:
                 if not _connection_is_local(session):
                     raise SystemExit(LOCAL_ONLY)
         ensure_admin()
