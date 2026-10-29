@@ -57,15 +57,15 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 - **确定在窗口内**：生效时间在 `(P_done + 容差, C_start − 容差)`；容差 `AVELIS_DDL_AUDIT_SLACK_SECONDS`，默认 5 秒，只用于两侧时钟偏差。
 - **边界候选**：落在两次快照读取期间（± 容差）的语句；可能异步生效的语句（Doris 的 `ALTER`，`may_lag`）在 `P_start` 之前 `ddl_effect_lag_seconds`（Doris 300 秒）内也算。
 - **按事务确定（PostgreSQL）**：快照在 `REPEATABLE READ, READ ONLY` 事务里读，同时记下 `pg_current_snapshot()`；审计只取“上次快照看不到、本次快照看得到”的事务（`pg_visible_in_snapshot(xid, …)`），结果确定。跨采集提交的长事务因此归到它提交的那个窗口，不会被执行时间截掉，也不会把同列上另一个人的改动错当成唯一候选。上次采集没有记下游标时（升级后第一次）退回按时间判断，这时的候选一律算边界候选，不给确定归因。
-- **游标与实例绑定**：游标记下实例身份（`instance_id`，没有时用端点）。实例切换（身份世代变化，或两次游标的实例不同）的那一轮不归因，全部记为 `unavailable / instance_changed`（“数据源实例已切换，本轮重新建立归因基线”），下一轮从新实例的游标开始。
+- **游标与实例绑定**：游标记下实例键：有可信的 `instance_id`（PostgreSQL `system_identifier`）时用它，没有时用（端点、`pg_postmaster_start_time()`、库 oid），实例重启或切换都会让键变化；读审计的连接再核对一次实例键，与本次快照不同或无法确认都按实例已切换处理。实例切换（身份世代变化，或两次游标的实例不同）的那一轮不归因，全部记为 `unavailable / instance_changed`（“数据源实例已切换，本轮重新建立归因基线”），下一轮从新实例的游标开始。
 
 **关联规则（不猜测）。** 把审计事件按对象名关联到本次的每个直接变更事件：
 
 - 对象：审计事件的对象（库或模式 + 名称）与资产当前名称**精确相等**（区分大小写：PostgreSQL 的 `store."Orders"` 与 `store.orders` 是两个对象；连接器负责给出目录里的真实写法）；改名事件同时匹配旧名与新名。
-- 字段级变化（`column_*`）：候选 = 在列的**语法位置**上点名了该列的语句 ∪ 整体重定义（`CREATE …`、`ALTER VIEW … AS`，不一定逐列点名）。只认能识别的写法：`ALTER TABLE <对象> ADD / DROP / ALTER / MODIFY [COLUMN] <列>`、`RENAME COLUMN <旧> [TO] <新>`、`CHANGE [COLUMN] <旧> <新>`、Doris 的 `ADD COLUMN (a …, b …)`、ClickHouse 的 `COMMENT / CLEAR / MATERIALIZE COLUMN <列>`，以及 `COMMENT ON COLUMN <表>.<列>`；多语句时只看目标是该对象的那几条。约束名、索引名、`MODIFY COMMENT` 等不是列；识别不了的语句不提供列级证据。词法跳过字符串、注释（含 PostgreSQL 的嵌套块注释）与 `$tag$` 美元引用，支持中文等 Unicode 标识符，标识符按引擎规则比较（PostgreSQL 不带引号折小写）。同一对象上只改了别的列、或只在注释值、约束名里出现该词的语句**不算**——那是猜测，这种情况记为 `unmatched` 并说明。
+- 字段级变化（`column_*`）：候选 = 在列的**语法位置**上点名了该列的语句 ∪ 整体重定义（`CREATE …`、`ALTER VIEW … AS`，不一定逐列点名）∪ 针对该对象、但识别不出涉及哪些列的语句。认得的写法：`ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE <对象>` 的 `ADD / DROP / ALTER / MODIFY [COLUMN] <列>`、`RENAME [COLUMN] <旧> TO <新>`（PostgreSQL 可省略 COLUMN）、`CHANGE [COLUMN] <旧> <新>`、Doris 的 `ADD COLUMN (a …, b …)`、ClickHouse 的 `COMMENT / CLEAR / MATERIALIZE COLUMN <列>`、主键与 `NOT NULL` 约束点名的列、`COMMENT ON COLUMN <表>.<列>`；确定不改列结构的写法（改属主、`SET SCHEMA`、改表名、`ADD CHECK / UNIQUE / FOREIGN KEY` 约束、加减索引与分区、表注释）不是候选。**原则：针对同一对象、但识别不出列位置的语句（如 `DROP CONSTRAINT`、未知的 `ALTER TABLE` 动作、词法上无法确定的记录）视为可能涉及任何一列——它是候选，但只能得到 `ambiguous`，不能因为识别失败就让另一个用户被确定归因。**多语句时只看目标是该对象的那几条。词法跳过字符串、注释（含 PostgreSQL 的嵌套块注释）与 `$tag$` 美元引用，支持中文等 Unicode 标识符，标识符按引擎规则比较（PostgreSQL 不带引号折小写）。同一对象上只改了别的列、或只在注释值、约束名里出现该词的语句**不算**——那是猜测，这种情况记为 `unmatched` 并说明。
 - 结论：
   - `matched`：候选只来自**唯一一个**数据库用户，且**全部**确定在窗口内 → 记为该用户；
-  - `ambiguous`：候选来自多个用户，或**存在任何**边界候选（哪怕同一用户另有确定候选）→ `actor` 为空，列出全部候选用户和语句，由人判断；
+  - `ambiguous`：候选来自多个用户，或**存在任何**边界候选或识别不出列位置的候选（哪怕同一用户另有确定候选）→ `actor` 为空，列出全部候选用户和语句，由人判断；
   - `unmatched`：窗口内没有该对象的审计记录 → `actor` 为空，说明原因（例如审计日志尚未落盘、改动发生在审计开启之前）。
 - 另有三种“无法归因”：`unsupported`（引擎未接入审计来源）、`unavailable`（声明了能力但本次读取失败，附报错）、`not_applicable`（推导出的变化，如字段推导变化、上游缺失、身份映射变化，不是对该对象执行的 DDL）。
 - `unavailable` 按连接器给出的原生错误细分原因 `cause`：`no_permission`（采集账号无权读取 DDL 审计）、`not_enabled`（数据源未开启 DDL 审计：审计表不存在、事件触发器停用、审计插件关闭）、`incompatible`（审计来源结构与连接器要求不符，如缺列）、`error`（其他，如网络错误）。是否开启审计、是否给采集账号授权由数据源方负责（用户决定，2026-10-30）：产品只如实说明该功能不可用及原因，不做兜底或变通。
@@ -76,9 +76,9 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 |---|---|
 | `actor_db_user` | 数据库用户；只有 `matched` 时有值 |
 | `attribution_status` | 上述六种之一 |
-| `attribution` | 来源（`postgres.event_trigger` 等）、窗口、匹配依据、候选语句（时间、用户、语句类型、摘要）、原因 |
+| `attribution` | 来源、窗口、匹配依据、候选语句的结构化信息（时间、用户、命令类型、是否确定、事务号；不含语句原文）、原因 |
 
-**落库内容脱敏。** 候选语句只保存时间、用户、命令类型、是否确定，以及**单条语句**的摘要（压缩空白、截断到 300 字符）。一条审计记录里有多条语句（PostgreSQL 的 `current_query()` 是整个请求，可能夹带其他对象或口令），或语句含 `PASSWORD`、`IDENTIFIED`、`SECRET` 等关键字、美元引用、`E''` 转义串时，摘要为空，只保存命令类型和对象——正则遮蔽无法可靠识别这些写法，宁可不存。词法上无法确定的记录（未闭合的注释、字符串或引用）按多语句处理，同样不存摘要。原文只在内存里用于匹配列名。审计读取异常与归因中的任何异常都只影响归因（相关事件记为 `unavailable / error` 并写明原因），不让采集失败。
+**不落库语句原文。** 候选语句只保存审计来源给出的结构化信息：时间、数据库用户、命令类型、是否确定，以及事务号（PostgreSQL `xid8`）；对象已在归因依据里。任何语句原文或摘要都不落库（变更集详情、检索、导出都看不到）：多语句请求、各引擎的词法差异（如 PostgreSQL 的 `ARRAY[…]`、嵌套注释、美元引用）让“哪段文字能安全保存”无法可靠判断，宁可不存。原文只在内存里用于列匹配，用完即丢；词法器只服务于列匹配，不承担安全判定。审计读取异常与归因中的任何异常都只影响归因（相关事件记为 `unavailable / error` 并写明原因），不让采集失败。
 
 ### 3. 检索与导出
 
@@ -100,9 +100,9 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 | `lineage_edge` | `status` active → superseded 与 `superseded_at` 空 → 非空，**必须同时**、只一次；已取代的边完全冻结 |
 | `change_set` | `status` open → resolved 与 `resolved_at` 空 → 非空，**必须同时**、只一次 |
 
-状态列作为一组先整体校验，只改其中一列（制造 `active + 非空 superseded_at` 这类无效状态）会被拒绝。其他列一律不能改。尚未封链的行只在**插入它的事务里**可以补全业务字段（如 `change_set.summary`），主键冻结。“插入它的事务”以插入触发器的登记为准：登记在会话临时表 `pg_temp.avelis_history_pending`（`ON COMMIT DELETE ROWS`），保存点回滚时随之撤销、释放时保留，不依赖 `xmin`（保存点子事务的 `xmin` 与顶层事务不同，低 32 位比较还有回卷边界）；已提交却未封链的行（绕过触发器写入的）不能再改。封链时找不到本事务插入的行、链头不存在或写回失败，**拒绝提交**。DELETE 只在清理专用路径（第 5 点）中放行；TRUNCATE 一律拒绝。违反时报 `avelis_history_append_only`，并说明表、列与规则。DDL（`DROP TABLE`）不在拦截范围内：生产部署应让应用账号不是表的属主。
+状态列作为一组先整体校验，只改其中一列（制造 `active + 非空 superseded_at` 这类无效状态）会被拒绝。其他列一律不能改。尚未封链的行只在**插入它的事务里**可以补全业务字段（如 `change_set.summary`），主键冻结。“插入它的事务”以行里的 `inserted_xact`（`xid8`）为准：插入触发器强制写入 `pg_current_xact_id()`（保存点内返回的也是顶层事务号，64 位不回卷），之后任何时候都不能改；未封链的行只有在 `inserted_xact = pg_current_xact_id()` 时才能补全，`INSERT … ON CONFLICT DO NOTHING` 不会改动已有行的事务号，调用者也无法伪造；已提交却未封链的行（绕过触发器写入的）不能再改。封链时找不到本事务插入的行、链头不存在或写回失败，**拒绝提交**。DELETE 只在清理专用路径（第 5 点）中放行；TRUNCATE 一律拒绝。违反时报 `avelis_history_append_only`，并说明表、列与规则。DDL（`DROP TABLE`）不在拦截范围内：生产部署应让应用账号不是表的属主。
 
-**哈希链。** 上述表各加三列 `chain_seq`、`prev_hash`、`row_hash`，组成**一条全局链**（跨表按 `chain_seq` 排序）：
+**哈希链。** 上述表各加三列 `chain_seq`、`prev_hash`、`row_hash`（另有 `inserted_xact`，进入内容摘要），组成**一条全局链**（跨表按 `chain_seq` 排序）：
 
 - 封链在**提交时**进行：`DEFERRABLE INITIALLY DEFERRED` 的约束触发器在事务提交前，对本事务插入的每一行锁住全局链头 `history_chain_head`，取下一个序号，计算
   `row_hash = sha256(prev_hash | chain_seq | 表名 | content_digest)`，
@@ -137,7 +137,7 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 | 推导层历史（已取代的 `column_fingerprint`、`identity_link`、`grain`）、不再被引用的 `collection_run` | `superseded_at` / `finished_at` 早于截止时间 | 未取代的记录 |
 
 - **专用路径：** 删除事务内执行 `SET LOCAL avelis.history_purge = 'on'`，触发器只在该标志下放行逐行 DELETE（UPDATE、TRUNCATE 仍然拒绝）。标志防的是误操作，不是权限边界。
-- **两段式，先核验、后清理：** ① 在 `REPEATABLE READ` 只读快照里核验全链、挑出超期的行、算好空洞；链不完整就不清理，把核验结果写审计并返回失败。② 删除事务先对决定保留资格的表（`asset`、`metric_version`、`lineage_edge`、`grain`、`review_task`）加 `SHARE` 锁（`NOWAIT`：拿不到就稍后整轮重跑，不与其他事务互等，不会造成死锁），在锁下按同样的规则重新挑一遍；计划里有行在两段之间重新获得了保留资格（例如被驳回的口径改回草稿，仍引用旧版本）就整轮重跑，否则按 ID 删除、写锚点。实际删除行数或序号与计划不符（有人绕过触发器动过）时整体回滚。超期的历史行本身已冻结，链尾的并发追加不影响①的结论，持续写审计也不会让清理失败；遇到序列化失败、死锁或锁不可得时整轮重跑（最多 5 次）。同一时刻只允许一个清理（会话级咨询锁）。
+- **两段式，先核验、后清理：** ① 在 `REPEATABLE READ` 只读快照里核验全链、挑出超期的行、算好空洞；链不完整就不清理，把核验结果写审计并返回失败。② 删除事务先对决定保留资格的表（`asset`、`metric_version`、`lineage_edge`、`grain`、`review_task`）加 `SHARE` 锁（`NOWAIT`：拿不到就稍后整轮重跑，不与其他事务互等，不会造成死锁），在锁下按同样的规则重新挑一遍；计划里有行在两段之间重新获得了保留资格（例如被驳回的口径改回草稿，仍引用旧版本）就整轮重跑，否则按 ID 删除、写锚点。删除事务内 `lock_timeout = 5s`、`statement_timeout = 120s`，超时回滚并稍后整轮重跑。**清理期间（拿到锁到提交，通常数秒）会短暂挡住这五张表的写入**（资产心跳与当前版本指针、口径状态流转、血缘与粒度、复核任务），等待的写入在清理提交或超时回滚后继续。实际删除行数或序号与计划不符（有人绕过触发器动过）时整体回滚。超期的历史行本身已冻结，链尾的并发追加不影响①的结论，持续写审计也不会让清理失败；遇到序列化失败、死锁、锁不可得或语句超时时整轮重跑（最多 5 次）。被驳回的口径改回草稿时，若它引用的资产版本已按保留期清理，草稿不再绑定旧版本（清空 `asset_versions`，重新提交时按当前版本绑定），不留悬空引用。同一时刻只允许一个清理（会话级咨询锁）。
 - **清理锚点：** 清理在链上追加一条 `history_anchor`，记录截止时间、各表删除行数，以及因本次清理新形成的每个序号空洞：`{from_seq, to_seq, before_hash（空洞前一行的 row_hash，链首为 64 个 0）, last_hash（空洞最后一行的 row_hash）}`。核验遇到空洞时要求某个锚点登记了**同一**区间且两端哈希相符，所以剩余的链仍可核验，未经清理路径的删除仍会被发现。
 - 清理本身写 `audit_event`（`history.purge`），包括截止时间、行数与锚点 ID。
 

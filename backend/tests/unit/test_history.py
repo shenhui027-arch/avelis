@@ -1,4 +1,5 @@
-"""变更留底（ADR 0008）的纯逻辑：DDL 词法、摘要脱敏、归因规则（不猜测）、哈希链核验与清理锚点空洞、CSV 防公式。
+"""变更留底（ADR 0008）的纯逻辑：DDL 词法与列定位、不落库语句原文、归因规则（不猜测）、哈希链核验与清理锚点空洞、
+CSV 防公式。
 每条复现 PR #9 审计中的一个场景（# 编号对应审计报告）。"""
 
 from __future__ import annotations
@@ -10,11 +11,11 @@ from avelis.collect.attribution import Window, attribute
 from avelis.connectors.ddl import (
     AuditUnavailable,
     DdlEvent,
+    column_refs,
     is_batch,
     mentions_column,
     objects_in,
     redefines,
-    summarize,
 )
 from avelis.engines import get_engine
 from avelis.history import integrity
@@ -39,19 +40,15 @@ def test_objects_in_ddl_statements():
     assert objects_in("CREATE USER 'u'@'%' IDENTIFIED BY 'p'") == []
 
 
-def test_summary_is_dropped_for_batches_and_secrets():
-    # 1：同一请求里另一条语句的口令（美元引用、E'' 转义、'' 转义）与不可见对象都不能进入摘要
+def test_lexer_handles_batches_strings_and_postgres_arrays():
+    # 词法只服务于列匹配：识别多语句、字符串里的分号、ARRAY[…]（方括号不是引用）
     batch = "ALTER ROLE app PASSWORD $$s3cr3t$$; ALTER TABLE store.visible ADD COLUMN c text;"
-    assert is_batch(batch) and summarize(batch) is None
-    other_object = "ALTER TABLE store.visible ADD COLUMN c text; ALTER TABLE private.secret ADD COLUMN d text"
-    assert summarize(other_object) is None
-    for secret in ("ALTER ROLE app PASSWORD E'a\\'b'", "ALTER ROLE app PASSWORD 'a''sensitive'",
-                   "CREATE USER bob IDENTIFIED BY 'hunter2'", "SELECT $tag$x$tag$"):
-        assert summarize(secret) is None, secret
-    # 字符串里的分号不算多语句；单条普通 DDL 保留摘要（压缩空白、截断）
-    single = "COMMENT ON COLUMN store.shops.city IS '城市; 含分号'  ;\n"
-    assert not is_batch(single) and summarize(single) == "COMMENT ON COLUMN store.shops.city IS '城市; 含分号' ;"
-    assert len(summarize("ALTER TABLE t ADD COLUMN " + "x" * 1000)) == 300
+    assert is_batch(batch)
+    assert not is_batch("COMMENT ON COLUMN store.shops.city IS '城市; 含分号'  ;\n")
+    array = ("ALTER TABLE store.visible ADD COLUMN c int DEFAULT (ARRAY[1 /* ] ' */])[1];\n"
+             "ALTER TABLE private.hidden ADD COLUMN d int; -- '")
+    assert is_batch(array)
+    assert mentions_column(array, "c", "visible", "lower") and not mentions_column(array, "d", "visible", "lower")
 
 
 def test_column_mentions_ignore_strings_comments_and_object_names():
@@ -239,14 +236,15 @@ def test_attribution_unknown_reasons():
     assert events[0]["attribution_status"] == "unmatched"
 
 
-def test_persisted_statements_hold_no_batch_text():
-    # 1：批处理记录可以作为候选（点名了该列），但落库的 summary 为空
+def test_no_statement_text_is_persisted():
+    # A：留底只保存结构化信息（用户、时间、命令类型、是否确定、事务号），不保存任何语句原文或摘要
     batch = "ALTER ROLE app PASSWORD $$s3cr3t$$; ALTER TABLE store.sales ADD COLUMN channel text"
     e = [_event("column_added", "channel")]
-    _attribute(e, _Connector([_ddl("alice", batch)]))
+    _attribute(e, _Connector([DdlEvent(T0, "alice", [("store", "sales")], "ALTER TABLE", batch, xid="9001")]))
     assert e[0]["actor_db_user"] == "alice"
-    assert e[0]["attribution"]["statements"][0]["summary"] is None
-    assert "s3cr3t" not in repr(e[0]["attribution"])
+    assert e[0]["attribution"]["statements"] == [{"at": T0.isoformat(), "db_user": "alice",
+                                                   "statement_type": "ALTER TABLE", "certain": True, "xid": "9001"}]
+    assert "s3cr3t" not in repr(e[0]) and "channel text" not in repr(e[0]["attribution"])
 
 
 def _chain(n, table="audit_event"):
@@ -309,15 +307,17 @@ def test_csv_cells_cannot_become_formulas():
 
 # --- 复核（13180ea）发现的场景 -------------------------------------------------------
 
-def test_nested_comments_dollar_tags_and_unclosed_text_drop_the_summary():
-    # 复核 #1：PostgreSQL 块注释可以嵌套；内层结束后外层里的单引号不能被当成字符串开头吞掉真实分号
+def test_nested_comments_dollar_tags_and_unclosed_text():
+    # PostgreSQL 块注释可以嵌套；内层结束后外层里的单引号不能被当成字符串开头吞掉真实分号
     nested = ("ALTER TABLE store.visible ADD COLUMN c int /* outer /* inner */ ' */;\n"
               "ALTER TABLE private.hidden ADD COLUMN d int; -- '")
-    assert is_batch(nested) and summarize(nested) is None
-    assert summarize("COMMENT ON TABLE store.t IS $tag1$x$tag1$") is None  # 任意 $tag$ 美元引用
+    assert is_batch(nested)
+    assert not mentions_column("COMMENT ON TABLE store.t IS $tag1$ ALTER TABLE store.t ADD COLUMN x int $tag1$",
+                               "x", "t", "lower")
+    # 词法上无法确定（未闭合）：不提供列级证据，按“可能涉及任何一列”处理
     for unclosed in ("ALTER TABLE store.t ADD COLUMN c int /* 没有闭合", "COMMENT ON TABLE store.t IS 'x",
                      'ALTER TABLE store."t ADD COLUMN c int'):
-        assert is_batch(unclosed) and summarize(unclosed) is None, unclosed
+        assert is_batch(unclosed) and column_refs(unclosed, "t", "lower").unknown, unclosed
 
 
 def test_column_evidence_comes_from_syntax_positions():
@@ -352,7 +352,7 @@ def test_column_evidence_comes_from_syntax_positions():
 def test_unicode_identifiers_are_lexed():
     # 复核新问题：中文标识符不能让词法分析抛异常
     stmt = "ALTER TABLE store.销售 ADD COLUMN 金额 int"
-    assert mentions_column(stmt, "金额", "销售", "lower") and summarize(stmt) == stmt
+    assert mentions_column(stmt, "金额", "销售", "lower")
     e = _event("column_added", "金额", asset_id="cn")
     _attribute([e], _Connector([_ddl("alice", stmt, objects=[("store", "销售")])]),
                assets={"cn": _asset(name="销售")})
@@ -381,7 +381,7 @@ def test_attribution_errors_never_escape(monkeypatch):
     def boom(*args, **kwargs):
         raise AttributeError("lexer exploded")
 
-    monkeypatch.setattr(attribution, "mentions_column", boom)
+    monkeypatch.setattr(attribution, "column_refs", boom)
     events = [_event("column_added", "channel"), _event("comment_changed")]
     result = _attribute(events, _Connector([_ddl("alice", "ALTER TABLE store.sales ADD COLUMN channel text")]))
     assert result["status"] == "ok"
@@ -424,3 +424,48 @@ def test_audit_window_notices_a_cursor_from_another_instance():
     assert _audit_window(previous, same).instance_changed is False
     assert _audit_window(previous, other).instance_changed is True
     assert _audit_window(previous, SimpleNamespace(**{**vars(same), "identity_changed": True})).instance_changed
+    unknown = SimpleNamespace(stats={**previous.stats, "audit_cursor": {"pg_snapshot": "1:1:", "instance": None}},
+                              started_at=t, finished_at=t)
+    assert _audit_window(unknown, same).instance_changed is True  # 上次无法确认实例：按已切换处理
+
+
+# --- 第三轮复核（ba8e635） -----------------------------------------------------------
+
+def test_rename_without_column_keyword_and_view_column_rename():
+    assert mentions_column("ALTER TABLE store.sales RENAME amount TO revenue", "revenue", "sales", "lower")
+    assert mentions_column("ALTER VIEW store.v RENAME COLUMN a TO b", "b", "v", "lower")
+    assert mentions_column("ALTER MATERIALIZED VIEW store.mv RENAME a TO b", "a", "mv", "lower")
+    assert column_refs("ALTER TABLE store.sales RENAME TO s2", "sales", "lower").columns == []
+    # Codex 的例子：alice 省略 COLUMN 改列名，bob 给新列写注释 → 两人都是候选，不能确定归 bob
+    conn = _Connector([_ddl("alice", "ALTER TABLE store.sales RENAME amount TO revenue"),
+                       _ddl("bob", "COMMENT ON COLUMN store.sales.revenue IS 'x'")])
+    e = _event("column_added", "revenue")
+    _attribute([e], conn)
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["candidates"] == ["alice", "bob"]
+
+
+def test_unrecognized_statement_on_the_same_object_only_yields_ambiguous():
+    # 原则：针对同一对象、识别不出列位置的语句视为可能涉及任何一列——仍是候选，但只能得到 ambiguous
+    for unknown in ("ALTER TABLE store.sales SET (fillfactor = 70)", "ALTER TABLE store.sales DROP CONSTRAINT c1",
+                    "GRANT SELECT ON store.sales TO x"):
+        conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"),
+                           _ddl("bob", unknown)])
+        e = _event("column_type_changed", "amount")
+        _attribute([e], conn)
+        assert e["attribution_status"] == "ambiguous", unknown
+        # 只有识别不了的语句：也不能确定归给它
+        e = _event("column_type_changed", "amount")
+        _attribute([e], _Connector([_ddl("bob", unknown)]))
+        assert e["attribution_status"] == "ambiguous" and "识别不出" in e["attribution"]["reason"], unknown
+    # 认得出、确定不改列结构的语句（改属主、加 CHECK、表注释）不算候选
+    for harmless in ("ALTER TABLE store.sales OWNER TO bob",
+                     "ALTER TABLE store.sales ADD CONSTRAINT amount CHECK (x > 0)",
+                     "COMMENT ON TABLE store.sales IS 'x'", "ALTER TABLE store.sales RENAME CONSTRAINT a TO b"):
+        conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"),
+                           _ddl("bob", harmless)])
+        e = _event("column_type_changed", "amount")
+        _attribute([e], conn)
+        assert (e["attribution_status"], e["actor_db_user"]) == ("matched", "alice"), harmless
+    # 主键、NOT NULL 约束会改变列的可空性：点名的列算证据
+    assert mentions_column("ALTER TABLE store.sales ADD PRIMARY KEY (sale_id)", "sale_id", "sales", "lower")
+    assert mentions_column("ALTER TABLE store.sales ADD CONSTRAINT nn NOT NULL amount", "amount", "sales", "lower")

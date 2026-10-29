@@ -27,6 +27,8 @@ def _chain_columns(table: str) -> None:
     op.add_column(table, sa.Column('prev_hash', sa.String(length=64), nullable=True))
     op.add_column(table, sa.Column('row_hash', sa.String(length=64), nullable=True))
     op.create_unique_constraint(f'uq_{table}_chain_seq', table, ['chain_seq'])
+    # 插入它的顶层事务号（xid8）：由插入触发器写入、不可改；未封链的行只有插入它的事务能补全
+    op.execute(f'ALTER TABLE {table} ADD COLUMN inserted_xact xid8')
 
 
 def upgrade() -> None:
@@ -60,6 +62,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id', name='pk_history_mark'),
         sa.UniqueConstraint('chain_seq', name='uq_history_mark_chain_seq'),
     )
+    op.execute('ALTER TABLE history_mark ADD COLUMN inserted_xact xid8')
     op.create_index('ix_history_mark_row', 'history_mark', ['table_name', 'row_id'])
     op.create_table(
         'history_anchor',
@@ -77,6 +80,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id', name='pk_history_anchor'),
         sa.UniqueConstraint('chain_seq', name='uq_history_anchor_chain_seq'),
     )
+    op.execute('ALTER TABLE history_anchor ADD COLUMN inserted_xact xid8')
     # 先为已有数据补算哈希，再启用触发器
     conn = op.get_bind()
     integrity.backfill(conn)
@@ -96,5 +100,5 @@ def downgrade() -> None:
         op.drop_column('change_event', column)
     for table in CHAINED_EXISTING:
         op.drop_constraint(f'uq_{table}_chain_seq', table, type_='unique')
-        for column in ('row_hash', 'prev_hash', 'chain_seq'):
+        for column in ('inserted_xact', 'row_hash', 'prev_hash', 'chain_seq'):
             op.drop_column(table, column)

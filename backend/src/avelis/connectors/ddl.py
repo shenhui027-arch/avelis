@@ -5,13 +5,12 @@ no_permission 采集账号无权读取、not_enabled 未开启（审计来源不
 incompatible 审计来源结构与连接器要求不符、error 其他。不返回空列表冒充“没人改”。
 是否开启、是否授权由数据源方负责，这里只如实说明。
 
-落库只保存脱敏后的单条语句摘要：一条审计记录里有多条语句（如 PostgreSQL 的 current_query() 是整个请求），
-语句里可能有口令等敏感值，或词法上无法确定（未闭合的注释、字符串、引用）时，摘要为空，只保存命令类型和对象。
-原文只在内存里用于匹配列名。
+留底不保存任何语句原文或摘要，只保存审计来源给出的结构化信息：数据库用户、时间、命令类型、对象、事务号。
+原文只在内存里用于列匹配，用完即丢；这里的词法器只服务于列匹配，不承担“能否安全落库”的判断。
 
-列级证据只来自能识别语法位置的写法（ALTER TABLE … ADD / DROP / ALTER / MODIFY / CHANGE / RENAME COLUMN、
-COMMENT ON COLUMN、ClickHouse 的 COMMENT / CLEAR / MATERIALIZE COLUMN）；约束名、索引名不算，
-识别不了的语句只作为对象级候选，不提供列级证据。
+列级证据只来自能识别语法位置的写法（ALTER TABLE / VIEW … ADD / DROP / ALTER / MODIFY / CHANGE / RENAME [COLUMN]、
+COMMENT ON COLUMN、ClickHouse 的 COMMENT / CLEAR / MATERIALIZE COLUMN）；约束名、索引名不算。针对同一对象、
+但识别不出涉及哪些列的语句（ColumnRefs.unknown）视为可能涉及任何一列：它仍是候选，但只能得到 ambiguous。
 """
 
 from __future__ import annotations
@@ -20,12 +19,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-SUMMARY_LIMIT = 300
 CAUSES = ("no_permission", "not_enabled", "incompatible", "instance_changed", "error")
-# 可能带敏感值的写法：口令、密钥、凭据，以及无法可靠识别边界的引用（任何美元引用 $…$、E'' 转义串）
-_SENSITIVE = re.compile(r"\b(PASSWORD|IDENTIFIED|SECRET|CREDENTIALS?|TOKEN|ACCESS_KEY|SECRET_KEY)\b|"
-                        r"\$(?:[^\W\d]\w*)?\$|(?<![\w'])[Ee]'", re.IGNORECASE)
-_SPACE = re.compile(r"\s+")
 _WORD = re.compile(r"[^\W\d][\w$]*")  # 标识符：Unicode 字母或下划线开头（含中文）
 _DOLLAR = re.compile(r"\$(?:[^\W\d]\w*)?\$")
 
@@ -36,15 +30,13 @@ class DdlEvent:
     db_user: str
     objects: list[tuple[str, str]]  # (库或模式, 对象名)，按数据库目录中的真实写法（区分大小写）
     statement_type: str
-    statement: str = field(repr=False)  # 原文只用于匹配列名，不落库；落库的是 summary
+    statement: str = field(repr=False)  # 原文只在内存里用于匹配列，用完即丢，不落库
     # 是否确定发生在两次快照之间：True / False 由连接器按事务可见性给出；None 由归因按时间与窗口边界判断
     certain: bool | None = None
     # 是否可能晚于语句时间才生效（如 Doris 的异步 schema change 作业）：上次快照之前 lag 秒内的这类语句也算边界候选
     may_lag: bool = False
+    xid: str | None = None  # 审计来源记下的事务号（PostgreSQL xid8），随结构化信息落库
 
-    @property
-    def summary(self) -> str | None:
-        return summarize(self.statement)
 
 
 class AuditUnavailable(Exception):
@@ -72,7 +64,7 @@ class Lexed:
 
 def lex(statement: str) -> Lexed:
     """SQL 词法（够用即可）：跳过注释（含 PostgreSQL 的嵌套块注释）与字符串字面量（'' 转义、E'' 反斜杠转义、
-    $tag$ 美元引用），识别带引号的标识符（"" ` [] ）、Unicode 标识符与标点。遇到未闭合的结构时标记为不确定。"""
+    $tag$ 美元引用），识别带引号的标识符（"" ` ）、Unicode 标识符与标点。遇到未闭合的结构时标记为不确定。"""
     s, i, n, out, certain = statement or "", 0, len(statement or ""), [], True
     while i < n:
         c = s[i]
@@ -115,12 +107,12 @@ def lex(statement: str) -> Lexed:
             certain = certain and j >= 0
             i = n if j < 0 else j + len(tag)
             out.append(Token("other"))
-        elif c in "\"`[":
-            close = {"\"": "\"", "`": "`", "[": "]"}[c]
+        elif c in "\"`":  # 方括号不当作引用：PostgreSQL 的 ARRAY[…]、下标都用它
+            close = c
             j, buf, closed = i + 1, [], False
             while j < n:
                 if s[j] == close:
-                    if j + 1 < n and s[j + 1] == close and close != "]":
+                    if j + 1 < n and s[j + 1] == close:
                         buf.append(close)
                         j += 2
                         continue
@@ -164,14 +156,6 @@ def is_batch(statement: str) -> bool:
     return not lexed.certain or len(_statements(lexed.tokens)) > 1
 
 
-def summarize(statement: str) -> str | None:
-    """可落库的摘要：单条语句、词法确定、看不出敏感值时压缩空白并截断；否则返回 None（只保存命令类型和对象）。"""
-    if not statement or is_batch(statement) or _SENSITIVE.search(statement):
-        return None
-    s = _SPACE.sub(" ", statement).strip()
-    return s if len(s) <= SUMMARY_LIMIT else s[:SUMMARY_LIMIT - 1] + "…"
-
-
 # --- 列的语法位置 ------------------------------------------------------------------
 
 def _kw(t: Token | None, *words: str) -> bool:
@@ -184,6 +168,9 @@ def _same(token: Token, name: str, fold: str) -> bool:
     if fold == "lower":  # PostgreSQL：不带引号的标识符折成小写
         return token.text.lower() == name
     return token.text.lower() == name.lower()  # 不区分大小写的引擎
+
+
+same_identifier = _same  # 归因按引擎的标识符规则比较列名
 
 
 def _name(toks: list[Token], i: int) -> tuple[list[Token], int]:
@@ -227,93 +214,143 @@ def _actions(toks: list[Token]) -> list[list[Token]]:
     return out
 
 
-_NOT_COLUMN = {"CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "INDEX", "KEY", "PARTITION", "PARTITIONS",
-               "ROLLUP", "PROJECTION", "STATISTICS", "TEMPORARY", "EXCLUDE", "OWNER", "DEFAULT", "COMMENT", "ORDER",
-               "TTL", "SETTING", "SETTINGS", "QUERY", "ENGINE", "PROPERTIES", "DISTRIBUTION", "SAMPLE"}
+_NO_COLUMN_ADD = {"CHECK", "UNIQUE", "FOREIGN", "EXCLUDE", "INDEX", "KEY", "PARTITION", "PARTITIONS", "ROLLUP",
+                  "PROJECTION", "STATISTICS", "TEMPORARY"}
+_NO_COLUMN_MODIFY = {"COMMENT", "ORDER", "TTL", "SETTING", "SETTINGS", "ENGINE", "PROPERTIES", "DISTRIBUTION",
+                     "SAMPLE", "PARTITION"}
+UNKNOWN = None  # 识别不了：可能涉及任何一列
+
+
+def _paren_idents(a: list[Token], i: int) -> list[Token]:
+    """括号里每个逗号分隔项的第一个标识符（如 PRIMARY KEY (a, b)、Doris 的 ADD COLUMN (a INT, b INT)）。"""
+    cols, depth, expect = [], 0, True
+    for t in a[i:]:
+        if t.kind == "lparen":
+            depth += 1
+            continue
+        if t.kind == "rparen":
+            depth -= 1
+            if depth == 0:
+                break
+            continue
+        if depth == 1 and t.kind == "comma":
+            expect = True
+            continue
+        if depth == 1 and expect and t.kind == "ident":
+            cols.append(t)
+        if depth == 1:
+            expect = False
+    return cols
 
 
 def _action_columns(a: list[Token]) -> list[Token] | None:
-    """一个 ALTER TABLE 动作点名的列；None 表示这个动作不涉及列（或识别不了）。"""
+    """一个 ALTER TABLE / VIEW 动作涉及的列：列表（可能为空：确定不改列结构）；UNKNOWN：识别不了，可能涉及任何一列。"""
     if not a:
-        return None
+        return []
     verb = a[0].text.upper() if a[0].kind == "ident" and not a[0].quoted else ""
+    nxt = a[1] if len(a) > 1 else None
+    if verb == "OWNER" or (verb == "SET" and _kw(nxt, "SCHEMA")):
+        return []
     i = 1
+    if verb in ("ADD", "DROP") and _kw(nxt, "CONSTRAINT"):
+        if verb == "DROP":
+            return UNKNOWN  # 删的可能是 NOT NULL 或主键约束，影响哪些列看不出
+        i = 3  # ADD CONSTRAINT <名字> …
+        nxt = a[i] if len(a) > i else None
+    if verb == "ADD" and _kw(nxt, "PRIMARY"):
+        return _paren_idents(a, i) or UNKNOWN  # 主键会让列变为非空
+    if verb == "ADD" and _kw(nxt, "NOT"):  # PostgreSQL 18：ADD [CONSTRAINT n] NOT NULL col
+        j = _skip(a, i, "NOT", "NULL")
+        return [a[j]] if j < len(a) and a[j].kind == "ident" else UNKNOWN
+    if verb in ("ADD", "DROP") and _kw(nxt, *_NO_COLUMN_ADD):
+        return []
+    if verb == "MODIFY" and _kw(nxt, *_NO_COLUMN_MODIFY):
+        return []
     if verb in ("ADD", "DROP", "ALTER", "MODIFY", "CLEAR", "MATERIALIZE"):
-        if i < len(a) and _kw(a[i], *_NOT_COLUMN):
-            return None
-        i = _skip(a, i, "COLUMN")
+        i = _skip(a, 1, "COLUMN")
         if verb in ("CLEAR", "MATERIALIZE") and i == 1:
-            return None  # ClickHouse：CLEAR / MATERIALIZE 只认 … COLUMN 写法（另有 INDEX、PROJECTION）
+            return UNKNOWN
         i = _skip(a, i, "IF", "NOT", "EXISTS")
         i = _skip(a, i, "IF", "EXISTS")
         if i < len(a) and a[i].kind == "lparen" and verb == "ADD":  # Doris：ADD COLUMN (a INT, b INT)
-            cols, depth, expect = [], 0, True
-            for t in a[i:]:
-                if t.kind == "lparen":
-                    depth += 1
-                    continue
-                if t.kind == "rparen":
-                    depth -= 1
-                    continue
-                if depth == 1 and t.kind == "comma":
-                    expect = True
-                    continue
-                if depth == 1 and expect and t.kind == "ident":
-                    cols.append(t)
-                    expect = False
-                elif depth == 1:
-                    expect = False
-            return cols or None
-        return [a[i]] if i < len(a) and a[i].kind == "ident" else None
+            return _paren_idents(a, i) or UNKNOWN
+        return [a[i]] if i < len(a) and a[i].kind == "ident" else UNKNOWN
     if verb == "CHANGE":  # MySQL：CHANGE [COLUMN] old new type
-        i = _skip(a, i, "COLUMN")
-        return [t for t in a[i:i + 2] if t.kind == "ident"] or None
+        i = _skip(a, 1, "COLUMN")
+        cols = [t for t in a[i:i + 2] if t.kind == "ident"]
+        return cols if len(cols) == 2 else UNKNOWN
     if verb == "RENAME":
-        if not _kw(a[i] if i < len(a) else None, "COLUMN"):
-            return None  # RENAME TO（改表名）、RENAME CONSTRAINT 等
-        i += 1
+        if _kw(nxt, "TO", "AS") or _kw(nxt, "CONSTRAINT", "INDEX", "PARTITION", "ROLLUP"):
+            return []  # 改表名、改约束名等
+        i = _skip(a, 1, "COLUMN")  # PostgreSQL 可以省略 COLUMN：RENAME a TO b
         old = a[i] if i < len(a) and a[i].kind == "ident" else None
         j = _skip(a, i + 1, "TO")
         new = a[j] if j < len(a) and a[j].kind == "ident" else None
-        return [t for t in (old, new) if t is not None] or None
-    if verb == "COMMENT" and _kw(a[i] if i < len(a) else None, "COLUMN"):  # ClickHouse：COMMENT COLUMN c '…'
-        i = _skip(a, i + 1, "IF", "EXISTS")
-        return [a[i]] if i < len(a) and a[i].kind == "ident" else None
-    return None
+        return [old, new] if old is not None and new is not None else UNKNOWN
+    if verb == "COMMENT":
+        if _kw(nxt, "COLUMN"):  # ClickHouse：COMMENT COLUMN c '…'
+            i = _skip(a, 2, "IF", "EXISTS")
+            return [a[i]] if i < len(a) and a[i].kind == "ident" else UNKNOWN
+        return []  # 表注释（ClickHouse / Doris：COMMENT '…'）
+    return UNKNOWN
 
 
-def column_refs(statement: str, object_name: str, fold: str = "insensitive") -> list[Token] | None:
-    """语句中对 object_name 点名的列（按语法位置）。只认 ALTER TABLE 的列动作与 COMMENT ON COLUMN；
-    其他写法返回 None（不提供列级证据）。多语句时只看目标是该对象的那几条。"""
+@dataclass
+class ColumnRefs:
+    columns: list[Token]  # 在语法位置上点名的列
+    unknown: bool  # 有针对该对象、但识别不出涉及哪些列的语句（可能涉及任何一列）
+
+
+_ALTERABLE = (("TABLE",), ("VIEW",), ("MATERIALIZED", "VIEW"), ("FOREIGN", "TABLE"))
+
+
+def column_refs(statement: str, object_name: str, fold: str = "insensitive") -> ColumnRefs:
+    """语句中针对 object_name 涉及的列。认得的写法：ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE 的各个动作、
+    COMMENT ON COLUMN（点名列）、COMMENT ON TABLE / VIEW（不涉及列）。多语句时只看目标是该对象的那几条；
+    审计来源说它针对该对象、却认不出是哪种写法的（包括词法上无法确定的记录），都算 unknown。"""
     lexed = lex(statement)
     found: list[Token] = []
-    recognized = False
+    unknown = not lexed.certain
+    targeted = False
     for st in _statements(lexed.tokens):
-        if _kw(st[0] if st else None, "ALTER") and _kw(st[1] if len(st) > 1 else None, "TABLE"):
-            i = _skip(st, 2, "IF", "EXISTS")
+        if _kw(st[0] if st else None, "ALTER"):
+            kind = next((k for k in _ALTERABLE if all(_kw(st[1 + n] if len(st) > 1 + n else None, w)
+                                                       for n, w in enumerate(k))), None)
+            if kind is None:
+                continue
+            i = _skip(st, 1 + len(kind), "IF", "EXISTS")
             i = _skip(st, i, "ONLY")
             parts, i = _name(st, i)
             if not parts or not _same(parts[-1], object_name, fold):
                 continue
-            recognized = True
+            targeted = True
             for action in _actions(st[i:]):
-                found += _action_columns(action) or []
-        elif (_kw(st[0] if st else None, "COMMENT") and _kw(st[1] if len(st) > 1 else None, "ON")
-              and _kw(st[2] if len(st) > 2 else None, "COLUMN")):
-            parts, _ = _name(st, 3)
-            if len(parts) >= 2 and _same(parts[-2], object_name, fold):
-                recognized = True
-                found.append(parts[-1])
-    return found if recognized else None
+                cols = _action_columns(action)
+                if cols is UNKNOWN:
+                    unknown = True
+                else:
+                    found += cols
+        elif _kw(st[0] if st else None, "COMMENT") and _kw(st[1] if len(st) > 1 else None, "ON"):
+            what = st[2] if len(st) > 2 else None
+            if _kw(what, "COLUMN"):
+                parts, _ = _name(st, 3)
+                if len(parts) >= 2 and _same(parts[-2], object_name, fold):
+                    targeted = True
+                    found.append(parts[-1])
+            elif _kw(what, "TABLE", "VIEW"):
+                parts, _ = _name(st, 3)
+                targeted = targeted or bool(parts and _same(parts[-1], object_name, fold))
+            elif _kw(what, "MATERIALIZED", "FOREIGN"):
+                parts, _ = _name(st, 4)
+                targeted = targeted or bool(parts and _same(parts[-1], object_name, fold))
+    return ColumnRefs(found, unknown or not targeted)
 
 
 def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive") -> bool:
-    """语句是否在列的语法位置上点名了该列。识别不了的写法返回 False（由调用方按整体候选或未知处理）。"""
+    """语句是否在列的语法位置上点名了该列。"""
     if object_name is None:
         return False
-    refs = column_refs(statement, object_name, fold)
-    return bool(refs) and any(_same(t, column, fold) for t in refs)
-
+    return any(_same(t, column, fold) for t in column_refs(statement, object_name, fold).columns)
 
 # --- 对象 -------------------------------------------------------------------------
 

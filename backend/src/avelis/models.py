@@ -36,7 +36,8 @@ def created() -> Mapped[datetime]:
 
 
 class Chained:
-    """在哈希链上的历史表。三列由提交时的封链触发器写入（见 avelis.history.integrity），应用只读。"""
+    """在哈希链上的历史表。三列由提交时的封链触发器写入（见 avelis.history.integrity），应用只读。
+    另有 inserted_xact（xid8，插入它的顶层事务号）由插入触发器写入，不映射到模型。"""
 
     chain_seq: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     prev_hash: Mapped[str | None] = mapped_column(String(64))

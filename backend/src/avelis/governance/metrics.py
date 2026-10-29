@@ -139,6 +139,11 @@ def transition_rejected_to_draft(session: Session, version: MetricVersion, actor
     session.add(MetricVersionTransition(metric_version_id=version.id, from_status="rejected", to_status="draft",
                                         actor_id=actor.id, reason="修改被驳回的版本"))
     version.status = "draft"
+    # 被驳回期间不受保留期保护：引用的资产版本可能已被清理。不留悬空引用，提交时按当前版本重新绑定（ADR 0008）
+    refs = [v.get("version_id") for v in (version.asset_versions or {}).values() if isinstance(v, dict)]
+    if any(ref and session.get(AssetVersion, ref) is None for ref in refs):
+        version.asset_versions = {}
+        version.status_reason = "引用的资产版本已按保留期清理：草稿不再绑定旧版本，重新提交时按当前版本绑定"
 
 
 # --- 定义校验与依赖 -----------------------------------------------------------------

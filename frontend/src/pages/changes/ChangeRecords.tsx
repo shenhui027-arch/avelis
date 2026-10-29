@@ -56,7 +56,7 @@ export function ChangeRecords() {
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
   const set = (k: keyof typeof filters) => (v: string) => { setFilters((f) => ({ ...f, [k]: v, ...(k === "datasource_id" ? { asset_id: "" } : {}) })); setOffset(0); };
-  const query = recordQuery(filters, tz);
+  const { query, invalid } = recordQuery(filters, tz);
   const records = useQuery({
     queryKey: ["change-events", query, offset],
     queryFn: () => unwrap(api.GET("/api/change-events", { params: { query: { ...query, limit: PAGE, offset } } })),
@@ -110,6 +110,7 @@ export function ChangeRecords() {
             </div>
           </div>
           <Banner message={message} />
+          {invalid.length ? <Banner message={{ ok: false, text: `所选日期在业务时区 ${tz} 中不存在（整天被跳过），该日期条件未生效，请换一天` }} /> : null}
           {verify ? <VerifyResult v={verify} tz={tz} /> : null}
 
           <div className="av-filters" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
@@ -135,8 +136,8 @@ export function ChangeRecords() {
               <option value="matched">已确认用户</option>
               <option value="ambiguous,unmatched,unavailable,unsupported">未知或不确定</option>
             </Select>
-            <input className="av-input" type="date" aria-label="起始日期（业务时区）" value={filters.since} onChange={(e) => set("since")(e.target.value)} />
-            <input className="av-input" type="date" aria-label="截止日期（不含，业务时区）" value={filters.until} onChange={(e) => set("until")(e.target.value)} />
+            <input className="av-input" type="date" aria-label="起始日期（业务时区）" value={filters.since} aria-invalid={invalid.includes("since")} title={invalid.includes("since") ? `${tz} 中没有这一天` : undefined} onChange={(e) => set("since")(e.target.value)} />
+            <input className="av-input" type="date" aria-label="截止日期（不含，业务时区）" value={filters.until} aria-invalid={invalid.includes("until")} title={invalid.includes("until") ? `${tz} 中没有这一天` : undefined} onChange={(e) => set("until")(e.target.value)} />
           </div>
 
           <section className="av-panel">

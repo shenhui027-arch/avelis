@@ -83,10 +83,12 @@ class PostgresConnector:
         warnings: list[str] = []
         with self._connect() as conn:
             identity = self._server_identity(conn)
+            instance = self._instance_key(conn, identity)  # 在自动提交下读：出错不会中止后面的只读事务
             # 元数据在同一个可重复读只读事务里读，并记下这个事务快照：归因据此判断 DDL 事务在不在两次快照之间
             with conn.transaction():
                 conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-                cursor = {"pg_snapshot": conn.execute("SELECT pg_catalog.pg_current_snapshot()::text").fetchone()[0]}
+                cursor = {"pg_snapshot": conn.execute("SELECT pg_catalog.pg_current_snapshot()::text").fetchone()[0],
+                          "instance": instance}
                 relations = conn.execute(
                     "SELECT c.oid, n.nspname, c.relname, c.relkind, pg_catalog.obj_description(c.oid, 'pg_class') "
                     "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
@@ -166,17 +168,23 @@ class PostgresConnector:
 
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         """读 DDL 审计。两次快照都记了事务快照时，按事务可见性取“上次快照看不到、本次看得到”的事务，结果确定；
-        否则（升级后第一次、上次快照没有游标）按执行时间取窗口内的记录，一律标为不确定（长事务可能跨窗口）。事件触发器不存在、已停用或指向别的函数时，审计视为未开启。"""
+        否则（升级后第一次、上次快照没有游标）按执行时间取窗口内的记录，一律标为不确定（长事务可能跨窗口）。
+        事件触发器不存在、已停用或指向别的函数时，审计视为未开启；审计连接的实例与本次快照不同（或无法确认）时，
+        视为实例已切换。"""
         schemas = list(self.options.get("schemas", []))
         previous, current = cursors or (None, None)
         p_snap = (previous or {}).get("pg_snapshot")
         c_snap = (current or {}).get("pg_snapshot")
-        select = ("SELECT extract(epoch FROM at), db_user, command_tag, object_names, statement "
+        select = ("SELECT extract(epoch FROM at), db_user, command_tag, object_names, statement, xid::text "
                   f"FROM {AUDIT_TABLE} WHERE object_type = ANY(%s) AND object_names[1] = ANY(%s) "
                   "AND array_length(object_names, 1) >= 2 AND ")
         try:
             with self._connect() as conn:
                 self._check_audit_triggers(conn)
+                expected = (current or {}).get("instance")
+                if current and (expected is None or self._instance_key(conn) != expected):
+                    # 审计连接与本次快照连接不是同一个实例（或无法确认）：不能用快照游标解释这里的事务号
+                    raise AuditUnavailable("审计连接所在的实例与本次快照不一致或无法确认", "instance_changed")
                 if p_snap and c_snap:
                     rows = conn.execute(
                         select + "xid >= pg_catalog.pg_snapshot_xmin(%s::pg_snapshot) "
@@ -192,8 +200,20 @@ class PostgresConnector:
         by_transaction = bool(p_snap and c_snap)
         return [DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None), db_user=user,
                          objects=[(names[0], names[1])], statement_type=tag, statement=statement or "",
-                         certain=by_transaction)  # 没有两次游标时只能按时间取，结果一律不确定
-                for ts, user, tag, names, statement in rows]
+                         certain=by_transaction, xid=xid)  # 没有两次游标时只能按时间取，结果一律不确定
+                for ts, user, tag, names, statement, xid in rows]
+
+    def _instance_key(self, conn: psycopg.Connection, identity: dict[str, Any] | None = None) -> str | None:
+        """事务号只在同一个实例内可比：有 system_identifier 时用它；没有时用（端点、postmaster 启动时间、库 oid），
+        实例重启或切换都会让键变化（归因随之重建基线）。都读不到时返回 None，按实例已切换处理。"""
+        identity = identity if identity is not None else self._server_identity(conn)
+        try:
+            start, db_oid = conn.execute(
+                "SELECT pg_catalog.pg_postmaster_start_time()::text, d.oid::text FROM pg_catalog.pg_database d "
+                "WHERE d.datname = pg_catalog.current_database()").fetchone()
+        except psycopg.Error:
+            return identity.get("instance_id")
+        return identity.get("instance_id") or f"{identity['endpoint']}|{start}|{db_oid}"
 
     @staticmethod
     def _check_audit_triggers(conn: psycopg.Connection) -> None:

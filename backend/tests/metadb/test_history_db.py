@@ -171,6 +171,33 @@ def test_savepoints_are_legal_and_follow_the_insert_registry(metadb, world):
     assert _verify()["ok"] is True
 
 
+def test_inserted_xact_is_the_only_proof_of_ownership(metadb, world):
+    # B：插入它的顶层事务号写在行里，不可改；ON CONFLICT DO NOTHING 不会让旧的未封链行“属于”当前事务
+    row = "f0000000000000000000000000000001"
+    _replica(metadb, "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                     "VALUES (:id, now(), 'x', 'legacy', 't', '{}')", id=row)
+    with metadb.connect() as conn:
+        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                          "VALUES (:id, now(), 'x', 'again', 't', '{}') ON CONFLICT (id) DO NOTHING"), {"id": row})
+        with pytest.raises(Exception, match="不是本事务插入的未封链行"):
+            conn.execute(text("UPDATE audit_event SET action = 'rewritten' WHERE id = :id"), {"id": row})
+        conn.rollback()
+        # 伪造会话临时表也没用（不再有这种登记）
+        conn.execute(text("CREATE TEMP TABLE avelis_history_pending (tbl text, id text)"))
+        conn.execute(text("INSERT INTO avelis_history_pending VALUES ('audit_event', :id)"), {"id": row})
+        with pytest.raises(Exception, match="不是本事务插入的未封链行"):
+            conn.execute(text("UPDATE audit_event SET action = 'rewritten' WHERE id = :id"), {"id": row})
+        conn.rollback()
+    _replica(metadb, "DELETE FROM audit_event WHERE id = :id", id=row)
+    with metadb.connect() as conn:
+        xact = conn.execute(text("SELECT inserted_xact::text FROM audit_event WHERE inserted_xact IS NOT NULL "
+                                 "LIMIT 1")).scalar()
+    assert xact
+    _rejected(metadb, "UPDATE audit_event SET inserted_xact = '1'::xid8 WHERE inserted_xact = CAST(:x AS xid8)",
+              match="inserted_xact 不能修改", x=xact)
+    assert _verify()["ok"] is True
+
+
 def test_state_columns_must_change_together(metadb, world):
     # 9：血缘边的 status 与 superseded_at、变更集的 status 与 resolved_at 只能成对、只改一次
     edge = new_id()
@@ -225,7 +252,11 @@ def test_export_reads_one_snapshot_with_hard_cap(metadb, world, monkeypatch):
     finally:
         snap.rollback()
         snap.close()
-    assert again == body and manifest2["chain_head"] == manifest["chain_head"]
+    def data_of(raw: bytes) -> bytes:
+        return b"".join(line for line in raw.splitlines(keepends=True) if not line.startswith(b"#"))
+
+    assert data_of(again) == data_of(body) and manifest2["chain_head"] == manifest["chain_head"]
+    assert manifest2["content_sha256"] == manifest["content_sha256"]
     data = b"".join(line for line in body.splitlines(keepends=True) if not line.startswith(b"#"))
     rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
     assert max(int(r["chain_seq"]) for r in rows) <= manifest["chain_head"]["seq"]
@@ -287,6 +318,52 @@ def test_purge_rechecks_eligibility_when_a_version_regains_protection(metadb, wo
     with metadb.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM asset_version WHERE id = :id"), {"id": old_id}).scalar() == 1
     assert _verify()["ok"] is True
+
+
+def test_purge_with_only_derived_layer_candidates_and_rejected_draft_refs(metadb, world):
+    # 第三轮复核 1：只有超期的 grain（没有任何链上候选）时，清理不能生成空 WHERE
+    # 第三轮复核 6：被驳回口径引用的旧版本被清理后，改回草稿不留悬空引用
+    from avelis.governance.metrics import transition_rejected_to_draft
+
+    with session_scope() as s:
+        asset = s.get(Asset, world["asset"])
+        run = s.get(CollectionRun, world["run"])
+        old = AssetVersion(asset_id=asset.id, version_no=20, observed_run_id=run.id, last_seen_run_id=run.id,
+                           kind="table", catalog_name="c", db_name="store", name="sales", content_hash="v20",
+                           superseded_at=utcnow() - timedelta(days=4000))
+        s.add(old)
+        s.flush()
+        s.execute(text("INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
+                       "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
+                       "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"),
+                  {"id": new_id(), "a": asset.id, "v": asset.current_version_id})
+        metric = s.scalar(select(Metric).where(Metric.code == "sales"))
+        rejected = MetricVersion(metric_id=metric.id, version_no=21, status="rejected", description="d",
+                                 expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
+                                 asset_versions={asset.id: {"version_id": old.id}})
+        s.add(rejected)
+        s.flush()
+        old_id, rejected_id = old.id, rejected.id
+    result = retention.purge(retention_days=3650)
+    assert result["status"] == "purged" and result["counts"].get("grain") == 1, result
+    assert result["counts"].get("asset_version") == 1  # 被驳回的口径不保护旧版本
+    with session_scope() as s:
+        version = s.get(MetricVersion, rejected_id)
+        transition_rejected_to_draft(s, version, s.get(User, world["admin_id"]))
+        assert version.status == "draft" and version.asset_versions == {}
+        assert "保留期清理" in version.status_reason
+    with metadb.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM asset_version WHERE id = :id"), {"id": old_id}).scalar() == 0
+    assert _verify()["ok"] is True
+
+    # 只有推导层候选（没有链上候选）：不会因空条件报错
+    with session_scope() as s:
+        s.execute(text("INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
+                       "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
+                       "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"),
+                  {"id": new_id(), "a": world["asset"], "v": world["versions"][2]})
+    result = retention.purge(retention_days=3650)
+    assert result["status"] == "purged" and result["counts"] == {"grain": 1}, result
 
 
 def test_purge_succeeds_while_others_keep_writing(metadb, world):
