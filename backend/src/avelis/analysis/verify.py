@@ -13,7 +13,9 @@
 - 只有真实存在的日历日期才当日期排除：完整的 YYYY-MM-DD（或 YYYY/MM/DD）与“M 月 D 日”（可带“YYYY 年”），
   用日历校验（2026-02-31、平年的 2 月 29 日都不是日期）；另外“2026 年”“9 月”“8-9 月”、日历时长（不超过 31 的
   “N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
-  阿拉伯数字不看后面的单位，一律提取。金额、件数、家数、行数等全部核验。
+  阿拉伯数字不看后面的单位、也不看前面是否紧贴字母（“GMV100万”），一律提取。金额、件数、家数、行数等全部核验；
+- 以失败为默认：去掉日期、日历词、序号与已提取的数字后，文本里仍有阿拉伯数字或中文数字字符
+  （零〇一二两三四五六七八九十百千万亿，常见的非数量词如“一致”“统一”“之一”除外）时，记一个无法识别的数字，未核实。
 事实与计算类结论必须引用存在的数据集，没有引用即未核实。标题、摘要与“未解释”中的数字按同样规则，
 对照全部事实 / 计算类结论引用的数据集核验。找不到的数字标为“未核实”，不静默删除。
 推断与建议类结论不强制核验，但其中的数字也会列出供人查看。
@@ -52,15 +54,15 @@ def _strip_calendar(text: str) -> str:
     # 不带年份的“2 月 29 日”按闰年判断（年份未知，不能断定它不存在）
     text = CN_DATE.sub(lambda m: " " if _is_date(int(m[1] or 2024), int(m[2]), int(m[3])) else m[0], text)
     return CALENDAR_WORDS.sub(" ", text)
-# 前面不能紧跟字母、数字、小数点或千分位逗号；汉字可以紧贴（“订单数10,998单”）。注意 \w 在 Unicode 下包括汉字
+# 前面只排除数字、小数点与千分位逗号（不拆开 3.5、1,234）；字母与汉字可以紧贴（“GMV100万”“订单数10,998单”）
 _NUM = r"[-+−]?\d[\d,]*(?:\.\d+)?"
-NUMBER = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?")
-RANGE = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?\s*(?:-|–|—|~|～|至|到)\s*(\d[\d,]*(?:\.\d+)?)\s*({SCALE_UNIT})?")
+NUMBER = re.compile(rf"(?<![0-9.,])({_NUM})\s*({SCALE_UNIT})?")
+RANGE = re.compile(rf"(?<![0-9.,])({_NUM})\s*({SCALE_UNIT})?\s*(?:-|–|—|~|～|至|到)\s*(\d[\d,]*(?:\.\d+)?)\s*({SCALE_UNIT})?")
 # 中文数字表示的数量：后面跟量词、本身以万 / 亿结尾，或写成“百分之……”（“统一”“一致”“之一”不算）。不解析，一律未核实
-_CN = "零一二两三四五六七八九十百千万亿点几"
-_CN_RUN = rf"[零一二两三四五六七八九十几][{_CN}]*"
+_CN = "零〇一二两三四五六七八九十百千万亿点几"
+_CN_RUN = rf"[零〇一二两三四五六七八九十几][{_CN}]*"
 _MEASURE = r"(?:家|单|件|笔|台|元|倍|人|次(?!性)|个(?!月)|位|名|条|项|款|种|类|成|张|辆|箱|份|个百分点|%)"
-CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[一二两三四五六七八九十几][{_CN}]*[万亿])")
+CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[零〇一二两三四五六七八九十几][{_CN}]*[万亿])")
 UPPER = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]+[万亿]?")
 # 表示减少的词：紧跟其后的不带符号的数字是减少的幅度，可以对应数据集中的负值（“下降到 155”是水平，不算）
 DECREASE = re.compile(r"(?:下降|减少|降低|下滑|回落|缩减|削减|萎缩|流失|少了|降幅|减幅|跌幅|下跌|负贡献|拖累)"
@@ -78,6 +80,23 @@ def _item(raw: str, unit: str, before: str) -> dict[str, Any]:
             "signed": raw[0] in "-+−", "decrease": bool(DECREASE.search(before[-12:]))}
 
 
+# 兜底检查：数字字符（阿拉伯数字与中文数字）；常见的非数量词与中文序号不算
+NUMERAL = re.compile(r"[0-9０-９零〇一二两三四五六七八九十百千万亿]")
+NON_QUANTITY = re.compile("|".join([
+    "一致", "统一", "之一", "一些", "一起", "一直", "一般", "一定", "一旦", "进一步", "唯一", "单一", "一体", "一样",
+    "一下", "一方面", "一系列", "十分", "几乎", "万一", "千万", "一同", "一律", "一并", "一再", "一向", "一切", "同一",
+    "一贯", "一度", "一时", "不一", "一边", "一部分", "两者", "一方", r"[第前后]\s*[零〇一二两三四五六七八九十百千]+",
+    "万元", "亿元", "百分点", "百分比"]))
+
+
+def _residual(rest: str, matched: list[tuple[int, int]]) -> str | None:
+    """去掉已提取的部分与非数量词后仍剩下的数字字符所在的片段；没有则为 None。"""
+    left = "".join(" " if any(a <= i < b for a, b in matched) else ch for i, ch in enumerate(rest))
+    left = NON_QUANTITY.sub(" ", left)
+    m = NUMERAL.search(left)
+    return None if m is None else left[max(0, m.start() - 4):m.end() + 4].strip()
+
+
 def extract_numbers(text: str) -> list[dict[str, Any]]:
     """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。"""
     cleaned = _strip_calendar(text or "")
@@ -89,16 +108,26 @@ def extract_numbers(text: str) -> list[dict[str, Any]]:
         found.append((m.start(3), _item(m.group(3), end_unit, cleaned[:m.start(1)])))
         spans.append(m.span())
     rest = "".join(" " if any(a <= i < b for a, b in spans) else ch for i, ch in enumerate(cleaned))
+    matched: list[tuple[int, int]] = []
     for m in NUMBER.finditer(rest):
+        matched.append(m.span())
         try:
             found.append((m.start(), _item(m.group(1), m.group(2) or "", rest[:m.start()])))
         except InvalidOperation:
-            continue
+            found.append((m.start(), _unparseable(m.group(0), "无法解析的数字")))
     for pattern, error in ((CN_NUMBER, "中文数字：请用阿拉伯数字书写"), (UPPER, "无法解析的数字")):
         for m in pattern.finditer(rest):
-            found.append((m.start(), {"text": m.group(0), "value": None, "places": 0, "unit": "", "signed": False,
-                                      "decrease": False, "error": error}))
+            matched.append(m.span())
+            found.append((m.start(), _unparseable(m.group(0), error)))
+    # 以失败为默认：还有没被识别的数字字符，就不能因为“没提取到数字”而通过
+    leftover = _residual(rest, matched)
+    if leftover:
+        found.append((len(rest), _unparseable(leftover, "包含无法识别的数字")))
     return [item for _, item in sorted(found, key=lambda x: x[0])]
+
+
+def _unparseable(text: str, error: str) -> dict[str, Any]:
+    return {"text": text, "value": None, "places": 0, "unit": "", "signed": False, "decrease": False, "error": error}
 
 
 def _round(value: Decimal, places: int) -> Decimal:

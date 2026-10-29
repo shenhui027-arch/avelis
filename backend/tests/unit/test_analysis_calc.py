@@ -177,7 +177,15 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
         assert check(text)["status"] == "unverified", text
     assert check("营收三点五万元")["numbers"] == [{"text": "三点五万", "verified": False}]  # 不会被当成 5 万
     assert check("共 3 家门店")["status"] == "verified"
-    assert check("统一口径，结果一致，是原因之一，持续五个月")["status"] == "verified"  # 不是数量
+    assert check("统一口径，结果一致，是原因之一，第一名是福田店")["status"] == "verified"  # 不是数量
+    # 以失败为默认（第四轮）：字母紧贴的数字照常提取；“零点五万”“〇个”未核实；还有认不出的数字字符时兜底为未核实
+    assert [n["text"] for n in extract_numbers("GMV100万")] == ["100万"]
+    assert check("GMV100万")["status"] == "unverified"  # D1 中没有 100 万
+    assert check("营收零点五万")["numbers"] == [{"text": "零点五万", "verified": False}]
+    assert check("共〇个区域")["status"] == "unverified"
+    leftover = check("持续五个月，两期对比")
+    assert leftover["status"] == "unverified" and leftover["numbers"] and not leftover["numbers"][-1]["verified"]
+    assert extract_numbers("九月销售")[0]["error"] == "包含无法识别的数字"
     # ASCII 连字符的金额区间不是日期：两端都核验（复核反例：曾被当成 2400-32 删掉，只剩 0）
     zero = {"D1": {"rows": [{"v": "0"}]}}
     assert verify_report([{"type": "fact", "text": "利润在 2400-3200 元之间", "refs": ["D1"]}], zero)["ok"] is False
