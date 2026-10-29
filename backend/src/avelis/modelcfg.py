@@ -11,8 +11,9 @@ Avelis 额外要求：检测会实际发起一次带工具定义的对话，确�
 
 from __future__ import annotations
 
+import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timezone
 from typing import Any
 
@@ -53,6 +54,39 @@ POLICY_KEY = "model_policy"
 DEFAULT_POLICY = {"send_results": False, "send_code": False}
 
 
+def redact_error(text: str, api_key: str | None = None, *, limit: int = 300) -> str:
+    """先移除上游可能回显的凭据，再截断，避免长凭据只被截掉一半。"""
+    if api_key:
+        text = text.replace(api_key, "[REDACTED]")
+    text = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^\s/]+@", r"\1[REDACTED]@", text)
+    text = re.sub(r'''(?i)\bbearer\s+[^\s"',;}\]]+''', "Bearer [REDACTED]", text)
+    text = re.sub(
+        r'''(?ix)(["']?(?:authorization|proxy-authorization|x-api-key)["']?\s*[:=]\s*)
+        (?:"[^"]*"|'[^']*'|Basic\s+[^\s"',;}\]]+|[^\r\n,;}]+)''',
+        r"\1[REDACTED]", text,
+    )
+    return text[:limit]
+
+
+def _model_check(p: ModelProvider, model_id: str) -> dict[str, Any]:
+    """服务器检测按模型保存在现有 JSON 字段；兼容此前单条检测记录。"""
+    checks = p.last_check or {}
+    if model_id in checks.get("models", {}):
+        return checks["models"][model_id]
+    return checks if checks.get("model_id") == model_id else {}
+
+
+def _enabled_model(p: ModelProvider | None, model_id: str, *, needs_tools: bool = False) -> dict | None:
+    if p is None or not p.enabled or not p.api_key_enc:
+        return None
+    model = next((m for m in p.models if m["id"] == model_id and m["enabled"]), None)
+    if model is not None and needs_tools:
+        check = _model_check(p, model_id)
+        if check.get("ok") is not True or check.get("tool_calling") is not True:
+            return None
+    return model
+
+
 # --- 视图 -------------------------------------------------------------------------
 
 def mask(hint: str | None) -> str | None:
@@ -83,9 +117,12 @@ def settings_view(session: Session) -> dict[str, Any]:
         a = assignments.get(purpose)
         out[purpose] = {**meta, "provider_id": a.provider_id if a else None, "model_id": a.model_id if a else None,
                         "updated_at": a.updated_at.isoformat() if a else None}
+    ask = assignments.get("ask")
+    provider = session.get(ModelProvider, ask.provider_id) if ask else None
+    configured = ask is not None and _enabled_model(provider, ask.model_id, needs_tools=True) is not None
     return {"assignments": out, "policy": policy(session),
-            "mode": "configured" if "ask" in assignments else "demo",
-            "note": None if "ask" in assignments else "未指定问数理解模型：使用演示模型（规则匹配）"}
+            "mode": "configured" if configured else "demo",
+            "note": None if configured else "未配置有效的问数理解模型：使用演示模型（规则匹配）"}
 
 
 # --- 维护 -------------------------------------------------------------------------
@@ -141,6 +178,7 @@ def create_provider(session: Session, actor: User, *, code: str, preset: str | N
 def update_provider(session: Session, actor: User, provider_id: str, changes: dict[str, Any]) -> ModelProvider:
     p = _get(session, provider_id)
     fields = []
+    connection_changed = changes.get("base_url") is not None and changes["base_url"] != p.base_url
     for key in ("name", "base_url", "enabled"):
         if changes.get(key) is not None:
             setattr(p, key, changes[key])
@@ -150,11 +188,15 @@ def update_provider(session: Session, actor: User, provider_id: str, changes: di
         fields.append("models")
     if changes.get("api_key"):
         _set_key(p, changes["api_key"])
-        p.last_check = {}
+        connection_changed = True
         fields.append("api_key")
     if changes.get("clear_api_key"):
         p.api_key_enc, p.api_key_hint = None, None
+        connection_changed = True
         fields.append("api_key_cleared")
+    if connection_changed:
+        p.last_check = {}
+        p.models = [{**m, "tool_calling": None} for m in p.models]
     p.updated_at = utcnow()
     if p.enabled is False and session.scalar(select(ModelAssignment.purpose).where(
             ModelAssignment.provider_id == p.id).limit(1)):
@@ -187,8 +229,8 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
         model = next((m for m in p.models if m["id"] == target["model_id"] and m["enabled"]), None)
         if model is None:
             raise Conflict(f"模型 {target['model_id']} 不在 {p.name} 的启用列表中")
-        if PURPOSES[purpose]["needs_tools"] and model.get("tool_calling") is False:
-            raise Conflict(f"{PURPOSES[purpose]['label']}需要工具调用，检测显示 {model['id']} 不支持")
+        if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
+            raise Conflict(f"{PURPOSES[purpose]['label']}需要该模型最近一次服务器检测成功且支持工具调用")
         if current is None:
             current = ModelAssignment(purpose=purpose, provider_id=p.id, model_id=model["id"], updated_by=actor.id)
             session.add(current)
@@ -228,19 +270,24 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
 class Resolved:
     model: BaseChatModel
     adapter: str
+    _api_key: str | None = field(default=None, repr=False)
+
+    def safe_error(self, error: Exception | str, *, limit: int = 300) -> str:
+        return redact_error(str(error), self._api_key, limit=limit)
 
 
 def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Resolved | None:
-    """按用途取模型；未指定（或提供方已停用）返回 None，调用方使用演示模型。"""
+    """指派无效、模型不再启用或问数检测失效时返回 None，调用方标明并使用演示模型。"""
     a = session.get(ModelAssignment, purpose)
     if a is None and purpose == "explain":
         a = session.get(ModelAssignment, "ask")
     if a is None:
         return None
     p = session.get(ModelProvider, a.provider_id)
-    if p is None or not p.enabled:
+    if _enabled_model(p, a.model_id, needs_tools=a.purpose == "ask") is None:
         return None
-    return Resolved(build_chat_model(p, a.model_id, temperature=temperature), f"{p.code}:{a.model_id}")
+    return Resolved(build_chat_model(p, a.model_id, temperature=temperature), f"{p.code}:{a.model_id}",
+                    decrypt_secret(p.api_key_enc))
 
 
 def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:
@@ -257,10 +304,15 @@ def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:
     try:
         resp = httpx.get(url, headers=headers, timeout=20)
     except httpx.HTTPError as exc:
-        raise Conflict(f"无法连接 {url}：{type(exc).__name__}") from exc
+        message = redact_error(f"无法连接 {url}：{type(exc).__name__}: {exc}", key)
+        raise Conflict(message) from None
     if resp.status_code != 200:
-        raise Conflict(f"获取模型列表失败：HTTP {resp.status_code}", body=resp.text[:300])
-    ids = sorted({m.get("id") for m in resp.json().get("data", []) if m.get("id")})
+        raise Conflict(f"获取模型列表失败：HTTP {resp.status_code}", body=redact_error(resp.text, key))
+    try:
+        ids = sorted({m.get("id") for m in resp.json().get("data", []) if m.get("id")})
+    except (ValueError, TypeError, AttributeError) as exc:
+        message = redact_error(f"获取模型列表失败：{type(exc).__name__}: {exc}", key)
+        raise Conflict(message) from None
     audit.record(session, actor, "model_provider.fetch_models", "model_provider", p.id, count=len(ids))
     return ids
 
@@ -275,19 +327,26 @@ def check(session: Session, actor: User, provider_id: str, model_id: str) -> dic
     started = time.monotonic()
     result: dict[str, Any] = {"model_id": model_id,
                               "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat()}
+    key = None
     try:
+        key = decrypt_secret(p.api_key_enc) if p.api_key_enc else None
         model = build_chat_model(p, model_id)
         tool = StructuredTool.from_function(lambda value: value, name="echo", args_schema=_PingArgs,
                                             description="原样返回 value")
         reply = model.bind_tools([tool]).invoke(
             [HumanMessage("这是连通性检测。请调用 echo 工具，参数 value 为 ok。")])
         result.update(ok=True, tool_calling=bool(reply.tool_calls))
-    except Exception as exc:  # 失败原因如实返回（不含密钥）
-        result.update(ok=False, tool_calling=None, error=f"{type(exc).__name__}: {str(exc)[:300]}")
+    except Exception as exc:  # 上游可能回显请求头或地址，只保存脱敏后的错误
+        result.update(ok=False, tool_calling=None, error=redact_error(f"{type(exc).__name__}: {exc}", key))
     result["latency_ms"] = int((time.monotonic() - started) * 1000)
-    p.last_check = result
+    checks = dict((p.last_check or {}).get("models", {}))
+    previous = p.last_check or {}
+    if previous.get("model_id") and previous["model_id"] not in checks:
+        checks[previous["model_id"]] = {k: v for k, v in previous.items() if k != "models"}
+    checks[model_id] = dict(result)
+    p.last_check = {**result, "models": checks}
     # 复制后整体赋值：原地修改 JSONB 中的字典不会被识别为变更
-    p.models = [{**m, "tool_calling": result["tool_calling"]} if m["id"] == model_id and result["ok"] else dict(m)
+    p.models = [{**m, "tool_calling": result["tool_calling"]} if m["id"] == model_id else dict(m)
                 for m in p.models]
     audit.record(session, actor, "model_provider.check", "model_provider", p.id, model_id=model_id,
                  ok=result["ok"], tool_calling=result.get("tool_calling"))
