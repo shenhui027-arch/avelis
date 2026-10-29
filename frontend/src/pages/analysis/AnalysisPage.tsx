@@ -287,16 +287,17 @@ function numeric(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 首列为 period 时画趋势；否则对 change / contribution（或第一个数值列）画贡献条。 */
+/** 首列是保存的时间段列（time_column）时画趋势；否则对 change / contribution（或第一个数值列）画贡献条。 */
 function DatasetChart({ d }: { d: Dataset }) {
   const cols = d.columns;
-  const numCols = cols.map((_, i) => i).filter((i) => cols[i] !== "period" && d.rows.some((r) => numeric(r[i]) !== null)
+  const trend = !!d.time_column && cols[0] === d.time_column;
+  const numCols = cols.map((_, i) => i).filter((i) => !(trend && i === 0) && d.rows.some((r) => numeric(r[i]) !== null)
     && d.rows.every((r) => r[i] == null || numeric(r[i]) !== null));
   if (!d.rows.length || !numCols.length) return null;
   // 优先画变化额（“·变化”、change、contribution），其次画第一个数值列；不画变化率
   const value = numCols.find((i) => cols[i].endsWith("·变化") || cols[i] === "change" || cols[i] === "contribution")
     ?? numCols.find((i) => !cols[i].endsWith("变化率") && cols[i] !== "change_rate") ?? numCols[0];
-  if (cols[0] === "period" && d.rows.length > 2) {
+  if (trend && d.rows.length > 2) {
     const series = new Map<string, { x: string; y: number }[]>();
     for (const r of d.rows) {
       const key = r.slice(1, value).map(String).join(" / ") || cols[value];

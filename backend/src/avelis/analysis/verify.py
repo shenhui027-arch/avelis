@@ -4,13 +4,15 @@
 - 结论写 1,234.5 → 数据集中某个值四舍五入到 1 位小数等于 1234.5；
 - 写 12.3% → 某个值 ×100 后到 1 位小数等于 12.3（变化率以小数保存），或数据集本身就是 12.3；
 - 写 12.3 万 / 1.2 亿 → 某个值除以 1 万 / 1 亿后按同样精度相等；
-- 写“10 家门店”“279 行”“三家门店” → 引用数据集的行数或某列的不同值个数相等（自己推算的计数，如 10 - 1 = 9，仍标为未核实；
+- 写“10 家门店”“279 行” → 引用数据集的行数或某列的不同值个数相等（自己推算的计数，如 10 - 1 = 9，仍标为未核实；
   截断的数据集不是全集，不能用它的行数核实）；
 - 正负号必须一致；只有数字直接跟在“下降、减少、负贡献”等表示减少的词后面（如“下降 220”）时，才可以对应数据集中的 -220；
 - 区间（2400–3200、8-9 万）的两端都要核验，单位写在末尾时两端共用；
-- 无法解析的数字（大写数字“壹佰”等）一律标为未核实；
-- 日期、年月（2026-09-15、09-15、9/10、9 月、2026 年）、日历时长（不超过 31 的“N 天 / N 周 / N 个月”）
-  与“第 N”“前 N”中的序号不当作需要核验的数字；金额、件数、家数、行数等仍全部核验。
+- 中文数字表示的数量（“三家”“五个”“三点五万”“百分之十二”）与大写数字（“壹佰”）不能可靠解析，一律标为未核实；
+  系统提示要求模型用阿拉伯数字书写所有数量；
+- 只有合法的日期写法（年份 19xx / 20xx、月份 1–12、日期 1–31：2026-09-15、2026-09、09-15、9/10、9 月、2026 年）、
+  日历时长（不超过 31 的“N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不当作需要核验的数字；
+  后面跟着数量单位（元、万、% 等）的“10-12”“2000-12”是数量区间，照常核验。金额、件数、家数、行数等全部核验。
 事实与计算类结论必须引用存在的数据集，没有引用即未核实。标题、摘要与“未解释”中的数字按同样规则，
 对照全部事实 / 计算类结论引用的数据集核验。找不到的数字标为“未核实”，不静默删除。
 推断与建议类结论不强制核验，但其中的数字也会列出供人查看。
@@ -26,19 +28,23 @@ CHECKED = ("fact", "calc")
 SCALE_UNIT = r"%|个百分点|万|亿"
 # 跟在这些单位后面的“10-12”“9/10”是数量区间，不是日期
 _QTY = r"(?!\s*(?:%|个百分点|万|亿|元|家|单|件|笔|台|人|次|倍|个))"
-DATE_LIKE = re.compile(
-    r"\d{4}-\d{1,2}-\d{1,2}|\d{4}-\d{1,2}" + _QTY + r"|\d{4}/\d{1,2}/\d{1,2}|(?<![\d.])\d{1,2}/\d{1,2}(?![\d.])" + _QTY +
-    r"|(?<![\d.-])\d{2}-\d{2}(?![\d.-])" + _QTY + r"|\d{4}\s*年|\d{1,2}\s*[-–~至]\s*\d{1,2}\s*月|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?|"
-    r"\d{1,2}\s*[日号]|(?<![\d.,])(?:[12]?\d|3[01])\s*(?:天|周|个月)|第\s*\d+|前\s*\d+|后\s*\d+|Top\s*\d+|D\d+|\d{1,2}:\d{2}", re.I)
+_Y, _M, _D = r"(?:19|20)\d{2}", r"(?:0?[1-9]|1[0-2])", r"(?:0?[1-9]|[12]\d|3[01])"
+DATE_LIKE = re.compile("|".join([
+    rf"(?<![\d.]){_Y}-{_M}-{_D}(?![\d.])", rf"(?<![\d.]){_Y}/{_M}/{_D}(?![\d.])",
+    rf"(?<![\d.]){_Y}-{_M}(?![\d.-]){_QTY}", rf"(?<![\d./]){_M}/{_D}(?![\d./]){_QTY}",
+    rf"(?<![\d.-])(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?![\d.-]){_QTY}", rf"(?<![\d.]){_Y}\s*年",
+    rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月", rf"(?<![\d.]){_M}\s*月(?:\s*{_D}\s*[日号])?", rf"(?<![\d.]){_D}\s*[日号]",
+    r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:天|周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
+    r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"]), re.I)
 # 前面不能紧跟字母、数字、小数点或千分位逗号；汉字可以紧贴（“订单数10,998单”）。注意 \w 在 Unicode 下包括汉字
 _NUM = r"[-+−]?\d[\d,]*(?:\.\d+)?"
 NUMBER = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?")
 RANGE = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?\s*(?:-|–|—|~|～|至|到)\s*(\d[\d,]*(?:\.\d+)?)\s*({SCALE_UNIT})?")
-# 中文小写数字：后面跟量词或本身以万 / 亿结尾时才算数量（“统一”“一致”不算）
-_CN = "零一二两三四五六七八九十百千万亿"
-_CN_RUN = rf"[一二两三四五六七八九十][{_CN}]*"
-CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:(百分之)({_CN_RUN})|({_CN_RUN})(?=\s*(?:家|单|件|笔|台|元|倍|人|次|个百分点|%))"
-                       rf"|([一二两三四五六七八九十][{_CN}]*[万亿]))")
+# 中文数字表示的数量：后面跟量词、本身以万 / 亿结尾，或写成“百分之……”（“统一”“一致”“之一”不算）。不解析，一律未核实
+_CN = "零一二两三四五六七八九十百千万亿点几"
+_CN_RUN = rf"[一二两三四五六七八九十几][{_CN}]*"
+_MEASURE = r"(?:家|单|件|笔|台|元|倍|人|次(?!性)|个(?!月)|位|名|条|项|款|种|类|成|张|辆|箱|份|个百分点|%)"
+CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[一二两三四五六七八九十几][{_CN}]*[万亿])")
 UPPER = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]+[万亿]?")
 # 表示减少的词：紧跟其后的不带符号的数字是减少的幅度，可以对应数据集中的负值（“下降到 155”是水平，不算）
 DECREASE = re.compile(r"(?:下降|减少|降低|下滑|回落|缩减|削减|萎缩|流失|少了|降幅|减幅|跌幅|下跌|负贡献|拖累)"
@@ -47,24 +53,6 @@ DECREASE = re.compile(r"(?:下降|减少|降低|下滑|回落|缩减|削减|萎�
 
 def _decimal(text: str) -> Decimal:
     return Decimal(text.replace(",", "").replace("−", "-").replace("+", ""))
-
-
-def _cn_value(text: str) -> Decimal | None:
-    digits = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
-    small = {"十": 10, "百": 100, "千": 1000}
-    total, section, num = 0, 0, 0
-    for ch in text:
-        if ch in digits:
-            num = digits[ch]
-        elif ch in small:
-            section += (num or 1) * small[ch]
-            num = 0
-        elif ch in ("万", "亿"):
-            total = (total + section + num) * (10000 if ch == "万" else 100000000)
-            section, num = 0, 0
-        else:
-            return None
-    return Decimal(total + section + num)
 
 
 def _item(raw: str, unit: str, before: str) -> dict[str, Any]:
@@ -90,17 +78,10 @@ def extract_numbers(text: str) -> list[dict[str, Any]]:
             found.append((m.start(), _item(m.group(1), m.group(2) or "", rest[:m.start()])))
         except InvalidOperation:
             continue
-    for m in CN_NUMBER.finditer(rest):
-        run = m.group(2) or m.group(3) or m.group(4)
-        unit = "%" if m.group(1) or rest[m.end():].lstrip().startswith("%") else ""
-        if run[-1] in "万亿" and len(run) > 1:  # “三万”与“3 万”同样按显示精度核验
-            run, unit = run[:-1], run[-1]
-        value = _cn_value(run)
-        found.append((m.start(), {"text": m.group(0), "value": value, "places": 0, "unit": unit, "signed": False,
-                                  "decrease": bool(DECREASE.search(rest[:m.start()][-12:]))}))
-    for m in UPPER.finditer(rest):
-        found.append((m.start(), {"text": m.group(0), "value": None, "places": 0, "unit": "", "signed": False,
-                                  "decrease": False, "error": "无法解析的数字"}))
+    for pattern, error in ((CN_NUMBER, "中文数字：请用阿拉伯数字书写"), (UPPER, "无法解析的数字")):
+        for m in pattern.finditer(rest):
+            found.append((m.start(), {"text": m.group(0), "value": None, "places": 0, "unit": "", "signed": False,
+                                      "decrease": False, "error": error}))
     return [item for _, item in sorted(found, key=lambda x: x[0])]
 
 

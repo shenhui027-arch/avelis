@@ -1299,6 +1299,8 @@ export interface components {
             summary?: unknown;
             /** Metric Version Ids */
             metric_version_ids?: string[];
+            /** Time Column */
+            time_column?: string | null;
         } & {
             [key: string]: unknown;
         };

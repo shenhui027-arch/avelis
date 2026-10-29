@@ -603,6 +603,7 @@ class AnalysisDatasetOut(Out):
     sql: str | None = None
     summary: Any = None
     metric_version_ids: list[str] = Field(default_factory=list)
+    time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
 
 
 class AnalysisRunOut(Out):

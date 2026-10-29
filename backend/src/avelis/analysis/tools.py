@@ -1,7 +1,7 @@
 """分析智能体的工具（ADR 0007 第 3 点）。
 
-三类工具，全部以发起人身份执行、按其可见范围过滤。每次调用前都重新核对发起人（账号存在且启用、仍有查询角色），
-并按当前授权重新计算可见口径：开始时的口径目录只是上下文，不是整次分析的授权凭证。
+三类工具，全部以发起人身份执行、按其可见范围过滤。每次调用前都重新核对发起人（账号存在且启用、仍有查询角色）；
+涉及对象的工具只针对请求的口径与来源闭包按当前授权核对（与问数同一套规则与来源闭包），不重建全量口径目录。
 - 上下文：口径、资产（含字段注释）、血缘、变更记录、数据健康——只读元数据；
 - 受治理查询：query_metric 复用问数的完整管线（start_answer / fulfil / finish_answer），每次产生一个数据集；
 - 计算：输入只能是数据集编号与列名，数值由后端从数据集中取，模型不能手填数字。
@@ -25,10 +25,10 @@ from sqlalchemy.orm import Session
 
 from avelis.analysis import calc
 from avelis.ask import service
-from avelis.ask.intent import DimensionFilter, Intent, comparison_range, period_column
+from avelis.ask.intent import DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
 from avelis.governance import access
-from avelis.governance.errors import Forbidden, GovernanceError
+from avelis.governance.errors import GovernanceError
 from avelis.models import (
     AnalysisDataset,
     AnalysisRun,
@@ -44,6 +44,7 @@ from avelis.models import (
     User,
 )
 
+QUERY_ROLES = {"analyst", "steward", "reviewer", "admin"}
 PREVIEW_ROWS = 40
 MODEL_ROWS = 60  # 一次返回给模型的数据行上限；完整数据集保存在库中
 
@@ -236,10 +237,13 @@ class ReportArgs(BaseModel):
 
 class AnalysisToolbox:
     def __init__(self, session: Session, user: User, run: AnalysisRun, catalog: service.Catalog, budget: Budget,
-                 executor: str | None = None):
+                 executor: str | None = None, adapter: str | None = None):
         self.session, self.user, self.run, self.catalog, self.budget = session, user, run, catalog, budget
-        self.executor = executor  # 执行权标记（run.budget.executor）：运行被终结或被接管后停止
+        self.executor = executor  # 执行权标记（run.budget.executor）：失去执行权后不再写入、停止
+        self.adapter = adapter or getattr(run, "model_adapter", None) or "analysis"
         self.aborted: str | None = None
+        self.verification: dict | None = None  # 核验结果：终态时与运行一起写入
+        self._allowed: set[str] = set()
         self.plan: dict | None = None
         self.report: dict | None = None
         self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
@@ -251,13 +255,19 @@ class AnalysisToolbox:
     # -- 记录 --
     def _step(self, kind: str, tool: str | None, args: dict, status: str, output: dict, reason: str | None = None,
               dataset: AnalysisDataset | None = None, started: float | None = None) -> None:
+        if self.aborted:  # 已失去执行权：不再写入
+            return
         self._seq += 1
         self.session.add(AnalysisStep(
             run_id=self.run.id, seq=self._seq, kind=kind, tool=tool, args=json.loads(_json(args)), status=status,
             output=json.loads(_json(output)), reason=reason, dataset_id=dataset.id if dataset else None,
             duration_ms=int((time.monotonic() - started) * 1000) if started else None))
         self.session.flush()
-        if self.executor:  # 每一步即时提交：前端能看到进度，worker 中途退出时已完成的步骤不丢
+        if self.executor:  # 每一步即时提交（前端能看到进度、中断时已完成的步骤不丢），提交前在行锁下核对执行权
+            if not self._owns_run(lock=True):
+                self.session.rollback()
+                self.aborted = "分析已被终结或由其他执行者接管，本执行者停止（未写入这一步）"
+                return
             self.session.commit()
 
     @property
@@ -265,12 +275,15 @@ class AnalysisToolbox:
         """不能再继续（不再请求模型）的原因：发起人失去权限，或运行已被终结 / 接管。"""
         return self.permission_lost or self.aborted
 
+    def _owns_run(self, *, lock: bool = False) -> bool:
+        stmt = select(AnalysisRun.status, AnalysisRun.budget).where(AnalysisRun.id == self.run.id)
+        row = self.session.execute(stmt.with_for_update() if lock else stmt).one_or_none()
+        return row is not None and row.status == "running" and (row.budget or {}).get("executor") == self.executor
+
     def check_executor(self) -> None:
         if not self.executor or self.aborted:
             return
-        row = self.session.execute(select(AnalysisRun.status, AnalysisRun.budget)
-                                   .where(AnalysisRun.id == self.run.id)).one_or_none()
-        if row is None or row.status != "running" or (row.budget or {}).get("executor") != self.executor:
+        if not self._owns_run():
             self.aborted = "分析已被终结或由其他执行者接管，本执行者停止"
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
@@ -303,46 +316,55 @@ class AnalysisToolbox:
         return out
 
     # -- 授权 --
+    def _expire_governed(self) -> None:
+        """授权前让会话里的用户、口径、资产对象过期：expire_on_commit=False 时它们可能保留其他事务改动前的状态。"""
+        for obj in list(self.session.identity_map.values()):
+            if isinstance(obj, (User, Metric, MetricVersion, Asset)):
+                self.session.expire(obj)
+
     def _authorize(self) -> None:
-        """重新核对发起人：账号存在、启用、仍有查询角色；按当前授权重新计算可见口径。"""
+        """重新核对发起人：账号存在、启用、仍有查询角色；取当前可访问的业务域（两次查询，不建全量口径目录）。"""
+        self._expire_governed()
         user = self.session.get(User, self.user.id, populate_existing=True)
         if user is None or not user.is_active:
             raise PermissionLost("发起人账号不存在或已停用")
-        try:
-            self.catalog = service.visible_catalog(self.session, user, with_values=False)
-        except Forbidden as exc:
-            raise PermissionLost(f"发起人已没有查询角色（{exc.message}）") from None
+        if not access.roles_of(self.session, user) & QUERY_ROLES:
+            raise PermissionLost("发起人已没有查询角色")
         self.user = user
+        self._allowed = access.domain_ids(self.session, user)
 
     def _deny(self, message: str, **detail) -> None:
         self.denials.append({"message": message, **detail})
         raise PermissionDenied(message)
 
     def _metric(self, code: str) -> tuple[Any, MetricVersion]:
-        """当前可见的口径；存在但不可见时是明确的权限拒绝（模型编造的编码只是错误）。"""
-        if code in self.catalog.versions:
-            return self.catalog.versions[code]
-        if self.session.scalar(select(Metric.id).where(Metric.code == code)) is not None:
+        """按与口径目录相同的规则判断这一个口径（业务域可见、有进入过发布流程的版本）；
+        存在但不可见时是明确的权限拒绝（模型编造的编码只是错误）。"""
+        metric, version = service.visible_metric(self.session, code, self._allowed)
+        if metric is None:
+            raise ValueError(f"指标 {code} 不存在")
+        if version is None:
             self._deny(f"指标 {code} 当前无权访问（不在你可访问的业务域，或已不在可查询状态）", metric_code=code)
-        raise ValueError(f"指标 {code} 不存在")
+        return metric, version
 
     def _metric_sources(self, code: str) -> tuple[Any, MetricVersion, list[MetricVersion], dict[str, Asset]]:
-        """口径、组成版本与来源闭包，逐项核对当前授权：组成指标的业务域、来源资产及其上游都必须可见。"""
+        """口径、组成版本与来源闭包，逐项核对当前授权：组成指标的业务域、来源资产（含关联的右表）及其上游都必须可见。
+        来源闭包与问数同一套函数（ask.service.version_sources）。"""
         metric, version = self._metric(code)
-        allowed = access.domain_ids(self.session, self.user)
         versions = [version]
         if version.kind == "derived":
             versions = []
             for c in version.components or []:
                 cm, cv = self.session.get(Metric, c["metric_id"]), self.session.get(MetricVersion, c["version_id"])
-                if cm is None or cv is None or cm.domain_id not in allowed:
+                if cm is None or cv is None or cm.domain_id not in self._allowed:
                     self._deny(f"派生指标“{metric.name}”的组成指标 {c.get('metric_name')} 不在你可访问的业务域",
                                metric_code=code)
                 versions.append(cv)
-        bases = [v.base_asset_id for v in versions if v.base_asset_id]
-        closure = service.upstream_closure(self.session, bases)
-        if any(not access.can_read_asset(self.session, self.user, a, allowed) for a in closure.values()):
-            self._deny(f"没有权限读取指标 {code} 的来源（含视图背后的表）", metric_code=code)
+        closure: dict[str, Asset] = {}
+        for v in versions:
+            closure.update(service.version_sources(self.session, v))
+        if any(not access.can_read_asset(self.session, self.user, a, self._allowed) for a in closure.values()):
+            self._deny(f"没有权限读取指标 {code} 的来源（含关联表与视图背后的表）", metric_code=code)
         return metric, version, versions, closure
 
     def _guard(self, tool: str, args: dict, run) -> str:
@@ -415,6 +437,7 @@ class AnalysisToolbox:
     # -- 上下文 --
     def search_metrics(self, keyword: str = "") -> str:
         def run():
+            self.catalog = service.visible_catalog(self.session, self.user, with_values=False)  # 列表本身需要全量
             out = []
             for c in self.catalog.cards:
                 if keyword and not any(keyword in s for s in (c.name, c.code, c.description or "", *(c.aliases or []))):
@@ -450,12 +473,14 @@ class AnalysisToolbox:
         parts = qualified.split(".")
         if len(parts) != 3:
             raise ValueError("资产全名应为 catalog.db.name")
-        allowed = access.domain_ids(self.session, self.user)
-        for a in self.session.scalars(select(Asset).where(Asset.catalog_name == parts[0], Asset.db_name == parts[1],
-                                                          Asset.name == parts[2], Asset.status == "active")):
-            if access.can_read_asset(self.session, self.user, a, allowed):
+        found = list(self.session.scalars(select(Asset).where(
+            Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2], Asset.status == "active")))
+        for a in found:
+            if access.can_read_asset(self.session, self.user, a, self._allowed):
                 return a
-        raise ValueError(f"资产 {qualified} 不存在或无权访问")
+        if found:  # 资产存在但不可见：明确的权限拒绝
+            self._deny(f"资产 {qualified} 无权访问", asset=qualified)
+        raise ValueError(f"资产 {qualified} 不存在")
 
     def search_assets(self, keyword: str = "") -> str:
         def run():
@@ -534,9 +559,12 @@ class AnalysisToolbox:
                         {"kind": e["kind"], "asset": e["asset"], "column": e["column"]} for e in events][:30],
                         "impacts": len(impacts)})
             transitions = []
-            codes = [metric_code] if metric_code else list(self.catalog.versions)
-            for code in codes:
-                metric = self._metric(code)[0]
+            if metric_code:
+                metrics = [self._metric(metric_code)[0]]
+            else:
+                self.catalog = service.visible_catalog(self.session, self.user, with_values=False)
+                metrics = [m for m, _ in self.catalog.versions.values()]
+            for metric in metrics:
                 for t, mv in self.session.execute(
                         select(MetricVersionTransition, MetricVersion).join(
                             MetricVersion, MetricVersion.id == MetricVersionTransition.metric_version_id)
@@ -580,8 +608,8 @@ class AnalysisToolbox:
         def run():
             if self.budget.used_queries >= self.budget.queries:
                 raise ValueError(f"受治理查询已达上限 {self.budget.queries} 次：请基于已有数据集继续")
-            for code in args.metric_codes:  # 按当前授权核对每个请求的口径（查询管线再核对来源闭包）
-                self._metric(code)
+            # 按当前授权核对每个请求的口径，只把它们交给查询管线（管线再核对来源闭包、状态与执行前核对）
+            scoped = service.Catalog([], {code: self._metric(code) for code in args.metric_codes})
             self.budget.used_queries += 1
             intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
                             filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
@@ -589,9 +617,9 @@ class AnalysisToolbox:
                             order=args.order, limit=args.limit)
             started = time.monotonic()
             answer = service.start_answer(self.session, self.user, f"[分析 {self.run.id}] {args.purpose}",
-                                          self.run.model_adapter or "analysis", None)
+                                          self.adapter, None)
             answer.intent = intent.model_dump(mode="json")
-            service.fulfil(self.session, self.user, intent, answer, self.catalog)
+            service.fulfil(self.session, self.user, intent, answer, scoped)
             service.finish_answer(self.session, self.user, answer, started)
             if answer.status == "denied" and answer.error_code == "permission":
                 self.denials.append({"message": answer.message, "metric_codes": args.metric_codes,
@@ -600,10 +628,12 @@ class AnalysisToolbox:
                 return ({"status": answer.status, "error_code": answer.error_code, "message": answer.message,
                          "answer_id": answer.id}, None, answer.status)
             result = answer.result
-            names = [self.catalog.versions[c][0].name for c in args.metric_codes]
+            names = [scoped.versions[c][0].name for c in args.metric_codes]
             columns = list(result["columns"])
             if columns and columns[-1] == "value" and len(names) == 1:  # 单指标下推时结果列名为 value：统一成指标名
                 columns[-1] = names[0]
+            if len(set(columns)) != len(columns):  # 列名重复会让按列取值互相覆盖：如实拒绝
+                raise calc.CalcError(f"查询结果的列名重复（{'、'.join(columns)}），无法作为数据集使用")
             title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
                 f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
                 f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
@@ -614,7 +644,7 @@ class AnalysisToolbox:
                                meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                      "intent": answer.intent, "freshness": answer.freshness,
                                      "purpose": args.purpose,
-                                     "time_column": period_column(args.group_by) if args.time_grain else None})
+                                     "time_column": columns[0] if args.time_grain else None})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard("query_metric", args.model_dump(mode="json"), run)
 

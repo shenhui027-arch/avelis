@@ -131,7 +131,7 @@ function NotificationBell() {
       {open ? (
         <div className="av-menu" role="menu">
           {items.length === 0 ? <div className="av-menu__head">没有通知</div> : null}
-          {items.slice(0, 30).map((n) => (
+          {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
             <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
               data-unread={!n.read_at} onClick={async () => {
                 setOpen(false);

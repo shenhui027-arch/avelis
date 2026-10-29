@@ -90,14 +90,16 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
     p0 = math.prod(float(v[0]) for v in vals.values())
     p1 = math.prod(float(v[1]) for v in vals.values())
     weight = _log_mean(p1, p0)
-    contributions = {name: Decimal(str(weight * math.log(float(b) / float(a)))) for name, (a, b) in vals.items()}
-    names = list(contributions)
-    rounded = {n: contributions[n].quantize(Decimal("0.01")) for n in names}
+    raw = {name: weight * math.log(float(b) / float(a)) for name, (a, b) in vals.items()}
+    names = list(raw)
+    rounded = {n: Decimal(str(raw[n])).quantize(Decimal("0.01")) for n in names}
     residual = change - sum(rounded.values(), Decimal(0))
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
              "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": rounded[n]} for n in names]
-    # 只有计算舍入的尾差（每个因子至多 0.01）并入最后一个因子；输入（口径、精度）不一致造成的残差单列，不归给任何因子
-    if abs(residual) <= Decimal("0.01") * len(names):
+    # 未舍入的贡献之和与总差额只差计算精度（相对 1e-9）时，舍入尾差并入最后一个因子；
+    # 否则差额来自输入（口径、显示精度）不一致，整体单列为“未解释差额”，不归给任何因子
+    precision = abs(float(change) - sum(raw.values())) <= 1e-9 * max(abs(float(t0)), abs(float(t1)))
+    if precision:
         rows[-1]["contribution"] += residual
     else:
         rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,

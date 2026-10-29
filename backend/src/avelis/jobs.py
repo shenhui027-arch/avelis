@@ -4,9 +4,11 @@ Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务�
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
-定时分析（M8）：到期的分析任务入队 analysis；API 异步发起的单次分析为 analysis_run（与运行在同一事务中创建）。
-Job 的终态跟随分析的业务结果：分析失败 → failed，任务被暂停或跳过 → skipped，不把失败的分析记为成功。
-Job 被判定放弃时，同步终结关联的分析运行（payload.run_id 或 result.analysis_run_id）。
+定时分析（M8）：到期的分析任务入队 analysis；单次分析为 analysis_run（与运行在同一事务中创建）。
+wait=true 与“立即运行”同样创建 Job，在请求进程内领取并执行，中断时恢复器一样能回收。
+分析类 Job 的执行与终态由 analysis.service 负责：执行权是 Job 的本次尝试（attempts），运行与 Job 的终态同一事务提交；
+Job 的终态跟随分析的业务结果（失败 → failed，暂停或跳过 → skipped）。
+Job 被判定放弃时，关联的分析运行一并处理（analysis.service.reconcile_abandoned）。
 """
 
 from __future__ import annotations
@@ -51,6 +53,9 @@ def enqueue(kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
     return job_id
 
 
+ANALYSIS_KINDS = ("analysis", "analysis_run")
+
+
 def run_job(job_id: str) -> None:
     with session_scope() as session:
         claimed = session.execute(update(Job).where(Job.id == job_id, Job.status == "queued").values(
@@ -59,44 +64,43 @@ def run_job(job_id: str) -> None:
             return
         job = session.get(Job, job_id)
         kind, payload, actor, attempt = job.kind, dict(job.payload), job.created_by, job.attempts
+    if kind in ANALYSIS_KINDS:
+        _run_analysis_job(job_id, attempt, kind, payload)
+        return
     result: dict[str, Any] = {}
-    error, outcome = None, "succeeded"
+    error = None
     try:
         if kind == "collect":
             result = {"run_id": collect_now(payload["datasource_id"], trigger=payload.get("trigger", "manual"),
                                             actor_id=actor)}
-        elif kind == "analysis":
-            from avelis.analysis import service as analysis_service
-
-            out = analysis_service.run_task(payload["task_id"], trigger=payload.get("trigger", "schedule"),
-                                            job_id=job_id)
-            result = {k: v for k, v in out.items() if k != "status"} | {"outcome": out["status"]}
-            outcome = {"succeeded": "succeeded", "failed": "failed"}.get(out["status"], "skipped")
-            if outcome == "failed":
-                error = out.get("reason") or "分析失败"
-        elif kind == "analysis_run":
-            from avelis.analysis import service as analysis_service
-            from avelis.models import AnalysisRun
-
-            with session_scope() as session:
-                run = session.get(AnalysisRun, payload["run_id"])
-                if run is None or run.status != "queued":
-                    outcome = "skipped"
-                    result = {"analysis_run_id": payload["run_id"], "reason": "分析不存在或已不在排队状态"}
-                else:
-                    analysis_service.execute(session, run)
-                    result = {"analysis_run_id": run.id, "status": run.status}
-                    if run.status != "succeeded":
-                        outcome, error = "failed", run.error or "分析失败"
         else:
             raise ValueError(f"未知任务类型 {kind}")
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
+        log.exception("任务 %s 失败", job_id)
         error = f"{type(exc).__name__}: {exc}"
     with session_scope() as session:
         job = session.get(Job, job_id)
         result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
         session.execute(update(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).values(
-            status="failed" if error else outcome, error=error, result=result, finished_at=utcnow()))
+            status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow()))
+
+
+def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> None:
+    """分析类 Job：终态由分析服务与运行在同一事务中写入。意外异常时（仍持有本次尝试才）把 Job 记为失败，
+    并按恢复器同样的规则处理关联的运行，不留下 running 的运行。"""
+    from avelis.analysis import service as analysis_service
+
+    try:
+        analysis_service.run_job(job_id, attempt, kind, payload)
+    except Exception as exc:  # noqa: BLE001 - 如实记录
+        log.exception("分析任务 %s 失败", job_id)
+        error = f"{type(exc).__name__}: {str(exc)[:500]}"
+        with session_scope() as session:
+            job = session.scalar(select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
+                                 .with_for_update())
+            if job is not None:
+                job.status, job.error, job.finished_at = "failed", error, utcnow()
+                analysis_service.reconcile_abandoned(session, job, error)
 
 
 def collect_now(datasource_id: str, *, trigger: str, actor_id: str | None) -> str:
@@ -141,13 +145,11 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     with session_scope() as session:
         rows = list(session.execute(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
             status="failed", finished_at=utcnow(), error=reason).returning(Job.id, Job.kind, Job.payload, Job.result)))
-        from avelis.analysis import service as analysis_service
+        for job_id, kind, _, _ in rows:  # 关联的分析运行一并处理：未结束的终结，已结束的按运行终态修正 Job
+            if kind in ANALYSIS_KINDS:
+                from avelis.analysis import service as analysis_service
 
-        for _, kind, payload, result in rows:  # 关联的分析运行一并终结，不留下永远排队或运行中的分析
-            if kind == "analysis_run":
-                analysis_service.finalize_abandoned(session, (payload or {}).get("run_id"), reason)
-            elif kind == "analysis":
-                analysis_service.finalize_abandoned(session, (result or {}).get("analysis_run_id"), reason)
+                analysis_service.reconcile_abandoned(session, session.get(Job, job_id, populate_existing=True), reason)
     ids = [row[0] for row in rows]
     for job_id in ids:
         log.warning("任务 %s 运行超时，已记为失败", job_id)
