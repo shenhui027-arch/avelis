@@ -25,7 +25,7 @@ const auth: Middleware = {
     return request;
   },
   onResponse({ response, request }) {
-    // 会话过期或被注销（改口令、被停用）：回到登录页并带上原因与原页面；登录、改口令接口自己处理 401/403
+    // 会话过期或被注销（改密码、被停用）：回到登录页并带上原因与原页面；登录、改密码接口自己处理 401/403
     if (response.status === 401 && !new URL(request.url).pathname.startsWith("/api/auth/")) {
       token.clear();
       if (!location.pathname.startsWith("/login")) {

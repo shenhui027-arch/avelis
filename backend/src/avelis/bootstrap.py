@@ -1,7 +1,8 @@
 """初始化命令。
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
-  uv run python -m avelis.bootstrap admin          创建首个管理员 admin（口令取自 AVELIS_DEMO_USER_PASSWORD）
+  uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
+                                                   并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
   uv run python -m avelis.bootstrap openapi PATH   导出 OpenAPI 文档（前端据此生成类型）
   uv run python -m avelis.bootstrap model          按 .env 的 AVELIS_MODEL_* 登记一个模型提供方并设为问数模型
@@ -18,13 +19,19 @@ from alembic import command
 from sqlalchemy import select
 
 from avelis.config import get_settings
-from avelis.db import session_scope
+from avelis.db import session_scope, utcnow
 from avelis.devtools import alembic_config
+from avelis.governance.access import ROLES
 from avelis.models import User, UserRole
-from avelis.security import hash_password
+from avelis.security import hash_password, verify_password
+
+# 演示准备与验收脚本经 API 操作时使用的管理员；不占用给人登录的 admin
+AUTOMATION_ADMIN = "ops_admin"
+SUPERADMIN = "admin"
 
 
-def ensure_admin(username: str = "admin", display_name: str = "管理员") -> str:
+def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员") -> str:
+    """自动化管理员（演示准备、验收脚本用），同时补齐本地超级管理员。"""
     password = get_settings().env.get("AVELIS_DEMO_USER_PASSWORD", "")
     if len(password) < 8:
         raise SystemExit("AVELIS_DEMO_USER_PASSWORD 未设置或过短；运行 uv run scripts/demo.py init-env")
@@ -35,6 +42,35 @@ def ensure_admin(username: str = "admin", display_name: str = "管理员") -> st
             session.add(user)
             session.flush()
             session.add(UserRole(user_id=user.id, role="admin"))
+        user_id = user.id
+    ensure_superadmin()
+    return user_id
+
+
+def ensure_superadmin(reset_password: bool = False) -> str | None:
+    """本地超级管理员 admin：拥有全部角色，密码取自 AVELIS_ADMIN_PASSWORD；未配置时不创建。
+
+    只用于本地开发（用户决定，2026-10-29）：这里直接写入密码，不经过界面的密码策略校验，
+    所以允许 123456 这样的弱密码。已存在时只补齐角色；reset_password=True 时把密码重设为配置值。"""
+    password = get_settings().env.get("AVELIS_ADMIN_PASSWORD", "")
+    if not password:
+        return None
+    with session_scope() as session:
+        user = session.scalar(select(User).where(User.username == SUPERADMIN))
+        if user is None:
+            user = User(username=SUPERADMIN, display_name="超级管理员", password_hash=hash_password(password))
+            session.add(user)
+            session.flush()
+        elif reset_password and not verify_password(password, user.password_hash):
+            user.password_hash = hash_password(password)
+            user.password_changed_at = utcnow()
+            user.sessions_valid_after = utcnow()  # 旧令牌失效
+        user.is_active = True
+        user.must_change_password = False
+        have = set(session.scalars(select(UserRole.role).where(UserRole.user_id == user.id)))
+        for role in ROLES:
+            if role not in have:
+                session.add(UserRole(user_id=user.id, role=role))
         return user.id
 
 
@@ -93,7 +129,10 @@ def main(argv: list[str]) -> None:
         print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
     elif cmd == "admin":
         ensure_admin()
-        print("管理员 admin 已就绪（口令见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
+        ready = ensure_superadmin(reset_password=True)
+        print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
+        print(f"超级管理员 {SUPERADMIN} 已就绪，拥有全部角色（密码见 .env 的 AVELIS_ADMIN_PASSWORD，未打印）" if ready
+              else "未配置 AVELIS_ADMIN_PASSWORD，未创建超级管理员 admin")
     else:
         print(__doc__)
         raise SystemExit(2)

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import secrets
 import socket
 import string
@@ -34,7 +35,7 @@ import pymysql
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "deploy" / "demo"
-ENV_FILE = ROOT / ".env"
+ENV_FILE = Path(os.environ.get("AVELIS_ENV_FILE", ROOT / ".env"))
 ENV_EXAMPLE = ROOT / ".env.example"
 STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"

@@ -1,4 +1,4 @@
-// 登录：左侧品牌区（标记、定位、血缘示意），右侧表单。会话过期、被锁定、需要改口令都在这里给出明确去向。
+// 登录：左侧品牌区（标记、定位、血缘示意），右侧表单。会话过期、被锁定、需要改密码都在这里给出明确去向。
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
@@ -95,7 +95,7 @@ export function Login() {
               onChange={(e) => setUsername(e.target.value)} required />
           </label>
           <label className="av-field">
-            <span className="av-label">口令</span>
+            <span className="av-label">密码</span>
             <span className="av-input-group">
               <input className="av-input" type={reveal ? "text" : "password"} autoComplete="current-password"
                 value={password} onChange={(e) => setPassword(e.target.value)} required />
@@ -109,7 +109,7 @@ export function Login() {
           <button className="av-btn av-btn--primary av-btn--lg" type="submit" disabled={busy || !username || !password}>
             {busy ? "登录中…" : "登录"}
           </button>
-          <p className="av-auth__foot">忘记口令请联系管理员重置</p>
+          <p className="av-auth__foot">忘记密码请联系管理员重置</p>
         </form>
       </section>
     </div>

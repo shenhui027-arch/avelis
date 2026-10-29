@@ -33,7 +33,7 @@ export interface paths {
         /**
          * Login
          * @description 失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。
-         *     锁定期间即使口令正确也拒绝，且不透露账号是否存在。
+         *     锁定期间即使密码正确也拒绝，且不透露账号是否存在。
          */
         post: operations["login_api_auth_token_post"];
         delete?: never;
@@ -53,7 +53,7 @@ export interface paths {
         put?: never;
         /**
          * Change Password
-         * @description 修改自己的口令：其他会话全部失效，返回当前会话的新令牌。
+         * @description 修改自己的密码：其他会话全部失效，返回当前会话的新令牌。
          */
         post: operations["change_password_api_me_password_post"];
         delete?: never;
@@ -145,7 +145,7 @@ export interface paths {
         put?: never;
         /**
          * Reset Password
-         * @description 管理员重置口令：该用户的会话全部失效，下次登录必须修改口令。
+         * @description 管理员重置密码：该用户的会话全部失效，下次登录必须修改密码。
          */
         post: operations["reset_password_api_users__user_id__password_post"];
         delete?: never;
@@ -3093,7 +3093,7 @@ export interface components {
             roles?: string[];
             /**
              * Must Change Password
-             * @description 首次登录必须修改口令（默认是）
+             * @description 首次登录必须修改密码（默认是）
              * @default true
              */
             must_change_password?: boolean;
