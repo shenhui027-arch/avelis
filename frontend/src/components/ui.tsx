@@ -1,6 +1,6 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
 import type { UseQueryResult } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Icon } from "./Icon";
 
@@ -183,15 +183,29 @@ export function Banner({ message }: { message: { ok: boolean; text: string } | n
 export function Drawer({ title, onClose, children, footer, width }: {
   title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number;
 }) {
+  const ref = useRef<HTMLElement>(null);
+  // 模态行为：打开时聚焦第一个可操作元素，Tab 在抽屉内循环，Escape 关闭，关闭后把焦点还给触发者
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = () => Array.from(ref.current?.querySelectorAll<HTMLElement>(
+      "input, select, textarea, button, a[href], [tabindex]:not([tabindex='-1'])") ?? []).filter((el) => !el.hasAttribute("disabled"));
+    (focusables().find((el) => el.tagName !== "BUTTON") ?? focusables()[0])?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
   }, [onClose]);
   return (
     <>
       <div className="av-backdrop" onClick={onClose} />
-      <aside className="av-drawer" role="dialog" aria-label={title} style={width ? { width } : undefined}>
+      <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
         <PaneHeader title={title}>
           <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label="关闭" onClick={onClose}>
             <Icon name="close" />
