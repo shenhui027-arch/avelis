@@ -29,14 +29,13 @@ def _read_env_file(path: Path) -> dict[str, str]:
 def load_env() -> dict[str, str]:
     """.env 提供默认值，进程环境变量优先。"""
     env = _read_env_file(Path(os.environ.get("AVELIS_ENV_FILE", REPO_ROOT / ".env")))
-    env.update({k: v for k, v in os.environ.items() if k.startswith(("AVELIS_", "SR_", "SHOP_", "META_"))})
+    env.update({k: v for k, v in os.environ.items() if k.startswith(("AVELIS_", "SR_", "SHOP_"))})
     return env
 
 
 @dataclass(frozen=True)
 class Settings:
     database_url: str
-    meta_backend: str
     redis_url: str
     secret: str
     access_token_minutes: int = 30
@@ -51,22 +50,18 @@ class Settings:
     env: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
 
 
-def _database_url(env: dict[str, str], backend: str) -> str:
-    if env.get("AVELIS_DATABASE_URL"):
-        return env["AVELIS_DATABASE_URL"]
-    if backend == "pg":
-        password = quote_plus(env.get("AVELIS_PG_PASSWORD", ""))
-        return f"postgresql+psycopg://avelis:{password}@127.0.0.1:{env.get('AVELIS_PG_PORT', '15432')}/avelis"
-    if backend == "mysql":
-        password = quote_plus(env.get("AVELIS_META_MYSQL_PASSWORD", ""))
-        port = env.get("AVELIS_META_MYSQL_PORT", "13307")
-        return f"mysql+pymysql://avelis:{password}@127.0.0.1:{port}/avelis?charset=utf8mb4"
-    raise ValueError(f"AVELIS_META_BACKEND 只支持 pg 或 mysql，当前为 {backend!r}")
+def _database_url(env: dict[str, str]) -> str:
+    """元数据库只支持 PostgreSQL（ADR 0003）。"""
+    url = env.get("AVELIS_DATABASE_URL") or (
+        f"postgresql+psycopg://avelis:{quote_plus(env.get('AVELIS_PG_PASSWORD', ''))}"
+        f"@127.0.0.1:{env.get('AVELIS_PG_PORT', '15432')}/avelis")
+    if not url.startswith("postgresql"):
+        raise ValueError("元数据库只支持 PostgreSQL（AVELIS_DATABASE_URL 须以 postgresql 开头）")
+    return url
 
 
 def build_settings(env: dict[str, str] | None = None) -> Settings:
     env = load_env() if env is None else env
-    backend = env.get("AVELIS_META_BACKEND", "pg")
     redis_password = quote_plus(env.get("AVELIS_REDIS_PASSWORD", ""))
     redis_url = env.get("AVELIS_REDIS_URL") or (
         f"redis://:{redis_password}@127.0.0.1:{env.get('AVELIS_REDIS_PORT', '16379')}/0"
@@ -76,8 +71,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         raise RuntimeError("缺少 AVELIS_SECRET（至少 16 个字符）。运行 uv run scripts/demo.py init-env 生成。")
     origins = env.get("AVELIS_CORS_ORIGINS")
     return Settings(
-        database_url=_database_url(env, backend),
-        meta_backend=backend,
+        database_url=_database_url(env),
         redis_url=redis_url,
         secret=secret,
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),

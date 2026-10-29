@@ -8,15 +8,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.api.deps import current_user, get_session
-from avelis.ask import service
+from avelis.ask import agent
 from avelis.governance import access
-from avelis.models import Answer, AuditEvent, User
+from avelis.models import Answer, AskThread, AuditEvent, User
 
 router = APIRouter(prefix="/api", tags=["问数与审计"])
 
 
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+    thread_id: str | None = Field(default=None, description="继续已有会话（含回答追问）；为空则新建会话")
 
 
 def answer_view(a: Answer) -> dict:
@@ -25,12 +26,29 @@ def answer_view(a: Answer) -> dict:
             "intent": a.intent, "plan": a.plan, "sql": a.sql, "metric_version_ids": a.metric_version_ids,
             "result": a.result, "evidence": a.evidence, "freshness": a.freshness,
             "executed_at": a.executed_at.isoformat() if a.executed_at else None, "duration_ms": a.duration_ms,
-            "cache_hit": a.cache_hit, "recheck_status": a.recheck_status}
+            "cache_hit": a.cache_hit, "recheck_status": a.recheck_status, "thread_id": a.thread_id,
+            "steps": a.steps, "explanation": a.explanation, "explanation_source": a.explanation_source}
 
 
 @router.post("/ask")
 def ask(body: Question, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    return answer_view(service.ask(session, user, body.question))
+    return answer_view(agent.run_turn(session, user, body.question, body.thread_id))
+
+
+@router.get("/ask/threads")
+def list_threads(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
+    return [{"id": t.id, "title": t.title, "status": t.status, "created_at": t.created_at.isoformat(),
+             "updated_at": t.updated_at.isoformat()} for t in session.scalars(
+        select(AskThread).where(AskThread.user_id == user.id).order_by(AskThread.updated_at.desc()).limit(100))]
+
+
+@router.get("/ask/threads/{thread_id}")
+def get_thread(thread_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    t = session.get(AskThread, thread_id)
+    if t is None or t.user_id != user.id:
+        raise HTTPException(404, "会话不存在")
+    answers = session.scalars(select(Answer).where(Answer.thread_id == t.id).order_by(Answer.asked_at))
+    return {"id": t.id, "title": t.title, "status": t.status, "answers": [answer_view(a) for a in answers]}
 
 
 @router.get("/answers")

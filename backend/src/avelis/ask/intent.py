@@ -41,6 +41,8 @@ class MetricCard:
     aliases: list[str]
     dimensions: list[dict[str, Any]]
     dimension_values: dict[str, list[str]] = field(default_factory=dict)
+    description: str = ""
+    status: str = "published"
 
 
 class IntentModel(Protocol):
@@ -113,8 +115,3 @@ class DemoIntentModel:
 
 def business_today(timezone: str) -> date:
     return datetime.now(ZoneInfo(timezone)).date()
-
-
-def get_model() -> IntentModel:
-    """v0.1 只接演示适配器；Anthropic / OpenAI 兼容适配器在 M2 接入，未拿到 key 前标“未验证”。"""
-    return DemoIntentModel()

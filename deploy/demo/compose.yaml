@@ -1,6 +1,6 @@
 # Avelis 演示环境。只用于本地开发与验收，端口只绑 127.0.0.1。通过 scripts/demo.py 起停。
 #
-#   meta-pg / meta-mysql  Avelis 自己的元数据库；产品同时兼容 PostgreSQL 与 MySQL
+#   meta-pg               Avelis 自己的元数据库（PostgreSQL；含 LangGraph 智能体状态）
 #   valkey                Redis 协议兼容：任务队列、缓存、采集锁
 #   shop-mysql            模拟业务方的电商维表库（客户、商品、类目、区域）
 #   starrocks             演示数仓：电商事实表，并以外部表方式读取 shop-mysql 的维表
@@ -22,26 +22,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-
-  meta-mysql:
-    image: mysql:8.4.10
-    environment:
-      MYSQL_ROOT_PASSWORD: ${META_MYSQL_ROOT_PASSWORD:?run scripts/demo.py init-env}
-      MYSQL_DATABASE: avelis
-      MYSQL_USER: avelis
-      MYSQL_PASSWORD: ${AVELIS_META_MYSQL_PASSWORD:?run scripts/demo.py init-env}
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
-    ports:
-      - "127.0.0.1:${AVELIS_META_MYSQL_PORT:-13307}:3306"
-    volumes:
-      - meta-mysql-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
-      interval: 5s
-      timeout: 3s
-      retries: 60
 
   valkey:
     image: valkey/valkey:8-alpine@sha256:d2e18f3410b6f616de1417f570fa55261af2898b9c5b2cfb6781ce2373ea43d1
@@ -120,7 +100,6 @@ networks:
 
 volumes:
   meta-pg-data:
-  meta-mysql-data:
   valkey-data:
   shop-mysql-data:
   sr-fe-meta:

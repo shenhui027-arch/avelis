@@ -2,6 +2,8 @@
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
   uv run python -m avelis.bootstrap admin          创建首个管理员 admin（口令取自 AVELIS_DEMO_USER_PASSWORD）
+  uv run python -m avelis.bootstrap model          按 .env 的 AVELIS_MODEL_* 登记一个模型提供方并设为问数模型
+                                                   （之后在“模型配置”页面维护）
 
 其余对象（用户、业务域、数据源、指标）都通过界面或 API 维护，不需要手改数据库。
 """
@@ -34,12 +36,41 @@ def ensure_admin(username: str = "admin", display_name: str = "管理员") -> st
         return user.id
 
 
+def model_from_env() -> str:
+    """开发便利：把 .env 中的 AVELIS_MODEL_* 登记为提供方，并指定为问数理解与导入推断模型。"""
+    from avelis import modelcfg
+    from avelis.models import ModelProvider
+
+    env = get_settings().env
+    provider, name, key = (env.get(k, "").strip() for k in ("AVELIS_MODEL_PROVIDER", "AVELIS_MODEL_NAME",
+                                                            "AVELIS_MODEL_API_KEY"))
+    if not (provider and name and key):
+        raise SystemExit("缺少 AVELIS_MODEL_PROVIDER / AVELIS_MODEL_NAME / AVELIS_MODEL_API_KEY")
+    admin_id = ensure_admin()
+    with session_scope() as session:
+        admin = session.get(User, admin_id)
+        p = session.scalar(select(ModelProvider).where(ModelProvider.code == "env-default"))
+        kind = "anthropic" if provider == "anthropic" else "openai_compatible"
+        if p is None:
+            p = modelcfg.create_provider(session, admin, code="env-default", preset="custom",
+                                         name=f"{provider}（来自 .env）", kind=kind,
+                                         base_url=env.get("AVELIS_MODEL_BASE_URL") or None, api_key=key,
+                                         models=[{"id": name, "enabled": True}])
+        modelcfg.check(session, admin, p.id, name)
+        modelcfg.save_settings(session, admin, {"ask": {"provider_id": p.id, "model_id": name},
+                                                "import": {"provider_id": p.id, "model_id": name}}, None)
+        return p.id
+
+
 def main(argv: list[str]) -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     cmd = argv[0] if argv else ""
     if cmd == "migrate":
         command.upgrade(alembic_config(), "head")
         print("元数据库已迁移到最新版本")
+    elif cmd == "model":
+        model_from_env()
+        print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
     elif cmd == "admin":
         ensure_admin()
         print("管理员 admin 已就绪（口令见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
