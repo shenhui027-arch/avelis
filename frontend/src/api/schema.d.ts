@@ -822,6 +822,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_analysis_runs_get"];
+        put?: never;
+        /**
+         * Create Run
+         * @description 发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。
+         */
+        post: operations["create_run_api_analysis_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_analysis_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/datasets/{seq}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset */
+        get: operations["get_dataset_api_analysis_runs__run_id__datasets__seq__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/datasets/{seq}/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dataset Csv */
+        get: operations["dataset_csv_api_analysis_runs__run_id__datasets__seq__csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Run */
+        get: operations["export_run_api_analysis_runs__run_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks */
+        get: operations["list_tasks_api_analysis_tasks_get"];
+        put?: never;
+        /** Create Task */
+        post: operations["create_task_api_analysis_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Task */
+        patch: operations["patch_task_api_analysis_tasks__task_id__patch"];
+        trace?: never;
+    };
+    "/api/analysis/tasks/{task_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Task Now
+         * @description 立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。
+         */
+        post: operations["run_task_now_api_analysis_tasks__task_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/tasks/{task_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Task Runs */
+        get: operations["task_runs_api_analysis_tasks__task_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Notifications */
+        get: operations["list_notifications_api_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Notification */
+        post: operations["read_notification_api_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/model-providers/presets": {
         parameters: {
             query?: never;
@@ -1072,6 +1267,139 @@ export interface components {
             port: number;
             /** Note */
             note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisDatasetOut */
+        AnalysisDatasetOut: {
+            /** Ref */
+            ref: string;
+            /** Seq */
+            seq: number;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: unknown[][];
+            /** Row Count */
+            row_count: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated?: boolean;
+            /** Inputs */
+            inputs?: string[];
+            /** Sql */
+            sql?: string | null;
+            /** Summary */
+            summary?: unknown;
+            /** Metric Version Ids */
+            metric_version_ids?: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisRunOut */
+        AnalysisRunOut: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Status */
+            status: string;
+            /** Trigger */
+            trigger: string;
+            /** Title */
+            title?: string | null;
+            /** Verified */
+            verified?: boolean | null;
+            /** Window */
+            window?: {
+                [key: string]: unknown;
+            };
+            /** Budget */
+            budget?: {
+                [key: string]: unknown;
+            };
+            /** Model Adapter */
+            model_adapter?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Task Id */
+            task_id?: string | null;
+            /** Plan */
+            plan?: {
+                [key: string]: unknown;
+            } | null;
+            /** Report */
+            report?: {
+                [key: string]: unknown;
+            } | null;
+            /** Verification */
+            verification?: {
+                [key: string]: unknown;
+            } | null;
+            /** Steps */
+            steps?: components["schemas"]["AnalysisStepOut"][] | null;
+            /** Datasets */
+            datasets?: components["schemas"]["AnalysisDatasetOut"][] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisStepOut */
+        AnalysisStepOut: {
+            /** Seq */
+            seq: number;
+            /** Kind */
+            kind: string;
+            /** Tool */
+            tool?: string | null;
+            /** Status */
+            status: string;
+            /** Reason */
+            reason?: string | null;
+            /** Dataset */
+            dataset?: string | null;
+            /** Args */
+            args?: {
+                [key: string]: unknown;
+            };
+            /** Output */
+            output?: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisTaskOut */
+        AnalysisTaskOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Question */
+            question: string;
+            /** Status */
+            status: string;
+            /** Schedule Cron */
+            schedule_cron?: string | null;
+            /** Paused Reason */
+            paused_reason?: string | null;
+            /** Next Run At */
+            next_run_at?: string | null;
+            /** Last Run Id */
+            last_run_id?: string | null;
+            /** Window */
+            window?: {
+                [key: string]: unknown;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -2299,6 +2627,25 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** NotificationOut */
+        NotificationOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body?: string | null;
+            /** Link */
+            link?: string | null;
+            /** Read At */
+            read_at?: string | null;
+            /** Created At */
+            created_at: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** OwnerRef */
         OwnerRef: {
             /** Id */
@@ -2495,6 +2842,12 @@ export interface components {
             /** Linked Metric Version Id */
             linked_metric_version_id?: string | null;
         };
+        /** RunCreate */
+        RunCreate: {
+            /** Question */
+            question: string;
+            window?: components["schemas"]["Window"] | null;
+        };
         /** RunOut */
         RunOut: {
             /** Id */
@@ -2595,6 +2948,22 @@ export interface components {
             /** Model Id */
             model_id: string;
         };
+        /** TaskCreate */
+        TaskCreate: {
+            /**
+             * Title
+             * @default
+             */
+            title?: string;
+            /** Question */
+            question: string;
+            window?: components["schemas"]["Window"] | null;
+            /**
+             * Schedule Cron
+             * @description 5 段 cron（业务时区），如 0 9 1 * *；为空表示只手动运行
+             */
+            schedule_cron?: string | null;
+        };
         /** TaskOut */
         TaskOut: {
             /** Id */
@@ -2623,6 +2992,18 @@ export interface components {
             resolved_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** TaskPatch */
+        TaskPatch: {
+            /** Title */
+            title?: string | null;
+            window?: components["schemas"]["Window"] | null;
+            /** Schedule Cron */
+            schedule_cron?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /** ThreadDetailOut */
         ThreadDetailOut: {
@@ -2812,6 +3193,22 @@ export interface components {
             grain?: string[];
             /** Dedupe Basis */
             dedupe_basis?: string | null;
+        };
+        /** Window */
+        Window: {
+            /**
+             * Kind
+             * @description last_month（上个自然月对比再上个月）或 fixed
+             */
+            kind: string;
+            /** Start */
+            start?: string | null;
+            /** End */
+            end?: string | null;
+            /** Compare Start */
+            compare_start?: string | null;
+            /** Compare End */
+            compare_end?: string | null;
         };
         /** WorkbenchOut */
         WorkbenchOut: {
@@ -4456,6 +4853,401 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AuditOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_analysis_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"][];
+                };
+            };
+        };
+    };
+    create_run_api_analysis_runs_post: {
+        parameters: {
+            query?: {
+                wait?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_analysis_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_api_analysis_runs__run_id__datasets__seq__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dataset_csv_api_analysis_runs__run_id__datasets__seq__csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_run_api_analysis_runs__run_id__export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tasks_api_analysis_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTaskOut"][];
+                };
+            };
+        };
+    };
+    create_task_api_analysis_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTaskOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_task_api_analysis_tasks__task_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisTaskOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_task_now_api_analysis_tasks__task_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    task_runs_api_analysis_tasks__task_id__runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications_api_notifications_get: {
+        parameters: {
+            query?: {
+                unread?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_notification_api_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

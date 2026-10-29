@@ -496,3 +496,50 @@
 .av-answer-table th { vertical-align: bottom; }
 .av-answer-table__head { display: block; }
 .av-coverage__gaps { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* 分析（M8）：报告 | 数据集 */
+.av-analysis__main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; height: 100%; overflow: auto; padding: var(--space-5) var(--space-6); }
+.av-analysis__hd { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.av-analysis__hd h1 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-title); }
+.av-analysis__composer { display: flex; flex-direction: column; gap: var(--space-2); max-width: 860px; }
+.av-analysis__composer .av-ask-examples { margin: 0; max-width: none; }
+.av-analysis__options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.av-analysis__options .av-field--inline { gap: var(--space-2); }
+.av-analysis__options .av-input { height: var(--size-control-sm); }
+.av-analysis__list, .av-analysis__tasks { display: flex; flex-direction: column; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); }
+.av-analysis__list .av-row, .av-analysis__tasks .av-row { --row-cols: minmax(0, 1fr) auto; }
+.av-analysis__run { display: flex; flex-direction: column; gap: var(--space-3); max-width: 860px; }
+.av-analysis__run-hd { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.av-analysis__run-hd h2 { margin: 0 0 2px; font: var(--type-title); }
+.av-analysis__meta { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.av-analysis__summary { margin: 0; font: 500 14px/22px var(--font-sans); color: var(--text-primary); }
+.av-analysis__report, .av-analysis__plan, .av-analysis__steps { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.av-analysis__plan h3, .av-analysis__steps h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 600 13px/20px var(--font-sans); }
+.av-analysis__plan ul { margin: 0; padding-left: 18px; color: var(--text-secondary); }
+.av-claims { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.av-claim { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); padding: var(--space-2); border-radius: var(--radius-md); }
+.av-claim.is-unverified { background: var(--danger-subtle); }
+.av-claim__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-claim__refs { display: flex; gap: 4px; }
+.av-claim__refs a, .av-timeline a { text-decoration: none; }
+.av-claim__bad { color: var(--danger); font: 500 12px/16px var(--font-sans); }
+.av-timeline { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.av-timeline__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 4px 0 4px 22px; position: relative; counter-increment: step; font: 400 12px/18px var(--font-sans); color: var(--text-secondary); }
+.av-timeline__item::before { content: counter(step); position: absolute; left: 0; width: 16px; color: var(--text-tertiary); font: 500 11px/18px var(--font-mono); text-align: right; }
+.av-timeline__item.is-ok .av-timeline__tool { color: var(--text-primary); }
+.av-timeline__item.is-error .av-timeline__tool, .av-timeline__item.is-denied .av-timeline__tool, .av-timeline__item.is-blocked .av-timeline__tool { color: var(--danger); }
+.av-timeline__tool { font-weight: 500; }
+.av-timeline__reason { color: var(--text-tertiary); }
+.av-timeline__err { color: var(--danger); }
+.av-analysis__aside { height: 100%; overflow: auto; }
+.av-analysis__datasets { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
+.av-dataset { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line-subtle); scroll-margin-top: var(--space-4); }
+.av-dataset:target { outline: 1px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-md); }
+.av-dataset__hd { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.av-dataset__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/18px var(--font-sans); }
+.av-dataset__table td, .av-dataset__table th { padding: 4px 8px; font-size: 11px; }
+.av-chart { width: 100%; height: auto; }
+.av-chart__label { fill: var(--text-secondary); font: 500 10px var(--font-sans); }
+.av-chart__tick { fill: var(--text-tertiary); font: 400 9px var(--font-sans); }
+.av-chart__value { fill: var(--text-secondary); font: 400 9px var(--font-mono); }
+.av-chart__axis { stroke: var(--line-strong); stroke-width: 1; }
