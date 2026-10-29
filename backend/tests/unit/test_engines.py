@@ -13,7 +13,7 @@ from avelis.models import Datasource
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "fake"}
+    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "sqlserver", "fake"}
     with pytest.raises(UnsupportedEngine, match="oracle"):
         get_engine("oracle")
     with pytest.raises(ValueError, match="已登记"):
@@ -72,6 +72,35 @@ def test_clickhouse_types_and_identity():
     assert _identity("b91a2ade-ffaa-41ca-9e03-49a0bf4c9bd7", "view") is None
     assert _identity("00000000-0000-0000-0000-000000000000", "table") is None
     assert _identity("42a74fc4-e8dd-4333-9640-0c9875fc54ff", "table") == "42a74fc4-e8dd-4333-9640-0c9875fc54ff"
+
+
+def test_sqlserver_names_types_and_unicode_literals():
+    from avelis.ask.intent import Intent
+    from avelis.connectors.sqlserver import type_name, view_query
+
+    assert type_name("nvarchar", 32, 0, 0) == "nvarchar(16)" and type_name("varchar", -1, 0, 0) == "varchar(max)"
+    assert type_name("decimal", 9, 18, 2) == "decimal(18,2)" and type_name("int", 4, 10, 0) == "int"
+    # sys.sql_modules 存整条 CREATE VIEW：只取查询部分
+    assert view_query("CREATE VIEW store.v AS\nSELECT a FROM store.t WHERE b = N'x'") == \
+        "SELECT a FROM store.t WHERE b = N'x'"
+    ms = get_engine("sqlserver").dialect_for({"database": "storedb"})
+    assert ms.default_catalog == "storedb" and ms.national_strings
+    from datetime import date
+    from types import SimpleNamespace
+
+    from avelis.ask.compiler import compile_metric_query
+    from avelis.models import Asset
+
+    base = Asset(catalog_name="storedb", db_name="store", name="city_daily_sales")
+    version = SimpleNamespace(dimensions=[{"name": "city", "column": "city"}], expression="SUM(sales_amount)",
+                              time_column="sale_date", filters=None)
+    intent = Intent(metric_code="m", start_date=date(2026, 9, 15), end_date=date(2026, 9, 15),
+                    filters=[{"dimension": "city", "values": ["上海"]}], group_by=[])
+    sql = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
+                               time_type="date", dialect=ms).sql
+    # NVARCHAR 列在非 UTF-8 排序规则下，中文只有写成 N'...' 才能正确比较；行数上限写成 TOP
+    assert sql.startswith("SELECT TOP 1000 ") and "b.city = N'上海'" in sql
+    assert "FROM storedb.store.city_daily_sales AS b" in sql
 
 
 def test_parser_core_is_engine_agnostic():

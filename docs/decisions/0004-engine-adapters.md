@@ -70,6 +70,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
+| SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 
 **ClickHouse**（M7，真实实例联调）：
 
@@ -79,6 +80,23 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 - **排序键 / 主键不保证唯一**：MergeTree 只按它排序，不去重。不作为观察到的粒度，粒度需要人工声明并核验。
 - 查询账号为 `readonly=2`（只读，可以调整查询设置），每次查询设 `max_execution_time` 与 `max_memory_usage`。错误码归类：159 为超时；60、47、81 为对象无法解析；497、164 为权限。
 - 数据新鲜度：取 `system.parts` 中活动分片的最近修改时间。查询账号只授予这张表的 4 列；未授权时不报告新鲜度，不让问数失败。
+
+**SQL Server**（M7，真实实例联调；用户已确认接受 Developer Edition 的许可条款）：
+
+- 资产名 `库.模式.表`，库放在 catalog 段（与 PostgreSQL 相同）；生成的 SQL 用三段名，行数上限写成 `TOP n`。
+- 采集账号只需模式上的 `VIEW DEFINITION`：读 `sys.objects`、`sys.columns`、`sys.indexes`、`sys.sql_modules`，以及 `MS_Description` 扩展属性（列注释）。读不到业务数据。
+- `sys.sql_modules` 存的是整条 `CREATE VIEW` 语句，用 SQLGlot（`tsql`）取出其中的查询再解析。
+- 物理身份用 `object_id`：`sp_rename` 和 `CREATE OR ALTER VIEW` 都不改变它，删除后重建会变。
+- 唯一键：主键、唯一约束、非筛选的唯一索引。
+- **字符串字面量写成 `N'...'`**（方言项 `national_strings`）。`NVARCHAR` 列在默认的非 UTF-8 排序规则下，`'上海'` 会先转成代码页而无法匹配。演示库刻意使用默认排序规则来覆盖这种情况。
+- 查询账号除 `SELECT` 外还需要 `VIEW DEFINITION`：执行前核对要读视图定义。读不到定义时会当作定义已变化而拦截，宁可拦截，不放过。
+- 错误归类：
+  - 驱动层的 20003 为超时，查询超时后连接被驱动断开；
+  - 207、208、4104 为对象无法解析；
+  - 229、230、262、297 为权限。
+
+  服务器原始报错原样保留，去掉驱动附加的说明。
+- 不报告数据新鲜度：最近写入时间需要 `VIEW SERVER STATE`，默认不授予。
 
 ## 规划中的引擎（未登记，未验证）
 
@@ -90,7 +108,6 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | Hive | `hive` | 固定 Catalog + db.table | 元数据来自 HMS 或 `SHOW CREATE TABLE`；血缘主要来自 ETL 脚本导入，而不是视图 |
 | PostgreSQL | `postgres` | db.schema.table | `pg_views` / `information_schema.views` 的定义是否已全限定；`search_path` 对解析的影响 |
 | Oracle | `oracle` | 服务名.schema.table | `ALL_VIEWS.TEXT` 读取；大小写与带引号标识符；同义词 |
-| SQL Server | `tsql` | db.schema.table | `sys.sql_modules`；跨库三段名、链接服务器四段名 |
 
 ## 后果
 
