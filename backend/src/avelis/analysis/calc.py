@@ -96,10 +96,11 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
     residual = change - sum(rounded.values(), Decimal(0))
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
              "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": rounded[n]} for n in names]
-    # 未舍入的贡献之和与总差额只差计算精度（相对 1e-9）时，舍入尾差并入最后一个因子；
-    # 否则差额来自输入（口径、显示精度）不一致，整体单列为“未解释差额”，不归给任何因子
-    precision = abs(float(change) - sum(raw.values())) <= 1e-9 * max(abs(float(t0)), abs(float(t1)))
-    if precision:
+    # 未舍入的贡献之和与总差额的差不超过总量最小单位的一半（按总量输入的小数位数）时，
+    # 视为计算尾差，舍入尾差并入最后一个因子；否则差额来自输入（口径、显示精度）不一致，整体单列为“未解释差额”
+    places = max(0, *(-v.as_tuple().exponent for v in (t0, t1) if isinstance(v.as_tuple().exponent, int)))
+    tolerance = Decimal("0.5").scaleb(-places)
+    if abs(change - Decimal(str(sum(raw.values())))) <= tolerance:
         rows[-1]["contribution"] += residual
     else:
         rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,

@@ -53,6 +53,9 @@ def _window(w: Window | None) -> dict | None:
     return w.model_dump(exclude_none=True) if w else None
 
 
+SYNC_WAIT_SECONDS = 420  # 同步入口最长等待：分析预算 300 秒，另留模型请求与收尾的余量
+
+
 @router.post("/analysis/runs", status_code=201, response_model=S.AnalysisRunOut)
 def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
@@ -62,8 +65,8 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
     # 运行与 Job 同一事务提交，之后才执行或唤醒 worker：不会留下没有 Job、恢复器回收不到的分析
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
-    if wait:  # 在本进程内领取并执行同一个 Job；进程中断时由恢复器按 Job 回收
-        jobs.run_job(job_id)
+    if wait:  # 在本进程内领取并执行同一个 Job（被 worker 抢先领取时等它结束）；进程中断时由恢复器按 Job 回收
+        jobs.run_and_wait(job_id, SYNC_WAIT_SECONDS)
         session.expire_all()
     else:
         jobs._wake(job_id)
@@ -159,13 +162,18 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
     task = _task(session, user, task_id)
     job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
     session.commit()
-    jobs.run_job(job_id)  # 与定时同一路径，在本进程内领取并执行
+    status = jobs.run_and_wait(job_id, SYNC_WAIT_SECONDS)  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
     job = session.get(Job, job_id)
-    run_id = (job.result or {}).get("analysis_run_id")
+    result = job.result or {}
+    run_id = result.get("analysis_run_id")
     if run_id is None:
-        reason = session.get(AnalysisTask, task.id).paused_reason or (job.result or {}).get("reason") or job.error
-        raise HTTPException(409, f"任务已暂停：{reason}")
+        if status not in jobs.TERMINAL:
+            raise HTTPException(409, "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看")
+        task_now = session.get(AnalysisTask, task.id)
+        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
+        label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
+        raise HTTPException(409, f"{label}：{reason}")
     return analysis.run_view(session, session.get(AnalysisRun, run_id))
 
 

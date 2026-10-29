@@ -10,9 +10,10 @@
 - 区间（2400–3200、8-9 万）的两端都要核验，单位写在末尾时两端共用；
 - 中文数字表示的数量（“三家”“五个”“三点五万”“百分之十二”）与大写数字（“壹佰”）不能可靠解析，一律标为未核实；
   系统提示要求模型用阿拉伯数字书写所有数量；
-- 只有合法的日期写法（年份 19xx / 20xx、月份 1–12、日期 1–31：2026-09-15、2026-09、09-15、9/10、9 月、2026 年）、
-  日历时长（不超过 31 的“N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不当作需要核验的数字；
-  后面跟着数量单位（元、万、% 等）的“10-12”“2000-12”是数量区间，照常核验。金额、件数、家数、行数等全部核验。
+- 只有真实存在的日历日期才当日期排除：完整的 YYYY-MM-DD（或 YYYY/MM/DD）与“M 月 D 日”（可带“YYYY 年”），
+  用日历校验（2026-02-31、平年的 2 月 29 日都不是日期）；另外“2026 年”“9 月”“8-9 月”、日历时长（不超过 31 的
+  “N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
+  阿拉伯数字不看后面的单位，一律提取。金额、件数、家数、行数等全部核验。
 事实与计算类结论必须引用存在的数据集，没有引用即未核实。标题、摘要与“未解释”中的数字按同样规则，
 对照全部事实 / 计算类结论引用的数据集核验。找不到的数字标为“未核实”，不静默删除。
 推断与建议类结论不强制核验，但其中的数字也会列出供人查看。
@@ -21,28 +22,43 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 CHECKED = ("fact", "calc")
 SCALE_UNIT = r"%|个百分点|万|亿"
-# 跟在这些单位后面的“10-12”“9/10”是数量区间，不是日期
-_QTY = r"(?!\s*(?:%|个百分点|万|亿|元|家|单|件|笔|台|人|次|倍|个))"
-_Y, _M, _D = r"(?:19|20)\d{2}", r"(?:0?[1-9]|1[0-2])", r"(?:0?[1-9]|[12]\d|3[01])"
-DATE_LIKE = re.compile("|".join([
-    rf"(?<![\d.]){_Y}-{_M}-{_D}(?![\d.])", rf"(?<![\d.]){_Y}/{_M}/{_D}(?![\d.])",
-    rf"(?<![\d.]){_Y}-{_M}(?![\d.-]){_QTY}", rf"(?<![\d./]){_M}/{_D}(?![\d./]){_QTY}",
-    rf"(?<![\d.-])(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?![\d.-]){_QTY}", rf"(?<![\d.]){_Y}\s*年",
-    rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月", rf"(?<![\d.]){_M}\s*月(?:\s*{_D}\s*[日号])?", rf"(?<![\d.]){_D}\s*[日号]",
+# 真实日期：完整的 YYYY-MM-DD / YYYY/MM/DD，或“[YYYY 年] M 月 D 日”；匹配后再用日历校验
+FULL_DATE = re.compile(r"(?<![\d.])((?:19|20)\d{2})([-/])(\d{1,2})\2(\d{1,2})(?![\d.])")
+CN_DATE = re.compile(r"(?:(?<![\d.])((?:19|20)\d{2})\s*年\s*)?(?<![\d.])(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]")
+_M, _D = r"(?:0?[1-9]|1[0-2])", r"(?:0?[1-9]|[12]\d|3[01])"
+CALENDAR_WORDS = re.compile("|".join([
+    r"(?<![\d.])(?:19|20)\d{2}\s*年", rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月", rf"(?<![\d.]){_M}\s*月(?!\s*\d{{1,2}}\s*[日号])",
     r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:天|周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
     r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"]), re.I)
+
+
+def _is_date(year: int, month: int, day: int) -> bool:
+    try:
+        date(year, month, day)
+    except ValueError:
+        return False
+    return True
+
+
+def _strip_calendar(text: str) -> str:
+    """去掉真实存在的日期与日历词（不需要核验的数字）；不合法的“日期”原样保留，按数字核验。"""
+    text = FULL_DATE.sub(lambda m: " " if _is_date(int(m[1]), int(m[3]), int(m[4])) else m[0], text)
+    # 不带年份的“2 月 29 日”按闰年判断（年份未知，不能断定它不存在）
+    text = CN_DATE.sub(lambda m: " " if _is_date(int(m[1] or 2024), int(m[2]), int(m[3])) else m[0], text)
+    return CALENDAR_WORDS.sub(" ", text)
 # 前面不能紧跟字母、数字、小数点或千分位逗号；汉字可以紧贴（“订单数10,998单”）。注意 \w 在 Unicode 下包括汉字
 _NUM = r"[-+−]?\d[\d,]*(?:\.\d+)?"
 NUMBER = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?")
 RANGE = re.compile(rf"(?<![0-9A-Za-z_.,])({_NUM})\s*({SCALE_UNIT})?\s*(?:-|–|—|~|～|至|到)\s*(\d[\d,]*(?:\.\d+)?)\s*({SCALE_UNIT})?")
 # 中文数字表示的数量：后面跟量词、本身以万 / 亿结尾，或写成“百分之……”（“统一”“一致”“之一”不算）。不解析，一律未核实
 _CN = "零一二两三四五六七八九十百千万亿点几"
-_CN_RUN = rf"[一二两三四五六七八九十几][{_CN}]*"
+_CN_RUN = rf"[零一二两三四五六七八九十几][{_CN}]*"
 _MEASURE = r"(?:家|单|件|笔|台|元|倍|人|次(?!性)|个(?!月)|位|名|条|项|款|种|类|成|张|辆|箱|份|个百分点|%)"
 CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[一二两三四五六七八九十几][{_CN}]*[万亿])")
 UPPER = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]+[万亿]?")
@@ -64,7 +80,7 @@ def _item(raw: str, unit: str, before: str) -> dict[str, Any]:
 
 def extract_numbers(text: str) -> list[dict[str, Any]]:
     """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。"""
-    cleaned = DATE_LIKE.sub(" ", text or "")
+    cleaned = _strip_calendar(text or "")
     found: list[tuple[int, dict[str, Any]]] = []
     spans: list[tuple[int, int]] = []
     for m in RANGE.finditer(cleaned):

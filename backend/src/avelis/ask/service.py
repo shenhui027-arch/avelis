@@ -187,7 +187,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
             return
     if steps:
         # 关联基数按当前粒度重新判定：粒度被证伪、键变化后，发布时的 N:1 依据可能已不成立
-        fan_out = publish_check(session, version)["fan_out"]
+        fan_out = publish_check(session, version, user)["fan_out"]
         if fan_out:
             answer.status = "blocked"
             answer.error_code = "fan_out"
@@ -293,7 +293,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     answer.executed_at = utcnow()
     answer.result = {"columns": result.columns, "rows": [[_jsonable(v) for v in row] for row in result.rows],
                      "row_count": len(result.rows), "truncated": result.truncated,
-                     "column_docs": _dimension_docs(session, version, aliases, intent.group_by)}
+                     "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by)}
     answer.status = "answered"
     answer.evidence["cache"] = {"hit": False}
     answer.message = _explain(metric, version, intent, answer.result)
@@ -393,12 +393,13 @@ def _cache_put(key: str, value: dict, ttl: int, tags: list[str]) -> None:
         pass
 
 
-def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str, Asset],
+def _dimension_docs(session: Session, user: User, version: MetricVersion, aliases: dict[str, Asset],
                     names: list[str]) -> dict[str, dict[str, Any]]:
     """结果中各维度列的数据库注释（原样列名 + 注释状态）。Avelis 不另起显示名：注释缺失就如实标出，
     推动数据库侧补齐（见 governance/column_docs.py）。"""
-    from avelis.governance.column_docs import column_doc
+    from avelis.governance.column_docs import column_doc, visible_to
 
+    can_see = visible_to(session, user)
     dims = {d["name"]: d for d in version.dimensions or []}
     out = {}
     for name in names:
@@ -406,7 +407,7 @@ def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str,
         alias, column = ref.split(".", 1) if "." in ref else ("b", ref)
         asset = aliases.get(alias)
         if asset is not None and column:
-            out[name] = column_doc(session, asset, column)
+            out[name] = column_doc(session, asset, column, can_see=can_see)
     return out
 
 
@@ -558,7 +559,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     first_code, first_metric, first_version = requested[0]
     answer.status = "answered"
     first_run = next(iter(runs.values()))[1]
-    docs = _dimension_docs(session, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
+    docs = _dimension_docs(session, user, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
     answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in r] for r in rows_out],
                      "row_count": len(rows_out), "truncated": truncated, "column_docs": docs}
     answer.sql = (chr(10) * 2).join(sqls)

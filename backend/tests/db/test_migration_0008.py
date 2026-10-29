@@ -13,9 +13,24 @@ pytestmark = pytest.mark.db
 TABLES = {"analysis_task", "analysis_run", "analysis_step", "analysis_dataset", "notification"}
 
 
+def _history(engine) -> tuple[list[dict], dict]:
+    """本测试写入的审计行（全部列，含哈希链字段）与整条历史链的核验结果（REPEATABLE READ 下同一快照）。"""
+    from sqlalchemy.orm import Session
+
+    from avelis.history import integrity
+
+    with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="REPEATABLE READ")
+        with Session(bind=conn) as session:
+            rows = [dict(r) for r in session.execute(text(
+                "SELECT * FROM audit_event WHERE action LIKE 'test.migration.%' ORDER BY action")).mappings()]
+            return rows, integrity.verify(session)
+
+
 def test_0008_upgrade_downgrade_upgrade_with_data(meta_db, factory):
     from alembic import command
 
+    from avelis import audit
     from avelis.db import get_engine, session_scope
     from avelis.devtools import alembic_config
     from avelis.models import AnalysisDataset, AnalysisRun, AnalysisStep, AnalysisTask, Notification, User
@@ -36,19 +51,24 @@ def test_0008_upgrade_downgrade_upgrade_with_data(meta_db, factory):
         s.add(AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="derive", args={}, status="ok", output={},
                            dataset_id=ds.id))
         s.add(Notification(user_id=uid, kind="analysis_finished", title="完成", link="/analysis/tasks"))
+        for i in range(3):  # 历史审计行：降级、再升级前后内容与哈希链都不能变
+            audit.record(s, s.get(User, uid), f"test.migration.{i}", "analysis_run", run.id, step=i)
     engine = get_engine()
     cfg = alembic_config()
 
-    with engine.connect() as conn:
-        audit_before = conn.scalar(text("SELECT count(*) FROM audit_event"))
+    before, chain = _history(engine)
+    assert len(before) == 3 and chain["ok"] and chain["checked_rows"] >= 3, chain
     command.downgrade(cfg, "0007")
+    after_down, chain_down = _history(engine)
+    assert after_down == before and chain_down["ok"] and chain_down["head"] == chain["head"]
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
-        assert conn.scalar(text("SELECT count(*) FROM audit_event")) == audit_before  # 只追加的历史不受影响
         assert not TABLES & set(inspect(conn).get_table_names())
         assert conn.scalar(text("SELECT count(*) FROM app_user WHERE id = :id"), {"id": uid}) == 1  # 已有数据保留
 
     command.upgrade(cfg, "head")
+    after_up, chain_up = _history(engine)
+    assert after_up == before and chain_up["ok"] and chain_up["head"] == chain["head"]
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
         assert TABLES <= set(inspect(conn).get_table_names())

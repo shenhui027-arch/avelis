@@ -195,7 +195,8 @@ JOB_STATUS = {"succeeded": "succeeded", "failed": "failed", "paused": "skipped",
 
 
 def _own_job(session: Session, job_id: str, attempt: int):
-    """本次尝试仍持有的 Job（加锁）：状态为 running 且 attempts 一致；已被恢复器终结或重新领取时为 None。"""
+    """本次尝试仍持有的 Job（加锁）：状态为 running 且 attempts 一致；已被恢复器终结或重新领取时为 None。
+    加锁顺序全局一致：Job → 运行 → 任务。"""
     from avelis.models import Job
 
     return session.scalar(select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
@@ -280,8 +281,9 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     if toolbox is not None and (toolbox.permission_lost or toolbox.denials):
         report = {**report, "permission": {"lost": toolbox.permission_lost, "denials": toolbox.denials}}
     session.rollback()  # 丢弃未提交的半步写入；已完成的步骤与数据集已逐步提交
-    run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
+    # 加锁顺序全局一致：Job → 运行 → 任务（恢复器、领取、任务路径相同），并发收尾不会互等
     job = _own_job(session, job_id, attempt)
+    run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
     if run.status != "running" or (run.budget or {}).get("executor") != token or job is None:
         log.warning("分析 %s 的执行权已失去（运行 %s），不写入本次结果", run_id, run.status)
         session.rollback()
@@ -321,8 +323,11 @@ def reconcile_abandoned(session: Session, job, reason: str) -> None:
         run.status, run.error, run.finished_at = "failed", reason, utcnow()
         run.budget = {k: v for k, v in (run.budget or {}).items() if k != "executor"}  # 收回执行权
     outcome = {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
-    if job.kind == "analysis" and run.task_id and not (already and _task_notified(session, run)):
-        outcome = _finish_task(session, run.task_id, run)
+    if job.kind == "analysis" and run.task_id:
+        if not (already and _task_notified(session, run)):
+            outcome = _finish_task(session, run.task_id, run)
+        elif _paused_by(run):  # 已暂停且已通知：保留 paused 的结果（Job 记为 skipped），不再重复通知
+            outcome = {"status": "paused", "run_status": run.status, "reason": _paused_by(run)}
     _close_job(job, {**outcome, "analysis_run_id": run.id})
 
 
@@ -386,16 +391,21 @@ def _pause(session: Session, task: AnalysisTask, reason: str) -> None:
     audit.record(session, None, "analysis_task.pause", "analysis_task", task.id, reason=reason)
 
 
+def _paused_by(run: AnalysisRun) -> str | None:
+    """运行中明确的权限拒绝或失去权限（任务因此暂停）的原因。"""
+    permission = (run.report or {}).get("permission") or {}
+    return permission.get("lost") or "；".join(d["message"] for d in (permission.get("denials") or [])[:3]) or None
+
+
 def _finish_task(session: Session, task_id: str, run: AnalysisRun) -> dict[str, Any]:
     """任务运行的收尾（在运行终态的同一事务中）：明确的权限拒绝 → 暂停并通知；否则发完成 / 失败通知。"""
     task = session.get(AnalysisTask, task_id, with_for_update=True, populate_existing=True)
     if task is None:
         return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
     verification = run.verification or {}
-    permission = (run.report or {}).get("permission") or {}
-    if permission.get("lost") or permission.get("denials"):
+    reason = _paused_by(run)
+    if reason:
         # 明确的权限拒绝：不能用“还能看到别的口径”代替“有执行这个任务的权限”
-        reason = permission.get("lost") or "；".join(d["message"] for d in permission["denials"][:3])
         _pause(session, task, f"执行中被拒绝访问：{reason}")
         return {"status": "paused", "run_status": run.status, "reason": reason}
     if run.status != "succeeded":
