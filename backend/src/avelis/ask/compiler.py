@@ -14,6 +14,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_snippet, table_expr
+from avelis.lineage.sql import SqlDialect
 
 FORBIDDEN = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Command, exp.Into,
              exp.Merge, exp.TruncateTable, exp.Set, exp.Use)
@@ -27,6 +28,11 @@ class CompiledQuery:
     plan: dict[str, Any] = field(default_factory=dict)
 
 
+def _dialect(dialect: SqlDialect | str) -> SqlDialect:
+    """接受数据源的解析方言；单元测试里也可以直接给 SQLGlot 方言名（表名照写 Catalog 段）。"""
+    return dialect if isinstance(dialect, SqlDialect) else SqlDialect(name=dialect, default_catalog="")
+
+
 class ValidationFailed(Exception):
     def __init__(self, reasons: list[str]):
         super().__init__("；".join(reasons))
@@ -34,9 +40,14 @@ class ValidationFailed(Exception):
 
 
 def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[str, Any]], intent, max_rows: int,
-                         time_type: str, dialect: str) -> CompiledQuery:
-    """dialect：执行该查询的数据源引擎的 SQLGlot 方言。"""
+                         time_type: str, dialect: SqlDialect | str) -> CompiledQuery:
+    """dialect：执行该查询的数据源的解析方言（SQLGlot 方言名 + 表名是否写 Catalog 段）。"""
+    sql_dialect = _dialect(dialect)
+    dialect = sql_dialect.name
     names = set(aliases)
+
+    def table(qualified: str, alias: str) -> exp.Table:
+        return table_expr(qualified, alias, with_catalog=sql_dialect.catalog_in_sql)
 
     def col(text: str) -> exp.Expression:
         return parse_snippet(text, dialect=dialect, label="列", aliases=names, require_aggregate=False).expression
@@ -52,7 +63,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     select = select.select(exp.alias_(measure, "value"))
 
     base = aliases[BASE_ALIAS]
-    select = select.from_(table_expr(_qualified(base), BASE_ALIAS))
+    select = select.from_(table(_qualified(base), BASE_ALIAS))
     for step in steps:
         path = step["path"]
         right = step["right"]
@@ -62,10 +73,10 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
                 inner = inner.select(exp.column(c))
             inner = inner.select(exp.alias_(exp.Count(this=exp.Star()), "row_count"))
             keys = [exp.column(c) for c in path.right_columns]
-            inner = inner.from_(table_expr(_qualified(right), "x")).group_by(*keys)
+            inner = inner.from_(table(_qualified(right), "x")).group_by(*keys)
             source = exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(step["alias"])))
         else:
-            source = table_expr(_qualified(right), step["alias"])
+            source = table(_qualified(right), step["alias"])
         condition = exp.and_(*[
             exp.EQ(this=exp.column(lc, table=step["from"]), expression=exp.column(rc, table=step["alias"]))
             for lc, rc in zip(path.left_columns, path.right_columns)])
@@ -74,7 +85,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     t_alias, t_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
     time_column = exp.column(t_col, table=t_alias)
     conditions: list[exp.Expression] = []
-    if time_type.startswith("date") and not time_type.startswith("datetime"):
+    if time_type.startswith("date") and not time_type.startswith("datetime") and not sql_dialect.date_has_time:
         conditions.append(exp.Between(this=time_column, low=literal(intent.start_date), high=literal(intent.end_date)))
     else:
         conditions.append(exp.GTE(this=time_column, expression=literal(f"{intent.start_date} 00:00:00")))
@@ -99,6 +110,8 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             select = select.order_by(*group_cols)
     limit = getattr(intent, "limit", None)
     select = select.limit(min(limit, max_rows) if limit else max_rows)
+    if sql_dialect.national_strings:
+        select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
     return CompiledQuery(sql=sql, tables=tables, columns=[*intent.group_by, "value"],
@@ -109,17 +122,28 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
                              "filters": [f.model_dump() for f in intent.filters]})
 
 
-def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: str) -> str:
+def _national(node: exp.Expression) -> exp.Expression:
+    if isinstance(node, exp.Literal) and node.is_string:
+        return exp.National(this=node.this)
+    return node
+
+
+def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: SqlDialect | str) -> str:
     """维度可选值：SELECT DISTINCT 列 FROM 表 WHERE 列 IS NOT NULL LIMIT n。"""
+    d = _dialect(dialect)
     col = exp.column(column, table="t")
-    return (exp.select(col).distinct().from_(table_expr(qualified, "t")).where(exp.Not(this=exp.Is(
-        this=col.copy(), expression=exp.Null()))).limit(limit).sql(dialect=dialect, identify=True))
+    return (exp.select(col).distinct().from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
+            .where(exp.Not(this=exp.Is(this=col.copy(), expression=exp.Null()))).limit(limit)
+            .sql(dialect=d.name, identify=True))
 
 
-def duplicate_key_sql(qualified: str, columns: list[str], *, dialect: str) -> str:
+def duplicate_key_sql(qualified: str, columns: list[str], *, dialect: SqlDialect | str) -> str:
     """粒度核验：按键分组找重复，取一条样例。"""
+    d = _dialect(dialect)
+    dialect = d.name
     keys = [exp.column(c, table="t") for c in columns]
-    return (exp.select(*keys, exp.alias_(exp.Count(this=exp.Star()), "n")).from_(table_expr(qualified, "t"))
+    return (exp.select(*keys, exp.alias_(exp.Count(this=exp.Star()), "n"))
+            .from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
             .group_by(*[k.copy() for k in keys]).having(exp.GT(this=exp.Count(this=exp.Star()),
                                                                  expression=exp.Literal.number(1)))
             .limit(1).sql(dialect=dialect, identify=True))
@@ -129,9 +153,11 @@ def _qualified(asset) -> str:
     return f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
 
 
-def validate_sql(sql: str, *, dialect: str, allowed_tables: set[str], schema: dict[str, set[str]],
+def validate_sql(sql: str, *, dialect: SqlDialect | str, allowed_tables: set[str], schema: dict[str, set[str]],
                  max_rows: int) -> None:
-    """对实际要执行的 SQL 做确定性校验。schema：表 → 允许的列。"""
+    """对实际要执行的 SQL 做确定性校验。schema：表 → 允许的列（表名均为 catalog.db.name 三段）。"""
+    sql_dialect = _dialect(dialect)
+    dialect = sql_dialect.name
     reasons = []
     try:
         statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
@@ -145,18 +171,20 @@ def validate_sql(sql: str, *, dialect: str, allowed_tables: set[str], schema: di
     for node in root.walk():
         if isinstance(node, FORBIDDEN):
             reasons.append(f"包含禁止的语法 {node.key.upper()}")
-    limit = root.args.get("limit")
+    limit = root.args.get("limit")  # LIMIT n、TOP n 或 FETCH FIRST n ROWS ONLY（Oracle）
     if limit is None:
         reasons.append("缺少 LIMIT")
     else:
+        count = limit.args.get("count") if isinstance(limit, exp.Fetch) else limit.expression
         try:
-            if int(limit.expression.name) > max_rows:
+            if int(count.name) > max_rows:
                 reasons.append(f"LIMIT 超过上限 {max_rows}")
         except (ValueError, AttributeError):
             reasons.append("LIMIT 不是常数")
     aliases: dict[str, str] = {}
     for table in root.find_all(exp.Table):
-        name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+        catalog = table.catalog or ("" if sql_dialect.catalog_in_sql else sql_dialect.default_catalog)
+        name = ".".join(p for p in (catalog, table.db, table.name) if p)
         if name not in allowed_tables:
             reasons.append(f"引用了未批准的表 {name}")
         aliases[table.alias_or_name] = name
