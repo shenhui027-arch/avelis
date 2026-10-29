@@ -39,7 +39,8 @@ flowchart LR
 | 部件 | 职责 | 主要代码 |
 |---|---|---|
 | 引擎适配层 | 每种数据库一个适配器：连接器、SQLGlot 方言、资产名层级、能力声明；核心模块不按数据库类型分支 | `engines/`、`connectors/`（[ADR 0004](decisions/0004-engine-adapters.md)） |
-| 采集 | 读元数据快照；按物理 ID 识别同一对象；产生资产版本与变更事件；解析视图；重算外部表身份映射与字段指纹 | `collect/service.py` |
+| 采集 | 读元数据快照；按物理 ID 识别同一对象；产生资产版本与变更事件；解析视图；重算外部表身份映射与字段指纹；按数据库的 DDL 审计把变更归因到数据库用户 | `collect/service.py`、`collect/attribution.py` |
+| 留底 | 历史表只追加（数据库触发器）、提交时封入哈希链、核验；变更记录检索与导出；保留期清理与清理锚点 | `history/`（[ADR 0008](decisions/0008-history-integrity.md)） |
 | 血缘 | SQL 解析与规范化指纹；字段推导指纹；粒度的来源、传播与关联基数 | `lineage/sql.py`、`lineage/fingerprint.py`、`lineage/grain.py` |
 | 治理 | 指标与版本状态机、发布检查；关联路径与跨域批准；变更 → 影响 → 复核；业务域权限 | `governance/` |
 | 问数 | LangGraph 智能体理解问题、追问；确定性的治理、编译、校验、只读执行、缓存、证据 | `ask/agent.py`、`ask/service.py`、`ask/compiler.py` |
@@ -53,11 +54,11 @@ flowchart LR
 | 层 | 表 | 含义 |
 |---|---|---|
 | 身份 | `datasource`、`endpoint_alias`、`asset`、`asset_column` | “是哪个东西”。资产按物理 ID（StarRocks `TABLE_ID`）识别：改名仍是同一资产；删后同名重建是新资产。列删除后同名重建也是新列 |
-| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL |
+| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL。只追加，在哈希链上（3.5） |
 | 推导 | `parse_result`、`lineage_edge`、`identity_link`、`column_fingerprint`、`grain` | “由观察推出的结论”。每条边记录来源：`parsed`、`manual`、`import`、`model_confirmed` 等。外部表经端点别名与实例身份追到他库真实表 |
 | 治理 | `metric`、`metric_version`、`join_path`、`confirmation`、`change_set` / `change_event`、`impact`、`review_task`、`audit_event` | “业务上认可了什么、谁认可的”。这一层只由人或确定性规则改变，模型不能直接改 |
 
-问数与导入另有 `ask_thread`、`answer`、`import_job`、`extracted_statement`、`candidate_edge` 等表。
+问数与导入另有 `ask_thread`、`answer`、`import_job`、`extracted_statement`、`candidate_edge` 等表。留底另有 `history_chain_head`（链头）、`history_mark`（状态列的合法变化）、`history_anchor`（清理锚点）。
 
 ## 3. 关键机制
 
@@ -134,6 +135,31 @@ flowchart LR
 - 数据库报错（超时 5024、对象无法解析 1064 等）如实返回，不改写成成功或空结果。
 - 答案缓存键包含：SQL、版本、依赖指纹、资产版本、权限范围、表更新时间。
 
+### 3.5 观察层与留底
+
+变更历史只在元数据与血缘治理层留底；问数层只看当前结构，不按旧口径查询（[ADR 0008](decisions/0008-history-integrity.md)）。
+
+```mermaid
+flowchart LR
+  DB[(数据源)] -->|DDL 审计来源<br/>事件触发器 · query_log · audit_log| A[归因]
+  DB -->|元数据快照| C[采集比较] --> E[变更事件<br/>before / after]
+  A -->|数据库用户 · 匹配依据| E
+  E --> H[(历史表<br/>只追加 · 哈希链)]
+  H --> Q[检索 / 导出<br/>带行哈希与链头]
+  H --> V[核验<br/>断链位置]
+  H --> R[保留期清理<br/>清理锚点]
+```
+
+- **完整**：表、视图、列的增删、改名、类型、定义、粒度、外部地址、表注释与列注释变化都生成变更事件。
+- **谁改的**：引擎声明 `ddl_audit` 能力时，采集读取“上次采集开始 − 容差”到“本次快照 + 容差”之间的 DDL 审计，按对象名（字段级变化还要语句点名该列）关联到变更事件：
+  - 只来自一个数据库用户才记为该用户（`matched`）；
+  - 多个用户为 `ambiguous`，没有记录为 `unmatched`，读取失败为 `unavailable`，引擎未接入为 `unsupported`；
+  - 推导出的变化（字段推导、上游缺失、身份映射）为 `not_applicable`。
+  - 已接入：PostgreSQL（事件触发器）、ClickHouse（`system.query_log`）、Doris（`__internal_schema.audit_log`）；StarRocks、SQL Server、Oracle、MySQL 未接入。
+- **只追加**：`asset_version`、`column_version`、`definition`、`lineage_edge`、`change_set`、`change_event`、`audit_event`、`metric_version_transition` 及留底自身的表，在数据库层用触发器拒绝 UPDATE / DELETE / TRUNCATE。状态列只能按规则改一次（如 `superseded_at` 由空变为非空），每次变化追加一条 `history_mark`；“最近一次看到”（`last_seen_*`）只能前移，不算历史内容。
+- **哈希链**：一条全局链，提交时由约束触发器封链：`row_hash = sha256(prev_hash | chain_seq | 表名 | 内容摘要)`。只有一把链锁，只在提交阶段持有。核验（`GET /api/history/verify`、`bootstrap verify-history`）报告第一处断链与全部问题。
+- **保留期**：`AVELIS_HISTORY_RETENTION_DAYS`（默认 1095 天）。worker 每天清理一次：先核验，链不完整就不清理；不删当前版本、被非终态口径引用的版本、未处理的变更集；删除只走事务内 `avelis.history_purge = on` 的专用路径，链上留下清理锚点（登记序号空洞及两端哈希），剩余的链仍可核验；清理写审计。
+
 ## 4. 治理规则
 
 | 规则 | 默认 | 在哪里生效 |
@@ -146,7 +172,8 @@ flowchart LR
 | 凭据 | 数据源口令加密存储，接口永不回传；模型密钥只显示末四位；口令不进日志、不进模型上下文 | `security.py`、`modelcfg.py` |
 | 数据外发 | 向模型发送查询结果、发送代码片段默认关闭；导入候选在发送前脱敏；外部追踪（LangSmith）关闭 | 模型配置页 |
 | 只读 | 采集账号只读元数据；查询账号只执行校验后的单条 SELECT，带超时与内存上限 | `engines/`、`ask/compiler.py` |
-| 审计 | 发布、批准、复核、导入处理、采集、问数（含被拒绝的）都写审计 | `audit_event` |
+| 审计 | 发布、批准、复核、导入处理、采集、问数（含被拒绝的）、变更记录导出、链核验、保留期清理都写审计 | `audit_event` |
+| 留底 | 历史表只追加（触发器）；哈希链可核验；默认保留 3 年；变更归因只取数据库审计里能唯一确定的用户 | `history/`、迁移 `0007` |
 
 ## 5. 运行
 
@@ -163,5 +190,7 @@ flowchart LR
 - StarRocks 结论只来自本机 Docker 3.5.14 单节点；不连接任何生产库。
 - 引擎能力只声明真实联调过的部分。MySQL 目前只采元数据，并作为外部表的追溯目标。后续只接入 SQLGlot 支持方言的引擎。
 - 可追溯 ≠ 可复现：保存 SQL、口径与元数据版本，不保存数据快照。
+- 留底的防篡改是“可发现”，不是“不可改”：掌握元数据库超级权限并了解算法的人可以重算整条链。核验与导出都给出链头（序号 + 哈希），可定期记到库外作为外部锚点。
+- 归因依赖数据库自己的审计：审计未开启、尚未落盘（ClickHouse 约 7.5 秒、Doris 最长 60 秒）或改动经由未审计的路径时，变更如实记为“未知”，事后不重算。
 - 执行前核对不覆盖：他库经外部表或 Catalog 访问的对象（由那个数据源的采集发现）；不改变列和定义的语义变化（例如上游数据本身被改写）。
 - 列级血缘不覆盖：UNION 等集合运算、标量子查询投影、LATERAL / UNNEST。这些会如实标为证据不全，不能据此发布指标。

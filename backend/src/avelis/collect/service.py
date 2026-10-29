@@ -6,6 +6,7 @@
 - 连接器没有给出物理 ID 的对象（StarRocks 视图、外部表、Catalog 表）：按“Catalog + 库 + 名称 + 类型”匹配；
   名称变化只记为“改名候选”。
 重复采集幂等：内容哈希不变只更新 last_seen，不产生新版本、不产生变更。
+变更事件在写入前按数据库的 DDL 审计记录归因到数据库用户（avelis.collect.attribution，ADR 0008）。
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit
+from avelis.collect.attribution import attribute
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
 from avelis.engines import collect_connector, dialect_of, engine_of
@@ -57,6 +59,7 @@ class RunContext:
     new_versions: list[AssetVersion] = field(default_factory=list)
     stats: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     touched: set[str] = field(default_factory=set)  # 本次出现新身份的对象（新增或同名重建；catalog.db.name）
+    connector: Any = None  # 采集连接器：归因时读 DDL 审计来源
 
     def event(self, kind: str, asset_id: str | None, column: str | None = None, before=None, after=None) -> None:
         self.events.append({"kind": kind, "asset_id": asset_id, "column_name": column,
@@ -89,7 +92,7 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             actor = session.get(User, actor_id) if actor_id else None
             connector = collect_connector(session, ds)
             snapshot = connector.snapshot()
-            ctx = RunContext(run, dialect_of(ds))
+            ctx = RunContext(run, dialect_of(ds), connector=connector)
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
@@ -191,9 +194,13 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
         from avelis.governance.changes import analyze_change_set  # 避免循环导入
 
         previous = session.get(CollectionRun, run.previous_run_id) if run.previous_run_id else None
+        # 上次快照在上次采集开始后读取：审计窗口从上次开始时间算起，覆盖上次快照之后的全部改动
+        audit_window = attribute(session, engine_of(ds), ctx.connector, ctx.events,
+                                 previous.started_at.replace(tzinfo=None) if previous else None, now)
         change_set = ChangeSet(run_id=run.id, datasource_id=ds.id, status="open",
                                window_start=previous.finished_at if previous else None, window_end=now,
-                               summary={k: v for k, v in ctx.stats.items() if k.startswith("event:")})
+                               summary={**{k: v for k, v in ctx.stats.items() if k.startswith("event:")},
+                                        "ddl_audit": audit_window})
         session.add(change_set)
         session.flush()
         for e in ctx.events:
@@ -289,11 +296,14 @@ def _diff_versions(session: Session, asset: Asset, old: AssetVersion, new: Asset
         ctx.event("column_removed", asset.id, name, before={"data_type": old_cols[name].data_type})
     for name in added:
         ctx.event("column_added", asset.id, name, after={"data_type": new_cols[name].data_type})
-    for name in set(old_cols) & set(new_cols):
+    for name in sorted(set(old_cols) & set(new_cols)):
         if old_cols[name].data_type != new_cols[name].data_type or old_cols[name].nullable != new_cols[name].nullable:
             ctx.event("column_type_changed", asset.id, name,
                       before={"data_type": old_cols[name].data_type, "nullable": old_cols[name].nullable},
                       after={"data_type": new_cols[name].data_type, "nullable": new_cols[name].nullable})
+        if (old_cols[name].comment or None) != (new_cols[name].comment or None):
+            ctx.event("column_comment_changed", asset.id, name, before={"comment": old_cols[name].comment},
+                      after={"comment": new_cols[name].comment})
     for r in removed:
         for a in added:
             if old_cols[r].data_type == new_cols[a].data_type and old_cols[r].ordinal == new_cols[a].ordinal:

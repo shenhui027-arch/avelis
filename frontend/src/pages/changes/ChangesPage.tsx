@@ -1,27 +1,23 @@
-// 变更：收件箱模式 —— 变更列表 | 差异与影响 | 复核处理。
+// 变更：收件箱模式 —— 变更列表 | 差异与影响 | 复核处理；“记录”视图按条件检索、导出全部留底的变更（ADR 0008）。
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
   errorText, useAction, useAssets, useChangeSet, useChangeSets, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Empty, Hint, Pill, Status, Tabs, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DiffCode, Dot, Empty, Hint, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
+import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
 
-const EVENT: Record<string, string> = {
-  definition_changed: "定义变化", derivation_changed: "字段推导变化", upstream_broken: "上游缺失", column_added: "新增列",
-  column_removed: "删除列", column_type_changed: "类型变化", column_rename_candidate: "改名候选", added: "新增",
-  deleted: "删除", renamed: "改名", rename_candidate: "改名候选", grain_changed: "粒度变化",
-  identity_link_changed: "同一张表匹配变化", external_ref_changed: "外部地址变化", comment_changed: "注释变化",
-  server_identity_changed: "实例变化",
-};
 const OBJECT: Record<string, string> = { metric_version: "指标版本", asset: "资产", join_path: "关联路径", answer: "历史回答" };
 
 export function ChangesPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const view = params.get("view") === "records" ? "records" : "sets";
   const tz = useTimeZone();
   const sets = useChangeSets();
   const [filter, setFilter] = useState<"open" | "all" | "resolved">("all");
@@ -41,7 +37,11 @@ export function ChangesPage() {
     <div className="av-main" style={{ height: "calc(100vh - 48px)", display: "grid", gridTemplateColumns: "320px minmax(0, 1fr) 360px", gridTemplateRows: "minmax(0, 1fr)" }}>
       <section className="av-pane av-pane--rail" style={{ borderRight: "1px solid var(--line-subtle)" }} aria-label="变更列表">
         <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "16px 16px 0" }}>
-          <h1 style={{ margin: 0, font: "600 18px/26px var(--font-sans)" }}>变更 <Hint text="每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核" /></h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <h1 style={{ margin: 0, font: "600 18px/26px var(--font-sans)" }}>变更 <Hint text="每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核" /></h1>
+            <Seg label="视图" value={view} onChange={(v) => setParams(v === "records" ? { view: "records" } : {})}
+              options={[{ value: "sets", label: "变更集" }, { value: "records", label: "记录" }]} />
+          </div>
           <Tabs value={filter} onChange={setFilter} options={[
             { value: "open", label: <>待处理 <Count n={openCount} /></> },
             { value: "all", label: <>全部 <Count n={sets.data?.length ?? 0} /></> },
@@ -53,14 +53,14 @@ export function ChangesPage() {
             <div key={day}>
               <div className="av-tree__label" style={{ padding: "12px 16px 4px" }}>{day}</div>
               <div className="av-list">
-                {items.map((c) => <ChangeRow key={c.id} c={c} active={c.id === current} onClick={() => navigate(`/changes/${c.id}`)} />)}
+                {items.map((c) => <ChangeRow key={c.id} c={c} active={view === "sets" && c.id === current} onClick={() => navigate(`/changes/${c.id}`)} />)}
               </div>
             </div>
           ))}
           {sets.isSuccess && !list.length ? <Empty text="没有变更" /> : null}
         </div>
       </section>
-      {current ? <Detail key={current} id={current} /> : <section className="av-pane" />}
+      {view === "records" ? <ChangeRecords /> : current ? <Detail key={current} id={current} /> : <section className="av-pane" />}
     </div>
   );
 }
@@ -138,12 +138,13 @@ function Detail({ id }: { id: string }) {
             <section className="av-panel">
               <div className="av-panel__hd"><h2 className="av-panel__title">变化 <Count n={events.length} /></h2></div>
               <table className="av-table">
-                <thead><tr><th style={{ paddingLeft: 16 }}>对象</th><th>变化</th><th>详情</th></tr></thead>
+                <thead><tr><th style={{ paddingLeft: 16 }}>对象</th><th>变化</th><th>详情</th><th>数据库用户</th></tr></thead>
                 <tbody>{[...direct, ...identity, ...derived].map((e) => (
                   <tr key={e.id}>
                     <td className="av-mono" style={{ paddingLeft: 16 }}>{shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
                     <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={EVENT[e.kind] ?? e.kind} /></td>
                     <td className="av-caption" style={{ whiteSpace: "normal" }}>{eventDetail(e)}</td>
+                    <td><Actor e={e} /></td>
                   </tr>))}</tbody>
               </table>
             </section>
@@ -184,6 +185,7 @@ function eventDetail(e: { kind: string; before: Record<string, unknown>; after: 
     case "column_type_changed": return `${String(e.before.data_type)} → ${String(e.after.data_type)}`;
     case "column_added": return String(e.after.data_type ?? "");
     case "column_removed": return String(e.before.data_type ?? "");
+    case "column_comment_changed": case "comment_changed": return `${String(e.before.comment ?? "（无）")} → ${String(e.after.comment ?? "（无）")}`;
     case "renamed": case "rename_candidate": return `${String(e.before.name)} → ${String(e.after.name)}${e.after.basis ? `（${String(e.after.basis)}）` : ""}`;
     case "derivation_changed": case "upstream_broken": return String(e.after.reason ?? "上游字段、表达式或条件变化");
     case "definition_changed": return `规范化指纹 ${String(e.before.hash ?? "").slice(0, 8)} → ${String(e.after.hash ?? "").slice(0, 8)}`;

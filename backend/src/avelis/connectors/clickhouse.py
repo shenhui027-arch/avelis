@@ -11,17 +11,22 @@
   错误码 159 归为超时，60 / 47 / 81 归为对象无法解析，497 / 164 归为权限。
 - 数据新鲜度：MergeTree 表活动数据分片的最近修改时间（system.parts.modification_time，服务器时区）；
   需要查询账号可读 system.parts 的 database、table、active、modification_time 四列，未授权时不报告新鲜度。
+- DDL 审计（ADR 0008）：system.query_log 中 type = QueryFinish、query_kind ∈ {Create, Alter, Drop, Rename} 的记录，
+  对象取 tables 列。采集账号需该表 event_time、user、query_kind、type、tables、query 列的 SELECT；
+  演示库再用行策略把它限制为只见 DDL 行。日志默认每 7.5 秒落盘一次。
 """
 
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 CODE = re.compile(r"Code:\s*(\d+)")
@@ -59,6 +64,7 @@ class ClickHouseConnector:
     kind = "clickhouse"
     dialect = "clickhouse"
     is_test_adapter = False
+    ddl_audit_source = "clickhouse:system.query_log"
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -134,6 +140,28 @@ class ClickHouseConnector:
                 (name, data_type, int(position), nullable, (comment or None) if with_comments else None))
         return out
 
+    def ddl_events(self, since: datetime, until: datetime) -> list[DdlEvent]:
+        databases = set(self.options.get("databases", []))
+        client = self._client()
+        try:
+            rows = client.query(
+                "SELECT toUnixTimestamp(event_time), user, query_kind, tables, query FROM system.query_log "
+                "WHERE type = 'QueryFinish' AND query_kind IN ('Create', 'Alter', 'Drop', 'Rename') "
+                "AND event_time >= toDateTime({since:Int64}) AND event_time <= toDateTime({until:Int64}) "
+                "ORDER BY event_time", parameters={"since": _epoch(since), "until": _epoch(until)}).result_rows
+        except ClickHouseError as exc:
+            raise AuditUnavailable(_first_line(str(exc))) from exc
+        finally:
+            client.close()
+        events = []
+        for ts, user, kind, tables, query in rows:
+            objects = [tuple(t.split(".", 1)) for t in tables if "." in t]
+            objects = [o for o in objects if not databases or o[0] in databases]
+            if objects:
+                events.append(DdlEvent(at=_from_epoch(ts), db_user=user, objects=objects,
+                                       statement_type=str(kind).upper(), statement=query))
+        return events
+
     # --- 只读执行 ------------------------------------------------------------------
 
     def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
@@ -198,6 +226,14 @@ class ClickHouseConnector:
         finally:
             client.close()
         return out
+
+
+def _epoch(at: datetime) -> int:
+    return int(at.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _from_epoch(ts: float) -> datetime:
+    return datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None)
 
 
 def _query_error(exc: ClickHouseError) -> QueryError:
