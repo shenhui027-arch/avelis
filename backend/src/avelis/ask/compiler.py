@@ -13,6 +13,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
+from avelis.ask.intent import period_column
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_snippet, table_expr
 from avelis.lineage.sql import SqlDialect
 
@@ -60,7 +61,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         g_alias, g_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
         period = exp.TimeToStr(this=exp.column(g_col, table=g_alias),
                                format=exp.Literal.string("%Y-%m-%d" if time_grain == "day" else "%Y-%m"))
-        select = select.select(exp.alias_(period, "period"))
+        select = select.select(exp.alias_(period, period_column(intent.group_by)))
         group_cols.append(period.copy())
     for name in intent.group_by:
         select = select.select(exp.alias_(col(dims[name]["column"]), name))
@@ -121,7 +122,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
-    return CompiledQuery(sql=sql, tables=tables, columns=[*(["period"] if time_grain else []), *intent.group_by, "value"],
+    return CompiledQuery(sql=sql, tables=tables, columns=[*([period_column(intent.group_by)] if time_grain else []), *intent.group_by, "value"],
                          plan={"base": _qualified(base), "joins": [
                              {"alias": s["alias"], "path": s["path"].code, "pre_aggregate": s["pre_aggregate"]}
                              for s in steps], "group_by": intent.group_by, "time_grain": time_grain,

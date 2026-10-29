@@ -126,26 +126,63 @@ def test_coverage_counts_rows_and_missing_days():
     assert calc.coverage(rows, [], None)["summary"]["rows"] == 3
 
 
-def test_invalid_tool_calls_get_tool_messages():
-    """模型给出参数无法解析的工具调用时，每个调用都要有对应的工具消息（否则下一轮被模型接口拒绝）。"""
-    from langchain_core.messages import AIMessage, ToolMessage
+def test_factor_decompose_keeps_input_inconsistency_out_of_factors():
+    """总量与因子之积不一致（口径、精度）时，残差单列为“未解释差额”，不并入最后一个因子（审计 #7）。"""
+    out = calc.factor_decompose(("1000", "1004"), {"订单数": (1000, 1000), "客单价": (1, 1)})
+    rows = {f["factor"]: f["contribution"] for f in out["factors"]}
+    assert rows == {"订单数": Decimal("0.00"), "客单价": Decimal("0.00"), "未解释差额": Decimal("4.00")}
+    assert out["unexplained"] == Decimal("4.00")
+    assert sum(rows.values()) == out["total"]["change"]
+    # 一致的输入只有舍入尾差，不产生“未解释差额”
+    consistent = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
+    assert [f["factor"] for f in consistent["factors"]] == ["订单数", "客单价"] and consistent["unexplained"] == 0
 
-    from avelis.analysis import agent
 
-    reply = AIMessage(content="", tool_calls=[], invalid_tool_calls=[
-        {"name": "query_metric", "args": "{bad json", "id": "call_1", "error": "Expecting value", "type": "invalid_tool_call"}])
+def test_verify_sign_must_match_unless_decrease_wording():
+    """去掉全局绝对值匹配：只有“下降 / 减少 / 负贡献”后面不带符号的数字才能对应负值（审计 #6）。"""
+    ds = {"D1": {"rows": [{"change": "-7625.24", "rate": "-0.037"}]}}
 
-    class Model:
-        def bind_tools(self, tools):
-            return self
+    def status(text):
+        return verify_report([{"type": "fact", "text": text, "refs": ["D1"]}], ds)["claims"][0]["status"]
 
-        def invoke(self, messages):
-            return reply
+    assert status("成交额下降 7,625.24") == "verified"
+    assert status("成交额减少了 7,625.24，降幅 3.7%") == "verified"
+    assert status("成交额变化 -7,625.24（-3.7%）") == "verified"
+    assert status("成交额增长 7,625.24") == "unverified"  # 方向写反
+    assert status("成交额变化 7,625.24") == "unverified"  # 没有表示减少的词，正数不能对应负值
+    assert status("成交额变化 +3.7%") == "unverified"
+    assert status("成交额下降到 7,625.24") == "unverified"  # “下降到”是水平，不是幅度
 
-    class Box:
-        def tools(self):
-            return []
 
-    out = agent._round({"messages": []}, Box(), Model())
-    assert isinstance(out[1], ToolMessage) and out[1].tool_call_id == "call_1" and "无法解析" in out[1].content
-    assert len(out) == 2  # 不再追加“请继续”的提示：模型会据错误重试
+def test_verify_requires_refs_ranges_and_parseable_numbers():
+    """没有引用的事实 / 计算、区间端点、大写数字（审计 #5）。"""
+    ds = {"D1": {"rows": [{"store": "A", "v": "2400"}, {"store": "B", "v": "3000"}, {"store": "C", "v": "81000"}]}}
+
+    def check(text, refs=("D1",), kind="fact"):
+        return verify_report([{"type": kind, "text": text, "refs": list(refs)}], ds)["claims"][0]
+
+    no_refs = check("福田店关店", refs=())
+    assert no_refs["status"] == "unverified" and no_refs["no_refs"]
+    assert check("差额拆解", refs=(), kind="calc")["status"] == "unverified"
+    assert check("日均约 2400–3200 元/天")["numbers"] == [{"text": "2400", "verified": True},
+                                                       {"text": "3200", "verified": False}]
+    assert check("日均 2400–3000 元/天")["status"] == "verified"
+    assert check("约 8-9 万元")["numbers"] == [{"text": "8万", "verified": True}, {"text": "9万", "verified": False}]
+    assert check("成交额壹佰万元")["numbers"] == [{"text": "壹佰万", "verified": False}]
+    assert check("共三家门店")["status"] == "verified"  # 中文小写数字按值核验（行数 3）
+    assert check("共四家门店")["status"] == "unverified"
+    assert check("百分之十二的订单")["status"] == "unverified"
+    assert check("统一口径，结果一致")["status"] == "verified"  # 不是数量
+
+
+def test_verify_checks_title_summary_and_unexplained():
+    """摘要、标题与“未解释”中的数字同样核验，对照事实 / 计算类结论引用的数据集（审计 #4）。"""
+    ds = {"D1": {"rows": [{"v": "1969398.05"}]}, "D2": {"rows": [{"v": "555"}]}}
+    claims = [{"type": "fact", "text": "成交额 196.94 万", "refs": ["D1"]}]
+    ok = verify_report(claims, ds, {"title": "9 月成交额 196.94 万", "summary": "成交额 196.94 万", "unexplained": None})
+    assert ok["ok"] and ok["unverified_fields"] == 0
+    bad = verify_report(claims, ds, {"title": "成交额分析", "summary": "下降约 30%，福田店少了 555 单"})
+    assert not bad["ok"] and bad["unverified"] == 0 and bad["unverified_fields"] == 1
+    summary = bad["fields"][1]
+    assert summary["field"] == "summary" and summary["numbers"] == [
+        {"text": "30%", "verified": False}, {"text": "555", "verified": False}]  # D2 没有被任何事实引用

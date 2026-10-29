@@ -182,3 +182,24 @@ def test_count_star_is_not_select_star():
     assert parsed.status == "ok", parsed.reason
     star = parse_query("SELECT * FROM shop.missing", dialect=sr, schema=schema)
     assert star.status != "ok"
+
+
+def test_time_grain_column_does_not_collide_with_period_dimension():
+    """口径开放了名为 period 的维度时，按日分组生成的时间段列换名，不覆盖维度也不丢日期（审计 #17）。"""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from avelis.ask.compiler import compile_metric_query
+    from avelis.ask.intent import Intent, period_column
+    from avelis.models import Asset
+
+    base = Asset(catalog_name="default_catalog", db_name="shop", name="orders")
+    version = SimpleNamespace(dimensions=[{"name": "period", "column": "season"}], expression="SUM(amount)",
+                              time_column="order_date", filters=None)
+    intent = Intent(metric_code="m", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), group_by=["period"],
+                    time_grain="day")
+    compiled = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
+                                    time_type="date", dialect=get_engine("starrocks").sql)
+    assert compiled.columns == ["时间段", "period", "value"] and len(set(compiled.columns)) == 3
+    assert "AS `时间段`" in compiled.sql and "b.season AS period" in compiled.sql
+    assert period_column([]) == "period" and period_column(["period", "时间段"]) == "period_time"

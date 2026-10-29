@@ -1,10 +1,11 @@
 """分析智能体的工具（ADR 0007 第 3 点）。
 
-三类工具，全部以发起人身份执行、按其可见范围过滤：
+三类工具，全部以发起人身份执行、按其可见范围过滤。每次调用前都重新核对发起人（账号存在且启用、仍有查询角色），
+并按当前授权重新计算可见口径：开始时的口径目录只是上下文，不是整次分析的授权凭证。
 - 上下文：口径、资产（含字段注释）、血缘、变更记录、数据健康——只读元数据；
 - 受治理查询：query_metric 复用问数的完整管线（start_answer / fulfil / finish_answer），每次产生一个数据集；
 - 计算：输入只能是数据集编号与列名，数值由后端从数据集中取，模型不能手填数字。
-预算（工具次数、查询次数、时长）在这里强制执行，超出时工具直接拒绝并说明。
+预算（工具次数、查询次数、时长）在统一分发层 dispatch 强制执行：参数校验之前就计数，超出时直接拒绝并说明。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
@@ -24,10 +25,10 @@ from sqlalchemy.orm import Session
 
 from avelis.analysis import calc
 from avelis.ask import service
-from avelis.ask.intent import DimensionFilter, Intent
+from avelis.ask.intent import DimensionFilter, Intent, comparison_range, period_column
 from avelis.collect.service import freshness_boundary
 from avelis.governance import access
-from avelis.governance.errors import GovernanceError
+from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.models import (
     AnalysisDataset,
     AnalysisRun,
@@ -38,6 +39,7 @@ from avelis.models import (
     CollectionRun,
     ColumnVersion,
     MetricVersion,
+    Metric,
     MetricVersionTransition,
     User,
 )
@@ -60,12 +62,32 @@ class Budget:
                 "used": {"tool_calls": self.used_tools, "queries": self.used_queries,
                          "seconds": round(time.monotonic() - self.started, 1)}}
 
+    def remaining(self) -> float:
+        """距统一截止时间还剩的秒数（计划、执行、修订、宽限共用同一个截止时间）。"""
+        return self.started + self.seconds - time.monotonic()
+
     def exhausted(self) -> str | None:
         if self.used_tools >= self.tool_calls:
             return f"工具调用已达上限 {self.tool_calls} 次"
-        if time.monotonic() - self.started > self.seconds:
+        if self.remaining() <= 0:
             return f"分析时长已超过 {self.seconds} 秒"
         return None
+
+
+class PermissionLost(Exception):
+    """发起人账号停用、被删除或失去查询角色：之后的取数与上下文一律拒绝，分析停止。"""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+class PermissionDenied(Exception):
+    """本次请求的口径或来源当前无权访问（明确的权限拒绝，记入 denials，定时任务据此暂停）。"""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 def _json(obj: Any) -> str:
@@ -137,12 +159,10 @@ class FactorArgs(BaseModel):
 
 
 class CalendarArgs(BaseModel):
-    dataset: str
-    current: str
-    previous: str
+    dataset: str = Field(description="带对比期的受治理查询数据集；两期日期取自该次查询，不能另行指定")
+    current: str = Field(description="本期值列名，如 成交额")
+    previous: str = Field(description="对比期值列名，如 成交额·对比期")
     match: dict[str, str] = Field(default_factory=dict)
-    current_period: tuple[date, date]
-    previous_period: tuple[date, date]
 
 
 class CorrelateArgs(BaseModel):
@@ -154,7 +174,7 @@ class CorrelateArgs(BaseModel):
 class CoverageArgs(BaseModel):
     dataset: str
     keys: list[str] = Field(default_factory=list, description="按哪些列统计（如 store）；为空表示整个数据集")
-    period: str | None = Field("period", description="日期列（按日分组的数据集为 period）；为空则只计行数")
+    period: str | None = Field(None, description="日期列；为空时用数据集的时间段列（按日分组时），没有则只计行数")
     start_date: date | None = Field(None, description="应覆盖的起始日期（用于找缺失的日期）")
     end_date: date | None = None
 
@@ -199,14 +219,15 @@ class PlanArgs(BaseModel):
 class Claim(BaseModel):
     type: Literal["fact", "calc", "inference", "recommendation"]
     text: str = Field(description="结论；数字照抄数据集中的值，可按显示精度四舍五入")
-    refs: list[str] = Field(default_factory=list, description="引用的数据集编号，如 ['D2']")
+    refs: list[Annotated[str, Field(pattern=r"^D[1-9]\d{0,3}$")]] = Field(
+        default_factory=list, description="引用的数据集编号，如 ['D2']")
     premise: str | None = Field(None, description="推断与建议的前提")
     validation: str | None = Field(None, description="建议的验证方式")
 
 
 class ReportArgs(BaseModel):
     title: str
-    summary: str = Field(description="一两句话的结论（不写未经数据集支持的数字）")
+    summary: str = Field(description="一两句话的结论；其中的数字同样核验，只写事实 / 计算类结论所引用数据集中的数字")
     claims: list[Claim]
     unexplained: str | None = Field(None, description="仍未解释的部分")
 
@@ -214,12 +235,18 @@ class ReportArgs(BaseModel):
 # --- 工具箱 ---------------------------------------------------------------------------
 
 class AnalysisToolbox:
-    def __init__(self, session: Session, user: User, run: AnalysisRun, catalog: service.Catalog, budget: Budget):
+    def __init__(self, session: Session, user: User, run: AnalysisRun, catalog: service.Catalog, budget: Budget,
+                 executor: str | None = None):
         self.session, self.user, self.run, self.catalog, self.budget = session, user, run, catalog, budget
+        self.executor = executor  # 执行权标记（run.budget.executor）：运行被终结或被接管后停止
+        self.aborted: str | None = None
         self.plan: dict | None = None
         self.report: dict | None = None
+        self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
+        self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
         self._seq = 0
         self._datasets: dict[str, AnalysisDataset] = {}
+        self._tools: dict[str, StructuredTool] | None = None
 
     # -- 记录 --
     def _step(self, kind: str, tool: str | None, args: dict, status: str, output: dict, reason: str | None = None,
@@ -230,6 +257,21 @@ class AnalysisToolbox:
             output=json.loads(_json(output)), reason=reason, dataset_id=dataset.id if dataset else None,
             duration_ms=int((time.monotonic() - started) * 1000) if started else None))
         self.session.flush()
+        if self.executor:  # 每一步即时提交：前端能看到进度，worker 中途退出时已完成的步骤不丢
+            self.session.commit()
+
+    @property
+    def stopped(self) -> str | None:
+        """不能再继续（不再请求模型）的原因：发起人失去权限，或运行已被终结 / 接管。"""
+        return self.permission_lost or self.aborted
+
+    def check_executor(self) -> None:
+        if not self.executor or self.aborted:
+            return
+        row = self.session.execute(select(AnalysisRun.status, AnalysisRun.budget)
+                                   .where(AnalysisRun.id == self.run.id)).one_or_none()
+        if row is None or row.status != "running" or (row.budget or {}).get("executor") != self.executor:
+            self.aborted = "分析已被终结或由其他执行者接管，本执行者停止"
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
                  inputs: list[str] | None = None, meta: dict | None = None, truncated: bool = False) -> AnalysisDataset:
@@ -251,20 +293,74 @@ class AnalysisToolbox:
         return ds, [dict(zip(ds.columns, r)) for r in ds.rows]
 
     def _view(self, ref: str, ds: AnalysisDataset) -> dict:
-        return {"dataset": ref, "title": ds.title, "kind": ds.kind, "columns": ds.columns, "row_count": len(ds.rows),
-                "rows": ds.rows[:MODEL_ROWS], "rows_shown": min(len(ds.rows), MODEL_ROWS),
-                **({"summary": ds.meta.get("summary")} if ds.meta.get("summary") else {})}
+        out = {"dataset": ref, "title": ds.title, "kind": ds.kind, "columns": ds.columns, "row_count": len(ds.rows),
+               "rows": ds.rows[:MODEL_ROWS], "rows_shown": min(len(ds.rows), MODEL_ROWS),
+               **({"summary": ds.meta.get("summary")} if ds.meta.get("summary") else {})}
+        if ds.truncated:
+            out["truncated"] = True
+            out["note"] = ("数据集被截断：只含前若干行，不是全集。合计、覆盖度、相关性等需要全集的计算会被拒绝；"
+                           "不要据此写总数、行数或全体结论，请缩小范围或减少分组后重新查询")
+        return out
+
+    # -- 授权 --
+    def _authorize(self) -> None:
+        """重新核对发起人：账号存在、启用、仍有查询角色；按当前授权重新计算可见口径。"""
+        user = self.session.get(User, self.user.id, populate_existing=True)
+        if user is None or not user.is_active:
+            raise PermissionLost("发起人账号不存在或已停用")
+        try:
+            self.catalog = service.visible_catalog(self.session, user, with_values=False)
+        except Forbidden as exc:
+            raise PermissionLost(f"发起人已没有查询角色（{exc.message}）") from None
+        self.user = user
+
+    def _deny(self, message: str, **detail) -> None:
+        self.denials.append({"message": message, **detail})
+        raise PermissionDenied(message)
+
+    def _metric(self, code: str) -> tuple[Any, MetricVersion]:
+        """当前可见的口径；存在但不可见时是明确的权限拒绝（模型编造的编码只是错误）。"""
+        if code in self.catalog.versions:
+            return self.catalog.versions[code]
+        if self.session.scalar(select(Metric.id).where(Metric.code == code)) is not None:
+            self._deny(f"指标 {code} 当前无权访问（不在你可访问的业务域，或已不在可查询状态）", metric_code=code)
+        raise ValueError(f"指标 {code} 不存在")
+
+    def _metric_sources(self, code: str) -> tuple[Any, MetricVersion, list[MetricVersion], dict[str, Asset]]:
+        """口径、组成版本与来源闭包，逐项核对当前授权：组成指标的业务域、来源资产及其上游都必须可见。"""
+        metric, version = self._metric(code)
+        allowed = access.domain_ids(self.session, self.user)
+        versions = [version]
+        if version.kind == "derived":
+            versions = []
+            for c in version.components or []:
+                cm, cv = self.session.get(Metric, c["metric_id"]), self.session.get(MetricVersion, c["version_id"])
+                if cm is None or cv is None or cm.domain_id not in allowed:
+                    self._deny(f"派生指标“{metric.name}”的组成指标 {c.get('metric_name')} 不在你可访问的业务域",
+                               metric_code=code)
+                versions.append(cv)
+        bases = [v.base_asset_id for v in versions if v.base_asset_id]
+        closure = service.upstream_closure(self.session, bases)
+        if any(not access.can_read_asset(self.session, self.user, a, allowed) for a in closure.values()):
+            self._deny(f"没有权限读取指标 {code} 的来源（含视图背后的表）", metric_code=code)
+        return metric, version, versions, closure
 
     def _guard(self, tool: str, args: dict, run) -> str:
-        """统一的预算检查、异常与步骤记录。"""
+        """统一的授权核对、异常与步骤记录（预算在 dispatch 中计数与检查）。"""
         started = time.monotonic()
-        over = self.budget.exhausted()
-        if over:
-            self._step("tool", tool, args, "denied", {"error": over}, started=started)
-            return _json({"error": f"{over}：请基于已有数据集提交报告（submit_report），并在 unexplained 中说明未完成的部分"})
-        self.budget.used_tools += 1
+        try:
+            if self.permission_lost:
+                raise PermissionLost(self.permission_lost)
+            self._authorize()
+        except PermissionLost as exc:
+            self.permission_lost = exc.message
+            self._step("tool", tool, args, "denied", {"error": exc.message}, started=started)
+            return _json({"error": f"{exc.message}：之后的取数与上下文一律拒绝，分析停止"})
         try:
             output, dataset, status = run()
+        except PermissionDenied as exc:
+            self._step("tool", tool, args, "denied", {"error": exc.message}, started=started)
+            return _json({"error": exc.message, "status": "denied"})
         except (calc.CalcError, HTTPException, ValueError, GovernanceError) as exc:
             message = exc.detail if isinstance(exc, HTTPException) else (
                 exc.message if isinstance(exc, GovernanceError) else str(exc))
@@ -273,6 +369,36 @@ class AnalysisToolbox:
         self._step("tool", tool, args, status, output if dataset is None else {"dataset": f"D{dataset.seq}"},
                    reason=args.get("purpose"), dataset=dataset, started=started)
         return _json(output)
+
+    # -- 统一分发 --
+    def dispatch(self, name: str, args: Any, *, only_report: bool = False) -> str:
+        """模型的每一次工具调用都从这里进入：参数校验之前就计入工具次数（未知工具、参数无效、重复提交计划都算），
+        只有最终的 submit_report 不计数，预算用完后也只能调用它。only_report：时间将尽，只接受 submit_report。"""
+        if self._tools is None:
+            self._tools = {t.name: t for t in self.tools()}
+        self.check_executor()
+        if self.stopped:
+            return _json({"error": f"{self.stopped}：不再执行工具"})
+        if name != "submit_report":
+            over = self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
+            if over:
+                self._step("tool", name, args if isinstance(args, dict) else {"raw": str(args)[:500]}, "denied",
+                           {"error": over})
+                return _json({"error": f"{over}：只能调用 submit_report 提交报告，并在 unexplained 中说明未完成的部分"})
+            self.budget.used_tools += 1
+        tool = self._tools.get(name)
+        if tool is None:
+            self._step("tool", name, {}, "error", {"error": "未知工具"})
+            return _json({"error": f"未知工具 {name}"})
+        if not isinstance(args, dict):
+            self._step("tool", name, {"raw": str(args)[:500]}, "error", {"error": "参数无法解析"})
+            return _json({"error": f"工具 {name} 的参数无法解析，请修正后重试"})
+        try:
+            return str(tool.invoke(args))
+        except Exception as exc:  # noqa: BLE001 - 参数校验失败等如实返回给模型
+            message = f"{type(exc).__name__}: {str(exc)[:500]}"
+            self._step("tool", name, json.loads(_json(args)), "error", {"error": message})
+            return _json({"error": message})
 
     # -- 计划与报告 --
     def submit_plan(self, hypotheses: list[str], steps: list[str]) -> str:
@@ -303,11 +429,9 @@ class AnalysisToolbox:
 
     def describe_metric(self, code: str) -> str:
         def run():
-            if code not in self.catalog.versions:
-                raise ValueError(f"指标 {code} 不存在或不可见")
             from avelis.api.governance import version_view
 
-            metric, version = self.catalog.versions[code]
+            metric, version, _, _ = self._metric_sources(code)
             v = version_view(self.session, version)
             base = self.session.get(Asset, version.base_asset_id) if version.base_asset_id else None
             history = [{"version_no": mv.version_no, "status": mv.status, "status_reason": mv.status_reason,
@@ -391,21 +515,28 @@ class AnalysisToolbox:
 
             lo = datetime(start_date.year, start_date.month, start_date.day)
             hi = datetime(end_date.year, end_date.month, end_date.day) + timedelta(days=1)
+            # 给定指标时只看它的来源闭包（含组成指标的来源）上的资产变更，以及涉及它的版本与资产的影响
+            scope_assets: set[str] | None = None
+            scope_objects: set[str] = set()
+            if metric_code:
+                _, version, versions, closure = self._metric_sources(metric_code)
+                scope_assets = set(closure)
+                scope_objects = scope_assets | {version.id, *(v.id for v in versions)}
             sets = []
             for cs in self.session.scalars(select(ChangeSet).where(ChangeSet.created_at >= lo,
                                                                    ChangeSet.created_at < hi)
                                            .order_by(ChangeSet.created_at)):
                 v = change_set_view(self.session, cs, full=True, user=self.user)
-                if v["events"]:
+                events = [e for e in v["events"] if scope_assets is None or e["asset_id"] in scope_assets]
+                impacts = [i for i in v["impacts"] if scope_assets is None or i["object_id"] in scope_objects]
+                if events:
                     sets.append({"at": v["created_at"], "events": [
-                        {"kind": e["kind"], "asset": e["asset"], "column": e["column"]} for e in v["events"]][:30],
-                        "impacts": len(v["impacts"])})
+                        {"kind": e["kind"], "asset": e["asset"], "column": e["column"]} for e in events][:30],
+                        "impacts": len(impacts)})
             transitions = []
             codes = [metric_code] if metric_code else list(self.catalog.versions)
             for code in codes:
-                if code not in self.catalog.versions:
-                    continue
-                metric = self.catalog.versions[code][0]
+                metric = self._metric(code)[0]
                 for t, mv in self.session.execute(
                         select(MetricVersionTransition, MetricVersion).join(
                             MetricVersion, MetricVersion.id == MetricVersionTransition.metric_version_id)
@@ -421,23 +552,20 @@ class AnalysisToolbox:
 
     def data_health(self, metric_code: str, start_date: date, end_date: date) -> str:
         def run():
-            if metric_code not in self.catalog.versions:
-                raise ValueError(f"指标 {metric_code} 不存在或不可见")
-            metric, version = self.catalog.versions[metric_code]
-            versions = [version]
-            if version.kind == "derived":
-                versions = [self.session.get(MetricVersion, c["version_id"]) for c in version.components]
+            # 组成指标的业务域与来源闭包逐项核对；采集只给状态与时间，不返回数据源的原始错误
+            _, _, versions, _ = self._metric_sources(metric_code)
             out = []
             for v in versions:
-                base = self.session.get(Asset, v.base_asset_id)
+                base = self.session.get(Asset, v.base_asset_id) if v.base_asset_id else None
+                if base is None:
+                    continue
                 runs = list(self.session.scalars(select(CollectionRun).where(
                     CollectionRun.datasource_id == base.datasource_id).order_by(CollectionRun.started_at.desc())
                     .limit(5)))
                 boundary = freshness_boundary(self.session, base.datasource_id)
                 out.append({"metric_version": v.id, "base_asset": f"{base.catalog_name}.{base.db_name}.{base.name}",
                             "last_collected_at": boundary["last_collected_at"],
-                            "recent_collections": [{"status": r.status, "started_at": r.started_at,
-                                                    "error": r.error} for r in runs],
+                            "recent_collections": [{"status": r.status, "started_at": r.started_at} for r in runs],
                             "metric_status": v.status, "drift": bool(v.status != "published")})
             note = ("数据完整性需要看数据本身：用 query_metric 按 time_grain=day 并按门店等维度分组，"
                     "找出某天某些成员缺失或骤降；再用 lineage 查看口径的主表（缺失可能来自上游）。")
@@ -452,6 +580,8 @@ class AnalysisToolbox:
         def run():
             if self.budget.used_queries >= self.budget.queries:
                 raise ValueError(f"受治理查询已达上限 {self.budget.queries} 次：请基于已有数据集继续")
+            for code in args.metric_codes:  # 按当前授权核对每个请求的口径（查询管线再核对来源闭包）
+                self._metric(code)
             self.budget.used_queries += 1
             intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
                             filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
@@ -463,6 +593,9 @@ class AnalysisToolbox:
             answer.intent = intent.model_dump(mode="json")
             service.fulfil(self.session, self.user, intent, answer, self.catalog)
             service.finish_answer(self.session, self.user, answer, started)
+            if answer.status == "denied" and answer.error_code == "permission":
+                self.denials.append({"message": answer.message, "metric_codes": args.metric_codes,
+                                     "answer_id": answer.id})
             if answer.status != "answered":
                 return ({"status": answer.status, "error_code": answer.error_code, "message": answer.message,
                          "answer_id": answer.id}, None, answer.status)
@@ -480,15 +613,23 @@ class AnalysisToolbox:
                                truncated=bool(result.get("truncated")),
                                meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                      "intent": answer.intent, "freshness": answer.freshness,
-                                     "purpose": args.purpose})
+                                     "purpose": args.purpose,
+                                     "time_column": period_column(args.group_by) if args.time_grain else None})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard("query_metric", args.model_dump(mode="json"), run)
 
     # -- 计算 --
-    def _calc(self, tool: str, args: dict, inputs: list[str], fn) -> str:
+    def _calc(self, tool: str, args: dict, inputs: list[str], fn, *, full_set: bool = True) -> str:
+        """full_set：计算需要全集（合计、覆盖度、相关性等），截断的输入直接拒绝。只取单行的计算可以用截断的输入，
+        结果沿依赖继承截断标记。"""
         def run():
+            truncated = [ref for ref in inputs if ref in self._datasets and self._datasets[ref].truncated]
+            if truncated and full_set:
+                raise calc.CalcError(f"数据集 {'、'.join(truncated)} 被截断（不是全集），不能用于 {tool}："
+                                     "请缩小时间范围、减少分组或加筛选后重新查询")
             title, columns, rows, summary = fn()
-            ds = self._dataset("calc", title, columns, rows, inputs=inputs, meta={"summary": summary, "args": args})
+            ds = self._dataset("calc", title, columns, rows, inputs=inputs, truncated=bool(truncated),
+                               meta={"summary": summary, "args": args})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard(tool, args, run)
 
@@ -519,25 +660,23 @@ class AnalysisToolbox:
                                         {f.name: (row[f.previous], row[f.current]) for f in factors})
             cols = ["factor", "previous", "current", "change_rate", "contribution", "share"]
             return (f"{dataset} {total.name}的因子拆解", cols, [[f[c] for c in cols] for f in out["factors"]],
-                    {"total": out["total"]})
+                    {"total": out["total"], "unexplained": out["unexplained"]})
         return self._calc("factor_decompose", {"dataset": dataset, "total": total.model_dump(),
                                                "factors": [f.model_dump() for f in factors], "match": match},
-                          [dataset], fn)
+                          [dataset], fn, full_set=False)
 
-    def calendar_adjust(self, dataset: str, current: str, previous: str, current_period: tuple[date, date],
-                        previous_period: tuple[date, date], match: dict[str, str] | None = None) -> str:
+    def calendar_adjust(self, dataset: str, current: str, previous: str, match: dict[str, str] | None = None) -> str:
         def fn():
-            _, rows = self._rows(dataset)
+            ds, rows = self._rows(dataset)
+            current_period, previous_period = _periods(ds, current, previous)
             row = self._pick(rows, match or {})
-            out = calc.calendar_adjust(row[current], row[previous], tuple(map(_date, current_period)),
-                                       tuple(map(_date, previous_period)), HOLIDAYS)
+            out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period, HOLIDAYS)
             cols = ["period", "days", "weekend_days", "holidays", "value", "daily"]
             rows_out = [["本期", *[out["current"][c] for c in cols[1:]]], ["上期", *[out["previous"][c] for c in cols[1:]]]]
             return (f"{dataset} {current}的日历折算", cols, rows_out,
                     {k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")})
         return self._calc("calendar_adjust", {"dataset": dataset, "current": current, "previous": previous,
-                                              "current_period": current_period, "previous_period": previous_period,
-                                              "match": match}, [dataset], fn)
+                                              "match": match}, [dataset], fn, full_set=False)
 
     def correlate(self, dataset: str, x: str, y: str) -> str:
         def fn():
@@ -547,11 +686,14 @@ class AnalysisToolbox:
             return f"{dataset} {x} 与 {y} 的相关性", cols, [[out[c] for c in cols]], out
         return self._calc("correlate", {"dataset": dataset, "x": x, "y": y}, [dataset], fn)
 
-    def coverage(self, dataset: str, keys: list[str] | None = None, period: str | None = "period",
+    def coverage(self, dataset: str, keys: list[str] | None = None, period: str | None = None,
                  start_date: date | None = None, end_date: date | None = None) -> str:
         def fn():
             ds, rows = self._rows(dataset)
-            period_col = period if period and period in ds.columns else None
+            period_col = period or ds.meta.get("time_column")
+            if period and period not in ds.columns:
+                raise calc.CalcError(f"{dataset} 没有日期列 {period}")
+            period_col = period_col if period_col in ds.columns else None
             out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date))
             cols = [*(keys or []), "rows", "periods", "missing_count", "missing_periods"]
             return (f"{dataset} 的覆盖度", cols, [[r.get(c) for c in cols] for r in out["rows"]], out["summary"])
@@ -572,11 +714,13 @@ class AnalysisToolbox:
                 raise calc.CalcError(f"公式中的 {'、'.join(missing)} 没有对应的取值")
             env, rows_out = {}, []
             for v in values:
-                _, rows = self._rows(v.dataset)
+                ds, rows = self._rows(v.dataset)
                 picked = [r for r in rows if all(str(r.get(k)) == str(x) for k, x in v.match.items())
                           and not (v.exclude and all(str(r.get(k)) == str(x) for k, x in v.exclude.items()))]
                 if not picked:
                     raise calc.CalcError(f"{v.dataset} 中按 {v.match or '（无条件）'} 没有选出行")
+                if ds.truncated and (len(picked) != 1 or v.exclude):  # 截断的数据集只能取单行，不能求和或排除
+                    raise calc.CalcError(f"数据集 {v.dataset} 被截断（不是全集）：只能按条件取单行，不能求和或排除")
                 if v.column not in picked[0]:
                     raise calc.CalcError(f"{v.dataset} 没有列 {v.column}")
                 total = sum((calc.number(r[v.column]) or 0 for r in picked), calc.Decimal(0))
@@ -587,7 +731,7 @@ class AnalysisToolbox:
             return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out,
                     {"label": label, "formula": formula, "value": result})
         return self._calc("derive", {"label": label, "values": [v.model_dump() for v in values], "formula": formula},
-                          sorted({v.dataset for v in values}), fn)
+                          sorted({v.dataset for v in values}), fn, full_set=False)
 
     def describe(self, dataset: str, column: str, match: dict[str, str] | None = None) -> str:
         def fn():
@@ -634,7 +778,7 @@ class AnalysisToolbox:
             t(self.query_metric, QueryArgs, "受治理查询：按已发布口径取数，产生数据集 Dn（权限与执行前核对照常生效）"),
             t(self.contribution, ContributionArgs, "两期差额按维度拆解（贡献、变化率、占总变化比例）"),
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
-            t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异"),
+            t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异（两期日期取自数据集的查询窗口）"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
             t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某门店后的合计、两期差额），结果可引用"),
@@ -648,6 +792,21 @@ class AnalysisToolbox:
 # 演示数据期间的法定节假日（日历折算用）
 HOLIDAYS = {date(2026, 6, 19), date(2026, 6, 20), date(2026, 6, 21), date(2026, 9, 25), date(2026, 9, 26),
             date(2026, 9, 27)}
+
+
+def _periods(ds: AnalysisDataset, current: str, previous: str) -> tuple[tuple[date, date], tuple[date, date]]:
+    """日历折算的两期日期从数据集的查询意图推导，并核对所选列确实是本期与对比期的值（不信任模型传入的日期）。"""
+    intent = ds.meta.get("intent") if ds.kind == "governed" else None
+    if not intent or not intent.get("compare") or intent.get("time_grain"):
+        raise calc.CalcError("日历折算只能用于带对比期、未按时间分组的受治理查询数据集（期间要能追溯到查询）")
+    start, end = _date(intent["start_date"]), _date(intent["end_date"])
+    compare = intent["compare"]
+    before = ((_date(intent["compare_start"]), _date(intent["compare_end"])) if compare == "custom"
+              else comparison_range(start, end, compare))
+    if current not in ds.columns or previous != f"{current}·{service.PERIOD_LABEL[compare]}":
+        raise calc.CalcError(f"列 {current} / {previous} 不是该数据集的本期值与"
+                             f"{service.PERIOD_LABEL[compare]}值（应为 指标名 与 指标名·{service.PERIOD_LABEL[compare]}）")
+    return (start, end), before
 
 
 def _date(value):

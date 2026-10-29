@@ -15,6 +15,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import timezone
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -242,7 +243,8 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
         current.updated_by, current.updated_at = actor.id, utcnow()
     if new_policy is not None:
         row = session.get(AppSetting, POLICY_KEY)
-        value = {**DEFAULT_POLICY, **{k: bool(v) for k, v in new_policy.items() if k in DEFAULT_POLICY}}
+        # 以当前已保存的策略为基础合并：部分更新不能把管理员明确关闭的设置重新打开（默认值只用于从未保存过的项）
+        value = {**policy(session), **{k: bool(v) for k, v in new_policy.items() if k in DEFAULT_POLICY}}
         if row is None:
             session.add(AppSetting(key=POLICY_KEY, value=value, updated_by=actor.id))
         else:
@@ -255,19 +257,20 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
 
 # --- 调用 -------------------------------------------------------------------------
 
-def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.0) -> BaseChatModel:
+def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.0, timeout: float = 60,
+                     max_retries: int = 2) -> BaseChatModel:
     if not p.api_key_enc:
         raise Conflict(f"提供方 {p.name} 未设置密钥")
     key = decrypt_secret(p.api_key_enc)
     if p.kind == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=60,
-                             max_retries=2, max_tokens=2048)
+        return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature,
+                             timeout=timeout, max_retries=max_retries, max_tokens=4096)
     from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=60,
-                      max_retries=2)
+    return ChatOpenAI(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=timeout,
+                      max_retries=max_retries)
 
 
 @dataclass
@@ -275,6 +278,8 @@ class Resolved:
     model: BaseChatModel
     adapter: str
     _api_key: str | None = field(default=None, repr=False)
+    # 按剩余时间重建模型（请求超时、重试次数）：分析的统一截止时间要覆盖每一次模型请求
+    factory: Callable[..., BaseChatModel] | None = field(default=None, repr=False)
 
     def safe_error(self, error: Exception | str, *, limit: int = 300) -> str:
         return redact_error(str(error), self._api_key, limit=limit)
@@ -290,8 +295,11 @@ def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Reso
     p = session.get(ModelProvider, a.provider_id)
     if _enabled_model(p, a.model_id, needs_tools=a.purpose in ("ask", "analysis")) is None:
         return None
-    return Resolved(build_chat_model(p, a.model_id, temperature=temperature), f"{p.code}:{a.model_id}",
-                    decrypt_secret(p.api_key_enc))
+    model_id = a.model_id
+    return Resolved(build_chat_model(p, model_id, temperature=temperature), f"{p.code}:{model_id}",
+                    decrypt_secret(p.api_key_enc),
+                    lambda timeout, max_retries: build_chat_model(p, model_id, temperature=temperature,
+                                                                  timeout=timeout, max_retries=max_retries))
 
 
 def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:

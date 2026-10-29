@@ -41,7 +41,8 @@ class Intent(BaseModel):
     # compare="custom"（M8）：指定对比期，如本期 9 月对比自然月 8 月（上一期是紧邻的同长度区间 8 月 2 日至 31 日）
     compare_start: date | None = None
     compare_end: date | None = None
-    # 按时间分组（M8）：结果多一列 period（day 为 YYYY-MM-DD，month 为 YYYY-MM），排在维度之前。不能与对比期同用
+    # 按时间分组（M8）：结果多一列时间段（默认 period，与维度重名时见 period_column；day 为 YYYY-MM-DD，month 为 YYYY-MM），
+    # 排在维度之前。不能与对比期同用
     time_grain: Literal["day", "month"] | None = None
     clarification: str | None = None
     candidates: list[str] = Field(default_factory=list)
@@ -63,6 +64,17 @@ class Intent(BaseModel):
     def is_simple(self) -> bool:
         """单指标、无对比：可以整体下推为一条 SQL（排序与 LIMIT 也在 SQL 中完成）。"""
         return len(self.metric_codes) <= 1 and self.compare is None
+
+
+def period_column(group_by: list[str]) -> str:
+    """按时间分组时时间段列的名字：默认 period；与业务维度重名时换一个不冲突的名字（不覆盖维度，也不丢日期）。"""
+    for name in ("period", "时间段", "period_time"):
+        if name not in group_by:
+            return name
+    i = 1
+    while f"period_{i}" in group_by:
+        i += 1
+    return f"period_{i}"
 
 
 def comparison_range(start: date, end: date, compare: str) -> tuple[date, date]:

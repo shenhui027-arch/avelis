@@ -4,7 +4,9 @@ Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务�
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
-定时分析（M8）：到期的分析任务入队 analysis；API 异步发起的单次分析为 analysis_run。
+定时分析（M8）：到期的分析任务入队 analysis；API 异步发起的单次分析为 analysis_run（与运行在同一事务中创建）。
+Job 的终态跟随分析的业务结果：分析失败 → failed，任务被暂停或跳过 → skipped，不把失败的分析记为成功。
+Job 被判定放弃时，同步终结关联的分析运行（payload.run_id 或 result.analysis_run_id）。
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ def run_job(job_id: str) -> None:
         job = session.get(Job, job_id)
         kind, payload, actor, attempt = job.kind, dict(job.payload), job.created_by, job.attempts
     result: dict[str, Any] = {}
-    error = None
+    error, outcome = None, "succeeded"
     try:
         if kind == "collect":
             result = {"run_id": collect_now(payload["datasource_id"], trigger=payload.get("trigger", "manual"),
@@ -66,24 +68,35 @@ def run_job(job_id: str) -> None:
         elif kind == "analysis":
             from avelis.analysis import service as analysis_service
 
-            result = {"analysis_run_id": analysis_service.run_task(payload["task_id"],
-                                                                   trigger=payload.get("trigger", "schedule"))}
+            out = analysis_service.run_task(payload["task_id"], trigger=payload.get("trigger", "schedule"),
+                                            job_id=job_id)
+            result = {k: v for k, v in out.items() if k != "status"} | {"outcome": out["status"]}
+            outcome = {"succeeded": "succeeded", "failed": "failed"}.get(out["status"], "skipped")
+            if outcome == "failed":
+                error = out.get("reason") or "分析失败"
         elif kind == "analysis_run":
             from avelis.analysis import service as analysis_service
             from avelis.models import AnalysisRun
 
             with session_scope() as session:
                 run = session.get(AnalysisRun, payload["run_id"])
-                if run is not None and run.status == "queued":
+                if run is None or run.status != "queued":
+                    outcome = "skipped"
+                    result = {"analysis_run_id": payload["run_id"], "reason": "分析不存在或已不在排队状态"}
+                else:
                     analysis_service.execute(session, run)
                     result = {"analysis_run_id": run.id, "status": run.status}
+                    if run.status != "succeeded":
+                        outcome, error = "failed", run.error or "分析失败"
         else:
             raise ValueError(f"未知任务类型 {kind}")
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
         error = f"{type(exc).__name__}: {exc}"
     with session_scope() as session:
+        job = session.get(Job, job_id)
+        result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
         session.execute(update(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).values(
-            status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow()))
+            status="failed" if error else outcome, error=error, result=result, finished_at=utcnow()))
 
 
 def collect_now(datasource_id: str, *, trigger: str, actor_id: str | None) -> str:
@@ -124,10 +137,18 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     older_than_seconds = (get_settings().worker_running_timeout_seconds if older_than_seconds is None
                           else older_than_seconds)
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+    reason = f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"
     with session_scope() as session:
-        ids = list(session.scalars(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
-            status="failed", finished_at=utcnow(),
-            error=f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑").returning(Job.id)))
+        rows = list(session.execute(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
+            status="failed", finished_at=utcnow(), error=reason).returning(Job.id, Job.kind, Job.payload, Job.result)))
+        from avelis.analysis import service as analysis_service
+
+        for _, kind, payload, result in rows:  # 关联的分析运行一并终结，不留下永远排队或运行中的分析
+            if kind == "analysis_run":
+                analysis_service.finalize_abandoned(session, (payload or {}).get("run_id"), reason)
+            elif kind == "analysis":
+                analysis_service.finalize_abandoned(session, (result or {}).get("analysis_run_id"), reason)
+    ids = [row[0] for row in rows]
     for job_id in ids:
         log.warning("任务 %s 运行超时，已记为失败", job_id)
     return ids

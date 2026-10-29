@@ -2,7 +2,7 @@
 
 确定性部分不依赖模型：直接驱动工具箱，断言受治理查询的值与生成数据集的标准答案（.demo/ec-truth.json）一致，
 计算工具与数字核验的结果正确，越权与预算被拒绝；导出、任务暂停、定时入队走 HTTP API 与 worker 函数。
-真实模型部分（llm）：对预埋了原因的问题发起分析，断言报告找到原因、核验通过、每一步都经过治理。
+真实模型部分（llm）：对预埋了原因的问题发起分析，断言报告找到原因、全部核验通过、每一步都经过治理。
 """
 
 from __future__ import annotations
@@ -129,7 +129,9 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
         assert "error" not in out, out
         parts = {r[0]: r for r in out["rows"]}
         change = Decimal(str(out["summary"]["total"]["change"]))
-        assert sum(Decimal(str(r[4])) for r in out["rows"]) == change  # 各因子贡献相加正好等于总差额
+        # 各行（含输入不一致时单列的“未解释差额”）相加正好等于总差额；未解释差额不归给任何因子
+        assert sum(Decimal(str(r[4])) for r in out["rows"]) == change
+        assert abs(Decimal(str(out["summary"]["unexplained"]))) <= abs(change) * Decimal("0.005")
         assert Decimal(str(parts["订单数"][4])) < 0  # 抖音投放削减：订单数下降是主因
         # 按日看门店订单：北京 3 家店 9 月 28 日客流计数器故障，门店日视图当天缺这 3 家店
         daily = rows(box.query_metric(metric_codes=["ec_store_orders"], start_date="2026-09-27", end_date="2026-09-28",
@@ -171,15 +173,15 @@ def test_03_permission_budget_and_verification(admin: Api):
     finally:
         scope.__exit__(None, None, None)
     scope, session, run, box = toolbox("wang", Budget(tool_calls=3, queries=1))
-    try:
-        rows(box.query_metric(metric_codes=["ec_refund"], start_date=SEP[0], end_date=SEP[1], group_by=["region"],
-                              purpose="退款"))
-        again = json.loads(box.query_metric(metric_codes=["ec_refund"], start_date=AUG[0], end_date=AUG[1],
-                                            purpose="超出查询预算"))
+    try:  # 经统一分发层调用（与模型调用同一路径）：每次尝试都计数
+        rows(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": SEP[0], "end_date": SEP[1],
+                                           "group_by": ["region"], "purpose": "退款"}))
+        again = json.loads(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": AUG[0],
+                                                         "end_date": AUG[1], "purpose": "超出查询预算"}))
         assert "上限" in again["error"]
-        box.search_metrics()
-        over = json.loads(box.search_metrics())
-        assert "上限" in over["error"]  # 工具次数用完
+        box.dispatch("search_metrics", {})
+        over = json.loads(box.dispatch("search_metrics", {}))
+        assert "上限" in over["error"] and box.budget.used_tools == 3  # 工具次数用完
         d1 = {r["region"]: r["退款金额"] for r in rows(json.dumps(box._view("D1", box.datasets()["D1"]),
                                                                 ensure_ascii=False, default=str))}
         report = verify_report([
@@ -241,13 +243,20 @@ def test_06_tasks_pause_and_schedule(admin: Api):
                                              "window": {"kind": "last_month"}, "schedule_cron": "0 9 1 * *"},
                      expect=201)
     assert task["status"] == "active" and task["next_run_at"]
-    wang.post("/api/analysis/tasks", {"question": "x", "schedule_cron": "61 9 * * *"}, expect=422)
+    bad = wang.post("/api/analysis/tasks", {"question": "上个月门店成交额为什么变化？", "schedule_cron": "61 9 * * *"},
+                    expect=422)
+    assert "cron" in json.dumps(bad, ensure_ascii=False)  # 问题合法，拒绝来自 cron 校验
+    leap = wang.post("/api/analysis/tasks", {"question": "闰日复盘：成交额为什么变化？", "schedule_cron": "0 9 29 2 *"},
+                     expect=201)
+    assert leap["next_run_at"].startswith("2028-02-29")
+    wang.patch(f"/api/analysis/tasks/{leap['id']}", {"status": "paused"})
     # 未配置分析模型：手动运行时任务暂停并通知（不静默跳过）
     paused = wang.post(f"/api/analysis/tasks/{task['id']}/run", expect=409)
     assert "暂停" in paused["detail"]
-    assert wang.get("/api/analysis/tasks")[0]["status"] == "paused"
+    assert next(t for t in wang.get("/api/analysis/tasks") if t["id"] == task["id"])["status"] == "paused"
     note = wang.get("/api/notifications", params={"unread": True})[0]
     assert note["kind"] == "analysis_paused" and "分析模式需要" in note["body"]
+    assert note["link"] == "/analysis/tasks"  # 前端已有的任务页
     assert wang.client.post(f"/api/notifications/{note['id']}/read", headers=wang.headers).status_code == 204
     assert not wang.get("/api/notifications", params={"unread": True})
     # 恢复后到期：worker 的定时扫描入队一次分析任务，重复扫描不重复入队
@@ -260,20 +269,27 @@ def test_06_tasks_pause_and_schedule(admin: Api):
         job = session.get(Job, first[0])
         assert job.kind == "analysis" and job.payload == {"task_id": task["id"], "trigger": "schedule"}
         assert session.get(AnalysisTask, task["id"]).next_run_at.replace(tzinfo=None) > utcnow()
-        job.status = "failed"  # 不在验收中真的运行（无模型）
+    # worker 执行这条定时任务：未配置分析模型 → 任务暂停并通知，Job 记为 skipped（不记为成功，不创建运行）
+    from avelis import jobs
+
+    jobs.run_job(first[0])
+    with session_scope() as session:
+        job = session.get(Job, first[0])
+        assert job.status == "skipped" and job.result["outcome"] == "paused", (job.status, job.result)
+        assert session.get(AnalysisTask, task["id"]).status == "paused"
+    assert wang.get("/api/notifications", params={"unread": True})[0]["kind"] == "analysis_paused"
 
 
 def assert_grounded(run: dict) -> None:
-    """真实模型的报告：事实与计算类结论至少 80% 核验通过；未核实的每一条都列出了数字，并在导出中同样标出。
-    （模型偶尔会写进自己推算的计数，核验如实标出；确定性部分的核验断言见 test_03、test_05。）"""
+    """真实模型的报告必须全部核验通过：每条事实与计算类结论都引用了数据集、其中每个数字都在数据集中找到，
+    标题、摘要与“未解释”中的数字也一样（核验后有一轮修订）。不再放宽为“至多 20% 未核实”。"""
     checks = [c for c in run["verification"]["claims"] if c["type"] in ("fact", "calc")]
     assert checks, run["report"]
-    bad = [c for c in checks if c["status"] == "unverified"]
     claims = run["report"]["claims"]
-    assert len(bad) <= len(checks) * 0.2, [(claims[c["index"]]["text"], [n["text"] for n in c["numbers"]
-                                                                       if not n["verified"]]) for c in bad]
-    for c in bad:
-        assert c["numbers"] and any(not n["verified"] for n in c["numbers"]) or c["missing_refs"], c
+    bad = [(claims[c["index"]]["text"], [n["text"] for n in c["numbers"] if not n["verified"]], c.get("missing_refs"))
+           for c in checks if c["status"] != "verified"]
+    fields = [f for f in run["verification"].get("fields", []) if f["status"] != "verified"]
+    assert run["verification"]["ok"] and not bad and not fields, (bad, fields)
 
 
 @pytest.mark.llm
@@ -312,7 +328,3 @@ def test_08_real_model_online_orders_cause(admin: Api):
     pdf = ctx["apis"]["wang"].client.get(f"/api/analysis/runs/{run['id']}/export", params={"format": "pdf"},
                                          headers=ctx["apis"]["wang"].headers)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
-    if not run["verification"]["ok"]:
-        md = ctx["apis"]["wang"].client.get(f"/api/analysis/runs/{run['id']}/export", params={"format": "md"},
-                                            headers=ctx["apis"]["wang"].headers)
-        assert "未核实的数字" in md.text  # 导出与报告页一致：未核实的数字同样标出
