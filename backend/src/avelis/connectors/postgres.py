@@ -166,7 +166,7 @@ class PostgresConnector:
 
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         """读 DDL 审计。两次快照都记了事务快照时，按事务可见性取“上次快照看不到、本次看得到”的事务，结果确定；
-        否则按执行时间取窗口内的记录，由归因按窗口边界判断。事件触发器不存在、已停用或指向别的函数时，审计视为未开启。"""
+        否则（升级后第一次、上次快照没有游标）按执行时间取窗口内的记录，一律标为不确定（长事务可能跨窗口）。事件触发器不存在、已停用或指向别的函数时，审计视为未开启。"""
         schemas = list(self.options.get("schemas", []))
         previous, current = cursors or (None, None)
         p_snap = (previous or {}).get("pg_snapshot")
@@ -192,7 +192,7 @@ class PostgresConnector:
         by_transaction = bool(p_snap and c_snap)
         return [DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None), db_user=user,
                          objects=[(names[0], names[1])], statement_type=tag, statement=statement or "",
-                         certain=True if by_transaction else None)
+                         certain=by_transaction)  # 没有两次游标时只能按时间取，结果一律不确定
                 for ts, user, tag, names, statement in rows]
 
     @staticmethod

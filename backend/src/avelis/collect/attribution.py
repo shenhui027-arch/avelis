@@ -31,7 +31,8 @@ DERIVED = {"derivation_changed", "upstream_broken", "identity_link_changed", "se
 STATUSES = ("matched", "ambiguous", "unmatched", "unavailable", "unsupported", "not_applicable")
 CANDIDATE_LIMIT = 10
 CAUSE_LABEL = {"no_permission": "采集账号无权读取 DDL 审计", "not_enabled": "数据源未开启 DDL 审计",
-               "incompatible": "DDL 审计来源的结构与连接器要求不符", "error": "读取 DDL 审计失败"}
+               "incompatible": "DDL 审计来源的结构与连接器要求不符",
+               "instance_changed": "数据源实例已切换，本轮重新建立归因基线，不做归因", "error": "读取 DDL 审计失败"}
 
 
 @dataclass
@@ -43,6 +44,7 @@ class Window:
     current_done: datetime
     previous_cursor: dict[str, Any] | None = None
     current_cursor: dict[str, Any] | None = None
+    instance_changed: bool = False  # 两次快照不是同一个实例（身份世代变化）：本轮不归因，重新建立基线
 
 
 def _names_of(event: dict[str, Any], asset: Asset | None) -> set[tuple[str, str]]:
@@ -66,7 +68,19 @@ def _candidate(e: DdlEvent, certain: bool) -> dict[str, Any]:
 def attribute(session: Session, engine: Engine, connector: Any, events: list[dict[str, Any]],
               window: Window | None) -> dict[str, Any]:
     """为 events（尚未写库的变更事件字典）补上 actor_db_user / attribution_status / attribution。
-    返回本次审计读取的概况（写入变更集摘要）。"""
+    返回本次审计读取的概况（写入变更集摘要）。归因中的任何异常都不外抛：受影响的事件记为未知并写明原因，采集照常完成。"""
+    try:
+        return _attribute(session, engine, connector, events, window)
+    except Exception as exc:  # noqa: BLE001 - 归因出错不能让采集失败
+        reason = f"归因时出错，无法归因（{type(exc).__name__}: {exc}）"[:500]
+        for e in events:
+            if "attribution_status" not in e:
+                _set(e, "not_applicable" if e["kind"] in DERIVED else "unavailable", cause="error", reason=reason)
+        return {"status": "error", "error": reason}
+
+
+def _attribute(session: Session, engine: Engine, connector: Any, events: list[dict[str, Any]],
+               window: Window | None) -> dict[str, Any]:
     source = getattr(connector, "ddl_audit_source", None)
     if window is None:
         for e in events:
@@ -78,6 +92,12 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
                  reason=f"{engine.label} 适配器未接入 DDL 审计来源" if e["kind"] not in DERIVED
                  else "推导出的变化，不是对该对象执行的 DDL")
         return {"status": "unsupported", "reason": f"{engine.label} 适配器未接入 DDL 审计来源"}
+    if window.instance_changed:
+        reason = CAUSE_LABEL["instance_changed"]
+        for e in events:
+            _set(e, "not_applicable" if e["kind"] in DERIVED else "unavailable", source=source,
+                 cause="instance_changed", reason=reason)
+        return {"status": "unavailable", "source": source, "cause": "instance_changed", "reason": reason}
     slack = timedelta(seconds=get_settings().ddl_audit_slack_seconds)
     lag = timedelta(seconds=getattr(connector, "ddl_effect_lag_seconds", 0))
     since, until = window.previous_start - slack - lag, window.current_done + slack
@@ -122,44 +142,56 @@ def attribute(session: Session, engine: Engine, connector: Any, events: list[dic
         if e["kind"] in DERIVED:
             _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
             continue
-        asset = session.get(Asset, e["asset_id"]) if e.get("asset_id") else None
-        names = _names_of(e, asset)
-        candidates = sorted({id(a): a for n in names for a in by_object.get(n, [])}.values(), key=lambda a: a.at)
-        basis: dict[str, Any] = {"source": source, "window": basis_window,
-                                 "objects": sorted(".".join(n) for n in names)}
+        try:
+            _attribute_one(session, e, by_object, source, basis_window, fold, certain)
+        except Exception as exc:  # noqa: BLE001 - 单个事件归因出错：如实记为未知，不影响其他事件与采集
+            _set(e, "unavailable", source=source, window=basis_window, cause="error",
+                 reason=f"归因时出错，无法归因（{type(exc).__name__}: {exc}）"[:500])
+    return {"status": "ok", "source": source, "window": basis_window, "audit_events": len(audit_events)}
+
+
+def _attribute_one(session: Session, e: dict[str, Any], by_object: dict[tuple[str, str], list[DdlEvent]],
+                   source: str | None, basis_window: dict[str, Any], fold: str, certain) -> None:
+    """一个直接变更事件的归因。"""
+    asset = session.get(Asset, e["asset_id"]) if e.get("asset_id") else None
+    names = _names_of(e, asset)
+    candidates = sorted({id(a): a for n in names for a in by_object.get(n, [])}.values(), key=lambda a: a.at)
+    basis: dict[str, Any] = {"source": source, "window": basis_window,
+                             "objects": sorted(".".join(n) for n in names)}
+    if not candidates:
+        _set(e, "unmatched", **basis,
+             reason=f"审计窗口内没有 {'、'.join(basis['objects'])} 的 DDL 记录"
+                    "（可能是审计日志尚未落盘、改动发生在审计开启之前，或经由未审计的路径）")
+        return
+    column = e.get("column_name")
+    if column:
+        # 字段级变化：点名了该列的语句与整体重定义（不一定逐列点名）都是候选，取并集；
+        # 同一对象上只改了别的列的语句不算
+        object_names = {n for _, n in names}
+        by_column = [a for a in candidates
+                     if any(mentions_column(a.statement, column, obj, fold) for obj in object_names)]
+        whole = [a for a in candidates if redefines(a.statement)]
+        basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole))
+        candidates = sorted({id(a): a for a in [*by_column, *whole]}.values(), key=lambda a: a.at)
         if not candidates:
             _set(e, "unmatched", **basis,
-                 reason=f"审计窗口内没有 {'、'.join(basis['objects'])} 的 DDL 记录"
-                        "（可能是审计日志尚未落盘、改动发生在审计开启之前，或经由未审计的路径）")
-            continue
-        column = e.get("column_name")
-        if column:
-            # 字段级变化：点名了该列的语句与整体重定义（不一定逐列点名）都是候选，取并集；
-            # 同一对象上只改了别的列的语句不算
-            object_names = {n for _, n in names}
-            by_column = [a for a in candidates
-                         if any(mentions_column(a.statement, column, obj, fold) for obj in object_names)]
-            whole = [a for a in candidates if redefines(a.statement)]
-            basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole))
-            candidates = sorted({id(a): a for a in [*by_column, *whole]}.values(), key=lambda a: a.at)
-            if not candidates:
-                _set(e, "unmatched", **basis,
-                     reason=f"窗口内有 {'、'.join(basis['objects'])} 的 DDL，但没有一条点名列 {column} 或整体重定义"
-                            "（该列的改动可能经由未审计的路径）")
-                continue
-        users = sorted({a.db_user for a in candidates})
-        sure_users = sorted({a.db_user for a in candidates if certain(a)})
-        statements = [_candidate(a, certain(a)) for a in candidates[-CANDIDATE_LIMIT:]]
-        if len(users) == 1 and sure_users:
-            _set(e, "matched", actor=users[0], **basis, statements=statements,
-                 reason=f"窗口内该对象的 {len(candidates)} 条 DDL 都来自 {users[0]}")
-        elif len(users) == 1:
-            _set(e, "ambiguous", **basis, candidates=users, statements=statements,
-                 reason=f"只有 {users[0]} 的语句，但都在快照读取期间或窗口边界附近，无法确认它在本窗口内生效")
-        else:
-            _set(e, "ambiguous", **basis, candidates=users, statements=statements,
-                 reason=f"窗口内该对象的 DDL 来自多个用户（{'、'.join(users)}），无法确定是谁")
-    return {"status": "ok", "source": source, "window": basis_window, "audit_events": len(audit_events)}
+                 reason=f"窗口内有 {'、'.join(basis['objects'])} 的 DDL，但没有一条点名列 {column} 或整体重定义"
+                        "（该列的改动可能经由未审计的路径）")
+            return
+    users = sorted({a.db_user for a in candidates})
+    boundary = [a for a in candidates if not certain(a)]
+    statements = [_candidate(a, certain(a)) for a in candidates[-CANDIDATE_LIMIT:]]
+    if len(users) > 1:
+        _set(e, "ambiguous", **basis, candidates=users, statements=statements,
+             reason=f"窗口内该对象的 DDL 来自多个用户（{'、'.join(users)}），无法确定是谁")
+    elif boundary:
+        # 只要有边界候选就不确定：边界语句可能属于上个窗口，本窗口的变化也可能来自未审计的路径
+        _set(e, "ambiguous", **basis, candidates=users, statements=statements,
+             reason=f"候选语句都来自 {users[0]}，但有 {len(boundary)} 条在快照读取期间、窗口边界附近，"
+                    "或无法按事务确认属于本窗口，不能确定归因")
+    else:
+        _set(e, "matched", actor=users[0], **basis, statements=statements,
+             reason=f"窗口内该对象的 {len(candidates)} 条 DDL 都来自 {users[0]}，且都确定在本窗口内")
 
 
 def _set(event: dict[str, Any], status: str, actor: str | None = None, **detail: Any) -> None:

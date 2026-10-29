@@ -148,6 +148,29 @@ def test_unsealed_rows_keep_primary_key_and_committed_unsealed_rows_are_frozen(m
     assert _verify()["ok"] is True
 
 
+def test_savepoints_are_legal_and_follow_the_insert_registry(metadb, world):
+    # 复核 #2：判断“本事务插入”不用 xmin（保存点子事务的 xmin 不同），用插入触发器的事务内登记
+    with metadb.connect() as conn:
+        conn.execute(text("SAVEPOINT s1"))
+        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                          "VALUES ('e0000000000000000000000000000001', now(), 'x', 'sp', 't', '{}')"))
+        conn.execute(text("UPDATE audit_event SET detail = '{\"补全\": true}' "
+                          "WHERE id = 'e0000000000000000000000000000001'"))
+        conn.execute(text("RELEASE SAVEPOINT s1"))
+        conn.execute(text("SAVEPOINT s2"))
+        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                          "VALUES ('e0000000000000000000000000000002', now(), 'x', 'sp', 't', '{}')"))
+        conn.execute(text("ROLLBACK TO SAVEPOINT s2"))  # 回滚掉的插入不会留下待封链的行
+        conn.commit()
+    with metadb.connect() as conn:
+        rows = conn.execute(text("SELECT id, chain_seq IS NOT NULL, detail FROM audit_event WHERE action = 'sp'")).all()
+    assert rows == [("e0000000000000000000000000000001", True, {"补全": True})]
+    # 提交之后：同一会话的新事务里，这一行已经封链，不能再改
+    _rejected(metadb, "UPDATE audit_event SET detail = '{}' WHERE id = 'e0000000000000000000000000000001'",
+              match="是历史内容")
+    assert _verify()["ok"] is True
+
+
 def test_state_columns_must_change_together(metadb, world):
     # 9：血缘边的 status 与 superseded_at、变更集的 status 与 resolved_at 只能成对、只改一次
     edge = new_id()
@@ -227,6 +250,42 @@ def test_purge_keeps_versions_pinned_by_derived_metrics(metadb, world):
     with metadb.connect() as conn:
         left = set(conn.execute(text("SELECT id FROM asset_version")).scalars())
     assert av0 not in left and {av1, av2} <= left
+    assert _verify()["ok"] is True
+
+
+def test_purge_rechecks_eligibility_when_a_version_regains_protection(metadb, world, monkeypatch):
+    # 复核新 P1：计划时被驳回的口径不保护 AV；计划后、删除前它被改回草稿（仍引用旧 AV）→ 删除事务重新判定，AV 必须保留
+    with session_scope() as s:
+        asset = s.get(Asset, world["asset"])
+        run = s.get(CollectionRun, world["run"])
+        old = AssetVersion(asset_id=asset.id, version_no=10, observed_run_id=run.id, last_seen_run_id=run.id,
+                           kind="table", catalog_name="c", db_name="store", name="sales", content_hash="old",
+                           superseded_at=utcnow())
+        s.add(old)
+        s.flush()
+        metric = s.scalar(select(Metric).where(Metric.code == "sales"))
+        rejected = MetricVersion(metric_id=metric.id, version_no=9, status="rejected", description="d",
+                                 expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
+                                 asset_versions={asset.id: {"version_id": old.id}})
+        s.add(rejected)
+        s.flush()
+        old_id, rejected_id = old.id, rejected.id
+    real_plan, calls = retention._plan, []
+
+    def plan_then_restore(session, cutoff):
+        result = real_plan(session, cutoff)
+        calls.append(old_id in result["asset_version"])
+        if len(calls) == 1:  # 第一次（快照里）定完计划后，维护者把口径改回草稿
+            with session_scope() as s:
+                s.get(MetricVersion, rejected_id).status = "draft"
+        return result
+
+    monkeypatch.setattr(retention, "_plan", plan_then_restore)
+    result = retention.purge(retention_days=1, now=utcnow() + timedelta(days=2))
+    assert calls[0] is True and calls[1] is False  # 锁下重新判定发现它已受保护 → 整轮重跑，第二轮不再计划它
+    assert result["status"] in ("purged", "nothing")
+    with metadb.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM asset_version WHERE id = :id"), {"id": old_id}).scalar() == 1
     assert _verify()["ok"] is True
 
 

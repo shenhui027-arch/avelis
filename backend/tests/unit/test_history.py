@@ -305,3 +305,122 @@ def test_csv_cells_cannot_become_formulas():
     for value in ("=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"):
         assert _cell(value) == "'" + value
     assert _cell("amount") == "amount" and _cell(12) == 12 and _cell(None) is None
+
+
+# --- 复核（13180ea）发现的场景 -------------------------------------------------------
+
+def test_nested_comments_dollar_tags_and_unclosed_text_drop_the_summary():
+    # 复核 #1：PostgreSQL 块注释可以嵌套；内层结束后外层里的单引号不能被当成字符串开头吞掉真实分号
+    nested = ("ALTER TABLE store.visible ADD COLUMN c int /* outer /* inner */ ' */;\n"
+              "ALTER TABLE private.hidden ADD COLUMN d int; -- '")
+    assert is_batch(nested) and summarize(nested) is None
+    assert summarize("COMMENT ON TABLE store.t IS $tag1$x$tag1$") is None  # 任意 $tag$ 美元引用
+    for unclosed in ("ALTER TABLE store.t ADD COLUMN c int /* 没有闭合", "COMMENT ON TABLE store.t IS 'x",
+                     'ALTER TABLE store."t ADD COLUMN c int'):
+        assert is_batch(unclosed) and summarize(unclosed) is None, unclosed
+
+
+def test_column_evidence_comes_from_syntax_positions():
+    # 复核 #7：约束名不是列；列名等于表名时按语法位置识别
+    constraint = "ALTER TABLE store.sales ADD CONSTRAINT amount CHECK (x > 0)"
+    assert not mentions_column(constraint, "amount", "sales", "lower")
+    assert not mentions_column("ALTER TABLE store.sales DROP CONSTRAINT amount", "amount", "sales", "lower")
+    assert not mentions_column("ALTER TABLE store.sales ADD INDEX amount (amount)", "amount", "sales", "insensitive")
+    assert not mentions_column("ALTER TABLE store.sales MODIFY COMMENT 'amount'", "comment", "sales", "insensitive")
+    assert mentions_column("ALTER TABLE store.sales ALTER COLUMN sales TYPE bigint", "sales", "sales", "lower")
+    assert mentions_column("ALTER TABLE store.sales RENAME COLUMN a TO b", "b", "sales", "lower")
+    assert mentions_column("ALTER TABLE store.sales RENAME COLUMN a b", "a", "sales", "insensitive")  # Doris
+    assert mentions_column("ALTER TABLE store.sales ADD COLUMN (a INT, b INT)", "b", "sales", "insensitive")
+    assert mentions_column("ALTER TABLE store.sales CHANGE COLUMN a b INT", "b", "sales", "insensitive")  # MySQL
+    assert mentions_column("ALTER TABLE store.sales COMMENT COLUMN city 'x'", "city", "sales", "exact")  # ClickHouse
+    assert mentions_column("ALTER TABLE store.sales ALTER amount TYPE int, ADD COLUMN z int", "z", "sales", "lower")
+    assert not mentions_column("ALTER TABLE store.other ADD COLUMN amount int", "amount", "sales", "lower")
+    assert not mentions_column("UPDATE store.sales SET amount = 1", "amount", "sales", "lower")  # 识别不了的写法
+
+    conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN sales TYPE bigint"),
+                       _ddl("bob", "COMMENT ON COLUMN store.sales.sales IS 'x'")])
+    e = _event("column_type_changed", "sales")
+    _attribute([e], conn)
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["candidates"] == ["alice", "bob"]
+    conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"),
+                       _ddl("bob", "ALTER TABLE store.sales ADD CONSTRAINT amount CHECK (x > 0)")])
+    e = _event("column_type_changed", "amount")
+    _attribute([e], conn)
+    assert (e["attribution_status"], e["actor_db_user"]) == ("matched", "alice")
+
+
+def test_unicode_identifiers_are_lexed():
+    # 复核新问题：中文标识符不能让词法分析抛异常
+    stmt = "ALTER TABLE store.销售 ADD COLUMN 金额 int"
+    assert mentions_column(stmt, "金额", "销售", "lower") and summarize(stmt) == stmt
+    e = _event("column_added", "金额", asset_id="cn")
+    _attribute([e], _Connector([_ddl("alice", stmt, objects=[("store", "销售")])]),
+               assets={"cn": _asset(name="销售")})
+    assert (e["attribution_status"], e["actor_db_user"]) == ("matched", "alice")
+
+
+def test_any_boundary_candidate_makes_it_ambiguous():
+    # 复核 #5：同一用户既有边界候选又有确定候选，也不能判为 matched
+    stmt = "ALTER TABLE store.sales MODIFY COLUMN amount BIGINT"
+    conn = _Connector([DdlEvent(WINDOW.previous_start - timedelta(seconds=60), "bob", [("store", "sales")], "ALTER",
+                                stmt, may_lag=True), _ddl("bob", stmt)])
+    conn.ddl_effect_lag_seconds = 300
+    e = [_event("column_type_changed", "amount")]
+    _attribute(e, conn)
+    assert e[0]["attribution_status"] == "ambiguous" and e[0]["actor_db_user"] is None
+    # 连接器标为不确定（PostgreSQL 没有游标、退回按时间取）的候选也一样
+    e = [_event("column_type_changed", "amount")]
+    _attribute(e, _Connector([_ddl("bob", stmt, certain=False)]))
+    assert e[0]["attribution_status"] == "ambiguous"
+
+
+def test_attribution_errors_never_escape(monkeypatch):
+    # 复核新问题：归因阶段的任何异常都隔离，事件记为未知并写明原因
+    import avelis.collect.attribution as attribution
+
+    def boom(*args, **kwargs):
+        raise AttributeError("lexer exploded")
+
+    monkeypatch.setattr(attribution, "mentions_column", boom)
+    events = [_event("column_added", "channel"), _event("comment_changed")]
+    result = _attribute(events, _Connector([_ddl("alice", "ALTER TABLE store.sales ADD COLUMN channel text")]))
+    assert result["status"] == "ok"
+    assert events[0]["attribution_status"] == "unavailable" and "lexer exploded" in events[0]["attribution"]["reason"]
+    assert events[1]["attribution_status"] == "matched"  # 不走列匹配的事件照常归因
+
+    class Broken:
+        def get(self, *_):
+            raise RuntimeError("session gone")
+
+    events = [_event("column_added", "c")]
+    attribute(Broken(), get_engine("postgres"), _Connector([_ddl("a", "ALTER TABLE store.sales ADD COLUMN c int")]),
+              events, WINDOW)
+    assert events[0]["attribution_status"] == "unavailable" and "session gone" in events[0]["attribution"]["reason"]
+
+
+def test_instance_switch_resets_the_baseline():
+    # 复核新问题：游标与实例身份绑定；实例切换的那一轮不归因
+    import dataclasses
+
+    events = [_event("added"), _event("derivation_changed", "c")]
+    conn = _Connector([_ddl("alice", "CREATE TABLE store.sales (a int)", certain=True)])
+    _attribute(events, conn, window=dataclasses.replace(WINDOW, instance_changed=True))
+    assert events[0]["attribution_status"] == "unavailable" and events[0]["attribution"]["cause"] == "instance_changed"
+    assert "实例已切换" in events[0]["attribution"]["reason"] and not conn.calls
+    assert events[1]["attribution_status"] == "not_applicable"
+
+
+def test_audit_window_notices_a_cursor_from_another_instance():
+    from avelis.collect.service import _audit_window
+
+    t = datetime(2026, 10, 30, 8, 0, 0)
+    previous = SimpleNamespace(stats={"snapshot_window": [t.isoformat(), t.isoformat()],
+                                      "audit_cursor": {"pg_snapshot": "100:100:", "instance": "pg:A/storedb"}},
+                               started_at=t, finished_at=t)
+    same = SimpleNamespace(snapshot_window=(t, t), identity_changed=False,
+                           audit_cursor={"pg_snapshot": "500:500:", "instance": "pg:A/storedb"})
+    other = SimpleNamespace(snapshot_window=(t, t), identity_changed=False,
+                            audit_cursor={"pg_snapshot": "500:500:", "instance": "pg:B/storedb"})
+    assert _audit_window(previous, same).instance_changed is False
+    assert _audit_window(previous, other).instance_changed is True
+    assert _audit_window(previous, SimpleNamespace(**{**vars(same), "identity_changed": True})).instance_changed

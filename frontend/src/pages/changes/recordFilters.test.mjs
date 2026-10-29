@@ -16,6 +16,11 @@ assert.equal(mod.zonedDayStart("2026-10-30", "UTC"), "2026-10-30T00:00:00.000Z")
 // 夏令时切换日（纽约 2026-03-08 凌晨 2 点切换，零点仍是 -05:00）
 assert.equal(mod.zonedDayStart("2026-03-08", "America/New_York"), "2026-03-08T05:00:00.000Z");
 assert.equal(mod.zonedDayStart("2026-03-09", "America/New_York"), "2026-03-09T04:00:00.000Z");
+// 当地零点不存在（智利 2026-09-06 00:00 直接跳到 01:00）：取当天第一个真实存在的时刻 01:00（-03:00）= 04:00Z
+assert.equal(mod.zonedDayStart("2026-09-06", "America/Santiago"), "2026-09-06T04:00:00.000Z");
+assert.equal(mod.zonedDayStart("2026-09-07", "America/Santiago"), "2026-09-07T03:00:00.000Z");
+// 回拨日（智利 2026-04-05 00:00 -03 回拨成 04-04 23:00 -04）：04-05 第一次出现在 00:00 -04 = 04:00Z
+assert.equal(mod.zonedDayStart("2026-04-05", "America/Santiago"), "2026-04-05T04:00:00.000Z");
 
 const q = mod.recordQuery({ datasource_id: "d1", asset_id: "", column: "", kind: "column_added", actor: "", attribution_status: "",
   since: "2026-10-30", until: "2026-10-31" }, "Asia/Shanghai");
