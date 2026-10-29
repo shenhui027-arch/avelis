@@ -78,6 +78,13 @@ def ctx(stack, admin: Api):
         pytest.fail("ClickHouse / Doris 演示库未启动：先运行 uv run scripts/demo.py up --engines")
     demo.seed_clickhouse(env)
     demo.seed_doris(env)
+    # Doris 的 ALTER 按异步生效处理，上次快照前 300 秒内的都算边界候选：验收连续跑时会撞上前一轮的 DDL。
+    # 这条规则由单元测试覆盖，这里关掉，只验收按时间窗口归因
+    from avelis.connectors.doris import DorisConnector
+
+    lag = pytest.MonkeyPatch()
+    lag.setattr(DorisConnector, "ddl_effect_lag_seconds", 0)
+    _past_boundary()  # 灌数的 CREATE 与基线快照隔开，免得落进下一轮的边界
     demo_setup.setup(reset=False, metrics=True)
     sources = {d["kind"]: d["id"] for d in admin.get("/api/datasources")}
     for kind, port, keys, options in (
@@ -94,6 +101,7 @@ def ctx(stack, admin: Api):
     password = "Dev" + secrets.token_hex(12)
     data = {"env": env, "ds": sources, "dev_password": password}
     yield data
+    lag.undo()
     # 清理临时账号（演示库下一次 seed 也会重建）
     with demo.pg_connect(env) as conn:
         conn.execute(f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEV_USER}') THEN "
@@ -198,6 +206,7 @@ def test_02_clickhouse_attribution(ctx, admin: Api):
     import demo
 
     env, ds = ctx["env"], ctx["ds"]["clickhouse"]
+    _past_boundary()  # 与上次快照隔开：快照读取前后容差内的语句只算边界候选
     root = demo.ch_connect(env)
     try:
         root.command(f"DROP USER IF EXISTS {DEV_USER}")
@@ -228,6 +237,7 @@ def test_03_doris_attribution(ctx, admin: Api):
     import demo
 
     env, ds = ctx["env"], ctx["ds"]["doris"]
+    _past_boundary()
     pw = ctx["dev_password"]
     conn = demo.doris_connect(env)
     try:
