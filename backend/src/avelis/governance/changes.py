@@ -58,6 +58,7 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         impacts += 1
 
     # 2. 指标版本：依赖指纹不一致即受影响
+    affected_versions: list[MetricVersion] = []
     versions = session.scalars(select(MetricVersion).where(
         MetricVersion.status.in_(("published", "pending_review", "affected"))))
     for version in versions:
@@ -94,6 +95,28 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
                 answer.recheck_status = "needs_recheck"
         audit.record(session, None, "metric_version.affected", "metric_version", version.id, reason=reason,
                      change_set_id=change_set.id)
+        affected_versions.append(version)
+
+    # 2b. 派生指标：锁定的组成版本受影响，派生版本随之受影响并生成复核任务
+    affected_ids = {v.id for v in affected_versions}
+    for derived in session.scalars(select(MetricVersion).where(
+            MetricVersion.kind == "derived", MetricVersion.status.in_(("published", "pending_review")))):
+        hit = [c for c in derived.components or [] if c["version_id"] in affected_ids]
+        if not hit:
+            continue
+        reason = "组成指标受影响：" + "、".join(f"{c['metric_name']} V{c['version_no']}" for c in hit)
+        if not mark_affected(session, derived, reason):
+            continue
+        metric = session.get(Metric, derived.metric_id)
+        session.add(Impact(change_set_id=change_set.id, object_type="metric_version", object_id=derived.id,
+                           level="affected", reason=reason,
+                           path=[{"component": c["metric_code"], "version_id": c["version_id"]} for c in hit]))
+        session.add(ReviewTask(change_set_id=change_set.id, object_type="metric_version", object_id=derived.id,
+                               assignee_id=metric.owner_id, status="open", note=reason))
+        cache.invalidate_tag(f"metric_version:{derived.id}")
+        audit.record(session, None, "metric_version.affected", "metric_version", derived.id, reason=reason,
+                     change_set_id=change_set.id)
+        impacts += 1
 
     # 3. 关联路径
     for path in session.scalars(select(JoinPath).where(JoinPath.status == "approved")):

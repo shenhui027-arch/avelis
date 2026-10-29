@@ -91,8 +91,14 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             conditions.append(exp.In(this=target, expressions=[literal(v) for v in f.values]))
     select = select.where(exp.and_(*conditions))
     if group_cols:
-        select = select.group_by(*group_cols).order_by(*group_cols)
-    select = select.limit(max_rows)
+        select = select.group_by(*group_cols)
+        if getattr(intent, "order", None):  # 排名：按度量排序，维度作为次序键保证结果稳定
+            select = select.order_by(exp.Ordered(this=exp.column("value"), desc=intent.order == "desc"),
+                                     *group_cols)
+        else:
+            select = select.order_by(*group_cols)
+    limit = getattr(intent, "limit", None)
+    select = select.limit(min(limit, max_rows) if limit else max_rows)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
     return CompiledQuery(sql=sql, tables=tables, columns=[*intent.group_by, "value"],

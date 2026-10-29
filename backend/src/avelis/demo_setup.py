@@ -161,6 +161,12 @@ def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], 
         "description": "订单笔数", "base_asset_id": assets["default_catalog.shop.orders"],
         "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date", "dimensions": region,
         "grain": ["order_date", "region"]})
+    if "aov" not in existing:  # 派生指标：客单价 = 实付销售额 / 订单数
+        metric = zhang("POST", "/api/metrics", json={"code": "aov", "name": "客单价", "domain_id": domains["trade"]})
+        version = zhang("POST", f"/api/metrics/{metric['id']}/versions", json={
+            "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt"})
+        zhang("POST", f"/api/metric-versions/{version['id']}/submit")
+        li("POST", f"/api/metric-versions/{version['id']}/approve", json={"note": "演示走查准备"})
     if "category_sales" in existing:
         return
     paths = {p["code"]: p for p in zhang("GET", "/api/join-paths")}

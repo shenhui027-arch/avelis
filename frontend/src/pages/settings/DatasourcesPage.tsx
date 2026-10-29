@@ -186,6 +186,8 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
             </QueryState>
           </section>
 
+          <CommentCoverage ds={ds} />
+
           <section className="av-datasources__section" aria-labelledby="datasource-credentials">
             <h3 id="datasource-credentials">凭据 <Hint text="口令只写不读，更换后使用新凭据连接" /></h3>
             {credentialPurposes.map((purpose) => {
@@ -208,13 +210,76 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
   );
 }
 
+const DOC_STATUS: Record<string, string> = { inherited: "本列缺注释（上游有）", missing: "注释缺失" };
+
+/** 字段注释完整度：字段含义以数据库列注释为准，缺口交给数据库负责人补齐（可导出清单）。 */
+function CommentCoverage({ ds }: { ds: Datasource }) {
+  const gaps = useQuery({
+    queryKey: ["comment-gaps", ds.id],
+    queryFn: () => unwrap(api.GET("/api/metadata/comment-gaps", { params: { query: { datasource_id: ds.id } } })),
+  });
+  const exportCsv = (items: Schemas["CommentGapOut"][]) => {
+    const cell = (v: string | null | undefined) => `"${(v ?? "").replaceAll('"', '""')}"`;
+    const lines = [["资产", "字段", "状态", "上游注释（可沿用）", "上游字段"].map(cell).join(","),
+      ...items.map((x) => [x.asset, x.column, DOC_STATUS[x.status] ?? x.status, x.suggestion, x.source].map(cell).join(","))];
+    const url = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${ds.name}-注释缺失.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <section className="av-datasources__section" aria-labelledby="datasource-comments">
+      <h3 id="datasource-comments">字段注释 <Hint text="字段含义以数据库列注释为准。Avelis 不另设显示名，缺注释的列在问数和资产中如实标出，请在数据库中补齐" /></h3>
+      <QueryState query={gaps} compact>
+        {(data) => {
+          const summary = data.datasources.find((x) => x.datasource_id === ds.id);
+          if (!summary || !summary.total) return <Empty text="还没有采集到字段" compact />;
+          const rate = summary.completeness == null ? "—" : `${Math.round(summary.completeness * 1000) / 10}%`;
+          return <>
+            <dl className="av-kv">
+              <dt>完整度</dt><dd><strong>{rate}</strong> <span className="av-muted">{summary.ok + summary.linked} / {summary.total} 列有注释</span></dd>
+              <dt>缺口</dt><dd className="av-coverage__gaps">{summary.gaps ? <>
+                {summary.missing ? <Pill tone="warn">{summary.missing} 列注释缺失</Pill> : null}
+                {summary.inherited ? <Pill tone="warn">{summary.inherited} 列可沿用上游</Pill> : null}
+              </> : <Pill tone="ok">无</Pill>}</dd>
+            </dl>
+            {data.items.length ? <>
+              <PaneHeader title="缺注释的列" count={data.items.length}>
+                <button type="button" className="av-btn av-btn--secondary" onClick={() => exportCsv(data.items)}><Icon name="download" />导出 CSV</button>
+              </PaneHeader>
+              <div className="av-table-wrap"><table className="av-table">
+                <thead><tr><th>资产</th><th>字段</th><th>状态</th><th>上游注释（可沿用）</th></tr></thead>
+                <tbody>{data.items.slice(0, 50).map((x) => <tr key={`${x.asset_id}.${x.column}`}>
+                  <td className="av-mono">{x.asset}</td><td className="av-mono">{x.column}</td>
+                  <td><Pill tone="warn">{DOC_STATUS[x.status] ?? x.status}</Pill></td>
+                  <td title={x.source ?? undefined}>{x.suggestion ?? <span className="av-muted">—</span>}</td>
+                </tr>)}</tbody>
+              </table></div>
+              {data.items.length > 50 ? <span className="av-caption">只显示前 50 列，完整清单请导出</span> : null}
+            </> : null}
+          </>;
+        }}
+      </QueryState>
+    </section>
+  );
+}
+
 function eventCount(stats?: Record<string, unknown> | null): number {
   return Object.entries(stats ?? {}).filter(([key]) => key.startsWith("event:")).reduce((total, [, value]) => total + Number(value), 0);
 }
 
 function scope(ds: Datasource): string {
   const options = engineOptions(ds.engine);
-  return Object.entries(ds.options).map(([key, value]) => `${options?.find((option) => option.key === key)?.label ?? key}：${Array.isArray(value) ? value.join(", ") : String(value)}`).join(" · ") || "—";
+  return Object.entries(ds.options).map(([key, value]) => `${options?.find((option) => option.key === key)?.label ?? key}：${optionText(value)}`).join(" · ") || "—";
+}
+
+// 选项值可能是列表或映射（如 catalog_databases：{shop_mysql: ["shop_dim"]}）
+function optionText(value: unknown): string {
+  if (Array.isArray(value)) return value.map(optionText).join(", ");
+  if (value && typeof value === "object") return Object.entries(value).map(([k, v]) => `${k}（${optionText(v)}）`).join(", ");
+  return String(value);
 }
 
 function useRuns(id: string) {

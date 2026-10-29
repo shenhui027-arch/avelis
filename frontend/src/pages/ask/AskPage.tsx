@@ -4,10 +4,16 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
-import { Code, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
+import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatTime } from "../../format";
+import { changeTone, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 
 const STEP_LABEL: Record<string, string> = { understand: "理解", clarify: "追问", govern: "版本与权限", explain: "解释" };
+const EXAMPLES = [
+  "2026-09-15 各区域实付销售额前 2",
+  "2026-09-16 华东区实付销售额 环比",
+  "2026-09-15 华东区实付销售额和订单数",
+];
 
 /** 每一步按它自己的结果着色：成功为绿，拦截或失败为红，追问、未执行、未知保持中性——不用最终答案代替步骤状态。 */
 function stepClass(s: Record<string, unknown>, a: { status: string }): string {
@@ -53,7 +59,7 @@ export function AskPage() {
   const model = current?.evidence?.model as { adapter?: string; is_demo?: boolean } | undefined;
 
   return (
-    <div className="av-split" style={{ height: "calc(100vh - 48px)" }}>
+    <div className="av-split av-ask-page" style={{ height: "calc(100vh - 48px)" }}>
       <div style={{ display: "flex", flexDirection: "column", minWidth: 0, height: "100%" }}>
         <div className="av-pagehd" style={{ padding: "16px 24px", borderBottom: "1px solid var(--line-subtle)" }}>
           <div className="av-pagehd__title"><h1>问数</h1>
@@ -78,7 +84,7 @@ export function AskPage() {
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "20px 24px" }}>
           <div className="av-thread" style={{ maxWidth: 820, margin: "0 auto" }}>
             {!answers.length && !pendingQuestion ? (
-              <Empty text="例如：2026-09-15 华东区实付销售额是多少？" />
+              <Empty text="选择一个示例，或输入你的问题" />
             ) : null}
             {answers.map((a) => (
               <div key={a.id} style={{ display: "contents" }}>
@@ -93,6 +99,12 @@ export function AskPage() {
         </div>
         <div style={{ padding: "12px 24px 20px" }}>
           {error ? <div className="av-banner av-banner--danger" style={{ maxWidth: 820, margin: "0 auto 8px" }}>{error}</div> : null}
+          {!answers.length && !pendingQuestion ? (
+            <div className="av-ask-examples" aria-label="问题示例">
+              {EXAMPLES.map((example) => <button key={example} type="button" className="av-btn av-btn--ghost av-btn--sm"
+                onClick={() => { setText(example); document.getElementById("q")?.focus(); }}>{example}</button>)}
+            </div>
+          ) : null}
           <form className="av-composer" style={{ maxWidth: 820, margin: "0 auto" }} onSubmit={(e) => { e.preventDefault(); send(text); }}>
             <label htmlFor="q" className="av-sr">问题</label>
             <textarea id="q" rows={2} value={text} placeholder={thread.data?.status === "waiting" ? "回答上面的追问" : "问一个问题"}
@@ -113,12 +125,21 @@ export function AskPage() {
 function AnswerCard({ a, active, onSelect, onPick, disabled }: {
   a: Answer; active: boolean; onSelect: () => void; onPick: (q: string) => void; disabled: boolean;
 }) {
-  const result = a.result as { columns?: string[]; rows?: unknown[][]; truncated?: boolean };
-  const mv = a.evidence?.metric_version as { metric_name?: string; version_no?: number } | undefined;
+  const result = a.result as AskResult;
+  const intent = a.intent as AskIntent;
+  const queries = planQueries(a);
+  const mv = a.evidence?.metric_version as { metric_code?: string; metric_name?: string; version_no?: number } | undefined;
   const clarification = a.evidence?.clarification as { question?: string; options?: string[] } | undefined;
   const blocked = a.status === "blocked" || a.status === "denied" || a.status === "error";
   const steps = (a.steps ?? []).filter((s) => s.node !== "clarify");
   const single = result?.rows?.length === 1 && result.columns?.length === 1;
+  const firstMetric = result.columns?.[intent.group_by?.length ?? 0];
+  const firstCode = intent.metric_codes?.[0] ?? intent.metric_code;
+  const evidenceMetricName = !mv?.metric_code || !firstCode || mv.metric_code === firstCode ? mv?.metric_name : undefined;
+  const firstMetricName = firstMetric && firstMetric !== "value" ? firstMetric : evidenceMetricName ?? firstCode ?? "指标";
+  const partiallyCompleted = !a.executed_at && queries.some((q) => q.status === "answered");
+  const comparisonRanges = [...new Set(queries.filter((q) => q.period === intent.compare).map((q) => dateRange(q.range)))];
+  const warning = a.evidence?.warning;
   return (
     <article className={`av-answer${blocked ? " is-blocked" : ""}`} onClick={onSelect}
       style={active ? { borderColor: "var(--line-default)" } : undefined}>
@@ -129,20 +150,23 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         {a.recheck_status === "needs_recheck" ? <Pill tone="warn">依据已受影响</Pill> : null}
         <span className="av-caption av-mono" style={{ marginLeft: "auto" }}>{a.duration_ms ? `${(a.duration_ms / 1000).toFixed(2)} s` : ""}</span>
       </div>
+      {intent.order || intent.compare ? (
+        <div className="av-answer-meta">
+          {intent.order ? <span className="av-tag">{intent.limit ? `前 ${intent.limit} · ` : ""}按 {firstMetricName} {intent.order === "asc" ? "从低到高" : "从高到低"}</span> : null}
+          {intent.compare ? <span className="av-tag">对比 {PERIOD_LABEL[intent.compare]}</span> : null}
+          {intent.compare && comparisonRanges.length ? <span className="av-caption av-mono">{comparisonRanges.join(" · ")}</span> : null}
+        </div>
+      ) : null}
       {single ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{String(result.rows![0][0] ?? "—")}</span>
+          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{resultCell(result.rows![0][0], result.columns![0])}</span>
           <span className="av-caption">{a.message}</span>
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       {result?.rows && !single && result.rows.length ? (
-        <div className="av-panel" style={{ borderRadius: "var(--radius-md)" }}>
-          <table className="av-table">
-            <thead><tr>{result.columns?.map((c) => <th key={c} className={c === "value" ? "num" : undefined}>{c === "value" ? "值" : c}</th>)}</tr></thead>
-            <tbody>{result.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={result.columns?.[j] === "value" ? "num" : "av-mono"}>{String(v ?? "—")}</td>)}</tr>)}</tbody>
-          </table>
-        </div>
+        <ResultTable result={result} dimensions={intent.group_by ?? []} />
       ) : null}
+      {result?.truncated ? <span className="av-caption av-answer-warning">{typeof warning === "string" ? warning : "结果已截断，仅展示返回的数据"}</span> : null}
       {a.status === "clarify" && clarification?.options?.length ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {clarification.options.map((o) => (
@@ -154,7 +178,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       {a.explanation && a.explanation_source === "model" ? <span className="av-caption">模型解释：{a.explanation}</span> : null}
       {a.status === "blocked" && a.error_code === "metric_affected" ? (
         <div className="av-row" style={{ "--row-cols": "minmax(0, 1fr) auto", minHeight: 0, padding: 0, border: "none", background: "none" } as React.CSSProperties}>
-          <span className="av-row__meta">后端已拦截，未执行查询</span>
+          <span className="av-row__meta">{partiallyCompleted ? "部分子查询已完成，后续查询已拦截" : "后端已拦截，未执行查询"}</span>
           <span className="av-row__end"><Link className="av-btn av-btn--secondary av-btn--sm" to="/changes">查看变更</Link></span>
         </div>
       ) : null}
@@ -170,6 +194,29 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
   );
 }
 
+function ResultTable({ result, dimensions }: { result: AskResult; dimensions: string[] }) {
+  const columns = result.columns ?? [];
+  const rows = result.rows ?? [];
+  return (
+    <div className={`av-panel av-answer-result${rows.length > 20 ? " av-answer-result--scroll" : ""}`}
+      role="region" aria-label="问数结果" tabIndex={0}>
+      <table className="av-table av-answer-table">
+        <thead><tr>{columns.map((column, index) => <th key={`${column}-${index}`} scope="col"
+          className={index < dimensions.length ? "av-answer-table__dimension" : "av-answer-table__number"}><span className="av-answer-table__head">{column === "value" ? "值" : column}</span>
+          {index < dimensions.length ? <CommentDoc doc={result.column_docs?.[column]} /> : null}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column, columnIndex) => {
+          const dimension = columnIndex < dimensions.length;
+          const value = row[columnIndex];
+          const tone = !dimension && /·变化(?:率)?$/.test(column) ? changeTone(value) : "";
+          return <td key={columnIndex} className={`${dimension ? "av-answer-table__dimension" : "av-answer-table__number"}${tone ? ` av-answer-change--${tone}` : ""}`}>
+            {resultCell(value, column, dimension)}
+          </td>;
+        })}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
 function Evidence({ a }: { a: Answer }) {
   const tz = useTimeZone();
   const [tab, setTab] = useState<"source" | "sql" | "steps">("source");
@@ -179,6 +226,9 @@ function Evidence({ a }: { a: Answer }) {
   const lineage = (ev.lineage as { column: string; role: string; sources: { source: string; relation: string }[] }[] | undefined) ?? [];
   const limits = ev.limits as { query_timeout_seconds?: number; max_rows?: number } | undefined;
   const fresh = a.freshness as { tables?: Record<string, string | null>; last_collected_at?: string; note?: string };
+  const queries = planQueries(a);
+  const partiallyCompleted = !a.executed_at && queries.some((q) => q.status === "answered");
+  const derived = (ev.derived as DerivedMetric[] | undefined) ?? [];
   return (
     <>
       <div className="av-inspector__hd">
@@ -205,6 +255,20 @@ function Evidence({ a }: { a: Answer }) {
                 </dl>
               </div>
             ) : null}
+            {derived.map((metric) => (
+              <section key={metric.metric_code} className="av-evidence-section" aria-label={`派生指标 ${metric.metric_code}`}>
+                <span className="av-section-label">派生指标 <span className="av-mono">{metric.metric_code}</span></span>
+                <code className="av-derived-formula">{metric.formula}</code>
+                <span className="av-caption">锁定的组成版本</span>
+                <ul className="av-derived-components">
+                  {metric.components.map((component) => <li key={`${component.metric_code}-${component.version_id}`}>
+                    {component.metric_id ? <Link to={`/catalog/metrics/${component.metric_id}`}>{component.metric_name} · V{component.version_no}</Link>
+                      : <span>{component.metric_name} · V{component.version_no}</span>}
+                    <span className="av-caption av-mono">{component.metric_code}</span>
+                  </li>)}
+                </ul>
+              </section>
+            ))}
             {lineage.length ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <span className="av-section-label">字段来源</span>
@@ -229,7 +293,7 @@ function Evidence({ a }: { a: Answer }) {
               </div>
             ) : null}
             <dl className="av-kv">
-              <dt>执行</dt><dd className="av-mono">{a.executed_at ? formatTime(a.executed_at, tz) : "未执行"}{a.cache_hit ? " · 缓存" : ""}</dd>
+              <dt>执行</dt><dd className="av-mono">{a.executed_at ? formatTime(a.executed_at, tz) : partiallyCompleted ? "部分子查询已完成" : "未执行"}{a.cache_hit ? " · 缓存" : ""}</dd>
               <dt>限制</dt><dd>{limits ? `只读 · 超时 ${limits.query_timeout_seconds}s · ≤${limits.max_rows} 行` : "—"}</dd>
               <dt>元数据</dt><dd className="av-mono">{fresh?.last_collected_at ? formatTime(fresh.last_collected_at, tz) : "—"}</dd>
               <dt>数据</dt><dd className="av-mono">{Object.entries(fresh?.tables ?? {}).map(([t, v]) => `${t} ${v ?? ""}`).join(" · ") || "—"}</dd>
@@ -238,8 +302,15 @@ function Evidence({ a }: { a: Answer }) {
             <span className="av-caption">{String(ev.traceability ?? "可追溯 ≠ 可复现：不保存数据快照。")}</span>
           </>
         ) : null}
-        {tab === "sql" ? (a.sql ? <Code sql={a.sql} /> : <span className="av-muted">没有生成或执行 SQL{a.message ? `：${a.message}` : ""}</span>) : null}
+        {tab === "sql" ? (a.sql ? <div className="av-sql-sections">
+          {sqlSections(a.sql).map((section, index) => <section key={index} className="av-sql-section">
+            {section.title ? <span className="av-section-label">{section.title}</span> : null}
+            <Code sql={section.sql} />
+          </section>)}
+        </div> : <span className="av-muted">没有生成或执行 SQL{a.message ? `：${a.message}` : ""}</span>) : null}
         {tab === "steps" ? (
+          <>
+          {queries.length ? <QueryPlan queries={queries} /> : null}
           <ol className="av-steps">
             {(a.steps ?? []).map((s, i) => (
               <li key={i} className={`av-step ${stepClass(s, a)}`}>
@@ -251,8 +322,30 @@ function Evidence({ a }: { a: Answer }) {
               </li>
             ))}
           </ol>
+          </>
         ) : null}
       </div>
     </>
+  );
+}
+
+function QueryPlan({ queries }: { queries: PlanQuery[] }) {
+  return (
+    <section className="av-evidence-section" aria-label="执行计划">
+      <span className="av-section-label">执行计划 · {queries.length} 个子查询</span>
+      <ol className="av-query-plan">
+        {queries.map((query, index) => <li key={`${query.metric_code}-${query.period}-${index}`} className="av-query-plan__item">
+          <div className="av-query-plan__header">
+            <span className="av-mono">{query.metric_code}</span>
+            <span className="av-tag">{PERIOD_LABEL[query.period] ?? query.period}</span>
+            <Status value={query.status} />
+          </div>
+          <div className="av-query-plan__meta">
+            <span className="av-mono">{dateRange(query.range)}</span>
+            <span>{query.cache_hit === true ? "命中缓存" : query.cache_hit === false ? "未命中缓存" : "缓存状态未知"}</span>
+          </div>
+        </li>)}
+      </ol>
+    </section>
   );
 }
