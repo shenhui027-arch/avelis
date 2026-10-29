@@ -1,4 +1,4 @@
-// 用户与角色：列表、新建、编辑角色与启用状态、重置口令（管理员）。业务域成员在“目录 / 业务域”中维护。
+// 用户与角色：列表、新建、编辑角色与启用状态、重置密码（管理员）。业务域成员在“目录 / 业务域”中维护。
 import { useState } from "react";
 
 import { api, unwrap } from "../../api/client";
@@ -46,12 +46,12 @@ export function UsersPage() {
                     <td>{u.roles.map((r) => <span key={r} className="av-tag" style={{ marginRight: 4 }}>{ROLE_LABEL[r] ?? r}</span>)}</td>
                     <td>{u.domains.map((d) => <span key={d.id} className="av-tag" style={{ marginRight: 4 }}>{d.name} · {DOMAIN_ROLE[d.role] ?? d.role}</span>)}</td>
                     <td className="av-mono">{u.last_login_at ? formatTime(u.last_login_at, tz) : "—"}</td>
-                    <td>{!u.is_active ? <Pill>停用</Pill> : u.must_change_password ? <Pill tone="warn">待改口令</Pill> : <Pill tone="ok">启用</Pill>}</td>
+                    <td>{!u.is_active ? <Pill>停用</Pill> : u.must_change_password ? <Pill tone="warn">待改密码</Pill> : <Pill tone="ok">启用</Pill>}</td>
                     <td className="end" style={{ paddingRight: 16 }}>
                       {isAdmin ? (
                         <span className="av-actions">
                           <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(u)}>编辑</button>
-                          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setResetting(u)}>重置口令</button>
+                          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setResetting(u)}>重置密码</button>
                         </span>
                       ) : null}
                     </td>
@@ -83,9 +83,9 @@ function AddUser({ onClose }: { onClose: () => void }) {
     </>}>
       <label className="av-field"><span className="av-label">账号</span><input className="av-input av-mono" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></label>
       <label className="av-field"><span className="av-label">姓名</span><input className="av-input" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} /></label>
-      <label className="av-field"><span className="av-label">初始口令（至少 8 位）</span><input className="av-input" type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
-      <div className="av-field av-field--inline"><span className="av-label">首次登录须修改口令</span>
-        <Switch label="首次登录须修改口令" checked={form.must_change_password} onChange={(v) => setForm({ ...form, must_change_password: v })} /></div>
+      <label className="av-field"><span className="av-label">初始密码（至少 8 位）</span><input className="av-input" type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+      <div className="av-field av-field--inline"><span className="av-label">首次登录须修改密码</span>
+        <Switch label="首次登录须修改密码" checked={form.must_change_password} onChange={(v) => setForm({ ...form, must_change_password: v })} /></div>
       <div className="av-field"><span className="av-label">角色</span>
         {Object.entries(ROLE_LABEL).map(([r, label]) => (
           <label key={r} className="av-option"><input type="checkbox" checked={form.roles.includes(r)} onChange={() => toggle(r)} />
@@ -138,14 +138,14 @@ function ResetPassword({ user, onClose }: { user: User; onClose: () => void }) {
     body: { new_password: form.next } })), ["users"]);
   const valid = form.next.length >= 8 && form.next === form.confirm;
   return (
-    <Drawer title={`重置口令 · ${user.username}`} onClose={onClose} footer={<>
+    <Drawer title={`重置密码 · ${user.username}`} onClose={onClose} footer={<>
       <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
       <button type="button" className="av-btn av-btn--primary" disabled={!valid || reset.isPending}
         onClick={() => reset.mutate(undefined, { onSuccess: onClose, onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>重置</button>
     </>}>
-      <label className="av-field"><span className="av-label">新口令（至少 8 位）</span><input className="av-input" type="password" autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} /></label>
-      <label className="av-field"><span className="av-label">确认新口令</span><input className="av-input" type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
-      <div className="av-banner av-banner--warn">该用户当前的登录立即失效，下次登录须设置新口令</div>
+      <label className="av-field"><span className="av-label">新密码（至少 8 位）</span><input className="av-input" type="password" autoComplete="new-password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} /></label>
+      <label className="av-field"><span className="av-label">确认新密码</span><input className="av-input" type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
+      <div className="av-banner av-banner--warn">该用户当前的登录立即失效，下次登录须设置新密码</div>
       <Banner message={message} />
     </Drawer>
   );

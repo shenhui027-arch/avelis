@@ -1,4 +1,4 @@
-// 修改口令：首次登录或被管理员重置后强制进入；成功后其他会话失效，当前会话换用新令牌。
+// 修改密码：首次登录或被管理员重置后强制进入；成功后其他会话失效，当前会话换用新令牌。
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -42,17 +42,17 @@ export function ChangePassword() {
       <form className="av-auth__card" onSubmit={submit}>
         <div className="av-auth__brand"><LogoMark size={28} /><span>Avelis</span></div>
         <div className="av-auth__head">
-          <h1>{forced ? "设置新口令" : "修改口令"}</h1>
-          <p>{forced ? "首次登录或口令被重置，需先设置新口令" : "修改后，其他设备上的登录将失效"}</p>
+          <h1>{forced ? "设置新密码" : "修改密码"}</h1>
+          <p>{forced ? "首次登录或密码被重置，需先设置新密码" : "修改后，其他设备上的登录将失效"}</p>
         </div>
-        <label className="av-field"><span className="av-label">当前口令</span>
+        <label className="av-field"><span className="av-label">当前密码</span>
           <input className="av-input" type="password" autoComplete="current-password" required autoFocus
             value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} /></label>
-        <label className="av-field"><span className="av-label">新口令</span>
+        <label className="av-field"><span className="av-label">新密码</span>
           <input className="av-input" type="password" autoComplete="new-password" required minLength={8}
             value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} />
           <span className="av-help">至少 8 位，不能包含账号</span></label>
-        <label className="av-field"><span className="av-label">确认新口令</span>
+        <label className="av-field"><span className="av-label">确认新密码</span>
           <input className="av-input" type="password" autoComplete="new-password" required aria-invalid={mismatch}
             value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
           {mismatch ? <span className="av-help av-help--danger">两次输入不一致</span> : null}</label>
