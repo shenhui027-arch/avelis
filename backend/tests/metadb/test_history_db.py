@@ -355,6 +355,19 @@ def test_purge_with_only_derived_layer_candidates_and_rejected_draft_refs(metadb
     with metadb.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM asset_version WHERE id = :id"), {"id": old_id}).scalar() == 0
     assert _verify()["ok"] is True
+    # 第四轮复核 5：派生口径经 components 固定了这个（已改回草稿、旧版本已清理的）组成版本，被驳回后改回草稿
+    with session_scope() as s:
+        ratio = s.scalar(select(Metric).where(Metric.code == "ratio"))
+        derived = MetricVersion(metric_id=ratio.id, version_no=22, status="rejected", description="d", kind="derived",
+                                expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
+                                components=[{"metric_code": "sales", "version_id": rejected_id}],
+                                asset_versions={})
+        s.add(derived)
+        s.flush()
+        s.get(MetricVersion, rejected_id).asset_versions = {world["asset"]: {"version_id": old_id}}  # 模拟旧引用
+        transition_rejected_to_draft(s, derived, s.get(User, world["admin_id"]))
+        assert derived.status == "draft" and derived.components == []
+        assert "重新提交" in derived.status_reason
 
     # 只有推导层候选（没有链上候选）：不会因空条件报错
     with session_scope() as s:

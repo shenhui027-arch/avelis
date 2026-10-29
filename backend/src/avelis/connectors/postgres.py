@@ -204,16 +204,29 @@ class PostgresConnector:
                 for ts, user, tag, names, statement, xid in rows]
 
     def _instance_key(self, conn: psycopg.Connection, identity: dict[str, Any] | None = None) -> str | None:
-        """事务号只在同一个实例内可比：有 system_identifier 时用它；没有时用（端点、postmaster 启动时间、库 oid），
-        实例重启或切换都会让键变化（归因随之重建基线）。都读不到时返回 None，按实例已切换处理。"""
+        """事务号只在同一个实例、同一条时间线内可比。
+        - 读得到 system_identifier 与时间线（pg_control_checkpoint().timeline_id）：系统标识 + 库 + 时间线。
+          PITR 恢复或提升备库会进入新时间线；物理克隆与原库 system_identifier 相同但事务历史分叉。
+          时间线变化即按实例已切换处理；
+        - 读不到其中之一（默认需要超级用户或 pg_monitor）：端点 + postmaster 启动时间（epoch 数值，不受 TimeZone、
+          DateStyle 影响）+ 库 oid，实例重启或切换都会让键变化；
+        - 都读不到：None，按实例已切换处理。"""
         identity = identity if identity is not None else self._server_identity(conn)
+        timeline = None
+        if identity.get("instance_id"):
+            try:
+                timeline = conn.execute("SELECT timeline_id FROM pg_catalog.pg_control_checkpoint()").fetchone()[0]
+            except psycopg.Error:
+                timeline = None
+        if identity.get("instance_id") and timeline is not None:
+            return f"{identity['instance_id']}/tl{timeline}"
         try:
             start, db_oid = conn.execute(
-                "SELECT pg_catalog.pg_postmaster_start_time()::text, d.oid::text FROM pg_catalog.pg_database d "
-                "WHERE d.datname = pg_catalog.current_database()").fetchone()
+                "SELECT extract(epoch FROM pg_catalog.pg_postmaster_start_time())::text, d.oid::text "
+                "FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()").fetchone()
         except psycopg.Error:
-            return identity.get("instance_id")
-        return identity.get("instance_id") or f"{identity['endpoint']}|{start}|{db_oid}"
+            return None
+        return f"{identity['endpoint']}|{start}|{db_oid}"
 
     @staticmethod
     def _check_audit_triggers(conn: psycopg.Connection) -> None:

@@ -57,12 +57,12 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 - **确定在窗口内**：生效时间在 `(P_done + 容差, C_start − 容差)`；容差 `AVELIS_DDL_AUDIT_SLACK_SECONDS`，默认 5 秒，只用于两侧时钟偏差。
 - **边界候选**：落在两次快照读取期间（± 容差）的语句；可能异步生效的语句（Doris 的 `ALTER`，`may_lag`）在 `P_start` 之前 `ddl_effect_lag_seconds`（Doris 300 秒）内也算。
 - **按事务确定（PostgreSQL）**：快照在 `REPEATABLE READ, READ ONLY` 事务里读，同时记下 `pg_current_snapshot()`；审计只取“上次快照看不到、本次快照看得到”的事务（`pg_visible_in_snapshot(xid, …)`），结果确定。跨采集提交的长事务因此归到它提交的那个窗口，不会被执行时间截掉，也不会把同列上另一个人的改动错当成唯一候选。上次采集没有记下游标时（升级后第一次）退回按时间判断，这时的候选一律算边界候选，不给确定归因。
-- **游标与实例绑定**：游标记下实例键：有可信的 `instance_id`（PostgreSQL `system_identifier`）时用它，没有时用（端点、`pg_postmaster_start_time()`、库 oid），实例重启或切换都会让键变化；读审计的连接再核对一次实例键，与本次快照不同或无法确认都按实例已切换处理。实例切换（身份世代变化，或两次游标的实例不同）的那一轮不归因，全部记为 `unavailable / instance_changed`（“数据源实例已切换，本轮重新建立归因基线”），下一轮从新实例的游标开始。
+- **游标与实例绑定**：游标记下实例键：读得到 `system_identifier` 与时间线（`pg_control_checkpoint().timeline_id`）时用“系统标识 + 库 + 时间线”——PITR 恢复、提升备库会进入新时间线，物理克隆与原库系统标识相同但事务历史分叉，时间线变化即按实例已切换处理；读不到其中之一时用（端点、`pg_postmaster_start_time()` 的 epoch 数值、库 oid），实例重启或切换都会让键变化；读审计的连接再核对一次实例键，与本次快照不同或无法确认都按实例已切换处理。实例切换（身份世代变化，或两次游标的实例不同）的那一轮不归因，全部记为 `unavailable / instance_changed`（“数据源实例已切换，本轮重新建立归因基线”），下一轮从新实例的游标开始。
 
 **关联规则（不猜测）。** 把审计事件按对象名关联到本次的每个直接变更事件：
 
 - 对象：审计事件的对象（库或模式 + 名称）与资产当前名称**精确相等**（区分大小写：PostgreSQL 的 `store."Orders"` 与 `store.orders` 是两个对象；连接器负责给出目录里的真实写法）；改名事件同时匹配旧名与新名。
-- 字段级变化（`column_*`）：候选 = 在列的**语法位置**上点名了该列的语句 ∪ 整体重定义（`CREATE …`、`ALTER VIEW … AS`，不一定逐列点名）∪ 针对该对象、但识别不出涉及哪些列的语句。认得的写法：`ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE <对象>` 的 `ADD / DROP / ALTER / MODIFY [COLUMN] <列>`、`RENAME [COLUMN] <旧> TO <新>`（PostgreSQL 可省略 COLUMN）、`CHANGE [COLUMN] <旧> <新>`、Doris 的 `ADD COLUMN (a …, b …)`、ClickHouse 的 `COMMENT / CLEAR / MATERIALIZE COLUMN <列>`、主键与 `NOT NULL` 约束点名的列、`COMMENT ON COLUMN <表>.<列>`；确定不改列结构的写法（改属主、`SET SCHEMA`、改表名、`ADD CHECK / UNIQUE / FOREIGN KEY` 约束、加减索引与分区、表注释）不是候选。**原则：针对同一对象、但识别不出列位置的语句（如 `DROP CONSTRAINT`、未知的 `ALTER TABLE` 动作、词法上无法确定的记录）视为可能涉及任何一列——它是候选，但只能得到 `ambiguous`，不能因为识别失败就让另一个用户被确定归因。**多语句时只看目标是该对象的那几条。词法跳过字符串、注释（含 PostgreSQL 的嵌套块注释）与 `$tag$` 美元引用，支持中文等 Unicode 标识符，标识符按引擎规则比较（PostgreSQL 不带引号折小写）。同一对象上只改了别的列、或只在注释值、约束名里出现该词的语句**不算**——那是猜测，这种情况记为 `unmatched` 并说明。
+- 字段级变化（`column_*`）：候选 = 在列的**语法位置**上点名了该列的语句 ∪ 整体重定义（`CREATE …`、`ALTER VIEW … AS`，不一定逐列点名）∪ 针对该对象、但识别不出涉及哪些列的语句。认得的写法：`ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE <对象>` 的 `ADD / DROP / ALTER / MODIFY [COLUMN] <列>`、`RENAME [COLUMN] <旧> TO <新>`（PostgreSQL 可省略 COLUMN）、`CHANGE [COLUMN] <旧> <新>`、Doris 的 `ADD COLUMN (a …, b …)`、ClickHouse 的 `COMMENT / CLEAR / MATERIALIZE COLUMN <列>`、主键与 `NOT NULL` 约束点名的列、`COMMENT ON COLUMN <表>.<列>`；确定不改采集字段的写法不是候选，按引擎维护白名单：改属主、`SET / RESET` 存储参数、`SET TABLESPACE / SCHEMA / LOGGED / UNLOGGED`、`ENABLE / DISABLE` 触发器与规则、`ENABLE / DISABLE / FORCE / NO FORCE ROW LEVEL SECURITY`、`CLUSTER ON`、`REPLICA IDENTITY`、改表名与约束名、`ALTER CONSTRAINT`、`ADD CHECK / UNIQUE / FOREIGN KEY` 约束、加减索引与分区、表注释，以及事务控制、数据读写、`GRANT / REVOKE` 等不改结构的语句；会影响可空性的约束操作（`DROP CONSTRAINT`、`VALIDATE CONSTRAINT`）仍算识别不出。**原则：针对同一对象、但识别不出列位置的语句（如 `DROP CONSTRAINT`、未知的 `ALTER TABLE` 动作、词法上无法确定的记录）视为可能涉及任何一列——它是候选，但只能得到 `ambiguous`，不能因为识别失败就让另一个用户被确定归因。**多语句时逐条判断、“点名的列”与“识别不出的部分”各自累积：同一请求里认得出的列不能掩盖 `DO / EXECUTE / CALL / SELECT` 等可能在内部执行任意 DDL 的部分（它们让整条记录成为“可能涉及任意列”的候选）；对象按完整限定名定位（模式或库段也要相符，只写名称时按名称算）。词法跳过字符串、注释（含 PostgreSQL 的嵌套块注释）与 `$tag$` 美元引用，支持中文等 Unicode 标识符，标识符按引擎规则比较（PostgreSQL 不带引号折小写）。同一对象上只改了别的列、或只在注释值、约束名里出现该词的语句**不算**——那是猜测，这种情况记为 `unmatched` 并说明。
 - 结论：
   - `matched`：候选只来自**唯一一个**数据库用户，且**全部**确定在窗口内 → 记为该用户；
   - `ambiguous`：候选来自多个用户，或**存在任何**边界候选或识别不出列位置的候选（哪怕同一用户另有确定候选）→ `actor` 为空，列出全部候选用户和语句，由人判断；
@@ -77,6 +77,8 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 | `actor_db_user` | 数据库用户；只有 `matched` 时有值 |
 | `attribution_status` | 上述六种之一 |
 | `attribution` | 来源、窗口、匹配依据、候选语句的结构化信息（时间、用户、命令类型、是否确定、事务号；不含语句原文）、原因 |
+
+**源端审计表的边界。** PostgreSQL 的事件触发器拿不到 `ALTER TABLE` 子命令涉及的列，列级归因只能靠请求文本，所以源端审计表 `avelis_audit.ddl_event` 保存完整请求文本（`current_query()`，可能含多条语句、其他对象与字面值），采集账号对它有读取权限。这是客户自己数据库里的审计记录，部署与授权由数据源方负责（用户决定，2026-10-30）；部署脚本注释写明了这一点。下面“不落库”的约束针对的是 Avelis 自己的元数据库与界面。
 
 **不落库语句原文。** 候选语句只保存审计来源给出的结构化信息：时间、数据库用户、命令类型、是否确定，以及事务号（PostgreSQL `xid8`）；对象已在归因依据里。任何语句原文或摘要都不落库（变更集详情、检索、导出都看不到）：多语句请求、各引擎的词法差异（如 PostgreSQL 的 `ARRAY[…]`、嵌套注释、美元引用）让“哪段文字能安全保存”无法可靠判断，宁可不存。原文只在内存里用于列匹配，用完即丢；词法器只服务于列匹配，不承担安全判定。审计读取异常与归因中的任何异常都只影响归因（相关事件记为 `unavailable / error` 并写明原因），不让采集失败。
 
@@ -137,7 +139,7 @@ ddl_events(since: datetime, until: datetime, cursors=(上次快照游标, 本次
 | 推导层历史（已取代的 `column_fingerprint`、`identity_link`、`grain`）、不再被引用的 `collection_run` | `superseded_at` / `finished_at` 早于截止时间 | 未取代的记录 |
 
 - **专用路径：** 删除事务内执行 `SET LOCAL avelis.history_purge = 'on'`，触发器只在该标志下放行逐行 DELETE（UPDATE、TRUNCATE 仍然拒绝）。标志防的是误操作，不是权限边界。
-- **两段式，先核验、后清理：** ① 在 `REPEATABLE READ` 只读快照里核验全链、挑出超期的行、算好空洞；链不完整就不清理，把核验结果写审计并返回失败。② 删除事务先对决定保留资格的表（`asset`、`metric_version`、`lineage_edge`、`grain`、`review_task`）加 `SHARE` 锁（`NOWAIT`：拿不到就稍后整轮重跑，不与其他事务互等，不会造成死锁），在锁下按同样的规则重新挑一遍；计划里有行在两段之间重新获得了保留资格（例如被驳回的口径改回草稿，仍引用旧版本）就整轮重跑，否则按 ID 删除、写锚点。删除事务内 `lock_timeout = 5s`、`statement_timeout = 120s`，超时回滚并稍后整轮重跑。**清理期间（拿到锁到提交，通常数秒）会短暂挡住这五张表的写入**（资产心跳与当前版本指针、口径状态流转、血缘与粒度、复核任务），等待的写入在清理提交或超时回滚后继续。实际删除行数或序号与计划不符（有人绕过触发器动过）时整体回滚。超期的历史行本身已冻结，链尾的并发追加不影响①的结论，持续写审计也不会让清理失败；遇到序列化失败、死锁、锁不可得或语句超时时整轮重跑（最多 5 次）。被驳回的口径改回草稿时，若它引用的资产版本已按保留期清理，草稿不再绑定旧版本（清空 `asset_versions`，重新提交时按当前版本绑定），不留悬空引用。同一时刻只允许一个清理（会话级咨询锁）。
+- **两段式，先核验、后清理：** ① 在 `REPEATABLE READ` 只读快照里核验全链、挑出超期的行、算好空洞；链不完整就不清理，把核验结果写审计并返回失败。② 删除事务先对决定保留资格的表（`asset`、`metric_version`、`lineage_edge`、`grain`、`review_task`）加 `SHARE` 锁（`NOWAIT`：拿不到就稍后整轮重跑，不与其他事务互等，不会造成死锁），在锁下按同样的规则重新挑一遍；计划里有行在两段之间重新获得了保留资格（例如被驳回的口径改回草稿，仍引用旧版本）就整轮重跑，否则按 ID 删除、写锚点。删除事务内 `lock_timeout = 5s`、`statement_timeout = 120s`，超时回滚并稍后整轮重跑。**清理期间（拿到锁到提交，通常数秒）会短暂挡住这五张表的写入**（资产心跳与当前版本指针、口径状态流转、血缘与粒度、复核任务），等待的写入在清理提交或超时回滚后继续。实际删除行数或序号与计划不符（有人绕过触发器动过）时整体回滚。超期的历史行本身已冻结，链尾的并发追加不影响①的结论，持续写审计也不会让清理失败；遇到序列化失败、死锁、锁不可得或语句超时时整轮重跑（最多 5 次）。被驳回的口径改回草稿时，若它引用的资产版本已按保留期清理，草稿不再绑定旧版本（清空 `asset_versions`，重新提交时按当前版本绑定）；派生口径经 `components` 固定的组成版本不在了、或其资产版本已被清理时，同样清空 `components` 并说明需要重新提交。都不留悬空引用。同一时刻只允许一个清理（会话级咨询锁）。
 - **清理锚点：** 清理在链上追加一条 `history_anchor`，记录截止时间、各表删除行数，以及因本次清理新形成的每个序号空洞：`{from_seq, to_seq, before_hash（空洞前一行的 row_hash，链首为 64 个 0）, last_hash（空洞最后一行的 row_hash）}`。核验遇到空洞时要求某个锚点登记了**同一**区间且两端哈希相符，所以剩余的链仍可核验，未经清理路径的删除仍会被发现。
 - 清理本身写 `audit_event`（`history.purge`），包括截止时间、行数与锚点 ID。
 

@@ -446,8 +446,8 @@ def test_rename_without_column_keyword_and_view_column_rename():
 
 def test_unrecognized_statement_on_the_same_object_only_yields_ambiguous():
     # 原则：针对同一对象、识别不出列位置的语句视为可能涉及任何一列——仍是候选，但只能得到 ambiguous
-    for unknown in ("ALTER TABLE store.sales SET (fillfactor = 70)", "ALTER TABLE store.sales DROP CONSTRAINT c1",
-                    "GRANT SELECT ON store.sales TO x"):
+    for unknown in ("ALTER TABLE store.sales DROP CONSTRAINT c1", "ALTER TABLE store.sales VALIDATE CONSTRAINT c1",
+                    "DO $$ BEGIN EXECUTE 'ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint'; END $$"):
         conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"),
                            _ddl("bob", unknown)])
         e = _event("column_type_changed", "amount")
@@ -458,9 +458,16 @@ def test_unrecognized_statement_on_the_same_object_only_yields_ambiguous():
         _attribute([e], _Connector([_ddl("bob", unknown)]))
         assert e["attribution_status"] == "ambiguous" and "识别不出" in e["attribution"]["reason"], unknown
     # 认得出、确定不改列结构的语句（改属主、加 CHECK、表注释）不算候选
+    # 第四轮复核 3：存储参数、表空间、触发器、行级安全、聚簇、日志属性、授权等也确定不改采集的字段
     for harmless in ("ALTER TABLE store.sales OWNER TO bob",
                      "ALTER TABLE store.sales ADD CONSTRAINT amount CHECK (x > 0)",
-                     "COMMENT ON TABLE store.sales IS 'x'", "ALTER TABLE store.sales RENAME CONSTRAINT a TO b"):
+                     "COMMENT ON TABLE store.sales IS 'x'", "ALTER TABLE store.sales RENAME CONSTRAINT a TO b",
+                     "ALTER TABLE store.sales SET (fillfactor = 70)", "ALTER TABLE store.sales RESET (fillfactor)",
+                     "ALTER TABLE store.sales SET TABLESPACE fast", "ALTER TABLE store.sales SET UNLOGGED",
+                     "ALTER TABLE store.sales ENABLE TRIGGER ALL", "ALTER TABLE store.sales DISABLE TRIGGER t1",
+                     "ALTER TABLE store.sales ENABLE ROW LEVEL SECURITY",
+                     "ALTER TABLE store.sales NO FORCE ROW LEVEL SECURITY", "ALTER TABLE store.sales CLUSTER ON i1",
+                     "ALTER TABLE store.sales REPLICA IDENTITY FULL", "GRANT SELECT ON store.sales TO x"):
         conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"),
                            _ddl("bob", harmless)])
         e = _event("column_type_changed", "amount")
@@ -469,3 +476,66 @@ def test_unrecognized_statement_on_the_same_object_only_yields_ambiguous():
     # 主键、NOT NULL 约束会改变列的可空性：点名的列算证据
     assert mentions_column("ALTER TABLE store.sales ADD PRIMARY KEY (sale_id)", "sale_id", "sales", "lower")
     assert mentions_column("ALTER TABLE store.sales ADD CONSTRAINT nn NOT NULL amount", "amount", "sales", "lower")
+
+
+# --- 第四轮复核（2de5f2a） -----------------------------------------------------------
+
+def test_unknown_parts_are_not_masked_by_recognised_columns():
+    # 1：Bob 的请求先加一列 unrelated，再在 DO 块里动态改 amount：已识别的 unrelated 不能掩盖 DO 块
+    bob = ("ALTER TABLE store.sales ADD COLUMN unrelated int;\n"
+           "DO $$ BEGIN\n  EXECUTE 'ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint';\nEND $$;")
+    refs = column_refs(bob, "sales", "lower", schema="store")
+    assert [t.text for t in refs.columns] == ["unrelated"] and refs.unknown
+    conn = _Connector([_ddl("alice", "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint"), _ddl("bob", bob)])
+    e = _event("column_type_changed", "amount")
+    _attribute([e], conn)
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["candidates"] == ["alice", "bob"]
+    # 同一条记录既点名了该列又有认不出的部分：仍然只能 ambiguous
+    mixed = "ALTER TABLE store.sales ALTER COLUMN amount TYPE bigint; CALL refresh_all()"
+    e = _event("column_type_changed", "amount")
+    _attribute([e], _Connector([_ddl("bob", mixed)]))
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["unrecognized"] == 1
+
+
+def test_objects_are_located_by_full_qualified_name():
+    # 1：只比较名称末段会把 other.sales 当成 store.sales
+    assert not column_refs("ALTER TABLE other.sales ADD COLUMN amount int", "sales", "lower", "store").columns
+    assert column_refs("ALTER TABLE store.sales ADD COLUMN amount int", "sales", "lower", "store").columns
+    assert column_refs("ALTER TABLE sales ADD COLUMN amount int", "sales", "lower", "store").columns  # search_path
+    assert column_refs("ALTER TABLE internal.store.sales ADD COLUMN a int", "sales", "insensitive", "store").columns
+    assert not column_refs("COMMENT ON COLUMN other.sales.amount IS 'x'", "sales", "lower", "store").columns
+    # 同一请求里改了别的模式下的同名表、又改了本表的另一列：本表 amount 没被点名
+    batch = "ALTER TABLE other.sales ALTER COLUMN amount TYPE bigint; ALTER TABLE store.sales ADD COLUMN x int"
+    refs = column_refs(batch, "sales", "lower", "store")
+    assert [t.text for t in refs.columns] == ["x"] and not refs.unknown
+
+
+class _FakePg:
+    """只回答实例键要的两条查询。"""
+
+    def __init__(self, timeline=None, start="1793290000.123456", oid="16384"):
+        self.timeline, self.start, self.oid = timeline, start, oid
+
+    def execute(self, sql, *args):
+        import psycopg
+
+        if "pg_control_checkpoint" in sql:
+            if self.timeline is None:
+                raise psycopg.errors.InsufficientPrivilege("permission denied for function pg_control_checkpoint")
+            return SimpleNamespace(fetchone=lambda: (self.timeline,))
+        assert "extract(epoch" in sql  # 启动时间用 epoch 数值，不受 TimeZone、DateStyle 影响
+        return SimpleNamespace(fetchone=lambda: (self.start, self.oid))
+
+
+def test_instance_key_includes_the_timeline():
+    # 第四轮复核 2：PITR / 物理克隆与原库 system_identifier 相同但时间线不同 → 键不同；读不到时间线退回无可信 ID 的规则
+    from avelis.connectors.postgres import PostgresConnector
+
+    c = PostgresConnector("db", 5432, "u", "p", {"database": "storedb", "schemas": ["store"]})
+    trusted = {"instance_id": "pg:7001/storedb", "endpoint": "db:5432"}
+    assert c._instance_key(_FakePg(timeline=1), trusted) == "pg:7001/storedb/tl1"
+    assert c._instance_key(_FakePg(timeline=2), trusted) != c._instance_key(_FakePg(timeline=1), trusted)
+    assert c._instance_key(_FakePg(timeline=None), trusted) == "db:5432|1793290000.123456|16384"
+    untrusted = {"endpoint": "db:5432"}
+    assert c._instance_key(_FakePg(), untrusted) == "db:5432|1793290000.123456|16384"
+    assert c._instance_key(_FakePg(start="1793299999.0"), untrusted) != c._instance_key(_FakePg(), untrusted)  # 重启

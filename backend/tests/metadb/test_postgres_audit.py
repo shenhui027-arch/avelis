@@ -168,6 +168,8 @@ def test_audit_connection_must_be_the_snapshot_instance(src):
     connector, _ = src
     cursor = connector.snapshot().audit_cursor
     assert cursor["instance"] and cursor["pg_snapshot"]
+    # 开发库账号是超级用户，读得到 system_identifier 与时间线：键里带时间线（第四轮复核 2）
+    assert cursor["instance"].startswith("pg:") and "/tl" in cursor["instance"]
     assert connector.ddl_events(utcnow(), utcnow(), cursors=(cursor, cursor)) == []
     for other in ({**cursor, "instance": "127.0.0.1:1|2000-01-01 00:00:00+00|1"}, {**cursor, "instance": None}):
         with pytest.raises(AuditUnavailable) as info:

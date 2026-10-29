@@ -219,6 +219,11 @@ _NO_COLUMN_ADD = {"CHECK", "UNIQUE", "FOREIGN", "EXCLUDE", "INDEX", "KEY", "PART
 _NO_COLUMN_MODIFY = {"COMMENT", "ORDER", "TTL", "SETTING", "SETTINGS", "ENGINE", "PROPERTIES", "DISTRIBUTION",
                      "SAMPLE", "PARTITION"}
 UNKNOWN = None  # 识别不了：可能涉及任何一列
+# 确定不改变采集字段（列名、类型、可空性、注释、键）的 ALTER TABLE 动作（PostgreSQL、MySQL 系、ClickHouse 的写法）
+_NO_COLUMN_VERBS = {"OWNER", "SET", "RESET", "CLUSTER", "REPLICA", "INHERIT", "OF", "ATTACH", "DETACH", "DEPENDS",
+                    "ALGORITHM", "LOCK", "ENGINE", "AUTO_INCREMENT", "CHARSET", "COLLATE", "ROW_FORMAT",
+                    "KEY_BLOCK_SIZE"}
+_NO_COLUMN_TOGGLES = {"TRIGGER", "RULE", "ROW", "REPLICA", "ALWAYS", "FORCE", "KEYS", "INHERIT"}
 
 
 def _paren_idents(a: list[Token], i: int) -> list[Token]:
@@ -249,8 +254,10 @@ def _action_columns(a: list[Token]) -> list[Token] | None:
         return []
     verb = a[0].text.upper() if a[0].kind == "ident" and not a[0].quoted else ""
     nxt = a[1] if len(a) > 1 else None
-    if verb == "OWNER" or (verb == "SET" and _kw(nxt, "SCHEMA")):
-        return []
+    if verb in _NO_COLUMN_VERBS or (verb in ("ENABLE", "DISABLE", "FORCE", "NO") and _kw(nxt, *_NO_COLUMN_TOGGLES)):
+        return []  # 属主、存储参数、表空间、模式、日志属性、聚簇、复制标识、触发器、规则、行级安全：不改采集的字段
+    if verb == "ALTER" and _kw(nxt, "CONSTRAINT"):
+        return []  # 只改约束的可延迟属性
     i = 1
     if verb in ("ADD", "DROP") and _kw(nxt, "CONSTRAINT"):
         if verb == "DROP":
@@ -298,30 +305,49 @@ def _action_columns(a: list[Token]) -> list[Token] | None:
 @dataclass
 class ColumnRefs:
     columns: list[Token]  # 在语法位置上点名的列
-    unknown: bool  # 有针对该对象、但识别不出涉及哪些列的语句（可能涉及任何一列）
+    unknown: bool  # 有可能涉及该对象、但识别不出涉及哪些列的部分（可能涉及任何一列）；与 columns 独立累积
 
 
 _ALTERABLE = (("TABLE",), ("VIEW",), ("MATERIALIZED", "VIEW"), ("FOREIGN", "TABLE"))
+# 确定不改变表结构的语句（事务控制、数据读写、授权、维护）：不针对对象的列
+_HARMLESS = {"BEGIN", "START", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE", "SET", "RESET", "SHOW", "GRANT",
+             "REVOKE", "INSERT", "UPDATE", "DELETE", "COPY", "VACUUM", "ANALYZE", "LOCK", "TRUNCATE", "REFRESH",
+             "NOTIFY", "LISTEN", "UNLISTEN", "DISCARD", "CLUSTER", "REINDEX", "CHECKPOINT", "SECURITY", "USE"}
+# 可能在内部执行任意 DDL 的语句：动态 SQL、过程调用、可能调用函数的查询
+_OPAQUE = {"DO", "EXECUTE", "CALL", "SELECT", "WITH", "VALUES", "PERFORM", "PREPARE", "TABLE"}
 
 
-def column_refs(statement: str, object_name: str, fold: str = "insensitive") -> ColumnRefs:
-    """语句中针对 object_name 涉及的列。认得的写法：ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE 的各个动作、
-    COMMENT ON COLUMN（点名列）、COMMENT ON TABLE / VIEW（不涉及列）。多语句时只看目标是该对象的那几条；
-    审计来源说它针对该对象、却认不出是哪种写法的（包括词法上无法确定的记录），都算 unknown。"""
+def _targets(parts: list[Token], schema: str | None, name: str, fold: str) -> bool:
+    """限定名是否指向该对象：末段比对名称；带了库或模式段时也要比对（只写名称时按名称算，可能经 search_path）。"""
+    if not parts or not _same(parts[-1], name, fold):
+        return False
+    return len(parts) < 2 or schema is None or _same(parts[-2], schema, fold)
+
+
+def column_refs(statement: str, object_name: str, fold: str = "insensitive", schema: str | None = None) -> ColumnRefs:
+    """语句（可能是多条语句的请求）对 schema.object_name 涉及的列。逐条子语句判断，unknown 独立累积：
+    - ALTER TABLE / VIEW / MATERIALIZED VIEW / FOREIGN TABLE <该对象> 的各个动作：认得的列动作给出列，
+      确定不改列结构的动作
+      （改属主、存储参数、表空间、触发器、行级安全等）不算，其余动作算 unknown；
+    - COMMENT ON COLUMN <该对象>.<列> 给出列；COMMENT ON TABLE / VIEW <该对象> 不涉及列；
+    - CREATE / DROP 该对象、DO / EXECUTE / CALL / SELECT 等可能在内部执行任意 DDL 的语句、认不出的语句：unknown；
+    - 针对别的对象的 DDL、事务控制、数据读写、授权等：不涉及该对象的列。
+    审计来源说这条记录针对该对象、却没有一条子语句认得出是针对它的，也算 unknown；词法上无法确定时同样。"""
     lexed = lex(statement)
     found: list[Token] = []
     unknown = not lexed.certain
     targeted = False
     for st in _statements(lexed.tokens):
-        if _kw(st[0] if st else None, "ALTER"):
+        head = st[0].text.upper() if st and st[0].kind == "ident" and not st[0].quoted else ""
+        if head == "ALTER":
             kind = next((k for k in _ALTERABLE if all(_kw(st[1 + n] if len(st) > 1 + n else None, w)
                                                        for n, w in enumerate(k))), None)
             if kind is None:
-                continue
+                continue  # ALTER INDEX / ROLE / SEQUENCE … 不改表的列
             i = _skip(st, 1 + len(kind), "IF", "EXISTS")
             i = _skip(st, i, "ONLY")
             parts, i = _name(st, i)
-            if not parts or not _same(parts[-1], object_name, fold):
+            if not _targets(parts, schema, object_name, fold):
                 continue
             targeted = True
             for action in _actions(st[i:]):
@@ -330,27 +356,47 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive") -> 
                     unknown = True
                 else:
                     found += cols
-        elif _kw(st[0] if st else None, "COMMENT") and _kw(st[1] if len(st) > 1 else None, "ON"):
+        elif head == "COMMENT" and _kw(st[1] if len(st) > 1 else None, "ON"):
             what = st[2] if len(st) > 2 else None
             if _kw(what, "COLUMN"):
                 parts, _ = _name(st, 3)
-                if len(parts) >= 2 and _same(parts[-2], object_name, fold):
+                if len(parts) >= 2 and _targets(parts[:-1], schema, object_name, fold):
                     targeted = True
                     found.append(parts[-1])
             elif _kw(what, "TABLE", "VIEW"):
                 parts, _ = _name(st, 3)
-                targeted = targeted or bool(parts and _same(parts[-1], object_name, fold))
+                targeted = targeted or _targets(parts, schema, object_name, fold)
             elif _kw(what, "MATERIALIZED", "FOREIGN"):
                 parts, _ = _name(st, 4)
-                targeted = targeted or bool(parts and _same(parts[-1], object_name, fold))
+                targeted = targeted or _targets(parts, schema, object_name, fold)
+        elif head in ("CREATE", "DROP"):
+            i = _skip(st, 1, "OR", "REPLACE")
+            i = _skip(st, i, "TEMPORARY")
+            i = _skip(st, i, "TEMP")
+            kind = next((k for k in _ALTERABLE if all(_kw(st[i + n] if len(st) > i + n else None, w)
+                                                       for n, w in enumerate(k))), None)
+            if kind is not None:
+                j = _skip(st, i + len(kind), "IF", "NOT", "EXISTS")
+                j = _skip(st, j, "IF", "EXISTS")
+                parts, _ = _name(st, j)
+                if _targets(parts, schema, object_name, fold):
+                    targeted, unknown = True, True  # 重建了这个对象：任何一列都可能变
+        elif head in _HARMLESS:
+            # 不改结构的语句：点名了该对象（如 GRANT … ON 该表）就算认得出、且不涉及任何列
+            targeted = targeted or any(_targets(_name(st, k)[0], schema, object_name, fold)
+                                       for k in range(len(st)) if st[k].kind == "ident")
+        else:
+            unknown = True  # DO / EXECUTE / CALL / SELECT …，以及认不出的语句：内部可能执行任意 DDL
     return ColumnRefs(found, unknown or not targeted)
 
 
-def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive") -> bool:
+def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive",
+                    schema: str | None = None) -> bool:
     """语句是否在列的语法位置上点名了该列。"""
     if object_name is None:
         return False
-    return any(_same(t, column, fold) for t in column_refs(statement, object_name, fold).columns)
+    return any(_same(t, column, fold) for t in column_refs(statement, object_name, fold, schema).columns)
+
 
 # --- 对象 -------------------------------------------------------------------------
 

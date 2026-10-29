@@ -171,16 +171,16 @@ def _attribute_one(session: Session, e: dict[str, Any], by_object: dict[tuple[st
         # 字段级变化的候选（取并集）：在列的语法位置上点名了该列的语句、整体重定义（不一定逐列点名）、
         # 针对该对象但识别不出涉及哪些列的语句（可能涉及任何一列，只能得到 ambiguous）。
         # 确定只改了别的列（或不改列结构，如改属主、加 CHECK 约束）的语句不算
-        object_names = {n for _, n in names}
+        # 同一条记录里“点名了该列”和“有认不出的部分”各自累积：认得出的列不能掩盖认不出的部分
         by_column, whole = [], []
         for a in candidates:
             if redefines(a.statement):
                 whole.append(a)
                 continue
-            refs = [column_refs(a.statement, obj, fold) for obj in object_names]
+            refs = [column_refs(a.statement, obj, fold, schema=db) for db, obj in names]
             if any(same_identifier(t, column, fold) for r in refs for t in r.columns):
                 by_column.append(a)
-            elif any(r.unknown for r in refs):
+            if any(r.unknown for r in refs):
                 unknown.append(a)
         basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole),
                      unrecognized=len(unknown))
