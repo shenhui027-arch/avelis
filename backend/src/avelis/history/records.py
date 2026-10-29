@@ -85,9 +85,11 @@ def search(session: Session, user: User, f: EventFilter, limit: int, offset: int
     stmt = _query(session, user, f)
     total = session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     rows = session.execute(stmt.order_by(ChangeEvent.created_at.desc(), ChangeEvent.id).limit(limit).offset(offset))
+    # 只列当前用户可见事件里的数据库用户
+    actors = session.scalars(_query(session, user, EventFilter()).with_only_columns(ChangeEvent.actor_db_user)
+                             .where(ChangeEvent.actor_db_user.is_not(None)).distinct())
     return {"total": total, "limit": limit, "offset": offset, "items": [_view(*r) for r in rows],
-            "actors": sorted(a for a in session.scalars(
-                select(ChangeEvent.actor_db_user).where(ChangeEvent.actor_db_user.is_not(None)).distinct()))}
+            "actors": sorted(actors)}
 
 
 class ExportTooLarge(Exception):
