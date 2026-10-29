@@ -63,7 +63,7 @@ def _end_other_sessions(user: User) -> None:
 def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
           session: Session = Depends(get_session)) -> dict:
     """失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。
-    锁定期间即使口令正确也拒绝，且不透露账号是否存在。"""
+    锁定期间即使密码正确也拒绝，且不透露账号是否存在。"""
     settings = get_settings()
     key = f"{form.username.lower()}|{request.client.host if request.client else '-'}"
     locked = cache.login_locked_seconds(key, settings.login_max_failures)
@@ -80,7 +80,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
         session.commit()
         left = settings.login_max_failures - failures
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"},
-                            detail="用户名或口令错误" + (f"，再失败 {left} 次将暂时锁定" if 0 < left <= 2 else ""))
+                            detail="用户名或密码错误" + (f"，再失败 {left} 次将暂时锁定" if 0 < left <= 2 else ""))
     cache.clear_login_failures(key)
     user.last_login_at = utcnow()
     audit.record(session, user, "auth.login", "user", user.id)
@@ -94,21 +94,21 @@ class PasswordChange(BaseModel):
 
 def _check_password_policy(user: User, password: str) -> None:
     if user.username.lower() in password.lower():
-        raise HTTPException(422, "口令不能包含账号")
+        raise HTTPException(422, "密码不能包含账号")
     if len(set(password)) < 4:
-        raise HTTPException(422, "口令过于简单")
+        raise HTTPException(422, "密码过于简单")
     if verify_password(password, user.password_hash):
-        raise HTTPException(422, "新口令不能与当前口令相同")
+        raise HTTPException(422, "新密码不能与当前密码相同")
 
 
 @router.post("/me/password", response_model=TokenOut)
 def change_password(body: PasswordChange, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> dict:
-    """修改自己的口令：其他会话全部失效，返回当前会话的新令牌。"""
+    """修改自己的密码：其他会话全部失效，返回当前会话的新令牌。"""
     if not verify_password(body.current_password, user.password_hash):
         audit.record(session, user, "auth.password_change_failed", "user", user.id)
         session.commit()
-        raise HTTPException(403, "当前口令不正确")
+        raise HTTPException(403, "当前密码不正确")
     _check_password_policy(user, body.new_password)
     user.password_hash = hash_password(body.new_password)
     user.password_changed_at = utcnow()
@@ -149,7 +149,7 @@ class UserCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=8, max_length=128, repr=False)
     roles: list[str] = Field(default_factory=list)
-    must_change_password: bool = Field(default=True, description="首次登录必须修改口令（默认是）")
+    must_change_password: bool = Field(default=True, description="首次登录必须修改密码（默认是）")
 
 
 class UserUpdate(BaseModel):
@@ -234,7 +234,7 @@ def update_user(user_id: str, body: UserUpdate, user: User = Depends(current_use
 @router.post("/users/{user_id}/password", response_model=UserOut)
 def reset_password(user_id: str, body: PasswordReset, user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> dict:
-    """管理员重置口令：该用户的会话全部失效，下次登录必须修改口令。"""
+    """管理员重置密码：该用户的会话全部失效，下次登录必须修改密码。"""
     access.require_role(session, user, "admin")
     target = _user_or_404(session, user_id)
     target.password_hash = hash_password(body.new_password)
