@@ -57,6 +57,12 @@ def _jwt_key(secret: str) -> bytes:
     return _derive(secret, b"avelis/access-token")
 
 
+def session_cutoff_now() -> datetime:
+    """“此刻之前签发的令牌全部失效”的截止时间。令牌的 iat 精确到秒，所以取整到秒，
+    保证随后（同一秒内）签发的新令牌仍然有效。"""
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
 def create_access_token(user_id: str, username: str) -> tuple[str, datetime, str]:
     settings = get_settings()
     now = datetime.now(timezone.utc)

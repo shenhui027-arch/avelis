@@ -23,15 +23,16 @@ from avelis.db import session_scope, utcnow
 from avelis.devtools import alembic_config
 from avelis.governance.access import ROLES
 from avelis.models import User, UserRole
-from avelis.security import hash_password, verify_password
+from avelis.security import hash_password, session_cutoff_now, verify_password
 
 # 演示准备与验收脚本经 API 操作时使用的管理员；不占用给人登录的 admin
 AUTOMATION_ADMIN = "ops_admin"
 SUPERADMIN = "admin"
 
 
-def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员") -> str:
-    """自动化管理员（演示准备、验收脚本用），同时补齐本地超级管理员。"""
+def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员", *,
+                 superadmin: bool = True) -> str:
+    """自动化管理员（演示准备、验收脚本用）；superadmin=True 时同时补齐本地超级管理员。"""
     password = get_settings().env.get("AVELIS_DEMO_USER_PASSWORD", "")
     if len(password) < 8:
         raise SystemExit("AVELIS_DEMO_USER_PASSWORD 未设置或过短；运行 uv run scripts/demo.py init-env")
@@ -43,17 +44,32 @@ def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动�
             session.flush()
             session.add(UserRole(user_id=user.id, role="admin"))
         user_id = user.id
-    ensure_superadmin()
+    if superadmin:
+        ensure_superadmin()
     return user_id
+
+
+def _local_metadata_db() -> bool:
+    from sqlalchemy.engine import make_url
+
+    return make_url(get_settings().database_url).host in ("localhost", "127.0.0.1", "::1")
 
 
 def ensure_superadmin(reset_password: bool = False) -> str | None:
     """本地超级管理员 admin：拥有全部角色，密码取自 AVELIS_ADMIN_PASSWORD；未配置时不创建。
 
     只用于本地开发（用户决定，2026-10-29）：这里直接写入密码，不经过界面的密码策略校验，
-    所以允许 123456 这样的弱密码。已存在时只补齐角色；reset_password=True 时把密码重设为配置值。"""
+    所以允许 123456 这样的弱密码。只在元数据库位于本机时执行：非本机库时，补齐调用直接跳过，
+    显式重设（bootstrap admin）报错退出。
+
+    已存在时只补齐角色，不改启用状态、首次改密标记与密码；reset_password=True 时恢复为可用状态，
+    并把密码重设为配置值。"""
     password = get_settings().env.get("AVELIS_ADMIN_PASSWORD", "")
     if not password:
+        return None
+    if not _local_metadata_db():
+        if reset_password:
+            raise SystemExit("本地超级管理员只用于本机元数据库（localhost / 127.0.0.1）；当前元数据库不在本机，已拒绝")
         return None
     with session_scope() as session:
         user = session.scalar(select(User).where(User.username == SUPERADMIN))
@@ -61,12 +77,13 @@ def ensure_superadmin(reset_password: bool = False) -> str | None:
             user = User(username=SUPERADMIN, display_name="超级管理员", password_hash=hash_password(password))
             session.add(user)
             session.flush()
-        elif reset_password and not verify_password(password, user.password_hash):
-            user.password_hash = hash_password(password)
-            user.password_changed_at = utcnow()
-            user.sessions_valid_after = utcnow()  # 旧令牌失效
-        user.is_active = True
-        user.must_change_password = False
+        elif reset_password:
+            if not verify_password(password, user.password_hash):
+                user.password_hash = hash_password(password)
+                user.password_changed_at = utcnow()
+                user.sessions_valid_after = session_cutoff_now()  # 旧令牌失效，随后签发的新令牌有效
+            user.is_active = True
+            user.must_change_password = False
         have = set(session.scalars(select(UserRole.role).where(UserRole.user_id == user.id)))
         for role in ROLES:
             if role not in have:
@@ -84,7 +101,7 @@ def model_from_env() -> str:
                                                             "AVELIS_MODEL_API_KEY"))
     if not (provider and name and key):
         raise SystemExit("缺少 AVELIS_MODEL_PROVIDER / AVELIS_MODEL_NAME / AVELIS_MODEL_API_KEY")
-    admin_id = ensure_admin()
+    admin_id = ensure_admin(superadmin=False)  # 登记模型不需要本地超级管理员
     with session_scope() as session:
         admin = session.get(User, admin_id)
         p = session.scalar(select(ModelProvider).where(ModelProvider.code == "env-default"))
