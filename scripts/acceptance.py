@@ -5,6 +5,8 @@
   uv run scripts/acceptance.py --fresh    从零开始：删除演示容器与数据卷后重建（StarRocks 首次启动约需数分钟）
   uv run scripts/acceptance.py --no-llm   跳过调用真实模型的用例（不向模型服务发送任何数据）
   uv run scripts/acceptance.py --no-engines  不启动更多引擎的演示库（ClickHouse、Doris），跳过它们的验收
+  uv run scripts/acceptance.py --no-recreate 容器已存在时不重建（从 git worktree 等其他检出目录运行时必须加：
+                                             演示容器由所有检出目录共用，挂载路径不同会让 Docker 重建它们）
 
 前置条件：Docker（Compose v2）、uv、pnpm（--skip-frontend 时可不装）。口令与密钥在 .env 中自动生成，不打印。
 .env 中配置了 AVELIS_MODEL_API_KEY 时，默认会运行 llm 用例：问题与指标元数据会发送到配置的模型服务。
@@ -143,6 +145,8 @@ def main() -> None:
     parser.add_argument("--no-llm", action="store_true", help="跳过调用真实模型的用例")
     parser.add_argument("--skip-frontend", action="store_true", help="不安装依赖、不构建前端")
     parser.add_argument("--no-engines", action="store_true", help="不启动更多引擎的演示库，跳过它们的验收")
+    parser.add_argument("--no-recreate", action="store_true",
+                        help="容器已存在时不重建：从 worktree 等其他检出目录运行时使用（演示容器由多个检出目录共用）")
     args = parser.parse_args()
 
     runner = Runner()
@@ -158,7 +162,8 @@ def main() -> None:
             runner.step("删除演示容器与数据卷", teardown)
         engines = not args.no_engines
         info["engines"] = "运行（ClickHouse、Doris 真实实例）" if engines else "跳过"
-        runner.step("启动演示环境并灌入基线数据", lambda: demo.up(skip_seed=False, engines=engines))
+        runner.step("启动演示环境并灌入基线数据",
+                    lambda: demo.up(skip_seed=False, engines=engines, no_recreate=args.no_recreate))
 
         def ec_dataset() -> dict:
             import ec_data

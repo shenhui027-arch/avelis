@@ -17,7 +17,7 @@ from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access
 from avelis.models import Domain, DomainMember, User, UserRole
-from avelis.security import create_access_token, hash_password, verify_password
+from avelis.security import create_access_token, hash_password, session_cutoff_now, verify_password
 
 router = APIRouter(prefix="/api", tags=["认证与用户"])
 
@@ -55,8 +55,8 @@ def _issue(user: User) -> dict:
 
 
 def _end_other_sessions(user: User) -> None:
-    """此刻之前签发的令牌全部失效（令牌的 iat 精确到秒，取整到秒，保证随后签发的新令牌有效）。"""
-    user.sessions_valid_after = datetime.now(timezone.utc).replace(microsecond=0)
+    """此刻之前签发的令牌全部失效。"""
+    user.sessions_valid_after = session_cutoff_now()
 
 
 @router.post("/auth/token", response_model=TokenOut)
