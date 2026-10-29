@@ -1,4 +1,5 @@
 // 登录：左侧品牌区（标记、定位、血缘示意），右侧表单。会话过期、被锁定、需要改口令都在这里给出明确去向。
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
@@ -38,6 +39,7 @@ function LineageMotif() {
 
 export function Login() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [params] = useSearchParams();
   // 回到登录前想去的页面；直接打开登录页时进工作台
   const from = (useLocation().state as { from?: string } | null)?.from ?? params.get("from") ?? "/";
@@ -54,6 +56,7 @@ export function Login() {
     setError(null);
     try {
       const result = await login(username, password);
+      queryClient.clear();  // 换账号登录：丢弃上一个会话的缓存
       const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
       navigate(result.mustChangePassword ? "/account/password" : target,
         { replace: true, state: result.mustChangePassword ? { from: target } : undefined });

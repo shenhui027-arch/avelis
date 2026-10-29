@@ -2,7 +2,7 @@
 
 /* Avelis UI components. Every value comes from tokens.css; class prefix av-. */
 
-.av-root { font-family: var(--font-sans); font-size: 13px; line-height: 20px; color: var(--text-primary); background: var(--bg-base); -webkit-font-smoothing: antialiased; }
+.av-root { font: var(--type-body); color: var(--text-primary); background: var(--bg-base); -webkit-font-smoothing: antialiased; }
 .av-root *, .av-root *::before, .av-root *::after { box-sizing: border-box; }
 .av-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .av-muted { color: var(--text-tertiary); }
@@ -118,7 +118,7 @@
 .av-page { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5) var(--space-6); }
 .av-pagehd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 36px; }
 .av-pagehd__title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
-.av-pagehd h1 { margin: 0; font: 600 18px/26px var(--font-sans); color: var(--text-primary); }
+.av-pagehd h1 { margin: 0; font: var(--type-title-lg); color: var(--text-primary); }
 .av-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: var(--space-4); }
 .av-split { display: grid; grid-template-columns: minmax(0, 1fr) var(--size-inspector); grid-template-rows: minmax(0, 1fr); min-height: 0; }
 
@@ -132,7 +132,7 @@
 .av-pane--rail { background: var(--bg-canvas); }
 .av-pane__body { flex: 1; min-height: 0; overflow: auto; }
 .av-pane-hd { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-3); height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-subtle); }
-.av-pane-hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 600 13px/20px var(--font-sans); color: var(--text-primary); }
+.av-pane-hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-title); color: var(--text-primary); }
 .av-section + .av-section > .av-pane-hd { border-top: 1px solid var(--line-subtle); }
 
 /* Stage strip: the governance loop as one bar */

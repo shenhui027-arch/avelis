@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -51,6 +51,7 @@ const ROLE_LABEL: Record<string, string> = { admin: "管理员", steward: "维�
 function UserMenu() {
   const me = useMe();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -84,7 +85,13 @@ function UserMenu() {
             <Icon name="lock" />修改口令
           </button>
           <button type="button" role="menuitem" className="av-menu__item"
-            onClick={async () => { await logout(); navigate("/login", { replace: true }); }}>
+            onClick={async () => {
+              await logout();
+              // 先取消进行中的查询再清缓存：下一个登录的账号不会看到上一个账号的数据
+              await queryClient.cancelQueries();
+              queryClient.clear();
+              navigate("/login", { replace: true });
+            }}>
             <Icon name="logout" />退出登录
           </button>
         </div>

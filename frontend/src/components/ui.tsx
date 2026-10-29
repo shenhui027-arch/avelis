@@ -1,4 +1,5 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Icon } from "./Icon";
@@ -133,8 +134,45 @@ export function PaneHeader({ title, count, children }: { title: ReactNode; count
   );
 }
 
-export function Empty({ text, action }: { text: string; action?: ReactNode }) {
-  return <div className="av-empty" style={{ padding: "var(--space-6)" }}><span>{text}</span>{action}</div>;
+export function Empty({ text, action, compact, icon }: { text: string; action?: ReactNode; compact?: boolean; icon?: string }) {
+  return (
+    <div className={`av-empty${compact ? " av-empty--compact" : ""}`} style={{ padding: "var(--space-6)" }}>
+      {icon ? <Icon name={icon} /> : null}<span>{text}</span>{action}
+    </div>
+  );
+}
+
+/** 列表加载时的占位行：保持布局，不先显示 0 或空态。 */
+export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: number }) {
+  return (
+    <div className="av-skeleton" aria-busy="true" aria-label="加载中">
+      {Array.from({ length: rows }, (_, i) => <span key={i} style={{ height }} />)}
+    </div>
+  );
+}
+
+/**
+ * 一次查询的四种状态：加载（骨架）、失败（原因 + 重试）、成功但为空（空态，可带下一步动作）、有数据。
+ * 只有成功后才显示“0 条”或业务空态，避免加载中、失败被误读为“没有数据”。
+ */
+export function QueryState<T>({ query, isEmpty, emptyText = "暂无数据", emptyAction, rows, compact, children }: {
+  query: UseQueryResult<T>; isEmpty?: (data: T) => boolean; emptyText?: string; emptyAction?: ReactNode;
+  rows?: number; compact?: boolean; children: (data: T) => ReactNode;
+}) {
+  if (query.isPending) return <Skeleton rows={rows} />;
+  if (query.isError) {
+    return (
+      <div className="av-query-error" role="alert">
+        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : "加载失败"}</span>
+        <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => query.refetch()}>
+          <Icon name="refresh" />重试
+        </button>
+      </div>
+    );
+  }
+  const data = query.data as T;
+  if (isEmpty?.(data)) return <Empty text={emptyText} action={emptyAction} compact={compact} />;
+  return <>{children(data)}</>;
 }
 
 export function Banner({ message }: { message: { ok: boolean; text: string } | null }) {
