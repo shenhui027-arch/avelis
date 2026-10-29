@@ -173,6 +173,12 @@ class DeriveArgs(BaseModel):
     formula: str = Field(description="只用变量名、数字与 + - * / 括号，如 total - futian、a / b")
 
 
+class DescribeArgs(BaseModel):
+    dataset: str
+    column: str
+    match: dict[str, str] = Field(default_factory=dict, description="选行条件（如 period 前缀不支持，用精确值）")
+
+
 class SegmentArgs(BaseModel):
     dataset: str
     segment: str = Field(description="分组列")
@@ -583,6 +589,17 @@ class AnalysisToolbox:
         return self._calc("derive", {"label": label, "values": [v.model_dump() for v in values], "formula": formula},
                           sorted({v.dataset for v in values}), fn)
 
+    def describe(self, dataset: str, column: str, match: dict[str, str] | None = None) -> str:
+        def fn():
+            _, rows = self._rows(dataset)
+            picked = [r for r in rows if all(str(r.get(k)) == str(v) for k, v in (match or {}).items())]
+            if picked and column not in picked[0]:
+                raise calc.CalcError(f"{dataset} 没有列 {column}")
+            out = calc.describe([r.get(column) for r in picked])
+            cols = list(out)
+            return f"{dataset} {column}的描述统计", cols, [[out[c] for c in cols]], out
+        return self._calc("describe", {"dataset": dataset, "column": column, "match": match}, [dataset], fn)
+
     def segment_compare(self, dataset: str, segment: str, measures: list[str]) -> str:
         def fn():
             _, rows = self._rows(dataset)
@@ -621,6 +638,7 @@ class AnalysisToolbox:
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
             t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某门店后的合计、两期差额），结果可引用"),
+            t(self.describe, DescribeArgs, "一列的个数、合计、均值、中位数、最小值、最大值（可按条件选行）"),
             t(self.segment_compare, SegmentArgs, "按某列分组对比各度量"),
             t(self.outliers, OutlierArgs, "四分位距法找异常值"),
             t(self.submit_report, ReportArgs, "提交最终报告：结论分事实 / 计算 / 推断 / 建议，事实与计算必须引用数据集"),
