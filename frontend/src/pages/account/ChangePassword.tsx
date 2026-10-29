@@ -51,7 +51,7 @@ export function ChangePassword() {
         <label className="av-field"><span className="av-label">新口令</span>
           <input className="av-input" type="password" autoComplete="new-password" required minLength={8}
             value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} />
-          <span className="av-help">至少 8 位，不能与账号相同</span></label>
+          <span className="av-help">至少 8 位，不能包含账号</span></label>
         <label className="av-field"><span className="av-label">确认新口令</span>
           <input className="av-input" type="password" autoComplete="new-password" required aria-invalid={mismatch}
             value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />

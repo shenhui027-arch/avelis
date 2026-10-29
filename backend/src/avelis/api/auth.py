@@ -93,8 +93,8 @@ class PasswordChange(BaseModel):
 
 
 def _check_password_policy(user: User, password: str) -> None:
-    if password.lower() == user.username.lower():
-        raise HTTPException(422, "口令不能与用户名相同")
+    if user.username.lower() in password.lower():
+        raise HTTPException(422, "口令不能包含账号")
     if len(set(password)) < 4:
         raise HTTPException(422, "口令过于简单")
     if verify_password(password, user.password_hash):

@@ -142,7 +142,7 @@ def test_00_setup(stack, admin: Api):
     ctx.update(apis=apis, sr=sources["演示 StarRocks"], mysql=sources["电商维表库（MySQL）"],
                domains={d["code"]: d["id"] for d in admin.get("/api/domains")}, assets=assets(admin))
     a = ctx["assets"]
-    assert not [q for q in a if q not in demo_setup.TRADE_ASSETS + demo_setup.PRODUCT_ASSETS]
+    assert not [q for q in a if q not in demo_setup.TRADE_ASSETS + demo_setup.PRODUCT_ASSETS + demo_setup.STORE_ASSETS]
 
     _, ctx["paid_v1"] = publish("paid_sales", "实付销售额",
                                 {**PAID_SPEC, "base_asset_id": a["default_catalog.shop.daily_sales"]})

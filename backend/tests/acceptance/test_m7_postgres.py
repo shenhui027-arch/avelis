@@ -57,7 +57,7 @@ def test_00_create_and_collect(stack, admin: Api):
     engines = {e["kind"]: e for e in admin.get("/api/engines")}
     assert engines["postgres"]["name_levels"] == ["database", "schema", "table"]
     assert {o["key"] for o in engines["postgres"]["options"]} == {"database", "schemas"}
-    base = {"name": "门店库（PostgreSQL）", "kind": "postgres", "host": "127.0.0.1", "port": int(env["SHOP_PG_PORT"]),
+    base = {"name": "门店库（PG 验收）", "kind": "postgres", "host": "127.0.0.1", "port": int(env["SHOP_PG_PORT"]),
             "collect": {"username": "avelis_collector", "password": env["SHOP_PG_COLLECTOR_PASSWORD"]},
             "query": {"username": "avelis_reader", "password": env["SHOP_PG_READER_PASSWORD"]}}
     refused = admin.post("/api/datasources", {**base, "options": {"database": "storedb"}}, expect=422)
@@ -108,7 +108,7 @@ def test_02_publish_and_ask_in_postgres_dialect(admin: Api):
     ctx["store_v1"] = v["id"]
     answer = wang.post("/api/ask", {"question": f"{DAY} 上海门店销售额"})
     assert value_of(answer) == Decimal("250.00")
-    assert '"storedb"."store"."city_daily_sales"' in answer["sql"]  # PostgreSQL 方言：双引号标识符
+    assert "FROM storedb.store.city_daily_sales AS b" in answer["sql"]  # 三段名：库作为 catalog 段
     assert answer["freshness"]["tables"] == {}  # PostgreSQL 不报告新鲜度，不以统计信息冒充
     assert value_of(wang.post("/api/ask", {"question": f"{DAY} 北京门店销售额"})) == Decimal("80.00")
 

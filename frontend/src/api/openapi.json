@@ -5330,6 +5330,40 @@
     ],
     "title": "DomainRef"
    },
+   "EngineOptionOut": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "required": {
+      "type": "boolean",
+      "title": "Required"
+     },
+     "hint": {
+      "type": "string",
+      "title": "Hint"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "key",
+     "label",
+     "type",
+     "required",
+     "hint"
+    ],
+    "title": "EngineOptionOut"
+   },
    "EngineOut": {
     "properties": {
      "kind": {
@@ -5380,6 +5414,14 @@
      "note": {
       "type": "string",
       "title": "Note"
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/EngineOptionOut"
+      },
+      "type": "array",
+      "title": "Options",
+      "default": []
      }
     },
     "additionalProperties": true,

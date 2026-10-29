@@ -1671,6 +1671,21 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** EngineOptionOut */
+        EngineOptionOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Type */
+            type: string;
+            /** Required */
+            required: boolean;
+            /** Hint */
+            hint: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** EngineOut */
         EngineOut: {
             /** Kind */
@@ -1691,6 +1706,11 @@ export interface components {
             is_test_adapter: boolean;
             /** Note */
             note: string;
+            /**
+             * Options
+             * @default []
+             */
+            options?: components["schemas"]["EngineOptionOut"][];
         } & {
             [key: string]: unknown;
         };

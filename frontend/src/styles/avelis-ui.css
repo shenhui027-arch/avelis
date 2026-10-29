@@ -104,7 +104,7 @@
 /* App shell */
 .av-app { display: grid; grid-template-columns: var(--size-rail) minmax(0, 1fr); grid-template-rows: var(--size-topbar) minmax(0, 1fr); min-height: 100vh; background: var(--bg-canvas); }
 .av-rail { grid-row: 1 / 3; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border-right: 1px solid var(--line-subtle); background: var(--bg-canvas); }
-.av-rail__logo { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 12px; border-radius: 8px; background: var(--text-primary); color: var(--bg-canvas); font: 700 15px/1 var(--font-mono); }
+.av-rail__logo { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 12px; border-radius: 8px; background: var(--accent); color: var(--text-on-accent); }
 .av-rail a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 48px; height: 50px; border-radius: var(--radius-md); color: var(--text-tertiary); font: 500 11px/14px var(--font-sans); text-decoration: none; }
 .av-rail a .av-icon { width: 18px; height: 18px; }
 .av-rail a:hover { background: var(--bg-raised); color: var(--text-primary); }
