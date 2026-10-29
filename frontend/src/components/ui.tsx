@@ -54,7 +54,10 @@ export function Count({ n }: { n: number }) {
   return <span className="av-count">{n}</span>;
 }
 
-const PLAT: Record<string, string> = { starrocks: "SR", mysql: "MY", fake: "FK", hive: "HV" };
+const PLAT: Record<string, string> = {
+  starrocks: "SR", mysql: "MY", postgres: "PG", clickhouse: "CH", doris: "DR", sqlserver: "MS", oracle: "OR", hive: "HV",
+  fake: "FK",
+};
 
 export function Plat({ kind }: { kind: string }) {
   return <span className="av-plat">{PLAT[kind] ?? kind.slice(0, 2).toUpperCase()}</span>;

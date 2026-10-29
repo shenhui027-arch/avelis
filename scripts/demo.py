@@ -2,6 +2,8 @@
 
 在仓库根目录运行：
   uv run scripts/demo.py up            生成 .env、校验驱动、启动容器、等待就绪并灌数
+  uv run scripts/demo.py up --engines  同时启动更多引擎的演示库（ClickHouse 等），并灌数
+  uv run scripts/demo.py seed-engines  把更多引擎的演示库重置到验收基线
   uv run scripts/demo.py seed          把演示库重置到验收基线
   uv run scripts/demo.py check         核对验收基线数值
   uv run scripts/demo.py verify        StarRocks 实机核验，结果写入 .demo/sr-verify.json
@@ -24,7 +26,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import clickhouse_connect
+import oracledb
 import psycopg
+import pymssql
 import pymysql
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +41,10 @@ DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
 SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
 SHOP_PG_SEED = DEMO / "shop-pg" / "init" / "02-store.sql"
+SHOP_CH_SEED = DEMO / "shop-ch" / "store.sql"
+SHOP_MSSQL_SEED = DEMO / "shop-mssql" / "store.sql"
+SHOP_ORACLE_SEED = DEMO / "shop-oracle" / "store.sql"
+SHOP_DORIS_SEED = DEMO / "shop-doris" / "store.sql"
 
 DEMO_DATABASES = ("shop", "ads", "dim")
 CATALOG = "shop_mysql"
@@ -76,7 +85,7 @@ def init_env() -> None:
         if sep and not line.lstrip().startswith("#"):
             value = existing.get(key, value.strip())
             if key.endswith("_PASSWORD") and not value:
-                value = "".join(secrets.choice(alphabet) for _ in range(24))
+                value = _password(alphabet)
                 generated += 1
             elif key.endswith("_SECRET") and not value:
                 value = "".join(secrets.choice(alphabet) for _ in range(48))
@@ -85,6 +94,14 @@ def init_env() -> None:
         lines.append(line)
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log(f".env 已就绪（新生成 {generated} 个口令，未打印）")
+
+
+def _password(alphabet: str) -> str:
+    """24 位随机口令，至少含大写、小写、数字各一（满足 SQL Server、Oracle 的复杂度要求）。"""
+    while True:
+        value = "".join(secrets.choice(alphabet) for _ in range(24))
+        if any(c.isupper() for c in value) and any(c.islower() for c in value) and any(c.isdigit() for c in value):
+            return value
 
 
 def fetch_driver() -> None:
@@ -113,8 +130,9 @@ def _sha256(path: Path) -> str:
 
 # --- containers --------------------------------------------------------------
 
-def compose(*args: str) -> None:
-    cmd = ["docker", "compose", "--env-file", str(ENV_FILE), "-f", str(DEMO / "compose.yaml"), *args]
+def compose(*args: str, engines: bool = False) -> None:
+    profile = ["--profile", "engines"] if engines else []
+    cmd = ["docker", "compose", "--env-file", str(ENV_FILE), "-f", str(DEMO / "compose.yaml"), *profile, *args]
     subprocess.run(cmd, check=True, cwd=ROOT)
 
 
@@ -156,6 +174,40 @@ def pg_connect(env: dict[str, str], user: str = "postgres") -> psycopg.Connectio
                 "avelis_reader": "SHOP_PG_READER_PASSWORD"}[user]
     return psycopg.connect(host="127.0.0.1", port=int(env["SHOP_PG_PORT"]), user=user, password=env[password],
                            dbname="storedb", connect_timeout=5, autocommit=True)
+
+
+def ch_connect(env: dict[str, str], user: str = "default"):
+    """Connect to the demo ClickHouse store (shop-ch). default only seeds; avelis_reader is readonly=2."""
+    password = {"default": "SHOP_CH_PASSWORD", "avelis_collector": "SHOP_CH_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_CH_READER_PASSWORD"}[user]
+    return clickhouse_connect.get_client(host="127.0.0.1", port=int(env["SHOP_CH_HTTP_PORT"]), username=user,
+                                         password=env[password], connect_timeout=5,
+                                         autogenerate_session_id=False)
+
+
+def mssql_connect(env: dict[str, str], user: str = "sa", database: str = "storedb") -> pymssql.Connection:
+    """Connect to the demo SQL Server store (shop-mssql). sa only seeds; avelis_reader only has SELECT."""
+    password = {"sa": "SHOP_MSSQL_SA_PASSWORD", "avelis_collector": "SHOP_MSSQL_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_MSSQL_READER_PASSWORD"}[user]
+    return pymssql.connect(server="127.0.0.1", port=env["SHOP_MSSQL_PORT"], user=user, password=env[password],
+                           database=database, login_timeout=5, autocommit=True, charset="UTF-8")
+
+
+def oracle_connect(env: dict[str, str], user: str = "system") -> oracledb.Connection:
+    """Connect to the demo Oracle store (shop-oracle, service FREEPDB1). system only seeds."""
+    password = {"system": "SHOP_ORACLE_SYSTEM_PASSWORD", "avelis_collector": "SHOP_ORACLE_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_ORACLE_READER_PASSWORD"}[user]
+    return oracledb.connect(user=user, password=env[password], host="127.0.0.1", port=int(env["SHOP_ORACLE_PORT"]),
+                            service_name="FREEPDB1", tcp_connect_timeout=5)
+
+
+def doris_connect(env: dict[str, str], user: str = "root", password: str | None = None) -> pymysql.Connection:
+    """Connect to the demo Doris store (shop-doris). root only seeds; avelis_reader only has SELECT."""
+    key = {"root": "SHOP_DORIS_ROOT_PASSWORD", "avelis_collector": "SHOP_DORIS_COLLECTOR_PASSWORD",
+           "avelis_reader": "SHOP_DORIS_READER_PASSWORD"}[user]
+    return pymysql.connect(host="127.0.0.1", port=int(env["SHOP_DORIS_QUERY_PORT"]), user=user,
+                           password=env[key] if password is None else password, autocommit=True,
+                           charset="utf8mb4", connect_timeout=5)
 
 
 def sr_root(env: dict[str, str]) -> pymysql.Connection:
@@ -219,6 +271,59 @@ def _shop_pg_ready(env: dict[str, str]) -> bool:
         return conn.execute("SELECT COUNT(*) FROM store.sales").fetchone()[0] > 0
 
 
+def _shop_ch_ready(env: dict[str, str]) -> bool:
+    client = ch_connect(env)
+    try:
+        return client.command("SELECT 1") == 1
+    finally:
+        client.close()
+
+
+def _shop_mssql_ready(env: dict[str, str]) -> bool:
+    conn = mssql_connect(env, database="master")
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        return cur.fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def _shop_oracle_ready(env: dict[str, str]) -> bool:
+    with oracle_connect(env) as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM dual")
+        return cur.fetchone()[0] == 1
+
+
+def _doris_backend_alive(conn: pymysql.Connection) -> bool:
+    with conn.cursor(pymysql.cursors.DictCursor) as cur:
+        cur.execute("SHOW BACKENDS")
+        return any(str(row.get("Alive")).lower() == "true" for row in cur.fetchall())
+
+
+def _shop_doris_ready(env: dict[str, str]) -> bool:
+    """Ready once the BE is alive. The container keeps no volume, so after every (re)start root has an empty
+    password again; set it from .env the first time we see that."""
+    try:
+        conn = doris_connect(env)
+    except pymysql.err.OperationalError as exc:
+        if exc.args[0] != 1045:
+            raise
+        conn = doris_connect(env, password="")
+        if not _doris_backend_alive(conn):
+            conn.close()
+            return False
+        with conn.cursor() as cur:
+            cur.execute(f"SET PASSWORD FOR 'root' = PASSWORD('{env['SHOP_DORIS_ROOT_PASSWORD']}')")
+        conn.close()
+        log("  已为 Doris root 设置口令（来自 .env）")
+        return True
+    try:
+        return _doris_backend_alive(conn)
+    finally:
+        conn.close()
+
+
 def _shop_mysql_ready(env: dict[str, str]) -> bool:
     conn = mysql_connect(env, "avelis_collector")
     with conn.cursor() as cur:
@@ -228,24 +333,32 @@ def _shop_mysql_ready(env: dict[str, str]) -> bool:
     return ready
 
 
-def up(skip_seed: bool) -> None:
+def up(skip_seed: bool, engines: bool = False) -> None:
     init_env()
     fetch_driver()
     env = load_env()
-    compose("up", "-d", "--remove-orphans")
+    compose("up", "-d", "--remove-orphans", engines=engines)
     log("等待服务就绪 ...")
     wait_for("元数据库 PostgreSQL", lambda: _meta_pg_ready(env), 120)
     wait_for("Valkey（Redis 协议）", lambda: _valkey_ready(env), 60)
     wait_for("电商维表库 MySQL", lambda: _shop_mysql_ready(env), 240)
     wait_for("门店库 PostgreSQL", lambda: _shop_pg_ready(env), 120)
     wait_for("StarRocks FE + BE", lambda: _sr_ready(env), 420)
+    if engines:
+        wait_for("门店库 ClickHouse", lambda: _shop_ch_ready(env), 120)
+        wait_for("门店库 SQL Server", lambda: _shop_mssql_ready(env), 180)
+        wait_for("门店库 Oracle", lambda: _shop_oracle_ready(env), 600)
+        wait_for("门店库 Doris", lambda: _shop_doris_ready(env), 300)
     if not skip_seed:
         seed(env)
         check(env)
+        if engines:
+            seed_engines(env)
+            check_engines(env)
 
 
 def down(volumes: bool) -> None:
-    compose("down", "--remove-orphans", *(["--volumes"] if volumes else []))
+    compose("down", "--remove-orphans", *(["--volumes"] if volumes else []), engines=True)
 
 
 # --- seed --------------------------------------------------------------------
@@ -390,6 +503,204 @@ def seed(env: dict[str, str]) -> dict:
     return report
 
 
+# --- more engines ------------------------------------------------------------
+
+def engines_running(env: dict[str, str]) -> dict[str, bool]:
+    """更多引擎的演示库是否可连接（未用 --engines 启动时为 False）。"""
+    out = {}
+    for name, probe in (("clickhouse", _shop_ch_ready), ("sqlserver", _shop_mssql_ready),
+                        ("oracle", _shop_oracle_ready), ("doris", _shop_doris_ready)):
+        try:
+            out[name] = bool(probe(env))
+        except Exception:  # noqa: BLE001 - not started or not reachable
+            out[name] = False
+    return out
+
+
+def seed_clickhouse(env: dict[str, str]) -> None:
+    """重建 store 库与两个账号：采集账号只有 SHOW 权限（读系统表、不能读数据），查询账号 readonly=2 只能 SELECT。"""
+    client = ch_connect(env)
+    try:
+        for statement in sql_statements(SHOP_CH_SEED):
+            client.command(statement)
+        collector, reader = env["SHOP_CH_COLLECTOR_PASSWORD"], env["SHOP_CH_READER_PASSWORD"]
+        for user in ("avelis_collector", "avelis_reader"):
+            client.command(f"DROP USER IF EXISTS {user}")
+        client.command("CREATE USER avelis_collector IDENTIFIED WITH sha256_password BY {p:String}",
+                       parameters={"p": collector})
+        client.command("GRANT SHOW TABLES, SHOW COLUMNS ON store.* TO avelis_collector")
+        client.command("CREATE USER avelis_reader IDENTIFIED WITH sha256_password BY {p:String} "
+                       "SETTINGS readonly = 2", parameters={"p": reader})
+        client.command("GRANT SELECT ON store.* TO avelis_reader")
+        # 数据新鲜度只需分片的修改时间，不授予 system.parts 的其他列
+        client.command("GRANT SELECT(database, table, active, modification_time) ON system.parts TO avelis_reader")
+    finally:
+        client.close()
+
+
+def seed_mssql(env: dict[str, str]) -> None:
+    """重建 storedb 与两个账号：采集账号只有 store 模式的 VIEW DEFINITION（读目录与视图定义、不能读数据），
+    查询账号有 store 模式的 SELECT 与 VIEW DEFINITION（执行前核对要读视图定义）。"""
+    users = {"avelis_collector": env["SHOP_MSSQL_COLLECTOR_PASSWORD"], "avelis_reader": env["SHOP_MSSQL_READER_PASSWORD"]}
+    conn = mssql_connect(env, database="master")
+    try:
+        cur = conn.cursor()
+        cur.execute("IF DB_ID('storedb') IS NOT NULL BEGIN "
+                    "ALTER DATABASE storedb SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE storedb; END")
+        cur.execute("CREATE DATABASE storedb")
+        for user, password in users.items():  # 口令为字母数字（init-env 生成），可直接写入 DDL
+            assert password.isalnum()
+            cur.execute(f"IF SUSER_ID('{user}') IS NULL CREATE LOGIN {user} WITH PASSWORD = '{password}' "
+                        f"ELSE ALTER LOGIN {user} WITH PASSWORD = '{password}'")
+    finally:
+        conn.close()
+    conn = mssql_connect(env)
+    try:
+        cur = conn.cursor()
+        for statement in sql_statements(SHOP_MSSQL_SEED):
+            cur.execute(statement)
+        for user in users:
+            cur.execute(f"CREATE USER {user} FOR LOGIN {user}")
+        cur.execute("GRANT VIEW DEFINITION ON SCHEMA::store TO avelis_collector")
+        cur.execute("GRANT SELECT ON SCHEMA::store TO avelis_reader")
+        # 执行前核对要读视图定义：只授予元数据，不额外授予数据权限
+        cur.execute("GRANT VIEW DEFINITION ON SCHEMA::store TO avelis_reader")
+    finally:
+        conn.close()
+
+
+def seed_oracle(env: dict[str, str]) -> None:
+    """重建 STORE 模式与两个账号：采集账号只有 CREATE SESSION + SELECT_CATALOG_ROLE（读数据字典、不能读数据），
+    查询账号只有 STORE 各对象的 SELECT。"""
+    users = {"avelis_collector": env["SHOP_ORACLE_COLLECTOR_PASSWORD"],
+             "avelis_reader": env["SHOP_ORACLE_READER_PASSWORD"]}
+    with oracle_connect(env) as conn, conn.cursor() as cur:
+        for user in ("STORE", *(u.upper() for u in users)):
+            cur.execute("BEGIN EXECUTE IMMEDIATE 'DROP USER " + user + " CASCADE'; "
+                        "EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;")
+        for statement in sql_statements(SHOP_ORACLE_SEED):
+            cur.execute(statement)
+        for user, password in users.items():  # 口令为字母数字（init-env 生成），可直接写入 DDL
+            assert password.isalnum()
+            cur.execute(f'CREATE USER {user} IDENTIFIED BY "{password}"')
+            cur.execute(f"GRANT CREATE SESSION TO {user}")
+        cur.execute("GRANT SELECT_CATALOG_ROLE TO avelis_collector")
+        for table in ("shops", "sales", "returns", "city_daily_sales"):
+            cur.execute(f"GRANT SELECT ON store.{table} TO avelis_reader")
+
+
+def seed_doris(env: dict[str, str]) -> None:
+    """重建 store 库与两个账号：采集账号只有 SHOW_VIEW_PRIV（元数据可见、读不到数据），
+    查询账号有 SELECT_PRIV 与 SHOW_VIEW_PRIV（执行前核对要读视图定义）。"""
+    conn = doris_connect(env)
+    try:
+        with conn.cursor() as cur:
+            for statement in sql_statements(SHOP_DORIS_SEED):
+                cur.execute(statement)
+            for user, key, privileges in (("avelis_collector", "SHOP_DORIS_COLLECTOR_PASSWORD", "SHOW_VIEW_PRIV"),
+                                          ("avelis_reader", "SHOP_DORIS_READER_PASSWORD",
+                                           "SELECT_PRIV, SHOW_VIEW_PRIV")):
+                assert env[key].isalnum()  # init-env 生成的口令为字母数字，可直接写入 DDL
+                cur.execute(f"DROP USER IF EXISTS '{user}'@'%'")
+                cur.execute(f"CREATE USER '{user}'@'%' IDENTIFIED BY '{env[key]}'")
+                cur.execute(f"GRANT {privileges} ON internal.store.* TO '{user}'@'%'")
+    finally:
+        conn.close()
+
+
+def seed_engines(env: dict[str, str]) -> None:
+    log("把更多引擎的演示库重置到验收基线 ...")
+    running = engines_running(env)
+    missing = [k for k, ok in running.items() if not ok]
+    if missing:
+        sys.exit(f"引擎演示库未启动：{', '.join(missing)}；先运行 uv run scripts/demo.py up --engines")
+    seed_clickhouse(env)
+    seed_mssql(env)
+    seed_oracle(env)
+    seed_doris(env)
+    log("  灌数完成：ClickHouse store、SQL Server storedb.store、Oracle FREEPDB1.STORE、Doris store")
+
+
+ENGINE_BASELINE = [
+    ("clickhouse", "门店库 city_daily_sales 2026-09-15 上海（ClickHouse）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '上海'",
+     Decimal("250.00")),
+    ("clickhouse", "门店库 city_daily_sales 2026-09-15 北京（ClickHouse）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '北京'",
+     Decimal("80.00")),
+    ("sqlserver", "门店库 city_daily_sales 2026-09-15 上海（SQL Server）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = N'上海'",
+     Decimal("250.00")),
+    ("sqlserver", "门店库 city_daily_sales 2026-09-15 北京（SQL Server）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = N'北京'",
+     Decimal("80.00")),
+    ("doris", "门店库 city_daily_sales 2026-09-15 上海（Doris）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '上海'",
+     Decimal("250.00")),
+    ("doris", "门店库 city_daily_sales 2026-09-15 北京（Doris）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '北京'",
+     Decimal("80.00")),
+    ("oracle", "门店库 city_daily_sales 2026-09-15 上海（Oracle）",
+     "SELECT TO_CHAR(SUM(sales_amount), 'FM999990.00') FROM store.city_daily_sales "
+     "WHERE sale_date >= DATE '2026-09-15' AND sale_date < DATE '2026-09-16' AND city = '上海'",
+     Decimal("250.00")),
+    ("oracle", "门店库 city_daily_sales 2026-09-15 北京（Oracle；下单时间 10:30）",
+     "SELECT TO_CHAR(SUM(sales_amount), 'FM999990.00') FROM store.city_daily_sales "
+     "WHERE sale_date >= DATE '2026-09-15' AND sale_date < DATE '2026-09-16' AND city = '北京'",
+     Decimal("80.00")),
+]
+
+
+def _engine_value(env: dict[str, str], engine: str, sql: str):
+    if engine == "clickhouse":
+        client = ch_connect(env, "avelis_reader")
+        try:
+            rows = client.query(sql).result_rows
+        finally:
+            client.close()
+    elif engine == "doris":
+        conn = doris_connect(env, "avelis_reader")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    elif engine == "oracle":
+        with oracle_connect(env, "avelis_reader") as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+    else:
+        conn = mssql_connect(env, "avelis_reader")
+        try:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    return rows[0][0] if rows else "无数据"
+
+
+def engine_baseline_values(env: dict[str, str]) -> list[dict]:
+    results = []
+    for engine, label, sql, expected in ENGINE_BASELINE:
+        try:
+            actual = _engine_value(env, engine, sql)
+        except Exception as exc:  # noqa: BLE001 - reported as a failed baseline line
+            actual = f"错误：{exc}"
+        results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                        "passed": str(actual) == str(expected)})
+    return results
+
+
+def check_engines(env: dict[str, str]) -> bool:
+    log("核对更多引擎的验收基线（avelis_reader 只读账号）：")
+    results = engine_baseline_values(env)
+    for r in results:
+        log(f"  {'通过' if r['passed'] else '不符'}  {r['label']}：期望 {r['expected']}，实际 {r['actual']}")
+    return all(r["passed"] for r in results)
+
+
 # --- baseline check ----------------------------------------------------------
 
 BASELINE = [
@@ -475,7 +786,9 @@ def main() -> None:
     sub.add_parser("fetch-driver")
     p_up = sub.add_parser("up")
     p_up.add_argument("--skip-seed", action="store_true")
+    p_up.add_argument("--engines", action="store_true", help="同时启动更多引擎的演示库（ClickHouse 等）")
     sub.add_parser("seed")
+    sub.add_parser("seed-engines")
     sub.add_parser("check")
     sub.add_parser("verify")
     p_down = sub.add_parser("down")
@@ -487,7 +800,11 @@ def main() -> None:
     elif args.cmd == "fetch-driver":
         fetch_driver()
     elif args.cmd == "up":
-        up(args.skip_seed)
+        up(args.skip_seed, args.engines)
+    elif args.cmd == "seed-engines":
+        env = load_env()
+        seed_engines(env)
+        sys.exit(0 if check_engines(env) else 1)
     elif args.cmd == "seed":
         env = load_env()
         seed(env)
