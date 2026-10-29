@@ -1,6 +1,6 @@
 """后台任务：事实来源是 job 表，Redis 列表只负责唤醒 worker。
 
-Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务不会丢；同一数据源的采集用 Redis 锁互斥。
+Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务不会丢；同一数据源的采集用 PostgreSQL 锁互斥。
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
@@ -15,27 +15,36 @@ import time
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
+from sqlalchemy.orm import Session
 
 from avelis import cache
 from avelis.collect.service import CollectionFailed, run_collection
 from avelis.config import get_settings
-from avelis.db import session_scope, utcnow
+from avelis.db import advisory_lock, session_scope, utcnow
 from avelis.models import CollectionRun, Datasource, Job
 
 log = logging.getLogger("avelis.worker")
 
 
-def enqueue(kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
-    with session_scope() as session:
-        job = Job(kind=kind, payload=payload, status="queued", created_by=actor_id)
-        session.add(job)
-        session.flush()
-        job_id = job.id
+def _enqueue(session: Session, kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
+    job = Job(kind=kind, payload=payload, status="queued", created_by=actor_id)
+    session.add(job)
+    session.flush()
+    return job.id
+
+
+def _wake(job_id: str) -> None:
     try:
         cache.client().lpush(cache.JOB_QUEUE, job_id)
     except Exception:  # Redis 不可用：worker 会从 job 表扫描到
         log.warning("Redis 不可用，任务 %s 等待 worker 扫描", job_id)
+
+
+def enqueue(kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
+    with session_scope() as session:
+        job_id = _enqueue(session, kind, payload, actor_id)
+    _wake(job_id)
     return job_id
 
 
@@ -46,7 +55,7 @@ def run_job(job_id: str) -> None:
         if not claimed:
             return
         job = session.get(Job, job_id)
-        kind, payload, actor = job.kind, dict(job.payload), job.created_by
+        kind, payload, actor, attempt = job.kind, dict(job.payload), job.created_by, job.attempts
     result: dict[str, Any] = {}
     error = None
     try:
@@ -58,15 +67,12 @@ def run_job(job_id: str) -> None:
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
         error = f"{type(exc).__name__}: {exc}"
     with session_scope() as session:
-        job = session.get(Job, job_id)
-        job.status = "failed" if error else "succeeded"
-        job.error = error
-        job.result = result
-        job.finished_at = utcnow()
+        session.execute(update(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).values(
+            status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow()))
 
 
 def collect_now(datasource_id: str, *, trigger: str, actor_id: str | None) -> str:
-    with cache.lock(f"collect:{datasource_id}"):
+    with advisory_lock(f"collect:{datasource_id}"):
         return run_collection(datasource_id, trigger=trigger, actor_id=actor_id)
 
 
@@ -74,7 +80,10 @@ def schedule_due() -> list[str]:
     """为到期的数据源入队定时采集。"""
     queued = []
     with session_scope() as session:
-        for ds in session.scalars(select(Datasource).where(Datasource.status == "active")):
+        # 固定加锁顺序，避免多个调度器以相反顺序持有事务锁。
+        for ds in session.scalars(select(Datasource).where(Datasource.status == "active").order_by(Datasource.id)):
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                            {"key": f"schedule:collect:{ds.id}"})
             last = session.scalar(select(CollectionRun.started_at).where(CollectionRun.datasource_id == ds.id)
                                   .order_by(CollectionRun.started_at.desc()).limit(1))
             pending = session.scalar(select(Job.id).where(Job.kind == "collect", Job.status.in_(("queued", "running")),
@@ -82,8 +91,10 @@ def schedule_due() -> list[str]:
             if pending:
                 continue
             if last is None or utcnow() - last.replace(tzinfo=None) >= timedelta(minutes=ds.collect_interval_minutes):
-                queued.append(ds.id)
-    return [enqueue("collect", {"datasource_id": ds_id, "trigger": "schedule"}, None) for ds_id in queued]
+                queued.append(_enqueue(session, "collect", {"datasource_id": ds.id, "trigger": "schedule"}, None))
+    for job_id in queued:
+        _wake(job_id)
+    return queued
 
 
 def stale_jobs(older_than_seconds: int | None = None) -> list[str]:
@@ -94,16 +105,14 @@ def stale_jobs(older_than_seconds: int | None = None) -> list[str]:
 
 
 def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
-    """把运行超时（执行它的 worker 已退出）的任务记为失败，返回任务 ID。"""
+    """把运行超时的任务记为失败，返回本次更新的任务 ID。"""
     older_than_seconds = (get_settings().worker_running_timeout_seconds if older_than_seconds is None
                           else older_than_seconds)
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
     with session_scope() as session:
-        ids = list(session.scalars(select(Job.id).where(Job.status == "running", Job.started_at < cutoff)))
-        if ids:
-            session.execute(update(Job).where(Job.id.in_(ids), Job.status == "running").values(
-                status="failed", finished_at=utcnow(),
-                error=f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"))
+        ids = list(session.scalars(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
+            status="failed", finished_at=utcnow(),
+            error=f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑").returning(Job.id)))
     for job_id in ids:
         log.warning("任务 %s 运行超时，已记为失败", job_id)
     return ids

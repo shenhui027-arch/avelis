@@ -35,6 +35,11 @@ CONFIRMED_ORIGINS = ("import", "import_manual", "model_confirmed")
 RELATIONS = ("value_direct", "value_computed", "value_aggregated", "filter", "join_key", "group_by", "table")
 
 
+def require_import_access(session: Session, actor: User) -> None:
+    """导入原文、参数和模型载荷统一按维护者权限读写。"""
+    access.require_role(session, actor, "steward")
+
+
 def detect_language(filename: str, source_type: str | None) -> str:
     if source_type in ("sql", "python", "shell"):
         return source_type
@@ -43,7 +48,7 @@ def detect_language(filename: str, source_type: str | None) -> str:
 
 def create_import(session: Session, actor: User, *, datasource_id: str, filename: str, content: str,
                   source_type: str | None, default_db: str | None, params: dict[str, str]) -> tuple[ImportJob, bool]:
-    access.require_role(session, actor, "steward")
+    require_import_access(session, actor)
     ds = session.get(Datasource, datasource_id)
     if ds is None:
         raise NotFound("数据源不存在")
@@ -214,7 +219,9 @@ def _model_candidates(session: Session, job: ImportJob, stmt: ExtractedStatement
         else:
             raw = demo_candidates(redacted, stmt.line_start, columns_of)
     except Exception as exc:  # 模型失败如实记录，不影响确定性结果
-        stmt.reason = f"模型推断失败：{type(exc).__name__}: {str(exc)[:200]}"
+        error = f"{type(exc).__name__}: {exc}"
+        error = resolved.safe_error(error, limit=200) if resolved else modelcfg.redact_error(error, limit=200)
+        stmt.reason = f"模型推断失败：{error}"
         payload["error"] = stmt.reason
         job.model_payload = [*job.model_payload[:-1], payload]
         return
@@ -253,7 +260,7 @@ def _validate(c: Candidate, known: dict[str, set[str]], default_db: str | None, 
 # --- 参数、人工处理 -----------------------------------------------------------------
 
 def set_params(session: Session, actor: User, job: ImportJob, params: dict[str, str]) -> ImportJob:
-    access.require_role(session, actor, "steward")
+    require_import_access(session, actor)
     job.params = {**(job.params or {}), **{k: str(v) for k, v in params.items()}}
     waiting = {s.seq for s in session.scalars(select(ExtractedStatement).where(
         ExtractedStatement.job_id == job.id, ExtractedStatement.status == "needs_params"))}
@@ -265,7 +272,7 @@ def set_params(session: Session, actor: User, job: ImportJob, params: dict[str, 
 
 def decide(session: Session, actor: User, candidate: CandidateEdge, decision: str, reason: str,
            changes: dict[str, Any]) -> CandidateEdge:
-    access.require_role(session, actor, "steward")
+    require_import_access(session, actor)
     if decision not in ("accept", "reject", "modify"):
         raise Invalid("decision 只能是 accept、reject 或 modify")
     if not reason:
@@ -306,7 +313,7 @@ def decide(session: Session, actor: User, candidate: CandidateEdge, decision: st
 
 
 def add_manual_edge(session: Session, actor: User, job: ImportJob, values: dict[str, Any], reason: str):
-    access.require_role(session, actor, "steward")
+    require_import_access(session, actor)
     if values.get("relation") not in RELATIONS:
         raise Invalid("关系类型不合法")
     return _write_edge(session, actor, job, None, origin="import_manual", source_ref=values["source_ref"],
