@@ -13,9 +13,9 @@ from avelis.models import Datasource
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "sqlserver", "fake"}
-    with pytest.raises(UnsupportedEngine, match="oracle"):
-        get_engine("oracle")
+    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "doris", "fake"}
+    with pytest.raises(UnsupportedEngine, match="hive"):
+        get_engine("hive")
     with pytest.raises(ValueError, match="已登记"):
         register(get_engine("mysql"))
 
@@ -141,3 +141,33 @@ def test_model_history_drops_result_values_when_not_sent():
     assert "270" not in " ".join(str(m.content) for m in sent)
     assert "指标 net_sales" in str(sent[2].content) and str(sent[1].content).startswith("[answered]")
     assert _history_for_model(history, send_results=True) == history
+
+
+def test_oracle_case_folding_dates_and_fetch_first():
+    from datetime import date
+    from types import SimpleNamespace
+
+    from avelis.ask.compiler import compile_metric_query
+    from avelis.ask.intent import Intent
+    from avelis.connectors.oracle import type_name
+    from avelis.models import Asset
+
+    assert type_name("VARCHAR2", 64, None, None, 16) == "VARCHAR2(16)"
+    assert type_name("NUMBER", 22, 18, 2, None) == "NUMBER(18,2)" and type_name("DATE", 7, None, None, None) == "DATE"
+    ora = get_engine("oracle").dialect_for({"service": "FREEPDB1", "schemas": ["STORE"]})
+    assert ora.default_catalog == "FREEPDB1" and not ora.catalog_in_sql and ora.date_has_time
+    # 视图原文的 store.sales 在数据字典中是 STORE.SALES：先按 Oracle 规则折叠再对资产
+    schema = {"FREEPDB1": {"STORE": {"SALES": {"AMOUNT": "NUMBER", "SALE_DATE": "DATE"}}}}
+    parsed = parse_query("SELECT sale_date, SUM(amount) AS total FROM store.sales GROUP BY sale_date",
+                         dialect=ora, schema=schema)
+    assert parsed.status == "ok" and parsed.tables == ["FREEPDB1.STORE.SALES"]
+    base = Asset(catalog_name="FREEPDB1", db_name="STORE", name="SALES")
+    version = SimpleNamespace(dimensions=[], expression="SUM(AMOUNT)", time_column="SALE_DATE", filters=None)
+    intent = Intent(metric_code="m", start_date=date(2026, 9, 15), end_date=date(2026, 9, 15))
+    compiled = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
+                                    time_type="date", dialect=ora)
+    # DATE 带时间部分：用 [当日 0 点, 次日 0 点) 区间；不写服务名；行数上限为 FETCH FIRST
+    assert "b.SALE_DATE >= '2026-09-15 00:00:00' AND b.SALE_DATE < '2026-09-16 00:00:00'" in compiled.sql
+    assert "FROM STORE.SALES b" in compiled.sql and compiled.sql.endswith("FETCH FIRST 1000 ROWS ONLY")
+    validate_sql(compiled.sql, dialect=ora, allowed_tables={"FREEPDB1.STORE.SALES"},
+                 schema={"FREEPDB1.STORE.SALES": {"AMOUNT", "SALE_DATE"}}, max_rows=1000)

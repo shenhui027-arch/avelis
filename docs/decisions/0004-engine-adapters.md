@@ -71,6 +71,8 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 | SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
+| Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
+| Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 
 **ClickHouse**（M7，真实实例联调）：
 
@@ -98,16 +100,44 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
   服务器原始报错原样保留，去掉驱动附加的说明。
 - 不报告数据新鲜度：最近写入时间需要 `VIEW SERVER STATE`，默认不授予。
 
+**Oracle**（M7，真实实例联调；用户已确认接受 Oracle Free 的许可条款）：
+
+- 资产名 `服务名.模式.表`。查询中不写服务名（`catalog_in_sql = False`），行数上限写成 `FETCH FIRST n ROWS ONLY`，执行前校验同样识别。
+- **标识符大小写**：未加引号的名字在数据字典中存为大写。解析前用 `fold_identifiers("oracle")` 按 Oracle 规则折叠，视图原文的 `store.sales` 才能对上已采集的 `STORE.SALES`。这一规整只挂在 Oracle 方言上，不改变其他引擎的规范化 SQL 与指纹。
+- **`DATE` 带时间部分**（方言项 `date_has_time`）：按日期过滤时，用“当日 0 点 ≤ t < 次日 0 点”的区间，而不是 `BETWEEN` 两个日期。
+  - 演示库里北京那笔订单的下单时间是 10:30，用来确认这一点：用 `BETWEEN` 会漏掉它。
+  - 会话固定 `NLS_DATE_FORMAT` 与 `NLS_TIMESTAMP_FORMAT`，SQL 中的日期字符串不依赖库的默认设置。
+- 采集账号只需 `CREATE SESSION` 与 `SELECT_CATALOG_ROLE`，读 `DBA_*` 数据字典。
+  - 读业务数据会报 ORA-00942：Oracle 对无权限的对象报“不存在”，因此按“对象无法解析”归类，不改写成“权限”。
+- 物理身份用 `OBJECT_ID`：`RENAME` 与 `CREATE OR REPLACE VIEW` 都不改变它。
+- 视图定义取 `DBA_VIEWS.TEXT`（建视图时的原文）。
+- 问数执行：
+  - 在只读事务（`SET TRANSACTION READ ONLY`）内执行，并设调用超时；
+  - `NUMBER` 取为 `Decimal`，默认的 float 会让金额产生精度误差；
+  - 错误归类：DPY-4024 为超时；ORA-00904、00942 为对象无法解析；ORA-01031、01456、41900 为权限（ORA-41900 是 23ai 起的“缺少某项权限”）。
+- 不报告数据新鲜度：`DBA_TAB_MODIFICATIONS` 依赖统计信息刷新，不能代表最近写入时间。
+
+**Doris**（M7，真实实例联调；all-in-one 镜像，一个 FE 加一个 BE）：
+
+- 资产名 `internal.库.表`。视图定义的存储写法与 StarRocks 相同（`internal`.`db`.`alias`.`col`），复用 StarRocks 的别名前缀规整。
+- 采集账号只需库上的 `SHOW_VIEW_PRIV`：`information_schema` 的 tables、columns、views、table_options、metadata_name_ids 全部可见，读业务数据会被拒绝。
+- 物理身份用 `metadata_name_ids.TABLE_ID`：表改名不变，删后重建会变。**视图也有稳定 ID**，`ALTER VIEW`、`CREATE OR REPLACE VIEW` 都不变，这一点与 StarRocks 不同。
+- 键模型取 `table_options.TABLE_MODEL`：只有 `UNI`（唯一键模型）作为数据库保证的唯一键；`DUP`、`AGG` 不作为粒度依据。
+- 问数执行：会话设 `query_timeout`、`exec_mem_limit`。Doris 的错误号统一为 1105，按报错内容归类：
+  - query timeout 为超时；
+  - Access denied、command denied 为权限；
+  - Unknown column、does not exist 为对象无法解析。
+- 查询账号需 `SELECT_PRIV` 与 `SHOW_VIEW_PRIV`：执行前核对要读视图定义。
+- 数据新鲜度：`information_schema.tables.UPDATE_TIME`（写入后更新）。
+
 ## 规划中的引擎（未登记，未验证）
 
 只考虑 SQLGlot 有方言的引擎；新引擎的前提是 SQLGlot 支持它的方言。
 
 | 引擎 | SQLGlot 方言 | 资产名映射 | 需要实测的要点 |
 |---|---|---|---|
-| Doris | `doris` | catalog.db.table | 视图定义的存储写法是否与 StarRocks 相同（能否复用别名规整）；外部 Catalog 的连接信息 |
 | Hive | `hive` | 固定 Catalog + db.table | 元数据来自 HMS 或 `SHOW CREATE TABLE`；血缘主要来自 ETL 脚本导入，而不是视图 |
 | PostgreSQL | `postgres` | db.schema.table | `pg_views` / `information_schema.views` 的定义是否已全限定；`search_path` 对解析的影响 |
-| Oracle | `oracle` | 服务名.schema.table | `ALL_VIEWS.TEXT` 读取；大小写与带引号标识符；同义词 |
 
 ## 后果
 
