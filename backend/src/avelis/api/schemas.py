@@ -49,6 +49,14 @@ class AliasOut(Out):
     note: str | None = None
 
 
+class EngineOptionOut(Out):
+    key: str
+    label: str
+    type: str
+    required: bool
+    hint: str
+
+
 class EngineOut(Out):
     kind: str
     label: str
@@ -59,6 +67,7 @@ class EngineOut(Out):
     default_port: int | None = None
     is_test_adapter: bool
     note: str
+    options: list[EngineOptionOut] = []
 
 
 class DatasourceOut(Out):

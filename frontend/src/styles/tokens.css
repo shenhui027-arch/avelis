@@ -4,6 +4,17 @@
   color-scheme: dark;
   --font-sans: Geist, "Noto Sans SC", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --type-display: 600 32px/40px var(--font-sans);
+  --type-title-lg: 600 20px/28px var(--font-sans);
+  --type-title: 600 14px/20px var(--font-sans);
+  --type-body: 400 14px/22px var(--font-sans);
+  --type-body-strong: 500 14px/22px var(--font-sans);
+  --type-body-compact: 400 13px/20px var(--font-sans);
+  --type-caption: 400 12px/18px var(--font-sans);
+  --type-micro: 500 11px/14px var(--font-sans);
+  --type-mono: 400 12px/18px var(--font-mono);
+  --type-mono-strong: 500 13px/18px var(--font-mono);
+  --type-num: 500 13px/20px var(--font-mono);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -25,6 +36,10 @@
   --size-topbar: 48px;
   --size-inspector: 360px;
   --size-node: 248px;
+  --size-drawer-md: 480px;
+  --size-drawer-lg: 640px;
+  --size-reading: 880px;
+  --size-control-auth: 40px;
   --bg-canvas: #07090e;
   --bg-base: #0b0e15;
   --bg-surface: #10141d;
@@ -61,6 +76,7 @@
   --domain-rose: #f472b6;
   --domain-lime: #a3e635;
   --domain-sand: #d6b58a;
+  --bg-scrim: #000000a3;
   --shadow-node: 0 1px 0 0 #ffffff08 inset, 0 8px 24px -10px #000000b3;
   --shadow-overlay: 0 16px 48px -12px #000000cc, 0 0 0 1px #ffffff0a;
   --shadow-glow: 0 0 0 1px #22d3ee, 0 0 20px -4px #22d3ee99;
@@ -104,6 +120,7 @@
   --domain-rose: #c0266d;
   --domain-lime: #4d7c0f;
   --domain-sand: #8a6a3e;
+  --bg-scrim: #0e132052;
   --shadow-node: 0 1px 2px #0e13200f, 0 6px 16px -8px #0e132026;
   --shadow-overlay: 0 16px 40px -12px #0e132040;
   --shadow-glow: 0 0 0 1px #0891b2, 0 0 0 4px #0891b226;

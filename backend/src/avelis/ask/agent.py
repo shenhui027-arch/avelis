@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import operator
+import re
 import time
 from datetime import date
 from typing import Annotated, Any, TypedDict
@@ -194,6 +195,44 @@ def _ctx(config) -> tuple[Session, User, Answer]:
     return c["session"], c["user"], c["answer"]
 
 
+SUMMARY_RE = re.compile(r"^\[(answered|blocked|denied|error|clarify)\]")
+
+
+def _answer_context(answer, intent: dict | None) -> str:
+    """不含结果数值的结构化上下文：用于在不外发结果时，仍让模型理解“那华北呢？”这类追问。"""
+    intent = intent or {}
+    parts = [f"[{answer.status}]"]
+    if intent.get("metric_code"):
+        parts.append(f"指标 {intent['metric_code']}")
+    if intent.get("start_date"):
+        parts.append(f"日期 {intent['start_date']}" + (f" 至 {intent['end_date']}"
+                                                     if intent.get("end_date") != intent.get("start_date") else ""))
+    for f in intent.get("filters") or []:
+        parts.append(f"{f['dimension']} = {'、'.join(f['values'])}")
+    if intent.get("group_by"):
+        parts.append(f"按 {'、'.join(intent['group_by'])} 分组")
+    return " · ".join(parts) + "（结果未发送给模型）"
+
+
+def _history_for_model(messages: list[AnyMessage], send_results: bool) -> list[AnyMessage]:
+    """按当前外发策略过滤会话历史：关闭“发送查询结果”时，此前各轮答案的摘要只保留结构化上下文（含开关从开到关的旧检查点）。"""
+    if send_results:
+        return messages
+    out: list[AnyMessage] = []
+    for m in messages:
+        if isinstance(m, AIMessage) and not m.tool_calls:
+            text = m.content if isinstance(m.content, str) else ""
+            if m.additional_kwargs.get("avelis_summary") or SUMMARY_RE.match(text):
+                redacted = m.additional_kwargs.get("redacted")
+                if not redacted:
+                    match = SUMMARY_RE.match(text)
+                    redacted = f"[{match.group(1) if match else 'answered'}]（结果未发送给模型）"
+                out.append(AIMessage(redacted, additional_kwargs=m.additional_kwargs))
+                continue
+        out.append(m)
+    return out
+
+
 def understand(state: AgentState, config) -> dict[str, Any]:
     session, user, answer = _ctx(config)
     settings = get_settings()
@@ -215,7 +254,7 @@ def understand(state: AgentState, config) -> dict[str, Any]:
     tools = {t.name: t for t in toolbox.tools()}
     bound = model.bind_tools(list(tools.values()))
     system = SystemMessage(SYSTEM_PROMPT.format(tz=settings.business_timezone, today=today))
-    history = list(state.get("messages", []))
+    history = _history_for_model(list(state.get("messages", [])), modelcfg.policy(session)["send_results"])
     new_messages: list[AnyMessage] = []
     calls = []
     for _ in range(MAX_TOOL_ROUNDS):
@@ -275,7 +314,10 @@ def explain(state: AgentState, config) -> dict[str, Any]:
         ])
         answer.explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
         answer.explanation_source = "model"
-    summary = AIMessage(f"[{answer.status}] {answer.message or ''}")
+    # 写入会话历史的本轮摘要：只有允许发送查询结果时才含数值
+    redacted = _answer_context(answer, state.get("intent"))
+    summary = AIMessage(f"[{answer.status}] {answer.message or ''}" if send_results else redacted,
+                        additional_kwargs={"avelis_summary": True, "redacted": redacted})
     return {"messages": [summary], "steps": [{"node": "explain", "source": answer.explanation_source,
                                               "at": utcnow().isoformat()}]}
 

@@ -5,7 +5,7 @@
 
 ## 背景
 
-Avelis 首期面向 StarRocks。用户明确后续要适配 Oracle、PostgreSQL、Hive、Doris、MySQL、SQL Server、DB2、ClickHouse 的血缘，并要求后端控制耦合度，借鉴成熟的数据治理与血缘产品。
+Avelis 首期面向 StarRocks。用户明确后续要适配多种数据库的血缘，并要求后端控制耦合度，借鉴成熟的数据治理与血缘产品。范围限定为 **SQLGlot 支持的引擎**（用户决定，2026-10-29）：Oracle、PostgreSQL、Hive、Doris、MySQL、SQL Server、ClickHouse。DB2 因 SQLGlot 没有对应方言而不在范围内。
 
 M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处：
 
@@ -47,7 +47,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
    - MySQL 当前只有 `metadata` 和 `identity_target`；它的视图解析和问数执行没有在真实环境验证，所以不声明。
 4. **统一的资产名**：仍是 `catalog.db.name` 三段。
    - 只有 库.表 两级的引擎（MySQL、Hive、ClickHouse）用适配器给的固定 Catalog 补齐。
-   - 有 库.模式.表 三级的引擎（PostgreSQL、SQL Server、Oracle、DB2）把库（或服务名）放在 catalog 段。
+   - 有 库.模式.表 三级的引擎（PostgreSQL、SQL Server、Oracle）把库（或服务名）放在 catalog 段。
    - 同一个库在不同网络位置的地址，仍由端点别名与实例身份（如 `server_uuid`）对齐。
 5. **前端按能力渲染。**
    - 新增 `GET /api/engines`；数据源详情带 `engine` 字段。
@@ -62,6 +62,8 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
 ## 规划中的引擎（未登记，未验证）
 
+只考虑 SQLGlot 有方言的引擎；新引擎的前提是 SQLGlot 支持它的方言。
+
 | 引擎 | SQLGlot 方言 | 资产名映射 | 需要实测的要点 |
 |---|---|---|---|
 | Doris | `doris` | catalog.db.table | 视图定义的存储写法是否与 StarRocks 相同（能否复用别名规整）；外部 Catalog 的连接信息 |
@@ -70,7 +72,6 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | Oracle | `oracle` | 服务名.schema.table | `ALL_VIEWS.TEXT` 读取；大小写与带引号标识符；同义词 |
 | SQL Server | `tsql` | db.schema.table | `sys.sql_modules`；跨库三段名、链接服务器四段名 |
 | ClickHouse | `clickhouse` | 固定 Catalog + db.table | 物化视图的 `TO` 目标表；Distributed 表到本地表的映射 |
-| DB2 | **SQLGlot 30.25 没有 DB2 方言** | db.schema.table | 需要先评估：自定义方言，或退回表级血缘加导入 |
 
 ## 后果
 

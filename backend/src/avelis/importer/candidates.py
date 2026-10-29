@@ -13,21 +13,36 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
-SECRET_PATTERNS = [
-    (re.compile(r"(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)\b(\s*[=:]\s*)"
-                r"(['\"]?)([^'\"\s,)]+)\3"), r"\1\2\3<redacted>\3"),
-    (re.compile(r"(?i)(://[^:/\s]+:)([^@\s]+)(@)"), r"\1<redacted>\3"),
-    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "<redacted>"),
-    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"), "<redacted>"),
-]
+SECRET_PATTERN = re.compile(
+    r"(?P<prefix>(?<!\w)(?P<key_quote>['\"]?)(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)"
+    r"(?P=key_quote)\s*[=:]\s*)"
+    r"(?P<value>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|\"(?:\\[\s\S]|[^\"\\])*\"|"
+    r"'(?:\\[\s\S]|[^'\\])*'|[^\s,;)\]}#]+)"
+    r"|(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-]+:)(?P<password>[^@\s'\"]+)(?=@[\w.\[-])"
+    r"|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}\b",
+    re.I,
+)
 
 
 def redact(text: str) -> tuple[str, int]:
     count = 0
-    for pattern, repl in SECRET_PATTERNS:
-        text, n = pattern.subn(repl, text)
-        count += n
-    return text, count
+
+    def replace(match: re.Match) -> str:
+        nonlocal count
+        if match.group("prefix") is not None:
+            value = match.group("value")
+            quote = next((q for q in ('\"\"\"', "'''", '\"', "'") if value.startswith(q)), "")
+            replacement = match.group("prefix") + quote + "<redacted>" + quote
+        elif match.group("user") is not None:
+            replacement = match.group("user") + "<redacted>"
+        else:
+            replacement = "<redacted>"
+        if replacement != match.group(0):
+            count += 1
+        return replacement
+
+    # 一次匹配替换，避免同一个赋值中的 URL 或 API key 被重复计数。
+    return SECRET_PATTERN.sub(replace, text), count
 
 
 @dataclass

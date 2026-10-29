@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -25,23 +25,27 @@ from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
-from avelis.engines import engine_of, query_connector
-from avelis.engines.base import QUERY
+from avelis.engines import dialect_of, engine_of, query_connector
+from avelis.engines.base import LIVE_CHECK, QUERY
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.governance.metrics import (
     dependency_drift,
     describe_version,
     latest_governed_version,
+    publish_check,
     validate_spec,
     visible_metrics,
 )
+from avelis.lineage.sql import canonical_hash_of
 from avelis.models import (
     Answer,
     Asset,
     ColumnVersion,
     Datasource,
+    Definition,
     Impact,
+    Job,
     LineageEdge,
     Metric,
     MetricVersion,
@@ -148,11 +152,21 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
 
     resolved = validate_spec(session, version)
     aliases, steps = resolved["aliases"], resolved["steps"]
+    from avelis.governance.joins import effectively_approved
+
     for step in steps:
-        if step["path"].status != "approved":
+        if not effectively_approved(session, step["path"]):
             answer.status = "blocked"
             answer.error_code = "join_path_not_approved"
             answer.message = f"关联路径 {step['path'].code} 当前为 {step['path'].status}，不能用于问数"
+            return
+    if steps:
+        # 关联基数按当前粒度重新判定：粒度被证伪、键变化后，发布时的 N:1 依据可能已不成立
+        fan_out = publish_check(session, version)["fan_out"]
+        if fan_out:
+            answer.status = "blocked"
+            answer.error_code = "fan_out"
+            answer.message = "关联会放大度量，已停止执行：" + "；".join(fan_out)
             return
 
     # 权限：查询会读到的全部来源（含视图背后的表）都必须可见
@@ -163,8 +177,8 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.status = "denied"
         answer.error_code = "permission"
         unassigned = [a for a in denied if a.domain_id is None]
-        answer.message = "没有权限读取查询涉及的来源：" + "、".join(
-            f"{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied)
+        answer.message = "没有权限读取查询涉及的来源：" + "、".join(sorted(
+            f"{a.catalog_name}.{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied))
         return
 
     time_alias, time_col = version.time_column.split(".", 1) if "." in version.time_column else ("b",
@@ -189,6 +203,15 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         return
 
     connector = query_connector(session, ds)
+    # 元数据过期：轮询采集之间库侧可能已变。执行（含使用缓存）前核对来源对象，与上次采集不一致就停下并触发采集
+    stale = _live_check(session, ds, connector, closure.values(), resolved["dependency"], settings)
+    if stale:
+        answer.status = "blocked"
+        answer.error_code = "metadata_stale"
+        answer.message = ("来源结构在上次采集之后已变化，未执行；已为该数据源排队重新采集，采集完成后再问：" +
+                          "；".join(s["summary"] for s in stale))
+        answer.evidence["live_check"] = stale
+        return
     internal = [(a.db_name, a.name) for a in closure.values()
                 if a.datasource_id == ds.id and a.kind == "table"]
     freshness = {"tables": connector.freshness(internal), **{k: _iso(v) for k, v in
@@ -249,6 +272,84 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     answer.message = _explain(metric, version, intent, answer.result)
     _cache_put(key, {"result": answer.result, "answer_id": answer.id, "executed_at": answer.executed_at.isoformat()},
                settings.answer_cache_seconds, [f"metric_version:{version.id}"])
+
+
+def _upstream_columns(session: Session, dependency: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """口径依赖的列沿已解析的血缘向上展开：资产 → 实际影响结果的列（含过滤、关联、分组等影响条件的来源列）。"""
+    out: dict[str, set[str]] = {}
+    stack = [(d["asset_id"], d["column"]) for d in dependency]
+    while stack:
+        asset_id, column = stack.pop()
+        if column in out.setdefault(asset_id, set()):
+            continue
+        out[asset_id].add(column)
+        asset = session.get(Asset, asset_id)
+        if asset is None or not asset.current_version_id:
+            continue
+        for edge in session.scalars(select(LineageEdge).where(
+                LineageEdge.target_asset_id == asset_id, LineageEdge.status == "active",
+                LineageEdge.origin.in_(("parsed", "manual")),
+                LineageEdge.target_asset_version_id == asset.current_version_id,
+                or_(LineageEdge.target_column == column, LineageEdge.target_column.is_(None)))):
+            if edge.source_asset_id and edge.source_column:
+                stack.append((edge.source_asset_id, edge.source_column))
+    return out
+
+
+def _live_check(session: Session, ds: Datasource, connector, assets, dependency: list[dict[str, Any]],
+                settings) -> list[dict[str, Any]]:
+    """用只读账号读取来源对象当前的列与视图定义，与当前资产版本比较，返回不一致的对象。
+    - 只看口径实际依赖的列（沿血缘展开）：无关列的增删不拦截；视图定义变化总是拦截。
+    - 只核对本数据源内部 Catalog 的表与视图；他库经外部表的变化由那个数据源的采集发现。
+    - 发现不一致时为该数据源排队一次采集（已有待办则不重复）。"""
+    engine = engine_of(ds)
+    if not settings.ask_live_check or not engine.supports(LIVE_CHECK):
+        return []
+    dialect = dialect_of(ds)
+    targets = [a for a in assets if a.datasource_id == ds.id and a.catalog_name == dialect.default_catalog
+               and a.kind in ("table", "view") and a.current_version_id]
+    if not targets:
+        return []
+    relevant = _upstream_columns(session, dependency)
+    try:
+        live = connector.describe_objects([(a.db_name, a.name) for a in targets])
+    except QueryError:
+        return []  # 核对失败不阻止问数：执行时数据库会如实报错
+    stale = []
+    for a in targets:
+        now = live.get((a.db_name, a.name))
+        if now is None:
+            continue
+        cols = [[c.name, c.data_type] for c in session.scalars(select(ColumnVersion).where(
+            ColumnVersion.asset_version_id == a.current_version_id).order_by(ColumnVersion.ordinal))]
+        problems = []
+        if not now["columns"]:
+            problems.append("对象已不存在")
+        elif a.physical_id and now.get("physical_id") and now["physical_id"] != a.physical_id:
+            problems.append("对象已被删除后同名重建")
+        elif now["columns"] != cols:
+            before, after = {c[0]: c[1] for c in cols}, {c[0]: c[1] for c in now["columns"]}
+            used = relevant.get(a.id) or set(before)
+            problems += [f"列 {n} 已删除" for n in before if n in used and n not in after]
+            problems += [f"列 {n} 类型 {before[n]} → {after[n]}" for n in before
+                         if n in used and n in after and before[n] != after[n]]
+        if a.kind == "view" and now["columns"]:
+            stored = session.scalar(select(Definition.canonical_hash).where(
+                Definition.asset_version_id == a.current_version_id))
+            current = canonical_hash_of(now["definition"], dialect)[1] if now["definition"] else None
+            if current != stored:
+                problems.append("视图定义已变化")
+        if problems:
+            stale.append({"asset_id": a.id, "qualified": f"{a.catalog_name}.{a.db_name}.{a.name}",
+                          "problems": problems, "summary": f"{a.db_name}.{a.name}（{'、'.join(problems)}）"})
+    if stale:
+        from avelis import jobs  # 避免循环导入
+
+        pending = session.scalar(select(Job.id).where(Job.kind == "collect", Job.status.in_(("queued", "running")),
+                                                      Job.payload["datasource_id"].as_string() == ds.id).limit(1))
+        if pending is None:
+            jobs.enqueue("collect", {"datasource_id": ds.id, "trigger": "live_check"}, None)
+    return stale
 
 
 def _cache_get(key: str):
@@ -381,19 +482,26 @@ def _column_type(session: Session, asset: Asset, column: str) -> str:
 
 
 def _dimension_values(session: Session, user: User, version: MetricVersion, settings) -> dict[str, list[str]]:
-    """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。"""
+    """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。
+
+    与正式问数同一套守卫，且在读缓存之前执行：口径已发布且依赖未漂移；维度所在资产的完整来源闭包对当前用户都可见；
+    真正查库前再做执行前核对。取值会进入模型上下文，不能成为绕过权限读取来源数据的旁路。"""
     out: dict[str, list[str]] = {}
-    if version.status != "published":
+    if version.status != "published" or dependency_drift(session, version):
         return out
     try:
         resolved = validate_spec(session, version)
     except GovernanceError:
         return out
     aliases = resolved["aliases"]
+    allowed = access.domain_ids(session, user)
     for dim in version.dimensions or []:
         alias, column = dim["column"].split(".", 1) if "." in dim["column"] else ("b", dim["column"])
         asset = aliases.get(alias)
-        if asset is None or not access.can_read_asset(session, user, asset):
+        if asset is None:
+            continue
+        closure = upstream_closure(session, [asset.id])
+        if not all(access.can_read_asset(session, user, a, allowed) for a in closure.values()):
             continue
         key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}"
         try:
@@ -412,8 +520,11 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         try:
             validate_sql(sql, dialect=engine.sql.name, allowed_tables={qualified}, schema={qualified: {column}},
                          max_rows=200)
-            result = query_connector(session, ds).execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
-                                                                 max_rows=200)
+            connector = query_connector(session, ds)
+            dep = [{"asset_id": asset.id, "column": column}]
+            if _live_check(session, ds, connector, closure.values(), dep, settings):
+                continue  # 库侧已变、尚未采集：不读取（已排队采集）
+            result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2, max_rows=200)
         except (QueryError, ValidationFailed):
             continue
         values = [str(r[0]) for r in result.rows]

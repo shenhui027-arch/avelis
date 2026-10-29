@@ -77,6 +77,7 @@ async def upload(datasource_id: str = Form(...), file: UploadFile = File(...), d
 
 @router.get("/imports", response_model=list[S.ImportJobOut])
 def list_imports(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
+    service.require_import_access(session, user)
     return [{"id": j.id, "filename": j.filename, "language": j.language, "status": j.status, "stats": j.stats,
              "created_at": j.created_at.isoformat()}
             for j in session.scalars(select(ImportJob).order_by(ImportJob.created_at.desc()).limit(100))]
@@ -84,12 +85,14 @@ def list_imports(user: User = Depends(current_user), session: Session = Depends(
 
 @router.get("/imports/{job_id}", response_model=S.ImportJobOut)
 def get_import(job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    service.require_import_access(session, user)
     return service.job_view(session, service.job_or_404(session, job_id))
 
 
 @router.put("/imports/{job_id}/params", response_model=S.ImportJobOut)
 def set_params(job_id: str, body: ParamsBody, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
+    service.require_import_access(session, user)
     job = service.set_params(session, user, service.job_or_404(session, job_id), body.params)
     return service.job_view(session, job)
 
@@ -97,6 +100,7 @@ def set_params(job_id: str, body: ParamsBody, user: User = Depends(current_user)
 @router.post("/candidates/{candidate_id}/decision", response_model=S.ImportJobOut)
 def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_user),
            session: Session = Depends(get_session)) -> dict:
+    service.require_import_access(session, user)
     candidate = session.get(CandidateEdge, candidate_id)
     if candidate is None:
         raise HTTPException(404, "候选不存在")
@@ -108,6 +112,7 @@ def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_u
 @router.post("/imports/{job_id}/edges", status_code=201, response_model=S.ImportJobOut)
 def manual_edge(job_id: str, body: ManualEdge, user: User = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict:
+    service.require_import_access(session, user)
     job = service.job_or_404(session, job_id)
     service.add_manual_edge(session, user, job, body.model_dump(exclude={"reason"}), body.reason)
     return service.job_view(session, job)

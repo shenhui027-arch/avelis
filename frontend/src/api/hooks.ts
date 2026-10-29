@@ -32,6 +32,11 @@ export const useAppSettings = () => useQuery({
 export const useTimeZone = () => useAppSettings().data?.business_timezone ?? "Asia/Shanghai";
 export const useWorkbench = () => useQuery({ queryKey: ["workbench"], queryFn: () => unwrap(api.GET("/api/workbench")) });
 export const useDatasources = () => useQuery({ queryKey: ["datasources"], queryFn: () => unwrap(api.GET("/api/datasources")) });
+/** 支持问数执行的数据源（按引擎能力，不按数据库类型）：指标与关联路径只能建在这些数据源的资产上。 */
+export function useQueryableDatasourceIds(): Set<string> {
+  const sources = useDatasources().data ?? [];
+  return new Set(sources.filter((d) => d.engine.capabilities.includes("query")).map((d) => d.id));
+}
 export const useEngines = () => useQuery({ queryKey: ["engines"], queryFn: () => unwrap(api.GET("/api/engines")), staleTime: Infinity });
 export const useUsers = () => useQuery({ queryKey: ["users"], queryFn: () => unwrap(api.GET("/api/users")) });
 export const useDomains = () => useQuery({ queryKey: ["domains"], queryFn: () => unwrap(api.GET("/api/domains")) });

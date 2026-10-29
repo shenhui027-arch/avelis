@@ -3,13 +3,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
-import { Shell } from "./layout/Shell";
+import { RequireLogin, Shell } from "./layout/Shell";
+import { ChangePassword } from "./pages/account/ChangePassword";
 import { AskPage } from "./pages/ask/AskPage";
 import { CatalogPage } from "./pages/catalog/CatalogPage";
 import { ChangesPage } from "./pages/changes/ChangesPage";
 import { ImportPage } from "./pages/lineage/ImportPage";
 import { LineagePage } from "./pages/lineage/LineagePage";
 import { Login } from "./pages/Login";
+import { Forbidden, NotFound, RouteError } from "./pages/PageState";
 import { DatasourcesPage } from "./pages/settings/DatasourcesPage";
 import { ModelSettings } from "./pages/settings/ModelSettings";
 import { UsersPage } from "./pages/settings/UsersPage";
@@ -17,16 +19,19 @@ import { Workbench } from "./pages/Workbench";
 import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
+import "./styles/pages.css";
 
-const queryClient = new QueryClient({
+export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },
 });
 
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
+  { path: "/account/password", element: <RequireLogin><ChangePassword /></RequireLogin> },
   {
     path: "/",
     element: <Shell />,
+    errorElement: <RouteError />,
     children: [
       { index: true, element: <Workbench /> },
       { path: "lineage", element: <LineagePage /> },
@@ -44,6 +49,8 @@ const router = createBrowserRouter([
       { path: "settings/datasources/:id", element: <DatasourcesPage /> },
       { path: "settings/models", element: <ModelSettings /> },
       { path: "settings/users", element: <UsersPage /> },
+      { path: "forbidden", element: <Forbidden /> },
+      { path: "*", element: <NotFound /> },
     ],
   },
 ]);

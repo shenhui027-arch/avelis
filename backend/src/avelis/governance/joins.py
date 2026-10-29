@@ -68,8 +68,9 @@ def decide(session: Session, actor: User, path: JoinPath, domain_id: str, decisi
     domain = session.get(Domain, domain_id)
     if domain.owner_id != actor.id:
         raise Forbidden(f"只有业务域“{domain.name}”的负责人可以代表该域批准")
-    if path.status not in ("pending", "affected"):
-        raise Conflict(f"关联路径当前状态为 {path.status}，不能再审批")
+    if path.status not in ("pending",):
+        raise Conflict(f"关联路径当前状态为 {path.status}，不能审批" +
+                       ("：依据已变化，请先在变更中处理复核任务" if path.status == "affected" else ""))
     existing = session.scalar(select(JoinPathApproval).where(JoinPathApproval.join_path_id == path.id,
                                                              JoinPathApproval.domain_id == domain_id))
     if existing is None:
@@ -87,6 +88,38 @@ def decide(session: Session, actor: User, path: JoinPath, domain_id: str, decisi
     audit.record(session, actor, "join_path.decide", "join_path", path.id, domain_id=domain_id, decision=decision,
                  note=note, status=path.status)
     return path
+
+
+def reset_approvals(session: Session, path: JoinPath, status: str, reason: str) -> None:
+    """依据变化后，已有批准全部作废：按当前涉及的业务域重新收集，不沿用任何一方的旧批准。"""
+    for approval in session.scalars(select(JoinPathApproval).where(JoinPathApproval.join_path_id == path.id)):
+        session.delete(approval)
+    path.status = status
+    audit.record(session, None, "join_path.reapproval_required", "join_path", path.id, reason=reason, status=status)
+
+
+def effectively_approved(session: Session, path: JoinPath) -> bool:
+    """问数与发布时的批准判断：状态为已批准，且当前涉及的每个业务域都有批准（不只看状态字符串）。"""
+    if path.status != "approved":
+        return False
+    try:
+        domains = required_domains(session, path)
+    except Conflict:
+        return False
+    decisions = {a.domain_id: a.decision for a in session.scalars(
+        select(JoinPathApproval).where(JoinPathApproval.join_path_id == path.id))}
+    return all(decisions.get(d) == "approved" for d in domains)
+
+
+def on_asset_domain_changed(session: Session, asset_id: str) -> list[str]:
+    """资产换了业务域：涉及它的关联路径需要按新的业务域重新批准。"""
+    affected = []
+    for path in session.scalars(select(JoinPath).where(
+            (JoinPath.left_asset_id == asset_id) | (JoinPath.right_asset_id == asset_id),
+            JoinPath.status.in_(("approved", "pending")))):
+        reset_approvals(session, path, "pending", "关联一侧的资产改归其他业务域")
+        affected.append(path.id)
+    return affected
 
 
 def drift(session: Session, path: JoinPath) -> list[dict]:

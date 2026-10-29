@@ -35,6 +35,7 @@ STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
 SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
+SHOP_PG_SEED = DEMO / "shop-pg" / "init" / "02-store.sql"
 
 DEMO_DATABASES = ("shop", "ads", "dim")
 CATALOG = "shop_mysql"
@@ -149,6 +150,14 @@ def mysql_connect(env: dict[str, str], user: str = "root") -> pymysql.Connection
     )
 
 
+def pg_connect(env: dict[str, str], user: str = "postgres") -> psycopg.Connection:
+    """Connect to the demo store database (shop-pg). postgres only seeds; avelis_reader is read-only."""
+    password = {"postgres": "SHOP_PG_PASSWORD", "avelis_collector": "SHOP_PG_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_PG_READER_PASSWORD"}[user]
+    return psycopg.connect(host="127.0.0.1", port=int(env["SHOP_PG_PORT"]), user=user, password=env[password],
+                           dbname="storedb", connect_timeout=5, autocommit=True)
+
+
 def sr_root(env: dict[str, str]) -> pymysql.Connection:
     return sr_connect(env)
 
@@ -205,6 +214,11 @@ def _valkey_ready(env: dict[str, str]) -> bool:
     return reply == b"+OK\r\n+PONG\r\n"
 
 
+def _shop_pg_ready(env: dict[str, str]) -> bool:
+    with pg_connect(env, "avelis_reader") as conn:
+        return conn.execute("SELECT COUNT(*) FROM store.sales").fetchone()[0] > 0
+
+
 def _shop_mysql_ready(env: dict[str, str]) -> bool:
     conn = mysql_connect(env, "avelis_collector")
     with conn.cursor() as cur:
@@ -223,6 +237,7 @@ def up(skip_seed: bool) -> None:
     wait_for("元数据库 PostgreSQL", lambda: _meta_pg_ready(env), 120)
     wait_for("Valkey（Redis 协议）", lambda: _valkey_ready(env), 60)
     wait_for("电商维表库 MySQL", lambda: _shop_mysql_ready(env), 240)
+    wait_for("门店库 PostgreSQL", lambda: _shop_pg_ready(env), 120)
     wait_for("StarRocks FE + BE", lambda: _sr_ready(env), 420)
     if not skip_seed:
         seed(env)
@@ -265,6 +280,9 @@ def seed(env: dict[str, str]) -> dict:
         cur.execute("CREATE DATABASE shop_dim DEFAULT CHARACTER SET utf8mb4")
     run_sql_file(mconn, SHOP_MYSQL_SEED)
     mconn.close()
+    # 门店库（PostgreSQL）：重建 store 模式；账号由容器初始化脚本创建，授权在 SQL 文件里
+    with pg_connect(env) as pconn:
+        pconn.execute(SHOP_PG_SEED.read_text(encoding="utf-8"))
     conn = sr_root(env)
     with conn.cursor() as cur:
         for db in DEMO_DATABASES:
@@ -404,10 +422,29 @@ BASELINE = [
 ]
 
 
-def check(env: dict[str, str]) -> bool:
-    log("核对验收基线（avelis_reader 只读账号）：")
+PG_BASELINE = [
+    ("门店库 city_daily_sales 2026-09-15 上海（PostgreSQL）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '上海'",
+     Decimal("250.00")),
+    ("门店库 city_daily_sales 2026-09-15 北京（PostgreSQL）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '北京'",
+     Decimal("80.00")),
+]
+
+
+def baseline_values(env: dict[str, str]) -> list[dict]:
+    """用只读账号逐项查询验收基线，返回 期望 / 实际 / 是否通过。"""
+    results = []
+    with pg_connect(env, "avelis_reader") as pconn:
+        for label, sql, expected in PG_BASELINE:
+            try:
+                row = pconn.execute(sql).fetchone()
+                actual = row[0] if row else "无数据"
+            except psycopg.Error as exc:
+                actual = f"错误：{exc}"
+            results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                            "passed": str(actual) == str(expected)})
     conn = sr_connect(env, "avelis_reader")
-    ok = True
     with conn.cursor() as cur:
         for label, sql, expected in BASELINE:
             try:
@@ -416,11 +453,18 @@ def check(env: dict[str, str]) -> bool:
                 actual = row[0] if row else "无数据"
             except pymysql.MySQLError as exc:
                 actual = f"错误：{exc}"
-            passed = str(actual) == str(expected)
-            ok &= passed
-            log(f"  {'通过' if passed else '不符'}  {label}：期望 {expected}，实际 {actual}")
+            results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                            "passed": str(actual) == str(expected)})
     conn.close()
-    return ok
+    return results
+
+
+def check(env: dict[str, str]) -> bool:
+    log("核对验收基线（avelis_reader 只读账号）：")
+    results = baseline_values(env)
+    for r in results:
+        log(f"  {'通过' if r['passed'] else '不符'}  {r['label']}：期望 {r['expected']}，实际 {r['actual']}")
+    return all(r["passed"] for r in results)
 
 
 def main() -> None:
