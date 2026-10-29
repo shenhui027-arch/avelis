@@ -1154,6 +1154,61 @@
     }
    }
   },
+  "/api/metadata/comment-gaps": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Comment Gaps",
+    "description": "注释缺失清单：字段含义以数据库列注释为准。按数据源汇总完整度，列出缺注释的列（含可沿用的上游注释），\n交给数据库负责人补齐。只包含当前用户可见的资产。",
+    "operationId": "comment_gaps_api_metadata_comment_gaps_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CommentGapsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/grains/{grain_id}/verify": {
    "post": {
     "tags": [
@@ -4586,6 +4641,64 @@
     ],
     "title": "CollectOut"
    },
+   "ColumnDocOut": {
+    "properties": {
+     "asset_id": {
+      "type": "string",
+      "title": "Asset Id"
+     },
+     "asset": {
+      "type": "string",
+      "title": "Asset"
+     },
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "ok",
+       "linked",
+       "inherited",
+       "missing"
+      ],
+      "title": "Status"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "asset_id",
+     "asset",
+     "column",
+     "status"
+    ],
+    "title": "ColumnDocOut",
+    "description": "字段含义的数据库注释状态（governance/column_docs.py）。"
+   },
    "ColumnEdgeOut": {
     "properties": {
      "source_column": {
@@ -4710,6 +4823,16 @@
       ],
       "title": "Fingerprint Reason"
      },
+     "doc": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ColumnDocOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "confirmations": {
       "items": {
        "$ref": "#/components/schemas/ConfirmationOut"
@@ -4729,6 +4852,175 @@
      "confirmations"
     ],
     "title": "ColumnOut"
+   },
+   "CommentCoverageOut": {
+    "properties": {
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "ok": {
+      "type": "integer",
+      "title": "Ok"
+     },
+     "linked": {
+      "type": "integer",
+      "title": "Linked"
+     },
+     "inherited": {
+      "type": "integer",
+      "title": "Inherited"
+     },
+     "missing": {
+      "type": "integer",
+      "title": "Missing"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "gaps": {
+      "type": "integer",
+      "title": "Gaps"
+     },
+     "completeness": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Completeness"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "datasource_id",
+     "ok",
+     "linked",
+     "inherited",
+     "missing",
+     "total",
+     "gaps"
+    ],
+    "title": "CommentCoverageOut"
+   },
+   "CommentGapOut": {
+    "properties": {
+     "asset_id": {
+      "type": "string",
+      "title": "Asset Id"
+     },
+     "asset": {
+      "type": "string",
+      "title": "Asset"
+     },
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "ok",
+       "linked",
+       "inherited",
+       "missing"
+      ],
+      "title": "Status"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "suggestion": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Suggestion"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "asset_id",
+     "asset",
+     "column",
+     "status",
+     "kind",
+     "datasource_id"
+    ],
+    "title": "CommentGapOut"
+   },
+   "CommentGapsOut": {
+    "properties": {
+     "datasources": {
+      "items": {
+       "$ref": "#/components/schemas/CommentCoverageOut"
+      },
+      "type": "array",
+      "title": "Datasources"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/CommentGapOut"
+      },
+      "type": "array",
+      "title": "Items"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "datasources",
+     "items"
+    ],
+    "title": "CommentGapsOut"
    },
    "ConfirmBody": {
     "properties": {

@@ -60,6 +60,7 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
 - **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记 StarRocks（采集、视图血缘、问数）、PostgreSQL（采集、视图血缘、问数）与 MySQL（采集，作为外部表的追溯目标）。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
 - **执行前核对**：每次问数执行前（含命中缓存）核对来源的列与视图定义是否与上次采集一致；不一致就拦截并排队采集（`AVELIS_ASK_LIVE_CHECK`，默认开启）。
+- **字段含义**：以数据库列注释为准，Avelis 不另设显示名。问数与资产原样展示列名和注释，缺注释如实标出；数据源详情给出注释完整度与缺口清单（可导出），发布检查提示缺注释（`AVELIS_REQUIRE_COLUMN_COMMENTS=true` 时阻断），见 [ADR 0006](docs/decisions/0006-column-meaning-from-db-comments.md)。
 - **权限**：资产按业务域可见；未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
 - **worker**：`AVELIS_WORKER_SCHEDULE_SECONDS`（轮询，默认 60）、`AVELIS_WORKER_STALE_SECONDS`（未入队任务的扫描阈值，默认 30）、`AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS`（运行超时记为失败，默认 3600）。
 - 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)、[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)、[ADR 0004](docs/decisions/0004-engine-adapters.md)。

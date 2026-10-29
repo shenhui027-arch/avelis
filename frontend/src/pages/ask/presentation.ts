@@ -1,6 +1,7 @@
 import type { Answer } from "../../api/hooks";
 
-export type AskResult = { columns?: string[]; rows?: unknown[][]; row_count?: number; truncated?: boolean };
+export type AskResult = { columns?: string[]; rows?: unknown[][]; row_count?: number; truncated?: boolean;
+  column_docs?: Record<string, import("../../components/ui").ColumnDoc> };
 export type AskIntent = {
   group_by?: string[];
   metric_code?: string;
