@@ -2,18 +2,37 @@
 
 有依据的智能问数：建立在数据库血缘、业务口径和变更管理之上。每个答案都带来源、口径、版本和权限依据；上游变化后，系统知道哪些答案需要重新确认。首期面向 StarRocks。
 
-> 当前阶段：v0.1 开发中，**M0 基线与实机核验已完成**。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
+> 当前阶段：v0.1 开发中，**M0 基线与实机核验、M1 后端闭环已完成**（M1 验收见 [docs/acceptance-m1.md](docs/acceptance-m1.md)）。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
 
 ## 仓库结构
 
 ```
+backend/              后端（FastAPI）：采集、血缘、粒度、口径治理、变更复核、受约束问数
 deploy/demo/          演示环境：Compose、StarRocks 启动包装、电商维表库初始化、合成数据、驱动锁定
 scripts/demo.py       演示环境起停、灌数、基线核对、实机核验
 scripts/sr_probe.py   StarRocks 实机核验项
 docs/                 计划、核验记录、架构决定
 ```
 
-产品采用前后端分离：后端 `backend/`（FastAPI）从 M1 开始，前端 `frontend/`（React）从 M3 开始。
+产品采用前后端分离：后端 `backend/`（FastAPI，REST + OpenAPI）已完成 M1，前端 `frontend/`（React）从 M3 开始。
+
+## 后端
+
+```bash
+cd backend
+uv sync
+uv run python -m avelis.bootstrap migrate      # 迁移元数据库（AVELIS_META_BACKEND=pg|mysql）
+uv run python -m avelis.bootstrap admin        # 创建管理员 admin（口令见 .env 的 AVELIS_DEMO_USER_PASSWORD）
+uv run uvicorn avelis.api.app:app --port 8000  # API；接口文档 http://127.0.0.1:8000/api/docs
+uv run python -m avelis.jobs                   # 后台 worker：采集任务、定时轮询
+uv run pytest                                  # 单元测试
+uv run pytest -m acceptance                    # 验收（会重置演示库与元数据库）
+```
+
+- **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。
+- **角色**：管理员、维护者、复核者、查询者，加上业务域成员（负责人 / 维护者 / 可查询）。默认禁止自审，策略见 `/api/settings`。
+- **问数**：目前只有演示模型（规则匹配，答案中会标明），真实模型端到端未验证。
+- 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)。
 
 ## 演示环境
 

@@ -64,7 +64,7 @@ def load_env() -> dict[str, str]:
 
 
 def init_env() -> None:
-    """Write .env from .env.example, keeping existing values and generating empty passwords."""
+    """Write .env from .env.example, keeping existing values and generating empty passwords and secrets."""
     existing = read_env_file(ENV_FILE) if ENV_FILE.exists() else {}
     alphabet = string.ascii_letters + string.digits
     lines, generated = [], 0
@@ -75,6 +75,9 @@ def init_env() -> None:
             value = existing.get(key, value.strip())
             if key.endswith("_PASSWORD") and not value:
                 value = "".join(secrets.choice(alphabet) for _ in range(24))
+                generated += 1
+            elif key.endswith("_SECRET") and not value:
+                value = "".join(secrets.choice(alphabet) for _ in range(48))
                 generated += 1
             line = f"{key}={value}"
         lines.append(line)
