@@ -20,38 +20,55 @@ def test_relative_env_file_resolves_against_repo_root(monkeypatch):
     assert env_file() == REPO_ROOT / ".env"
 
 
-def _settings(url: str, admin_password: str):
+def _settings(admin_password: str):
     base = get_settings()
-    return dataclasses.replace(base, database_url=url, env={**base.env, "AVELIS_ADMIN_PASSWORD": admin_password})
+    return dataclasses.replace(base, env={**base.env, "AVELIS_ADMIN_PASSWORD": admin_password})
 
 
-@pytest.mark.parametrize("url, local", [
-    ("postgresql+psycopg://avelis:x@127.0.0.1:15432/avelis", True),
-    ("postgresql+psycopg://avelis:x@localhost/avelis", True),
-    ("postgresql+psycopg://avelis:x@meta.prod.internal:5432/avelis", False),
-    ("postgresql+psycopg://avelis:x@10.0.0.8/avelis", False),
-    # psycopg 用查询参数覆盖 URL 中的主机：按实际生效的目标判断
-    ("postgresql+psycopg://avelis:x@localhost/avelis?host=meta.prod.internal", False),
-    ("postgresql+psycopg://avelis:x@localhost/avelis?hostaddr=10.0.0.8", False),
-    ("postgresql+psycopg://avelis:x@localhost/avelis?host=localhost,meta.prod.internal", False),
-    ("postgresql+psycopg://avelis:x@/avelis?host=/var/run/postgresql", True),  # 本机 Unix socket
-    ("postgresql+psycopg://avelis:x@[0:0:0:0:0:0:0:1]/avelis", True),
-    ("postgresql+psycopg://avelis:x@127.0.0.2/avelis", True),
-    ("postgresql+psycopg://avelis:x@/avelis", False),  # 目标来自 PGHOST 等外部配置，无法确定
+@pytest.mark.parametrize("host, hostaddr, local", [
+    # 连接实际使用的目标（libpq 解析连接串、服务文件、环境变量、多主机之后）：TCP 看实际 IP
+    ("127.0.0.1", "127.0.0.1", True),
+    ("localhost", "::1", True),
+    ("localhost", "0:0:0:0:0:0:0:1", True),
+    ("127.0.0.2", "127.0.0.2", True),
+    ("localhost", "10.0.0.8", False),  # 名字是 localhost，实际连到了远端（例如被 hostaddr / 服务文件覆盖）
+    ("meta.prod.internal", "10.0.0.8", False),
+    ("/var/run/postgresql", None, True),  # Unix socket
+    ("/var/run/postgresql", "", True),
+    ("meta.prod.internal", None, False),
+    (None, None, False),
 ])
-def test_superadmin_only_on_local_metadata_db(monkeypatch, url, local):
-    monkeypatch.setattr(bootstrap, "get_settings", lambda: _settings(url, "123456"))
-    assert bootstrap._local_metadata_db() is local
-    if not local:
-        # 弱密码超级管理员只用于本机元数据库：补齐时跳过，显式重设时拒绝；都不碰数据库
-        assert bootstrap.ensure_superadmin() is None
-        with pytest.raises(SystemExit, match="不在本机"):
-            bootstrap.ensure_superadmin(reset_password=True)
+def test_local_target_uses_actual_connection_address(host, hostaddr, local):
+    assert bootstrap.is_local_target(host, hostaddr) is local
+
+
+def test_superadmin_refused_on_non_local_connection_without_writing(monkeypatch):
+    from contextlib import contextmanager
+
+    writes = []
+
+    class Session:
+        def add(self, obj):
+            writes.append(obj)
+
+        def scalar(self, *_):
+            raise AssertionError("非本机连接上不应查询或写入")
+
+    @contextmanager
+    def fake_scope():
+        yield Session()
+
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: _settings("123456"))
+    monkeypatch.setattr(bootstrap, "session_scope", fake_scope)
+    monkeypatch.setattr(bootstrap, "_connection_is_local", lambda session: False)
+    assert bootstrap.ensure_superadmin() is None  # 例行补齐：跳过
+    with pytest.raises(SystemExit, match="不在本机"):
+        bootstrap.ensure_superadmin(reset_password=True)  # 显式重设：拒绝
+    assert writes == []
 
 
 def test_superadmin_skipped_without_configured_password(monkeypatch):
-    monkeypatch.setattr(bootstrap, "get_settings",
-                        lambda: _settings("postgresql+psycopg://a:b@127.0.0.1/avelis", ""))
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: _settings(""))
     assert bootstrap.ensure_superadmin(reset_password=True) is None
 
 
