@@ -306,6 +306,8 @@ class ImpactOut(Out):
 
 class MetricVersionOut(Out):
     id: str
+    kind: str = "base"
+    components: list[Json] = []
     metric_id: str
     metric_code: str
     metric_name: str

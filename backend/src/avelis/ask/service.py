@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -101,9 +102,14 @@ def finish_answer(session: Session, user: User, answer: Answer, started: float) 
 
 
 def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog) -> None:
-    """意图已由模型（或演示规则）给出：其余全部是确定性的治理、编译、校验与执行。"""
+    """意图已由模型（或演示规则）给出：其余全部是确定性的治理、编译、校验与执行。
+    单指标、无对比：整条下推为一条 SQL。多个指标、对比期、派生指标：展开为执行计划（见 _fulfil_plan）。"""
     try:
-        _fulfil(session, user, intent, answer, catalog.versions, get_settings())
+        version = catalog.versions.get(intent.metric_code or "", (None, None))[1]
+        if intent.is_simple and (version is None or version.kind != "derived"):
+            _fulfil(session, user, intent, answer, catalog.versions, get_settings())
+        else:
+            _fulfil_plan(session, user, intent, answer, catalog, get_settings())
     except GovernanceError as exc:
         answer.status = "error"
         answer.message = exc.message
@@ -366,6 +372,177 @@ def _cache_put(key: str, value: dict, ttl: int, tags: list[str]) -> None:
         pass
 
 
+PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期"}
+
+
+def _scratch(answer: Answer, user: User) -> Answer:
+    """子查询用的临时答案对象（不入库）：沿用完整的单指标治理管线，只取它的结论与结果。"""
+    return Answer(question=answer.question, asked_by=user.id, status="error", model_adapter=answer.model_adapter,
+                  intent={}, plan={}, evidence={}, result={}, metric_version_ids=[], freshness={}, steps=[],
+                  cache_hit=False)
+
+
+def _decimal(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
+def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog, settings) -> None:
+    """执行计划：把问题展开为若干“指标 × 时间段”的子查询，每个子查询都经过完整的单指标治理管线
+    （两条状态线、来源权限、执行前核对、只读执行）。任何一个没有通过，整个答案就按它的原因拦截或报错；
+    全部通过后在后端按维度键对齐，计算派生公式与对比列，最后排序、取前 N。模型只给出意图，不参与计算。"""
+    from avelis.ask.intent import comparison_range
+    from avelis.governance.derived import evaluate
+
+    answer.intent = intent.model_dump(mode="json")
+    unknown = [c for c in intent.metric_codes if c not in catalog.versions]
+    if unknown:
+        answer.status, answer.error_code = "denied", "invalid_intent"
+        answer.message = "意图引用了不可见或不存在的指标，已拒绝"
+        return
+    if intent.start_date is None or intent.end_date is None or intent.start_date > intent.end_date:
+        answer.status, answer.message = "clarify", "请指定有效的日期或日期范围"
+        return
+
+    requested = [(code, *catalog.versions[code]) for code in intent.metric_codes]
+    runs: dict[str, tuple[Metric, MetricVersion]] = {}
+    allowed = access.domain_ids(session, user)
+    for code, metric, version in requested:
+        answer.metric_version_ids = [*answer.metric_version_ids, version.id]
+        if version.kind != "derived":
+            runs[code] = (metric, version)
+            continue
+        if version.status != "published":  # 派生指标自身也有两条状态线
+            answer.status, answer.error_code = "blocked", f"metric_{version.status}"
+            answer.message = _blocked_message(session, metric, version)
+            answer.evidence["metric_version"] = _version_evidence(session, metric, version)
+            return
+        for c in version.components:
+            cm, cv = session.get(Metric, c["metric_id"]), session.get(MetricVersion, c["version_id"])
+            if cm is None or cv is None or cm.domain_id not in allowed:
+                answer.status, answer.error_code = "denied", "permission"
+                answer.message = f"派生指标“{metric.name}”的组成指标 {c['metric_name']} 不在你可访问的业务域"
+                return
+            runs[c["metric_code"]] = (cm, cv)  # 用提交时锁定的组成版本，而不是组成指标的最新版本
+            answer.metric_version_ids = [*answer.metric_version_ids, cv.id]
+
+    used = {d for d in [*intent.group_by, *(f.dimension for f in intent.filters)]}
+    for code, (metric, version) in runs.items():
+        missing = used - {d["name"] for d in version.dimensions or []}
+        if missing:
+            answer.status, answer.error_code = "denied", "invalid_intent"
+            answer.message = f"维度 {'、'.join(sorted(missing))} 不是指标“{metric.name}”开放的维度，不能一起过滤或分组"
+            return
+
+    periods = [("current", intent.start_date, intent.end_date)]
+    if intent.compare:
+        periods.append((intent.compare, *comparison_range(intent.start_date, intent.end_date, intent.compare)))
+    values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
+    keys: list[tuple] = []
+    plan, sqls, sources, lineage = [], [], {}, []
+    truncated, cache_hits = False, []
+    for code, (metric, version) in runs.items():
+        for label, start, end in periods:
+            sub = _scratch(answer, user)
+            sub_intent = Intent(metric_code=code, start_date=start, end_date=end, filters=intent.filters,
+                                group_by=intent.group_by)
+            _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
+            plan.append({"metric_code": code, "metric_version_id": version.id, "period": label,
+                         "range": [str(start), str(end)], "status": sub.status, "error_code": sub.error_code,
+                         "cache_hit": sub.cache_hit})
+            if sub.sql:
+                head = f"-- {metric.name} V{version.version_no} · {PERIOD_LABEL[label]} {start} ~ {end}"
+                sqls.append(head + chr(10) + sub.sql)
+            if sub.status != "answered":
+                answer.status, answer.error_code = sub.status, sub.error_code
+                answer.message = f"{metric.name}（{PERIOD_LABEL[label]}）：{sub.message}"
+                answer.sql = (chr(10) * 2).join(sqls) or None
+                answer.evidence = {**sub.evidence, "plan": plan}
+                return
+            rows = {tuple(r[:-1]): _decimal(r[-1]) for r in sub.result.get("rows", [])}
+            values[(code, label)] = rows
+            if label == "current":
+                keys += [k for k in rows if k not in keys]
+            truncated = truncated or bool(sub.result.get("truncated"))
+            cache_hits.append(sub.cache_hit)
+            for s in sub.evidence.get("sources", []):
+                sources.setdefault(s.get("qualified"), s)
+            lineage += sub.evidence.get("lineage", [])
+            if not answer.freshness:
+                answer.freshness = sub.freshness
+            if label == "current" and "limits" in sub.evidence:
+                answer.evidence["limits"] = sub.evidence["limits"]
+
+    def value(code: str, label: str, key: tuple) -> Decimal | None:
+        metric, version = catalog.versions[code]
+        if version.kind == "derived":
+            return evaluate(version.expression, {c["metric_code"]: values[(c["metric_code"], label)].get(key)
+                                                 for c in version.components})
+        return values[(code, label)].get(key)
+
+    columns = list(intent.group_by)
+    for _, metric, _ in requested:
+        columns.append(metric.name)
+        if intent.compare:
+            columns += [f"{metric.name}·{PERIOD_LABEL[intent.compare]}", f"{metric.name}·变化", f"{metric.name}·变化率"]
+    rows_out = []
+    for key in keys or [()]:
+        row: list[Any] = list(key)
+        for code, _, _ in requested:
+            current = value(code, "current", key)
+            row.append(current)
+            if intent.compare:
+                before = value(code, intent.compare, key)
+                delta = current - before if current is not None and before is not None else None
+                rate = (delta / before).quantize(Decimal("0.0001")) if delta is not None and before else None
+                row += [before, delta, rate]
+        rows_out.append(row)
+    if intent.order:  # 按第一个指标的本期值排序；空值排最后
+        first = len(intent.group_by)
+        present = [r for r in rows_out if r[first] is not None]
+        present.sort(key=lambda r: r[first], reverse=intent.order == "desc")
+        rows_out = present + [r for r in rows_out if r[first] is None]
+    if intent.limit:
+        rows_out = rows_out[:intent.limit]
+
+    first_code, first_metric, first_version = requested[0]
+    answer.status = "answered"
+    answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in r] for r in rows_out],
+                     "row_count": len(rows_out), "truncated": truncated}
+    answer.sql = (chr(10) * 2).join(sqls)
+    answer.plan = {"kind": "plan", "subqueries": plan, "order": intent.order, "limit": intent.limit,
+                   "compare": intent.compare}
+    answer.evidence.update({"metric_version": _version_evidence(session, first_metric, first_version),
+                            "plan": plan, "sources": list(sources.values()), "lineage": lineage,
+                            "derived": [{"metric_code": c, "formula": v.expression, "components": v.components}
+                                        for c, _, v in requested if v.kind == "derived"],
+                            "cache": {"hit": all(cache_hits)}})
+    answer.executed_at = utcnow()
+    answer.cache_hit = bool(cache_hits) and all(cache_hits)
+    if truncated and (intent.order or intent.limit):
+        answer.evidence["warning"] = "子查询结果超过行数上限被截断，排名可能不完整"
+    answer.message = _explain_plan(requested, intent, answer.result)
+
+
+def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
+    same_day = intent.start_date == intent.end_date
+    period = str(intent.start_date) if same_day else f"{intent.start_date} 至 {intent.end_date}"
+    scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
+    names = "、".join(f"{m.name}（V{v.version_no}）" for _, m, v in requested)
+    head = f"{period}{('（' + scope + '）') if scope else ''} {names}"
+    if not result["rows"]:
+        return f"{head}：没有符合条件的数据"
+    if not intent.group_by and len(result["rows"]) == 1:
+        cells = dict(zip(result["columns"], result["rows"][0]))
+        return f"{head}：" + "；".join(f"{k} {'无数据' if v is None else v}" for k, v in cells.items())
+    rank = f"，按{requested[0][1].name}{'从高到低' if intent.order == 'desc' else '从低到高'}" if intent.order else ""
+    return f"{head}：共 {result['row_count']} 行{rank}{'（已截断）' if result['truncated'] else ''}"
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (int, float, str)) or value is None:
         return value
@@ -489,6 +666,13 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
     out: dict[str, list[str]] = {}
     if version.status != "published" or dependency_drift(session, version):
         return out
+    if version.kind == "derived":  # 派生：取值来自锁定的组成指标（各自按完整来源权限过滤）
+        for c in version.components or []:
+            component = session.get(MetricVersion, c["version_id"])
+            for name, vals in (_dimension_values(session, user, component, settings) if component else {}).items():
+                out.setdefault(name, vals)
+        shared = {d["name"] for d in version.dimensions or []}
+        return {k: v for k, v in out.items() if k in shared}
     try:
         resolved = validate_spec(session, version)
     except GovernanceError:

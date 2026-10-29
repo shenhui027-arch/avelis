@@ -92,10 +92,18 @@ def create_version(session: Session, actor: User, metric: Metric, spec: dict[str
     access.require_domain_maintainer(session, actor, metric.domain_id)
     number = (session.scalar(select(func.max(MetricVersion.version_no))
                              .where(MetricVersion.metric_id == metric.id)) or 0) + 1
-    version = MetricVersion(metric_id=metric.id, version_no=number, status="draft", created_by=actor.id,
+    kind = spec.get("kind") or "base"
+    if kind not in ("base", "derived"):
+        raise Invalid("指标类型只能是 base（基础）或 derived（派生）")
+    version = MetricVersion(metric_id=metric.id, version_no=number, status="draft", created_by=actor.id, kind=kind,
                             timezone=spec.get("timezone") or get_settings().business_timezone,
                             **{k: spec[k] for k in EDITABLE_FIELDS if k in spec and k != "timezone"})
+    if kind == "derived":
+        version.time_column = ""
+        version.base_asset_id = None
     resolved = validate_spec(session, version)
+    if kind == "derived":
+        version.dimensions = resolved["dimensions"]
     version.dependency = resolved["dependency"]
     session.add(version)
     session.flush()
@@ -119,7 +127,10 @@ def update_draft(session: Session, actor: User, version: MetricVersion, spec: di
             setattr(version, key, value)
     if version.status == "rejected":
         transition_rejected_to_draft(session, version, actor)
-    version.dependency = validate_spec(session, version)["dependency"]
+    resolved = validate_spec(session, version)
+    version.dependency = resolved["dependency"]
+    if version.kind == "derived":
+        version.dimensions = resolved["dimensions"]
     audit.record(session, actor, "metric_version.update", "metric_version", version.id, fields=sorted(spec))
     return version
 
@@ -165,7 +176,37 @@ def resolve_joins(session: Session, version: MetricVersion) -> tuple[dict[str, A
     return aliases, steps
 
 
+def derived_components(session: Session, version: MetricVersion) -> list[dict[str, Any]]:
+    """派生指标公式引用的组成指标，以及各自当前进入过发布流程的版本（可能为空）。"""
+    from avelis.governance.derived import parse_formula
+
+    own = session.get(Metric, version.metric_id)
+    out = []
+    for code in parse_formula(version.expression):
+        metric = session.scalar(select(Metric).where(Metric.code == code))
+        if metric is None:
+            raise Invalid(f"公式引用了不存在的指标 {code}")
+        if metric.id == own.id:
+            raise Invalid("派生指标不能引用自身")
+        current = latest_governed_version(session, metric)
+        out.append({"metric": metric, "version": current})
+    return out
+
+
+def _shared_dimensions(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """组成指标共有的维度（按维度名）；只有共有维度能用于派生指标的过滤、分组。"""
+    lists = [c["version"].dimensions or [] for c in components if c["version"] is not None]
+    if not lists:
+        return []
+    names = set.intersection(*({d["name"] for d in dims} for dims in lists))
+    return [{"name": d["name"], "label": d.get("label") or d["name"]} for d in lists[0] if d["name"] in names]
+
+
 def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
+    if version.kind == "derived":
+        components = derived_components(session, version)
+        return {"aliases": {}, "steps": [], "dependency": [], "expression": None, "components": components,
+                "dimensions": _shared_dimensions(components)}
     aliases, steps = resolve_joins(session, version)
     names = set(aliases)
     dialect = engine_of(session.get(Datasource, aliases[BASE_ALIAS].datasource_id)).sql.name
@@ -230,11 +271,26 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
 
 def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, Any]]) -> str:
     spec = {k: getattr(version, k) for k in EDITABLE_FIELDS}
+    if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
+        return sha256_json({"formula": version.expression, "components": [
+            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]})
     return sha256_json({"spec": spec, "deps": [[d["asset_id"], d["column"], d["fingerprint"]] for d in dependency]})
 
 
 def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str, Any]]:
-    """当前推导指纹与版本绑定的指纹不一致的依赖。为空表示可以按此版本问数。"""
+    """当前推导指纹与版本绑定的指纹不一致的依赖。为空表示可以按此版本问数。
+    派生指标：锁定的组成版本不再是已发布、或其依赖本身已漂移，都算漂移。"""
+    if version.kind == "derived":
+        drift = []
+        for c in version.components or []:
+            cv = session.get(MetricVersion, c["version_id"])
+            inner = dependency_drift(session, cv) if cv is not None and cv.status == "published" else []
+            if cv is None or cv.status != "published" or inner:
+                drift.append({"asset_id": None, "column": c["metric_code"], "qualified": f"指标 {c['metric_name']}",
+                              "fingerprint": c["dependency_fingerprint"], "current_fingerprint": None,
+                              "current_status": cv.status if cv else "missing",
+                              "current_reason": f"组成指标 V{c['version_no']} 当前为 {cv.status if cv else '不存在'}"})
+        return drift
     fps = current_fingerprints(session)
     drift = []
     for dep in version.dependency or []:
@@ -249,6 +305,8 @@ def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str,
 def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
     """发布前检查：依赖证据完整、关联路径已批准、关联不放大可加度量、粒度说明。"""
     resolved = validate_spec(session, version)
+    if version.kind == "derived":
+        return _derived_check(resolved)
     blockers: list[str] = []
     warnings: list[str] = []
     for dep in resolved["dependency"]:
@@ -299,6 +357,28 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
             "fingerprints": len(fps)}
 
 
+def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
+    """派生指标的发布检查：组成指标都已发布、不嵌套派生；锁定组成版本作为“依赖”。"""
+    blockers, warnings, pinned = [], [], []
+    for c in resolved["components"]:
+        metric, cv = c["metric"], c["version"]
+        if cv is None or cv.status != "published":
+            blockers.append(f"组成指标 {metric.name}（{metric.code}）当前没有已发布版本"
+                            + (f"（V{cv.version_no} 为 {cv.status}）" if cv else ""))
+            continue
+        if cv.kind == "derived":
+            blockers.append(f"组成指标 {metric.name} 本身是派生指标；v0.1 不支持派生嵌套")
+            continue
+        pinned.append({"metric_code": metric.code, "metric_id": metric.id, "metric_name": metric.name,
+                       "version_id": cv.id, "version_no": cv.version_no,
+                       "dependency_fingerprint": cv.dependency_fingerprint})
+    if not resolved["dimensions"]:
+        warnings.append("组成指标没有共有维度：只能按时间范围汇总，不能按维度过滤或分组")
+    return {"ok": not blockers, "blockers": blockers, "fan_out": [], "warnings": warnings, "joins": [],
+            "base_grains": [], "dependency": pinned, "components": pinned, "dimensions": resolved["dimensions"],
+            "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(), "fingerprints": 0}
+
+
 def current_fingerprint_map(session: Session) -> dict[tuple[str, str], str]:
     return {k: v.fingerprint for k, v in current_fingerprints(session).items()}
 
@@ -322,7 +402,13 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
                      blockers=check["blockers"])
         raise Conflict("发布前检查未通过", blockers=check["blockers"], check=check)
     version.dependency_fingerprint = dependency_fingerprint(version, check["dependency"])
-    version.asset_versions = _asset_versions(session, check["dependency"])
+    if version.kind == "derived":
+        version.components = check["components"]
+        version.dimensions = check["dimensions"]
+        version.dependency = []
+        version.asset_versions = {}
+    else:
+        version.asset_versions = _asset_versions(session, check["dependency"])
     version.submitted_by = actor.id
     version.submitted_at = utcnow()
     transition(session, version, "pending_review", actor, "提交复核")
@@ -432,8 +518,9 @@ def version_or_404(session: Session, version_id: str) -> MetricVersion:
 
 def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]:
     metric = session.get(Metric, version.metric_id)
-    base = session.get(Asset, version.base_asset_id)
+    base = session.get(Asset, version.base_asset_id) if version.base_asset_id else None
     return {
+        "kind": version.kind, "components": version.components,
         "id": version.id, "metric_id": metric.id, "metric_code": metric.code, "metric_name": metric.name,
         "version_no": version.version_no, "status": version.status, "status_reason": version.status_reason,
         "description": version.description, "expression": version.expression,

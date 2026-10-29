@@ -517,15 +517,15 @@ def test_13_agent_tool_loop_with_scripted_model(admin: Api, monkeypatch):
         _call("search_metrics", {"keyword": "净销售额"}, 1),
         _call("match_dimension_values", {"metric_code": "net_sales", "dimension": "region", "text": "华东区"}, 2),
         # 编造的取值会被工具拒绝，模型必须更正
-        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
                                 "filters": [{"dimension": "region", "values": ["火星区"]}]}, 3),
-        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
                                 "filters": [{"dimension": "region", "values": ["华东"]}]}, 4),
         # 同一会话的追问：“那华北呢？”
-        _call("submit_intent", {"metric_code": "net_sales", "start_date": DAY, "end_date": DAY,
+        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
                                 "filters": [{"dimension": "region", "values": ["华北"]}]}, 5),
         # 试图越权使用不可见的指标
-        _call("submit_intent", {"metric_code": "secret_metric", "start_date": DAY, "end_date": DAY}, 6),
+        _call("submit_intent", {"metric_codes": ["secret_metric"], "start_date": DAY, "end_date": DAY}, 6),
         _call("ask_user", {"question": "没有找到该指标，请确认", "options": []}, 7),
     ]
     scripted = _Scripted(replies)

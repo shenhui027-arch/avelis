@@ -6456,6 +6456,20 @@
       "type": "string",
       "title": "Id"
      },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "default": "base"
+     },
+     "components": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Components",
+      "default": []
+     },
      "metric_id": {
       "type": "string",
       "title": "Metric Id"
@@ -8185,13 +8199,26 @@
    },
    "VersionSpec": {
     "properties": {
+     "kind": {
+      "type": "string",
+      "pattern": "^(base|derived)$",
+      "title": "Kind",
+      "default": "base"
+     },
      "description": {
       "type": "string",
       "minLength": 1,
       "title": "Description"
      },
      "base_asset_id": {
-      "type": "string",
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Base Asset Id"
      },
      "expression": {
@@ -8201,8 +8228,8 @@
      },
      "time_column": {
       "type": "string",
-      "minLength": 1,
-      "title": "Time Column"
+      "title": "Time Column",
+      "default": ""
      },
      "timezone": {
       "anyOf": [
@@ -8262,11 +8289,10 @@
     "type": "object",
     "required": [
      "description",
-     "base_asset_id",
-     "expression",
-     "time_column"
+     "expression"
     ],
-    "title": "VersionSpec"
+    "title": "VersionSpec",
+    "description": "基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。\n派生指标：kind=\"derived\"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"
    },
    "WorkbenchOut": {
     "properties": {
