@@ -7,6 +7,9 @@
   uv run python -m avelis.bootstrap openapi PATH   导出 OpenAPI 文档（前端据此生成类型）
   uv run python -m avelis.bootstrap model          按 .env 的 AVELIS_MODEL_* 登记一个模型提供方并设为问数模型
                                                    （之后在“模型配置”页面维护）
+  uv run python -m avelis.bootstrap verify-history 核验历史哈希链（断链时退出码 1，打印位置与原因）
+  uv run python -m avelis.bootstrap purge-history [--dry-run] [--days N]
+                                                   按保留期清理超期历史（默认 AVELIS_HISTORY_RETENTION_DAYS）
 
 其余对象（用户、业务域、数据源、指标）都通过界面或 API 维护，不需要手改数据库。
 """
@@ -172,6 +175,37 @@ def main(argv: list[str]) -> None:
     elif cmd == "model":
         model_from_env()
         print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
+    elif cmd == "verify-history":
+        import json
+
+        from avelis import audit
+        from avelis.db import session_factory
+        from avelis.history import integrity
+
+        session = session_factory()()
+        try:
+            session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+            report = integrity.verify(session)
+        finally:
+            session.rollback()
+            session.close()
+        with session_scope() as session:
+            audit.record(session, None, "history.verify", "history", None, ok=report["ok"], via="cli",
+                         issue_count=report["issue_count"], head=report["head"], first_break=report["first_break"])
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+        raise SystemExit(0 if report["ok"] else 1)
+    elif cmd == "purge-history":
+        import json
+
+        from avelis.history import retention
+
+        days = int(argv[argv.index("--days") + 1]) if "--days" in argv else None
+        try:
+            result = retention.purge(retention_days=days, dry_run="--dry-run" in argv)
+        except retention.PurgeRefused as exc:
+            print(json.dumps(exc.report, ensure_ascii=False, indent=1))
+            raise SystemExit("历史哈希链核验未通过，未执行清理") from exc
+        print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
     elif cmd == "admin":
         if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
             # 先检查：连到的元数据库不在本机就直接拒绝，不写入任何账号。随后每个写入步骤用的是各自的连接，

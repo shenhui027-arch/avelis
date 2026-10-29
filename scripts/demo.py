@@ -43,6 +43,7 @@ DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
 SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
 SHOP_PG_SEED = DEMO / "shop-pg" / "init" / "02-store.sql"
+SHOP_PG_DDL_AUDIT = DEMO / "shop-pg" / "init" / "03-ddl-audit.sql"
 SHOP_CH_SEED = DEMO / "shop-ch" / "store.sql"
 SHOP_MSSQL_SEED = DEMO / "shop-mssql" / "store.sql"
 SHOP_ORACLE_SEED = DEMO / "shop-oracle" / "store.sql"
@@ -400,6 +401,8 @@ def seed(env: dict[str, str]) -> dict:
     # 门店库（PostgreSQL）：重建 store 模式；账号由容器初始化脚本创建，授权在 SQL 文件里
     with pg_connect(env) as pconn:
         pconn.execute(SHOP_PG_SEED.read_text(encoding="utf-8"))
+        # DDL 审计（事件触发器 → avelis_audit.ddl_event）：采集据此把结构变化归因到数据库用户（ADR 0008）
+        pconn.execute(SHOP_PG_DDL_AUDIT.read_text(encoding="utf-8"))
     conn = sr_root(env)
     with conn.cursor() as cur:
         for db in DEMO_DATABASES:
@@ -544,6 +547,12 @@ def seed_clickhouse(env: dict[str, str]) -> None:
         client.command("GRANT SELECT ON store.* TO avelis_reader")
         # 数据新鲜度只需分片的修改时间，不授予 system.parts 的其他列
         client.command("GRANT SELECT(database, table, active, modification_time) ON system.parts TO avelis_reader")
+        # DDL 归因（ADR 0008）：采集账号只读 query_log 的六列，行策略把它限制为只见 DDL 记录（看不到查询语句）
+        client.command("GRANT SELECT(event_time, user, query_kind, type, tables, query) ON system.query_log "
+                       "TO avelis_collector")
+        client.command("DROP ROW POLICY IF EXISTS avelis_ddl_only ON system.query_log")
+        client.command("CREATE ROW POLICY avelis_ddl_only ON system.query_log "
+                       "USING query_kind IN ('Create', 'Alter', 'Drop', 'Rename') TO avelis_collector")
     finally:
         client.close()
 
@@ -614,6 +623,8 @@ def seed_doris(env: dict[str, str]) -> None:
                 cur.execute(f"DROP USER IF EXISTS '{user}'@'%'")
                 cur.execute(f"CREATE USER '{user}'@'%' IDENTIFIED BY '{env[key]}'")
                 cur.execute(f"GRANT {privileges} ON internal.store.* TO '{user}'@'%'")
+            # DDL 归因（ADR 0008）：采集账号读内置审计表（Doris 不支持行级限制，能看到全部语句）
+            cur.execute("GRANT SELECT_PRIV ON internal.__internal_schema.audit_log TO 'avelis_collector'@'%'")
     finally:
         conn.close()
 

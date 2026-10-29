@@ -7,13 +7,16 @@
          change_set、change_event、impact、review_task、audit_event
 
 上层只引用下层的具体版本或指纹；“当前”只是指针（current_version_id、superseded_at IS NULL）。
+
+留底（ADR 0008）：观察层与治理层的历史表在数据库层只允许追加（触发器），并在提交时封入一条全局哈希链
+（chain_seq / prev_hash / row_hash，由数据库写入，应用不赋值）。
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +33,15 @@ def fk(target: str, nullable: bool = False, index: bool = True) -> Mapped:
 
 def created() -> Mapped[datetime]:
     return mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
+class Chained:
+    """在哈希链上的历史表。三列由提交时的封链触发器写入（见 avelis.history.integrity），应用只读。
+    另有 inserted_xact（xid8，插入它的顶层事务号）由插入触发器写入，不映射到模型。"""
+
+    chain_seq: Mapped[int | None] = mapped_column(BigInteger, unique=True)
+    prev_hash: Mapped[str | None] = mapped_column(String(64))
+    row_hash: Mapped[str | None] = mapped_column(String(64))
 
 
 # --- 用户与权限 -------------------------------------------------------------------
@@ -180,7 +192,7 @@ class CollectionRun(Base):
     triggered_by: Mapped[str | None] = fk("app_user.id", nullable=True)
 
 
-class AssetVersion(Base):
+class AssetVersion(Chained, Base):
     """资产的一次观察结果。内容哈希不变时只更新 last_seen，不产生新版本（重复采集幂等）。"""
 
     __tablename__ = "asset_version"
@@ -205,7 +217,7 @@ class AssetVersion(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
-class ColumnVersion(Base):
+class ColumnVersion(Chained, Base):
     __tablename__ = "column_version"
     id: Mapped[str] = pk()
     asset_version_id: Mapped[str] = fk("asset_version.id")
@@ -218,7 +230,7 @@ class ColumnVersion(Base):
     is_key: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
-class Definition(Base):
+class Definition(Chained, Base):
     """视图等对象的定义原文与规范化指纹（只改格式不改变指纹）。"""
 
     __tablename__ = "definition"
@@ -244,7 +256,7 @@ class ParseResult(Base):
     created_at: Mapped[datetime] = created()
 
 
-class LineageEdge(Base):
+class LineageEdge(Chained, Base):
     """列级血缘。relation 区分取值（value_*）与影响（filter / join_key / group_by）。
     origin：parsed 数据库定义解析、manual 人工、import 导入代码解析、model_confirmed 模型候选经人工确认。
     模型候选在确认前只存在于 candidate_edge，不进入本表。导入的边是“设计时血缘”，目标可以是未采集的表
@@ -397,7 +409,7 @@ class MetricVersion(Base):
     retired_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
-class MetricVersionTransition(Base):
+class MetricVersionTransition(Chained, Base):
     """状态转换历史（只追加）。actor_id 为空表示系统（采集后的影响分析）。"""
 
     __tablename__ = "metric_version_transition"
@@ -441,7 +453,7 @@ class JoinPathApproval(Base):
     at: Mapped[datetime] = created()
 
 
-class ChangeSet(Base):
+class ChangeSet(Chained, Base):
     """一次采集发现的全部变化。window_start / window_end 是可确认的生效区间。"""
 
     __tablename__ = "change_set"
@@ -456,7 +468,7 @@ class ChangeSet(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
-class ChangeEvent(Base):
+class ChangeEvent(Chained, Base):
     __tablename__ = "change_event"
     id: Mapped[str] = pk()
     change_set_id: Mapped[str] = fk("change_set.id")
@@ -465,6 +477,12 @@ class ChangeEvent(Base):
     column_name: Mapped[str | None] = mapped_column(String(255))
     before: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     after: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    # 归因到数据库用户（插入时写定）：actor_db_user 只在 matched 时有值；attribution_status 见
+    # avelis.collect.attribution；attribution 记录来源、窗口、匹配依据、候选语句与原因
+    actor_db_user: Mapped[str | None] = mapped_column(String(128), index=True)
+    attribution_status: Mapped[str] = mapped_column(String(16), default="unsupported", server_default="unsupported",
+                                                    nullable=False)
+    attribution: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)
     created_at: Mapped[datetime] = created()
 
 
@@ -519,7 +537,7 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
-class AuditEvent(Base):
+class AuditEvent(Chained, Base):
     """审计（只追加）。记录真实操作者。"""
 
     __tablename__ = "audit_event"
@@ -532,6 +550,45 @@ class AuditEvent(Base):
     object_type: Mapped[str] = mapped_column(String(32), nullable=False)
     object_id: Mapped[str | None] = mapped_column(IdType)
     detail: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+
+
+class HistoryChainHead(Base):
+    """哈希链头：只有一行（id = 1）。封链时加行锁取下一个序号。"""
+
+    __tablename__ = "history_chain_head"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class HistoryMark(Chained, Base):
+    """历史行上状态列的一次合法变化（如 superseded_at 由空变为非空），由只追加触发器写入。
+    old_value 是封链时的值，核验时用它还原封链内容；new_value 必须等于该列的当前值。"""
+
+    __tablename__ = "history_mark"
+    __table_args__ = (Index("ix_history_mark_row", "table_name", "row_id"),)
+    id: Mapped[str] = pk()
+    table_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    row_id: Mapped[str] = mapped_column(IdType, nullable=False)
+    column_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_value: Mapped[dict | None] = mapped_column(JsonType)
+    new_value: Mapped[dict | None] = mapped_column(JsonType)
+    at: Mapped[datetime] = created()
+
+
+class HistoryAnchor(Chained, Base):
+    """清理锚点：保留期清理在链上留下的记录。gaps 登记因本次清理形成的序号空洞及两端哈希，
+    剩余的链据此仍可核验。"""
+
+    __tablename__ = "history_anchor"
+    id: Mapped[str] = pk()
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # purge
+    at: Mapped[datetime] = created()
+    cutoff: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    counts: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    gaps: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    actor_name: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class AskThread(Base):

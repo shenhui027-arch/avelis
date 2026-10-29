@@ -1,6 +1,6 @@
 # Avelis v0.1 开发计划
 
-> 状态：M0–M7 已合并；M8a 分析智能体已完成（分支 `m8-analysis-agent`，待审计与合并）。最后更新：2026-10-30。
+> 状态：M0–M7 与变更留底（ADR 0008）已合并；M8a 分析智能体已完成（分支 `m8-analysis-agent`，ADR 0007，待审计与合并）。最后更新：2026-10-30。
 > 这份文件是接续研发的唯一入口：每完成一个里程碑，更新「当前进度」和「下一步」。
 
 ## 1. 定位与第一阶段成功标准
@@ -27,6 +27,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 | M4 异常与加固 | 完成，已运行验证 | 故事 7 与 11 类异常场景（越权、伪造意图、注入、不支持的 SQL、超时、同名对象、外部表来源变化、worker 进程、会话存储丢失、未归属资产）。修复 worker 中断后任务卡在“运行中”导致定时采集停止的缺陷。引擎适配层为多数据库血缘做准备。验收 12 项、全部验收 33 项通过，见 [acceptance-m4.md](acceptance-m4.md)、[ADR 0004](decisions/0004-engine-adapters.md) |
 | M5 交付 | 完成，已运行验证 | 一条命令从零复现验收（`scripts/acceptance.py --fresh`）；M4 场景界面走查；执行前核对修复元数据过期窗口；worker 60 分钟运行（114 次采集全部成功，内存稳定）；认证产品化（登录页、首次改口令、失败锁定、会话失效、用户管理）；第二种引擎 PostgreSQL（真实实例联调）；与 Codex 协同完成 Logo、前端审计、后端验收评审，并修复 25 项评审发现。见 [acceptance-m5.md](acceptance-m5.md)、[architecture.md](architecture.md)、[acceptance.md](acceptance.md) |
 | M6 问数表达能力 | 完成，已运行验证 | 意图 v2：多指标、排名与前 N、环比 / 同比；派生指标（公式白名单、锁定组成版本、级联受影响）；执行计划中每个子查询都走完整治理管线。验收 8 项（含真实 DeepSeek），见 [acceptance-m6.md](acceptance-m6.md)、[ADR 0005](decisions/0005-ask-expressiveness.md) |
+| 变更留底 | 完成，已运行验证 | 用户决定（2026-10-30）：历史只在元数据与血缘治理层留底，不改问数层。列注释变化事件；变更归因到数据库用户（PostgreSQL 事件触发器、ClickHouse `query_log`、Doris `audit_log` 真实联调；StarRocks、SQL Server、Oracle 未接入，如实标“未知”）；变更记录检索与带哈希的 CSV / JSON 导出；历史表数据库层只追加 + 全局哈希链 + 核验；保留期（默认 3 年）与清理锚点。验收 8 项，见 [acceptance-history.md](acceptance-history.md)、[ADR 0008](decisions/0008-history-integrity.md) |
 | M8a 分析智能体 | 完成，待审计 | 合成电商数据集（9 个业务域、约 77.5 万行、预埋场景）；分析图（计划 → 执行 → 核验）、上下文 / 受治理查询 / 计算工具、数字核验、报告导出（PDF / Markdown / CSV）与定时任务、站内通知、分析页；数据策略默认允许；意图按日 / 月分组；修复血缘把 COUNT(*) 当作 SELECT * 的缺陷。见 [acceptance-m8.md](acceptance-m8.md)、[ADR 0007](decisions/0007-analysis-agent.md) |
 | M7 更多引擎 | 完成，已运行验证 | ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1 接入（采集、视图列级血缘、问数、执行前核对）；方言新增 Catalog 段省略、`N'...'` 字面量、`DATE` 带时间、标识符折叠；通用引擎验收每种 7 项，均在真实实例上通过，见 [acceptance-m7.md](acceptance-m7.md)、[ADR 0004](decisions/0004-engine-adapters.md) |
 
@@ -184,6 +185,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 - 轮询发现有延迟，最长等于采集间隔。
 - 未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY`）。
 - 引擎能力只声明真实联调过的：MySQL 目前只采元数据并作为外部表的追溯目标。
+- 变更归因只覆盖已接入 DDL 审计的引擎（PostgreSQL、ClickHouse、Doris）；审计延迟内发生的改动记为“未知”，不事后重算。哈希链防篡改是“可发现”，能重算整条链的超级权限持有者需靠库外记录的链头发现。
 
 ## 12. 开工前需要确认
 
@@ -231,3 +233,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 7. 复核 httpx2：2.16.0 于 2026-10-21 发布，满两周后再评估。
 8. 评审的“待确认”项：缓存命中期间的并发状态变化、Redis 吊销记录丢失后的兜底、无物理 ID 对象（视图、外部表）的同名重建识别边界。
 9. 用新的采集锁（advisory lock）再做一次长时间运行，并补“采集进行中杀掉 worker”的真实中断验收。
+10. 变更留底的后续（ADR 0008）：
+    - 更多引擎的审计来源：StarRocks AuditLoader、SQL Server Extended Events（需评估 `VIEW SERVER STATE` 权限）、Oracle 统一审计（需审计策略与 `AUDIT_VIEWER`）；
+    - 链头定期写到库外（对象存储或工单）作为外部锚点；
+    - 迁移顺序已定：M8a 的分析迁移改名为 `0008`，接在 `0007` 之后（0005 → 0007 → 0008）；`0007` 不再调整。

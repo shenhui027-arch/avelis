@@ -1,4 +1,7 @@
-"""迁移 0006 在有数据的库上升级 → 降级 → 再升级（独立测试库）。"""
+"""迁移 0008（分析）在有数据的库上升级 → 降级到 0007（变更留底）→ 再升级（独立测试库）。
+
+0007 的历史表只追加：降级、再升级 0008 不能改动它们已有的行（审计、变更记录照常保留）。
+"""
 
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ pytestmark = pytest.mark.db
 TABLES = {"analysis_task", "analysis_run", "analysis_step", "analysis_dataset", "notification"}
 
 
-def test_0006_upgrade_downgrade_upgrade_with_data(meta_db, factory):
+def test_0008_upgrade_downgrade_upgrade_with_data(meta_db, factory):
     from alembic import command
 
     from avelis.db import get_engine, session_scope
@@ -36,15 +39,18 @@ def test_0006_upgrade_downgrade_upgrade_with_data(meta_db, factory):
     engine = get_engine()
     cfg = alembic_config()
 
-    command.downgrade(cfg, "0005")
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+        audit_before = conn.scalar(text("SELECT count(*) FROM audit_event"))
+    command.downgrade(cfg, "0007")
+    with engine.connect() as conn:
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
+        assert conn.scalar(text("SELECT count(*) FROM audit_event")) == audit_before  # 只追加的历史不受影响
         assert not TABLES & set(inspect(conn).get_table_names())
         assert conn.scalar(text("SELECT count(*) FROM app_user WHERE id = :id"), {"id": uid}) == 1  # 已有数据保留
 
     command.upgrade(cfg, "head")
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
         assert TABLES <= set(inspect(conn).get_table_names())
         assert conn.scalar(text("SELECT count(*) FROM analysis_run")) == 0
     with session_scope() as s:  # 再升级后可以正常写入

@@ -420,6 +420,9 @@ class ChangeEventOut(Out):
     column: str | None = None
     before: Json
     after: Json
+    actor_db_user: str | None = None
+    attribution_status: str | None = None
+    attribution: Json = Field(default_factory=dict)
 
 
 class ChangeSetOut(Out):
@@ -433,6 +436,53 @@ class ChangeSetOut(Out):
     events: list[ChangeEventOut] | None = None
     impacts: list[ImpactOut] | None = None
     tasks: list[TaskOut] | None = None
+
+
+class ChangeRecordOut(ChangeEventOut):
+    change_set_id: str
+    datasource_id: str
+    datasource: str
+    detected_at: str
+    window: Json
+    chain_seq: int | None = None
+    row_hash: str | None = None
+
+
+class ChangeEventPage(Out):
+    total: int
+    limit: int
+    offset: int
+    items: list[ChangeRecordOut]
+    actors: list[str]
+
+
+class ChainIssueOut(Out):
+    kind: str
+    seq: int | None = None
+    table: str
+    row_id: str | None = None
+    detail: str
+
+
+class HistoryVerifyOut(Out):
+    ok: bool
+    verified_at: str
+    checked_rows: int
+    tables: dict[str, int]
+    head: Json | None = None
+    first_break: ChainIssueOut | None = None
+    issue_count: int
+    issues: list[ChainIssueOut]
+    anchors: int
+
+
+class HistoryStatusOut(Out):
+    retention_days: int
+    purge_interval_hours: int
+    export_max_rows: int
+    chain_head: Json | None = None
+    last_purge: Json | None = None
+    anchors: list[Json]
 
 
 # --- 问数、审计 --------------------------------------------------------------------
