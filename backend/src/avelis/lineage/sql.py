@@ -1,4 +1,7 @@
-"""SQL 解析：规范化指纹、列级血缘、JOIN 与分组信息。基于 SQLGlot（starrocks 方言）。
+"""SQL 解析：规范化指纹、列级血缘、JOIN 与分组信息。基于 SQLGlot。
+
+本模块与具体数据库无关：只认 SqlDialect（SQLGlot 方言名、默认 Catalog、引擎特有写法的规整函数），
+由引擎适配器（avelis.engines）提供。新增数据库时不改这里。
 
 v0.1 支持的 SQL 子集（视图定义、导入的 SELECT）：
   SELECT 投影与别名、聚合、WHERE / HAVING 过滤、GROUP BY、等值 JOIN（INNER / LEFT / RIGHT）、
@@ -13,6 +16,7 @@ v0.1 支持的 SQL 子集（视图定义、导入的 SELECT）：
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,9 +30,19 @@ from sqlglot.schema import MappingSchema
 from avelis.connectors.base import sha256_text
 
 PARSER_VERSION = f"sqlglot-{sqlglot.__version__}/avelis-1"
-DIALECT = "starrocks"
 
 VALUE_RANK = {"value_direct": 0, "value_computed": 1, "value_aggregated": 2}
+
+
+@dataclass(frozen=True)
+class SqlDialect:
+    """解析所需的全部引擎差异。"""
+    name: str  # SQLGlot 方言名
+    default_catalog: str  # 未写 Catalog 的表补全为该值（库.表 两级命名的引擎也补一个固定 Catalog）
+    normalize: Callable[[exp.Expression], exp.Expression] | None = None  # 引擎改写过的定义写法，解析前规整
+
+    def prepare(self, expression: exp.Expression) -> exp.Expression:
+        return self.normalize(expression) if self.normalize else expression
 
 
 @dataclass(frozen=True)
@@ -105,7 +119,7 @@ class SqlNotSupported(Exception):
 # --- 规范化 -----------------------------------------------------------------------
 
 def strip_alias_prefixes(expression: exp.Expression) -> exp.Expression:
-    """StarRocks 把别名列写成 `db`.`alias`.`col`（Catalog 表为 `catalog`.`db`.`alias`.`col`），
+    """供引擎选用的规整函数。StarRocks 把别名列写成 `db`.`alias`.`col`（Catalog 表为 `catalog`.`db`.`alias`.`col`），
     SQLGlot 会把别名当表名。凡是表部分能在本层来源中找到的列，去掉库与 Catalog 前缀。"""
     for scope in traverse_scope(expression):
         for column in scope.columns:
@@ -136,27 +150,28 @@ def qualified_name(table: exp.Table) -> str:
     return ".".join(p for p in (table.catalog, table.db, table.name) if p)
 
 
-def canonical_hash_of(sql: str) -> tuple[str | None, str]:
+def canonical_hash_of(sql: str, dialect: SqlDialect) -> tuple[str | None, str]:
     """只改格式（空白、大小写、引号、别名前缀写法）不改变指纹；改了表达式、过滤、关联就会变。"""
     try:
-        statements = [s for s in sqlglot.parse(sql, read=DIALECT) if s is not None]
+        statements = [s for s in sqlglot.parse(sql, read=dialect.name) if s is not None]
     except ParseError:
         return None, sha256_text("raw:" + " ".join(sql.split()))
     parts = []
     for statement in statements:
-        strip_alias_prefixes(statement)
-        parts.append(statement.sql(dialect=DIALECT, normalize=True, identify=True))
+        dialect.prepare(statement)
+        parts.append(statement.sql(dialect=dialect.name, normalize=True, identify=True))
     canonical = ";\n".join(parts)
     return canonical, sha256_text(canonical)
 
 
 # --- 解析 -------------------------------------------------------------------------
 
-def parse_query(sql: str, *, schema: dict[str, dict[str, dict[str, dict[str, str]]]],
-                default_catalog: str = "default_catalog", default_db: str | None = None) -> ParsedQuery:
-    canonical, digest = canonical_hash_of(sql)
+def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, dict[str, dict[str, str]]]],
+                default_catalog: str | None = None, default_db: str | None = None) -> ParsedQuery:
+    d = dialect.name
+    canonical, digest = canonical_hash_of(sql, dialect)
     try:
-        statements = [s for s in sqlglot.parse(sql, read=DIALECT) if s is not None]
+        statements = [s for s in sqlglot.parse(sql, read=d) if s is not None]
     except ParseError as exc:
         return ParsedQuery("failed", f"SQL 无法解析：{_first_line(exc)}", canonical, digest)
     if len(statements) != 1:
@@ -166,8 +181,8 @@ def parse_query(sql: str, *, schema: dict[str, dict[str, dict[str, dict[str, str
     if not isinstance(root, exp.Query):
         return ParsedQuery("unsupported", f"不是查询语句（{root.key.upper()}）", canonical, digest)
 
-    strip_alias_prefixes(root)
-    tables = default_tables(root, default_catalog, default_db)
+    dialect.prepare(root)
+    tables = default_tables(root, default_catalog or dialect.default_catalog, default_db)
     result = ParsedQuery("ok", None, canonical, digest, tables=tables)
 
     if isinstance(root, exp.SetOperation):
@@ -176,7 +191,7 @@ def parse_query(sql: str, *, schema: dict[str, dict[str, dict[str, dict[str, str
         return result
 
     try:
-        qualified = qualify(root, schema=MappingSchema(schema, dialect=DIALECT), dialect=DIALECT,
+        qualified = qualify(root, schema=MappingSchema(schema, dialect=d), dialect=d,
                             validate_qualify_columns=True, quote_identifiers=False)
     except (OptimizeError, ValueError, KeyError) as exc:
         result.status = "failed"
@@ -202,16 +217,16 @@ def parse_query(sql: str, *, schema: dict[str, dict[str, dict[str, dict[str, str
         inner = projection.this if isinstance(projection, exp.Alias) else projection
         if inner.find(exp.Subquery):
             problems.append(f"输出列 {name} 含标量子查询，来源未展开")
-        sources = _trace(inner, scope, problems)
+        sources = _trace(inner, scope, problems, d)
         relation = max((s.relation for s in sources), key=VALUE_RANK.get, default=None)
-        result.columns.append(OutputColumn(name=name, expression=inner.sql(dialect=DIALECT), relation=relation,
+        result.columns.append(OutputColumn(name=name, expression=inner.sql(dialect=d), relation=relation,
                                            sources=sources))
 
     for sub in traverse_scope(qualified):
-        _collect_influences(sub, result, problems)
+        _collect_influences(sub, result, problems, d)
 
     result.distinct = bool(select.args.get("distinct"))
-    result.group_outputs = _group_outputs(select)
+    result.group_outputs = _group_outputs(select, d)
     result.passthrough = _passthrough(scope, result)
     if problems:
         result.status = "partial"
@@ -241,7 +256,7 @@ def _level_relation(expression: exp.Expression) -> str:
     return "value_computed"
 
 
-def _trace(expression: exp.Expression, scope: Scope, problems: list[str],
+def _trace(expression: exp.Expression, scope: Scope, problems: list[str], d: str,
            inherited: str = "value_direct", depth: int = 0) -> list[ValueSource]:
     """把表达式中的列追到实体表的列，沿途合成取值类型（直接 < 计算 < 聚合）。"""
     if depth > 32:
@@ -256,15 +271,15 @@ def _trace(expression: exp.Expression, scope: Scope, problems: list[str],
         source = scope.sources.get(column.table)
         if isinstance(source, exp.Table):
             out.append(ValueSource(ColumnRef(qualified_name(source), column.name), relation,
-                                   expression.sql(dialect=DIALECT)))
+                                   expression.sql(dialect=d)))
         elif isinstance(source, Scope):
             inner = _projection(source, column.name)
             if inner is None:
                 problems.append(f"子查询 {column.table} 中找不到列 {column.name}")
                 continue
-            out.extend(_trace(inner, source, problems, relation, depth + 1))
+            out.extend(_trace(inner, source, problems, d, relation, depth + 1))
         else:
-            problems.append(f"列 {column.sql(dialect=DIALECT)} 的来源无法确定")
+            problems.append(f"列 {column.sql(dialect=d)} 的来源无法确定")
     return out
 
 
@@ -287,11 +302,11 @@ def _projection(scope: Scope, name: str) -> exp.Expression | None:
     return None
 
 
-def _resolve_refs(expression: exp.Expression, scope: Scope, problems: list[str]) -> list[ColumnRef]:
-    return [s.ref for s in _trace(expression, scope, problems)]
+def _resolve_refs(expression: exp.Expression, scope: Scope, problems: list[str], d: str) -> list[ColumnRef]:
+    return [s.ref for s in _trace(expression, scope, problems, d)]
 
 
-def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str]) -> None:
+def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str], d: str) -> None:
     select = scope.expression
     if not isinstance(select, exp.Select):
         return
@@ -300,8 +315,8 @@ def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str]) 
     def add(expression: exp.Expression | None, relation: str) -> None:
         if expression is None:
             return
-        text = expression.sql(dialect=DIALECT)
-        for ref in _resolve_refs(expression, scope, problems):
+        text = expression.sql(dialect=d)
+        for ref in _resolve_refs(expression, scope, problems, d):
             if (ref, relation) not in seen:
                 seen.add((ref, relation))
                 result.influences.append(Influence(ref, relation, text))
@@ -340,13 +355,13 @@ def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str]) 
             if a.table == right_alias and b.table != right_alias:
                 a, b = b, a
             if b.table == right_alias and a.table != right_alias:
-                left_refs.extend(_resolve_refs(a, scope, problems))
-                right_refs.extend(_resolve_refs(b, scope, problems))
+                left_refs.extend(_resolve_refs(a, scope, problems, d))
+                right_refs.extend(_resolve_refs(b, scope, problems, d))
         side = join.args.get("side") or ""
         result.joins.append(JoinInfo(
             kind=(side or join.args.get("kind") or "inner").lower(), left=left_refs, right=right_refs,
             right_table=right_tables[0] if len(right_tables) == 1 else None,
-            left_tables=list(left_tables), condition=on.sql(dialect=DIALECT)))
+            left_tables=list(left_tables), condition=on.sql(dialect=d)))
         left_tables.extend(right_tables)
 
 
@@ -357,16 +372,16 @@ def _source_tables(node: exp.Expression, scope: Scope) -> list[str]:
     return []
 
 
-def _group_outputs(select: exp.Select) -> list[str] | None:
+def _group_outputs(select: exp.Select, d: str) -> list[str] | None:
     """GROUP BY 的键都出现在输出中时，返回对应的输出列名（即视图的粒度）。"""
     group = select.args.get("group")
     if not group:
         return None
-    keys = [k.sql(dialect=DIALECT) for k in group.expressions]
+    keys = [k.sql(dialect=d) for k in group.expressions]
     outputs = {}
     for projection in select.selects:
         inner = projection.this if isinstance(projection, exp.Alias) else projection
-        outputs[inner.sql(dialect=DIALECT)] = projection.alias_or_name
+        outputs[inner.sql(dialect=d)] = projection.alias_or_name
     names = [outputs.get(k) for k in keys]
     return names if all(names) else []
 

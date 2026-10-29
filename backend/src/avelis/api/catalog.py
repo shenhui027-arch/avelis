@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 from avelis import audit
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
+from avelis.ask.compiler import duplicate_key_sql
 from avelis.collect.service import current_fingerprints
-from avelis.connectors import query_connector
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
+from avelis.engines import CapabilityMissing, engine_of, query_connector
 from avelis.governance import access
 from avelis.governance.metrics import current_fingerprint_map
 from avelis.lineage.grain import effective_grains
@@ -266,9 +267,8 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     a = readable_asset(session, user, g.asset_id)
     access.require_role(session, user, "steward")
     ds = session.get(Datasource, a.datasource_id)
-    cols = ", ".join(f"`{c}`" for c in g.columns)
-    sql = (f"SELECT {cols}, COUNT(*) AS n FROM `{a.catalog_name}`.`{a.db_name}`.`{a.name}` "
-           f"GROUP BY {cols} HAVING COUNT(*) > 1 LIMIT 1")
+    sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns),
+                            dialect=engine_of(ds).sql.name)
     detail: dict[str, Any] = {"sql": sql}
     try:
         result = query_connector(session, ds).execute_select(sql, timeout_seconds=30, mem_limit_bytes=1024**3,
@@ -281,7 +281,7 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     except QueryError as exc:
         g.status = "timeout" if exc.code == "timeout" else "failed"
         detail["error"] = exc.message
-    except ValueError as exc:
+    except (CapabilityMissing, ValueError) as exc:
         g.status = "failed"
         detail["error"] = str(exc)
     g.verified_at = utcnow()

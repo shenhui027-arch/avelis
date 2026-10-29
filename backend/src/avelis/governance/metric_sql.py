@@ -15,7 +15,6 @@ from sqlglot.errors import ParseError
 
 from avelis.governance.errors import Invalid
 
-DIALECT = "starrocks"
 BASE_ALIAS = "b"
 ADDITIVE = (exp.Sum, exp.Count, exp.Avg)
 ALLOWED_FUNCS = (exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.If, exp.Case, exp.Abs,
@@ -31,9 +30,10 @@ class ParsedSnippet:
     columns: list[tuple[str, str]] = field(default_factory=list)  # (alias, column)
 
 
-def parse_snippet(text: str, *, label: str, aliases: set[str], require_aggregate: bool | None) -> ParsedSnippet:
+def parse_snippet(text: str, *, dialect: str, label: str, aliases: set[str],
+                  require_aggregate: bool | None) -> ParsedSnippet:
     try:
-        wrapper = sqlglot.parse_one(f"SELECT {text}", read=DIALECT)
+        wrapper = sqlglot.parse_one(f"SELECT {text}", read=dialect)
     except ParseError as exc:
         raise Invalid(f"{label}无法解析：{text}", error=str(exc)[:300]) from exc
     extra = [k for k, v in wrapper.args.items() if v and k != "expressions"]
@@ -68,8 +68,8 @@ def parse_snippet(text: str, *, label: str, aliases: set[str], require_aggregate
     return ParsedSnippet(node, columns)
 
 
-def column_ref(text: str, *, label: str, aliases: set[str]) -> tuple[str, str]:
-    snippet = parse_snippet(text, label=label, aliases=aliases, require_aggregate=False)
+def column_ref(text: str, *, dialect: str, label: str, aliases: set[str]) -> tuple[str, str]:
+    snippet = parse_snippet(text, dialect=dialect, label=label, aliases=aliases, require_aggregate=False)
     if not isinstance(snippet.expression, exp.Column):
         raise Invalid(f"{label}必须是单个列：{text}")
     return snippet.columns[0]

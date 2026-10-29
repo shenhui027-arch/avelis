@@ -21,6 +21,7 @@ from avelis.ask.llm import DEMO_ADAPTER
 from avelis.collect.service import build_schema
 from avelis.connectors.base import sha256_text
 from avelis.db import utcnow
+from avelis.engines import engine_of
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.importer.candidates import Candidate, demo_candidates, model_candidates, redact
@@ -32,7 +33,6 @@ from avelis.models import CandidateEdge, Datasource, ExtractedStatement, ImportJ
 LANGUAGES = {".sql": "sql", ".py": "python", ".sh": "shell", ".bash": "shell"}
 CONFIRMED_ORIGINS = ("import", "import_manual", "model_confirmed")
 RELATIONS = ("value_direct", "value_computed", "value_aggregated", "filter", "join_key", "group_by", "table")
-DEFAULT_CATALOG = "default_catalog"
 
 
 def detect_language(filename: str, source_type: str | None) -> str:
@@ -44,7 +44,8 @@ def detect_language(filename: str, source_type: str | None) -> str:
 def create_import(session: Session, actor: User, *, datasource_id: str, filename: str, content: str,
                   source_type: str | None, default_db: str | None, params: dict[str, str]) -> tuple[ImportJob, bool]:
     access.require_role(session, actor, "steward")
-    if session.get(Datasource, datasource_id) is None:
+    ds = session.get(Datasource, datasource_id)
+    if ds is None:
         raise NotFound("数据源不存在")
     if not content.strip():
         raise Invalid("导入内容为空")
@@ -56,7 +57,7 @@ def create_import(session: Session, actor: User, *, datasource_id: str, filename
         return existing, False
     language = detect_language(filename, source_type)
     job = ImportJob(datasource_id=datasource_id, source_type=source_type or language, filename=filename,
-                    language=language, dialect="starrocks", default_db=default_db, content_hash=digest,
+                    language=language, dialect=engine_of(ds).sql.name, default_db=default_db, content_hash=digest,
                     status="processing", params=dict(params), created_by=actor.id)
     session.add(job)
     session.flush()
@@ -76,20 +77,21 @@ def _segments(language: str, content: str) -> tuple[list[Segment], list[str]]:
     return split_sql(content), []
 
 
-def _qualify(ref: str, default_db: str | None) -> str | None:
+def _qualify(ref: str, default_db: str | None, catalog: str) -> str | None:
     parts = [p for p in ref.strip("`").replace("`", "").split(".") if p]
     if len(parts) == 3:
         return ".".join(parts)
     if len(parts) == 2:
-        return f"{DEFAULT_CATALOG}.{parts[0]}.{parts[1]}"
+        return f"{catalog}.{parts[0]}.{parts[1]}"
     if len(parts) == 1 and default_db:
-        return f"{DEFAULT_CATALOG}.{default_db}.{parts[0]}"
+        return f"{catalog}.{default_db}.{parts[0]}"
     return None
 
 
 def process(session: Session, actor: User, job: ImportJob, content: str, *, only: set[int] | None = None) -> None:
     """解析导入内容。only 为需要（重新）写入的语句序号；其余语句只重放以重建脚本内的表结构。"""
     schema = build_schema(session, job.datasource_id)
+    dialect = engine_of(session.get(Datasource, job.datasource_id)).sql
     default_db = job.default_db
     segments, notes = _segments(job.language, content)
     existing = {s.seq: s for s in session.scalars(select(ExtractedStatement).where(
@@ -108,14 +110,14 @@ def process(session: Session, actor: User, job: ImportJob, content: str, *, only
             if write:
                 stmt.status = "model"
                 stmt.reason = "确定性解析无法覆盖（非 SQL 的数据操作），已生成模型候选"
-                _model_candidates(session, job, stmt, schema, default_db)
+                _model_candidates(session, job, stmt, schema, default_db, dialect.default_catalog)
             continue
         sql, missing = substitute(seg.text, job.params)
         if missing:
             stmt.status, stmt.sql_text = "needs_params", None
             stmt.reason = f"动态 SQL，需要补充参数：{', '.join(missing)}"
             continue
-        parsed = parse_statement(sql, schema=schema, default_db=default_db)
+        parsed = parse_statement(sql, dialect=dialect, schema=schema, default_db=default_db)
         if parsed.use_db:
             default_db = parsed.use_db
         if parsed.target_ref and parsed.target_columns:
@@ -185,7 +187,7 @@ def _known_tables(schema: dict) -> dict[str, set[str]]:
 
 
 def _model_candidates(session: Session, job: ImportJob, stmt: ExtractedStatement, schema: dict,
-                      default_db: str | None) -> None:
+                      default_db: str | None, catalog: str) -> None:
     known = _known_tables(schema)
     redacted, hits = redact(stmt.raw_text)
     policy = modelcfg.policy(session)
@@ -201,7 +203,7 @@ def _model_candidates(session: Session, job: ImportJob, stmt: ExtractedStatement
     job.model_adapter = adapter
 
     def columns_of(table: str) -> set[str]:
-        q = _qualify(table, default_db)
+        q = _qualify(table, default_db, catalog)
         return known.get(q or "", set())
 
     try:
@@ -218,14 +220,14 @@ def _model_candidates(session: Session, job: ImportJob, stmt: ExtractedStatement
         return
     dropped = []
     for c in raw:
-        problem = _validate(c, known, default_db, redacted)
+        problem = _validate(c, known, default_db, catalog, redacted)
         if problem:
             dropped.append({"edge": f"{c.source_ref}.{c.source_column} → {c.target_ref}.{c.target_column}",
                             "reason": problem})
             continue
         session.add(CandidateEdge(
-            job_id=job.id, statement_id=stmt.id, origin="model", source_ref=_qualify(c.source_ref, default_db),
-            source_column=c.source_column, target_ref=_qualify(c.target_ref, default_db),
+            job_id=job.id, statement_id=stmt.id, origin="model", source_ref=_qualify(c.source_ref, default_db, catalog),
+            source_column=c.source_column, target_ref=_qualify(c.target_ref, default_db, catalog),
             target_column=c.target_column, relation=c.relation, confidence=c.confidence,
             evidence={"lines": c.evidence_lines, "rationale": c.rationale, "adapter": adapter,
                       "is_demo": resolved is None}, status="pending"))
@@ -234,10 +236,11 @@ def _model_candidates(session: Session, job: ImportJob, stmt: ExtractedStatement
                                                                   *dropped]}
 
 
-def _validate(c: Candidate, known: dict[str, set[str]], default_db: str | None, snippet: str) -> str | None:
+def _validate(c: Candidate, known: dict[str, set[str]], default_db: str | None, catalog: str,
+              snippet: str) -> str | None:
     if c.relation not in RELATIONS:
         return f"关系类型 {c.relation} 不合法"
-    source, target = _qualify(c.source_ref, default_db), _qualify(c.target_ref, default_db)
+    source, target = _qualify(c.source_ref, default_db, catalog), _qualify(c.target_ref, default_db, catalog)
     if source is None or source not in known:
         return f"来源表 {c.source_ref} 未采集，也不是本脚本产生的表"
     if c.source_column and c.source_column not in known[source]:

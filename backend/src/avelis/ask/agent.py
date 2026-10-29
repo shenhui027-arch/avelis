@@ -349,7 +349,13 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
                                  "note": "演示模型（规则匹配），真实模型端到端未验证" if is_demo else None}}
     config = {"configurable": {"thread_id": thread.id, "session": session, "user": user, "answer": answer}}
     app = graph()
-    pending = app.get_state(config)
+    try:
+        pending = app.get_state(config)
+    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+        # 会话存储被删除（如元数据库重建）：重新建立模式与检查点表后继续；原有会话状态已不存在
+        reset_state_cache()
+        app = graph()
+        pending = app.get_state(config)
     steps_before = len(pending.values.get("steps", [])) if pending.values else 0
     try:
         if pending.next and thread.status == "waiting":

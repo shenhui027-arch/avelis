@@ -24,6 +24,7 @@ from avelis.collect.service import current_fingerprints
 from avelis.config import get_settings
 from avelis.connectors.base import sha256_json
 from avelis.db import utcnow
+from avelis.engines import engine_of
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, is_additive, parse_snippet
@@ -32,6 +33,7 @@ from avelis.models import (
     Asset,
     AssetVersion,
     ColumnVersion,
+    Datasource,
     Domain,
     JoinPath,
     Metric,
@@ -165,6 +167,7 @@ def resolve_joins(session: Session, version: MetricVersion) -> tuple[dict[str, A
 def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
     aliases, steps = resolve_joins(session, version)
     names = set(aliases)
+    dialect = engine_of(session.get(Datasource, aliases[BASE_ALIAS].datasource_id)).sql.name
     columns = {alias: _asset_columns(session, asset) for alias, asset in aliases.items()}
     # 先聚合的关联只暴露关联键与 row_count
     for step in steps:
@@ -181,14 +184,15 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
             raise Invalid(f"{label}引用的列不存在：{asset.db_name}.{asset.name}.{column}")
         refs.append((alias, column, role))
 
-    expression = parse_snippet(version.expression or "", label="表达式", aliases=names, require_aggregate=True)
+    expression = parse_snippet(version.expression or "", dialect=dialect, label="表达式", aliases=names,
+                               require_aggregate=True)
     for alias, column in expression.columns:
         check(alias, column, "表达式", "measure")
     if version.filters:
-        for alias, column in parse_snippet(version.filters, label="过滤条件", aliases=names,
+        for alias, column in parse_snippet(version.filters, dialect=dialect, label="过滤条件", aliases=names,
                                            require_aggregate=False).columns:
             check(alias, column, "过滤条件", "filter")
-    time_alias, time_col = column_ref(version.time_column or "", label="时间字段", aliases=names)
+    time_alias, time_col = column_ref(version.time_column or "", dialect=dialect, label="时间字段", aliases=names)
     check(time_alias, time_col, "时间字段", "time")
     if not columns[time_alias][time_col].data_type.lower().startswith(TIME_TYPES):
         raise Invalid(f"时间字段必须是日期或时间类型：{time_col}（{columns[time_alias][time_col].data_type}）")
@@ -201,7 +205,8 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
         if not dim.get("name") or dim["name"] in seen_dims:
             raise Invalid(f"维度名称缺失或重复：{dim}")
         seen_dims.add(dim["name"])
-        alias, column = column_ref(dim.get("column", ""), label=f"维度 {dim['name']} ", aliases=names)
+        alias, column = column_ref(dim.get("column", ""), dialect=dialect, label=f"维度 {dim['name']} ",
+                                   aliases=names)
         check(alias, column, f"维度 {dim['name']} ", "dimension")
     for step in steps:
         for c in step["path"].left_columns:

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from avelis.api import ask, auth, catalog, datasources, governance, imports, model_settings, workbench
 from avelis.cache import LockBusy
 from avelis.config import get_settings
-from avelis.connectors import CredentialMissing
+from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
 from avelis.governance.errors import GovernanceError
 
 
@@ -27,6 +27,14 @@ def create_app() -> FastAPI:
     @app.exception_handler(CredentialMissing)
     async def credential_missing(_: Request, exc: CredentialMissing) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(CapabilityMissing)
+    async def capability_missing(_: Request, exc: CapabilityMissing) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc), "capability": exc.capability})
+
+    @app.exception_handler(UnsupportedEngine)
+    async def unsupported_engine(_: Request, exc: UnsupportedEngine) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(LockBusy)
     async def lock_busy(_: Request, exc: LockBusy) -> JSONResponse:

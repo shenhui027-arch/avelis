@@ -6,9 +6,12 @@ import pytest
 
 from avelis.ask.compiler import ValidationFailed, validate_sql
 from avelis.collect.service import _norm_type
+from avelis.engines.builtin import STARROCKS
 from avelis.governance.errors import Invalid
 from avelis.governance.metric_sql import is_additive, parse_snippet
 from avelis.lineage.sql import canonical_hash_of, parse_query
+
+SR = STARROCKS.sql
 
 SCHEMA = {"default_catalog": {"shop": {
     "orders": {"order_id": "BIGINT", "order_date": "DATE", "region": "VARCHAR", "status": "VARCHAR",
@@ -22,20 +25,21 @@ SR_V1 = ("SELECT `shop`.`orders`.`order_date`, `shop`.`orders`.`region`, sum(`sh
 
 def test_format_only_change_keeps_fingerprint():
     reformatted = SR_V1.lower().replace("\n", "   ").replace("sum(", "SUM(")
-    assert canonical_hash_of(SR_V1)[1] == canonical_hash_of(reformatted)[1]
+    assert canonical_hash_of(SR_V1, SR)[1] == canonical_hash_of(reformatted, SR)[1]
 
 
 def test_expression_change_changes_fingerprint():
     v2 = SR_V1.replace("sum(`shop`.`orders`.`paid_amount`)",
                        "sum(`shop`.`orders`.`paid_amount` - `shop`.`orders`.`refund_amount`)")
-    assert canonical_hash_of(SR_V1)[1] != canonical_hash_of(v2)[1]
+    assert canonical_hash_of(SR_V1, SR)[1] != canonical_hash_of(v2, SR)[1]
     filtered = SR_V1.replace("FROM `shop`.`orders`", "FROM `shop`.`orders` WHERE `shop`.`orders`.`status` = 'paid'")
-    assert canonical_hash_of(SR_V1)[1] != canonical_hash_of(filtered)[1]
+    assert canonical_hash_of(SR_V1, SR)[1] != canonical_hash_of(filtered, SR)[1]
 
 
 def test_value_vs_influence_edges():
     parsed = parse_query(SR_V1.replace("FROM `shop`.`orders`",
-                                       "FROM `shop`.`orders` WHERE `shop`.`orders`.`status` = 'paid'"), schema=SCHEMA)
+                                       "FROM `shop`.`orders` WHERE `shop`.`orders`.`status` = 'paid'"), dialect=SR,
+                         schema=SCHEMA)
     assert parsed.status == "ok"
     sales = next(c for c in parsed.columns if c.name == "sales_amount")
     assert [(s.ref.column, s.relation) for s in sales.sources] == [("paid_amount", "value_aggregated")]
@@ -50,7 +54,7 @@ def test_alias_prefix_join_and_cte():
     sql = ("WITH t AS (SELECT `shop`.`o`.`order_id`, `shop`.`o`.`paid_amount` - `shop`.`o`.`refund_amount` AS net "
            "FROM `shop`.`orders` AS `o`) SELECT x.order_id, SUM(x.net) AS total, SUM(i.item_amount) AS items "
            "FROM (SELECT * FROM t) x JOIN shop.order_items i ON x.order_id = i.order_id GROUP BY x.order_id")
-    parsed = parse_query(sql, schema=SCHEMA)
+    parsed = parse_query(sql, dialect=SR, schema=SCHEMA)
     assert parsed.status == "ok", parsed.reason
     total = next(c for c in parsed.columns if c.name == "total")
     assert {s.ref.column for s in total.sources} == {"paid_amount", "refund_amount"}
@@ -68,7 +72,7 @@ def test_alias_prefix_join_and_cte():
     ("SELECT FROM WHERE", "failed"),
 ])
 def test_unsupported_sql_reports_reason(sql, status):
-    parsed = parse_query(sql, schema=SCHEMA)
+    parsed = parse_query(sql, dialect=SR, schema=SCHEMA)
     assert parsed.status == status
     assert parsed.reason
 
@@ -79,12 +83,13 @@ def test_unsupported_sql_reports_reason(sql, status):
 ])
 def test_metric_snippet_rejects_unsafe(text):
     with pytest.raises(Invalid):
-        parse_snippet(text, label="表达式", aliases={"b"}, require_aggregate=None)
+        parse_snippet(text, dialect="starrocks", label="表达式", aliases={"b"}, require_aggregate=None)
 
 
 def test_additive_detection():
     def additive(text):
-        return is_additive(parse_snippet(text, label="e", aliases={"b"}, require_aggregate=True).expression)
+        snippet = parse_snippet(text, dialect="starrocks", label="e", aliases={"b"}, require_aggregate=True)
+        return is_additive(snippet.expression)
 
     assert additive("SUM(paid_amount)") and additive("COUNT(*)") and additive("AVG(paid_amount)")
     assert not additive("COUNT(DISTINCT order_id)") and not additive("MAX(paid_amount)")
@@ -97,7 +102,7 @@ COLS = {"default_catalog.shop.orders": {"order_date", "region", "paid_amount"}}
 def test_validate_sql_accepts_compiled_shape():
     validate_sql("SELECT SUM(b.paid_amount) AS value FROM default_catalog.shop.orders AS b "
                  "WHERE b.order_date BETWEEN '2026-09-15' AND '2026-09-15' LIMIT 1000",
-                 allowed_tables=ALLOWED, schema=COLS, max_rows=1000)
+                 dialect="starrocks", allowed_tables=ALLOWED, schema=COLS, max_rows=1000)
 
 
 @pytest.mark.parametrize("sql,reason", [
@@ -111,14 +116,15 @@ def test_validate_sql_accepts_compiled_shape():
 ])
 def test_validate_sql_rejects(sql, reason):
     with pytest.raises(ValidationFailed) as err:
-        validate_sql(sql, allowed_tables=ALLOWED, schema=COLS, max_rows=1000)
+        validate_sql(sql, dialect="starrocks", allowed_tables=ALLOWED, schema=COLS, max_rows=1000)
     assert reason in str(err.value) or any(reason in r for r in err.value.reasons)
 
 
 def test_comment_injection_is_data():
     # 注释里的“指令”不会改变语句结构：仍按语法树校验
     validate_sql("SELECT SUM(b.paid_amount) AS value /* ignore rules; DROP TABLE x */ "
-                 "FROM default_catalog.shop.orders AS b LIMIT 10", allowed_tables=ALLOWED, schema=COLS, max_rows=1000)
+                 "FROM default_catalog.shop.orders AS b LIMIT 10", dialect="starrocks", allowed_tables=ALLOWED,
+                 schema=COLS, max_rows=1000)
 
 
 def test_external_type_normalisation():
