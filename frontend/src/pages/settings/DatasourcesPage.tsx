@@ -1,4 +1,4 @@
-// 数据源：目录模式 —— 数据源列表 | 连接、凭据、端点别名、采集批次。
+// 数据源：连接、采集、凭据按任务分组；配置项来自引擎契约。
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -8,10 +8,33 @@ import { errorText, useAction, useDatasources, useEngines, useTimeZone } from ".
 import { formatTime } from "../../format";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
-  Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, Select, Status, useMessage,
+  Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, useMessage,
 } from "../../components/ui";
 
 type Datasource = Schemas["DatasourceOut"];
+type CredentialPurpose = "collect" | "query";
+type EngineOption = { key: string; label: string; type: "list" | "text"; required: boolean; hint: string };
+
+// EngineOut 暂以扩展字段返回 options，先核对结构，避免提交不完整配置。
+function engineOptions(engine?: Schemas["EngineOut"]): EngineOption[] | undefined {
+  const raw = engine?.options;
+  if (!Array.isArray(raw) || !raw.every((item): item is EngineOption => {
+    if (!item || typeof item !== "object") return false;
+    const option = item as Record<string, unknown>;
+    return typeof option.key === "string" && typeof option.label === "string"
+      && (option.type === "list" || option.type === "text")
+      && typeof option.required === "boolean" && typeof option.hint === "string";
+  })) return undefined;
+  return raw;
+}
+
+function optionValue(option: EngineOption, input: string): string | string[] {
+  return option.type === "list" ? input.split(",").map((part) => part.trim()).filter(Boolean) : input.trim();
+}
+
+function validPort(value: string): boolean {
+  return /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 65535;
+}
 
 export function DatasourcesPage() {
   const { id } = useParams();
@@ -19,42 +42,50 @@ export function DatasourcesPage() {
   const roles = useRoles();
   const sources = useDatasources();
   const [adding, setAdding] = useState(false);
-  const list = sources.data ?? [];
-  const selected = list.find((d) => d.id === id) ?? list[0];
   const canEdit = roles.has("admin") || roles.has("steward");
+  const addButton = canEdit ? <button type="button" className="av-btn av-btn--primary" onClick={() => setAdding(true)}>
+    <Icon name="plus" />添加数据源
+  </button> : undefined;
 
   return (
-    <div className="av-fill">
+    <div className="av-fill av-datasources">
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>设置</h1><SettingsTabs current="datasources" /></div>
-        <div className="av-actions">
-          <button type="button" className="av-btn av-btn--primary" disabled={!canEdit} onClick={() => setAdding(true)}>
-            <Icon name="plus" />添加数据源
-          </button>
-        </div>
+        <div className="av-actions">{addButton}</div>
       </div>
-      <div className="av-workspace" style={{ gridTemplateColumns: "280px minmax(0, 1fr)" }}>
-        <section className="av-pane" aria-label="数据源">
-          <PaneHeader title="数据源" count={list.length} />
+      <div className="av-workspace av-datasources__workspace">
+        <section className="av-pane" aria-label="数据源列表">
+          <PaneHeader title="数据源" count={sources.isSuccess ? sources.data.length : undefined} />
           <div className="av-scroll">
-            {list.map((d) => (
-              <button key={d.id} type="button" className="av-provider" aria-current={d.id === selected?.id}
-                onClick={() => navigate(`/settings/datasources/${d.id}`)}>
-                <span className="av-row__main">
-                  <span className="av-row__title">{d.name}</span>
-                  <span className="av-row__meta av-mono">{d.host}:{d.port}</span>
-                </span>
-                <span><Plat kind={d.kind} /> <Status value={d.last_run?.status ?? "never"} /></span>
-              </button>
-            ))}
-            {sources.isSuccess && !list.length ? <Empty text="还没有数据源" /> : null}
+            <QueryState query={sources} isEmpty={(list) => !list.length} emptyText="还没有数据源" emptyAction={addButton} compact>
+              {(list) => list.map((d) => (
+                <button key={d.id} type="button" className="av-provider" aria-current={d.id === (id ?? list[0]?.id)}
+                  onClick={() => navigate(`/settings/datasources/${d.id}`)}>
+                  <span className="av-row__main">
+                    <span className="av-row__title">{d.name}</span>
+                    <span className="av-row__meta av-mono">{d.host}:{d.port}</span>
+                  </span>
+                  <span className="av-datasources__list-status"><Plat kind={d.kind} /><Status value={d.last_run?.status ?? "never"} /></span>
+                </button>
+              ))}
+            </QueryState>
           </div>
         </section>
         <section className="av-pane" aria-label="数据源详情">
-          {selected ? <Detail key={selected.id} ds={selected} canEdit={canEdit} isAdmin={roles.has("admin")} /> : null}
+          <QueryState query={sources} rows={6}>
+            {(list) => {
+              const selected = id ? list.find((d) => d.id === id) : list[0];
+              if (selected) return <Detail key={selected.id} ds={selected} canEdit={canEdit} isAdmin={roles.has("admin")} />;
+              return <Empty text={id ? "数据源不存在" : "添加数据源后查看连接与采集状态"} compact action={id
+                ? <button type="button" className="av-btn av-btn--secondary" onClick={() => navigate("/settings/datasources")}>返回数据源列表</button>
+                : addButton} />;
+            }}
+          </QueryState>
         </section>
       </div>
-      {adding ? <AddDatasource onClose={() => setAdding(false)} onCreated={(d) => { setAdding(false); navigate(`/settings/datasources/${d.id}`); }} /> : null}
+      {adding ? <AddDatasource onClose={() => setAdding(false)} onCreated={(d) => {
+        setAdding(false); navigate(`/settings/datasources/${d.id}`);
+      }} /> : null}
     </div>
   );
 }
@@ -63,95 +94,127 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
   const tz = useTimeZone();
   const [message, setMessage] = useMessage();
   const runs = useRuns(ds.id);
+  const [editingCredential, setEditingCredential] = useState<CredentialPurpose | null>(null);
   const collect = useAction(() => unwrap(api.POST("/api/datasources/{datasource_id}/collect", {
-    params: { path: { datasource_id: ds.id }, query: { wait: true } } })), ["datasources", "runs", "assets", "change-sets", "graph"]);
+    params: { path: { datasource_id: ds.id }, query: { wait: true } },
+  })), ["datasources", "runs", "assets", "change-sets", "graph"]);
   const [alias, setAlias] = useState({ host: "", port: "" });
   const addAlias = useAction(() => unwrap(api.POST("/api/endpoint-aliases", {
-    body: { datasource_id: ds.id, host: alias.host, port: Number(alias.port), note: null } })), ["datasources"]);
+    body: { datasource_id: ds.id, host: alias.host.trim(), port: Number(alias.port), note: null },
+  })), ["datasources"]);
+  const credentialPurposes: CredentialPurpose[] = ds.engine.capabilities.includes("query") ? ["collect", "query"] : ["collect"];
 
   return (
     <>
-      <PaneHeader title={<>{ds.name}<Plat kind={ds.kind} /><Pill tone={ds.is_test_adapter ? "warn" : "ok"}>{ds.source_label}</Pill></>}>
-        <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={!canEdit || collect.isPending}
-          onClick={() => collect.mutate(undefined, {
+      <PaneHeader title={<><span className="av-datasources__name">{ds.name}</span><Plat kind={ds.kind} /><Pill tone={ds.is_test_adapter ? "warn" : "ok"}>{ds.source_label}</Pill></>}>
+        <button type="button" className="av-btn av-btn--primary" disabled={!canEdit || collect.isPending}
+          aria-busy={collect.isPending} onClick={() => collect.mutate(undefined, {
             onSuccess: (r) => setMessage({ ok: r.status === "succeeded", text: r.status === "succeeded"
-              ? `采集完成：新版本 ${String(r.stats?.new_versions ?? 0)}，变更 ${Object.entries(r.stats ?? {}).filter(([k]) => k.startsWith("event:")).reduce((n, [, v]) => n + Number(v), 0)} 项`
+              ? `采集完成：新版本 ${String(r.stats?.new_versions ?? 0)}，变更 ${eventCount(r.stats)} 项`
               : r.error ?? "采集失败" }),
             onError: (e) => setMessage({ ok: false, text: errorText(e) }),
           })}>
-          <Icon name="refresh" small />{collect.isPending ? "采集中" : "重新采集"}
+          <Icon name="refresh" small />{collect.isPending ? "采集中…" : "重新采集"}
         </button>
       </PaneHeader>
       <div className="av-scroll">
-        <div className="av-stack">
+        <div className="av-datasources__detail">
           <Banner message={message} />
-          <dl className="av-kv">
-            <dt>地址</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
-            <dt>采集范围</dt><dd className="av-mono">{scope(ds.options)}</dd>
-            <dt>采集间隔</dt><dd>每 {ds.collect_interval_minutes} 分钟 <Hint text="轮询采集，最长延迟一个间隔：未发现变更不代表没有变更" /></dd>
-            <dt>实例</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
-            <dt>凭据</dt>
-            <dd>{ds.credentials.length ? ds.credentials.map((c) => (
-              <span key={c.purpose} className="av-tag" style={{ marginRight: 6 }}>{c.purpose === "collect" ? "采集" : "只读查询"} · {c.username} · 口令已设置</span>
-            )) : "未设置"}{isAdmin ? <Hint text="口令只写不读；更换口令请联系管理员在此处重新录入" /> : null}</dd>
-          </dl>
+          <div className="av-datasources__summary">
+            <span>当前采集 <Status value={collect.isPending ? "running" : ds.last_run?.status ?? "never"} /></span>
+            <QueryState query={runs} rows={1}>
+              {(history) => {
+                const lastSuccess = history.find((run) => run.status === "succeeded");
+                return <span>最近成功 <span className="av-mono">{lastSuccess ? formatTime(lastSuccess.finished_at ?? lastSuccess.started_at, tz)
+                  : history.length ? `最近 ${history.length} 次无成功记录` : "暂无采集记录"}</span></span>;
+              }}
+            </QueryState>
+            {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs">查看采集错误</a> : null}
+          </div>
 
-          <PaneHeader title={<>端点别名 <Hint text="同一个库在其他系统里看到的地址（如 StarRocks 中的 shop-mysql:3306），用于把外部表接到这张真实表" /></>} count={ds.aliases.length} />
-          <div className="av-table-wrap">
-            <table className="av-table">
+          <section className="av-datasources__section" aria-labelledby="datasource-connection">
+            <h3 id="datasource-connection">连接</h3>
+            <dl className="av-kv">
+              <dt>引擎</dt><dd>{ds.engine.label}</dd>
+              <dt>地址</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
+              <dt>实例</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
+            </dl>
+            <PaneHeader title={<>端点别名 <Hint text="同一实例在其他系统中的地址，用于追溯外部表" /></>} count={ds.aliases.length} />
+            {ds.aliases.length ? <div className="av-table-wrap"><table className="av-table">
               <thead><tr><th>地址</th><th>说明</th></tr></thead>
-              <tbody>
-                {ds.aliases.map((a) => <tr key={a.id}><td className="av-mono">{a.host}:{a.port}</td><td>{a.note ?? ""}</td></tr>)}
-              </tbody>
-            </table>
-          </div>
-          {canEdit ? (
-            <div className="av-formrow">
-              <label className="av-field"><span className="av-label">主机</span>
-                <input className="av-input av-mono" value={alias.host} onChange={(e) => setAlias({ ...alias, host: e.target.value })} /></label>
-              <label className="av-field" style={{ maxWidth: 120 }}><span className="av-label">端口</span>
-                <input className="av-input av-mono" value={alias.port} onChange={(e) => setAlias({ ...alias, port: e.target.value })} /></label>
-              <button type="button" className="av-btn av-btn--secondary" disabled={!alias.host || !alias.port}
-                onClick={() => addAlias.mutate(undefined, {
-                  onSuccess: () => { setAlias({ host: "", port: "" }); setMessage({ ok: true, text: "已登记端点别名" }); },
-                  onError: (e) => setMessage({ ok: false, text: errorText(e) }),
-                })}><Icon name="plus" />添加</button>
-            </div>
-          ) : null}
+              <tbody>{ds.aliases.map((a) => <tr key={a.id}><td className="av-mono">{a.host}:{a.port}</td><td>{a.note ?? "—"}</td></tr>)}</tbody>
+            </table></div> : <Empty compact text="还没有端点别名" />}
+            {canEdit ? <form className="av-alias-form" aria-busy={addAlias.isPending} onSubmit={(e) => {
+              e.preventDefault();
+              if (addAlias.isPending || !alias.host.trim() || !validPort(alias.port)) return;
+              addAlias.mutate(undefined, {
+                onSuccess: () => { setAlias({ host: "", port: "" }); setMessage({ ok: true, text: "已登记端点别名" }); },
+                onError: (error) => setMessage({ ok: false, text: errorText(error) }),
+              });
+            }}>
+              <label className="av-field"><span className="av-label">主机</span><input className="av-input av-mono" required maxLength={255} disabled={addAlias.isPending}
+                value={alias.host} onChange={(e) => setAlias({ ...alias, host: e.target.value })} /></label>
+              <label className="av-field"><span className="av-label">端口</span><input className="av-input av-mono" type="number" min={1} max={65535} required disabled={addAlias.isPending}
+                value={alias.port} onChange={(e) => setAlias({ ...alias, port: e.target.value })} /></label>
+              <button type="submit" className="av-btn av-btn--secondary" disabled={!alias.host.trim() || !validPort(alias.port) || addAlias.isPending}>
+                {addAlias.isPending ? "添加中…" : "添加"}
+              </button>
+            </form> : null}
+          </section>
 
-          <PaneHeader title="采集批次" count={runs.data?.length ?? 0} />
-          <div className="av-table-wrap">
-            <table className="av-table">
-              <thead><tr><th>状态</th><th>开始</th><th>触发</th><th className="num">观察</th><th className="num">新版本</th><th className="num">变更</th><th>说明</th></tr></thead>
-              <tbody>
-                {(runs.data ?? []).map((r) => {
+          <section className="av-datasources__section" aria-labelledby="datasource-collection">
+            <h3 id="datasource-collection">采集</h3>
+            <dl className="av-kv">
+              <dt>范围</dt><dd className="av-mono">{scope(ds)}</dd>
+              <dt>间隔</dt><dd>每 {ds.collect_interval_minutes} 分钟 <Hint text="轮询采集；未发现变更不代表没有变更" /></dd>
+            </dl>
+            <div id="datasource-runs" tabIndex={-1}><PaneHeader title={<>采集批次 <Hint text="展示最近 50 次采集记录" /></>} count={runs.isSuccess ? runs.data.length : undefined} /></div>
+            <QueryState query={runs} isEmpty={(history) => !history.length} emptyText="还没有采集记录" compact>
+              {(history) => <div className="av-table-wrap"><table className="av-table av-datasources__runs">
+                <thead><tr><th>状态</th><th>开始</th><th>触发</th><th className="num">观察</th><th className="num">新版本</th><th className="num">变更</th><th>说明</th></tr></thead>
+                <tbody>{history.map((r) => {
                   const stats = r.stats ?? {};
-                  const events = Object.entries(stats).filter(([k]) => k.startsWith("event:")).reduce((n, [, v]) => n + Number(v), 0);
-                  return (
-                    <tr key={r.id}>
-                      <td><Status value={r.status} /></td>
-                      <td className="av-mono">{formatTime(r.started_at, tz)}</td>
-                      <td>{({ manual: "手动", schedule: "定时", test: "测试" } as Record<string, string>)[r.trigger] ?? r.trigger}</td>
-                      <td className="num">{String(stats.assets_observed ?? "—")}</td>
-                      <td className="num">{String(stats.new_versions ?? 0)}</td>
-                      <td className="num">{events}</td>
-                      <td className="av-muted" style={{ whiteSpace: "normal" }}>{r.error ?? ((stats.warnings as string[] | undefined)?.join("；") || "")}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  return <tr key={r.id}>
+                    <td><Status value={r.status} /></td><td className="av-mono">{formatTime(r.started_at, tz)}</td>
+                    <td>{({ manual: "手动", schedule: "定时", test: "测试" } as Record<string, string>)[r.trigger] ?? r.trigger}</td>
+                    <td className="num">{String(stats.assets_observed ?? "—")}</td><td className="num">{String(stats.new_versions ?? "—")}</td>
+                    <td className="num">{r.status === "succeeded" || Object.keys(stats).length ? eventCount(stats) : "—"}</td>
+                    <td className="av-muted av-datasources__run-note">{r.error ?? (Array.isArray(stats.warnings) ? stats.warnings.join("；") : "—")}</td>
+                  </tr>;
+                })}</tbody>
+              </table></div>}
+            </QueryState>
+          </section>
+
+          <section className="av-datasources__section" aria-labelledby="datasource-credentials">
+            <h3 id="datasource-credentials">凭据 <Hint text="口令只写不读，更换后使用新凭据连接" /></h3>
+            {credentialPurposes.map((purpose) => {
+              const credential = ds.credentials.find((c) => c.purpose === purpose);
+              return <div className="av-datasources__credential" key={purpose}>
+                <span className="av-row__main"><span className="av-row__title">{purpose === "collect" ? "采集账号" : "只读查询账号"}</span>
+                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 口令已设置</> : "未设置"}</span>
+                  {credential ? <span className="av-caption">更新于 {formatTime(credential.updated_at, tz)}</span> : null}
+                </span>
+                {isAdmin ? <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditingCredential(purpose)}>{credential ? "更换" : "设置"}</button> : null}
+              </div>;
+            })}
+          </section>
         </div>
       </div>
+      {editingCredential ? <DatasourceCredential ds={ds} purpose={editingCredential} onClose={() => setEditingCredential(null)} onSaved={() => {
+        setEditingCredential(null); setMessage({ ok: true, text: "凭据已更新" });
+      }} /> : null}
     </>
   );
 }
 
-function scope(options: Record<string, unknown>): string {
-  const dbs = (options.databases as string[] | undefined) ?? [];
-  const catalogs = (options.catalogs as string[] | undefined) ?? [];
-  return [...dbs, ...catalogs.map((c) => `catalog:${c}`)].join(", ") || "—";
+function eventCount(stats?: Record<string, unknown> | null): number {
+  return Object.entries(stats ?? {}).filter(([key]) => key.startsWith("event:")).reduce((total, [, value]) => total + Number(value), 0);
+}
+
+function scope(ds: Datasource): string {
+  const options = engineOptions(ds.engine);
+  return Object.entries(ds.options).map(([key, value]) => `${options?.find((option) => option.key === key)?.label ?? key}：${Array.isArray(value) ? value.join(", ") : String(value)}`).join(" · ") || "—";
 }
 
 function useRuns(id: string) {
@@ -161,60 +224,101 @@ function useRuns(id: string) {
   });
 }
 
-function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated: (d: Datasource) => void }) {
-  // 类型、默认端口、表单项都来自后端登记的引擎与能力，不在前端写死
-  const engineList = useEngines().data ?? [];
-  const [form, setForm] = useState({
-    kind: "starrocks", name: "", host: "127.0.0.1", port: "9030", databases: "", catalogs: "",
-    collectUser: "", collectPassword: "", queryUser: "", queryPassword: "",
-  });
+function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
+  ds: Datasource; purpose: CredentialPurpose; onClose: () => void; onSaved: () => void;
+}) {
+  const [username, setUsername] = useState(ds.credentials.find((c) => c.purpose === purpose)?.username ?? "");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useMessage();
-  const engine = engineList.find((e) => e.kind === form.kind);
-  const can = (capability: string) => engine?.capabilities.includes(capability) ?? false;
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
+  const save = useAction(() => unwrap(api.PUT("/api/datasources/{datasource_id}/credentials/{purpose}", {
+    params: { path: { datasource_id: ds.id, purpose } }, body: { username: username.trim(), password },
+  })), ["datasources"]);
+  return <Drawer title={`更换${purpose === "collect" ? "采集" : "只读查询"}凭据`} onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
+    <button type="submit" form="datasource-credential-form" className="av-btn av-btn--primary" disabled={!username.trim() || !password || save.isPending}>{save.isPending ? "保存中…" : "保存"}</button>
+  </>}>
+    <p className="av-datasources__form-context">{ds.name} · <span className="av-mono">{ds.host}:{ds.port}</span></p>
+    <form id="datasource-credential-form" className="av-datasources__form" aria-busy={save.isPending} onSubmit={(e) => {
+      e.preventDefault();
+      if (!username.trim() || !password || save.isPending) return;
+      save.mutate(undefined, { onSuccess: onSaved, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
+    }}>
+      <label className="av-field"><span className="av-label">账号</span><input className="av-input av-mono" required maxLength={128} autoComplete="off" autoFocus disabled={save.isPending} value={username} onChange={(e) => setUsername(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">新口令</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <Banner message={message} />
+    </form>
+  </Drawer>;
+}
+
+function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated: (d: Datasource) => void }) {
+  const engines = useEngines();
+  const [form, setForm] = useState({ kind: "", name: "", host: "", port: undefined as string | undefined, collectUser: "", collectPassword: "", queryUser: "", queryPassword: "" });
+  const [configuration, setConfiguration] = useState<Record<string, string>>({});
+  const [message, setMessage] = useMessage();
+  const engine = engines.data?.find((item) => item.kind === form.kind) ?? (!form.kind ? engines.data?.[0] : undefined);
+  const options = engineOptions(engine);
+  const port = form.port ?? String(engine?.default_port ?? "");
+  const canQuery = engine?.capabilities.includes("query") ?? false;
+  const valid = engines.isSuccess && !!engine && options !== undefined && !!form.name.trim() && !!form.host.trim() && validPort(port)
+    && options.every((option) => !option.required || optionValue(option, configuration[option.key] ?? "").length > 0)
+    && (Boolean(form.collectUser.trim()) === Boolean(form.collectPassword))
+    && (!canQuery || (Boolean(form.queryUser.trim()) === Boolean(form.queryPassword)));
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: e.target.value });
   const create = useAction(() => unwrap(api.POST("/api/datasources", {
     body: {
-      name: form.name, kind: form.kind, host: form.host, port: Number(form.port),
-      options: {
-        databases: form.databases.split(",").map((s) => s.trim()).filter(Boolean),
-        ...(form.catalogs ? { catalogs: form.catalogs.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
-      },
+      name: form.name.trim(), kind: engine!.kind, host: form.host.trim(), port: Number(port),
+      options: Object.fromEntries((options ?? []).map((option) => [option.key, optionValue(option, configuration[option.key] ?? "")])),
       collect_interval_minutes: 15,
-      collect: form.collectUser ? { username: form.collectUser, password: form.collectPassword } : null,
-      query: can("query") && form.queryUser ? { username: form.queryUser, password: form.queryPassword } : null,
+      collect: form.collectUser.trim() ? { username: form.collectUser.trim(), password: form.collectPassword } : null,
+      query: canQuery && form.queryUser.trim() ? { username: form.queryUser.trim(), password: form.queryPassword } : null,
     },
   })), ["datasources"]);
-  return (
-    <Drawer title="添加数据源" onClose={onClose} footer={<>
-      <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
-      <button type="button" className="av-btn av-btn--primary" disabled={!form.name || !form.databases || create.isPending}
-        onClick={() => create.mutate(undefined, { onSuccess: onCreated, onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>添加</button>
-    </>}>
-      <label className="av-field"><span className="av-label">类型{engine?.note ? <> <Hint text={engine.note} /></> : null}</span>
-        <Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v,
-          port: String(engineList.find((e) => e.kind === v)?.default_port ?? form.port) })}>
-          {engineList.map((e) => <option key={e.kind} value={e.kind}>{e.label}{e.capabilities.includes("query") ? "" : "（只采集元数据）"}</option>)}
-        </Select></label>
-      <label className="av-field"><span className="av-label">名称</span><input className="av-input" value={form.name} onChange={set("name")} /></label>
-      <div className="av-formrow">
-        <label className="av-field"><span className="av-label">主机</span><input className="av-input av-mono" value={form.host} onChange={set("host")} /></label>
-        <label className="av-field" style={{ maxWidth: 110 }}><span className="av-label">端口</span><input className="av-input av-mono" value={form.port} onChange={set("port")} /></label>
-      </div>
-      <label className="av-field"><span className="av-label">采集的库 <Hint text="逗号分隔" /></span><input className="av-input av-mono" value={form.databases} onChange={set("databases")} /></label>
-      {can("external_tables") ? (
-        <label className="av-field"><span className="av-label">Catalog <Hint text="逗号分隔；只接 JDBC MySQL Catalog" /></span><input className="av-input av-mono" value={form.catalogs} onChange={set("catalogs")} /></label>
-      ) : null}
-      <div className="av-formrow">
-        <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" value={form.collectUser} onChange={set("collectUser")} /></label>
-        <label className="av-field"><span className="av-label">口令</span><input className="av-input" type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
-      </div>
-      {can("query") ? (
-        <div className="av-formrow">
-          <label className="av-field"><span className="av-label">只读查询账号</span><input className="av-input av-mono" value={form.queryUser} onChange={set("queryUser")} /></label>
-          <label className="av-field"><span className="av-label">口令</span><input className="av-input" type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
-        </div>
-      ) : null}
-      <Banner message={message} />
-    </Drawer>
-  );
+
+  return <Drawer title="添加数据源" onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
+    <button type="submit" form="add-datasource-form" className="av-btn av-btn--primary" disabled={!valid || create.isPending}>{create.isPending ? "添加中…" : "添加"}</button>
+  </>}>
+    <QueryState query={engines} isEmpty={(list) => !list.length} emptyText="暂无可用引擎" compact>
+      {(engineList) => <form id="add-datasource-form" className="av-datasources__form" aria-busy={create.isPending} onSubmit={(e) => {
+        e.preventDefault();
+        if (!valid || create.isPending) return;
+        create.mutate(undefined, { onSuccess: onCreated, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
+      }}>
+        <fieldset disabled={create.isPending} className="av-datasources__form-fields">
+          <label className="av-field"><span className="av-label">类型{engine?.note ? <Hint text={engine.note} /> : null}</span>
+            <Select label="数据源类型" value={engine?.kind ?? ""} disabled={create.isPending} onChange={(kind) => {
+              setForm({ ...form, kind, port: String(engineList.find((item) => item.kind === kind)?.default_port ?? "") });
+              setConfiguration({}); setMessage(null);
+            }}>
+              {engineList.map((item) => <option key={item.kind} value={item.kind}>{item.label}{item.capabilities.includes("query") ? "" : "（只采集元数据）"}</option>)}
+            </Select>
+          </label>
+          <label className="av-field"><span className="av-label">名称</span><input className="av-input" required maxLength={128} value={form.name} onChange={set("name")} /></label>
+          <div className="av-datasources__connection-form">
+            <label className="av-field"><span className="av-label">主机</span><input className="av-input av-mono" required maxLength={255} value={form.host} onChange={set("host")} /></label>
+            <label className="av-field"><span className="av-label">端口</span><input className="av-input av-mono" type="number" required min={1} max={65535} value={port} onChange={set("port")} /></label>
+          </div>
+          {options === undefined ? <div className="av-query-error" role="alert"><Banner message={{ ok: false, text: "引擎配置项缺失，请重试" }} />
+            <button type="button" className="av-btn av-btn--secondary" onClick={() => engines.refetch()}>重试</button></div>
+            : options.map((option) => <label className="av-field" key={option.key}>
+              <span className="av-label">{option.label}{option.required ? " *" : ""}</span>
+              <input className="av-input av-mono" required={option.required} aria-describedby={`datasource-option-${option.key}-hint`} value={configuration[option.key] ?? ""}
+                onChange={(e) => setConfiguration({ ...configuration, [option.key]: e.target.value })} />
+              <span className="av-help" id={`datasource-option-${option.key}-hint`}>{[option.type === "list" ? "逗号分隔" : "", option.hint].filter(Boolean).join("；")}</span>
+            </label>)}
+          <fieldset className="av-datasources__credential-fields"><legend>采集凭据</legend><div className="av-datasources__field-pair">
+            <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
+            <label className="av-field"><span className="av-label">口令</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
+          </div></fieldset>
+          {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>只读查询凭据</legend><div className="av-datasources__field-pair">
+            <label className="av-field"><span className="av-label">查询账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.queryUser} onChange={set("queryUser")} /></label>
+            <label className="av-field"><span className="av-label">口令</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
+          </div></fieldset> : null}
+          {Boolean(form.collectUser.trim()) !== Boolean(form.collectPassword) || (canQuery && Boolean(form.queryUser.trim()) !== Boolean(form.queryPassword))
+            ? <span className="av-help av-help--danger" role="status">账号和口令需一起填写</span> : null}
+        </fieldset>
+        <Banner message={message} />
+      </form>}
+    </QueryState>
+  </Drawer>;
 }
