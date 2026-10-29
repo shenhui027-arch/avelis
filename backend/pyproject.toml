@@ -1,0 +1,50 @@
+[project]
+name = "avelis"
+version = "0.1.0"
+description = "Avelis 后端：采集、血缘、粒度、口径治理、变更复核与受约束问数"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "sqlalchemy==2.1.6",
+    "alembic==1.20.1",
+    "pydantic==2.14.1",
+    "psycopg[binary]==3.3.6",
+    "pymysql==1.2.3",
+    "cryptography==50.0.2",
+    "sqlglot==30.25.0",
+    "redis==8.1.0",
+    "pyjwt==2.15.1",
+    "pwdlib[argon2]==0.3.1",
+    "python-multipart==0.0.32",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/avelis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "db: 需要元数据库（AVELIS_META_BACKEND=pg|mysql）",
+    "acceptance: 需要完整演示环境（StarRocks、维表库、元数据库、Valkey），会重置演示库",
+]
+addopts = "-m 'not acceptance'"
+# Starlette 建议改用 httpx2；httpx2 发布不足两周，暂沿用 httpx 0.28.1（M3 前复核）
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["src/avelis/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

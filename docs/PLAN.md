@@ -1,6 +1,6 @@
 # Avelis v0.1 开发计划
 
-> 状态：M0 已完成，下一步 M1。最后更新：2026-10-29。
+> 状态：M0、M1 已完成（M1 在分支 `m1-backend`，待合并），下一步 M2。最后更新：2026-10-29。
 > 这份文件是接续研发的唯一入口：每完成一个里程碑，更新「当前进度」和「下一步」。
 
 ## 1. 定位与第一阶段成功标准
@@ -21,7 +21,8 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 | 私有仓库 | 完成 | https://github.com/shenhui027-arch/avelis |
 | M0 演示环境 | 完成，已运行验证 | 6 个容器一条命令起停；8 项验收基线全部通过；StarRocks 重启后自动恢复 |
 | M0 实机核验 | 完成，已运行验证 | 20 项，结论见 [starrocks-notes.md](starrocks-notes.md) |
-| 后端 / 前端代码 | 未开始 | M1 / M3 |
+| M1 后端闭环 | 完成，已运行验证 | 四层数据模型与双库迁移；StarRocks + MySQL 采集；列级血缘、外部表身份映射、粒度、字段推导指纹；指标状态机、关联路径、变更 → 影响 → 复核；问数管线（演示适配器）+ 只读执行；认证与审计。`pytest -m acceptance` 在 PostgreSQL 与 MySQL 元数据库上各 9 项通过，见 [acceptance-m1.md](acceptance-m1.md)、[ADR 0002](decisions/0002-backend-foundations.md) |
+| 前端代码 | 未开始 | M3 |
 
 ## 3. 环境与已核验的事实
 
@@ -182,4 +183,17 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 
 ## 13. 下一步
 
-开始 M1 后端闭环：先搭 `backend/`（FastAPI、SQLAlchemy、Alembic，PostgreSQL 与 MySQL 双库迁移测试）与任务队列选型，再按“采集 → 血缘 → 粒度 → 指标 → 变更 → 问数”顺序实现，以 `pytest -m acceptance` 在真实 StarRocks 上跑通故事 1–6 与故事 9 为完成标准。
+1. 合并 M1 的 PR。
+2. 开始 M2 导入血缘：
+   - SQL 文件与粘贴 SQL 的多语句解析，复用 `avelis.lineage.sql`；
+   - Python / Shell 内嵌 SQL 的抽取；
+   - 动态 SQL 补参数；
+   - 模型候选接口，以及演示、Anthropic、OpenAI 兼容三种适配器，同时把问数意图的真实模型适配器一起接上；
+   - 候选处理与留痕；
+   - 以故事 8 为完成标准。
+3. M3 前补齐接口响应模型，供前端生成类型；复核 httpx2（发布满两周后）。
+
+M1 遗留到 M4 的事项：
+- 故事 7 验收用例（指纹 `broken` 逻辑已实现）；
+- 独立 worker 进程的长时间运行验证；
+- 未归属业务域资产的默认策略。
