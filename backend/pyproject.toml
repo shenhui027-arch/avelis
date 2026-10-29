@@ -15,6 +15,7 @@ dependencies = [
     "sqlglot==30.25.0",
     "redis==8.1.0",
     "pyjwt==2.15.1",
+    "httpx==0.28.1",
     "pwdlib[argon2]==0.3.1",
     "python-multipart==0.0.32",
     "langgraph==1.2.15",
@@ -29,7 +30,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==9.2.0",
-    "httpx==0.28.1",
 ]
 
 [build-system]
@@ -47,7 +47,7 @@ markers = [
     "llm: 调用真实模型（需要 .env 中的 AVELIS_MODEL_API_KEY；会产生费用与数据外发）",
 ]
 addopts = "-m 'not acceptance'"
-# Starlette 建议改用 httpx2；httpx2 发布不足两周，暂沿用 httpx 0.28.1（M3 前复核）
+# Starlette 建议改用 httpx2；httpx2 2.16.0（2026-10-21）发布不足两周，暂沿用 httpx 0.28.1（M4 复核）
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.ruff]

@@ -575,3 +575,31 @@ def test_14_model_settings_and_real_model(stack, admin: Api):
     assert {"model_provider.create", "model_provider.check"} <= {e["action"] for e in audit}
     assert key not in str(audit)
     admin.put("/api/model-settings", {"assignments": {"ask": None}})
+
+
+# --- M3：工作台汇总 ---------------------------------------------------------------------
+
+def test_15_workbench_summary(admin: Api):
+    zhang, li = ctx["apis"]["zhang"], ctx["apis"]["li"]
+    wb = admin.get("/api/workbench")
+    assert [s["key"] for s in wb["stages"]] == ["collect", "lineage", "change", "metric", "ask"]
+    collect = wb["stages"][0]
+    assert collect["note"] == "2 / 2 数据源正常"
+    assert {d["name"] for d in wb["datasources"]} == {"电商维表库（MySQL）", "演示 StarRocks"}
+    assert len(wb["cadence"]) == 24 and any(c["runs"] for c in wb["cadence"])
+    assert wb["recent_changes"] and wb["recent_changes"][0]["at"]
+    # 被拦截的提问可见（管理员）
+    assert any(a["status"] == "blocked" for a in wb["blocked_answers"])
+    # 负责人看到自己负责的指标；复核者看到待批准的版本
+    mine = zhang.get("/api/workbench")["my_metrics"]
+    assert {m["name"] for m in mine} >= {"实付销售额", "退款后净销售额"}
+    m = zhang.post("/api/metrics", {"code": "orders_cnt", "name": "订单数", "domain_id": ctx["trade"]}, expect=201)
+    v = zhang.post(f"/api/metrics/{m['id']}/versions", {
+        "description": "订单笔数", "base_asset_id": ctx["assets"]["default_catalog.shop.orders"],
+        "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date",
+        "dimensions": [{"name": "region", "column": "region", "label": "区域"}], "grain": ["order_date", "region"]},
+        expect=201)
+    zhang.post(f"/api/metric-versions/{v['id']}/submit")
+    todos = li.get("/api/workbench")["todos"]
+    assert any(t["kind"] == "approve" and t["title"] == "订单数 V1" for t in todos)
+    assert not any(t["kind"] == "approve" for t in zhang.get("/api/workbench")["todos"])  # 不提示自审

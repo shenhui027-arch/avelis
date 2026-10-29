@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis import audit, jobs
+from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
 from avelis.collect.service import CollectionFailed
@@ -70,12 +71,12 @@ def _set_credential(session: Session, ds: Datasource, purpose: str, cred: Creden
     row.secret_enc = encrypt_secret(cred.password)
 
 
-@router.get("/datasources")
+@router.get("/datasources", response_model=list[S.DatasourceOut])
 def list_datasources(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [datasource_view(session, ds) for ds in session.scalars(select(Datasource).order_by(Datasource.name))]
 
 
-@router.post("/datasources", status_code=201)
+@router.post("/datasources", status_code=201, response_model=S.DatasourceOut)
 def create_datasource(body: DatasourceCreate, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
@@ -96,7 +97,7 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     return datasource_view(session, ds)
 
 
-@router.put("/datasources/{datasource_id}/credentials/{purpose}")
+@router.put("/datasources/{datasource_id}/credentials/{purpose}", response_model=S.DatasourceOut)
 def set_credential(datasource_id: str, purpose: Literal["collect", "query"], body: Credential,
                    user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
@@ -113,7 +114,7 @@ class AliasCreate(BaseModel):
     note: str | None = None
 
 
-@router.post("/endpoint-aliases", status_code=201)
+@router.post("/endpoint-aliases", status_code=201, response_model=S.AliasOut)
 def create_alias(body: AliasCreate, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
@@ -130,7 +131,7 @@ def create_alias(body: AliasCreate, user: User = Depends(current_user),
     return {"id": alias.id, "datasource_id": alias.datasource_id, "host": alias.host, "port": alias.port}
 
 
-@router.post("/datasources/{datasource_id}/collect")
+@router.post("/datasources/{datasource_id}/collect", response_model=S.CollectOut)
 def collect(datasource_id: str, wait: bool = False, user: User = Depends(current_user),
             session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
@@ -150,13 +151,13 @@ def collect(datasource_id: str, wait: bool = False, user: User = Depends(current
     return run_view(session.get(CollectionRun, run_id))
 
 
-@router.get("/datasources/{datasource_id}/runs")
+@router.get("/datasources/{datasource_id}/runs", response_model=list[S.RunOut])
 def list_runs(datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list:
     return [run_view(r) for r in session.scalars(select(CollectionRun).where(
         CollectionRun.datasource_id == datasource_id).order_by(CollectionRun.started_at.desc()).limit(50))]
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", response_model=S.JobOut)
 def get_job(job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     job = session.get(Job, job_id) or _404("任务不存在")
     return {"id": job.id, "kind": job.kind, "status": job.status, "payload": job.payload, "result": job.result,

@@ -134,8 +134,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/UserOut"
          },
          "type": "array",
          "title": "Response List Users Api Users Get"
@@ -172,9 +171,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Create User Api Users Post"
+         "$ref": "#/components/schemas/UserOut"
         }
        }
       }
@@ -239,8 +236,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/DatasourceOut"
          },
          "type": "array",
          "title": "Response List Datasources Api Datasources Get"
@@ -277,9 +273,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Create Datasource Api Datasources Post"
+         "$ref": "#/components/schemas/DatasourceOut"
         }
        }
       }
@@ -354,9 +348,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Set Credential Api Datasources  Datasource Id  Credentials  Purpose  Put"
+         "$ref": "#/components/schemas/DatasourceOut"
         }
        }
       }
@@ -397,9 +389,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Create Alias Api Endpoint Aliases Post"
+         "$ref": "#/components/schemas/AliasOut"
         }
        }
       }
@@ -461,9 +451,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Collect Api Datasources  Datasource Id  Collect Post"
+         "$ref": "#/components/schemas/CollectOut"
         }
        }
       }
@@ -511,7 +499,9 @@
        "application/json": {
         "schema": {
          "type": "array",
-         "items": {},
+         "items": {
+          "$ref": "#/components/schemas/RunOut"
+         },
          "title": "Response List Runs Api Datasources  Datasource Id  Runs Get"
         }
        }
@@ -559,9 +549,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Job Api Jobs  Job Id  Get"
+         "$ref": "#/components/schemas/JobOut"
         }
        }
       }
@@ -593,8 +581,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/DomainOut"
          },
          "type": "array",
          "title": "Response List Domains Api Domains Get"
@@ -630,7 +617,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/DomainOut"
+        }
        }
       }
      },
@@ -691,9 +680,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Set Member Api Domains  Domain Id  Members Put"
+         "$ref": "#/components/schemas/DomainOut"
         }
        }
       }
@@ -791,8 +778,7 @@
         "schema": {
          "type": "array",
          "items": {
-          "type": "object",
-          "additionalProperties": true
+          "$ref": "#/components/schemas/AssetOut"
          },
          "title": "Response List Assets Api Assets Get"
         }
@@ -841,9 +827,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Asset Detail Api Assets  Asset Id  Get"
+         "$ref": "#/components/schemas/AssetDetailOut"
         }
        }
       }
@@ -898,9 +882,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Patch Asset Api Assets  Asset Id  Patch"
+         "$ref": "#/components/schemas/AssetOut"
         }
        }
       }
@@ -1007,9 +989,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Verify Grain Api Grains  Grain Id  Verify Post"
+         "$ref": "#/components/schemas/GrainOut"
         }
        }
       }
@@ -1150,9 +1130,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Lineage Graph Api Lineage Graph Get"
+         "$ref": "#/components/schemas/GraphOut"
         }
        }
       }
@@ -1184,8 +1162,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/MetricOut"
          },
          "type": "array",
          "title": "Response List Metrics Api Metrics Get"
@@ -1221,7 +1198,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/MetricOut"
+        }
        }
       }
      },
@@ -1272,9 +1251,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Metric Api Metrics  Metric Id  Get"
+         "$ref": "#/components/schemas/MetricOut"
         }
        }
       }
@@ -1331,9 +1308,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Create Version Api Metrics  Metric Id  Versions Post"
+         "$ref": "#/components/schemas/MetricVersionOut"
         }
        }
       }
@@ -1379,7 +1354,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/MetricVersionOut"
+        }
        }
       }
      },
@@ -1433,9 +1410,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Update Version Api Metric Versions  Version Id  Put"
+         "$ref": "#/components/schemas/MetricVersionOut"
         }
        }
       }
@@ -1482,7 +1457,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/PublishCheckOut"
+        }
        }
       }
      },
@@ -1527,7 +1504,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/MetricVersionOut"
+        }
        }
       }
      },
@@ -1583,9 +1562,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Approve Version Api Metric Versions  Version Id  Approve Post"
+         "$ref": "#/components/schemas/MetricVersionOut"
         }
        }
       }
@@ -1642,9 +1619,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Reject Version Api Metric Versions  Version Id  Reject Post"
+         "$ref": "#/components/schemas/MetricVersionOut"
         }
        }
       }
@@ -1701,9 +1676,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Archive Version Api Metric Versions  Version Id  Archive Post"
+         "$ref": "#/components/schemas/MetricVersionOut"
         }
        }
       }
@@ -1735,8 +1708,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/JoinPathOut"
          },
          "type": "array",
          "title": "Response List Join Paths Api Join Paths Get"
@@ -1773,9 +1745,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Create Join Path Api Join Paths Post"
+         "$ref": "#/components/schemas/JoinPathOut"
         }
        }
       }
@@ -1837,9 +1807,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Decide Join Path Api Join Paths  Path Id  Decisions Post"
+         "$ref": "#/components/schemas/JoinPathOut"
         }
        }
       }
@@ -1895,8 +1863,7 @@
         "schema": {
          "type": "array",
          "items": {
-          "type": "object",
-          "additionalProperties": true
+          "$ref": "#/components/schemas/ChangeSetOut"
          },
          "title": "Response List Change Sets Api Change Sets Get"
         }
@@ -1944,7 +1911,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/ChangeSetOut"
+        }
        }
       }
      },
@@ -2010,8 +1979,7 @@
         "schema": {
          "type": "array",
          "items": {
-          "type": "object",
-          "additionalProperties": true
+          "$ref": "#/components/schemas/TaskOut"
          },
          "title": "Response List Tasks Api Review Tasks Get"
         }
@@ -2070,9 +2038,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Resolve Task Api Review Tasks  Task Id  Resolve Post"
+         "$ref": "#/components/schemas/TaskOut"
         }
        }
       }
@@ -2113,9 +2079,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Ask Api Ask Post"
+         "$ref": "#/components/schemas/AnswerOut"
         }
        }
       }
@@ -2152,8 +2116,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/ThreadOut"
          },
          "type": "array",
          "title": "Response List Threads Api Ask Threads Get"
@@ -2198,9 +2161,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Thread Api Ask Threads  Thread Id  Get"
+         "$ref": "#/components/schemas/ThreadDetailOut"
         }
        }
       }
@@ -2250,8 +2211,7 @@
         "schema": {
          "type": "array",
          "items": {
-          "type": "object",
-          "additionalProperties": true
+          "$ref": "#/components/schemas/AnswerOut"
          },
          "title": "Response List Answers Api Answers Get"
         }
@@ -2300,9 +2260,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Answer Api Answers  Answer Id  Get"
+         "$ref": "#/components/schemas/AnswerOut"
         }
        }
       }
@@ -2397,7 +2355,13 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AuditOut"
+         },
+         "title": "Response List Audit Api Audit Get"
+        }
        }
       }
      },
@@ -2797,8 +2761,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/ImportJobOut"
          },
          "type": "array",
          "title": "Response List Imports Api Imports Get"
@@ -2834,7 +2797,9 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "$ref": "#/components/schemas/ImportJobOut"
+        }
        }
       }
      },
@@ -2879,9 +2844,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Upload Api Imports Upload Post"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -2933,9 +2896,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Import Api Imports  Job Id  Get"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -2992,9 +2953,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Set Params Api Imports  Job Id  Params Put"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -3051,9 +3010,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Decide Api Candidates  Candidate Id  Decision Post"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -3110,9 +3067,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Manual Edge Api Imports  Job Id  Edges Post"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -3128,6 +3083,32 @@
       }
      }
     }
+   }
+  },
+  "/api/workbench": {
+   "get": {
+    "tags": [
+     "工作台"
+    ],
+    "summary": "Workbench",
+    "operationId": "workbench_api_workbench_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WorkbenchOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
    }
   }
  },
@@ -3171,6 +3152,466 @@
     ],
     "title": "AliasCreate"
    },
+   "AliasOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "host": {
+      "type": "string",
+      "title": "Host"
+     },
+     "port": {
+      "type": "integer",
+      "title": "Port"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "host",
+     "port"
+    ],
+    "title": "AliasOut"
+   },
+   "AnswerOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "asked_by": {
+      "type": "string",
+      "title": "Asked By"
+     },
+     "asked_at": {
+      "type": "string",
+      "title": "Asked At"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     },
+     "error_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error Code"
+     },
+     "model_adapter": {
+      "type": "string",
+      "title": "Model Adapter"
+     },
+     "intent": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Intent"
+     },
+     "plan": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Plan"
+     },
+     "sql": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql"
+     },
+     "metric_version_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Metric Version Ids"
+     },
+     "result": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Result"
+     },
+     "evidence": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Evidence"
+     },
+     "freshness": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Freshness"
+     },
+     "executed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Executed At"
+     },
+     "duration_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Ms"
+     },
+     "cache_hit": {
+      "type": "boolean",
+      "title": "Cache Hit"
+     },
+     "recheck_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Recheck Status"
+     },
+     "thread_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Thread Id"
+     },
+     "steps": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Steps"
+     },
+     "explanation": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Explanation"
+     },
+     "explanation_source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Explanation Source"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "question",
+     "asked_by",
+     "asked_at",
+     "status",
+     "model_adapter",
+     "intent",
+     "plan",
+     "metric_version_ids",
+     "result",
+     "evidence",
+     "freshness",
+     "cache_hit"
+    ],
+    "title": "AnswerOut"
+   },
+   "AssetDetailOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "qualified": {
+      "type": "string",
+      "title": "Qualified"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     },
+     "datasource": {
+      "$ref": "#/components/schemas/DatasourceRef"
+     },
+     "physical_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Physical Id"
+     },
+     "current_version_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Version Id"
+     },
+     "last_seen_at": {
+      "type": "string",
+      "title": "Last Seen At"
+     },
+     "deleted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deleted At"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AssetVersionOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/ColumnOut"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "definition": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DefinitionOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "parse": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ParseOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "grains": {
+      "items": {
+       "$ref": "#/components/schemas/GrainOut"
+      },
+      "type": "array",
+      "title": "Grains"
+     },
+     "identity_link": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LinkOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "linked_from": {
+      "items": {
+       "$ref": "#/components/schemas/LinkOut"
+      },
+      "type": "array",
+      "title": "Linked From"
+     },
+     "versions": {
+      "items": {
+       "$ref": "#/components/schemas/AssetVersionOut"
+      },
+      "type": "array",
+      "title": "Versions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "qualified",
+     "kind",
+     "status",
+     "datasource",
+     "last_seen_at",
+     "columns",
+     "grains",
+     "linked_from",
+     "versions"
+    ],
+    "title": "AssetDetailOut"
+   },
+   "AssetOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "qualified": {
+      "type": "string",
+      "title": "Qualified"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     },
+     "datasource": {
+      "$ref": "#/components/schemas/DatasourceRef"
+     },
+     "physical_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Physical Id"
+     },
+     "current_version_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Version Id"
+     },
+     "last_seen_at": {
+      "type": "string",
+      "title": "Last Seen At"
+     },
+     "deleted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deleted At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "qualified",
+     "kind",
+     "status",
+     "datasource",
+     "last_seen_at"
+    ],
+    "title": "AssetOut"
+   },
    "AssetPatch": {
     "properties": {
      "domain_id": {
@@ -3190,6 +3631,108 @@
      "domain_id"
     ],
     "title": "AssetPatch"
+   },
+   "AssetVersionOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "version_no": {
+      "type": "integer",
+      "title": "Version No"
+     },
+     "observed_at": {
+      "type": "string",
+      "title": "Observed At"
+     },
+     "last_seen_at": {
+      "type": "string",
+      "title": "Last Seen At"
+     },
+     "superseded_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Superseded At"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "table_model": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Table Model"
+     },
+     "key_columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Key Columns"
+     },
+     "unique_keys": {
+      "items": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Unique Keys"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "properties": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Properties"
+     },
+     "content_hash": {
+      "type": "string",
+      "title": "Content Hash"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "version_no",
+     "observed_at",
+     "last_seen_at",
+     "name",
+     "kind",
+     "key_columns",
+     "unique_keys",
+     "properties",
+     "content_hash"
+    ],
+    "title": "AssetVersionOut"
    },
    "AssignmentOut": {
     "properties": {
@@ -3249,6 +3792,68 @@
      "updated_at"
     ],
     "title": "AssignmentOut"
+   },
+   "AuditOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "at": {
+      "type": "string",
+      "title": "At"
+     },
+     "actor_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Actor Id"
+     },
+     "actor": {
+      "type": "string",
+      "title": "Actor"
+     },
+     "action": {
+      "type": "string",
+      "title": "Action"
+     },
+     "object_type": {
+      "type": "string",
+      "title": "Object Type"
+     },
+     "object_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Object Id"
+     },
+     "detail": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Detail"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "at",
+     "actor",
+     "action",
+     "object_type",
+     "detail"
+    ],
+    "title": "AuditOut"
    },
    "Body_login_api_auth_token_post": {
     "properties": {
@@ -3339,6 +3944,307 @@
     ],
     "title": "Body_upload_api_imports_upload_post"
    },
+   "CandidateOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "statement_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statement Id"
+     },
+     "origin": {
+      "type": "string",
+      "title": "Origin"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target"
+     },
+     "source_ref": {
+      "type": "string",
+      "title": "Source Ref"
+     },
+     "source_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Column"
+     },
+     "target_ref": {
+      "type": "string",
+      "title": "Target Ref"
+     },
+     "target_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Column"
+     },
+     "relation": {
+      "type": "string",
+      "title": "Relation"
+     },
+     "expression": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expression"
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confidence"
+     },
+     "evidence": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Evidence"
+     },
+     "lineage_edge_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lineage Edge Id"
+     },
+     "modified": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Modified"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "decided_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Decided By"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "origin",
+     "status",
+     "source",
+     "target",
+     "source_ref",
+     "target_ref",
+     "relation",
+     "evidence",
+     "modified"
+    ],
+    "title": "CandidateOut"
+   },
+   "ChangeEventOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "asset": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     },
+     "before": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Before"
+     },
+     "after": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "After"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "before",
+     "after"
+    ],
+    "title": "ChangeEventOut"
+   },
+   "ChangeSetOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "run_id": {
+      "type": "string",
+      "title": "Run Id"
+     },
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "summary": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Summary"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "effective_window": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Effective Window"
+     },
+     "events": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/ChangeEventOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Events"
+     },
+     "impacts": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/ImpactOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Impacts"
+     },
+     "tasks": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/TaskOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tasks"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "run_id",
+     "datasource_id",
+     "status",
+     "summary",
+     "created_at",
+     "effective_window"
+    ],
+    "title": "ChangeSetOut"
+   },
    "CheckBody": {
     "properties": {
      "model_id": {
@@ -3426,6 +4332,209 @@
     "type": "object",
     "title": "CheckOut"
    },
+   "CollectOut": {
+    "properties": {
+     "id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Id"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Job Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "stats": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stats"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "status"
+    ],
+    "title": "CollectOut"
+   },
+   "ColumnEdgeOut": {
+    "properties": {
+     "source_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Column"
+     },
+     "target_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Column"
+     },
+     "relation": {
+      "type": "string",
+      "title": "Relation"
+     },
+     "expression": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expression"
+     },
+     "origin": {
+      "type": "string",
+      "title": "Origin"
+     },
+     "attributes": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Attributes"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "relation",
+     "origin",
+     "attributes"
+    ],
+    "title": "ColumnEdgeOut"
+   },
+   "ColumnOut": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "data_type": {
+      "type": "string",
+      "title": "Data Type"
+     },
+     "nullable": {
+      "type": "boolean",
+      "title": "Nullable"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "is_key": {
+      "type": "boolean",
+      "title": "Is Key"
+     },
+     "column_id": {
+      "type": "string",
+      "title": "Column Id"
+     },
+     "fingerprint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fingerprint"
+     },
+     "fingerprint_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fingerprint Status"
+     },
+     "fingerprint_reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fingerprint Reason"
+     },
+     "confirmations": {
+      "items": {
+       "$ref": "#/components/schemas/ConfirmationOut"
+      },
+      "type": "array",
+      "title": "Confirmations"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "name",
+     "data_type",
+     "nullable",
+     "is_key",
+     "column_id",
+     "confirmations"
+    ],
+    "title": "ColumnOut"
+   },
    "ConfirmBody": {
     "properties": {
      "meaning": {
@@ -3451,6 +4560,51 @@
     ],
     "title": "ConfirmBody"
    },
+   "ConfirmationOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "meaning": {
+      "type": "string",
+      "title": "Meaning"
+     },
+     "confirmed_by": {
+      "type": "string",
+      "title": "Confirmed By"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "valid": {
+      "type": "boolean",
+      "title": "Valid"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "meaning",
+     "confirmed_by",
+     "created_at",
+     "valid"
+    ],
+    "title": "ConfirmationOut"
+   },
    "Credential": {
     "properties": {
      "username": {
@@ -3472,6 +4626,35 @@
      "password"
     ],
     "title": "Credential"
+   },
+   "CredentialOut": {
+    "properties": {
+     "purpose": {
+      "type": "string",
+      "title": "Purpose"
+     },
+     "username": {
+      "type": "string",
+      "title": "Username"
+     },
+     "password": {
+      "type": "string",
+      "title": "Password"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "purpose",
+     "username",
+     "password",
+     "updated_at"
+    ],
+    "title": "CredentialOut"
    },
    "DatasourceCreate": {
     "properties": {
@@ -3543,6 +4726,127 @@
      "port"
     ],
     "title": "DatasourceCreate"
+   },
+   "DatasourceOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "host": {
+      "type": "string",
+      "title": "Host"
+     },
+     "port": {
+      "type": "integer",
+      "title": "Port"
+     },
+     "options": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Options"
+     },
+     "is_test_adapter": {
+      "type": "boolean",
+      "title": "Is Test Adapter"
+     },
+     "source_label": {
+      "type": "string",
+      "title": "Source Label"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "server_identity": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Server Identity"
+     },
+     "collect_interval_minutes": {
+      "type": "integer",
+      "title": "Collect Interval Minutes"
+     },
+     "credentials": {
+      "items": {
+       "$ref": "#/components/schemas/CredentialOut"
+      },
+      "type": "array",
+      "title": "Credentials"
+     },
+     "last_run": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RunOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "aliases": {
+      "items": {
+       "$ref": "#/components/schemas/AliasOut"
+      },
+      "type": "array",
+      "title": "Aliases"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "kind",
+     "host",
+     "port",
+     "options",
+     "is_test_adapter",
+     "source_label",
+     "status",
+     "server_identity",
+     "collect_interval_minutes",
+     "credentials",
+     "aliases"
+    ],
+    "title": "DatasourceOut"
+   },
+   "DatasourceRef": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "is_test_adapter": {
+      "type": "boolean",
+      "title": "Is Test Adapter"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "kind",
+     "is_test_adapter"
+    ],
+    "title": "DatasourceRef"
    },
    "Decision": {
     "properties": {
@@ -3653,6 +4957,36 @@
     ],
     "title": "DecisionBody"
    },
+   "DefinitionOut": {
+    "properties": {
+     "raw_sql": {
+      "type": "string",
+      "title": "Raw Sql"
+     },
+     "canonical_sql": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Canonical Sql"
+     },
+     "canonical_hash": {
+      "type": "string",
+      "title": "Canonical Hash"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "raw_sql",
+     "canonical_hash"
+    ],
+    "title": "DefinitionOut"
+   },
    "Dimension": {
     "properties": {
      "name": {
@@ -3725,6 +5059,54 @@
     ],
     "title": "DomainCreate"
    },
+   "DomainOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "owner_id": {
+      "type": "string",
+      "title": "Owner Id"
+     },
+     "members": {
+      "items": {
+       "$ref": "#/components/schemas/MemberOut"
+      },
+      "type": "array",
+      "title": "Members"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name",
+     "owner_id",
+     "members"
+    ],
+    "title": "DomainOut"
+   },
    "DomainRef": {
     "properties": {
      "id": {
@@ -3792,6 +5174,210 @@
     ],
     "title": "GrainDeclare"
    },
+   "GrainOut": {
+    "properties": {
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "origin": {
+      "type": "string",
+      "title": "Origin"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "grain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grain Id"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "columns",
+     "origin",
+     "status"
+    ],
+    "title": "GrainOut"
+   },
+   "GraphEdgeOut": {
+    "properties": {
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "source_ref": {
+      "type": "string",
+      "title": "Source Ref"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target"
+     },
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/ColumnEdgeOut"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "relations": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Relations"
+     },
+     "origins": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Origins"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "source",
+     "source_ref",
+     "target",
+     "columns",
+     "relations",
+     "origins"
+    ],
+    "title": "GraphEdgeOut"
+   },
+   "GraphNodeOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "qualified": {
+      "type": "string",
+      "title": "Qualified"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "grains": {
+      "items": {
+       "$ref": "#/components/schemas/GrainOut"
+      },
+      "type": "array",
+      "title": "Grains"
+     },
+     "in_scope": {
+      "type": "boolean",
+      "title": "In Scope"
+     },
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     },
+     "datasource": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DatasourceRef"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "qualified",
+     "kind",
+     "status",
+     "grains",
+     "in_scope"
+    ],
+    "title": "GraphNodeOut"
+   },
+   "GraphOut": {
+    "properties": {
+     "nodes": {
+      "items": {
+       "$ref": "#/components/schemas/GraphNodeOut"
+      },
+      "type": "array",
+      "title": "Nodes"
+     },
+     "edges": {
+      "items": {
+       "$ref": "#/components/schemas/GraphEdgeOut"
+      },
+      "type": "array",
+      "title": "Edges"
+     },
+     "identity_links": {
+      "items": {
+       "$ref": "#/components/schemas/LinkOut"
+      },
+      "type": "array",
+      "title": "Identity Links"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "nodes",
+     "edges",
+     "identity_links"
+    ],
+    "title": "GraphOut"
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -3804,6 +5390,56 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "ImpactOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "change_set_id": {
+      "type": "string",
+      "title": "Change Set Id"
+     },
+     "object_type": {
+      "type": "string",
+      "title": "Object Type"
+     },
+     "object_id": {
+      "type": "string",
+      "title": "Object Id"
+     },
+     "level": {
+      "type": "string",
+      "title": "Level"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "path": {
+      "items": {},
+      "type": "array",
+      "title": "Path"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "change_set_id",
+     "object_type",
+     "object_id",
+     "level",
+     "reason",
+     "path",
+     "created_at"
+    ],
+    "title": "ImpactOut"
    },
    "ImportBody": {
     "properties": {
@@ -3866,6 +5502,213 @@
     ],
     "title": "ImportBody"
    },
+   "ImportJobOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "filename": {
+      "type": "string",
+      "title": "Filename"
+     },
+     "language": {
+      "type": "string",
+      "title": "Language"
+     },
+     "source_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Type"
+     },
+     "datasource_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasource Id"
+     },
+     "default_db": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Db"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params"
+     },
+     "stats": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Stats"
+     },
+     "model_adapter": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Adapter"
+     },
+     "model_payload": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Model Payload"
+     },
+     "content_hash": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Content Hash"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "statements": {
+      "items": {
+       "$ref": "#/components/schemas/StatementOut"
+      },
+      "type": "array",
+      "title": "Statements"
+     },
+     "candidates": {
+      "items": {
+       "$ref": "#/components/schemas/CandidateOut"
+      },
+      "type": "array",
+      "title": "Candidates"
+     },
+     "duplicate": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duplicate"
+     },
+     "content": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Content"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "filename",
+     "language",
+     "status",
+     "stats",
+     "created_at"
+    ],
+    "title": "ImportJobOut"
+   },
+   "JobOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "payload": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Payload"
+     },
+     "result": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Result"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "status",
+     "payload",
+     "result",
+     "created_at"
+    ],
+    "title": "JobOut"
+   },
    "JoinPathCreate": {
     "properties": {
      "code": {
@@ -3917,6 +5760,75 @@
     ],
     "title": "JoinPathCreate"
    },
+   "JoinPathOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "left": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Left"
+     },
+     "right": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Right"
+     },
+     "cardinality": {
+      "type": "string",
+      "title": "Cardinality"
+     },
+     "cardinality_basis": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Cardinality Basis"
+     },
+     "required_domains": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Required Domains"
+     },
+     "approvals": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Approvals"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name",
+     "status",
+     "left",
+     "right",
+     "cardinality",
+     "cardinality_basis",
+     "required_domains",
+     "approvals"
+    ],
+    "title": "JoinPathOut"
+   },
    "JoinStep": {
     "properties": {
      "alias": {
@@ -3946,6 +5858,86 @@
      "join_path_id"
     ],
     "title": "JoinStep"
+   },
+   "LinkOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "method": {
+      "type": "string",
+      "title": "Method"
+     },
+     "evidence": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Evidence"
+     },
+     "column_match": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Column Match"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LinkTarget"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "status",
+     "method",
+     "evidence",
+     "column_match",
+     "source",
+     "created_at"
+    ],
+    "title": "LinkOut"
+   },
+   "LinkTarget": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "qualified": {
+      "type": "string",
+      "title": "Qualified"
+     },
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "qualified",
+     "datasource_id"
+    ],
+    "title": "LinkTarget"
    },
    "ManualEdge": {
     "properties": {
@@ -4012,6 +6004,35 @@
     ],
     "title": "ManualEdge"
    },
+   "MemberOut": {
+    "properties": {
+     "user_id": {
+      "type": "string",
+      "title": "User Id"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
+     "username": {
+      "type": "string",
+      "title": "Username"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "user_id",
+     "role",
+     "username",
+     "display_name"
+    ],
+    "title": "MemberOut"
+   },
    "MemberSet": {
     "properties": {
      "user_id": {
@@ -4076,6 +6097,309 @@
      "domain_id"
     ],
     "title": "MetricCreate"
+   },
+   "MetricOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Aliases"
+     },
+     "domain_id": {
+      "type": "string",
+      "title": "Domain Id"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/OwnerRef"
+     },
+     "versions": {
+      "items": {
+       "$ref": "#/components/schemas/VersionBrief"
+      },
+      "type": "array",
+      "title": "Versions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name",
+     "aliases",
+     "domain_id",
+     "owner",
+     "versions"
+    ],
+    "title": "MetricOut"
+   },
+   "MetricVersionOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "metric_id": {
+      "type": "string",
+      "title": "Metric Id"
+     },
+     "metric_code": {
+      "type": "string",
+      "title": "Metric Code"
+     },
+     "metric_name": {
+      "type": "string",
+      "title": "Metric Name"
+     },
+     "version_no": {
+      "type": "integer",
+      "title": "Version No"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "status_reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Status Reason"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "expression": {
+      "type": "string",
+      "title": "Expression"
+     },
+     "base_asset": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Base Asset"
+     },
+     "time_column": {
+      "type": "string",
+      "title": "Time Column"
+     },
+     "timezone": {
+      "type": "string",
+      "title": "Timezone"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Filters"
+     },
+     "dimensions": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Dimensions"
+     },
+     "joins": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Joins"
+     },
+     "grain": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Grain"
+     },
+     "dedupe_basis": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dedupe Basis"
+     },
+     "dependency": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Dependency"
+     },
+     "dependency_fingerprint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dependency Fingerprint"
+     },
+     "asset_versions": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Asset Versions"
+     },
+     "publish_check": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Publish Check"
+     },
+     "created_by": {
+      "type": "string",
+      "title": "Created By"
+     },
+     "submitted_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Submitted By"
+     },
+     "reviewed_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed By"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     },
+     "published_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Published At"
+     },
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
+     },
+     "owner_id": {
+      "type": "string",
+      "title": "Owner Id"
+     },
+     "domain_id": {
+      "type": "string",
+      "title": "Domain Id"
+     },
+     "transitions": {
+      "items": {
+       "$ref": "#/components/schemas/TransitionOut"
+      },
+      "type": "array",
+      "title": "Transitions"
+     },
+     "impacts": {
+      "items": {
+       "$ref": "#/components/schemas/ImpactOut"
+      },
+      "type": "array",
+      "title": "Impacts"
+     },
+     "drift": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Drift"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "metric_id",
+     "metric_code",
+     "metric_name",
+     "version_no",
+     "status",
+     "description",
+     "expression",
+     "time_column",
+     "timezone",
+     "dimensions",
+     "joins",
+     "grain",
+     "dependency",
+     "asset_versions",
+     "publish_check",
+     "created_by",
+     "owner_id",
+     "domain_id"
+    ],
+    "title": "MetricVersionOut"
    },
    "ModelEntry": {
     "properties": {
@@ -4154,6 +6478,25 @@
     "type": "object",
     "title": "Note"
    },
+   "OwnerRef": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "display_name"
+    ],
+    "title": "OwnerRef"
+   },
    "ParamsBody": {
     "properties": {
      "params": {
@@ -4169,6 +6512,42 @@
      "params"
     ],
     "title": "ParamsBody"
+   },
+   "ParseOut": {
+    "properties": {
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "parser_version": {
+      "type": "string",
+      "title": "Parser Version"
+     },
+     "details": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Details"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "status",
+     "parser_version",
+     "details"
+    ],
+    "title": "ParseOut"
    },
    "PolicyOut": {
     "properties": {
@@ -4487,6 +6866,68 @@
     "type": "object",
     "title": "ProviderUpdate"
    },
+   "PublishCheckOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "blockers": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Blockers"
+     },
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Warnings"
+     },
+     "joins": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Joins"
+     },
+     "base_grains": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Base Grains"
+     },
+     "dependency": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Dependency"
+     },
+     "checked_at": {
+      "type": "string",
+      "title": "Checked At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ok",
+     "blockers",
+     "warnings",
+     "joins",
+     "base_grains",
+     "dependency",
+     "checked_at"
+    ],
+    "title": "PublishCheckOut"
+   },
    "PurposeOut": {
     "properties": {
      "label": {
@@ -4568,6 +7009,73 @@
     ],
     "title": "Resolve"
    },
+   "RunOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "trigger": {
+      "type": "string",
+      "title": "Trigger"
+     },
+     "started_at": {
+      "type": "string",
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "stats": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Stats"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "snapshot_hash": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Snapshot Hash"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "status",
+     "trigger",
+     "started_at"
+    ],
+    "title": "RunOut"
+   },
    "SettingsBody": {
     "properties": {
      "assignments": {
@@ -4643,6 +7151,139 @@
     ],
     "title": "SettingsOut"
    },
+   "StageOut": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "key",
+     "label",
+     "value",
+     "unit",
+     "status",
+     "note"
+    ],
+    "title": "StageOut"
+   },
+   "StatementOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "seq": {
+      "type": "integer",
+      "title": "Seq"
+     },
+     "lines": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Lines"
+     },
+     "method": {
+      "type": "string",
+      "title": "Method"
+     },
+     "statement_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statement Type"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "placeholders": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Placeholders"
+     },
+     "raw_text": {
+      "type": "string",
+      "title": "Raw Text"
+     },
+     "sql_text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql Text"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "seq",
+     "lines",
+     "method",
+     "status",
+     "placeholders",
+     "raw_text"
+    ],
+    "title": "StatementOut"
+   },
    "Target": {
     "properties": {
      "provider_id": {
@@ -4660,6 +7301,223 @@
      "model_id"
     ],
     "title": "Target"
+   },
+   "TaskOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "change_set_id": {
+      "type": "string",
+      "title": "Change Set Id"
+     },
+     "target": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Target"
+     },
+     "assignee_id": {
+      "type": "string",
+      "title": "Assignee Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "resolution": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resolution"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     },
+     "resolved_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resolved By"
+     },
+     "linked_metric_version_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Linked Metric Version Id"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "resolved_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resolved At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "change_set_id",
+     "target",
+     "assignee_id",
+     "status",
+     "created_at"
+    ],
+    "title": "TaskOut"
+   },
+   "ThreadDetailOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "answers": {
+      "items": {
+       "$ref": "#/components/schemas/AnswerOut"
+      },
+      "type": "array",
+      "title": "Answers"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "status",
+     "answers"
+    ],
+    "title": "ThreadDetailOut"
+   },
+   "ThreadOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
+     },
+     "updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "status"
+    ],
+    "title": "ThreadOut"
+   },
+   "TodoOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "meta": {
+      "type": "string",
+      "title": "Meta"
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "link": {
+      "type": "string",
+      "title": "Link"
+     },
+     "at": {
+      "type": "string",
+      "title": "At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "kind",
+     "status",
+     "title",
+     "meta",
+     "ref",
+     "link",
+     "at"
+    ],
+    "title": "TodoOut"
    },
    "TokenOut": {
     "properties": {
@@ -4683,6 +7541,58 @@
      "expires_at"
     ],
     "title": "TokenOut"
+   },
+   "TransitionOut": {
+    "properties": {
+     "from": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "From"
+     },
+     "to": {
+      "type": "string",
+      "title": "To"
+     },
+     "actor_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Actor Id"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "at": {
+      "type": "string",
+      "title": "At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "to",
+     "at"
+    ],
+    "title": "TransitionOut"
    },
    "UserCreate": {
     "properties": {
@@ -4805,6 +7715,52 @@
     ],
     "title": "ValidationError"
    },
+   "VersionBrief": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "version_no": {
+      "type": "integer",
+      "title": "Version No"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "status_reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Status Reason"
+     },
+     "published_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Published At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "version_no",
+     "status"
+    ],
+    "title": "VersionBrief"
+   },
    "VersionSpec": {
     "properties": {
      "description": {
@@ -4889,6 +7845,75 @@
      "time_column"
     ],
     "title": "VersionSpec"
+   },
+   "WorkbenchOut": {
+    "properties": {
+     "stages": {
+      "items": {
+       "$ref": "#/components/schemas/StageOut"
+      },
+      "type": "array",
+      "title": "Stages"
+     },
+     "todos": {
+      "items": {
+       "$ref": "#/components/schemas/TodoOut"
+      },
+      "type": "array",
+      "title": "Todos"
+     },
+     "my_metrics": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "My Metrics"
+     },
+     "blocked_answers": {
+      "items": {
+       "$ref": "#/components/schemas/AnswerOut"
+      },
+      "type": "array",
+      "title": "Blocked Answers"
+     },
+     "datasources": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Datasources"
+     },
+     "cadence": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Cadence"
+     },
+     "recent_changes": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Recent Changes"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "stages",
+     "todos",
+     "my_metrics",
+     "blocked_answers",
+     "datasources",
+     "cadence",
+     "recent_changes"
+    ],
+    "title": "WorkbenchOut"
    }
   },
   "securitySchemes": {
