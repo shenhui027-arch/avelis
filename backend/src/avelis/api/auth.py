@@ -20,7 +20,29 @@ from avelis.security import create_access_token, hash_password, verify_password
 router = APIRouter(prefix="/api", tags=["认证与用户"])
 
 
-@router.post("/auth/token")
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str
+    expires_at: str
+
+
+class DomainRef(BaseModel):
+    id: str
+    role: str
+    name: str
+    code: str
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    is_active: bool
+    roles: list[str]
+    domains: list[DomainRef]
+
+
+@router.post("/auth/token", response_model=TokenOut)
 def login(form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)) -> dict:
     user = session.scalar(select(User).where(User.username == form.username))
     if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
@@ -51,7 +73,7 @@ def user_view(session: Session, user: User) -> dict:
             "domains": [{"id": d, "role": r, "name": n, "code": c} for d, r, n, c in memberships]}
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserOut)
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return user_view(session, user)
 

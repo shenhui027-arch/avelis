@@ -51,23 +51,93 @@ class Target(BaseModel):
     model_id: str
 
 
+class ModelOut(BaseModel):
+    id: str
+    enabled: bool
+    tool_calling: bool | None = None
+
+
+class CheckOut(BaseModel):
+    model_id: str | None = None
+    ok: bool | None = None
+    tool_calling: bool | None = None
+    latency_ms: int | None = None
+    error: str | None = None
+    checked_at: str | None = None
+
+
+class ProviderOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    kind: Literal["openai_compatible", "anthropic"]
+    preset: str | None
+    base_url: str
+    endpoint: str
+    api_key: str | None = Field(description="掩码，只显示末四位；密钥本身永不回传")
+    has_api_key: bool
+    enabled: bool
+    models: list[ModelOut]
+    last_check: CheckOut
+    updated_at: str
+
+
+class PresetOut(BaseModel):
+    name: str
+    kind: str
+    base_url: str
+
+
+class PurposeOut(BaseModel):
+    label: str
+    needs_tools: bool
+    hint: str
+
+
+class PresetsOut(BaseModel):
+    presets: dict[str, PresetOut]
+    purposes: dict[str, PurposeOut]
+
+
+class AssignmentOut(PurposeOut):
+    provider_id: str | None
+    model_id: str | None
+    updated_at: str | None
+
+
+class PolicyOut(BaseModel):
+    send_results: bool
+    send_code: bool
+
+
+class SettingsOut(BaseModel):
+    assignments: dict[str, AssignmentOut]
+    policy: PolicyOut
+    mode: Literal["configured", "demo"]
+    note: str | None
+
+
+class FetchedOut(BaseModel):
+    models: list[str]
+
+
 class SettingsBody(BaseModel):
     assignments: dict[str, Target | None] = Field(default_factory=dict)
     policy: dict[str, bool] | None = None
 
 
-@router.get("/model-providers/presets")
+@router.get("/model-providers/presets", response_model=PresetsOut)
 def presets(user: User = Depends(current_user)) -> dict:
     return {"presets": modelcfg.PRESETS, "purposes": modelcfg.PURPOSES}
 
 
-@router.get("/model-providers")
+@router.get("/model-providers", response_model=list[ProviderOut])
 def list_providers(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     access.require_role(session, user, "steward")
     return [modelcfg.provider_view(p) for p in session.scalars(select(ModelProvider).order_by(ModelProvider.name))]
 
 
-@router.post("/model-providers", status_code=201)
+@router.post("/model-providers", status_code=201, response_model=ProviderOut)
 def create_provider(body: ProviderCreate, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
@@ -77,7 +147,7 @@ def create_provider(body: ProviderCreate, user: User = Depends(current_user),
     return modelcfg.provider_view(p)
 
 
-@router.patch("/model-providers/{provider_id}")
+@router.patch("/model-providers/{provider_id}", response_model=ProviderOut)
 def update_provider(provider_id: str, body: ProviderUpdate, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
@@ -94,25 +164,25 @@ def delete_provider(provider_id: str, user: User = Depends(current_user),
     modelcfg.delete_provider(session, user, provider_id)
 
 
-@router.post("/model-providers/{provider_id}/fetch-models")
+@router.post("/model-providers/{provider_id}/fetch-models", response_model=FetchedOut)
 def fetch_models(provider_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     access.require_role(session, user, "admin")
     return {"models": modelcfg.fetch_models(session, user, provider_id)}
 
 
-@router.post("/model-providers/{provider_id}/check")
+@router.post("/model-providers/{provider_id}/check", response_model=CheckOut)
 def check(provider_id: str, body: CheckBody, user: User = Depends(current_user),
           session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
     return modelcfg.check(session, user, provider_id, body.model_id)
 
 
-@router.get("/model-settings")
+@router.get("/model-settings", response_model=SettingsOut)
 def get_settings_view(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return modelcfg.settings_view(session)
 
 
-@router.put("/model-settings")
+@router.put("/model-settings", response_model=SettingsOut)
 def save_settings(body: SettingsBody, user: User = Depends(current_user),
                   session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
