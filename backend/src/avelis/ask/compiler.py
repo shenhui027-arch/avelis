@@ -55,6 +55,13 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     dims = {d["name"]: d for d in version.dimensions or []}
     select = exp.Select()
     group_cols = []
+    time_grain = getattr(intent, "time_grain", None)
+    if time_grain:  # 时间段列：SQLGlot 按方言生成日期格式化（DATE_FORMAT、TO_CHAR、FORMAT、formatDateTime……）
+        g_alias, g_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
+        period = exp.TimeToStr(this=exp.column(g_col, table=g_alias),
+                               format=exp.Literal.string("%Y-%m-%d" if time_grain == "day" else "%Y-%m"))
+        select = select.select(exp.alias_(period, "period"))
+        group_cols.append(period.copy())
     for name in intent.group_by:
         select = select.select(exp.alias_(col(dims[name]["column"]), name))
         group_cols.append(col(dims[name]["column"]))
@@ -114,10 +121,10 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
-    return CompiledQuery(sql=sql, tables=tables, columns=[*intent.group_by, "value"],
+    return CompiledQuery(sql=sql, tables=tables, columns=[*(["period"] if time_grain else []), *intent.group_by, "value"],
                          plan={"base": _qualified(base), "joins": [
                              {"alias": s["alias"], "path": s["path"].code, "pre_aggregate": s["pre_aggregate"]}
-                             for s in steps], "group_by": intent.group_by,
+                             for s in steps], "group_by": intent.group_by, "time_grain": time_grain,
                              "time_range": [str(intent.start_date), str(intent.end_date)],
                              "filters": [f.model_dump() for f in intent.filters]})
 

@@ -362,6 +362,13 @@ def _pg_url() -> str:
 
 
 _STATE: dict[str, tuple[ConnectionPool, Any]] = {}
+_SAVERS: dict[str, PostgresSaver] = {}
+
+
+def checkpointer() -> PostgresSaver:
+    """问数与分析共用的会话状态存储（avelis_agent 模式）。"""
+    graph()
+    return _SAVERS[_pg_url()]
 
 
 def graph():
@@ -374,6 +381,7 @@ def graph():
             "options": f"-c search_path={AGENT_SCHEMA}"})
         saver = PostgresSaver(pool)
         saver.setup()
+        _SAVERS[url] = saver
         _STATE[url] = (pool, build_graph(saver))
     return _STATE[url][1]
 
@@ -383,6 +391,10 @@ def reset_state_cache() -> None:
     for pool, _ in _STATE.values():
         pool.close()
     _STATE.clear()
+    _SAVERS.clear()
+    from avelis.analysis import service as analysis_service
+
+    analysis_service.reset_graph_cache()
 
 
 # --- 对外入口 ------------------------------------------------------------------------

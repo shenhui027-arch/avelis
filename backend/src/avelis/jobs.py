@@ -4,6 +4,7 @@ Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务�
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
+定时分析（M8）：到期的分析任务入队 analysis；API 异步发起的单次分析为 analysis_run。
 """
 
 from __future__ import annotations
@@ -62,6 +63,20 @@ def run_job(job_id: str) -> None:
         if kind == "collect":
             result = {"run_id": collect_now(payload["datasource_id"], trigger=payload.get("trigger", "manual"),
                                             actor_id=actor)}
+        elif kind == "analysis":
+            from avelis.analysis import service as analysis_service
+
+            result = {"analysis_run_id": analysis_service.run_task(payload["task_id"],
+                                                                   trigger=payload.get("trigger", "schedule"))}
+        elif kind == "analysis_run":
+            from avelis.analysis import service as analysis_service
+            from avelis.models import AnalysisRun
+
+            with session_scope() as session:
+                run = session.get(AnalysisRun, payload["run_id"])
+                if run is not None and run.status == "queued":
+                    analysis_service.execute(session, run)
+                    result = {"analysis_run_id": run.id, "status": run.status}
         else:
             raise ValueError(f"未知任务类型 {kind}")
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
@@ -135,7 +150,9 @@ def main() -> None:
         if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
             last_schedule = time.monotonic()
             abandoned_jobs()
-            for job_id in schedule_due() + stale_jobs():
+            from avelis.analysis import service as analysis_service
+
+            for job_id in schedule_due() + analysis_service.schedule_due() + stale_jobs():
                 run_job(job_id)
         try:
             item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))

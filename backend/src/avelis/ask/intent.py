@@ -38,6 +38,8 @@ class Intent(BaseModel):
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
     compare: Literal["previous_period", "previous_year"] | None = None
+    # 按时间分组（M8）：结果多一列 period（day 为 YYYY-MM-DD，month 为 YYYY-MM），排在维度之前。不能与对比期同用
+    time_grain: Literal["day", "month"] | None = None
     clarification: str | None = None
     candidates: list[str] = Field(default_factory=list)
 
@@ -47,6 +49,8 @@ class Intent(BaseModel):
             self.metric_code = self.metric_codes[0]
         if self.metric_code and not self.metric_codes:
             self.metric_codes = [self.metric_code]
+        if self.time_grain and self.compare:
+            raise ValueError("按时间分组时不能同时与上一期或去年同期对比（两期的日期对不上）")
         return self
 
     @property
