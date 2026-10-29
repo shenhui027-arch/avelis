@@ -20,3 +20,7 @@ deploy/demo/drivers/*.jar
 # Local tool settings (machine-specific paths)
 .claude/
 *.tsbuildinfo
+
+# Browser profiles left by design previews
+.brand-qa-chrome/
+.worktrees/

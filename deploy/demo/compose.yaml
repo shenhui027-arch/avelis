@@ -4,6 +4,7 @@
 #   valkey                Redis 协议兼容：任务队列、缓存、采集锁
 #   shop-mysql            模拟业务方的电商维表库（客户、商品、类目、区域）
 #   starrocks             演示数仓：电商事实表，并以外部表方式读取 shop-mysql 的维表
+#   shop-pg               模拟业务方的线下门店库（PostgreSQL），用于验证第二种引擎的采集、血缘与问数
 name: avelis-demo
 
 services:
@@ -62,6 +63,25 @@ services:
       timeout: 3s
       retries: 60
 
+  shop-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: storedb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SHOP_PG_PASSWORD:?run scripts/demo.py init-env}
+      SHOP_PG_COLLECTOR_PASSWORD: ${SHOP_PG_COLLECTOR_PASSWORD:?run scripts/demo.py init-env}
+      SHOP_PG_READER_PASSWORD: ${SHOP_PG_READER_PASSWORD:?run scripts/demo.py init-env}
+    ports:
+      - "127.0.0.1:${SHOP_PG_PORT:-15433}:5432"
+    volumes:
+      - shop-pg-data:/var/lib/postgresql
+      - ./shop-pg/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d storedb"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.14@sha256:5e1fa9c1a490f49457b8220b10ef2ea211af271b2626654ba151429f4603715f
     entrypoint: ["/bin/bash", "/opt/avelis/avelis-entrypoint.sh"]
@@ -102,5 +122,6 @@ volumes:
   meta-pg-data:
   valkey-data:
   shop-mysql-data:
+  shop-pg-data:
   sr-fe-meta:
   sr-be-storage:

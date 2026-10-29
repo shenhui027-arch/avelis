@@ -30,8 +30,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
+        /**
+         * Login
+         * @description 失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。
+         *     锁定期间即使口令正确也拒绝，且不透露账号是否存在。
+         */
         post: operations["login_api_auth_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description 修改自己的口令：其他会话全部失效，返回当前会话的新令牌。
+         */
+        post: operations["change_password_api_me_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -84,6 +108,46 @@ export interface paths {
         put?: never;
         /** Create User */
         post: operations["create_user_api_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update User
+         * @description 管理员修改显示名、角色、启用状态。不能停用自己，也不能去掉自己的管理员角色（避免没有管理员）。
+         */
+        patch: operations["update_user_api_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Password
+         * @description 管理员重置口令：该用户的会话全部失效，下次登录必须修改口令。
+         */
+        post: operations["reset_password_api_users__user_id__password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1607,6 +1671,21 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** EngineOptionOut */
+        EngineOptionOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Type */
+            type: string;
+            /** Required */
+            required: boolean;
+            /** Hint */
+            hint: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** EngineOut */
         EngineOut: {
             /** Kind */
@@ -1627,6 +1706,11 @@ export interface components {
             is_test_adapter: boolean;
             /** Note */
             note: string;
+            /**
+             * Options
+             * @default []
+             */
+            options?: components["schemas"]["EngineOptionOut"][];
         } & {
             [key: string]: unknown;
         };
@@ -2131,6 +2215,18 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** PasswordChange */
+        PasswordChange: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
+        /** PasswordReset */
+        PasswordReset: {
+            /** New Password */
+            new_password: string;
+        };
         /** PolicyOut */
         PolicyOut: {
             /** Send Results */
@@ -2468,6 +2564,11 @@ export interface components {
             token_type: string;
             /** Expires At */
             expires_at: string;
+            /**
+             * Must Change Password
+             * @default false
+             */
+            must_change_password?: boolean;
         };
         /** TransitionOut */
         TransitionOut: {
@@ -2494,6 +2595,12 @@ export interface components {
             password: string;
             /** Roles */
             roles?: string[];
+            /**
+             * Must Change Password
+             * @description 首次登录必须修改口令（默认是）
+             * @default true
+             */
+            must_change_password?: boolean;
         };
         /** UserOut */
         UserOut: {
@@ -2509,6 +2616,24 @@ export interface components {
             roles: string[];
             /** Domains */
             domains: components["schemas"]["DomainRef"][];
+            /**
+             * Must Change Password
+             * @default false
+             */
+            must_change_password?: boolean;
+            /** Last Login At */
+            last_login_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** UserUpdate */
+        UserUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Roles */
+            roles?: string[] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2652,6 +2777,39 @@ export interface operations {
             };
         };
     };
+    change_password_api_me_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     logout_api_auth_logout_post: {
         parameters: {
             query?: never;
@@ -2729,6 +2887,76 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_api_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_api_users__user_id__password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

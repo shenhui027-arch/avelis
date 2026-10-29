@@ -6,14 +6,14 @@ import pytest
 
 from avelis.ask.compiler import distinct_values_sql, duplicate_key_sql, validate_sql
 from avelis.engines import engines, get_engine, query_connector, register
-from avelis.engines.base import QUERY, VIEW_LINEAGE, CapabilityMissing, Engine, UnsupportedEngine
+from avelis.engines.base import LIVE_CHECK, QUERY, VIEW_LINEAGE, CapabilityMissing, Engine, UnsupportedEngine
 from avelis.lineage.sql import SqlDialect, canonical_hash_of, parse_query
 from avelis.models import Datasource
 
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "fake"}
+    assert kinds == {"starrocks", "mysql", "postgres", "fake"}
     with pytest.raises(UnsupportedEngine, match="oracle"):
         get_engine("oracle")
     with pytest.raises(ValueError, match="已登记"):
@@ -24,6 +24,13 @@ def test_capabilities_are_declared_not_guessed():
     sr, my = get_engine("starrocks"), get_engine("mysql")
     assert sr.supports(QUERY) and sr.supports(VIEW_LINEAGE)
     assert not my.supports(QUERY) and not my.supports(VIEW_LINEAGE)
+    pg = get_engine("postgres")
+    assert pg.supports(QUERY) and pg.supports(VIEW_LINEAGE) and pg.supports(LIVE_CHECK)
+    # catalog 段因数据源而异：PostgreSQL 用配置的库名
+    assert pg.dialect_for({"database": "storedb"}).default_catalog == "storedb"
+    assert get_engine("starrocks").dialect_for({"database": "x"}).default_catalog == "default_catalog"
+    # 执行前核对需要只读执行账号：只有能执行问数的引擎才声明
+    assert sr.supports(LIVE_CHECK) and not my.supports(LIVE_CHECK) and not get_engine("fake").supports(LIVE_CHECK)
     ds = Datasource(name="维表库", kind="mysql", host="127.0.0.1", port=3306, options={})
     with pytest.raises(CapabilityMissing, match="维表库（MySQL）不支持问数执行"):
         query_connector(None, ds)  # 不触达数据库、不读口令
@@ -64,3 +71,18 @@ def test_engine_description_is_serialisable():
     d = get_engine("starrocks").describe()
     assert d["dialect"] == "starrocks" and "query" in d["capabilities"] and d["name_levels"][0] == "catalog"
     assert isinstance(Engine, type)
+
+
+def test_model_history_drops_result_values_when_not_sent():
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from avelis.ask.agent import _history_for_model
+
+    old = AIMessage("[answered] 2026-09-15（region=华东） 净销售额（V1）：270.00")  # 旧检查点：没有标记
+    new = AIMessage("[answered] 净销售额：270.00", additional_kwargs={
+        "avelis_summary": True, "redacted": "[answered] · 指标 net_sales · 日期 2026-09-15（结果未发送给模型）"})
+    history = [HumanMessage("2026-09-15 华东区净销售额"), old, new]
+    sent = _history_for_model(history, send_results=False)
+    assert "270" not in " ".join(str(m.content) for m in sent)
+    assert "指标 net_sales" in str(sent[2].content) and str(sent[1].content).startswith("[answered]")
+    assert _history_for_model(history, send_results=True) == history

@@ -12,6 +12,12 @@ const lines = (theme) => {
 };
 const base = [];
 for (const [name, stack] of Object.entries(tokens.type.families)) base.push(`  --font-${name}: ${stack};`);
+// 排版：每个样式生成 font 简写变量（--type-<name>），页面与组件用它而不是手写字号
+for (const group of tokens.type.groups) {
+  for (const st of group.styles) {
+    base.push(`  --type-${st.name}: ${st.fontWeight} ${st.fontSize}/${st.lineHeight} var(--font-${group.family});`);
+  }
+}
 for (const family of ["spacing", "radius", "size"]) {
   for (const t of tokens[family]?.tokens ?? []) base.push(`  --${t.name}: ${t.value};`);
 }

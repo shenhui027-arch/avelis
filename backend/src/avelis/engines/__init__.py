@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.engines.base import QUERY, CapabilityMissing, Engine, UnsupportedEngine
+from avelis.lineage.sql import SqlDialect
 from avelis.models import Datasource, DatasourceCredential
 from avelis.security import decrypt_secret
 
@@ -36,6 +37,11 @@ def engines() -> list[Engine]:
 
 def engine_of(ds: Datasource) -> Engine:
     return get_engine(ds.kind)
+
+
+def dialect_of(ds: Datasource) -> SqlDialect:
+    """该数据源的解析方言（含因数据源而异的 catalog 段）。"""
+    return engine_of(ds).dialect_for(ds.options)
 
 
 class CredentialMissing(Exception):
@@ -74,4 +80,4 @@ def _register_builtin() -> None:
 _register_builtin()
 
 __all__ = ["CapabilityMissing", "CredentialMissing", "Engine", "UnsupportedEngine", "collect_connector",
-           "engine_of", "engines", "get_engine", "query_connector", "register"]
+           "dialect_of", "engine_of", "engines", "get_engine", "query_connector", "register"]

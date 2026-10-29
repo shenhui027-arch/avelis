@@ -1,4 +1,4 @@
-"""Redis（演示用 Valkey）：任务唤醒、采集互斥锁、令牌吊销、答案缓存。
+"""Redis（演示用 Valkey）：任务唤醒、令牌吊销、答案缓存。
 
 Redis 不是事实来源：丢失只影响性能与重试。答案缓存键包含 SQL、指标版本与依赖指纹、资产版本、
 权限范围和数据新鲜度，任何一项变化都会自然错开；另外按指标版本建标签集合，受影响时主动清除。
@@ -52,6 +52,27 @@ def revoke_token(jti: str, ttl_seconds: int) -> None:
 
 def is_revoked(jti: str) -> bool:
     return client().exists(f"avelis:revoked:{jti}") == 1
+
+
+def login_locked_seconds(key: str, max_failures: int) -> int:
+    """连续失败达到上限时返回剩余锁定秒数，否则 0。"""
+    name = f"avelis:login-fail:{key}"
+    count = client().get(name)
+    if count is not None and int(count) >= max_failures:
+        return max(int(client().ttl(name)), 1)
+    return 0
+
+
+def record_login_failure(key: str, window_seconds: int) -> int:
+    name = f"avelis:login-fail:{key}"
+    count = client().incr(name)
+    if count == 1:
+        client().expire(name, window_seconds)
+    return int(count)
+
+
+def clear_login_failures(key: str) -> None:
+    client().delete(f"avelis:login-fail:{key}")
 
 
 def answer_cache_key(parts: dict[str, Any]) -> str:

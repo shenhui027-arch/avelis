@@ -14,6 +14,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask.compiler import duplicate_key_sql
 from avelis.collect.service import current_fingerprints
+from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
 from avelis.engines import CapabilityMissing, engine_of, query_connector
@@ -227,6 +228,10 @@ def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(current_us
     before = a.domain_id
     a.domain_id = body.domain_id
     audit.record(session, user, "asset.domain", "asset", a.id, before=before, after=body.domain_id)
+    if before != body.domain_id:
+        from avelis.governance.joins import on_asset_domain_changed
+
+        on_asset_domain_changed(session, a.id)
     return asset_summary(session, a)
 
 
@@ -266,7 +271,24 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     g = session.get(Grain, grain_id) or _404("粒度不存在")
     a = readable_asset(session, user, g.asset_id)
     access.require_role(session, user, "steward")
+    # 核验会返回重复键的真实值：与问数相同，要求视图背后的完整来源都可见
+    from avelis.ask.service import _live_check, upstream_closure
+
+    allowed = access.domain_ids(session, user)
+    closure = upstream_closure(session, [a.id])
+    hidden = [x for x in closure.values() if not access.can_read_asset(session, user, x, allowed)]
+    if hidden:
+        raise HTTPException(403, "没有权限读取该对象背后的来源：" + "、".join(
+            sorted(f"{x.catalog_name}.{x.db_name}.{x.name}" for x in hidden)))
     ds = session.get(Datasource, a.datasource_id)
+    try:
+        stale = _live_check(session, ds, query_connector(session, ds), closure.values(),
+                            [{"asset_id": a.id, "column": c} for c in g.columns], get_settings())
+    except CapabilityMissing:
+        stale = []
+    if stale:
+        raise HTTPException(409, "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验："
+                                 + "；".join(x["summary"] for x in stale))
     sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns),
                             dialect=engine_of(ds).sql.name)
     detail: dict[str, Any] = {"sql": sql}

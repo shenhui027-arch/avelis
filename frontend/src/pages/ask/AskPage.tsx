@@ -9,6 +9,21 @@ import { formatTime } from "../../format";
 
 const STEP_LABEL: Record<string, string> = { understand: "理解", clarify: "追问", govern: "版本与权限", explain: "解释" };
 
+/** 每一步按它自己的结果着色：成功为绿，拦截或失败为红，追问、未执行、未知保持中性——不用最终答案代替步骤状态。 */
+function stepClass(s: Record<string, unknown>, a: { status: string }): string {
+  switch (s.node) {
+    case "understand":
+      return s.result === "intent" ? "is-ok" : "";
+    case "govern":
+      return s.status === "answered" ? "is-ok" : s.status === "blocked" || s.status === "denied" || s.status === "error"
+        ? "is-blocked" : "";
+    case "explain":
+      return a.status === "answered" ? "is-ok" : "";
+    default:
+      return "";
+  }
+}
+
 export function AskPage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
@@ -145,11 +160,11 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       ) : null}
       <div className="av-trace">
         {steps.map((s, i) => (
-          <span key={i} className={s.node === "govern" ? (blocked ? "is-blocked" : "is-ok") : "is-ok"}>
+          <span key={i} className={stepClass(s, a)}>
             {STEP_LABEL[String(s.node)] ?? String(s.node)}{s.node === "understand" && Array.isArray(s.tool_calls) && s.tool_calls.length ? ` · ${s.tool_calls.length} 次工具调用` : ""}
           </span>
         ))}
-        {a.sql ? <span className={a.executed_at ? "is-ok" : ""}>只读执行</span> : null}
+        {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>只读执行</span> : null}
       </div>
     </article>
   );
@@ -227,7 +242,7 @@ function Evidence({ a }: { a: Answer }) {
         {tab === "steps" ? (
           <ol className="av-steps">
             {(a.steps ?? []).map((s, i) => (
-              <li key={i} className={`av-step${s.node === "govern" && a.status !== "answered" ? " is-blocked" : " is-ok"}`}>
+              <li key={i} className={`av-step ${stepClass(s, a)}`}>
                 <span className="av-step__dot" />
                 <span className="av-step__body">
                   <span className="av-step__title">{STEP_LABEL[String(s.node)] ?? String(s.node)} {s.result ? `· ${String(s.result)}` : ""}{s.status ? ` · ${String(s.status)}` : ""}</span>

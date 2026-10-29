@@ -39,8 +39,8 @@ class MySQLMetaConnector:
         cur.execute("SELECT @@server_uuid AS server_uuid, @@hostname AS hostname, @@port AS port, "
                     "VERSION() AS version")
         row = cur.fetchone()
-        return {"server_uuid": row["server_uuid"], "hostname": row["hostname"], "port": int(row["port"]),
-                "version": row["version"]}
+        return {"instance_id": row["server_uuid"], "server_uuid": row["server_uuid"], "hostname": row["hostname"],
+                "port": int(row["port"]), "version": row["version"]}
 
     def snapshot(self) -> Snapshot:
         schemas = _checked(list(self.options.get("databases", [])), "库")
