@@ -447,3 +447,45 @@
   .av-models .av-pagehd__title { flex-wrap: wrap; }
 }
 /* END models */
+
+/* BEGIN ask-expression */
+.av-ask-page .av-answer { min-width: 0; }
+.av-ask-examples { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: calc(var(--size-reading) - var(--space-6) * 2); margin: 0 auto var(--space-3); }
+.av-ask-examples .av-btn { height: auto; min-height: var(--size-control-sm); white-space: normal; text-align: left; }
+.av-answer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.av-answer-meta .av-caption { overflow-wrap: anywhere; }
+.av-answer-result { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); }
+.av-answer-result:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av-answer-result--scroll { max-height: calc(var(--size-control-md) * 20 + var(--size-control-lg)); overflow-y: auto; }
+.av-answer-table { width: 100%; border-collapse: collapse; font: var(--type-body-compact); }
+.av-answer-table th, .av-answer-table td { height: var(--size-control-md); padding: var(--space-1) var(--space-3); white-space: nowrap; }
+.av-answer-table th { position: sticky; top: 0; z-index: 1; height: var(--size-control-lg); background: var(--bg-surface); color: var(--text-tertiary); font: var(--type-caption); }
+.av-answer-table .av-answer-table__dimension { text-align: left; }
+.av-answer-table .av-answer-table__number { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.av-answer-table .av-answer-change--ok { color: var(--ok); }
+.av-answer-table .av-answer-change--danger { color: var(--danger); }
+.av-answer-warning { color: var(--warn); font: var(--type-caption); }
+.av-evidence-section { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.av-query-plan { display: flex; flex-direction: column; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+.av-query-plan__item { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px solid var(--line-subtle); border-radius: var(--radius-sm); background: var(--bg-base); }
+.av-query-plan__header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
+.av-query-plan__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--text-tertiary); font: var(--type-caption); }
+.av-derived-formula { margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-subtle); border-radius: var(--radius-sm); background: var(--bg-base); font: var(--type-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-derived-components { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; font: var(--type-body-compact); }
+.av-derived-components li { display: flex; flex-direction: column; gap: var(--space-1); overflow-wrap: anywhere; }
+.av-sql-sections, .av-sql-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.av-sql-sections { gap: var(--space-5); }
+.av-sql-section .av-section-label { line-height: var(--space-5); overflow-wrap: anywhere; }
+/* END ask-expression */
+
+/* BEGIN metric-derived */
+.av-metric-derived__formula { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--type-mono); }
+.av-metric-derived__formula-input { font-family: var(--font-mono); }
+.av-metric-derived__references { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.av-metric-derived__components { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.av-metric-derived__components li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: baseline; }
+.av-metric-derived__components a, .av-metric-derived__references .av-caption { overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .av-metric-derived__components li { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+}
+/* END metric-derived */
