@@ -11,6 +11,7 @@ import { ChangesPage } from "./pages/changes/ChangesPage";
 import { ImportPage } from "./pages/lineage/ImportPage";
 import { LineagePage } from "./pages/lineage/LineagePage";
 import { Login } from "./pages/Login";
+import { Forbidden, NotFound, RouteError } from "./pages/PageState";
 import { DatasourcesPage } from "./pages/settings/DatasourcesPage";
 import { ModelSettings } from "./pages/settings/ModelSettings";
 import { UsersPage } from "./pages/settings/UsersPage";
@@ -19,7 +20,7 @@ import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
 
-const queryClient = new QueryClient({
+export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },
 });
 
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <Shell />,
+    errorElement: <RouteError />,
     children: [
       { index: true, element: <Workbench /> },
       { path: "lineage", element: <LineagePage /> },
@@ -46,6 +48,8 @@ const router = createBrowserRouter([
       { path: "settings/datasources/:id", element: <DatasourcesPage /> },
       { path: "settings/models", element: <ModelSettings /> },
       { path: "settings/users", element: <UsersPage /> },
+      { path: "forbidden", element: <Forbidden /> },
+      { path: "*", element: <NotFound /> },
     ],
   },
 ]);
