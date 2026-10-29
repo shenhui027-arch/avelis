@@ -63,3 +63,9 @@ body { font-family: var(--font-sans); }
 .av-canvas .react-flow__node .av-node { position: relative; }
 .av-canvas .react-flow__edge-textbg { rx: 4px; }
 .av-canvas .react-flow__pane { cursor: grab; }
+
+/* 目录树：名称占满剩余宽度并左对齐（尾部元素仍靠右） */
+.av-tree__item > span:not(.av-dot):not(.av-plat):not(.av-tag):not(.av-swatch) { flex: 1; min-width: 0; text-align: left; }
+/* 检查器与依据栏里的代码自动换行，不出现横向滚动 */
+.av-inspector .av-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-table td.wrap { white-space: normal; }

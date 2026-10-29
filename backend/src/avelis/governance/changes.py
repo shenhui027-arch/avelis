@@ -68,9 +68,13 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         if not drift and version.status != "affected":
             continue
         metric = session.get(Metric, version.metric_id)
-        level = "affected" if any(d["current_status"] in ("ok", "broken") for d in drift) else "possibly_affected"
         cols = "、".join(f"{d['qualified'].split('.', 1)[1]}.{d['column']}" for d in hits)
-        reason = f"依赖字段 {cols} 的推导已变化" + ("" if level == "affected" else "（证据不全，按受影响处理）")
+        if not drift:
+            level, reason = "affected", f"依赖字段 {cols} 的推导已恢复为与该版本一致，仍需负责人复核确认"
+        elif any(d["current_status"] in ("ok", "broken") for d in drift):
+            level, reason = "affected", f"依赖字段 {cols} 的推导已变化"
+        else:
+            level, reason = "possibly_affected", f"依赖字段 {cols} 的推导证据不全，按受影响处理"
         newly = mark_affected(session, version, reason)
         session.add(Impact(change_set_id=change_set.id, object_type="metric_version", object_id=version.id,
                            level=level, reason=reason, path=[{"asset_id": d["asset_id"], "column": d["column"],
@@ -219,12 +223,17 @@ def _resolve_join_path(session: Session, task: ReviewTask, resolution: str) -> N
 
 
 def _maybe_close_change_set(session: Session, change_set_id: str) -> None:
-    open_tasks = session.scalar(select(ReviewTask.id).where(ReviewTask.change_set_id == change_set_id,
-                                                           ReviewTask.status == "open").limit(1))
-    if open_tasks is None:
-        cs = session.get(ChangeSet, change_set_id)
-        cs.status = "resolved"
-        cs.resolved_at = utcnow()
+    """关闭没有未决复核的变更集：本组的任务都已处理，且本组影响的指标版本不再处于“受影响”。"""
+    for cs in session.scalars(select(ChangeSet).where(ChangeSet.status == "open")):
+        if session.scalar(select(ReviewTask.id).where(ReviewTask.change_set_id == cs.id,
+                                                      ReviewTask.status == "open").limit(1)):
+            continue
+        affected = [i for i in session.scalars(select(Impact).where(
+            Impact.change_set_id == cs.id, Impact.object_type == "metric_version"))
+            if (v := session.get(MetricVersion, i.object_id)) is not None and v.status == "affected"]
+        if cs.id == change_set_id or not affected:
+            cs.status = "resolved"
+            cs.resolved_at = utcnow()
 
 
 def task_or_404(session: Session, task_id: str) -> ReviewTask:

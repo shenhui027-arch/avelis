@@ -191,7 +191,7 @@ function Canvas() {
       layout.setEdge(e.source, e.target);
       builtEdges.push({
         id: key, source: e.source, target: e.target, type: "default",
-        label: e.relations.includes("join_key") ? "关联" : undefined,
+        label: !value && e.relations.includes("join_key") ? "关联" : undefined,
         labelStyle: { fill: "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
         labelBgStyle: { fill: "var(--bg-overlay)" },
         style: {
@@ -296,7 +296,7 @@ function Inspector({ node, graph, column }: { node: GNode; graph: Graph; column:
           <span className="av-section-label">{KIND_LABEL[node.kind] ?? node.kind}{node.datasource ? ` · ${node.datasource.name}` : ""}</span>
           {node.kind !== "design_time" ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${node.id}`}>资产</Link> : null}
         </div>
-        <span className="av-mono" style={{ fontWeight: 500 }}>{node.qualified}{column ? <span style={{ color: "var(--signal)" }}>.{column}</span> : null}</span>
+        <span className="av-mono" style={{ fontWeight: 500, overflowWrap: "anywhere" }}>{node.qualified}{column ? <span style={{ color: "var(--signal)" }}>.{column}</span> : null}</span>
         {node.note ? <span className="av-caption">{node.note}</span> : null}
       </div>
       <div className="av-inspector__bd">

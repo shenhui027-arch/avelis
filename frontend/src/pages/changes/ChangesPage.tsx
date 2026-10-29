@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
-  errorText, useAction, useChangeSet, useChangeSets, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
+  errorText, useAction, useAssets, useChangeSet, useChangeSets, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
 import { Banner, Count, DiffCode, Dot, Empty, Hint, Pill, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
@@ -87,6 +87,8 @@ function Detail({ id }: { id: string }) {
   const tz = useTimeZone();
   const cs = useChangeSet(id);
   const metrics = useMetrics();
+  const assets = useAssets();
+  const assetName = (id: string) => shortName(assets.data?.find((a) => a.id === id)?.qualified) || id.slice(0, 8);
   const c = cs.data;
   if (!c) return <section className="av-pane" />;
   const events = c.events ?? [];
@@ -152,7 +154,7 @@ function Detail({ id }: { id: string }) {
                   const m = i.object_type === "metric_version" ? metricName(i.object_id) : null;
                   return (
                     <tr key={i.id}>
-                      <td style={{ paddingLeft: 16 }}>{m ? m.name : <span className="av-mono">{OBJECT[i.object_type] ?? i.object_type} {i.object_type === "asset" ? assetFromPath(i.path) : ""}</span>}</td>
+                      <td style={{ paddingLeft: 16 }}>{m ? m.name : <span className="av-mono">{i.object_type === "asset" ? `${assetName(i.object_id)}${assetFromPath(i.path)}` : OBJECT[i.object_type] ?? i.object_type}</span>}</td>
                       <td className="av-caption" style={{ whiteSpace: "normal" }}>{i.reason}</td>
                       <td>{m ? <Status value={m.status} /> : <Status value={i.level === "affected" ? "affected" : "unknown"} label={i.level === "affected" ? "受影响" : "可能受影响"} />}</td>
                       <td className="end">{m ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/metrics/${m.id}`}>查看</Link> : null}</td>
@@ -172,7 +174,7 @@ function Detail({ id }: { id: string }) {
 
 function assetFromPath(path: unknown[]): string {
   const last = path[path.length - 1] as { column?: string } | undefined;
-  return last?.column ? `· ${last.column}` : "";
+  return last?.column ? `.${last.column}` : "";
 }
 
 function eventDetail(e: { kind: string; before: Record<string, unknown>; after: Record<string, unknown>; column?: string | null }): string {
