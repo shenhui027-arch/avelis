@@ -173,6 +173,7 @@ PAID_SPEC = {
 
 def test_02_publish_paid_sales(admin: Api):
     zhang, li = ctx["apis"]["zhang"], ctx["apis"]["li"]
+    admin.patch(f"/api/users/{ctx['users']['zhang']}", {"roles": ["steward", "reviewer"]})
     metric = zhang.post("/api/metrics", {"code": "paid_sales", "name": "实付销售额", "domain_id": ctx["trade"],
                                          "owner_id": ctx["users"]["zhang"]}, expect=201)
     version = zhang.post(f"/api/metrics/{metric['id']}/versions",
@@ -181,8 +182,9 @@ def test_02_publish_paid_sales(admin: Api):
     assert version["status"] == "draft"
     version = zhang.post(f"/api/metric-versions/{version['id']}/submit")
     assert version["status"] == "pending_review"
-    # 负责人不能自审（也不是复核者）
+    # 创建人即使同时是维护者、复核者，也不能自审
     zhang.post(f"/api/metric-versions/{version['id']}/approve", {"note": "自己批"}, expect=403)
+    admin.patch(f"/api/users/{ctx['users']['zhang']}", {"roles": ["steward"]})
     version = li.post(f"/api/metric-versions/{version['id']}/approve", {"note": "口径与负责人确认"})
     assert version["status"] == "published"
     assert version["reviewed_by"] == ctx["users"]["li"] and version["submitted_by"] == ctx["users"]["zhang"]
@@ -435,6 +437,7 @@ def test_09_grain_fan_out(admin: Api):
 
 def test_10_collect_via_job_queue(admin: Api):
     from avelis import cache, jobs
+    from avelis.db import advisory_lock
 
     queued = admin.post(f"/api/datasources/{ctx['sr']}/collect")
     assert queued["status"] == "queued"
@@ -447,7 +450,7 @@ def test_10_collect_via_job_queue(admin: Api):
     runs = admin.get(f"/api/datasources/{ctx['sr']}/runs")
     assert runs[0]["id"] == job["result"]["run_id"] and runs[0]["stats"].get("new_versions", 0) == 0
     # 同一数据源的采集互斥
-    with cache.lock(f"collect:{ctx['sr']}"):
+    with advisory_lock(f"collect:{ctx['sr']}"):
         admin.post(f"/api/datasources/{ctx['sr']}/collect?wait=true", expect=409)
 
 

@@ -133,6 +133,16 @@ def test_03_human_decisions():
     model = [c for c in job["candidates"] if c["origin"] == "model"]
     table_edge = next(c for c in model if c["relation"] == "table" and c["source_ref"].endswith("shop.orders"))
     agg_edge = next(c for c in model if c["relation"] == "value_aggregated")
+    # 分析师不能处理仍待复核的候选，也不能改变候选、血缘边或审计
+    assert agg_edge["status"] == "pending"
+    edges_before = sorted(confirmed_edges(job["id"]), key=repr)
+    audit_before = zhang.get("/api/audit", params={"limit": 1000})
+    ctx["wang"].post(f"/api/candidates/{agg_edge['id']}/decision", {"decision": "reject", "reason": "x"},
+                     expect=403)
+    unchanged = zhang.get(f"/api/imports/{job['id']}")
+    assert next(c for c in unchanged["candidates"] if c["id"] == agg_edge["id"]) == agg_edge
+    assert sorted(confirmed_edges(job["id"]), key=repr) == edges_before
+    assert zhang.get("/api/audit", params={"limit": 1000}) == audit_before
     zhang.post(f"/api/candidates/{table_edge['id']}/decision", {"decision": "accept"}, expect=422)  # 缺理由
     zhang.post(f"/api/candidates/{table_edge['id']}/decision",
                {"decision": "reject", "reason": "orders 只用于关联，不是数据来源"})
@@ -161,9 +171,6 @@ def test_03_human_decisions():
     for c in pending:
         job = zhang.post(f"/api/candidates/{c['id']}/decision", {"decision": "reject", "reason": "演示：不采纳"})
     assert job["status"] == "done"
-    # 分析师不能处理候选
-    ctx["wang"].post(f"/api/candidates/{agg_edge['id']}/decision", {"decision": "reject", "reason": "x"},
-                     expect=(403, 409))
 
 
 def test_04_shell_script_and_upload(stack):
