@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avelis.db import Base, IdType, JsonType, LongText, UTCDateTime, new_id, utcnow
@@ -40,6 +41,13 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 管理员创建或重置口令后，首次登录必须修改
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(),
+                                                       nullable=False)
+    password_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # 在此之前签发的访问令牌一律失效（改口令、重置口令、停用账号时更新）
+    sessions_valid_after: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = created()
 
 

@@ -1,8 +1,10 @@
 """采集：快照 → 身份判定 → 版本比较 → 解析血缘 → 外部表身份映射 → 粒度 → 字段推导指纹 → 变更集与影响分析。
 
 身份判定（不按名称相似自动认定）：
-- 内表：TABLE_ID 相同即同一张表（改名可确认）；同名但 TABLE_ID 不同 = 删除后重建，是新资产；
-- 视图、外部表、Catalog 表：没有物理 ID，按“Catalog + 库 + 名称 + 类型”匹配；名称变化只记为“改名候选”。
+- 物理 ID（StarRocks TABLE_ID、PostgreSQL oid 等，由连接器给出）相同即同一张表（改名可确认）；
+  同名但物理 ID 不同 = 删除后重建，是新资产；
+- 连接器没有给出物理 ID 的对象（StarRocks 视图、外部表、Catalog 表）：按“Catalog + 库 + 名称 + 类型”匹配；
+  名称变化只记为“改名候选”。
 重复采集幂等：内容哈希不变只更新 last_seen，不产生新版本、不产生变更。
 """
 
@@ -21,7 +23,7 @@ from sqlalchemy.orm import Session
 from avelis import audit
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
-from avelis.engines import collect_connector, engine_of
+from avelis.engines import collect_connector, dialect_of, engine_of
 from avelis.engines.base import VIEW_LINEAGE
 from avelis.lineage.fingerprint import GraphState, compute_fingerprints
 from avelis.lineage.sql import PARSER_VERSION, SqlDialect, canonical_hash_of, parse_query
@@ -86,7 +88,7 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             actor = session.get(User, actor_id) if actor_id else None
             connector = collect_connector(session, ds)
             snapshot = connector.snapshot()
-            ctx = RunContext(run, engine_of(ds).sql)
+            ctx = RunContext(run, dialect_of(ds))
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
@@ -143,7 +145,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
             if (asset.catalog_name, asset.db_name, asset.name) != (obs.catalog, obs.db, obs.name):
                 ctx.event("renamed", asset.id,
                           before={"name": f"{asset.catalog_name}.{asset.db_name}.{asset.name}"},
-                          after={"name": obs.qualified, "basis": f"TABLE_ID {obs.physical_id} 未变"})
+                          after={"name": obs.qualified, "basis": f"物理 ID {obs.physical_id} 未变"})
                 asset.catalog_name, asset.db_name, asset.name = obs.catalog, obs.db, obs.name
             asset.last_seen_at = now
         matched.add(asset.id)
@@ -367,7 +369,7 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
         select(Asset).where(Asset.datasource_id == ds.id, Asset.status == "active"))}
     now = utcnow()
     for asset, definition in pending:
-        parsed = parse_query(definition.raw_sql, dialect=engine.sql, schema=schema, default_db=asset.db_name)
+        parsed = parse_query(definition.raw_sql, dialect=dialect_of(ds), schema=schema, default_db=asset.db_name)
         result = ParseResult(definition_id=definition.id, parser_version=PARSER_VERSION, status=parsed.status,
                              reason=parsed.reason, details=parsed.details())
         session.add(result)

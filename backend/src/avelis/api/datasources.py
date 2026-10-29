@@ -103,6 +103,9 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     engine = get_engine(body.kind)
     if body.query is not None and not engine.supports(QUERY):
         raise HTTPException(422, f"{engine.label} 适配器不支持问数执行，不需要只读查询账号")
+    missing = [o.label for o in engine.options if o.required and not (body.options or {}).get(o.key)]
+    if missing:
+        raise HTTPException(422, f"{engine.label} 数据源缺少配置：{'、'.join(missing)}")
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,
                     is_test_adapter=engine.is_test_adapter, collect_interval_minutes=body.collect_interval_minutes,
                     created_by=user.id)

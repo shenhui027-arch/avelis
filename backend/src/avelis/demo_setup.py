@@ -77,7 +77,8 @@ def setup(reset: bool, metrics: bool = False) -> None:
     for username, (name, roles) in USERS.items():
         if username not in existing:
             existing[username] = admin("POST", "/api/users", json={
-                "username": username, "display_name": name, "password": password, "roles": roles})["id"]
+                "username": username, "display_name": name, "password": password, "roles": roles,
+                "must_change_password": False})["id"]  # 演示账号共用 .env 中的口令
     domains = {d["code"]: d for d in admin("GET", "/api/domains")}
     if "trade" not in domains:
         domains["trade"] = admin("POST", "/api/domains", json={"code": "trade", "name": "交易域",

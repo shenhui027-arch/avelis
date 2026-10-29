@@ -13,7 +13,7 @@ from avelis.models import Datasource
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "fake"}
+    assert kinds == {"starrocks", "mysql", "postgres", "fake"}
     with pytest.raises(UnsupportedEngine, match="oracle"):
         get_engine("oracle")
     with pytest.raises(ValueError, match="已登记"):
@@ -24,6 +24,11 @@ def test_capabilities_are_declared_not_guessed():
     sr, my = get_engine("starrocks"), get_engine("mysql")
     assert sr.supports(QUERY) and sr.supports(VIEW_LINEAGE)
     assert not my.supports(QUERY) and not my.supports(VIEW_LINEAGE)
+    pg = get_engine("postgres")
+    assert pg.supports(QUERY) and pg.supports(VIEW_LINEAGE) and pg.supports(LIVE_CHECK)
+    # catalog 段因数据源而异：PostgreSQL 用配置的库名
+    assert pg.dialect_for({"database": "storedb"}).default_catalog == "storedb"
+    assert get_engine("starrocks").dialect_for({"database": "x"}).default_catalog == "default_catalog"
     # 执行前核对需要只读执行账号：只有能执行问数的引擎才声明
     assert sr.supports(LIVE_CHECK) and not my.supports(LIVE_CHECK) and not get_engine("fake").supports(LIVE_CHECK)
     ds = Datasource(name="维表库", kind="mysql", host="127.0.0.1", port=3306, options={})
