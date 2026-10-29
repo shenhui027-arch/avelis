@@ -58,9 +58,22 @@ def _jwt_key(secret: str) -> bytes:
 
 
 def session_cutoff_now() -> datetime:
-    """“此刻之前签发的令牌全部失效”的截止时间。令牌的 iat 精确到秒，所以取整到秒，
-    保证随后（同一秒内）签发的新令牌仍然有效。"""
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    """“此刻之前签发的令牌全部失效”的截止时间（保留微秒，与令牌的 iat_us 比较）。"""
+    return datetime.now(timezone.utc)
+
+
+def epoch_us(moment: datetime) -> int:
+    """UTC 微秒时间戳（整数运算，避免浮点误差）。"""
+    return int(moment.replace(microsecond=0).timestamp()) * 1_000_000 + moment.microsecond
+
+
+def issued_before(claims: dict, cutoff: datetime) -> bool:
+    """令牌是否签发于截止时间之前。新令牌带微秒精度的 iat_us，能准确区分同一秒内改密前后的令牌；
+    没有 iat_us 的旧令牌只有整秒的 iat，同一秒内签发的一律按“之前”处理（宁可要求重新登录，不放过旧会话）。"""
+    cutoff_us = epoch_us(cutoff)
+    if "iat_us" in claims:
+        return int(claims["iat_us"]) < cutoff_us
+    return int(claims.get("iat", 0)) * 1_000_000 < cutoff_us - cutoff_us % 1_000_000 + 1_000_000
 
 
 def create_access_token(user_id: str, username: str) -> tuple[str, datetime, str]:
@@ -69,7 +82,8 @@ def create_access_token(user_id: str, username: str) -> tuple[str, datetime, str
     expires = now + timedelta(minutes=settings.access_token_minutes)
     jti = uuid.uuid4().hex
     token = jwt.encode(
-        {"sub": user_id, "name": username, "iat": now, "exp": expires, "jti": jti, "aud": JWT_AUDIENCE},
+        {"sub": user_id, "name": username, "iat": now, "iat_us": epoch_us(now),
+         "exp": expires, "jti": jti, "aud": JWT_AUDIENCE},
         _jwt_key(settings.secret),
         algorithm=JWT_ALGORITHM,
     )
