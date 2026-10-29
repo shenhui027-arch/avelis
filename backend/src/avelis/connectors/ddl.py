@@ -2,11 +2,16 @@
 
 连接器只读审计来源，不开启、不修改它。读不到时抛 AuditUnavailable，并按数据库原生错误给出原因（cause）：
 no_permission 采集账号无权读取、not_enabled 未开启（审计来源不存在或已停用）、
-incompatible 审计来源结构与连接器要求不符、
-error 其他。不返回空列表冒充“没人改”。是否开启、是否授权由数据源方负责，这里只如实说明。
+incompatible 审计来源结构与连接器要求不符、error 其他。不返回空列表冒充“没人改”。
+是否开启、是否授权由数据源方负责，这里只如实说明。
 
 落库只保存脱敏后的单条语句摘要：一条审计记录里有多条语句（如 PostgreSQL 的 current_query() 是整个请求），
-或语句里可能有口令等敏感值时，摘要为空，只保存命令类型和对象。原文只在内存里用于匹配列名。
+语句里可能有口令等敏感值，或词法上无法确定（未闭合的注释、字符串、引用）时，摘要为空，只保存命令类型和对象。
+原文只在内存里用于匹配列名。
+
+列级证据只来自能识别语法位置的写法（ALTER TABLE … ADD / DROP / ALTER / MODIFY / CHANGE / RENAME COLUMN、
+COMMENT ON COLUMN、ClickHouse 的 COMMENT / CLEAR / MATERIALIZE COLUMN）；约束名、索引名不算，
+识别不了的语句只作为对象级候选，不提供列级证据。
 """
 
 from __future__ import annotations
@@ -16,11 +21,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 SUMMARY_LIMIT = 300
-CAUSES = ("no_permission", "not_enabled", "incompatible", "error")
-# 可能带敏感值的写法：口令、密钥、凭据，以及无法可靠识别边界的引用（美元引用、E'' 转义串）
-_SENSITIVE = re.compile(r"\b(PASSWORD|IDENTIFIED|SECRET|CREDENTIALS?|TOKEN|ACCESS_KEY|SECRET_KEY)\b|\$[A-Za-z_]*\$|"
-                        r"(?<![\w'])[Ee]'", re.IGNORECASE)
+CAUSES = ("no_permission", "not_enabled", "incompatible", "instance_changed", "error")
+# 可能带敏感值的写法：口令、密钥、凭据，以及无法可靠识别边界的引用（任何美元引用 $…$、E'' 转义串）
+_SENSITIVE = re.compile(r"\b(PASSWORD|IDENTIFIED|SECRET|CREDENTIALS?|TOKEN|ACCESS_KEY|SECRET_KEY)\b|"
+                        r"\$(?:[^\W\d]\w*)?\$|(?<![\w'])[Ee]'", re.IGNORECASE)
 _SPACE = re.compile(r"\s+")
+_WORD = re.compile(r"[^\W\d][\w$]*")  # 标识符：Unicode 字母或下划线开头（含中文）
+_DOLLAR = re.compile(r"\$(?:[^\W\d]\w*)?\$")
 
 
 @dataclass
@@ -52,15 +59,21 @@ class AuditUnavailable(Exception):
 
 @dataclass(frozen=True)
 class Token:
-    kind: str  # ident | dot | semi | other
+    kind: str  # ident | dot | semi | comma | lparen | rparen | other
     text: str = ""
     quoted: bool = False
 
 
-def tokens(statement: str) -> list[Token]:
-    """SQL 词法（够用即可）：跳过注释与字符串字面量（含 '' 转义、E'' 反斜杠转义、美元引用），
-    识别带引号的标识符（"" ` [] ）与点号。"""
-    s, i, n, out = statement or "", 0, len(statement or ""), []
+@dataclass
+class Lexed:
+    tokens: list[Token]
+    certain: bool  # False：有未闭合的注释、字符串或引用，词法结果不可靠
+
+
+def lex(statement: str) -> Lexed:
+    """SQL 词法（够用即可）：跳过注释（含 PostgreSQL 的嵌套块注释）与字符串字面量（'' 转义、E'' 反斜杠转义、
+    $tag$ 美元引用），识别带引号的标识符（"" ` [] ）、Unicode 标识符与标点。遇到未闭合的结构时标记为不确定。"""
+    s, i, n, out, certain = statement or "", 0, len(statement or ""), [], True
     while i < n:
         c = s[i]
         if c.isspace():
@@ -69,12 +82,20 @@ def tokens(statement: str) -> list[Token]:
             j = s.find("\n", i)
             i = n if j < 0 else j + 1
         elif s.startswith("/*", i):
-            j = s.find("*/", i + 2)
-            i = n if j < 0 else j + 2
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if s.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif s.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            certain = certain and depth == 0
         elif c == "'" or (c in "Ee" and i + 1 < n and s[i + 1] == "'" and (i == 0 or not (s[i - 1].isalnum()
-                                                                                         or s[i - 1] == "_"))):
+                                                                                         or s[i - 1] in "_$"))):
             backslash = c in "Ee"
             i += 2 if backslash else 1
+            closed = False
             while i < n:
                 if backslash and s[i] == "\\":
                     i += 2
@@ -83,74 +104,78 @@ def tokens(statement: str) -> list[Token]:
                     if i + 1 < n and s[i + 1] == "'":
                         i += 2
                         continue
-                    i += 1
+                    i, closed = i + 1, True
                     break
                 i += 1
+            certain = certain and closed
             out.append(Token("other"))
-        elif c == "$" and (m := re.match(r"\$([A-Za-z_]\w*)?\$", s[i:])):
+        elif c == "$" and (m := _DOLLAR.match(s, i)):
             tag = m.group(0)
-            j = s.find(tag, i + len(tag))
+            j = s.find(tag, m.end())
+            certain = certain and j >= 0
             i = n if j < 0 else j + len(tag)
             out.append(Token("other"))
         elif c in "\"`[":
             close = {"\"": "\"", "`": "`", "[": "]"}[c]
-            j, buf = i + 1, []
+            j, buf, closed = i + 1, [], False
             while j < n:
                 if s[j] == close:
                     if j + 1 < n and s[j + 1] == close and close != "]":
                         buf.append(close)
                         j += 2
                         continue
+                    closed = True
                     break
                 buf.append(s[j])
                 j += 1
+            certain = certain and closed
             out.append(Token("ident", "".join(buf), quoted=True))
             i = j + 1
-        elif c.isalpha() or c == "_":
-            m = re.match(r"[A-Za-z_][\w$]*", s[i:])
+        elif m := _WORD.match(s, i):
             out.append(Token("ident", m.group(0)))
-            i += len(m.group(0))
-        elif c == ".":
-            out.append(Token("dot"))
-            i += 1
-        elif c == ";":
-            out.append(Token("semi"))
-            i += 1
+            i = m.end()
         else:
-            out.append(Token("other"))
+            out.append(Token({".": "dot", ";": "semi", ",": "comma", "(": "lparen", ")": "rparen"}.get(c, "other")))
             i += 1
+    return Lexed(out, certain)
+
+
+def tokens(statement: str) -> list[Token]:
+    return lex(statement).tokens
+
+
+def _statements(toks: list[Token]) -> list[list[Token]]:
+    out, cur = [], []
+    for t in toks:
+        if t.kind == "semi":
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(cur)
     return out
 
 
-def _chains(toks: list[Token]) -> list[list[Token]]:
-    """把 a.b.c 这样的限定名合成一串。"""
-    chains, cur, expect_ident = [], [], True
-    for t in toks:
-        if t.kind == "ident" and expect_ident:
-            cur.append(t)
-            expect_ident = False
-        elif t.kind == "dot" and cur and not expect_ident:
-            expect_ident = True
-        else:
-            if cur:
-                chains.append(cur)
-            cur, expect_ident = ([t], False) if t.kind == "ident" else ([], True)
-    if cur:
-        chains.append(cur)
-    return chains
+def is_batch(statement: str) -> bool:
+    """一条审计记录里是否有多条语句（字符串、注释里的分号不算）。词法上无法确定时按多语句处理。"""
+    lexed = lex(statement)
+    return not lexed.certain or len(_statements(lexed.tokens)) > 1
 
 
-# DDL 里常见的关键字：不带引号出现时不当作列名
-_KEYWORDS = {
-    "add", "alter", "column", "table", "view", "drop", "create", "replace", "or", "if", "exists", "not", "null",
-    "type", "set", "default", "comment", "on", "is", "rename", "to", "modify", "change", "using", "as", "select",
-    "from", "where", "group", "by", "order", "join", "inner", "left", "right", "outer", "and", "constraint",
-    "primary", "key", "unique", "index", "materialized", "external", "temporary", "after", "first", "cascade",
-    "restrict", "data", "collate", "with", "without", "time", "zone", "varchar", "text", "int", "integer",
-    "bigint", "numeric", "decimal", "string", "nullable", "engine", "settings", "properties", "distributed",
-    "buckets", "hash", "partition", "values", "in", "distinct", "case", "when", "then", "else", "end", "sum",
-    "count", "max", "min", "avg", "schema", "database", "owner", "grant", "revoke", "force", "sync",
-}
+def summarize(statement: str) -> str | None:
+    """可落库的摘要：单条语句、词法确定、看不出敏感值时压缩空白并截断；否则返回 None（只保存命令类型和对象）。"""
+    if not statement or is_batch(statement) or _SENSITIVE.search(statement):
+        return None
+    s = _SPACE.sub(" ", statement).strip()
+    return s if len(s) <= SUMMARY_LIMIT else s[:SUMMARY_LIMIT - 1] + "…"
+
+
+# --- 列的语法位置 ------------------------------------------------------------------
+
+def _kw(t: Token | None, *words: str) -> bool:
+    return t is not None and t.kind == "ident" and not t.quoted and t.text.upper() in words
 
 
 def _same(token: Token, name: str, fold: str) -> bool:
@@ -161,38 +186,133 @@ def _same(token: Token, name: str, fold: str) -> bool:
     return token.text.lower() == name.lower()  # 不区分大小写的引擎
 
 
-def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive") -> bool:
-    """语句是否点名了某列：只看标识符，排除字符串、注释；限定名 <表>.<列> 取最后一段，对象自身的限定名不算。
-    无法确定时返回 False（由调用方记为未知）。"""
-    for chain in _chains(tokens(statement)):
-        last = chain[-1]
-        if len(chain) >= 2:
-            if object_name is not None and _same(chain[-2], object_name, fold) and _same(last, column, fold):
-                return True
-            continue  # 其他限定名（库.表、模式.表）不是列
-        if object_name is not None and _same(last, object_name, fold):
-            continue  # 对象自身
-        if not last.quoted and last.text.lower() in _KEYWORDS:
-            continue
-        if _same(last, column, fold):
-            return True
-    return False
+def _name(toks: list[Token], i: int) -> tuple[list[Token], int]:
+    """从 i 读一个限定名 a.b.c，返回 (各段, 下一个位置)。"""
+    parts: list[Token] = []
+    while i < len(toks) and toks[i].kind == "ident":
+        parts.append(toks[i])
+        i += 1
+        if i < len(toks) and toks[i].kind == "dot":
+            i += 1
+        else:
+            break
+    return parts, i
 
 
-def is_batch(statement: str) -> bool:
-    """一条审计记录里是否有多条语句（分号后还有内容）。字符串、注释里的分号不算。"""
-    toks = tokens(statement)
-    while toks and toks[-1].kind == "semi":
-        toks.pop()
-    return any(t.kind == "semi" for t in toks)
+def _skip(toks: list[Token], i: int, *seq: str) -> int:
+    """跳过可选的关键字序列（如 IF NOT EXISTS）。"""
+    j = i
+    for w in seq:
+        if not _kw(toks[j] if j < len(toks) else None, w):
+            return i
+        j += 1
+    return j
 
 
-def summarize(statement: str) -> str | None:
-    """可落库的摘要：单条语句、看不出敏感值时压缩空白并截断；否则返回 None（只保存命令类型和对象）。"""
-    if not statement or is_batch(statement) or _SENSITIVE.search(statement):
+def _actions(toks: list[Token]) -> list[list[Token]]:
+    """ALTER TABLE 后的各个动作（括号外的逗号分隔）。"""
+    out, cur, depth = [], [], 0
+    for t in toks:
+        if t.kind == "lparen":
+            depth += 1
+        elif t.kind == "rparen":
+            depth -= 1
+        if t.kind == "comma" and depth == 0:
+            out.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(cur)
+    return out
+
+
+_NOT_COLUMN = {"CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "INDEX", "KEY", "PARTITION", "PARTITIONS",
+               "ROLLUP", "PROJECTION", "STATISTICS", "TEMPORARY", "EXCLUDE", "OWNER", "DEFAULT", "COMMENT", "ORDER",
+               "TTL", "SETTING", "SETTINGS", "QUERY", "ENGINE", "PROPERTIES", "DISTRIBUTION", "SAMPLE"}
+
+
+def _action_columns(a: list[Token]) -> list[Token] | None:
+    """一个 ALTER TABLE 动作点名的列；None 表示这个动作不涉及列（或识别不了）。"""
+    if not a:
         return None
-    s = _SPACE.sub(" ", statement).strip()
-    return s if len(s) <= SUMMARY_LIMIT else s[:SUMMARY_LIMIT - 1] + "…"
+    verb = a[0].text.upper() if a[0].kind == "ident" and not a[0].quoted else ""
+    i = 1
+    if verb in ("ADD", "DROP", "ALTER", "MODIFY", "CLEAR", "MATERIALIZE"):
+        if i < len(a) and _kw(a[i], *_NOT_COLUMN):
+            return None
+        i = _skip(a, i, "COLUMN")
+        if verb in ("CLEAR", "MATERIALIZE") and i == 1:
+            return None  # ClickHouse：CLEAR / MATERIALIZE 只认 … COLUMN 写法（另有 INDEX、PROJECTION）
+        i = _skip(a, i, "IF", "NOT", "EXISTS")
+        i = _skip(a, i, "IF", "EXISTS")
+        if i < len(a) and a[i].kind == "lparen" and verb == "ADD":  # Doris：ADD COLUMN (a INT, b INT)
+            cols, depth, expect = [], 0, True
+            for t in a[i:]:
+                if t.kind == "lparen":
+                    depth += 1
+                    continue
+                if t.kind == "rparen":
+                    depth -= 1
+                    continue
+                if depth == 1 and t.kind == "comma":
+                    expect = True
+                    continue
+                if depth == 1 and expect and t.kind == "ident":
+                    cols.append(t)
+                    expect = False
+                elif depth == 1:
+                    expect = False
+            return cols or None
+        return [a[i]] if i < len(a) and a[i].kind == "ident" else None
+    if verb == "CHANGE":  # MySQL：CHANGE [COLUMN] old new type
+        i = _skip(a, i, "COLUMN")
+        return [t for t in a[i:i + 2] if t.kind == "ident"] or None
+    if verb == "RENAME":
+        if not _kw(a[i] if i < len(a) else None, "COLUMN"):
+            return None  # RENAME TO（改表名）、RENAME CONSTRAINT 等
+        i += 1
+        old = a[i] if i < len(a) and a[i].kind == "ident" else None
+        j = _skip(a, i + 1, "TO")
+        new = a[j] if j < len(a) and a[j].kind == "ident" else None
+        return [t for t in (old, new) if t is not None] or None
+    if verb == "COMMENT" and _kw(a[i] if i < len(a) else None, "COLUMN"):  # ClickHouse：COMMENT COLUMN c '…'
+        i = _skip(a, i + 1, "IF", "EXISTS")
+        return [a[i]] if i < len(a) and a[i].kind == "ident" else None
+    return None
+
+
+def column_refs(statement: str, object_name: str, fold: str = "insensitive") -> list[Token] | None:
+    """语句中对 object_name 点名的列（按语法位置）。只认 ALTER TABLE 的列动作与 COMMENT ON COLUMN；
+    其他写法返回 None（不提供列级证据）。多语句时只看目标是该对象的那几条。"""
+    lexed = lex(statement)
+    found: list[Token] = []
+    recognized = False
+    for st in _statements(lexed.tokens):
+        if _kw(st[0] if st else None, "ALTER") and _kw(st[1] if len(st) > 1 else None, "TABLE"):
+            i = _skip(st, 2, "IF", "EXISTS")
+            i = _skip(st, i, "ONLY")
+            parts, i = _name(st, i)
+            if not parts or not _same(parts[-1], object_name, fold):
+                continue
+            recognized = True
+            for action in _actions(st[i:]):
+                found += _action_columns(action) or []
+        elif (_kw(st[0] if st else None, "COMMENT") and _kw(st[1] if len(st) > 1 else None, "ON")
+              and _kw(st[2] if len(st) > 2 else None, "COLUMN")):
+            parts, _ = _name(st, 3)
+            if len(parts) >= 2 and _same(parts[-2], object_name, fold):
+                recognized = True
+                found.append(parts[-1])
+    return found if recognized else None
+
+
+def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive") -> bool:
+    """语句是否在列的语法位置上点名了该列。识别不了的写法返回 False（由调用方按整体候选或未知处理）。"""
+    if object_name is None:
+        return False
+    refs = column_refs(statement, object_name, fold)
+    return bool(refs) and any(_same(t, column, fold) for t in refs)
 
 
 # --- 对象 -------------------------------------------------------------------------

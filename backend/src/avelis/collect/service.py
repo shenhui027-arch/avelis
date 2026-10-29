@@ -62,6 +62,7 @@ class RunContext:
     connector: Any = None  # 采集连接器：归因时读 DDL 审计来源
     snapshot_window: tuple[datetime, datetime] | None = None  # 本次读快照的开始、结束（归因窗口的边界）
     audit_cursor: dict[str, Any] | None = None  # 连接器在快照里记下的审计游标（如 PostgreSQL 事务快照）
+    identity_changed: bool = False  # 本次与上次不是同一个实例：游标不可比，本轮不归因
 
     def event(self, kind: str, asset_id: str | None, column: str | None = None, before=None, after=None) -> None:
         self.events.append({"kind": kind, "asset_id": asset_id, "column_name": column,
@@ -95,8 +96,11 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             connector = collect_connector(session, ds)
             snapshot_started = utcnow()
             snapshot = connector.snapshot()
+            # 游标与实例身份绑定：切换实例后旧游标不能用来解释新实例的事务号
+            cursor = ({**snapshot.audit_cursor, "instance": _identity_key(snapshot.server_identity or {})}
+                      if snapshot.audit_cursor else None)
             ctx = RunContext(run, dialect_of(ds), connector=connector, snapshot_window=(snapshot_started, utcnow()),
-                             audit_cursor=snapshot.audit_cursor)
+                             audit_cursor=cursor)
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
@@ -126,6 +130,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
     new_generation = bool(old_identity.get("instance_id") and new_identity.get("instance_id")
                           and old_identity["instance_id"] != new_identity["instance_id"])
     if old_identity and _identity_key(old_identity) != _identity_key(new_identity):
+        ctx.identity_changed = True
         ctx.event("server_identity_changed", None, before=old_identity,
                   after={**new_identity, "new_generation": new_generation})
     ds.server_identity = new_identity
@@ -224,8 +229,11 @@ def _audit_window(previous: CollectionRun | None, ctx: RunContext) -> Window | N
         p_start = previous.started_at.replace(tzinfo=None)
         p_done = (previous.finished_at or previous.started_at).replace(tzinfo=None)
     c_start, c_done = ctx.snapshot_window or (utcnow(), utcnow())
-    return Window(p_start, p_done, c_start, c_done, previous_cursor=stats.get("audit_cursor"),
-                  current_cursor=ctx.audit_cursor)
+    p_cursor, c_cursor = stats.get("audit_cursor"), ctx.audit_cursor
+    changed = ctx.identity_changed or bool(p_cursor and c_cursor
+                                           and p_cursor.get("instance") != c_cursor.get("instance"))
+    return Window(p_start, p_done, c_start, c_done, previous_cursor=p_cursor, current_cursor=c_cursor,
+                  instance_changed=changed)
 
 
 def _identity_key(identity: dict[str, Any]) -> Any:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import bisect
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -142,16 +143,23 @@ def _new_gaps(chain: integrity.Chain, deleted: set[int],
     return gaps
 
 
-RETRIES = 3
+RETRIES = 5
+# 写入会让“已计划删除的行”重新获得保留资格的表：删除事务对它们加 SHARE 锁（挡住并发写入），再按同样的规则重新判定
+ELIGIBILITY_TABLES = ("asset", "metric_version", "lineage_edge", "grain", "review_task")
+
+
+class _PlanChanged(Exception):
+    """计划之后有行重新获得了保留资格：整轮重跑。"""
 
 
 def purge(*, retention_days: int | None = None, now: datetime | None = None, actor: User | None = None,
           dry_run: bool = False) -> dict[str, Any]:
     """执行一次保留期清理并返回结果。retention_days 缺省取配置；now 只用于验收模拟时间推移。
 
-    两段：① REPEATABLE READ 只读快照里核验全链、挑出超期的行、算好空洞；② 普通事务里按 ID 删除并写锚点。
-    超期的行早已冻结，两段之间只可能有新行追加在链尾，不影响①的结论；删除数与计划不符（有人绕过触发器动过）时整个回滚。
-    遇到序列化失败或死锁时整个重跑（含重新核验）。同一时刻只允许一个清理（会话级咨询锁）。"""
+    两段：① REPEATABLE READ 只读快照里核验全链、挑出超期的行、算好空洞；② 删除事务先对决定保留资格的表
+    （ELIGIBILITY_TABLES）加 SHARE 锁（NOWAIT，拿不到就稍后整轮重跑，不与其他事务互等），在锁下按同样的规则重新挑一遍：
+    计划里有行重新获得保留资格（如被驳回的口径改回草稿、仍引用旧版本）时整轮重跑；否则按 ID 删除并写锚点。
+    删除数与计划不符（有人绕过触发器动过）时整个回滚。同一时刻只允许一个清理（会话级咨询锁）。"""
     days = get_settings().history_retention_days if retention_days is None else retention_days
     if days <= 0:
         return {"status": "disabled", "retention_days": days}
@@ -161,11 +169,16 @@ def purge(*, retention_days: int | None = None, now: datetime | None = None, act
         for attempt in range(1, RETRIES + 1):
             try:
                 return _purge_once(cutoff, days, actor, dry_run)
+            except _PlanChanged as exc:
+                if attempt == RETRIES:
+                    raise RuntimeError(f"保留期清理连续 {RETRIES} 次遇到保留资格变化，本次放弃：{exc}") from exc
+                log.warning("保留期清理第 %s 次：计划之后有行重新获得保留资格（%s），整轮重跑", attempt, exc)
             except OperationalError as exc:
                 state = getattr(exc.orig, "sqlstate", None)
-                if state not in ("40001", "40P01") or attempt == RETRIES:
+                if state not in ("40001", "40P01", "55P03") or attempt == RETRIES:
                     raise
-                log.warning("保留期清理第 %s 次遇到并发冲突（%s），整体重跑", attempt, state)
+                log.warning("保留期清理第 %s 次遇到并发冲突（%s），稍后整轮重跑", attempt, state)
+                time.sleep(min(2 * attempt, 10))
     raise AssertionError("unreachable")
 
 
@@ -207,6 +220,17 @@ def _purge_once(cutoff: datetime, days: int, actor: User | None, dry_run: bool) 
                          retention_days=days, counts={}, gaps=0)
             session.commit()
             return {"status": "nothing", "cutoff": cutoff.isoformat(), "retention_days": days, "counts": {}}
+        session.execute(text(f"LOCK TABLE {', '.join(ELIGIBILITY_TABLES)} IN SHARE MODE NOWAIT"))
+        current = _plan(session, cutoff)
+        lost = {t: len(set(ids) - set(current.get(t, []))) for t, ids in plan.items() if t != "history_mark"}
+        lost = {t: n for t, n in lost.items() if n}
+        if lost:
+            raise _PlanChanged("、".join(f"{t} {n} 行" for t, n in lost.items()))
+        marks_now = set(_ids(session, "SELECT m.id FROM history_mark m WHERE " + " OR ".join(
+            f"(m.table_name = '{t}' AND m.row_id = ANY(:{t}))" for t in plan if t in integrity.BY_NAME and plan[t])
+            or "false", **{t: ids for t, ids in plan.items() if t in integrity.BY_NAME and ids}))
+        if marks_now != set(plan.get("history_mark", [])):
+            raise _PlanChanged("待删除行的状态标记有变化")
         session.execute(text("SET LOCAL avelis.history_purge = 'on'"))
         deleted_seq: set[int] = set()
         for table in (*ORDER, "history_mark"):

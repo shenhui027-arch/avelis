@@ -4,7 +4,8 @@
 - 只追加：BEFORE UPDATE / DELETE / TRUNCATE 触发器。已封链的行只允许表配置里的“存活标记”前移、“状态列”作为一组
   按规则同时改一次；状态列的每次合法变化追加一条 history_mark（也在链上）。DELETE 只在清理专用路径
   （事务内 avelis.history_purge = on）放行；TRUNCATE 一律拒绝。未封链（本事务刚插入）的行可补全业务字段，但主键冻结，
-  已提交却未封链的行不能改。封链找不到行或链头时拒绝提交。
+  本事务插入的行由插入触发器登记在会话临时表里（保存点回滚随之撤销），已提交却未封链的行不能改。
+  封链找不到行或链头时拒绝提交。
 - 封链：提交时的约束触发器（DEFERRABLE INITIALLY DEFERRED）为本事务插入的每一行锁住链头、取下一个序号，
   row_hash = sha256(prev_hash | chain_seq | 表名 | content_digest)，
   content_digest = sha256((to_jsonb(行) − 链列 − 存活标记)::text)。只有一把链锁，只在提交阶段持有。
@@ -86,6 +87,13 @@ CREATE OR REPLACE FUNCTION avelis_history_insert() RETURNS trigger LANGUAGE plpg
 BEGIN
   -- 链列只由提交时的封链触发器写入
   NEW.chain_seq := NULL; NEW.prev_hash := NULL; NEW.row_hash := NULL;
+  -- 记下本事务插入的行：会话临时表，提交时清空；保存点回滚时随之撤销，释放时保留
+  IF to_regclass('pg_temp.avelis_history_pending') IS NULL THEN
+    CREATE TEMP TABLE avelis_history_pending (tbl text NOT NULL, id text NOT NULL, PRIMARY KEY (tbl, id))
+      ON COMMIT DELETE ROWS;
+  END IF;
+  EXECUTE 'INSERT INTO pg_temp.avelis_history_pending (tbl, id) VALUES ($1, $2) ON CONFLICT DO NOTHING'
+    USING TG_TABLE_NAME, NEW.id;
   RETURN NEW;
 END $$;
 
@@ -96,7 +104,7 @@ DECLARE
   n jsonb;
   k text;
   rule jsonb;
-  v_xmin text;
+  v_pending boolean := false;
   group_changed int := 0;
   group_size int := 0;
 BEGIN
@@ -114,10 +122,15 @@ BEGIN
   o := to_jsonb(OLD);
   n := to_jsonb(NEW);
   IF OLD.chain_seq IS NULL THEN
-    -- 尚未封链：只允许本事务刚插入的行补全业务字段。已提交却未封链的行（绕过触发器写入的）不能借此改写
-    EXECUTE format('SELECT xmin::text FROM %I WHERE id = $1', TG_TABLE_NAME) INTO v_xmin USING OLD.id;
-    IF v_xmin IS DISTINCT FROM (pg_current_xact_id()::text::numeric % 4294967296)::bigint::text THEN
-      RAISE EXCEPTION 'avelis_history_append_only: %（行 %）已提交但未封链，不能修改', TG_TABLE_NAME, OLD.id;
+    -- 尚未封链：只允许本事务（含已释放的保存点）插入的行补全业务字段，以插入触发器登记的记录为准。
+    -- 已提交却未封链的行（绕过触发器写入的）不在登记里，不能借此改写
+    IF to_regclass('pg_temp.avelis_history_pending') IS NOT NULL THEN
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM pg_temp.avelis_history_pending WHERE tbl = $1 AND id = $2)'
+        INTO v_pending USING TG_TABLE_NAME, OLD.id;
+    END IF;
+    IF NOT v_pending THEN
+      RAISE EXCEPTION 'avelis_history_append_only: %（行 %）不是本事务插入的未封链行（已提交但未封链），不能修改',
+        TG_TABLE_NAME, OLD.id;
     END IF;
     IF NEW.id IS DISTINCT FROM OLD.id THEN
       RAISE EXCEPTION 'avelis_history_append_only: %.id 不能修改', TG_TABLE_NAME;
