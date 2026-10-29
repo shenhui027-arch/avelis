@@ -49,55 +49,45 @@ def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动�
     return user_id
 
 
-def _local_metadata_db() -> bool:
-    """元数据库是否确定在本机：实际生效的全部连接目标都是回环地址或本机 socket 路径。
+LOCAL_ONLY = "本地超级管理员只用于本机元数据库（回环地址或本机 socket）；当前连接的元数据库不在本机，已拒绝"
 
-    psycopg 会用连接串查询参数中的 host / hostaddr 覆盖 URL 中的主机，所以一并检查；
-    URL 与查询参数都没有主机时，目标取决于 PGHOST 等外部配置，无法确定，按非本机处理。"""
+
+def is_local_target(host: str | None, hostaddr: str | None) -> bool:
+    """连接实际使用的目标是否在本机：TCP 连接看实际的 IP（hostaddr），Unix socket 连接的 host 是 socket 目录。"""
     import ipaddress
 
-    from sqlalchemy.engine import make_url
-
-    url = make_url(get_settings().database_url)
-    targets: list[str] = []
-    for key in ("host", "hostaddr"):
-        value = url.query.get(key)
-        for item in (value if isinstance(value, tuple) else (value,)):
-            if item:
-                targets += [t.strip() for t in str(item).split(",") if t.strip()]
-    if not targets and url.host:
-        targets = [url.host]
-    if not targets:
-        return False
-
-    def local(target: str) -> bool:
-        if target.startswith("/") or target.lower() == "localhost":
-            return True  # Unix socket 目录或本机名
+    if hostaddr:
         try:
-            return ipaddress.ip_address(target.strip("[]")).is_loopback
+            return ipaddress.ip_address(hostaddr.strip("[]")).is_loopback
         except ValueError:
             return False
+    return bool(host) and host.startswith("/")
 
-    return all(local(t) for t in targets)
+
+def _connection_is_local(session) -> bool:
+    """读这条连接实际连上的地址（libpq 解析完连接串、服务文件、环境变量与多主机之后的结果），
+    而不是解析连接串：连接串的写法太多，解析难免与驱动不一致。"""
+    info = session.connection().connection.driver_connection.info
+    return is_local_target(info.host, getattr(info, "hostaddr", None))
 
 
 def ensure_superadmin(reset_password: bool = False) -> str | None:
     """本地超级管理员 admin：拥有全部角色，密码取自 AVELIS_ADMIN_PASSWORD；未配置时不创建。
 
     只用于本地开发（用户决定，2026-10-29）：这里直接写入密码，不经过界面的密码策略校验，
-    所以允许 123456 这样的弱密码。只在元数据库位于本机时执行：非本机库时，补齐调用直接跳过，
-    显式重设（bootstrap admin）报错退出。
+    所以允许 123456 这样的弱密码。只在元数据库位于本机时执行：判断用的是执行写入的同一条连接的实际地址；
+    非本机时，补齐调用直接跳过，显式重设（bootstrap admin）报错退出，都不写入。
 
     已存在时只补齐角色，不改启用状态、首次改密标记与密码；reset_password=True 时恢复为可用状态，
     并把密码重设为配置值。"""
     password = get_settings().env.get("AVELIS_ADMIN_PASSWORD", "")
     if not password:
         return None
-    if not _local_metadata_db():
-        if reset_password:
-            raise SystemExit("本地超级管理员只用于本机元数据库（localhost / 127.0.0.1）；当前元数据库不在本机，已拒绝")
-        return None
     with session_scope() as session:
+        if not _connection_is_local(session):
+            if reset_password:
+                raise SystemExit(LOCAL_ONLY)
+            return None
         user = session.scalar(select(User).where(User.username == SUPERADMIN))
         if user is None:
             user = User(username=SUPERADMIN, display_name="超级管理员", password_hash=hash_password(password))
@@ -170,9 +160,10 @@ def main(argv: list[str]) -> None:
         model_from_env()
         print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
     elif cmd == "admin":
-        if get_settings().env.get("AVELIS_ADMIN_PASSWORD") and not _local_metadata_db():
-            # 先拒绝再写入：不在远端库留下任何账号
-            raise SystemExit("本地超级管理员只用于本机元数据库（localhost / 127.0.0.1）；当前元数据库不在本机，已拒绝")
+        if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
+            with session_scope() as session:  # 先拒绝再写入：不在远端库留下任何账号
+                if not _connection_is_local(session):
+                    raise SystemExit(LOCAL_ONLY)
         ensure_admin()
         ready = ensure_superadmin(reset_password=True)
         print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
