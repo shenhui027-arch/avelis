@@ -61,9 +61,10 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
     run = analysis.create_run(session, user, body.question, _window(body.window))
     if wait:
         analysis.execute(session, run)
-    else:
+    else:  # 运行与 Job 同一事务提交，提交后再唤醒 worker：不会留下没有 Job 的排队分析
+        job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
         session.commit()
-        jobs.enqueue("analysis_run", {"run_id": run.id}, user.id)
+        jobs._wake(job_id)
     return analysis.run_view(session, run)
 
 
@@ -155,11 +156,11 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
     session.commit()
-    run_id = analysis.run_task(task.id, trigger="manual")
+    out = analysis.run_task(task.id, trigger="manual")
     session.expire_all()
-    if run_id is None:
-        raise HTTPException(409, f"任务已暂停：{session.get(AnalysisTask, task.id).paused_reason}")
-    return analysis.run_view(session, session.get(AnalysisRun, run_id))
+    if out.get("analysis_run_id") is None:
+        raise HTTPException(409, f"任务已暂停：{session.get(AnalysisTask, task.id).paused_reason or out.get('reason')}")
+    return analysis.run_view(session, session.get(AnalysisRun, out["analysis_run_id"]))
 
 
 @router.get("/analysis/tasks/{task_id}/runs", response_model=list[S.AnalysisRunOut])

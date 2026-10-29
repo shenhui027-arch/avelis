@@ -21,7 +21,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from avelis import audit, cache
 from avelis.ask.compiler import ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
-from avelis.ask.intent import Intent, MetricCard
+from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
@@ -503,7 +503,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                                                  for c in version.components})
         return values[(code, label)].get(key)
 
-    columns = (["period"] if intent.time_grain else []) + list(intent.group_by)
+    columns = ([period_column(intent.group_by)] if intent.time_grain else []) + list(intent.group_by)
     for _, metric, _ in requested:
         columns.append(metric.name)
         if intent.compare:

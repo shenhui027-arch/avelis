@@ -150,6 +150,8 @@ function Composer({ onStarted }: { onStarted: (id: string) => void }) {
   );
 }
 
+const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释" };
+
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
@@ -157,7 +159,9 @@ function RunDetail({ id }: { id: string }) {
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; notes?: string[] };
-  const verification = (r.verification ?? {}) as { ok?: boolean; unverified?: number; claims?: Check[] };
+  const verification = (r.verification ?? {}) as { ok?: boolean; unverified?: number; claims?: Check[];
+    fields?: { field: string; status: string; numbers: { text: string; verified: boolean }[] }[] };
+  const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
   const checks = new Map((verification.claims ?? []).map((c) => [c.index, c]));
   const plan = (r.plan ?? {}) as { hypotheses?: string[]; steps?: string[] };
   const budget = (r.budget ?? {}) as { limits?: Record<string, number>; used?: Record<string, number> };
@@ -195,7 +199,9 @@ function RunDetail({ id }: { id: string }) {
       {r.status === "succeeded" ? (
         <section className="av-analysis__report" aria-label="报告">
           <p className="av-analysis__summary">{report.summary}</p>
-          {verification.ok === false ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论的数字没能在引用的数据集中找到，已标出</div> : null}
+          {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论的数字没能在引用的数据集中找到，已标出</div> : null}
+          {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
+            {FIELD_LABEL[f.field] ?? f.field}中的数字未核实：{f.numbers.filter((n) => !n.verified).map((n) => n.text).join("、")}</div>)}
           <ol className="av-claims">
             {(report.claims ?? []).map((c, i) => {
               const check = checks.get(i);

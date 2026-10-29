@@ -69,7 +69,8 @@ def _log_mean(a: float, b: float) -> float:
 
 def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]) -> dict[str, Any]:
     """总量 = 各因子之积（如 成交额 = 订单数 × 客单价）。用对数平均分解（LMDI-I），各因子贡献相加等于总差额。
-    total、factors 的值均为（上期, 本期）。要求全部为正数，且各因子之积与总量一致（误差 0.5% 以内）。"""
+    total、factors 的值均为（上期, 本期）。要求全部为正数，且各因子之积与总量一致（误差 0.5% 以内）。
+    各因子贡献相加等于因子之积的变化；总量与因子之积的差（输入不一致）单列为“未解释差额”，不归给任何因子。"""
     t0, t1 = (number(v) for v in total)
     if t0 is None or t1 is None or t0 <= 0 or t1 <= 0:
         raise CalcError("总量必须为正数")
@@ -84,18 +85,27 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         target = float((t0, t1)[i])
         if abs(product - target) > 0.005 * target:
             raise CalcError(f"{label}各因子之积 {product:.4f} 与总量 {target:.4f} 不一致")
-    weight = _log_mean(float(t1), float(t0))
     change = t1 - t0
+    # 按因子自身的乘积计算总量的对数平均，贡献才只反映因子的变化：输入与总量的不一致不会被摊到某个因子上
+    p0 = math.prod(float(v[0]) for v in vals.values())
+    p1 = math.prod(float(v[1]) for v in vals.values())
+    weight = _log_mean(p1, p0)
     contributions = {name: Decimal(str(weight * math.log(float(b) / float(a)))) for name, (a, b) in vals.items()}
-    # 浮点误差落到最后一个因子上，保证相加正好等于总差额
     names = list(contributions)
     rounded = {n: contributions[n].quantize(Decimal("0.01")) for n in names}
-    rounded[names[-1]] = change - sum((rounded[n] for n in names[:-1]), Decimal(0))
-    return {"total": {"previous": t0, "current": t1, "change": change},
-            "factors": [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
-                         "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]),
-                         "contribution": rounded[n], "share": _q(rounded[n] / change) if change else None}
-                        for n in names]}
+    residual = change - sum(rounded.values(), Decimal(0))
+    rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
+             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": rounded[n]} for n in names]
+    # 只有计算舍入的尾差（每个因子至多 0.01）并入最后一个因子；输入（口径、精度）不一致造成的残差单列，不归给任何因子
+    if abs(residual) <= Decimal("0.01") * len(names):
+        rows[-1]["contribution"] += residual
+    else:
+        rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,
+                     "contribution": residual})
+    for r in rows:
+        r["share"] = _q(r["contribution"] / change) if change else None
+    return {"total": {"previous": t0, "current": t1, "change": change}, "factors": rows,
+            "unexplained": residual if rows[-1]["factor"] == "未解释差额" else Decimal(0)}
 
 
 # --- 日历折算 -----------------------------------------------------------------------

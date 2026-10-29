@@ -1,16 +1,20 @@
 """分析运行、分析任务与定时（ADR 0007 第 2、7、11 点）。
 
 - 分析需要真实模型（支持工具调用）且允许向模型发送查询结果；两者缺一时如实拒绝，不退化为“看不到数的分析”。
-- 每次运行以发起人身份执行：口径可见范围、来源权限、执行前核对都按发起人当时的权限重新检查。
-- 定时任务按 cron（业务时区）由 worker 入队；发起人停用、失去查询角色或没有任何可见口径时，任务自动暂停并通知。
+- 每次运行以发起人身份执行：开始时核对账号与查询角色，之后每次工具调用都按发起人当前的权限重新核对。
+- 运行状态与每一步即时提交：worker 中途退出时运行停在 running，由 jobs.abandoned_jobs 与关联的 Job 一起终结；
+  结束时只有仍持有执行权（run.budget.executor）的执行者才写入结果，迟到的 worker 不覆盖已终结的运行。
+- 定时任务按 cron（业务时区）由 worker 入队；消费时在任务锁下重新检查任务状态，已暂停的任务跳过。
+  发起人停用、失去查询角色，或执行中被明确拒绝访问所需的口径或来源时，任务自动暂停并发站内通知。
 """
 
 from __future__ import annotations
 
 import calendar
 import logging
-
+import uuid
 from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -19,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from avelis import audit, modelcfg
 from avelis.analysis import agent as analysis_agent
-from avelis.analysis.tools import AnalysisToolbox, Budget
+from avelis.analysis.tools import AnalysisToolbox, Budget, PermissionLost
 from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
 from avelis.config import get_settings
@@ -117,20 +121,30 @@ def parse_cron(expr: str) -> tuple[set[int], ...]:
     return minute, hour, dom, month, dow
 
 
+CRON_SEARCH_DAYS = 366 * 8 + 2  # 覆盖完整的闰年周期（含 2100 年这类不闰的世纪年）：2 月 29 日的任务也能找到下一次
+
+
 def next_run(expr: str, after: datetime) -> datetime:
-    """after（UTC）之后的下一次触发时间（UTC）。日与周同时限定时按“任一满足”（与 cron 一致）。"""
+    """after（UTC）之后的下一次触发时间（UTC）。日与周同时限定时按“任一满足”（与 cron 一致）。
+    逐日查找；永远不会触发的表达式（如 2 月 30 日）判为无效。"""
     minute, hour, dom, month, dow = parse_cron(expr)
     tz = ZoneInfo(get_settings().business_timezone)
-    local = after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    start = (after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).replace(second=0, microsecond=0, tzinfo=None)
+             + timedelta(minutes=1))
+    times = sorted((h, m) for h in hour for m in minute)
     dom_any, dow_any = len(dom) == 31, len(dow) == 7
-    for _ in range(60 * 24 * 400):
-        cron_dow = (local.weekday() + 1) % 7
-        day_ok = (local.day in dom or cron_dow in dow) if not (dom_any or dow_any) else (
-            local.day in dom and cron_dow in dow)
-        if local.month in month and day_ok and local.hour in hour and local.minute in minute:
-            return local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-        local += timedelta(minutes=1)
-    raise Invalid(f"cron 表达式在一年内不会触发：{expr}")
+    day = start.date()
+    for _ in range(CRON_SEARCH_DAYS):
+        cron_dow = (day.weekday() + 1) % 7
+        day_ok = (day.day in dom or cron_dow in dow) if not (dom_any or dow_any) else (
+            day.day in dom and cron_dow in dow)
+        if day.month in month and day_ok:
+            for h, m in times:
+                candidate = datetime.combine(day, dtime(h, m))
+                if candidate >= start:
+                    return candidate.replace(tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        day += timedelta(days=1)
+    raise Invalid(f"cron 表达式不会触发（日期不存在，如 2 月 30 日）：{expr}")
 
 
 # --- 运行 ---------------------------------------------------------------------------
@@ -166,41 +180,86 @@ def warm_up() -> None:
     _graph()
 
 
+def identity_problem(session: Session, user: User | None) -> str | None:
+    """发起人账号与查询角色（执行入口与任务调度共用）。"""
+    if user is None or not user.is_active:
+        return "发起人账号不存在或已停用"
+    if not access.roles_of(session, user) & {"analyst", "steward", "reviewer", "admin"}:
+        return "发起人已没有查询角色"
+    return None
+
+
 def execute(session: Session, run: AnalysisRun) -> AnalysisRun:
-    """在当前会话中执行一次分析（API 的 wait=true 与 worker 都调用这里）。"""
+    """在当前会话中执行一次分析（API 的 wait=true 与 worker 都调用这里）。
+    运行状态与每一步即时提交；结束时只有仍持有执行权的执行者写入结果。"""
     warm_up()
-    user = session.get(User, run.user_id)
-    run.status, run.started_at = "running", utcnow()
-    session.flush()
+    token = uuid.uuid4().hex
+    user = session.get(User, run.user_id, populate_existing=True)
     budget = Budget()
+    run.status, run.started_at, run.error = "running", utcnow(), None
+    run.budget = {**budget.view(), "executor": token}
+    session.commit()
+    status, error, plan, report, verification = "failed", None, {}, {}, {}
     try:
+        problem = identity_problem(session, user)
+        if problem:
+            raise PermissionLost(problem)
         resolved = require_analysis_model(session)
         run.model_adapter = resolved.adapter
-        catalog = ask_service.visible_catalog(session, user, with_values=False)
-        toolbox = AnalysisToolbox(session, user, run, catalog, budget)
+        catalog = ask_service.visible_catalog(session, user, with_values=False)  # 只作上下文；每次工具调用重新授权
+        toolbox = AnalysisToolbox(session, user, run, catalog, budget, executor=token)
         settings = get_settings()
         system = analysis_agent.system_message(business_today(settings.business_timezone),
                                                settings.business_timezone, run.window, budget)
-        config = {"configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved.model},
+        config = {"configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved},
                   "recursion_limit": 50}
         from langchain_core.messages import HumanMessage
 
         _graph().invoke({"messages": [system, HumanMessage(run.question)], "phase": "plan", "rounds": 0,
                          "notes": []}, config)
         state = _graph().get_state(config).values
-        run.plan = toolbox.plan or {}
-        run.report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
-        run.status = "succeeded"
+        plan, verification = toolbox.plan or {}, dict(run.verification or {})
+        report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
+        if toolbox.permission_lost or toolbox.denials:
+            report["permission"] = {"lost": toolbox.permission_lost, "denials": toolbox.denials}
+        if toolbox.aborted:
+            error = toolbox.aborted
+        elif toolbox.permission_lost:
+            error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
+        else:
+            status = "succeeded"
+    except PermissionLost as exc:
+        error = f"发起人权限不足：{exc.message}"
+        report = {"permission": {"lost": exc.message, "denials": []}}
     except Exception as exc:  # noqa: BLE001 - 模型、网络或治理错误如实记录
         log.exception("分析 %s 失败", run.id)
-        run.status = "failed"
-        run.error = f"{type(exc).__name__}: {str(exc)[:500]}"
+        error = f"{type(exc).__name__}: {str(exc)[:500]}"
+    session.rollback()  # 丢弃未提交的半步写入；已完成的步骤与数据集已逐步提交
+    session.refresh(run, with_for_update=True)
+    if run.status != "running" or (run.budget or {}).get("executor") != token:
+        log.warning("分析 %s 已被终结或由其他执行者接管（%s），不写入本次结果", run.id, run.status)
+        session.commit()
+        return run
+    run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
     run.budget = budget.view()
     run.finished_at = utcnow()
     session.flush()
     audit.record(session, user, "analysis.finish", "analysis_run", run.id, status=run.status,
                  verified=(run.verification or {}).get("ok"), queries=budget.used_queries)
+    session.commit()
     return run
+
+
+def finalize_abandoned(session: Session, run_id: str | None, reason: str) -> bool:
+    """关联的 Job 被判定放弃时，同步终结仍在排队或运行中的分析（不自动重跑）。"""
+    if not run_id:
+        return False
+    run = session.get(AnalysisRun, run_id, with_for_update=True)
+    if run is None or run.status not in ("queued", "running"):
+        return False
+    run.status, run.error, run.finished_at = "failed", reason, utcnow()
+    run.budget = {k: v for k, v in (run.budget or {}).items() if k != "executor"}  # 收回执行权
+    return True
 
 
 def visible_run(session: Session, user: User, run_id: str) -> AnalysisRun:
@@ -253,48 +312,60 @@ def _notify(session: Session, user_id: str, kind: str, title: str, body: str | N
     session.add(Notification(user_id=user_id, kind=kind, title=title[:255], body=body, link=link))
 
 
-def _owner_problem(session: Session, owner: User | None) -> str | None:
-    if owner is None or not owner.is_active:
-        return "发起人账号已停用"
-    roles = access.roles_of(session, owner)
-    if not roles & {"analyst", "steward", "reviewer", "admin"}:
-        return "发起人已没有查询角色"
-    if not ask_service.visible_catalog(session, owner, with_values=False).versions:
-        return "发起人已没有任何可见口径"
-    return None
+TASKS_LINK = "/analysis/tasks"
 
 
-def run_task(task_id: str, trigger: str) -> str | None:
-    """执行一次分析任务（定时或手动）。发起人失去权限时暂停任务并通知，返回 None。"""
+def _pause(session: Session, task: AnalysisTask, reason: str) -> None:
+    task.status, task.paused_reason, task.next_run_at = "paused", reason, None
+    task.updated_at = utcnow()
+    _notify(session, task.owner_id, "analysis_paused", f"分析任务已暂停：{task.title}", reason, TASKS_LINK)
+    audit.record(session, None, "analysis_task.pause", "analysis_task", task.id, reason=reason)
+
+
+def run_task(task_id: str, trigger: str, job_id: str | None = None) -> dict[str, Any]:
+    """执行一次分析任务（定时或手动），返回明确的结果：
+    {"status": succeeded | failed | paused | skipped, "analysis_run_id", "reason"}。
+    定时触发在任务锁下重新检查任务状态：已暂停（或已删除）的任务跳过，不创建运行，也不改下次运行时间。
+    发起人失去账号或角色、执行中被明确拒绝访问所需的口径或来源时，暂停任务并通知。
+    job_id：关联的后台任务；运行与 Job 的关联在创建运行的同一事务中写入（Job 被放弃时据此终结运行）。"""
+    from avelis.models import Job
+
     with session_scope() as session:
-        task = session.get(AnalysisTask, task_id)
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
         if task is None:
-            return None
-        owner = session.get(User, task.owner_id)
-        problem = _owner_problem(session, owner)
+            return {"status": "skipped", "reason": "任务不存在"}
+        if trigger == "schedule" and task.status != "active":
+            return {"status": "skipped", "reason": f"任务已暂停：{task.paused_reason or '—'}"}
+        owner = session.get(User, task.owner_id, populate_existing=True)
+        problem = identity_problem(session, owner)
         if problem:
-            task.status, task.paused_reason, task.next_run_at = "paused", problem, None
-            _notify(session, task.owner_id, "analysis_paused", f"分析任务已暂停：{task.title}", problem,
-                    f"/analysis/tasks/{task.id}")
-            audit.record(session, None, "analysis_task.pause", "analysis_task", task.id, reason=problem)
-            return None
+            _pause(session, task, problem)
+            return {"status": "paused", "reason": problem}
         warm_up()
         try:
             run = create_run(session, owner, task.question, task.window, task=task, trigger=trigger)
-        except (Conflict, Invalid) as exc:
-            task.status, task.paused_reason, task.next_run_at = "paused", exc.message, None
-            _notify(session, task.owner_id, "analysis_paused", f"分析任务已暂停：{task.title}", exc.message,
-                    f"/analysis/tasks/{task.id}")
-            return None
+        except (Conflict, Invalid, Forbidden) as exc:
+            _pause(session, task, exc.message)
+            return {"status": "paused", "reason": exc.message}
         task.last_run_id = run.id
         if task.schedule_cron and trigger == "schedule":
             task.next_run_at = next_run(task.schedule_cron, utcnow())
+        if job_id:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.result = {**(job.result or {}), "analysis_run_id": run.id}
         run_id = run.id
     with session_scope() as session:
         run = session.get(AnalysisRun, run_id)
         execute(session, run)
-        task = session.get(AnalysisTask, task_id)
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
         verification = run.verification or {}
+        permission = (run.report or {}).get("permission") or {}
+        if permission.get("lost") or permission.get("denials"):
+            # 明确的权限拒绝：不能用“还能看到别的口径”代替“有执行这个任务的权限”
+            reason = permission.get("lost") or "；".join(d["message"] for d in permission["denials"][:3])
+            _pause(session, task, f"执行中被拒绝访问：{reason}")
+            return {"status": "paused", "analysis_run_id": run_id, "run_status": run.status, "reason": reason}
         if run.status != "succeeded":
             title, body = f"分析运行失败：{task.title}", run.error
         elif not verification.get("ok", False):
@@ -304,7 +375,8 @@ def run_task(task_id: str, trigger: str) -> str | None:
             title, body = f"分析完成：{task.title}", run.report.get("summary")
         _notify(session, task.owner_id, "analysis_finished" if run.status == "succeeded" else "analysis_failed",
                 title, body, f"/analysis/runs/{run.id}")
-    return run_id
+        return {"status": "succeeded" if run.status == "succeeded" else "failed", "analysis_run_id": run_id,
+                "reason": run.error}
 
 
 def schedule_due() -> list[str]:
@@ -334,7 +406,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[s
     from avelis.models import AnalysisDataset, AnalysisStep
 
     data = {"id": run.id, "task_id": run.task_id, "question": run.question, "trigger": run.trigger,
-            "status": run.status, "window": run.window, "budget": run.budget, "model_adapter": run.model_adapter,
+            "status": run.status, "window": run.window,
+            "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
             "error": run.error, "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
