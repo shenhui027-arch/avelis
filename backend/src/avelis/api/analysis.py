@@ -57,6 +57,7 @@ def _window(w: Window | None) -> dict | None:
 def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
+    analysis.warm_up()
     run = analysis.create_run(session, user, body.question, _window(body.window))
     if wait:
         analysis.execute(session, run)

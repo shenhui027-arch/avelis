@@ -22,6 +22,9 @@ def reset_metadata_db() -> None:
             conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
         conn.execute(text("DROP SCHEMA IF EXISTS avelis_agent CASCADE"))
     command.upgrade(alembic_config(), "head")
-    from avelis.ask.agent import reset_state_cache
+    from avelis.ask.agent import graph, reset_state_cache
 
     reset_state_cache()
+    # 立即建好智能体状态表：LangGraph 建表时用 CREATE INDEX CONCURRENTLY，会等待所有已有写入的事务；
+    # 若推迟到某个请求里（该请求已写入数据）才建，会等待请求自己的事务而卡死
+    graph()

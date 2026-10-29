@@ -37,7 +37,10 @@ class Intent(BaseModel):
     group_by: list[str] = Field(default_factory=list)
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
-    compare: Literal["previous_period", "previous_year"] | None = None
+    compare: Literal["previous_period", "previous_year", "custom"] | None = None
+    # compare="custom"（M8）：指定对比期，如本期 9 月对比自然月 8 月（上一期是紧邻的同长度区间 8 月 2 日至 31 日）
+    compare_start: date | None = None
+    compare_end: date | None = None
     # 按时间分组（M8）：结果多一列 period（day 为 YYYY-MM-DD，month 为 YYYY-MM），排在维度之前。不能与对比期同用
     time_grain: Literal["day", "month"] | None = None
     clarification: str | None = None
@@ -51,6 +54,9 @@ class Intent(BaseModel):
             self.metric_codes = [self.metric_code]
         if self.time_grain and self.compare:
             raise ValueError("按时间分组时不能同时与上一期或去年同期对比（两期的日期对不上）")
+        if self.compare == "custom" and not (self.compare_start and self.compare_end
+                                             and self.compare_start <= self.compare_end):
+            raise ValueError("compare=custom 需要有效的 compare_start 与 compare_end")
         return self
 
     @property

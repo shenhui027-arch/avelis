@@ -161,8 +161,14 @@ def create_run(session: Session, user: User, question: str, window: dict | None,
     return run
 
 
+def warm_up() -> None:
+    """在写入任何数据之前建好会话状态表（见 devtools.reset_metadata_db 的说明），避免在本请求的事务中自锁。"""
+    _graph()
+
+
 def execute(session: Session, run: AnalysisRun) -> AnalysisRun:
     """在当前会话中执行一次分析（API 的 wait=true 与 worker 都调用这里）。"""
+    warm_up()
     user = session.get(User, run.user_id)
     run.status, run.started_at = "running", utcnow()
     session.flush()
@@ -272,6 +278,7 @@ def run_task(task_id: str, trigger: str) -> str | None:
                     f"/analysis/tasks/{task.id}")
             audit.record(session, None, "analysis_task.pause", "analysis_task", task.id, reason=problem)
             return None
+        warm_up()
         try:
             run = create_run(session, owner, task.question, task.window, task=task, trigger=trigger)
         except (Conflict, Invalid) as exc:

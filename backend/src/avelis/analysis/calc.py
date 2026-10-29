@@ -216,6 +216,32 @@ def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
             "note": f"{strength}{'正' if pearson > 0 else '负'}相关（p={p:.4f}）；相关不等于因果"}
 
 
+# --- 覆盖度 -------------------------------------------------------------------------
+
+def coverage(rows: list[Row], keys: list[str], period: str | None, start: date | None = None,
+             end: date | None = None) -> dict[str, Any]:
+    """各成员的行数与覆盖的日期；给定起止日期时列出缺失的日期（period 为 YYYY-MM-DD）。"""
+    expected = None
+    if period and start and end:
+        expected = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
+    groups: dict[tuple, list[Row]] = {}
+    for r in rows:
+        groups.setdefault(tuple(r.get(k) for k in keys), []).append(r)
+    out = []
+    for key in sorted(groups, key=str):
+        members = groups[key]
+        seen = sorted({str(r[period]) for r in members}) if period else []
+        missing = [d for d in expected if d not in set(seen)] if expected is not None else []
+        out.append({**dict(zip(keys, key)), "rows": len(members), "periods": len(seen) if period else None,
+                    "missing_count": len(missing) if expected is not None else None,
+                    "missing_periods": ",".join(missing) if missing else ""})
+    summary = {"members": len(groups), "rows": len(rows), "expected_periods": len(expected) if expected else None,
+               "members_with_gaps": sum(1 for r in out if r["missing_count"]),
+               "members_complete": sum(1 for r in out if r["missing_count"] == 0) if expected is not None else None,
+               "missing_total": sum(r["missing_count"] or 0 for r in out)}
+    return {"rows": out, "summary": summary}
+
+
 # --- 分组对比、描述统计、异常值 -----------------------------------------------------------
 
 def describe(values: list[Any]) -> dict[str, Any]:

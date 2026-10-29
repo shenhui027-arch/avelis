@@ -105,8 +105,11 @@ class QueryArgs(BaseModel):
     filters: list[DimensionFilter] = Field(default_factory=list)
     group_by: list[str] = Field(default_factory=list, description="维度名")
     time_grain: Literal["day", "month"] | None = Field(None, description="按日或按月分组（结果首列 period）")
-    compare: Literal["previous_period", "previous_year"] | None = Field(
-        None, description="与上一期 / 去年同期对比（不能与 time_grain 同用）")
+    compare: Literal["previous_period", "previous_year", "custom"] | None = Field(
+        None, description="对比：上一期（紧邻的同长度区间）/ 去年同期 / custom（用 compare_start、compare_end 指定，"
+                          "如 9 月对比自然月 8 月）；不能与 time_grain 同用")
+    compare_start: date | None = None
+    compare_end: date | None = None
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(None, ge=1, le=100)
     purpose: str = Field(description="这次查询要回答什么（写进步骤记录）")
@@ -145,6 +148,14 @@ class CorrelateArgs(BaseModel):
     dataset: str
     x: str
     y: str
+
+
+class CoverageArgs(BaseModel):
+    dataset: str
+    keys: list[str] = Field(default_factory=list, description="按哪些列统计（如 store）；为空表示整个数据集")
+    period: str | None = Field("period", description="日期列（按日分组的数据集为 period）；为空则只计行数")
+    start_date: date | None = Field(None, description="应覆盖的起始日期（用于找缺失的日期）")
+    end_date: date | None = None
 
 
 class SegmentArgs(BaseModel):
@@ -422,7 +433,8 @@ class AnalysisToolbox:
             self.budget.used_queries += 1
             intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
                             filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
-                            compare=args.compare, order=args.order, limit=args.limit)
+                            compare=args.compare, compare_start=args.compare_start, compare_end=args.compare_end,
+                            order=args.order, limit=args.limit)
             started = time.monotonic()
             answer = service.start_answer(self.session, self.user, f"[分析 {self.run.id}] {args.purpose}",
                                           self.run.model_adapter or "analysis", None)
@@ -440,7 +452,8 @@ class AnalysisToolbox:
             title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
                 f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
                 f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
-                f" 对比{'上一期' if args.compare == 'previous_period' else '去年同期'}" if args.compare else "")
+                f" 对比{ {'previous_period': '上一期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
+                if args.compare else "")
             ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                                truncated=bool(result.get("truncated")),
                                meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
@@ -494,8 +507,8 @@ class AnalysisToolbox:
         def fn():
             _, rows = self._rows(dataset)
             row = self._pick(rows, match or {})
-            out = calc.calendar_adjust(row[current], row[previous], tuple(current_period), tuple(previous_period),
-                                       HOLIDAYS)
+            out = calc.calendar_adjust(row[current], row[previous], tuple(map(_date, current_period)),
+                                       tuple(map(_date, previous_period)), HOLIDAYS)
             cols = ["period", "days", "weekend_days", "holidays", "value", "daily"]
             rows_out = [["本期", *[out["current"][c] for c in cols[1:]]], ["上期", *[out["previous"][c] for c in cols[1:]]]]
             return (f"{dataset} {current}的日历折算", cols, rows_out,
@@ -511,6 +524,17 @@ class AnalysisToolbox:
             cols = list(out)
             return f"{dataset} {x} 与 {y} 的相关性", cols, [[out[c] for c in cols]], out
         return self._calc("correlate", {"dataset": dataset, "x": x, "y": y}, [dataset], fn)
+
+    def coverage(self, dataset: str, keys: list[str] | None = None, period: str | None = "period",
+                 start_date: date | None = None, end_date: date | None = None) -> str:
+        def fn():
+            ds, rows = self._rows(dataset)
+            period_col = period if period and period in ds.columns else None
+            out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date))
+            cols = [*(keys or []), "rows", "periods", "missing_count", "missing_periods"]
+            return (f"{dataset} 的覆盖度", cols, [[r.get(c) for c in cols] for r in out["rows"]], out["summary"])
+        return self._calc("coverage", {"dataset": dataset, "keys": keys, "period": period, "start_date": start_date,
+                                       "end_date": end_date}, [dataset], fn)
 
     def segment_compare(self, dataset: str, segment: str, measures: list[str]) -> str:
         def fn():
@@ -548,6 +572,7 @@ class AnalysisToolbox:
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
             t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
+            t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
             t(self.segment_compare, SegmentArgs, "按某列分组对比各度量"),
             t(self.outliers, OutlierArgs, "四分位距法找异常值"),
             t(self.submit_report, ReportArgs, "提交最终报告：结论分事实 / 计算 / 推断 / 建议，事实与计算必须引用数据集"),
@@ -557,6 +582,11 @@ class AnalysisToolbox:
 # 演示数据期间的法定节假日（日历折算用）
 HOLIDAYS = {date(2026, 6, 19), date(2026, 6, 20), date(2026, 6, 21), date(2026, 9, 25), date(2026, 9, 26),
             date(2026, 9, 27)}
+
+
+def _date(value):
+    """直接调用（测试）时可能传入字符串日期；经模型调用时参数已按模型校验为 date。"""
+    return date.fromisoformat(value) if isinstance(value, str) else value
 
 
 def _model(cls, value):

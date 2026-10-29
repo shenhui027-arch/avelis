@@ -56,6 +56,12 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
 - **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。登录失败按“账号 + 来源地址”限流锁定（`AVELIS_LOGIN_MAX_FAILURES` / `AVELIS_LOGIN_LOCK_MINUTES`）；管理员创建或重置口令的账号首次登录必须修改；改口令、重置、停用后旧会话立即失效。
 - **角色**：管理员、维护者、复核者、查询者，加上业务域成员（负责人 / 维护者 / 可查询）。默认禁止自审，策略见 `/api/settings`。
 - **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。支持多个指标、排名与前 N、环比 / 同比，以及派生指标（如客单价 = 实付销售额 / 订单数），见 [ADR 0005](docs/decisions/0005-ask-expressiveness.md)。未指定模型时用演示模型（规则匹配，答案中会标明）。
+- **分析**：多步分析智能体，用于“为什么变了、什么关系、该怎么做”这类问题。
+  - 取数只走受治理查询，计算由后端完成；
+  - 报告中的数字逐个核验，结论分事实、计算、推断、建议；
+  - 报告可导出 PDF / Markdown / CSV，分析可保存为定时任务。
+  
+  需要支持工具调用的真实模型，见 [ADR 0007](docs/decisions/0007-analysis-agent.md)。演示用的合成电商数据集用 `uv run scripts/ec_data.py load` 灌入，`bootstrap demo` 会自动接入。
 - **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
 - **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（采集、视图血缘、问数、执行前核对），以及 MySQL（采集，作为外部表的追溯目标）。更多引擎的演示库用 `uv run scripts/demo.py up --engines` 启动，验收见 [acceptance-m7.md](docs/acceptance-m7.md)。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
