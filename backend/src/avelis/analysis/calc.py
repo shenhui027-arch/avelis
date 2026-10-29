@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation  # noqa: F401 - Decimal 也供工具层使用
 from typing import Any
 
 Row = dict[str, Any]
