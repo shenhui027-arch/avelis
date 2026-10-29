@@ -38,6 +38,9 @@ class DorisConnector:
     dialect = "doris"
     is_test_adapter = False
     ddl_audit_source = "doris:__internal_schema.audit_log"
+    ddl_identifier_fold = "insensitive"  # 列名不区分大小写；库表名按语句写法精确匹配
+    # 重 schema change（如改类型）是异步作业，语句时间早于生效时间：上次快照前这么久的 ALTER 也算边界候选
+    ddl_effect_lag_seconds = 300
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self._conn_args = dict(host=host, port=port, user=user, password=password)
@@ -148,18 +151,21 @@ class DorisConnector:
         return {(r["TABLE_SCHEMA"], r["TABLE_NAME"]): r["VIEW_DEFINITION"] for r in cur.fetchall()
                 if r["VIEW_DEFINITION"]}
 
-    def ddl_events(self, since: datetime, until: datetime) -> list[DdlEvent]:
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         databases = set(self.options.get("databases", []))
         conn = self._connect(read_timeout=60)
         try:
             cur = conn.cursor()
+            cur.execute("SELECT @@enable_audit_plugin AS enabled")
+            if str((cur.fetchone() or {}).get("enabled")).lower() not in ("1", "true"):
+                raise AuditUnavailable("enable_audit_plugin = false：Doris 未写入内置审计表", "not_enabled")
             cur.execute("SELECT UNIX_TIMESTAMP(`time`) AS ts, `user`, db, stmt_type, stmt "
                         "FROM __internal_schema.audit_log WHERE `time` >= FROM_UNIXTIME(%s) "
                         "AND `time` <= FROM_UNIXTIME(%s) AND state = 'OK' AND stmt_type IN ('CREATE', 'ALTER', 'DROP') "
                         "ORDER BY `time`", (_epoch(since), _epoch(until)))
             rows = cur.fetchall()
         except pymysql.MySQLError as exc:
-            raise AuditUnavailable(_query_error(exc).message) from exc
+            raise AuditUnavailable(_query_error(exc).message, _audit_cause(exc)) from exc
         finally:
             conn.close()
         events = []
@@ -168,7 +174,7 @@ class DorisConnector:
             if objects:
                 events.append(DdlEvent(at=datetime.fromtimestamp(float(r["ts"]), tz=timezone.utc).replace(tzinfo=None),
                                        db_user=r["user"], objects=objects, statement_type=r["stmt_type"],
-                                       statement=r["stmt"] or ""))
+                                       statement=r["stmt"] or "", may_lag=r["stmt_type"] == "ALTER"))
         return events
 
     # --- 只读执行 ------------------------------------------------------------------
@@ -237,6 +243,17 @@ class DorisConnector:
             r = found.get(f"{d}.{n}")
             out[f"{d}.{n}"] = str(r["UPDATE_TIME"]) if r and r["TABLE_TYPE"] == "BASE TABLE" and r["UPDATE_TIME"] else None
         return out
+
+
+def _audit_cause(exc: pymysql.MySQLError) -> str:
+    text = (str(exc.args[-1]) if exc.args else str(exc)).lower()
+    if "access denied" in text or "command denied" in text:
+        return "no_permission"
+    if "unknown column" in text:
+        return "incompatible"
+    if "unknown table" in text or "does not exist" in text or "unknown database" in text:
+        return "not_enabled"
+    return "error"
 
 
 def _epoch(at: datetime) -> int:

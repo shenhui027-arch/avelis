@@ -65,6 +65,8 @@ class ClickHouseConnector:
     dialect = "clickhouse"
     is_test_adapter = False
     ddl_audit_source = "clickhouse:system.query_log"
+    ddl_identifier_fold = "exact"  # 库、表、列名区分大小写
+    ddl_effect_lag_seconds = 0  # 元数据变更随语句完成生效
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -140,7 +142,7 @@ class ClickHouseConnector:
                 (name, data_type, int(position), nullable, (comment or None) if with_comments else None))
         return out
 
-    def ddl_events(self, since: datetime, until: datetime) -> list[DdlEvent]:
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         databases = set(self.options.get("databases", []))
         client = self._client()
         try:
@@ -150,7 +152,7 @@ class ClickHouseConnector:
                 "AND event_time >= toDateTime({since:Int64}) AND event_time <= toDateTime({until:Int64}) "
                 "ORDER BY event_time", parameters={"since": _epoch(since), "until": _epoch(until)}).result_rows
         except ClickHouseError as exc:
-            raise AuditUnavailable(_first_line(str(exc))) from exc
+            raise AuditUnavailable(_first_line(str(exc)), _audit_cause(exc)) from exc
         finally:
             client.close()
         events = []
@@ -226,6 +228,18 @@ class ClickHouseConnector:
         finally:
             client.close()
         return out
+
+
+def _audit_cause(exc: ClickHouseError) -> str:
+    m = CODE.search(str(exc))
+    code = int(m.group(1)) if m else None
+    if code in (497, 164, 516):
+        return "no_permission"
+    if code in (60, 81):  # 没有 query_log 表（未开启查询日志）或库
+        return "not_enabled"
+    if code in (47, 16):  # 缺列
+        return "incompatible"
+    return "error"
 
 
 def _epoch(at: datetime) -> int:

@@ -101,7 +101,22 @@ CSV_COLUMNS = ("chain_seq", "row_hash", "detected_at", "datasource", "asset", "c
                "before", "after", "change_set_id", "event_id")
 
 
+_FORMULA_PREFIX = ("=", "+", "-", "@")
+
+
+def _cell(value: Any) -> Any:
+    """CSV 文本单元格防公式注入：以 = + - @ 或控制字符开头的文本前加单引号（Excel 按文本显示）。
+    数字原样输出；JSON 导出保留精确原值。"""
+    if isinstance(value, str) and value and (value.startswith(_FORMULA_PREFIX) or ord(value[0]) < 32):
+        return "'" + value
+    return value
+
+
 def _csv_row(v: dict[str, Any]) -> list[Any]:
+    return [_cell(x) for x in _csv_fields(v)]
+
+
+def _csv_fields(v: dict[str, Any]) -> list[Any]:
     return [v["chain_seq"], v["row_hash"], v["detected_at"], v["datasource"], v["asset"], v["column"], v["kind"],
             v["actor_db_user"], v["attribution_status"], (v["attribution"] or {}).get("reason"),
             (v["attribution"] or {}).get("source"), v["window"]["after"], v["window"]["before"],
@@ -110,17 +125,18 @@ def _csv_row(v: dict[str, Any]) -> list[Any]:
 
 
 def export(session: Session, user: User, f: EventFilter, fmt: str) -> tuple[bytes, dict[str, Any]]:
-    """返回 (文件内容, 清单)。CSV：数据部分（表头 + 行）的 SHA-256 为 content_sha256，清单以 # 开头的行附在末尾；
+    """返回 (文件内容, 清单)。调用方须给一个 REPEATABLE READ 只读会话：链头与事件取自同一快照。
+    CSV：实际写出的数据部分（表头 + 行，含 BOM）的 SHA-256 为 content_sha256，清单以 # 开头的行附在末尾；
     JSON：events 数组按键排序、紧凑序列化后的 SHA-256。"""
     cap = get_settings().history_export_max_rows
     stmt = _query(session, user, f)
-    total = session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
-    if total > cap:
-        raise ExportTooLarge(f"符合条件的变更记录有 {total} 条，超过导出上限 {cap}（AVELIS_HISTORY_EXPORT_MAX_ROWS），"
-                             "请缩小时间段或其他筛选条件")
     head = chain_head(session)
-    items = [_view(*r) for r in session.execute(stmt.order_by(ChangeEvent.chain_seq.asc().nulls_last(),
-                                                                ChangeEvent.id))]
+    rows = list(session.execute(stmt.order_by(ChangeEvent.chain_seq.asc().nulls_last(), ChangeEvent.id)
+                                .limit(cap + 1)))
+    if len(rows) > cap:
+        raise ExportTooLarge(f"符合条件的变更记录超过导出上限 {cap} 条（AVELIS_HISTORY_EXPORT_MAX_ROWS），"
+                             "请缩小时间段或其他筛选条件")
+    items = [_view(*r) for r in rows]
     manifest: dict[str, Any] = {"format": fmt, "filters": f.describe(), "rows": len(items),
                                 "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                                 "exported_by": user.username, "chain_head": head,

@@ -7,6 +7,8 @@
 - 问数执行：只读事务 + statement_timeout；SQLSTATE 57014 归为超时，42703 / 42P01 归为对象无法解析。
 - DDL 审计（ADR 0008）：事件触发器（ddl_command_end + sql_drop）写入 avelis_audit.ddl_event，部署脚本见
   deploy/demo/shop-pg/init/03-ddl-audit.sql；采集账号只需该表的 SELECT。db_user 为 session_user（登录用户）。
+  快照在可重复读事务里读，并记下 pg_current_snapshot()；归因按审计记录的事务号（xid）在两次快照中的可见性取事件，
+  跨采集提交的长事务也能归到正确的窗口。读取前核对两个事件触发器存在、已启用且指向预期函数。
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 KINDS = {"r": "table", "p": "table", "v": "view", "m": "materialized_view", "f": "external_table"}
 AUDIT_TABLE = "avelis_audit.ddl_event"
 AUDIT_OBJECT_TYPES = ("table", "view", "materialized view", "foreign table", "table column")
+AUDIT_TRIGGERS = {"avelis_ddl_end": "avelis_audit.on_ddl_end()", "avelis_sql_drop": "avelis_audit.on_sql_drop()"}
 
 
 def _checked(names: list[str], label: str) -> list[str]:
@@ -39,6 +42,7 @@ class PostgresConnector:
     dialect = "postgres"
     is_test_adapter = False
     ddl_audit_source = f"postgres:{AUDIT_TABLE}"
+    ddl_identifier_fold = "lower"  # 不带引号的标识符折成小写
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -79,23 +83,27 @@ class PostgresConnector:
         warnings: list[str] = []
         with self._connect() as conn:
             identity = self._server_identity(conn)
-            relations = conn.execute(
-                "SELECT c.oid, n.nspname, c.relname, c.relkind, pg_catalog.obj_description(c.oid, 'pg_class') "
-                "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
-                "WHERE n.nspname = ANY(%s) AND c.relkind = ANY(%s) ORDER BY n.nspname, c.relname",
-                (schemas, list(KINDS))).fetchall()
-            oids = [r[0] for r in relations]
-            columns = self._columns(conn, oids, with_comments=True)
-            keys: dict[int, dict[str, list[list[str]]]] = {}
-            for oid, contype, names in conn.execute(
-                    "SELECT con.conrelid, con.contype, array_agg(a.attname ORDER BY k.ord) "
-                    "FROM pg_catalog.pg_constraint con "
-                    "CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) "
-                    "JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum "
-                    "WHERE con.conrelid = ANY(%s) AND con.contype IN ('p', 'u') "
-                    "GROUP BY con.oid, con.conrelid, con.contype", (oids,)).fetchall():
-                keys.setdefault(oid, {"p": [], "u": []})[contype].append(list(names))
-            definitions = self._definitions(conn, [r[0] for r in relations if r[3] in ("v", "m")])
+            # 元数据在同一个可重复读只读事务里读，并记下这个事务快照：归因据此判断 DDL 事务在不在两次快照之间
+            with conn.transaction():
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                cursor = {"pg_snapshot": conn.execute("SELECT pg_catalog.pg_current_snapshot()::text").fetchone()[0]}
+                relations = conn.execute(
+                    "SELECT c.oid, n.nspname, c.relname, c.relkind, pg_catalog.obj_description(c.oid, 'pg_class') "
+                    "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = ANY(%s) AND c.relkind = ANY(%s) ORDER BY n.nspname, c.relname",
+                    (schemas, list(KINDS))).fetchall()
+                oids = [r[0] for r in relations]
+                columns = self._columns(conn, oids, with_comments=True)
+                keys: dict[int, dict[str, list[list[str]]]] = {}
+                for oid, contype, names in conn.execute(
+                        "SELECT con.conrelid, con.contype, array_agg(a.attname ORDER BY k.ord) "
+                        "FROM pg_catalog.pg_constraint con "
+                        "CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) "
+                        "JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum "
+                        "WHERE con.conrelid = ANY(%s) AND con.contype IN ('p', 'u') "
+                        "GROUP BY con.oid, con.conrelid, con.contype", (oids,)).fetchall():
+                    keys.setdefault(oid, {"p": [], "u": []})[contype].append(list(names))
+                definitions = self._definitions(conn, [r[0] for r in relations if r[3] in ("v", "m")])
         assets = []
         for oid, schema, name, relkind, comment in relations:
             kind = KINDS[relkind]
@@ -113,7 +121,7 @@ class PostgresConnector:
                 unique_keys=sorted(unique), comment=comment, definition=definition,
                 properties={"relkind": relkind},
             ))
-        return Snapshot(server_identity=identity, assets=assets, warnings=warnings)
+        return Snapshot(server_identity=identity, assets=assets, warnings=warnings, audit_cursor=cursor)
 
     @staticmethod
     def _columns(conn: psycopg.Connection, oids: list[int], with_comments: bool = False) -> dict[int, list[tuple]]:
@@ -156,26 +164,50 @@ class PostgresConnector:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
-    def ddl_events(self, since: datetime, until: datetime) -> list[DdlEvent]:
-        schemas = set(self.options.get("schemas", []))
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
+        """读 DDL 审计。两次快照都记了事务快照时，按事务可见性取“上次快照看不到、本次看得到”的事务，结果确定；
+        否则按执行时间取窗口内的记录，由归因按窗口边界判断。事件触发器不存在、已停用或指向别的函数时，审计视为未开启。"""
+        schemas = list(self.options.get("schemas", []))
+        previous, current = cursors or (None, None)
+        p_snap = (previous or {}).get("pg_snapshot")
+        c_snap = (current or {}).get("pg_snapshot")
+        select = ("SELECT extract(epoch FROM at), db_user, command_tag, object_names, statement "
+                  f"FROM {AUDIT_TABLE} WHERE object_type = ANY(%s) AND object_names[1] = ANY(%s) "
+                  "AND array_length(object_names, 1) >= 2 AND ")
         try:
             with self._connect() as conn:
-                rows = conn.execute(
-                    f"SELECT extract(epoch FROM at), db_user, command_tag, object_type, object_names, statement "
-                    f"FROM {AUDIT_TABLE} WHERE at >= %s AND at <= %s ORDER BY at, id",
-                    (since.replace(tzinfo=timezone.utc), until.replace(tzinfo=timezone.utc))).fetchall()
+                self._check_audit_triggers(conn)
+                if p_snap and c_snap:
+                    rows = conn.execute(
+                        select + "xid >= pg_catalog.pg_snapshot_xmin(%s::pg_snapshot) "
+                        "AND pg_catalog.pg_visible_in_snapshot(xid, %s::pg_snapshot) "
+                        "AND NOT pg_catalog.pg_visible_in_snapshot(xid, %s::pg_snapshot) ORDER BY at, id",
+                        (list(AUDIT_OBJECT_TYPES), schemas, p_snap, c_snap, p_snap)).fetchall()
+                else:
+                    rows = conn.execute(select + "at >= %s AND at <= %s ORDER BY at, id",
+                                        (list(AUDIT_OBJECT_TYPES), schemas, since.replace(tzinfo=timezone.utc),
+                                         until.replace(tzinfo=timezone.utc))).fetchall()
         except psycopg.Error as exc:
-            raise AuditUnavailable(_message(exc)) from exc
-        events = []
-        for ts, user, tag, object_type, names, statement in rows:
-            if object_type not in AUDIT_OBJECT_TYPES or not names or len(names) < 2:
-                continue
-            if schemas and names[0] not in schemas:
-                continue
-            events.append(DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None),
-                                   db_user=user, objects=[(names[0], names[1])], statement_type=tag,
-                                   statement=statement or ""))
-        return events
+            raise AuditUnavailable(_message(exc), _audit_cause(exc)) from exc
+        by_transaction = bool(p_snap and c_snap)
+        return [DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None), db_user=user,
+                         objects=[(names[0], names[1])], statement_type=tag, statement=statement or "",
+                         certain=True if by_transaction else None)
+                for ts, user, tag, names, statement in rows]
+
+    @staticmethod
+    def _check_audit_triggers(conn: psycopg.Connection) -> None:
+        found = {name: (enabled, func) for name, enabled, func in conn.execute(
+            "SELECT e.evtname, e.evtenabled, e.evtfoid::regprocedure::text FROM pg_catalog.pg_event_trigger e "
+            "WHERE e.evtname = ANY(%s)", (list(AUDIT_TRIGGERS),)).fetchall()}
+        for name, func in AUDIT_TRIGGERS.items():
+            if name not in found:
+                raise AuditUnavailable(f"事件触发器 {name} 不存在", "not_enabled")
+            enabled, actual = found[name]
+            if enabled not in ("O", "A"):  # D 停用；R 只在复制会话里触发
+                raise AuditUnavailable(f"事件触发器 {name} 未启用（evtenabled = {enabled}）", "not_enabled")
+            if actual != func:
+                raise AuditUnavailable(f"事件触发器 {name} 指向 {actual}，不是 {func}", "not_enabled")
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         """PostgreSQL 不记录表的最近修改时间，不报告新鲜度（不以统计信息冒充）。"""
@@ -217,6 +249,17 @@ def _classify(exc: psycopg.Error) -> str:
     if state in ("42703", "42P01", "42883", "3F000"):
         return "invalid_object"
     return "other"
+
+
+def _audit_cause(exc: psycopg.Error) -> str:
+    state = exc.sqlstate or ""
+    if state == "42501":
+        return "no_permission"
+    if state in ("42P01", "3F000", "42883"):  # 审计表、模式或函数不存在
+        return "not_enabled"
+    if state == "42703":  # 审计表缺列
+        return "incompatible"
+    return "error"
 
 
 def _message(exc: psycopg.Error) -> str:

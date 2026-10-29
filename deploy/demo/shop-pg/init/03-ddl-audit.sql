@@ -13,8 +13,13 @@ CREATE TABLE IF NOT EXISTS avelis_audit.ddl_event (
   command_tag  text NOT NULL,          -- ALTER TABLE、CREATE VIEW、COMMENT、DROP TABLE …
   object_type  text,                   -- table、view、table column …
   object_names text[],                 -- pg_identify_object_as_address：{模式, 表[, 列]}
-  statement    text                    -- current_query()
+  statement    text,                   -- current_query()：整个请求，可能含多条语句（Avelis 不落库多语句与敏感原文）
+  xid          xid8                    -- 执行 DDL 的事务：按两次元数据快照的可见性判断它属于哪个采集窗口
 );
+-- 早先部署的表补列；按时间窗口与事务号读取，各建一个索引
+ALTER TABLE avelis_audit.ddl_event ADD COLUMN IF NOT EXISTS xid xid8;
+CREATE INDEX IF NOT EXISTS ddl_event_at_id ON avelis_audit.ddl_event (at, id);
+CREATE INDEX IF NOT EXISTS ddl_event_xid ON avelis_audit.ddl_event (xid);
 REVOKE ALL ON avelis_audit.ddl_event FROM PUBLIC;
 
 -- SECURITY DEFINER：执行 DDL 的用户不需要（也没有）这张表的写权限，不能伪造审计记录
@@ -24,8 +29,8 @@ DECLARE r record;
 BEGIN
   FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
     IF r.schema_name = 'avelis_audit' THEN CONTINUE; END IF;
-    INSERT INTO avelis_audit.ddl_event (db_user, command_tag, object_type, object_names, statement)
-    SELECT session_user, r.command_tag, a.type, a.object_names, current_query()
+    INSERT INTO avelis_audit.ddl_event (db_user, command_tag, object_type, object_names, statement, xid)
+    SELECT session_user, r.command_tag, a.type, a.object_names, current_query(), pg_current_xact_id()
     FROM pg_identify_object_as_address(r.classid, r.objid, r.objsubid) a;
   END LOOP;
 END $$;
@@ -38,8 +43,8 @@ BEGIN
   FOR r IN SELECT * FROM pg_event_trigger_dropped_objects()
            WHERE original OR object_type IN ('table', 'view', 'materialized view', 'foreign table') LOOP
     IF r.schema_name = 'avelis_audit' THEN CONTINUE; END IF;
-    INSERT INTO avelis_audit.ddl_event (db_user, command_tag, object_type, object_names, statement)
-    VALUES (session_user, tg_tag, r.object_type, r.address_names, current_query());
+    INSERT INTO avelis_audit.ddl_event (db_user, command_tag, object_type, object_names, statement, xid)
+    VALUES (session_user, tg_tag, r.object_type, r.address_names, current_query(), pg_current_xact_id());
   END LOOP;
 END $$;
 

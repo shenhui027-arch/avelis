@@ -8,6 +8,7 @@ import { errorText, useAssets, useDatasources, useTimeZone } from "../../api/hoo
 import { Banner, Count, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
+import { assetsOfDatasource, recordQuery, type RecordFilters } from "./recordFilters";
 
 type Record = Schemas["ChangeRecordOut"];
 type Verify = Schemas["HistoryVerifyOut"];
@@ -51,15 +52,11 @@ export function ChangeRecords() {
   const me = useMe();
   const sources = useDatasources();
   const assets = useAssets();
-  const [filters, setFilters] = useState({ datasource_id: "", asset_id: "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
+  const [filters, setFilters] = useState<RecordFilters>({ datasource_id: "", asset_id: "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
   const set = (k: keyof typeof filters) => (v: string) => { setFilters((f) => ({ ...f, [k]: v, ...(k === "datasource_id" ? { asset_id: "" } : {}) })); setOffset(0); };
-  const query = Object.fromEntries(Object.entries({
-    ...filters,
-    since: filters.since ? new Date(`${filters.since}T00:00:00`).toISOString() : "",
-    until: filters.until ? new Date(`${filters.until}T00:00:00`).toISOString() : "",
-  }).filter(([, v]) => v));
+  const query = recordQuery(filters, tz);
   const records = useQuery({
     queryKey: ["change-events", query, offset],
     queryFn: () => unwrap(api.GET("/api/change-events", { params: { query: { ...query, limit: PAGE, offset } } })),
@@ -99,7 +96,7 @@ export function ChangeRecords() {
   };
 
   const data = records.data;
-  const dsAssets = (assets.data ?? []).filter((a) => !filters.datasource_id || a.datasource_id === filters.datasource_id);
+  const dsAssets = assetsOfDatasource(assets.data ?? [], filters.datasource_id);
   return (
     <section className="av-pane" aria-label="变更记录" style={{ gridColumn: "2 / span 2" }}>
       <div className="av-pane__body">
@@ -138,8 +135,8 @@ export function ChangeRecords() {
               <option value="matched">已确认用户</option>
               <option value="ambiguous,unmatched,unavailable,unsupported">未知或不确定</option>
             </Select>
-            <input className="av-input" type="date" aria-label="起始日期" value={filters.since} onChange={(e) => set("since")(e.target.value)} />
-            <input className="av-input" type="date" aria-label="截止日期（不含）" value={filters.until} onChange={(e) => set("until")(e.target.value)} />
+            <input className="av-input" type="date" aria-label="起始日期（业务时区）" value={filters.since} onChange={(e) => set("since")(e.target.value)} />
+            <input className="av-input" type="date" aria-label="截止日期（不含，业务时区）" value={filters.until} onChange={(e) => set("until")(e.target.value)} />
           </div>
 
           <section className="av-panel">
