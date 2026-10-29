@@ -372,14 +372,14 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
         <section className="av-models__policy" aria-labelledby="model-policy-title">
           <h3 id="model-policy-title" className="av-models__section-title">数据外发</h3>
           <div className="av-toggle-row">
-            <span className="av-toggle-row__text"><span>发送查询结果 <Hint text="问数结果发给结果解释模型；关闭时使用模板解释" /></span></span>
+            <span className="av-toggle-row__text"><span>发送查询结果 <Hint text="问数结果发给结果解释模型与分析模型；关闭时使用模板解释，分析模式不可用" /></span></span>
             <Switch label="发送查询结果" checked={policy.send_results} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_results: v })} />
           </div>
           <div className="av-toggle-row">
             <span className="av-toggle-row__text"><span>发送代码片段 <Hint text="未能解析的脱敏代码发给导入血缘推断模型；关闭时使用演示规则" /></span></span>
             <Switch label="发送代码片段" checked={policy.send_code} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_code: v })} />
           </div>
-          <p className="av-caption av-models__policy-note"><Icon name="shield" small />基础请求包含口径元数据、用户问题及匹配的维度取值</p>
+          <p className="av-caption av-models__policy-note"><Icon name="shield" small />默认发送查询结果与代码片段，分析模式需要它们；需保密请接入本地模型（OpenAI 兼容接口）</p>
         </section>
         <ModelFeedback message={message} busy={save.isPending} />
         <div className="av-actions">

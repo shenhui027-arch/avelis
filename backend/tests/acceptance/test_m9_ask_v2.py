@@ -148,7 +148,7 @@ def test_06_plan_respects_source_permissions(admin: Api):
 
 @pytest.mark.llm
 def test_07_real_model_multi_metric_ranking(stack, admin: Api):
-    """真实模型（.env 中的 DeepSeek）：只产生结构化意图；排序、对齐、计算都在后端完成。"""
+    """真实模型（.env 中的 DeepSeek）：只产生结构化意图；排序、对齐、计算都在后端完成，解释由模型根据结果生成。"""
     from avelis.bootstrap import model_from_env
 
     model_from_env()
@@ -157,4 +157,4 @@ def test_07_real_model_multi_metric_ranking(stack, admin: Api):
     assert a["intent"]["metric_codes"][:2] == ["paid_sales", "orders_cnt"] and a["intent"]["order"] == "desc"
     assert [r[0] for r in a["result"]["rows"]] == ["华东", "华北", "华南"]
     assert [d(r[1]) for r in a["result"]["rows"]] == [Decimal("300"), Decimal("150"), Decimal("60")]
-    assert a["explanation_source"] == "template"
+    assert a["explanation_source"] == "model"  # 默认把结果发给解释模型（ADR 0007）

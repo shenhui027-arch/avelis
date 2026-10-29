@@ -39,6 +39,8 @@ PURPOSES = {
                 "hint": "用自然语言解释查询结果；仅在允许发送查询结果时使用"},
     "import": {"label": "导入血缘推断", "needs_tools": False,
                "hint": "对确定性解析覆盖不到的代码片段提出候选血缘"},
+    "analysis": {"label": "分析", "needs_tools": True,
+                 "hint": "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型"},
 }
 
 PRESETS = {
@@ -51,7 +53,9 @@ PRESETS = {
 }
 
 POLICY_KEY = "model_policy"
-DEFAULT_POLICY = {"send_results": False, "send_code": False}
+# 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
+# 而不是由产品限制。管理员仍可在模型配置页关闭；关闭后结果解释用模板，分析模式不可用。
+DEFAULT_POLICY = {"send_results": True, "send_code": True}
 
 
 def redact_error(text: str, api_key: str | None = None, *, limit: int = 300) -> str:
@@ -279,12 +283,12 @@ class Resolved:
 def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Resolved | None:
     """指派无效、模型不再启用或问数检测失效时返回 None，调用方标明并使用演示模型。"""
     a = session.get(ModelAssignment, purpose)
-    if a is None and purpose == "explain":
+    if a is None and purpose in ("explain", "analysis"):
         a = session.get(ModelAssignment, "ask")
     if a is None:
         return None
     p = session.get(ModelProvider, a.provider_id)
-    if _enabled_model(p, a.model_id, needs_tools=a.purpose == "ask") is None:
+    if _enabled_model(p, a.model_id, needs_tools=a.purpose in ("ask", "analysis")) is None:
         return None
     return Resolved(build_chat_model(p, a.model_id, temperature=temperature), f"{p.code}:{a.model_id}",
                     decrypt_secret(p.api_key_enc))
