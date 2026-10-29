@@ -1,0 +1,4906 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Avelis API",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/api/health": {
+   "get": {
+    "summary": "Health",
+    "operationId": "health_api_health_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Health Api Health Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/token": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Login",
+    "operationId": "login_api_auth_token_post",
+    "requestBody": {
+     "content": {
+      "application/x-www-form-urlencoded": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_login_api_auth_token_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/logout": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Logout",
+    "operationId": "logout_api_auth_logout_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Logout Api Auth Logout Post"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Me",
+    "operationId": "me_api_me_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/users": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "List Users",
+    "operationId": "list_users_api_users_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Users Api Users Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Create User",
+    "operationId": "create_user_api_users_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create User Api Users Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/settings": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Settings View",
+    "operationId": "settings_view_api_settings_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Settings View Api Settings Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/datasources": {
+   "get": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "List Datasources",
+    "operationId": "list_datasources_api_datasources_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Datasources Api Datasources Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Create Datasource",
+    "operationId": "create_datasource_api_datasources_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DatasourceCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create Datasource Api Datasources Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/datasources/{datasource_id}/credentials/{purpose}": {
+   "put": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Set Credential",
+    "operationId": "set_credential_api_datasources__datasource_id__credentials__purpose__put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     },
+     {
+      "name": "purpose",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "collect",
+        "query"
+       ],
+       "type": "string",
+       "title": "Purpose"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Credential"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Credential Api Datasources  Datasource Id  Credentials  Purpose  Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/endpoint-aliases": {
+   "post": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Create Alias",
+    "operationId": "create_alias_api_endpoint_aliases_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AliasCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create Alias Api Endpoint Aliases Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/datasources/{datasource_id}/collect": {
+   "post": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Collect",
+    "operationId": "collect_api_datasources__datasource_id__collect_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     },
+     {
+      "name": "wait",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Wait"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Collect Api Datasources  Datasource Id  Collect Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/datasources/{datasource_id}/runs": {
+   "get": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "List Runs",
+    "operationId": "list_runs_api_datasources__datasource_id__runs_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {},
+         "title": "Response List Runs Api Datasources  Datasource Id  Runs Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/jobs/{job_id}": {
+   "get": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Get Job",
+    "operationId": "get_job_api_jobs__job_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Job Api Jobs  Job Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/domains": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "List Domains",
+    "operationId": "list_domains_api_domains_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Domains Api Domains Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Create Domain",
+    "operationId": "create_domain_api_domains_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DomainCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/domains/{domain_id}/members": {
+   "put": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Set Member",
+    "operationId": "set_member_api_domains__domain_id__members_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MemberSet"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Member Api Domains  Domain Id  Members Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "List Assets",
+    "operationId": "list_assets_api_assets_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasource Id"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "include_deleted",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Include Deleted"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": true
+         },
+         "title": "Response List Assets Api Assets Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Asset Detail",
+    "operationId": "asset_detail_api_assets__asset_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Asset Detail Api Assets  Asset Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Patch Asset",
+    "operationId": "patch_asset_api_assets__asset_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssetPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Patch Asset Api Assets  Asset Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/grains": {
+   "post": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Declare Grain",
+    "operationId": "declare_grain_api_assets__asset_id__grains_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GrainDeclare"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Declare Grain Api Assets  Asset Id  Grains Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/grains/{grain_id}/verify": {
+   "post": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Verify Grain",
+    "description": "只读核验唯一性：GROUP BY 键 HAVING COUNT(*) > 1 LIMIT 1，带超时；超时记为“未核验”。",
+    "operationId": "verify_grain_api_grains__grain_id__verify_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "grain_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Grain Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Verify Grain Api Grains  Grain Id  Verify Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/columns/{column}/confirmations": {
+   "post": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Confirm Column",
+    "operationId": "confirm_column_api_assets__asset_id__columns__column__confirmations_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "column",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Column"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ConfirmBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Confirm Column Api Assets  Asset Id  Columns  Column  Confirmations Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/lineage/graph": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Lineage Graph",
+    "description": "资产级节点 + 列级边（按关系类型汇总）+ 外部表身份映射。只返回用户可见的资产。",
+    "operationId": "lineage_graph_api_lineage_graph_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_ids",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "逗号分隔；多个域会串联显示",
+       "title": "Domain Ids"
+      },
+      "description": "逗号分隔；多个域会串联显示"
+     },
+     {
+      "name": "asset_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Lineage Graph Api Lineage Graph Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "List Metrics",
+    "operationId": "list_metrics_api_metrics_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Metrics Api Metrics Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Create Metric",
+    "operationId": "create_metric_api_metrics_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MetricCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/metrics/{metric_id}": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Get Metric",
+    "operationId": "get_metric_api_metrics__metric_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "metric_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Metric Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Metric Api Metrics  Metric Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/{metric_id}/versions": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Create Version",
+    "operationId": "create_version_api_metrics__metric_id__versions_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "metric_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Metric Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VersionSpec"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create Version Api Metrics  Metric Id  Versions Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Get Version",
+    "operationId": "get_version_api_metric_versions__version_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Update Version",
+    "operationId": "update_version_api_metric_versions__version_id__put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VersionSpec"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Update Version Api Metric Versions  Version Id  Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}/check": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Check Version",
+    "description": "发布前检查（不改变状态）。",
+    "operationId": "check_version_api_metric_versions__version_id__check_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}/submit": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Submit Version",
+    "operationId": "submit_version_api_metric_versions__version_id__submit_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}/approve": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Approve Version",
+    "operationId": "approve_version_api_metric_versions__version_id__approve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Note"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Approve Version Api Metric Versions  Version Id  Approve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}/reject": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Reject Version",
+    "operationId": "reject_version_api_metric_versions__version_id__reject_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Note"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Reject Version Api Metric Versions  Version Id  Reject Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metric-versions/{version_id}/archive": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Archive Version",
+    "operationId": "archive_version_api_metric_versions__version_id__archive_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Note"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Archive Version Api Metric Versions  Version Id  Archive Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/join-paths": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "List Join Paths",
+    "operationId": "list_join_paths_api_join_paths_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Join Paths Api Join Paths Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Create Join Path",
+    "operationId": "create_join_path_api_join_paths_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/JoinPathCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create Join Path Api Join Paths Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/join-paths/{path_id}/decisions": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Decide Join Path",
+    "operationId": "decide_join_path_api_join_paths__path_id__decisions_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "path_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Decision"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Decide Join Path Api Join Paths  Path Id  Decisions Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/change-sets": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "List Change Sets",
+    "operationId": "list_change_sets_api_change_sets_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": true
+         },
+         "title": "Response List Change Sets Api Change Sets Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/change-sets/{change_set_id}": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Get Change Set",
+    "operationId": "get_change_set_api_change_sets__change_set_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "change_set_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Change Set Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/review-tasks": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "List Tasks",
+    "operationId": "list_tasks_api_review_tasks_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "mine",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": true,
+       "title": "Mine"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": "open",
+       "title": "Status"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": true
+         },
+         "title": "Response List Tasks Api Review Tasks Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/review-tasks/{task_id}/resolve": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Resolve Task",
+    "operationId": "resolve_task_api_review_tasks__task_id__resolve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "task_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Task Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Resolve"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Resolve Task Api Review Tasks  Task Id  Resolve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ask": {
+   "post": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Ask",
+    "operationId": "ask_api_ask_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Question"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Ask Api Ask Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/ask/threads": {
+   "get": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "List Threads",
+    "operationId": "list_threads_api_ask_threads_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Threads Api Ask Threads Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/ask/threads/{thread_id}": {
+   "get": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Get Thread",
+    "operationId": "get_thread_api_ask_threads__thread_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "thread_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Thread Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Thread Api Ask Threads  Thread Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/answers": {
+   "get": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "List Answers",
+    "operationId": "list_answers_api_answers_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "all_users",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "All Users"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": true
+         },
+         "title": "Response List Answers Api Answers Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/answers/{answer_id}": {
+   "get": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Get Answer",
+    "operationId": "get_answer_api_answers__answer_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "answer_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Answer Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Answer Api Answers  Answer Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/audit": {
+   "get": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "List Audit",
+    "operationId": "list_audit_api_audit_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "object_type",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Object Type"
+      }
+     },
+     {
+      "name": "object_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Object Id"
+      }
+     },
+     {
+      "name": "action",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Action"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 200,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/model-providers/presets": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Presets",
+    "operationId": "presets_api_model_providers_presets_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PresetsOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/model-providers": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "List Providers",
+    "operationId": "list_providers_api_model_providers_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ProviderOut"
+         },
+         "type": "array",
+         "title": "Response List Providers Api Model Providers Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Create Provider",
+    "operationId": "create_provider_api_model_providers_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProviderCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProviderOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/model-providers/{provider_id}": {
+   "patch": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Update Provider",
+    "operationId": "update_provider_api_model_providers__provider_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "provider_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Provider Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProviderUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProviderOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Delete Provider",
+    "operationId": "delete_provider_api_model_providers__provider_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "provider_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Provider Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/model-providers/{provider_id}/fetch-models": {
+   "post": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Fetch Models",
+    "operationId": "fetch_models_api_model_providers__provider_id__fetch_models_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "provider_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Provider Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FetchedOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/model-providers/{provider_id}/check": {
+   "post": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Check",
+    "operationId": "check_api_model_providers__provider_id__check_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "provider_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Provider Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CheckBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CheckOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/model-settings": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get Settings View",
+    "operationId": "get_settings_view_api_model_settings_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Save Settings",
+    "operationId": "save_settings_api_model_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SettingsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SettingsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/imports": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "List Imports",
+    "operationId": "list_imports_api_imports_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response List Imports Api Imports Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Create Import",
+    "operationId": "create_import_api_imports_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ImportBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/imports/upload": {
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Upload",
+    "operationId": "upload_api_imports_upload_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_upload_api_imports_upload_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Upload Api Imports Upload Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/imports/{job_id}": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Get Import",
+    "operationId": "get_import_api_imports__job_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Import Api Imports  Job Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{job_id}/params": {
+   "put": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Set Params",
+    "operationId": "set_params_api_imports__job_id__params_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ParamsBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Params Api Imports  Job Id  Params Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/candidates/{candidate_id}/decision": {
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Decide",
+    "operationId": "decide_api_candidates__candidate_id__decision_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "candidate_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Candidate Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DecisionBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Decide Api Candidates  Candidate Id  Decision Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{job_id}/edges": {
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Manual Edge",
+    "operationId": "manual_edge_api_imports__job_id__edges_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ManualEdge"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Manual Edge Api Imports  Job Id  Edges Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "AliasCreate": {
+    "properties": {
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "host": {
+      "type": "string",
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Host"
+     },
+     "port": {
+      "type": "integer",
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "datasource_id",
+     "host",
+     "port"
+    ],
+    "title": "AliasCreate"
+   },
+   "AssetPatch": {
+    "properties": {
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "domain_id"
+    ],
+    "title": "AssetPatch"
+   },
+   "AssignmentOut": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "needs_tools": {
+      "type": "boolean",
+      "title": "Needs Tools"
+     },
+     "hint": {
+      "type": "string",
+      "title": "Hint"
+     },
+     "provider_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Id"
+     },
+     "updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "label",
+     "needs_tools",
+     "hint",
+     "provider_id",
+     "model_id",
+     "updated_at"
+    ],
+    "title": "AssignmentOut"
+   },
+   "Body_login_api_auth_token_post": {
+    "properties": {
+     "grant_type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^password$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grant Type"
+     },
+     "username": {
+      "type": "string",
+      "title": "Username"
+     },
+     "password": {
+      "type": "string",
+      "format": "password",
+      "title": "Password"
+     },
+     "scope": {
+      "type": "string",
+      "title": "Scope",
+      "default": ""
+     },
+     "client_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Id"
+     },
+     "client_secret": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "format": "password",
+      "title": "Client Secret"
+     }
+    },
+    "type": "object",
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "Body_login_api_auth_token_post"
+   },
+   "Body_upload_api_imports_upload_post": {
+    "properties": {
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "file": {
+      "type": "string",
+      "contentMediaType": "application/octet-stream",
+      "title": "File"
+     },
+     "default_db": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Db"
+     }
+    },
+    "type": "object",
+    "required": [
+     "datasource_id",
+     "file"
+    ],
+    "title": "Body_upload_api_imports_upload_post"
+   },
+   "CheckBody": {
+    "properties": {
+     "model_id": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Model Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "model_id"
+    ],
+    "title": "CheckBody"
+   },
+   "CheckOut": {
+    "properties": {
+     "model_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Id"
+     },
+     "ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ok"
+     },
+     "tool_calling": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tool Calling"
+     },
+     "latency_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latency Ms"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "checked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Checked At"
+     }
+    },
+    "type": "object",
+    "title": "CheckOut"
+   },
+   "ConfirmBody": {
+    "properties": {
+     "meaning": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Meaning"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "meaning"
+    ],
+    "title": "ConfirmBody"
+   },
+   "Credential": {
+    "properties": {
+     "username": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Username"
+     },
+     "password": {
+      "type": "string",
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Password"
+     }
+    },
+    "type": "object",
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "Credential"
+   },
+   "DatasourceCreate": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "starrocks",
+       "mysql",
+       "fake"
+      ],
+      "title": "Kind"
+     },
+     "host": {
+      "type": "string",
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Host"
+     },
+     "port": {
+      "type": "integer",
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port"
+     },
+     "options": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Options"
+     },
+     "collect_interval_minutes": {
+      "type": "integer",
+      "maximum": 1440.0,
+      "minimum": 1.0,
+      "title": "Collect Interval Minutes",
+      "default": 15
+     },
+     "collect": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Credential"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "query": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Credential"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "kind",
+     "host",
+     "port"
+    ],
+    "title": "DatasourceCreate"
+   },
+   "Decision": {
+    "properties": {
+     "domain_id": {
+      "type": "string",
+      "title": "Domain Id"
+     },
+     "decision": {
+      "type": "string",
+      "pattern": "^(approved|rejected)$",
+      "title": "Decision"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "domain_id",
+     "decision"
+    ],
+    "title": "Decision"
+   },
+   "DecisionBody": {
+    "properties": {
+     "decision": {
+      "type": "string",
+      "enum": [
+       "accept",
+       "reject",
+       "modify"
+      ],
+      "title": "Decision"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Reason"
+     },
+     "source_ref": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Ref"
+     },
+     "source_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Column"
+     },
+     "target_ref": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Ref"
+     },
+     "target_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Column"
+     },
+     "relation": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Relation"
+     }
+    },
+    "type": "object",
+    "required": [
+     "decision",
+     "reason"
+    ],
+    "title": "DecisionBody"
+   },
+   "Dimension": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "column": {
+      "type": "string",
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Column"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "column"
+    ],
+    "title": "Dimension"
+   },
+   "DomainCreate": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "owner_id": {
+      "type": "string",
+      "title": "Owner Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code",
+     "name",
+     "owner_id"
+    ],
+    "title": "DomainCreate"
+   },
+   "DomainRef": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "role",
+     "name",
+     "code"
+    ],
+    "title": "DomainRef"
+   },
+   "FetchedOut": {
+    "properties": {
+     "models": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Models"
+     }
+    },
+    "type": "object",
+    "required": [
+     "models"
+    ],
+    "title": "FetchedOut"
+   },
+   "GrainDeclare": {
+    "properties": {
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Columns"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "columns",
+     "reason"
+    ],
+    "title": "GrainDeclare"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "ImportBody": {
+    "properties": {
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "filename": {
+      "type": "string",
+      "maxLength": 255,
+      "title": "Filename",
+      "default": "粘贴的 SQL.sql"
+     },
+     "content": {
+      "type": "string",
+      "maxLength": 2097152,
+      "minLength": 1,
+      "title": "Content"
+     },
+     "source_type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "sql",
+         "python",
+         "shell"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Type"
+     },
+     "default_db": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Db"
+     },
+     "params": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Params"
+     }
+    },
+    "type": "object",
+    "required": [
+     "datasource_id",
+     "content"
+    ],
+    "title": "ImportBody"
+   },
+   "JoinPathCreate": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "left_asset_id": {
+      "type": "string",
+      "title": "Left Asset Id"
+     },
+     "left_columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Left Columns"
+     },
+     "right_asset_id": {
+      "type": "string",
+      "title": "Right Asset Id"
+     },
+     "right_columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Right Columns"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code",
+     "name",
+     "left_asset_id",
+     "left_columns",
+     "right_asset_id",
+     "right_columns"
+    ],
+    "title": "JoinPathCreate"
+   },
+   "JoinStep": {
+    "properties": {
+     "alias": {
+      "type": "string",
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Alias"
+     },
+     "join_path_id": {
+      "type": "string",
+      "title": "Join Path Id"
+     },
+     "from": {
+      "type": "string",
+      "title": "From",
+      "default": "b"
+     },
+     "pre_aggregate": {
+      "type": "boolean",
+      "title": "Pre Aggregate",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "alias",
+     "join_path_id"
+    ],
+    "title": "JoinStep"
+   },
+   "ManualEdge": {
+    "properties": {
+     "source_ref": {
+      "type": "string",
+      "title": "Source Ref"
+     },
+     "source_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Column"
+     },
+     "target_ref": {
+      "type": "string",
+      "title": "Target Ref"
+     },
+     "target_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Column"
+     },
+     "relation": {
+      "type": "string",
+      "title": "Relation"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Reason"
+     },
+     "lines": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lines"
+     }
+    },
+    "type": "object",
+    "required": [
+     "source_ref",
+     "target_ref",
+     "relation",
+     "reason"
+    ],
+    "title": "ManualEdge"
+   },
+   "MemberSet": {
+    "properties": {
+     "user_id": {
+      "type": "string",
+      "title": "User Id"
+     },
+     "role": {
+      "type": "string",
+      "pattern": "^(owner|maintainer|viewer)$",
+      "title": "Role"
+     }
+    },
+    "type": "object",
+    "required": [
+     "user_id",
+     "role"
+    ],
+    "title": "MemberSet"
+   },
+   "MetricCreate": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "domain_id": {
+      "type": "string",
+      "title": "Domain Id"
+     },
+     "owner_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Owner Id"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Aliases"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code",
+     "name",
+     "domain_id"
+    ],
+    "title": "MetricCreate"
+   },
+   "ModelEntry": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+     },
+     "tool_calling": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tool Calling"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "ModelEntry"
+   },
+   "ModelOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "tool_calling": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tool Calling"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "enabled"
+    ],
+    "title": "ModelOut"
+   },
+   "Note": {
+    "properties": {
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "title": "Note"
+   },
+   "ParamsBody": {
+    "properties": {
+     "params": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Params"
+     }
+    },
+    "type": "object",
+    "required": [
+     "params"
+    ],
+    "title": "ParamsBody"
+   },
+   "PolicyOut": {
+    "properties": {
+     "send_results": {
+      "type": "boolean",
+      "title": "Send Results"
+     },
+     "send_code": {
+      "type": "boolean",
+      "title": "Send Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "send_results",
+     "send_code"
+    ],
+    "title": "PolicyOut"
+   },
+   "PresetOut": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "base_url": {
+      "type": "string",
+      "title": "Base Url"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "kind",
+     "base_url"
+    ],
+    "title": "PresetOut"
+   },
+   "PresetsOut": {
+    "properties": {
+     "presets": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/PresetOut"
+      },
+      "type": "object",
+      "title": "Presets"
+     },
+     "purposes": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/PurposeOut"
+      },
+      "type": "object",
+      "title": "Purposes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "presets",
+     "purposes"
+    ],
+    "title": "PresetsOut"
+   },
+   "ProviderCreate": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9_-]+$",
+      "title": "Code"
+     },
+     "preset": {
+      "type": "string",
+      "enum": [
+       "deepseek",
+       "openai",
+       "anthropic",
+       "dashscope",
+       "custom"
+      ],
+      "title": "Preset",
+      "default": "custom"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "openai_compatible",
+         "anthropic"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Kind"
+     },
+     "base_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Base Url"
+     },
+     "api_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Api Key"
+     },
+     "models": {
+      "items": {
+       "$ref": "#/components/schemas/ModelEntry"
+      },
+      "type": "array",
+      "title": "Models"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "ProviderCreate"
+   },
+   "ProviderOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "openai_compatible",
+       "anthropic"
+      ],
+      "title": "Kind"
+     },
+     "preset": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Preset"
+     },
+     "base_url": {
+      "type": "string",
+      "title": "Base Url"
+     },
+     "endpoint": {
+      "type": "string",
+      "title": "Endpoint"
+     },
+     "api_key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Api Key",
+      "description": "掩码，只显示末四位；密钥本身永不回传"
+     },
+     "has_api_key": {
+      "type": "boolean",
+      "title": "Has Api Key"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "models": {
+      "items": {
+       "$ref": "#/components/schemas/ModelOut"
+      },
+      "type": "array",
+      "title": "Models"
+     },
+     "last_check": {
+      "$ref": "#/components/schemas/CheckOut"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name",
+     "kind",
+     "preset",
+     "base_url",
+     "endpoint",
+     "api_key",
+     "has_api_key",
+     "enabled",
+     "models",
+     "last_check",
+     "updated_at"
+    ],
+    "title": "ProviderOut"
+   },
+   "ProviderUpdate": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "base_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Base Url"
+     },
+     "api_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Api Key"
+     },
+     "clear_api_key": {
+      "type": "boolean",
+      "title": "Clear Api Key",
+      "default": false
+     },
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     },
+     "models": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/ModelEntry"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Models"
+     }
+    },
+    "type": "object",
+    "title": "ProviderUpdate"
+   },
+   "PurposeOut": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "needs_tools": {
+      "type": "boolean",
+      "title": "Needs Tools"
+     },
+     "hint": {
+      "type": "string",
+      "title": "Hint"
+     }
+    },
+    "type": "object",
+    "required": [
+     "label",
+     "needs_tools",
+     "hint"
+    ],
+    "title": "PurposeOut"
+   },
+   "Question": {
+    "properties": {
+     "question": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Question"
+     },
+     "thread_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Thread Id",
+      "description": "继续已有会话（含回答追问）；为空则新建会话"
+     }
+    },
+    "type": "object",
+    "required": [
+     "question"
+    ],
+    "title": "Question"
+   },
+   "Resolve": {
+    "properties": {
+     "resolution": {
+      "type": "string",
+      "pattern": "^(restored|new_version|retired)$",
+      "title": "Resolution"
+     },
+     "note": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Note"
+     },
+     "linked_metric_version_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Linked Metric Version Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "resolution",
+     "note"
+    ],
+    "title": "Resolve"
+   },
+   "SettingsBody": {
+    "properties": {
+     "assignments": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/Target"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Assignments"
+     },
+     "policy": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "type": "boolean"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Policy"
+     }
+    },
+    "type": "object",
+    "title": "SettingsBody"
+   },
+   "SettingsOut": {
+    "properties": {
+     "assignments": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/AssignmentOut"
+      },
+      "type": "object",
+      "title": "Assignments"
+     },
+     "policy": {
+      "$ref": "#/components/schemas/PolicyOut"
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "configured",
+       "demo"
+      ],
+      "title": "Mode"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "assignments",
+     "policy",
+     "mode",
+     "note"
+    ],
+    "title": "SettingsOut"
+   },
+   "Target": {
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_id",
+     "model_id"
+    ],
+    "title": "Target"
+   },
+   "TokenOut": {
+    "properties": {
+     "access_token": {
+      "type": "string",
+      "title": "Access Token"
+     },
+     "token_type": {
+      "type": "string",
+      "title": "Token Type"
+     },
+     "expires_at": {
+      "type": "string",
+      "title": "Expires At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "access_token",
+     "token_type",
+     "expires_at"
+    ],
+    "title": "TokenOut"
+   },
+   "UserCreate": {
+    "properties": {
+     "username": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 2,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "title": "Username"
+     },
+     "display_name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Display Name"
+     },
+     "password": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 8,
+      "title": "Password"
+     },
+     "roles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Roles"
+     }
+    },
+    "type": "object",
+    "required": [
+     "username",
+     "display_name",
+     "password"
+    ],
+    "title": "UserCreate"
+   },
+   "UserOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "username": {
+      "type": "string",
+      "title": "Username"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     },
+     "is_active": {
+      "type": "boolean",
+      "title": "Is Active"
+     },
+     "roles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Roles"
+     },
+     "domains": {
+      "items": {
+       "$ref": "#/components/schemas/DomainRef"
+      },
+      "type": "array",
+      "title": "Domains"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "username",
+     "display_name",
+     "is_active",
+     "roles",
+     "domains"
+    ],
+    "title": "UserOut"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   },
+   "VersionSpec": {
+    "properties": {
+     "description": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Description"
+     },
+     "base_asset_id": {
+      "type": "string",
+      "title": "Base Asset Id"
+     },
+     "expression": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Expression"
+     },
+     "time_column": {
+      "type": "string",
+      "minLength": 1,
+      "title": "Time Column"
+     },
+     "timezone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Timezone"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Filters"
+     },
+     "dimensions": {
+      "items": {
+       "$ref": "#/components/schemas/Dimension"
+      },
+      "type": "array",
+      "title": "Dimensions"
+     },
+     "joins": {
+      "items": {
+       "$ref": "#/components/schemas/JoinStep"
+      },
+      "type": "array",
+      "title": "Joins"
+     },
+     "grain": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Grain"
+     },
+     "dedupe_basis": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dedupe Basis"
+     }
+    },
+    "type": "object",
+    "required": [
+     "description",
+     "base_asset_id",
+     "expression",
+     "time_column"
+    ],
+    "title": "VersionSpec"
+   }
+  },
+  "securitySchemes": {
+   "OAuth2PasswordBearer": {
+    "type": "oauth2",
+    "flows": {
+     "password": {
+      "scopes": {},
+      "tokenUrl": "/api/auth/token"
+     }
+    }
+   }
+  }
+ }
+}

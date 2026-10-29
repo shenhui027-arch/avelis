@@ -2,26 +2,27 @@
 
 有依据的智能问数：建立在数据库血缘、业务口径和变更管理之上。每个答案都带来源、口径、版本和权限依据；上游变化后，系统知道哪些答案需要重新确认。首期面向 StarRocks。
 
-> 当前阶段：v0.1 开发中，**M0 基线与实机核验、M1 后端闭环已完成**（M1 验收见 [docs/acceptance-m1.md](docs/acceptance-m1.md)）。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
+> 当前阶段：v0.1 开发中，**M0、M1、M2 已完成**：后端闭环、LangGraph 问数智能体、模型配置、导入血缘。验收见 [M1](docs/acceptance-m1.md)、[M2](docs/acceptance-m2.md)。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
 
 ## 仓库结构
 
 ```
-backend/              后端（FastAPI）：采集、血缘、粒度、口径治理、变更复核、受约束问数
+backend/              后端（FastAPI）：采集、血缘、粒度、口径治理、变更复核、问数智能体、导入血缘、模型配置
+frontend/             前端（React + Vite）：应用框架与模型配置页（其余页面 M3）
 deploy/demo/          演示环境：Compose、StarRocks 启动包装、电商维表库初始化、合成数据、驱动锁定
 scripts/demo.py       演示环境起停、灌数、基线核对、实机核验
 scripts/sr_probe.py   StarRocks 实机核验项
 docs/                 计划、核验记录、架构决定
 ```
 
-产品采用前后端分离：后端 `backend/`（FastAPI，REST + OpenAPI）已完成 M1，前端 `frontend/`（React）从 M3 开始。
+产品采用前后端分离：后端 `backend/`（FastAPI，REST + OpenAPI），前端 `frontend/`（React SPA，只通过 `/api` 访问后端，类型由 OpenAPI 生成）。元数据库只支持 PostgreSQL（[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)）。
 
 ## 后端
 
 ```bash
 cd backend
 uv sync
-uv run python -m avelis.bootstrap migrate      # 迁移元数据库（AVELIS_META_BACKEND=pg|mysql）
+uv run python -m avelis.bootstrap migrate      # 迁移元数据库（PostgreSQL）
 uv run python -m avelis.bootstrap admin        # 创建管理员 admin（口令见 .env 的 AVELIS_DEMO_USER_PASSWORD）
 uv run uvicorn avelis.api.app:app --port 8000  # API；接口文档 http://127.0.0.1:8000/api/docs
 uv run python -m avelis.jobs                   # 后台 worker：采集任务、定时轮询
@@ -31,8 +32,22 @@ uv run pytest -m acceptance                    # 验收（会重置演示库与�
 
 - **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。
 - **角色**：管理员、维护者、复核者、查询者，加上业务域成员（负责人 / 维护者 / 可查询）。默认禁止自审，策略见 `/api/settings`。
-- **问数**：目前只有演示模型（规则匹配，答案中会标明），真实模型端到端未验证。
-- 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)。
+- **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。未指定模型时用演示模型（规则匹配，答案中会标明）。
+- **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
+- **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
+- 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)、[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)。
+
+## 前端
+
+```bash
+cd frontend
+pnpm install
+pnpm dev            # http://127.0.0.1:5173，/api 代理到 127.0.0.1:8000
+pnpm gen:api        # 后端接口变化后重新生成类型
+pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
+```
+
+样式全部来自 Avelis UI 设计系统：`design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`。
 
 ## 演示环境
 
@@ -40,7 +55,7 @@ uv run pytest -m acceptance                    # 验收（会重置演示库与�
 
 - **StarRocks 3.5.14**（单容器）：交易事实表 `shop.orders`、`shop.order_items`、`shop.refund_raw`，视图 `shop.daily_sales`，分析视图 `ads.*`。
 - **电商维表库 MySQL 8.4**：`shop_dim` 中的客户、商品、类目、区域。StarRocks 用两种方式访问：JDBC Catalog `shop_mysql`，以及旧式 `ENGINE=mysql` 外部表 `dim.ext_region`。
-- **Avelis 元数据库**：PostgreSQL 18 与 MySQL 8.4 各一个，产品两者都兼容。
+- **Avelis 元数据库**：PostgreSQL 18（也存放问数智能体的会话状态）。
 - **Valkey 8**（Redis 协议）：任务队列、缓存、采集锁。
 
 ### 前置条件
@@ -67,7 +82,6 @@ uv run scripts/demo.py down      # 停止；加 --volumes 同时删除数据
 | StarRocks FE HTTP | `127.0.0.1:18030` | — |
 | 电商维表库 MySQL | `127.0.0.1:13306`（容器网络内 `shop-mysql:3306`） | `avelis_collector`（只读元数据）、`sr_catalog`（JDBC Catalog）、`sr_legacy`（旧式外部表） |
 | 元数据库 PostgreSQL | `127.0.0.1:15432` | `avelis` |
-| 元数据库 MySQL | `127.0.0.1:13307` | `avelis` |
 | Valkey | `127.0.0.1:16379` | 口令认证 |
 
 所有口令由 `demo.py init-env` 随机生成并写入 `.env`（不进仓库，也不会打印）。演示网络使用固定子网 `10.240.17.0/24`，与本机网络冲突时在 `.env` 修改 `AVELIS_DEMO_SUBNET`。

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avelis.db import Base, IdType, JsonType, LongText, UTCDateTime, new_id, utcnow
@@ -238,7 +238,9 @@ class ParseResult(Base):
 
 class LineageEdge(Base):
     """列级血缘。relation 区分取值（value_*）与影响（filter / join_key / group_by）。
-    origin：parsed 解析、manual 人工、import 导入（M2）、model_candidate 模型候选（不计入已确认血缘）。"""
+    origin：parsed 数据库定义解析、manual 人工、import 导入代码解析、model_confirmed 模型候选经人工确认。
+    模型候选在确认前只存在于 candidate_edge，不进入本表。导入的边是“设计时血缘”，目标可以是未采集的表
+    （target_asset_id 为空，target_ref 记录写法），不参与字段推导指纹，不覆盖数据库观察到的定义。"""
 
     __tablename__ = "lineage_edge"
     __table_args__ = (
@@ -248,7 +250,9 @@ class LineageEdge(Base):
     id: Mapped[str] = pk()
     origin: Mapped[str] = mapped_column(String(32), nullable=False)
     parse_result_id: Mapped[str | None] = mapped_column(IdType)
-    target_asset_id: Mapped[str] = mapped_column(IdType, nullable=False)
+    target_asset_id: Mapped[str | None] = mapped_column(IdType)
+    target_ref: Mapped[str | None] = mapped_column(String(512))
+    import_job_id: Mapped[str | None] = mapped_column(IdType, index=True)
     target_asset_version_id: Mapped[str | None] = mapped_column(IdType)
     target_column: Mapped[str | None] = mapped_column(String(255))
     source_asset_id: Mapped[str | None] = mapped_column(IdType)
@@ -519,6 +523,18 @@ class AuditEvent(Base):
     detail: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
 
 
+class AskThread(Base):
+    """问数会话。LangGraph 的会话状态（含追问中断）存于 avelis_agent 模式，按 thread id 关联。"""
+
+    __tablename__ = "ask_thread"
+    id: Mapped[str] = pk()
+    user_id: Mapped[str] = fk("app_user.id")
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # active | waiting | closed
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
 class Answer(Base):
     """一次问数的完整依据：问题、意图、计划、SQL、指标版本、资产版本、执行结果。
     可追溯 ≠ 可复现：不保存数据快照。"""
@@ -527,6 +543,7 @@ class Answer(Base):
     __table_args__ = (Index("ix_answer_user", "asked_by", "asked_at"),)
     id: Mapped[str] = pk()
     question: Mapped[str] = mapped_column(Text, nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(IdType, index=True)
     asked_by: Mapped[str] = fk("app_user.id", index=False)
     asked_at: Mapped[datetime] = created()
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # answered | blocked | clarify | denied | error
@@ -544,6 +561,122 @@ class Answer(Base):
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     cache_hit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recheck_status: Mapped[str | None] = mapped_column(String(32))
+    steps: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    explanation: Mapped[str | None] = mapped_column(Text)
+    explanation_source: Mapped[str | None] = mapped_column(String(32))
+
+
+# --- 导入血缘（M2） ---------------------------------------------------------------
+
+class ImportJob(Base):
+    """一次导入。同一数据源下内容相同的导入幂等（返回原任务，不重复写边）。"""
+
+    __tablename__ = "import_job"
+    __table_args__ = (UniqueConstraint("datasource_id", "content_hash"),)
+    id: Mapped[str] = pk()
+    datasource_id: Mapped[str] = fk("datasource.id", index=False)
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python | shell | code
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    language: Mapped[str] = mapped_column(String(32), nullable=False)
+    dialect: Mapped[str] = mapped_column(String(32), nullable=False)
+    default_db: Mapped[str | None] = mapped_column(String(128))
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # needs_params | needs_review | done
+    params: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    stats: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    model_adapter: Mapped[str | None] = mapped_column(String(64))
+    model_payload: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    created_by: Mapped[str] = fk("app_user.id", index=False)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
+class ImportSource(Base):
+    __tablename__ = "import_source"
+    id: Mapped[str] = pk()
+    job_id: Mapped[str] = fk("import_job.id")
+    content: Mapped[str] = mapped_column(LongText, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ExtractedStatement(Base):
+    """从导入内容中抽出的一段：SQL 语句、内嵌 SQL，或确定性解析覆盖不到的代码片段。"""
+
+    __tablename__ = "extracted_statement"
+    id: Mapped[str] = pk()
+    job_id: Mapped[str] = fk("import_job.id")
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    method: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python_ast | shell | unrecognized
+    raw_text: Mapped[str] = mapped_column(LongText, nullable=False)
+    sql_text: Mapped[str | None] = mapped_column(LongText)
+    statement_type: Mapped[str | None] = mapped_column(String(32))
+    target_ref: Mapped[str | None] = mapped_column(String(512))
+    placeholders: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+
+
+class CandidateEdge(Base):
+    """导入产生的边。origin：parsed 确定性解析（直接写入血缘，可修改）、model 模型推断（必须人工处理）。
+    status：written 已写入、pending 待处理、accepted 已接受、modified 修改后接受、rejected 已驳回、superseded。"""
+
+    __tablename__ = "candidate_edge"
+    __table_args__ = (Index("ix_candidate_job_status", "job_id", "status"),)
+    id: Mapped[str] = pk()
+    job_id: Mapped[str] = fk("import_job.id", index=False)
+    statement_id: Mapped[str | None] = mapped_column(IdType)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_column: Mapped[str | None] = mapped_column(String(255))
+    target_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    target_column: Mapped[str | None] = mapped_column(String(255))
+    relation: Mapped[str] = mapped_column(String(32), nullable=False)
+    expression: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    evidence: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    lineage_edge_id: Mapped[str | None] = mapped_column(IdType)
+    modified: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(IdType)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created()
+
+
+# --- 模型配置 ---------------------------------------------------------------------
+
+class ModelProvider(Base):
+    """模型提供方。kind：openai_compatible（含 DeepSeek、通义等兼容接口）或 anthropic。
+    密钥只以密文存储，接口只返回掩码。models 为启用的模型白名单：[{id, enabled, tool_calling}]。"""
+
+    __tablename__ = "model_provider"
+    id: Mapped[str] = pk()
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    preset: Mapped[str | None] = mapped_column(String(32))
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    api_key_enc: Mapped[str | None] = mapped_column(Text)
+    api_key_hint: Mapped[str | None] = mapped_column(String(16))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    models: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    last_check: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    created_by: Mapped[str] = fk("app_user.id", index=False)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
+class ModelAssignment(Base):
+    """按用途指定模型：ask 问数理解（需要工具调用）、explain 结果解释、import 导入血缘推断。"""
+
+    __tablename__ = "model_assignment"
+    purpose: Mapped[str] = mapped_column(String(16), primary_key=True)
+    provider_id: Mapped[str] = fk("model_provider.id", index=False)
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    updated_by: Mapped[str] = fk("app_user.id", index=False)
+    updated_at: Mapped[datetime] = created()
 
 
 class AppSetting(Base):
