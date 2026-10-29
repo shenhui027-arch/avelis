@@ -27,6 +27,7 @@ from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent
 from avelis.collect.service import freshness_boundary
 from avelis.governance import access
+from avelis.governance.errors import GovernanceError
 from avelis.models import (
     AnalysisDataset,
     AnalysisRun,
@@ -158,6 +159,20 @@ class CoverageArgs(BaseModel):
     end_date: date | None = None
 
 
+class ValueRef(BaseModel):
+    name: str = Field(description="公式中的变量名（字母、数字、下划线）")
+    dataset: str = Field(description="数据集编号")
+    column: str = Field(description="列名")
+    match: dict[str, str] = Field(default_factory=dict, description="选行条件；选出多行时对该列求和")
+    exclude: dict[str, str] = Field(default_factory=dict, description="排除的行（如排除某门店后求其余合计）")
+
+
+class DeriveArgs(BaseModel):
+    label: str = Field(description="结果的名称，如 其余门店成交额合计")
+    values: list[ValueRef] = Field(min_length=1, max_length=8)
+    formula: str = Field(description="只用变量名、数字与 + - * / 括号，如 total - futian、a / b")
+
+
 class SegmentArgs(BaseModel):
     dataset: str
     segment: str = Field(description="分组列")
@@ -244,8 +259,9 @@ class AnalysisToolbox:
         self.budget.used_tools += 1
         try:
             output, dataset, status = run()
-        except (calc.CalcError, HTTPException, ValueError) as exc:
-            message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        except (calc.CalcError, HTTPException, ValueError, GovernanceError) as exc:
+            message = exc.detail if isinstance(exc, HTTPException) else (
+                exc.message if isinstance(exc, GovernanceError) else str(exc))
             self._step("tool", tool, args, "error", {"error": message}, started=started)
             return _json({"error": message})
         self._step("tool", tool, args, status, output if dataset is None else {"dataset": f"D{dataset.seq}"},
@@ -536,6 +552,37 @@ class AnalysisToolbox:
         return self._calc("coverage", {"dataset": dataset, "keys": keys, "period": period, "start_date": start_date,
                                        "end_date": end_date}, [dataset], fn)
 
+    def derive(self, label: str, values: list[ValueRef], formula: str) -> str:
+        """派生数字（差、和、比）：数值从数据集取，公式按白名单求值，结果成为新的数据集，可在报告中引用。"""
+        from avelis.governance.derived import evaluate, parse_formula
+
+        values = [_model(ValueRef, v) for v in values]
+
+        def fn():
+            names = parse_formula(formula)
+            given = {v.name for v in values}
+            missing = [n for n in names if n not in given]
+            if missing:
+                raise calc.CalcError(f"公式中的 {'、'.join(missing)} 没有对应的取值")
+            env, rows_out = {}, []
+            for v in values:
+                _, rows = self._rows(v.dataset)
+                picked = [r for r in rows if all(str(r.get(k)) == str(x) for k, x in v.match.items())
+                          and not (v.exclude and all(str(r.get(k)) == str(x) for k, x in v.exclude.items()))]
+                if not picked:
+                    raise calc.CalcError(f"{v.dataset} 中按 {v.match or '（无条件）'} 没有选出行")
+                if v.column not in picked[0]:
+                    raise calc.CalcError(f"{v.dataset} 没有列 {v.column}")
+                total = sum((calc.number(r[v.column]) or 0 for r in picked), calc.Decimal(0))
+                env[v.name] = total
+                rows_out.append([v.name, v.dataset, v.column, len(picked), total])
+            result = evaluate(formula, env)
+            rows_out.append([label, None, formula, None, result])
+            return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out,
+                    {"label": label, "formula": formula, "value": result})
+        return self._calc("derive", {"label": label, "values": [v.model_dump() for v in values], "formula": formula},
+                          sorted({v.dataset for v in values}), fn)
+
     def segment_compare(self, dataset: str, segment: str, measures: list[str]) -> str:
         def fn():
             _, rows = self._rows(dataset)
@@ -573,6 +620,7 @@ class AnalysisToolbox:
             t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
+            t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某门店后的合计、两期差额），结果可引用"),
             t(self.segment_compare, SegmentArgs, "按某列分组对比各度量"),
             t(self.outliers, OutlierArgs, "四分位距法找异常值"),
             t(self.submit_report, ReportArgs, "提交最终报告：结论分事实 / 计算 / 推断 / 建议，事实与计算必须引用数据集"),

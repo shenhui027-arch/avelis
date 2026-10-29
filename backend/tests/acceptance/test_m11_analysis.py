@@ -139,6 +139,16 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
         assert per_day == {"2026-09-27": 5, "2026-09-28": 2}
         cover = json.loads(box.coverage(dataset="D3", keys=["store"], start_date="2026-09-27", end_date="2026-09-28"))
         assert cover["summary"]["members_with_gaps"] == 3 and cover["summary"]["missing_total"] == 3
+        # 派生数字：排除某家店后的合计由工具从数据集中算出，可被引用、可核验
+        derived = json.loads(box.derive(label="9-27 其余门店订单", formula="total - one", values=[
+            {"name": "total", "dataset": "D3", "column": "门店订单数", "match": {"period": "2026-09-27"}},
+            {"name": "one", "dataset": "D3", "column": "门店订单数",
+             "match": {"period": "2026-09-27", "store": daily[0]["store"]}}]))
+        day = [r for r in daily if r["period"] == "2026-09-27"]
+        assert Decimal(str(derived["summary"]["value"])) == sum(Decimal(str(r["门店订单数"])) for r in day) - Decimal(
+            str(next(r for r in day if r["store"] == daily[0]["store"])["门店订单数"]))
+        assert "error" in json.loads(box.derive(label="x", formula="__import__('os')", values=[
+            {"name": "a", "dataset": "D3", "column": "门店订单数"}]))
         # 同一天按订单为主表的口径不缺：数据缺口来自客流表（靠血缘定位）
         lineage = json.loads(box.lineage(qualified="default_catalog.ec_dw.dws_store_daily"))
         sources = {e["source"] for e in lineage["edges"]}
@@ -259,7 +269,9 @@ def assert_grounded(run: dict) -> None:
     checks = [c for c in run["verification"]["claims"] if c["type"] in ("fact", "calc")]
     assert checks, run["report"]
     bad = [c for c in checks if c["status"] == "unverified"]
-    assert len(bad) <= len(checks) * 0.2, run["verification"]
+    claims = run["report"]["claims"]
+    assert len(bad) <= len(checks) * 0.2, [(claims[c["index"]]["text"], [n["text"] for n in c["numbers"]
+                                                                       if not n["verified"]]) for c in bad]
     for c in bad:
         assert c["numbers"] and any(not n["verified"] for n in c["numbers"]) or c["missing_refs"], c
 

@@ -81,9 +81,10 @@ def test_segment_describe_and_outliers():
 def test_extract_numbers_skips_dates_and_ordinals():
     text = "2026 年 9 月华南门店成交额 196.94 万，比 8 月下降 7,625.24（-3.7%），前 3 名中第 1 是 D2 的深圳"
     assert [n["text"] for n in extract_numbers(text)] == ["196.94万", "7,625.24", "-3.7%"]
-    assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64，9/1–9/9 共 9 天")] == ["15,418.64", "9"]
+    assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64，9/1–9/9 共 9 天")] == ["15,418.64"]
     assert [n["text"] for n in extract_numbers("2026-08-01~08-09 订单 168")] == ["168"]
-    assert [n["text"] for n in extract_numbers("8-9 月共 61 天")] == ["61"]
+    assert [n["text"] for n in extract_numbers("8-9 月共 61 天")] == ["61"]  # 超过 31 的天数是数据，要核验
+    assert [n["text"] for n in extract_numbers("9 月少 1 天，8 月 31 天，其余 9 家门店")] == ["9"]
     # 数字紧贴汉字（\w 在 Unicode 下包括汉字，曾导致只取到千分位逗号后面的部分）
     assert [n["text"] for n in extract_numbers("9月订单数10,998单，减少1,899单，变化率-14.72%")] ==         ["10,998", "1,899", "-14.72%"]
 

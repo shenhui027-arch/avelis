@@ -309,7 +309,9 @@ def test_05_query_timeout(stack, admin: Api, monkeypatch):
         started = time.monotonic()
         answer = wang.post("/api/ask", {"question": "2026-09-01 至 2026-09-30 慢视图退款额"})
         assert answer["status"] == "error" and answer["error_code"] == "db_timeout", answer
-        assert "5024" in answer["message"] and answer["result"] == {} and not answer["cache_hit"]
+        # StarRocks 的超时有两种报告：执行中 5024，或调度阶段 1064 “Query reached its timeout”；都如实保留原文
+        assert ("5024" in answer["message"] or "reached its timeout" in answer["message"])
+        assert answer["result"] == {} and not answer["cache_hit"]
         assert answer["sql"] and answer["executed_at"]
         assert time.monotonic() - started < 15
     sr(stack, "DROP VIEW shop.m4_slow_refunds")
