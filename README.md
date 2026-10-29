@@ -53,12 +53,12 @@ uv run pytest -m acceptance                    # 验收（会重置演示库与�
 uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API 建好用户、业务域、数据源，完成首次采集
 ```
 
-- **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。
+- **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。登录失败按“账号 + 来源地址”限流锁定（`AVELIS_LOGIN_MAX_FAILURES` / `AVELIS_LOGIN_LOCK_MINUTES`）；管理员创建或重置口令的账号首次登录必须修改；改口令、重置、停用后旧会话立即失效。
 - **角色**：管理员、维护者、复核者、查询者，加上业务域成员（负责人 / 维护者 / 可查询）。默认禁止自审，策略见 `/api/settings`。
 - **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。未指定模型时用演示模型（规则匹配，答案中会标明）。
 - **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
-- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记 StarRocks（采集、视图血缘、问数）与 MySQL（采集，作为外部表的追溯目标）。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
+- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记 StarRocks（采集、视图血缘、问数）、PostgreSQL（采集、视图血缘、问数）与 MySQL（采集，作为外部表的追溯目标）。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
 - **执行前核对**：每次问数执行前（含命中缓存）核对来源的列与视图定义是否与上次采集一致；不一致就拦截并排队采集（`AVELIS_ASK_LIVE_CHECK`，默认开启）。
 - **权限**：资产按业务域可见；未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
 - **worker**：`AVELIS_WORKER_SCHEDULE_SECONDS`（轮询，默认 60）、`AVELIS_WORKER_STALE_SECONDS`（未入队任务的扫描阈值，默认 30）、`AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS`（运行超时记为失败，默认 3600）。

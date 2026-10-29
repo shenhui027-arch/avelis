@@ -38,7 +38,7 @@ export function ChangePassword() {
   }
 
   return (
-    <div className="av-auth">
+    <div className="av-root av-auth">
       <form className="av-auth__card" onSubmit={submit}>
         <div className="av-auth__brand"><LogoMark size={28} /><span>Avelis</span></div>
         <div className="av-auth__head">
