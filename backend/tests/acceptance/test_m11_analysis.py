@@ -46,6 +46,13 @@ def toolbox(username: str, budget=None):
     session.flush()
     box = AnalysisToolbox(session, user, run, service.visible_catalog(session, user, with_values=False),
                           budget or Budget())
+    original_exit = scope.__exit__
+
+    def close(*exc):  # 不经过模型的验收运行：结束时标为已停止，不在分析记录里一直显示“进行中”
+        if run.status == "running":
+            run.status = "stopped"
+        return original_exit(*exc)
+    scope.__exit__ = close
     return scope, session, run, box
 
 

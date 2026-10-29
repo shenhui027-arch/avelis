@@ -22,7 +22,7 @@ const TOOL_LABEL: Record<string, string> = {
   submit_plan: "计划", search_metrics: "检索口径", describe_metric: "口径详情", search_assets: "检索资产",
   describe_asset: "资产详情", lineage: "血缘", changes: "变更记录", data_health: "数据健康", query_metric: "受治理查询",
   contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算", correlate: "相关性",
-  segment_compare: "分组对比", outliers: "异常值", submit_report: "提交报告",
+  segment_compare: "分组对比", outliers: "异常值", coverage: "覆盖度", submit_report: "提交报告",
 };
 const EXAMPLES = [
   "为什么 2026 年 9 月华南区域门店成交额比 8 月低？",
@@ -287,7 +287,9 @@ function DatasetChart({ d }: { d: Dataset }) {
   const numCols = cols.map((_, i) => i).filter((i) => cols[i] !== "period" && d.rows.some((r) => numeric(r[i]) !== null)
     && d.rows.every((r) => r[i] == null || numeric(r[i]) !== null));
   if (!d.rows.length || !numCols.length) return null;
-  const value = numCols.find((i) => cols[i] === "change" || cols[i] === "contribution") ?? numCols[numCols.length - 1];
+  // 优先画变化额（“·变化”、change、contribution），其次画第一个数值列；不画变化率
+  const value = numCols.find((i) => cols[i].endsWith("·变化") || cols[i] === "change" || cols[i] === "contribution")
+    ?? numCols.find((i) => !cols[i].endsWith("变化率") && cols[i] !== "change_rate") ?? numCols[0];
   if (cols[0] === "period" && d.rows.length > 2) {
     const series = new Map<string, { x: string; y: number }[]>();
     for (const r of d.rows) {

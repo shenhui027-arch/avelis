@@ -9,11 +9,11 @@ function fmt(n: number): string {
 }
 
 export function BarChart({ bars, label }: { bars: { label: string; value: number }[]; label: string }) {
-  const width = 320, row = 22, left = 112, top = 18;
+  const width = 340, row = 22, left = 84, right = 56, top = 18;
   const height = top + bars.length * row + 8;
   const max = Math.max(1e-9, ...bars.map((b) => Math.abs(b.value)));
   const hasNeg = bars.some((b) => b.value < 0);
-  const plot = width - left - 8;
+  const plot = width - left - right;
   const zero = left + (hasNeg ? plot / 2 : 0);
   const scale = (hasNeg ? plot / 2 : plot) / max;
   return (
@@ -25,11 +25,10 @@ export function BarChart({ bars, label }: { bars: { label: string; value: number
         const y = top + i * row;
         return (
           <g key={i}>
-            <text x={left - 6} y={y + 13} textAnchor="end" className="av-chart__tick">{b.label.slice(0, 10)}</text>
+            <text x={left - 6} y={y + 13} textAnchor="end" className="av-chart__tick">{b.label.slice(0, 8)}</text>
             <rect x={b.value < 0 ? zero - w : zero} y={y + 3} width={Math.max(w, 1)} height={row - 8} rx={2}
               fill={b.value < 0 ? "var(--danger)" : "var(--accent)"} opacity={0.85} />
-            <text x={b.value < 0 ? zero - w - 4 : zero + w + 4} y={y + 13} textAnchor={b.value < 0 ? "end" : "start"}
-              className="av-chart__value">{fmt(b.value)}</text>
+            <text x={width - 2} y={y + 13} textAnchor="end" className="av-chart__value">{fmt(b.value)}</text>
           </g>
         );
       })}
