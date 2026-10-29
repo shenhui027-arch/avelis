@@ -35,7 +35,8 @@ import pymysql
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "deploy" / "demo"
-ENV_FILE = Path(os.environ.get("AVELIS_ENV_FILE", ROOT / ".env"))
+# AVELIS_ENV_FILE 的相对路径按仓库根目录解析（与后端 config.env_file 一致），子进程在任何工作目录下读到同一个文件
+ENV_FILE = ROOT / Path(os.environ.get("AVELIS_ENV_FILE") or ".env")
 ENV_EXAMPLE = ROOT / ".env.example"
 STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"
@@ -334,11 +335,13 @@ def _shop_mysql_ready(env: dict[str, str]) -> bool:
     return ready
 
 
-def up(skip_seed: bool, engines: bool = False) -> None:
+def up(skip_seed: bool, engines: bool = False, no_recreate: bool = False) -> None:
+    """no_recreate：容器已存在时不重建。演示容器由多个检出目录共用（compose 项目 avelis-demo），
+    从另一个检出目录（如 git worktree）执行 up 时，挂载路径不同会让 Docker 重建正在被别人使用的容器。"""
     init_env()
     fetch_driver()
     env = load_env()
-    compose("up", "-d", "--remove-orphans", engines=engines)
+    compose("up", "-d", *(["--no-recreate"] if no_recreate else ["--remove-orphans"]), engines=engines)
     log("等待服务就绪 ...")
     wait_for("元数据库 PostgreSQL", lambda: _meta_pg_ready(env), 120)
     wait_for("Valkey（Redis 协议）", lambda: _valkey_ready(env), 60)
@@ -794,6 +797,8 @@ def main() -> None:
     p_up = sub.add_parser("up")
     p_up.add_argument("--skip-seed", action="store_true")
     p_up.add_argument("--engines", action="store_true", help="同时启动更多引擎的演示库（ClickHouse 等）")
+    p_up.add_argument("--no-recreate", action="store_true",
+                      help="容器已存在时不重建（从 worktree 等其他检出目录运行时使用，避免打断共用的演示容器）")
     sub.add_parser("seed")
     sub.add_parser("seed-engines")
     sub.add_parser("check")
@@ -807,7 +812,7 @@ def main() -> None:
     elif args.cmd == "fetch-driver":
         fetch_driver()
     elif args.cmd == "up":
-        up(args.skip_seed, args.engines)
+        up(args.skip_seed, args.engines, args.no_recreate)
     elif args.cmd == "seed-engines":
         env = load_env()
         seed_engines(env)
