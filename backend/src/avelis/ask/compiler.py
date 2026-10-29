@@ -41,8 +41,9 @@ class ValidationFailed(Exception):
 
 
 def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[str, Any]], intent, max_rows: int,
-                         time_type: str, dialect: SqlDialect | str) -> CompiledQuery:
-    """dialect：执行该查询的数据源的解析方言（SQLGlot 方言名 + 表名是否写 Catalog 段）。"""
+                         time_type: str, dialect: SqlDialect | str, reserved_names: tuple[str, ...] = ()) -> CompiledQuery:
+    """dialect：执行该查询的数据源的解析方言（SQLGlot 方言名 + 表名是否写 Catalog 段）。
+    reserved_names：结果中还会出现的列名（如指标显示名），时间段列避开它们。"""
     sql_dialect = _dialect(dialect)
     dialect = sql_dialect.name
     names = set(aliases)
@@ -61,7 +62,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         g_alias, g_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
         period = exp.TimeToStr(this=exp.column(g_col, table=g_alias),
                                format=exp.Literal.string("%Y-%m-%d" if time_grain == "day" else "%Y-%m"))
-        select = select.select(exp.alias_(period, period_column(intent.group_by)))
+        select = select.select(exp.alias_(period, period_column(intent.group_by, reserved_names)))
         group_cols.append(period.copy())
     for name in intent.group_by:
         select = select.select(exp.alias_(col(dims[name]["column"]), name))
@@ -117,12 +118,14 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         else:
             select = select.order_by(*group_cols)
     limit = getattr(intent, "limit", None)
-    select = select.limit(min(limit, max_rows) if limit else max_rows)
+    # 不限行数时多取 1 行：连接器截到 max_rows 并据此标记截断，“刚好超出上限”也能识别
+    select = select.limit(min(limit, max_rows) if limit else max_rows + 1)
     if sql_dialect.national_strings:
         select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)
     tables = sorted({_qualified(a) for a in aliases.values()})
-    return CompiledQuery(sql=sql, tables=tables, columns=[*([period_column(intent.group_by)] if time_grain else []), *intent.group_by, "value"],
+    return CompiledQuery(sql=sql, tables=tables, columns=[*([period_column(intent.group_by, reserved_names)] if time_grain else []), *intent.group_by,
+                                                  "value"],
                          plan={"base": _qualified(base), "joins": [
                              {"alias": s["alias"], "path": s["path"].code, "pre_aggregate": s["pre_aggregate"]}
                              for s in steps], "group_by": intent.group_by, "time_grain": time_grain,
@@ -185,7 +188,7 @@ def validate_sql(sql: str, *, dialect: SqlDialect | str, allowed_tables: set[str
     else:
         count = limit.args.get("count") if isinstance(limit, exp.Fetch) else limit.expression
         try:
-            if int(count.name) > max_rows:
+            if int(count.name) > max_rows + 1:  # 多出的 1 行只用于判断截断，不返回
                 reasons.append(f"LIMIT 超过上限 {max_rows}")
         except (ValueError, AttributeError):
             reasons.append("LIMIT 不是常数")

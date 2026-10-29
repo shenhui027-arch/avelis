@@ -160,7 +160,7 @@ def _num(v: Any) -> float | None:
 
 
 def _chart(d: dict, font: str):
-    """为数据集选一张图：首列为 period 时画折线（趋势），否则对第一个数值列画柱状（贡献 / 对比）。"""
+    """为数据集选一张图：首列是保存的时间段列（time_column）时画折线（趋势），否则对第一个数值列画柱状（贡献 / 对比）。"""
     from reportlab.graphics.charts.barcharts import HorizontalBarChart
     from reportlab.graphics.charts.lineplots import LinePlot
     from reportlab.graphics.shapes import Drawing, String
@@ -169,14 +169,15 @@ def _chart(d: dict, font: str):
     cols, rows = d["columns"], d["rows"]
     if not rows or len(cols) < 2:
         return None
+    trend = bool(d.get("time_column")) and cols[0] == d["time_column"]
     numeric = [i for i in range(len(cols)) if all(_num(r[i]) is not None for r in rows if r[i] is not None)
-               and any(_num(r[i]) is not None for r in rows) and cols[i] not in ("period",)]
+               and any(_num(r[i]) is not None for r in rows) and not (trend and i == 0)]
     if not numeric:
         return None
     value = next((i for i in numeric if cols[i].endswith("·变化") or cols[i] in ("change", "contribution")),
                  next((i for i in numeric if not cols[i].endswith("变化率") and cols[i] != "change_rate"), numeric[0]))
     drawing = Drawing(460, 200)
-    if cols[0] == "period" and len(rows) > 2:
+    if trend and len(rows) > 2:
         series: dict[str, list[tuple[float, float]]] = {}
         periods = sorted({str(r[0]) for r in rows})
         index = {p: i for i, p in enumerate(periods)}

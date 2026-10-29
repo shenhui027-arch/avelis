@@ -66,13 +66,15 @@ class Intent(BaseModel):
         return len(self.metric_codes) <= 1 and self.compare is None
 
 
-def period_column(group_by: list[str]) -> str:
-    """按时间分组时时间段列的名字：默认 period；与业务维度重名时换一个不冲突的名字（不覆盖维度，也不丢日期）。"""
+def period_column(group_by: list[str], reserved: list[str] | tuple[str, ...] = ()) -> str:
+    """按时间分组时时间段列的名字：默认 period；与业务维度或指标的显示列名（reserved）重名时换一个不冲突的名字
+    （不覆盖维度或指标值，也不丢日期）。"""
+    taken = {*group_by, *reserved}
     for name in ("period", "时间段", "period_time"):
-        if name not in group_by:
+        if name not in taken:
             return name
     i = 1
-    while f"period_{i}" in group_by:
+    while f"period_{i}" in taken:
         i += 1
     return f"period_{i}"
 

@@ -4129,6 +4129,17 @@
       },
       "type": "array",
       "title": "Metric Version Ids"
+     },
+     "time_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Column"
      }
     },
     "additionalProperties": true,

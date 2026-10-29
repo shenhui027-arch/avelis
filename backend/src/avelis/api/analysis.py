@@ -16,7 +16,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
 from avelis.governance.errors import NotFound
-from avelis.models import AnalysisDataset, AnalysisRun, AnalysisTask, Notification, User
+from avelis.models import AnalysisDataset, AnalysisRun, AnalysisTask, Job, Notification, User
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -59,13 +59,15 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
     """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
     analysis.warm_up()
     run = analysis.create_run(session, user, body.question, _window(body.window))
-    if wait:
-        analysis.execute(session, run)
-    else:  # 运行与 Job 同一事务提交，提交后再唤醒 worker：不会留下没有 Job 的排队分析
-        job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
-        session.commit()
+    # 运行与 Job 同一事务提交，之后才执行或唤醒 worker：不会留下没有 Job、恢复器回收不到的分析
+    job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
+    session.commit()
+    if wait:  # 在本进程内领取并执行同一个 Job；进程中断时由恢复器按 Job 回收
+        jobs.run_job(job_id)
+        session.expire_all()
+    else:
         jobs._wake(job_id)
-    return analysis.run_view(session, run)
+    return analysis.run_view(session, session.get(AnalysisRun, run.id))
 
 
 @router.get("/analysis/runs", response_model=list[S.AnalysisRunOut])
@@ -155,12 +157,16 @@ def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user)
 def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
+    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
     session.commit()
-    out = analysis.run_task(task.id, trigger="manual")
+    jobs.run_job(job_id)  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
-    if out.get("analysis_run_id") is None:
-        raise HTTPException(409, f"任务已暂停：{session.get(AnalysisTask, task.id).paused_reason or out.get('reason')}")
-    return analysis.run_view(session, session.get(AnalysisRun, out["analysis_run_id"]))
+    job = session.get(Job, job_id)
+    run_id = (job.result or {}).get("analysis_run_id")
+    if run_id is None:
+        reason = session.get(AnalysisTask, task.id).paused_reason or (job.result or {}).get("reason") or job.error
+        raise HTTPException(409, f"任务已暂停：{reason}")
+    return analysis.run_view(session, session.get(AnalysisRun, run_id))
 
 
 @router.get("/analysis/tasks/{task_id}/runs", response_model=list[S.AnalysisRunOut])
@@ -180,7 +186,9 @@ def list_notifications(unread: bool = False, user: User = Depends(current_user),
         stmt = stmt.where(Notification.read_at.is_(None))
     return [{"id": n.id, "kind": n.kind, "title": n.title, "body": n.body, "link": n.link,
              "read_at": n.read_at.isoformat() if n.read_at else None, "created_at": n.created_at.isoformat()}
-            for n in session.scalars(stmt.order_by(Notification.created_at.desc()).limit(100))]
+            # 未读优先：未读数与列表里能看到、能标为已读的条目一致
+            for n in session.scalars(stmt.order_by(Notification.read_at.is_(None).desc(), Notification.created_at.desc())
+                                     .limit(100))]
 
 
 @router.post("/notifications/{notification_id}/read", status_code=204)

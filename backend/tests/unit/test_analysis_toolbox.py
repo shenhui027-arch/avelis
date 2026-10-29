@@ -24,6 +24,11 @@ class MemorySession:
         self.store = {(type(o), o.id): o for o in objects}
         self.added: list = []
         self.scalars_value = list(scalars or [])
+        self.identity_map: dict = {}
+        self.expired: list = []
+
+    def expire(self, obj):
+        self.expired.append(obj)
 
     def add(self, obj):
         self.added.append(obj)
@@ -53,6 +58,16 @@ def make_box(*, budget=None, catalog=None, objects=(), scalars=None, monkeypatch
     session.store[(User, "u1")] = user
     catalog = catalog or ask_service.Catalog([], {})
     monkeypatch.setattr(ask_service, "visible_catalog", lambda s, u, with_values: catalog)
+    monkeypatch.setattr(tools.access, "roles_of", lambda s, u: {"analyst"})
+    monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: {"dA"})
+
+    def visible(s, code, allowed):  # 与 ask.service.visible_metric 同一规则：域不可见时只返回指标
+        if code not in catalog.versions:
+            return None, None
+        m, v = catalog.versions[code]
+        return (m, v) if m.domain_id in allowed else (m, None)
+
+    monkeypatch.setattr(ask_service, "visible_metric", visible)
     run = SimpleNamespace(id="r1", model_adapter="test", verification={})
     return AnalysisToolbox(session, user, run, catalog, budget or Budget())
 
@@ -231,7 +246,7 @@ def test_data_health_checks_component_domain_and_source_closure(monkeypatch):
     box = make_box(catalog=_derived_catalog(), objects=_health_objects(), scalars=runs, monkeypatch=monkeypatch)
     visible = {"a1": True, "a2": True}
     closure = {"a1": SimpleNamespace(id="a1", domain_id="dB"), "a2": SimpleNamespace(id="a2", domain_id="dX")}
-    monkeypatch.setattr(tools.service, "upstream_closure", lambda s, ids: closure)
+    monkeypatch.setattr(tools.service, "version_sources", lambda s, v: closure)
     monkeypatch.setattr(tools.access, "can_read_asset", lambda s, u, a, allowed=None: visible[a.id])
     monkeypatch.setattr(tools, "freshness_boundary", lambda s, ds: {"last_collected_at": None})
     args = {"metric_code": "ec_d", "start_date": "2026-09-01", "end_date": "2026-09-30"}
@@ -259,8 +274,8 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     catalog = ask_service.Catalog([], {"sales": (metric, version)})
     box = make_box(catalog=catalog, scalars=[SimpleNamespace(id="cs1")], monkeypatch=monkeypatch)
     monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: {"dA"})
-    monkeypatch.setattr(tools.service, "upstream_closure",
-                        lambda s, ids: {"a1": SimpleNamespace(id="a1"), "a0": SimpleNamespace(id="a0")})
+    monkeypatch.setattr(tools.service, "version_sources",
+                        lambda s, v: {"a1": SimpleNamespace(id="a1"), "a0": SimpleNamespace(id="a0")})
     monkeypatch.setattr(tools.access, "can_read_asset", lambda s, u, a, allowed=None: True)
     monkeypatch.setattr(governance, "change_set_view", lambda s, cs, full, user: {
         "created_at": "2026-09-02T00:00:00", "events": [
@@ -316,3 +331,52 @@ def test_cron_leap_day_is_valid_and_impossible_date_is_rejected():
     with pytest.raises(Invalid, match="不会触发"):
         service.next_run("0 9 30 2 *", after)
     assert date(2028, 2, 29).weekday() == 1
+
+
+# --- 复核补充 --------------------------------------------------------------------------
+
+def test_authorization_expires_loaded_objects_and_skips_full_catalog(monkeypatch):
+    """纯计算工具只核对账号与角色，不建全量口径目录；授权前让会话里的口径对象过期（复核：N+1 与旧状态）。"""
+    box = make_box(monkeypatch=monkeypatch)
+    monkeypatch.setattr(ask_service, "visible_catalog", lambda *a, **k: pytest.fail("不应重建全量口径目录"))
+    stale = Metric(id="mX", code="x", name="x", domain_id="dA", owner_id="o", created_by="o")
+    box.session.identity_map[("Metric", "mX")] = stale
+    governed(box, ["v"], [[1], [2]])
+    out = json.loads(box.dispatch("describe", {"dataset": "D1", "column": "v"}))
+    assert out["summary"]["count"] == 2 and stale in box.session.expired
+
+
+def test_invisible_asset_in_describe_asset_and_lineage_counts_as_denial(monkeypatch):
+    hidden = SimpleNamespace(id="a9", catalog_name="c", db_name="d", name="secret", domain_id="dZ")
+    box = make_box(scalars=[hidden], monkeypatch=monkeypatch)
+    monkeypatch.setattr(tools.access, "can_read_asset", lambda s, u, a, allowed=None: False)
+    for name in ("describe_asset", "lineage"):
+        out = json.loads(box.dispatch(name, {"qualified": "c.d.secret"}))
+        assert out["status"] == "denied", name
+    assert [d["asset"] for d in box.denials] == ["c.d.secret", "c.d.secret"]
+    box.session.scalars_value = []
+    assert "不存在" in json.loads(box.dispatch("describe_asset", {"qualified": "c.d.none"}))["error"]
+    assert len(box.denials) == 2  # 不存在只是错误，不是权限拒绝
+
+
+def test_lmdi_treats_only_computation_precision_as_rounding():
+    """因子都不变、总量从 1000 变成 1000.02：0.02 来自输入，不能分给最后一个因子（复核 P3）。"""
+    from decimal import Decimal
+
+    from avelis.analysis import calc
+
+    out = calc.factor_decompose(("1000", "1000.02"), {"订单数": (1000, 1000), "客单价": (1, 1)})
+    assert {f["factor"]: f["contribution"] for f in out["factors"]} == {
+        "订单数": Decimal("0.00"), "客单价": Decimal("0.00"), "未解释差额": Decimal("0.02")}
+    exact = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
+    assert exact["unexplained"] == 0 and sum(f["contribution"] for f in exact["factors"]) == Decimal(-600)
+
+
+def test_pdf_chart_uses_saved_time_column():
+    from reportlab.graphics.charts.lineplots import LinePlot
+
+    rows = [[f"2026-09-0{i}", "A", i * 10] for i in range(1, 6)]
+    d = {"columns": ["时间段", "period", "成交额"], "rows": rows, "time_column": "时间段"}
+    font, _ = export.pdf_font()
+    assert any(isinstance(c, LinePlot) for c in export._chart(d, font).contents)
+    assert not any(isinstance(c, LinePlot) for c in export._chart({**d, "time_column": None}, font).contents)

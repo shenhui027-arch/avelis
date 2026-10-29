@@ -10,7 +10,7 @@
 - 测试：
   - 验收 [backend/tests/acceptance/test_m11_analysis.py](../backend/tests/acceptance/test_m11_analysis.py)，共 9 项：确定性 7 项，真实 DeepSeek 2 项；
   - 单元测试 [backend/tests/unit/test_analysis_calc.py](../backend/tests/unit/test_analysis_calc.py)（计算工具、数字核验、覆盖度）与 [test_analysis_toolbox.py](../backend/tests/unit/test_analysis_toolbox.py)（统一分发计数与截止时间、截断、日历期间、data_health / changes 授权与范围、引用编号、导出转义、cron）；
-  - 数据库测试 [backend/tests/db](../backend/tests/db)：在独立的 `avelis_m8_test` 库上运行，不触碰共用元数据库。覆盖执行中撤权、运行与 Job 的一致性与恢复、暂停任务的定时 Job、执行中权限拒绝暂停任务、模型外发策略部分更新，以及 0006 在有数据的库上升级 → 降级 → 再升级。
+  - 数据库测试 [backend/tests/db](../backend/tests/db)：在独立的 `avelis_m8_test` 库上运行，不触碰共用元数据库。覆盖执行中撤权、同步执行中断后按 Job 回收、旧 worker 迟到（不能写入、不能复活）、运行已是终态时按运行修正 Job 并补发通知、暂停任务的定时 Job、执行中权限拒绝（含随后异常）暂停任务、通知未读优先、模型外发策略部分更新，以及 0006 在有数据的库上升级 → 降级 → 再升级。
 
 ## 合成电商数据集
 

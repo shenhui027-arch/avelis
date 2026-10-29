@@ -169,10 +169,18 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
     assert check("日均 2400–3000 元/天")["status"] == "verified"
     assert check("约 8-9 万元")["numbers"] == [{"text": "8万", "verified": True}, {"text": "9万", "verified": False}]
     assert check("成交额壹佰万元")["numbers"] == [{"text": "壹佰万", "verified": False}]
-    assert check("共三家门店")["status"] == "verified"  # 中文小写数字按值核验（行数 3）
-    assert check("共四家门店")["status"] == "unverified"
-    assert check("百分之十二的订单")["status"] == "unverified"
-    assert check("统一口径，结果一致")["status"] == "verified"  # 不是数量
+    # 中文数字表示的数量不能可靠解析：一律未核实（系统提示要求用阿拉伯数字）
+    for text in ("共三家门店", "营收三点五万元", "共五个区域", "百分之十二的订单"):
+        assert check(text)["status"] == "unverified", text
+    assert check("营收三点五万元")["numbers"] == [{"text": "三点五万", "verified": False}]  # 不会被当成 5 万
+    assert check("共 3 家门店")["status"] == "verified"
+    assert check("统一口径，结果一致，是原因之一，持续五个月")["status"] == "verified"  # 不是数量
+    # ASCII 连字符的金额区间不是日期：两端都核验（复核反例：曾被当成 2400-32 删掉，只剩 0）
+    zero = {"D1": {"rows": [{"v": "0"}]}}
+    assert verify_report([{"type": "fact", "text": "利润在 2400-3200 元之间", "refs": ["D1"]}], zero)["ok"] is False
+    assert check("利润在 2400-3000 元之间")["status"] == "verified"
+    assert [n["text"] for n in extract_numbers("2026-09-15 与 2026-09 各 100，2000-12 元")] == ["100", "2000", "12"]
+    assert [n["text"] for n in extract_numbers("13-40 单，45 日")] == ["13", "40", "45"]  # 不合法的月日照常核验
 
 
 def test_verify_checks_title_summary_and_unexplained():

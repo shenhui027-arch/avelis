@@ -59,6 +59,7 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    - inference 与 recommendation 写 premise；recommendation 写 validation；
    - 按影响大小排列原因，unexplained 写仍未解释的部分；
    - 不在 fact / calc 中写“约 X”的估计值或看出来的区间：需要区间、均值时用 describe 取最小、最大、均值；
+   - 所有数量一律用阿拉伯数字（“3 家门店”，不写“三家门店”“三点五万”），中文数字无法核验；
    - 变化值保留正负号（-220），或写成“下降 / 减少 220”；方向与数据集不一致会被标为未核实；
    - title、summary、unexplained 中的数字同样核验：只写事实 / 计算类结论所引用数据集中的数字；
    - 数据集标有 truncated 时不是全集，不要据此写合计、行数或全体结论。
@@ -168,7 +169,7 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
     fields = {} if report.get("incomplete") else {
         "title": report.get("title"), "summary": report.get("summary"), "unexplained": report.get("unexplained")}
     result = verify_report(report.get("claims", []), datasets, fields)
-    toolbox.run.verification = {**result, "revised": bool(state.get("revised"))}
+    toolbox.verification = {**result, "revised": bool(state.get("revised"))}
     if (not result["ok"] and not state.get("revised") and not report.get("incomplete")
             and not toolbox.stopped and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS):
         return {"phase": "revise"}
@@ -179,7 +180,7 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
     toolbox, _ = _ctx(config)
     claims = toolbox.report.get("claims", [])
     lines = []
-    for c in toolbox.run.verification["claims"]:
+    for c in toolbox.verification["claims"]:
         if c["status"] == "unverified":
             bad = [n["text"] for n in c["numbers"] if not n["verified"]]
             extra = f"；引用了不存在的数据集 {'、'.join(c['missing_refs'])}" if c.get("missing_refs") else ""
@@ -187,7 +188,7 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
                 extra += "；没有引用数据集（事实与计算类结论必须引用）"
             lines.append(f"- 第 {c['index'] + 1} 条（{claims[c['index']]['type']}）：{'、'.join(bad) or '—'}{extra}")
     names = {"title": "标题", "summary": "摘要", "unexplained": "未解释"}
-    for f in toolbox.run.verification.get("fields", []):
+    for f in toolbox.verification.get("fields", []):
         if f["status"] == "unverified":
             bad = [n["text"] for n in f["numbers"] if not n["verified"]]
             lines.append(f"- {names.get(f['field'], f['field'])}：{'、'.join(bad)}（须来自事实 / 计算类结论引用的数据集）")
