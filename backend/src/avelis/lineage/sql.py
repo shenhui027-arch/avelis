@@ -23,6 +23,7 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import OptimizeError, ParseError
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope, traverse_scope
 from sqlglot.schema import MappingSchema
@@ -45,6 +46,8 @@ class SqlDialect:
     catalog_in_sql: bool = True
     # 生成的 SQL 中字符串字面量写成 N'...'（SQL Server：NVARCHAR 列在非 UTF-8 排序规则下才能正确比较中文）
     national_strings: bool = False
+    # DATE 类型带时间部分（Oracle）：按日期过滤时用 [当日 0 点, 次日 0 点) 区间，而不是 BETWEEN 两个日期
+    date_has_time: bool = False
 
     def prepare(self, expression: exp.Expression) -> exp.Expression:
         return self.normalize(expression) if self.normalize else expression
@@ -132,6 +135,14 @@ def strip_alias_prefixes(expression: exp.Expression) -> exp.Expression:
                 column.set("db", None)
                 column.set("catalog", None)
     return expression
+
+
+def fold_identifiers(dialect_name: str) -> Callable[[exp.Expression], exp.Expression]:
+    """供引擎选用的规整函数：按该引擎的规则折叠未加引号的标识符（Oracle 存为大写）。
+    视图原文里写的 store.sales 在数据字典中是 STORE.SALES，表名与列名都要先折叠，才能对上已采集的资产。"""
+    def fold(expression: exp.Expression) -> exp.Expression:
+        return normalize_identifiers(expression, dialect=dialect_name)
+    return fold
 
 
 def default_tables(expression: exp.Expression, default_catalog: str, default_db: str | None) -> list[str]:

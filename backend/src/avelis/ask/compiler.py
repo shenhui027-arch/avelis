@@ -85,7 +85,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     t_alias, t_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
     time_column = exp.column(t_col, table=t_alias)
     conditions: list[exp.Expression] = []
-    if time_type.startswith("date") and not time_type.startswith("datetime"):
+    if time_type.startswith("date") and not time_type.startswith("datetime") and not sql_dialect.date_has_time:
         conditions.append(exp.Between(this=time_column, low=literal(intent.start_date), high=literal(intent.end_date)))
     else:
         conditions.append(exp.GTE(this=time_column, expression=literal(f"{intent.start_date} 00:00:00")))
@@ -171,12 +171,13 @@ def validate_sql(sql: str, *, dialect: SqlDialect | str, allowed_tables: set[str
     for node in root.walk():
         if isinstance(node, FORBIDDEN):
             reasons.append(f"包含禁止的语法 {node.key.upper()}")
-    limit = root.args.get("limit")
+    limit = root.args.get("limit")  # LIMIT n、TOP n 或 FETCH FIRST n ROWS ONLY（Oracle）
     if limit is None:
         reasons.append("缺少 LIMIT")
     else:
+        count = limit.args.get("count") if isinstance(limit, exp.Fetch) else limit.expression
         try:
-            if int(limit.expression.name) > max_rows:
+            if int(count.name) > max_rows:
                 reasons.append(f"LIMIT 超过上限 {max_rows}")
         except (ValueError, AttributeError):
             reasons.append("LIMIT 不是常数")

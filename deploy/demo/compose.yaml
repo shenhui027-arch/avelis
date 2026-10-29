@@ -9,6 +9,8 @@
 # 以下服务属于 engines 配置（profile），用于更多引擎的真实联调：scripts/demo.py up --engines 时才启动。
 #   shop-ch               线下门店库（ClickHouse），与 shop-pg 同一份数据
 #   shop-mssql            线下门店库（SQL Server 2022 Developer；用户已确认接受其许可条款，2026-10-29）
+#   shop-oracle           线下门店库（Oracle Database 23ai Free；用户已确认接受其许可条款，2026-10-29）
+#   shop-doris            线下门店库（Apache Doris 4.1 all-in-one：一个 FE + 一个 BE；不挂数据卷，启动后由 demo.py 灌数）
 name: avelis-demo
 
 services:
@@ -121,6 +123,37 @@ services:
       - shop-mssql-data:/var/opt/mssql
     mem_limit: 3g
 
+  shop-oracle:
+    image: gvenzl/oracle-free:23.26.3-slim-faststart@sha256:f5ff19033860d662c821cb04eb10483fa94f14f78eae252d054291ea07028093
+    profiles: ["engines"]
+    environment:
+      ORACLE_PASSWORD: ${SHOP_ORACLE_SYSTEM_PASSWORD:?run scripts/demo.py init-env}
+    ports:
+      - "127.0.0.1:${SHOP_ORACLE_PORT:-11521}:1521"
+    volumes:
+      - shop-oracle-data:/opt/oracle/oradata
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+  shop-doris:
+    image: apache/doris:all-in-one-4.1.3@sha256:82a5cabc7900ebcd3d080412d636c0cebd6602799fffe2605c652b2ea7d42609
+    profiles: ["engines"]
+    environment:
+      FE_HEAP: 1024m
+    ports:
+      - "127.0.0.1:${SHOP_DORIS_QUERY_PORT:-19130}:9030"
+      - "127.0.0.1:${SHOP_DORIS_HTTP_PORT:-18130}:8030"
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD", "/opt/doris-ci/health_check.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.14@sha256:5e1fa9c1a490f49457b8220b10ef2ea211af271b2626654ba151429f4603715f
     entrypoint: ["/bin/bash", "/opt/avelis/avelis-entrypoint.sh"]
@@ -164,5 +197,6 @@ volumes:
   shop-pg-data:
   shop-ch-data:
   shop-mssql-data:
+  shop-oracle-data:
   sr-fe-meta:
   sr-be-storage:

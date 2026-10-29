@@ -1,7 +1,7 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力。
 
-已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022。
-规划中的引擎（Doris、Hive、Oracle；只考虑 SQLGlot 支持的方言）见 ADR 0004：
+已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1。
+规划中的引擎（Hive；只考虑 SQLGlot 支持的方言）见 ADR 0004：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
 
@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from avelis.connectors.clickhouse import CATALOG as CLICKHOUSE_CATALOG
 from avelis.connectors.clickhouse import ClickHouseConnector
+from avelis.connectors.doris import INTERNAL_CATALOG as DORIS_CATALOG
+from avelis.connectors.doris import DorisConnector
 from avelis.connectors.fake import FakeConnector
 from avelis.connectors.mysql import MySQLMetaConnector
+from avelis.connectors.oracle import OracleConnector
 from avelis.connectors.postgres import PostgresConnector
 from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
@@ -24,7 +27,7 @@ from avelis.engines.base import (
     Engine,
     OptionField,
 )
-from avelis.lineage.sql import SqlDialect, strip_alias_prefixes
+from avelis.lineage.sql import SqlDialect, fold_identifiers, strip_alias_prefixes
 
 STARROCKS = Engine(
     kind="starrocks", label="StarRocks",
@@ -80,6 +83,31 @@ SQLSERVER = Engine(
     note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度",
 )
 
+ORACLE = Engine(
+    kind="oracle", label="Oracle",
+    # 服务名作 catalog 段，查询中不写；DATE 带时间部分，按日期过滤用区间
+    sql=SqlDialect(name="oracle", default_catalog="FREEPDB1", normalize=fold_identifiers("oracle"),
+                   catalog_in_sql=False, date_has_time=True),
+    name_levels=("service", "schema", "table"), catalog_option="service",
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=OracleConnector, querier=OracleConnector, default_port=1521,
+    options=(OptionField("service", "服务名", type="text", required=True, hint="如 FREEPDB1"),
+             OptionField("schemas", "采集的模式", required=True, hint="模式名按大写保存")),
+    note="采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度",
+)
+
+DORIS = Engine(
+    kind="doris", label="Doris",
+    # 视图定义的存储写法与 StarRocks 相同（`internal`.`db`.`alias`.`col`），复用别名前缀规整
+    sql=SqlDialect(name="doris", default_catalog=DORIS_CATALOG, normalize=strip_alias_prefixes),
+    name_levels=("catalog", "database", "table"),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=DorisConnector, querier=DorisConnector, default_port=9030,
+    options=(OptionField("databases", "采集的库", required=True),),
+    note="采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；"
+         "外部 Catalog 尚未联调",
+)
+
 FAKE = Engine(
     kind="fake", label="测试适配器",
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
@@ -89,4 +117,4 @@ FAKE = Engine(
     is_test_adapter=True, needs_credentials=False, note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, FAKE)

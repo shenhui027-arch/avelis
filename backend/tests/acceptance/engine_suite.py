@@ -37,6 +37,8 @@ class EngineProfile:
     sleep_sql: str
     write_sql: str
     data_sql: str = "SELECT COUNT(*) FROM store.sales"
+    # 采集账号读业务数据时的错误归类（Oracle 对无权限的对象报“不存在”，即 ORA-00942）
+    collector_denied: str = "permission"
 
     def running(self, env: dict) -> bool:
         raise NotImplementedError
@@ -50,8 +52,12 @@ class EngineProfile:
     def connector(self, env: dict, purpose: str):
         raise NotImplementedError
 
+    def ident(self, name: str) -> str:
+        """数据库目录中保存的标识符写法（Oracle 把未加引号的名字存为大写）。"""
+        return name
+
     def qualified(self, name: str) -> str:
-        return f"{self.catalog}.store.{name}"
+        return f"{self.catalog}.{self.ident('store')}.{self.ident(name)}"
 
 
 class EngineSuite:
@@ -116,7 +122,7 @@ class EngineSuite:
         assert run["stats"]["assets_observed"] == 4
         found = self.assets(admin)
         assert set(found) == {p.qualified(t) for t in TABLES}
-        self.ctx["ids"] = {q.rsplit(".", 1)[1]: a["id"] for q, a in found.items()}
+        self.ctx["ids"] = {t: found[p.qualified(t)]["id"] for t in TABLES}
         assert found[p.qualified("city_daily_sales")]["kind"] == "view"
         trade = next(d["id"] for d in admin.get("/api/domains") if d["code"] == "trade")
         for asset_id in self.ctx["ids"].values():
@@ -124,37 +130,38 @@ class EngineSuite:
         self.ctx["trade"] = trade
 
     def test_01_view_lineage_grains_and_comments(self, admin: Api):
+        n = self.profile.ident
         ids = self.ctx["ids"]
         view = admin.get(f"/api/assets/{ids['city_daily_sales']}")
         assert view["parse"]["status"] == "ok", view["parse"]
         assert all(c["fingerprint_status"] == "ok" for c in view["columns"])
-        assert any(g["columns"] == ["sale_date", "city"] and g["origin"] == "parsed" for g in view["grains"])
+        assert any(g["columns"] == [n("sale_date"), n("city")] and g["origin"] == "parsed" for g in view["grains"])
         sales = admin.get(f"/api/assets/{ids['sales']}")
         observed = [g["columns"] for g in sales["grains"] if g["origin"] == "observed"]
         # 只有数据库保证唯一的键才算观察到的粒度（ClickHouse 的排序键不算）
-        assert observed == ([["sale_id"]] if self.profile.sales_unique_key else [])
+        assert observed == ([[n("sale_id")]] if self.profile.sales_unique_key else [])
         docs = {c["name"]: c["doc"] for c in sales["columns"]}
-        assert docs["amount"]["status"] == "ok" and docs["amount"]["comment"] == "成交金额"
-        assert docs["status"]["status"] == "missing"
+        assert docs[n("amount")]["status"] == "ok" and docs[n("amount")]["comment"] == "成交金额"
+        assert docs[n("status")]["status"] == "missing"
         graph = admin.get("/api/lineage/graph", params={"asset_id": ids["city_daily_sales"]})
         edge = next(e for e in graph["edges"]
                     if e["source"] == ids["sales"] and e["target"] == ids["city_daily_sales"])
         rel = {(c["target_column"], c["source_column"]): c["relation"] for c in edge["columns"]}
-        assert rel[("sales_amount", "amount")] == "value_aggregated"
-        assert rel[(None, "status")] == "filter" and rel[(None, "shop_id")] == "join_key"
-        city = {c["name"]: c["doc"] for c in view["columns"]}["city"]
+        assert rel[(n("sales_amount"), n("amount"))] == "value_aggregated"
+        assert rel[(None, n("status"))] == "filter" and rel[(None, n("shop_id"))] == "join_key"
+        city = {c["name"]: c["doc"] for c in view["columns"]}[n("city")]
         assert city["status"] == "missing"  # 视图与上游 shops.city 都没有注释
 
     def test_02_publish_and_ask_in_engine_dialect(self, admin: Api):
-        p = self.profile
+        p, n = self.profile, self.profile.ident
         zhang, li, wang = (self.ctx["apis"][u] for u in ("zhang", "li", "wang"))
         m = zhang.post("/api/metrics", {"code": f"store_sales_{p.kind}", "name": f"{p.label}门店销售额",
                                         "domain_id": self.ctx["trade"]}, expect=201)
         v = zhang.post(f"/api/metrics/{m['id']}/versions", {
             "description": "门店成交金额按日期、城市汇总（不含作废单）", "base_asset_id": self.ctx["ids"]["city_daily_sales"],
-            "expression": "SUM(sales_amount)", "time_column": "sale_date",
-            "dimensions": [{"name": "city", "column": "city", "label": "城市"}], "grain": ["sale_date", "city"]},
-            expect=201)
+            "expression": f"SUM({n('sales_amount')})", "time_column": n("sale_date"),
+            "dimensions": [{"name": "city", "column": n("city"), "label": "城市"}],
+            "grain": [n("sale_date"), n("city")]}, expect=201)
         zhang.post(f"/api/metric-versions/{v['id']}/submit")
         assert li.post(f"/api/metric-versions/{v['id']}/approve", {"note": f"{p.label} 验收"})["status"] == "published"
         self.ctx["v1"] = v["id"]
@@ -168,7 +175,7 @@ class EngineSuite:
     def test_03_grain_verify(self, admin: Api):
         zhang = self.ctx["apis"]["zhang"]
         bad = zhang.post(f"/api/assets/{self.ctx['ids']['returns']}/grains",
-                         {"columns": ["sale_id"], "reason": "错误声明"}, expect=201)
+                         {"columns": [self.profile.ident("sale_id")], "reason": "错误声明"}, expect=201)
         checked = zhang.post(f"/api/grains/{bad['id']}/verify")
         assert checked["status"] == "violated" and checked["verify_detail"]["duplicate_example"][0] == "9002"
         assert self.profile.grain_sql_name in checked["verify_detail"]["sql"]
@@ -198,7 +205,7 @@ class EngineSuite:
         view_id = self.ctx["ids"]["city_daily_sales"]
         events = self.latest_events(admin)
         assert ("definition_changed", view_id, None) in events
-        assert ("derivation_changed", view_id, "sales_amount") in events
+        assert ("derivation_changed", view_id, self.profile.ident("sales_amount")) in events
         assert admin.get(f"/api/metric-versions/{self.ctx['v1']}")["status"] == "affected"
         blocked = wang.post("/api/ask", {"question": self.question("上海")})
         assert blocked["status"] == "blocked" and blocked["error_code"] == "metric_affected" and blocked["sql"] is None
@@ -224,4 +231,4 @@ class EngineSuite:
         assert int(count.rows[0][0]) == 5  # 写入被拒，数据未变
         with pytest.raises(QueryError) as denied:  # 采集账号只读元数据，读不到业务数据
             p.connector(env, "collect").execute_select(p.data_sql, timeout_seconds=5, mem_limit_bytes=0, max_rows=1)
-        assert denied.value.code == "permission", denied.value.message
+        assert denied.value.code == p.collector_denied, denied.value.message
