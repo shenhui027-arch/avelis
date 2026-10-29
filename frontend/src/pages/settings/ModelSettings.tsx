@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, unwrap, type Schemas } from "../../api/client";
 import { Hint, Icon } from "../../components/Icon";
 import { formatTime } from "../../format";
-import { useMe } from "../../layout/Shell";
+import { SettingsTabs, useMe } from "../../layout/Shell";
 
 type Provider = Schemas["ProviderOut"];
 type Settings = Schemas["SettingsOut"];
@@ -65,7 +65,8 @@ export function ModelSettings() {
     <div className="av-fill">
       <div className="av-pagehd">
         <div className="av-pagehd__title">
-          <h1>模型配置</h1>
+          <h1>设置</h1>
+          <SettingsTabs current="models" />
           {settings.data ? (
             settings.data.mode === "configured"
               ? <span className="av-pill av-pill--ok">已配置</span>

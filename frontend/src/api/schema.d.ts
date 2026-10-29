@@ -925,6 +925,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workbench */
+        get: operations["workbench_api_workbench_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -940,10 +957,179 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** AliasOut */
+        AliasOut: {
+            /** Id */
+            id: string;
+            /** Host */
+            host: string;
+            /** Port */
+            port: number;
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnswerOut */
+        AnswerOut: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Asked By */
+            asked_by: string;
+            /** Asked At */
+            asked_at: string;
+            /** Status */
+            status: string;
+            /** Message */
+            message?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Model Adapter */
+            model_adapter: string;
+            /** Intent */
+            intent: {
+                [key: string]: unknown;
+            };
+            /** Plan */
+            plan: {
+                [key: string]: unknown;
+            };
+            /** Sql */
+            sql?: string | null;
+            /** Metric Version Ids */
+            metric_version_ids: string[];
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Freshness */
+            freshness: {
+                [key: string]: unknown;
+            };
+            /** Executed At */
+            executed_at?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Cache Hit */
+            cache_hit: boolean;
+            /** Recheck Status */
+            recheck_status?: string | null;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Steps */
+            steps?: {
+                [key: string]: unknown;
+            }[];
+            /** Explanation */
+            explanation?: string | null;
+            /** Explanation Source */
+            explanation_source?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AssetDetailOut */
+        AssetDetailOut: {
+            /** Id */
+            id: string;
+            /** Qualified */
+            qualified: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Domain Id */
+            domain_id?: string | null;
+            datasource: components["schemas"]["DatasourceRef"];
+            /** Physical Id */
+            physical_id?: string | null;
+            /** Current Version Id */
+            current_version_id?: string | null;
+            /** Last Seen At */
+            last_seen_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+            version?: components["schemas"]["AssetVersionOut"] | null;
+            /** Columns */
+            columns: components["schemas"]["ColumnOut"][];
+            definition?: components["schemas"]["DefinitionOut"] | null;
+            parse?: components["schemas"]["ParseOut"] | null;
+            /** Grains */
+            grains: components["schemas"]["GrainOut"][];
+            identity_link?: components["schemas"]["LinkOut"] | null;
+            /** Linked From */
+            linked_from: components["schemas"]["LinkOut"][];
+            /** Versions */
+            versions: components["schemas"]["AssetVersionOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AssetOut */
+        AssetOut: {
+            /** Id */
+            id: string;
+            /** Qualified */
+            qualified: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Domain Id */
+            domain_id?: string | null;
+            datasource: components["schemas"]["DatasourceRef"];
+            /** Physical Id */
+            physical_id?: string | null;
+            /** Current Version Id */
+            current_version_id?: string | null;
+            /** Last Seen At */
+            last_seen_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AssetPatch */
         AssetPatch: {
             /** Domain Id */
             domain_id: string | null;
+        };
+        /** AssetVersionOut */
+        AssetVersionOut: {
+            /** Id */
+            id: string;
+            /** Version No */
+            version_no: number;
+            /** Observed At */
+            observed_at: string;
+            /** Last Seen At */
+            last_seen_at: string;
+            /** Superseded At */
+            superseded_at?: string | null;
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+            /** Table Model */
+            table_model?: string | null;
+            /** Key Columns */
+            key_columns: string[];
+            /** Unique Keys */
+            unique_keys: string[][];
+            /** Comment */
+            comment?: string | null;
+            /** Properties */
+            properties: {
+                [key: string]: unknown;
+            };
+            /** Content Hash */
+            content_hash: string;
+        } & {
+            [key: string]: unknown;
         };
         /** AssignmentOut */
         AssignmentOut: {
@@ -959,6 +1145,29 @@ export interface components {
             model_id: string | null;
             /** Updated At */
             updated_at: string | null;
+        };
+        /** AuditOut */
+        AuditOut: {
+            /** Id */
+            id: string;
+            /** At */
+            at: string;
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Actor */
+            actor: string;
+            /** Action */
+            action: string;
+            /** Object Type */
+            object_type: string;
+            /** Object Id */
+            object_id?: string | null;
+            /** Detail */
+            detail: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
         };
         /** Body_login_api_auth_token_post */
         Body_login_api_auth_token_post: {
@@ -993,6 +1202,103 @@ export interface components {
             /** Default Db */
             default_db?: string | null;
         };
+        /** CandidateOut */
+        CandidateOut: {
+            /** Id */
+            id: string;
+            /** Statement Id */
+            statement_id?: string | null;
+            /** Origin */
+            origin: string;
+            /** Status */
+            status: string;
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Source Column */
+            source_column?: string | null;
+            /** Target Ref */
+            target_ref: string;
+            /** Target Column */
+            target_column?: string | null;
+            /** Relation */
+            relation: string;
+            /** Expression */
+            expression?: string | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Lineage Edge Id */
+            lineage_edge_id?: string | null;
+            /** Modified */
+            modified: {
+                [key: string]: unknown;
+            };
+            /** Reason */
+            reason?: string | null;
+            /** Decided By */
+            decided_by?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChangeEventOut */
+        ChangeEventOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Asset */
+            asset?: string | null;
+            /** Column */
+            column?: string | null;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            };
+            /** After */
+            after: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChangeSetOut */
+        ChangeSetOut: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Datasource Id */
+            datasource_id: string;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at: string;
+            /** Effective Window */
+            effective_window: {
+                [key: string]: unknown;
+            };
+            /** Events */
+            events?: components["schemas"]["ChangeEventOut"][] | null;
+            /** Impacts */
+            impacts?: components["schemas"]["ImpactOut"][] | null;
+            /** Tasks */
+            tasks?: components["schemas"]["TaskOut"][] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** CheckBody */
         CheckBody: {
             /** Model Id */
@@ -1013,6 +1319,67 @@ export interface components {
             /** Checked At */
             checked_at?: string | null;
         };
+        /** CollectOut */
+        CollectOut: {
+            /** Id */
+            id?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            /** Status */
+            status: string;
+            /** Stats */
+            stats?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ColumnEdgeOut */
+        ColumnEdgeOut: {
+            /** Source Column */
+            source_column?: string | null;
+            /** Target Column */
+            target_column?: string | null;
+            /** Relation */
+            relation: string;
+            /** Expression */
+            expression?: string | null;
+            /** Origin */
+            origin: string;
+            /** Attributes */
+            attributes: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** ColumnOut */
+        ColumnOut: {
+            /** Name */
+            name: string;
+            /** Data Type */
+            data_type: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Comment */
+            comment?: string | null;
+            /** Is Key */
+            is_key: boolean;
+            /** Column Id */
+            column_id: string;
+            /** Fingerprint */
+            fingerprint?: string | null;
+            /** Fingerprint Status */
+            fingerprint_status?: string | null;
+            /** Fingerprint Reason */
+            fingerprint_reason?: string | null;
+            /** Confirmations */
+            confirmations: components["schemas"]["ConfirmationOut"][];
+        } & {
+            [key: string]: unknown;
+        };
         /** ConfirmBody */
         ConfirmBody: {
             /** Meaning */
@@ -1020,12 +1387,42 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /** ConfirmationOut */
+        ConfirmationOut: {
+            /** Id */
+            id: string;
+            /** Meaning */
+            meaning: string;
+            /** Confirmed By */
+            confirmed_by: string;
+            /** Created At */
+            created_at: string;
+            /** Valid */
+            valid: boolean;
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** Credential */
         Credential: {
             /** Username */
             username: string;
             /** Password */
             password: string;
+        };
+        /** CredentialOut */
+        CredentialOut: {
+            /** Purpose */
+            purpose: string;
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
         };
         /** DatasourceCreate */
         DatasourceCreate: {
@@ -1051,6 +1448,55 @@ export interface components {
             collect_interval_minutes?: number;
             collect?: components["schemas"]["Credential"] | null;
             query?: components["schemas"]["Credential"] | null;
+        };
+        /** DatasourceOut */
+        DatasourceOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+            /** Host */
+            host: string;
+            /** Port */
+            port: number;
+            /** Options */
+            options: {
+                [key: string]: unknown;
+            };
+            /** Is Test Adapter */
+            is_test_adapter: boolean;
+            /** Source Label */
+            source_label: string;
+            /** Status */
+            status: string;
+            /** Server Identity */
+            server_identity: {
+                [key: string]: unknown;
+            };
+            /** Collect Interval Minutes */
+            collect_interval_minutes: number;
+            /** Credentials */
+            credentials: components["schemas"]["CredentialOut"][];
+            last_run?: components["schemas"]["RunOut"] | null;
+            /** Aliases */
+            aliases: components["schemas"]["AliasOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** DatasourceRef */
+        DatasourceRef: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+            /** Is Test Adapter */
+            is_test_adapter: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /** Decision */
         Decision: {
@@ -1081,6 +1527,17 @@ export interface components {
             /** Relation */
             relation?: string | null;
         };
+        /** DefinitionOut */
+        DefinitionOut: {
+            /** Raw Sql */
+            raw_sql: string;
+            /** Canonical Sql */
+            canonical_sql?: string | null;
+            /** Canonical Hash */
+            canonical_hash: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** Dimension */
         Dimension: {
             /** Name */
@@ -1100,6 +1557,23 @@ export interface components {
             description?: string | null;
             /** Owner Id */
             owner_id: string;
+        };
+        /** DomainOut */
+        DomainOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Owner Id */
+            owner_id: string;
+            /** Members */
+            members: components["schemas"]["MemberOut"][];
+        } & {
+            [key: string]: unknown;
         };
         /** DomainRef */
         DomainRef: {
@@ -1124,10 +1598,96 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** GrainOut */
+        GrainOut: {
+            /** Columns */
+            columns: string[];
+            /** Origin */
+            origin: string;
+            /** Status */
+            status: string;
+            /** Grain Id */
+            grain_id?: string | null;
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** GraphEdgeOut */
+        GraphEdgeOut: {
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Target */
+            target: string;
+            /** Columns */
+            columns: components["schemas"]["ColumnEdgeOut"][];
+            /** Relations */
+            relations: string[];
+            /** Origins */
+            origins: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** GraphNodeOut */
+        GraphNodeOut: {
+            /** Id */
+            id: string;
+            /** Qualified */
+            qualified: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Grains */
+            grains: components["schemas"]["GrainOut"][];
+            /** In Scope */
+            in_scope: boolean;
+            /** Domain Id */
+            domain_id?: string | null;
+            datasource?: components["schemas"]["DatasourceRef"] | null;
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** GraphOut */
+        GraphOut: {
+            /** Nodes */
+            nodes: components["schemas"]["GraphNodeOut"][];
+            /** Edges */
+            edges: components["schemas"]["GraphEdgeOut"][];
+            /** Identity Links */
+            identity_links: components["schemas"]["LinkOut"][];
+        } & {
+            [key: string]: unknown;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ImpactOut */
+        ImpactOut: {
+            /** Id */
+            id: string;
+            /** Change Set Id */
+            change_set_id: string;
+            /** Object Type */
+            object_type: string;
+            /** Object Id */
+            object_id: string;
+            /** Level */
+            level: string;
+            /** Reason */
+            reason: string;
+            /** Path */
+            path: unknown[];
+            /** Created At */
+            created_at: string;
+        } & {
+            [key: string]: unknown;
         };
         /** ImportBody */
         ImportBody: {
@@ -1149,6 +1709,76 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** ImportJobOut */
+        ImportJobOut: {
+            /** Id */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Language */
+            language: string;
+            /** Source Type */
+            source_type?: string | null;
+            /** Datasource Id */
+            datasource_id?: string | null;
+            /** Default Db */
+            default_db?: string | null;
+            /** Status */
+            status: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Stats */
+            stats: {
+                [key: string]: unknown;
+            };
+            /** Model Adapter */
+            model_adapter?: string | null;
+            /** Model Payload */
+            model_payload?: {
+                [key: string]: unknown;
+            }[];
+            /** Content Hash */
+            content_hash?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Statements */
+            statements?: components["schemas"]["StatementOut"][];
+            /** Candidates */
+            candidates?: components["schemas"]["CandidateOut"][];
+            /** Duplicate */
+            duplicate?: boolean | null;
+            /** Content */
+            content?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** JobOut */
+        JobOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** JoinPathCreate */
         JoinPathCreate: {
             /** Code */
@@ -1163,6 +1793,39 @@ export interface components {
             right_asset_id: string;
             /** Right Columns */
             right_columns: string[];
+        };
+        /** JoinPathOut */
+        JoinPathOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+            /** Left */
+            left: {
+                [key: string]: unknown;
+            };
+            /** Right */
+            right: {
+                [key: string]: unknown;
+            };
+            /** Cardinality */
+            cardinality: string;
+            /** Cardinality Basis */
+            cardinality_basis: {
+                [key: string]: unknown;
+            };
+            /** Required Domains */
+            required_domains: string[];
+            /** Approvals */
+            approvals: {
+                [key: string]: unknown;
+            }[];
+        } & {
+            [key: string]: unknown;
         };
         /** JoinStep */
         JoinStep: {
@@ -1181,6 +1844,41 @@ export interface components {
              */
             pre_aggregate?: boolean;
         };
+        /** LinkOut */
+        LinkOut: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /** Method */
+            method: string;
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Column Match */
+            column_match: {
+                [key: string]: unknown;
+            };
+            /** Source */
+            source: string;
+            target?: components["schemas"]["LinkTarget"] | null;
+            /** Created At */
+            created_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LinkTarget */
+        LinkTarget: {
+            /** Id */
+            id: string;
+            /** Qualified */
+            qualified: string;
+            /** Datasource Id */
+            datasource_id: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ManualEdge */
         ManualEdge: {
             /** Source Ref */
@@ -1197,6 +1895,19 @@ export interface components {
             reason: string;
             /** Lines */
             lines?: number[] | null;
+        };
+        /** MemberOut */
+        MemberOut: {
+            /** User Id */
+            user_id: string;
+            /** Role */
+            role: string;
+            /** Username */
+            username: string;
+            /** Display Name */
+            display_name: string;
+        } & {
+            [key: string]: unknown;
         };
         /** MemberSet */
         MemberSet: {
@@ -1217,6 +1928,107 @@ export interface components {
             owner_id?: string | null;
             /** Aliases */
             aliases?: string[];
+        };
+        /** MetricOut */
+        MetricOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Aliases */
+            aliases: string[];
+            /** Domain Id */
+            domain_id: string;
+            owner: components["schemas"]["OwnerRef"];
+            /** Versions */
+            versions: components["schemas"]["VersionBrief"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** MetricVersionOut */
+        MetricVersionOut: {
+            /** Id */
+            id: string;
+            /** Metric Id */
+            metric_id: string;
+            /** Metric Code */
+            metric_code: string;
+            /** Metric Name */
+            metric_name: string;
+            /** Version No */
+            version_no: number;
+            /** Status */
+            status: string;
+            /** Status Reason */
+            status_reason?: string | null;
+            /** Description */
+            description: string;
+            /** Expression */
+            expression: string;
+            /** Base Asset */
+            base_asset?: {
+                [key: string]: unknown;
+            } | null;
+            /** Time Column */
+            time_column: string;
+            /** Timezone */
+            timezone: string;
+            /** Filters */
+            filters?: string | null;
+            /** Dimensions */
+            dimensions: {
+                [key: string]: unknown;
+            }[];
+            /** Joins */
+            joins: {
+                [key: string]: unknown;
+            }[];
+            /** Grain */
+            grain: string[];
+            /** Dedupe Basis */
+            dedupe_basis?: string | null;
+            /** Dependency */
+            dependency: {
+                [key: string]: unknown;
+            }[];
+            /** Dependency Fingerprint */
+            dependency_fingerprint?: string | null;
+            /** Asset Versions */
+            asset_versions: {
+                [key: string]: unknown;
+            };
+            /** Publish Check */
+            publish_check: {
+                [key: string]: unknown;
+            };
+            /** Created By */
+            created_by: string;
+            /** Submitted By */
+            submitted_by?: string | null;
+            /** Reviewed By */
+            reviewed_by?: string | null;
+            /** Review Note */
+            review_note?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Owner Id */
+            owner_id: string;
+            /** Domain Id */
+            domain_id: string;
+            /** Transitions */
+            transitions?: components["schemas"]["TransitionOut"][];
+            /** Impacts */
+            impacts?: components["schemas"]["ImpactOut"][];
+            /** Drift */
+            drift?: {
+                [key: string]: unknown;
+            }[];
+        } & {
+            [key: string]: unknown;
         };
         /** ModelEntry */
         ModelEntry: {
@@ -1244,12 +2056,36 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** OwnerRef */
+        OwnerRef: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ParamsBody */
         ParamsBody: {
             /** Params */
             params: {
                 [key: string]: string;
             };
+        };
+        /** ParseOut */
+        ParseOut: {
+            /** Status */
+            status: string;
+            /** Reason */
+            reason?: string | null;
+            /** Parser Version */
+            parser_version: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
         };
         /** PolicyOut */
         PolicyOut: {
@@ -1351,6 +2187,31 @@ export interface components {
             /** Models */
             models?: components["schemas"]["ModelEntry"][] | null;
         };
+        /** PublishCheckOut */
+        PublishCheckOut: {
+            /** Ok */
+            ok: boolean;
+            /** Blockers */
+            blockers: string[];
+            /** Warnings */
+            warnings: string[];
+            /** Joins */
+            joins: {
+                [key: string]: unknown;
+            }[];
+            /** Base Grains */
+            base_grains: {
+                [key: string]: unknown;
+            }[];
+            /** Dependency */
+            dependency: {
+                [key: string]: unknown;
+            }[];
+            /** Checked At */
+            checked_at: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** PurposeOut */
         PurposeOut: {
             /** Label */
@@ -1379,6 +2240,29 @@ export interface components {
             /** Linked Metric Version Id */
             linked_metric_version_id?: string | null;
         };
+        /** RunOut */
+        RunOut: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /** Trigger */
+            trigger: string;
+            /** Started At */
+            started_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Stats */
+            stats?: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: string | null;
+            /** Snapshot Hash */
+            snapshot_hash?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** SettingsBody */
         SettingsBody: {
             /** Assignments */
@@ -1405,12 +2289,132 @@ export interface components {
             /** Note */
             note: string | null;
         };
+        /** StageOut */
+        StageOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+            /** Unit */
+            unit: string;
+            /** Status */
+            status: string;
+            /** Note */
+            note: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** StatementOut */
+        StatementOut: {
+            /** Id */
+            id: string;
+            /** Seq */
+            seq: number;
+            /** Lines */
+            lines: number[];
+            /** Method */
+            method: string;
+            /** Statement Type */
+            statement_type?: string | null;
+            /** Target */
+            target?: string | null;
+            /** Status */
+            status: string;
+            /** Reason */
+            reason?: string | null;
+            /** Placeholders */
+            placeholders: string[];
+            /** Raw Text */
+            raw_text: string;
+            /** Sql Text */
+            sql_text?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** Target */
         Target: {
             /** Provider Id */
             provider_id: string;
             /** Model Id */
             model_id: string;
+        };
+        /** TaskOut */
+        TaskOut: {
+            /** Id */
+            id: string;
+            /** Change Set Id */
+            change_set_id: string;
+            /** Target */
+            target: {
+                [key: string]: unknown;
+            };
+            /** Assignee Id */
+            assignee_id: string;
+            /** Status */
+            status: string;
+            /** Resolution */
+            resolution?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Resolved By */
+            resolved_by?: string | null;
+            /** Linked Metric Version Id */
+            linked_metric_version_id?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Resolved At */
+            resolved_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ThreadDetailOut */
+        ThreadDetailOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Answers */
+            answers: components["schemas"]["AnswerOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ThreadOut */
+        ThreadOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** TodoOut */
+        TodoOut: {
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Meta */
+            meta: string;
+            /** Ref */
+            ref: string;
+            /** Link */
+            link: string;
+            /** At */
+            at: string;
+        } & {
+            [key: string]: unknown;
         };
         /** TokenOut */
         TokenOut: {
@@ -1420,6 +2424,21 @@ export interface components {
             token_type: string;
             /** Expires At */
             expires_at: string;
+        };
+        /** TransitionOut */
+        TransitionOut: {
+            /** From */
+            from?: string | null;
+            /** To */
+            to: string;
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** At */
+            at: string;
+        } & {
+            [key: string]: unknown;
         };
         /** UserCreate */
         UserCreate: {
@@ -1460,6 +2479,21 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VersionBrief */
+        VersionBrief: {
+            /** Id */
+            id: string;
+            /** Version No */
+            version_no: number;
+            /** Status */
+            status: string;
+            /** Status Reason */
+            status_reason?: string | null;
+            /** Published At */
+            published_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** VersionSpec */
         VersionSpec: {
             /** Description */
@@ -1482,6 +2516,33 @@ export interface components {
             grain?: string[];
             /** Dedupe Basis */
             dedupe_basis?: string | null;
+        };
+        /** WorkbenchOut */
+        WorkbenchOut: {
+            /** Stages */
+            stages: components["schemas"]["StageOut"][];
+            /** Todos */
+            todos: components["schemas"]["TodoOut"][];
+            /** My Metrics */
+            my_metrics: {
+                [key: string]: unknown;
+            }[];
+            /** Blocked Answers */
+            blocked_answers: components["schemas"]["AnswerOut"][];
+            /** Datasources */
+            datasources: {
+                [key: string]: unknown;
+            }[];
+            /** Cadence */
+            cadence: {
+                [key: string]: unknown;
+            }[];
+            /** Recent Changes */
+            recent_changes: {
+                [key: string]: unknown;
+            }[];
+        } & {
+            [key: string]: unknown;
         };
     };
     responses: never;
@@ -1604,9 +2665,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["UserOut"][];
                 };
             };
         };
@@ -1630,9 +2689,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UserOut"];
                 };
             };
             /** @description Validation Error */
@@ -1683,9 +2740,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["DatasourceOut"][];
                 };
             };
         };
@@ -1709,9 +2764,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DatasourceOut"];
                 };
             };
             /** @description Validation Error */
@@ -1747,9 +2800,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DatasourceOut"];
                 };
             };
             /** @description Validation Error */
@@ -1782,9 +2833,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AliasOut"];
                 };
             };
             /** @description Validation Error */
@@ -1817,9 +2866,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CollectOut"];
                 };
             };
             /** @description Validation Error */
@@ -1850,7 +2897,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown[];
+                    "application/json": components["schemas"]["RunOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1881,9 +2928,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobOut"];
                 };
             };
             /** @description Validation Error */
@@ -1912,9 +2957,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["DomainOut"][];
                 };
             };
         };
@@ -1938,7 +2981,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DomainOut"];
                 };
             };
             /** @description Validation Error */
@@ -1973,9 +3016,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DomainOut"];
                 };
             };
             /** @description Validation Error */
@@ -2009,9 +3050,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["AssetOut"][];
                 };
             };
             /** @description Validation Error */
@@ -2042,9 +3081,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AssetDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -2079,9 +3116,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AssetOut"];
                 };
             };
             /** @description Validation Error */
@@ -2149,9 +3184,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GrainOut"];
                 };
             };
             /** @description Validation Error */
@@ -2222,9 +3255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GraphOut"];
                 };
             };
             /** @description Validation Error */
@@ -2253,9 +3284,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["MetricOut"][];
                 };
             };
         };
@@ -2279,7 +3308,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MetricOut"];
                 };
             };
             /** @description Validation Error */
@@ -2310,9 +3339,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricOut"];
                 };
             };
             /** @description Validation Error */
@@ -2347,9 +3374,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2380,7 +3405,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2415,9 +3440,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2448,7 +3471,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PublishCheckOut"];
                 };
             };
             /** @description Validation Error */
@@ -2479,7 +3502,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2514,9 +3537,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2551,9 +3572,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2588,9 +3607,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricVersionOut"];
                 };
             };
             /** @description Validation Error */
@@ -2619,9 +3636,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["JoinPathOut"][];
                 };
             };
         };
@@ -2645,9 +3660,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JoinPathOut"];
                 };
             };
             /** @description Validation Error */
@@ -2682,9 +3695,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JoinPathOut"];
                 };
             };
             /** @description Validation Error */
@@ -2715,9 +3726,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ChangeSetOut"][];
                 };
             };
             /** @description Validation Error */
@@ -2748,7 +3757,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ChangeSetOut"];
                 };
             };
             /** @description Validation Error */
@@ -2780,9 +3789,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["TaskOut"][];
                 };
             };
             /** @description Validation Error */
@@ -2817,9 +3824,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["TaskOut"];
                 };
             };
             /** @description Validation Error */
@@ -2852,9 +3857,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AnswerOut"];
                 };
             };
             /** @description Validation Error */
@@ -2883,9 +3886,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ThreadOut"][];
                 };
             };
         };
@@ -2907,9 +3908,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ThreadDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -2940,9 +3939,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["AnswerOut"][];
                 };
             };
             /** @description Validation Error */
@@ -2973,9 +3970,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AnswerOut"];
                 };
             };
             /** @description Validation Error */
@@ -3009,7 +4004,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AuditOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3294,9 +4289,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ImportJobOut"][];
                 };
             };
         };
@@ -3320,7 +4313,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3353,9 +4346,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3386,9 +4377,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3423,9 +4412,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3460,9 +4447,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3497,9 +4482,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -3509,6 +4492,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workbench_api_workbench_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchOut"];
                 };
             };
         };

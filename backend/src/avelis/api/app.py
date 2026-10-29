@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from avelis.api import ask, auth, catalog, datasources, governance, imports, model_settings
+from avelis.api import ask, auth, catalog, datasources, governance, imports, model_settings, workbench
 from avelis.cache import LockBusy
 from avelis.config import get_settings
 from avelis.connectors import CredentialMissing
@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
-    for module in (auth, datasources, catalog, governance, ask, model_settings, imports):
+    for module in (auth, datasources, catalog, governance, ask, model_settings, imports, workbench):
         app.include_router(module.router)
     return app
 

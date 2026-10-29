@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask import agent
 from avelis.governance import access
@@ -30,19 +31,19 @@ def answer_view(a: Answer) -> dict:
             "steps": a.steps, "explanation": a.explanation, "explanation_source": a.explanation_source}
 
 
-@router.post("/ask")
+@router.post("/ask", response_model=S.AnswerOut)
 def ask(body: Question, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return answer_view(agent.run_turn(session, user, body.question, body.thread_id))
 
 
-@router.get("/ask/threads")
+@router.get("/ask/threads", response_model=list[S.ThreadOut])
 def list_threads(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [{"id": t.id, "title": t.title, "status": t.status, "created_at": t.created_at.isoformat(),
              "updated_at": t.updated_at.isoformat()} for t in session.scalars(
         select(AskThread).where(AskThread.user_id == user.id).order_by(AskThread.updated_at.desc()).limit(100))]
 
 
-@router.get("/ask/threads/{thread_id}")
+@router.get("/ask/threads/{thread_id}", response_model=S.ThreadDetailOut)
 def get_thread(thread_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     t = session.get(AskThread, thread_id)
     if t is None or t.user_id != user.id:
@@ -51,7 +52,7 @@ def get_thread(thread_id: str, user: User = Depends(current_user), session: Sess
     return {"id": t.id, "title": t.title, "status": t.status, "answers": [answer_view(a) for a in answers]}
 
 
-@router.get("/answers")
+@router.get("/answers", response_model=list[S.AnswerOut])
 def list_answers(all_users: bool = False, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> list[dict]:
     stmt = select(Answer).order_by(Answer.asked_at.desc()).limit(200)
@@ -60,7 +61,7 @@ def list_answers(all_users: bool = False, user: User = Depends(current_user),
     return [answer_view(a) for a in session.scalars(stmt)]
 
 
-@router.get("/answers/{answer_id}")
+@router.get("/answers/{answer_id}", response_model=S.AnswerOut)
 def get_answer(answer_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     a = session.get(Answer, answer_id)
     if a is None or (a.asked_by != user.id and not access.is_admin(session, user)):
@@ -68,7 +69,7 @@ def get_answer(answer_id: str, user: User = Depends(current_user), session: Sess
     return answer_view(a)
 
 
-@router.get("/audit")
+@router.get("/audit", response_model=list[S.AuditOut])
 def list_audit(object_type: str | None = None, object_id: str | None = None, action: str | None = None,
                limit: int = 200, user: User = Depends(current_user), session: Session = Depends(get_session)):
     access.require_role(session, user, "steward", "reviewer")

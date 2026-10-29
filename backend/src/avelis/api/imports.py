@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.importer import service
 from avelis.models import CandidateEdge, ImportJob, User
@@ -55,12 +56,12 @@ def _created(session: Session, user: User, **kwargs) -> dict:
     return {**service.job_view(session, job), "duplicate": not created}
 
 
-@router.post("/imports")
+@router.post("/imports", response_model=S.ImportJobOut)
 def create_import(body: ImportBody, user: User = Depends(current_user), session: Session = Depends(get_session)):
     return _created(session, user, **body.model_dump())
 
 
-@router.post("/imports/upload")
+@router.post("/imports/upload", response_model=S.ImportJobOut)
 async def upload(datasource_id: str = Form(...), file: UploadFile = File(...), default_db: str | None = Form(None),
                  user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     raw = await file.read(MAX_BYTES + 1)
@@ -74,26 +75,26 @@ async def upload(datasource_id: str = Form(...), file: UploadFile = File(...), d
                     content=content, source_type=None, default_db=default_db, params={})
 
 
-@router.get("/imports")
+@router.get("/imports", response_model=list[S.ImportJobOut])
 def list_imports(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return [{"id": j.id, "filename": j.filename, "language": j.language, "status": j.status, "stats": j.stats,
              "created_at": j.created_at.isoformat()}
             for j in session.scalars(select(ImportJob).order_by(ImportJob.created_at.desc()).limit(100))]
 
 
-@router.get("/imports/{job_id}")
+@router.get("/imports/{job_id}", response_model=S.ImportJobOut)
 def get_import(job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return service.job_view(session, service.job_or_404(session, job_id))
 
 
-@router.put("/imports/{job_id}/params")
+@router.put("/imports/{job_id}/params", response_model=S.ImportJobOut)
 def set_params(job_id: str, body: ParamsBody, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     job = service.set_params(session, user, service.job_or_404(session, job_id), body.params)
     return service.job_view(session, job)
 
 
-@router.post("/candidates/{candidate_id}/decision")
+@router.post("/candidates/{candidate_id}/decision", response_model=S.ImportJobOut)
 def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_user),
            session: Session = Depends(get_session)) -> dict:
     candidate = session.get(CandidateEdge, candidate_id)
@@ -104,7 +105,7 @@ def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_u
     return service.job_view(session, session.get(ImportJob, candidate.job_id))
 
 
-@router.post("/imports/{job_id}/edges", status_code=201)
+@router.post("/imports/{job_id}/edges", status_code=201, response_model=S.ImportJobOut)
 def manual_edge(job_id: str, body: ManualEdge, user: User = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict:
     job = service.job_or_404(session, job_id)
