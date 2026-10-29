@@ -19,6 +19,7 @@ import { Workbench } from "./pages/Workbench";
 import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
+import "./styles/pages.css";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },
