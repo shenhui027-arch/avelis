@@ -85,7 +85,13 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, allow_tools
             except Exception as exc:  # noqa: BLE001 - 参数校验失败等如实返回给模型
                 result = json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:500]}"}, ensure_ascii=False)
         out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
-    if not reply.tool_calls:
+    # 参数无法解析的调用（LangChain 放在 invalid_tool_calls）也必须逐个回复，否则下一轮请求会因缺少工具消息被拒（400）
+    for call in getattr(reply, "invalid_tool_calls", None) or []:
+        if call.get("id"):
+            out.append(ToolMessage(content=json.dumps({"error": f"工具 {call.get('name')} 的参数无法解析："
+                                                                f"{str(call.get('error') or '')[:300]}，请修正后重试"},
+                                                      ensure_ascii=False), tool_call_id=call["id"]))
+    if not reply.tool_calls and not getattr(reply, "invalid_tool_calls", None):
         out.append(HumanMessage("请通过工具继续：先 submit_plan，取数与计算后用 submit_report 提交报告。"))
     return out
 

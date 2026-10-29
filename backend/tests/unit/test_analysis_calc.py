@@ -123,3 +123,28 @@ def test_coverage_counts_rows_and_missing_days():
     assert out["summary"] == {"members": 2, "rows": 3, "expected_periods": 2, "members_with_gaps": 1,
                               "members_complete": 1, "missing_total": 1}
     assert calc.coverage(rows, [], None)["summary"]["rows"] == 3
+
+
+def test_invalid_tool_calls_get_tool_messages():
+    """模型给出参数无法解析的工具调用时，每个调用都要有对应的工具消息（否则下一轮被模型接口拒绝）。"""
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from avelis.analysis import agent
+
+    reply = AIMessage(content="", tool_calls=[], invalid_tool_calls=[
+        {"name": "query_metric", "args": "{bad json", "id": "call_1", "error": "Expecting value", "type": "invalid_tool_call"}])
+
+    class Model:
+        def bind_tools(self, tools):
+            return self
+
+        def invoke(self, messages):
+            return reply
+
+    class Box:
+        def tools(self):
+            return []
+
+    out = agent._round({"messages": []}, Box(), Model())
+    assert isinstance(out[1], ToolMessage) and out[1].tool_call_id == "call_1" and "无法解析" in out[1].content
+    assert len(out) == 2  # 不再追加“请继续”的提示：模型会据错误重试
