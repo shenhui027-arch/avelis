@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from avelis.config import get_settings
-from avelis.connectors.ddl import AuditUnavailable, DdlEvent, mentions_column, redefines
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent, column_refs, redefines, same_identifier
 from avelis.engines.base import DDL_AUDIT, Engine
 from avelis.models import Asset
 
@@ -60,9 +60,11 @@ def _names_of(event: dict[str, Any], asset: Asset | None) -> set[tuple[str, str]
 
 
 def _candidate(e: DdlEvent, certain: bool) -> dict[str, Any]:
-    # 摘要只在单条、无敏感值的语句上保存；否则只留命令类型（对象已在 basis.objects）
-    return {"at": e.at.isoformat(), "db_user": e.db_user, "statement_type": e.statement_type, "summary": e.summary,
-            "certain": certain}
+    # 只保存审计来源的结构化信息，不保存任何语句原文或摘要（对象已在 basis.objects）
+    out = {"at": e.at.isoformat(), "db_user": e.db_user, "statement_type": e.statement_type, "certain": certain}
+    if e.xid:
+        out["xid"] = e.xid
+    return out
 
 
 def attribute(session: Session, engine: Engine, connector: Any, events: list[dict[str, Any]],
@@ -164,15 +166,25 @@ def _attribute_one(session: Session, e: dict[str, Any], by_object: dict[tuple[st
                     "（可能是审计日志尚未落盘、改动发生在审计开启之前，或经由未审计的路径）")
         return
     column = e.get("column_name")
+    unknown: list[DdlEvent] = []
     if column:
-        # 字段级变化：点名了该列的语句与整体重定义（不一定逐列点名）都是候选，取并集；
-        # 同一对象上只改了别的列的语句不算
+        # 字段级变化的候选（取并集）：在列的语法位置上点名了该列的语句、整体重定义（不一定逐列点名）、
+        # 针对该对象但识别不出涉及哪些列的语句（可能涉及任何一列，只能得到 ambiguous）。
+        # 确定只改了别的列（或不改列结构，如改属主、加 CHECK 约束）的语句不算
         object_names = {n for _, n in names}
-        by_column = [a for a in candidates
-                     if any(mentions_column(a.statement, column, obj, fold) for obj in object_names)]
-        whole = [a for a in candidates if redefines(a.statement)]
-        basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole))
-        candidates = sorted({id(a): a for a in [*by_column, *whole]}.values(), key=lambda a: a.at)
+        by_column, whole = [], []
+        for a in candidates:
+            if redefines(a.statement):
+                whole.append(a)
+                continue
+            refs = [column_refs(a.statement, obj, fold) for obj in object_names]
+            if any(same_identifier(t, column, fold) for r in refs for t in r.columns):
+                by_column.append(a)
+            elif any(r.unknown for r in refs):
+                unknown.append(a)
+        basis.update(column=column, column_match=bool(by_column), redefinitions=len(whole),
+                     unrecognized=len(unknown))
+        candidates = sorted({id(a): a for a in [*by_column, *whole, *unknown]}.values(), key=lambda a: a.at)
         if not candidates:
             _set(e, "unmatched", **basis,
                  reason=f"窗口内有 {'、'.join(basis['objects'])} 的 DDL，但没有一条点名列 {column} 或整体重定义"
@@ -184,6 +196,10 @@ def _attribute_one(session: Session, e: dict[str, Any], by_object: dict[tuple[st
     if len(users) > 1:
         _set(e, "ambiguous", **basis, candidates=users, statements=statements,
              reason=f"窗口内该对象的 DDL 来自多个用户（{'、'.join(users)}），无法确定是谁")
+    elif unknown:
+        _set(e, "ambiguous", **basis, candidates=users, statements=statements,
+             reason=f"候选语句都来自 {users[0]}，但有 {len(unknown)} 条识别不出涉及哪些列，"
+                    f"不能确定就是它改了列 {column}")
     elif boundary:
         # 只要有边界候选就不确定：边界语句可能属于上个窗口，本窗口的变化也可能来自未审计的路径
         _set(e, "ambiguous", **basis, candidates=users, statements=statements,

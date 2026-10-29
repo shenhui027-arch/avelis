@@ -134,7 +134,8 @@ def test_01_postgres_attribution(ctx, admin: Api):
     assert added["attribution_status"] == "matched", added["attribution"]
     assert added["actor_db_user"] == DEV_USER
     assert added["attribution"]["source"].startswith("postgres:")
-    assert "ADD COLUMN channel" in added["attribution"]["statements"][0]["summary"]
+    statement = added["attribution"]["statements"][0]
+    assert statement["statement_type"] == "ALTER TABLE" and statement["xid"] and "summary" not in statement
     comment = _by(events, "column_comment_changed", "store.shops", "city")
     assert comment["before"] == {"comment": None} and comment["after"] == {"comment": "门店所在城市"}
     assert comment["actor_db_user"] == "postgres" and comment["attribution_status"] == "matched"

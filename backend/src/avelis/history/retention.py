@@ -146,6 +146,8 @@ def _new_gaps(chain: integrity.Chain, deleted: set[int],
 RETRIES = 5
 # 写入会让“已计划删除的行”重新获得保留资格的表：删除事务对它们加 SHARE 锁（挡住并发写入），再按同样的规则重新判定
 ELIGIBILITY_TABLES = ("asset", "metric_version", "lineage_edge", "grain", "review_task")
+LOCK_TIMEOUT = "5s"  # 删除事务里后续每次等锁的上限
+STATEMENT_TIMEOUT = "120s"  # 删除事务里每条语句的上限
 
 
 class _PlanChanged(Exception):
@@ -175,7 +177,7 @@ def purge(*, retention_days: int | None = None, now: datetime | None = None, act
                 log.warning("保留期清理第 %s 次：计划之后有行重新获得保留资格（%s），整轮重跑", attempt, exc)
             except OperationalError as exc:
                 state = getattr(exc.orig, "sqlstate", None)
-                if state not in ("40001", "40P01", "55P03") or attempt == RETRIES:
+                if state not in ("40001", "40P01", "55P03", "57014") or attempt == RETRIES:
                     raise
                 log.warning("保留期清理第 %s 次遇到并发冲突（%s），稍后整轮重跑", attempt, state)
                 time.sleep(min(2 * attempt, 10))
@@ -220,15 +222,20 @@ def _purge_once(cutoff: datetime, days: int, actor: User | None, dry_run: bool) 
                          retention_days=days, counts={}, gaps=0)
             session.commit()
             return {"status": "nothing", "cutoff": cutoff.isoformat(), "retention_days": days, "counts": {}}
+        # 等待与执行都有上限：拿到 SHARE 锁后会短暂挡住这些表的写入，超时就回滚、稍后整轮重跑
+        session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+        session.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
         session.execute(text(f"LOCK TABLE {', '.join(ELIGIBILITY_TABLES)} IN SHARE MODE NOWAIT"))
         current = _plan(session, cutoff)
         lost = {t: len(set(ids) - set(current.get(t, []))) for t, ids in plan.items() if t != "history_mark"}
         lost = {t: n for t, n in lost.items() if n}
         if lost:
             raise _PlanChanged("、".join(f"{t} {n} 行" for t, n in lost.items()))
-        marks_now = set(_ids(session, "SELECT m.id FROM history_mark m WHERE " + " OR ".join(
-            f"(m.table_name = '{t}' AND m.row_id = ANY(:{t}))" for t in plan if t in integrity.BY_NAME and plan[t])
-            or "false", **{t: ids for t, ids in plan.items() if t in integrity.BY_NAME and ids}))
+        chained = {t: ids for t, ids in plan.items() if t in integrity.BY_NAME and t != "history_mark" and ids}
+        marks_now: set[str] = set()
+        for t, ids in chained.items():  # 没有链上候选（只有超期的 grain 等）时为空集合
+            marks_now.update(_ids(session, "SELECT id FROM history_mark WHERE table_name = :t AND row_id = ANY(:ids)",
+                                  t=t, ids=ids))
         if marks_now != set(plan.get("history_mark", [])):
             raise _PlanChanged("待删除行的状态标记有变化")
         session.execute(text("SET LOCAL avelis.history_purge = 'on'"))

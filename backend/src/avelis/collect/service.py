@@ -96,8 +96,8 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             connector = collect_connector(session, ds)
             snapshot_started = utcnow()
             snapshot = connector.snapshot()
-            # 游标与实例身份绑定：切换实例后旧游标不能用来解释新实例的事务号
-            cursor = ({**snapshot.audit_cursor, "instance": _identity_key(snapshot.server_identity or {})}
+            # 游标与实例身份绑定：切换实例后旧游标不能用来解释新实例的事务号。连接器给出了实例键时以它为准
+            cursor = ({"instance": _identity_key(snapshot.server_identity or {}), **snapshot.audit_cursor}
                       if snapshot.audit_cursor else None)
             ctx = RunContext(run, dialect_of(ds), connector=connector, snapshot_window=(snapshot_started, utcnow()),
                              audit_cursor=cursor)
@@ -230,8 +230,9 @@ def _audit_window(previous: CollectionRun | None, ctx: RunContext) -> Window | N
         p_done = (previous.finished_at or previous.started_at).replace(tzinfo=None)
     c_start, c_done = ctx.snapshot_window or (utcnow(), utcnow())
     p_cursor, c_cursor = stats.get("audit_cursor"), ctx.audit_cursor
-    changed = ctx.identity_changed or bool(p_cursor and c_cursor
-                                           and p_cursor.get("instance") != c_cursor.get("instance"))
+    # 两次游标的实例不同，或任一方无法确认实例：按实例已切换处理
+    changed = ctx.identity_changed or bool(p_cursor and c_cursor and (
+        p_cursor.get("instance") is None or p_cursor.get("instance") != c_cursor.get("instance")))
     return Window(p_start, p_done, c_start, c_done, previous_cursor=p_cursor, current_cursor=c_cursor,
                   instance_changed=changed)
 

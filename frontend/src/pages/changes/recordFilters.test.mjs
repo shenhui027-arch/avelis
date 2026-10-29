@@ -24,7 +24,14 @@ assert.equal(mod.zonedDayStart("2026-04-05", "America/Santiago"), "2026-04-05T04
 
 const q = mod.recordQuery({ datasource_id: "d1", asset_id: "", column: "", kind: "column_added", actor: "", attribution_status: "",
   since: "2026-10-30", until: "2026-10-31" }, "Asia/Shanghai");
-assert.deepEqual(q, { datasource_id: "d1", kind: "column_added", since: "2026-10-29T16:00:00.000Z", until: "2026-10-30T16:00:00.000Z" });
+assert.deepEqual(q, { query: { datasource_id: "d1", kind: "column_added", since: "2026-10-29T16:00:00.000Z",
+  until: "2026-10-30T16:00:00.000Z" }, invalid: [] });
+// 整天不存在（萨摩亚 2011-12-30 跨日期变更线被跳过）：不抛异常，标为日期字段错误，不发出该条件
+assert.throws(() => mod.zonedDayStart("2011-12-30", "Pacific/Apia"));
+const skipped = mod.recordQuery({ datasource_id: "", asset_id: "", column: "", kind: "", actor: "", attribution_status: "",
+  since: "2011-12-30", until: "2011-12-31" }, "Pacific/Apia");
+assert.deepEqual(skipped.invalid, ["since"]);
+assert.ok(!("since" in skipped.query) && skipped.query.until === "2011-12-30T10:00:00.000Z");
 
 const assets = [{ id: "a1", datasource: { id: "d1" } }, { id: "a2", datasource: { id: "d2" } }];
 assert.deepEqual(mod.assetsOfDatasource(assets, "d1").map((a) => a.id), ["a1"]);

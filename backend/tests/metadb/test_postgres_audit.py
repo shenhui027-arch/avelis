@@ -147,7 +147,9 @@ def test_batched_request_keeps_no_statement_text(src):
     event = {"kind": "column_added", "asset_id": "s", "column_name": "channel", "before": {}, "after": {}}
     _attribute(connector, [event], _window(previous, current))
     assert event["actor_db_user"] == "carol"
-    assert all(s["summary"] is None for s in event["attribution"]["statements"])
+    assert all("summary" not in s and set(s) <= {"at", "db_user", "statement_type", "certain", "xid"}
+               for s in event["attribution"]["statements"])
+    assert all(s.get("xid") for s in event["attribution"]["statements"])  # 结构化信息里带事务号
     assert "s3cr3t" not in repr(event["attribution"]) and "hidden" not in repr(event["attribution"]["statements"])
 
 
@@ -158,3 +160,16 @@ def test_audit_table_has_time_and_transaction_indexes(src):
         names = {r[0] for r in conn.execute(
             "SELECT indexname FROM pg_indexes WHERE schemaname = 'avelis_audit' AND tablename = 'ddl_event'")}
     assert {"ddl_event_at_id", "ddl_event_xid"} <= names
+
+
+def test_audit_connection_must_be_the_snapshot_instance(src):
+    # 第三轮复核 4：没有可信实例 ID 时，实例键是（端点、postmaster 启动时间、库 oid）；审计连接也要核对一次，
+    # 对不上或无法确认都按实例已切换处理
+    connector, _ = src
+    cursor = connector.snapshot().audit_cursor
+    assert cursor["instance"] and cursor["pg_snapshot"]
+    assert connector.ddl_events(utcnow(), utcnow(), cursors=(cursor, cursor)) == []
+    for other in ({**cursor, "instance": "127.0.0.1:1|2000-01-01 00:00:00+00|1"}, {**cursor, "instance": None}):
+        with pytest.raises(AuditUnavailable) as info:
+            connector.ddl_events(utcnow(), utcnow(), cursors=(cursor, other))
+        assert info.value.cause == "instance_changed"

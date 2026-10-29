@@ -38,14 +38,24 @@ export function zonedDayStart(day: string, timeZone: string): string {
   return new Date(t).toISOString();
 }
 
-/** 请求参数：空值不带；起止日期换成业务时区当天零点的 UTC 时刻（截止日不含）。 */
-export function recordQuery(filters: RecordFilters, timeZone: string): { [k: string]: string } {
-  const q: { [k: string]: string } = {};
+/** 请求参数：空值不带；起止日期换成业务时区当天第一个时刻的 UTC 时刻（截止日不含）。
+ * 业务时区里整天不存在的日期（如 Pacific/Apia 2011-12-30）不发出，列在 invalid 里由日期字段提示。 */
+export function recordQuery(filters: RecordFilters, timeZone: string): { query: { [k: string]: string }; invalid: string[] } {
+  const query: { [k: string]: string } = {};
+  const invalid: string[] = [];
   for (const [k, v] of Object.entries(filters)) {
     if (!v) continue;
-    q[k] = k === "since" || k === "until" ? zonedDayStart(v, timeZone) : v;
+    if (k !== "since" && k !== "until") {
+      query[k] = v;
+      continue;
+    }
+    try {
+      query[k] = zonedDayStart(v, timeZone);
+    } catch {
+      invalid.push(k);
+    }
   }
-  return q;
+  return { query, invalid };
 }
 
 /** 某个数据源下的资产（/api/assets 返回 datasource: {id, name, …}）；未选数据源时返回全部。 */
