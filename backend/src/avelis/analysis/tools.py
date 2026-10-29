@@ -434,11 +434,14 @@ class AnalysisToolbox:
                          "answer_id": answer.id}, None, answer.status)
             result = answer.result
             names = [self.catalog.versions[c][0].name for c in args.metric_codes]
+            columns = list(result["columns"])
+            if columns and columns[-1] == "value" and len(names) == 1:  # 单指标下推时结果列名为 value：统一成指标名
+                columns[-1] = names[0]
             title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
                 f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
                 f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
                 f" 对比{'上一期' if args.compare == 'previous_period' else '去年同期'}" if args.compare else "")
-            ds = self._dataset("governed", title, result["columns"], result["rows"], answer_id=answer.id,
+            ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                                truncated=bool(result.get("truncated")),
                                meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                      "intent": answer.intent, "freshness": answer.freshness,

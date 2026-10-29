@@ -14,6 +14,7 @@ const NAV = [
   { to: "/catalog", label: "目录", icon: "catalog" },
   { to: "/changes", label: "变更", icon: "change" },
   { to: "/ask", label: "问数", icon: "ask" },
+  { to: "/analysis", label: "分析", icon: "analysis" },
 ];
 
 const CRUMBS: [RegExp, string[]][] = [

@@ -171,3 +171,14 @@ def test_oracle_case_folding_dates_and_fetch_first():
     assert "FROM STORE.SALES b" in compiled.sql and compiled.sql.endswith("FETCH FIRST 1000 ROWS ONLY")
     validate_sql(compiled.sql, dialect=ora, allowed_tables={"FREEPDB1.STORE.SALES"},
                  schema={"FREEPDB1.STORE.SALES": {"AMOUNT", "SALE_DATE"}}, max_rows=1000)
+
+
+def test_count_star_is_not_select_star():
+    # COUNT(*) 不是未展开的 SELECT *：视图列的血缘应完整（此前被误判为 partial）
+    sr = get_engine("starrocks").sql
+    schema = {"default_catalog": {"shop": {"orders": {"store_id": "INT", "order_date": "DATE", "paid_amount": "DECIMAL"}}}}
+    parsed = parse_query("SELECT o.store_id, COUNT(*) AS n, SUM(o.paid_amount) AS amt FROM shop.orders o "
+                         "GROUP BY o.store_id", dialect=sr, schema=schema)
+    assert parsed.status == "ok", parsed.reason
+    star = parse_query("SELECT * FROM shop.missing", dialect=sr, schema=schema)
+    assert star.status != "ok"

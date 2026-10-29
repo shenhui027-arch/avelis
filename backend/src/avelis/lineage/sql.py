@@ -145,6 +145,16 @@ def fold_identifiers(dialect_name: str) -> Callable[[exp.Expression], exp.Expres
     return fold
 
 
+def _select_star(expression: exp.Expression) -> bool:
+    """投影中残留的 * 或 t.*（未能按表结构展开）。COUNT(*) 等聚合参数里的 * 不算。"""
+    for select in expression.find_all(exp.Select):
+        for projection in select.expressions:
+            if isinstance(projection, exp.Star) or (isinstance(projection, exp.Column)
+                                                    and isinstance(projection.this, exp.Star)):
+                return True
+    return False
+
+
 def default_tables(expression: exp.Expression, default_catalog: str, default_db: str | None) -> list[str]:
     """补全表的 Catalog 与库，返回引用到的实体表（不含 CTE 名）。"""
     cte_names = {cte.alias_or_name for cte in expression.find_all(exp.CTE)}
@@ -225,7 +235,7 @@ def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, di
     result.unresolved = [t for t in tables if not _in_schema(schema, t)]
     if result.unresolved:
         problems.append("未采集到的表：" + "、".join(result.unresolved))
-    if qualified.find(exp.Star):
+    if _select_star(qualified):
         problems.append("SELECT * 未能按已采集的表结构展开")
     select = scope.expression
     for projection in select.selects:
