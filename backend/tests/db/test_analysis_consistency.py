@@ -375,3 +375,129 @@ def test_denial_followed_by_failure_still_pauses_task(factory, no_model, monkeyp
     run = _get(AnalysisRun, job.result["analysis_run_id"])
     assert run.status == "failed" and run.report["permission"]["denials"][0]["metric_code"] == hidden
     assert task.status == "paused" and hidden in task.paused_reason and job.result["outcome"] == "paused"
+
+
+# --- 第三轮复核 -------------------------------------------------------------------------
+
+def test_finalization_locks_job_before_run(factory, no_model, monkeypatch):
+    """收尾与恢复器同一加锁顺序（Job → 运行）：另一个连接持有 Job 锁时，收尾在 Job 上等待，
+    不会先拿住运行行锁（否则与恢复器的 Job → 运行 交错即死锁）。"""
+    import threading
+    import time
+
+    from sqlalchemy.exc import OperationalError
+
+    from avelis.db import session_factory
+
+    ready, go = threading.Event(), threading.Event()
+
+    def script(box):
+        box.report = {"title": "完成", "summary": "无数字。", "claims": []}
+        ready.set()
+        assert go.wait(10)
+
+    graph(monkeypatch, script)
+    run_id, job_id = _run_with_job(factory.user())
+    worker = threading.Thread(target=jobs.run_job, args=(job_id,))
+    worker.start()
+    assert ready.wait(10)
+    holder = session_factory()()
+    try:
+        holder.execute(select(Job).where(Job.id == job_id).with_for_update())  # 恢复器的第一把锁
+        go.set()
+        time.sleep(1.5)  # 让收尾走到加锁处
+        try:  # 收尾若先锁了运行，这里会立即失败
+            holder.execute(select(AnalysisRun).where(AnalysisRun.id == run_id).with_for_update(nowait=True))
+        except OperationalError:
+            pytest.fail("收尾在等待 Job 锁之前已持有运行行锁：与恢复器的加锁顺序相反")
+        assert worker.is_alive()  # 收尾正在等 Job 锁
+    finally:
+        holder.rollback()
+        holder.close()
+    worker.join(20)
+    assert not worker.is_alive()
+    assert _get(AnalysisRun, run_id).status == "succeeded" and _get(Job, job_id).status == "succeeded"
+
+
+def test_recovery_keeps_paused_outcome_when_already_notified(factory, no_model):
+    """旧记录：运行终态、任务暂停与通知已提交，Job 仍为 running。恢复器保留 paused（Job 记为 skipped），不重复通知。"""
+    uid = factory.user()
+    task_id, job_id = _task_with_job(uid)
+    _claim(job_id)
+    reason = "指标 m1 当前无权访问"
+    with session_scope() as s:
+        run = AnalysisRun(user_id=uid, task_id=task_id, question="q", trigger="schedule", status="succeeded",
+                          report={"permission": {"lost": None, "denials": [{"message": reason}]}},
+                          finished_at=utcnow() - timedelta(minutes=1))
+        s.add(run)
+        s.flush()
+        run_id = run.id
+        task = s.get(AnalysisTask, task_id)
+        task.status, task.paused_reason, task.last_run_id, task.updated_at = "paused", reason, run_id, utcnow()
+        s.add(Notification(user_id=uid, kind="analysis_paused", title="已暂停", body=reason, link=service.TASKS_LINK))
+        s.get(Job, job_id).result = {"analysis_run_id": run_id}
+    _backdate(job_id)
+    jobs.abandoned_jobs(older_than_seconds=60)
+    job = _get(Job, job_id)
+    assert job.status == "skipped" and job.result["outcome"] == "paused" and reason in job.result["reason"]
+    with session_scope() as s:
+        assert len(list(s.scalars(select(Notification).where(Notification.user_id == uid)))) == 1
+
+
+def test_sync_wait_follows_job_claimed_by_another_worker(factory, no_model, monkeypatch):
+    """同步入口提交 Job 后被扫描 worker 抢先领取：等它到终态再返回，而不是立即返回 running。"""
+    import threading
+    import time
+
+    def script(box):
+        time.sleep(2)
+        box.report = {"title": "完成", "summary": "无数字。", "claims": []}
+
+    graph(monkeypatch, script)
+    run_id, job_id = _run_with_job(factory.user())
+    attempt = _claim(job_id)  # 扫描 worker 先领取
+    other = threading.Thread(target=service.run_job, args=(job_id, attempt, "analysis_run", {"run_id": run_id}))
+    other.start()
+    try:
+        assert jobs.run_and_wait(job_id, 30) == "succeeded"
+        assert _get(AnalysisRun, run_id).status == "succeeded"
+    finally:
+        other.join(30)
+
+
+def test_run_now_reports_real_reason_without_run(factory, no_model, monkeypatch):
+    from fastapi import HTTPException
+
+    from avelis.api import analysis as api
+    from avelis.db import session_factory
+
+    uid = factory.user()
+    with session_scope() as s:
+        task = AnalysisTask(title="手动", question="上个月成交额为什么变化？", owner_id=uid, window={}, status="active")
+        s.add(task)
+        s.flush()
+        task_id = task.id
+        for r in s.scalars(select(UserRole).where(UserRole.user_id == uid)):
+            s.delete(r)
+        s.add(UserRole(user_id=uid, role="reviewer"))  # 仍能访问任务，但下面改成无查询角色
+
+    def call():
+        session = session_factory()()
+        try:
+            return api.run_task_now(task_id, user=session.get(User, uid), session=session)
+        finally:
+            session.close()
+
+    monkeypatch.setattr(service, "identity_problem", lambda s, u: "发起人已没有查询角色")
+    with pytest.raises(HTTPException) as err:
+        call()
+    assert err.value.status_code == 409 and err.value.detail == "任务已暂停：发起人已没有查询角色"
+    # Job 被 worker 抢先领取、在等待时间内没有结束：如实说明，不报“任务已暂停：None”
+    monkeypatch.setattr(api, "SYNC_WAIT_SECONDS", 0)
+    monkeypatch.setattr(jobs, "run_job", lambda job_id: _claim(job_id))
+    with session_scope() as s:
+        t = s.get(AnalysisTask, task_id)
+        t.status, t.paused_reason = "active", None
+    with pytest.raises(HTTPException) as err:
+        call()
+    assert "尚未开始" in err.value.detail and "None" not in err.value.detail

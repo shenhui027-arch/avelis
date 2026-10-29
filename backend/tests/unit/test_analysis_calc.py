@@ -81,8 +81,11 @@ def test_segment_describe_and_outliers():
 def test_extract_numbers_skips_dates_and_ordinals():
     text = "2026 年 9 月华南门店成交额 196.94 万，比 8 月下降 7,625.24（-3.7%），前 3 名中第 1 是 D2 的深圳"
     assert [n["text"] for n in extract_numbers(text)] == ["196.94万", "7,625.24", "-3.7%"]
-    assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64，9/1–9/9 共 9 天")] == ["15,418.64"]
-    assert [n["text"] for n in extract_numbers("2026-08-01~08-09 订单 168")] == ["168"]
+    assert [n["text"] for n in extract_numbers("9 月 10 日成交额 15,418.64，9 月 1 日至 9 月 9 日共 9 天")] == ["15,418.64"]
+    assert [n["text"] for n in extract_numbers("2026-08-01~2026-08-09 订单 168")] == ["168"]
+    # 短写法不当日期：9/10、08-09、2026-09 按数字核验（复核：只认完整、真实存在的日期）
+    assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64")] == ["9", "10", "15,418.64"]
+    assert [n["text"] for n in extract_numbers("08-09 订单 168")] == ["08", "09", "168"]
     assert [n["text"] for n in extract_numbers("8-9 月共 61 天")] == ["61"]  # 超过 31 的天数是数据，要核验
     assert [n["text"] for n in extract_numbers("9 月少 1 天，8 月 31 天，其余 9 家门店")] == ["9"]
     # 数字紧贴汉字（\w 在 Unicode 下包括汉字，曾导致只取到千分位逗号后面的部分）
@@ -179,8 +182,17 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
     zero = {"D1": {"rows": [{"v": "0"}]}}
     assert verify_report([{"type": "fact", "text": "利润在 2400-3200 元之间", "refs": ["D1"]}], zero)["ok"] is False
     assert check("利润在 2400-3000 元之间")["status"] == "verified"
-    assert [n["text"] for n in extract_numbers("2026-09-15 与 2026-09 各 100，2000-12 元")] == ["100", "2000", "12"]
+    assert [n["text"] for n in extract_numbers("2026-09-15 各 100，2000-12 元")] == ["100", "2000", "12"]
     assert [n["text"] for n in extract_numbers("13-40 单，45 日")] == ["13", "40", "45"]  # 不合法的月日照常核验
+    # 复核反例：单位不在白名单里的区间、“零个”、不存在的日期，都不能因为“没提取到数字”而通过
+    assert [n["text"] for n in extract_numbers("销量10-12箱")] == ["10", "12"]
+    assert check("共零个区域")["status"] == "unverified"
+    assert "100" in [n["text"] for n in extract_numbers("2026-02-31 成交 100")]
+    assert [n["text"] for n in extract_numbers("2026-02-31 成交 100")][0] == "2026"  # 不存在的日期按数字核验
+    assert [n["text"] for n in extract_numbers("2026-02-29 成交 100")][0] == "2026"  # 平年没有 2 月 29 日
+    assert [n["text"] for n in extract_numbers("2024-02-29 成交 100")] == ["100"]
+    assert [n["text"] for n in extract_numbers("2 月 31 日成交 100")] == ["2", "31", "100"]
+    assert check("销量10-12箱")["status"] == "unverified"
 
 
 def test_verify_checks_title_summary_and_unexplained():

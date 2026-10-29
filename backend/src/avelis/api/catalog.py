@@ -151,8 +151,9 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
     fps = current_fingerprints(session)
     version = session.get(AssetVersion, a.current_version_id) if a.current_version_id else None
     columns = []
-    from avelis.governance.column_docs import column_doc
+    from avelis.governance.column_docs import column_doc, visible_to
 
+    can_see = visible_to(session, user)
     if version:
         for c in session.scalars(select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id)
                                  .order_by(ColumnVersion.ordinal)):
@@ -161,7 +162,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                 Confirmation.asset_id == a.id, Confirmation.column_name == c.name, Confirmation.revoked_at.is_(None)))
             columns.append({
                 "name": c.name, "data_type": c.data_type, "nullable": c.nullable, "comment": c.comment,
-                "is_key": c.is_key, "column_id": c.column_id, "doc": column_doc(session, a, c.name),
+                "is_key": c.is_key, "column_id": c.column_id, "doc": column_doc(session, a, c.name, can_see=can_see),
                 "fingerprint": fp.fingerprint if fp else None, "fingerprint_status": fp.status if fp else None,
                 "fingerprint_reason": fp.reason if fp else None,
                 "confirmations": [{"id": x.id, "meaning": x.meaning, "confirmed_by": x.confirmed_by,
@@ -283,7 +284,7 @@ def comment_gaps(datasource_id: str | None = None, user: User = Depends(current_
     for asset in session.scalars(stmt):
         if not access.can_read_asset(session, user, asset, allowed):
             continue
-        docs = asset_docs(session, asset)
+        docs = asset_docs(session, asset, can_see=lambda a: access.can_read_asset(session, user, a, allowed))
         by_ds.setdefault(asset.datasource_id, []).extend(docs)
         items += [{**d, "kind": asset.kind, "datasource_id": asset.datasource_id,
                    "suggestion": d["comment"] if d["status"] == "inherited" else None}

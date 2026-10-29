@@ -229,3 +229,8 @@ def test_time_column_avoids_metric_display_name_and_probe_row():
     limited = Intent(metric_code="m", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), limit=10)
     assert compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=limited, max_rows=1000,
                                 time_type="date", dialect=sr).sql.endswith("LIMIT 10")
+    # 请求的 limit 超过系统上限：同样多取 1 行，连接器据此标记截断（复核：limit=10、上限 5 时曾只取 5 行而不标截断）
+    over = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=limited, max_rows=5,
+                                time_type="date", dialect=sr).sql
+    assert over.endswith("LIMIT 6")
+    validate_sql(over, dialect=sr, allowed_tables={"default_catalog.shop.orders"}, schema=schema, max_rows=5)

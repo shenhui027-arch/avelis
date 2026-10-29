@@ -368,6 +368,10 @@ def test_lmdi_treats_only_computation_precision_as_rounding():
     out = calc.factor_decompose(("1000", "1000.02"), {"订单数": (1000, 1000), "客单价": (1, 1)})
     assert {f["factor"]: f["contribution"] for f in out["factors"]} == {
         "订单数": Decimal("0.00"), "客单价": Decimal("0.00"), "未解释差额": Decimal("0.02")}
+    # 大基数：两个因子都不变，总量多出 100（第三轮 P3：曾因相对 1e-9 的阈值约为 1000 而整体分给最后一个因子）
+    big = calc.factor_decompose(("1000000000000", "1000000000100"), {"a": (1000000000000, 1000000000000), "b": (1, 1)})
+    assert {f["factor"]: f["contribution"] for f in big["factors"]} == {
+        "a": Decimal("0.00"), "b": Decimal("0.00"), "未解释差额": Decimal("100.00")}
     exact = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
     assert exact["unexplained"] == 0 and sum(f["contribution"] for f in exact["factors"]) == Decimal(-600)
 
@@ -380,3 +384,76 @@ def test_pdf_chart_uses_saved_time_column():
     font, _ = export.pdf_font()
     assert any(isinstance(c, LinePlot) for c in export._chart(d, font).contents)
     assert not any(isinstance(c, LinePlot) for c in export._chart({**d, "time_column": None}, font).contents)
+
+
+# --- 第三轮复核 -------------------------------------------------------------------------
+
+class DocSession:
+    """column_doc 用到的几类查询的内存替身：按查询的实体与条件返回。"""
+
+    def __init__(self, assets, comments, edges=(), links=()):
+        self.assets, self.comments, self.edges, self.links = {a.id: a for a in assets}, comments, edges, links
+
+    def get(self, cls, id_, **kw):
+        return self.assets.get(id_)
+
+    def _params(self, stmt):
+        return stmt.compile().params
+
+    def scalar(self, stmt):
+        entity, p = stmt.column_descriptions[0]["name"], self._params(stmt)
+        if entity == "comment":
+            return self.comments.get((p["asset_version_id_1"], p["name_1"]))
+        if entity == "IdentityLink":
+            return next((x for x in self.links if x.source_asset_id == p["source_asset_id_1"]), None)
+        raise AssertionError(entity)
+
+    def scalars(self, stmt):
+        p = self._params(stmt)
+        return [e for e in self.edges if e.target_asset_id == p["target_asset_id_1"]
+                and e.target_column == p["target_column_1"]]
+
+
+def test_inherited_comment_only_from_visible_upstream():
+    """A 域的视图继承 B 域表的注释：看不到 B 的人既看不到注释也看不到来源，状态为 missing（第三轮 #2）。"""
+    from avelis.governance.column_docs import column_doc
+
+    view = SimpleNamespace(id="v", kind="view", current_version_id="vv", domain_id="dA", catalog_name="c",
+                           db_name="dw", name="v_sales")
+    ext = SimpleNamespace(id="e", kind="external_table", current_version_id="ev", domain_id="dA", catalog_name="c",
+                          db_name="dw", name="e_sales")
+    secret = SimpleNamespace(id="s", kind="table", current_version_id="sv", domain_id="dB", catalog_name="c",
+                             db_name="hr", name="salary")
+    edge = SimpleNamespace(target_asset_id="v", target_column="amt", source_asset_id="s", source_column="amt")
+    link = SimpleNamespace(source_asset_id="e", target_asset_id="s", status="confirmed")
+    session = DocSession([view, ext, secret], {("sv", "amt"): "员工实发工资"}, edges=[edge], links=[link])
+    only_a = lambda a: a.domain_id == "dA"  # noqa: E731
+    for asset, visible_status in ((view, "inherited"), (ext, "linked")):
+        hidden = column_doc(session, asset, "amt", can_see=only_a)
+        assert hidden["status"] == "missing" and hidden["comment"] is None and hidden["source"] is None
+        assert "salary" not in json.dumps(hidden)
+        shown = column_doc(session, asset, "amt", can_see=lambda a: True)
+        assert shown["status"] == visible_status and shown["comment"] == "员工实发工资" and shown["source"] == "c.hr.salary.amt"
+    with pytest.raises(TypeError):  # 调用方必须给出可见性判断
+        column_doc(session, view, "amt")
+
+
+def test_worker_scan_continues_after_a_failing_step(monkeypatch, caplog):
+    """一项扫描失败（如死锁被数据库中止）只记录日志，其余扫描照常进行，worker 主循环不退出（第三轮 #1）。"""
+    from avelis import jobs
+    from avelis.analysis import service as analysis_service
+
+    calls = []
+
+    def boom():
+        raise RuntimeError("deadlock detected")
+
+    monkeypatch.setattr(jobs, "abandoned_jobs", boom)
+    monkeypatch.setattr(jobs, "schedule_due", lambda: calls.append("collect") or ["j1"])
+    monkeypatch.setattr(analysis_service, "schedule_due", lambda: calls.append("analysis") or [])
+    monkeypatch.setattr(jobs, "stale_jobs", lambda: calls.append("stale") or [])
+    monkeypatch.setattr(jobs, "run_job", lambda job_id: calls.append(f"run {job_id}") or boom())
+    monkeypatch.setattr(jobs, "purge_history_if_due", lambda: calls.append("purge"))
+    jobs.scan_once()
+    assert calls == ["collect", "analysis", "stale", "run j1", "purge"]
+    assert "回收超时任务 失败" in caplog.text and "deadlock detected" in caplog.text

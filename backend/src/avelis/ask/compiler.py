@@ -118,8 +118,9 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         else:
             select = select.order_by(*group_cols)
     limit = getattr(intent, "limit", None)
-    # 不限行数时多取 1 行：连接器截到 max_rows 并据此标记截断，“刚好超出上限”也能识别
-    select = select.limit(min(limit, max_rows) if limit else max_rows + 1)
+    # 不限行数、或请求的行数超过系统上限时多取 1 行：连接器截到 max_rows 并据此标记截断，“刚好超出上限”也能识别。
+    # 请求的行数不超过上限时按请求取（结果是用户要的前 N 行，不是被系统截断）
+    select = select.limit(limit if limit and limit <= max_rows else max_rows + 1)
     if sql_dialect.national_strings:
         select = select.transform(_national)
     sql = select.sql(dialect=dialect, comments=False)

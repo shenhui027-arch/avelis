@@ -165,7 +165,7 @@ def update_version(version_id: str, body: VersionSpec, user: User = Depends(curr
 @router.post("/metric-versions/{version_id}/check", response_model=S.PublishCheckOut)
 def check_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """发布前检查（不改变状态）。"""
-    return metrics.publish_check(session, _visible_version(session, user, version_id))
+    return metrics.publish_check(session, _visible_version(session, user, version_id), user)
 
 
 @router.post("/metric-versions/{version_id}/submit", response_model=S.MetricVersionOut)

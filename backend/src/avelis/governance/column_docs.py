@@ -7,16 +7,30 @@
 - inherited  视图列没有注释，但直接取值的上游列有：本列缺注释，建议在视图上补（例如沿用上游注释）；
 - missing    本列与上游都没有注释。
 inherited 与 missing 都计为“注释缺失”。
+
+继承与映射只沿查看者能看到的上游：上游资产对查看者不可见时，不沿用它的注释、不返回来源，本列记为 missing
+（can_see 由调用方按当前用户给出，见 visible_to）。
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.models import Asset, ColumnVersion, IdentityLink, LineageEdge
+from avelis.models import Asset, ColumnVersion, IdentityLink, LineageEdge, User
+
+CanSee = Callable[[Asset], bool]
+
+
+def visible_to(session: Session, user: User) -> CanSee:
+    """查看者能否看到某个资产（与资产详情、问数来源权限同一规则）。"""
+    from avelis.governance import access
+
+    allowed = access.domain_ids(session, user)
+    return lambda asset: access.can_read_asset(session, user, asset, allowed)
 
 GAPS = ("inherited", "missing")
 EXTERNAL = ("external_table", "catalog_table")
@@ -36,7 +50,7 @@ def _own_comment(session: Session, asset: Asset, column: str) -> str | None:
     return comment if comment and comment.lower() != column.lower() else None
 
 
-def column_doc(session: Session, asset: Asset, column: str, _depth: int = 0) -> dict[str, Any]:
+def column_doc(session: Session, asset: Asset, column: str, *, can_see: CanSee, _depth: int = 0) -> dict[str, Any]:
     out: dict[str, Any] = {"asset_id": asset.id, "asset": _qualified(asset), "column": column, "comment": None,
                            "status": "missing", "source": None}
     own = _own_comment(session, asset, column)
@@ -48,8 +62,8 @@ def column_doc(session: Session, asset: Asset, column: str, _depth: int = 0) -> 
         link = session.scalar(select(IdentityLink).where(IdentityLink.source_asset_id == asset.id,
                                                          IdentityLink.superseded_at.is_(None)))
         target = session.get(Asset, link.target_asset_id) if link and link.target_asset_id else None
-        if link and link.status in ("confirmed", "candidate") and target is not None:
-            upstream = column_doc(session, target, column, _depth + 1)
+        if link and link.status in ("confirmed", "candidate") and target is not None and can_see(target):
+            upstream = column_doc(session, target, column, can_see=can_see, _depth=_depth + 1)
             if upstream["comment"]:
                 return {**out, "comment": upstream["comment"], "status": "linked",
                         "source": f"{upstream['asset']}.{column}"}
@@ -61,19 +75,20 @@ def column_doc(session: Session, asset: Asset, column: str, _depth: int = 0) -> 
             LineageEdge.relation == "value_direct")))
         if len(sources) == 1 and sources[0].source_asset_id and sources[0].source_column:
             src = session.get(Asset, sources[0].source_asset_id)
-            upstream = column_doc(session, src, sources[0].source_column, _depth + 1) if src else None
+            upstream = (column_doc(session, src, sources[0].source_column, can_see=can_see, _depth=_depth + 1)
+                        if src is not None and can_see(src) else None)
             if upstream and upstream["comment"]:
                 return {**out, "comment": upstream["comment"], "status": "inherited",
                         "source": f"{upstream['asset']}.{sources[0].source_column}"}
     return out
 
 
-def asset_docs(session: Session, asset: Asset) -> list[dict[str, Any]]:
+def asset_docs(session: Session, asset: Asset, *, can_see: CanSee) -> list[dict[str, Any]]:
     if not asset.current_version_id:
         return []
     names = session.scalars(select(ColumnVersion.name).where(
         ColumnVersion.asset_version_id == asset.current_version_id).order_by(ColumnVersion.ordinal))
-    return [column_doc(session, asset, name) for name in names]
+    return [column_doc(session, asset, name, can_see=can_see) for name in names]
 
 
 def summarize(docs: list[dict[str, Any]]) -> dict[str, Any]:

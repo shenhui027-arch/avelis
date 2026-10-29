@@ -55,6 +55,19 @@ def enqueue(kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
 
 
 ANALYSIS_KINDS = ("analysis", "analysis_run")
+TERMINAL = ("succeeded", "failed", "skipped")
+
+
+def run_and_wait(job_id: str, timeout_seconds: float) -> str | None:
+    """同步入口：在本进程内领取并执行 Job；若已被扫描 worker 抢先领取，等它到终态（或超时）再返回 Job 状态。"""
+    run_job(job_id)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        with session_scope() as session:
+            status = session.scalar(select(Job.status).where(Job.id == job_id))
+        if status in TERMINAL or status is None or time.monotonic() > deadline:
+            return status
+        time.sleep(1)
 
 
 def run_job(job_id: str) -> None:
@@ -170,6 +183,26 @@ def purge_history_if_due() -> None:
         log.exception("保留期清理失败")
 
 
+def _guarded(name: str, fn, default=None):
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 - 记录后继续：一次扫描失败（如死锁被中止）不能让 worker 主循环退出
+        log.exception("%s 失败，下一轮重试", name)
+        return default
+
+
+def scan_once() -> None:
+    """一轮定时扫描：回收超时任务、入队到期任务、执行排队过久的任务、清理超期历史。每一项单独容错。"""
+    from avelis.analysis import service as analysis_service
+
+    _guarded("回收超时任务", abandoned_jobs)
+    due = [*_guarded("定时采集入队", schedule_due, []), *_guarded("定时分析入队", analysis_service.schedule_due, []),
+           *_guarded("扫描排队任务", stale_jobs, [])]
+    for job_id in due:
+        _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
+    _guarded("清理超期历史", purge_history_if_due)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
@@ -186,12 +219,7 @@ def main() -> None:
     while not stop:
         if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
             last_schedule = time.monotonic()
-            abandoned_jobs()
-            from avelis.analysis import service as analysis_service
-
-            for job_id in schedule_due() + analysis_service.schedule_due() + stale_jobs():
-                run_job(job_id)
-            purge_history_if_due()
+            scan_once()
         try:
             item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
         except Exception:
@@ -202,6 +230,8 @@ def main() -> None:
                 run_job(item[1])
             except CollectionFailed:
                 pass
+            except Exception:  # noqa: BLE001 - 单个任务的意外错误不能让 worker 退出
+                log.exception("任务 %s 执行异常", item[1])
     log.info("worker 已停止")
 
 
