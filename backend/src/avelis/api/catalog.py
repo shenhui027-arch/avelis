@@ -151,6 +151,8 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
     fps = current_fingerprints(session)
     version = session.get(AssetVersion, a.current_version_id) if a.current_version_id else None
     columns = []
+    from avelis.governance.column_docs import column_doc
+
     if version:
         for c in session.scalars(select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id)
                                  .order_by(ColumnVersion.ordinal)):
@@ -159,7 +161,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                 Confirmation.asset_id == a.id, Confirmation.column_name == c.name, Confirmation.revoked_at.is_(None)))
             columns.append({
                 "name": c.name, "data_type": c.data_type, "nullable": c.nullable, "comment": c.comment,
-                "is_key": c.is_key, "column_id": c.column_id,
+                "is_key": c.is_key, "column_id": c.column_id, "doc": column_doc(session, a, c.name),
                 "fingerprint": fp.fingerprint if fp else None, "fingerprint_status": fp.status if fp else None,
                 "fingerprint_reason": fp.reason if fp else None,
                 "confirmations": [{"id": x.id, "meaning": x.meaning, "confirmed_by": x.confirmed_by,
@@ -263,6 +265,32 @@ def declare_grain(asset_id: str, body: GrainDeclare, user: User = Depends(curren
     audit.record(session, user, "grain.declare", "asset", a.id, grain_id=g.id, columns=body.columns,
                  reason=body.reason)
     return {"id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status}
+
+
+@router.get("/metadata/comment-gaps", response_model=S.CommentGapsOut)
+def comment_gaps(datasource_id: str | None = None, user: User = Depends(current_user),
+                 session: Session = Depends(get_session)) -> dict:
+    """注释缺失清单：字段含义以数据库列注释为准。按数据源汇总完整度，列出缺注释的列（含可沿用的上游注释），
+    交给数据库负责人补齐。只包含当前用户可见的资产。"""
+    from avelis.governance.column_docs import GAPS, asset_docs, summarize
+
+    allowed = access.domain_ids(session, user)
+    stmt = select(Asset).where(Asset.status == "active").order_by(Asset.catalog_name, Asset.db_name, Asset.name)
+    if datasource_id:
+        stmt = stmt.where(Asset.datasource_id == datasource_id)
+    by_ds: dict[str, list[dict]] = {}
+    items = []
+    for asset in session.scalars(stmt):
+        if not access.can_read_asset(session, user, asset, allowed):
+            continue
+        docs = asset_docs(session, asset)
+        by_ds.setdefault(asset.datasource_id, []).extend(docs)
+        items += [{**d, "kind": asset.kind, "datasource_id": asset.datasource_id,
+                   "suggestion": d["comment"] if d["status"] == "inherited" else None}
+                  for d in docs if d["status"] in GAPS]
+    names = {ds.id: ds.name for ds in session.scalars(select(Datasource))}
+    return {"datasources": [{"datasource_id": k, "name": names.get(k), **summarize(v)} for k, v in by_ds.items()],
+            "items": items}
 
 
 @router.post("/grains/{grain_id}/verify", response_model=S.GrainOut)

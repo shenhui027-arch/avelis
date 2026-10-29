@@ -272,7 +272,8 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         return
     answer.executed_at = utcnow()
     answer.result = {"columns": result.columns, "rows": [[_jsonable(v) for v in row] for row in result.rows],
-                     "row_count": len(result.rows), "truncated": result.truncated}
+                     "row_count": len(result.rows), "truncated": result.truncated,
+                     "column_docs": _dimension_docs(session, version, aliases, intent.group_by)}
     answer.status = "answered"
     answer.evidence["cache"] = {"hit": False}
     answer.message = _explain(metric, version, intent, answer.result)
@@ -370,6 +371,23 @@ def _cache_put(key: str, value: dict, ttl: int, tags: list[str]) -> None:
         cache.cache_put(key, value, ttl, tags)
     except Exception:
         pass
+
+
+def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str, Asset],
+                    names: list[str]) -> dict[str, dict[str, Any]]:
+    """结果中各维度列的数据库注释（原样列名 + 注释状态）。Avelis 不另起显示名：注释缺失就如实标出，
+    推动数据库侧补齐（见 governance/column_docs.py）。"""
+    from avelis.governance.column_docs import column_doc
+
+    dims = {d["name"]: d for d in version.dimensions or []}
+    out = {}
+    for name in names:
+        ref = dims.get(name, {}).get("column", "")
+        alias, column = ref.split(".", 1) if "." in ref else ("b", ref)
+        asset = aliases.get(alias)
+        if asset is not None and column:
+            out[name] = column_doc(session, asset, column)
+    return out
 
 
 PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期"}
@@ -511,8 +529,10 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
 
     first_code, first_metric, first_version = requested[0]
     answer.status = "answered"
+    first_run = next(iter(runs.values()))[1]
+    docs = _dimension_docs(session, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
     answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in r] for r in rows_out],
-                     "row_count": len(rows_out), "truncated": truncated}
+                     "row_count": len(rows_out), "truncated": truncated, "column_docs": docs}
     answer.sql = (chr(10) * 2).join(sqls)
     answer.plan = {"kind": "plan", "subqueries": plan, "order": intent.order, "limit": intent.limit,
                    "compare": intent.compare}

@@ -51,6 +51,7 @@ class Settings:
     collect_interval_minutes: int = 15
     unassigned_asset_policy: str = "deny"
     ask_live_check: bool = True
+    require_column_comments: bool = False
     worker_schedule_seconds: int = 60
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
@@ -88,6 +89,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         login_max_failures=int(env.get("AVELIS_LOGIN_MAX_FAILURES", "5")),
         login_lock_minutes=int(env.get("AVELIS_LOGIN_LOCK_MINUTES", "15")),
         ask_live_check=env.get("AVELIS_ASK_LIVE_CHECK", "true").strip().lower() not in ("0", "false", "no"),
+        require_column_comments=env.get("AVELIS_REQUIRE_COLUMN_COMMENTS", "false").strip().lower()
+        in ("1", "true", "yes"),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
         worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -154,6 +154,39 @@ class ConfirmationOut(Out):
     note: str | None = None
 
 
+class ColumnDocOut(Out):
+    """字段含义的数据库注释状态（governance/column_docs.py）。"""
+    asset_id: str
+    asset: str
+    column: str
+    comment: str | None = None
+    status: Literal["ok", "linked", "inherited", "missing"]
+    source: str | None = None
+
+
+class CommentGapOut(ColumnDocOut):
+    kind: str
+    datasource_id: str
+    suggestion: str | None = None
+
+
+class CommentCoverageOut(Out):
+    datasource_id: str
+    name: str | None = None
+    ok: int
+    linked: int
+    inherited: int
+    missing: int
+    total: int
+    gaps: int
+    completeness: float | None = None
+
+
+class CommentGapsOut(Out):
+    datasources: list[CommentCoverageOut]
+    items: list[CommentGapOut]
+
+
 class ColumnOut(Out):
     name: str
     data_type: str
@@ -164,6 +197,7 @@ class ColumnOut(Out):
     fingerprint: str | None = None
     fingerprint_status: str | None = None
     fingerprint_reason: str | None = None
+    doc: ColumnDocOut | None = None
     confirmations: list[ConfirmationOut]
 
 

@@ -283,3 +283,24 @@ export function shortName(qualified: string | null | undefined): string {
   const parts = qualified.split(".");
   return parts.length >= 2 ? parts.slice(-2).join(".") : qualified;
 }
+
+// --- 字段注释 ----------------------------------------------------------------------
+
+/** 字段含义以数据库列注释为准（后端 governance/column_docs.py）。列名原样展示，注释缺失如实标出，推动数据库侧补齐。 */
+export type ColumnDoc = { status: "ok" | "linked" | "inherited" | "missing"; comment?: string | null; source?: string | null };
+
+export function CommentDoc({ doc }: { doc: ColumnDoc | null | undefined }) {
+  if (!doc) return null;
+  if (doc.status === "ok") return <span className="av-coldoc">{doc.comment}</span>;
+  if (doc.status === "linked") {
+    return <span className="av-coldoc" title={`取自源表 ${doc.source}`}>{doc.comment}</span>;
+  }
+  if (doc.status === "inherited") {
+    return (
+      <span className="av-coldoc av-coldoc--gap" title={`本列没有数据库注释；上游 ${doc.source} 的注释可沿用`}>
+        <Pill tone="warn">缺注释</Pill><span>上游：{doc.comment}</span>
+      </span>
+    );
+  }
+  return <span className="av-coldoc av-coldoc--gap" title="本列与上游都没有数据库注释"><Pill tone="warn">注释缺失</Pill></span>;
+}

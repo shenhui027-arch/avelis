@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
-import { Code, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
+import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatTime } from "../../format";
 import { changeTone, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 
@@ -202,7 +202,8 @@ function ResultTable({ result, dimensions }: { result: AskResult; dimensions: st
       role="region" aria-label="问数结果" tabIndex={0}>
       <table className="av-table av-answer-table">
         <thead><tr>{columns.map((column, index) => <th key={`${column}-${index}`} scope="col"
-          className={index < dimensions.length ? "av-answer-table__dimension" : "av-answer-table__number"}>{column === "value" ? "值" : column}</th>)}</tr></thead>
+          className={index < dimensions.length ? "av-answer-table__dimension" : "av-answer-table__number"}><span className="av-answer-table__head">{column === "value" ? "值" : column}</span>
+          {index < dimensions.length ? <CommentDoc doc={result.column_docs?.[column]} /> : null}</th>)}</tr></thead>
         <tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column, columnIndex) => {
           const dimension = columnIndex < dimensions.length;
           const value = row[columnIndex];

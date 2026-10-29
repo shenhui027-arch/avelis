@@ -345,6 +345,16 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
                 f"会放大可加度量 {version.expression}，导致重复计数。请先把右侧按关联键聚合（pre_aggregate），"
                 f"或改用不放大的关联路径")
     blockers.extend(fan_out)
+    # 字段含义以数据库列注释为准：依赖的列缺注释时提示（AVELIS_REQUIRE_COLUMN_COMMENTS=true 时阻断发布）
+    from avelis.governance.column_docs import GAPS, column_doc
+
+    gaps = []
+    for alias, column, role in sorted({(d["alias"], d["column"], d["role"]) for d in resolved["dependency"]}):
+        doc = column_doc(session, resolved["aliases"][alias], column)
+        if doc["status"] in GAPS:
+            hint = f"（上游 {doc['source']} 有注释，可沿用）" if doc["status"] == "inherited" else ""
+            gaps.append(f"字段 {doc['asset'].split('.', 1)[1]}.{column} 缺少数据库注释{hint}")
+    (blockers if get_settings().require_column_comments else warnings).extend(gaps)
     base_grains = [g.to_dict() for g in effective_grains(session, version.base_asset_id,
                                                          current_fingerprint_map(session))]
     if not version.grain:

@@ -36,6 +36,32 @@
 | 06 | 只属交易域的用户问“实付销售额和类目销售额” | 类目销售额的来源含商品域，整个答案被拒绝，没有返回任何部分结果 |
 | 07 | 真实模型：“2026年9月15日各区域的实付销售额和订单数分别是多少？按实付销售额从高到低排” | 模型给出 `metric_codes=[paid_sales, orders_cnt]`、`order=desc`；后端排序得到华东 300、华北 150、华南 60；解释为模板（不外发结果） |
 
+## 界面
+
+前端由 Codex 在独立 worktree 实现（问数结果表、对比与排名标签、执行计划、分段 SQL、派生指标的创建与详情），合并后由我在浏览器中检查。问数用的是真实 DeepSeek。截图在 [screenshots/m5](screenshots/m5/)：
+
+- 14：多指标加排名。结果表各列对齐，卡片上有“按实付销售额 从高到低”的标签。
+- 15：环比与派生指标排名。
+  - 环比：变化 −220.00、−73.3% 用危险色标出，并注明对比区间。
+  - 派生指标排名：客单价按区域排名；依据面板给出公式和锁定的组成版本。
+- 16：派生指标详情。显示公式、锁定的组成版本、共有维度；基础资产、关联、粒度等区块不显示。
+
+走查中发现：维度列表头显示的是内部名 `region`。最初由后端附上显示名，之后改为以数据库列注释为准（[ADR 0006](decisions/0006-column-meaning-from-db-comments.md)）：表头保留 `region`，下方显示注释状态；注释缺失如实标出，推动数据库侧补齐。
+
+演示准备（`bootstrap demo --metrics`）新增派生指标“客单价”。
+
+## 字段注释（`tests/acceptance/test_m9b_column_docs.py`）
+
+| # | 场景 | 断言的实际行为 |
+|---|---|---|
+| 01 | 问“2026-09-15 各区域实付销售额” | 第一列为原样列名 `region`，结果没有 `labels`；`column_docs.region` 为 inherited，注释“销售区域名称”，来源 `shop.orders.region` |
+| 02 | 资产字段 | `shop.orders.region` 为 ok；`shop.daily_sales.region` 为 inherited，`sales_amount`（聚合列）为 missing；外部表 `dim.ext_region.region_name` 为 linked，取自 `shop_dim.dim_region.region_name` 的“区域名称” |
+| 03 | 在 PostgreSQL 上执行 `COMMENT ON COLUMN store.shops.city …` 并采集 | 补注释前 `store.shops.city` 与视图 `city_daily_sales.city` 都是 missing；补后前者移出缺口清单，视图列变为 inherited 并给出可沿用的注释；ok 数加 1，完整度上升。最后清除注释并再次采集，恢复原状 |
+| 04 | 只属交易域的用户查看缺口清单 | 清单中的资产都在该用户可见范围内，比管理员看到的少 |
+| 05 | 实付销售额的发布检查 | `shop.daily_sales.sales_amount` 缺注释为提示，region 提示可沿用上游；`AVELIS_REQUIRE_COLUMN_COMMENTS=true` 时改为阻断，检查不通过 |
+
+界面：问数表头与资产字段列表显示注释或缺口标记；数据源详情新增“字段注释”区块，显示完整度、缺口数量与清单，可导出 CSV。
+
 ## 尚未验证
 
 - 子查询结果超过行数上限时的排名提示（只有单元级逻辑，演示数据量触发不到）。

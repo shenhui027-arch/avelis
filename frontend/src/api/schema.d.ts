@@ -381,6 +381,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metadata/comment-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Comment Gaps
+         * @description 注释缺失清单：字段含义以数据库列注释为准。按数据源汇总完整度，列出缺注释的列（含可沿用的上游注释），
+         *     交给数据库负责人补齐。只包含当前用户可见的资产。
+         */
+        get: operations["comment_gaps_api_metadata_comment_gaps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/grains/{grain_id}/verify": {
         parameters: {
             query?: never;
@@ -1420,6 +1441,29 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * ColumnDocOut
+         * @description 字段含义的数据库注释状态（governance/column_docs.py）。
+         */
+        ColumnDocOut: {
+            /** Asset Id */
+            asset_id: string;
+            /** Asset */
+            asset: string;
+            /** Column */
+            column: string;
+            /** Comment */
+            comment?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "linked" | "inherited" | "missing";
+            /** Source */
+            source?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ColumnEdgeOut */
         ColumnEdgeOut: {
             /** Source Column */
@@ -1459,8 +1503,67 @@ export interface components {
             fingerprint_status?: string | null;
             /** Fingerprint Reason */
             fingerprint_reason?: string | null;
+            doc?: components["schemas"]["ColumnDocOut"] | null;
             /** Confirmations */
             confirmations: components["schemas"]["ConfirmationOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** CommentCoverageOut */
+        CommentCoverageOut: {
+            /** Datasource Id */
+            datasource_id: string;
+            /** Name */
+            name?: string | null;
+            /** Ok */
+            ok: number;
+            /** Linked */
+            linked: number;
+            /** Inherited */
+            inherited: number;
+            /** Missing */
+            missing: number;
+            /** Total */
+            total: number;
+            /** Gaps */
+            gaps: number;
+            /** Completeness */
+            completeness?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CommentGapOut */
+        CommentGapOut: {
+            /** Asset Id */
+            asset_id: string;
+            /** Asset */
+            asset: string;
+            /** Column */
+            column: string;
+            /** Comment */
+            comment?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "linked" | "inherited" | "missing";
+            /** Source */
+            source?: string | null;
+            /** Kind */
+            kind: string;
+            /** Datasource Id */
+            datasource_id: string;
+            /** Suggestion */
+            suggestion?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CommentGapsOut */
+        CommentGapsOut: {
+            /** Datasources */
+            datasources: components["schemas"]["CommentCoverageOut"][];
+            /** Items */
+            items: components["schemas"]["CommentGapOut"][];
         } & {
             [key: string]: unknown;
         };
@@ -3470,6 +3573,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    comment_gaps_api_metadata_comment_gaps_get: {
+        parameters: {
+            query?: {
+                datasource_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentGapsOut"];
                 };
             };
             /** @description Validation Error */

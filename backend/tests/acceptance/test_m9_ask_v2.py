@@ -51,18 +51,25 @@ def test_00_setup_and_publish_derived_metric(stack, admin: Api):
     domains = {x["code"]: x["id"] for x in admin.get("/api/domains")}
     sources = {x["name"]: x["id"] for x in admin.get("/api/datasources")}
     ctx.update(apis=apis, sr=sources["演示 StarRocks"])
-    zhang, li = apis["zhang"], apis["li"]
-    m = zhang.post("/api/metrics", {"code": "aov", "name": "客单价", "domain_id": domains["trade"]}, expect=201)
-    # 公式只允许指标编码与四则运算
+    zhang = apis["zhang"]
+    # 演示准备已经发布了派生指标“客单价”：核对它锁定了组成版本、共有维度为区域
+    aov = next(x for x in admin.get("/api/metrics") if x["code"] == "aov")
+    published = admin.get(f"/api/metric-versions/{aov['versions'][-1]['id']}")
+    assert published["kind"] == "derived" and published["status"] == "published"
+    assert [c["metric_code"] for c in published["components"]] == ["paid_sales", "orders_cnt"]
+    assert [x["name"] for x in published["dimensions"]] == ["region"]
+    # 创建流程本身：公式白名单、提交时锁定、禁止自审
+    m = zhang.post("/api/metrics", {"code": "aov_check", "name": "派生校验", "domain_id": domains["trade"]},
+                   expect=201)
     zhang.post(f"/api/metrics/{m['id']}/versions", {"kind": "derived", "description": "x",
                                                     "expression": "__import__('os')"}, expect=422)
     v = zhang.post(f"/api/metrics/{m['id']}/versions", {
         "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt"}, expect=201)
     assert v["kind"] == "derived" and [x["name"] for x in v["dimensions"]] == ["region"]
     v = zhang.post(f"/api/metric-versions/{v['id']}/submit")
-    assert [c["metric_code"] for c in v["components"]] == ["paid_sales", "orders_cnt"]  # 锁定组成版本
+    assert [c["metric_code"] for c in v["components"]] == ["paid_sales", "orders_cnt"]
     zhang.post(f"/api/metric-versions/{v['id']}/approve", {"note": "自审"}, expect=403)
-    assert li.post(f"/api/metric-versions/{v['id']}/approve", {"note": "公式核对"})["status"] == "published"
+    v = {"id": published["id"]}
     metrics = {x["code"]: x for x in admin.get("/api/metrics")}
     ctx.update(aov=v["id"], paid=metrics["paid_sales"]["versions"][-1]["id"],
                orders=metrics["orders_cnt"]["versions"][-1]["id"])
