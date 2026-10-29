@@ -248,7 +248,8 @@ def test_04_05_definition_change_blocks_old_metric(stack, admin: Api):
 
     version = admin.get(f"/api/metric-versions/{ctx['paid_v1']}")
     assert version["status"] == "affected"
-    assert version["drift"][0]["column"] == "sales_amount"
+    # 指纹纳入规范化定义（评审 #1）：定义一变，视图的各列都漂移；被改写的 sales_amount 必在其中
+    assert "sales_amount" in {d["column"] for d in version["drift"]}
 
     # 再问原“实付销售额”：后端拦截，不执行 SQL，不把 270 当作已确认的实付销售额返回，也不切换口径
     wang = ctx["apis"]["wang"]

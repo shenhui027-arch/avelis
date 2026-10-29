@@ -128,22 +128,36 @@ def test_02b_restore_returns_pending_version_to_review(stack, admin: Api):  # 2
 def test_03_join_path_reapproval_after_domain_change(admin: Api):  # 3
     zhang, zhao, wang = (ctx["apis"][u] for u in ("zhang", "zhao", "wang"))
     paths = {p["code"]: p for p in admin.get("/api/join-paths")}
-    i_p = paths["items_product"]
-    assert i_p["status"] == "approved"
-    product_asset = i_p["right_asset_id"]
-    assign(product_asset, "trade")  # 商品维表改归交易域
-    assert next(p for p in admin.get("/api/join-paths") if p["id"] == i_p["id"])["status"] == "pending"
+    i_p, p_c = paths["items_product"], paths["product_category"]
+    assert i_p["status"] == p_c["status"] == "approved"
+    product_asset = i_p["right"]["asset_id"]  # 商品维表：items_product 的右侧、product_category 的左侧
+
+    def status(path):
+        return next(p for p in admin.get("/api/join-paths") if p["id"] == path["id"])["status"]
+
+    def approve(path, *owners):
+        for owner, domain in owners:
+            owner.post(f"/api/join-paths/{path['id']}/decisions", {"domain_id": ctx["domains"][domain],
+                                                                   "decision": "approved"})
+
+    # 商品维表改归交易域（跨域迁移需要两边的维护权限，由管理员执行）：涉及它的两条路径都回到待批准
+    admin.patch(f"/api/assets/{product_asset}", {"domain_id": ctx["domains"]["trade"]})
+    assert status(i_p) == status(p_c) == "pending"
     blocked = wang.post("/api/ask", {"question": f"{DAY} 厨具类目销售额"})
     assert blocked["status"] == "blocked" and blocked["error_code"] == "join_path_not_approved"
-    # 重新批准：现在两侧都在交易域，由交易域负责人批准即可
-    zhang.post(f"/api/join-paths/{i_p['id']}/decisions", {"domain_id": ctx["domains"]["trade"],
-                                                          "decision": "approved"})
+    # 按当前涉及的业务域重新批准：items_product 两侧都在交易域；product_category 跨交易域与商品域
+    approve(i_p, (zhang, "trade"))
+    approve(p_c, (zhang, "trade"))
+    assert status(p_c) == "pending"  # 商品域旧批准已作废，不沿用
+    approve(p_c, (zhao, "product"))
+    assert status(i_p) == status(p_c) == "approved"
     assert value_of(wang.post("/api/ask", {"question": f"{DAY} 厨具类目销售额"})) == Decimal("270.00")
-    assign(product_asset, "product")  # 改回：又需要两个域重新批准
-    for owner, domain in ((zhang, "trade"), (zhao, "product")):
-        owner.post(f"/api/join-paths/{i_p['id']}/decisions", {"domain_id": ctx["domains"][domain],
-                                                              "decision": "approved"})
-    assert next(p for p in admin.get("/api/join-paths") if p["id"] == i_p["id"])["status"] == "approved"
+    # 改回商品域：两条路径再次按新的业务域组合重新批准
+    admin.patch(f"/api/assets/{product_asset}", {"domain_id": ctx["domains"]["product"]})
+    approve(i_p, (zhang, "trade"), (zhao, "product"))
+    approve(p_c, (zhao, "product"))
+    assert status(i_p) == status(p_c) == "approved"
+    assert value_of(wang.post("/api/ask", {"question": f"{DAY} 厨具类目销售额"})) == Decimal("270.00")
 
 
 def test_04_count_without_columns_still_guards_sources(stack, admin: Api):  # 4

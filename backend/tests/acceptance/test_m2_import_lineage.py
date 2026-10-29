@@ -50,7 +50,7 @@ def test_00_setup(stack, admin: Api):
                expect=201)
     admin.post(f"/api/datasources/{mysql['id']}/collect?wait=true")
     admin.post(f"/api/datasources/{sr['id']}/collect?wait=true")
-    ctx.update(sr=sr["id"], zhang=Api(client, "zhang", pw), wang=Api(client, "wang", pw))
+    ctx.update(sr=sr["id"], admin=admin, zhang=Api(client, "zhang", pw), wang=Api(client, "wang", pw))
 
 
 def test_01_sql_file_multi_statement():
@@ -136,13 +136,14 @@ def test_03_human_decisions():
     # 分析师不能处理仍待复核的候选，也不能改变候选、血缘边或审计
     assert agg_edge["status"] == "pending"
     edges_before = sorted(confirmed_edges(job["id"]), key=repr)
-    audit_before = zhang.get("/api/audit", params={"limit": 1000})
+    admin = ctx["admin"]  # 全量审计只有管理员可读
+    audit_before = admin.get("/api/audit", params={"limit": 1000})
     ctx["wang"].post(f"/api/candidates/{agg_edge['id']}/decision", {"decision": "reject", "reason": "x"},
                      expect=403)
     unchanged = zhang.get(f"/api/imports/{job['id']}")
     assert next(c for c in unchanged["candidates"] if c["id"] == agg_edge["id"]) == agg_edge
     assert sorted(confirmed_edges(job["id"]), key=repr) == edges_before
-    assert zhang.get("/api/audit", params={"limit": 1000}) == audit_before
+    assert admin.get("/api/audit", params={"limit": 1000}) == audit_before
     zhang.post(f"/api/candidates/{table_edge['id']}/decision", {"decision": "accept"}, expect=422)  # 缺理由
     zhang.post(f"/api/candidates/{table_edge['id']}/decision",
                {"decision": "reject", "reason": "orders 只用于关联，不是数据来源"})

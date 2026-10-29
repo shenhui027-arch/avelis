@@ -24,6 +24,7 @@ USERS = {
 TRADE_ASSETS = ("default_catalog.shop.orders", "default_catalog.shop.order_items", "default_catalog.shop.refund_raw",
                 "default_catalog.shop.daily_sales", "default_catalog.ads.region_board",
                 "default_catalog.ads.sales_by_category", "default_catalog.ads.member_sales")
+STORE_ASSETS = ("storedb.store.shops", "storedb.store.sales", "storedb.store.returns", "storedb.store.city_daily_sales")
 PRODUCT_ASSETS = ("shop_mysql.shop_dim.dim_product", "shop_mysql.shop_dim.dim_category",
                   "shop_mysql.shop_dim.dim_customer", "shop_mysql.shop_dim.dim_region",
                   "default_catalog.dim.ext_region", "def.shop_dim.dim_product", "def.shop_dim.dim_category",
@@ -105,14 +106,26 @@ def setup(reset: bool, metrics: bool = False) -> None:
                     "catalog_databases": {"shop_mysql": ["shop_dim"]}},
         "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
         "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]}})
+    if "门店库（PostgreSQL）" not in sources and env.get("SHOP_PG_PORT"):
+        admin("POST", "/api/datasources", json={
+            "name": "门店库（PostgreSQL）", "kind": "postgres", "host": "127.0.0.1", "port": int(env["SHOP_PG_PORT"]),
+            "options": {"database": "storedb", "schemas": ["store"]},
+            "collect": {"username": "avelis_collector", "password": env["SHOP_PG_COLLECTOR_PASSWORD"]},
+            "query": {"username": "avelis_reader", "password": env["SHOP_PG_READER_PASSWORD"]}})
     if not mysql["aliases"]:
         admin("POST", "/api/endpoint-aliases", json={"datasource_id": mysql["id"], "host": "shop-mysql",
                                                      "port": 3306, "note": "StarRocks 容器网络内的地址"})
     admin("POST", f"/api/datasources/{mysql['id']}/collect?wait=true")
     admin("POST", f"/api/datasources/{sr['id']}/collect?wait=true")
+    for d in admin("GET", "/api/datasources"):
+        if d["kind"] == "postgres":
+            admin("POST", f"/api/datasources/{d['id']}/collect?wait=true")
 
     assets = {a["qualified"]: a for a in admin("GET", "/api/assets")}
     for qualified in TRADE_ASSETS:
+        if qualified in assets and assets[qualified]["domain_id"] != domains["trade"]["id"]:
+            zhang("PATCH", f"/api/assets/{assets[qualified]['id']}", json={"domain_id": domains["trade"]["id"]})
+    for qualified in STORE_ASSETS:  # 门店库归交易域
         if qualified in assets and assets[qualified]["domain_id"] != domains["trade"]["id"]:
             zhang("PATCH", f"/api/assets/{assets[qualified]['id']}", json={"domain_id": domains["trade"]["id"]})
     for qualified in PRODUCT_ASSETS:
@@ -121,8 +134,9 @@ def setup(reset: bool, metrics: bool = False) -> None:
     if metrics:
         _publish_metrics(client, password, {q: a["id"] for q, a in assets.items()},
                          {code: d["id"] for code, d in domains.items()})
+    print(f"演示环境已就绪：{len(existing)} 个用户、2 个业务域、{len(admin('GET', '/api/datasources'))} 个数据源、"
+          f"{len(assets)} 个资产（口令未打印）")
     client.close()
-    print(f"演示环境已就绪：{len(existing)} 个用户、2 个业务域、2 个数据源、{len(assets)} 个资产（口令未打印）")
 
 
 def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], domains: dict[str, str]) -> None:
