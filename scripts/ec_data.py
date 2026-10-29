@@ -17,6 +17,8 @@
   5. 西南仓 2026-08-05 至 08-20 暴雨：配送时长增加，客服工单上升、满意度下降。
   6. 成都“太古里店”2026-08-01 新开：西南 8、9 月门店订单增长。
   7. 华北 3 家门店 2026-09-28 客流计数器故障：当天没有客流记录（数据缺口，订单正常）。
+     ec_dw.dws_store_daily 以客流为主表，这 3 家店当天的订单在该视图中随之缺失，而 dws_region_daily
+     （以订单为主表）不受影响：同一天两个口径的差异要靠血缘定位。
   8. 数码类部分商品 2026-08-15 起调价 +8%。
   9. 客流由商圈等级、楼层、面积决定；转化率社区店最高、核心商圈最低。
 """
@@ -561,51 +563,57 @@ FROM ec_dw.dwd_order o
 WHERE o.status <> 'cancelled'
 GROUP BY o.order_date, o.region_code, o.region_name, o.channel_type"""),
     ("ec_dw.dws_store_daily", "门店日交易与客流（不含取消单）", """
-SELECT t.traffic_date AS stat_date, s.store_id, s.store_name, s.city_code, c.region_code, s.district_level, s.floor,
-       s.area_sqm, s.store_type, t.visitors, COALESCE(d.order_cnt, 0) AS order_cnt,
+SELECT t.traffic_date AS stat_date, s.store_id, s.store_name, s.city_code, c.city_name, c.region_code, r.region_name,
+       s.district_level, s.floor, s.area_sqm, s.store_type, t.visitors, COALESCE(d.order_cnt, 0) AS order_cnt,
        COALESCE(d.paid_amount, 0) AS paid_amount
 FROM ec_org.store_daily_traffic t
 JOIN ec_org.store s ON s.store_id = t.store_id
 JOIN ec_org.city c ON c.city_code = s.city_code
+JOIN ec_org.region r ON r.region_code = c.region_code
 LEFT JOIN (
   SELECT store_id, order_date, COUNT(*) AS order_cnt, SUM(paid_amount) AS paid_amount
   FROM ec_trade.orders WHERE status <> 'cancelled' AND channel_type = '门店'
   GROUP BY store_id, order_date
 ) d ON d.store_id = t.store_id AND d.order_date = t.traffic_date"""),
     ("ec_dw.dws_category_daily", "类目日销售（不含取消单）", """
-SELECT i.order_date, i.region_code, i.category_l1, SUM(i.quantity) AS units, SUM(i.item_amount) AS item_amount,
-       SUM(i.discount_amount) AS discount_amount
+SELECT i.order_date, i.region_code, r.region_name, i.category_l1, SUM(i.quantity) AS units,
+       SUM(i.item_amount) AS item_amount, SUM(i.discount_amount) AS discount_amount
 FROM ec_dw.dwd_order_item i
+JOIN ec_org.region r ON r.region_code = i.region_code
 WHERE i.status <> 'cancelled'
-GROUP BY i.order_date, i.region_code, i.category_l1"""),
+GROUP BY i.order_date, i.region_code, r.region_name, i.category_l1"""),
     ("ec_dw.dws_marketing_daily", "渠道日投放与线上订单", """
-SELECT a.spend_date, a.region_code, a.channel_code, ch.channel_name, a.impressions, a.clicks, a.spend,
+SELECT a.spend_date, a.region_code, r.region_name, a.channel_code, ch.channel_name, a.impressions, a.clicks, a.spend,
        COALESCE(o.order_cnt, 0) AS order_cnt, COALESCE(o.paid_amount, 0) AS paid_amount
 FROM ec_marketing.ad_spend_daily a
 JOIN ec_marketing.channel ch ON ch.channel_code = a.channel_code
+JOIN ec_org.region r ON r.region_code = a.region_code
 LEFT JOIN (
   SELECT order_date, region_code, source_channel, COUNT(*) AS order_cnt, SUM(paid_amount) AS paid_amount
   FROM ec_trade.orders WHERE status <> 'cancelled'
   GROUP BY order_date, region_code, source_channel
 ) o ON o.order_date = a.spend_date AND o.region_code = a.region_code AND o.source_channel = a.channel_code"""),
     ("ec_dw.dws_refund_daily", "区域日退款", """
-SELECT CAST(f.refund_time AS DATE) AS refund_date, o.region_code, COUNT(*) AS refund_cnt,
+SELECT CAST(f.refund_time AS DATE) AS refund_date, o.region_code, r.region_name, COUNT(*) AS refund_cnt,
        SUM(f.refund_amount) AS refund_amount
 FROM ec_trade.refund f
 JOIN ec_trade.orders o ON o.order_id = f.order_id
-GROUP BY CAST(f.refund_time AS DATE), o.region_code"""),
+JOIN ec_org.region r ON r.region_code = o.region_code
+GROUP BY CAST(f.refund_time AS DATE), o.region_code, r.region_name"""),
     ("ec_dw.dws_logistics_daily", "区域日配送时效", """
-SELECT CAST(s.ship_time AS DATE) AS ship_date, w.region_code, COUNT(*) AS shipment_cnt,
+SELECT CAST(s.ship_time AS DATE) AS ship_date, w.region_code, r.region_name, COUNT(*) AS shipment_cnt,
        SUM(TIMESTAMPDIFF(HOUR, s.ship_time, s.deliver_time)) AS delivery_hours
 FROM ec_logistics.shipment s
 JOIN ec_supply.warehouse w ON w.warehouse_id = s.warehouse_id
-GROUP BY CAST(s.ship_time AS DATE), w.region_code"""),
+JOIN ec_org.region r ON r.region_code = w.region_code
+GROUP BY CAST(s.ship_time AS DATE), w.region_code, r.region_name"""),
     ("ec_dw.dws_service_daily", "区域日客服工单", """
-SELECT CAST(t.created_time AS DATE) AS ticket_date, o.region_code, t.category, COUNT(*) AS ticket_cnt,
+SELECT CAST(t.created_time AS DATE) AS ticket_date, o.region_code, r.region_name, t.category, COUNT(*) AS ticket_cnt,
        COUNT(t.satisfaction) AS rated_cnt, SUM(t.satisfaction) AS satisfaction_sum
 FROM ec_service.service_ticket t
 JOIN ec_trade.orders o ON o.order_id = t.order_id
-GROUP BY CAST(t.created_time AS DATE), o.region_code, t.category"""),
+JOIN ec_org.region r ON r.region_code = o.region_code
+GROUP BY CAST(t.created_time AS DATE), o.region_code, r.region_name, t.category"""),
 ]
 
 
