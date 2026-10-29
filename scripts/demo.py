@@ -34,6 +34,7 @@ ENV_EXAMPLE = ROOT / ".env.example"
 STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
+SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
 
 DEMO_DATABASES = ("shop", "ads", "dim")
 CATALOG = "shop_mysql"
@@ -257,6 +258,13 @@ def run_sql_file(conn: pymysql.Connection, path: Path) -> None:
 def seed(env: dict[str, str]) -> dict:
     log("把演示库重置到验收基线 ...")
     report: dict = {"seeded_at": datetime.now(timezone.utc).isoformat(), "grant_errors": []}
+    # 维表库也回到基线（异常场景验收会改 MySQL 表结构）；账号与授权按库名授予，删库重建不受影响
+    mconn = mysql_connect(env)
+    with mconn.cursor() as cur:
+        cur.execute("DROP DATABASE IF EXISTS shop_dim")
+        cur.execute("CREATE DATABASE shop_dim DEFAULT CHARACTER SET utf8mb4")
+    run_sql_file(mconn, SHOP_MYSQL_SEED)
+    mconn.close()
     conn = sr_root(env)
     with conn.cursor() as cur:
         for db in DEMO_DATABASES:

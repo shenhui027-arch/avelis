@@ -49,6 +49,18 @@ class AliasOut(Out):
     note: str | None = None
 
 
+class EngineOut(Out):
+    kind: str
+    label: str
+    dialect: str
+    default_catalog: str
+    name_levels: list[str]
+    capabilities: list[str]
+    default_port: int | None = None
+    is_test_adapter: bool
+    note: str
+
+
 class DatasourceOut(Out):
     id: str
     name: str
@@ -64,6 +76,7 @@ class DatasourceOut(Out):
     credentials: list[CredentialOut]
     last_run: RunOut | None = None
     aliases: list[AliasOut]
+    engine: EngineOut
 
 
 class JobOut(Out):

@@ -2,7 +2,7 @@
 
 有依据的智能问数：建立在数据库血缘、业务口径和变更管理之上。每个答案都带来源、口径、版本和权限依据；上游变化后，系统知道哪些答案需要重新确认。首期面向 StarRocks。
 
-> 当前阶段：v0.1 开发中，**M0–M3 已完成**：后端闭环、LangGraph 问数智能体、模型配置、导入血缘、工作台界面。验收见 [M1](docs/acceptance-m1.md)、[M2](docs/acceptance-m2.md)、[M3](docs/acceptance-m3.md)（含浏览器走查截图）。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
+> 当前阶段：v0.1 开发中，**M0–M4 已完成**：后端闭环、LangGraph 问数智能体、模型配置、导入血缘、工作台界面、异常与加固。验收见 [M1](docs/acceptance-m1.md)、[M2](docs/acceptance-m2.md)、[M3](docs/acceptance-m3.md)（含浏览器走查截图）、[M4](docs/acceptance-m4.md)。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
 
 ## 仓库结构
 
@@ -36,7 +36,10 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
 - **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。未指定模型时用演示模型（规则匹配，答案中会标明）。
 - **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
-- 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)、[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)。
+- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记 StarRocks（采集、视图血缘、问数）与 MySQL（采集，作为外部表的追溯目标）。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
+- **权限**：资产按业务域可见；未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
+- **worker**：`AVELIS_WORKER_SCHEDULE_SECONDS`（轮询，默认 60）、`AVELIS_WORKER_STALE_SECONDS`（未入队任务的扫描阈值，默认 30）、`AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS`（运行超时记为失败，默认 3600）。
+- 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)、[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)、[ADR 0004](docs/decisions/0004-engine-adapters.md)。
 
 ## 前端
 

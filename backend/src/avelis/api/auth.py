@@ -116,6 +116,7 @@ def settings_view(user: User = Depends(current_user), session: Session = Depends
         "business_timezone": s.business_timezone,
         "allow_self_review": s.allow_self_review,
         "self_review_policy": "允许自审" if s.allow_self_review else "禁止自审：提交人、创建人不能批准同一版本",
+        "unassigned_asset_policy": s.unassigned_asset_policy,
         "query_limits": {"timeout_seconds": s.query_timeout_seconds, "mem_limit_bytes": s.query_mem_limit_bytes,
                          "max_rows": s.query_max_rows},
         "answer_cache_seconds": s.answer_cache_seconds,

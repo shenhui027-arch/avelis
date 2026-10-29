@@ -3,6 +3,7 @@
 全局角色：admin 管理员；steward 维护者（建数据源、资产归属、指标草稿、关联路径）；
 reviewer 复核者（批准 / 驳回指标版本）；analyst 查询者（问数）。
 业务域成员（owner / maintainer / viewer）决定能检索、查询哪个域的资产和口径。
+未归属业务域的资产：默认只对管理员、维护者可见（AVELIS_UNASSIGNED_ASSET_POLICY=deny）。
 自审策略：默认禁止（提交人、创建人不能批准同一版本），由 AVELIS_ALLOW_SELF_REVIEW 控制并在 /api/settings 可见。
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.config import get_settings
 from avelis.governance.errors import Forbidden
 from avelis.models import Asset, Domain, DomainMember, User, UserRole
 
@@ -60,8 +62,11 @@ def require_domain_owner(session: Session, user: User, domain_id: str) -> None:
 
 
 def can_read_asset(session: Session, user: User, asset: Asset, allowed: set[str] | None = None) -> bool:
-    """未归属业务域的资产不做域限制（v0.1）；归属了业务域的资产只对该域成员可见。"""
+    """归属了业务域的资产只对该域成员可见。未归属业务域的资产按 AVELIS_UNASSIGNED_ASSET_POLICY：
+    deny（默认）只有管理员与维护者可见（他们负责归属），查询者看不到也查不到；allow 不做域限制。"""
     if asset.domain_id is None:
-        return True
+        if get_settings().unassigned_asset_policy == "allow":
+            return True
+        return bool(roles_of(session, user) & {"admin", "steward"})
     allowed = domain_ids(session, user) if allowed is None else allowed
     return asset.domain_id in allowed

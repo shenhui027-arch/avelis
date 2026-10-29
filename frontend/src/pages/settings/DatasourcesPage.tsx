@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useDatasources, useTimeZone } from "../../api/hooks";
+import { errorText, useAction, useDatasources, useEngines, useTimeZone } from "../../api/hooks";
 import { formatTime } from "../../format";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
@@ -162,22 +162,26 @@ function useRuns(id: string) {
 }
 
 function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated: (d: Datasource) => void }) {
+  // 类型、默认端口、表单项都来自后端登记的引擎与能力，不在前端写死
+  const engineList = useEngines().data ?? [];
   const [form, setForm] = useState({
     kind: "starrocks", name: "", host: "127.0.0.1", port: "9030", databases: "", catalogs: "",
     collectUser: "", collectPassword: "", queryUser: "", queryPassword: "",
   });
   const [message, setMessage] = useMessage();
+  const engine = engineList.find((e) => e.kind === form.kind);
+  const can = (capability: string) => engine?.capabilities.includes(capability) ?? false;
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
   const create = useAction(() => unwrap(api.POST("/api/datasources", {
     body: {
-      name: form.name, kind: form.kind as "starrocks" | "mysql", host: form.host, port: Number(form.port),
+      name: form.name, kind: form.kind, host: form.host, port: Number(form.port),
       options: {
         databases: form.databases.split(",").map((s) => s.trim()).filter(Boolean),
         ...(form.catalogs ? { catalogs: form.catalogs.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
       },
       collect_interval_minutes: 15,
       collect: form.collectUser ? { username: form.collectUser, password: form.collectPassword } : null,
-      query: form.queryUser ? { username: form.queryUser, password: form.queryPassword } : null,
+      query: can("query") && form.queryUser ? { username: form.queryUser, password: form.queryPassword } : null,
     },
   })), ["datasources"]);
   return (
@@ -186,9 +190,10 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
       <button type="button" className="av-btn av-btn--primary" disabled={!form.name || !form.databases || create.isPending}
         onClick={() => create.mutate(undefined, { onSuccess: onCreated, onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>添加</button>
     </>}>
-      <label className="av-field"><span className="av-label">类型</span>
-        <Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v, port: v === "mysql" ? "3306" : "9030" })}>
-          <option value="starrocks">StarRocks</option><option value="mysql">MySQL（只采集元数据）</option>
+      <label className="av-field"><span className="av-label">类型{engine?.note ? <> <Hint text={engine.note} /></> : null}</span>
+        <Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v,
+          port: String(engineList.find((e) => e.kind === v)?.default_port ?? form.port) })}>
+          {engineList.map((e) => <option key={e.kind} value={e.kind}>{e.label}{e.capabilities.includes("query") ? "" : "（只采集元数据）"}</option>)}
         </Select></label>
       <label className="av-field"><span className="av-label">名称</span><input className="av-input" value={form.name} onChange={set("name")} /></label>
       <div className="av-formrow">
@@ -196,14 +201,14 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
         <label className="av-field" style={{ maxWidth: 110 }}><span className="av-label">端口</span><input className="av-input av-mono" value={form.port} onChange={set("port")} /></label>
       </div>
       <label className="av-field"><span className="av-label">采集的库 <Hint text="逗号分隔" /></span><input className="av-input av-mono" value={form.databases} onChange={set("databases")} /></label>
-      {form.kind === "starrocks" ? (
+      {can("external_tables") ? (
         <label className="av-field"><span className="av-label">Catalog <Hint text="逗号分隔；只接 JDBC MySQL Catalog" /></span><input className="av-input av-mono" value={form.catalogs} onChange={set("catalogs")} /></label>
       ) : null}
       <div className="av-formrow">
         <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" value={form.collectUser} onChange={set("collectUser")} /></label>
         <label className="av-field"><span className="av-label">口令</span><input className="av-input" type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
       </div>
-      {form.kind === "starrocks" ? (
+      {can("query") ? (
         <div className="av-formrow">
           <label className="av-field"><span className="av-label">只读查询账号</span><input className="av-input av-mono" value={form.queryUser} onChange={set("queryUser")} /></label>
           <label className="av-field"><span className="av-label">口令</span><input className="av-input" type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
