@@ -1,0 +1,127 @@
+# Avelis 演示环境。只用于本地开发与验收，端口只绑 127.0.0.1。通过 scripts/demo.py 起停。
+#
+#   meta-pg / meta-mysql  Avelis 自己的元数据库；产品同时兼容 PostgreSQL 与 MySQL
+#   valkey                Redis 协议兼容：任务队列、缓存、采集锁
+#   shop-mysql            模拟业务方的电商维表库（客户、商品、类目、区域）
+#   starrocks             演示数仓：电商事实表，并以外部表方式读取 shop-mysql 的维表
+name: avelis-demo
+
+services:
+  meta-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: avelis
+      POSTGRES_USER: avelis
+      POSTGRES_PASSWORD: ${AVELIS_PG_PASSWORD:?run scripts/demo.py init-env}
+    ports:
+      - "127.0.0.1:${AVELIS_PG_PORT:-15432}:5432"
+    volumes:
+      - meta-pg-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avelis -d avelis"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  meta-mysql:
+    image: mysql:8.4.10
+    environment:
+      MYSQL_ROOT_PASSWORD: ${META_MYSQL_ROOT_PASSWORD:?run scripts/demo.py init-env}
+      MYSQL_DATABASE: avelis
+      MYSQL_USER: avelis
+      MYSQL_PASSWORD: ${AVELIS_META_MYSQL_PASSWORD:?run scripts/demo.py init-env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "127.0.0.1:${AVELIS_META_MYSQL_PORT:-13307}:3306"
+    volumes:
+      - meta-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:d2e18f3410b6f616de1417f570fa55261af2898b9c5b2cfb6781ce2373ea43d1
+    command: ["valkey-server", "--requirepass", "${AVELIS_REDIS_PASSWORD:?run scripts/demo.py init-env}", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${AVELIS_REDIS_PORT:-16379}:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$${AVELIS_REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    environment:
+      AVELIS_REDIS_PASSWORD: ${AVELIS_REDIS_PASSWORD}
+
+  shop-mysql:
+    image: mysql:8.4.10
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SHOP_MYSQL_ROOT_PASSWORD:?run scripts/demo.py init-env}
+      MYSQL_DATABASE: shop_dim
+      SHOP_MYSQL_COLLECTOR_PASSWORD: ${SHOP_MYSQL_COLLECTOR_PASSWORD:?run scripts/demo.py init-env}
+      SHOP_MYSQL_CATALOG_PASSWORD: ${SHOP_MYSQL_CATALOG_PASSWORD:?run scripts/demo.py init-env}
+      SHOP_MYSQL_LEGACY_PASSWORD: ${SHOP_MYSQL_LEGACY_PASSWORD:?run scripts/demo.py init-env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      # Only for StarRocks' legacy ENGINE=mysql external tables (see init/02-users.sh).
+      - --mysql-native-password=ON
+    ports:
+      - "127.0.0.1:${SHOP_MYSQL_PORT:-13306}:3306"
+    volumes:
+      - shop-mysql-data:/var/lib/mysql
+      - ./shop-mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.5.14@sha256:5e1fa9c1a490f49457b8220b10ef2ea211af271b2626654ba151429f4603715f
+    entrypoint: ["/bin/bash", "/opt/avelis/avelis-entrypoint.sh"]
+    environment:
+      AVELIS_SR_FE_HEAP_MB: ${AVELIS_SR_FE_HEAP_MB:-1024}
+      AVELIS_SR_BE_MEM_MB: ${AVELIS_SR_BE_MEM_MB:-3072}
+      AVELIS_SR_ROOT_PASSWORD: ${SR_ROOT_PASSWORD:?run scripts/demo.py init-env}
+    ports:
+      - "127.0.0.1:${SR_QUERY_PORT:-19030}:9030"
+      - "127.0.0.1:${SR_HTTP_PORT:-18030}:8030"
+    volumes:
+      - sr-fe-meta:/data/deploy/starrocks/fe/meta
+      - sr-be-storage:/data/deploy/starrocks/be/storage
+      - ./starrocks/avelis-entrypoint.sh:/opt/avelis/avelis-entrypoint.sh:ro
+      - ./drivers:/opt/avelis/drivers:ro
+    mem_limit: 5376m
+    memswap_limit: 5376m
+    cpus: 2.5
+    depends_on:
+      shop-mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8030/api/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+networks:
+  default:
+    # An explicit subnet: on hosts with many Compose projects the default
+    # address pools can be exhausted ("all predefined address pools have been
+    # fully subnetted"). Override AVELIS_DEMO_SUBNET if it overlaps your LAN.
+    ipam:
+      config:
+        - subnet: ${AVELIS_DEMO_SUBNET:-10.240.17.0/24}
+
+volumes:
+  meta-pg-data:
+  meta-mysql-data:
+  valkey-data:
+  shop-mysql-data:
+  sr-fe-meta:
+  sr-be-storage:
