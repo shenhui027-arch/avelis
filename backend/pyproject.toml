@@ -25,6 +25,9 @@ dependencies = [
     "langchain-core==1.6.11",
     "langchain-anthropic==1.7.6",
     "langchain-openai==1.7.1",
+    "pymssql>=2.3",
+    "clickhouse-connect>=0.8",
+    "oracledb>=3.3",
 ]
 
 [dependency-groups]
@@ -44,6 +47,7 @@ testpaths = ["tests"]
 markers = [
     "db: 需要元数据库（PostgreSQL）",
     "acceptance: 需要完整演示环境（StarRocks、维表库、元数据库、Valkey），会重置演示库",
+    "engines: 需要更多引擎的演示库（scripts/demo.py up --engines）",
     "llm: 调用真实模型（需要 .env 中的 AVELIS_MODEL_API_KEY；会产生费用与数据外发）",
 ]
 addopts = "-m 'not acceptance'"

@@ -58,7 +58,7 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
 - **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。支持多个指标、排名与前 N、环比 / 同比，以及派生指标（如客单价 = 实付销售额 / 订单数），见 [ADR 0005](docs/decisions/0005-ask-expressiveness.md)。未指定模型时用演示模型（规则匹配，答案中会标明）。
 - **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
-- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记 StarRocks（采集、视图血缘、问数）、PostgreSQL（采集、视图血缘、问数）与 MySQL（采集，作为外部表的追溯目标）。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
+- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（采集、视图血缘、问数、执行前核对），以及 MySQL（采集，作为外部表的追溯目标）。更多引擎的演示库用 `uv run scripts/demo.py up --engines` 启动，验收见 [acceptance-m7.md](docs/acceptance-m7.md)。新增数据库的步骤见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
 - **执行前核对**：每次问数执行前（含命中缓存）核对来源的列与视图定义是否与上次采集一致；不一致就拦截并排队采集（`AVELIS_ASK_LIVE_CHECK`，默认开启）。
 - **字段含义**：以数据库列注释为准，Avelis 不另设显示名。问数与资产原样展示列名和注释，缺注释如实标出；数据源详情给出注释完整度与缺口清单（可导出），发布检查提示缺注释（`AVELIS_REQUIRE_COLUMN_COMMENTS=true` 时阻断），见 [ADR 0006](docs/decisions/0006-column-meaning-from-db-comments.md)。
 - **权限**：资产按业务域可见；未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
