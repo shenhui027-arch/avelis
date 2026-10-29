@@ -1,6 +1,6 @@
 # Avelis v0.1 开发计划
 
-> 状态：M0、M1 已完成（M1 在分支 `m1-backend`，待合并），下一步 M2。最后更新：2026-10-29。
+> 状态：M0、M1 已完成并合并；M2 已完成（分支 `m2-agent-import`，待合并），下一步 M3。最后更新：2026-10-29。
 > 这份文件是接续研发的唯一入口：每完成一个里程碑，更新「当前进度」和「下一步」。
 
 ## 1. 定位与第一阶段成功标准
@@ -22,13 +22,14 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 | M0 演示环境 | 完成，已运行验证 | 6 个容器一条命令起停；8 项验收基线全部通过；StarRocks 重启后自动恢复 |
 | M0 实机核验 | 完成，已运行验证 | 20 项，结论见 [starrocks-notes.md](starrocks-notes.md) |
 | M1 后端闭环 | 完成，已运行验证 | 四层数据模型与双库迁移；StarRocks + MySQL 采集；列级血缘、外部表身份映射、粒度、字段推导指纹；指标状态机、关联路径、变更 → 影响 → 复核；问数管线（演示适配器）+ 只读执行；认证与审计。`pytest -m acceptance` 在 PostgreSQL 与 MySQL 元数据库上各 9 项通过，见 [acceptance-m1.md](acceptance-m1.md)、[ADR 0002](decisions/0002-backend-foundations.md) |
-| 前端代码 | 未开始 | M3 |
+| M2 问数智能体与导入血缘 | 完成，已运行验证 | 元数据库收敛为 PostgreSQL；LangGraph 问数智能体（多轮追问、会话持久化、工具调用）；模型配置（提供方、检测、按用途指定、数据外发策略）；导入血缘（SQL / Python / Shell、动态 SQL 补参数、模型候选与人工处理）。验收 20 项通过（含真实 DeepSeek 两项），见 [acceptance-m2.md](acceptance-m2.md)、[ADR 0003](decisions/0003-postgres-agent-model-settings.md) |
+| 前端 | 骨架 + 模型配置页 | React + Vite，类型由 OpenAPI 生成；其余页面 M3 |
 
 ## 3. 环境与已核验的事实
 
 - 工作目录为空仓库。Python 3.12.13（uv 0.11.16）、Node 24.13.0、pnpm 11.8.0、Docker 29.7.2 + Compose v5.4.0（虚拟机 16 CPU / 约 15.5 GB）。
 - 本地镜像：`starrocks/allin1-ubuntu:3.5.14`、`postgres:18-alpine`、`mysql:8.4.10`。
-- 未配置 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`：真实模型端到端在拿到 key 之前标“未验证”。
+- 真实模型：2026-10-29 起使用用户提供的 DeepSeek 测试密钥（只在本地 `.env`），`deepseek-flash` 端到端已验证；Anthropic 未验证。
 - 本机有 Codex CLI 0.163.0（图片生成已用于设计概念图），与产品运行时无关。
 - SQLGlot 30.25.0，`starrocks` 方言实测：
   - 规范化指纹能区分“只改格式”和“改了定义”；
@@ -70,7 +71,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 8. **凭据与数据外发**：数据源口令加密存储、不回传、不进日志、不进模型上下文；发给模型的内容可配置，默认只发元数据；代码发给模型前先做密钥脱敏，并在界面上显示将发送的片段。
 9. **前端不用 antd**：按 Avelis UI 自建组件（必要时用无样式交互原语），血缘图用 @xyflow/react；样式全部来自设计令牌。
 10. **发现延迟**：轮询采集（默认 15 分钟，可手动触发），变更记录可确认的生效区间；界面写明“未发现变更 ≠ 没有变更”。
-11. **元数据库同时兼容 PostgreSQL 与 MySQL**：SQLAlchemy 2 + Alembic，只用两者共有的能力（通用 JSON 类型、不用数组与部分索引、不依赖 `RETURNING`、血缘遍历用两者都支持的递归 CTE、时间统一存 UTC）。CI 在 PostgreSQL 18 与 MySQL 8.4 上各跑一遍迁移与测试；演示环境两种都提供。
+11. **（已由 ADR 0003 取代：元数据库只支持 PostgreSQL）** 原决定：元数据库同时兼容 PostgreSQL 与 MySQL：SQLAlchemy 2 + Alembic，只用两者共有的能力（通用 JSON 类型、不用数组与部分索引、不依赖 `RETURNING`、血缘遍历用两者都支持的递归 CTE、时间统一存 UTC）。CI 在 PostgreSQL 18 与 MySQL 8.4 上各跑一遍迁移与测试；演示环境两种都提供。
 12. **引入 Redis（协议兼容，演示用 Valkey 8）**：用于后台任务队列（采集、导入解析、模型调用、粒度核验查询）、答案缓存（键含指标版本、资产版本、权限范围、新鲜度）、采集互斥锁、令牌吊销与限流。Redis 不是事实来源：任务状态与结果落元数据库，Redis 丢失只影响性能和重试。
 13. **前后端分离**：`backend/`（FastAPI，REST + OpenAPI）与 `frontend/`（React SPA）独立构建、独立容器；前端只通过 `/api` 访问后端，类型从 OpenAPI 生成；认证用后端签发的短期访问令牌（可在 Redis 吊销），CORS 只允许配置的前端来源。
 
@@ -163,10 +164,11 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 ## 10. 技术栈（实施时用锁文件固定）
 
 - 后端：Python 3.12、FastAPI 0.162.0、Uvicorn 0.54.0、SQLAlchemy 2.1.6 + psycopg 3.3.6、Alembic 1.20.1、Pydantic 2.14.1、SQLGlot 30.25.0、PyMySQL 1.2.3、anthropic 2.3.0、openai 3.41.0、pytest 9.2.0。
-- 元数据库：PostgreSQL 18 与 MySQL 8.4（二者兼容，驱动 psycopg 3.3.6 / PyMySQL 1.2.3）。
+- 元数据库：PostgreSQL 18（psycopg 3.3.6）；PyMySQL 1.2.3 只用于连接 StarRocks 与 MySQL 数据源。
+- 问数智能体：LangGraph 1.2.15 + langgraph-checkpoint-postgres 3.2.0；模型适配 langchain-openai 1.7.1 / langchain-anthropic 1.7.6（langchain-core 1.6.11）。
 - 缓存与队列：Redis 协议（演示 Valkey 8），客户端 redis-py 8.1.0；任务队列库在 M1 开始时选定（候选 arq 0.28.0）。
 - 演示：StarRocks 3.5.14 allin1、MySQL 8.4.10（电商维表库）、mysql-connector-j 9.7.0。
-- 前端：React 19.3.1、Vite 8.3.5、TypeScript（7.0.2，不兼容则退回 6.x 并记录）、React Router 7.18.5、TanStack Query 5.105.0、@xyflow/react 12.12.0；自动布局库与无样式交互原语的版本在 M3 开始时核实后固定。
+- 前端：React 19.3.1、Vite 8.3.4、TypeScript 6.0.3（7.0.2 与 openapi-typescript 不兼容，见 ADR 0003）、React Router 7.18.4、TanStack Query 5.104.2、openapi-typescript 7.13.0 / openapi-fetch 0.17.0、@xyflow/react 12.12.0（M3 引入）；自动布局库与无样式交互原语的版本在 M3 开始时核实后固定。
 - 设计：Avelis UI 设计系统（深色优先令牌、`av-*` 组件规范、自有图标集）。
 
 ## 11. 已知边界
@@ -183,17 +185,6 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 
 ## 13. 下一步
 
-1. 合并 M1 的 PR。
-2. 开始 M2 导入血缘：
-   - SQL 文件与粘贴 SQL 的多语句解析，复用 `avelis.lineage.sql`；
-   - Python / Shell 内嵌 SQL 的抽取；
-   - 动态 SQL 补参数；
-   - 模型候选接口，以及演示、Anthropic、OpenAI 兼容三种适配器，同时把问数意图的真实模型适配器一起接上；
-   - 候选处理与留痕；
-   - 以故事 8 为完成标准。
-3. M3 前补齐接口响应模型，供前端生成类型；复核 httpx2（发布满两周后）。
-
-M1 遗留到 M4 的事项：
-- 故事 7 验收用例（指纹 `broken` 逻辑已实现）；
-- 独立 worker 进程的长时间运行验证；
-- 未归属业务域资产的默认策略。
+1. 合并 M2 的 PR。
+2. M3 工作台界面，按设计系统与原型实现：工作台、血缘画布（含导入入口与设计时节点）、目录（指标 / 资产 / 业务域）、变更收件箱、问数对话（多轮追问、依据栏）。示例数据换成电商数据；把 `app.css` 中扩展的开关、抽屉、提示组件回收进 Avelis UI 设计系统。
+3. M4 继续：故事 7 验收、异常场景、worker 长时间运行，以及未归属业务域资产的默认策略。

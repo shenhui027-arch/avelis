@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import timezone
 from typing import Any
 
 import httpx
@@ -67,7 +68,7 @@ def provider_view(p: ModelProvider) -> dict[str, Any]:
     return {"id": p.id, "code": p.code, "name": p.name, "kind": p.kind, "preset": p.preset, "base_url": p.base_url,
             "endpoint": endpoint_preview(p), "api_key": mask(p.api_key_hint), "has_api_key": bool(p.api_key_enc),
             "enabled": p.enabled, "models": p.models, "last_check": p.last_check,
-            "updated_at": p.updated_at.isoformat()}
+            "updated_at": p.updated_at.isoformat()}  # UTCDateTime 读出时带 UTC 时区
 
 
 def policy(session: Session) -> dict[str, bool]:
@@ -272,7 +273,8 @@ def check(session: Session, actor: User, provider_id: str, model_id: str) -> dic
     """检测：发起一次带工具定义的极小对话，记录延迟与是否发生工具调用。不发送任何业务数据。"""
     p = _get(session, provider_id)
     started = time.monotonic()
-    result: dict[str, Any] = {"model_id": model_id, "checked_at": utcnow().isoformat()}
+    result: dict[str, Any] = {"model_id": model_id,
+                              "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat()}
     try:
         model = build_chat_model(p, model_id)
         tool = StructuredTool.from_function(lambda value: value, name="echo", args_schema=_PingArgs,
@@ -284,11 +286,9 @@ def check(session: Session, actor: User, provider_id: str, model_id: str) -> dic
         result.update(ok=False, tool_calling=None, error=f"{type(exc).__name__}: {str(exc)[:300]}")
     result["latency_ms"] = int((time.monotonic() - started) * 1000)
     p.last_check = result
-    models = list(p.models)
-    for m in models:
-        if m["id"] == model_id and result["ok"]:
-            m["tool_calling"] = result["tool_calling"]
-    p.models = models
+    # 复制后整体赋值：原地修改 JSONB 中的字典不会被识别为变更
+    p.models = [{**m, "tool_calling": result["tool_calling"]} if m["id"] == model_id and result["ok"] else dict(m)
+                for m in p.models]
     audit.record(session, actor, "model_provider.check", "model_provider", p.id, model_id=model_id,
                  ok=result["ok"], tool_calling=result.get("tool_calling"))
     return result

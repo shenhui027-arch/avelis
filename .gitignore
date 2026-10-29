@@ -16,3 +16,7 @@ dist/
 # Demo environment downloads (verified against deploy/demo/drivers.lock)
 deploy/demo/drivers/*.jar
 .demo-up.log
+
+# Local tool settings (machine-specific paths)
+.claude/
+*.tsbuildinfo
