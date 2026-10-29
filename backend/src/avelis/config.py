@@ -26,9 +26,15 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def env_file() -> Path:
+    """配置文件位置：AVELIS_ENV_FILE（相对路径按仓库根目录解析，与 scripts/demo.py 一致），默认仓库根目录的 .env。"""
+    path = Path(os.environ.get("AVELIS_ENV_FILE") or ".env")
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
 def load_env() -> dict[str, str]:
     """.env 提供默认值，进程环境变量优先。"""
-    env = _read_env_file(Path(os.environ.get("AVELIS_ENV_FILE", REPO_ROOT / ".env")))
+    env = _read_env_file(env_file())
     env.update({k: v for k, v in os.environ.items() if k.startswith(("AVELIS_", "SR_", "SHOP_"))})
     return env
 
