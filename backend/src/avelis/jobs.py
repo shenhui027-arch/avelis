@@ -9,6 +9,7 @@ wait=true 与“立即运行”同样创建 Job，在请求进程内领取并执
 分析类 Job 的执行与终态由 analysis.service 负责：执行权是 Job 的本次尝试（attempts），运行与 Job 的终态同一事务提交；
 Job 的终态跟随分析的业务结果（失败 → failed，暂停或跳过 → skipped）。
 Job 被判定放弃时，关联的分析运行一并处理（analysis.service.reconcile_abandoned）。
+保留期清理：worker 每 AVELIS_HISTORY_PURGE_INTERVAL_HOURS 小时清理一次超期历史（ADR 0008）。
 """
 
 from __future__ import annotations
@@ -156,6 +157,19 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     return ids
 
 
+def purge_history_if_due() -> None:
+    from avelis.history import retention
+
+    try:
+        if retention.purge_due():
+            result = retention.purge()
+            log.info("保留期清理：%s", {k: result.get(k) for k in ("status", "cutoff", "counts")})
+    except retention.PurgeRefused as exc:
+        log.error("历史哈希链核验未通过，未清理：%s", exc.report["first_break"])
+    except Exception:  # noqa: BLE001 - 清理失败不影响采集
+        log.exception("保留期清理失败")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
@@ -177,6 +191,7 @@ def main() -> None:
 
             for job_id in schedule_due() + analysis_service.schedule_due() + stale_jobs():
                 run_job(job_id)
+            purge_history_if_due()
         try:
             item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
         except Exception:

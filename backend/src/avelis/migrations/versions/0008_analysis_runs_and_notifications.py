@@ -1,7 +1,9 @@
 """analysis runs and notifications (M8, ADR 0007)
 
-Revision ID: 0006
-Revises: 0005
+Revision ID: 0008
+Revises: 0007
+
+原为 0006（down 0005）；变更留底的 0007 先合并进 main，按“谁后合并谁调整”改为 0008、接在 0007 之后。
 Create Date: 2026-10-30 00:02:35.865698
 """
 
@@ -10,8 +12,8 @@ import sqlalchemy as sa
 import avelis.db
 from sqlalchemy.dialects import postgresql
 
-revision = '0006'
-down_revision = '0005'
+revision = '0008'
+down_revision = '0007'
 branch_labels = None
 depends_on = None
 

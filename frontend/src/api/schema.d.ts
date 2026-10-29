@@ -720,6 +720,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/change-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Change Events */
+        get: operations["list_change_events_api_change_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-events/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Change Events */
+        get: operations["export_change_events_api_change_events_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify History
+         * @description 核验哈希链（管理员）。在独立的 REPEATABLE READ 事务中读同一快照；只读，不修复。
+         */
+        get: operations["verify_history_api_history_verify_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History Status */
+        get: operations["history_status_api_history_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ask": {
         parameters: {
             query?: never;
@@ -1682,6 +1753,21 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChainIssueOut */
+        ChainIssueOut: {
+            /** Kind */
+            kind: string;
+            /** Seq */
+            seq?: number | null;
+            /** Table */
+            table: string;
+            /** Row Id */
+            row_id?: string | null;
+            /** Detail */
+            detail: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ChangeEventOut */
         ChangeEventOut: {
             /** Id */
@@ -1702,6 +1788,76 @@ export interface components {
             after: {
                 [key: string]: unknown;
             };
+            /** Actor Db User */
+            actor_db_user?: string | null;
+            /** Attribution Status */
+            attribution_status?: string | null;
+            /** Attribution */
+            attribution?: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChangeEventPage */
+        ChangeEventPage: {
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Items */
+            items: components["schemas"]["ChangeRecordOut"][];
+            /** Actors */
+            actors: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChangeRecordOut */
+        ChangeRecordOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Asset */
+            asset?: string | null;
+            /** Column */
+            column?: string | null;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            };
+            /** After */
+            after: {
+                [key: string]: unknown;
+            };
+            /** Actor Db User */
+            actor_db_user?: string | null;
+            /** Attribution Status */
+            attribution_status?: string | null;
+            /** Attribution */
+            attribution?: {
+                [key: string]: unknown;
+            };
+            /** Change Set Id */
+            change_set_id: string;
+            /** Datasource Id */
+            datasource_id: string;
+            /** Datasource */
+            datasource: string;
+            /** Detected At */
+            detected_at: string;
+            /** Window */
+            window: {
+                [key: string]: unknown;
+            };
+            /** Chain Seq */
+            chain_seq?: number | null;
+            /** Row Hash */
+            row_hash?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -2228,6 +2384,55 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistoryStatusOut */
+        HistoryStatusOut: {
+            /** Retention Days */
+            retention_days: number;
+            /** Purge Interval Hours */
+            purge_interval_hours: number;
+            /** Export Max Rows */
+            export_max_rows: number;
+            /** Chain Head */
+            chain_head?: {
+                [key: string]: unknown;
+            } | null;
+            /** Last Purge */
+            last_purge?: {
+                [key: string]: unknown;
+            } | null;
+            /** Anchors */
+            anchors: {
+                [key: string]: unknown;
+            }[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** HistoryVerifyOut */
+        HistoryVerifyOut: {
+            /** Ok */
+            ok: boolean;
+            /** Verified At */
+            verified_at: string;
+            /** Checked Rows */
+            checked_rows: number;
+            /** Tables */
+            tables: {
+                [key: string]: number;
+            };
+            /** Head */
+            head?: {
+                [key: string]: unknown;
+            } | null;
+            first_break?: components["schemas"]["ChainIssueOut"] | null;
+            /** Issue Count */
+            issue_count: number;
+            /** Issues */
+            issues: components["schemas"]["ChainIssueOut"][];
+            /** Anchors */
+            anchors: number;
+        } & {
+            [key: string]: unknown;
         };
         /** ImpactOut */
         ImpactOut: {
@@ -4683,6 +4888,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_change_events_api_change_events_get: {
+        parameters: {
+            query?: {
+                datasource_id?: string | null;
+                asset_id?: string | null;
+                column?: string | null;
+                /** @description 变更类型，逗号分隔 */
+                kind?: string | null;
+                /** @description 发现时间下限（含）；不带时区按 UTC */
+                since?: string | null;
+                /** @description 发现时间上限（不含）；不带时区按 UTC */
+                until?: string | null;
+                /** @description 数据库用户 */
+                actor?: string | null;
+                /** @description 归因结论，逗号分隔 */
+                attribution_status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeEventPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_change_events_api_change_events_export_get: {
+        parameters: {
+            query?: {
+                format?: "csv" | "json";
+                datasource_id?: string | null;
+                asset_id?: string | null;
+                column?: string | null;
+                kind?: string | null;
+                since?: string | null;
+                until?: string | null;
+                actor?: string | null;
+                attribution_status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_history_api_history_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryVerifyOut"];
+                };
+            };
+        };
+    };
+    history_status_api_history_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryStatusOut"];
                 };
             };
         };
