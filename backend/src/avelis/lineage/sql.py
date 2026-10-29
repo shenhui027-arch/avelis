@@ -40,6 +40,9 @@ class SqlDialect:
     name: str  # SQLGlot 方言名
     default_catalog: str  # 未写 Catalog 的表补全为该值（库.表 两级命名的引擎也补一个固定 Catalog）
     normalize: Callable[[exp.Expression], exp.Expression] | None = None  # 引擎改写过的定义写法，解析前规整
+    # 生成的 SQL 是否写 Catalog 段：库.表 两级命名、查询中不认 Catalog 的引擎（ClickHouse 等）为 False，
+    # 表名写成 库.表，校验时再按 default_catalog 补齐
+    catalog_in_sql: bool = True
 
     def prepare(self, expression: exp.Expression) -> exp.Expression:
         return self.normalize(expression) if self.normalize else expression

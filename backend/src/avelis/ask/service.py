@@ -192,7 +192,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     time_type = _column_type(session, aliases[time_alias], time_col)
     base = aliases["b"]
     ds = session.get(Datasource, base.datasource_id)
-    dialect = engine_of(ds).sql.name
+    dialect = dialect_of(ds)
     compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=intent,
                                     max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect)
     answer.sql = compiled.sql
@@ -720,9 +720,9 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         if not engine.supports(QUERY):
             continue
         qualified = f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
-        sql = distinct_values_sql(qualified, column, limit=200, dialect=engine.sql.name)
+        sql = distinct_values_sql(qualified, column, limit=200, dialect=dialect_of(ds))
         try:
-            validate_sql(sql, dialect=engine.sql.name, allowed_tables={qualified}, schema={qualified: {column}},
+            validate_sql(sql, dialect=dialect_of(ds), allowed_tables={qualified}, schema={qualified: {column}},
                          max_rows=200)
             connector = query_connector(session, ds)
             dep = [{"asset_id": asset.id, "column": column}]

@@ -1,12 +1,14 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力。
 
-已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18。
-规划中的引擎（Doris、Hive、Oracle、SQL Server、ClickHouse；只考虑 SQLGlot 支持的方言）见 ADR 0004：
+已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8。
+规划中的引擎（Doris、Hive、Oracle、SQL Server；只考虑 SQLGlot 支持的方言）见 ADR 0004：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
 
 from __future__ import annotations
 
+from avelis.connectors.clickhouse import CATALOG as CLICKHOUSE_CATALOG
+from avelis.connectors.clickhouse import ClickHouseConnector
 from avelis.connectors.fake import FakeConnector
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.postgres import PostgresConnector
@@ -55,6 +57,17 @@ POSTGRES = Engine(
     note="采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度",
 )
 
+CLICKHOUSE = Engine(
+    kind="clickhouse", label="ClickHouse",
+    # 库.表 两级；资产名补固定 Catalog 段，生成的 SQL 不写 Catalog 段
+    sql=SqlDialect(name="clickhouse", default_catalog=CLICKHOUSE_CATALOG, catalog_in_sql=False),
+    name_levels=("database", "table"),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=ClickHouseConnector, querier=ClickHouseConnector, default_port=8123,
+    options=(OptionField("databases", "采集的库", required=True),),
+    note="HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2",
+)
+
 FAKE = Engine(
     kind="fake", label="测试适配器",
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
@@ -64,4 +77,4 @@ FAKE = Engine(
     is_test_adapter=True, needs_credentials=False, note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, FAKE)

@@ -5,6 +5,9 @@
 #   shop-mysql            模拟业务方的电商维表库（客户、商品、类目、区域）
 #   starrocks             演示数仓：电商事实表，并以外部表方式读取 shop-mysql 的维表
 #   shop-pg               模拟业务方的线下门店库（PostgreSQL），用于验证第二种引擎的采集、血缘与问数
+#
+# 以下服务属于 engines 配置（profile），用于更多引擎的真实联调：scripts/demo.py up --engines 时才启动。
+#   shop-ch               线下门店库（ClickHouse），与 shop-pg 同一份数据
 name: avelis-demo
 
 services:
@@ -82,6 +85,27 @@ services:
       timeout: 3s
       retries: 30
 
+  shop-ch:
+    image: clickhouse/clickhouse-server:26.8.36.3@sha256:d426d2f612e1e189c90f9a3f8dcd85a03c6851273833817a296bb327e63aa7a7
+    profiles: ["engines"]
+    environment:
+      CLICKHOUSE_PASSWORD: ${SHOP_CH_PASSWORD:?run scripts/demo.py init-env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:${SHOP_CH_HTTP_PORT:-18123}:8123"
+    volumes:
+      - shop-ch-data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.14@sha256:5e1fa9c1a490f49457b8220b10ef2ea211af271b2626654ba151429f4603715f
     entrypoint: ["/bin/bash", "/opt/avelis/avelis-entrypoint.sh"]
@@ -123,5 +147,6 @@ volumes:
   valkey-data:
   shop-mysql-data:
   shop-pg-data:
+  shop-ch-data:
   sr-fe-meta:
   sr-be-storage:

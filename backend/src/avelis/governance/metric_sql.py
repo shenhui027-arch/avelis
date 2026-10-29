@@ -85,10 +85,11 @@ def is_additive(expression: exp.Expression) -> bool:
     return False
 
 
-def table_expr(qualified: str, alias: str) -> exp.Table:
+def table_expr(qualified: str, alias: str, *, with_catalog: bool = True) -> exp.Table:
     catalog, db, name = qualified.split(".")
     return exp.Table(this=exp.to_identifier(name), db=exp.to_identifier(db),
-                     catalog=exp.to_identifier(catalog), alias=exp.TableAlias(this=exp.to_identifier(alias)))
+                     catalog=exp.to_identifier(catalog) if with_catalog else None,
+                     alias=exp.TableAlias(this=exp.to_identifier(alias)))
 
 
 def literal(value) -> exp.Expression:
