@@ -71,7 +71,7 @@ class PostgresConnector:
             identity["system_identifier"] = str(conn.execute(
                 "SELECT system_identifier FROM pg_catalog.pg_control_system()").fetchone()[0])
         except psycopg.Error:
-            identity["system_identifier"] = None  # 需要 pg_read_all_settings 或超级用户；默认不授予
+            identity["system_identifier"] = None  # PG 18 默认 PUBLIC 可执行；被收回权限时读不到
         if identity["system_identifier"]:
             identity["instance_id"] = f"pg:{identity['system_identifier']}/{self.database}"
         return identity
@@ -204,14 +204,21 @@ class PostgresConnector:
                 for ts, user, tag, names, statement, xid in rows]
 
     def _instance_key(self, conn: psycopg.Connection, identity: dict[str, Any] | None = None) -> str | None:
-        """事务号只在同一个实例、同一条时间线内可比。
-        - 读得到 system_identifier 与时间线（pg_control_checkpoint().timeline_id）：系统标识 + 库 + 时间线。
-          PITR 恢复或提升备库会进入新时间线；物理克隆与原库 system_identifier 相同但事务历史分叉。
-          时间线变化即按实例已切换处理；
-        - 读不到其中之一（默认需要超级用户或 pg_monitor）：端点 + postmaster 启动时间（epoch 数值，不受 TimeZone、
-          DateStyle 影响）+ 库 oid，实例重启或切换都会让键变化；
-        - 都读不到：None，按实例已切换处理。"""
+        """事务号只在同一个实例、同一条时间线、同一次启动内可比。
+        - 读得到 system_identifier 与时间线（pg_control_checkpoint().timeline_id）：系统标识/库/时间线/启动时间。
+          PITR 恢复会进入新时间线；物理克隆与原库系统标识相同，独立启动后启动时间不同；备库提升后检查点里的
+          时间线可能尚未更新，启动时间也能区分。代价：正常重启也会让键变化，丢一轮确定归因（重建基线）；
+        - 读不到其中之一：端点/启动时间/库 oid；
+        - 都读不到：None，按实例已切换处理。
+        启动时间取 epoch 数值，不受会话 TimeZone、DateStyle 影响。PG 18 中 pg_control_system()、
+        pg_control_checkpoint() 默认 PUBLIC 可执行；被收回权限时退回到无可信 ID 的规则。"""
         identity = identity if identity is not None else self._server_identity(conn)
+        try:
+            start, db_oid = conn.execute(
+                "SELECT extract(epoch FROM pg_catalog.pg_postmaster_start_time())::text, d.oid::text "
+                "FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()").fetchone()
+        except psycopg.Error:
+            return None
         timeline = None
         if identity.get("instance_id"):
             try:
@@ -219,13 +226,7 @@ class PostgresConnector:
             except psycopg.Error:
                 timeline = None
         if identity.get("instance_id") and timeline is not None:
-            return f"{identity['instance_id']}/tl{timeline}"
-        try:
-            start, db_oid = conn.execute(
-                "SELECT extract(epoch FROM pg_catalog.pg_postmaster_start_time())::text, d.oid::text "
-                "FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()").fetchone()
-        except psycopg.Error:
-            return None
+            return f"{identity['instance_id']}/tl{timeline}/{start}"
         return f"{identity['endpoint']}|{start}|{db_oid}"
 
     @staticmethod

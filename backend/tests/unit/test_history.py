@@ -533,9 +533,53 @@ def test_instance_key_includes_the_timeline():
 
     c = PostgresConnector("db", 5432, "u", "p", {"database": "storedb", "schemas": ["store"]})
     trusted = {"instance_id": "pg:7001/storedb", "endpoint": "db:5432"}
-    assert c._instance_key(_FakePg(timeline=1), trusted) == "pg:7001/storedb/tl1"
+    assert c._instance_key(_FakePg(timeline=1), trusted) == "pg:7001/storedb/tl1/1793290000.123456"
+    # 第五轮复核 3：物理克隆独立启动、或备库提升后检查点时间线尚未更新：启动时间不同 → 键不同
+    assert c._instance_key(_FakePg(timeline=1, start="1793299999.0"), trusted) != \
+        c._instance_key(_FakePg(timeline=1), trusted)
     assert c._instance_key(_FakePg(timeline=2), trusted) != c._instance_key(_FakePg(timeline=1), trusted)
     assert c._instance_key(_FakePg(timeline=None), trusted) == "db:5432|1793290000.123456|16384"
     untrusted = {"endpoint": "db:5432"}
     assert c._instance_key(_FakePg(), untrusted) == "db:5432|1793290000.123456|16384"
     assert c._instance_key(_FakePg(start="1793299999.0"), untrusted) != c._instance_key(_FakePg(), untrusted)  # 重启
+
+
+# --- 第五轮复核（3c85ab5） -----------------------------------------------------------
+
+def test_dml_and_function_calls_may_run_ddl_inside():
+    # 1：store.jobs 的 INSERT 触发器内部执行 ALTER TABLE store.sales …；外层请求只看得到 INSERT 与表注释
+    bob = "INSERT INTO store.jobs(id) VALUES (1);\nCOMMENT ON TABLE store.sales IS 'maintenance';"
+    assert column_refs(bob, "sales", "lower", "store").unknown
+    conn = _Connector([_ddl("alice", "COMMENT ON COLUMN store.sales.amount IS 'x'"), _ddl("bob", bob)])
+    e = _event("column_type_changed", "amount")
+    _attribute([e], conn)
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["candidates"] == ["alice", "bob"]
+    e = _event("column_type_changed", "amount")
+    _attribute([e], _Connector([_ddl("bob", bob)]))
+    assert e["attribution_status"] == "ambiguous"  # 只有 bob 时也不是 unmatched
+    for stmt in ("UPDATE store.jobs SET x = 1", "DELETE FROM store.jobs", "MERGE INTO store.jobs USING t ON true",
+                 "COPY store.jobs FROM STDIN", "TRUNCATE store.jobs", "CALL maintain()", "SELECT maintain()",
+                 "VACUUM ANALYZE store.jobs", "REFRESH MATERIALIZED VIEW store.mv"):
+        assert column_refs(f"{stmt}; COMMENT ON TABLE store.sales IS 'x'", "sales", "lower", "store").unknown, stmt
+    # 事务控制、授权仍是无影响
+    for stmt in ("BEGIN", "COMMIT", "GRANT SELECT ON store.jobs TO x", "REVOKE ALL ON store.jobs FROM x CASCADE",
+                 "SET search_path = store"):
+        assert not column_refs(f"{stmt}; COMMENT ON TABLE store.sales IS 'x'", "sales", "lower", "store").unknown, stmt
+
+
+def test_cascading_statements_count_for_every_object():
+    # 2：ALTER TYPE … CASCADE 给 typed table store.sales 加了 new_col；显式目标是类型，也不能跳过
+    bob = "ALTER TYPE store.sale_row ADD ATTRIBUTE new_col int CASCADE;\nCOMMENT ON TABLE store.sales IS 'maintenance';"
+    assert column_refs(bob, "sales", "lower", "store").unknown
+    conn = _Connector([_ddl("bob", bob), _ddl("alice", "COMMENT ON COLUMN store.sales.new_col IS 'memo'")])
+    e = _event("column_added", "new_col")
+    _attribute([e], conn)
+    assert e["attribution_status"] == "ambiguous" and e["attribution"]["candidates"] == ["alice", "bob"]
+    for stmt in ("ALTER DOMAIN store.money_t SET NOT NULL", "DROP TABLE store.parent CASCADE",
+                 "ALTER TABLE store.parent ATTACH PARTITION store.p2026 FOR VALUES IN (2026)",
+                 "ALTER TABLE store.parent DETACH PARTITION store.p2025", "ALTER TABLE store.child INHERIT store.base",
+                 "ALTER TABLE store.child NO INHERIT store.base", "ALTER TABLE store.other ALTER CONSTRAINT c INHERIT"):
+        assert column_refs(f"{stmt}; COMMENT ON TABLE store.sales IS 'x'", "sales", "lower", "store").unknown, stmt
+    # 不级联的别的对象 DDL 仍不涉及本表
+    assert not column_refs("ALTER TABLE store.other ADD COLUMN x int; COMMENT ON TABLE store.sales IS 'x'",
+                           "sales", "lower", "store").unknown
