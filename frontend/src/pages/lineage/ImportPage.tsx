@@ -1,5 +1,6 @@
 // 导入血缘：原文编辑器（识别的语句行 is-hl，模型推断的片段 is-ai）| 识别出的数据流与候选边。
 // 解析边直接写入（可修改）；模型候选必须接受、修改或驳回后才进入血缘，并记录处理人和理由。
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
@@ -46,6 +47,7 @@ export function ImportPage() {
 
 function NewImport() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const sources = useDatasources();
   const [mode, setMode] = useState<"paste" | "file">("paste");
   const [content, setContent] = useState("");
@@ -73,6 +75,8 @@ function NewImport() {
       } else {
         job = await unwrap(api.POST("/api/imports", { body: { datasource_id: ds, filename, content, source_type: null, default_db: null, params: {} } }));
       }
+      qc.invalidateQueries({ queryKey: ["imports"] });
+      qc.invalidateQueries({ queryKey: ["graph"] });
       if (job.duplicate) setMessage({ ok: true, text: "相同内容已导入过，打开原任务（不会重复写入）" });
       navigate(`/lineage/import/${job.id}`);
     } catch (e) {
@@ -208,7 +212,8 @@ function Statements({ j, onFocus }: { j: ImportJob; onFocus: (id: string) => voi
 }
 
 function Candidates({ j, onFocus }: { j: ImportJob; onFocus: (id: string) => void }) {
-  const [filter, setFilter] = useState<"model" | "parsed">("model");
+  const hasModel = (j.candidates ?? []).some((c) => c.origin === "model");
+  const [filter, setFilter] = useState<"model" | "parsed">(hasModel ? "model" : "parsed");
   const [editing, setEditing] = useState<string | null>(null);
   const [edit, setEdit] = useState({ relation: "", target_column: "", reason: "" });
   const [reason, setReason] = useState("");

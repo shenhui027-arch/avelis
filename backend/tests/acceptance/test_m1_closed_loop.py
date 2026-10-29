@@ -571,6 +571,12 @@ def test_14_model_settings_and_real_model(stack, admin: Api):
     assert answer["explanation_source"] == "template"  # 默认不把查询结果发给模型
     follow = wang.post("/api/ask", {"question": "那华北呢？", "thread_id": answer["thread_id"]})
     assert value_of(follow) == Decimal("150.00"), follow
+    # 已失效的口径：真实模型可以追问或交给后端拦截，但不能执行 SQL，也不能悄悄改用其他口径
+    retired = wang.post("/api/ask", {"question": "2026年9月15日华东区的实付销售额是多少？"})
+    assert retired["status"] in ("blocked", "clarify") and retired["sql"] is None, retired
+    assert retired["metric_version_ids"] in ([], [ctx["paid_v1"]])
+    # 每轮回答只记录本轮的步骤
+    assert [s["node"] for s in follow["steps"]] == ["understand", "govern", "explain"]
     audit = admin.get("/api/audit", params={"object_type": "model_provider"})
     assert {"model_provider.create", "model_provider.check"} <= {e["action"] for e in audit}
     assert key not in str(audit)
@@ -589,7 +595,7 @@ def test_15_workbench_summary(admin: Api):
     assert len(wb["cadence"]) == 24 and any(c["runs"] for c in wb["cadence"])
     assert wb["recent_changes"] and wb["recent_changes"][0]["at"]
     # 被拦截的提问可见（管理员）
-    assert any(a["status"] == "blocked" for a in wb["blocked_answers"])
+    assert wb["blocked_answers"] and {a["status"] for a in wb["blocked_answers"]} <= {"blocked", "denied", "clarify"}
     # 负责人看到自己负责的指标；复核者看到待批准的版本
     mine = zhang.get("/api/workbench")["my_metrics"]
     assert {m["name"] for m in mine} >= {"实付销售额", "退款后净销售额"}

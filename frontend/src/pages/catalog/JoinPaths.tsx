@@ -23,7 +23,7 @@ export function JoinPaths() {
           <Hint text="问数和指标只能使用已批准的关联路径；跨域路径要两个域的负责人都批准" /></div>
           <div className="av-actions"><button type="button" className="av-btn av-btn--primary" disabled={!roles.has("steward") && !roles.has("admin")} onClick={() => setAdding(true)}><Icon name="plus" />新建路径</button></div></div>
         <Banner message={message} />
-        <section className="av-panel">
+        <section className="av-panel av-table-wrap">
           <table className="av-table">
             <thead><tr><th style={{ paddingLeft: 16 }}>路径</th><th>左侧</th><th>右侧</th><th>基数</th><th>审批</th><th>状态</th><th className="end" /></tr></thead>
             <tbody>{(paths.data ?? []).map((p) => {
@@ -32,10 +32,10 @@ export function JoinPaths() {
               return (
                 <tr key={p.id}>
                   <td style={{ paddingLeft: 16 }}><b>{p.name}</b><div className="av-caption av-mono">{p.code}</div></td>
-                  <td className="av-mono">{shortName(String(p.left.qualified))}.{(p.left.columns as string[]).join(",")}</td>
-                  <td className="av-mono">{shortName(String(p.right.qualified))}.{(p.right.columns as string[]).join(",")}</td>
+                  <td className="av-mono wrap">{shortName(String(p.left.qualified))}.{(p.left.columns as string[]).join(",")}</td>
+                  <td className="av-mono wrap">{shortName(String(p.right.qualified))}.{(p.right.columns as string[]).join(",")}</td>
                   <td><span className={`av-tag${["1n", "nn", "unknown"].includes(p.cardinality) ? " av-edge-tag--warn" : ""}`} style={{ position: "static" }}>{CARD_LABEL[p.cardinality]}</span></td>
-                  <td>{p.required_domains.map((d) => <span key={d} className="av-tag" style={{ marginRight: 4 }}>{domainName(d)} · {approvals.get(d) === "approved" ? "已批准" : approvals.get(d) === "rejected" ? "已驳回" : "待批准"}</span>)}</td>
+                  <td className="wrap">{p.required_domains.map((d) => <span key={d} className="av-tag" style={{ marginRight: 4 }}>{domainName(d)} · {approvals.get(d) === "approved" ? "已批准" : approvals.get(d) === "rejected" ? "已驳回" : "待批准"}</span>)}</td>
                   <td><Status value={p.status} /></td>
                   <td className="end"><div className="av-actions">{mine.map((d) => (
                     <button key={d} type="button" className="av-btn av-btn--secondary av-btn--sm"

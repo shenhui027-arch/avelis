@@ -123,6 +123,9 @@ class Toolbox:
         card = self._card(metric_code)
         if card is None or dimension not in {d["name"] for d in card.dimensions}:
             return json.dumps({"error": "指标不可用或维度不存在"}, ensure_ascii=False)
+        if card.status != "published":
+            return json.dumps({"matched": [], "note": f"该指标当前状态为 {card.status}，不提供取值；"
+                               "请照常用原话中的取值提交意图，后端会说明能否查询"}, ensure_ascii=False)
         matched = [v for v in self._dimension_values(metric_code, dimension) if v and v in text]
         return json.dumps({"matched": sorted(set(matched)),
                            "note": "只返回出现在原话中的取值" if matched else "原话中没有该维度的已知取值"},
@@ -141,7 +144,8 @@ class Toolbox:
                 problems.append(f"维度 {f['dimension']} 不在允许范围")
                 continue
             known = set(self._dimension_values(metric_code, f["dimension"]))
-            unknown = [v for v in f["values"] if v not in known]
+            # 受影响 / 失效的指标不查取值：交给治理步骤给出拦截原因
+            unknown = [v for v in f["values"] if v not in known] if card.status == "published" else []
             if unknown:
                 problems.append(f"维度 {f['dimension']} 没有取值 {unknown}；请先用 match_dimension_values 核对")
             parsed.append(DimensionFilter(dimension=f["dimension"], values=f["values"]))
@@ -346,6 +350,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
     config = {"configurable": {"thread_id": thread.id, "session": session, "user": user, "answer": answer}}
     app = graph()
     pending = app.get_state(config)
+    steps_before = len(pending.values.get("steps", [])) if pending.values else 0
     try:
         if pending.next and thread.status == "waiting":
             result = app.invoke(Command(resume=question), config)
@@ -360,7 +365,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
         return service.finish_answer(session, user, answer, started)
     interrupts = result.get("__interrupt__") or []
     state = app.get_state(config).values
-    answer.steps = list(state.get("steps", []))[-12:]
+    answer.steps = list(state.get("steps", []))[steps_before:]
     if interrupts:
         payload = interrupts[0].value
         answer.status = "clarify"

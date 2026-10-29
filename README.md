@@ -2,13 +2,13 @@
 
 有依据的智能问数：建立在数据库血缘、业务口径和变更管理之上。每个答案都带来源、口径、版本和权限依据；上游变化后，系统知道哪些答案需要重新确认。首期面向 StarRocks。
 
-> 当前阶段：v0.1 开发中，**M0、M1、M2 已完成**：后端闭环、LangGraph 问数智能体、模型配置、导入血缘。验收见 [M1](docs/acceptance-m1.md)、[M2](docs/acceptance-m2.md)。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
+> 当前阶段：v0.1 开发中，**M0–M3 已完成**：后端闭环、LangGraph 问数智能体、模型配置、导入血缘、工作台界面。验收见 [M1](docs/acceptance-m1.md)、[M2](docs/acceptance-m2.md)、[M3](docs/acceptance-m3.md)（含浏览器走查截图）。范围、设计决定和里程碑见 [docs/PLAN.md](docs/PLAN.md)，StarRocks 实机核验结论见 [docs/starrocks-notes.md](docs/starrocks-notes.md)。
 
 ## 仓库结构
 
 ```
 backend/              后端（FastAPI）：采集、血缘、粒度、口径治理、变更复核、问数智能体、导入血缘、模型配置
-frontend/             前端（React + Vite）：应用框架与模型配置页（其余页面 M3）
+frontend/             前端（React + Vite）：工作台、血缘、导入、目录、变更、问数、设置
 deploy/demo/          演示环境：Compose、StarRocks 启动包装、电商维表库初始化、合成数据、驱动锁定
 scripts/demo.py       演示环境起停、灌数、基线核对、实机核验
 scripts/sr_probe.py   StarRocks 实机核验项
@@ -28,6 +28,7 @@ uv run uvicorn avelis.api.app:app --port 8000  # API；接口文档 http://127.0
 uv run python -m avelis.jobs                   # 后台 worker：采集任务、定时轮询
 uv run pytest                                  # 单元测试
 uv run pytest -m acceptance                    # 验收（会重置演示库与元数据库）
+uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API 建好用户、业务域、数据源，完成首次采集
 ```
 
 - **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。
@@ -38,6 +39,8 @@ uv run pytest -m acceptance                    # 验收（会重置演示库与�
 - 设计决定见 [ADR 0002](docs/decisions/0002-backend-foundations.md)、[ADR 0003](docs/decisions/0003-postgres-agent-model-settings.md)。
 
 ## 前端
+
+演示账号：admin、zhang（交易域负责人）、zhao（商品域负责人）、li（复核者）、wang、sun（分析师），口令都是 `.env` 中的 `AVELIS_DEMO_USER_PASSWORD`。
 
 ```bash
 cd frontend
