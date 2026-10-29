@@ -16,16 +16,16 @@ const PILLARS = [
 /** 品牌区示意：来源 → 视图 → 口径 → 答案的一条可追溯路径，依据节点高亮。纯装饰。 */
 function LineageMotif() {
   const nodes = [
-    { x: 24, y: 40, w: 112, label: "shop.orders" },
-    { x: 24, y: 118, w: 112, label: "shop.refunds" },
-    { x: 196, y: 79, w: 120, label: "daily_sales" },
-    { x: 376, y: 79, w: 104, label: "实付销售额 V1", accent: true },
+    { x: 8, y: 40, w: 132, label: "shop.orders" },
+    { x: 8, y: 118, w: 132, label: "shop.refunds" },
+    { x: 196, y: 79, w: 124, label: "daily_sales" },
+    { x: 368, y: 79, w: 128, label: "实付销售额 V1", accent: true },
   ];
   return (
     <svg className="av-auth__motif" viewBox="0 0 504 176" aria-hidden="true" focusable="false">
-      <path d="M136 57 C166 57 166 96 196 96" />
-      <path d="M136 135 C166 135 166 96 196 96" className="is-muted" />
-      <path d="M316 96 L376 96" className="is-signal" />
+      <path d="M140 57 C168 57 168 96 196 96" />
+      <path d="M140 135 C168 135 168 96 196 96" className="is-muted" />
+      <path d="M320 96 L368 96" className="is-signal" />
       {nodes.map((n) => (
         <g key={n.label} className={n.accent ? "is-accent" : undefined}>
           <rect x={n.x} y={n.y} width={n.w} height={34} rx={6} />
@@ -68,7 +68,7 @@ export function Login() {
   }
 
   return (
-    <div className="av-login">
+    <div className="av-root av-login">
       <section className="av-login__brand" aria-label="Avelis">
         <div className="av-auth__brand"><LogoMark size={28} /><span>Avelis</span></div>
         <div className="av-login__pitch">

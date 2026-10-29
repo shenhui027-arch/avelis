@@ -25,7 +25,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 | M2 问数智能体与导入血缘 | 完成，已运行验证 | 元数据库收敛为 PostgreSQL；LangGraph 问数智能体（多轮追问、会话持久化、工具调用）；模型配置（提供方、检测、按用途指定、数据外发策略）；导入血缘（SQL / Python / Shell、动态 SQL 补参数、模型候选与人工处理）。验收 20 项通过（含真实 DeepSeek 两项），见 [acceptance-m2.md](acceptance-m2.md)、[ADR 0003](decisions/0003-postgres-agent-model-settings.md) |
 | M3 工作台界面 | 完成，已运行验证 | 工作台、血缘画布、导入、目录（指标 / 资产 / 业务域 / 关联路径）、变更、问数、设置（数据源 / 模型 / 用户）全部连真实后端；浏览器中走通故事 1–6、8、9 并截图 27 张，见 [acceptance-m3.md](acceptance-m3.md) |
 | M4 异常与加固 | 完成，已运行验证 | 故事 7 与 11 类异常场景（越权、伪造意图、注入、不支持的 SQL、超时、同名对象、外部表来源变化、worker 进程、会话存储丢失、未归属资产）。修复 worker 中断后任务卡在“运行中”导致定时采集停止的缺陷。引擎适配层为多数据库血缘做准备。验收 12 项、全部验收 33 项通过，见 [acceptance-m4.md](acceptance-m4.md)、[ADR 0004](decisions/0004-engine-adapters.md) |
-| M5 交付 | 完成，已运行验证 | 一条命令从零复现验收（`scripts/acceptance.py --fresh`，约 4 分钟，全部通过）；M4 场景界面走查（8 张截图）；新增执行前核对，修复元数据过期窗口（走查中发现：采集前同一问题会返回缓存旧值）；worker 60 分钟运行验证；架构与治理说明、验收汇总。见 [acceptance-m5.md](acceptance-m5.md)、[architecture.md](architecture.md)、[acceptance.md](acceptance.md) |
+| M5 交付 | 完成，已运行验证 | 一条命令从零复现验收（`scripts/acceptance.py --fresh`）；M4 场景界面走查；执行前核对修复元数据过期窗口；worker 60 分钟运行（114 次采集全部成功，内存稳定）；认证产品化（登录页、首次改口令、失败锁定、会话失效、用户管理）；第二种引擎 PostgreSQL（真实实例联调）；与 Codex 协同完成 Logo、前端审计、后端验收评审，并修复 25 项评审发现。见 [acceptance-m5.md](acceptance-m5.md)、[architecture.md](architecture.md)、[acceptance.md](acceptance.md) |
 
 ## 3. 环境与已核验的事实
 
@@ -197,15 +197,16 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
    - 派生指标（指标之间的比值）。
 
    都在意图模型与确定性编译器中扩展，并补验收。可选：明确标注为“未治理”的临时查询兜底模式，作为独立功能。
-3. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。建议顺序：
+3. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。PostgreSQL 已接入（M5）。建议顺序：
    1. Doris；
-   2. PostgreSQL；
-   3. Hive；
-   4. SQL Server；
-   5. Oracle；
-   6. ClickHouse。
+   2. Hive；
+   3. SQL Server；
+   4. Oracle；
+   5. ClickHouse。
 
    每种都需要可用的测试实例。
 4. 采集间隔可在界面修改（目前创建后只能改库）。
 5. 设计系统回收：把 `frontend/src/styles/app.css` 中扩展的开关、抽屉、提示组件发布回 Avelis UI；用电商数据更新原型。
 6. 复核 httpx2：2.16.0 于 2026-10-21 发布，满两周后再评估。
+7. 评审的“待确认”项：缓存命中期间的并发状态变化、Redis 吊销记录丢失后的兜底、无物理 ID 对象（视图、外部表）的同名重建识别边界。
+8. 用新的采集锁（advisory lock）再做一次长时间运行，并补“采集进行中杀掉 worker”的真实中断验收。
