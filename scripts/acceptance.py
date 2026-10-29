@@ -4,6 +4,7 @@
   uv run scripts/acceptance.py            在现有演示容器上复现（容器未启动时会启动）
   uv run scripts/acceptance.py --fresh    从零开始：删除演示容器与数据卷后重建（StarRocks 首次启动约需数分钟）
   uv run scripts/acceptance.py --no-llm   跳过调用真实模型的用例（不向模型服务发送任何数据）
+  uv run scripts/acceptance.py --no-engines  不启动更多引擎的演示库（ClickHouse、Doris），跳过它们的验收
 
 前置条件：Docker（Compose v2）、uv、pnpm（--skip-frontend 时可不装）。口令与密钥在 .env 中自动生成，不打印。
 .env 中配置了 AVELIS_MODEL_API_KEY 时，默认会运行 llm 用例：问题与指标元数据会发送到配置的模型服务。
@@ -109,7 +110,8 @@ def write_report(runner: Runner, info: dict) -> Path:
     (demo.STATE / "acceptance-report.json").write_text(
         json.dumps({**info, "steps": runner.steps}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     lines = ["# Avelis 验收报告", "", f"- 时间：{info['finished_at']}（UTC）", f"- 模式：{info['mode']}",
-             f"- 结论：**{'全部通过' if info['ok'] else '未通过'}**", "", "## 步骤", "",
+             f"- 结论：**{'全部通过' if info['ok'] else '未通过'}**",
+             f"- 更多引擎：{info.get('engines', '—')}；真实模型用例：{info.get('llm', '—')}", "", "## 步骤", "",
              "| 步骤 | 结果 | 用时（秒） | 说明 |", "|---|---|---|---|"]
     for s in runner.steps:
         lines.append(f"| {s['name']} | {'通过' if s['status'] == 'passed' else '失败'} | {s['seconds']} | "
@@ -118,7 +120,8 @@ def write_report(runner: Runner, info: dict) -> Path:
         lines += ["", "## 演示库基线（只读账号查询）", "", "| 项 | 期望 | 实际 | 结果 |", "|---|---|---|---|"]
         lines += [f"| {b['label']} | {b['expected']} | {b['actual']} | {'通过' if b['passed'] else '不符'} |"
                   for b in info["baseline"]]
-    titles = (("unit", "后端单元测试"), ("acceptance", "验收（真实 StarRocks / MySQL / PostgreSQL / Valkey）"))
+    titles = (("unit", "后端单元测试"),
+              ("acceptance", "验收（真实 StarRocks / MySQL / PostgreSQL / ClickHouse / Doris / Valkey）"))
     for key, title in titles:
         summary = info.get(key)
         if not summary:
@@ -139,6 +142,7 @@ def main() -> None:
     parser.add_argument("--fresh", action="store_true", help="删除演示容器与数据卷后从零重建")
     parser.add_argument("--no-llm", action="store_true", help="跳过调用真实模型的用例")
     parser.add_argument("--skip-frontend", action="store_true", help="不安装依赖、不构建前端")
+    parser.add_argument("--no-engines", action="store_true", help="不启动更多引擎的演示库，跳过它们的验收")
     args = parser.parse_args()
 
     runner = Runner()
@@ -152,10 +156,13 @@ def main() -> None:
                 if demo.ENV_FILE.exists():
                     demo.down(volumes=True)
             runner.step("删除演示容器与数据卷", teardown)
-        runner.step("启动演示环境并灌入基线数据", lambda: demo.up(skip_seed=False))
+        engines = not args.no_engines
+        info["engines"] = "运行（ClickHouse、Doris 真实实例）" if engines else "跳过"
+        runner.step("启动演示环境并灌入基线数据", lambda: demo.up(skip_seed=False, engines=engines))
 
         def baseline() -> list[dict]:
-            values = demo.baseline_values(demo.load_env())
+            env = demo.load_env()
+            values = demo.baseline_values(env) + (demo.engine_baseline_values(env) if engines else [])
             info["baseline"] = values
             if not all(v["passed"] for v in values):
                 raise StepFailed("演示库基线不符")
@@ -168,7 +175,7 @@ def main() -> None:
         has_key = bool(demo.load_env().get("AVELIS_MODEL_API_KEY"))
         llm = has_key and not args.no_llm
         info["llm"] = "运行（会向配置的模型服务发送问题与指标元数据）" if llm else "跳过"
-        marker = "acceptance" if llm else "acceptance and not llm"
+        marker = "acceptance" + ("" if llm else " and not llm") + ("" if engines else " and not engines")
         info["acceptance"] = runner.step("验收：故事 1–9 与异常场景", lambda: pytest_step(marker, "acceptance"))
         if not args.skip_frontend:
             runner.step("安装前端依赖（锁文件）", lambda: run([tool("pnpm"), "install", "--frozen-lockfile"], FRONTEND))

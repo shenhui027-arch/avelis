@@ -30,7 +30,8 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
 1. **新增 `avelis.engines`**：每种数据库是一个 `Engine` 适配器，在注册表登记。适配器包含：
    - 连接器工厂：采集用、只读查询用；
-   - `SqlDialect`：SQLGlot 方言名、默认 Catalog、该引擎特有写法的规整函数（如 StarRocks 把别名列写成 `db.alias.col`）；
+   - `SqlDialect`：SQLGlot 方言名、默认 Catalog、该引擎特有写法的规整函数（如 StarRocks 把别名列写成 `db.alias.col`），
+     以及生成的 SQL 是否写 Catalog 段（`catalog_in_sql`；ClickHouse 等两级命名的引擎为否）；
    - 资产名层级（`name_levels`）；
    - 能力声明：`metadata`、`view_lineage`、`query`、`external_tables`、`identity_target`；
    - 默认端口、说明。
@@ -47,6 +48,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
    - MySQL 当前只有 `metadata` 和 `identity_target`；它的视图解析和问数执行没有在真实环境验证，所以不声明。
 4. **统一的资产名**：仍是 `catalog.db.name` 三段。
    - 只有 库.表 两级的引擎（MySQL、Hive、ClickHouse）用适配器给的固定 Catalog 补齐。
+     这些引擎的查询不认 Catalog 段：生成 SQL 时省略，执行前校验再按方言的固定 Catalog 补回后比对（M7）。
    - 有 库.模式.表 三级的引擎（PostgreSQL、SQL Server、Oracle）把库（或服务名）放在 catalog 段。
    - 同一个库在不同网络位置的地址，仍由端点别名与实例身份（如 `server_uuid`）对齐。
 5. **前端按能力渲染。**
@@ -60,6 +62,24 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
    核心模块不改。
 
+## 已接入的引擎
+
+| 引擎 | 版本（演示实例） | 能力 | 要点 |
+|---|---|---|---|
+| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对 | M0–M4，见 [starrocks-notes.md](../starrocks-notes.md) |
+| MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
+| PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
+| ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
+
+**ClickHouse**（M7，真实实例联调）：
+
+- 采集账号只需 `SHOW TABLES, SHOW COLUMNS`，读 `system.tables` / `system.columns`，读不到业务数据。
+- 视图定义取 `system.tables.as_select`。ClickHouse 会改写定义（如 `COUNT(DISTINCT x)` 存为 `COUNTDistinct(x)`），SQLGlot 的 `clickhouse` 方言可以解析出相同的列级血缘。
+- 物理身份：表用 `system.tables.uuid`（Atomic 库中改名不变，删后重建会变）。普通视图不支持 `MODIFY QUERY`，改定义只能 `CREATE OR REPLACE`，会换新 UUID，所以视图不用 UUID，按名称对应。
+- **排序键 / 主键不保证唯一**：MergeTree 只按它排序，不去重。不作为观察到的粒度，粒度需要人工声明并核验。
+- 查询账号为 `readonly=2`（只读，可以调整查询设置），每次查询设 `max_execution_time` 与 `max_memory_usage`。错误码归类：159 为超时；60、47、81 为对象无法解析；497、164 为权限。
+- 数据新鲜度：取 `system.parts` 中活动分片的最近修改时间。查询账号只授予这张表的 4 列；未授权时不报告新鲜度，不让问数失败。
+
 ## 规划中的引擎（未登记，未验证）
 
 只考虑 SQLGlot 有方言的引擎；新引擎的前提是 SQLGlot 支持它的方言。
@@ -71,7 +91,6 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | PostgreSQL | `postgres` | db.schema.table | `pg_views` / `information_schema.views` 的定义是否已全限定；`search_path` 对解析的影响 |
 | Oracle | `oracle` | 服务名.schema.table | `ALL_VIEWS.TEXT` 读取；大小写与带引号标识符；同义词 |
 | SQL Server | `tsql` | db.schema.table | `sys.sql_modules`；跨库三段名、链接服务器四段名 |
-| ClickHouse | `clickhouse` | 固定 Catalog + db.table | 物化视图的 `TO` 目标表；Distributed 表到本地表的映射 |
 
 ## 后果
 

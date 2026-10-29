@@ -13,7 +13,7 @@ from avelis.models import Datasource
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "postgres", "fake"}
+    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "fake"}
     with pytest.raises(UnsupportedEngine, match="oracle"):
         get_engine("oracle")
     with pytest.raises(ValueError, match="已登记"):
@@ -46,6 +46,32 @@ def test_generated_sql_follows_dialect():
                   'GROUP BY "t"."order_id" HAVING COUNT(*) > 1 LIMIT 1')
     validate_sql(pg, dialect="postgres", allowed_tables={"analytics.public.orders"},
                  schema={"analytics.public.orders": {"order_id"}}, max_rows=1)
+
+
+def test_two_level_engine_sql_omits_catalog():
+    # ClickHouse：资产名补固定 Catalog 段，生成的 SQL 只写 库.表；校验时按方言补回 Catalog 段再比对
+    ch = get_engine("clickhouse").dialect_for({"databases": ["store"]})
+    assert not ch.catalog_in_sql and ch.default_catalog == "clickhouse"
+    sql = duplicate_key_sql("clickhouse.store.returns", ["sale_id"], dialect=ch)
+    assert 'FROM "store"."returns" AS "t"' in sql and "clickhouse" not in sql
+    validate_sql(sql, dialect=ch, allowed_tables={"clickhouse.store.returns"},
+                 schema={"clickhouse.store.returns": {"sale_id"}}, max_rows=1)
+    from avelis.ask.compiler import ValidationFailed
+
+    with pytest.raises(ValidationFailed, match="未批准的表 clickhouse.store.sales"):
+        validate_sql('SELECT "t"."sale_id" FROM "store"."sales" AS "t" LIMIT 1', dialect=ch,
+                     allowed_tables={"clickhouse.store.returns"}, schema={}, max_rows=1)
+
+
+def test_clickhouse_types_and_identity():
+    from avelis.connectors.clickhouse import _identity, _kind, _type
+
+    assert _type("Nullable(Date)") == ("Date", True) and _type("Decimal(18, 2)") == ("Decimal(18, 2)", False)
+    assert _kind("View") == "view" and _kind("ReplacingMergeTree") == "table"
+    # 视图不用 UUID 作身份：CREATE OR REPLACE VIEW 会换新 UUID
+    assert _identity("b91a2ade-ffaa-41ca-9e03-49a0bf4c9bd7", "view") is None
+    assert _identity("00000000-0000-0000-0000-000000000000", "table") is None
+    assert _identity("42a74fc4-e8dd-4333-9640-0c9875fc54ff", "table") == "42a74fc4-e8dd-4333-9640-0c9875fc54ff"
 
 
 def test_parser_core_is_engine_agnostic():

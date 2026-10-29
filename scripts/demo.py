@@ -2,6 +2,8 @@
 
 在仓库根目录运行：
   uv run scripts/demo.py up            生成 .env、校验驱动、启动容器、等待就绪并灌数
+  uv run scripts/demo.py up --engines  同时启动更多引擎的演示库（ClickHouse 等），并灌数
+  uv run scripts/demo.py seed-engines  把更多引擎的演示库重置到验收基线
   uv run scripts/demo.py seed          把演示库重置到验收基线
   uv run scripts/demo.py check         核对验收基线数值
   uv run scripts/demo.py verify        StarRocks 实机核验，结果写入 .demo/sr-verify.json
@@ -24,6 +26,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import clickhouse_connect
 import psycopg
 import pymysql
 
@@ -36,6 +39,7 @@ DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
 SHOP_MYSQL_SEED = DEMO / "shop-mysql" / "init" / "01-shop-dim.sql"
 SHOP_PG_SEED = DEMO / "shop-pg" / "init" / "02-store.sql"
+SHOP_CH_SEED = DEMO / "shop-ch" / "store.sql"
 
 DEMO_DATABASES = ("shop", "ads", "dim")
 CATALOG = "shop_mysql"
@@ -113,8 +117,9 @@ def _sha256(path: Path) -> str:
 
 # --- containers --------------------------------------------------------------
 
-def compose(*args: str) -> None:
-    cmd = ["docker", "compose", "--env-file", str(ENV_FILE), "-f", str(DEMO / "compose.yaml"), *args]
+def compose(*args: str, engines: bool = False) -> None:
+    profile = ["--profile", "engines"] if engines else []
+    cmd = ["docker", "compose", "--env-file", str(ENV_FILE), "-f", str(DEMO / "compose.yaml"), *profile, *args]
     subprocess.run(cmd, check=True, cwd=ROOT)
 
 
@@ -156,6 +161,15 @@ def pg_connect(env: dict[str, str], user: str = "postgres") -> psycopg.Connectio
                 "avelis_reader": "SHOP_PG_READER_PASSWORD"}[user]
     return psycopg.connect(host="127.0.0.1", port=int(env["SHOP_PG_PORT"]), user=user, password=env[password],
                            dbname="storedb", connect_timeout=5, autocommit=True)
+
+
+def ch_connect(env: dict[str, str], user: str = "default"):
+    """Connect to the demo ClickHouse store (shop-ch). default only seeds; avelis_reader is readonly=2."""
+    password = {"default": "SHOP_CH_PASSWORD", "avelis_collector": "SHOP_CH_COLLECTOR_PASSWORD",
+                "avelis_reader": "SHOP_CH_READER_PASSWORD"}[user]
+    return clickhouse_connect.get_client(host="127.0.0.1", port=int(env["SHOP_CH_HTTP_PORT"]), username=user,
+                                         password=env[password], connect_timeout=5,
+                                         autogenerate_session_id=False)
 
 
 def sr_root(env: dict[str, str]) -> pymysql.Connection:
@@ -219,6 +233,14 @@ def _shop_pg_ready(env: dict[str, str]) -> bool:
         return conn.execute("SELECT COUNT(*) FROM store.sales").fetchone()[0] > 0
 
 
+def _shop_ch_ready(env: dict[str, str]) -> bool:
+    client = ch_connect(env)
+    try:
+        return client.command("SELECT 1") == 1
+    finally:
+        client.close()
+
+
 def _shop_mysql_ready(env: dict[str, str]) -> bool:
     conn = mysql_connect(env, "avelis_collector")
     with conn.cursor() as cur:
@@ -228,24 +250,29 @@ def _shop_mysql_ready(env: dict[str, str]) -> bool:
     return ready
 
 
-def up(skip_seed: bool) -> None:
+def up(skip_seed: bool, engines: bool = False) -> None:
     init_env()
     fetch_driver()
     env = load_env()
-    compose("up", "-d", "--remove-orphans")
+    compose("up", "-d", "--remove-orphans", engines=engines)
     log("等待服务就绪 ...")
     wait_for("元数据库 PostgreSQL", lambda: _meta_pg_ready(env), 120)
     wait_for("Valkey（Redis 协议）", lambda: _valkey_ready(env), 60)
     wait_for("电商维表库 MySQL", lambda: _shop_mysql_ready(env), 240)
     wait_for("门店库 PostgreSQL", lambda: _shop_pg_ready(env), 120)
     wait_for("StarRocks FE + BE", lambda: _sr_ready(env), 420)
+    if engines:
+        wait_for("门店库 ClickHouse", lambda: _shop_ch_ready(env), 120)
     if not skip_seed:
         seed(env)
         check(env)
+        if engines:
+            seed_engines(env)
+            check_engines(env)
 
 
 def down(volumes: bool) -> None:
-    compose("down", "--remove-orphans", *(["--volumes"] if volumes else []))
+    compose("down", "--remove-orphans", *(["--volumes"] if volumes else []), engines=True)
 
 
 # --- seed --------------------------------------------------------------------
@@ -390,6 +417,85 @@ def seed(env: dict[str, str]) -> dict:
     return report
 
 
+# --- more engines ------------------------------------------------------------
+
+def engines_running(env: dict[str, str]) -> dict[str, bool]:
+    """更多引擎的演示库是否可连接（未用 --engines 启动时为 False）。"""
+    out = {}
+    for name, probe in (("clickhouse", _shop_ch_ready),):
+        try:
+            out[name] = bool(probe(env))
+        except Exception:  # noqa: BLE001 - not started or not reachable
+            out[name] = False
+    return out
+
+
+def seed_clickhouse(env: dict[str, str]) -> None:
+    """重建 store 库与两个账号：采集账号只有 SHOW 权限（读系统表、不能读数据），查询账号 readonly=2 只能 SELECT。"""
+    client = ch_connect(env)
+    try:
+        for statement in sql_statements(SHOP_CH_SEED):
+            client.command(statement)
+        collector, reader = env["SHOP_CH_COLLECTOR_PASSWORD"], env["SHOP_CH_READER_PASSWORD"]
+        for user in ("avelis_collector", "avelis_reader"):
+            client.command(f"DROP USER IF EXISTS {user}")
+        client.command("CREATE USER avelis_collector IDENTIFIED WITH sha256_password BY {p:String}",
+                       parameters={"p": collector})
+        client.command("GRANT SHOW TABLES, SHOW COLUMNS ON store.* TO avelis_collector")
+        client.command("CREATE USER avelis_reader IDENTIFIED WITH sha256_password BY {p:String} "
+                       "SETTINGS readonly = 2", parameters={"p": reader})
+        client.command("GRANT SELECT ON store.* TO avelis_reader")
+        # 数据新鲜度只需分片的修改时间，不授予 system.parts 的其他列
+        client.command("GRANT SELECT(database, table, active, modification_time) ON system.parts TO avelis_reader")
+    finally:
+        client.close()
+
+
+def seed_engines(env: dict[str, str]) -> None:
+    log("把更多引擎的演示库重置到验收基线 ...")
+    running = engines_running(env)
+    missing = [k for k, ok in running.items() if not ok]
+    if missing:
+        sys.exit(f"引擎演示库未启动：{', '.join(missing)}；先运行 uv run scripts/demo.py up --engines")
+    seed_clickhouse(env)
+    log("  灌数完成：ClickHouse store")
+
+
+ENGINE_BASELINE = [
+    ("clickhouse", "门店库 city_daily_sales 2026-09-15 上海（ClickHouse）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '上海'",
+     Decimal("250.00")),
+    ("clickhouse", "门店库 city_daily_sales 2026-09-15 北京（ClickHouse）",
+     "SELECT sales_amount FROM store.city_daily_sales WHERE sale_date = '2026-09-15' AND city = '北京'",
+     Decimal("80.00")),
+]
+
+
+def engine_baseline_values(env: dict[str, str]) -> list[dict]:
+    results = []
+    client = ch_connect(env, "avelis_reader")
+    try:
+        for _, label, sql, expected in ENGINE_BASELINE:
+            try:
+                rows = client.query(sql).result_rows
+                actual = rows[0][0] if rows else "无数据"
+            except Exception as exc:  # noqa: BLE001 - reported as a failed baseline line
+                actual = f"错误：{exc}"
+            results.append({"label": label, "expected": str(expected), "actual": str(actual),
+                            "passed": str(actual) == str(expected)})
+    finally:
+        client.close()
+    return results
+
+
+def check_engines(env: dict[str, str]) -> bool:
+    log("核对更多引擎的验收基线（avelis_reader 只读账号）：")
+    results = engine_baseline_values(env)
+    for r in results:
+        log(f"  {'通过' if r['passed'] else '不符'}  {r['label']}：期望 {r['expected']}，实际 {r['actual']}")
+    return all(r["passed"] for r in results)
+
+
 # --- baseline check ----------------------------------------------------------
 
 BASELINE = [
@@ -475,7 +581,9 @@ def main() -> None:
     sub.add_parser("fetch-driver")
     p_up = sub.add_parser("up")
     p_up.add_argument("--skip-seed", action="store_true")
+    p_up.add_argument("--engines", action="store_true", help="同时启动更多引擎的演示库（ClickHouse 等）")
     sub.add_parser("seed")
+    sub.add_parser("seed-engines")
     sub.add_parser("check")
     sub.add_parser("verify")
     p_down = sub.add_parser("down")
@@ -487,7 +595,11 @@ def main() -> None:
     elif args.cmd == "fetch-driver":
         fetch_driver()
     elif args.cmd == "up":
-        up(args.skip_seed)
+        up(args.skip_seed, args.engines)
+    elif args.cmd == "seed-engines":
+        env = load_env()
+        seed_engines(env)
+        sys.exit(0 if check_engines(env) else 1)
     elif args.cmd == "seed":
         env = load_env()
         seed(env)

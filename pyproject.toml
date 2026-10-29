@@ -8,6 +8,7 @@ dependencies = [
     "cryptography==50.0.2",
     "sqlglot==30.25.0",
     "psycopg[binary]==3.3.6",
+    "clickhouse-connect==1.11.0",
 ]
 
 [tool.uv]
