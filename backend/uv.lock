@@ -107,6 +107,7 @@ dependencies = [
     { name = "alembic" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-openai" },
@@ -128,7 +129,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -137,6 +137,7 @@ requires-dist = [
     { name = "alembic", specifier = "==1.20.1" },
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "fastapi", specifier = "==0.162.0" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "langchain-anthropic", specifier = "==1.7.6" },
     { name = "langchain-core", specifier = "==1.6.11" },
     { name = "langchain-openai", specifier = "==1.7.1" },
@@ -157,10 +158,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = "==0.28.1" },
-    { name = "pytest", specifier = "==9.2.0" },
-]
+dev = [{ name = "pytest", specifier = "==9.2.0" }]
 
 [[package]]
 name = "certifi"

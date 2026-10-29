@@ -323,6 +323,7 @@ def job_view(session: Session, job: ImportJob) -> dict[str, Any]:
         "datasource_id": job.datasource_id, "default_db": job.default_db, "status": job.status,
         "params": job.params, "stats": job.stats, "model_adapter": job.model_adapter,
         "model_payload": job.model_payload, "content_hash": job.content_hash, "created_at": job.created_at.isoformat(),
+        "content": session.scalar(select(ImportSource.content).where(ImportSource.job_id == job.id)),
         "statements": [{"id": s.id, "seq": s.seq, "lines": [s.line_start, s.line_end], "method": s.method,
                         "statement_type": s.statement_type, "target": s.target_ref, "status": s.status,
                         "reason": s.reason, "placeholders": s.placeholders, "raw_text": s.raw_text,

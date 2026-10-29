@@ -2,6 +2,7 @@
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
   uv run python -m avelis.bootstrap admin          创建首个管理员 admin（口令取自 AVELIS_DEMO_USER_PASSWORD）
+  uv run python -m avelis.bootstrap demo [--reset]  演示走查用：经 API 建好用户、业务域、数据源并采集
   uv run python -m avelis.bootstrap openapi PATH   导出 OpenAPI 文档（前端据此生成类型）
   uv run python -m avelis.bootstrap model          按 .env 的 AVELIS_MODEL_* 登记一个模型提供方并设为问数模型
                                                    （之后在“模型配置”页面维护）
@@ -69,6 +70,13 @@ def main(argv: list[str]) -> None:
     if cmd == "migrate":
         command.upgrade(alembic_config(), "head")
         print("元数据库已迁移到最新版本")
+    elif cmd == "demo":
+        from avelis.demo_setup import setup
+
+        setup(reset="--reset" in argv)
+        if get_settings().env.get("AVELIS_MODEL_API_KEY"):
+            model_from_env()
+            print("已按 .env 登记模型提供方（密钥加密存储，未打印）")
     elif cmd == "openapi":
         import json
         from pathlib import Path

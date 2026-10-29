@@ -85,13 +85,13 @@ class UserCreate(BaseModel):
     roles: list[str] = Field(default_factory=list)
 
 
-@router.get("/users")
+@router.get("/users", response_model=list[UserOut])
 def list_users(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     access.require_role(session, user, "steward", "reviewer")
     return [user_view(session, u) for u in session.scalars(select(User).order_by(User.username))]
 
 
-@router.post("/users", status_code=201)
+@router.post("/users", status_code=201, response_model=UserOut)
 def create_user(body: UserCreate, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
     if session.scalar(select(User.id).where(User.username == body.username)):

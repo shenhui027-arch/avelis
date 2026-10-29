@@ -57,3 +57,9 @@ body { font-family: var(--font-sans); }
   .ms-workspace { grid-template-columns: minmax(0, 1fr); }
   .ms-workspace > .av-pane + .av-pane { border-left: none; border-top: 1px solid var(--line-subtle); }
 }
+
+/* 血缘画布：@xyflow/react 的节点外壳透明，节点外观完全由 av-node 决定 */
+.av-canvas .react-flow__node { padding: 0; border: none; background: transparent; box-shadow: none; }
+.av-canvas .react-flow__node .av-node { position: relative; }
+.av-canvas .react-flow__edge-textbg { rx: 4px; }
+.av-canvas .react-flow__pane { cursor: grab; }
