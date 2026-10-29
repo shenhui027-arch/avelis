@@ -64,7 +64,7 @@ def reset_demo() -> None:
 
 def setup(reset: bool, metrics: bool = False) -> None:
     from avelis.api.app import create_app
-    from avelis.bootstrap import ensure_admin
+    from avelis.bootstrap import AUTOMATION_ADMIN, ensure_admin
 
     if reset:
         reset_demo()
@@ -72,7 +72,7 @@ def setup(reset: bool, metrics: bool = False) -> None:
     env = get_settings().env
     password = env["AVELIS_DEMO_USER_PASSWORD"]
     client = TestClient(create_app())
-    admin = _Api(client, "admin", password)
+    admin = _Api(client, AUTOMATION_ADMIN, password)
 
     existing = {u["username"]: u["id"] for u in admin("GET", "/api/users")}
     for username, (name, roles) in USERS.items():
@@ -135,7 +135,7 @@ def setup(reset: bool, metrics: bool = False) -> None:
         _publish_metrics(client, password, {q: a["id"] for q, a in assets.items()},
                          {code: d["id"] for code, d in domains.items()})
     print(f"演示环境已就绪：{len(existing)} 个用户、2 个业务域、{len(admin('GET', '/api/datasources'))} 个数据源、"
-          f"{len(assets)} 个资产（口令未打印）")
+          f"{len(assets)} 个资产（密码未打印）")
     client.close()
 
 

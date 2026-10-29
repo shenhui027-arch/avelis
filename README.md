@@ -45,7 +45,7 @@ docs/                 计划、核验记录、架构决定
 cd backend
 uv sync
 uv run python -m avelis.bootstrap migrate      # 迁移元数据库（PostgreSQL）
-uv run python -m avelis.bootstrap admin        # 创建管理员 admin（口令见 .env 的 AVELIS_DEMO_USER_PASSWORD）
+uv run python -m avelis.bootstrap admin        # 创建自动化管理员 ops_admin 与本地超级管理员 admin（见下）
 uv run uvicorn avelis.api.app:app --port 8000  # API；接口文档 http://127.0.0.1:8000/api/docs
 uv run python -m avelis.jobs                   # 后台 worker：采集任务、定时轮询
 uv run pytest                                  # 单元测试
@@ -67,7 +67,12 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
 
 ## 前端
 
-演示账号：admin、zhang（交易域负责人）、zhao（商品域负责人）、li（复核者）、wang、sun（分析师），口令都是 `.env` 中的 `AVELIS_DEMO_USER_PASSWORD`。
+账号：
+- `admin`：本地超级管理员，拥有全部角色，密码是 `.env` 中的 `AVELIS_ADMIN_PASSWORD`。只在元数据库位于本机时创建，不经过密码策略校验；`bootstrap admin` 会把它重设为配置值。
+- `ops_admin`：自动化管理员，演示准备与验收脚本用。
+- 演示账号：zhang（交易域负责人）、zhao（商品域负责人）、li（复核者）、wang、sun（分析师）。
+
+`ops_admin` 与演示账号的密码都是 `.env` 中的 `AVELIS_DEMO_USER_PASSWORD`。
 
 ```bash
 cd frontend
