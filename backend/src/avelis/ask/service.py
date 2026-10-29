@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -26,7 +26,7 @@ from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
 from avelis.engines import engine_of, query_connector
-from avelis.engines.base import QUERY
+from avelis.engines.base import LIVE_CHECK, QUERY
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.governance.metrics import (
@@ -36,12 +36,15 @@ from avelis.governance.metrics import (
     validate_spec,
     visible_metrics,
 )
+from avelis.lineage.sql import canonical_hash_of
 from avelis.models import (
     Answer,
     Asset,
     ColumnVersion,
     Datasource,
+    Definition,
     Impact,
+    Job,
     LineageEdge,
     Metric,
     MetricVersion,
@@ -163,8 +166,8 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.status = "denied"
         answer.error_code = "permission"
         unassigned = [a for a in denied if a.domain_id is None]
-        answer.message = "没有权限读取查询涉及的来源：" + "、".join(
-            f"{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied)
+        answer.message = "没有权限读取查询涉及的来源：" + "、".join(sorted(
+            f"{a.catalog_name}.{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied))
         return
 
     time_alias, time_col = version.time_column.split(".", 1) if "." in version.time_column else ("b",
@@ -189,6 +192,15 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         return
 
     connector = query_connector(session, ds)
+    # 元数据过期：轮询采集之间库侧可能已变。执行（含使用缓存）前核对来源对象，与上次采集不一致就停下并触发采集
+    stale = _live_check(session, ds, connector, closure.values(), resolved["dependency"], settings)
+    if stale:
+        answer.status = "blocked"
+        answer.error_code = "metadata_stale"
+        answer.message = ("来源结构在上次采集之后已变化，未执行；已为该数据源排队重新采集，采集完成后再问：" +
+                          "；".join(s["summary"] for s in stale))
+        answer.evidence["live_check"] = stale
+        return
     internal = [(a.db_name, a.name) for a in closure.values()
                 if a.datasource_id == ds.id and a.kind == "table"]
     freshness = {"tables": connector.freshness(internal), **{k: _iso(v) for k, v in
@@ -249,6 +261,81 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     answer.message = _explain(metric, version, intent, answer.result)
     _cache_put(key, {"result": answer.result, "answer_id": answer.id, "executed_at": answer.executed_at.isoformat()},
                settings.answer_cache_seconds, [f"metric_version:{version.id}"])
+
+
+def _upstream_columns(session: Session, dependency: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """口径依赖的列沿已解析的血缘向上展开：资产 → 实际影响结果的列（含过滤、关联、分组等影响条件的来源列）。"""
+    out: dict[str, set[str]] = {}
+    stack = [(d["asset_id"], d["column"]) for d in dependency]
+    while stack:
+        asset_id, column = stack.pop()
+        if column in out.setdefault(asset_id, set()):
+            continue
+        out[asset_id].add(column)
+        asset = session.get(Asset, asset_id)
+        if asset is None or not asset.current_version_id:
+            continue
+        for edge in session.scalars(select(LineageEdge).where(
+                LineageEdge.target_asset_id == asset_id, LineageEdge.status == "active",
+                LineageEdge.origin.in_(("parsed", "manual")),
+                LineageEdge.target_asset_version_id == asset.current_version_id,
+                or_(LineageEdge.target_column == column, LineageEdge.target_column.is_(None)))):
+            if edge.source_asset_id and edge.source_column:
+                stack.append((edge.source_asset_id, edge.source_column))
+    return out
+
+
+def _live_check(session: Session, ds: Datasource, connector, assets, dependency: list[dict[str, Any]],
+                settings) -> list[dict[str, Any]]:
+    """用只读账号读取来源对象当前的列与视图定义，与当前资产版本比较，返回不一致的对象。
+    - 只看口径实际依赖的列（沿血缘展开）：无关列的增删不拦截；视图定义变化总是拦截。
+    - 只核对本数据源内部 Catalog 的表与视图；他库经外部表的变化由那个数据源的采集发现。
+    - 发现不一致时为该数据源排队一次采集（已有待办则不重复）。"""
+    engine = engine_of(ds)
+    if not settings.ask_live_check or not engine.supports(LIVE_CHECK):
+        return []
+    targets = [a for a in assets if a.datasource_id == ds.id and a.catalog_name == engine.sql.default_catalog
+               and a.kind in ("table", "view") and a.current_version_id]
+    if not targets:
+        return []
+    relevant = _upstream_columns(session, dependency)
+    try:
+        live = connector.describe_objects([(a.db_name, a.name) for a in targets])
+    except QueryError:
+        return []  # 核对失败不阻止问数：执行时数据库会如实报错
+    stale = []
+    for a in targets:
+        now = live.get((a.db_name, a.name))
+        if now is None:
+            continue
+        cols = [[c.name, c.data_type] for c in session.scalars(select(ColumnVersion).where(
+            ColumnVersion.asset_version_id == a.current_version_id).order_by(ColumnVersion.ordinal))]
+        problems = []
+        if not now["columns"]:
+            problems.append("对象已不存在")
+        elif now["columns"] != cols:
+            before, after = {c[0]: c[1] for c in cols}, {c[0]: c[1] for c in now["columns"]}
+            used = relevant.get(a.id) or set(before)
+            problems += [f"列 {n} 已删除" for n in before if n in used and n not in after]
+            problems += [f"列 {n} 类型 {before[n]} → {after[n]}" for n in before
+                         if n in used and n in after and before[n] != after[n]]
+        if a.kind == "view" and now["columns"]:
+            stored = session.scalar(select(Definition.canonical_hash).where(
+                Definition.asset_version_id == a.current_version_id))
+            current = canonical_hash_of(now["definition"], engine.sql)[1] if now["definition"] else None
+            if current != stored:
+                problems.append("视图定义已变化")
+        if problems:
+            stale.append({"asset_id": a.id, "qualified": f"{a.catalog_name}.{a.db_name}.{a.name}",
+                          "problems": problems, "summary": f"{a.db_name}.{a.name}（{'、'.join(problems)}）"})
+    if stale:
+        from avelis import jobs  # 避免循环导入
+
+        pending = session.scalar(select(Job.id).where(Job.kind == "collect", Job.status.in_(("queued", "running")),
+                                                      Job.payload["datasource_id"].as_string() == ds.id).limit(1))
+        if pending is None:
+            jobs.enqueue("collect", {"datasource_id": ds.id, "trigger": "live_check"}, None)
+    return stale
 
 
 def _cache_get(key: str):

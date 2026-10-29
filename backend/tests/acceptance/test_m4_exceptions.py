@@ -360,6 +360,42 @@ def test_06_same_name_objects(stack, admin: Api):
     assert sources == {"default_catalog.ads.orders"}
 
 
+# --- 元数据过期：库侧已变、尚未采集。执行前核对来源结构，不一致就不执行、不用缓存，并排队采集 ------------
+
+def pending_live_check_jobs() -> list[str]:
+    from avelis.db import session_scope
+    from avelis.models import Job
+
+    with session_scope() as s:
+        return list(s.scalars(select(Job.id).where(Job.kind == "collect", Job.status == "queued",
+                                                   Job.payload["trigger"].as_string() == "live_check",
+                                                   Job.payload["datasource_id"].as_string() == ctx["sr"])))
+
+
+V1_SQL = "SELECT order_date, region, SUM(paid_amount) AS sales_amount FROM shop.orders GROUP BY order_date, region"
+V2_SQL = ("SELECT order_date, region, SUM(paid_amount - refund_amount) AS sales_amount "
+          "FROM shop.orders GROUP BY order_date, region")
+
+
+def test_06b_definition_changed_before_collection(stack, admin: Api):
+    wang = ctx["apis"]["wang"]
+    # 改为净额但不采集：同一问题之前有缓存（300），也不能返回；不按新定义执行（那会把 270 当作“实付销售额”）
+    sr(stack, f"ALTER VIEW shop.daily_sales AS {V2_SQL}")
+    stale = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额"})
+    assert stale["status"] == "blocked" and stale["error_code"] == "metadata_stale", stale
+    assert "视图定义已变化" in stale["message"] and stale["executed_at"] is None and stale["result"] == {}
+    assert not stale["cache_hit"] and len(pending_live_check_jobs()) == 1
+    # 改回原定义：规范化指纹一致，缓存重新可用
+    sr(stack, f"ALTER VIEW shop.daily_sales AS {V1_SQL}")
+    again = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额"})
+    assert value_of(again) == Decimal("300.00") and again["cache_hit"] is True
+    # 同步元数据：StarRocks 的 ALTER VIEW 会清掉视图注释（产生一个只有注释变化的新版本，口径不受影响）；
+    # 再问一次，让后续用例里“之前缓存过的问题”按当前版本缓存
+    collect(admin, ctx["sr"])
+    assert admin.get(f"/api/metric-versions/{ctx['paid_v1']}")["status"] == "published"
+    assert value_of(wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额"})) == Decimal("300.00")
+
+
 # --- 故事 7：删除被依赖的列 ---------------------------------------------------------------------
 
 def _wait_column_gone(stack, table: str, column: str) -> None:
@@ -371,17 +407,29 @@ def _wait_column_gone(stack, table: str, column: str) -> None:
     raise AssertionError(f"{table}.{column} 未在 60 秒内删除")
 
 
-def test_07_drop_depended_column(stack, admin: Api):
+def test_07_drop_depended_column(stack, admin: Api, monkeypatch):
+    import avelis.ask.service as service
+    from avelis.config import get_settings
+
     wang = ctx["apis"]["wang"]
     sr(stack, "ALTER TABLE shop.orders DROP COLUMN paid_amount")
     _wait_column_gone(stack, "shop.orders", "paid_amount")
 
-    # 元数据尚未刷新：Avelis 还不知道。执行时数据库如实报错，不改写成成功或空结果
-    stale = wang.post("/api/ask", {"question": "2026-09-16 华东区实付销售额"})
-    assert stale["status"] == "error" and stale["error_code"] == "db_invalid_object", stale
-    assert "1064" in stale["message"] and stale["result"] == {}
-    # 不依赖被删列的指标照常回答
-    assert value_of(wang.post("/api/ask", {"question": "2026-09-16 华东区订单数"})) >= 0
+    # 尚未采集：执行前核对发现依赖的列已删除。新问题、之前缓存过的问题都不执行，采集只排队一次
+    for question in ("2026-09-16 华东区实付销售额", f"{DAY} 华东区实付销售额"):
+        stale = wang.post("/api/ask", {"question": question})
+        assert stale["status"] == "blocked" and stale["error_code"] == "metadata_stale", stale
+        assert "shop.orders（列 paid_amount 已删除）" in stale["message"]
+        assert stale["executed_at"] is None and stale["result"] == {} and not stale["cache_hit"]
+    assert len(pending_live_check_jobs()) == 1
+    # 订单数不依赖被删的列：照常回答（无关列的增删不拦截）
+    assert value_of(wang.post("/api/ask", {"question": f"{DAY} 华东区订单数"})) == ctx["cnt_east"]
+    # 关闭核对时：数据库如实报错 1064，不改写成成功或空结果
+    monkeypatch.setattr(service, "get_settings", lambda: replace(get_settings(), ask_live_check=False))
+    raw = wang.post("/api/ask", {"question": "2026-09-17 华东区实付销售额"})
+    assert raw["status"] == "error" and raw["error_code"] == "db_invalid_object", raw
+    assert "1064" in raw["message"] and raw["result"] == {}
+    monkeypatch.undo()
 
     collect(admin, ctx["sr"])
     cs = latest_change_set(admin)

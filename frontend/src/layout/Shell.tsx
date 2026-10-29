@@ -43,9 +43,9 @@ export function Shell() {
   const me = useMe();
   const settings = useAppSettings();
   const sources = useDatasources();
-  if (!token.get()) return <Navigate to="/login" replace />;
+  if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   const crumbs = CRUMBS.find(([re]) => re.test(location.pathname))?.[1] ?? [];
-  const primary = sources.data?.find((d) => d.kind === "starrocks") ?? sources.data?.[0];
+  const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   return (
     <div className="av-root av-app">
       <nav className="av-rail" aria-label="主导航">

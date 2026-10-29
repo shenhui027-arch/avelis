@@ -57,7 +57,7 @@ function NewImport() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useMessage();
   const fileInput = useRef<HTMLInputElement>(null);
-  const ds = datasource || sources.data?.find((d) => d.kind === "starrocks")?.id || "";
+  const ds = datasource || sources.data?.find((d) => d.engine.capabilities.includes("view_lineage"))?.id || "";
 
   async function submit() {
     setBusy(true);

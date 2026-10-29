@@ -3,6 +3,7 @@
 
   uv run python -m avelis.bootstrap demo           在现有元数据上补齐缺少的对象
   uv run python -m avelis.bootstrap demo --reset   先把演示 StarRocks 重置到基线、清空元数据库与 Redis 键
+  加 --metrics：再发布异常场景走查（M4）所需的三个指标与关联路径——实付销售额、订单数、类目销售额（跨域）
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ def reset_demo() -> None:
         cache.client().delete(*keys)
 
 
-def setup(reset: bool) -> None:
+def setup(reset: bool, metrics: bool = False) -> None:
     from avelis.api.app import create_app
     from avelis.bootstrap import ensure_admin
 
@@ -116,5 +117,61 @@ def setup(reset: bool) -> None:
     for qualified in PRODUCT_ASSETS:
         if qualified in assets and assets[qualified]["domain_id"] != domains["product"]["id"]:
             zhao("PATCH", f"/api/assets/{assets[qualified]['id']}", json={"domain_id": domains["product"]["id"]})
+    if metrics:
+        _publish_metrics(client, password, {q: a["id"] for q, a in assets.items()},
+                         {code: d["id"] for code, d in domains.items()})
     client.close()
     print(f"演示环境已就绪：{len(existing)} 个用户、2 个业务域、2 个数据源、{len(assets)} 个资产（口令未打印）")
+
+
+def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], domains: dict[str, str]) -> None:
+    """经 API 由负责人创建、复核者批准；关联路径由各业务域负责人批准。已存在的指标跳过。"""
+    zhang, zhao, li = (_Api(client, u, password) for u in ("zhang", "zhao", "li"))
+    existing = {m["code"] for m in zhang("GET", "/api/metrics")}
+
+    def publish(code: str, name: str, spec: dict) -> None:
+        if code in existing:
+            return
+        metric = zhang("POST", "/api/metrics", json={"code": code, "name": name, "domain_id": domains["trade"]})
+        version = zhang("POST", f"/api/metrics/{metric['id']}/versions", json=spec)
+        zhang("POST", f"/api/metric-versions/{version['id']}/submit")
+        li("POST", f"/api/metric-versions/{version['id']}/approve", json={"note": "演示走查准备"})
+
+    region = [{"name": "region", "column": "region", "label": "区域"}]
+    publish("paid_sales", "实付销售额", {
+        "description": "订单实付金额按下单日期、区域汇总（不扣退款）", "expression": "SUM(sales_amount)",
+        "base_asset_id": assets["default_catalog.shop.daily_sales"], "time_column": "order_date",
+        "dimensions": region, "grain": ["order_date", "region"]})
+    publish("orders_cnt", "订单数", {
+        "description": "订单笔数", "base_asset_id": assets["default_catalog.shop.orders"],
+        "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date", "dimensions": region,
+        "grain": ["order_date", "region"]})
+    if "category_sales" in existing:
+        return
+    paths = {p["code"]: p for p in zhang("GET", "/api/join-paths")}
+
+    def path(api: _Api, code: str, name: str, left: str, lcols: list[str], right: str, rcols: list[str]) -> dict:
+        return paths.get(code) or api("POST", "/api/join-paths", json={
+            "code": code, "name": name, "left_asset_id": assets[left], "left_columns": lcols,
+            "right_asset_id": assets[right], "right_columns": rcols})
+
+    i_o = path(zhang, "items_orders", "订单明细 → 订单", "default_catalog.shop.order_items", ["order_id"],
+               "default_catalog.shop.orders", ["order_id"])
+    i_p = path(zhang, "items_product", "订单明细 → 商品（MySQL）", "default_catalog.shop.order_items", ["product_id"],
+               "shop_mysql.shop_dim.dim_product", ["product_id"])
+    p_c = path(zhao, "product_category", "商品 → 类目", "shop_mysql.shop_dim.dim_product", ["category_id"],
+               "shop_mysql.shop_dim.dim_category", ["category_id"])
+    for p in (i_o, i_p):
+        zhang("POST", f"/api/join-paths/{p['id']}/decisions", json={"domain_id": domains["trade"],
+                                                                     "decision": "approved"})
+    for p in (i_p, p_c):
+        zhao("POST", f"/api/join-paths/{p['id']}/decisions", json={"domain_id": domains["product"],
+                                                                    "decision": "approved"})
+    publish("category_sales", "类目销售额", {
+        "description": "订单明细实付金额按类目汇总", "base_asset_id": assets["default_catalog.shop.order_items"],
+        "expression": "SUM(item_amount)", "time_column": "o.order_date",
+        "dimensions": [{"name": "category", "column": "c.category_name", "label": "类目"},
+                       {"name": "region", "column": "o.region", "label": "区域"}],
+        "joins": [{"alias": "o", "join_path_id": i_o["id"]}, {"alias": "p", "join_path_id": i_p["id"]},
+                  {"alias": "c", "from": "p", "join_path_id": p_c["id"]}],
+        "grain": ["order_date", "category"], "dedupe_basis": "明细 → 订单、商品、类目均为 N:1"})
