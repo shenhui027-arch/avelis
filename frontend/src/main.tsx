@@ -3,7 +3,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
-import { Shell } from "./layout/Shell";
+import { RequireLogin, Shell } from "./layout/Shell";
+import { ChangePassword } from "./pages/account/ChangePassword";
 import { AskPage } from "./pages/ask/AskPage";
 import { CatalogPage } from "./pages/catalog/CatalogPage";
 import { ChangesPage } from "./pages/changes/ChangesPage";
@@ -24,6 +25,7 @@ const queryClient = new QueryClient({
 
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
+  { path: "/account/password", element: <RequireLogin><ChangePassword /></RequireLogin> },
   {
     path: "/",
     element: <Shell />,

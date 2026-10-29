@@ -39,6 +39,8 @@ class Settings:
     redis_url: str
     secret: str
     access_token_minutes: int = 30
+    login_max_failures: int = 5
+    login_lock_minutes: int = 15
     business_timezone: str = "Asia/Shanghai"
     allow_self_review: bool = False
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
@@ -83,6 +85,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         allow_self_review=env.get("AVELIS_ALLOW_SELF_REVIEW", "false").lower() == "true",
         cors_origins=tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins,
         unassigned_asset_policy=env.get("AVELIS_UNASSIGNED_ASSET_POLICY", "deny").strip().lower(),
+        login_max_failures=int(env.get("AVELIS_LOGIN_MAX_FAILURES", "5")),
+        login_lock_minutes=int(env.get("AVELIS_LOGIN_LOCK_MINUTES", "15")),
         ask_live_check=env.get("AVELIS_ASK_LIVE_CHECK", "true").strip().lower() not in ("0", "false", "no"),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),

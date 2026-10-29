@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { api, logout, token, unwrap } from "../api/client";
 import { useAppSettings, useDatasources } from "../api/hooks";
 import { Icon } from "../components/Icon";
+import { LogoMark } from "../components/Logo";
 import { Plat } from "../components/ui";
 
 const NAV = [
@@ -37,19 +39,74 @@ export function useRoles(): Set<string> {
   return new Set(useMe().data?.roles ?? []);
 }
 
+/** 未登录时去登录页，并记住要访问的页面。 */
+export function RequireLogin({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  return <>{children}</>;
+}
+
+const ROLE_LABEL: Record<string, string> = { admin: "管理员", steward: "维护者", reviewer: "复核者", analyst: "查询者" };
+
+function UserMenu() {
+  const me = useMe();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); };
+  }, [open]);
+  if (!me.data) return null;
+  const u = me.data;
+  return (
+    <div className="av-usermenu" ref={ref}>
+      <button type="button" className="av-usermenu__trigger" aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen(!open)}>
+        <span className="av-avatar">{u.display_name.slice(0, 1)}</span>
+        <span className="av-usermenu__name">{u.display_name}</span>
+        <Icon name="chevron" small />
+      </button>
+      {open ? (
+        <div className="av-menu" role="menu">
+          <div className="av-menu__head">
+            <b>{u.display_name}</b>
+            <span className="av-mono">{u.username}</span>
+            <span>{u.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}</span>
+          </div>
+          <button type="button" role="menuitem" className="av-menu__item"
+            onClick={() => { setOpen(false); navigate("/account/password"); }}>
+            <Icon name="lock" />修改口令
+          </button>
+          <button type="button" role="menuitem" className="av-menu__item"
+            onClick={async () => { await logout(); navigate("/login", { replace: true }); }}>
+            <Icon name="logout" />退出登录
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Shell() {
   const location = useLocation();
-  const navigate = useNavigate();
   const me = useMe();
   const settings = useAppSettings();
   const sources = useDatasources();
   if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  // 首次登录或口令被重置：先设置新口令
+  if (me.data?.must_change_password) return <Navigate to="/account/password" replace state={{ from: location.pathname }} />;
   const crumbs = CRUMBS.find(([re]) => re.test(location.pathname))?.[1] ?? [];
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   return (
     <div className="av-root av-app">
       <nav className="av-rail" aria-label="主导航">
-        <div className="av-rail__logo">A</div>
+        <Link to="/" className="av-rail__logo" aria-label="Avelis 工作台"><LogoMark size={20} /></Link>
         {NAV.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end}>
             <Icon name={n.icon} />
@@ -76,16 +133,7 @@ export function Shell() {
           </Link>
         ) : null}
         <span className="av-tag" title="业务时区">{settings.data?.business_timezone ?? ""}</span>
-        {me.data ? (
-          <span className="av-crumb" title={me.data.roles.join("、")}>
-            <span className="av-avatar">{me.data.display_name.slice(0, 1)}</span>
-            {me.data.display_name}
-          </span>
-        ) : null}
-        <button className="av-btn av-btn--ghost av-btn--sm av-btn--icon" type="button" title="退出登录"
-          aria-label="退出登录" onClick={async () => { await logout(); navigate("/login"); }}>
-          <Icon name="logout" />
-        </button>
+        <UserMenu />
       </header>
       <main className="av-main">
         <Outlet />

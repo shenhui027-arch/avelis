@@ -31,6 +31,7 @@
      "认证与用户"
     ],
     "summary": "Login",
+    "description": "失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。\n锁定期间即使口令正确也拒绝，且不透露账号是否存在。",
     "operationId": "login_api_auth_token_post",
     "requestBody": {
      "content": {
@@ -64,6 +65,53 @@
       }
      }
     }
+   }
+  },
+  "/api/me/password": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Change Password",
+    "description": "修改自己的口令：其他会话全部失效，返回当前会话的新令牌。",
+    "operationId": "change_password_api_me_password_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordChange"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
    }
   },
   "/api/auth/logout": {
@@ -192,6 +240,122 @@
       "OAuth2PasswordBearer": []
      }
     ]
+   }
+  },
+  "/api/users/{user_id}": {
+   "patch": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Update User",
+    "description": "管理员修改显示名、角色、启用状态。不能停用自己，也不能去掉自己的管理员角色（避免没有管理员）。",
+    "operationId": "update_user_api_users__user_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{user_id}/password": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Reset Password",
+    "description": "管理员重置口令：该用户的会话全部失效，下次登录必须修改口令。",
+    "operationId": "reset_password_api_users__user_id__password_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordReset"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
    }
   },
   "/api/settings": {
@@ -6646,6 +6810,43 @@
     ],
     "title": "ParseOut"
    },
+   "PasswordChange": {
+    "properties": {
+     "current_password": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Current Password"
+     },
+     "new_password": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 8,
+      "title": "New Password"
+     }
+    },
+    "type": "object",
+    "required": [
+     "current_password",
+     "new_password"
+    ],
+    "title": "PasswordChange"
+   },
+   "PasswordReset": {
+    "properties": {
+     "new_password": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 8,
+      "title": "New Password"
+     }
+    },
+    "type": "object",
+    "required": [
+     "new_password"
+    ],
+    "title": "PasswordReset"
+   },
    "PolicyOut": {
     "properties": {
      "send_results": {
@@ -7629,6 +7830,11 @@
      "expires_at": {
       "type": "string",
       "title": "Expires At"
+     },
+     "must_change_password": {
+      "type": "boolean",
+      "title": "Must Change Password",
+      "default": false
      }
     },
     "type": "object",
@@ -7718,6 +7924,12 @@
       },
       "type": "array",
       "title": "Roles"
+     },
+     "must_change_password": {
+      "type": "boolean",
+      "title": "Must Change Password",
+      "description": "首次登录必须修改口令（默认是）",
+      "default": true
      }
     },
     "type": "object",
@@ -7759,6 +7971,33 @@
       },
       "type": "array",
       "title": "Domains"
+     },
+     "must_change_password": {
+      "type": "boolean",
+      "title": "Must Change Password",
+      "default": false
+     },
+     "last_login_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Login At"
+     },
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
      }
     },
     "type": "object",
@@ -7771,6 +8010,50 @@
      "domains"
     ],
     "title": "UserOut"
+   },
+   "UserUpdate": {
+    "properties": {
+     "display_name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Display Name"
+     },
+     "is_active": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is Active"
+     },
+     "roles": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Roles"
+     }
+    },
+    "type": "object",
+    "title": "UserUpdate"
    },
    "ValidationError": {
     "properties": {

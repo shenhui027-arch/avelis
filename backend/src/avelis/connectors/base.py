@@ -80,7 +80,7 @@ class QueryError(Exception):
     """数据库执行错误。code 为归一化后的类别（timeout / permission / invalid_object / other），
     message 保留数据库原始报错，不改写成看似成功的结果。"""
 
-    def __init__(self, code: str, db_errno: int | None, message: str):
+    def __init__(self, code: str, db_errno: int | str | None, message: str):
         super().__init__(message)
         self.code = code
         self.db_errno = db_errno

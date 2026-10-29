@@ -8,7 +8,7 @@ OpenLineage（数据集 = 命名空间 + 层级名）的做法：采集、解析
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from avelis.connectors.base import Connector, QueryConnector
@@ -28,6 +28,16 @@ QuerierFactory = Callable[[str, int, str, str, dict[str, Any]], QueryConnector]
 
 
 @dataclass(frozen=True)
+class OptionField:
+    """数据源连接配置中的一项（前端按它渲染表单，不按数据库类型写死）。"""
+    key: str
+    label: str
+    type: str = "list"  # list：逗号分隔的名称列表；text：单个名称
+    required: bool = False
+    hint: str = ""
+
+
+@dataclass(frozen=True)
 class Engine:
     kind: str
     label: str
@@ -42,15 +52,26 @@ class Engine:
     is_test_adapter: bool = False
     needs_credentials: bool = True
     note: str = ""
+    options: tuple[OptionField, ...] = field(default_factory=tuple)
+    # catalog 段取自数据源配置中的哪一项（如 PostgreSQL 的库名）；为空时用方言的固定 default_catalog
+    catalog_option: str | None = None
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
+
+    def dialect_for(self, options: dict[str, Any] | None) -> SqlDialect:
+        """某个数据源的解析方言：catalog 段因数据源而异的引擎（库名作 catalog）在这里补齐。"""
+        if self.catalog_option and (options or {}).get(self.catalog_option):
+            return replace(self.sql, default_catalog=str(options[self.catalog_option]))
+        return self.sql
 
     def describe(self) -> dict[str, Any]:
         return {"kind": self.kind, "label": self.label, "dialect": self.sql.name,
                 "default_catalog": self.sql.default_catalog, "name_levels": list(self.name_levels),
                 "capabilities": sorted(self.capabilities), "default_port": self.default_port,
-                "is_test_adapter": self.is_test_adapter, "note": self.note}
+                "is_test_adapter": self.is_test_adapter, "note": self.note,
+                "options": [{"key": o.key, "label": o.label, "type": o.type, "required": o.required, "hint": o.hint}
+                            for o in self.options]}
 
 
 class UnsupportedEngine(Exception):

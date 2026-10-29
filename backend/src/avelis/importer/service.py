@@ -21,7 +21,7 @@ from avelis.ask.llm import DEMO_ADAPTER
 from avelis.collect.service import build_schema
 from avelis.connectors.base import sha256_text
 from avelis.db import utcnow
-from avelis.engines import engine_of
+from avelis.engines import dialect_of
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.importer.candidates import Candidate, demo_candidates, model_candidates, redact
@@ -57,7 +57,7 @@ def create_import(session: Session, actor: User, *, datasource_id: str, filename
         return existing, False
     language = detect_language(filename, source_type)
     job = ImportJob(datasource_id=datasource_id, source_type=source_type or language, filename=filename,
-                    language=language, dialect=engine_of(ds).sql.name, default_db=default_db, content_hash=digest,
+                    language=language, dialect=dialect_of(ds).name, default_db=default_db, content_hash=digest,
                     status="processing", params=dict(params), created_by=actor.id)
     session.add(job)
     session.flush()
@@ -91,7 +91,7 @@ def _qualify(ref: str, default_db: str | None, catalog: str) -> str | None:
 def process(session: Session, actor: User, job: ImportJob, content: str, *, only: set[int] | None = None) -> None:
     """解析导入内容。only 为需要（重新）写入的语句序号；其余语句只重放以重建脚本内的表结构。"""
     schema = build_schema(session, job.datasource_id)
-    dialect = engine_of(session.get(Datasource, job.datasource_id)).sql
+    dialect = dialect_of(session.get(Datasource, job.datasource_id))
     default_db = job.default_db
     segments, notes = _segments(job.language, content)
     existing = {s.seq: s for s in session.scalars(select(ExtractedStatement).where(

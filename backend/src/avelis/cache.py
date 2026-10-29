@@ -54,6 +54,27 @@ def is_revoked(jti: str) -> bool:
     return client().exists(f"avelis:revoked:{jti}") == 1
 
 
+def login_locked_seconds(key: str, max_failures: int) -> int:
+    """连续失败达到上限时返回剩余锁定秒数，否则 0。"""
+    name = f"avelis:login-fail:{key}"
+    count = client().get(name)
+    if count is not None and int(count) >= max_failures:
+        return max(int(client().ttl(name)), 1)
+    return 0
+
+
+def record_login_failure(key: str, window_seconds: int) -> int:
+    name = f"avelis:login-fail:{key}"
+    count = client().incr(name)
+    if count == 1:
+        client().expire(name, window_seconds)
+    return int(count)
+
+
+def clear_login_failures(key: str) -> None:
+    client().delete(f"avelis:login-fail:{key}")
+
+
 def answer_cache_key(parts: dict[str, Any]) -> str:
     return "avelis:answer:" + sha256_json(parts)
 

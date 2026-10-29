@@ -25,7 +25,7 @@ from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
-from avelis.engines import engine_of, query_connector
+from avelis.engines import dialect_of, engine_of, query_connector
 from avelis.engines.base import LIVE_CHECK, QUERY
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
@@ -294,7 +294,8 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
     engine = engine_of(ds)
     if not settings.ask_live_check or not engine.supports(LIVE_CHECK):
         return []
-    targets = [a for a in assets if a.datasource_id == ds.id and a.catalog_name == engine.sql.default_catalog
+    dialect = dialect_of(ds)
+    targets = [a for a in assets if a.datasource_id == ds.id and a.catalog_name == dialect.default_catalog
                and a.kind in ("table", "view") and a.current_version_id]
     if not targets:
         return []
@@ -322,7 +323,7 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
         if a.kind == "view" and now["columns"]:
             stored = session.scalar(select(Definition.canonical_hash).where(
                 Definition.asset_version_id == a.current_version_id))
-            current = canonical_hash_of(now["definition"], engine.sql)[1] if now["definition"] else None
+            current = canonical_hash_of(now["definition"], dialect)[1] if now["definition"] else None
             if current != stored:
                 problems.append("视图定义已变化")
         if problems:

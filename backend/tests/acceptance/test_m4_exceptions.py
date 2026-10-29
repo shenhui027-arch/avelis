@@ -330,7 +330,7 @@ def test_06_same_name_objects(stack, admin: Api):
     assert current["default_catalog.shop.m4_renamed"] == original
     assert "default_catalog.shop.m4_rename" not in current
     renamed = next(e for e in latest_change_set(admin)["events"] if e["kind"] == "renamed")
-    assert renamed["asset_id"] == original and "TABLE_ID" in renamed["after"]["basis"]
+    assert renamed["asset_id"] == original and "物理 ID" in renamed["after"]["basis"]
 
     # 声明粒度后删除并同名重建：新的 TABLE_ID → 新资产；旧资产标记删除；人工声明不继承
     grain = zhang.post(f"/api/assets/{original}/grains", {"columns": ["id"], "reason": "M4"}, expect=201)
