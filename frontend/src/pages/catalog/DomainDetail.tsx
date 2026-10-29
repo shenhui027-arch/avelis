@@ -1,13 +1,16 @@
-// 业务域：负责人、成员（负责人维护）、域内资产与指标。
-import { useState } from "react";
+﻿// 业务域：固定对象标题，分别浏览指标、资产和成员。
+import { useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useAssets, useDomains, useMetrics, useUsers } from "../../api/hooks";
-import { Banner, Drawer, Icon, PaneHeader, Select, Status, useMessage } from "../../components/ui";
+import { Banner, Drawer, Empty, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 
 const ROLE: Record<string, string> = { owner: "负责人", maintainer: "维护者", viewer: "可查询" };
+const TABS = [{ value: "metrics", label: "指标" }, { value: "assets", label: "资产" }, { value: "members", label: "成员" }] as const;
+type DomainTab = typeof TABS[number]["value"];
+type MemberEditor = { user_id: string; role: string; name?: string };
 
 export function DomainDetail({ domainId }: { domainId: string }) {
   const domains = useDomains();
@@ -16,55 +19,112 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   const metrics = useMetrics();
   const me = useMe();
   const d = domains.data?.find((x) => x.id === domainId);
-  const [member, setMember] = useState({ user_id: "", role: "viewer" });
+  const [tab, setTab] = useState<DomainTab>("metrics");
+  const [searches, setSearches] = useState({ metrics: "", assets: "", members: "" });
+  const [member, setMember] = useState<MemberEditor | null>(null);
   const [message, setMessage] = useMessage();
-  const add = useAction(() => unwrap(api.PUT("/api/domains/{domain_id}/members", {
-    params: { path: { domain_id: domainId } }, body: member })), ["domains", "users"]);
-  if (!d) return null;
-  const owner = users.data?.find((u) => u.id === d.owner_id);
-  const isOwner = me.data?.id === d.owner_id || me.data?.roles.includes("admin");
-  const domainAssets = (assets.data ?? []).filter((a) => a.domain_id === d.id);
-  const domainMetrics = (metrics.data ?? []).filter((m) => m.domain_id === d.id);
+  const [memberMessage, setMemberMessage] = useMessage();
+  const saveMember = useAction((body: { user_id: string; role: string }) => unwrap(api.PUT("/api/domains/{domain_id}/members", {
+    params: { path: { domain_id: domainId } }, body,
+  })), ["domains", "users"]);
+  const isOwner = !!d && (me.data?.id === d.owner_id || !!me.data?.roles.includes("admin"));
+  const domainAssets = (assets.data ?? []).filter((a) => a.domain_id === domainId);
+  const domainMetrics = (metrics.data ?? []).filter((m) => m.domain_id === domainId);
+  const query = searches[tab].trim().toLocaleLowerCase();
+  const filteredAssets = domainAssets.filter((a) => `${a.qualified} ${a.datasource.name}`.toLocaleLowerCase().includes(query));
+  const filteredMetrics = domainMetrics.filter((m) => `${m.name} ${m.code} ${m.owner.display_name}`.toLocaleLowerCase().includes(query));
+  const filteredMembers = (d?.members ?? []).filter((m) => `${m.display_name} ${m.username} ${ROLE[m.role] ?? m.role}`.toLocaleLowerCase().includes(query));
+  const counts = { metrics: metrics.isSuccess ? domainMetrics.length : "—", assets: assets.isSuccess ? domainAssets.length : "—", members: d?.members.length ?? "—" };
+  const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearches({ ...searches, [tab]: "" })}>清除搜索</button>;
+  const openMember = (value: MemberEditor) => { setMemberMessage(null); setMember(value); };
+  const closeMember = () => { if (!saveMember.isPending) setMember(null); };
+  const changeTab = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next = index;
+    if (event.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (event.key === "ArrowLeft") next = (index + TABS.length - 1) % TABS.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = TABS.length - 1;
+    else return;
+    event.preventDefault();
+    setTab(TABS[next].value);
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+  };
   return (
-    <div className="av-pane__body">
-      <div className="av-page">
-        <div className="av-pagehd"><div className="av-pagehd__title"><h1>{d.name}</h1><span className="av-tag">{d.code}</span></div>
-          <div className="av-actions"><Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?domains=${d.id}`}><Icon name="lineage" small />域血缘</Link></div></div>
-        <dl className="av-kv"><dt>负责人</dt><dd>{owner?.display_name ?? "—"}</dd><dt>说明</dt><dd>{d.description ?? "—"}</dd></dl>
-        <Banner message={message} />
-        <section className="av-panel">
-          <PaneHeader title="成员" count={d.members.length} />
-          <table className="av-table"><tbody>{d.members.map((m) => (
-            <tr key={m.user_id}><td style={{ paddingLeft: 16 }}><span className="av-crumb"><span className="av-avatar">{m.display_name.slice(0, 1)}</span><b>{m.display_name}</b></span></td>
-              <td className="av-mono">{m.username}</td><td><span className="av-tag">{ROLE[m.role] ?? m.role}</span></td></tr>))}</tbody></table>
-          {isOwner ? (
-            <div className="av-panel__bd av-formrow" style={{ borderTop: "1px solid var(--line-subtle)" }}>
-              <Select value={member.user_id} label="用户" onChange={(v) => setMember({ ...member, user_id: v })}>
-                <option value="">选择用户</option>
-                {(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.display_name}（{u.username}）</option>)}
-              </Select>
-              <Select value={member.role} label="角色" style={{ width: 140 }} onChange={(v) => setMember({ ...member, role: v })}>
-                <option value="viewer">可查询</option><option value="maintainer">维护者</option>
-              </Select>
-              <button type="button" className="av-btn av-btn--secondary" disabled={!member.user_id}
-                onClick={() => add.mutate(undefined, { onSuccess: () => setMessage({ ok: true, text: "已更新成员" }), onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>
-                <Icon name="plus" />添加</button>
+    <QueryState query={domains} isEmpty={(items) => !items.some((item) => item.id === domainId)} emptyText="业务域不存在"
+      emptyAction={<Link className="av-btn av-btn--secondary" to="/catalog/domains">返回业务域</Link>}>
+      {() => d ? (
+        <div className="av-domain-detail">
+          <header className="av-domain-detail__header">
+            <div className="av-pagehd">
+              <div className="av-pagehd__title"><h1>{d.name}</h1><span className="av-tag av-mono">{d.code}</span></div>
+              <div className="av-actions"><Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?domains=${d.id}`}><Icon name="lineage" small />域血缘</Link></div>
             </div>
-          ) : null}
-        </section>
-        <section className="av-panel">
-          <PaneHeader title="指标" count={domainMetrics.length} />
-          <table className="av-table"><tbody>{domainMetrics.map((m) => (
-            <tr key={m.id}><td style={{ paddingLeft: 16 }}><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link></td>
-              <td>{m.versions[0] ? <Status value={m.versions[0].status} /> : null}</td><td>{m.owner.display_name}</td></tr>))}</tbody></table>
-        </section>
-        <section className="av-panel">
-          <PaneHeader title="资产" count={domainAssets.length} />
-          <table className="av-table"><tbody>{domainAssets.map((a) => (
-            <tr key={a.id}><td className="av-mono" style={{ paddingLeft: 16 }}><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{a.datasource.name}</td></tr>))}</tbody></table>
-        </section>
-      </div>
-    </div>
+            <dl className="av-domain-detail__summary">
+              <div><dt>负责人</dt><dd>{d.members.find((m) => m.user_id === d.owner_id)?.display_name ?? users.data?.find((u) => u.id === d.owner_id)?.display_name ?? (users.isError ? "加载失败" : users.isPending ? "加载中…" : "未提供")}</dd></div>
+              {TABS.map((item) => <div key={item.value}><dt>{item.label}</dt><dd>{counts[item.value]}</dd></div>)}
+            </dl>
+            {d.description ? <p className="av-domain-detail__description">{d.description}</p> : null}
+            <Banner message={message} />
+            <div className="av-tabs" role="tablist" aria-label="业务域内容">
+              {TABS.map((item, index) => <button key={item.value} type="button" className="av-tab" role="tab"
+                id={`domain-${domainId}-tab-${item.value}`} aria-controls={`domain-${domainId}-panel`} aria-selected={tab === item.value}
+                tabIndex={tab === item.value ? 0 : -1} onClick={() => setTab(item.value)} onKeyDown={(event) => changeTab(event, index)}>
+                {item.label}<span className="av-count">{counts[item.value]}</span>
+              </button>)}
+            </div>
+          </header>
+          <div className="av-domain-detail__body" role="tabpanel" id={`domain-${domainId}-panel`} aria-labelledby={`domain-${domainId}-tab-${tab}`} tabIndex={0}>
+            <div className="av-domain-detail__toolbar">
+              <label className="av-domain-detail__search"><span className="av-label">搜索{TABS.find((item) => item.value === tab)?.label}</span>
+                <input type="search" className="av-input" value={searches[tab]} onChange={(event) => setSearches({ ...searches, [tab]: event.target.value })} />
+              </label>
+              {tab === "members" && isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}><Icon name="plus" />添加成员</button> : null}
+            </div>
+            {tab === "metrics" ? <QueryState query={metrics} isEmpty={() => filteredMetrics.length === 0} emptyText={query ? "没有匹配的指标" : "此业务域暂无指标"} emptyAction={query ? clearSearch : undefined} compact>
+              {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>指标</th><th>状态</th><th>负责人</th></tr></thead><tbody>
+                {filteredMetrics.map((m) => <tr key={m.id}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link><span className="av-domain-detail__identifier av-mono">{m.code}</span></td><td>{m.versions[0] ? <Status value={m.versions[0].status} /> : "暂无版本"}</td><td>{m.owner.display_name}</td></tr>)}
+              </tbody></table></div>}
+            </QueryState> : null}
+            {tab === "assets" ? <QueryState query={assets} isEmpty={() => filteredAssets.length === 0} emptyText={query ? "没有匹配的资产" : "此业务域暂无资产"} emptyAction={query ? clearSearch : undefined} compact>
+              {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>资产</th><th>数据源</th></tr></thead><tbody>
+                {filteredAssets.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{a.datasource.name}</td></tr>)}
+              </tbody></table></div>}
+            </QueryState> : null}
+            {tab === "members" ? <QueryState query={domains} isEmpty={() => filteredMembers.length === 0} emptyText={query ? "没有匹配的成员" : "此业务域暂无成员"}
+              emptyAction={query ? clearSearch : isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}>添加成员</button> : undefined} compact>
+              {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>成员</th><th>账号</th><th>权限</th><th className="av-domain-detail__actions">操作</th></tr></thead><tbody>
+                {filteredMembers.map((m) => <tr key={m.user_id}><td><span className="av-crumb"><span className="av-avatar">{m.display_name.slice(0, 1)}</span><b>{m.display_name}</b></span></td><td className="av-mono">{m.username}</td><td><span className="av-tag">{ROLE[m.role] ?? m.role}</span></td>
+                  <td className="av-domain-detail__actions">{isOwner && m.user_id !== d.owner_id && m.role !== "owner" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => openMember({ user_id: m.user_id, role: m.role, name: m.display_name })}>编辑权限</button> : <span className="av-domain-detail__muted">—</span>}</td></tr>)}
+              </tbody></table></div>}
+            </QueryState> : null}
+          </div>
+          {member ? <Drawer title={member.name ? "编辑成员权限" : "添加成员"} onClose={closeMember} footer={<>
+            <button type="button" className="av-btn av-btn--secondary" disabled={saveMember.isPending} onClick={closeMember}>取消</button>
+            <button type="submit" form={`domain-${domainId}-member-form`} className="av-btn av-btn--primary"
+              disabled={!member.user_id || !["viewer", "maintainer"].includes(member.role) || saveMember.isPending || (!member.name && !users.isSuccess)}>{saveMember.isPending ? "保存中…" : "保存"}</button>
+          </>}>
+            <form id={`domain-${domainId}-member-form`} className="av-domain-member-form" aria-busy={saveMember.isPending} onSubmit={(event) => {
+              event.preventDefault();
+              if (saveMember.isPending || !member.user_id || !isOwner || !["viewer", "maintainer"].includes(member.role) || (!member.name && !users.isSuccess)) return;
+              saveMember.mutate({ user_id: member.user_id, role: member.role }, {
+                onSuccess: () => { setMessage({ ok: true, text: member.name ? "已更新成员权限" : "已添加成员" }); setMember(null); },
+                onError: (error) => setMemberMessage({ ok: false, text: errorText(error) }),
+              });
+            }}>
+              {member.name ? <div className="av-field"><span className="av-label">成员</span><strong>{member.name}</strong></div> : <QueryState query={users} isEmpty={(items) => !items.some((user) => !d.members.some((m) => m.user_id === user.id))} emptyText="暂无可添加的用户" compact>
+                {(items) => <label className="av-field"><span className="av-label">用户</span><Select value={member.user_id} label="用户" disabled={saveMember.isPending} onChange={(value) => setMember({ ...member, user_id: value })}>
+                  <option value="">选择用户</option>{items.filter((user) => !d.members.some((m) => m.user_id === user.id)).map((user) => <option key={user.id} value={user.id}>{user.display_name}（{user.username}）</option>)}
+                </Select></label>}
+              </QueryState>}
+              <label className="av-field"><span className="av-label">权限</span><Select value={member.role} label="成员权限" disabled={saveMember.isPending} onChange={(value) => setMember({ ...member, role: value })}>
+                <option value="viewer">可查询</option><option value="maintainer">维护者</option>
+              </Select></label>
+              <Banner message={memberMessage} />
+            </form>
+          </Drawer> : null}
+        </div>
+      ) : <Empty text="业务域不存在" compact />}
+    </QueryState>
   );
 }
 
@@ -72,22 +132,31 @@ export function NewDomain({ onClose, onCreated }: { onClose: () => void; onCreat
   const users = useUsers();
   const [form, setForm] = useState({ code: "", name: "", owner_id: "", description: "" });
   const [message, setMessage] = useMessage();
-  const create = useAction(() => unwrap(api.POST("/api/domains", { body: { ...form, description: form.description || null } })), ["domains"]);
+  const create = useAction(() => unwrap(api.POST("/api/domains", { body: {
+    code: form.code.trim(), name: form.name.trim(), owner_id: form.owner_id, description: form.description.trim() || null,
+  } })), ["domains"]);
+  const canSubmit = !!form.code.trim() && !!form.name.trim() && users.isSuccess && !!users.data?.some((user) => user.id === form.owner_id) && !create.isPending;
+  const close = () => { if (!create.isPending) onClose(); };
   return (
-    <Drawer title="新建业务域" onClose={onClose} footer={<>
-      <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
-      <button type="button" className="av-btn av-btn--primary" disabled={!form.code || !form.name || !form.owner_id}
-        onClick={() => create.mutate(undefined, { onSuccess: (d) => onCreated(d.id), onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>创建</button>
+    <Drawer title="新建业务域" onClose={close} footer={<>
+      <button type="button" className="av-btn av-btn--secondary" disabled={create.isPending} onClick={close}>取消</button>
+      <button type="submit" form="new-domain-form" className="av-btn av-btn--primary" disabled={!canSubmit}>{create.isPending ? "创建中…" : "创建"}</button>
     </>}>
-      <label className="av-field"><span className="av-label">名称</span><input className="av-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-      <label className="av-field"><span className="av-label">编码</span><input className="av-input av-mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} /></label>
-      <label className="av-field"><span className="av-label">负责人</span>
-        <Select value={form.owner_id} onChange={(v) => setForm({ ...form, owner_id: v })}>
-          <option value="">选择负责人</option>
-          {(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.display_name}（{u.username}）</option>)}
-        </Select></label>
-      <label className="av-field"><span className="av-label">说明</span><input className="av-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-      <Banner message={message} />
+      <form id="new-domain-form" className="av-domain-member-form" aria-busy={create.isPending} onSubmit={(event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        create.mutate(undefined, { onSuccess: (domain) => onCreated(domain.id), onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
+      }}>
+        <label className="av-field"><span className="av-label">名称</span><input className="av-input" required disabled={create.isPending} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+        <label className="av-field"><span className="av-label">编码</span><input className="av-input av-mono" required disabled={create.isPending} value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>
+        <QueryState query={users} isEmpty={(items) => items.length === 0} emptyText="暂无可选负责人" compact>
+          {(items) => <label className="av-field"><span className="av-label">负责人</span><Select value={form.owner_id} label="负责人" disabled={create.isPending} onChange={(value) => setForm({ ...form, owner_id: value })}>
+            <option value="">选择负责人</option>{items.map((user) => <option key={user.id} value={user.id}>{user.display_name}（{user.username}）</option>)}
+          </Select></label>}
+        </QueryState>
+        <label className="av-field"><span className="av-label">说明</span><input className="av-input" disabled={create.isPending} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+        <Banner message={message} />
+      </form>
     </Drawer>
   );
 }

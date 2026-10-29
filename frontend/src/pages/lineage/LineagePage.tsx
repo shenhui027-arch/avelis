@@ -6,12 +6,12 @@ import {
   Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
 import {
-  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, RELATION_LABEL, Status, statusOf, shortName,
+  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, statusOf, shortName,
 } from "../../components/ui";
 import { SWATCHES } from "../catalog/CatalogPage";
 
@@ -28,23 +28,43 @@ interface AssetData extends Record<string, unknown> {
   selected: boolean;
   pathCols: Set<string>;
   link: { status: string; target: string } | null;
+  density: "overview" | "columns";
   onColumn: (col: string) => void;
+  onAllColumns: () => void;
 }
 
-function nodeHeight(cols: number, hasLink: boolean, hasGrain: boolean): number {
-  const shown = Math.min(cols, MAX_COLS);
-  return 54 + (shown ? shown * 27 + 9 : 0) + (cols > MAX_COLS ? 22 : 0) + (hasGrain ? 27 : 0) + (hasLink ? 31 : 0);
+function nodeHeight(cols: number, hasLink: boolean, hasGrain: boolean, density: AssetData["density"]): number {
+  if (density === "overview") return 54 + (cols ? 36 : 0);
+  return 54 + (cols ? Math.min(cols, MAX_COLS) * 27 + 9 : 0) + (cols > MAX_COLS ? 36 : 0) + (hasGrain ? 27 : 0) + (hasLink ? 31 : 0);
+}
+
+function graphColumns(graph: Graph): Map<string, AssetData["columns"]> {
+  const columns = new Map<string, Map<string, { relation: string | null; influence: boolean }>>();
+  const touch = (nodeId: string, name: string | null | undefined, relation: string | null, influence: boolean) => {
+    if (!name) return;
+    const cols = columns.get(nodeId) ?? new Map();
+    const prev = cols.get(name);
+    cols.set(name, { relation: prev?.relation ?? relation, influence: (prev?.influence ?? false) || influence });
+    columns.set(nodeId, cols);
+  };
+  for (const edge of graph.edges) {
+    for (const col of edge.columns) {
+      touch(edge.target, col.target_column, VALUE.has(col.relation) ? col.relation : null, false);
+      touch(edge.source, col.source_column, null, !VALUE.has(col.relation));
+    }
+  }
+  return new Map([...columns].map(([id, cols]) => [id, [...cols].map(([name, detail]) => ({ name, ...detail })).sort((a, b) => Number(!!b.relation) - Number(!!a.relation))]));
 }
 
 function AssetNode({ data }: NodeProps<Node<AssetData>>) {
-  const { node, columns, domainSwatch, selected, pathCols, link } = data;
+  const { node, columns, domainSwatch, selected, pathCols, link, density } = data;
   const placeholder = node.kind === "design_time";
   const grain = node.grains[0];
   const [tone] = statusOf(grain?.status);
   const parts = node.qualified.split(".");
   return (
     <div className={`av-node${selected ? " is-selected" : ""}${placeholder ? " is-placeholder" : ""}`}>
-      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left} className="av-lineage__handle" />
       <div className="av-node__hd">
         <span className="av-node__type"><Icon name={node.kind === "view" ? "view" : node.kind === "design_time" ? "upload" : "table"} /></span>
         <span className="av-node__id">
@@ -57,21 +77,21 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
         </span>
         <span className="av-tag">{KIND_LABEL[node.kind] ?? node.kind}</span>
       </div>
-      {columns.length ? (
+      {density === "columns" && columns.length ? (
         <div className="av-node__cols">
           {columns.slice(0, MAX_COLS).map((c) => (
             <button key={c.name} type="button" className={`av-col nodrag${pathCols.has(c.name) ? " is-path" : c.influence ? " is-influence" : ""}`}
-              style={{ border: "none", background: pathCols.has(c.name) ? undefined : "transparent", cursor: "pointer", textAlign: "left" }}
               onClick={(e) => { e.stopPropagation(); data.onColumn(c.name); }}>
               <span>{c.name}</span><span>{c.relation ? RELATION_LABEL[c.relation] : ""}</span>
             </button>
           ))}
-          {columns.length > MAX_COLS ? <div className="av-node__more">+{columns.length - MAX_COLS} 列</div> : null}
+          {columns.length > MAX_COLS ? <button type="button" className="av-node__more av-lineage__all-columns nodrag" onClick={(event) => { event.stopPropagation(); data.onAllColumns(); }}>查看全部 {columns.length} 列</button> : null}
         </div>
       ) : null}
-      {grain ? <div className="av-node__grain">粒度 <b>{grain.columns.join(", ")}</b><Dot tone={tone} /></div> : null}
-      {link ? <div className="av-node__link"><Icon name="link" small />同一张表 <b>{link.target}</b><Status value={link.status} /></div> : null}
-      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
+      {density === "overview" && columns.length ? <button type="button" className="av-lineage__all-columns nodrag" onClick={(event) => { event.stopPropagation(); data.onAllColumns(); }}>查看全部 {columns.length} 列</button> : null}
+      {density === "columns" && grain ? <div className="av-node__grain">粒度 <b>{grain.columns.join(", ")}</b><Dot tone={tone} /></div> : null}
+      {density === "columns" && link ? <div className="av-node__link"><Icon name="link" small />同一张表 <b>{link.target}</b><Status value={link.status} /></div> : null}
+      <Handle type="source" position={Position.Right} className="av-lineage__handle" />
     </div>
   );
 }
@@ -90,6 +110,10 @@ function Canvas() {
   const graph = useGraph(domainIds, focusAsset);
   const [selected, setSelected] = useState<string | null>(focusAsset ?? null);
   const [column, setColumn] = useState<ColKey | null>(null);
+  const [density, setDensity] = useState<AssetData["density"]>("overview");
+  const [showColumns, setShowColumns] = useState(false);
+  const [nodeWidth] = useState(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size-node")));
+  useEffect(() => { setSelected(focusAsset ?? null); setColumn(null); setShowColumns(false); }, [focusAsset]);
   const flow = useReactFlow();
 
   const swatchOf = useMemo(() => {
@@ -128,9 +152,11 @@ function Canvas() {
     }
     const walk = (start: ColKey, next: Map<ColKey, { from?: ColKey; to?: ColKey; edge: string }[]>) => {
       const stack = [start];
+      const visited = new Set<ColKey>();
       while (stack.length) {
         const k = stack.pop()!;
-        if (cols.has(k) && k !== start) continue;
+        if (visited.has(k)) continue;
+        visited.add(k);
         cols.add(k);
         for (const n of next.get(k) ?? []) {
           edgeKeys.add(n.edge);
@@ -146,39 +172,25 @@ function Canvas() {
   const { nodes, edges } = useMemo(() => {
     if (!graph.data) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
     const g = graph.data;
-    const colsByNode = new Map<string, Map<string, { relation: string | null; influence: boolean }>>();
-    const touch = (id: string, col: string | null | undefined, relation: string | null, influence: boolean) => {
-      if (!col) return;
-      const m = colsByNode.get(id) ?? new Map();
-      const prev = m.get(col);
-      m.set(col, { relation: prev?.relation ?? relation, influence: (prev?.influence ?? false) || influence });
-      colsByNode.set(id, m);
-    };
-    for (const e of g.edges) {
-      for (const c of e.columns) {
-        const value = VALUE.has(c.relation);
-        touch(e.target, c.target_column, value ? c.relation : null, false);
-        touch(e.source, c.source_column, null, !value);
-      }
-    }
+    const columnsByNode = graphColumns(g);
     const linkOf = new Map(g.identity_links.filter((l) => l.target).map((l) => [l.source, l]));
     const layout = new dagre.graphlib.Graph();
     layout.setGraph({ rankdir: "LR", nodesep: 28, ranksep: 96, marginx: 40, marginy: 40 });
     layout.setDefaultEdgeLabel(() => ({}));
     const built: Node<AssetData>[] = g.nodes.map((n) => {
-      const cols = [...(colsByNode.get(n.id) ?? new Map()).entries()].map(([name, v]) => ({ name, ...v }))
-        .sort((a, b) => Number(!!b.relation) - Number(!!a.relation));
+      const cols = columnsByNode.get(n.id) ?? [];
       const l = linkOf.get(n.qualified);
       const link = l ? { status: l.status, target: shortName(l.target?.qualified) } : null;
-      const height = nodeHeight(cols.length, !!link, n.grains.length > 0);
-      layout.setNode(n.id, { width: 248, height });
+      const height = nodeHeight(cols.length, !!link, n.grains.length > 0, density);
+      layout.setNode(n.id, { width: nodeWidth, height });
       return {
-        id: n.id, type: "asset", position: { x: 0, y: 0 }, width: 248, height,
+        id: n.id, type: "asset", position: { x: 0, y: 0 }, width: nodeWidth, height,
         data: {
-          node: n, columns: cols, link, selected: n.id === selected,
+          node: n, columns: cols, link, selected: n.id === selected, density,
           domainSwatch: n.domain_id ? swatchOf.get(n.domain_id) ?? null : null,
           pathCols: new Set([...path.cols].filter((k) => k.startsWith(`${n.id}::`)).map((k) => k.split("::")[1])),
           onColumn: (col: string) => { setSelected(n.id); setColumn(`${n.id}::${col}`); },
+          onAllColumns: () => { setSelected(n.id); setColumn(null); setShowColumns(true); },
         },
       };
     });
@@ -216,71 +228,98 @@ function Canvas() {
     dagre.layout(layout);
     for (const n of built) {
       const p = layout.node(n.id);
-      n.position = { x: p.x - 124, y: p.y - (n.height ?? 0) / 2 };
+      n.position = { x: p.x - nodeWidth / 2, y: p.y - (n.height ?? 0) / 2 };
     }
     return { nodes: built, edges: builtEdges };
-  }, [graph.data, selected, path, swatchOf]);
+  }, [graph.data, selected, path, swatchOf, density, nodeWidth]);
 
+  const clearFilters = () => { setParams(new URLSearchParams()); setSelected(null); setColumn(null); setShowColumns(false); };
   const toggleDomain = (id: string) => {
     const next = domainIds.includes(id) ? domainIds.filter((d) => d !== id) : [...domainIds, id];
-    const p = new URLSearchParams();
-    if (next.length) p.set("domains", next.join(","));
-    setParams(p);
+    const nextParams = new URLSearchParams();
+    if (next.length) nextParams.set("domains", next.join(","));
+    setParams(nextParams);
+    setSelected(null);
     setColumn(null);
+    setShowColumns(false);
   };
-  const selectedNode = graph.data?.nodes.find((n) => n.id === selected);
+  const selectedNode = graph.isSuccess ? graph.data.nodes.find((node) => node.id === selected) : undefined;
+  const inspectorOpen = !!selectedNode;
+  useEffect(() => {
+    if (!graph.isSuccess || !graph.data.nodes.length) return;
+    const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.16 }); });
+    return () => cancelAnimationFrame(frame);
+  }, [graph.data, graph.isSuccess, density, flow]);
 
   return (
-    <div className="av-split" style={{ height: "calc(100vh - 48px)" }}>
-      <div className="av-canvas" style={{ position: "relative" }}>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.2} maxZoom={1.6}
-          proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
-          onNodeClick={(_, n) => { setSelected(n.id); setColumn(null); }} onPaneClick={() => setColumn(null)}
-          style={{ background: "transparent" }} />
-        <div className="av-float" style={{ top: 16, left: 16, flexWrap: "wrap", maxWidth: "calc(100% - 32px)" }}>
-          <span className="av-section-label" style={{ padding: "0 4px" }}>业务域</span>
-          <button type="button" className="av-btn av-btn--sm av-btn--ghost" aria-pressed={!domainIds.length && !focusAsset}
-            style={!domainIds.length && !focusAsset ? { background: "var(--bg-active)", color: "var(--text-primary)" } : undefined}
-            onClick={() => { setParams(new URLSearchParams()); setColumn(null); }}>全部</button>
-          {(domains.data ?? []).map((d) => (
-            <button key={d.id} type="button" className="av-btn av-btn--sm av-btn--ghost" aria-pressed={domainIds.includes(d.id)}
-              style={domainIds.includes(d.id) ? { background: "var(--bg-active)", color: "var(--text-primary)" } : undefined}
-              onClick={() => toggleDomain(d.id)}>
-              <span className={`av-swatch av-swatch--${swatchOf.get(d.id)}`} />{d.name}</button>
-          ))}
-          <Hint text="多选业务域即串联显示；跨域的边沿血缘与“同一张表”继续展开" />
-          <span className="av-float__sep" />
-          <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="放大" onClick={() => flow.zoomIn()}><Icon name="zoomin" /></button>
-          <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="缩小" onClick={() => flow.zoomOut()}><Icon name="zoomout" /></button>
-          <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="适应画布" onClick={() => flow.fitView()}><Icon name="fit" /></button>
-          <span className="av-float__sep" />
-          <Link className="av-btn av-btn--sm av-btn--primary" to="/lineage/import"><Icon name="upload" small />导入</Link>
+    <div className="av-lineage" data-inspector-open={inspectorOpen}>
+      <div className="av-lineage__workspace">
+        <div className="av-lineage__toolbar" aria-label="血缘工具栏">
+          <details className="av-lineage__domain-filter">
+            <summary className="av-btn av-btn--secondary av-btn--sm">业务域{domainIds.length ? ` · ${domainIds.length}` : " · 全部"}<Icon name="chevron" small /></summary>
+            <div className="av-lineage__domain-menu">
+              <QueryState query={domains} isEmpty={(items) => !items.length} emptyText="暂无业务域" compact rows={3}>
+                {(items) => <fieldset><legend className="av-section-label">筛选业务域</legend>{items.map((domain) => <label key={domain.id}>
+                  <input type="checkbox" checked={domainIds.includes(domain.id)} onChange={() => toggleDomain(domain.id)} />
+                  <span className={"av-swatch av-swatch--" + swatchOf.get(domain.id)} />{domain.name}
+                </label>)}</fieldset>}
+              </QueryState>
+              <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!domainIds.length && !focusAsset} onClick={clearFilters}>清除筛选</button>
+            </div>
+          </details>
+          <Seg value={density} label="节点密度" options={[{ value: "overview", label: "表级总览" }, { value: "columns", label: "字段" }]} onChange={setDensity} />
+          {focusAsset ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={clearFilters}>查看全部血缘</button> : null}
+          <Link className="av-btn av-btn--sm av-btn--primary av-lineage__import" to="/lineage/import"><Icon name="upload" small />导入</Link>
         </div>
-        <div className="av-float" style={{ bottom: 16, left: 16, gap: 12, padding: "6px 12px" }}>
-          <Legend stroke="var(--edge-default)" label="取值" />
-          <Legend stroke="var(--warn)" dash="4 4" label="过滤 / 关联 / 分组" />
-          <Legend stroke="var(--edge-identity)" dash="1 5" label="同一张表" />
-          <Legend stroke="var(--edge-default)" dash="6 4" label="导入（设计时）" />
-          <Legend stroke="var(--signal)" label="选中路径" />
+        <div className="av-canvas av-lineage__canvas">
+          <QueryState query={graph} isEmpty={(data) => !data.nodes.length}
+            emptyText={domainIds.length || focusAsset ? "没有匹配的血缘" : "暂无血缘"}
+            emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>清除筛选</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">导入血缘</Link>}>
+            {() => <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.1} maxZoom={1.6}
+              proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
+              onNodeClick={(_, node) => { setSelected(node.id); setColumn(null); setShowColumns(false); }}
+              onPaneClick={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />}
+          </QueryState>
+          {graph.isSuccess && graph.data.nodes.length ? <>
+            <details className="av-float av-lineage__legend">
+              <summary>图例</summary>
+              <div className="av-lineage__legend-items">
+                <Legend tone="value" label="取值" />
+                <Legend tone="influence" label="过滤 / 关联 / 分组" />
+                <Legend tone="identity" label="同一张表" />
+                <Legend tone="design" label="导入（设计时）" />
+                <Legend tone="path" label="选中路径" />
+              </div>
+            </details>
+            <div className="av-float av-lineage__zoom" role="group" aria-label="画布缩放">
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="缩小" onClick={() => flow.zoomOut()}><Icon name="zoomout" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost" onClick={() => flow.zoomTo(1)}>100%</button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="放大" onClick={() => flow.zoomIn()}><Icon name="zoomin" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost" onClick={() => flow.fitView({ padding: 0.16 })}><Icon name="fit" />适应画布</button>
+            </div>
+          </> : null}
         </div>
-        {graph.isSuccess && !graph.data.nodes.length ? <div style={{ position: "absolute", inset: 0 }}><Empty text="没有可见的血缘" /></div> : null}
       </div>
-      <aside className="av-inspector" style={{ height: "100%", overflow: "auto" }} aria-label="检查器">
-        {selectedNode ? <Inspector node={selectedNode} graph={graph.data!} column={column?.split("::")[1] ?? null} /> : <Empty text="点击节点或列查看详情" />}
-      </aside>
+      {selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label="检查器">
+        <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data} column={column?.split("::")[1] ?? null}
+          showColumns={showColumns} onShowColumns={() => setShowColumns(true)} onColumn={(name) => setColumn(selectedNode.id + "::" + name)}
+          onClose={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />
+      </aside> : null}
     </div>
   );
 }
 
-function Legend({ stroke, dash, label }: { stroke: string; dash?: string; label: string }) {
-  return (
-    <span className="av-caption" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <svg width="24" height="6" aria-hidden="true"><line x1="0" y1="3" x2="24" y2="3" stroke={stroke} strokeWidth="2" strokeDasharray={dash} strokeLinecap="round" /></svg>{label}
-    </span>
-  );
+function Legend({ tone, label }: { tone: "value" | "influence" | "identity" | "design" | "path"; label: string }) {
+  return <span className={"av-caption av-lineage__legend-item av-lineage__legend-item--" + tone}>
+    <svg width="24" height="6" aria-hidden="true"><line x1="0" y1="3" x2="24" y2="3" /></svg>{label}
+  </span>;
 }
 
-function Inspector({ node, graph, column }: { node: GNode; graph: Graph; column: string | null }) {
+function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, onClose }: {
+  node: GNode; graph: Graph; column: string | null; showColumns: boolean; onShowColumns: () => void;
+  onColumn: (column: string) => void; onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
   const asset = useAsset(node.kind === "design_time" ? undefined : node.id);
   const incoming = graph.edges.filter((e) => e.target === node.id);
   const outgoing = graph.edges.filter((e) => e.source === node.id);
@@ -289,17 +328,32 @@ function Inspector({ node, graph, column }: { node: GNode; graph: Graph; column:
   const influences = incoming.flatMap((e) => e.columns.filter((c) => !c.target_column).map((c) => ({ ...c, from: name(e.source) })));
   const colOut = column ? outgoing.flatMap((e) => e.columns.filter((c) => c.source_column === column).map((c) => ({ ...c, to: name(e.target) }))) : [];
   const col = asset.data?.columns.find((c) => c.name === column);
+  const graphColumnNames = useMemo(() => (graphColumns(graph).get(node.id) ?? []).map((item) => item.name), [graph, node.id]);
+  const columns = [...new Set([...(asset.data?.columns.map((item) => item.name) ?? []), ...graphColumnNames])];
+  const visibleColumns = columns.filter((name) => name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   return (
     <>
       <div className="av-inspector__hd">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div className="av-lineage__inspector-actions">
           <span className="av-section-label">{KIND_LABEL[node.kind] ?? node.kind}{node.datasource ? ` · ${node.datasource.name}` : ""}</span>
-          {node.kind !== "design_time" ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${node.id}`}>资产</Link> : null}
+          <div className="av-actions">
+            {node.kind !== "design_time" ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${node.id}`}>资产</Link> : null}
+            <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label="关闭检查器" onClick={onClose}><Icon name="close" /></button>
+          </div>
         </div>
-        <span className="av-mono" style={{ fontWeight: 500, overflowWrap: "anywhere" }}>{node.qualified}{column ? <span style={{ color: "var(--signal)" }}>.{column}</span> : null}</span>
+        <span className="av-mono av-lineage__qualified">{node.qualified}{column ? <span className="av-lineage__column-name">.{column}</span> : null}</span>
         {node.note ? <span className="av-caption">{node.note}</span> : null}
       </div>
       <div className="av-inspector__bd">
+        {showColumns ? <section className="av-lineage__column-browser" aria-label="全部字段">
+          <label className="av-section-label" htmlFor="lineage-column-search">字段 {asset.isSuccess || node.kind === "design_time" ? `· ${columns.length}` : ""}</label>
+          <input id="lineage-column-search" className="av-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索字段" autoFocus />
+          {node.kind !== "design_time" && asset.isPending ? <span className="av-caption" role="status">正在加载完整字段…</span> : null}
+          {node.kind !== "design_time" && asset.isError ? <div className="av-lineage__column-error" role="alert"><span className="av-caption">完整字段加载失败，当前仅显示血缘字段</span><button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => asset.refetch()}>重试</button></div> : null}
+          <div className="av-lineage__column-list">{visibleColumns.map((name) => <button key={name} type="button" className="av-btn av-btn--ghost av-lineage__column-item" aria-pressed={column === name} onClick={() => onColumn(name)}><span className="av-mono">{name}</span><span className="av-caption">{asset.data?.columns.find((item) => item.name === name)?.data_type}</span></button>)}</div>
+          {!visibleColumns.length && columns.length ? <Empty text="没有匹配字段" compact action={<button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearch("")}>清除搜索</button>} /> : null}
+          {!columns.length && (asset.isSuccess || node.kind === "design_time") ? <Empty text="暂无字段" compact /> : null}
+        </section> : <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onShowColumns}>查看全部字段</button>}
         {column ? (
           <>
             {col ? <dl className="av-kv"><dt>类型</dt><dd className="av-mono">{col.data_type}</dd>
@@ -311,13 +365,13 @@ function Inspector({ node, graph, column }: { node: GNode; graph: Graph; column:
           </>
         ) : (
           <>
-            {node.grains.length ? <dl className="av-kv"><dt>粒度</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag" style={{ marginRight: 4 }}>{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
+            {node.grains.length ? <dl className="av-kv"><dt>粒度</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
             <Flow title="上游" items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join("、"), expr: `${e.columns.length} 条列级边` }))} />
             <Flow title="下游" items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join("、"), expr: `${e.columns.length} 条列级边` }))} />
           </>
         )}
         {influences.length ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="av-lineage__stack">
             <span className="av-section-label">影响条件 <Hint text="过滤、关联键、分组决定哪些行参与，但值不复制到输出" /></span>
             {influences.map((c, i) => <span key={i} className="av-chain__item"><span className="av-tag">{RELATION_LABEL[c.relation]}</span><span>{shortName(c.from)}.{c.source_column}</span></span>)}
           </div>
@@ -333,11 +387,11 @@ const ORIGIN: Record<string, string> = { parsed: "解析", manual: "人工", imp
 function Flow({ title, items }: { title: string; items: { key: string; left: string; rel: string; origin: string; expr?: string | null }[] }) {
   if (!items.length) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="av-lineage__stack">
       <span className="av-section-label">{title}</span>
       {items.map((it) => (
-        <div key={it.key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span className="av-chain__item"><span>{it.left}</span><span className="av-tag" style={{ marginLeft: "auto" }}>{RELATION_LABEL[it.rel] ?? it.rel}</span></span>
+        <div key={it.key} className="av-lineage__flow-item">
+          <span className="av-chain__item"><span>{it.left}</span><span className="av-tag av-lineage__relation-tag">{RELATION_LABEL[it.rel] ?? it.rel}</span></span>
           <span className="av-caption">{it.origin.split("、").map((o) => ORIGIN[o] ?? o).join("、")}{it.expr ? ` · ${it.expr}` : ""}</span>
         </div>
       ))}
