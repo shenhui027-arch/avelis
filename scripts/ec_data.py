@@ -402,6 +402,11 @@ def truth(ds: Dataset) -> dict:
     }
 
 
+def ddl_checksum() -> str:
+    """建表与视图语句的摘要：视图改了也要重建（数据摘要不变时）。"""
+    return hashlib.sha256(repr((TABLES, VIEWS)).encode()).hexdigest()
+
+
 def checksum(ds: Dataset) -> str:
     h = hashlib.sha256()
     for table in sorted(ds.tables):
@@ -591,13 +596,13 @@ JOIN ec_trade.orders o ON o.order_id = f.order_id
 GROUP BY CAST(f.refund_time AS DATE), o.region_code"""),
     ("ec_dw.dws_logistics_daily", "区域日配送时效", """
 SELECT CAST(s.ship_time AS DATE) AS ship_date, w.region_code, COUNT(*) AS shipment_cnt,
-       AVG(TIMESTAMPDIFF(HOUR, s.ship_time, s.deliver_time)) AS avg_delivery_hours
+       SUM(TIMESTAMPDIFF(HOUR, s.ship_time, s.deliver_time)) AS delivery_hours
 FROM ec_logistics.shipment s
 JOIN ec_supply.warehouse w ON w.warehouse_id = s.warehouse_id
 GROUP BY CAST(s.ship_time AS DATE), w.region_code"""),
     ("ec_dw.dws_service_daily", "区域日客服工单", """
 SELECT CAST(t.created_time AS DATE) AS ticket_date, o.region_code, t.category, COUNT(*) AS ticket_cnt,
-       AVG(t.satisfaction) AS avg_satisfaction
+       COUNT(t.satisfaction) AS rated_cnt, SUM(t.satisfaction) AS satisfaction_sum
 FROM ec_service.service_ticket t
 JOIN ec_trade.orders o ON o.order_id = t.order_id
 GROUP BY CAST(t.created_time AS DATE), o.region_code, t.category"""),
@@ -634,11 +639,19 @@ def loaded_checksum(conn) -> str | None:
 
 def load(env: dict[str, str], force: bool = False) -> dict:
     ds = generate()
-    digest = f"{VERSION}:{checksum(ds)[:16]}"
+    digest = f"{VERSION}:{checksum(ds)[:12]}{ddl_checksum()[:4]}"
     conn = demo.sr_root(env)
     try:
-        if not force and loaded_checksum(conn) == digest:
+        loaded = loaded_checksum(conn)
+        if not force and loaded == digest:
             demo.log(f"电商数据集已是 {digest}，跳过灌数（--force 可强制重建）")
+        elif not force and loaded and loaded[:-4] == digest[:-4]:
+            demo.log(f"电商数据集的数据未变，只重建视图：{loaded} → {digest}")
+            with conn.cursor() as cur:
+                for name, comment, sql in VIEWS:
+                    cur.execute(f"DROP VIEW IF EXISTS {name}")
+                    cur.execute(f"CREATE VIEW {name} COMMENT '{comment}' AS {sql.strip()}")
+                cur.execute(f"ALTER TABLE ec_org.region COMMENT = '销售区域#{digest}'")
         else:
             demo.log(f"灌入电商数据集 {digest} ...")
             with conn.cursor() as cur:

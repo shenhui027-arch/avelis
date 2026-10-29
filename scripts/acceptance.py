@@ -160,6 +160,16 @@ def main() -> None:
         info["engines"] = "运行（ClickHouse、Doris 真实实例）" if engines else "跳过"
         runner.step("启动演示环境并灌入基线数据", lambda: demo.up(skip_seed=False, engines=engines))
 
+        def ec_dataset() -> dict:
+            import ec_data
+
+            env = demo.load_env()
+            ec_data.load(env)
+            if not ec_data.check(env):
+                raise StepFailed("电商数据集与生成结果不一致")
+            return {}
+        runner.step("合成电商数据集（已是最新时跳过重灌）", ec_dataset)
+
         def baseline() -> list[dict]:
             env = demo.load_env()
             values = demo.baseline_values(env) + (demo.engine_baseline_values(env) if engines else [])
