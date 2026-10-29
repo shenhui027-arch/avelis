@@ -56,6 +56,7 @@ class RunContext:
     events: list[dict[str, Any]] = field(default_factory=list)
     new_versions: list[AssetVersion] = field(default_factory=list)
     stats: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    touched: set[str] = field(default_factory=set)  # 本次出现新身份的对象（新增或同名重建；catalog.db.name）
 
     def event(self, kind: str, asset_id: str | None, column: str | None = None, before=None, after=None) -> None:
         self.events.append({"kind": kind, "asset_id": asset_id, "column_name": column,
@@ -110,13 +111,21 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
     run = ctx.run
     now = utcnow()
     old_identity = dict(ds.server_identity or {})
-    if old_identity and _identity_key(old_identity) != _identity_key(snapshot.server_identity):
-        ctx.event("server_identity_changed", None, before=old_identity, after=snapshot.server_identity)
-    ds.server_identity = snapshot.server_identity
+    new_identity = snapshot.server_identity or {}
+    # 实例身份确定地变了（不是同一实例换了地址）：开启新的身份世代，旧资产全部删除、按新对象重建，
+    # 下游指纹随之变化，依赖它们的口径进入复核，而不是按名称继续沿用旧身份
+    new_generation = bool(old_identity.get("instance_id") and new_identity.get("instance_id")
+                          and old_identity["instance_id"] != new_identity["instance_id"])
+    if old_identity and _identity_key(old_identity) != _identity_key(new_identity):
+        ctx.event("server_identity_changed", None, before=old_identity,
+                  after={**new_identity, "new_generation": new_generation})
+    ds.server_identity = new_identity
 
     active = list(session.scalars(select(Asset).where(Asset.datasource_id == ds.id, Asset.status == "active")))
     by_physical = {a.physical_id: a for a in active if a.physical_id}
     by_name = {(a.catalog_name, a.db_name, a.name, a.kind): a for a in active}
+    if new_generation:
+        by_physical, by_name = {}, {}
     matched: set[str] = set()
     added: list[tuple[Asset, ObservedAsset]] = []
 
@@ -137,6 +146,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
             session.add(asset)
             session.flush()
             added.append((asset, obs))
+            ctx.touched.add(obs.qualified)
             recreated = by_name.get((obs.catalog, obs.db, obs.name, obs.kind))
             ctx.event("added", asset.id, after={"name": obs.qualified, "kind": obs.kind,
                                                 "physical_id": obs.physical_id,
@@ -193,7 +203,7 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
 
 
 def _identity_key(identity: dict[str, Any]) -> Any:
-    return identity.get("server_uuid") or identity.get("cluster_id") or identity.get("endpoint")
+    return identity.get("instance_id") or identity.get("endpoint")
 
 
 def _content_hash(obs: ObservedAsset, sql: SqlDialect) -> str:
@@ -346,15 +356,17 @@ def _sqlglot_type(data_type: str) -> str:
 
 
 def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> None:
-    """解析当前版本中尚未被本解析器版本解析过的视图定义。"""
+    """解析视图定义：当前版本尚未被本解析器版本解析过的；以及引用的来源在本次采集中出现了新身份的（新增或同名重建）——
+    定义没变也要重解析，否则血缘会继续指向已删除的旧对象，来源补齐后也不会恢复。来源只是删除或改列时不重解析：
+    旧的边指向已删除的对象或列，指纹如实给出“上游缺失”。"""
     rows = session.execute(
         select(Asset, Definition).join(Definition, Definition.asset_version_id == Asset.current_version_id)
         .where(Asset.datasource_id == ds.id, Asset.status == "active", Asset.kind == "view"))
     pending = []
     for asset, definition in rows:
-        exists = session.scalar(select(ParseResult.id).where(ParseResult.definition_id == definition.id,
-                                                             ParseResult.parser_version == PARSER_VERSION))
-        if not exists:
+        existing = session.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id,
+                                                            ParseResult.parser_version == PARSER_VERSION))
+        if existing is None or set((existing.details or {}).get("tables", [])) & ctx.touched:
             pending.append((asset, definition))
     if not pending:
         return
@@ -370,9 +382,13 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
     now = utcnow()
     for asset, definition in pending:
         parsed = parse_query(definition.raw_sql, dialect=dialect_of(ds), schema=schema, default_db=asset.db_name)
-        result = ParseResult(definition_id=definition.id, parser_version=PARSER_VERSION, status=parsed.status,
-                             reason=parsed.reason, details=parsed.details())
-        session.add(result)
+        # 同一定义、同一解析器版本只保留一条解析结果：重解析时原地更新
+        result = session.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id,
+                                                          ParseResult.parser_version == PARSER_VERSION))
+        if result is None:
+            result = ParseResult(definition_id=definition.id, parser_version=PARSER_VERSION)
+            session.add(result)
+        result.status, result.reason, result.details = parsed.status, parsed.reason, parsed.details()
         session.flush()
         ctx.stats[f"parse:{parsed.status}"] += 1
         session.execute(update(LineageEdge).where(LineageEdge.target_asset_id == asset.id,
@@ -396,6 +412,14 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
                 target_asset_version_id=asset.current_version_id, target_column=None,
                 source_asset_id=source_id(inf.ref.table), source_ref=inf.ref.table, source_column=inf.ref.column,
                 relation=inf.relation, expression=inf.expression))
+        # 表级依赖：即使没有列来源（COUNT(1)、常量列）或列级解析不支持（UNION），读取视图也就读取了这些表。
+        # 权限闭包与字段指纹都依赖这些边，不能只靠列级边。
+        for table in parsed.tables:
+            session.add(LineageEdge(
+                origin="parsed", parse_result_id=result.id, target_asset_id=asset.id,
+                target_asset_version_id=asset.current_version_id, target_column=None,
+                source_asset_id=source_id(table), source_ref=table, source_column=None, relation="table",
+                expression=None))
         if parsed.group_outputs or parsed.distinct:
             columns = parsed.group_outputs if parsed.group_outputs else [c.name for c in parsed.columns]
             session.add(Grain(asset_id=asset.id, asset_version_id=asset.current_version_id, columns=columns,
@@ -429,7 +453,7 @@ def resolve_link(session: Session, asset: Asset) -> dict[str, Any]:
                 "column_match": {}}
     target_ds = session.get(Datasource, alias.datasource_id)
     evidence["datasource"] = target_ds.name
-    evidence["server_uuid"] = (target_ds.server_identity or {}).get("server_uuid")
+    evidence["server_uuid"] = (target_ds.server_identity or {}).get("instance_id")  # 目标实例身份（由连接器给出）
     target = session.scalar(select(Asset).where(
         Asset.datasource_id == target_ds.id, Asset.db_name == ext.get("database"), Asset.name == ext.get("table"),
         Asset.status == "active"))
@@ -457,7 +481,7 @@ def resolve_link(session: Session, asset: Asset) -> dict[str, Any]:
     status = "confirmed" if not missing and not type_mismatch else "mismatch"
     if status == "confirmed" and not evidence["server_uuid"]:
         status = "candidate"
-        evidence["reason"] = "目标数据源尚未确认实例身份（server_uuid）"
+        evidence["reason"] = "目标数据源尚未确认实例身份"
     return {"status": status, "target": target.id, "method": "endpoint_alias+db_table+columns",
             "evidence": evidence, "column_match": column_match}
 

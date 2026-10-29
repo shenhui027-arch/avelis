@@ -95,6 +95,8 @@ function Detail({ id }: { id: string }) {
   const def = events.find((e) => e.kind === "definition_changed");
   const direct = events.filter((e) => !["derivation_changed", "upstream_broken", "identity_link_changed"].includes(e.kind));
   const derived = events.filter((e) => e.kind === "derivation_changed" || e.kind === "upstream_broken");
+  // 身份映射变化（外部表与他库真实表的对应关系）单独成组，不能从列表中漏掉
+  const identity = events.filter((e) => e.kind === "identity_link_changed");
   const metricName = (versionId: string) => {
     for (const m of metrics.data ?? []) {
       const v = m.versions.find((x) => x.id === versionId);
@@ -137,7 +139,7 @@ function Detail({ id }: { id: string }) {
               <div className="av-panel__hd"><h2 className="av-panel__title">变化 <Count n={events.length} /></h2></div>
               <table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>对象</th><th>变化</th><th>详情</th></tr></thead>
-                <tbody>{[...direct, ...derived].map((e) => (
+                <tbody>{[...direct, ...identity, ...derived].map((e) => (
                   <tr key={e.id}>
                     <td className="av-mono" style={{ paddingLeft: 16 }}>{shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
                     <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={EVENT[e.kind] ?? e.kind} /></td>

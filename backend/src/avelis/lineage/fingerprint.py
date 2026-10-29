@@ -2,7 +2,9 @@
 
 实体表字段：字段身份（字段 ID，删除后同名重建是新 ID）+ 类型。
 外部表 / Catalog 表字段：自身字段身份 + 类型 + 身份映射到的他库字段指纹。
-视图字段：本列表达式 + 取值来源的指纹 + 视图内全部影响条件（过滤、关联键、分组）及其来源指纹。
+视图字段：视图的规范化定义 + 本列表达式 + 取值来源的指纹 + 视图内全部影响条件（过滤、关联键、分组）及其来源指纹
+  + 引用到的表是否仍存在。纳入规范化定义是保守做法：CTE 中间表达式、DISTINCT、LIMIT 等行集语义的任何变化都会改变指纹，
+  宁可多复核一次，也不让语义已变的口径继续被当作已发布使用。
 
 因此：视图表达式变化、过滤或关联变化、上游字段被删除或重建、他库字段类型变化，都会改变指纹；
 只改格式不会。指纹 status：ok 正常；broken 上游缺失；unknown 证据不全（未解析、来源未采集）。
@@ -137,6 +139,13 @@ def compute_fingerprints(state: GraphState) -> dict[tuple[str, str], Fingerprint
         expression = next((c["expression"] for c in parse.details.get("columns", []) if c["name"] == column), None)
         statuses, reasons, parts_v, parts_i = [], [], [], []
         for edge in values + influences:
+            if edge.relation == "table":
+                source = state.assets.get(edge.source_asset_id or "")
+                if source is None or source.status != "active":
+                    statuses.append("broken" if edge.source_asset_id else "unknown")
+                    reasons.append(f"来源表 {edge.source_ref} " + ("已删除" if edge.source_asset_id else "未采集"))
+                parts_i.append(["table", edge.source_asset_id or edge.source_ref])
+                continue
             if edge.source_asset_id is None:
                 statuses.append("unknown")
                 reasons.append(f"来源 {edge.source_ref} 未采集")
@@ -155,7 +164,8 @@ def compute_fingerprints(state: GraphState) -> dict[tuple[str, str], Fingerprint
             statuses.append("unknown")
             reasons.append(parse.reason or "部分解析")
         status = "broken" if "broken" in statuses else "unknown" if "unknown" in statuses else "ok"
-        digest = sha256_json(["view", expression, sorted(map(str, parts_v)), sorted(map(str, parts_i))])
+        digest = sha256_json(["view", definition.canonical_hash, expression, sorted(map(str, parts_v)),
+                              sorted(map(str, parts_i))])
         return Fingerprint(digest, status, "；".join(dict.fromkeys(reasons)) or None,
                            {"expression": expression, "value_sources": len(values), "influences": len(influences)})
 

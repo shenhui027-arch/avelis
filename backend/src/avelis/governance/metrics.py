@@ -50,6 +50,7 @@ TRANSITIONS = {
     ("published", "affected"),
     ("published", "archived"),
     ("affected", "published"),
+    ("affected", "pending_review"),  # 待批准时受影响：恢复后回到待批准，仍须正式复核
     ("affected", "retired"),
 }
 EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
@@ -256,10 +257,18 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
                             f"{dep['reason'] or '原因未知'}")
     fps = {(d["asset_id"], d["column"]): d["fingerprint"] for d in resolved["dependency"]}
     joins_report = []
+    fan_out: list[str] = []  # 会放大可加度量的问题：发布时阻断，问数时按当前粒度重新判定
     additive = is_additive(resolved["expression"].expression)
+    if additive and resolved["steps"]:
+        outside = sorted({alias for alias, _ in resolved["expression"].columns if alias != BASE_ALIAS})
+        if outside:
+            fan_out.append(f"可加度量 {version.expression} 引用了关联侧 {'、'.join(outside)} 的列："
+                           "关联后按基础表的行重复计数。请把该表作为基础表，或改为在关联侧先聚合后再关联")
     for step in resolved["steps"]:
         path: JoinPath = step["path"]
-        if path.status != "approved":
+        from avelis.governance.joins import effectively_approved
+
+        if not effectively_approved(session, path):
             blockers.append(f"关联路径 {path.code} 尚未批准（{path.status}）")
         if step["pre_aggregate"]:
             card_value, basis = "n1", {"basis": f"右侧先按 {', '.join(path.right_columns)} 聚合，粒度即关联键"}
@@ -273,17 +282,18 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
                   "pre_aggregate": step["pre_aggregate"]}
         joins_report.append(report)
         if card_value in ("1n", "nn", "unknown") and additive:
-            blockers.append(
+            fan_out.append(
                 f"关联 {path.code}（{step['from']} → {step['alias']}）基数为 {_card_label(card_value)}，"
                 f"会放大可加度量 {version.expression}，导致重复计数。请先把右侧按关联键聚合（pre_aggregate），"
                 f"或改用不放大的关联路径")
+    blockers.extend(fan_out)
     base_grains = [g.to_dict() for g in effective_grains(session, version.base_asset_id,
                                                          current_fingerprint_map(session))]
     if not version.grain:
         warnings.append("未填写统计粒度")
     if version.joins and not version.dedupe_basis:
         warnings.append("涉及关联但未说明避免重复计数的依据")
-    return {"ok": not blockers, "blockers": blockers, "warnings": warnings, "joins": joins_report,
+    return {"ok": not blockers, "blockers": blockers, "fan_out": fan_out, "warnings": warnings, "joins": joins_report,
             "base_grains": base_grains, "dependency": resolved["dependency"],
             "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
             "fingerprints": len(fps)}
@@ -375,6 +385,13 @@ def archive(session: Session, actor: User, version: MetricVersion, reason: str) 
     transition(session, version, "archived", actor, reason)
     audit.record(session, actor, "metric_version.archive", "metric_version", version.id, reason=reason)
     return version
+
+
+def status_before_affected(session: Session, version: MetricVersion) -> str | None:
+    """最近一次进入“受影响”之前的状态（published 或 pending_review）。"""
+    return session.scalar(select(MetricVersionTransition.from_status).where(
+        MetricVersionTransition.metric_version_id == version.id, MetricVersionTransition.to_status == "affected")
+        .order_by(MetricVersionTransition.at.desc()).limit(1))
 
 
 def mark_affected(session: Session, version: MetricVersion, reason: str) -> bool:

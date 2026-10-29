@@ -71,3 +71,18 @@ def test_engine_description_is_serialisable():
     d = get_engine("starrocks").describe()
     assert d["dialect"] == "starrocks" and "query" in d["capabilities"] and d["name_levels"][0] == "catalog"
     assert isinstance(Engine, type)
+
+
+def test_model_history_drops_result_values_when_not_sent():
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from avelis.ask.agent import _history_for_model
+
+    old = AIMessage("[answered] 2026-09-15（region=华东） 净销售额（V1）：270.00")  # 旧检查点：没有标记
+    new = AIMessage("[answered] 净销售额：270.00", additional_kwargs={
+        "avelis_summary": True, "redacted": "[answered] · 指标 net_sales · 日期 2026-09-15（结果未发送给模型）"})
+    history = [HumanMessage("2026-09-15 华东区净销售额"), old, new]
+    sent = _history_for_model(history, send_results=False)
+    assert "270" not in " ".join(str(m.content) for m in sent)
+    assert "指标 net_sales" in str(sent[2].content) and str(sent[1].content).startswith("[answered]")
+    assert _history_for_model(history, send_results=True) == history

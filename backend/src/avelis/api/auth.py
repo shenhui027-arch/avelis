@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -120,7 +121,7 @@ def change_password(body: PasswordChange, user: User = Depends(current_user),
 @router.post("/auth/logout")
 def logout(claims: dict = Depends(current_claims), user: User = Depends(current_user),
            session: Session = Depends(get_session)) -> dict:
-    ttl = int(claims["exp"] - datetime.now(timezone.utc).timestamp())
+    ttl = math.ceil(claims["exp"] - datetime.now(timezone.utc).timestamp())  # 向上取整：吊销记录不早于令牌过期
     cache.revoke_token(claims["jti"], ttl)
     audit.record(session, user, "auth.logout", "user", user.id)
     return {"ok": True}

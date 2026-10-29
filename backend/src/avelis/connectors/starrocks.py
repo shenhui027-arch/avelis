@@ -85,6 +85,8 @@ class StarRocksConnector:
                 identity["cluster_id"] = str(rows[0].get("ClusterId"))
         except pymysql.MySQLError:
             identity["cluster_id"] = None  # 需要 OPERATE 或 NODE 权限；默认不授予
+        if identity.get("cluster_id"):
+            identity["instance_id"] = f"sr:{identity['cluster_id']}"
         return identity
 
     def snapshot(self) -> Snapshot:
@@ -241,10 +243,17 @@ class StarRocksConnector:
         if not names:
             return {}
         dbs, tables = _in_list(sorted({d for d, _ in names})), _in_list(sorted({n for _, n in names}))
-        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None} for k in names}
+        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
+                                                      for k in names}
         conn = self._connect(read_timeout=30)
         try:
             cur = conn.cursor()
+            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ID FROM information_schema.tables_config "
+                        f"WHERE TABLE_SCHEMA IN ({dbs}) AND TABLE_NAME IN ({tables})")
+            for r in cur.fetchall():
+                key = (r["TABLE_SCHEMA"], r["TABLE_NAME"])
+                if key in out and r["TABLE_ID"]:
+                    out[key]["physical_id"] = str(r["TABLE_ID"])
             cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE "
                         f"FROM information_schema.columns WHERE TABLE_SCHEMA IN ({dbs}) AND TABLE_NAME IN ({tables})")
             for r in sorted(cur.fetchall(), key=lambda r: int(r["ORDINAL_POSITION"])):

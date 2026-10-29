@@ -348,7 +348,12 @@ def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str], 
         add(on, "join_key")
         left_refs: list[ColumnRef] = []
         right_refs: list[ColumnRef] = []
-        for eq in on.find_all(exp.EQ):
+        # 只有顶层 AND 连接的等值项才必然成立，才能用来推导唯一性；含 OR / NOT 时不提取关联键（粒度不传播）
+        conjuncts = list(on.flatten()) if isinstance(on, exp.And) else [on]
+        if any(c.find(exp.Or, exp.Not) for c in conjuncts):
+            problems.append(f"与 {right_alias} 的关联条件含 OR / NOT，未用于推导唯一性")
+            conjuncts = []
+        for eq in (c for c in conjuncts if isinstance(c, exp.EQ)):
             a, b = eq.this, eq.expression
             if not (isinstance(a, exp.Column) and isinstance(b, exp.Column)):
                 continue
