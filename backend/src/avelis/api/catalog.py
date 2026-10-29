@@ -17,7 +17,7 @@ from avelis.collect.service import current_fingerprints
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
-from avelis.engines import CapabilityMissing, engine_of, query_connector
+from avelis.engines import CapabilityMissing, dialect_of, engine_of, query_connector
 from avelis.governance import access
 from avelis.governance.metrics import current_fingerprint_map
 from avelis.lineage.grain import effective_grains
@@ -318,7 +318,7 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
         raise HTTPException(409, "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验："
                                  + "；".join(x["summary"] for x in stale))
     sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns),
-                            dialect=engine_of(ds).sql.name)
+                            dialect=dialect_of(ds))
     detail: dict[str, Any] = {"sql": sql}
     try:
         result = query_connector(session, ds).execute_select(sql, timeout_seconds=30, mem_limit_bytes=1024**3,
