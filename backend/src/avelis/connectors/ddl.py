@@ -220,10 +220,10 @@ _NO_COLUMN_MODIFY = {"COMMENT", "ORDER", "TTL", "SETTING", "SETTINGS", "ENGINE",
                      "SAMPLE", "PARTITION"}
 UNKNOWN = None  # 识别不了：可能涉及任何一列
 # 确定不改变采集字段（列名、类型、可空性、注释、键）的 ALTER TABLE 动作（PostgreSQL、MySQL 系、ClickHouse 的写法）
-_NO_COLUMN_VERBS = {"OWNER", "SET", "RESET", "CLUSTER", "REPLICA", "INHERIT", "OF", "ATTACH", "DETACH", "DEPENDS",
-                    "ALGORITHM", "LOCK", "ENGINE", "AUTO_INCREMENT", "CHARSET", "COLLATE", "ROW_FORMAT",
-                    "KEY_BLOCK_SIZE"}
-_NO_COLUMN_TOGGLES = {"TRIGGER", "RULE", "ROW", "REPLICA", "ALWAYS", "FORCE", "KEYS", "INHERIT"}
+# 会级联影响其他表的动作（分区挂接 / 摘除、继承、改约束可继承性）不在这里：它们算识别不出，见 _cascades
+_NO_COLUMN_VERBS = {"OWNER", "SET", "RESET", "CLUSTER", "REPLICA", "OF", "DEPENDS", "ALGORITHM", "LOCK", "ENGINE",
+                    "AUTO_INCREMENT", "CHARSET", "COLLATE", "ROW_FORMAT", "KEY_BLOCK_SIZE"}
+_NO_COLUMN_TOGGLES = {"TRIGGER", "RULE", "ROW", "REPLICA", "ALWAYS", "FORCE", "KEYS"}
 
 
 def _paren_idents(a: list[Token], i: int) -> list[Token]:
@@ -256,8 +256,6 @@ def _action_columns(a: list[Token]) -> list[Token] | None:
     nxt = a[1] if len(a) > 1 else None
     if verb in _NO_COLUMN_VERBS or (verb in ("ENABLE", "DISABLE", "FORCE", "NO") and _kw(nxt, *_NO_COLUMN_TOGGLES)):
         return []  # 属主、存储参数、表空间、模式、日志属性、聚簇、复制标识、触发器、规则、行级安全：不改采集的字段
-    if verb == "ALTER" and _kw(nxt, "CONSTRAINT"):
-        return []  # 只改约束的可延迟属性
     i = 1
     if verb in ("ADD", "DROP") and _kw(nxt, "CONSTRAINT"):
         if verb == "DROP":
@@ -309,12 +307,29 @@ class ColumnRefs:
 
 
 _ALTERABLE = (("TABLE",), ("VIEW",), ("MATERIALIZED", "VIEW"), ("FOREIGN", "TABLE"))
-# 确定不改变表结构的语句（事务控制、数据读写、授权、维护）：不针对对象的列
+# 确定不会改表结构、也不会经触发器或函数执行 DDL 的语句：事务控制、会话设置、授权、加锁、通知
 _HARMLESS = {"BEGIN", "START", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE", "SET", "RESET", "SHOW", "GRANT",
-             "REVOKE", "INSERT", "UPDATE", "DELETE", "COPY", "VACUUM", "ANALYZE", "LOCK", "TRUNCATE", "REFRESH",
-             "NOTIFY", "LISTEN", "UNLISTEN", "DISCARD", "CLUSTER", "REINDEX", "CHECKPOINT", "SECURITY", "USE"}
-# 可能在内部执行任意 DDL 的语句：动态 SQL、过程调用、可能调用函数的查询
-_OPAQUE = {"DO", "EXECUTE", "CALL", "SELECT", "WITH", "VALUES", "PERFORM", "PREPARE", "TABLE"}
+             "REVOKE", "LOCK", "NOTIFY", "LISTEN", "UNLISTEN", "DISCARD", "CHECKPOINT", "USE"}
+# 其余语句一律识别不出：DML（INSERT / UPDATE / DELETE / MERGE / COPY / TRUNCATE）可能经触发器执行 DDL；
+# CALL / SELECT / DO / EXECUTE 等可能经函数或动态 SQL 执行 DDL；VACUUM / ANALYZE / REFRESH 等会执行表达式里的函数
+
+
+def _cascades(st: list[Token], head: str) -> bool:
+    """会级联影响其他对象（因而可能改到目标表字段）的语句：ALTER TYPE / DOMAIN、任何带 CASCADE 的 DDL、
+    ALTER TABLE 的 ATTACH / DETACH PARTITION、INHERIT / NO INHERIT、ALTER CONSTRAINT（PG18 可改继承性）。
+    不管显式目标是不是该对象。授权的 CASCADE 只撤销权限，不算。"""
+    if head in ("GRANT", "REVOKE"):
+        return False
+    if head == "ALTER" and _kw(st[1] if len(st) > 1 else None, "TYPE", "DOMAIN"):
+        return True
+    if any(_kw(t, "CASCADE") for t in st):
+        return True
+    if head == "ALTER" and _kw(st[1] if len(st) > 1 else None, "TABLE", "FOREIGN"):
+        for action in _actions(st[2:]):
+            words = [t.text.upper() for t in action if t.kind == "ident" and not t.quoted]
+            if {"ATTACH", "DETACH", "INHERIT"} & set(words) or words[:2] == ["ALTER", "CONSTRAINT"]:
+                return True
+    return False
 
 
 def _targets(parts: list[Token], schema: str | None, name: str, fold: str) -> bool:
@@ -330,8 +345,10 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive", sch
       确定不改列结构的动作
       （改属主、存储参数、表空间、触发器、行级安全等）不算，其余动作算 unknown；
     - COMMENT ON COLUMN <该对象>.<列> 给出列；COMMENT ON TABLE / VIEW <该对象> 不涉及列；
-    - CREATE / DROP 该对象、DO / EXECUTE / CALL / SELECT 等可能在内部执行任意 DDL 的语句、认不出的语句：unknown；
-    - 针对别的对象的 DDL、事务控制、数据读写、授权等：不涉及该对象的列。
+    - CREATE / DROP 该对象；DML、CALL、SELECT、DO、EXECUTE 等可能经触发器、函数或动态 SQL 执行 DDL 的语句；
+      会级联影响其他对象的语句（ALTER TYPE / DOMAIN、带 CASCADE 的 DDL、分区挂接 / 摘除、继承、ALTER CONSTRAINT），
+      不管显式目标是谁；以及认不出的语句：unknown；
+    - 针对别的对象、且不会级联的 DDL，事务控制、会话设置、授权、加锁：不涉及该对象的列。
     审计来源说这条记录针对该对象、却没有一条子语句认得出是针对它的，也算 unknown；词法上无法确定时同样。"""
     lexed = lex(statement)
     found: list[Token] = []
@@ -339,6 +356,8 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive", sch
     targeted = False
     for st in _statements(lexed.tokens):
         head = st[0].text.upper() if st and st[0].kind == "ident" and not st[0].quoted else ""
+        if _cascades(st, head):
+            unknown = True  # 级联影响：请求涉及的每个对象都可能被改到任意列
         if head == "ALTER":
             kind = next((k for k in _ALTERABLE if all(_kw(st[1 + n] if len(st) > 1 + n else None, w)
                                                        for n, w in enumerate(k))), None)
