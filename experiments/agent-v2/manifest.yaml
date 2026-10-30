@@ -18,7 +18,8 @@ authorization:
     reasoning_tokens: 页面未说明；按已包含在 completion_tokens 中计（不重复计费）
   spent:
     e0: {requests: 8, cache_miss_input: 1432, cache_hit_input: 640, output: 346, period: off_peak, cny: "0.0028"}
-    e1: {cny: "0", note: 待 E0 结果审查确认后运行；运行时以 --spent 0.0028 起算}
+    e1: {cny_actual: "3.5217", cny_ledger: "5.0267", note: 48 次全部完成（2026-10-31 01:56 起，空闲时段）；账本含失败运行按预留额 1.5 元保守入账与起算 0.005 元}
+    total_actual_cny: "3.5245"  # E0 0.0028 + E1 3.5217
   retry_rule: 真实网络故障按流程规则只重试一次，计入请求数与费用上限；不为结果不好增加预算、重试或运行次数
   reference: 任务书《分析智能体优化与对照实验》第 2、12、13 节
 
@@ -151,7 +152,9 @@ b0:
 
 # --- E1：诊断性补齐信息实验（第 12 节），待授权 ------------------------------------------------
 e1:
-  status: 未运行（BLOCKED：需要协调会话确认费用与授权）
+  status: 已完成 48 次（结果 docs/agent-v2/results-e1.md；原始数据 .demo/experiments/e1/20261031-015646.json，摘要 experiments/agent-v2/e1/）
+  permission_snapshot_after: 8c9e6c60e695815189a62800d9f6cc7079d168b50b6017e6682d5d9edb33d63b  # 与运行前相同
+  code_sha: 42dbfe63002692598e69a894321eecfc75191e19  # 运行器记录，工作区干净
   scenarios: [h10, e01, h07, f02, h09, d02]  # 已看过的开发题，不称盲测
   conditions: [D0, D1, D2, D3]
   repeats: 2
