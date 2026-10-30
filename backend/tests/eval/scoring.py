@@ -29,9 +29,10 @@ def load_questions(path: Path = QUESTIONS, truth: dict | None = None) -> dict[st
         q.setdefault("user", data["defaults"]["user"])
         q.setdefault("window", data["defaults"]["window"])
         key = (q.get("expect") or {}).get("key_value") or {}
-        if "truth" in key:
+        if "truth" in key:  # 一个或多个真值引用，各自展开后合并
             truth = truth or load_truth()
-            key["any_of"] = truth_values(truth, key["truth"], q["window"])
+            refs = key["truth"] if isinstance(key["truth"], list) else [key["truth"]]
+            key["any_of"] = [v for ref in refs for v in truth_values(truth, ref, q["window"])]
     return data
 
 
@@ -43,7 +44,9 @@ def load_truth() -> dict[str, Any]:
     root = Path(__file__).resolve().parents[3]
     path = root / ".demo" / "ec-truth.json"
     truth = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    if not {"store_month", "logistics_region_month", "ticket_region_month", "category_month"} <= set(truth):
+    needed = {"store_month", "logistics_region_month", "ticket_region_month", "ticket_region_category_month",
+              "category_month", "store_traffic_month", "orders_day", "ad_region_month"}
+    if not needed <= set(truth) or "satisfaction_sum" not in next(iter(truth["ticket_region_month"].values())):
         sys.path.insert(0, str(root / "scripts"))
         import ec_data
 
@@ -54,16 +57,28 @@ def load_truth() -> dict[str, Any]:
 
 
 def truth_values(truth: dict, ref: dict, window: dict) -> list[str]:
-    """真值引用 {table, key, measure} 按题目窗口展开成 [本期值, 对比期值, 变化量]（去掉为 0 的值）。
-    measure 可以是字段名，或 a/b 形式的比值（如 delivery_hours/shipments）。"""
-    def value(month: str) -> Decimal:
-        key = str((*ref.get("key", []), month)) if ref.get("key") else month
-        row = truth[ref["table"]].get(key) or {}
+    """真值引用 {table, key, measure, period?} 按题目窗口展开成 [本期值, 对比期值, 变化量]（去掉为 0 的值）。
+    measure 可以是字段名，或 a/b 形式的比值（如 delivery_hours/shipments）。period: day 时按窗口的起止日期逐日求和
+    （表按日期为键），否则取窗口起始所在的月。"""
+    from datetime import date, timedelta
+
+    def cell(stamp: str) -> dict:
+        return truth[ref["table"]].get(str((*ref["key"], stamp)) if ref.get("key") else stamp) or {}
+
+    def value(start: str, end: str) -> Decimal:
+        if ref.get("period") == "day":
+            first, last = date.fromisoformat(start), date.fromisoformat(end)
+            rows = [cell(str(first + timedelta(days=i))) for i in range((last - first).days + 1)]
+        else:
+            rows = [cell(start[:7])]
         num, _, den = ref["measure"].partition("/")
-        if not row:
-            return Decimal("0")
-        return Decimal(str(row[num])) / Decimal(str(row[den])) if den else Decimal(str(row[num]))
-    current, previous = value(window["start"][:7]), value(window["compare_start"][:7])
+        top = sum((Decimal(str(r[num])) for r in rows if r), Decimal("0"))
+        if not den:
+            return top
+        bottom = sum((Decimal(str(r[den])) for r in rows if r), Decimal("0"))
+        return top / bottom if bottom else Decimal("0")
+    current = value(window["start"], window["end"])
+    previous = value(window["compare_start"], window["compare_end"])
     return [str(v) for v in (current, previous, current - previous) if v != 0]
 
 
@@ -180,7 +195,16 @@ def summarize(results: list[dict]) -> dict[str, Any]:
         by_question.setdefault(r["id"], []).append(r)
     positives = [r for r in results if r["category"] in POSITIVE]
     stable = [q for q, rs in by_question.items() if len({r["passed"] for r in rs}) == 1]
+    groups = {}  # 调优集与留出题分开统计（留出题在修复完成前不跑，也不据此调整）
+    for name, members in (("tuning", [r for r in results if not r.get("holdout")]),
+                          ("holdout", [r for r in results if r.get("holdout")])):
+        if members:
+            pos = [r for r in members if r["category"] in POSITIVE]
+            groups[name] = {"overall": rate(members), "completed": rate(members, "completed"),
+                            "primary_hit": rate(pos, "primary_hit"),
+                            "sources_failed_runs": sum(1 for r in members if r.get("sources_failed"))}
     return {
+        "groups": groups,
         "overall": rate(results),
         "completed": rate(results, "completed"),
         "primary_hit": rate(positives, "primary_hit"),
@@ -201,7 +225,12 @@ def markdown(summary: dict, results: list[dict], meta: dict) -> str:
              f"- 来源未通过的运行：{summary['sources_failed_runs']}",
              f"- 稳定性：{summary['stability']['stable']}/{summary['stability']['questions']} 题各次结果一致"
              + (f"（不一致：{'、'.join(summary['stability']['unstable'])}）" if summary['stability']['unstable'] else ""),
-             "", "| 类别 | 通过 |", "|---|---|"]
+             ""]
+    names = {"tuning": "调优集", "holdout": "留出题"}
+    lines += [f"- {names[g]}：总体 {pct(v['overall'])}；完成率 {pct(v['completed'])}；首要原因命中（正例）"
+              f"{pct(v['primary_hit'])}；来源未通过的运行 {v['sources_failed_runs']}"
+              for g, v in (summary.get("groups") or {}).items()]
+    lines += ["", "| 类别 | 通过 |", "|---|---|"]
     lines += [f"| {c} | {pct(r)} |" for c, r in summary["categories"].items()]
     lines += ["", "| 题 | 类别 | 状态 | 结论 | 首要原因 | 关键数值 | 来源未通过 | 通过 |", "|---|---|---|---|---|---|---|---|"]
     mark = {True: "✓", False: "✗", None: "—"}
