@@ -56,12 +56,15 @@ PRESETS = {
 # 思考强度（ADR 0012）：页面按提供方实际支持的档位显示；DEFAULT_EFFORT 是各用途的默认档位，改默认值只改这里。
 EFFORTS = ("off", "low", "medium", "high", "max")
 EFFORT_LABELS = {"off": "关闭", "low": "低", "medium": "中", "high": "高", "max": "最高"}
-DEFAULT_EFFORT = {"ask": "medium", "explain": "medium", "import": "medium", "analysis": "medium"}
-# 提供方档位 → 实际生效的档位。DeepSeek 以官方文档为准（https://api-docs.deepseek.com/guides/thinking_mode/，
-# 2026-10-30）：关闭思考用 thinking.type=disabled，reasoning_effort 只有 low / high / max，medium 按 high 执行。
-# 实测（deepseek-flash，2026-10-30）：关闭时没有推理 token；low、medium、high 推理量相近，max 明显更多；
+# 默认“低”（用户 2026-10-30 确认）：DeepSeek 的“中”会按“高”执行
+DEFAULT_EFFORT = {"ask": "low", "explain": "low", "import": "low", "analysis": "low"}
+# 提供方支持的档位 → 实际发送的档位。DeepSeek API 只有 low / high / max 三档，其他名称按官方映射表归入这三档
+# （medium 归入 high；https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/，对所有模型通用），关闭思考用
+# thinking.type=disabled，所以页面只列 关闭 / 低 / 高 / 最高。以前保存的“中”按映射表发送 high。
+# 实测（deepseek-flash，2026-10-30）：关闭时没有推理 token；low、high 推理量相近，max 明显更多；
 # 开启思考并带工具的多轮请求不带回 reasoning_content 也没有返回 400。其他提供方未核实，不传思考参数。
-DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "medium": "high", "high": "high", "max": "max"}
+DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "high": "high", "max": "max"}
+DEEPSEEK_ALIASES = {"medium": "high"}
 
 POLICY_KEY = "model_policy"
 # 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
@@ -110,7 +113,10 @@ def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str
 def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None) -> str | None:
     """实际生效的档位；提供方没有核实过的档位时为 None（不传思考参数，按提供方默认）。"""
     mapping = effort_map(p, model_id)
-    return mapping.get(effort or "") if mapping else None
+    if not mapping:
+        return None
+    effort = effort or ""
+    return mapping.get(effort) or mapping.get(DEEPSEEK_ALIASES.get(effort, ""))
 
 
 def _effort_kwargs(p: ModelProvider, model_id: str, effort: str | None) -> dict[str, Any]:

@@ -247,7 +247,8 @@ def deepseek():
 
 def test_reasoning_effort_request_parameters_are_adapted_per_provider(provider):
     """ADR 0012：思考强度的请求参数集中在 build_chat_model。DeepSeek 关闭思考用 thinking.type=disabled，
-    其余档位传 reasoning_effort，medium 按官方文档换成 high；没有核实过的提供方不传思考参数。"""
+    其余档位传 reasoning_effort；API 只有 low / high / max，页面不列“中”，以前存的 medium 按映射表发送 high；
+    没有核实过的提供方不传思考参数。"""
     ds = deepseek()
     off = modelcfg.build_chat_model(ds, "deepseek-flash", effort="off", max_tokens=1000)
     assert off.extra_body == {"thinking": {"type": "disabled"}} and off.reasoning_effort is None and off.max_tokens == 1000
@@ -256,9 +257,8 @@ def test_reasoning_effort_request_parameters_are_adapted_per_provider(provider):
     assert modelcfg.build_chat_model(ds, "deepseek-flash", effort="max").reasoning_effort == "max"
     other = modelcfg.build_chat_model(provider, MODEL_ID, effort="high")
     assert other.reasoning_effort is None and other.extra_body is None and other.max_tokens is None
-    assert [o["value"] for o in modelcfg.effort_options(ds, "deepseek-flash")] == list(modelcfg.EFFORTS)
-    medium = next(o for o in modelcfg.effort_options(ds, "deepseek-flash") if o["value"] == "medium")
-    assert medium["effective"] == "high" and medium["effective_label"] == "高"  # 页面注明实际生效的档位
+    assert [o["value"] for o in modelcfg.effort_options(ds, "deepseek-flash")] == ["off", "low", "high", "max"]
+    assert all(o["effective"] == o["value"] for o in modelcfg.effort_options(ds, "deepseek-flash"))
     assert modelcfg.effort_options(provider, MODEL_ID) == []
 
 
@@ -277,7 +277,12 @@ def test_assignment_effort_is_saved_validated_and_resolved(monkeypatch):
     assert understand.extra_body == {"thinking": {"type": "disabled"}} and understand.max_tokens == 1000
     modelcfg.save_settings(session, actor, {"analysis": {"provider_id": "ds-id", "model_id": "deepseek-flash"}}, None)
     view = modelcfg.settings_view(session)["assignments"]["analysis"]
-    assert view["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"] == "medium" and view["effective_effort"] == "high"
+    assert view["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"] == "low" and view["effective_effort"] == "low"
+    with pytest.raises(modelcfg.Invalid):  # DeepSeek 没有“中”这一档
+        modelcfg.save_settings(session, actor, {"analysis": {"provider_id": "ds-id", "model_id": "deepseek-flash",
+                                                             "reasoning_effort": "medium"}}, None)
+    session.get(ModelAssignment, "analysis").reasoning_effort = "medium"  # 以前保存的“中”
+    assert modelcfg.settings_view(session)["assignments"]["analysis"]["effective_effort"] == "high"
     plain = ModelProvider(id="provider-id", code="unit", name="测试模型", kind="openai_compatible",
                           base_url="https://unit.invalid/v1", api_key_enc="encrypted", enabled=True,
                           models=[{"id": MODEL_ID, "enabled": True, "tool_calling": True}],
