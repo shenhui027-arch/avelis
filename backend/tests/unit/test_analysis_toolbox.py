@@ -105,6 +105,13 @@ def test_report_reserve_allows_one_resubmission_after_a_parse_error(monkeypatch)
     third = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
                                                       "conclusion": "insufficient_evidence"}))
     assert "不能再提交" in third["error"]
+    # 修订是新的一轮：核验没过进入修订后，submit_report 的预留次数重新计算（最终评测里修订后的报告曾被拒）
+    box.verification = {"claims": [], "fields": [], "causes": [], "conclusion": {"problems": ["x"]}}
+    box.report = {"claims": []}
+    agent.revise({}, {"configurable": {"toolbox": box, "model": None}})
+    revised = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
+                                                        "conclusion": "insufficient_evidence"}))
+    assert revised == {"ok": True} and box.budget.used_reports == 1
 
 
 def test_invalid_tool_calls_are_counted_and_answered(monkeypatch):
