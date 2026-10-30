@@ -246,7 +246,7 @@ def test_comparison_and_calendar_wording_is_not_a_quantity():
 
 
 def test_exemptions_only_narrow_never_widen():
-    """第四轮 Codex 复核（P2 × 5）：引用的数据集里都没有对应数量的反例，必须判为未核实。"""
+    """第四、五轮 Codex 复核：引用的数据集里都没有对应数量的反例，必须判为未核实。"""
     empty = {"D1": {"rows": [{"store": "广州一店", "v": "7"}]}}
 
     def status(text, data=empty, kind="fact"):
@@ -260,9 +260,15 @@ def test_exemptions_only_narrow_never_widen():
     assert bad("营收千万元") == ("unverified", ["千万"])
     assert bad("库存降至原来的十分之一") == ("unverified", ["十分之一"])
     assert bad("约 3 分之 1 的门店") == ("unverified", ["3 分之 1"])
-    assert status("千万不要据此下结论")["status"] == "verified"  # 副词
+    # 第五轮：“千万”没有副词豁免（报告里几乎不用，误判代价比漏判小）
+    assert bad("营收千万不足以覆盖成本") == ("unverified", ["千万"])
+    assert bad("千万不要据此下结论") == ("unverified", ["千万"])
     assert status("十分明显，是原因之一")["status"] == "verified"
-    assert status("单位：万元")["status"] == "verified"
+    # 单位说明只认明确写法；单独的“万元”、“单位：万元”不豁免
+    for text in ("（万元）", "(亿元)", "以万元为单位", "以亿元为单位"):
+        assert status(text)["numbers"] == [], text
+    assert bad("单位：万元") == ("unverified", ["万"])
+    assert bad("万元") == ("unverified", ["万"])
     # 2. 日、号后面是金额或门店时不是日期；时长按数量核验；数据集编号必须独立
     assert bad("营收 15 日元") == ("unverified", ["15"])
     assert bad("3号分店关停") == ("unverified", ["3"])
@@ -271,20 +277,39 @@ def test_exemptions_only_narrow_never_widen():
     assert bad("连续停业 3 周") == ("unverified", ["3"])
     assert bad("USD100元") == ("unverified", ["100"])
     assert status("近 3 个月、过去 2 周、每 1 周（D1）")["status"] == "verified"
+    # 时间窗只豁免时长本身：后面的金额照常提取、核验
+    assert bad("近 3 个月营收 300 万") == ("unverified", ["300万"])
+    assert status("近 3 个月营收 7", empty)["numbers"] == [{"text": "7", "verified": True}]
+    # 第五轮：“个月”后面紧接饼、卡、票时不是时间窗
+    assert bad("每 3 个月饼售价 100 元") == ("unverified", ["3", "100"])
     # 3. 名称前面紧挨数字时不当名称去掉；名称只取文本型维度列
     stores = {"D1": {"rows": [{"store": "万达", "v": "7"}, {"store": "广州四号店", "v": "8"}]}}
     assert bad("营收100万达标", stores) == ("unverified", ["100万"])
+    assert bad("营收100 万达标", stores) == ("unverified", ["100万"])  # 第五轮：跳过空白看最近的字符
     assert status("万达与广州四号店分别为 7 与 8", stores)["status"] == "verified"
     # 4. 对比用语：“两段管道”“两个周期”是数量
-    assert bad("本期交付两段管道")[0] == "unverified"
-    assert bad("合同续签两个周期")[0] == "unverified"
-    assert bad("两期基本持平")[0] == "unverified"  # 后面不是对比用语：拿不准就保留
+    leftover = status("本期交付两段管道")
+    assert leftover["status"] == "unverified" and leftover["numbers"] == [
+        {"text": "本期交付两段管道", "verified": False, "error": "包含无法识别的数字"}]
+    assert status("合同续签两个周期")["numbers"] == [{"text": "两", "verified": False, "error": CN_ERROR}]
+    held = status("两期基本持平")  # 后面不是对比用语：拿不准就保留
+    assert held["status"] == "unverified" and held["numbers"] == [
+        {"text": "两期基本持", "verified": False, "error": "包含无法识别的数字"}]
+    # 第五轮：“之差”“之比”是对比用语
+    assert status("两期之差为 7")["numbers"] == [{"text": "7", "verified": True}]
+    assert status("两期之比为 7")["numbers"] == [{"text": "7", "verified": True}]
     # 5. 未引用的数据集里有非有限值：不抛异常，推断类结论照常列出
     weird = {"D1": {"rows": [{"v": "7"}]}, "D2": {"rows": [{"v": "Infinity"}, {"v": "NaN"}, {"v": float("inf")}]}}
     out = verify_report([{"type": "fact", "text": "成交 8", "refs": ["D1"]},
                          {"type": "inference", "text": "可能是 9", "refs": []}], weird)
     assert out["claims"][0]["status"] == "unverified" and out["claims"][1]["status"] == "unchecked"
-    assert "found_in" not in out["claims"][0]["numbers"][0]
+    assert out["claims"][0]["numbers"] == [{"text": "8", "verified": False}]  # 没有 found_in：非有限值不是候选
+    assert out["claims"][1]["numbers"] == [{"text": "9", "verified": False}]
+    fields = verify_report([{"type": "fact", "text": "成交 7", "refs": ["D1", "D2"]}], weird,
+                           {"title": "NaN 与 Infinity", "summary": "成交 7，另有 8"})["fields"]
+    assert fields == [{"field": "title", "status": "verified", "numbers": []},
+                      {"field": "summary", "status": "unverified",
+                       "numbers": [{"text": "7", "verified": True}, {"text": "8", "verified": False}]}]
     assert verify_report([{"type": "fact", "text": "成交 7", "refs": ["D2", "D1"]}], weird)["ok"] is True
 
 
