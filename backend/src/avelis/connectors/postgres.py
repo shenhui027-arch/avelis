@@ -166,6 +166,27 @@ class PostgresConnector:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
+    def execute_explore(self, sql_text: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int = 0,
+                        work_mem: str = "16MB") -> QueryResult:
+        """执行校验后重新生成的探索查询（ADR 0009 第 6 点）：只读事务，statement_timeout 由服务端取消超时的查询，
+        lock_timeout、较低的 work_mem、关闭并行；出错时按数据库错误报出，不返回部分结果。"""
+        try:
+            with self._connect() as conn:
+                conn.autocommit = False
+                with conn.transaction():
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    conn.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(
+                        sql.Literal(f"{int(timeout_seconds)}s")))
+                    conn.execute("SET LOCAL lock_timeout = '2s'")
+                    conn.execute(sql.SQL("SET LOCAL work_mem = {}").format(sql.Literal(work_mem)))
+                    conn.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+                    cur = conn.execute(sql_text)
+                    rows = cur.fetchmany(max_rows + 1)
+                    columns = [d.name for d in cur.description or []]
+        except psycopg.Error as exc:
+            raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
+        return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         """读 DDL 审计。两次快照都记了事务快照时，按事务可见性取“上次快照看不到、本次看得到”的事务，结果确定；
         否则（升级后第一次、上次快照没有游标）按执行时间取窗口内的记录，一律标为不确定（长事务可能跨窗口）。

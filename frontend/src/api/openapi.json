@@ -491,6 +491,64 @@
     ]
    }
   },
+  "/api/datasources/{datasource_id}/exploration": {
+   "put": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Set Exploration",
+    "description": "按数据源开关探索查询（ADR 0009 第 6 点）：默认开启，管理员可以关闭。",
+    "operationId": "set_exploration_api_datasources__datasource_id__exploration_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Exploration"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DatasourceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/datasources/{datasource_id}/credentials/{purpose}": {
    "put": {
     "tags": [
@@ -7089,6 +7147,16 @@
       "type": "integer",
       "title": "Collect Interval Minutes"
      },
+     "allow_exploration": {
+      "type": "boolean",
+      "title": "Allow Exploration",
+      "default": true
+     },
+     "exploration_supported": {
+      "type": "boolean",
+      "title": "Exploration Supported",
+      "default": false
+     },
      "credentials": {
       "items": {
        "$ref": "#/components/schemas/CredentialOut"
@@ -7669,6 +7737,19 @@
     },
     "type": "object",
     "title": "ExampleQuestionsSet"
+   },
+   "Exploration": {
+    "properties": {
+     "allow": {
+      "type": "boolean",
+      "title": "Allow"
+     }
+    },
+    "type": "object",
+    "required": [
+     "allow"
+    ],
+    "title": "Exploration"
    },
    "FetchedOut": {
     "properties": {

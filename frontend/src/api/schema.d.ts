@@ -209,6 +209,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasources/{datasource_id}/exploration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Exploration
+         * @description 按数据源开关探索查询（ADR 0009 第 6 点）：默认开启，管理员可以关闭。
+         */
+        put: operations["set_exploration_api_datasources__datasource_id__exploration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasources/{datasource_id}/credentials/{purpose}": {
         parameters: {
             query?: never;
@@ -2190,6 +2210,16 @@ export interface components {
             };
             /** Collect Interval Minutes */
             collect_interval_minutes: number;
+            /**
+             * Allow Exploration
+             * @default true
+             */
+            allow_exploration?: boolean;
+            /**
+             * Exploration Supported
+             * @default false
+             */
+            exploration_supported?: boolean;
             /** Credentials */
             credentials: components["schemas"]["CredentialOut"][];
             last_run?: components["schemas"]["RunOut"] | null;
@@ -2392,6 +2422,11 @@ export interface components {
         ExampleQuestionsSet: {
             /** Questions */
             questions?: components["schemas"]["ExampleQuestionIn"][];
+        };
+        /** Exploration */
+        Exploration: {
+            /** Allow */
+            allow: boolean;
         };
         /** FetchedOut */
         FetchedOut: {
@@ -3907,6 +3942,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineOut"][];
+                };
+            };
+        };
+    };
+    set_exploration_api_datasources__datasource_id__exploration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Exploration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
