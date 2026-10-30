@@ -22,9 +22,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 REF_PATTERN = r"^D[1-9]\d{0,3}$"
 KINDS = ("level", "delta", "ratio", "rate_change", "share", "count", "unknown")
-Format = Literal["d0", "d1", "d2", "d3", "d4", "int", "wan0", "wan1", "wan2", "yi0", "yi1", "yi2",
-                 "pct0", "pct1", "pct2", "pp0", "pp1", "pp2", "x0", "x1", "x2"]
-_SCALE_PREFIX = {Decimal(1): "", Decimal(10000): "万", Decimal(100000000): "亿"}
 
 
 class _Ref(BaseModel):
@@ -39,11 +36,9 @@ class NumberRef(_Ref):
     match: dict[str, str | int | float] | None = Field(
         None, description="选行条件，如 {'<维度>': '<成员>'}，必须恰好选中一行（不做隐式求和，求和先用 derive）")
     row: int | None = Field(None, ge=1, description="第几行（从 1 开始），与 match 二选一；只用来定位，不代表排名")
-    format: Format | None = Field(None, description="d0–d4 / int：数值加单位；wan0–wan2 / yi0–yi2：万 / 亿（水平、差额、计数）；"
-                                                    "pct0–pct2：百分比（变化率、占比）；pp0–pp2：百分点（比率差）；"
-                                                    "x0–x2：倍（比率）；不写时原值去掉多余的零加单位")
+    precision: int | None = Field(None, ge=0, le=4, description="可选：小数位数（0–4）；显示格式与单位由系统按量纲决定")
     direction: Literal["up", "down"] | None = Field(
-        None, description="差额、变化率的方向：写了就核对正负并显示绝对值；不写时显示带符号的值")
+        None, description="变化的方向（水平值以外的任何值都可以写）：写了就核对正负并显示绝对值；不写时显示带符号的值")
     role: Literal["fact", "proposal"] = Field(
         "fact", description="proposal：建议的目标值（非观测值），只能用在推断、建议类结论中")
 
@@ -205,7 +200,7 @@ def _unit(meta: dict | None) -> dict:
     meta = dict(meta or {})
     kind = meta.get("kind") if meta.get("kind") in KINDS else "unknown"
     return {"kind": kind, "unit": meta.get("unit") or "", "scale": number(meta.get("scale")) or Decimal(1),
-            "of_ratio": bool(meta.get("of_ratio")), "declared": bool(meta.get("declared"))}
+            "of_ratio": bool(meta.get("of_ratio"))}
 
 
 def _summary_value(summary: Any, path: str) -> Any:
@@ -288,8 +283,8 @@ def _window(ref: WindowRef, datasets: dict[str, dict], window: dict) -> tuple[da
 
 # --- 格式化 ----------------------------------------------------------------------------
 
-FORMAT_KINDS = {"wan": ("level", "delta", "count"), "yi": ("level", "delta", "count"),
-                "pct": ("rate_change", "share"), "x": ("ratio",)}
+LEVELS = ("level", "ratio")  # 水平值：不写方向（“下降至 X”里的 X 不做方向检查）
+WAN, YI = Decimal(10000), Decimal(100000000)
 
 
 def _plain(d: Decimal) -> str:
@@ -297,10 +292,11 @@ def _plain(d: Decimal) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def _unit_label(meta: dict) -> str:
-    prefix = _SCALE_PREFIX.get(meta["scale"])
-    return (prefix if prefix is not None else f"×{_plain(meta['scale'])}") + meta["unit"] if meta["unit"] else (
-        prefix or "")
+def _rounded(v: Decimal, places: int, *, strip: bool = False, group: bool = False) -> str:
+    """ROUND_HALF_UP 到 places 位；strip 去掉多余的零；group 加千分位。"""
+    q = v.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    text = f"{q:,.{places}f}" if group else format(q, "f")
+    return text.rstrip("0").rstrip(".") if strip and "." in text else text
 
 
 def fmt(ref: Ref, raw: Any, meta: dict) -> str:
@@ -318,42 +314,46 @@ def fmt(ref: Ref, raw: Any, meta: dict) -> str:
     value = number(raw)
     if isinstance(ref, CountRef):
         return _plain(value)
-    kind, fmt_name = meta["kind"], ref.format or ""
-    sign = ""
-    if ref.direction:
-        if kind not in ("delta", "rate_change"):
-            raise RefError(f"量纲为 {kind} 的值不能标方向（只有差额、变化率可以写 direction）")
-        if value == 0 or (value > 0) != (ref.direction == "up"):
-            raise RefError(f"方向与正负不一致：direction={ref.direction}，原值 {_key(raw)}")
+    return display(value, meta, ref.precision, ref.direction, _key(raw))
+
+
+def display(value: Decimal, meta: dict, precision: int | None = None, direction: str | None = None,
+            raw: str = "") -> str:
+    """系统按量纲决定显示格式（ADR 0009 第 1 点“量纲与单位”）：模型不选格式，只能指定小数位。
+    - level、delta、count（有口径单位）：先按 unit_scale 换算回基本单位，绝对值 ≥ 1 亿用“亿”、≥ 1 万用“万”（2 位），
+      否则原值；后接口径单位；没有单位时按 unknown 显示；
+    - ratio：无单位时 ×100 带 %（如转化率），有单位时原值加单位（如 元/单）；
+    - rate_change、share：×100 带 %；ratio 的差（of_ratio，且无单位）：×100 带“个百分点”；
+    - unknown：原值、千分位、不带单位。
+    direction：水平值（level、ratio）以外都可以写，核对正负后显示绝对值；不写时差额、变化率带符号。"""
+    kind, unit, sign = meta["kind"], meta["unit"], ""
+    if direction:
+        if kind in LEVELS:
+            raise RefError(f"量纲为 {kind} 的水平值不能标方向（变化、差额、变化率等才写 direction）")
+        if value == 0 or (value > 0) != (direction == "up"):
+            raise RefError(f"方向与正负不一致：direction={direction}，原值 {raw or _plain(value)}")
         value = abs(value)
     elif kind in ("delta", "rate_change") and value > 0:
         sign = "+"  # 没写方向：显示带符号的值
-    family = re.match(r"[a-z]+", fmt_name).group(0) if fmt_name else ""
-    places = int(fmt_name[len(family):]) if fmt_name and fmt_name != "int" else 0
-    if family in FORMAT_KINDS and kind not in FORMAT_KINDS[family]:
-        raise RefError(f"格式 {fmt_name} 不能用于量纲 {kind}（{family} 只用于 {'、'.join(FORMAT_KINDS[family])}）")
-    if family == "pp" and not (kind == "delta" and meta["of_ratio"]):
-        raise RefError(f"格式 {fmt_name} 只用于比率差（比率类指标的变化列），这个值的量纲是 {kind}")
-    if kind == "unknown" and family not in ("", "d", "int"):
-        raise RefError(f"量纲未知的值只能用 d0–d4 或 int 格式")
+    fixed = precision is not None
 
-    def q(v: Decimal) -> str:
-        return format(v.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP), "f")
+    def places(default: int) -> int:
+        return precision if fixed else default
 
-    if family in ("wan", "yi"):
+    if kind in ("rate_change", "share") or (kind == "ratio" and not unit):
+        return sign + _rounded(value * 100, places(1)) + "%"
+    if kind == "delta" and meta["of_ratio"] and not unit:
+        return sign + _rounded(value * 100, places(1)) + "个百分点"
+    if kind in ("level", "delta", "count") and unit:
         base = value * meta["scale"]
-        return sign + q(base / (Decimal(10000) if family == "wan" else Decimal(100000000))) + (
-            "万" if family == "wan" else "亿") + meta["unit"]
-    if family == "pct":
-        return sign + q(value * 100) + "%"
-    if family == "pp":
-        return sign + q(value * 100) + "个百分点"
-    if family == "x":
-        return sign + q(value) + "倍"
-    if kind in ("rate_change", "share", "ratio") and not meta["unit"]:
-        return sign + (q(value) if family else _plain(value))
-    unit = "" if kind == "unknown" else _unit_label(meta)
-    return sign + (q(value) if family else _plain(value)) + unit
+        if abs(base) >= YI:
+            return sign + _rounded(base / YI, places(2)) + "亿" + unit
+        if abs(base) >= WAN:
+            return sign + _rounded(base / WAN, places(2)) + "万" + unit
+        return sign + _rounded(base, places(0 if kind == "count" else 2), strip=not fixed) + unit
+    if kind == "ratio":
+        return sign + _rounded(value, places(2), strip=not fixed) + unit
+    return sign + _rounded(value * meta["scale"], places(0 if kind == "count" else 4), strip=not fixed, group=True)
 
 
 # --- 渲染 ------------------------------------------------------------------------------
@@ -395,12 +395,12 @@ def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[s
                    "part": index, "ref": dataset or "window", "path": describe(part), "label": source_label(part),
                    "raw": [str(x) for x in raw] if isinstance(raw, tuple) else _key(raw), "text": display}
         if isinstance(part, (NumberRef, CountRef)):
-            segment.update(measure=meta["kind"], unit=meta["unit"], declared=meta["declared"],
+            segment.update(measure=meta["kind"], unit=meta["unit"],
                            source=ds.get("kind") or "", explore=bool(ds.get("explore")),
                            assumption=bool(ds.get("assumption") or meta.get("column_assumption")),
                            truncated=bool(ds.get("truncated")),
                            partial=bool(ds.get("partial")))
         if isinstance(part, NumberRef):
-            segment.update(format=part.format or "", direction=part.direction or "", role=part.role)
+            segment.update(precision=part.precision, direction=part.direction or "", role=part.role)
         segments.append(segment)
     return {"text": "".join(s["text"] for s in segments), "segments": segments, "errors": errors, "refs": refs}

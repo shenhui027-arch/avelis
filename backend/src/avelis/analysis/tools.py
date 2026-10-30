@@ -255,12 +255,17 @@ class PlanArgs(BaseModel):
 class Claim(BaseModel):
     type: Literal["fact", "calc", "inference", "recommendation"]
     parts: list[Part] = Field(description="结论正文的片段列表：文字片段写字符串，数字写成引用对象，如 "
-                                          "['<成员>较上期下降 ', {'dataset': 'D19', 'summary': 'total.change', 'direction': 'down', "
-                                          "'format': 'wan1'}]；文字片段里不写任何数字（ADR 0009）")
+                                          "['<成员>较上期下降 ', {'dataset': 'D19', 'summary': 'total.change', 'direction': 'down'}]；"
+                                          "显示格式与单位由系统按量纲决定；文字片段里不写数量（ADR 0009）")
     refs: list[Annotated[str, Field(pattern=r"^D[1-9]\d{0,3}$")]] = Field(
         default_factory=list, description="额外引用的数据集编号，如 ['D2']；引用片段涉及的数据集自动计入")
     premise: str | list[Part] | None = Field(None, description="推断与建议的前提（文字或片段列表）")
     validation: str | list[Part] | None = Field(None, description="建议的验证方式（文字或片段列表）")
+
+
+# submit_report 参数的模式版本：片段、原因等结构改变时加一。回放轨迹记录录制时的版本，版本不同的轨迹要重新录制
+# （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定（ADR 0009 第 7 点）
+REPORT_SCHEMA = 2
 
 
 class ReportArgs(BaseModel):

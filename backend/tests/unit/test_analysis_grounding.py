@@ -31,6 +31,10 @@ DATA = {
     "D5": {"kind": "calc", "columns": ["value"], "rows": [{"value": "0.5"}], "summary": {"value": "0.5"},
            "summary_units": {"value": {"kind": "unknown"}}, "assumption": True},
     "D6": {"kind": "explore", "columns": ["客流"], "rows": [{"客流": "1200"}], "explore": True},
+    "D7": {"kind": "governed", "columns": ["客单价", "转化率", "订单数"], "rows": [{"客单价": "596.42514", "转化率": "0.3125",
+                                                                         "订单数": "12897"}],
+           "units": {"客单价": {"kind": "ratio", "unit": "元"}, "转化率": {"kind": "ratio"},
+                     "订单数": {"kind": "level", "unit": "单"}}},
 }
 WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-02", "compare_end": "2026-08-31"}
 
@@ -49,39 +53,41 @@ def cell(column="成交额", **kw):
     return {"dataset": "D1", "column": column, **kw}
 
 
-def test_units_come_from_the_formatter_and_formats_follow_kind():
+def test_display_is_decided_by_kind_not_by_the_model():
+    """第 7 点第 1 条：系统按量纲决定显示格式与单位，模型只能选小数位（precision）。"""
     huadong = cell(match={"区域": "华东"})
-    assert text(huadong) == "1969398.05元"
-    assert text({**huadong, "format": "wan2"}) == "196.94万元"
-    assert text({**huadong, "format": "yi2"}) == "0.02亿元"
-    assert text({**huadong, "format": "int"}) == "1969398元"
-    assert text({"dataset": "D4", "column": "成交额", "format": "d1"}) == "1.3万元"  # 列本身是万元：显示带“万元”
-    assert text({"dataset": "D4", "column": "成交额", "format": "wan2"}) == "1.25万元"  # 先按 unit_scale 换算回元
-    assert text(cell("成交额·变化率", match={"区域": "华南"}, format="pct1")) == "+20.0%"  # 没写方向：带符号
-    assert text({"dataset": "D2", "summary": "value", "format": "x2"}) == "1.06倍"
-    assert text({"dataset": "D2", "summary": "total.share", "format": "pct1"}) == "88.2%"
-    assert text({"dataset": "D4", "column": "转化率·变化", "format": "pp1"}) == "-1.2个百分点"
-    assert errors({**huadong, "format": "pct1"}) == [
-        "第 1 个片段（D1.成交额[区域=华东]）：格式 pct1 不能用于量纲 level（pct 只用于 rate_change、share）"]
-    assert "x 只用于 ratio" in errors({**huadong, "format": "x1"})[0]
-    assert "只用于比率差" in errors(cell("成交额·变化", row=1, format="pp1"))[0]
-    assert "不能用于量纲 unknown" in errors({"dataset": "D6", "column": "客流", "format": "wan1"})[0]
-    assert text({"dataset": "D6", "column": "客流"}) == "1200"  # unknown：不带单位
+    assert text(huadong) == "196.94万元"  # level、有单位：≥ 1 万用“万”，2 位
+    assert text({**huadong, "precision": 0}) == "197万元" and text({**huadong, "precision": 4}) == "196.9398万元"
+    assert text(cell(match={"区域": "西南"})) == "10元"  # 不到 1 万：原值
+    assert text({"dataset": "D4", "column": "成交额"}) == "1.25万元"  # 列本身是万元：先按 unit_scale 换算回元
+    assert text({"dataset": "D7", "column": "订单数"}) == "1.29万单"
+    assert text(cell("成交额·变化率", match={"区域": "华南"})) == "+20.0%"  # rate_change：×100 带 %，没写方向带符号
+    assert text({"dataset": "D2", "summary": "total.share"}) == "88.2%"  # share
+    assert text({"dataset": "D7", "column": "转化率"}) == "31.3%"  # 无单位的比率（转化率）：百分比
+    assert text({"dataset": "D7", "column": "客单价"}) == "596.43元"  # 有单位的比率：原值加单位
+    assert text({"dataset": "D4", "column": "转化率·变化"}) == "-1.2个百分点"  # 比率之差
+    assert text({"dataset": "D6", "column": "客流"}) == "1,200"  # unknown：原值、千分位、不带单位
+    assert text({"dataset": "D5", "summary": "value"}, ) == "0.5"
+    assert "结构不合法" in errors({**huadong, "format": "wan1"})[0]  # 模型不再选格式
+    assert "结构不合法" in errors({**huadong, "precision": 5})[0]
 
 
 def test_direction_is_checked_and_shown_as_absolute_value():
-    down = cell("成交额·变化", match={"区域": "华东"}, direction="down", format="d0")
-    assert text("下降 ", down) == "下降 30602元"
-    assert text(cell("成交额·变化", match={"区域": "华东"})) == "-30601.95元"  # 没写方向：带符号
+    down = cell("成交额·变化", match={"区域": "华东"}, direction="down")
+    assert text("下降 ", down) == "下降 3.06万元"
+    assert text(cell("成交额·变化", match={"区域": "华东"})) == "-3.06万元"  # 没写方向：带符号
     assert errors(cell("成交额·变化", match={"区域": "华东"}, direction="up")) == [
         "第 1 个片段（D1.成交额·变化[区域=华东]）：方向与正负不一致：direction=up，原值 -30601.95"]
-    assert "不能标方向" in errors(cell(match={"区域": "华东"}, direction="down"))[0]  # 水平值不做方向
+    assert "水平值不能标方向" in errors(cell(match={"区域": "华东"}, direction="down"))[0]  # level
+    assert "水平值不能标方向" in errors({"dataset": "D7", "column": "转化率", "direction": "up"})[0]  # ratio
     assert text({"dataset": "D2", "summary": "total.change", "direction": "down"}) == "1675单"
+    assert text({"dataset": "D5", "summary": "value", "direction": "up"}) == "0.5"  # unknown 也可以写方向
+    assert text({"dataset": "D2", "summary": "total.share", "direction": "up"}) == "88.2%"
 
 
 def test_row_selection_and_summary_paths():
-    assert text(cell(match={"区域": "华南"})) == "300071.87元"
-    assert text(cell(row=2, format="d0")) == "300072元"
+    assert text(cell(match={"区域": "华南"})) == "30.01万元"
+    assert text(cell(row=2, precision=0)) == "30万元"
     assert errors(cell()) == ["第 1 个片段（D1.成交额）：D1 有 3 行，请用 match 或 row 选定一行"]
     assert errors(cell(match={"区域": "西北"})) == [
         "第 1 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]
@@ -113,7 +119,7 @@ def test_label_count_and_window_refs():
 def test_malformed_parts_are_reported_by_position():
     assert errors("文字", {"dataset": "D1", "column": "成交额", "colour": "red"})[0].startswith("第 2 个片段：引用")
     assert "结构不合法" in errors({"dataset": "<b>", "column": "x"})[0]
-    assert "结构不合法" in errors(cell(row=1, format="pct9"))[0]
+    assert "结构不合法" in errors(cell(row=1, precision=9))[0]
     assert "结构不合法" in errors({"window": "current"})[0]
     assert isinstance(NumberRef.model_validate(cell(row=1)), NumberRef)
     assert isinstance(LabelRef.model_validate({"dataset": "D1", "label": "门店", "row": 1}), LabelRef)
@@ -128,7 +134,7 @@ def check(parts, kind="fact", refs=None, **extra):
     return rendered["claims"][0], verification["claims"][0], verification
 
 
-HUADONG = cell(match={"区域": "华东"}, format="wan2")
+HUADONG = cell(match={"区域": "华东"})
 
 
 def test_rule2_value_segments_cannot_be_concatenated_or_followed_by_units():
@@ -151,21 +157,19 @@ def test_rule3_no_arabic_digits_in_text_parts(words, digit):
     assert result["problems"] == [f"第 1 个片段（文字）出现数字“{digit}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"]
 
 
-def test_rule4_chinese_quantities_with_final_whitelist():
-    for words in ("共三家门店", "两家门店", "九月下滑", "两期基本持平", "壹佰万", "营收千万元", "前五家门店", "一度下滑",
-                  "百分比很高"):
+def test_rule4_only_chinese_quantity_expressions_are_rejected():
+    """第 7 点第 2 条：只拦数量表达（数字后接量词或单位、几分之几、财务大写），不维护白名单与数量词表。"""
+    for words, found in (("共三家门店", "三家"), ("两家门店", "两家"), ("前五家门店", "五家"), ("两个地区", "两个"),
+                         ("营收两万元", "两万元"), ("十一个品类", "十一个"), ("打八折", "八折"), ("约五成", "五成"),
+                         ("占百分之十", "百分之"), ("约三分之一", "三分之"), ("壹佰万", "壹")):
         _, result, _ = check([words, "，", HUADONG])
         assert result["status"] == "unverified", words
-        assert "出现中文数字" in result["problems"][0], words
-    for words in ("增长一倍", "翻番", "接近半数"):
-        _, result, _ = check([words, "，", HUADONG])
-        assert any("数量词" in p for p in result["problems"]), words
-    # 单独的“折”不是数量词（折扣、转折）；“八折”里的“八”由中文数字检查拦下；数值段后面紧跟“折”仍拒绝
-    _, eight, _ = check(["打八折，", HUADONG])
-    assert eight["status"] == "unverified" and "出现中文数字“八”" in eight["problems"][0]
-    assert check([HUADONG, "折"])[1]["status"] == "unverified"
-    for words in ("两期相比，", "两期合计，", "两者之差，", "口径统一、结果一致，是原因之一，", "十分明显，",
-                  "促销折扣带动销量，", "出现转折，"):
+        assert f"出现中文数量“{found}”" in result["problems"][0], (words, result["problems"])
+    assert check([HUADONG, "折"])[1]["status"] == "unverified"  # 数值段后面紧跟“折”仍拒绝（第 2 条）
+    # 第 5 步评测里被误伤的说法：没有量词、序数、时间词、“一”
+    for words in ("两期天数差，", "两渠道方向相反，", "九月下旬节假日，", "下一级类目与，", "只返回一条月度记录，",
+                  "两期相比，", "两期合计，", "两者之差，", "口径统一、结果一致，是原因之一，", "十分明显，", "第二位，",
+                  "促销折扣带动销量，", "出现转折，", "增长一倍，", "翻番，", "接近半数，", "不支持减半的说法，"):
         assert check([words, HUADONG])[1]["status"] == "verified", words
 
 
@@ -178,7 +182,7 @@ def test_rule5_refs_are_union_and_must_exist():
 
 
 def test_proposal_and_assumption_only_in_inference_or_recommendation():
-    target = cell(match={"区域": "华东"}, role="proposal", format="wan1")
+    target = cell(match={"区域": "华东"}, role="proposal")
     assert check(["目标 ", target])[1]["problems"] == [
         "第 2 个片段（D1.成交额[区域=华东]）标为建议目标值（proposal），只能用在推断、建议类结论中"]
     claim, rec, v = check(["把目标定为 ", target], kind="recommendation", validation="下月复盘 3 次")
@@ -199,7 +203,7 @@ def test_explore_sources_are_marked_and_counted():
 
 def test_inference_and_details_allow_numbers_and_still_render():
     claim, result, v = check(["可能约 3 成来自促销，", {"dataset": "D1", "label": "门店", "row": 2}], kind="inference",
-                             premise=["促销力度与上期相近（约 ", cell("成交额·变化率", row=2, format="pct1"), "）"])
+                             premise=["促销力度与上期相近（约 ", cell("成交额·变化率", row=2), "）"])
     assert result["status"] == "unchecked" and result["problems"] == [] and v["ok"]
     assert claim["text"] == "可能约 3 成来自促销，深圳福田中心店" and claim["premise"] == "促销力度与上期相近（约 +20.0%）"
     assert claim["details"]["premise"]["status"] == "unchecked" and claim["details"]["premise"]["segments"][1]["kind"] == "value"

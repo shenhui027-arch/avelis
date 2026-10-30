@@ -203,7 +203,7 @@ def to_csv(columns: list[str], rows: list[list]) -> bytes:
     return ("﻿" + buf.getvalue()).encode("utf-8")  # Excel 识别 UTF-8
 
 
-SOURCE_COLUMNS = ["位置", "类型", "显示值", "来源标签", "数据集", "取值路径", "量纲", "单位", "格式", "方向", "标记", "原值"]
+SOURCE_COLUMNS = ["位置", "类型", "显示值", "来源标签", "数据集", "取值路径", "量纲", "单位", "小数位", "方向", "标记", "原值"]
 
 
 def sources_csv(view: dict) -> bytes:
@@ -212,10 +212,11 @@ def sources_csv(view: dict) -> bytes:
     for where, kind, s in _segments(view.get("report") or {}):
         raw = s.get("raw")
         marks = [m for m, on in ((EXPLORE_MARK, s.get("explore")), ("建议目标（非观测值）", s.get("role") == "proposal"),
-                                 ("假设计算", s.get("assumption")), ("模型声明量纲", s.get("declared"))) if on]
+                                 ("假设计算", s.get("assumption"))) if on]
         rows.append([where, kind, s.get("text"), s.get("label"), s.get("ref"), s.get("path"),
                      MEASURE_LABEL.get(s.get("measure"), s.get("measure") or ""), s.get("unit") or "",
-                     s.get("format") or "", {"up": "上升", "down": "下降"}.get(s.get("direction"), ""), "；".join(marks),
+                     "" if s.get("precision") is None else s.get("precision"),
+                     {"up": "上升", "down": "下降"}.get(s.get("direction"), ""), "；".join(marks),
                      " ~ ".join(raw) if isinstance(raw, list) else raw])
     return to_csv(SOURCE_COLUMNS, rows)
 

@@ -26,7 +26,12 @@ FIXTURE_ROWS = [["甲", "120", "200", "-80", "-0.4000"], ["乙", "80", "100", "-
 def replay(name: str, monkeypatch):
     from types import SimpleNamespace
 
+    from avelis.analysis.tools import REPORT_SCHEMA
+
     trace = load_trace(name)
+    if trace["version"] >= 2 and trace.get("report_schema", 1) != REPORT_SCHEMA:
+        pytest.skip(f"轨迹 {name} 录制于报告模式 v{trace.get('report_schema', 1)}，当前是 v{REPORT_SCHEMA}："
+                    "需要用 scripts/record_replay_traces.py 从新的评测运行重新录制")
     box = make_box(budget=Budget(), monkeypatch=monkeypatch)
     box.run.window = dict(trace["window"])
     pending: list = []

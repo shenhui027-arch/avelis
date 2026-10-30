@@ -1,15 +1,16 @@
 """报告核验（ADR 0009 第 2 点）：数字写成引用片段（见 grounding），后端渲染；核验只做结构检查，不再从正文里提取数字。
 
-核验层保证“数值来源”：每个事实、计算类数字都来自本次运行的某个数据集单元格或登记的汇总值，量纲与格式匹配，
-渲染过程没有拼接或改写（界面叫“来源已校验”）。它不保证句子语义正确（取错列、错成员、错期间），那部分交给评测。
+核验层保证“数值来源”：每个事实、计算类数字都来自本次运行的某个数据集单元格或登记的汇总值，显示格式由系统按量纲
+决定，渲染过程没有拼接或改写（界面叫“来源已校验”）。它不保证句子语义正确（取错列、错成员、错期间），那部分交给评测。
 
 适用于事实、计算类结论，以及标题、摘要、“未解释”：
-1. 引用必须能解析：数据集、列或汇总路径存在；恰好选中一行；值是有限数值；量纲允许所用的格式；方向与正负一致；
+1. 引用必须能解析：数据集、列或汇总路径存在；恰好选中一行；值是有限数值；方向与正负一致（水平值不写方向）；
 2. 数值段不能拼接：两个数值段直接相邻，或中间只隔着空白与 . , e E + - ×，判错；数值段后面紧跟的文字不能以
-   单位或数量后缀开头（%、倍、成、元、万、亿、个百分点、折），单位只能由格式器输出；
+   单位或数量后缀开头（%、倍、成、元、万、亿、个百分点、折），单位只由系统输出；
 3. 文字片段里不能有阿拉伯数字（半角、全角）；日期用 WindowRef 或数据集里的日期单元格；
-4. 文字片段里不能有中文数量：中文数字字符与财务大写，以及数量词（倍、翻番、翻倍、成倍、半数、一半、减半；单独的“折”不算）；
-   白名单是 ADR 0009 列出的最终清单（WHITELIST），修改必须同步修改 ADR；误判时由修订提示让模型改写；
+4. 文字片段里不能有中文数量表达（ADR 0009 第 7 点调整，不维护白名单与数量词表）：二至九、十、百、千、万、亿、两、
+   零〇 组成的数字后面紧跟量词或单位；“百分之……”“……分之……”；财务大写一律判定。“一”（冠词、序数）、序数与时间词
+   （“第二”“九月下旬”）、没有量词的说法（“两期”“两渠道”）都不判定；剩下的中文数量风险交给评测衡量；
 5. 事实、计算类结论必须引用至少一个数据集（显式 refs 或引用片段），引用的数据集必须存在。
 另外：role=proposal（建议目标值）与“假设计算”（derive 用了非白名单常量）的数据集只能被推断、建议类结论引用。
 推断、建议类结论及 premise、validation：引用照常渲染，文字片段里允许出现数字（假设或方案，不是观测值），不核验。
@@ -32,14 +33,13 @@ FIELDS = ("title", "summary", "unexplained")
 DETAILS = ("premise", "validation")
 NUMERIC = ("value", "count")
 DIGITS = re.compile(r"[0-9０-９][0-9０-９.,:/\-]*")
-CN_NUMERAL = re.compile(r"[零〇一二两三四五六七八九十百千万亿壹贰叁肆伍陆柒捌玖拾佰仟]")
-QUANTITY_WORDS = re.compile(r"翻番|翻倍|成倍|半数|一半|减半|倍")  # 单独的“折”不算（折扣、转折）；“八折”由中文数字检查拦下
-# 白名单（最终清单，见 ADR 0009 第 2 点第 4 条）：这些词不算数量
-WHITELIST = re.compile("|".join([
-    "一致", "统一", r"(?<!分)之一", "一些", "一起", "一直", "一般", "一定", "一旦", "进一步", "唯一", "单一", "一体",
-    "一样", "一下", "一方面", "一系列", r"十分(?!\s*之)", "几乎", "万一", "一同", "一律", "一并", "一再", "一向",
-    "一切", "同一", "一贯", "一时", "不一", "一边", "一部分", "一方", "两者",
-    r"(?:两期|两个时期)(?=\s*(?:的|之间|之差|之比|相比|对比|差|合计|共|各|均|[，。；：、,.;:!?！？）)]|$))"]))
+# 中文数量表达（第 2 点第 4 条）：数字由二至九、十、百、千、万、亿、两、零〇 组成（“一”只在与它们相连时算进数字，
+# 如“一百”“十一”），从整段数字的开头匹配（前面是“第”的是序数），后面紧跟量词或单位才算数量
+_CN_DIGIT = "零〇一二两三四五六七八九十百千万亿"
+MEASURES = ("个百分点|百分点|分钟|小时|[家个件单笔人次条项元块成倍折%％名位户台张份类种款批天周]")
+CN_QUANTITY = re.compile(rf"(?<![第{_CN_DIGIT}])([{_CN_DIGIT}]*[零〇二两三四五六七八九十百千万亿][{_CN_DIGIT}]*)\s*(?:{MEASURES})")
+CN_FRACTION = re.compile(rf"百分之|[{_CN_DIGIT}]+\s*分之")
+CN_FINANCIAL = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]")
 JOINER = re.compile(r"^[\s.,eE+\-×]*$")
 SUFFIX = re.compile(r"^\s*(?:%|％|倍|成|元|万|亿|个百分点|折)")
 STATUS_LABEL = {"all_passed": "来源全部通过", "with_inference": "含未核实的推断", "no_facts": "没有可核实的事实",
@@ -56,7 +56,7 @@ def _concat_problems(segments: list[dict]) -> list[str]:
             continue
         if s["kind"] == "text" and last is not None and between == "" and SUFFIX.match(s["text"]):
             problems.append(f"第 {s['part']} 个片段：数值段后面紧跟单位或数量后缀“{SUFFIX.match(s['text']).group(0).strip()}”"
-                            "，单位只能由格式（format）输出")
+                            "，单位由系统按量纲输出")
         between += s["text"] if s["kind"] == "text" else "\0"  # 维度文本、日期等隔开数值段
     return problems
 
@@ -68,13 +68,11 @@ def _text_problems(segments: list[dict]) -> list[str]:
             continue
         for d in list(dict.fromkeys(DIGITS.findall(s["text"])))[:3]:
             problems.append(f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）")
-        for w in list(dict.fromkeys(QUANTITY_WORDS.findall(s["text"])))[:3]:
-            problems.append(f"第 {s['part']} 个片段（文字）出现数量词“{w}”：倍数请用 x 格式的比率引用，或改写为不含数量的说法")
-        left = WHITELIST.sub(" ", QUANTITY_WORDS.sub(" ", s["text"]))
-        for m in list(CN_NUMERAL.finditer(left))[:3]:
-            snippet = left[max(0, m.start() - 4):m.end() + 4].strip()
-            problems.append(f"第 {s['part']} 个片段（文字）出现中文数字“{m.group(0)}”（…{snippet}…）："
-                            "数量请写成引用对象，或改写为不含数字的说法")
+        text = s["text"]
+        found = [m.group(0) for pattern in (CN_QUANTITY, CN_FRACTION, CN_FINANCIAL) for m in pattern.finditer(text)]
+        for q in list(dict.fromkeys(found))[:3]:
+            problems.append(f"第 {s['part']} 个片段（文字）出现中文数量“{q.strip()}”：数量请写成引用对象（个数用 CountRef），"
+                            "或改写为不含数量的说法")
     return problems
 
 
