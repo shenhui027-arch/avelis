@@ -24,9 +24,12 @@ from tests.unit.test_analysis_toolbox import make_box
 class FakeConnector:
     def __init__(self, result=None, physical=None, error=None):
         self.calls, self.result, self.physical, self.error = [], result, physical or {}, error
+        self.on_describe = None  # 物理核对时的副作用（例如消耗时间）
 
-    def describe_objects(self, objects):
-        self.calls.append(("describe", tuple(objects)))
+    def describe_objects(self, objects, *, timeout_seconds=None):
+        self.calls.append(("describe", tuple(objects), timeout_seconds))
+        if self.on_describe:
+            self.on_describe()
         out = {}
         for db, name in objects:
             cols = {"facts": ["region", "amount", "qty", "event_date", "item_id"], "items": ["item_id", "category"]}[name]
@@ -281,6 +284,10 @@ def test_real_resolver_binding_rules(monkeypatch):
     view = bind("starrocks", None, "d1", "v_ok")
     assert view.kind == "view" and view.definition == "SELECT c1 FROM d1.native" and view.upstream == (("u1", "ver_u1"),)
     assert code("starrocks", None, "d1", "v_unbound") == "view_lineage_unresolved"  # #2 上游有未绑定的来源边
+    with pytest.raises(ExploreRejected) as unresolved:
+        bind("starrocks", None, "d1", "v_unbound")
+    assert "unknown_src" not in unresolved.value.message and "d1.v_unbound" in unresolved.value.message  # 不泄露未授权的名称
+    assert "unknown_src" not in json.dumps(unresolved.value.view(), ensure_ascii=False)
     assert code("starrocks", None, "d1", "v_hidden") == "view_upstream_not_visible"
     assert code("starrocks", None, "d1", "v_unknown") == "view_lineage_unknown"
     assert code("starrocks", None, None, "native") == "table_unqualified"
@@ -304,12 +311,12 @@ def test_view_definition_change_is_caught_before_execution():
         def __init__(self, definition):
             self.definition = definition
 
-        def describe_objects(self, objects):
+        def describe_objects(self, objects, *, timeout_seconds=None):
             return {("d1", "v_sales"): {"physical_id": None, "columns": [["c1", "int"]], "definition": self.definition}}
 
-    exploration.live_check(Conn("SELECT c1 FROM   d1.base"), validated)  # 只是空白不同
+    exploration.live_check(Conn("SELECT c1 FROM   d1.base"), validated, timeout_seconds=10)  # 只是空白不同
     with pytest.raises(ExploreRejected) as e:
-        exploration.live_check(Conn("SELECT c1 FROM d1.other"), validated)
+        exploration.live_check(Conn("SELECT c1 FROM d1.other"), validated, timeout_seconds=10)
     assert e.value.code == "asset_changed" and "定义已变化" in e.value.message
 
 
@@ -369,22 +376,41 @@ def test_calc_tools_inherit_column_evidence(monkeypatch):
 
 
 def test_timeout_is_rechecked_before_dispatch(monkeypatch):
-    """#8 执行前核对耗时之后剩余时间不足：超时值 ≤ 0 时拒绝，不会用 statement_timeout = 0（不限时）执行。"""
+    """#8 物理核对本身耗时，核对之后剩余时间不足：派发前重新计算超时值，≤ 0 时拒绝，不会用 statement_timeout = 0
+    （不限时）执行；物理核对查询也带统一截止时间。"""
     box, conn = explore_box(monkeypatch)
-    times = iter([20.0, 4.0])  # 进入时还够；核对完之后只剩 4 秒（4 − 5 < 0）
-    monkeypatch.setattr(box.budget, "remaining", lambda: next(times))
+
+    def slow_check():  # 物理核对用掉了几乎全部剩余时间：之后只剩约 4 秒（4 − 5 < 0）
+        box.budget.started -= box.budget.remaining() - 4
+    conn.on_describe = slow_check
     out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    describe = [c for c in conn.calls if c[0] == "describe"]
+    assert len(describe) == 1 and 0 < describe[0][2] <= box.EXPLORE_MAX_SECONDS  # 核对确实执行了，且带超时
     assert out["code"] == "deadline" and out["sent_to_database"] is False
     assert not [c for c in conn.calls if c[0] == "execute"] and audits(box)[-1]["sent_to_database"] is False
 
 
-@pytest.mark.parametrize("kill_error, outcome, words", [
-    (None, "cancelled", "已取消服务端查询"),
-    ((1094, "Unknown thread id"), "already_finished", "服务端查询已结束"),
-    ((1227, "Access denied"), "cancel_failed", "取消服务端查询失败"),
+def test_live_check_uses_remaining_time(monkeypatch):
+    """#8 物理核对的超时取剩余时间（不超过探索上限）；剩余时间已不足时不再发核对查询。"""
+    box, conn = explore_box(monkeypatch)
+    box.budget.started -= box.budget.seconds - 20  # 只剩约 20 秒
+    json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    describe = [c for c in conn.calls if c[0] == "describe"]
+    assert describe and 10 <= describe[0][2] <= 15
+    execute = [c for c in conn.calls if c[0] == "execute"]
+    assert execute and 0 < execute[0][2]["timeout_seconds"] <= 15
+
+
+@pytest.mark.parametrize("kill_error, outcome, words, failure", [
+    (None, "kill_sent", "已向服务端发送取消", None),
+    ((1094, "Unknown thread id"), "already_finished", "服务端查询已结束", None),
+    ((1227, "Access denied"), "cancel_failed", "发送取消失败", "InternalError: (1227, 'Access denied')"),
+    ("lost", "cancel_failed", "发送取消失败", "OperationalError: (2013, 'Lost connection to MySQL server during query')"),
+    ("connect", "cancel_failed", "发送取消失败", "OperationalError: (2003, \"Can't connect to MySQL server\")"),
 ])
-def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_error, outcome, words):
-    """#9 KILL QUERY 区分“已取消”“目标已结束”“取消失败”，不再一律报告“已取消”。"""
+def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_error, outcome, words, failure):
+    """#9 KILL QUERY 尽力而为：语句被接受记为“已发送取消”（不写成已取消）；目标已结束、发送失败（权限、通信超时、
+    断连）如实区分，失败时的异常类别与消息写进审计，不进给模型的消息。"""
     import pymysql
 
     from avelis.connectors.starrocks import StarRocksConnector
@@ -398,6 +424,8 @@ def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_e
         def execute(self, sql):
             if self.role == "killer":
                 killed.append(sql)
+                if kill_error == "lost":  # 发 KILL 时通信超时、断连
+                    raise pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
                 if kill_error:
                     raise pymysql.err.InternalError(*kill_error)
             elif sql.startswith("SELECT region"):
@@ -418,11 +446,19 @@ def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_e
 
     roles = iter(["query", "killer"])
     connector = StarRocksConnector("h", 1, "u", "p")
-    monkeypatch.setattr(connector, "_connect", lambda read_timeout=60: Conn(next(roles)))
+
+    def connect(read_timeout=60):
+        role = next(roles)
+        if role == "killer" and kill_error == "connect":  # 取消用的连接建不起来
+            raise pymysql.err.OperationalError(2003, "Can't connect to MySQL server")
+        return Conn(role)
+    monkeypatch.setattr(connector, "_connect", connect)
     with pytest.raises(QueryError) as e:
         connector.execute_explore("SELECT region FROM t", timeout_seconds=5, max_rows=10, mem_limit_bytes=1)
-    assert killed == ["KILL QUERY 42"] and e.value.cancel == outcome and words in e.value.message
+    assert killed == ([] if kill_error == "connect" else ["KILL QUERY 42"])
+    assert e.value.cancel == outcome and words in e.value.message and e.value.cancel_error == failure
+    assert "已取消" not in e.value.message and (failure is None or failure not in e.value.message)
     detail = {}
     monkeypatch.setattr(exploration.audit, "record", lambda s, u, a, t, i, **d: detail.update(d))
     exploration.record(None, None, "r1", step=1, source=None, purpose="x", outcome="failed", error=e.value)
-    assert detail["cancel"] == outcome
+    assert detail["cancel"] == outcome and detail.get("cancel_error") == failure

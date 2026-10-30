@@ -270,8 +270,10 @@ class PostgresConnector:
         """PostgreSQL 不记录表的最近修改时间，不报告新鲜度（不以统计信息冒充）。"""
         return {}
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
-        """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。"""
+    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+                         ) -> dict[tuple[str, str], dict[str, Any]]:
+        """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。
+        timeout_seconds：探索查询传入剩余时间，作为 statement_timeout。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
         out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
                                                       for k in names}
@@ -279,6 +281,8 @@ class PostgresConnector:
             return out
         try:
             with self._connect() as conn:
+                if timeout_seconds:
+                    conn.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(f"{int(timeout_seconds)}s")))
                 rows = conn.execute(
                     "SELECT c.oid, n.nspname, c.relname, c.relkind FROM pg_catalog.pg_class c "
                     "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
