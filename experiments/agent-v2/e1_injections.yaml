@@ -1,0 +1,140 @@
+# E1 诊断性注入材料（任务书第 12 节；manifest e1）。只在实验进程里生效（experiments/agent-v2/e1.py），产品默认路径不变。
+#
+# 条件：D0 正常运行；D1 = 只替换为人工核对的范围；D2 = D1 + 相关且当前用户可访问的资产定位与正常元数据；
+#       D3 = D2 + 足以回答问题的原始查询证据。
+# 来源与限制：
+# - 这 6 题都是已看过轨迹的开发题，不是盲测。材料由开发会话按题目文字、口径目录与历史轨迹里出现过的表名、列名写出；
+#   没有读取生成器真值（.demo/ec-truth.json、scripts/ec_data.py 的场景表）来构造 D2/D3。
+# - 选哪些表本身用到了开发者对“哪里可能有证据”的判断（D3 的定义就是消除发现障碍），这一点在结果里如实说明，不称产品能力。
+# - D2 只给资产全名；元数据在运行时以发起人身份调用 describe_asset 取得（权限照常核对，看不到的表不注入并记下）。
+# - D3 只给查询：运行时以发起人身份经 query_metric（受治理）或 query_sql（探索，带探索标记）执行，结果是普通数据集；
+#   不附原因标签、推导结论或报告答案。SQL 只用历史轨迹里通过校验的表与列；被校验拒绝时记为注入失败，不算模型失败。
+# - 注入不占用分析的工具与查询额度（单独计数），注入文字的字符数单列（按 1 字符 ≤ 1 token 记保守上界）。
+version: e1-1
+scenarios:
+  h10:
+    question: 食品类目 2026 年 9 月销量为什么比 8 月高？
+    scope:  # D1：问题问“销量”，口径目录里有类目销量 ec_units
+      question_type: change
+      metric_codes: [ec_units]
+      filters: [{dimension: category, values: [食品]}]
+      start_date: "2026-09-01"
+      end_date: "2026-09-30"
+      compare_start: "2026-08-01"
+      compare_end: "2026-08-31"
+    assets:  # D2：口径来源表、营销活动表、订单明细
+      - {qualified: default_catalog.ec_dw.dws_category_daily, why: 类目销量口径的来源视图}
+      - {qualified: default_catalog.ec_marketing.campaign, why: 营销活动（与类目、时间相关的经营事件）}
+      - {qualified: default_catalog.ec_dw.dwd_order_item, why: 订单明细（可按类目、日期细看）}
+    evidence:  # D3
+      - tool: query_metric
+        args: {metric_codes: [ec_units], filters: [{dimension: category, values: [食品]}], start_date: "2026-08-01",
+               end_date: "2026-09-30", time_grain: day, purpose: "实验注入：两期的日销量"}
+      - tool: query_sql
+        args: {sql: "SELECT campaign_name, campaign_type, start_date, end_date, category_name, discount_rate FROM default_catalog.ec_marketing.campaign WHERE start_date <= DATE '2026-09-30' AND end_date >= DATE '2026-08-01'",
+               purpose: "实验注入：两期内进行过的营销活动（全部类目，原始记录）"}
+  e01:
+    question: 数码类商品 2026 年 9 月均价为什么比 7 月高？
+    scope:  # D1：没有“均价”口径；均价 = 类目销售额 / 类目销量，两个已发布口径都按数码筛选
+      question_type: change
+      metric_codes: [ec_category_sales, ec_units]
+      filters: [{dimension: category, values: [数码]}]
+      start_date: "2026-09-01"
+      end_date: "2026-09-30"
+      compare_start: "2026-07-01"
+      compare_end: "2026-07-31"
+    assets:
+      - {qualified: default_catalog.ec_dw.dws_category_daily, why: 类目销售额与销量口径的来源视图}
+      - {qualified: default_catalog.ec_product.price_change, why: 商品价格变更记录}
+      - {qualified: default_catalog.ec_dw.dwd_order_item, why: 订单明细（单价、数量）}
+    evidence:
+      - tool: query_metric
+        args: {metric_codes: [ec_category_sales, ec_units], filters: [{dimension: category, values: [数码]}],
+               start_date: "2026-09-01", end_date: "2026-09-30", compare: custom, compare_start: "2026-07-01",
+               compare_end: "2026-07-31", purpose: "实验注入：两期销售额与销量"}
+      - tool: query_sql
+        args: {sql: "SELECT effective_date, reason, old_price, new_price FROM default_catalog.ec_product.price_change WHERE effective_date BETWEEN DATE '2026-07-01' AND DATE '2026-09-30'",
+               purpose: "实验注入：两期之间的商品价格变更记录（原始记录）"}
+  h07:
+    question: 2026 年 7 月全部区域的线上订单数为什么比 6 月少？
+    scope:  # D1：理解阶段曾丢掉“线上”筛选
+      question_type: change
+      metric_codes: [ec_orders]
+      filters: [{dimension: channel, values: [线上]}]
+      start_date: "2026-07-01"
+      end_date: "2026-07-31"
+      compare_start: "2026-06-01"
+      compare_end: "2026-06-30"
+    assets:
+      - {qualified: default_catalog.ec_dw.dws_region_daily, why: 订单数口径的来源视图}
+      - {qualified: default_catalog.ec_dw.dws_marketing_daily, why: 付费投放的花费、归因订单（投放口径的来源视图）}
+      - {qualified: default_catalog.ec_marketing.campaign, why: 营销活动}
+    evidence:
+      - tool: query_metric
+        args: {metric_codes: [ec_ad_spend, ec_ad_orders], group_by: [channel], start_date: "2026-07-01",
+               end_date: "2026-07-31", compare: custom, compare_start: "2026-06-01", compare_end: "2026-06-30",
+               purpose: "实验注入：两期各投放渠道的花费与归因订单"}
+      - tool: query_sql
+        args: {sql: "SELECT campaign_name, campaign_type, start_date, end_date, category_name, discount_rate FROM default_catalog.ec_marketing.campaign WHERE start_date <= DATE '2026-07-31' AND end_date >= DATE '2026-06-01'",
+               purpose: "实验注入：两期内进行过的营销活动（原始记录）"}
+  f02:
+    question: 家电类目 2026 年 9 月销售额为什么比 8 月高？
+    scope:
+      question_type: change
+      metric_codes: [ec_category_sales]
+      filters: [{dimension: category, values: [家电]}]
+      start_date: "2026-09-01"
+      end_date: "2026-09-30"
+      compare_start: "2026-08-01"
+      compare_end: "2026-08-31"
+    assets:
+      - {qualified: default_catalog.ec_dw.dws_category_daily, why: 类目销售额与销量口径的来源视图}
+      - {qualified: default_catalog.ec_marketing.campaign, why: 营销活动}
+      - {qualified: default_catalog.ec_dw.dwd_order_item, why: 订单明细（单价、数量、优惠）}
+    evidence:
+      - tool: query_metric
+        args: {metric_codes: [ec_category_sales, ec_units], filters: [{dimension: category, values: [家电]}],
+               start_date: "2026-09-01", end_date: "2026-09-30", compare: custom, compare_start: "2026-08-01",
+               compare_end: "2026-08-31", purpose: "实验注入：两期销售额与销量"}
+      - tool: query_sql
+        args: {sql: "SELECT campaign_name, campaign_type, start_date, end_date, category_name, discount_rate FROM default_catalog.ec_marketing.campaign WHERE start_date <= DATE '2026-09-30' AND end_date >= DATE '2026-08-01'",
+               purpose: "实验注入：两期内进行过的营销活动（全部类目，原始记录）"}
+  h09:
+    question: 2026 年 6 月 15 日到 21 日全部区域门店订单数为什么比前一周多？
+    scope:
+      question_type: change
+      metric_codes: [ec_store_orders]
+      filters: []
+      start_date: "2026-06-15"
+      end_date: "2026-06-21"
+      compare_start: "2026-06-08"
+      compare_end: "2026-06-14"
+    assets:
+      - {qualified: default_catalog.ec_dw.dws_store_daily, why: 门店订单与客流口径的来源视图}
+      - {qualified: default_catalog.ec_marketing.campaign, why: 营销活动}
+    evidence:
+      - tool: query_metric
+        args: {metric_codes: [ec_store_orders, ec_visitors], start_date: "2026-06-08", end_date: "2026-06-21",
+               time_grain: day, purpose: "实验注入：两周的门店日订单与日客流"}
+      - tool: query_sql
+        args: {sql: "SELECT campaign_name, campaign_type, start_date, end_date, category_name, discount_rate FROM default_catalog.ec_marketing.campaign WHERE start_date <= DATE '2026-06-21' AND end_date >= DATE '2026-06-08'",
+               purpose: "实验注入：两周内进行过的营销活动（原始记录）"}
+  d02:
+    question: 华东区域 2026 年 9 月线上订单数为什么比 8 月少？
+    scope:  # D1：理解阶段曾丢掉“线上”筛选
+      question_type: change
+      metric_codes: [ec_orders]
+      filters: [{dimension: region, values: [华东]}, {dimension: channel, values: [线上]}]
+      start_date: "2026-09-01"
+      end_date: "2026-09-30"
+      compare_start: "2026-08-01"
+      compare_end: "2026-08-31"
+    assets:
+      - {qualified: default_catalog.ec_dw.dws_region_daily, why: 订单数口径的来源视图}
+      - {qualified: default_catalog.ec_dw.dws_marketing_daily, why: 付费投放的花费、归因订单}
+      - {qualified: default_catalog.ec_dw.dwd_order, why: 订单明细（含来源渠道）}
+    evidence:
+      - tool: query_metric
+        args: {metric_codes: [ec_ad_spend, ec_ad_orders], filters: [{dimension: region, values: [华东]}],
+               group_by: [channel], start_date: "2026-09-01", end_date: "2026-09-30", compare: custom,
+               compare_start: "2026-08-01", compare_end: "2026-08-31", purpose: "实验注入：华东两期各投放渠道的花费与归因订单"}
