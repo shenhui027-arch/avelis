@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.analysis import attribution, calc, measures
-from avelis.analysis.grounding import Part
+from avelis.analysis.grounding import Cause, Part
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent, comparison_range
@@ -275,6 +275,10 @@ class ReportArgs(BaseModel):
     summary: str | list[Part] = Field(description="一两句话的结论：片段列表，数字写成引用对象，后端渲染并做同样的结构检查")
     claims: list[Claim]
     unexplained: str | list[Part] | None = Field(None, description="仍未解释的部分：文字或片段列表")
+    conclusion: Literal["ranked_reasons", "no_material_change", "insufficient_evidence"] = Field(
+        description="结论类型：ranked_reasons 有排序的原因；no_material_change 没有实质变化；insufficient_evidence 证据不足")
+    causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
+                                                                   "第一项是首要原因；其余两种结论不填）")
 
 
 # --- 工具箱 ---------------------------------------------------------------------------
@@ -500,10 +504,13 @@ class AnalysisToolbox:
         return _json({"ok": True, "note": "计划已记录；按计划调用工具，中间结果推翻假设时可再次提交计划"})
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
-                      unexplained: str | list | None = None) -> str:
-        """保存模型提交的片段列表；渲染与结构检查在 verify 节点（ADR 0009）。"""
+                      unexplained: str | list | None = None, conclusion: str | None = None,
+                      causes: list[Cause] | None = None) -> str:
+        """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。"""
         self.report = {"title": _parts(title), "summary": _parts(summary),
-                       "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained)}
+                       "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained),
+                       "conclusion": conclusion,
+                       "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []]}
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})
 

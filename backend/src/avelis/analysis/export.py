@@ -72,10 +72,35 @@ def _segments(report: dict) -> list[tuple[str, str, dict]]:
         kind = TYPE_LABEL.get(claim.get("type"), claim.get("type") or "")
         for seg in claim.get("segments") or []:
             out.append((f"结论 {i + 1}", kind, seg))
+    for i, cause in enumerate(report.get("causes") or []):
+        for seg in (cause.get("contribution") or {}).get("segments") or []:
+            out.append((f"原因 {i + 1}", "原因", seg))
         for key, label in (("premise", "前提"), ("validation", "验证方式")):
             for seg in ((claim.get("details") or {}).get(key) or {}).get("segments") or []:
                 out.append((f"结论 {i + 1} {label}", kind, seg))
     return [x for x in out if x[2].get("kind") in ("value", "count", "label", "window")]
+
+
+CAUSE_TYPE = {"member": "成员", "factor": "因子", "calendar": "日历", "governance": "治理事件"}
+CONCLUSION = {"ranked_reasons": "有排序的原因", "no_material_change": "没有实质变化", "insufficient_evidence": "证据不足"}
+
+
+def _cause_lines(report: dict) -> list[str]:
+    """原因排序（ADR 0009 第 5 点）：结论类型与按影响大小排列的原因，导出与页面读同一份保存结果。"""
+    conclusion, causes = report.get("conclusion"), report.get("causes") or []
+    if not conclusion and not causes:
+        return []
+    lines = ["", "## 原因排序", f"结论类型：{CONCLUSION.get(conclusion, conclusion or '—')}"]
+    for i, c in enumerate(causes, start=1):
+        e = c.get("entity") or {}
+        entity = f"{e.get('dimension', '')}：{e['member']}" if e.get("member") else e.get("factor") or e.get("event") or "日历因素"
+        contribution = (c.get("contribution") or {}).get("text")
+        bad = "；".join(c.get("errors") or [])
+        lines.append(f"{i}. {CAUSE_TYPE.get(c.get('type'), c.get('type') or '原因')} · {entity} · "
+                     f"{ {'up': '上升', 'down': '下降'}.get(c.get('direction'), '') }"
+                     + (f" · 贡献 {contribution}" if contribution else "")
+                     + f"（证据 {'、'.join(c.get('evidence') or []) or '—'}）" + (f" ⚠ {bad}" if bad else ""))
+    return lines
 
 
 def _source_note(seg: dict) -> str:
@@ -127,6 +152,7 @@ def to_markdown(view: dict) -> str:
             lines.append(f"  - 前提：{claim['premise']}")
         if claim.get("validation"):
             lines.append(f"  - 验证方式：{claim['validation']}")
+    lines += _cause_lines(report)
     if report.get("unexplained"):
         lines += ["", f"**仍未解释**：{report['unexplained']}"]
     sources = _segments(report)
@@ -331,6 +357,10 @@ def to_pdf(view: dict) -> bytes:
         for key, label in (("premise", "前提"), ("validation", "验证方式")):
             if claim.get(key):
                 story.append(Paragraph(f"{label}：{esc(claim[key])}", small))
+    causes = _cause_lines(report)
+    if causes:  # causes[0:2] 是 Markdown 的空行与标题
+        story.append(Paragraph("原因排序", h2))
+        story += [Paragraph(esc(line), warn if "⚠" in line else base) for line in causes[2:]]
     if report.get("unexplained"):
         story += [Spacer(1, 4), Paragraph(f"<b>仍未解释</b>：{esc(report['unexplained'])}", base)]
     sources = _segments(report)

@@ -122,7 +122,7 @@ def test_malformed_parts_are_reported_by_position():
 
 
 def check(parts, kind="fact", refs=None, **extra):
-    report = {"title": "标题", "summary": "摘要", "unexplained": None,
+    report = {"title": "标题", "summary": "摘要", "unexplained": None, "conclusion": "insufficient_evidence",
               "claims": [{"type": kind, "parts": parts, "refs": refs or [], **extra}]}
     rendered, verification = ground_report(report, DATA, WINDOW)
     return rendered["claims"][0], verification["claims"][0], verification
@@ -207,7 +207,7 @@ def test_inference_and_details_allow_numbers_and_still_render():
 
 
 def test_fields_records_and_overall_status():
-    report = {"title": [{"window": "run_current", "format": "month"}, "华东成交额下降"],
+    report = {"title": [{"window": "run_current", "format": "month"}, "华东成交额下降"], "conclusion": "insufficient_evidence",
               "summary": ["华东成交额 ", HUADONG, "，约 9 成来自线上"], "unexplained": "无",
               "claims": [{"type": "fact", "parts": ["华东 ", HUADONG]}]}
     rendered, v = ground_report(report, DATA, WINDOW)
