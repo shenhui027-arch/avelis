@@ -535,14 +535,14 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
                       "compare_end": "2026-08-31"}
     units_dataset(box)
     box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"})
-    huadong = {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}, "format": "wan2"}
+    huadong = {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}
     ok = box.dispatch("submit_report", {
         "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"], "conclusion": "insufficient_evidence",
         "summary": ["华东成交额 ", huadong],
         "claims": [
             {"type": "fact", "parts": ["华东 ", huadong, "，较上期下降 ",
                                        {"dataset": "D1", "column": "成交额·变化", "match": {"区域": "华东"},
-                                        "direction": "down", "format": "wan2"}]},
+                                        "direction": "down"}]},
             {"type": "calc", "parts": ["合计增长 ", {"dataset": "D2", "summary": "total.change", "direction": "down"},
                                        " 元（D2）"]},
             {"type": "fact", "parts": ["西北 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "西北"}}]},
@@ -558,10 +558,10 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     assert first["text"] == "华东 196.94万元，较上期下降 3.06万元" and first["refs"] == ["D1"] and first["status"] == "verified"
     value = first["segments"][1]
     assert {k: value[k] for k in ("kind", "part", "ref", "path", "label", "raw", "text", "measure", "unit", "source",
-                                   "explore", "format", "direction", "role")} == {
+                                   "explore", "precision", "direction", "role")} == {
         "kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东",
         "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元", "source": "governed",
-        "explore": False, "format": "wan2", "direction": "", "role": "fact"}
+        "explore": False, "precision": None, "direction": "", "role": "fact"}
     assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified", "unchecked"]
     calc_problems = verification["claims"][1]["problems"]
     assert calc_problems[0].startswith("第 2 个片段（D2.summary.total.change）：方向与正负不一致")
@@ -578,23 +578,23 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
 
 
 def test_sources_csv_and_markdown_list_every_reference():
-    """引用来源表与 Markdown 附录（ADR 0009）：每个引用段的位置、来源标签、量纲、单位、格式、方向、标记与原值；
+    """引用来源表与 Markdown 附录（ADR 0009）：每个引用段的位置、来源标签、量纲、单位、小数位、方向、标记与原值；
     以 = 开头的值防公式注入。"""
-    value = {"kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东",
-             "format": "wan2", "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元",
-             "source": "governed", "explore": False, "direction": "", "role": "fact"}
+    value = {"kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东", "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元",
+             "source": "governed", "explore": False, "precision": 2, "direction": "", "role": "fact"}
     window = {"kind": "window", "part": 1, "ref": "window", "path": "window.run_current", "label": "本期窗口",
               "raw": ["2026-09-01", "2026-09-30"], "text": "2026 年 9 月"}
     explore = {**value, "ref": "D6", "path": "D6.客流", "label": "D6 · 客流", "raw": "=cmd", "text": "=cmd",
-               "measure": "unknown", "unit": "", "format": "", "source": "explore", "explore": True, "role": "proposal"}
+               "measure": "unknown", "unit": "", "precision": None, "source": "explore", "explore": True,
+               "role": "proposal"}
     report = {"title": "t", "summary": "s", "fields": {"title": {"segments": [window, {"kind": "text", "text": "下滑"}]}},
               "claims": [{"type": "fact", "text": "华东 196.94万元", "refs": ["D1"],
                           "segments": [{"kind": "text", "text": "华东 "}, value]},
                          {"type": "recommendation", "text": "=cmd", "refs": ["D6"], "segments": [explore]}]}
     rows = export.sources_csv({"report": report}).decode("utf-8-sig").splitlines()
-    assert rows == ["位置,类型,显示值,来源标签,数据集,取值路径,量纲,单位,格式,方向,标记,原值",
+    assert rows == ["位置,类型,显示值,来源标签,数据集,取值路径,量纲,单位,小数位,方向,标记,原值",
                     "标题,字段,2026 年 9 月,本期窗口,window,window.run_current,,,,,,2026-09-01 ~ 2026-09-30",
-                    "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,wan2,,,1969398.05",
+                    "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,2,,,1969398.05",
                     "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd"]
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": report,
             "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],

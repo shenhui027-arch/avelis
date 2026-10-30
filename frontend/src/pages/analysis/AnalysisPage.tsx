@@ -14,8 +14,8 @@ type Run = Schemas["AnalysisRunOut"];
 type Dataset = Schemas["AnalysisDatasetOut"];
 type Task = Schemas["AnalysisTaskOut"];
 type Segment = { kind: "text" | "value" | "count" | "label" | "window" | "error"; text: string; ref?: string;
-  path?: string; label?: string; format?: string; raw?: string | string[]; measure?: string; unit?: string;
-  direction?: string; role?: string; source?: string; explore?: boolean; assumption?: boolean; declared?: boolean;
+  path?: string; label?: string; precision?: number | null; raw?: string | string[]; measure?: string; unit?: string;
+  direction?: string; role?: string; source?: string; explore?: boolean; assumption?: boolean;
   error?: string };
 type FieldRecord = { parts?: unknown; text: string; segments?: Segment[]; status?: string; errors?: string[] };
 type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]; premise?: string | null;
@@ -203,8 +203,8 @@ function Segments({ segments, text }: { segments?: Segment[]; text?: string | nu
     if (s.kind === "error") return <span key={i} className="av-num is-error" title={s.error}>{s.text}</span>;
     const raw = Array.isArray(s.raw) ? s.raw.join(" ~ ") : s.raw;
     const title = [s.label ?? s.path, `原值 ${raw}`,
-      s.measure ? `${MEASURE_LABEL[s.measure] ?? s.measure}${s.unit ? `（${s.unit}）` : ""}${s.declared ? " · 模型声明" : ""}` : "",
-      s.format ? `格式 ${s.format}` : "", s.direction ? `方向 ${s.direction === "up" ? "上升" : "下降"}` : "",
+      s.measure ? `${MEASURE_LABEL[s.measure] ?? s.measure}${s.unit ? `（${s.unit}）` : ""}` : "",
+      s.precision != null ? `${s.precision} 位小数` : "", s.direction ? `方向 ${s.direction === "up" ? "上升" : "下降"}` : "",
       s.explore ? (s.source === "explore" && s.ref && sqlOf[s.ref] ? `探索查询（未经口径审核）\nSQL：${sqlOf[s.ref]}`
         : "来源含探索查询（未经口径审核），SQL 见数据集附录") : "", s.assumption ? "假设计算" : "",
       s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");

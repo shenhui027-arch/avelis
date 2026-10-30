@@ -101,7 +101,10 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
         if last != len(by_seq):
             return "有数据集不属于任何步骤，无法确定回放顺序"
         v = run.verification or {}
-        trace = {"version": 2, "name": name, "question": run.question, "window": run.window, "messages": messages,
+        from avelis.analysis.tools import REPORT_SCHEMA
+
+        trace = {"version": 2, "report_schema": REPORT_SCHEMA, "name": name, "question": run.question,
+                 "window": run.window, "messages": messages,
                  "fixtures": fixtures,
                  "expect": {"status": v.get("status"), "ok": v.get("ok"), "revised": v.get("revised"),
                             "conclusion": (run.report or {}).get("conclusion")}}

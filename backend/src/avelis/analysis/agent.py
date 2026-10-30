@@ -62,27 +62,26 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
 6. 提交报告（submit_report）：
    - claims 的 type：fact（受治理查询的事实）、calc（计算工具的结果）、inference（推断）、recommendation（建议）；
    - 报告里不手写数字：claim 的 parts、premise、validation，以及 title、summary、unexplained 都写成片段列表，
-     文字片段是字符串，数字写成引用对象，后端按数据集取值、按量纲格式化（单位由后端输出）后生成正文：
+     文字片段是字符串，数字写成引用对象，后端按数据集取值、按量纲决定显示格式与单位后生成正文（不选格式）：
      （下面例子里的指标、维度取自你能访问的口径：{example_note}）
-     · 数值（NumberRef）：{{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}, "format": "wan1"}}
-       显示为“12.3万”加口径单位（数据集只有一行时可省略 match；多行时 match 必须恰好选中一行，或写 "row": 1）；
-     · 计算结果的汇总值：{{"dataset": "D18", "summary": "value", "format": "pct1"}}（工具结果里 summary 列出的路径，
+     · 数值（NumberRef）：{{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}}}
+       （数据集只有一行时可省略 match；多行时 match 必须恰好选中一行，或写 "row": 1）；金额、数量到万、亿时系统自动换算，
+       比率、变化率显示为百分比；可选 "precision": 0–4 指定小数位；
+     · 计算结果的汇总值：{{"dataset": "D18", "summary": "value"}}（工具结果里 summary 列出的路径，
        如 value、total.change、day_count_effect）；
-     · 变化：{{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}；direction 只用于差额、
-       变化率，写了就核对正负并显示绝对值，前面写“下降 / 减少”；不写 direction 时显示带符号的值；
+     · 变化：{{"dataset": "D19", "summary": "total.change", "direction": "down"}}；水平值（某期的金额、数量、比率）以外的
+       任何值都可以写 direction，写了就核对正负并显示绝对值，前面写“下降 / 减少”；不写 direction 时显示带符号的值；
      · 维度文本（LabelRef，成员名称，尤其是名称里带数字时）：{{"dataset": "D3", "label": "{dimension}", "row": 1}}；
      · 个数（CountRef，“N 个{dimension}”）：{{"dataset": "D5", "distinct": "{dimension}"}}（截断的数据集不可用）；
      · 期间（WindowRef）：{{"window": "run_current", "format": "month"}} 显示“2026 年 9 月”（只用于整月），
        "run_compare" 是对比期，"dataset:D5" 是某次查询的窗口，"range" 显示日期区间；
-     · format 只能用在相应量纲上：d0–d4 / int 任意；wan0–wan2 / yi0–yi2 用于水平值（金额、数量等）、差额、计数；
-       pct0–pct2 用于变化率、占比；pp0–pp2 用于比率之差；x0–x2 用于两数之比（倍）；
      · 建议的目标值写 "role": "proposal"，只能用在 inference、recommendation 中。
      例子：parts = [{{"window": "run_current", "format": "month"}}, "{member} 的{metric} ",
-     {{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}, "format": "wan1"}}, "，较上期下降 ",
-     {{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}]；
-   - 文字片段里不能出现任何数字和单位：阿拉伯数字、中文数字（“三个”“两个地区”“九月”“前五”）、倍、一半、日期、
-     数据集编号（D19）都不写；数值后面不要再写“元、万、%、倍”（后端会输出）；两个数值之间要有文字隔开；
-     对比双方写“本期 / 上期”或“两期相比”“两期合计”；“首位”“最大”代替“第 1”“Top 3”；
+     {{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}}}, "，较上期下降 ",
+     {{"dataset": "D19", "summary": "total.change", "direction": "down"}}]；
+   - 文字片段里不写数量：阿拉伯数字（含日期、数据集编号 D19）一律不写；中文数字后面接量词或单位（“三家”“两个地区”
+     “五成”“八折”）、“百分之……”“……分之……”也不写，个数用 CountRef；“第二”“九月下旬”“两期”“两渠道”这类没有量词的
+     说法可以；数值后面不要再写“元、万、%、倍”（系统会输出）；两个数值之间要有文字隔开；“首位”“最大”代替“Top 3”；
    - fact 与 calc 的引用 = refs 与引用片段涉及的数据集；需要两数相减、求和、占比等派生数字时先用 derive 算出，再引用它；
      没有经过工具的推算数字不要写进 fact / calc；不写“约 X”的估计值：需要区间、均值时用 describe；
    - inference 与 recommendation 写 premise；recommendation 写 validation；其中可以有数字（假设或方案，不核验）；
