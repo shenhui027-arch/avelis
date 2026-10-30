@@ -34,7 +34,6 @@ from avelis.connectors.base import QueryError, QueryResult
 from avelis.governance import access
 from avelis.models import Asset, AssetVersion, ColumnVersion, Datasource, DatasourceCredential, Definition, User
 
-DECLARABLE_KINDS = ("level", "count", "ratio", "unknown")
 
 
 @dataclass
@@ -59,6 +58,55 @@ def explore_source(session: Session, ref: str) -> ExploreSource:
     if not ds.allow_exploration:
         raise ExploreRejected("binding", "exploration_disabled", f"数据源 {ds.name} 已关闭探索查询")
     return ExploreSource(ds, profile, dialect_of(ds).default_catalog)
+
+
+def route(session: Session, user: User, sql_text: str) -> ExploreSource:
+    """方言路由（ADR 0009 第 6 点）：按标准 SQL 里的资产确定数据源，模型不填数据源。
+    两段名 库.表 按各数据源的默认 catalog 解释（与 SQL 本身的含义一致），三段名精确匹配；只认当前用户可见的已采集资产，
+    不可见与不存在报同样的错误。同名表落在多个数据源时要求写三段名；一条查询涉及多个数据源时拒绝。"""
+    from avelis.analysis.explore import table_refs
+    from avelis.engines import dialect_of
+
+    allowed = access.domain_ids(session, user)
+    defaults: dict[str, str | None] = {}
+    chosen: dict[str, Datasource] = {}
+    for catalog, db, name in table_refs(sql_text):
+        label = ".".join(x for x in (catalog, db, name) if x)
+        if not db:
+            raise ExploreRejected("binding", "table_unqualified", f"表 {name} 需要写出库名（库.表）")
+        query = select(Asset).where(Asset.db_name == db, Asset.name == name, Asset.status == "active")
+        if catalog:
+            query = query.where(Asset.catalog_name == catalog)
+        hits = []
+        for asset in session.scalars(query):
+            if not access.can_read_asset(session, user, asset, allowed):
+                continue
+            ds = session.get(Datasource, asset.datasource_id)
+            if ds is None:
+                continue
+            if not catalog:  # 两段名：只指该数据源默认 catalog 下的表
+                if ds.id not in defaults:
+                    try:
+                        defaults[ds.id] = dialect_of(ds).default_catalog
+                    except Exception:  # noqa: BLE001 - 未知引擎：不参与两段名解释
+                        defaults[ds.id] = None
+                if asset.catalog_name != defaults[ds.id]:
+                    continue
+            hits.append((asset, ds))
+        sources = {ds.id: ds for _, ds in hits}
+        if not sources:
+            raise ExploreRejected("binding", "asset_not_visible", f"表 {label} 不存在或当前用户不可见")
+        if len(sources) > 1:
+            raise ExploreRejected("binding", "ambiguous_table", f"表 {label} 在多个数据源里都有，请写出 catalog.库.表",
+                                  sorted(f"{a.catalog_name}.{a.db_name}.{a.name}（{ds.name}）" for a, ds in hits))
+        chosen.update(sources)
+    if not chosen:
+        raise ExploreRejected("syntax", "no_source", "每个查询块都必须有表源（FROM 已采集的表）")
+    if len(chosen) > 1:
+        raise ExploreRejected("binding", "cross_datasource",
+                              "一条探索查询只能用同一个数据源的表："
+                              f"{'、'.join(sorted(d.name for d in chosen.values()))}，请分别查询后用计算工具合并")
+    return explore_source(session, next(iter(chosen)))
 
 
 def resolver(session: Session, user: User, source: ExploreSource):
@@ -132,24 +180,6 @@ def _unresolved_lineage(session: Session, closure: dict[str, Asset]) -> str | No
         if asset.kind in ("view", "materialized_view") and not edges:
             return f"{asset.db_name}.{asset.name} 的上游血缘未确认"
     return None
-
-
-def check_declared(validated: Validated, declared: list[dict] | None) -> dict[str, dict]:
-    """模型声明的列量纲只用于展示：与后端推断冲突、声明单位或倍数、试图提升量纲都拒绝。"""
-    inferred = {c.name: c for c in validated.columns}
-    out = {}
-    for item in declared or []:
-        name, kind = item.get("name"), item.get("kind")
-        if set(item) - {"name", "kind", "label"}:
-            raise ExploreRejected("evidence", "declared_unit", "columns 只能声明 name、kind、label，不能设置单位或换算倍数")
-        if name not in inferred:
-            raise ExploreRejected("evidence", "declared_unknown_column", f"声明的列 {name} 不在查询结果里")
-        actual = inferred[name]
-        if kind not in DECLARABLE_KINDS or kind != (actual.kind if actual.kind != "text" else None):
-            raise ExploreRejected("evidence", "declared_conflict",
-                                  f"列 {name} 声明的量纲 {kind} 与后端按表达式推断的 {actual.kind} 不一致（声明不能提升量纲）")
-        out[name] = {"kind": kind, **({"label": item["label"]} if item.get("label") else {})}
-    return out
 
 
 def live_check(connector: Any, validated: Validated, *, timeout_seconds: int) -> None:
@@ -240,5 +270,5 @@ def record(session: Session, user: User, run_id: str, *, step: int, source: Expl
     audit.record(session, user, "analysis.explore", "analysis_run", run_id, **detail)
 
 
-__all__ = ["ExploreRejected", "ExploreSource", "check_declared", "evidence", "explore_source", "live_check", "record",
+__all__ = ["ExploreRejected", "ExploreSource", "evidence", "explore_source", "live_check", "record", "route",
            "recheck_access", "resolver", "units", "validate"]

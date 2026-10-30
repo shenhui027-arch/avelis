@@ -50,7 +50,8 @@ def explore_box(monkeypatch, engine="postgres", connector=None, budget=None, rec
     box.user.username = "tester"  # 审计记录执行人
     catalog = "appdb" if engine == "postgres" else "default_catalog"
     ds = SimpleNamespace(id="ds1", name="源甲", kind=engine, server_identity={"version": "x"})
-    monkeypatch.setattr(exploration, "explore_source", lambda session, ref: ExploreSource(ds, PROFILES[engine], catalog))
+    # 方言路由按 SQL 里的资产确定数据源（真实逻辑见 tests/db/test_explore_route.py）：这里固定路由到“源甲”
+    monkeypatch.setattr(exploration, "route", lambda session, user, sql: ExploreSource(ds, PROFILES[engine], catalog))
     monkeypatch.setattr(exploration, "resolver", lambda session, user, source: fake_resolver(catalog, None))
     monkeypatch.setattr(exploration, "recheck_access", recheck or (lambda session, user, validated: None))
     monkeypatch.setattr(exploration, "execution_identity", lambda session, ds: "reader")
@@ -70,7 +71,7 @@ GOOD = "SELECT region, SUM(amount) AS total FROM d1.facts GROUP BY region"
 @pytest.mark.parametrize("engine", ["starrocks", "postgres"])
 def test_accepted_query_runs_regenerated_sql_and_marks_explore(monkeypatch, engine):
     box, conn = explore_box(monkeypatch, engine)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "口径没有覆盖"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "口径没有覆盖"}))
     ds = box.datasets()[out["dataset"]]
     executed = [c for c in conn.calls if c[0] == "execute"]
     assert len(executed) == 1 and executed[0][1] == out["sql"] and "LIMIT 1001" in out["sql"]  # 执行的是重新生成的 SQL
@@ -95,7 +96,7 @@ def test_accepted_query_runs_regenerated_sql_and_marks_explore(monkeypatch, engi
 ])
 def test_rejections_are_audited_and_never_sent(monkeypatch, engine, sql, code):
     box, conn = explore_box(monkeypatch, engine)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": sql, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": sql, "purpose": "x"}))
     assert out["code"] == code and out["sent_to_database"] is False
     assert conn.calls == []  # 连执行前核对都没有发生
     log = audits(box)[-1]
@@ -105,16 +106,16 @@ def test_rejections_are_audited_and_never_sent(monkeypatch, engine, sql, code):
 
 def test_budget_counts_failures_and_stops_at_limit(monkeypatch):
     box, conn = explore_box(monkeypatch, budget=Budget(explore=2))
-    box.dispatch("query_sql", {"datasource": "源甲", "sql": "SELECT nope FROM d1.facts", "purpose": "x"})
-    box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"})
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    box.dispatch("query_sql", {"sql": "SELECT nope FROM d1.facts", "purpose": "x"})
+    box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"})
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert "探索查询已达上限 2 次" in out["error"] and box.budget.used_explore == 2
     assert len([c for c in conn.calls if c[0] == "execute"]) == 1
 
 
 def test_changed_asset_is_rejected_before_execution(monkeypatch):
     box, conn = explore_box(monkeypatch, connector=FakeConnector(physical={"facts": "999"}))
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "asset_changed" and not [c for c in conn.calls if c[0] == "execute"]
     assert audits(box)[-1]["sent_to_database"] is False
 
@@ -123,7 +124,7 @@ def test_revoked_after_planning_or_before_delivery(monkeypatch):
     def revoked(session, user, validated):
         raise ExploreRejected("binding", "access_revoked", "表 d1.facts 当前已无权访问")
     box, conn = explore_box(monkeypatch, recheck=revoked)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "access_revoked" and not [c for c in conn.calls if c[0] == "execute"]
     calls = {"n": 0}
 
@@ -132,34 +133,31 @@ def test_revoked_after_planning_or_before_delivery(monkeypatch):
         if calls["n"] > 1:
             raise ExploreRejected("binding", "access_revoked", "表 d1.facts 当前已无权访问")
     box, conn = explore_box(monkeypatch, recheck=later)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["sent_to_database"] is True and out["note"] == "结果未交付" and not box.datasets()
     assert audits(box)[-1]["outcome"] == "withheld"
 
 
 def test_execution_errors_and_timeouts_are_reported(monkeypatch):
     box, conn = explore_box(monkeypatch, connector=FakeConnector(error=QueryError("timeout", 57014, "canceling statement")))
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "timeout" and not box.datasets() and audits(box)[-1]["outcome"] == "failed"
     box, conn = explore_box(monkeypatch)
     monkeypatch.setattr(box.budget, "remaining", lambda: 10)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "deadline" and conn.calls == []
 
 
-def test_declared_columns_cannot_upgrade_kind_or_set_units(monkeypatch):
+def test_query_sql_takes_no_datasource_or_column_declarations(monkeypatch):
+    """数据源由系统按 SQL 里的资产确定，模型不填；列的量纲声明已删除（显示由系统按量纲决定）。多余参数一律拒绝。"""
     box, conn = explore_box(monkeypatch)
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x",
-                                                "columns": [{"name": "total", "kind": "count"}]}))
-    assert out["code"] == "declared_conflict" and not [c for c in conn.calls if c[0] == "execute"]
-    out = box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x",
-                                     "columns": [{"name": "total", "kind": "level", "unit": "元"}]})
-    assert "ValidationError" in out or "error" in json.loads(out)
-    ok = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x",
-                                               "columns": [{"name": "total", "kind": "level", "label": "合计"}]}))
-    ds = box.datasets()[ok["dataset"]]
-    assert ds.meta["declared_metadata"] == {"total": {"kind": "level", "label": "合计"}}
-    assert ds.meta["units"]["total"] == {"kind": "level", "declared": True}
+    for extra in ({"datasource": "源甲"}, {"columns": [{"name": "total", "kind": "count"}]}):
+        out = box.dispatch("query_sql", {"sql": GOOD, "purpose": "x", **extra})
+        assert "ValidationError" in out or "error" in json.loads(out)
+    assert not [c for c in conn.calls if c[0] == "execute"]
+    ok = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
+    assert ok["datasource"] == "源甲" and ok["engine"] == "postgres"  # 返回实际所在的数据源与引擎
+    assert box.datasets()[ok["dataset"]].meta["units"]["total"] == {"kind": "level"}
 
 
 def test_fabricated_numbers_and_text_cannot_be_cited_as_facts(monkeypatch):
@@ -168,8 +166,8 @@ def test_fabricated_numbers_and_text_cannot_be_cited_as_facts(monkeypatch):
 
     result = QueryResult(columns=["region", "fake", "up"], rows=[["r1", 42, "R1"]], truncated=False)
     box, _ = explore_box(monkeypatch, connector=FakeConnector(result=result))
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "purpose": "x",
-                                                "sql": "SELECT region, 42 AS fake, UPPER(region) AS up FROM d1.facts"}))
+    out = json.loads(box.dispatch("query_sql", {"purpose": "x",
+                                                "sql": "SELECT region, 42 AS fake, CAST(region AS VARCHAR) AS up FROM d1.facts"}))
     ds = box.datasets()[out["dataset"]]
     data = {out["dataset"]: {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
                              **{k: ds.meta.get(k) for k in ("units", "explore", "column_evidence")}}}
@@ -193,11 +191,15 @@ def test_sample_values_goes_through_the_same_checks(monkeypatch):
     out = json.loads(box.dispatch("sample_values", {"asset": "appdb.d1.facts", "column": "region", "keyword": "r'; --"}))
     executed = [c for c in conn.calls if c[0] == "execute"][0]
     assert "LIMIT 21" in executed[1] and "'%r''; --%'" in executed[1]  # 关键字按字面量转义
+    # 关键字匹配先转成文本：数值、日期列也能用，不会把 LIKE 用在非文本列上（第 5 步评测里 StarRocks 报错的缺陷）
+    assert 'CAST("facts"."region" AS VARCHAR) LIKE' in executed[1]
+    qty = json.loads(box.dispatch("sample_values", {"asset": "appdb.d1.facts", "column": "qty", "keyword": "5"}))
+    assert "error" not in qty and 'CAST("facts"."qty" AS VARCHAR) LIKE' in [c for c in conn.calls if c[0] == "execute"][-1][1]
     ds = box.datasets()[out["dataset"]]
-    assert ds.meta["preview"] is True and box.budget.used_explore == 1 and "取值预览" in out["note"]
+    assert ds.meta["preview"] is True and box.budget.used_explore == 2 and "取值预览" in out["note"]
     monkeypatch.setattr(box.session, "scalar", lambda stmt: None)
     missing = json.loads(box.dispatch("sample_values", {"asset": "appdb.d1.nope", "column": "x"}))
-    assert "不存在或当前用户不可见" in missing["error"] and box.budget.used_explore == 2
+    assert "不存在或当前用户不可见" in missing["error"] and box.budget.used_explore == 3
 
 
 def test_sources_without_profile_or_switched_off(monkeypatch):
@@ -354,7 +356,7 @@ def test_calc_tools_inherit_column_evidence(monkeypatch):
     result = QueryResult(columns=["region", "label", "fake", "total"], rows=[["r1", "1", 99999, 10], ["r2", "2", 99999, 20]],
                          truncated=False)
     box, _ = explore_box(monkeypatch, connector=FakeConnector(result=result))
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "purpose": "x", "sql":
+    out = json.loads(box.dispatch("query_sql", {"purpose": "x", "sql":
         "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total FROM d1.facts GROUP BY region, qty"}))
     ref = out["dataset"]
     assert box.datasets()[ref].meta["column_evidence"]["fake"]["assumption"] is True
@@ -383,7 +385,7 @@ def test_timeout_is_rechecked_before_dispatch(monkeypatch):
     def slow_check():  # 物理核对用掉了几乎全部剩余时间：之后只剩约 4 秒（4 − 5 < 0）
         box.budget.started -= box.budget.remaining() - 4
     conn.on_describe = slow_check
-    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     describe = [c for c in conn.calls if c[0] == "describe"]
     assert len(describe) == 1 and 0 < describe[0][2] <= box.EXPLORE_MAX_SECONDS  # 核对确实执行了，且带超时
     assert out["code"] == "deadline" and out["sent_to_database"] is False
@@ -394,7 +396,7 @@ def test_live_check_uses_remaining_time(monkeypatch):
     """#8 物理核对的超时取剩余时间（不超过探索上限）；剩余时间已不足时不再发核对查询。"""
     box, conn = explore_box(monkeypatch)
     box.budget.started -= box.budget.seconds - 20  # 只剩约 20 秒
-    json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     describe = [c for c in conn.calls if c[0] == "describe"]
     assert describe and 10 <= describe[0][2] <= 15
     execute = [c for c in conn.calls if c[0] == "execute"]
