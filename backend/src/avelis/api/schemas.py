@@ -82,6 +82,8 @@ class DatasourceOut(Out):
     status: str
     server_identity: Json
     collect_interval_minutes: int
+    allow_exploration: bool = True
+    exploration_supported: bool = False
     credentials: list[CredentialOut]
     last_run: RunOut | None = None
     aliases: list[AliasOut]
@@ -108,6 +110,11 @@ class MemberOut(Out):
     display_name: str
 
 
+class ExampleQuestion(Out):
+    text: str
+    mode: str = "both"
+
+
 class DomainOut(Out):
     id: str
     code: str
@@ -115,6 +122,17 @@ class DomainOut(Out):
     description: str | None = None
     owner_id: str
     members: list[MemberOut]
+    example_questions: list[ExampleQuestion] = []
+
+
+class ExampleQuestionOut(Out):
+    text: str
+    domain: str | None = None
+    source: str
+
+
+class ExampleQuestionsOut(Out):
+    questions: list[ExampleQuestionOut]
 
 
 class DatasourceRef(Out):
@@ -306,6 +324,7 @@ class VersionBrief(Out):
     version_no: int
     status: str
     status_reason: str | None = None
+    unit: str | None = None
     published_at: str | None = None
 
 
@@ -358,6 +377,9 @@ class MetricVersionOut(Out):
     joins: list[Json]
     grain: list[str]
     dedupe_basis: str | None = None
+    unit: str | None = None
+    unit_scale: int = 1
+    material_change_ratio: float | None = None
     dependency: list[Json]
     dependency_fingerprint: str | None = None
     asset_versions: Json
@@ -625,3 +647,75 @@ class WorkbenchOut(Out):
     datasources: list[Json]
     cadence: list[Json]
     recent_changes: list[Json]
+
+
+# --- 分析智能体（M8） ---------------------------------------------------------------
+
+class AnalysisStepOut(Out):
+    seq: int
+    kind: str
+    tool: str | None = None
+    status: str
+    reason: str | None = None
+    dataset: str | None = None
+    args: Json = Field(default_factory=dict)
+    output: Json = Field(default_factory=dict)
+
+
+class AnalysisDatasetOut(Out):
+    ref: str
+    seq: int
+    kind: str
+    title: str
+    columns: list[str]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool = False
+    inputs: list[str] = Field(default_factory=list)
+    sql: str | None = None
+    summary: Any = None
+    metric_version_ids: list[str] = Field(default_factory=list)
+    time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
+
+
+class AnalysisRunOut(Out):
+    id: str
+    question: str
+    status: str
+    trigger: str
+    title: str | None = None
+    verified: bool | None = None
+    window: Json = Field(default_factory=dict)
+    budget: Json = Field(default_factory=dict)
+    model_adapter: str | None = None
+    error: str | None = None
+    created_at: str
+    finished_at: str | None = None
+    task_id: str | None = None
+    plan: Json | None = None
+    report: Json | None = None
+    verification: Json | None = None
+    steps: list[AnalysisStepOut] | None = None
+    datasets: list[AnalysisDatasetOut] | None = None
+
+
+class AnalysisTaskOut(Out):
+    id: str
+    title: str
+    question: str
+    status: str
+    schedule_cron: str | None = None
+    paused_reason: str | None = None
+    next_run_at: str | None = None
+    last_run_id: str | None = None
+    window: Json = Field(default_factory=dict)
+
+
+class NotificationOut(Out):
+    id: str
+    kind: str
+    title: str
+    body: str | None = None
+    link: str | None = None
+    read_at: str | None = None
+    created_at: str

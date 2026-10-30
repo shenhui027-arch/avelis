@@ -166,6 +166,29 @@ class PostgresConnector:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
+    def execute_explore(self, sql_text: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int = 0,
+                        work_mem: str = "16MB") -> QueryResult:
+        """执行校验后重新生成的探索查询（ADR 0009 第 6 点）：只读事务，statement_timeout 由服务端取消超时的查询，
+        lock_timeout、较低的 work_mem、关闭并行；出错时按数据库错误报出，不返回部分结果。"""
+        if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        try:
+            with self._connect() as conn:
+                conn.autocommit = False
+                with conn.transaction():
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    conn.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(
+                        sql.Literal(f"{int(timeout_seconds)}s")))
+                    conn.execute("SET LOCAL lock_timeout = '2s'")
+                    conn.execute(sql.SQL("SET LOCAL work_mem = {}").format(sql.Literal(work_mem)))
+                    conn.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+                    cur = conn.execute(sql_text)
+                    rows = cur.fetchmany(max_rows + 1)
+                    columns = [d.name for d in cur.description or []]
+        except psycopg.Error as exc:
+            raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
+        return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         """读 DDL 审计。两次快照都记了事务快照时，按事务可见性取“上次快照看不到、本次看得到”的事务，结果确定；
         否则（升级后第一次、上次快照没有游标）按执行时间取窗口内的记录，一律标为不确定（长事务可能跨窗口）。
@@ -247,8 +270,10 @@ class PostgresConnector:
         """PostgreSQL 不记录表的最近修改时间，不报告新鲜度（不以统计信息冒充）。"""
         return {}
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
-        """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。"""
+    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+                         ) -> dict[tuple[str, str], dict[str, Any]]:
+        """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。
+        timeout_seconds：探索查询传入剩余时间，作为 statement_timeout。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
         out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
                                                       for k in names}
@@ -256,6 +281,8 @@ class PostgresConnector:
             return out
         try:
             with self._connect() as conn:
+                if timeout_seconds:
+                    conn.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(f"{int(timeout_seconds)}s")))
                 rows = conn.execute(
                     "SELECT c.oid, n.nspname, c.relname, c.relkind FROM pg_catalog.pg_class c "
                     "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "

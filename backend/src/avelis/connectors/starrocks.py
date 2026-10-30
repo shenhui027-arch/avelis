@@ -5,6 +5,7 @@
 - 旧式 ENGINE=mysql 外部表从 SHOW CREATE TABLE 读取 host/port/database/table（口令被 StarRocks 置空）；
 - JDBC Catalog 从 SHOW CREATE CATALOG 读取 jdbc_uri（不显示口令），表结构从 <catalog>.information_schema 读取；
 - 问数执行：会话设置 query_timeout 与 query_mem_limit，错误 5024 归为超时。
+- 探索执行（ADR 0009 第 6 点）：另设 pipeline_dop；客户端等待超时时另开连接对该连接发 KILL QUERY，确认查询已停止。
 """
 
 from __future__ import annotations
@@ -237,17 +238,78 @@ class StarRocksConnector:
         finally:
             conn.close()
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
-        """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）与视图定义。对象不存在时列为空。"""
+    def execute_explore(self, sql: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int,
+                        pipeline_dop: int = 1) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号，服务端 query_timeout / query_mem_limit / pipeline_dop；
+        客户端等待超过截止时间时向服务端发 KILL QUERY 并确认已停止，然后按超时报错（不返回部分结果）。"""
+        if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        # 截止保证来自服务端 query_timeout（不超过剩余时间）；客户端读超时稍长，先到时另发一次取消（尽力而为）
+        conn = self._connect(read_timeout=timeout_seconds + 5)
+        connection_id = None
+        try:
+            cur = conn.cursor(pymysql.cursors.Cursor)
+            cur.execute("SELECT CONNECTION_ID()")
+            connection_id = int(cur.fetchone()[0])
+            cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
+            cur.execute(f"SET query_mem_limit = {int(mem_limit_bytes)}")
+            cur.execute(f"SET pipeline_dop = {int(pipeline_dop)}")
+            cur.execute(sql)
+            columns = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(max_rows + 1)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+        except pymysql.err.OperationalError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            if errno in (2013, 2006) and connection_id is not None:  # 客户端等待超时或断连：另发一次取消
+                outcome, failure = self._kill_query(connection_id)
+                text = {"kill_sent": "已向服务端发送取消", "already_finished": "服务端查询已结束",
+                        "cancel_failed": "发送取消失败，服务端 query_timeout 到期时终止查询"}[outcome]
+                error = QueryError("timeout", errno, f"探索查询超过截止时间：{text}")
+                error.cancel, error.cancel_error = outcome, failure  # 审计如实记录取消是否发送成功
+                raise error from exc
+            message = str(exc.args[-1]) if exc.args else str(exc)
+            raise QueryError(_classify(errno, message), errno, message) from exc
+        except pymysql.MySQLError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            message = str(exc.args[-1]) if exc.args else str(exc)
+            raise QueryError(_classify(errno, message), errno, message) from exc
+        finally:
+            conn.close()
+
+    def _kill_query(self, connection_id: int) -> tuple[str, str | None]:
+        """尽力而为地发 KILL QUERY，返回 (结果, 失败原因)：kill_sent 语句已被服务端接受（不代表已确认停止）；
+        already_finished 目标连接已不存在（1094）；cancel_failed 连接或发送失败（通信超时、断连、无权限等），
+        失败原因保留异常类别与消息，写进审计。"""
+        try:
+            killer = self._connect(read_timeout=10)
+        except (pymysql.MySQLError, OSError) as exc:
+            return "cancel_failed", f"{type(exc).__name__}: {exc}"[:300]
+        try:
+            killer.cursor().execute(f"KILL QUERY {int(connection_id)}")
+            return "kill_sent", None
+        except (pymysql.MySQLError, OSError) as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            if errno == 1094:
+                return "already_finished", None
+            return "cancel_failed", f"{type(exc).__name__}: {exc}"[:300]
+        finally:
+            killer.close()
+
+    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+                         ) -> dict[tuple[str, str], dict[str, Any]]:
+        """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）与视图定义。对象不存在时列为空。
+        timeout_seconds：探索查询传入剩余时间，作为读超时与服务端 query_timeout。"""
         names = {(db, name) for db, name in objects if IDENT.match(db) and IDENT.match(name)}
         if not names:
             return {}
         dbs, tables = _in_list(sorted({d for d, _ in names})), _in_list(sorted({n for _, n in names}))
         out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
                                                       for k in names}
-        conn = self._connect(read_timeout=30)
+        conn = self._connect(read_timeout=timeout_seconds or 30)
         try:
             cur = conn.cursor()
+            if timeout_seconds:
+                cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
             cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ID FROM information_schema.tables_config "
                         f"WHERE TABLE_SCHEMA IN ({dbs}) AND TABLE_NAME IN ({tables})")
             for r in cur.fetchall():

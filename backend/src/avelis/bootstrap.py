@@ -141,7 +141,8 @@ def model_from_env() -> str:
                                          models=[{"id": name, "enabled": True}])
         modelcfg.check(session, admin, p.id, name)
         modelcfg.save_settings(session, admin, {"ask": {"provider_id": p.id, "model_id": name},
-                                                "import": {"provider_id": p.id, "model_id": name}}, None)
+                                                "import": {"provider_id": p.id, "model_id": name},
+                                                "analysis": {"provider_id": p.id, "model_id": name}}, None)
         return p.id
 
 
@@ -150,11 +151,14 @@ def main(argv: list[str]) -> None:
     cmd = argv[0] if argv else ""
     if cmd == "migrate":
         command.upgrade(alembic_config(), "head")
+        from avelis.ask.agent import graph
+
+        graph()  # 建好智能体会话状态表（不在任何请求的事务中建，见 devtools.reset_metadata_db）
         print("元数据库已迁移到最新版本")
     elif cmd == "demo":
         from avelis.demo_setup import setup
 
-        setup(reset="--reset" in argv, metrics="--metrics" in argv)
+        setup(reset="--reset" in argv, metrics="--metrics" in argv, ec=False if "--no-ec" in argv else None)
         if get_settings().env.get("AVELIS_MODEL_API_KEY"):
             model_from_env()
             print("已按 .env 登记模型提供方（密钥加密存储，未打印）")

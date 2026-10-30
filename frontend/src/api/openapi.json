@@ -491,6 +491,64 @@
     ]
    }
   },
+  "/api/datasources/{datasource_id}/exploration": {
+   "put": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Set Exploration",
+    "description": "按数据源开关探索查询（ADR 0009 第 6 点）：默认开启，管理员可以关闭。",
+    "operationId": "set_exploration_api_datasources__datasource_id__exploration_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Exploration"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DatasourceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/datasources/{datasource_id}/credentials/{purpose}": {
    "put": {
     "tags": [
@@ -876,6 +934,114 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/DomainOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/domains/{domain_id}/example-questions": {
+   "put": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Set Example Questions",
+    "description": "业务域的示例问题（ADR 0010）：由负责人、维护者维护，问数页与分析页从 /example-questions 读取。",
+    "operationId": "set_example_questions_api_domains__domain_id__example_questions_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExampleQuestionsSet"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DomainOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/example-questions": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Get Example Questions",
+    "description": "当前用户可见业务域配置的示例问题；都没有配置时按模板从可见口径生成（ADR 0010 第 3 点）。",
+    "operationId": "get_example_questions_api_example_questions_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "mode",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(ask|analysis)$",
+       "default": "ask",
+       "title": "Mode"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExampleQuestionsOut"
         }
        }
       }
@@ -3062,6 +3228,629 @@
     }
    }
   },
+  "/api/analysis/runs": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Create Run",
+    "description": "发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。",
+    "operationId": "create_run_api_analysis_runs_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "wait",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Wait"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RunCreate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Runs",
+    "operationId": "list_runs_api_analysis_runs_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AnalysisRunOut"
+         },
+         "title": "Response List Runs Api Analysis Runs Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Get Run",
+    "operationId": "get_run_api_analysis_runs__run_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/datasets/{seq}": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Get Dataset",
+    "operationId": "get_dataset_api_analysis_runs__run_id__datasets__seq__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     },
+     {
+      "name": "seq",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Seq"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Dataset Api Analysis Runs  Run Id  Datasets  Seq  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/datasets/{seq}/csv": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Dataset Csv",
+    "operationId": "dataset_csv_api_analysis_runs__run_id__datasets__seq__csv_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     },
+     {
+      "name": "seq",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Seq"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/export": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Export Run",
+    "operationId": "export_run_api_analysis_runs__run_id__export_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     },
+     {
+      "name": "format",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "pdf",
+       "title": "Format"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/tasks": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Tasks",
+    "operationId": "list_tasks_api_analysis_tasks_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AnalysisTaskOut"
+         },
+         "type": "array",
+         "title": "Response List Tasks Api Analysis Tasks Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Create Task",
+    "operationId": "create_task_api_analysis_tasks_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TaskCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisTaskOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/analysis/tasks/{task_id}": {
+   "patch": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Patch Task",
+    "operationId": "patch_task_api_analysis_tasks__task_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "task_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Task Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TaskPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisTaskOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/tasks/{task_id}/run": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Run Task Now",
+    "description": "立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。",
+    "operationId": "run_task_now_api_analysis_tasks__task_id__run_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "task_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Task Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/tasks/{task_id}/runs": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Task Runs",
+    "operationId": "task_runs_api_analysis_tasks__task_id__runs_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "task_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Task Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AnalysisRunOut"
+         },
+         "title": "Response Task Runs Api Analysis Tasks  Task Id  Runs Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/notifications": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Notifications",
+    "operationId": "list_notifications_api_notifications_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "unread",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Unread"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/NotificationOut"
+         },
+         "title": "Response List Notifications Api Notifications Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/notifications/{notification_id}/read": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Read Notification",
+    "operationId": "read_notification_api_notifications__notification_id__read_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "notification_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Notification Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/model-providers/presets": {
    "get": {
     "tags": [
@@ -3871,6 +4660,420 @@
     ],
     "title": "AliasOut"
    },
+   "AnalysisDatasetOut": {
+    "properties": {
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "seq": {
+      "type": "integer",
+      "title": "Seq"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "rows": {
+      "items": {
+       "items": {},
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Rows"
+     },
+     "row_count": {
+      "type": "integer",
+      "title": "Row Count"
+     },
+     "truncated": {
+      "type": "boolean",
+      "title": "Truncated",
+      "default": false
+     },
+     "inputs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Inputs"
+     },
+     "sql": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql"
+     },
+     "summary": {
+      "title": "Summary"
+     },
+     "metric_version_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Metric Version Ids"
+     },
+     "time_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Column"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref",
+     "seq",
+     "kind",
+     "title",
+     "columns",
+     "rows",
+     "row_count"
+    ],
+    "title": "AnalysisDatasetOut"
+   },
+   "AnalysisRunOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "trigger": {
+      "type": "string",
+      "title": "Trigger"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "verified": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Verified"
+     },
+     "window": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Window"
+     },
+     "budget": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Budget"
+     },
+     "model_adapter": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Adapter"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "task_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Task Id"
+     },
+     "plan": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Plan"
+     },
+     "report": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Report"
+     },
+     "verification": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Verification"
+     },
+     "steps": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/AnalysisStepOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Steps"
+     },
+     "datasets": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/AnalysisDatasetOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasets"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "question",
+     "status",
+     "trigger",
+     "created_at"
+    ],
+    "title": "AnalysisRunOut"
+   },
+   "AnalysisStepOut": {
+    "properties": {
+     "seq": {
+      "type": "integer",
+      "title": "Seq"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "tool": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tool"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "dataset": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dataset"
+     },
+     "args": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Args"
+     },
+     "output": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Output"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "seq",
+     "kind",
+     "status"
+    ],
+    "title": "AnalysisStepOut"
+   },
+   "AnalysisTaskOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "schedule_cron": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Schedule Cron"
+     },
+     "paused_reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Paused Reason"
+     },
+     "next_run_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Next Run At"
+     },
+     "last_run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Run Id"
+     },
+     "window": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Window"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "question",
+     "status"
+    ],
+    "title": "AnalysisTaskOut"
+   },
    "AnswerOut": {
     "properties": {
      "id": {
@@ -4464,6 +5667,25 @@
        }
       ],
       "title": "Updated At"
+     },
+     "reasoning_effort": {
+      "type": "string",
+      "title": "Reasoning Effort"
+     },
+     "default_effort": {
+      "type": "string",
+      "title": "Default Effort"
+     },
+     "effective_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Effective Effort"
      }
     },
     "type": "object",
@@ -4473,7 +5695,10 @@
      "hint",
      "provider_id",
      "model_id",
-     "updated_at"
+     "updated_at",
+     "reasoning_effort",
+     "default_effort",
+     "effective_effort"
     ],
     "title": "AssignmentOut"
    },
@@ -5944,6 +7169,16 @@
       "type": "integer",
       "title": "Collect Interval Minutes"
      },
+     "allow_exploration": {
+      "type": "boolean",
+      "title": "Allow Exploration",
+      "default": true
+     },
+     "exploration_supported": {
+      "type": "boolean",
+      "title": "Exploration Supported",
+      "default": false
+     },
      "credentials": {
       "items": {
        "$ref": "#/components/schemas/CredentialOut"
@@ -6267,6 +7502,14 @@
       },
       "type": "array",
       "title": "Members"
+     },
+     "example_questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestion"
+      },
+      "type": "array",
+      "title": "Example Questions",
+      "default": []
      }
     },
     "additionalProperties": true,
@@ -6307,6 +7550,35 @@
      "code"
     ],
     "title": "DomainRef"
+   },
+   "EffortOut": {
+    "properties": {
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "effective": {
+      "type": "string",
+      "title": "Effective",
+      "description": "实际生效的档位（提供方会把某些档位映射成另一档）"
+     },
+     "effective_label": {
+      "type": "string",
+      "title": "Effective Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "value",
+     "label",
+     "effective",
+     "effective_label"
+    ],
+    "title": "EffortOut"
    },
    "EngineOptionOut": {
     "properties": {
@@ -6415,6 +7687,120 @@
      "note"
     ],
     "title": "EngineOut"
+   },
+   "ExampleQuestion": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "both"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "ExampleQuestion"
+   },
+   "ExampleQuestionIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "mode": {
+      "type": "string",
+      "pattern": "^(ask|analysis|both)$",
+      "title": "Mode",
+      "default": "both"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "ExampleQuestionIn"
+   },
+   "ExampleQuestionOut": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "text",
+     "source"
+    ],
+    "title": "ExampleQuestionOut"
+   },
+   "ExampleQuestionsOut": {
+    "properties": {
+     "questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestionOut"
+      },
+      "type": "array",
+      "title": "Questions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "questions"
+    ],
+    "title": "ExampleQuestionsOut"
+   },
+   "ExampleQuestionsSet": {
+    "properties": {
+     "questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestionIn"
+      },
+      "type": "array",
+      "maxItems": 12,
+      "title": "Questions"
+     }
+    },
+    "type": "object",
+    "title": "ExampleQuestionsSet"
+   },
+   "Exploration": {
+    "properties": {
+     "allow": {
+      "type": "boolean",
+      "title": "Allow"
+     }
+    },
+    "type": "object",
+    "required": [
+     "allow"
+    ],
+    "title": "Exploration"
    },
    "FetchedOut": {
     "properties": {
@@ -7681,6 +9067,33 @@
       ],
       "title": "Dedupe Basis"
      },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit"
+     },
+     "unit_scale": {
+      "type": "integer",
+      "title": "Unit Scale",
+      "default": 1
+     },
+     "material_change_ratio": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Material Change Ratio"
+     },
      "dependency": {
       "items": {
        "additionalProperties": true,
@@ -7876,6 +9289,14 @@
        }
       ],
       "title": "Tool Calling"
+     },
+     "efforts": {
+      "items": {
+       "$ref": "#/components/schemas/EffortOut"
+      },
+      "type": "array",
+      "title": "Efforts",
+      "description": "该模型支持的思考档位；为空时不支持设置"
      }
     },
     "type": "object",
@@ -7901,6 +9322,68 @@
     },
     "type": "object",
     "title": "Note"
+   },
+   "NotificationOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "body": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Body"
+     },
+     "link": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Link"
+     },
+     "read_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Read At"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "title",
+     "created_at"
+    ],
+    "title": "NotificationOut"
    },
    "OwnerRef": {
     "properties": {
@@ -8470,6 +9953,31 @@
     ],
     "title": "Resolve"
    },
+   "RunCreate": {
+    "properties": {
+     "question": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 2,
+      "title": "Question"
+     },
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Window"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "question"
+    ],
+    "title": "RunCreate"
+   },
    "RunOut": {
     "properties": {
      "id": {
@@ -8754,6 +10262,25 @@
      "model_id": {
       "type": "string",
       "title": "Model Id"
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "off",
+         "low",
+         "medium",
+         "high",
+         "max"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort",
+      "description": "思考强度；不写时按该用途的默认档位"
      }
     },
     "type": "object",
@@ -8762,6 +10289,48 @@
      "model_id"
     ],
     "title": "Target"
+   },
+   "TaskCreate": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "question": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 2,
+      "title": "Question"
+     },
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Window"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "schedule_cron": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Schedule Cron",
+      "description": "5 段 cron（业务时区），如 0 9 1 * *；为空表示只手动运行"
+     }
+    },
+    "type": "object",
+    "required": [
+     "question"
+    ],
+    "title": "TaskCreate"
    },
    "TaskOut": {
     "properties": {
@@ -8857,6 +10426,66 @@
      "created_at"
     ],
     "title": "TaskOut"
+   },
+   "TaskPatch": {
+    "properties": {
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Window"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "schedule_cron": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Schedule Cron"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Status"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "title": "TaskPatch"
    },
    "ThreadDetailOut": {
     "properties": {
@@ -9283,6 +10912,17 @@
       ],
       "title": "Status Reason"
      },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit"
+     },
      "published_at": {
       "anyOf": [
        {
@@ -9391,6 +11031,40 @@
        }
       ],
       "title": "Dedupe Basis"
+     },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 16
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit",
+      "description": "单位，如 元、单、人；比率类可不填"
+     },
+     "unit_scale": {
+      "type": "integer",
+      "minimum": 1.0,
+      "title": "Unit Scale",
+      "description": "列本身的倍数：列已是“万元”时为 10000",
+      "default": 1
+     },
+     "material_change_ratio": {
+      "anyOf": [
+       {
+        "type": "number",
+        "exclusiveMaximum": 1.0,
+        "exclusiveMinimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Material Change Ratio",
+      "description": "变化显著性阈值（相对对比期）：为空时用系统默认 1%"
      }
     },
     "type": "object",
@@ -9399,7 +11073,65 @@
      "expression"
     ],
     "title": "VersionSpec",
-    "description": "基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。\n派生指标：kind=\"derived\"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"
+    "description": "基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。\n派生指标：kind=\"derived\"，expression 为引用其他指标编码的公式（如 metric_a / metric_b），其余不填。"
+   },
+   "Window": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "last_month（上个自然月对比再上个月）或 fixed"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "end": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "End"
+     },
+     "compare_start": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compare Start"
+     },
+     "compare_end": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compare End"
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "title": "Window"
    },
    "WorkbenchOut": {
     "properties": {

@@ -1,4 +1,4 @@
-"""派生指标：由已发布的组成指标按公式计算（例如 客单价 = paid_sales / orders_cnt）。
+"""派生指标：由已发布的组成指标按公式计算（例如 metric_ratio = metric_a / metric_b）。
 
 公式只允许：指标编码、数字、加减乘除、括号、取负。用 Python AST 白名单解析与求值，不执行任何代码。
 提交时锁定每个组成指标的具体版本；问数时组成指标各自走完整治理管线，后端按维度键对齐后再计算，
@@ -21,7 +21,7 @@ def parse_formula(formula: str) -> list[str]:
     """校验公式并返回引用的指标编码（按首次出现顺序）。"""
     text = (formula or "").strip()
     if not text:
-        raise Invalid("派生指标需要公式，例如 paid_sales / orders_cnt")
+        raise Invalid("派生指标需要公式，例如 metric_a / metric_b")
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as exc:

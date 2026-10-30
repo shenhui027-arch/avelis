@@ -58,6 +58,8 @@ class Settings:
     unassigned_asset_policy: str = "deny"
     ask_live_check: bool = True
     require_column_comments: bool = False
+    material_change_ratio: float = 0.01  # 变化显著性阈值（相对对比期，ADR 0009 第 7 点）：口径版本未单独配置时使用
+    analysis_query_limit: int = 20  # 一次分析里查询类工具共用的额度（ADR 0009 第 7 点第 7 条）
     worker_schedule_seconds: int = 60
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
@@ -101,6 +103,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         ask_live_check=env.get("AVELIS_ASK_LIVE_CHECK", "true").strip().lower() not in ("0", "false", "no"),
         require_column_comments=env.get("AVELIS_REQUIRE_COLUMN_COMMENTS", "false").strip().lower()
         in ("1", "true", "yes"),
+        material_change_ratio=float(env.get("AVELIS_MATERIAL_CHANGE_RATIO", "0.01")),
+        analysis_query_limit=int(env.get("AVELIS_ANALYSIS_QUERY_LIMIT", "20")),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
         worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),

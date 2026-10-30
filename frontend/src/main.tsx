@@ -6,6 +6,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
 import { AskPage } from "./pages/ask/AskPage";
+import { AnalysisPage } from "./pages/analysis/AnalysisPage";
 import { CatalogPage } from "./pages/catalog/CatalogPage";
 import { ChangesPage } from "./pages/changes/ChangesPage";
 import { ImportPage } from "./pages/lineage/ImportPage";
@@ -44,6 +45,9 @@ const router = createBrowserRouter([
       { path: "changes/:id", element: <ChangesPage /> },
       { path: "ask", element: <AskPage /> },
       { path: "ask/:threadId", element: <AskPage /> },
+      { path: "analysis", element: <AnalysisPage /> },
+      { path: "analysis/runs/:runId", element: <AnalysisPage /> },
+      { path: "analysis/:section", element: <AnalysisPage /> },
       { path: "settings", element: <Navigate to="/settings/datasources" replace /> },
       { path: "settings/datasources", element: <DatasourcesPage /> },
       { path: "settings/datasources/:id", element: <DatasourcesPage /> },

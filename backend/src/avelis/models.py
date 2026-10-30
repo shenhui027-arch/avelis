@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import false as sa_false
+from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avelis.db import Base, IdType, JsonType, LongText, UTCDateTime, new_id, utcnow
@@ -80,6 +82,8 @@ class Domain(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     owner_id: Mapped[str] = fk("app_user.id")
+    # 示例问题（ADR 0010）：[{text, mode}]，mode 为 ask、analysis 或 both；由业务域负责人、维护者维护
+    example_questions: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
     created_at: Mapped[datetime] = created()
 
 
@@ -108,6 +112,8 @@ class Datasource(Base):
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     server_identity: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     collect_interval_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
+    # 探索查询开关（ADR 0009 第 6 点）：默认开启，管理员可按数据源关闭；引擎没有探索档案时开启也不可用
+    allow_exploration: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true(), nullable=False)
     created_by: Mapped[str | None] = fk("app_user.id", nullable=True)
     created_at: Mapped[datetime] = created()
 
@@ -126,7 +132,7 @@ class DatasourceCredential(Base):
 
 
 class EndpointAlias(Base):
-    """同一个数据库在不同网络位置的地址（如 StarRocks 看到 shop-mysql:3306，采集器看到 127.0.0.1:13306）。"""
+    """同一个数据库在不同网络位置的地址（如 StarRocks 看到 db-mysql:3306，采集器看到 127.0.0.1:13306）。"""
 
     __tablename__ = "endpoint_alias"
     __table_args__ = (UniqueConstraint("host", "port"),)
@@ -393,6 +399,11 @@ class MetricVersion(Base):
     joins: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     grain: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     dedupe_basis: Mapped[str | None] = mapped_column(Text)
+    # 单位（ADR 0009）：如 元、单、人；unit_scale 是列本身的倍数（列已是“万元”时为 10000）。缺单位的口径列入治理待补
+    unit: Mapped[str | None] = mapped_column(String(16))
+    unit_scale: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1", nullable=False)
+    # 变化显著性阈值（ADR 0009 第 7 点）：为空时用系统默认；只影响分析判断，不计入依赖指纹
+    material_change_ratio: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
     dependency: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     dependency_fingerprint: Mapped[str | None] = mapped_column(String(64))
     asset_versions: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
@@ -743,6 +754,8 @@ class ModelAssignment(Base):
     purpose: Mapped[str] = mapped_column(String(16), primary_key=True)
     provider_id: Mapped[str] = fk("model_provider.id", index=False)
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # 思考强度 off / low / medium / high / max（ADR 0012）；为空时取 modelcfg.DEFAULT_EFFORT
+    reasoning_effort: Mapped[str | None] = mapped_column(String(8))
     updated_by: Mapped[str] = fk("app_user.id", index=False)
     updated_at: Mapped[datetime] = created()
 
@@ -753,3 +766,103 @@ class AppSetting(Base):
     value: Mapped[dict] = mapped_column(JsonType, nullable=False)
     updated_by: Mapped[str | None] = mapped_column(IdType)
     updated_at: Mapped[datetime] = created()
+
+
+# --- 分析智能体（M8，ADR 0007） ------------------------------------------------------
+
+class AnalysisTask(Base):
+    """保存下来的分析：问题 + 时间窗口规则，可按 cron 定时重跑。以发起人身份运行，每次重新检查权限。"""
+
+    __tablename__ = "analysis_task"
+    id: Mapped[str] = pk()
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[str] = fk("app_user.id")
+    # {"kind": "fixed", "start", "end", "compare_start", "compare_end"} 或 {"kind": "last_month"}（上个自然月对比再上个月）
+    window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    schedule_cron: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | paused
+    paused_reason: Mapped[str | None] = mapped_column(Text)
+    next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    last_run_id: Mapped[str | None] = mapped_column(IdType)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
+class AnalysisRun(Base):
+    """一次分析：计划、步骤、数据集、报告与核验结果。报告中的事实与计算类数字必须能在引用的数据集中找到。"""
+
+    __tablename__ = "analysis_run"
+    __table_args__ = (Index("ix_analysis_run_user", "user_id", "created_at"),)
+    id: Mapped[str] = pk()
+    task_id: Mapped[str | None] = fk("analysis_task.id", nullable=True)
+    user_id: Mapped[str] = fk("app_user.id", index=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | succeeded | failed | stopped
+    window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    plan: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    report: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    verification: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    budget: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)  # 上限与已用
+    model_adapter: Mapped[str | None] = mapped_column(String(64))
+    reasoning_effort: Mapped[str | None] = mapped_column(String(8))  # 实际生效的思考强度（ADR 0012）
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created()
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class AnalysisStep(Base):
+    """分析中的一步：计划、工具调用或说明。理由来自模型，参数与产出由后端记录。"""
+
+    __tablename__ = "analysis_step"
+    __table_args__ = (UniqueConstraint("run_id", "seq"),)
+    id: Mapped[str] = pk()
+    run_id: Mapped[str] = fk("analysis_run.id")
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # plan | tool | note | model（模型调用的度量）
+    tool: Mapped[str | None] = mapped_column(String(64))
+    args: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # ok | error | denied | blocked
+    output: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    dataset_id: Mapped[str | None] = mapped_column(IdType)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = created()
+
+
+class AnalysisDataset(Base):
+    """分析中产生的数据集，用编号（D1、D2…）在报告中引用。
+    governed：受治理查询（answer_id 指向问数依据）；calc：计算工具的产出（inputs 为输入数据集）；
+    context：元数据（血缘、变更、数据健康）；ungoverned：探索查询（M8c）。"""
+
+    __tablename__ = "analysis_dataset"
+    __table_args__ = (UniqueConstraint("run_id", "seq"),)
+    id: Mapped[str] = pk()
+    run_id: Mapped[str] = fk("analysis_run.id")
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    answer_id: Mapped[str | None] = mapped_column(IdType)
+    inputs: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    columns: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    rows: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    meta: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    created_at: Mapped[datetime] = created()
+
+
+class Notification(Base):
+    """站内通知（定时分析完成、失败、暂停等）。"""
+
+    __tablename__ = "notification"
+    __table_args__ = (Index("ix_notification_user", "user_id", "created_at"),)
+    id: Mapped[str] = pk()
+    user_id: Mapped[str] = fk("app_user.id", index=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str | None] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(String(255))
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = created()

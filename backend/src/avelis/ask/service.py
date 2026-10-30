@@ -21,7 +21,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from avelis import audit, cache
 from avelis.ask.compiler import ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
-from avelis.ask.intent import Intent, MetricCard
+from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
@@ -35,6 +35,7 @@ from avelis.governance.metrics import (
     describe_version,
     latest_governed_version,
     publish_check,
+    resolve_joins,
     validate_spec,
     visible_metrics,
 )
@@ -80,6 +81,24 @@ def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catal
             dimension_values=_dimension_values(session, user, version, settings) if with_values else {},
             description=version.description, status=version.status))
     return Catalog(cards, versions)
+
+
+def visible_metric(session: Session, code: str, allowed: set[str]) -> tuple[Metric | None, MetricVersion | None]:
+    """单个口径的可见性，与 visible_catalog 同一规则（不建全量目录）：allowed 为用户可访问的业务域。
+    指标不存在时为 (None, None)；存在但不在 allowed 中、或没有进入过发布流程的版本时，版本为 None。"""
+    metric = session.scalar(select(Metric).where(Metric.code == code))
+    if metric is None:
+        return None, None
+    if metric.domain_id not in allowed:
+        return metric, None
+    return metric, latest_governed_version(session, metric)
+
+
+def version_sources(session: Session, version: MetricVersion) -> dict[str, Asset]:
+    """一个口径版本查询时会读到的全部来源：主表与关联的右表（resolve_joins），再沿血缘向上（upstream_closure）。
+    与 _fulfil 的来源权限检查是同一范围。"""
+    aliases, _ = resolve_joins(session, version)
+    return upstream_closure(session, [a.id for a in aliases.values()])
 
 
 def start_answer(session: Session, user: User, question: str, adapter: str, thread_id: str | None) -> Answer:
@@ -168,7 +187,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
             return
     if steps:
         # 关联基数按当前粒度重新判定：粒度被证伪、键变化后，发布时的 N:1 依据可能已不成立
-        fan_out = publish_check(session, version)["fan_out"]
+        fan_out = publish_check(session, version, user)["fan_out"]
         if fan_out:
             answer.status = "blocked"
             answer.error_code = "fan_out"
@@ -194,7 +213,8 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     ds = session.get(Datasource, base.datasource_id)
     dialect = dialect_of(ds)
     compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=intent,
-                                    max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect)
+                                    max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect,
+                                    reserved_names=(metric.name, "value"))
     answer.sql = compiled.sql
     answer.plan = {**compiled.plan, "metric_version_id": version.id,
                    "dependency_fingerprint": version.dependency_fingerprint}
@@ -273,7 +293,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     answer.executed_at = utcnow()
     answer.result = {"columns": result.columns, "rows": [[_jsonable(v) for v in row] for row in result.rows],
                      "row_count": len(result.rows), "truncated": result.truncated,
-                     "column_docs": _dimension_docs(session, version, aliases, intent.group_by)}
+                     "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by)}
     answer.status = "answered"
     answer.evidence["cache"] = {"hit": False}
     answer.message = _explain(metric, version, intent, answer.result)
@@ -373,12 +393,13 @@ def _cache_put(key: str, value: dict, ttl: int, tags: list[str]) -> None:
         pass
 
 
-def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str, Asset],
+def _dimension_docs(session: Session, user: User, version: MetricVersion, aliases: dict[str, Asset],
                     names: list[str]) -> dict[str, dict[str, Any]]:
     """结果中各维度列的数据库注释（原样列名 + 注释状态）。Avelis 不另起显示名：注释缺失就如实标出，
     推动数据库侧补齐（见 governance/column_docs.py）。"""
-    from avelis.governance.column_docs import column_doc
+    from avelis.governance.column_docs import column_doc, visible_to
 
+    can_see = visible_to(session, user)
     dims = {d["name"]: d for d in version.dimensions or []}
     out = {}
     for name in names:
@@ -386,11 +407,11 @@ def _dimension_docs(session: Session, version: MetricVersion, aliases: dict[str,
         alias, column = ref.split(".", 1) if "." in ref else ("b", ref)
         asset = aliases.get(alias)
         if asset is not None and column:
-            out[name] = column_doc(session, asset, column)
+            out[name] = column_doc(session, asset, column, can_see=can_see)
     return out
 
 
-PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期"}
+PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期", "custom": "对比期"}
 
 
 def _scratch(answer: Answer, user: User) -> Answer:
@@ -458,7 +479,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
 
     periods = [("current", intent.start_date, intent.end_date)]
     if intent.compare:
-        periods.append((intent.compare, *comparison_range(intent.start_date, intent.end_date, intent.compare)))
+        periods.append((intent.compare, *((intent.compare_start, intent.compare_end) if intent.compare == "custom"
+                                          else comparison_range(intent.start_date, intent.end_date, intent.compare))))
     values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
     keys: list[tuple] = []
     plan, sqls, sources, lineage = [], [], {}, []
@@ -467,7 +489,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         for label, start, end in periods:
             sub = _scratch(answer, user)
             sub_intent = Intent(metric_code=code, start_date=start, end_date=end, filters=intent.filters,
-                                group_by=intent.group_by)
+                                group_by=intent.group_by, time_grain=intent.time_grain)
             _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
             plan.append({"metric_code": code, "metric_version_id": version.id, "period": label,
                          "range": [str(start), str(end)], "status": sub.status, "error_code": sub.error_code,
@@ -502,7 +524,12 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                                                  for c in version.components})
         return values[(code, label)].get(key)
 
-    columns = list(intent.group_by)
+    metric_columns = []
+    for _, metric, _ in requested:
+        metric_columns.append(metric.name)
+        if intent.compare:
+            metric_columns += [f"{metric.name}·{PERIOD_LABEL[intent.compare]}", f"{metric.name}·变化", f"{metric.name}·变化率"]
+    columns = ([period_column(intent.group_by, metric_columns)] if intent.time_grain else []) + list(intent.group_by)
     for _, metric, _ in requested:
         columns.append(metric.name)
         if intent.compare:
@@ -519,8 +546,10 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                 rate = (delta / before).quantize(Decimal("0.0001")) if delta is not None and before else None
                 row += [before, delta, rate]
         rows_out.append(row)
+    if intent.time_grain and not intent.order:
+        rows_out.sort(key=lambda r: str(r[0]))
     if intent.order:  # 按第一个指标的本期值排序；空值排最后
-        first = len(intent.group_by)
+        first = len(intent.group_by) + (1 if intent.time_grain else 0)
         present = [r for r in rows_out if r[first] is not None]
         present.sort(key=lambda r: r[first], reverse=intent.order == "desc")
         rows_out = present + [r for r in rows_out if r[first] is None]
@@ -530,7 +559,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     first_code, first_metric, first_version = requested[0]
     answer.status = "answered"
     first_run = next(iter(runs.values()))[1]
-    docs = _dimension_docs(session, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
+    docs = _dimension_docs(session, user, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
     answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in r] for r in rows_out],
                      "row_count": len(rows_out), "truncated": truncated, "column_docs": docs}
     answer.sql = (chr(10) * 2).join(sqls)

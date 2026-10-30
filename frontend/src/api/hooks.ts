@@ -40,6 +40,11 @@ export function useQueryableDatasourceIds(): Set<string> {
 export const useEngines = () => useQuery({ queryKey: ["engines"], queryFn: () => unwrap(api.GET("/api/engines")), staleTime: Infinity });
 export const useUsers = () => useQuery({ queryKey: ["users"], queryFn: () => unwrap(api.GET("/api/users")) });
 export const useDomains = () => useQuery({ queryKey: ["domains"], queryFn: () => unwrap(api.GET("/api/domains")) });
+/** 示例问题：来自可见业务域的配置，没有配置时由后端按可见口径生成（ADR 0010），不写死在前端。 */
+export const useExampleQuestions = (mode: "ask" | "analysis") => useQuery({
+  queryKey: ["example-questions", mode], staleTime: 60_000,
+  queryFn: () => unwrap(api.GET("/api/example-questions", { params: { query: { mode } } })),
+});
 export const useAssets = () => useQuery({ queryKey: ["assets"], queryFn: () => unwrap(api.GET("/api/assets")) });
 export const useAsset = (id?: string) => useQuery({
   queryKey: ["asset", id], enabled: !!id,

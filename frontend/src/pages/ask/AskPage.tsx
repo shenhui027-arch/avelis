@@ -3,17 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
+import { errorText, useAction, useExampleQuestions, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatTime } from "../../format";
 import { changeTone, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 
 const STEP_LABEL: Record<string, string> = { understand: "理解", clarify: "追问", govern: "版本与权限", explain: "解释" };
-const EXAMPLES = [
-  "2026-09-15 各区域实付销售额前 2",
-  "2026-09-16 华东区实付销售额 环比",
-  "2026-09-15 华东区实付销售额和订单数",
-];
 
 /** 每一步按它自己的结果着色：成功为绿，拦截或失败为红，追问、未执行、未知保持中性——不用最终答案代替步骤状态。 */
 function stepClass(s: Record<string, unknown>, a: { status: string }): string {
@@ -36,6 +31,7 @@ export function AskPage() {
   const thread = useThread(threadId);
   const threads = useThreads();
   const [text, setText] = useState("");
+  const examples = (useExampleQuestions("ask").data?.questions ?? []).map((q) => q.text);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -101,7 +97,7 @@ export function AskPage() {
           {error ? <div className="av-banner av-banner--danger" style={{ maxWidth: 820, margin: "0 auto 8px" }}>{error}</div> : null}
           {!answers.length && !pendingQuestion ? (
             <div className="av-ask-examples" aria-label="问题示例">
-              {EXAMPLES.map((example) => <button key={example} type="button" className="av-btn av-btn--ghost av-btn--sm"
+              {examples.map((example) => <button key={example} type="button" className="av-btn av-btn--ghost av-btn--sm"
                 onClick={() => { setText(example); document.getElementById("q")?.focus(); }}>{example}</button>)}
             </div>
           ) : null}

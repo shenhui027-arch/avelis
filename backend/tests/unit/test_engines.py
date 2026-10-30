@@ -99,7 +99,7 @@ def test_sqlserver_names_types_and_unicode_literals():
     sql = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
                                time_type="date", dialect=ms).sql
     # NVARCHAR 列在非 UTF-8 排序规则下，中文只有写成 N'...' 才能正确比较；行数上限写成 TOP
-    assert sql.startswith("SELECT TOP 1000 ") and "b.city = N'上海'" in sql
+    assert sql.startswith("SELECT TOP 1001 ") and "b.city = N'上海'" in sql  # 多 1 行用于判断截断
     assert "FROM storedb.store.city_daily_sales AS b" in sql
 
 
@@ -168,6 +168,69 @@ def test_oracle_case_folding_dates_and_fetch_first():
                                     time_type="date", dialect=ora)
     # DATE 带时间部分：用 [当日 0 点, 次日 0 点) 区间；不写服务名；行数上限为 FETCH FIRST
     assert "b.SALE_DATE >= '2026-09-15 00:00:00' AND b.SALE_DATE < '2026-09-16 00:00:00'" in compiled.sql
-    assert "FROM STORE.SALES b" in compiled.sql and compiled.sql.endswith("FETCH FIRST 1000 ROWS ONLY")
+    assert "FROM STORE.SALES b" in compiled.sql and compiled.sql.endswith("FETCH FIRST 1001 ROWS ONLY")
     validate_sql(compiled.sql, dialect=ora, allowed_tables={"FREEPDB1.STORE.SALES"},
                  schema={"FREEPDB1.STORE.SALES": {"AMOUNT", "SALE_DATE"}}, max_rows=1000)
+
+
+def test_count_star_is_not_select_star():
+    # COUNT(*) 不是未展开的 SELECT *：视图列的血缘应完整（此前被误判为 partial）
+    sr = get_engine("starrocks").sql
+    schema = {"default_catalog": {"shop": {"orders": {"store_id": "INT", "order_date": "DATE", "paid_amount": "DECIMAL"}}}}
+    parsed = parse_query("SELECT o.store_id, COUNT(*) AS n, SUM(o.paid_amount) AS amt FROM shop.orders o "
+                         "GROUP BY o.store_id", dialect=sr, schema=schema)
+    assert parsed.status == "ok", parsed.reason
+    star = parse_query("SELECT * FROM shop.missing", dialect=sr, schema=schema)
+    assert star.status != "ok"
+
+
+def test_time_grain_column_does_not_collide_with_period_dimension():
+    """口径开放了名为 period 的维度时，按日分组生成的时间段列换名，不覆盖维度也不丢日期（审计 #17）。"""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from avelis.ask.compiler import compile_metric_query
+    from avelis.ask.intent import Intent, period_column
+    from avelis.models import Asset
+
+    base = Asset(catalog_name="default_catalog", db_name="shop", name="orders")
+    version = SimpleNamespace(dimensions=[{"name": "period", "column": "season"}], expression="SUM(amount)",
+                              time_column="order_date", filters=None)
+    intent = Intent(metric_code="m", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), group_by=["period"],
+                    time_grain="day")
+    compiled = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
+                                    time_type="date", dialect=get_engine("starrocks").sql)
+    assert compiled.columns == ["时间段", "period", "value"] and len(set(compiled.columns)) == 3
+    assert "AS `时间段`" in compiled.sql and "b.season AS period" in compiled.sql
+    assert period_column([]) == "period" and period_column(["period", "时间段"]) == "period_time"
+
+
+def test_time_column_avoids_metric_display_name_and_probe_row():
+    """指标显示名为 period 时，时间段列也换名；不限行数时多取 1 行用于判断截断，校验允许这 1 行（复核 #8、#9）。"""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from avelis.ask.compiler import ValidationFailed, compile_metric_query, validate_sql
+    from avelis.ask.intent import Intent
+    from avelis.models import Asset
+
+    base = Asset(catalog_name="default_catalog", db_name="shop", name="orders")
+    version = SimpleNamespace(dimensions=[], expression="SUM(amount)", time_column="order_date", filters=None)
+    intent = Intent(metric_code="m", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), time_grain="day")
+    sr = get_engine("starrocks").sql
+    compiled = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=intent, max_rows=1000,
+                                    time_type="date", dialect=sr, reserved_names=("period", "value"))
+    assert compiled.columns[0] == "时间段" and compiled.sql.endswith("LIMIT 1001")
+    schema = {"default_catalog.shop.orders": {"amount", "order_date"}}
+    validate_sql(compiled.sql, dialect=sr, allowed_tables={"default_catalog.shop.orders"}, schema=schema, max_rows=1000)
+    with pytest.raises(ValidationFailed):
+        validate_sql(compiled.sql.replace("LIMIT 1001", "LIMIT 1002"), dialect=sr,
+                     allowed_tables={"default_catalog.shop.orders"}, schema=schema, max_rows=1000)
+    limited = Intent(metric_code="m", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), limit=10)
+    assert compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=limited, max_rows=1000,
+                                time_type="date", dialect=sr).sql.endswith("LIMIT 10")
+    # 请求的 limit 超过系统上限：同样多取 1 行，连接器据此标记截断（复核：limit=10、上限 5 时曾只取 5 行而不标截断）
+    over = compile_metric_query(version=version, aliases={"b": base}, steps=[], intent=limited, max_rows=5,
+                                time_type="date", dialect=sr).sql
+    assert over.endswith("LIMIT 6")
+    validate_sql(over, dialect=sr, allowed_tables={"default_catalog.shop.orders"}, schema=schema, max_rows=5)

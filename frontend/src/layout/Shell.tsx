@@ -7,6 +7,7 @@ import { useAppSettings, useDatasources } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { LogoMark } from "../components/Logo";
 import { Plat } from "../components/ui";
+import { formatTime } from "../format";
 
 const NAV = [
   { to: "/", label: "工作台", icon: "home", end: true },
@@ -14,6 +15,7 @@ const NAV = [
   { to: "/catalog", label: "目录", icon: "catalog" },
   { to: "/changes", label: "变更", icon: "change" },
   { to: "/ask", label: "问数", icon: "ask" },
+  { to: "/analysis", label: "分析", icon: "analysis" },
 ];
 
 const CRUMBS: [RegExp, string[]][] = [
@@ -100,6 +102,57 @@ function UserMenu() {
   );
 }
 
+/** 站内通知（定时分析完成、失败、任务暂停及原因）：未读计数，点开后标为已读并跳到链接。 */
+function NotificationBell() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const list = useQuery({ queryKey: ["notifications"], queryFn: () => unwrap(api.GET("/api/notifications")),
+    enabled: !!token.get(), refetchInterval: 60_000 });
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); };
+  }, [open]);
+  const items = list.data ?? [];
+  const unread = items.filter((n) => !n.read_at).length;
+  return (
+    <div className="av-usermenu av-notices" ref={ref}>
+      <button type="button" className="av-usermenu__trigger" aria-haspopup="menu" aria-expanded={open}
+        aria-label={unread ? `通知（${unread} 条未读）` : "通知"} onClick={() => setOpen(!open)}>
+        <Icon name="bell" />
+        {unread ? <span className="av-notices__count">{unread > 99 ? "99+" : unread}</span> : null}
+      </button>
+      {open ? (
+        <div className="av-menu" role="menu">
+          {items.length === 0 ? <div className="av-menu__head">没有通知</div> : null}
+          {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
+            <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
+              data-unread={!n.read_at} onClick={async () => {
+                setOpen(false);
+                if (!n.read_at) {
+                  await api.POST("/api/notifications/{notification_id}/read",
+                    { params: { path: { notification_id: n.id } } });
+                  await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                }
+                if (n.link) navigate(n.link);
+              }}>
+              <b>{n.title}</b>
+              {n.body ? <span>{n.body}</span> : null}
+              <span>{formatTime(n.created_at)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Shell() {
   const location = useLocation();
   const me = useMe();
@@ -140,6 +193,7 @@ export function Shell() {
           </Link>
         ) : null}
         <span className="av-tag" title="业务时区">{settings.data?.business_timezone ?? ""}</span>
+        <NotificationBell />
         <UserMenu />
       </header>
       <main className="av-main">

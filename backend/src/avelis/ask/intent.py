@@ -37,7 +37,13 @@ class Intent(BaseModel):
     group_by: list[str] = Field(default_factory=list)
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
-    compare: Literal["previous_period", "previous_year"] | None = None
+    compare: Literal["previous_period", "previous_year", "custom"] | None = None
+    # compare="custom"（M8）：指定对比期，如本期 9 月对比自然月 8 月（上一期是紧邻的同长度区间 8 月 2 日至 31 日）
+    compare_start: date | None = None
+    compare_end: date | None = None
+    # 按时间分组（M8）：结果多一列时间段（默认 period，与维度重名时见 period_column；day 为 YYYY-MM-DD，month 为 YYYY-MM），
+    # 排在维度之前。不能与对比期同用
+    time_grain: Literal["day", "month"] | None = None
     clarification: str | None = None
     candidates: list[str] = Field(default_factory=list)
 
@@ -47,12 +53,30 @@ class Intent(BaseModel):
             self.metric_code = self.metric_codes[0]
         if self.metric_code and not self.metric_codes:
             self.metric_codes = [self.metric_code]
+        if self.time_grain and self.compare:
+            raise ValueError("按时间分组时不能同时与上一期或去年同期对比（两期的日期对不上）")
+        if self.compare == "custom" and not (self.compare_start and self.compare_end
+                                             and self.compare_start <= self.compare_end):
+            raise ValueError("compare=custom 需要有效的 compare_start 与 compare_end")
         return self
 
     @property
     def is_simple(self) -> bool:
         """单指标、无对比：可以整体下推为一条 SQL（排序与 LIMIT 也在 SQL 中完成）。"""
         return len(self.metric_codes) <= 1 and self.compare is None
+
+
+def period_column(group_by: list[str], reserved: list[str] | tuple[str, ...] = ()) -> str:
+    """按时间分组时时间段列的名字：默认 period；与业务维度或指标的显示列名（reserved）重名时换一个不冲突的名字
+    （不覆盖维度或指标值，也不丢日期）。"""
+    taken = {*group_by, *reserved}
+    for name in ("period", "时间段", "period_time"):
+        if name not in taken:
+            return name
+    i = 1
+    while f"period_{i}" in taken:
+        i += 1
+    return f"period_{i}"
 
 
 def comparison_range(start: date, end: date, compare: str) -> tuple[date, date]:
@@ -119,7 +143,7 @@ class DemoIntentModel:
         if not spans:
             return Intent(clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标",
                           candidates=[m.name for m in metrics])
-        # 被更长的匹配完全包含的短匹配不算（如“退款后净销售额”包含“销售额”）
+        # 被更长的匹配完全包含的短匹配不算（如“<指标甲>净额”包含“<指标甲>”）
         spans = [s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0])
                                              for o in spans)]
         by_position: dict[tuple[int, int], dict[str, MetricCard]] = {}
@@ -164,7 +188,7 @@ class DemoIntentModel:
             order = "desc"
         if order and not group_by:
             return Intent(metric_codes=[c.code for c in ordered],
-                          clarification="排名需要一个维度，请说明按什么排（例如“按区域”）",
+                          clarification="排名需要一个维度，请说明按哪个维度排（候选见下）",
                           candidates=[d.get("label") or d["name"] for d in shared])
         return Intent(metric_codes=[c.code for c in ordered], start_date=start, end_date=end, filters=filters,
                       group_by=group_by, order=order, limit=min(limit, MAX_LIMIT) if limit else None,
