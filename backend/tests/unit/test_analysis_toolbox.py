@@ -487,3 +487,17 @@ def test_revision_names_the_dataset_that_holds_an_unverified_number():
     verification, message = run("本期为上期的 1.2345 倍", ["D18"])
     assert "found_in" not in verification["claims"][0]["numbers"][0]
     assert "出现在" not in message.split("请修订")[0] and "D12" not in message and "derive" in message
+
+
+def test_revision_explains_unparseable_fragments():
+    """无法解析的片段（“两期总差额”）在修订提示里带上原因与改写方式，不点名数据集。"""
+    from avelis.analysis.verify import verify_report
+
+    sets = {"D1": SimpleNamespace(title="订单数", columns=["v"], rows=[["-1899"]], meta={}, truncated=False)}
+    claims = [{"type": "calc", "text": "两期总差额 -1899 笔", "refs": ["D1"]}]
+    verification = verify_report(claims, {"D1": {"rows": [{"v": "-1899"}]}})
+    assert verification["claims"][0]["status"] == "unverified"
+    box = SimpleNamespace(report={"claims": claims}, verification=verification, datasets=lambda: sets,
+                          budget=SimpleNamespace(tool_calls=0))
+    message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
+    assert "两期总差额（包含无法识别的数字）" in message and "两期相比" in message and "出现在" not in message.split("请修订")[0]
