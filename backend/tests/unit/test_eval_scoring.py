@@ -206,3 +206,19 @@ def test_offsetting_primary_is_the_largest_item_in_the_expected_direction():
     assert score(Q["d01"], run(conclusion="offsetting", causes=[up, FUTIAN]))["primary_hit"] is True
     assert score(Q["d01"], run(conclusion="ranked_reasons", causes=[up, FUTIAN]))["primary_hit"] is False
     assert score(Q["d01"], run(conclusion="offsetting", causes=[up]))["primary_hit"] is False
+
+
+def test_latency_summary_reports_median_and_p90_of_model_calls_and_seconds():
+    """ADR 0012 度量：评测汇总给出每次运行的模型调用次数与总耗时的中位数和 P90。"""
+    def timed(qid, calls, seconds):
+        r = run(conclusion=Q[qid]["expect"]["conclusion"][0])
+        r["steps"] = [{"kind": "model"}] * calls + [{"kind": "tool"}]
+        r["budget"] = {"used": {"seconds": seconds}}
+        return score(Q[qid], r)
+    results = [timed("d02", c, s) for c, s in ((4, 30.0), (6, 50.0), (8, 90.0), (5, 40.0))]
+    assert results[0]["model_calls"] == 4 and results[0]["seconds"] == 30.0
+    lat = summarize(results)["latency"]
+    assert lat["change_seconds"] == {"n": 4, "median": 45.0, "p90": 90.0}
+    assert lat["change_model_calls"] == {"n": 4, "median": 5.5, "p90": 8}
+    assert "耗时（变化类）：中位 45.0 秒，P90 90.0 秒" in markdown(summarize(results), results, {})
+    assert score(Q["d02"], None)["model_calls"] is None

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import operator
+import time
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
@@ -133,12 +134,33 @@ def _can_call_model(toolbox: AnalysisToolbox) -> bool:
     return not toolbox.stopped and toolbox.budget.remaining() > 0
 
 
+def model_usage(reply: AIMessage) -> dict[str, int | None]:
+    """一次模型调用的 token 数（ADR 0012 度量）：输入、输出与前缀缓存命中。模型服务没给的记 None。
+    缓存命中优先取 DeepSeek 的 prompt_cache_hit_tokens，其次取 OpenAI 兼容的 cached_tokens（LangChain 的 cache_read）。"""
+    usage = getattr(reply, "usage_metadata", None) or {}
+    raw = ((getattr(reply, "response_metadata", None) or {}).get("token_usage") or {})
+    cached = raw.get("prompt_cache_hit_tokens")
+    if cached is None:
+        cached = (usage.get("input_token_details") or {}).get("cache_read")
+    return {"input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
+            "cache_hit_tokens": cached}
+
+
 def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report: bool = False) -> list[AnyMessage]:
-    """模型一轮：生成回复，所有工具调用（含参数无法解析的）都经 toolbox.dispatch 计数与执行。"""
+    """模型一轮：生成回复，所有工具调用（含参数无法解析的）都经 toolbox.dispatch 计数与执行。
+    每次模型调用记一个 model 步骤：耗时、token 数与本轮发出的工具调用数（ADR 0012 度量）。"""
     if not _can_call_model(toolbox):
         return []
     bound = _model_for(model, toolbox.budget).bind_tools(toolbox.tools())
-    reply: AIMessage = bound.invoke(state["messages"])
+    started = time.monotonic()
+    try:
+        reply: AIMessage = bound.invoke(state["messages"])
+    except Exception as exc:
+        toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}"},
+                      started=started)
+        raise
+    calls = len(reply.tool_calls or []) + len(getattr(reply, "invalid_tool_calls", None) or [])
+    toolbox._step("model", "model", {}, "ok", {**model_usage(reply), "tool_calls": calls}, started=started)
     out: list[AnyMessage] = [reply]
     for call in reply.tool_calls or []:
         result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
