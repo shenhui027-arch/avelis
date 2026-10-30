@@ -160,3 +160,48 @@ def test_postgres_uses_only_and_regenerated_sql_is_executed():
                           use_only=True)
     v = validate("select region from d1.facts where qty > 1", PROFILES["postgres"], only, max_rows=10)
     assert 'FROM ONLY "appdb"."d1"."facts"' in v.sql and v.sql.startswith("SELECT")
+
+
+# --- Codex 审查（ecfd094）的触发场景 ----------------------------------------------------------
+
+def test_cte_body_reference_with_same_name_is_a_physical_table():
+    """#1 CTE 名不能遮蔽同名物理表：CTE 自己定义里的同名引用指物理表，必须经过 resolver。"""
+    seen = []
+    resolve = resolver("appdb", None)
+
+    def tracking(catalog, db, name):
+        seen.append((db, name))
+        return resolve(catalog, db, name)
+    error = None
+    try:
+        validate("WITH secret AS (SELECT COUNT(*) AS n FROM secret) SELECT n FROM secret", PROFILES["postgres"],
+                 tracking, max_rows=10)
+    except ExploreRejected as e:
+        error = e
+    assert error is not None and error.stage == "binding" and seen == [(None, "secret")]
+    v = validate("WITH facts AS (SELECT region FROM d1.facts) SELECT region FROM facts", PROFILES["postgres"],
+                 tracking, max_rows=10)
+    assert [t.asset_id for t in v.tables] == ["a1"]  # 主查询里的 facts 是 CTE
+    later = validate("WITH a AS (SELECT region FROM d1.facts), b AS (SELECT region FROM a) SELECT region FROM b",
+                     PROFILES["postgres"], tracking, max_rows=10)
+    assert [t.asset_id for t in later.tables] == ["a1"]  # 后面的 CTE 可以引用前面的 CTE
+    assert rejected("postgres", "WITH a AS (SELECT region FROM b), b AS (SELECT region FROM d1.facts) "
+                                "SELECT region FROM a").stage == "binding"  # 引用排在后面的 CTE：按物理表绑定
+
+
+def test_query_without_real_source_is_rejected():
+    """#7 没有 FROM 的查询直接拒绝；COUNT(*) 的依赖取当前作用域的真实输入。"""
+    assert rejected("postgres", "SELECT COUNT(*) * 100000000 AS n").code == "no_source"
+    assert rejected("postgres", "SELECT n FROM (SELECT 1 AS n) t").code == "no_source"
+    v = ok("postgres", "SELECT COUNT(*) AS n FROM d1.facts")
+    assert v.columns[0].deps == [f"{v.tables[0].qualified}.*"] and v.columns[0].eligible
+
+
+def test_join_must_link_the_new_table_to_previous_ones():
+    """#10 ON 条件必须把本次 JOIN 引入的表和前面已有的表连起来。"""
+    sql = ("SELECT f.region FROM d1.facts f JOIN d1.items i ON f.item_id = i.item_id "
+           "JOIN d1.items j ON f.item_id = i.item_id")
+    assert rejected("postgres", sql).code == "join_not_linked"
+    assert rejected("starrocks", sql).code == "join_not_linked"
+    ok("postgres", "SELECT f.region FROM d1.facts f JOIN d1.items i ON f.item_id = i.item_id "
+                   "JOIN d1.items j ON j.item_id = f.item_id")

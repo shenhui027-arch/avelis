@@ -95,6 +95,8 @@ class BoundTable:
     kind: str
     columns: tuple[BoundColumn, ...]
     use_only: bool = False  # PostgreSQL：FROM ONLY，不扫描继承子表
+    definition: str | None = None  # 视图：绑定版本的定义原文（执行前与当前定义比较）
+    upstream: tuple[tuple[str, str | None], ...] = ()  # 视图：上游闭包（资产编号，绑定的版本编号），执行前、交付前一起复查
 
     @property
     def qualified(self) -> str:
@@ -207,6 +209,8 @@ def _check_syntax(ast: exp.Expression, profile: ExploreProfile) -> None:
         if kind not in STRUCTURE:
             raise ExploreRejected("syntax", "node_not_allowed", f"不支持的写法：{kind.__name__}")
         if isinstance(node, exp.Select):
+            if node.args.get("from_") is None:
+                raise ExploreRejected("syntax", "no_source", "每个查询块都必须有表源（FROM 已采集的表）")
             extra = [k for k, v in node.args.items() if v not in (None, [], False) and k not in SELECT_ARGS]
             if extra:
                 raise ExploreRejected("syntax", "select_clause_not_allowed", f"不支持的子句：{'、'.join(extra)}")
@@ -291,11 +295,32 @@ def _cte_names(ast: exp.Expression) -> set[str]:
     return set(names)
 
 
+def _visible_ctes(table: exp.Table) -> set[str]:
+    """按查询块作用域：表引用处可见的 CTE 名。非递归 CTE 只对同一 WITH 里排在它后面的 CTE 与主查询可见，
+    在自己的定义里同名的引用指物理表（WITH t AS (SELECT … FROM t) 里的 t 是物理表）。"""
+    visible: set[str] = set()
+    child, node = table, table.parent
+    while node is not None:
+        if isinstance(node, exp.Select) and node.args.get("with_") is not None:
+            ctes = node.args["with_"].expressions
+            inside = next((i for i, cte in enumerate(ctes) if child is cte), None)
+            visible |= {c.alias_or_name for c in (ctes[:inside] if inside is not None else ctes)}
+        if isinstance(node, exp.With):  # 在某个 CTE 的定义里：保留这个 CTE，交给上面的 Select 按位置截取
+            node = node.parent
+            continue
+        child, node = node, node.parent
+    return visible
+
+
+def _is_cte_ref(table: exp.Table) -> bool:
+    return not table.args.get("db") and not table.args.get("catalog") and table.name in _visible_ctes(table)
+
+
 def _bind_tables(ast: exp.Expression, ctes: set[str], resolver: Resolver) -> dict[int, BoundTable]:
-    """每个表引用绑定到资产；与 CTE 同名的只在不带库名时算 CTE（带库名一律按物理表绑定，避免遮蔽）。"""
+    """每个物理表引用都经过 resolver 绑定到资产；只有在引用处可见的 CTE 名（按查询块作用域）才算 CTE 引用。"""
     bound: dict[int, BoundTable] = {}
     for table in ast.find_all(exp.Table):
-        if not table.args.get("db") and table.name in ctes:
+        if _is_cte_ref(table):
             continue
         catalog = table.args.get("catalog")
         db = table.args.get("db")
@@ -346,12 +371,20 @@ def _check_aliases(tree: exp.Expression) -> None:
 
 
 def _check_joins(tree: exp.Expression) -> None:
-    for join in tree.find_all(exp.Join):
-        condition = join.args.get("on")
-        for part in _conjuncts(condition):
-            if not (isinstance(part, exp.EQ) and isinstance(part.this, exp.Column)
-                    and isinstance(part.expression, exp.Column) and part.this.table != part.expression.table):
-                raise ExploreRejected("join", "non_equi_join", "JOIN 的 ON 只能是两侧列的等值条件（可用 AND 连接）")
+    """ON 只能是等值条件，且每个条件都把本次 JOIN 引入的表和前面已有的表连起来（否则实际是笛卡尔积）。"""
+    for select in tree.find_all(exp.Select):
+        source = select.args.get("from_")
+        joined = {source.this.alias_or_name} if source is not None else set()
+        for join in select.args.get("joins") or []:
+            alias = join.this.alias_or_name
+            for part in _conjuncts(join.args.get("on")):
+                if not (isinstance(part, exp.EQ) and isinstance(part.this, exp.Column)
+                        and isinstance(part.expression, exp.Column) and part.this.table != part.expression.table):
+                    raise ExploreRejected("join", "non_equi_join", "JOIN 的 ON 只能是两侧列的等值条件（可用 AND 连接）")
+                if {part.this.table, part.expression.table} - joined != {alias}:
+                    raise ExploreRejected("join", "join_not_linked",
+                                          f"JOIN {alias} 的 ON 条件必须把 {alias} 与前面已有的表连起来（否则是笛卡尔积）")
+            joined.add(alias)
 
 
 def _conjuncts(node: exp.Expression | None) -> list[exp.Expression]:
@@ -408,8 +441,8 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
         return _Info("arith" if inner.deps else "const", inner.deps, inner.constants, inner.numeric, inner.bad_constant)
     if isinstance(node, exp.Count):
         arg = node.this.this if isinstance(node.this, exp.Distinct) else node.this
-        deps = set() if arg is None or isinstance(arg, exp.Star) else _deps(arg, scope)
-        return _Info("count", deps or {"*"})
+        deps = _scope_inputs(scope) if arg is None or isinstance(arg, exp.Star) else _deps(arg, scope)
+        return _Info("count", deps)
     if isinstance(node, (exp.Sum, exp.Avg, exp.Min, exp.Max)):
         arg = node.this
         if isinstance(node, exp.Sum) and _conditional_count(arg):
@@ -470,6 +503,17 @@ def _column(node: exp.Column, scope: Scope) -> _Info:
     return _Info("other", {node.sql()}, bad_constant=True)
 
 
+def _scope_inputs(scope: Scope) -> set[str]:
+    """COUNT(*) 的依赖：当前作用域的真实输入（绑定的表，或派生表 / CTE 的输入）；没有真实表源时为空。"""
+    out: set[str] = set()
+    for source in scope.sources.values():
+        if isinstance(source, exp.Table) and source.meta.get("avelis_bound") is not None:
+            out.add(f"{source.meta['avelis_bound'].qualified}.*")
+        elif isinstance(source, Scope):
+            out |= _scope_inputs(source)
+    return out
+
+
 def _deps(node: exp.Expression, scope: Scope) -> set[str]:
     out: set[str] = set()
     for column in node.find_all(exp.Column):
@@ -484,6 +528,8 @@ def _regenerate(tree: exp.Expression, bound: dict[int, BoundTable], profile: Exp
     final = tree.copy()
     for table in final.find_all(exp.Table):
         target: BoundTable | None = table.meta.get("avelis_bound")
+        if target is None and not _is_cte_ref(table):
+            raise ExploreRejected("binding", "unbound_table", f"表 {table.sql()} 没有绑定到已采集的资产")
         if target is not None:
             if not profile.catalog_in_sql:
                 table.set("catalog", None)

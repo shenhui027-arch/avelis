@@ -32,7 +32,7 @@ from avelis.analysis.explore import (
 )
 from avelis.connectors.base import QueryError, QueryResult
 from avelis.governance import access
-from avelis.models import Asset, AssetVersion, ColumnVersion, Datasource, DatasourceCredential, User
+from avelis.models import Asset, AssetVersion, ColumnVersion, Datasource, DatasourceCredential, Definition, User
 
 DECLARABLE_KINDS = ("level", "count", "ratio", "unknown")
 
@@ -83,14 +83,22 @@ def resolver(session: Session, user: User, source: ExploreSource):
         version = session.get(AssetVersion, asset.current_version_id) if asset.current_version_id else None
         if version is None:
             raise deny(label, "asset_version_missing", "没有已采集的版本")
-        use_only = False
+        use_only, definition, upstream_versions = False, None, ()
         if asset.kind == "view":
             upstream = upstream_closure(session, [asset.id])
+            closure = dict(upstream)
             upstream.pop(asset.id, None)
             if not upstream:
                 raise deny(label, "view_lineage_unknown", "是视图，但上游血缘未确认，无法判断上游是否都可见")
+            unresolved = _unresolved_lineage(session, closure)
+            if unresolved:
+                raise deny(label, "view_lineage_unresolved", f"是视图，它的上游有未解析或未绑定的来源（{unresolved}）")
             if not all(access.can_read_asset(session, user, a, allowed) for a in upstream.values()):
                 raise deny(label, "view_upstream_not_visible", "是视图，它的上游有当前用户不可见的资产")
+            definition = session.scalar(select(Definition.raw_sql).where(Definition.asset_version_id == version.id))
+            if definition is None:
+                raise deny(label, "view_definition_missing", "是视图，但没有采集到定义")
+            upstream_versions = tuple(sorted((a.id, a.current_version_id) for a in upstream.values()))
         elif asset.kind != "table":
             raise deny(label, "kind_not_allowed", f"是 {asset.kind}，探索查询只允许普通表与上游可见的视图")
         elif source.profile.engine == "starrocks":
@@ -105,8 +113,26 @@ def resolver(session: Session, user: User, source: ExploreSource):
             use_only = True
         columns = tuple(BoundColumn(c.name, c.data_type, c.comment) for c in session.scalars(
             select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id).order_by(ColumnVersion.ordinal)))
-        return BoundTable(asset.id, version.id, asset.physical_id, catalog, db, name, asset.kind, columns, use_only)
+        return BoundTable(asset.id, version.id, asset.physical_id, catalog, db, name, asset.kind, columns, use_only,
+                          definition, upstream_versions)
     return resolve
+
+
+def _unresolved_lineage(session: Session, closure: dict[str, Asset]) -> str | None:
+    """视图上游闭包里的血缘必须全部解析并绑定到资产：有来源未绑定（source_asset_id 为空）的边，或闭包里的视图没有
+    任何已确认的来源边，都返回说明（拒绝）。"""
+    from avelis.models import LineageEdge
+
+    for asset in closure.values():
+        edges = list(session.execute(select(LineageEdge.source_asset_id, LineageEdge.source_ref).where(
+            LineageEdge.target_asset_id == asset.id, LineageEdge.status == "active",
+            LineageEdge.origin.in_(("parsed", "manual")))))
+        unbound = [ref for source, ref in edges if source is None]
+        if unbound:
+            return f"{asset.db_name}.{asset.name} ← {unbound[0]}"
+        if asset.kind in ("view", "materialized_view") and not edges:
+            return f"{asset.db_name}.{asset.name} 的上游血缘未确认"
+    return None
 
 
 def check_declared(validated: Validated, declared: list[dict] | None) -> dict[str, dict]:
@@ -138,6 +164,12 @@ def live_check(connector: Any, validated: Validated) -> None:
         expected = [c.name for c in t.columns]
         if [c[0] for c in now.get("columns") or []] != expected:
             raise ExploreRejected("binding", "asset_changed", f"表 {t.qualified} 的列已变化，请等待重新采集")
+        if t.kind == "view" and _normalized(now.get("definition")) != _normalized(t.definition):
+            raise ExploreRejected("binding", "asset_changed", f"视图 {t.qualified} 的定义已变化，请等待重新采集")
+
+
+def _normalized(definition: str | None) -> str | None:
+    return " ".join(definition.split()) if definition else None
 
 
 def recheck_access(session: Session, user: User, validated: Validated) -> None:
@@ -149,6 +181,12 @@ def recheck_access(session: Session, user: User, validated: Validated) -> None:
             raise ExploreRejected("binding", "access_revoked", f"表 {t.qualified} 当前已无权访问")
         if asset.current_version_id != t.asset_version_id:
             raise ExploreRejected("binding", "asset_changed", f"表 {t.qualified} 已有新版本，请重新提交查询")
+        for upstream_id, version_id in t.upstream:  # 视图的上游闭包一起复查
+            up = session.get(Asset, upstream_id, populate_existing=True)
+            if up is None or up.status != "active" or not access.can_read_asset(session, user, up, allowed):
+                raise ExploreRejected("binding", "access_revoked", f"视图 {t.qualified} 的上游当前已无权访问")
+            if up.current_version_id != version_id:
+                raise ExploreRejected("binding", "asset_changed", f"视图 {t.qualified} 的上游已有新版本，请重新提交查询")
 
 
 def units(columns: list[OutputColumn]) -> dict[str, dict]:
@@ -189,6 +227,8 @@ def record(session: Session, user: User, run_id: str, *, step: int, source: Expl
         detail.update(stage=error.stage, code=error.code, message=error.message)
     elif isinstance(error, QueryError):
         detail.update(code=error.code, message=error.message)
+        if getattr(error, "cancel", None):
+            detail["cancel"] = error.cancel  # cancelled / already_finished / cancel_failed
     if result is not None:
         detail.update(rows=len(result.rows), truncated=result.truncated, digest=digest(result))
     if limits:

@@ -825,8 +825,11 @@ class AnalysisToolbox:
             exploration.live_check(connector, validated)
             self._authorize()
             exploration.recheck_access(self.session, self.user, validated)
+            # 派发前重新检查截止时间：执行前核对可能已耗时；超时值 ≤ 0 时 statement_timeout = 0 等于不限时，必须拒绝
             timeout = int(min(self.EXPLORE_MAX_SECONDS, self.budget.remaining() - 5))
             limits["timeout_seconds"] = timeout
+            if timeout <= 0:
+                raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
             sent = True
             result = connector.execute_explore(validated.sql, timeout_seconds=timeout, max_rows=max_rows,
                                                mem_limit_bytes=self.EXPLORE_MEM_LIMIT)
@@ -1058,11 +1061,43 @@ class AnalysisToolbox:
                 raise calc.CalcError(f"数据集 {'、'.join(truncated)} 被截断（不是全集），不能用于 {tool}："
                                      "请缩小时间范围、减少分组或加筛选后重新查询")
             title, columns, rows, summary, *extra = fn()
-            registered = extra[0] if extra else {}  # {units, summary_units, assumption}：量纲登记（ADR 0009）
+            registered = dict(extra[0]) if extra else {}  # {units, summary_units, assumption}：量纲登记（ADR 0009）
+            # 读取的输入列继承证据资格：用了假设列（常量、函数加工）的结果是假设计算；复制到结果里的列保留原列的证据
+            evidence = self._referenced_evidence(inputs, args)
+            if any(ev.get("assumption") for ev in evidence.values()):
+                registered["assumption"] = True
+            copied = {col: ev for col, ev in evidence.items() if col in columns}
+            if copied:
+                registered["column_evidence"] = {**registered.get("column_evidence", {}), **copied}
             ds = self._dataset("calc", title, columns, rows, inputs=inputs, truncated=bool(truncated),
                                meta={"summary": summary, "args": args, **registered})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard(tool, args, run)
+
+    def _referenced_evidence(self, inputs: list[str], args: Any) -> dict[str, dict]:
+        """参数里引用到的输入列（任一输入数据集里同名的列）及其证据资格；没有证据记录的列（口径、计算结果）不列出。"""
+        names: set[str] = set()
+
+        def walk(value: Any) -> None:
+            if isinstance(value, str):
+                names.add(value)
+            elif isinstance(value, dict):
+                for v in value.values():
+                    walk(v)
+            elif isinstance(value, (list, tuple)):
+                for v in value:
+                    walk(v)
+        walk(args)
+        out: dict[str, dict] = {}
+        for ref in inputs:
+            ds = self._datasets.get(ref)
+            for col, ev in ((ds.meta or {}).get("column_evidence") or {}).items() if ds else []:
+                if col in names:
+                    prior = out.get(col)  # 同名列出现在多个输入里：取更严格的一个
+                    out[col] = ev if prior is None else {**prior, "eligible": prior.get("eligible") and ev.get("eligible"),
+                                                         "label_ok": prior.get("label_ok") and ev.get("label_ok"),
+                                                         "assumption": prior.get("assumption") or ev.get("assumption")}
+        return out
 
     def contribution(self, dataset: str, keys: list[str], current: str, previous: str) -> str:
         def fn():
