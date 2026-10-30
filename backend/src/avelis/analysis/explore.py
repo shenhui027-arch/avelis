@@ -1,9 +1,13 @@
 """探索查询的校验（ADR 0009 第 6 点）：允许清单，凡不确定的一律拒绝；执行的是由校验后的 AST 重新生成的 SQL。
 
 现有的 ask.compiler.validate_sql 是禁止清单、列检查有跳过路径，这里不复用它。本模块是纯函数，不连数据库：
-- 引擎能力档案（ExploreProfile）：允许的语法、函数、表源；没有档案的引擎不提供 query_sql。第一版只有 StarRocks、PostgreSQL；
-- validate()：解析（固定方言与 sqlglot 版本）→ 语法子集 → 静态规模 → 表源绑定（交给 resolver，按资产可见性与物理类型判断）
-  → 按查询块作用域绑定列 → 关联条件 → 输出列的证据资格与量纲 → 重新生成 SQL 并严格复核。
+- 模型一律用 Avelis 标准 SQL 书写：ANSI 的受限子集，按 sqlglot 通用方言解析（STANDARD_DIALECT），标准函数只有
+  STANDARD_FUNCTIONS 这张小清单；不让模型凭自己的知识猜方言；
+- 引擎能力档案（ExploreProfile）：目标方言、表源规则、执行参数，以及标准函数转换到本引擎后的节点（复核用）；
+  没有档案的引擎不提供 query_sql。第一版只有 StarRocks、PostgreSQL；
+- table_refs()：解析标准 SQL，列出物理表引用（数据源由调用方按资产确定，见 exploration.route）；
+- validate()：解析（标准方言）→ 语法子集 → 静态规模 → 表源绑定（交给 resolver，按资产可见性与物理类型判断）
+  → 按查询块作用域绑定列 → 关联条件 → 输出列的证据资格与量纲 → 生成目标方言的 SQL，按目标方言严格复核。
 拒绝时抛 ExploreRejected，带稳定的错误码与拒绝阶段；这时还没有任何东西发到数据库。
 """
 
@@ -35,30 +39,29 @@ BANNED_FUNCTIONS = {"sleep", "pg_sleep", "pg_sleep_for", "pg_sleep_until", "benc
                     "pg_cancel_backend", "set_config", "current_setting"}
 
 AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN", exp.Max: "MAX"}
-# 允许的函数：类别与参数个数（按 sqlglot 节点）
-COMMON_FUNCTIONS: dict[type, tuple[str, int, int]] = {
+STANDARD_DIALECT = ""  # Avelis 标准 SQL：sqlglot 通用方言（ANSI 子集），表名写 库.表 或 catalog.库.表
+# 标准函数（模型能用的全部函数）：类别与参数个数。每个都在 StarRocks、PostgreSQL 上有转换测试
+# （tests/unit/test_analysis_explore.py::test_standard_functions_translate），没有测试的函数不进这张清单。
+# 算术、CASE、CAST 是结构节点；日期加减写成 列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）。
+STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
     exp.Sum: ("聚合", 1, 1), exp.Count: ("聚合", 0, 1), exp.Avg: ("聚合", 1, 1), exp.Min: ("聚合", 1, 1),
     exp.Max: ("聚合", 1, 1),
-    exp.Abs: ("数学", 1, 1), exp.Round: ("数学", 1, 2), exp.Floor: ("数学", 1, 1), exp.Ceil: ("数学", 1, 1),
-    exp.Lower: ("字符串", 1, 1), exp.Upper: ("字符串", 1, 1), exp.Trim: ("字符串", 1, 1), exp.Length: ("字符串", 1, 1),
-    exp.Substring: ("字符串", 2, 3),
-    exp.Coalesce: ("条件", 1, 4), exp.Nullif: ("条件", 2, 2), exp.If: ("条件", 2, 3),
-    exp.Year: ("日期", 1, 1), exp.Month: ("日期", 1, 1), exp.Day: ("日期", 1, 1), exp.Extract: ("日期", 2, 2),
-    exp.DateTrunc: ("日期", 2, 2), exp.TimestampTrunc: ("日期", 2, 2),
+    exp.Coalesce: ("条件", 2, 4), exp.Nullif: ("条件", 2, 2),
+    exp.DateTrunc: ("日期", 2, 2),
 }
+DATE_UNITS = {"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"}  # 日期截断与 INTERVAL 允许的单位
 # 结构节点的允许清单（函数另外按档案核对）
 STRUCTURE = {
     exp.Select, exp.From, exp.Join, exp.Where, exp.Group, exp.Having, exp.Order, exp.Ordered, exp.Limit, exp.Column,
     exp.Identifier, exp.Table, exp.TableAlias, exp.Alias, exp.Literal, exp.Null, exp.Boolean, exp.Paren, exp.And,
     exp.Or, exp.Not, exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.In, exp.Between, exp.Like,
-    exp.ILike, exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg, exp.Case, exp.Cast, exp.DataType, exp.CTE,
+    exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg, exp.Case, exp.Cast, exp.DataType, exp.DataTypeParam, exp.CTE,
     exp.With, exp.Subquery, exp.Distinct, exp.Var, exp.Interval,
 }
 SELECT_ARGS = {"expressions", "from_", "joins", "where", "group", "having", "order", "limit", "distinct", "with_"}
-CAST_TYPES = {exp.DataType.Type.INT, exp.DataType.Type.BIGINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.TINYINT,
-              exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT, exp.DataType.Type.VARCHAR,
-              exp.DataType.Type.CHAR, exp.DataType.Type.TEXT, exp.DataType.Type.DATE, exp.DataType.Type.DATETIME,
-              exp.DataType.Type.TIMESTAMP, exp.DataType.Type.BOOLEAN}
+CAST_TYPES = {exp.DataType.Type.INT, exp.DataType.Type.BIGINT, exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE,
+              exp.DataType.Type.VARCHAR, exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP,
+              exp.DataType.Type.DATETIME}  # DATETIME：标准 TIMESTAMP 在 StarRocks 上的写法（复核时出现）
 NUMERIC_TYPES = ("int", "decimal", "numeric", "double", "float", "real", "bigint", "smallint", "tinyint", "largeint",
                  "number", "money")
 
@@ -108,20 +111,23 @@ Resolver = Callable[[str | None, str | None, str], BoundTable]
 
 @dataclass(frozen=True)
 class ExploreProfile:
-    """一个引擎（按版本）的探索能力档案。"""
+    """一个引擎（按版本）的探索能力档案：目标方言（标准 SQL 转换成它再执行）、表源规则、执行参数；
+    functions 是标准函数转换到本方言后、按本方言解析出的节点（只用于复核重新生成的 SQL）。"""
     engine: str
     version: str
     dialect: str
     catalog_in_sql: bool
-    functions: dict[type, tuple[str, int, int]] = field(default_factory=lambda: dict(COMMON_FUNCTIONS))
+    functions: dict[type, tuple[str, int, int]] = field(default_factory=lambda: dict(STANDARD_FUNCTIONS))
     settings: dict[str, Any] = field(default_factory=dict)  # 执行参数，见连接器 execute_explore
 
 
+# DATE_TRUNC 转换后按目标方言解析为 TimestampTrunc
+_TRANSLATED = {**STANDARD_FUNCTIONS, exp.TimestampTrunc: ("日期", 2, 2)}
 PROFILES: dict[str, ExploreProfile] = {
-    "starrocks": ExploreProfile("starrocks", "1", "starrocks", True,
+    "starrocks": ExploreProfile("starrocks", "2", "starrocks", True, functions=dict(_TRANSLATED),
                                 settings={"query_timeout": "按统一截止时间", "query_mem_limit": 2 * 1024 ** 3,
                                           "pipeline_dop": 1}),
-    "postgres": ExploreProfile("postgres", "1", "postgres", True,
+    "postgres": ExploreProfile("postgres", "2", "postgres", True, functions=dict(_TRANSLATED),
                                settings={"statement_timeout": "按统一截止时间", "lock_timeout": "2s", "work_mem": "16MB",
                                          "max_parallel_workers_per_gather": 0}),
 }
@@ -144,13 +150,14 @@ class OutputColumn:
 
 @dataclass
 class Validated:
-    sql: str  # 重新生成、严格复核过的 SQL（实际执行的版本）
+    sql: str  # 由标准 SQL 生成的目标方言 SQL，按目标方言严格复核过（实际执行的版本）
     tables: list[BoundTable]
     columns: list[OutputColumn]
     limit: int
-    dialect: str
+    dialect: str  # 目标方言
     profile: str
     sqlglot: str = SQLGLOT_VERSION
+    source_dialect: str = "avelis-standard"  # 模型书写的方言
 
 
 # --- 主流程 ----------------------------------------------------------------------------
@@ -160,8 +167,8 @@ def validate(sql: str, profile: ExploreProfile, resolver: Resolver, *, max_rows:
         raise ExploreRejected("parse", "empty", "SQL 为空")
     if len(sql) > MAX_SQL_LENGTH:
         raise ExploreRejected("size", "sql_too_long", f"SQL 超过 {MAX_SQL_LENGTH} 个字符")
-    ast = _parse(sql, profile.dialect)
-    _check_syntax(ast, profile)
+    ast = _parse(sql)
+    _check_syntax(ast, STANDARD_FUNCTIONS, "标准 SQL")
     _check_size(ast)
     ctes = _cte_names(ast)
     bound = _bind_tables(ast, ctes, resolver)
@@ -174,7 +181,21 @@ def validate(sql: str, profile: ExploreProfile, resolver: Resolver, *, max_rows:
                      limit=limit, dialect=profile.dialect, profile=f"{profile.engine}/{profile.version}")
 
 
-def _parse(sql: str, dialect: str) -> exp.Expression:
+def table_refs(sql: str) -> list[tuple[str | None, str | None, str]]:
+    """标准 SQL 里的物理表引用（catalog、库、表），不含 CTE 引用；数据源由调用方按这些资产确定。"""
+    if not sql or not sql.strip():
+        raise ExploreRejected("parse", "empty", "SQL 为空")
+    if len(sql) > MAX_SQL_LENGTH:
+        raise ExploreRejected("size", "sql_too_long", f"SQL 超过 {MAX_SQL_LENGTH} 个字符")
+    out = []
+    for table in _parse(sql).find_all(exp.Table):
+        if isinstance(table.this, exp.Identifier) and not _is_cte_ref(table):
+            catalog, db = table.args.get("catalog"), table.args.get("db")
+            out.append((catalog.name if catalog else None, db.name if db else None, table.name))
+    return list(dict.fromkeys(out))
+
+
+def _parse(sql: str, dialect: str = STANDARD_DIALECT) -> exp.Expression:
     try:
         statements = sqlglot.parse(sql, read=dialect, error_level=ErrorLevel.RAISE)
     except (ParseError, TokenError) as e:
@@ -188,7 +209,7 @@ def _parse(sql: str, dialect: str) -> exp.Expression:
     return ast
 
 
-def _check_syntax(ast: exp.Expression, profile: ExploreProfile) -> None:
+def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int]], label: str) -> None:
     for node in ast.walk():
         if node.comments:
             raise ExploreRejected("syntax", "comment", "不允许注释（包括 hint 与执行注释）")
@@ -198,13 +219,18 @@ def _check_syntax(ast: exp.Expression, profile: ExploreProfile) -> None:
         if name in BANNED_FUNCTIONS or (isinstance(node, exp.Anonymous) and str(node.this).lower() in BANNED_FUNCTIONS):
             raise ExploreRejected("syntax", "banned_function", f"函数 {name or node.this} 不允许使用")
         kind = type(node)
+        if isinstance(node, exp.If) and isinstance(node.parent, exp.Case):  # CASE 的 WHEN 分支
+            continue
         if isinstance(node, exp.Func) and kind not in STRUCTURE:
-            rule = profile.functions.get(kind)
+            rule = functions.get(kind)
             if rule is None:
-                label = node.this if isinstance(node, exp.Anonymous) else node.sql_name()
+                name = node.this if isinstance(node, exp.Anonymous) else node.sql_name()
                 raise ExploreRejected("syntax", "function_not_allowed",
-                                      f"函数 {label} 不在 {profile.engine} 探索档案的允许清单里")
+                                      f"函数 {name} 不在{label}的允许清单里（标准函数：聚合、COALESCE、NULLIF、"
+                                      f"DATE_TRUNC；日期加减写成 列 ± INTERVAL 'n' DAY）")
             _check_arity(node, rule)
+            if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and _unit(node) not in DATE_UNITS:
+                raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
             continue
         if kind not in STRUCTURE:
             raise ExploreRejected("syntax", "node_not_allowed", f"不支持的写法：{kind.__name__}")
@@ -236,12 +262,23 @@ def _check_syntax(ast: exp.Expression, profile: ExploreProfile) -> None:
             to = node.args.get("to")
             if not isinstance(to, exp.DataType) or to.this not in CAST_TYPES:
                 raise ExploreRejected("syntax", "cast_type", f"不支持转换成 {to.sql() if to else '未知类型'}")
-        if isinstance(node, exp.Var) and not isinstance(node.parent, (exp.Interval, exp.Extract, exp.DateTrunc,
-                                                                       exp.TimestampTrunc)):
+        if isinstance(node, exp.Var) and not isinstance(node.parent, (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)):
             raise ExploreRejected("syntax", "variable", "不允许变量")
+        if isinstance(node, exp.Interval) and (_unit(node) not in DATE_UNITS
+                                               or not isinstance(node.parent, (exp.Add, exp.Sub))):
+            raise ExploreRejected("syntax", "date_unit",
+                                  f"INTERVAL 只用于日期加减（列 ± INTERVAL 'n' 单位），单位只能是 {'、'.join(sorted(DATE_UNITS))}")
         if isinstance(node, exp.Limit) and not (isinstance(node.expression, exp.Literal)
                                                 and node.expression.is_int):
             raise ExploreRejected("syntax", "limit", "LIMIT 只能是整数")
+
+
+def _unit(node: exp.Expression) -> str:
+    unit = node.args.get("unit")
+    if isinstance(node, exp.Interval) and unit is None and isinstance(node.this, exp.Literal):  # INTERVAL '7 DAY'
+        parts = str(node.this.this).split()
+        return parts[1].upper().rstrip("S") if len(parts) == 2 else ""
+    return (unit.name if isinstance(unit, (exp.Var, exp.Literal)) else str(unit or "")).upper().rstrip("S")
 
 
 def _check_arity(node: exp.Expression, rule: tuple[str, int, int]) -> None:
@@ -349,9 +386,9 @@ def _qualify(ast: exp.Expression, bound: dict[int, BoundTable], profile: Explore
         mapping.setdefault(target.catalog, {}).setdefault(target.db, {})[target.name] = {
             c.name: ("DOUBLE" if _is_numeric(c.data_type) else "TEXT") for c in target.columns}
     try:
-        schema = MappingSchema(mapping, dialect=profile.dialect, normalize=False)
-        return qualify(tree, dialect=profile.dialect, schema=schema, validate_qualify_columns=True,
-                       quote_identifiers=True, expand_stars=False)
+        schema = MappingSchema(mapping, dialect=STANDARD_DIALECT, normalize=False)
+        return qualify(tree, dialect=STANDARD_DIALECT, schema=schema, validate_qualify_columns=True,
+                       quote_identifiers=True, expand_stars=False, identify=True)
     except OptimizeError as e:
         hints = [f"{t.qualified}：" + "、".join(f"{c.name}" + (f"（{c.comment}）" if c.comment else "")
                                               for c in t.columns[:60]) for t in {b.asset_id: b for b in bound.values()}.values()]
@@ -548,5 +585,5 @@ def _regenerate(tree: exp.Expression, bound: dict[int, BoundTable], profile: Exp
         raise ExploreRejected("regenerate", "regenerate_unstable", "重新生成的 SQL 无法再次解析") from None
     if len(again) != 1 or again[0].sql(dialect=profile.dialect) != sql:
         raise ExploreRejected("regenerate", "regenerate_unstable", "重新生成的 SQL 与校验结果不一致")
-    _check_syntax(again[0], profile)
+    _check_syntax(again[0], profile.functions, f" {profile.engine} 方言")
     return sql, limit

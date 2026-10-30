@@ -83,20 +83,13 @@ class ScriptedModel:
 def replay_fetches(box, fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """让工具箱的取数类工具按顺序返回冻结的数据集（仍经统一分发计数）；返回剩余的夹具（回放结束时应为空）。
 
-    参数不符合工具模式的调用照常交给原来的分发（报参数错误、不消耗夹具），与真实运行一致。"""
+    取数类工具的每次调用（包括录制时参数无效、报错的调用）都录成一个夹具，回放时一律按顺序消耗，不按当前的工具模式
+    重新校验参数：取数结果是冻结的，工具模式以后改了也能回放核验、修订这一段。"""
     pending = list(fixtures)
     original = box.dispatch
 
     def dispatch(name, args, *, only_report: bool = False):
         if name not in FETCH_TOOLS:
-            return original(name, args, only_report=only_report)
-        from avelis.analysis import tools
-
-        schemas = {t.name: t.args_schema for t in box.tools()} | {"query_sql": tools.QuerySqlArgs,
-                                                                  "sample_values": tools.SampleArgs}
-        try:
-            schemas[name](**args)
-        except Exception:  # noqa: BLE001 - 参数无效：与真实运行一样由原分发报错
             return original(name, args, only_report=only_report)
         assert pending and pending[0]["tool"] == name, f"回放顺序不一致：模型调用 {name}，下一个夹具是 {pending[:1]}"
         fixture = pending.pop(0)

@@ -147,19 +147,12 @@ class QueryArgs(BaseModel):
     purpose: str = Field(description="这次查询要回答什么（写进步骤记录）")
 
 
-class ExploreColumn(BaseModel):
-    """模型对结果列的声明：只用于展示，不改变后端推断的量纲；与推断冲突时拒绝。不能声明单位或倍数。"""
-    model_config = ConfigDict(extra="forbid")
-    name: str
-    kind: Literal["level", "count", "ratio", "unknown"]
-    label: str | None = None
-
-
 class QuerySqlArgs(BaseModel):
-    datasource: str = Field(description="数据源名称或编号（只有开启了探索查询、引擎有探索档案的数据源可用）")
-    sql: str = Field(description="一条 SELECT：写出列名、库.表；只用登记的聚合与等值 JOIN；系统会重新生成 SQL 并加行数上限")
+    model_config = ConfigDict(extra="forbid")
+    sql: str = Field(description="一条 Avelis 标准 SQL 的 SELECT（ANSI 子集，标识符用双引号）：写出列名，表写 库.表 或 "
+                                 "catalog.库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，日期加减写 "
+                                 "列 ± INTERVAL 'n' DAY；等值 JOIN。系统按表所在的数据源生成方言并加行数上限，不要写方言")
     purpose: str = Field(description="查询目的；有口径能覆盖时应优先用 query_metric，这里写明为什么需要探索查询")
-    columns: list[ExploreColumn] | None = Field(None, description="可选：结果数值列的量纲提示（只用于展示）")
 
 
 class SampleArgs(BaseModel):
@@ -578,11 +571,29 @@ class AnalysisToolbox:
                            if a.current_version_id else None)
                 if keyword and keyword not in name and keyword not in (comment or "") and not hit:
                     continue
-                out.append({"qualified": name, "kind": a.kind, "comment": comment, "matched_columns": hit[:10]})
+                out.append({"qualified": name, "kind": a.kind, "comment": comment, "matched_columns": hit[:10],
+                            **self._source_info(a.datasource_id)})
                 if len(out) >= 40:
                     break
             return {"assets": out, "note": "字段的数据库注释与状态见 describe_asset"}, None, "ok"
         return self._guard("search_assets", {"keyword": keyword}, run)
+
+    def _source_info(self, datasource_id: str) -> dict:
+        """资产所在的数据源与引擎（供说明与定位错误；探索查询照样写标准 SQL，方言由系统生成）。"""
+        from avelis.analysis.explore import profile_for
+        from avelis.engines import engine_of
+        from avelis.engines.base import QUERY
+
+        cache = self.__dict__.setdefault("_source_cache", {})
+        if datasource_id not in cache:
+            ds = self.session.get(Datasource, datasource_id)
+            try:
+                explorable = bool(ds and ds.allow_exploration and profile_for(ds.kind) and engine_of(ds).supports(QUERY))
+            except Exception:  # noqa: BLE001 - 未知引擎
+                explorable = False
+            cache[datasource_id] = {"datasource": ds.name if ds else None, "engine": ds.kind if ds else None,
+                                    "exploration": explorable}
+        return cache[datasource_id]
 
     def describe_asset(self, qualified: str) -> str:
         def run():
@@ -591,6 +602,7 @@ class AnalysisToolbox:
             a = self._asset(qualified)
             d = asset_detail(a.id, self.user, self.session)
             return {"qualified": qualified, "kind": d["kind"], "comment": (d.get("version") or {}).get("comment"),
+                    **self._source_info(a.datasource_id),
                     "columns": [{"name": c["name"], "type": c["data_type"], "doc": {
                         "status": c["doc"]["status"], "comment": c["doc"]["comment"], "source": c["doc"]["source"]}}
                         for c in d["columns"]],
@@ -771,9 +783,8 @@ class AnalysisToolbox:
 
     def query_sql(self, **kwargs) -> str:
         args = QuerySqlArgs(**kwargs)
-        declared = [c.model_dump(exclude_none=True) for c in args.columns or []] or None
         return self._guard("query_sql", args.model_dump(mode="json"), lambda: self._explore(
-            args.datasource, args.sql, args.purpose, declared, title=f"探索：{args.purpose}"[:255]))
+            args.sql, args.purpose, title=f"探索：{args.purpose}"[:255]))
 
     def sample_values(self, **kwargs) -> str:
         args = SampleArgs(**kwargs)
@@ -786,25 +797,25 @@ class AnalysisToolbox:
                 raise ValueError(f"资产 {args.asset} 不存在或当前用户不可见")
             from sqlglot import exp
 
-            from avelis.analysis.explore import profile_for
+            from avelis.analysis.explore import STANDARD_DIALECT
 
-            profile = profile_for(self.session.get(Datasource, asset.datasource_id).kind)
-            dialect = profile.dialect if profile else "postgres"
             column = exp.column(args.column, quoted=True)
             query = (exp.select(exp.alias_(column, "value", quoted=True),
                                 exp.alias_(exp.Count(this=exp.Star()), "n", quoted=True))
                      .from_(exp.table_(asset.name, db=asset.db_name, catalog=asset.catalog_name, quoted=True))
                      .group_by(column).order_by(exp.Ordered(this=exp.column("n", quoted=True), desc=True)))
-            if args.keyword:
-                query = query.where(exp.Like(this=column.copy(), expression=exp.Literal.string(f"%{args.keyword}%")))
-            return self._explore(asset.datasource_id, query.sql(dialect=dialect), f"列 {args.column} 的常见取值（有范围的预览）",
-                                 None, title=f"取值预览：{args.asset}.{args.column}"[:255], max_rows=20, preview=True)
+            if args.keyword:  # 关键字按文本匹配：先转成 VARCHAR，数值、日期列也能用（不把 LIKE 用在非文本列上）
+                text = exp.Cast(this=column.copy(), to=exp.DataType.build("VARCHAR"))
+                query = query.where(exp.Like(this=text, expression=exp.Literal.string(f"%{args.keyword}%")))
+            # 与 query_sql 同一路径：标准 SQL → 按资产路由数据源 → 校验 → 生成目标方言
+            return self._explore(query.sql(dialect=STANDARD_DIALECT), f"列 {args.column} 的常见取值（有范围的预览）",
+                                 title=f"取值预览：{args.asset}.{args.column}"[:255], max_rows=20, preview=True)
         return self._guard("sample_values", args.model_dump(mode="json"), run)
 
-    def _explore(self, source_ref: str, sql_text: str, purpose: str, declared: list[dict] | None, *, title: str,
-                 max_rows: int | None = None, preview: bool = False) -> tuple[dict, AnalysisDataset | None, str]:
-        """探索查询：计数 → 数据源与档案 → 允许清单校验与绑定 → 声明核对 → 物理身份核对 → 权限复核 → 执行 →
-        交付前权限复核 → 保存为 explore 数据集。拒绝时不发到数据库；每次都记审计。"""
+    def _explore(self, sql_text: str, purpose: str, *, title: str, max_rows: int | None = None,
+                 preview: bool = False) -> tuple[dict, AnalysisDataset | None, str]:
+        """探索查询：计数 → 按资产路由数据源与档案 → 允许清单校验与绑定（标准 SQL → 目标方言）→ 物理身份核对 →
+        权限复核 → 执行 → 交付前权限复核 → 保存为 explore 数据集。拒绝时不发到数据库；每次都记审计。"""
         from avelis.analysis import exploration
         from avelis.engines import query_connector
 
@@ -815,12 +826,11 @@ class AnalysisToolbox:
         max_rows = max_rows or get_settings().query_max_rows
         limits = {"max_rows": max_rows, "mem_limit_bytes": self.EXPLORE_MEM_LIMIT}
         try:
-            source = exploration.explore_source(self.session, source_ref)
+            source = exploration.route(self.session, self.user, sql_text)
             if self.budget.remaining() <= self.SUBQUERY_RESERVE_SECONDS:
                 raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
             validated = exploration.validate(sql_text, source.profile,
                                              exploration.resolver(self.session, self.user, source), max_rows=max_rows)
-            shown = exploration.check_declared(validated, declared)
             connector = query_connector(self.session, source.datasource)
             check_timeout = int(min(self.EXPLORE_MAX_SECONDS, self.budget.remaining() - 5))
             if check_timeout <= 0:
@@ -863,12 +873,11 @@ class AnalysisToolbox:
                                  "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
                                  "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
                                              "qualified": t.qualified} for t in validated.tables],
-                                 "units": {k: {**v, **({"declared": True} if k in shown else {})}
-                                           for k, v in exploration.units(validated.columns).items()},
-                                 "column_evidence": exploration.evidence(validated.columns),
-                                 "declared_metadata": shown, "preview": preview})
+                                 "units": exploration.units(validated.columns),
+                                 "column_evidence": exploration.evidence(validated.columns), "preview": preview})
         view = self._view(f"D{ds.seq}", ds)
         view["sql"] = validated.sql
+        view["datasource"], view["engine"] = source.datasource.name, source.datasource.kind
         view["note"] = ("探索查询（未经口径审核）：引用这些数字的结论会带探索标记；" +
                         ("这是有范围的取值预览，不是全集。" if preview else "量纲由后端按表达式推断。"))
         return view, ds, "ok"

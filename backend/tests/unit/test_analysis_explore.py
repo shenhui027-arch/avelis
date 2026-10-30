@@ -1,4 +1,5 @@
-"""探索查询的允许清单校验（ADR 0009 第 6 点）：StarRocks 与 PostgreSQL 各一套接受、拒绝用例。
+"""探索查询的允许清单校验（ADR 0009 第 6 点）：模型写 Avelis 标准 SQL，StarRocks 与 PostgreSQL 各一套接受、拒绝用例，
+每个标准函数在两个引擎上各有一条转换测试。
 
 校验是纯函数：拒绝时还没有任何东西发到数据库（ExploreRejected.view() 的 sent_to_database 为 False）；
 工具层“没有发到数据库”的断言见 test_analysis_explore_tool.py。表源用假的 resolver 绑定。
@@ -61,15 +62,15 @@ def test_accepts_bound_tables_aggregates_ctes_and_equi_joins(engine):
                         'GROUP BY i.category')
     assert {t.asset_id for t in joined.tables} == {"a1", "a2"}
     assert joined.columns[1].deps == [f"{v.tables[0].qualified}.amount"]  # 派生列追溯到真实输入
-    quoted = ok(engine, 'SELECT "region" FROM d1.facts' if engine == "postgres" else "SELECT `region` FROM d1.facts")
-    assert quoted.columns[0].label_ok
+    quoted = ok(engine, 'SELECT "region" FROM d1."facts"')  # 标准 SQL 用双引号；生成时换成目标方言的引号
+    assert quoted.columns[0].label_ok and ("`region`" if engine == "starrocks" else '"region"') in quoted.sql
 
 
 @pytest.mark.parametrize("engine", ["starrocks", "postgres"])
 def test_evidence_and_kinds_are_inferred_from_expressions(engine):
     v = ok(engine, "SELECT region, SUM(CASE WHEN qty > 5 THEN 1 ELSE 0 END) AS big, SUM(amount) / SUM(qty) AS unit, "
                    "SUM(amount) * 100 AS scaled, SUM(amount) * 0.3 AS guess, 42 AS literal, COUNT(DISTINCT item_id) AS items, "
-                   "ROUND(SUM(amount), 2) AS rounded, UPPER(region) AS up FROM d1.facts GROUP BY region")
+                   "COALESCE(SUM(amount), 7) AS padded, CAST(region AS VARCHAR) AS up FROM d1.facts GROUP BY region")
     got = {c.name: (c.kind, c.eligible, c.assumption, c.label_ok) for c in v.columns}
     assert got["big"] == ("count", True, False, False)  # 条件计数：条件里的字面量只用作过滤
     assert got["unit"] == ("ratio", True, False, False)
@@ -77,7 +78,7 @@ def test_evidence_and_kinds_are_inferred_from_expressions(engine):
     assert got["guess"][1:3] == (False, True)  # 其他常量：假设计算
     assert got["literal"][1:3] == (False, True)  # 纯字面量
     assert got["items"] == ("count", True, False, False)
-    assert got["rounded"][1:3] == (False, True)
+    assert got["padded"][1:3] == (False, True)  # 常量 7 进入数值：假设计算
     assert got["up"] == ("text", False, False, False)  # 函数处理后的文本不能当 LabelRef
 
 
@@ -107,6 +108,11 @@ def test_limit_is_generated_by_the_system(engine):
     ("SELECT region FROM d1.facts /* hi */", "syntax", "comment"),
     ("SELECT sleep(5) AS s FROM d1.facts", "syntax", "banned_function"),
     ("SELECT my_udf(amount) AS u FROM d1.facts", "syntax", "function_not_allowed"),
+    ("SELECT ROUND(amount, 2) AS r FROM d1.facts", "syntax", "function_not_allowed"),  # 不在标准函数清单
+    ("SELECT DATE_ADD(event_date, INTERVAL 7 DAY) AS d FROM d1.facts", "syntax", "function_not_allowed"),
+    ("SELECT DATE_TRUNC('hour', event_date) AS d FROM d1.facts", "syntax", "date_unit"),
+    ("SELECT event_date + INTERVAL '3' HOUR AS d FROM d1.facts", "syntax", "date_unit"),
+    ("SELECT `region` FROM d1.facts", "parse", "parse_error"),  # 方言写法（反引号）不是标准 SQL
     ("SELECT region FROM d1.secret_table", "binding", "asset_not_visible"),
     ("SELECT region FROM other_catalog.d1.facts", "binding", "asset_not_visible"),
     ("SELECT nope FROM d1.facts", "column", "column_unresolved"),
@@ -205,3 +211,49 @@ def test_join_must_link_the_new_table_to_previous_ones():
     assert rejected("starrocks", sql).code == "join_not_linked"
     ok("postgres", "SELECT f.region FROM d1.facts f JOIN d1.items i ON f.item_id = i.item_id "
                    "JOIN d1.items j ON j.item_id = f.item_id")
+
+
+# --- 标准函数到目标方言的转换（每个标准函数在两个引擎上各一条；没有测试的函数不进 STANDARD_FUNCTIONS）---------
+
+TRANSLATIONS = [  # (标准 SQL 的输出表达式, StarRocks, PostgreSQL)
+    ("SUM(amount)", "SUM(`facts`.`amount`)", 'SUM("facts"."amount")'),
+    ("COUNT(*)", "COUNT(*)", "COUNT(*)"),
+    ("COUNT(DISTINCT item_id)", "COUNT(DISTINCT `facts`.`item_id`)", 'COUNT(DISTINCT "facts"."item_id")'),
+    ("AVG(amount)", "AVG(`facts`.`amount`)", 'AVG("facts"."amount")'),
+    ("MIN(amount)", "MIN(`facts`.`amount`)", 'MIN("facts"."amount")'),
+    ("MAX(amount)", "MAX(`facts`.`amount`)", 'MAX("facts"."amount")'),
+    ("COALESCE(amount, 0)", "COALESCE(`facts`.`amount`, 0)", 'COALESCE("facts"."amount", 0)'),
+    ("NULLIF(qty, 0)", "NULLIF(`facts`.`qty`, 0)", 'NULLIF("facts"."qty", 0)'),
+    ("CASE WHEN qty > 5 THEN 1 ELSE 0 END", "CASE WHEN `facts`.`qty` > 5 THEN 1 ELSE 0 END",
+     'CASE WHEN "facts"."qty" > 5 THEN 1 ELSE 0 END'),
+    ("amount / qty", "`facts`.`amount` / `facts`.`qty`", 'CAST("facts"."amount" AS DOUBLE PRECISION) / "facts"."qty"'),
+    ("CAST(qty AS BIGINT)", "CAST(`facts`.`qty` AS BIGINT)", 'CAST("facts"."qty" AS BIGINT)'),
+    ("CAST(amount AS DECIMAL(18, 2))", "CAST(`facts`.`amount` AS DECIMAL(18, 2))", 'CAST("facts"."amount" AS DECIMAL(18, 2))'),
+    ("CAST(amount AS DOUBLE)", "CAST(`facts`.`amount` AS DOUBLE)", 'CAST("facts"."amount" AS DOUBLE PRECISION)'),
+    ("CAST(item_id AS VARCHAR)", "CAST(`facts`.`item_id` AS VARCHAR)", 'CAST("facts"."item_id" AS VARCHAR)'),
+    ("CAST(region AS DATE)", "CAST(`facts`.`region` AS DATE)", 'CAST("facts"."region" AS DATE)'),
+    ("CAST(event_date AS TIMESTAMP)", "CAST(`facts`.`event_date` AS DATETIME)", 'CAST("facts"."event_date" AS TIMESTAMP)'),
+    ("DATE_TRUNC('month', event_date)", "DATE_TRUNC('MONTH', `facts`.`event_date`)",
+     'DATE_TRUNC(\'MONTH\', "facts"."event_date")'),
+    ("event_date + INTERVAL '7' DAY", "`facts`.`event_date` + INTERVAL '7' DAY", '"facts"."event_date" + INTERVAL \'7 DAY\''),
+    ("event_date - INTERVAL '1' MONTH", "`facts`.`event_date` - INTERVAL '1' MONTH",
+     '"facts"."event_date" - INTERVAL \'1 MONTH\''),
+]
+
+
+@pytest.mark.parametrize("standard, starrocks, postgres", TRANSLATIONS)
+def test_standard_functions_translate(standard, starrocks, postgres):
+    for engine, expected in (("starrocks", starrocks), ("postgres", postgres)):
+        v = ok(engine, f"SELECT {standard} AS x FROM d1.facts")
+        alias = " AS `x` FROM " if engine == "starrocks" else ' AS "x" FROM '
+        assert v.sql.removeprefix("SELECT ").split(alias)[0] == expected, (engine, v.sql)
+        table = "`default_catalog`.`d1`.`facts`" if engine == "starrocks" else '"appdb"."d1"."facts"'
+        assert f"FROM {table}" in v.sql, v.sql
+
+
+def test_every_standard_function_has_a_translation_test():
+    from sqlglot import exp
+
+    from avelis.analysis.explore import STANDARD_FUNCTIONS
+    tested = {exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.Nullif, exp.DateTrunc}
+    assert set(STANDARD_FUNCTIONS) == tested  # 新增标准函数时必须同时补上 TRANSLATIONS

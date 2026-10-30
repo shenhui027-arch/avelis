@@ -1,13 +1,14 @@
 """探索查询在真实引擎上的验收（ADR 0009 第 6 点）：演示 StarRocks（合成电商数据集）与 PostgreSQL 门店库。
 
-经分析工具箱的统一分发层（与模型调用同一路径）发起 query_sql，断言：
+经分析工具箱的统一分发层（与模型调用同一路径）发起 query_sql（模型写 Avelis 标准 SQL，不填数据源：系统按 SQL 里的
+资产确定数据源，生成目标方言再执行），断言：
 - 正常执行：结果与用 root / postgres 直接查询的值一致，执行的是重新生成的 SQL（带行数上限，PostgreSQL 用 FROM ONLY），
   审计记录执行身份与结果摘要；
 - 超时：数据库在服务端取消（StarRocks query_timeout，errno 5024；PostgreSQL statement_timeout，SQLSTATE 57014），
   执行期间能在 processlist / pg_stat_activity 看到这条查询，返回后不再运行；StarRocks 客户端等待超时时发 KILL QUERY，
   执行中的查询被取消；
-- 拒绝：写语句、注释与 hint、禁用函数、非等值 / 不相连的 JOIN、SELECT *、多语句、未采集的表、不可见的表、
-  关闭了探索的数据源、没有探索档案的引擎，一律不发到数据库（连接器的 execute_explore 未被调用），审计记为 rejected。
+- 拒绝：写语句、注释与 hint、禁用函数、方言写法、非等值 / 不相连的 JOIN、SELECT *、多语句、未采集的表、不可见的表、
+  跨数据源、关闭了探索的数据源、没有探索档案的引擎，一律不发到数据库（连接器的 execute_explore 未被调用），审计记为 rejected。
 """
 
 from __future__ import annotations
@@ -61,8 +62,8 @@ def explore_audits(session, run_id: str) -> list[dict]:
         AuditEvent.action == "analysis.explore", AuditEvent.object_id == run_id).order_by(AuditEvent.at))]
 
 
-def query(box, datasource: str, sql: str, purpose: str = "验收：探索查询") -> dict:
-    return json.loads(box.dispatch("query_sql", {"datasource": datasource, "sql": sql, "purpose": purpose}))
+def query(box, sql: str, purpose: str = "验收：探索查询") -> dict:
+    return json.loads(box.dispatch("query_sql", {"sql": sql, "purpose": purpose}))
 
 
 def sr_reader_queries(env) -> list[tuple]:
@@ -129,7 +130,7 @@ def test_01_normal_execution_on_starrocks_and_postgres(sent):
     env = ctx["env"]
     scope, session, run, box = toolbox("wang")
     try:
-        sr = query(box, demo_setup_ec_source(), "SELECT region_code, COUNT(order_id) AS orders "
+        sr = query(box, "SELECT region_code, COUNT(order_id) AS orders "
                    "FROM default_catalog.ec_trade.orders WHERE order_date >= '2026-09-01' AND order_date <= '2026-09-30' "
                    "GROUP BY region_code ORDER BY region_code")
         assert "error" not in sr, sr
@@ -147,10 +148,13 @@ def test_01_normal_execution_on_starrocks_and_postgres(sent):
         assert ds_sr.kind == "explore" and ds_sr.meta["engine"] == "starrocks"
         assert ds_sr.meta["units"]["orders"]["kind"] == "count"
 
-        pg = query(box, PG_SOURCE, "SELECT h.city, SUM(s.amount) AS amount FROM storedb.store.sales AS s "
-                   "JOIN storedb.store.shops AS h ON h.shop_id = s.shop_id WHERE s.status = 'paid' "
+        pg = query(box, "SELECT h.city, SUM(s.amount) AS amount FROM store.sales AS s "  # 两段名：数据源的默认库
+                   "JOIN store.shops AS h ON h.shop_id = s.shop_id WHERE s.status = 'paid' "
                    "GROUP BY h.city ORDER BY h.city")
         assert "error" not in pg, pg
+        assert (sr["datasource"], sr["engine"], pg["datasource"], pg["engine"]) == (
+            demo_setup_ec_source(), "starrocks", PG_SOURCE, "postgres")  # 按资产路由到各自的数据源
+        assert "`" in sr["sql"] and '"' in pg["sql"]  # 生成各自的方言
         with demo.pg_connect(env) as conn:
             expected = [[r[0], r[1]] for r in conn.execute(
                 "SELECT h.city, SUM(s.amount) FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
@@ -182,7 +186,7 @@ def test_02_starrocks_timeout_is_cancelled_on_server(sent):
     scope, session, run, box = toolbox("wang")
     box.EXPLORE_MAX_SECONDS = 2  # 本次运行的探索超时（统一截止时间内的上限）
     try:
-        view, seen, seconds = run_while_watching(lambda: query(box, demo_setup_ec_source(), SR_SLOW, "验收：超时"),
+        view, seen, seconds = run_while_watching(lambda: query(box, SR_SLOW, "验收：超时"),
                                                  lambda: sr_reader_queries(env), "ec_member")
         assert view["code"] == "timeout" and "timeout" in view["error"], view
         assert seen, "执行期间应能在 processlist 看到这条查询"
@@ -276,7 +280,7 @@ def test_04_postgres_timeout_is_cancelled_on_server(load_table, sent):
     scope, session, run, box = toolbox("wang")
     box.EXPLORE_MAX_SECONDS = 2
     try:
-        view, seen, seconds = run_while_watching(lambda: query(box, PG_SOURCE, PG_SLOW, "验收：超时"),
+        view, seen, seconds = run_while_watching(lambda: query(box, PG_SLOW, "验收：超时"),
                                                  lambda: pg_reader_queries(env), LOAD_TABLE)
         assert view["code"] == "timeout", view
         assert seen and "ONLY" in seen[0]  # 执行期间 pg_stat_activity 里是重新生成的 SQL
@@ -290,7 +294,7 @@ def test_04_postgres_timeout_is_cancelled_on_server(load_table, sent):
         scope.__exit__(None, None, None)
 
 
-REJECTIONS = [  # (数据源, SQL, 拒绝码)
+REJECTIONS = [  # (引擎, 标准 SQL, 拒绝码)
     ("pg", "DELETE FROM storedb.store.sales WHERE sale_id = 9001", "not_select"),
     ("pg", "SELECT pg_sleep(5) AS s FROM storedb.store.sales AS s", None),
     ("pg", "SELECT /* 注释 */ sale_id FROM storedb.store.sales", "comment"),
@@ -303,6 +307,9 @@ REJECTIONS = [  # (数据源, SQL, 拒绝码)
            "ON a.order_id = a.order_id", None),
     ("pg", "SELECT rolname FROM storedb.pg_catalog.pg_authid", None),
     ("sr", "SELECT table_name FROM default_catalog.information_schema.tables", None),
+    ("sr", "SELECT `order_id` FROM default_catalog.ec_trade.orders", "parse_error"),  # 方言写法不是标准 SQL
+    ("sr", "SELECT o.order_id FROM default_catalog.ec_trade.orders AS o JOIN storedb.store.sales AS s "
+           "ON o.order_id = s.sale_id", "cross_datasource"),  # 一条查询只能用同一个数据源
 ]
 
 
@@ -311,8 +318,7 @@ def test_05_rejections_never_reach_the_database(admin: Api, sent):
 
     scope, session, run, box = toolbox("wang", Budget(explore=20))  # 一次连发十几条；预算本身见 test_06
     try:
-        names = {"pg": PG_SOURCE, "sr": demo_setup_ec_source()}
-        views = [query(box, names[src], sql, "验收：拒绝") for src, sql, _ in REJECTIONS]
+        views = [query(box, sql, "验收：拒绝") for _, sql, _ in REJECTIONS]
         for (src, sql, code), view in zip(REJECTIONS, views):
             assert "error" in view and view.get("sent_to_database") is False, (sql, view)
             if code:
@@ -322,29 +328,32 @@ def test_05_rejections_never_reach_the_database(admin: Api, sent):
         assert views[7]["code"] in ("join_not_linked", "non_equi_join", "cartesian")
         assert views[8]["code"] in ("asset_not_visible", "unbound_table") and views[9]["code"] in (
             "asset_not_visible", "unbound_table")
-        disabled = query(box, names["pg"], "SELECT 1 AS x FROM storedb.store.sales")  # 有效查询，下面关掉数据源后再试
+        disabled = query(box, "SELECT COUNT(*) AS x FROM storedb.store.sales")  # 有效查询，下面关掉数据源后再试
         assert "error" not in disabled, disabled
         sent.clear()
         admin.put(f"/api/datasources/{ctx['pg']['id']}/exploration", {"allow": False})
         try:
-            off = query(box, names["pg"], "SELECT 1 AS x FROM storedb.store.sales")
+            off = query(box, "SELECT COUNT(*) AS x FROM storedb.store.sales")
         finally:
             admin.put(f"/api/datasources/{ctx['pg']['id']}/exploration", {"allow": True})
         assert off["code"] == "exploration_disabled" and off["sent_to_database"] is False
-        mysql = query(box, MYSQL_SOURCE, "SELECT product_id FROM shop_mysql.shop_dim.dim_product")
-        assert mysql["code"] == "engine_unsupported"
+        # 两段名 shop_dim.dim_product：StarRocks 里同名表在外部 catalog shop_mysql，不是默认 catalog，只剩 MySQL 的那张
+        mysql = query(box, "SELECT product_id FROM shop_dim.dim_product")
+        assert mysql["code"] == "engine_unsupported", mysql
+        external = query(box, "SELECT product_id FROM shop_mysql.shop_dim.dim_product")  # 三段名：StarRocks 外部表
+        assert external["code"] == "kind_not_allowed", external
         assert sent == []  # 以上拒绝一条都没有发到数据库
         audits = explore_audits(session, run.id)
         rejected = [a for a in audits if a["outcome"] == "rejected"]
-        assert len(rejected) == len(REJECTIONS) + 2 and not any(a["sent_to_database"] for a in rejected)
+        assert len(rejected) == len(REJECTIONS) + 3 and not any(a["sent_to_database"] for a in rejected)
         assert all(a.get("code") for a in rejected)
     finally:
         scope.__exit__(None, None, None)
 
     scope, session, run, box = toolbox("sun")  # 孙悦不在电商经营域：不可见的表与不存在的表报同样的错
     try:
-        hidden = query(box, demo_setup_ec_source(), "SELECT order_id FROM default_catalog.ec_trade.orders")
-        missing = query(box, demo_setup_ec_source(), "SELECT order_id FROM default_catalog.ec_trade.no_such_table")
+        hidden = query(box, "SELECT order_id FROM default_catalog.ec_trade.orders")
+        missing = query(box, "SELECT order_id FROM default_catalog.ec_trade.no_such_table")
         assert hidden["code"] == missing["code"] == "asset_not_visible" and hidden["sent_to_database"] is False
         assert hidden["error"].replace("orders", "X") == missing["error"].replace("no_such_table", "X")
         assert sent == []
@@ -357,9 +366,9 @@ def test_06_budget_counts_rejected_calls(sent):
 
     scope, session, run, box = toolbox("wang", Budget(explore=2))
     try:
-        query(box, PG_SOURCE, "DELETE FROM storedb.store.sales")
-        query(box, PG_SOURCE, "SELECT * FROM storedb.store.sales")
-        over = query(box, PG_SOURCE, "SELECT sale_id FROM storedb.store.sales")
+        query(box, "DELETE FROM storedb.store.sales")
+        query(box, "SELECT * FROM storedb.store.sales")
+        over = query(box, "SELECT sale_id FROM storedb.store.sales")
         assert "上限" in over["error"] and box.budget.used_explore == 2 and sent == []
     finally:
         scope.__exit__(None, None, None)
