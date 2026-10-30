@@ -100,11 +100,13 @@ def _record(parts: Any, datasets: dict[str, dict], window: dict | None, *, check
 
 
 def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dict | None,
-                  explanations: dict[str, str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+                  explanations: dict[str, str] | None = None,
+                  question_type: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
     report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}],
     conclusion, causes, metric_code, scope, scope_key}；datasets：见 grounding.resolve；window：本次运行的窗口；
-    explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），结论类型以它为准。"""
+    explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），结论类型以它为准；
+    question_type：理解阶段判出的问题类型，变化类（change）的报告必须写 scope 并有同范围的判定。"""
     if report.get("incomplete"):  # 后端生成的“未完成”报告：没有引用，原样保留，不核验
         return report, {"ok": False, "status": "no_facts", "unverified": 0, "claims": [], "fields": [],
                         "unverified_fields": 0, "sources": {}}
@@ -146,7 +148,7 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
     rendered["claims"] = claims
     rendered["conclusion"] = report.get("conclusion")
     rendered["causes"], cause_results, conclusion_problems = _causes(report, datasets, window)
-    conclusion_problems += _conclusion_matches(report, explanations or {})
+    conclusion_problems += _conclusion_matches(report, explanations or {}, question_type)
     unverified_fields = sum(f["status"] == "unverified" for f in field_results)
     unverified_causes = sum(c["status"] == "unverified" for c in cause_results)
     ok = unverified == 0 and unverified_fields == 0 and unverified_causes == 0 and not conclusion_problems
@@ -171,22 +173,26 @@ EXPLAIN_CONCLUSIONS = ("ranked_reasons", "offsetting", "no_material_change")
 WITH_CAUSES = ("ranked_reasons", "offsetting")
 
 
-def _conclusion_matches(report: dict, explanations: dict[str, str]) -> list[str]:
+def _conclusion_matches(report: dict, explanations: dict[str, str], question_type: str | None = None) -> list[str]:
     """结论类型交给确定性引擎（ADR 0009 第 7 点第 3、9 条）：报告的 scope（所问指标、筛选与窗口）做过 explain_change 时，
     结论类型必须与同一 scope 的判定一致；只和 scope 完全相同的判定比对。做过 explain_change 却没写 scope 的，要求写明；
-    断言了变化情况却没有同范围判定的，要求用这个 scope 调用 explain_change。explanations：登记键 → 判定。"""
+    断言了变化情况却没有同范围判定的，要求用这个 scope 调用 explain_change。理解阶段判为变化类的问题，不论结论类型，
+    都必须写 scope 并有同范围的判定（判定登记为 unsupported 的除外）。explanations：登记键 → 判定。"""
     key, conclusion = report.get("scope_key"), report.get("conclusion")
     explained = {k: v for k, v in explanations.items() if v != "unsupported"}
+    change = question_type == "change"
     if not key:
         if explained:
             return [f"本次运行做过自动归因（{'；'.join(describe_scope(k) for k in sorted(explained))}）："
                     "请在 scope 写明所问的指标、筛选与窗口"]
+        if change and not explanations:
+            return ["这是“为什么变化”类问题：请在 scope 写明所问的指标、筛选与窗口，并用这个 scope 调用 explain_change"]
         return []
     verdict = explanations.get(key)
     if verdict is None:
         return [f"没有与报告 scope {describe_scope(key)} 相同范围的 explain_change 判定：结论类型由它判定，"
                 "请用这个 scope（同样的 metric_code、filters 与窗口）调用 explain_change"] if (
-            conclusion in EXPLAIN_CONCLUSIONS) else []
+            change or conclusion in EXPLAIN_CONCLUSIONS) else []
     if verdict in EXPLAIN_CONCLUSIONS and conclusion != verdict:
         return [f"explain_change 对 {describe_scope(key)}的判定是 {verdict}，结论类型应为 {verdict}（不是 {conclusion}）"]
     return []
@@ -257,7 +263,34 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
                          "direction": cause.direction, "contribution": contribution, "evidence": evidence,
                          "status": status, "errors": errs})
         results.append({"index": i, "status": status, "problems": errs})
+    if conclusion == "offsetting" and not problems:
+        problems += _offsetting_extremes(raw[:2], rendered[:2], datasets)
     return rendered, results, problems
+
+
+def _offsetting_extremes(raw: list, rendered: list[dict], datasets: dict[str, dict]) -> list[str]:
+    """相互抵消时前两项必须分别是归因证据里最大的增加项与最大的减少项：按贡献引用所在数据集的同一列核对数值。"""
+    out = []
+    for item, shown in zip(raw, rendered):
+        try:
+            cause = item if isinstance(item, Cause) else Cause.model_validate(item)
+        except ValidationError:
+            continue
+        ref = cause.contribution
+        segs = (shown.get("contribution") or {}).get("segments") or []
+        value = _number(segs[0].get("raw")) if segs else None
+        ds = datasets.get(ref.dataset) if ref is not None else None
+        if ref is None or ref.column is None or ds is None or value is None:
+            out.append(f"原因第 {shown['index'] + 1} 项：相互抵消时贡献要引用归因证据里的贡献列，才能核对是不是最大的"
+                       f"{'增加' if cause.direction == 'up' else '减少'}项")
+            continue
+        values = [v for v in (_number(r.get(ref.column)) for r in ds.get("rows") or []) if v is not None]
+        side = [v for v in values if (v > 0 if cause.direction == "up" else v < 0)]
+        best = (max(side) if cause.direction == "up" else min(side)) if side else None
+        if best is None or value != best:
+            out.append(f"原因第 {shown['index'] + 1} 项：相互抵消时前两项应是最大的增加项与最大的减少项，"
+                       f"{ref.dataset} 里最大的{'增加' if cause.direction == 'up' else '减少'}项贡献是 {best}，不是 {value}")
+    return out
 
 
 def _entity_problems(cause: Cause, evidence: dict[str, dict], asked: str | None) -> tuple[list[str], str | None]:

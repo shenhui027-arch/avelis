@@ -226,6 +226,7 @@ def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatc
     参数不同（这里多了过滤条件）的照常执行、计数。"""
     catalog, executed = governed_catalog(monkeypatch)
     box = make_box(budget=Budget(queries=2), catalog=catalog, monkeypatch=monkeypatch)
+    monkeypatch.setattr(box, "_metric_sources", lambda code: (None, None, [], {}))  # 来源闭包可读
     first = json.loads(box.dispatch("query_metric", QUERY))
     again = json.loads(box.dispatch("query_metric", {**QUERY, "purpose": "换个说法再查一次"}))
     assert first["dataset"] == again["dataset"] == "D1" and again["reused"] is True and "不计查询额度" in again["note"]
@@ -236,6 +237,12 @@ def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatc
     assert json.loads(box.dispatch("query_metric", QUERY))["dataset"] == "D1"
     blocked = json.loads(box.dispatch("query_metric", {**QUERY, "group_by": []}))
     assert "查询额度已用完" in blocked["error"] and len(executed) == 2
+
+    def revoked(code):  # 复用前撤权：来源闭包核对失败，不再交付已有数据集
+        box._deny("没有权限读取指标的来源", metric_code=code)
+    monkeypatch.setattr(box, "_metric_sources", revoked)
+    denied = json.loads(box.dispatch("query_metric", QUERY))
+    assert denied["status"] == "denied" and "dataset" not in denied and len(executed) == 2
 
 
 def test_query_quota_only_stops_query_tools(monkeypatch):
@@ -793,3 +800,26 @@ def test_each_model_call_records_latency_tokens_and_tool_calls(monkeypatch):
                                         "reasoning_tokens": None}
     assert agent.model_usage(AIMessage(content="")) == {"input_tokens": None, "output_tokens": None,
                                                         "cache_hit_tokens": None, "reasoning_tokens": None}
+
+
+def test_json_repair_never_invents_values():
+    """修复只改语法：修复结果里的每个键与标量值都要在原文里原样出现，补出来的值（如空字符串）按解析失败处理。"""
+    assert tools.repair_arguments('{"title": 标题, "summary": "s", "claims": []}') == {"title": "标题", "summary": "s",
+                                                                                   "claims": []}
+    assert tools.repair_arguments('{"region":}') is None  # 会被补成 ""：原文没有这个值
+    assert tools.repair_arguments('{"a": 1, "b": [1, 2,], "c": true}') == {"a": 1, "b": [1, 2], "c": True}
+
+
+def test_revision_resets_only_this_rounds_report_attempts(monkeypatch):
+    """修订只重置本轮的 submit_report 尝试次数；累计的尝试仍占总预算，运行记录的调用次数不超过上限。"""
+    box = make_box(budget=Budget(tool_calls=6), monkeypatch=monkeypatch)
+    b = box.budget
+    b.used_tools, b.used_reports, b.reports_total = 4, 2, 2  # 第一轮：其余工具用满，两次提交
+    b.tool_calls += agent.REVISION_TOOL_CALLS
+    b.used_reports = 0  # 修订：本轮重新计算
+    assert b.exhausted() is None
+    b.used_tools = 8  # 4 + 4：加上以前的两次提交，已到 12 − 2
+    assert b.exhausted() and b.spent() is None  # 只能提交报告
+    b.used_reports = b.reports_total = 4
+    used, limits = b.view()["used"], b.view()["limits"]
+    assert used["tool_calls"] == 12 <= limits["tool_calls"] and used["reports"] == 4

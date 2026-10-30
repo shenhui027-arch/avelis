@@ -185,7 +185,7 @@ function Composer({ onStarted }: { onStarted: (id: string) => void }) {
   );
 }
 
-const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释" };
+const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释", method: "分析方法" };
 const REPORT_STATUS: Record<string, [string, "ok" | "warn" | "danger"]> = {
   all_passed: ["来源全部通过", "ok"], with_inference: ["来源全部通过 · 含未核实的推断", "warn"],
   no_facts: ["没有可核实的事实", "warn"], failed: ["有未通过的事实或字段", "danger"],
@@ -315,7 +315,8 @@ function RunDetail({ id }: { id: string }) {
         </section>
       ) : null}
       {report.method ? (
-        <section className="av-analysis__plan"><h3>分析方法</h3><p>{report.method}</p></section>
+        <section className="av-analysis__plan"><h3>分析方法</h3>
+          <p><Segments segments={report.fields?.method?.segments} text={report.method} /></p></section>
       ) : null}
       <section className="av-analysis__steps" aria-label="步骤"><h3>步骤 <span className="av-caption">{r.steps?.length ?? 0}</span></h3>
         <ol className="av-timeline">

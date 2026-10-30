@@ -19,7 +19,9 @@ DATA = {
            "units": {"contribution": {"kind": "delta"}}},
     "D7": {"kind": "calc", "metric_codes": ["m_a"], "columns": ["dimension", "member", "contribution"],
            "rows": [{"dimension": "地区", "member": "甲", "contribution": "-80"},
-                    {"dimension": "地区", "member": "丙", "contribution": "79"}],
+                    {"dimension": "地区", "member": "丙", "contribution": "79"},
+                    {"dimension": "地区", "member": "丁", "contribution": "-5"},
+                    {"dimension": "地区", "member": "戊", "contribution": "3"}],
            "units": {"contribution": {"kind": "delta"}}},
     "D6": {"kind": "explore", "explore": True, "columns": ["门店", "变化"], "rows": [{"门店": "店甲", "变化": "-9"}],
            "units": {"变化": {"kind": "delta"}}},
@@ -33,13 +35,13 @@ MEMBER = {"type": "member", "entity": {"metric_code": "m_a", "dimension": "地�
 WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
 
 
-def run(conclusion, causes, metric_code=None, explanations=None, filters=()):
+def run(conclusion, causes, metric_code=None, explanations=None, filters=(), question_type=None):
     """explanations：指标编码 → 判定（无筛选、同一窗口），或已经是登记键 → 判定。"""
     report = {"title": "t", "summary": "s", "claims": [{"type": "fact", "parts": ["x"], "refs": ["D1"]}],
               "conclusion": conclusion, "causes": causes, "metric_code": metric_code,
               "scope_key": scope_key(metric_code, list(filters), WINDOW) if metric_code else None}
     keyed = {k if k.startswith("{") else scope_key(k, [], WINDOW): v for k, v in (explanations or {}).items()}
-    return ground_report(report, DATA, None, keyed)
+    return ground_report(report, DATA, None, keyed, question_type)
 
 
 def problems(causes, conclusion="ranked_reasons", **kw):
@@ -180,3 +182,46 @@ def test_conclusion_is_compared_only_with_the_same_scope():
     assert scope_key("m_a", region, WINDOW) != scope_key("m_a", region, other)  # 窗口不同也是不同的范围
     # 不是“为什么变化”的报告（证据不足、没写 scope、没做过 explain_change）：不受约束
     assert problems([], "insufficient_evidence", explanations={}) == []
+
+
+def test_change_questions_must_carry_a_scope_with_a_verdict():
+    """理解阶段判为变化类的问题：报告省略 scope 不能绕过判定；没有同范围判定时不论结论类型都要求补做；
+    判定登记为 unsupported 的照旧不约束。"""
+    assert "请在 scope 写明" in problems([], "insufficient_evidence", question_type="change")[0]
+    assert "请用这个 scope" in problems([], "insufficient_evidence", metric_code="m_a", question_type="change")[0]
+    assert problems([], "insufficient_evidence", question_type="change", explanations={"m_a": "unsupported"}) == []
+    assert problems([], "insufficient_evidence", question_type="relation") == []
+
+
+def test_offsetting_first_two_must_be_the_largest_increase_and_decrease():
+    """相互抵消：前两项按归因证据的贡献值核对，必须分别是最大的增加项与最大的减少项（不只看方向）。"""
+    def member(name, direction):
+        return {"type": "member", "entity": {"metric_code": "m_a", "dimension": "地区", "member": name},
+                "direction": direction, "evidence": ["D7"],
+                "contribution": {"dataset": "D7", "column": "contribution", "match": {"member": name}}}
+    ok = {"m_a": "offsetting"}
+    assert problems([member("甲", "down"), member("丙", "up")], "offsetting", metric_code="m_a", explanations=ok) == []
+    wrong = problems([member("丁", "down"), member("丙", "up")], "offsetting", metric_code="m_a", explanations=ok)
+    assert len(wrong) == 1 and "最大的减少项贡献是 -80，不是 -5" in wrong[0]
+    small_up = problems([member("甲", "down"), member("戊", "up")], "offsetting", metric_code="m_a", explanations=ok)
+    assert "最大的增加项贡献是 79" in small_up[0]
+
+
+def test_method_is_rendered_checked_and_exported_like_other_fields():
+    """分析方法（method）与标题、摘要一样按片段渲染与核验，出现在 Markdown / PDF 正文与引用来源 CSV 里。"""
+    from avelis.analysis import export
+
+    report = {"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "causes": [],
+              "claims": [{"type": "fact", "parts": ["x"], "refs": ["D1"]}],
+              "method": ["先看地区甲的", {"dataset": "D1", "column": "指标甲"}, "，再看拆解"]}
+    rendered, v = ground_report(report, DATA, None)
+    assert rendered["method"] == "先看地区甲的100，再看拆解" and v["ok"]
+    assert rendered["fields"]["method"]["segments"][1]["raw"] == "100"
+    bad, v2 = ground_report({**report, "method": ["对比了两类数据"]}, DATA, None)
+    assert not v2["ok"] and any(f["field"] == "method" for f in v2["fields"] if f["status"] == "unverified")
+    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
+            "verification": v}
+    assert "**分析方法**：先看地区甲的100，再看拆解" in export.to_markdown(view)
+    assert export.to_pdf(view).startswith(b"%PDF")
+    rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
+    assert any(r.startswith("分析方法,字段,100,") for r in rows)

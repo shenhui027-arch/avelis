@@ -70,6 +70,7 @@ class Budget:
     used_calls: int = 0  # 全部调用（含被拒绝的），只用于记录
     used_tools: int = 0  # submit_report 以外执行了的调用
     used_reports: int = 0  # 本轮 submit_report 的尝试次数（修订时清零）
+    reports_total: int = 0  # 累计的 submit_report 尝试次数（修订不清零，参与总预算）
     used_queries: int = 0
     used_explore: int = 0
     started: float = field(default_factory=time.monotonic)
@@ -77,9 +78,9 @@ class Budget:
     def view(self) -> dict[str, Any]:
         return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds,
                            "explore": self.explore},
-                # tool_calls：执行了的调用（其他工具与 submit_report 的尝试），不超过上限；attempts 另含被拒绝的调用
-                "used": {"tool_calls": self.used_tools + self.used_reports, "attempts": self.used_calls,
-                         "queries": self.used_queries, "explore": self.used_explore, "reports": self.used_reports,
+                # tool_calls：执行了的调用（其他工具与累计的 submit_report 尝试），不超过上限；attempts 另含被拒绝的调用
+                "used": {"tool_calls": self.used_tools + self.reports_total, "attempts": self.used_calls,
+                         "queries": self.used_queries, "explore": self.used_explore, "reports": self.reports_total,
                          "seconds": round(time.monotonic() - self.started, 1)}}
 
     def queries_exhausted(self) -> str | None:
@@ -99,8 +100,9 @@ class Budget:
         return self.started + self.seconds - time.monotonic()
 
     def exhausted(self) -> str | None:
-        """submit_report 以外的工具不能再调用的原因：只剩留给 submit_report 的次数，或统一截止时间已到。"""
-        if self.used_tools >= self.tool_calls - self.report_reserve:
+        """submit_report 以外的工具不能再调用的原因：只剩留给 submit_report 的次数，或统一截止时间已到。
+        以前各轮的 submit_report 尝试照样占用总预算（修订只重置本轮的尝试次数）。"""
+        if self.used_tools + (self.reports_total - self.used_reports) >= self.tool_calls - self.report_reserve:
             return f"工具调用已达上限 {self.tool_calls} 次（最后 {self.report_reserve} 次留给 submit_report）"
         if self.remaining() <= 0:
             return f"分析时长已超过 {self.seconds} 秒"
@@ -132,7 +134,36 @@ def repair_arguments(raw: str) -> dict | None:
         repaired = repair_json(raw, return_objects=True)
     except Exception:  # noqa: BLE001 - 修不了就是解析失败
         return None
-    return repaired if isinstance(repaired, dict) and repaired else None
+    if not isinstance(repaired, dict) or not repaired:
+        return None
+    return repaired if all(_appears(v, raw) for v in _scalars(repaired)) else None
+
+
+def _scalars(value: Any):
+    """修复结果里的全部键与标量值。"""
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from _scalars(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _scalars(v)
+    else:
+        yield value
+
+
+def _appears(value: Any, raw: str) -> bool:
+    """标量值在原文里原样出现：修复不能补出原文没有的值（例如 {"region":} 被补成空字符串）。"""
+    if value is None:
+        return "null" in raw
+    if isinstance(value, bool):
+        return ("true" if value else "false") in raw
+    if isinstance(value, (int, float)):
+        return str(value) in raw or json.dumps(value) in raw
+    text = str(value)
+    if text == "":
+        return '""' in raw or "''" in raw
+    return text in raw or json.dumps(text, ensure_ascii=False)[1:-1] in raw or json.dumps(text)[1:-1] in raw
 
 
 def json_error_path(raw: str) -> tuple[str, str]:
@@ -601,6 +632,7 @@ class AnalysisToolbox:
                 self._step("tool", name, {}, "denied", {"error": "提交次数已用完"})
                 return _json({"error": f"submit_report 本轮已尝试 {self.budget.used_reports} 次，不能再提交"})
             self.budget.used_reports += 1
+            self.budget.reports_total += 1
         else:
             over = self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
             if over:
@@ -726,16 +758,28 @@ class AnalysisToolbox:
         return refs
 
     def context_pack(self) -> str:
-        """紧凑的上下文包（ADR 0012 第 2 段）：每个数据集的编号、标题、关键汇总与前若干行，总长度有上限；超出的只列编号与
-        标题。完整数据保存在数据集中，引用 Dn 照常核验。"""
+        """紧凑的上下文包（ADR 0012 第 2 段）：每个数据集的编号、标题、关键汇总与前若干行。总长度（含分隔符、预检错误与
+        省略标记）不超过 PACK_CHARS：放不下的数据集只在末尾的省略标记里列编号，标记本身也受上限约束。
+        完整数据保存在数据集中，引用 Dn 照常核验。"""
+        sep, cap = "\n\n", self.PACK_CHARS
         lines: list[str] = []
+        used = 0
+
+        def add(text: str, limit: int) -> bool:
+            nonlocal used
+            cost = len(text) + (len(sep) if lines else 0)
+            if used + cost > limit:
+                return False
+            lines.append(text)
+            used += cost
+            return True
+        reserve = 300  # 留给预检错误与省略标记
         metric = getattr(self, "precheck_metric", None) or {}
         if metric and not metric.get("error"):
             keep = {k: metric.get(k) for k in ("code", "name", "kind", "unit", "expression", "time_column", "dimensions",
                                                 "components") if metric.get(k) is not None}
-            lines.append("口径：" + _json(keep)[:1200])
-        used = sum(len(x) for x in lines)
-        skipped = []
+            add("口径：" + _json(keep)[:1200], cap - reserve)
+        omitted: list[str] = []
         for ref, ds in self._datasets.items():
             head = f"{ref} {ds.title}（{ds.kind}，{len(ds.rows)} 行{'，截断' if ds.truncated else ''}）"
             body = []
@@ -746,18 +790,19 @@ class AnalysisToolbox:
             body += ["  " + _json(r)[:300] for r in ds.rows[:self.PACK_ROWS]]
             if len(ds.rows) > self.PACK_ROWS:
                 body.append(f"  （只列前 {self.PACK_ROWS} 行，共 {len(ds.rows)} 行）")
-            block = "\n".join([head, *body])
-            if used + len(block) > self.PACK_CHARS:
-                skipped.append(head)
-                continue
-            lines.append(block)
-            used += len(block)
-        if skipped:
-            lines.append("其余数据集（长度上限内放不下，需要时用计算工具读取）：" + "；".join(skipped))
+            if omitted or not add("\n".join([head, *body]), cap - reserve):
+                omitted.append(ref)
         notes = getattr(self, "precheck_notes", None) or []
         if notes:
-            lines.append("预检中没有完成的步骤：" + "；".join(notes))
-        return "\n\n".join(lines) or "（没有预检数据）"
+            room = cap - used - len(sep) - (120 if omitted else 0)
+            text = "预检中没有完成的步骤：" + "；".join(notes)
+            add(text if len(text) <= room else text[:max(0, room - 1)] + "…", cap)
+        if omitted:
+            marker = f"其余 {len(omitted)} 个数据集放不下，需要时用计算工具读取："
+            room = cap - used - len(sep) - len(marker)
+            listed = "、".join(omitted)
+            add(marker + (listed if len(listed) <= room else listed[:max(0, room - 1)] + "…"), cap)
+        return sep.join(lines) or "（没有预检数据）"
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
                       unexplained: str | list | None = None, conclusion: str | None = None,
@@ -1000,6 +1045,8 @@ class AnalysisToolbox:
         key = json.dumps(args.model_dump(mode="json", exclude={"purpose"}), sort_keys=True, ensure_ascii=False)
         reused = self._governed.get(key)
         if reused is not None:
+            for code in args.metric_codes:  # 复用前同样核对来源闭包的权限与当前可查询状态（撤权后不再交付）
+                self._metric_sources(code)
             ref = f"D{reused.seq}"
             return {**self._view(ref, reused), "reused": True,
                     "note": f"与 {ref} 是相同的受治理查询：直接复用 {ref}，不计查询额度"}, reused, "ok"

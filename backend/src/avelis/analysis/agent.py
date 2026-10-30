@@ -339,8 +339,9 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
                    else "预算内没有得到模型提交的报告；以下列出已取得的数据集，未下结论。")
         toolbox.report = {"title": "分析未完成", "summary": summary, "claims": [], "unexplained": "全部",
                           "incomplete": True}
+    scope = getattr(toolbox, "scope", None)
     report, result = ground_report(toolbox.report, datasets, getattr(toolbox.run, "window", None),
-                                   getattr(toolbox, "explanations", {}))
+                                   getattr(toolbox, "explanations", {}), scope.question_type if scope else None)
     toolbox.report = report
     toolbox.verification = {**result, "revised": bool(state.get("revised"))}
     if (not result["ok"] and not state.get("revised") and not report.get("incomplete")
