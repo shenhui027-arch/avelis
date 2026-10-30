@@ -18,6 +18,7 @@ from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy import false as sa_false
+from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avelis.db import Base, IdType, JsonType, LongText, UTCDateTime, new_id, utcnow
@@ -110,6 +111,8 @@ class Datasource(Base):
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     server_identity: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     collect_interval_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
+    # 探索查询开关（ADR 0009 第 6 点）：默认开启，管理员可按数据源关闭；引擎没有探索档案时开启也不可用
+    allow_exploration: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true(), nullable=False)
     created_by: Mapped[str | None] = fk("app_user.id", nullable=True)
     created_at: Mapped[datetime] = created()
 

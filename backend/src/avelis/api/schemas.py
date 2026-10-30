@@ -82,6 +82,8 @@ class DatasourceOut(Out):
     status: str
     server_identity: Json
     collect_interval_minutes: int
+    allow_exploration: bool = True
+    exploration_supported: bool = False
     credentials: list[CredentialOut]
     last_run: RunOut | None = None
     aliases: list[AliasOut]

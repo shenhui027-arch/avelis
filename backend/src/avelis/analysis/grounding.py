@@ -214,6 +214,9 @@ def resolve(ref: Ref, datasets: dict[str, dict], window: dict | None) -> tuple[A
             raise RefError(f"{ref.dataset} 没有列 {ref.label}（可用：{'、'.join(map(str, _columns(ds)))}）")
         if ref.label in (ds.get("units") or {}):
             raise RefError(f"{ref.label} 是数值列，不是维度列：数值请用 NumberRef")
+        evidence = (ds.get("column_evidence") or {}).get(ref.label)
+        if evidence is not None and not evidence.get("label_ok"):
+            raise RefError(f"{ref.label} 不是维度列的直接投影（经过函数、转换或拼接），不能当作维度文本引用")
         value = _select(ref, ds)[ref.label]
         if number(value) is not None and not isinstance(value, str):
             raise RefError(f"{ref.label} 的值 {value} 是数值，不是维度文本：数值请用 NumberRef")
@@ -236,6 +239,9 @@ def resolve(ref: Ref, datasets: dict[str, dict], window: dict | None) -> tuple[A
             raise RefError(f"{ref.dataset} 没有列 {ref.column}（可用：{'、'.join(map(str, _columns(ds)))}）")
         raw = _select(ref, ds)[ref.column]
         meta = _unit((ds.get("units") or {}).get(ref.column))
+        evidence = (ds.get("column_evidence") or {}).get(ref.column)
+        if evidence is not None and not evidence.get("eligible"):  # 探索结果中不能作事实来源的列：按假设计算处理
+            meta["column_assumption"] = True
     if number(raw) is None:
         raise RefError(f"原值“{_key(raw)}”不是有限数值：文本请用 LabelRef，个数请用 CountRef")
     return raw, meta
@@ -370,7 +376,8 @@ def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[s
         if isinstance(part, (NumberRef, CountRef)):
             segment.update(measure=meta["kind"], unit=meta["unit"], declared=meta["declared"],
                            source=ds.get("kind") or "", explore=bool(ds.get("explore")),
-                           assumption=bool(ds.get("assumption")), truncated=bool(ds.get("truncated")),
+                           assumption=bool(ds.get("assumption") or meta.get("column_assumption")),
+                           truncated=bool(ds.get("truncated")),
                            partial=bool(ds.get("partial")))
         if isinstance(part, NumberRef):
             segment.update(format=part.format or "", direction=part.direction or "", role=part.role)

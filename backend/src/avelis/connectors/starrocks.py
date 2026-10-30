@@ -5,6 +5,7 @@
 - 旧式 ENGINE=mysql 外部表从 SHOW CREATE TABLE 读取 host/port/database/table（口令被 StarRocks 置空）；
 - JDBC Catalog 从 SHOW CREATE CATALOG 读取 jdbc_uri（不显示口令），表结构从 <catalog>.information_schema 读取；
 - 问数执行：会话设置 query_timeout 与 query_mem_limit，错误 5024 归为超时。
+- 探索执行（ADR 0009 第 6 点）：另设 pipeline_dop；客户端等待超时时另开连接对该连接发 KILL QUERY，确认查询已停止。
 """
 
 from __future__ import annotations
@@ -236,6 +237,46 @@ class StarRocksConnector:
             raise QueryError(_classify(errno, message), errno, message) from exc
         finally:
             conn.close()
+
+    def execute_explore(self, sql: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int,
+                        pipeline_dop: int = 1) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号，服务端 query_timeout / query_mem_limit / pipeline_dop；
+        客户端等待超过截止时间时向服务端发 KILL QUERY 并确认已停止，然后按超时报错（不返回部分结果）。"""
+        conn = self._connect(read_timeout=timeout_seconds + 5)
+        connection_id = None
+        try:
+            cur = conn.cursor(pymysql.cursors.Cursor)
+            cur.execute("SELECT CONNECTION_ID()")
+            connection_id = int(cur.fetchone()[0])
+            cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
+            cur.execute(f"SET query_mem_limit = {int(mem_limit_bytes)}")
+            cur.execute(f"SET pipeline_dop = {int(pipeline_dop)}")
+            cur.execute(sql)
+            columns = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(max_rows + 1)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+        except pymysql.err.OperationalError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            if errno in (2013, 2006) and connection_id is not None:  # 客户端等待超时：取消服务端查询
+                self._kill_query(connection_id)
+                raise QueryError("timeout", errno, "探索查询超过截止时间，已向数据库发出取消") from exc
+            message = str(exc.args[-1]) if exc.args else str(exc)
+            raise QueryError(_classify(errno, message), errno, message) from exc
+        except pymysql.MySQLError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            message = str(exc.args[-1]) if exc.args else str(exc)
+            raise QueryError(_classify(errno, message), errno, message) from exc
+        finally:
+            conn.close()
+
+    def _kill_query(self, connection_id: int) -> None:
+        killer = self._connect(read_timeout=10)
+        try:
+            killer.cursor().execute(f"KILL QUERY {int(connection_id)}")
+        except pymysql.MySQLError:
+            pass  # 连接已结束：查询也已停止
+        finally:
+            killer.close()
 
     def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）与视图定义。对象不存在时列为空。"""

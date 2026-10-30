@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,8 @@ from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
+from avelis.config import get_settings
+from avelis.connectors.base import QueryError
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
@@ -40,6 +42,7 @@ from avelis.models import (
     ChangeSet,
     CollectionRun,
     ColumnVersion,
+    Datasource,
     MetricVersion,
     Metric,
     MetricVersionTransition,
@@ -56,13 +59,16 @@ class Budget:
     tool_calls: int = 30
     queries: int = 12
     seconds: int = 300
+    explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
     used_tools: int = 0
     used_queries: int = 0
+    used_explore: int = 0
     started: float = field(default_factory=time.monotonic)
 
     def view(self) -> dict[str, Any]:
-        return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds},
-                "used": {"tool_calls": self.used_tools, "queries": self.used_queries,
+        return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds,
+                           "explore": self.explore},
+                "used": {"tool_calls": self.used_tools, "queries": self.used_queries, "explore": self.used_explore,
                          "seconds": round(time.monotonic() - self.started, 1)}}
 
     def remaining(self) -> float:
@@ -139,6 +145,27 @@ class QueryArgs(BaseModel):
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(None, ge=1, le=100)
     purpose: str = Field(description="这次查询要回答什么（写进步骤记录）")
+
+
+class ExploreColumn(BaseModel):
+    """模型对结果列的声明：只用于展示，不改变后端推断的量纲；与推断冲突时拒绝。不能声明单位或倍数。"""
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    kind: Literal["level", "count", "ratio", "unknown"]
+    label: str | None = None
+
+
+class QuerySqlArgs(BaseModel):
+    datasource: str = Field(description="数据源名称或编号（只有开启了探索查询、引擎有探索档案的数据源可用）")
+    sql: str = Field(description="一条 SELECT：写出列名、库.表；只用登记的聚合与等值 JOIN；系统会重新生成 SQL 并加行数上限")
+    purpose: str = Field(description="查询目的；有口径能覆盖时应优先用 query_metric，这里写明为什么需要探索查询")
+    columns: list[ExploreColumn] | None = Field(None, description="可选：结果数值列的量纲提示（只用于展示）")
+
+
+class SampleArgs(BaseModel):
+    asset: str = Field(description="资产全名 <catalog>.<库>.<表>")
+    column: str = Field(description="列名")
+    keyword: str | None = Field(None, max_length=50, description="可选：只看包含该关键字的取值")
 
 
 class ExplainArgs(BaseModel):
@@ -718,6 +745,121 @@ class AnalysisToolbox:
                                  "window": {"start": str(args.start_date), "end": str(args.end_date)}})
         return self._view(f"D{ds.seq}", ds), ds, "ok"
 
+    # -- 探索查询 --
+    EXPLORE_MAX_SECONDS = 60
+    EXPLORE_MEM_LIMIT = 2 * 1024 ** 3
+
+    def explore_available(self) -> bool:
+        """有开启了探索查询、引擎有探索档案的数据源时才提供 query_sql / sample_values。"""
+        from avelis.analysis.explore import profile_for
+        from avelis.engines import engine_of
+        from avelis.engines.base import QUERY
+
+        try:
+            sources = list(self.session.scalars(select(Datasource).where(Datasource.allow_exploration.is_(True))))
+        except Exception:  # noqa: BLE001 - 测试替身没有数据源表
+            return False
+        return any(isinstance(ds, Datasource) and profile_for(ds.kind) and engine_of(ds).supports(QUERY)
+                   for ds in sources)
+
+    def query_sql(self, **kwargs) -> str:
+        args = QuerySqlArgs(**kwargs)
+        declared = [c.model_dump(exclude_none=True) for c in args.columns or []] or None
+        return self._guard("query_sql", args.model_dump(mode="json"), lambda: self._explore(
+            args.datasource, args.sql, args.purpose, declared, title=f"探索：{args.purpose}"[:255]))
+
+    def sample_values(self, **kwargs) -> str:
+        args = SampleArgs(**kwargs)
+
+        def run():
+            asset = self.session.scalar(select(Asset).where(
+                Asset.catalog_name + "." + Asset.db_name + "." + Asset.name == args.asset, Asset.status == "active"))
+            if asset is None:
+                self.budget.used_explore += 1  # 失败的调用同样计数
+                raise ValueError(f"资产 {args.asset} 不存在或当前用户不可见")
+            from sqlglot import exp
+
+            from avelis.analysis.explore import profile_for
+
+            profile = profile_for(self.session.get(Datasource, asset.datasource_id).kind)
+            dialect = profile.dialect if profile else "postgres"
+            column = exp.column(args.column, quoted=True)
+            query = (exp.select(exp.alias_(column, "value", quoted=True),
+                                exp.alias_(exp.Count(this=exp.Star()), "n", quoted=True))
+                     .from_(exp.table_(asset.name, db=asset.db_name, catalog=asset.catalog_name, quoted=True))
+                     .group_by(column).order_by(exp.Ordered(this=exp.column("n", quoted=True), desc=True)))
+            if args.keyword:
+                query = query.where(exp.Like(this=column.copy(), expression=exp.Literal.string(f"%{args.keyword}%")))
+            return self._explore(asset.datasource_id, query.sql(dialect=dialect), f"列 {args.column} 的常见取值（有范围的预览）",
+                                 None, title=f"取值预览：{args.asset}.{args.column}"[:255], max_rows=20, preview=True)
+        return self._guard("sample_values", args.model_dump(mode="json"), run)
+
+    def _explore(self, source_ref: str, sql_text: str, purpose: str, declared: list[dict] | None, *, title: str,
+                 max_rows: int | None = None, preview: bool = False) -> tuple[dict, AnalysisDataset | None, str]:
+        """探索查询：计数 → 数据源与档案 → 允许清单校验与绑定 → 声明核对 → 物理身份核对 → 权限复核 → 执行 →
+        交付前权限复核 → 保存为 explore 数据集。拒绝时不发到数据库；每次都记审计。"""
+        from avelis.analysis import exploration
+        from avelis.engines import query_connector
+
+        if self.budget.used_explore >= self.budget.explore:
+            raise ValueError(f"探索查询已达上限 {self.budget.explore} 次：请基于已有数据集继续")
+        self.budget.used_explore += 1
+        step, source, validated, sent, result = self.budget.used_explore, None, None, False, None
+        max_rows = max_rows or get_settings().query_max_rows
+        limits = {"max_rows": max_rows, "mem_limit_bytes": self.EXPLORE_MEM_LIMIT}
+        try:
+            source = exploration.explore_source(self.session, source_ref)
+            if self.budget.remaining() <= self.SUBQUERY_RESERVE_SECONDS:
+                raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
+            validated = exploration.validate(sql_text, source.profile,
+                                             exploration.resolver(self.session, self.user, source), max_rows=max_rows)
+            shown = exploration.check_declared(validated, declared)
+            connector = query_connector(self.session, source.datasource)
+            exploration.live_check(connector, validated)
+            self._authorize()
+            exploration.recheck_access(self.session, self.user, validated)
+            timeout = int(min(self.EXPLORE_MAX_SECONDS, self.budget.remaining() - 5))
+            limits["timeout_seconds"] = timeout
+            sent = True
+            result = connector.execute_explore(validated.sql, timeout_seconds=timeout, max_rows=max_rows,
+                                               mem_limit_bytes=self.EXPLORE_MEM_LIMIT)
+            self._authorize()  # 交付前再核对：撤权后不再交付结果
+            exploration.recheck_access(self.session, self.user, validated)
+            if list(result.columns) != [c.name for c in validated.columns]:
+                raise exploration.ExploreRejected("evidence", "columns_mismatch", "数据库返回的列与校验结果不一致，不交付")
+        except exploration.ExploreRejected as e:
+            exploration.record(self.session, self.user, self.run.id, step=step, source=source, purpose=purpose,
+                               outcome="withheld" if sent else "rejected", validated=validated, error=e, limits=limits)
+            return e.view() | ({"sent_to_database": True, "note": "结果未交付"} if sent else {}), None, "error"
+        except QueryError as e:
+            exploration.record(self.session, self.user, self.run.id, step=step, source=source, purpose=purpose,
+                               outcome="failed", validated=validated, error=e, limits=limits)
+            return {"error": f"探索查询执行失败：{e.message}", "code": e.code}, None, "error"
+        except PermissionLost as e:
+            self.permission_lost = e.message
+            exploration.record(self.session, self.user, self.run.id, step=step, source=source, purpose=purpose,
+                               outcome="withheld" if sent else "rejected", validated=validated,
+                               error=exploration.ExploreRejected("binding", "permission_lost", e.message), limits=limits)
+            return {"error": f"{e.message}：之后的取数与上下文一律拒绝，分析停止", "status": "denied"}, None, "denied"
+        exploration.record(self.session, self.user, self.run.id, step=step, source=source, purpose=purpose, outcome="ok",
+                           validated=validated, result=result, limits=limits,
+                           identity=exploration.execution_identity(self.session, source.datasource))
+        ds = self._dataset("explore", title, list(result.columns), result.rows, truncated=result.truncated,
+                           meta={"sql": validated.sql, "datasource_id": source.datasource.id,
+                                 "datasource": source.datasource.name, "engine": source.datasource.kind,
+                                 "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
+                                 "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
+                                             "qualified": t.qualified} for t in validated.tables],
+                                 "units": {k: {**v, **({"declared": True} if k in shown else {})}
+                                           for k, v in exploration.units(validated.columns).items()},
+                                 "column_evidence": exploration.evidence(validated.columns),
+                                 "declared_metadata": shown, "preview": preview})
+        view = self._view(f"D{ds.seq}", ds)
+        view["sql"] = validated.sql
+        view["note"] = ("探索查询（未经口径审核）：引用这些数字的结论会带探索标记；" +
+                        ("这是有范围的取值预览，不是全集。" if preview else "量纲由后端按表达式推断。"))
+        return view, ds, "ok"
+
     # -- 自动归因 --
     SUBQUERY_RESERVE_SECONDS = 15  # 子查询前至少要剩的时间：不够就停止扫描，返回 partial
 
@@ -1100,6 +1242,10 @@ class AnalysisToolbox:
             t(self.changes, Window, "时间窗口内的元数据变更与口径版本流转（排查“是不是口径或数据本身变了”）"),
             t(self.data_health, Health, "指标来源的数据源采集情况与新鲜度"),
             t(self.query_metric, QueryArgs, "受治理查询：按已发布口径取数，产生数据集 Dn（权限与执行前核对照常生效）"),
+            *([t(self.query_sql, QuerySqlArgs, "探索查询：口径覆盖不到的数据，按血缘与字段注释写一条 SELECT；只能用当前用户可见的"
+                 "已采集表，先用 describe_asset、lineage 读注释与关联键；系统校验后重新生成 SQL 执行，结果带“探索查询”标记"),
+               t(self.sample_values, SampleArgs, "列的常见取值（最多 20 个，有范围的预览），用于写过滤条件；计入探索预算")]
+              if self.explore_available() else []),
             t(self.explain_change, ExplainArgs, "自动归因：按候选维度扫描两期变化，给出成员贡献（EP）、分布变化强度与排名；"
               "可加指标与 a / b 比率指标适用，不可加指标会说明不支持"),
             t(self.contribution, ContributionArgs, "两期差额按维度拆解（贡献、变化率、占总变化比例）"),
