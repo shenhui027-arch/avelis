@@ -22,6 +22,34 @@ type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]
   validation?: string | null; details?: Record<string, FieldRecord> };
 type Check = { index: number; status: string; problems?: string[]; missing_refs?: string[] };
 type FieldCheck = { field: string; status: string; problems?: string[] };
+type CauseView = { index: number; type?: string; entity?: { dimension?: string; member?: string; factor?: string; event?: string };
+  direction?: string; contribution?: { text: string; segments?: Segment[] } | null; evidence?: string[]; status: string;
+  errors?: string[] };
+const CAUSE_TYPE: Record<string, string> = { member: "成员", factor: "因子", calendar: "日历", governance: "治理事件" };
+const CONCLUSION: Record<string, string> = { ranked_reasons: "有排序的原因", no_material_change: "没有实质变化",
+  insufficient_evidence: "证据不足" };
+
+/** 原因排序（ADR 0009 第 5 点）：按影响大小排列，第一项是首要原因；每项标明类型、实体、方向、贡献与证据。 */
+function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: string }) {
+  if (!conclusion && !causes?.length) return null;
+  return <section className="av-analysis__causes" aria-label="原因排序">
+    <h3>原因排序 {conclusion ? <Pill tone={conclusion === "ranked_reasons" ? "info" : "warn"}>{CONCLUSION[conclusion] ?? conclusion}</Pill> : null}</h3>
+    {causes?.length ? <ol className="av-causes">
+      {causes.map((c) => {
+        const e = c.entity ?? {};
+        const entity = e.member ? `${e.dimension ?? ""}：${e.member}` : e.factor ?? e.event ?? "日历因素";
+        return <li key={c.index} className={`av-cause${c.status === "unverified" ? " is-unverified" : ""}`}>
+          <Pill tone="">{CAUSE_TYPE[c.type ?? ""] ?? c.type ?? "原因"}</Pill>
+          <span className="av-cause__entity">{entity}</span>
+          <span className={`av-cause__dir is-${c.direction}`}>{c.direction === "up" ? "上升" : c.direction === "down" ? "下降" : ""}</span>
+          {c.contribution ? <span>贡献 <Segments segments={c.contribution.segments} text={c.contribution.text} /></span> : null}
+          <span className="av-claim__refs">{(c.evidence ?? []).map((ref) => <a key={ref} className="av-tag av-mono" href={`#dataset-${ref}`}>{ref}</a>)}</span>
+          {(c.errors ?? []).map((p, j) => <span key={j} className="av-claim__bad">{p}</span>)}
+        </li>;
+      })}
+    </ol> : <span className="av-caption">{conclusion === "no_material_change" ? "两期相比没有实质变化（或成员变化相互抵消），不给出原因排序" : "证据不足，不给出原因排序"}</span>}
+  </section>;
+}
 type WindowKind = "none" | "last_month" | "fixed";
 
 const TYPE_LABEL: Record<string, string> = { fact: "事实", calc: "计算", inference: "推断", recommendation: "建议" };
@@ -196,7 +224,7 @@ function RunDetail({ id }: { id: string }) {
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string;
-    notes?: string[]; fields?: Record<string, FieldRecord> };
+    notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[] };
   const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
     fields?: FieldCheck[]; sources?: { direct?: Record<string, number>; with_explore?: number; assumption?: number;
       windows?: number; labels?: number; failed?: number } };
@@ -279,6 +307,7 @@ function RunDetail({ id }: { id: string }) {
               );
             })}
           </ol>
+          <Causes causes={report.causes} conclusion={report.conclusion} />
           {report.unexplained ? <p className="av-caption"><b>仍未解释：</b><Segments segments={report.fields?.unexplained?.segments} text={report.unexplained} /></p> : null}
           {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
         </section>

@@ -532,6 +532,13 @@
 .av-num.is-explore sup, .av-num.is-proposal sup { color: var(--warn); }
 .av-num.is-explore { border-bottom-style: dashed; }
 .av-analysis__verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.av-analysis__causes h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 600 13px/20px var(--font-sans); }
+.av-causes { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 20px; }
+.av-cause { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 2px 0; }
+.av-cause.is-unverified { background: var(--danger-subtle); border-radius: var(--radius-md); }
+.av-cause__entity { font-weight: 500; color: var(--text-primary); }
+.av-cause__dir.is-up { color: var(--ok, var(--accent-text)); }
+.av-cause__dir.is-down { color: var(--danger); }
 .av-timeline { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .av-timeline__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 4px 0 4px 22px; position: relative; counter-increment: step; font: 400 12px/18px var(--font-sans); color: var(--text-secondary); }
 .av-timeline__item::before { content: counter(step); position: absolute; left: 0; width: 16px; color: var(--text-tertiary); font: 500 11px/18px var(--font-mono); text-align: right; }

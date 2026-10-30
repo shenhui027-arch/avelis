@@ -23,7 +23,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from avelis.analysis.grounding import render
+from pydantic import ValidationError
+
+from avelis.analysis.grounding import CONCLUSIONS, Cause, render
 
 CHECKED = ("fact", "calc")
 FIELDS = ("title", "summary", "unexplained")
@@ -143,16 +145,109 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict],
         results.append({"index": i, "type": out["type"], "status": out["status"], "problems": out["errors"],
                         "missing_refs": missing})
     rendered["claims"] = claims
+    rendered["conclusion"] = report.get("conclusion")
+    rendered["causes"], cause_results, conclusion_problems = _causes(report, datasets, window)
     unverified_fields = sum(f["status"] == "unverified" for f in field_results)
-    ok = unverified == 0 and unverified_fields == 0
+    unverified_causes = sum(c["status"] == "unverified" for c in cause_results)
+    ok = unverified == 0 and unverified_fields == 0 and unverified_causes == 0 and not conclusion_problems
     facts = [c for c in claims if c["type"] in CHECKED]
     status = ("failed" if not ok else "no_facts" if not facts else
               "with_inference" if any(c["type"] not in CHECKED for c in claims) else "all_passed")
     # ok 只表示没有未通过的事实或字段（决定是否修订）；“只有推断、没有事实”由 status=no_facts 表示，界面不显示“全部通过”
     verification = {"ok": ok, "status": status, "unverified": unverified, "claims": results,
                     "fields": field_results, "unverified_fields": unverified_fields,
+                    "causes": cause_results, "unverified_causes": unverified_causes,
+                    "conclusion": {"value": report.get("conclusion"), "problems": conclusion_problems},
                     "sources": _sources(rendered)}
     return rendered, verification
+
+
+FACT_SOURCES = ("governed", "calc", "explore")
+TYPE_FIELDS = {"member": ("dimension", "member"), "factor": ("factor",), "calendar": (), "governance": ("event",)}
+
+
+def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tuple[list, list, list[str]]:
+    """原因项的核验（ADR 0009 第 5 点）：结构合法；证据存在且类型对；贡献引用能解析、方向与正负一致；实体在证据里找得到；
+    结论类型与原因列表一致（ranked_reasons 至少一项，其余两种不能有原因）。"""
+    conclusion = report.get("conclusion")
+    raw = report.get("causes") or []
+    problems: list[str] = []
+    if conclusion not in CONCLUSIONS:
+        problems.append(f"结论类型应为 {'、'.join(CONCLUSIONS)} 之一")
+    elif conclusion == "ranked_reasons" and not raw:
+        problems.append("结论为 ranked_reasons 时必须给出至少一个原因")
+    elif conclusion != "ranked_reasons" and raw:
+        problems.append(f"结论为 {conclusion} 时不能给出原因排序")
+    rendered, results = [], []
+    for i, item in enumerate(raw):
+        errs: list[str] = []
+        try:
+            cause = item if isinstance(item, Cause) else Cause.model_validate(item)
+        except ValidationError as e:
+            err = e.errors()[0]
+            errs.append(f"原因结构不合法（{'.'.join(str(x) for x in err.get('loc', ()))}：{err['msg']}）")
+            rendered.append({"index": i, "raw": item, "status": "unverified", "errors": errs})
+            results.append({"index": i, "status": "unverified", "problems": errs})
+            continue
+        missing = [f for f in TYPE_FIELDS[cause.type] if not getattr(cause.entity, f)]
+        if missing:
+            errs.append(f"{cause.type} 类原因需要写 entity.{'、entity.'.join(missing)}")
+        evidence = list(dict.fromkeys(cause.evidence + ([cause.contribution.dataset] if cause.contribution else [])))
+        for ref in evidence:
+            ds = datasets.get(ref)
+            if ds is None:
+                errs.append(f"证据数据集 {ref} 不存在")
+            elif cause.type == "governance" and ds.get("kind") != "context":
+                errs.append(f"治理事件的证据 {ref} 必须是 changes / data_health 的上下文证据")
+            elif cause.type != "governance" and ds.get("kind") not in FACT_SOURCES:
+                errs.append(f"{ref} 是 {ds.get('kind')} 数据集，事实类原因的证据必须是受治理查询、计算或探索结果")
+        contribution = None
+        if cause.contribution is None and cause.type != "governance":
+            errs.append("成员、因子、日历类原因必须引用贡献数值（contribution）")
+        elif cause.contribution is not None:
+            r = render([cause.contribution], datasets, window)
+            contribution = {"text": r["text"], "segments": r["segments"]}
+            errs += [e.replace("第 1 个片段", "贡献") for e in r["errors"]]
+            seg = r["segments"][0] if r["segments"] else {}
+            value = _number(seg.get("raw")) if seg.get("kind") == "value" else None
+            if seg.get("measure") in ("delta", "rate_change") and value is not None and value != 0 and (
+                    (value > 0) != (cause.direction == "up")):
+                errs.append(f"方向与贡献的正负不一致：direction={cause.direction}，原值 {seg.get('raw')}")
+            if seg.get("assumption"):
+                errs.append("贡献来自假设计算，不能作为原因的证据")
+        if not errs:
+            errs += _entity_problems(cause, {r: datasets[r] for r in evidence if r in datasets})
+        status = "unverified" if errs else "verified"
+        rendered.append({"index": i, "type": cause.type, "entity": cause.entity.model_dump(exclude_none=True),
+                         "direction": cause.direction, "contribution": contribution, "evidence": evidence,
+                         "status": status, "errors": errs})
+        results.append({"index": i, "status": status, "problems": errs})
+    return rendered, results, problems
+
+
+def _entity_problems(cause: Cause, evidence: dict[str, dict]) -> list[str]:
+    e = cause.entity
+    rows = [r for ds in evidence.values() for r in ds.get("rows") or []]
+    if cause.type == "member":
+        found = any(str(r.get(e.dimension, "")).strip() == e.member
+                    or (str(r.get("dimension", "")).strip() == e.dimension and str(r.get("member", "")).strip() == e.member)
+                    for r in rows)
+        return [] if found else [f"成员 {e.dimension}={e.member} 不在证据数据集里"]
+    if cause.type == "factor":
+        return [] if any(str(r.get("factor", "")).strip() == e.factor for r in rows) else [f"因子 {e.factor} 不在证据数据集里"]
+    if cause.type == "governance":
+        ref, row = e.event.split("#")
+        if ref not in evidence:
+            return [f"事件 {e.event} 所在的数据集 {ref} 不在证据里"]
+        count = len(evidence[ref].get("rows") or [])
+        if int(row) > count:
+            return [f"事件 {e.event} 不存在（{ref} 只有 {count} 行）"]
+    return []
+
+
+def _number(value):
+    from avelis.analysis.grounding import number
+    return number(value)
 
 
 def _sources(rendered: dict) -> dict[str, Any]:

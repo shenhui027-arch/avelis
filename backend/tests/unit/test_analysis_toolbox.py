@@ -87,7 +87,7 @@ def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
     assert box.budget.used_tools == 3
     over = json.loads(box.dispatch("submit_plan", {"hypotheses": [], "steps": []}))  # 重复提交计划也计数
     assert "上限" in over["error"] and box.budget.used_tools == 3
-    report = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": []}))
+    report = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}))
     assert report == {"ok": True} and box.report is not None  # 只有最终报告不计数、预算用完后仍可提交
 
 
@@ -155,7 +155,7 @@ def test_model_request_timeout_follows_remaining_time(monkeypatch):
 
         def factory(self, timeout, max_retries):
             seen.append((timeout, max_retries))
-            return CountingModel("submit_report", {"title": "t", "summary": "s", "claims": []})
+            return CountingModel("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"})
 
     budget = Budget(seconds=300)
     budget.started -= 280  # 只剩约 20 秒
@@ -195,8 +195,8 @@ def test_truncated_dataset_count_ref_is_rejected():
 
     rows = [{"store": s} for s in ("A", "B", "C")]
     claim = {"type": "fact", "parts": ["共 ", {"dataset": "D1", "distinct": "store"}, " 家门店"]}
-    full, ok = ground_report({"title": "t", "summary": "s", "claims": [claim]}, {"D1": {"rows": rows}}, None)
-    cut, bad = ground_report({"title": "t", "summary": "s", "claims": [claim]},
+    full, ok = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]}, {"D1": {"rows": rows}}, None)
+    cut, bad = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]},
                              {"D1": {"rows": rows, "truncated": True}}, None)
     assert ok["ok"] and full["claims"][0]["text"] == "共 3 家门店"
     assert not bad["ok"] and "已截断" in bad["claims"][0]["problems"][0] and cut["claims"][0]["text"] == "共 [?] 家门店"
@@ -309,10 +309,10 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
 
 def test_report_refs_must_be_dataset_numbers(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    out = box.dispatch("submit_report", {"title": "t", "summary": "s",
+    out = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
                                          "claims": [{"type": "fact", "parts": ["x"], "refs": ["<b>"]}]})
     assert "ValidationError" in out and box.report is None
-    ok = box.dispatch("submit_report", {"title": "t", "summary": "s",
+    ok = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
                                         "claims": [{"type": "fact", "parts": ["x"], "refs": ["D12"]}]})
     assert json.loads(ok) == {"ok": True}
 
@@ -537,7 +537,7 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"})
     huadong = {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}, "format": "wan2"}
     ok = box.dispatch("submit_report", {
-        "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"],
+        "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"], "conclusion": "insufficient_evidence",
         "summary": ["华东成交额 ", huadong],
         "claims": [
             {"type": "fact", "parts": ["华东 ", huadong, "，较上期下降 ",

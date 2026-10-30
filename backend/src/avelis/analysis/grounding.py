@@ -71,6 +71,27 @@ class WindowRef(_Ref):
 
 Ref = NumberRef | LabelRef | CountRef | WindowRef
 Part = str | NumberRef | LabelRef | CountRef | WindowRef
+CONCLUSIONS = ("ranked_reasons", "no_material_change", "insufficient_evidence")
+DATASET_REF = r"^D[1-9]\d{0,3}$"
+
+
+class CauseEntity(_Ref):
+    """原因的实体：成员写维度与成员，因子写因子名，治理事件写上下文证据的行（D3#2：D3 的第 2 行）。"""
+    dimension: str | None = Field(None, description="成员类原因：维度名（与证据数据集中的维度列或 dimension 列一致）")
+    member: str | None = Field(None, description="成员类原因：成员取值")
+    factor: str | None = Field(None, description="因子类原因：因子名（与 factor_decompose 结果的 factor 列一致）")
+    event: str | None = Field(None, pattern=r"^D[1-9]\d{0,3}#[1-9]\d{0,4}$",
+                              description="治理事件：changes / data_health 数据集的行，如 D3#2")
+
+
+class Cause(_Ref):
+    """结构化的原因项（ADR 0009 第 5 点）：按影响大小排序，第一项是首要原因。"""
+    type: Literal["member", "factor", "calendar", "governance"]
+    entity: CauseEntity
+    direction: Literal["up", "down"] = Field(description="这个原因让指标上升还是下降")
+    contribution: NumberRef | None = Field(None, description="贡献的数值引用（成员、因子、日历类必填），如 explain_change 结果的 contribution 列")
+    evidence: list[str] = Field(min_length=1, description="证据数据集编号；事实类原因必须是受治理查询、计算或探索结果，"
+                                                          "治理事件必须是 changes / data_health 的上下文证据")
 
 
 class RefError(ValueError):
