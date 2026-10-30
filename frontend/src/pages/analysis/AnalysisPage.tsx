@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useTimeZone } from "../../api/hooks";
+import { errorText, useAction, useExampleQuestions, useTimeZone } from "../../api/hooks";
 import { Code, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatTime } from "../../format";
 import { BarChart, LineChart } from "./charts";
@@ -32,11 +32,6 @@ const TOOL_LABEL: Record<string, string> = {
   explain_change: "自动归因", contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算", correlate: "相关性",
   segment_compare: "分组对比", outliers: "异常值", coverage: "覆盖度", submit_report: "提交报告",
 };
-const EXAMPLES = [
-  "为什么 2026 年 9 月华南区域门店成交额比 8 月低？",
-  "华东区域 9 月线上订单数为什么比 8 月少？",
-  "门店客流和商圈等级、楼层有什么关系？哪些门店值得加投引流？",
-];
 
 const useRuns = () => useQuery({ queryKey: ["analysis-runs"], queryFn: () => unwrap(api.GET("/api/analysis/runs")) });
 const useTasks = () => useQuery({ queryKey: ["analysis-tasks"], queryFn: () => unwrap(api.GET("/api/analysis/tasks")) });
@@ -106,6 +101,7 @@ function RunBadge({ run }: { run: Run }) {
 
 function Composer({ onStarted }: { onStarted: (id: string) => void }) {
   const [text, setText] = useState("");
+  const examples = (useExampleQuestions("analysis").data?.questions ?? []).map((q) => q.text);
   const [kind, setKind] = useState<WindowKind>("none");
   const [fixed, setFixed] = useState({ start: "2026-09-01", end: "2026-09-30", cs: "2026-08-01", ce: "2026-08-31" });
   const [cron, setCron] = useState("");
@@ -119,7 +115,7 @@ function Composer({ onStarted }: { onStarted: (id: string) => void }) {
     <section className="av-analysis__composer">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <div className="av-ask-examples" aria-label="问题示例">
-        {EXAMPLES.map((e) => <button key={e} type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setText(e)}>{e}</button>)}
+        {examples.map((e) => <button key={e} type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setText(e)}>{e}</button>)}
       </div>
       <form className="av-composer" onSubmit={(e) => {
         e.preventDefault();

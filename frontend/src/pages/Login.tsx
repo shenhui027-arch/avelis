@@ -16,10 +16,10 @@ const PILLARS = [
 /** 品牌区示意：来源 → 视图 → 口径 → 答案的一条可追溯路径，依据节点高亮。纯装饰。 */
 function LineageMotif() {
   const nodes = [
-    { x: 8, y: 40, w: 132, label: "shop.orders" },
-    { x: 8, y: 118, w: 132, label: "shop.refunds" },
-    { x: 196, y: 79, w: 124, label: "daily_sales" },
-    { x: 368, y: 79, w: 128, label: "实付销售额 V1", accent: true },
+    { x: 8, y: 40, w: 132, label: "source.table_a" },
+    { x: 8, y: 118, w: 132, label: "source.table_b" },
+    { x: 196, y: 79, w: 124, label: "view_daily" },
+    { x: 368, y: 79, w: 128, label: "指标 V1", accent: true },
   ];
   return (
     <svg className="av-auth__motif" viewBox="0 0 504 176" aria-hidden="true" focusable="false">

@@ -107,6 +107,10 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False) -> None:
         domains["product"] = admin("POST", "/api/domains", json={"code": "product", "name": "商品域",
                                                                  "owner_id": existing["zhao"]})
     zhang, zhao = _Api(client, "zhang", password), _Api(client, "zhao", password)
+    if not domains["trade"].get("example_questions"):  # 演示业务域的示例问题（ADR 0010：只写在演示种子里）
+        zhang("PUT", f"/api/domains/{domains['trade']['id']}/example-questions", json={"questions": [
+            {"text": t, "mode": "ask"} for t in ("2026-09-15 各区域实付销售额前 2", "2026-09-16 华东区实付销售额 环比",
+                                                 "2026-09-15 华东区实付销售额和订单数")]})
     for member in ("wang", "li", "sun"):
         zhang("PUT", f"/api/domains/{domains['trade']['id']}/members",
               json={"user_id": existing[member], "role": "viewer"})
@@ -177,6 +181,11 @@ def _setup_ec(client: TestClient, admin: _Api, password: str, users: dict[str, s
         "description": "合成电商数据集：门店与客流、交易、商品、会员、营销、供应链、物流、客服"})
     for member in ("wang", "li", "zhao"):
         zhang("PUT", f"/api/domains/{domain['id']}/members", json={"user_id": users[member], "role": "viewer"})
+    if not domain.get("example_questions"):
+        zhang("PUT", f"/api/domains/{domain['id']}/example-questions", json={"questions": [
+            {"text": t, "mode": "analysis"} for t in (
+                "为什么 2026 年 9 月华南区域门店成交额比 8 月低？", "华东区域 9 月线上订单数为什么比 8 月少？",
+                "门店客流和商圈等级、楼层有什么关系？哪些门店值得加投引流？")]})
     sources = {d["name"]: d for d in admin("GET", "/api/datasources")}
     ds = sources.get(EC_SOURCE) or admin("POST", "/api/datasources", json={
         "name": EC_SOURCE, "kind": "starrocks", "host": "127.0.0.1", "port": int(env["SR_QUERY_PORT"]),

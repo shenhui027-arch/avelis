@@ -329,6 +329,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/domains/{domain_id}/example-questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Example Questions
+         * @description 业务域的示例问题（ADR 0010）：由负责人、维护者维护，问数页与分析页从 /example-questions 读取。
+         */
+        put: operations["set_example_questions_api_domains__domain_id__example_questions_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/example-questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Example Questions
+         * @description 当前用户可见业务域配置的示例问题；都没有配置时按模板从可见口径生成（ADR 0010 第 3 点）。
+         */
+        get: operations["get_example_questions_api_example_questions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assets": {
         parameters: {
             query?: never;
@@ -2246,6 +2286,11 @@ export interface components {
             owner_id: string;
             /** Members */
             members: components["schemas"]["MemberOut"][];
+            /**
+             * Example Questions
+             * @default []
+             */
+            example_questions?: components["schemas"]["ExampleQuestion"][];
         } & {
             [key: string]: unknown;
         };
@@ -2302,6 +2347,51 @@ export interface components {
             options?: components["schemas"]["EngineOptionOut"][];
         } & {
             [key: string]: unknown;
+        };
+        /** ExampleQuestion */
+        ExampleQuestion: {
+            /** Text */
+            text: string;
+            /**
+             * Mode
+             * @default both
+             */
+            mode?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ExampleQuestionIn */
+        ExampleQuestionIn: {
+            /** Text */
+            text: string;
+            /**
+             * Mode
+             * @default both
+             */
+            mode?: string;
+        };
+        /** ExampleQuestionOut */
+        ExampleQuestionOut: {
+            /** Text */
+            text: string;
+            /** Domain */
+            domain?: string | null;
+            /** Source */
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ExampleQuestionsOut */
+        ExampleQuestionsOut: {
+            /** Questions */
+            questions: components["schemas"]["ExampleQuestionOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ExampleQuestionsSet */
+        ExampleQuestionsSet: {
+            /** Questions */
+            questions?: components["schemas"]["ExampleQuestionIn"][];
         };
         /** FetchedOut */
         FetchedOut: {
@@ -3378,7 +3468,7 @@ export interface components {
         /**
          * VersionSpec
          * @description 基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。
-         *     派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。
+         *     派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 metric_a / metric_b），其余不填。
          */
         VersionSpec: {
             /**
@@ -4060,6 +4150,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DomainOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_example_questions_api_domains__domain_id__example_questions_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                domain_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExampleQuestionsSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_example_questions_api_example_questions_get: {
+        parameters: {
+            query?: {
+                mode?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExampleQuestionsOut"];
                 };
             };
             /** @description Validation Error */

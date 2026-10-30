@@ -59,7 +59,7 @@ class JoinStep(BaseModel):
 
 class VersionSpec(BaseModel):
     """基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。
-    派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"""
+    派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 metric_a / metric_b），其余不填。"""
     kind: str = Field(default="base", pattern=r"^(base|derived)$")
     description: str = Field(min_length=1)
     base_asset_id: str | None = None

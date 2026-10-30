@@ -893,6 +893,114 @@
     }
    }
   },
+  "/api/domains/{domain_id}/example-questions": {
+   "put": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Set Example Questions",
+    "description": "业务域的示例问题（ADR 0010）：由负责人、维护者维护，问数页与分析页从 /example-questions 读取。",
+    "operationId": "set_example_questions_api_domains__domain_id__example_questions_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExampleQuestionsSet"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DomainOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/example-questions": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Get Example Questions",
+    "description": "当前用户可见业务域配置的示例问题；都没有配置时按模板从可见口径生成（ADR 0010 第 3 点）。",
+    "operationId": "get_example_questions_api_example_questions_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "mode",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(ask|analysis)$",
+       "default": "ask",
+       "title": "Mode"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExampleQuestionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/assets": {
    "get": {
     "tags": [
@@ -7304,6 +7412,14 @@
       },
       "type": "array",
       "title": "Members"
+     },
+     "example_questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestion"
+      },
+      "type": "array",
+      "title": "Example Questions",
+      "default": []
      }
     },
     "additionalProperties": true,
@@ -7452,6 +7568,107 @@
      "note"
     ],
     "title": "EngineOut"
+   },
+   "ExampleQuestion": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "both"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "ExampleQuestion"
+   },
+   "ExampleQuestionIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "mode": {
+      "type": "string",
+      "pattern": "^(ask|analysis|both)$",
+      "title": "Mode",
+      "default": "both"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "ExampleQuestionIn"
+   },
+   "ExampleQuestionOut": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "text",
+     "source"
+    ],
+    "title": "ExampleQuestionOut"
+   },
+   "ExampleQuestionsOut": {
+    "properties": {
+     "questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestionOut"
+      },
+      "type": "array",
+      "title": "Questions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "questions"
+    ],
+    "title": "ExampleQuestionsOut"
+   },
+   "ExampleQuestionsSet": {
+    "properties": {
+     "questions": {
+      "items": {
+       "$ref": "#/components/schemas/ExampleQuestionIn"
+      },
+      "type": "array",
+      "maxItems": 12,
+      "title": "Questions"
+     }
+    },
+    "type": "object",
+    "title": "ExampleQuestionsSet"
    },
    "FetchedOut": {
     "properties": {
@@ -10672,7 +10889,7 @@
      "expression"
     ],
     "title": "VersionSpec",
-    "description": "基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。\n派生指标：kind=\"derived\"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"
+    "description": "基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。\n派生指标：kind=\"derived\"，expression 为引用其他指标编码的公式（如 metric_a / metric_b），其余不填。"
    },
    "Window": {
     "properties": {

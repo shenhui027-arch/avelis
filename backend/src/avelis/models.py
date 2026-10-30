@@ -80,6 +80,8 @@ class Domain(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     owner_id: Mapped[str] = fk("app_user.id")
+    # 示例问题（ADR 0010）：[{text, mode}]，mode 为 ask、analysis 或 both；由业务域负责人、维护者维护
+    example_questions: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
     created_at: Mapped[datetime] = created()
 
 
@@ -126,7 +128,7 @@ class DatasourceCredential(Base):
 
 
 class EndpointAlias(Base):
-    """同一个数据库在不同网络位置的地址（如 StarRocks 看到 shop-mysql:3306，采集器看到 127.0.0.1:13306）。"""
+    """同一个数据库在不同网络位置的地址（如 StarRocks 看到 db-mysql:3306，采集器看到 127.0.0.1:13306）。"""
 
     __tablename__ = "endpoint_alias"
     __table_args__ = (UniqueConstraint("host", "port"),)

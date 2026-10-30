@@ -331,7 +331,7 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
       <label className="av-field"><span className="av-label">说明</span>
         <textarea required className="av-textarea" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
       <label className="av-field"><span className="av-label">公式 <Hint text="使用指标编码、数字、加减乘除和括号" /></span>
-        <textarea required className="av-textarea av-mono av-metric-derived__formula-input" rows={3} placeholder="paid_sales / orders_cnt"
+        <textarea required className="av-textarea av-mono av-metric-derived__formula-input" rows={3} placeholder="metric_a / metric_b"
           aria-describedby={`${editorId}-references`} spellCheck={false} value={expression} onChange={(event) => setExpression(event.target.value)} /></label>
       <div id={`${editorId}-references`} className="av-metric-derived__references" role="status" aria-live="polite">
         {metrics.isPending ? <span className="av-help">指标目录加载中…</span>

@@ -34,6 +34,7 @@ def test_0009_adds_optional_unit_columns_and_round_trips(meta_db, factory):
     with engine.connect() as conn:
         columns = {c["name"] for c in inspect(conn).get_columns("metric_version")}
         assert "unit" not in columns and "unit_scale" not in columns
+        assert "example_questions" not in {c["name"] for c in inspect(conn).get_columns("domain")}
         assert conn.scalar(text("SELECT count(*) FROM metric_version WHERE id = :id"), {"id": version_id}) == 1
 
     command.upgrade(cfg, "head")
@@ -41,6 +42,7 @@ def test_0009_adds_optional_unit_columns_and_round_trips(meta_db, factory):
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
         row = conn.execute(text("SELECT unit, unit_scale FROM metric_version WHERE id = :id"), {"id": version_id}).one()
         assert row.unit is None and row.unit_scale == 1
+        assert conn.scalar(text("SELECT count(*) FROM domain WHERE example_questions <> '[]'::jsonb")) == 0
     with session_scope() as s:  # 再升级后可以正常写入单位
         s.get(MetricVersion, version_id).unit = "单"
     with session_scope() as s:
