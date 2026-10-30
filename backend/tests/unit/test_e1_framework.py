@@ -3,10 +3,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
+import sys
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -19,6 +25,9 @@ ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("e1", ROOT / "experiments" / "agent-v2" / "e1.py")
 e1 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e1)
+cost_spec = importlib.util.spec_from_file_location("e1_cost", ROOT / "experiments" / "agent-v2" / "cost.py")
+cost = importlib.util.module_from_spec(cost_spec)
+cost_spec.loader.exec_module(cost)
 
 MATERIAL = {
     "scope": {"question_type": "change", "metric_codes": ["m_b"], "filters": [{"dimension": "地区", "values": ["甲"]}],
@@ -119,3 +128,142 @@ def test_plan_is_48_runs_in_a_fixed_shuffled_order():
     for item in material.values():  # 材料不含报告答案：只有范围、资产定位与查询
         assert set(item) <= {"question", "scope", "assets", "evidence"}
         assert all(set(e) == {"tool", "args"} and e["tool"] in ("query_metric", "query_sql") for e in item.get("evidence", []))
+
+
+@pytest.mark.parametrize(("at", "expected"), [
+    ("2026-10-30T02:00:00+00:00", "peak"),  # 转北京时间为周五 10:00
+    ("2026-10-31T10:00:00+08:00", "off_peak"),
+    ("2026-10-30T12:30:00+08:00", "off_peak"),
+    ("2026-10-30T09:00:00+08:00", "peak"),
+    ("2026-10-30T12:00:00+08:00", "off_peak"),
+    ("2026-10-30T14:00:00+08:00", "peak"),
+    ("2026-10-30T18:00:00+08:00", "off_peak"),
+])
+def test_cost_price_period_uses_beijing_workday_hours(at, expected):
+    assert cost.price_period(datetime.fromisoformat(at)) == expected
+
+
+def test_cost_price_period_requires_timezone():
+    with pytest.raises(ValueError, match="时区"):
+        cost.price_period(datetime(2026, 10, 30, 10))
+
+
+def test_request_cost_counts_cache_misses_and_output_without_double_counting_reasoning():
+    usage = {"input_tokens": 1_000_000, "cache_hit_tokens": 250_000,
+             "output_tokens": 100_000, "reasoning_tokens": 60_000}
+    assert cost.request_cost(usage, datetime.fromisoformat("2026-10-30T10:00:00+08:00")) == Decimal("2.31")
+    assert cost.request_cost(usage, datetime.fromisoformat("2026-10-31T10:00:00+08:00")) == Decimal("1.155")
+    assert cost.request_cost({**usage, "cache_hit_tokens": None},
+                             datetime.fromisoformat("2026-10-30T10:00:00+08:00")) == Decimal("2.8")
+
+
+def test_run_cost_includes_error_usage_and_counts_missing_usage():
+    result = cost.run_cost({"steps": [
+        {"kind": "model", "status": "ok", "at": "2026-10-30T10:00:00+08:00",
+         "output": {"input_tokens": 1_000_000, "cache_hit_tokens": 250_000, "output_tokens": 100_000}},
+        {"kind": "model", "status": "error", "at": "2026-10-31T10:00:00+08:00",
+         "output": {"input_tokens": 500_000, "cache_hit_tokens": None, "output_tokens": 50_000,
+                    "error_code": "model_truncated"}},
+        {"kind": "model", "status": "error", "output": {"error": "连接中断"}},
+        {"kind": "model", "status": "ok", "output": {"input_tokens": None, "output_tokens": None}},
+        {"kind": "tool", "output": {"input_tokens": 999_999}},
+    ]})
+    assert result == {"input_tokens": 1_500_000, "cache_hit_tokens": 250_000,
+                      "cache_miss_tokens": 1_250_000, "output_tokens": 150_000, "missing_usage": 2,
+                      "peak_cny": "2.31", "off_peak_cny": "0.70", "total_cny": "3.01"}
+    assert cost.run_cost({})["total_cny"] == "0"
+    json.dumps(result)
+
+
+def test_ledger_refuses_to_start_when_the_next_reserve_does_not_fit():
+    ledger = cost.Ledger("30", "28.5", per_run_reserve_cny="1.5")
+    assert ledger.can_start()  # 刚好留够一次运行的预留时可以开始
+    ledger.add(Decimal("0.01"))
+    assert not ledger.can_start()
+    assert ledger.view() == {"cap_cny": "30", "spent_cny": "28.51", "per_run_reserve_cny": "1.5",
+                             "remaining_cny": "1.49", "can_start": False}
+    json.dumps(ledger.view())
+
+
+@pytest.mark.parametrize("amount", ["-1", "NaN", "Infinity"])
+def test_ledger_rejects_invalid_amounts(amount):
+    with pytest.raises(ValueError, match="非负有限数"):
+        cost.Ledger("30", per_run_reserve_cny=amount)
+    ledger = cost.Ledger("30", per_run_reserve_cny="1.5")
+    with pytest.raises(ValueError, match="非负有限数"):
+        ledger.add(amount)
+
+
+COSTED_STEP = {"kind": "model", "status": "ok", "at": "2026-10-30T10:00:00+08:00",
+               "output": {"input_tokens": 300_000, "cache_hit_tokens": 0, "output_tokens": 0}}
+MISSING_USAGE_STEP = {"kind": "model", "status": "error", "output": {"error": "连接中断"}}
+COSTED_RUN = {"id": "unit-test-run", "status": "succeeded", "steps": [COSTED_STEP]}
+
+
+@pytest.mark.parametrize(("spent", "run", "expected_runs", "known_cost", "accounted_cost", "reason"), [
+    pytest.param("0", COSTED_RUN, 1, "0.6", "0.6", None, id="complete-usage"),
+    pytest.param("1", COSTED_RUN, 0, "0", "0", None, id="initial-reserve-does-not-fit"),
+    pytest.param("0", None, 1, "0", "1.5", "未取得运行详情", id="missing-run"),
+    pytest.param("0", {}, 1, "0", "1.5", "未取得运行详情", id="empty-run"),
+    pytest.param("0", {"steps": [COSTED_STEP]}, 1, "0.6", "2.1", "运行详情缺少 id", id="missing-id"),
+    pytest.param("0", {"id": "unit-test-run"}, 1, "0", "1.5", "运行详情缺少步骤记录", id="missing-steps"),
+    pytest.param("0", {"id": "unit-test-run", "steps": None}, 1, "0", "1.5", "运行详情缺少步骤记录",
+                 id="none-steps"),
+    pytest.param("0", {"id": "unit-test-run", "steps": []}, 1, "0", "1.5", "运行详情缺少步骤记录",
+                 id="empty-steps"),
+    pytest.param("0", {**COSTED_RUN, "steps": [COSTED_STEP, MISSING_USAGE_STEP]}, 1, "0.6", "2.1",
+                 "1 个模型步骤缺少用量", id="partial-usage"),
+    pytest.param("0", {"steps": [COSTED_STEP, MISSING_USAGE_STEP]}, 1, "0.6", "2.1",
+                 "运行详情缺少 id；1 个模型步骤缺少用量", id="reserve-added-once"),
+])
+def test_e1_run_stops_before_spending_the_next_reserve_and_saves_cost(monkeypatch, tmp_path, capsys,
+                                                                    spent, run, expected_runs, known_cost,
+                                                                    accounted_cost, reason):
+    import tests.eval as eval_package
+
+    calls = {"load_env": 0, "client": 0, "ask": 0}
+
+    def load_env():
+        calls["load_env"] += 1
+        return {"AVELIS_DEMO_USER_PASSWORD": "unit-test-key"}
+
+    def client(env):
+        calls["client"] += 1
+        return object()
+
+    def ask(client, headers, question):
+        calls["ask"] += 1
+        return run
+
+    monkeypatch.setitem(sys.modules, "demo", SimpleNamespace(STATE=tmp_path, load_env=load_env))
+    monkeypatch.setitem(sys.modules, "eval_analysis", SimpleNamespace(
+        _ask=ask, _client=client, _login=lambda *args: {}, code_version=lambda: {"commit": "unit-test"}))
+    monkeypatch.setattr(eval_package, "scoring_v2", SimpleNamespace(
+        VERSION="unit-test", load_questions=lambda: {"questions": [{"id": "one", "user": "unit-test-user"}]},
+        score=lambda *args: {"passed": True}), raising=False)
+    monkeypatch.setattr(e1, "load_material", lambda: {"one": {}})
+    monkeypatch.setattr(e1, "install", lambda *args: contextlib.nullcontext({"condition": args[0]}))
+    monkeypatch.setattr(sys, "argv", ["e1.py", "--run", "--conditions", "D0,D1", "--repeat", "1",
+                                      "--cap", "2", "--spent", spent, "--reserve", "1.5"])
+
+    assert e1.main() == 0
+    assert calls == {"load_env": expected_runs, "client": expected_runs, "ask": expected_runs}
+    paths = list((tmp_path / "experiments" / "e1").glob("*.json"))
+    assert len(paths) == 1
+    data = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert len(data["results"]) == expected_runs
+    output = capsys.readouterr().out
+    assert "费用预留不足" in data["stop_reason"] and "费用预留不足" in output
+    assert Decimal(data["ledger"]["spent_cny"]) == Decimal(spent) + Decimal(accounted_cost)
+    if expected_runs:
+        result = data["results"][0]
+        assert Decimal(result["cost"]["total_cny"]) == Decimal(known_cost)
+        assert Decimal(result["cost_accounted_cny"]) == Decimal(accounted_cost)
+        assert result["cost_estimated"] is bool(reason)
+        assert result["cost_estimate_reason"] == reason
+        assert f"本次入账 {result['cost_accounted_cny']} 元" in output
+        if reason:
+            assert f"估算原因：{reason}" in output
+        else:
+            assert "估算原因" not in output
+        assert result["ledger"] == data["ledger"]
