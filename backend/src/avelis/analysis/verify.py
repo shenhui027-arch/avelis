@@ -12,13 +12,17 @@
   系统提示要求模型用阿拉伯数字书写所有数量；
 - 只有真实存在的日历日期才当日期排除：完整的 YYYY-MM-DD（或 YYYY/MM/DD）与“M 月 D 日”（可带“YYYY 年”），
   用日历校验（2026-02-31、平年的 2 月 29 日都不是日期）；另外“2026 年”“9 月”“9 月份”“九月”“8-9 月”、单独的
-  “15 日 / 15 号”、“3 季度 / Q3”、日历时长（不超过 31 的“N 周 / N 个月”）、“第 N”“前 N”中的序号，以及“两期”
-  “两个时期”“两段”“两者”这类指代对比双方的说法不核验（“两家门店”仍是数量）。“N 天”是日历折算数据集里的天数，
-  按普通数字核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
-  阿拉伯数字不看后面的单位、也不看前面是否紧贴字母（“GMV100万”），一律提取。金额、件数、家数、行数等全部核验；
+  “15 日 / 15 号”（后面是元、分店、门店、仓等时不算）、“3 季度 / Q3”、带时间窗前缀的“近 / 最近 / 过去 / 每
+  N 周 / N 个月”、“第 N”“前 N”中的序号、独立的数据集编号 DN 不核验。“N 天”与不带前缀的“3 个月”“3 周”按数量核验。
+  09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
+  阿拉伯数字不看后面的单位、也不看前面是否紧贴字母（“GMV100万”“USD100元”），一律提取。金额、件数、家数、行数等全部核验；
+- 豁免只收窄：“两者”，以及后面跟“的 / 之间 / 相比 / 对比 / 差 / 合计 / 共 / 各 / 均”、标点或句末的“两期”“两个时期”
+  不是数量；“两家门店”“两段管道”“两个周期”“两期基本持平”仍按数量。副词“千万（不要）”、“单位：万元”“以万元计”不是数量；
+  中文数字可以以百、千、万开头（“千万元”）；分数“十分之一”“3 分之 1”一律无法解析，未核实；
 - 以失败为默认：去掉日期、日历词、序号与已提取的数字后，文本里仍有阿拉伯数字或中文数字字符
   （零〇一二两三四五六七八九十百千万亿，常见的非数量词如“一致”“统一”“之一”除外）时，记一个无法识别的数字，未核实；
-  引用数据集里原样出现的名称（“广州四号店”，须含数字字符以外的汉字或字母）先去掉，不当作数字。
+  引用数据集文本型维度列里原样出现的名称（“广州四号店”，须含数字字符以外的汉字或字母）先去掉，不当作数字；
+  名称前面紧挨着数字时不去（“营收100万达标”里的“万达”）。数据集中的 NaN、Infinity 不作候选值。
 事实与计算类结论必须引用存在的数据集，没有引用即未核实。标题、摘要与“未解释”中的数字按同样规则，
 对照全部事实 / 计算类结论引用的数据集核验。找不到的数字标为“未核实”，不静默删除。
 推断与建议类结论不强制核验，但其中的数字也会列出供人查看。
@@ -38,17 +42,25 @@ FULL_DATE = re.compile(r"(?<![\d.])((?:19|20)\d{2})([-/])(\d{1,2})\2(\d{1,2})(?!
 CN_DATE = re.compile(r"(?:(?<![\d.])((?:19|20)\d{2})\s*年\s*)?(?<![\d.])(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]")
 _M, _D = r"(?:0?[1-9]|1[0-2])", r"(?:0?[1-9]|[12]\d|3[01])"
 _CN_MONTH = r"(?<![零〇一二两三四五六七八九十百千万亿几第])(?:十[一二]|[一二三四五六七八九十])"
-# 日期与期间写法（不是数量）：YYYY 年、N 月 / N 月份 / 九月、单独的 N 日 / N 号、N 季度 / QN、第 N、前 N 等。
-# “N 天”不在这里：天数是 calendar_adjust 数据集里的数，按普通数字核验
+# 日期与期间写法（不是数量）：YYYY 年、N 月 / N 月份 / 九月、单独的 N 日 / N 号（后面不是元、分店、门店、仓等）、
+# N 季度 / QN、第 N、前 N、带时间窗前缀的“近 / 最近 / 过去 / 每 N 周 / N 个月”、独立的数据集编号 DN。
+# “N 天”与不带前缀的“3 个月”“3 周”不在这里：按普通数量核验
 CALENDAR_WORDS = re.compile("|".join([
     r"(?<![\d.])(?:19|20)\d{2}\s*年", rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月",
     rf"(?<![\d.]){_M}\s*月(?!\s*\d{{1,2}}\s*[日号])",
-    rf"{_CN_MONTH}\s*月", rf"(?<![\d.月])(?<!月\s){_D}\s*[日号](?![店楼线门均])",
+    rf"{_CN_MONTH}\s*月", rf"(?<![\d.月])(?<!月\s){_D}\s*[日号](?!\s*(?:元|分店|门店|店|仓|库|楼|线|门|均|车|机))",
     r"(?<![\d.])[1-4]\s*季度", r"(?<![零〇一二两三四五六七八九十百千万亿几])[一二三四]\s*季度", r"(?<![A-Za-z])Q[1-4](?!\d)",
-    r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
+    r"(?:近|最近|过去|每)\s*(?:[12]?\d|3[01])\s*(?:周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+",
+    r"(?<![A-Za-z0-9])D\d+(?!\d)",
     r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"]), re.I)
-# 指代对比双方的固定说法（“两期差额”），不是数量；“两家门店”“两个区域”仍是数量
-COMPARISON = re.compile(r"两期|两个时期|两个周期|两段|两者")
+# 指代对比双方的固定说法（“两期差额”“两期相比”），不是数量；只在后面跟对比用语、标点或句末时豁免。
+# “两家门店”“两段管道”“两个周期”仍是数量
+COMPARISON = re.compile(r"两者|(?:两期|两个时期)(?=\s*(?:的|之间|相比|对比|差|合计|共|各|均|[，。；：、,.;:!?！？）)]|$))")
+# 不是数量的固定说法：副词“千万（不要）”、金额单位说明“单位：万元”“以万元计”
+FIXED_WORDS = re.compile(r"千万(?=\s*(?:不|别|要|注意))|单位\s*[:：为是]?\s*[万亿]?元|以\s*[万亿]元计")
+# 分数“X 分之 Y”（十分之一、3 分之 1）不能可靠解析：整体判为无法解析的数字（“百分之……”见 CN_NUMBER）
+FRACTION = re.compile(r"(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十][零〇一二两三四五六七八九十百千万亿点]*)\s*分之\s*"
+                      r"(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千万亿点几]+)")
 
 
 def _is_date(year: int, month: int, day: int) -> bool:
@@ -71,9 +83,9 @@ NUMBER = re.compile(rf"(?<![0-9.,])({_NUM})\s*({SCALE_UNIT})?")
 RANGE = re.compile(rf"(?<![0-9.,])({_NUM})\s*({SCALE_UNIT})?\s*(?:-|–|—|~|～|至|到)\s*(\d[\d,]*(?:\.\d+)?)\s*({SCALE_UNIT})?")
 # 中文数字表示的数量：后面跟量词、本身以万 / 亿结尾，或写成“百分之……”（“统一”“一致”“之一”不算）。不解析，一律未核实
 _CN = "零〇一二两三四五六七八九十百千万亿点几"
-_CN_RUN = rf"[零〇一二两三四五六七八九十几][{_CN}]*"
+_CN_RUN = rf"[零〇一二两三四五六七八九十百千万几][{_CN}]*"
 _MEASURE = r"(?:家|单|件|笔|台|元|倍|人|次(?!性)|个(?!月)|位|名|条|项|款|种|类|成|张|辆|箱|份|个百分点|%)"
-CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[零〇一二两三四五六七八九十几][{_CN}]*[万亿])")
+CN_NUMBER = re.compile(rf"(?<![{_CN}第前后])(?:百分之[{_CN}]+|{_CN_RUN}(?=\s*{_MEASURE})|[零〇一二两三四五六七八九十百千万几][{_CN}]*[万亿])")
 UPPER = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]+[万亿]?")
 # 表示减少的词：紧跟其后的不带符号的数字是减少的幅度，可以对应数据集中的负值（“下降到 155”是水平，不算）
 DECREASE = re.compile(r"(?:下降|减少|降低|下滑|回落|缩减|削减|萎缩|流失|少了|降幅|减幅|跌幅|下跌|负贡献|拖累)"
@@ -95,9 +107,9 @@ def _item(raw: str, unit: str, before: str) -> dict[str, Any]:
 NUMERAL = re.compile(r"[0-9０-９零〇一二两三四五六七八九十百千万亿]")
 NON_QUANTITY = re.compile("|".join([
     "一致", "统一", "之一", "一些", "一起", "一直", "一般", "一定", "一旦", "进一步", "唯一", "单一", "一体", "一样",
-    "一下", "一方面", "一系列", "十分", "几乎", "万一", "千万", "一同", "一律", "一并", "一再", "一向", "一切", "同一",
-    "一贯", "一度", "一时", "不一", "一边", "一部分", "两者", "一方", r"[第前后]\s*[零〇一二两三四五六七八九十百千]+",
-    "万元", "亿元", "百分点", "百分比"]))
+    "一下", "一方面", "一系列", r"十分(?!\s*之)", "几乎", "万一", "一同", "一律", "一并", "一再", "一向", "一切", "同一",
+    "一贯", "一度", "一时", "不一", "一边", "一部分", "一方", r"[第前后]\s*[零〇一二两三四五六七八九十百千]+",
+    "百分点", "百分比"]).replace("之一", r"(?<!分)之一"))
 
 
 def _residual(rest: str, matched: list[tuple[int, int]]) -> str | None:
@@ -109,18 +121,23 @@ def _residual(rest: str, matched: list[tuple[int, int]]) -> str | None:
 
 
 def _strip_names(text: str, names: list[str]) -> str:
-    """去掉原样出现的数据集名称（“广州四号店”里的“四”是名称的一部分，不是数量）；长的先去。"""
+    """去掉原样出现的数据集名称（“广州四号店”里的“四”是名称的一部分，不是数量）；长的先去。
+    名称前面紧挨着阿拉伯数字、小数点、千分位或中文数字时不去（“营收100万达标”里的“万达”不是门店名）。"""
     for name in sorted(names, key=len, reverse=True):
-        text = text.replace(name, " ")
+        text = re.sub(rf"(?<![0-9.,０-９{_CN}]){re.escape(name)}", " ", text)
     return text
 
 
 def extract_numbers(text: str, names: list[str] = ()) -> list[dict[str, Any]]:
     """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。
     names：引用数据集中带数字字符的名称（见 _names），原样出现时不当作数字。"""
-    cleaned = COMPARISON.sub(" ", _strip_calendar(_strip_names(text or "", list(names))))
+    cleaned = FIXED_WORDS.sub(" ", COMPARISON.sub(" ", _strip_calendar(_strip_names(text or "", list(names)))))
     found: list[tuple[int, dict[str, Any]]] = []
     spans: list[tuple[int, int]] = []
+    for m in FRACTION.finditer(cleaned):
+        found.append((m.start(), _unparseable(m.group(0), "分数：无法解析的数字")))
+        spans.append(m.span())
+    cleaned = "".join(" " if any(a <= i < b for a, b in spans) else ch for i, ch in enumerate(cleaned))
     for m in RANGE.finditer(cleaned):
         end_unit = m.group(4) or ""
         found.append((m.start(1), _item(m.group(1), m.group(2) or end_unit, cleaned[:m.start(1)])))
@@ -134,8 +151,10 @@ def extract_numbers(text: str, names: list[str] = ()) -> list[dict[str, Any]]:
             found.append((m.start(), _item(m.group(1), m.group(2) or "", rest[:m.start()])))
         except InvalidOperation:
             found.append((m.start(), _unparseable(m.group(0), "无法解析的数字")))
-    for pattern, error in ((CN_NUMBER, "中文数字：请用阿拉伯数字书写"), (UPPER, "无法解析的数字")):
+    for pattern, error in ((UPPER, "无法解析的数字"), (CN_NUMBER, "中文数字：请用阿拉伯数字书写")):
         for m in pattern.finditer(rest):
+            if any(a < m.end() and m.start() < b for a, b in matched):  # “壹佰万”里的“万”不再单独记一次
+                continue
             matched.append(m.span())
             found.append((m.start(), _unparseable(m.group(0), error)))
     # 以失败为默认：还有没被识别的数字字符，就不能因为“没提取到数字”而通过
@@ -167,13 +186,19 @@ def _candidates(datasets: list[dict]) -> list[Decimal]:
             for v in (row.values() if isinstance(row, dict) else row):
                 if isinstance(v, bool) or v is None:
                     continue
-                try:
-                    values.append(Decimal(str(v)))
-                except (InvalidOperation, ValueError):
-                    continue
+                values.extend(_finite(v))
         for v in _flat_numbers(ds.get("summary")):
             values.append(v)
     return values
+
+
+def _finite(v: Any) -> list[Decimal]:
+    """可以作为候选值的有限数；字符串、NaN、Infinity 都不是。"""
+    try:
+        d = Decimal(str(v))
+    except (InvalidOperation, ValueError):
+        return []
+    return [d] if d.is_finite() else []
 
 
 # 名称必须含有数字字符以外的汉字或字母：纯数字的“三”、日期样的“2026-09”不算名称，照常核验
@@ -181,14 +206,17 @@ _NAME_CHAR = re.compile(r"[A-Za-z一-鿿]")
 
 
 def _names(datasets: list[dict]) -> list[str]:
-    """引用数据集各行里含数字字符的字符串值（门店名、渠道名等）。"""
+    """引用数据集文本型维度列（每个非空值都是不能解析为数字的字符串）里含数字字符的值（门店名、渠道名等）。"""
     names = set()
     for ds in datasets:
-        for row in ds.get("rows", []):
-            for v in (row.values() if isinstance(row, dict) else row):
-                if (isinstance(v, str) and NUMERAL.search(v)
-                        and any(_NAME_CHAR.match(ch) and not NUMERAL.match(ch) for ch in v)):
-                    names.add(v.strip())
+        rows = [r for r in ds.get("rows", []) if isinstance(r, dict)]
+        for col in (rows[0] if rows else {}):
+            values = [r.get(col) for r in rows if r.get(col) is not None]
+            if not values or not all(isinstance(v, str) and not _finite(v) and v.strip().lower() not in
+                                     ("nan", "infinity", "-infinity", "inf", "-inf") for v in values):
+                continue
+            names.update(v.strip() for v in values if NUMERAL.search(v)
+                         and any(_NAME_CHAR.match(ch) and not NUMERAL.match(ch) for ch in v))
     return [n for n in names if n]
 
 
@@ -199,10 +227,7 @@ def _flat_numbers(obj: Any) -> list[Decimal]:
         return [v for x in obj.values() for v in _flat_numbers(x)]
     if isinstance(obj, (list, tuple)):
         return [v for x in obj for v in _flat_numbers(x)]
-    try:
-        return [Decimal(str(obj))]
-    except (InvalidOperation, ValueError):
-        return []
+    return _finite(obj)
 
 
 def matches(number: dict[str, Any], values: list[Decimal]) -> bool:
@@ -215,9 +240,12 @@ def matches(number: dict[str, Any], values: list[Decimal]) -> bool:
     magnitude = number.get("decrease") and not number.get("signed")
     for v in values:
         for scale in scales:
-            scaled = v * scale
-            if _round(scaled, places) == target or (magnitude and scaled < 0 and _round(-scaled, places) == target):
-                return True
+            try:
+                scaled = v * scale
+                if _round(scaled, places) == target or (magnitude and scaled < 0 and _round(-scaled, places) == target):
+                    return True
+            except InvalidOperation:  # 无法量化的候选值（超出精度等）：不匹配，不中断核验
+                continue
     return False
 
 

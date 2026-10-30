@@ -226,7 +226,7 @@ def test_comparison_and_calendar_wording_is_not_a_quantity():
     claim = [{"type": "calc", "text": "华东线上订单数两期差额为 -1675 笔（D19）", "refs": ["D19"]}]
     assert texts(claim[0]["text"]) == ["-1675"]
     assert verify_report(claim, ds)["ok"] is True
-    for text in ("两个时期对比", "两个周期合计", "两段相比", "两者之差"):
+    for text in ("两个时期对比", "两期相比", "两期的", "两期之间", "两期合计", "两期。", "两期", "两者之差"):
         assert texts(text) == [], text
     assert verify_report([{"type": "fact", "text": "两家门店下降 -1675", "refs": ["D19"]}], ds)["ok"] is False
     assert verify_report([{"type": "fact", "text": "两个区域", "refs": ["D19"]}], ds)["ok"] is False
@@ -243,6 +243,49 @@ def test_comparison_and_calendar_wording_is_not_a_quantity():
     assert texts(text) == ["30", "8", "3", "31", "10", "0", "240.60", "286.87"]
     assert verify_report([{"type": "calc", "text": text, "refs": ["D20"]}], cal)["ok"] is True
     assert verify_report([{"type": "calc", "text": "本期 29 天", "refs": ["D20"]}], cal)["ok"] is False
+
+
+def test_exemptions_only_narrow_never_widen():
+    """第四轮 Codex 复核（P2 × 5）：引用的数据集里都没有对应数量的反例，必须判为未核实。"""
+    empty = {"D1": {"rows": [{"store": "广州一店", "v": "7"}]}}
+
+    def status(text, data=empty, kind="fact"):
+        return verify_report([{"type": kind, "text": text, "refs": ["D1"]}], data)["claims"][0]
+
+    def bad(text, data=empty):
+        result = status(text, data)
+        return result["status"], [n["text"] for n in result["numbers"] if not n["verified"]]
+
+    # 1. 非数量词不能吞掉金额与比例；分数一律无法解析
+    assert bad("营收千万元") == ("unverified", ["千万"])
+    assert bad("库存降至原来的十分之一") == ("unverified", ["十分之一"])
+    assert bad("约 3 分之 1 的门店") == ("unverified", ["3 分之 1"])
+    assert status("千万不要据此下结论")["status"] == "verified"  # 副词
+    assert status("十分明显，是原因之一")["status"] == "verified"
+    assert status("单位：万元")["status"] == "verified"
+    # 2. 日、号后面是金额或门店时不是日期；时长按数量核验；数据集编号必须独立
+    assert bad("营收 15 日元") == ("unverified", ["15"])
+    assert bad("3号分店关停") == ("unverified", ["3"])
+    assert bad("3号 门店关停") == ("unverified", ["3"])
+    assert bad("回本周期 3 个月") == ("unverified", ["3"])
+    assert bad("连续停业 3 周") == ("unverified", ["3"])
+    assert bad("USD100元") == ("unverified", ["100"])
+    assert status("近 3 个月、过去 2 周、每 1 周（D1）")["status"] == "verified"
+    # 3. 名称前面紧挨数字时不当名称去掉；名称只取文本型维度列
+    stores = {"D1": {"rows": [{"store": "万达", "v": "7"}, {"store": "广州四号店", "v": "8"}]}}
+    assert bad("营收100万达标", stores) == ("unverified", ["100万"])
+    assert status("万达与广州四号店分别为 7 与 8", stores)["status"] == "verified"
+    # 4. 对比用语：“两段管道”“两个周期”是数量
+    assert bad("本期交付两段管道")[0] == "unverified"
+    assert bad("合同续签两个周期")[0] == "unverified"
+    assert bad("两期基本持平")[0] == "unverified"  # 后面不是对比用语：拿不准就保留
+    # 5. 未引用的数据集里有非有限值：不抛异常，推断类结论照常列出
+    weird = {"D1": {"rows": [{"v": "7"}]}, "D2": {"rows": [{"v": "Infinity"}, {"v": "NaN"}, {"v": float("inf")}]}}
+    out = verify_report([{"type": "fact", "text": "成交 8", "refs": ["D1"]},
+                         {"type": "inference", "text": "可能是 9", "refs": []}], weird)
+    assert out["claims"][0]["status"] == "unverified" and out["claims"][1]["status"] == "unchecked"
+    assert "found_in" not in out["claims"][0]["numbers"][0]
+    assert verify_report([{"type": "fact", "text": "成交 7", "refs": ["D2", "D1"]}], weird)["ok"] is True
 
 
 def test_verify_checks_title_summary_and_unexplained():

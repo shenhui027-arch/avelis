@@ -60,7 +60,10 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    - 按影响大小排列原因，unexplained 写仍未解释的部分；
    - 不在 fact / calc 中写“约 X”的估计值或看出来的区间：需要区间、均值时用 describe 取最小、最大、均值；
    - 所有数量一律用阿拉伯数字（“3 家门店”“5 个月”，不写“三家门店”“两家门店”“三点五万”），
-     含中文数字或无法识别的数字的结论、标题、摘要都会被标为未核实；指代对比双方写“两期”“本期 / 上期”；
+     含中文数字或无法识别的数字的结论、标题、摘要都会被标为未核实；指代对比双方写“本期 / 上期”，或写
+     “两期相比”“两期的”“两期合计”“两期之间”（“两期基本持平”这类写法会被当作数量）；不写分数（“十分之一”“3 分之 1”），
+     比例写成百分比；
+   - “3 个月”“3 周”这类时长按数量核验；表示时间窗时写“近 3 个月”“过去 3 周”“每 1 周”；
    - 天数、周末日、节假日数是 calendar_adjust 数据集里的数字，写进结论时引用该数据集；
    - 日期写成完整的 2026-09-15 或“9 月 15 日”，月份写“9 月”“2026 年 9 月”；不写 09-15、9/15、2026-09 这类短写法（会被当作数字核验）；
    - 变化值保留正负号（-220），或写成“下降 / 减少 220”；方向与数据集不一致会被标为未核实；
@@ -185,6 +188,11 @@ def _located(numbers: list[dict[str, Any]], titles: dict[str, str]) -> list[str]
             + f"，如果依据它，请把 {'、'.join(n['found_in'][:3])} 加入 refs" for n in numbers if n.get("found_in")]
 
 
+def _texts(numbers: list[dict[str, Any]]) -> str:
+    """未核实的数字；无法解析的片段带上原因（“两期总差额（包含无法识别的数字）”），让模型知道要改写而不是补引用。"""
+    return "、".join(n["text"] + (f"（{n['error']}）" if n.get("error") else "") for n in numbers)
+
+
 def revise(state: AnalysisState, config) -> dict[str, Any]:
     toolbox, _ = _ctx(config)
     claims = toolbox.report.get("claims", [])
@@ -196,14 +204,14 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
             extra = f"；引用了不存在的数据集 {'、'.join(c['missing_refs'])}" if c.get("missing_refs") else ""
             if c.get("no_refs"):
                 extra += "；没有引用数据集（事实与计算类结论必须引用）"
-            texts = "、".join(n["text"] for n in bad) or "—"
+            texts = _texts(bad) or "—"
             lines.append(f"- 第 {c['index'] + 1} 条（{claims[c['index']]['type']}）：{texts}{extra}")
             lines += _located(bad, titles)
     names = {"title": "标题", "summary": "摘要", "unexplained": "未解释"}
     for f in toolbox.verification.get("fields", []):
         if f["status"] == "unverified":
             bad = [n for n in f["numbers"] if not n["verified"]]
-            lines.append(f"- {names.get(f['field'], f['field'])}：{'、'.join(n['text'] for n in bad)}"
+            lines.append(f"- {names.get(f['field'], f['field'])}：{_texts(bad)}"
                          "（须来自事实 / 计算类结论引用的数据集）")
             lines += _located(bad, titles)
     toolbox.budget.tool_calls += REVISION_TOOL_CALLS
@@ -211,7 +219,9 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
     message = ("核验发现下列数字在所引用的数据集里找不到：\n" + "\n".join(lines) +
                "\n请修订：标明“出现在”某数据集的数字，结论若依据它就把该数据集加入 refs；其余数字"
                "用 derive / describe 等工具算出并引用新的数据集，或改正引用；"
-               "估计值、推算值请改写为 inference。然后重新调用 submit_report 提交完整报告（保留其余结论）。")
+               "估计值、推算值请改写为 inference；标为无法识别、中文数字或分数的片段请改写：数量用阿拉伯数字，"
+               "指代对比双方写“本期 / 上期”或“两期相比”“两期合计”，比例写成百分比。"
+               "然后重新调用 submit_report 提交完整报告（保留其余结论）。")
     return {"messages": [HumanMessage(message)], "phase": "act", "revised": True}
 
 
