@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -103,8 +104,26 @@ def run_questions(client, questions: list[dict], repeat: int, password: str,
     return results, runs
 
 
+def code_version() -> dict:
+    """评测结果里记下代码版本（manifest 要求）：提交与工作区是否有未提交的改动。"""
+    def git(*args: str) -> str:
+        try:
+            return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    return {"git_sha": git("rev-parse", "HEAD") or None, "git_dirty": bool(git("status", "--porcelain"))}
+
+
+def score_v2(questions: dict, runs: list[dict]) -> list[dict]:
+    """同一批运行按评分器 v2 判分（tests/eval/scoring_v2.py），与 v1 结果并列保存。"""
+    from tests.eval import scoring_v2
+
+    return [{**scoring_v2.score(questions[item["id"]], item["run"]), "repeat": item["repeat"]} for item in runs]
+
+
 def main() -> int:
     from tests.eval.scoring import load_questions, markdown, summarize
+    from tests.eval.scoring_v2 import VERSION as V2, load_questions as load_v2
 
     parser = argparse.ArgumentParser(description="分析智能体评测")
     parser.add_argument("--repeat", type=int, default=2)
@@ -129,16 +148,19 @@ def main() -> int:
     results, runs = run_questions(_client(env), questions, args.repeat, env["AVELIS_DEMO_USER_PASSWORD"], reuse)
     summary = summarize(results)
     meta = {"started": started.isoformat(timespec="seconds"), "version": data.get("version"), "repeat": args.repeat,
-            "questions": [q["id"] for q in questions]}
+            "questions": [q["id"] for q in questions], **code_version(), "scorers": {"v1": "scoring.py", "v2": V2}}
+    results_v2 = score_v2({q["id"]: q for q in load_v2()["questions"]}, runs)
     if args.resume:
         meta.update(resumed_from=args.resume.name, reused=sum(1 for r in results if not r.get("resumed")),
                     resumed=sum(1 for r in results if r.get("resumed")))
     OUT.mkdir(parents=True, exist_ok=True)
     stem = OUT / started.strftime("%Y%m%d-%H%M%S")
-    stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results, "runs": runs},
+    stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results,
+                                                     "results_v2": results_v2, "runs": runs},
                                                     ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     stem.with_suffix(".md").write_text(markdown(summary, results, meta), encoding="utf-8")
-    print(f"总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}；结果：{stem}.json、{stem}.md")
+    print(f"总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}（v2 "
+          f"{sum(r['passed'] for r in results_v2)}/{len(results_v2)}）；结果：{stem}.json、{stem}.md")
     return 0
 
 
