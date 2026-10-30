@@ -125,7 +125,7 @@ def main() -> int:
     questions = [q for q in data["questions"] if (not wanted or q["id"] in wanted)
                  and (args.holdout or not q.get("holdout"))]
     started = datetime.now()
-    reuse = reusable(json.loads(args.resume.read_text(encoding="utf-8"))) if args.resume else {}
+    reuse = reusable(json.loads(args.resume.read_text(encoding="utf-8"))) if args.resume else None
     results, runs = run_questions(_client(env), questions, args.repeat, env["AVELIS_DEMO_USER_PASSWORD"], reuse)
     summary = summarize(results)
     meta = {"started": started.isoformat(timespec="seconds"), "version": data.get("version"), "repeat": args.repeat,

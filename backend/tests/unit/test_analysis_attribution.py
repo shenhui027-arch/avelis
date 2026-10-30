@@ -326,6 +326,7 @@ def test_material_change_threshold_is_a_per_metric_setting(monkeypatch):
     summary = box.datasets()[out["dataset"]].meta["summary"]
     assert summary["conclusion"] == "ranked_reasons" and summary["material_change_ratio"] == "0.01"
     assert box.explanations == {"x": "ranked_reasons"} and "metric_code 写 x" in out["conclusion_note"]
+    assert box.datasets()[out["dataset"]].meta["summary_units"]["material_change_ratio"]["kind"] == "share"  # 阈值可引用
     strict, _ = additive_box(monkeypatch, SCENARIO)
     strict._metric_sources("x")[1].material_change_ratio = D("0.5")  # 这个指标 50% 以内都算不显著
     out = json.loads(strict.dispatch("explain_change", {"metric_code": "x"}))
