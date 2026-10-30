@@ -104,8 +104,12 @@ questions:
     question: 西南区域 2026 年 9 月订单数下降但成交额上升，原因是什么？
     expect:
       conclusion_from: {metric: ec_gmv, filters: {region: 西南}}  # 由真值和产品阈值决定，不手填
-      primary: {types: [factor], direction: up, entity: [ec_aov]}
-      key_value: {truth: {table: region_month, key: [SW], measure: paid_amount}, tolerance: 0.01, abs: true}  # 西南成交额的两期值或变化量
+      # 按真值和产品规则，成交额的判定是 offsetting（门店渠道增加、线上渠道减少，相互抵消）：前两项必须是最大的增加项与
+      # 减少项，与原来期望的因子 ec_aov 冲突。改为认最大的增加项“门店”渠道（客单价因子可以列在后面，不算首要原因）
+      # （最终评测 f03，主会话裁定，2026-10-31）
+      primary: {types: [member], direction: up, entity: [门店]}
+      key_value: {truth: [{table: region_month, key: [SW], measure: paid_amount},
+                          {table: region_channel_month, key: [SW, 门店], measure: paid_amount}], tolerance: 0.01, abs: true}  # 西南成交额或门店渠道的两期值或变化量
       forbidden: []
   # --- 日历原因 -----------------------------------------------------------------------
   - id: c01
@@ -272,7 +276,9 @@ questions:
       conclusion_from: {metric: ec_ad_gmv, filters: {region: 华北}}  # 由真值和产品阈值决定，不手填
       primary: {types: [factor], direction: down, entity: [ec_ad_spend]}
       key_value: {truth: {table: ad_region_month, key: [NC], measure: spend}, tolerance: 0.01, abs: true}  # 华北投放花费的两期值或变化量
-      forbidden: [抖音, 福田]
+      # 原来的禁止关键字“抖音”是套用别的题写错了：6 月大促期间所有付费渠道预算都 ×1.6，7 月华北抖音投放的下降是真实的
+      # （最终评测 h08，主会话裁定，2026-10-31）
+      forbidden: [福田]
   - id: h09
     holdout: true
     category: calendar

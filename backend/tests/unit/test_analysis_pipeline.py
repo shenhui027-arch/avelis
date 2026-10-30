@@ -191,3 +191,34 @@ def test_understanding_is_corrected_once_when_the_precheck_has_no_data(monkeypat
     out = agent.understand({"question": "问题", "context": {}, "feedback": first["feedback"]},
                            {"configurable": {"toolbox": box, "model": model}})
     assert "上一次的范围在系统预检里没有数据：指标 m_a" in model.seen[0][-1].content and out["scope"]["metric_codes"] == ["m_b"]
+
+
+def big_catalog(n_extra):
+    """一个“类目销量”、一个“类目销售额”、两个同名“客单价”（不同业务域），再加 n_extra 个无关口径。"""
+    def card(code, name, domain, dims=("地区",), description=""):
+        return SimpleNamespace(code=code, name=name, aliases=[], status="published", description=description,
+                               dimensions=[{"name": d, "label": d} for d in dims]), domain
+    entries = [card("m_units", "类目销量", "dA", ("类目", "地区")), card("m_sales", "类目销售额", "dA", ("类目", "地区")),
+               card("m_aov", "客单价", "dA"), card("x_aov", "客单价", "dB")]
+    entries += [card(f"a{i:02d}", f"无关指标{i}", "dA") for i in range(n_extra)]
+    version = SimpleNamespace(kind="base", expression="SUM(x)", unit=None, dimensions=[])
+    return ask_service.Catalog([c for c, _ in entries], {
+        c.code: (SimpleNamespace(id=c.code, name=c.name, domain_id=d), version) for c, d in entries})
+
+
+def test_candidate_retrieval_scores_bigrams_and_carries_the_domain(monkeypatch):
+    """候选检索：中文按字的二元组计分（问题里写“食品类目……销量”也能命中“类目销量”）；可见口径超过 30 个时取前 10 个，
+    不超过时全部给出；每个候选带业务域，同名口径可以区分。不针对任何题目。"""
+    from avelis.models import Domain
+
+    cat = big_catalog(40)
+    box = make_box(budget=Budget(), catalog=cat, objects=[SimpleNamespace(id="dA", name="域甲"),
+                                                          SimpleNamespace(id="dB", name="域乙")], monkeypatch=monkeypatch)
+    box.session.store[(Domain, "dA")] = SimpleNamespace(id="dA", name="域甲")
+    box.session.store[(Domain, "dB")] = SimpleNamespace(id="dB", name="域乙")
+    top = box.candidate_metrics("食品类目上月的销量为什么升高？")
+    assert len(top) == 10 and top[0]["code"] == "m_units" and top[1]["code"] == "m_sales"
+    aov = {c["code"]: c["domain"] for c in box.candidate_metrics("客单价为什么下降？")[:2]}
+    assert aov == {"m_aov": "域甲", "x_aov": "域乙"}  # 同名口径带业务域
+    small = make_box(budget=Budget(), catalog=big_catalog(10), monkeypatch=monkeypatch)
+    assert len(small.candidate_metrics("完全无关的问题")) == 14  # 不超过 30 个：全部给出

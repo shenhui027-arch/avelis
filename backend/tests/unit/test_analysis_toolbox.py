@@ -837,3 +837,18 @@ def test_query_already_scanned_by_explain_change_is_reused(monkeypatch):
     out = json.loads(box.dispatch("query_metric", {**QUERY, "order": "desc", "limit": 3}))
     assert out["dataset"] == f"D{scan.seq}" and out["reused"] and executed == [] and box.budget.used_queries == 0
     assert "explain_change 已按同样的指标、维度、窗口与筛选扫描过" in out["note"]
+
+
+def test_amount_per_order_is_a_level_not_a_ratio():
+    """量纲推断：金额 / 订单数是每单均值（水平值，单位“元/单”），两期均值相减是差额，不能显示成百分比或“个百分点”
+    （评测 e02 的 a/b - c/d 与 dc/oc）。同单位的两个水平值相除仍是比率。"""
+    from avelis.analysis import measures
+
+    units = {"a": {"kind": "level", "unit": "元"}, "b": {"kind": "count", "unit": "单"},
+             "c": {"kind": "level", "unit": "元"}, "d": {"kind": "count", "unit": "单"}}
+    assert measures.formula_unit("a/b - c/d", units) == {"kind": "delta", "unit": "元/单"}
+    assert measures.formula_unit("a/b", units) == {"kind": "level", "unit": "元/单"}
+    bare = {"a": {"kind": "level"}, "b": {"kind": "count"}}  # 探索查询的列常常没有单位
+    assert measures.formula_unit("a/b", bare) == {"kind": "level"}
+    assert measures.formula_unit("a/b - a/b", bare)["kind"] == "delta"
+    assert measures.formula_unit("a/c", units) == {"kind": "ratio"}  # 同单位相除：比率
