@@ -1,89 +1,236 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "revised_pass",
-  "question": "指标甲本期为什么比上期低？",
+  "question": "为什么 2026 年 9 月华南区域门店成交额比 8 月低？",
   "window": {
-    "start": "2026-09-01",
     "end": "2026-09-30",
-    "compare_start": "2026-08-01",
-    "compare_end": "2026-08-31"
+    "kind": "fixed",
+    "start": "2026-09-01",
+    "compare_end": "2026-08-31",
+    "compare_start": "2026-08-01"
   },
   "messages": [
     {
+      "content": "",
       "tool_calls": [
         {
           "name": "submit_plan",
           "args": {
             "hypotheses": [
-              "某个地区下降"
+              "数据或口径本身变化：9 月华南区域成交额下滑可能来自口径版本变更、数据采集缺口（门店/日期缺失）而非真实经营变化",
+              "维度贡献：华南下辖各城市/门店/渠道中，少数成员（某门店或某城市）贡献了主要降幅",
+              "交易结构因子：成交额 = 订单量 × 客单价（或 访客数 × 转化率 × 客单价），降幅主要由数量因子驱动而非价格因子",
+              "日历效应：9 月与 8 月天数、周末天数、节假日不同，部分降幅是日历折算造成的"
             ],
             "steps": [
-              "按地区拆解两期差额"
+              "search_metrics 找到成交额相关指标编码及其可用维度",
+              "describe_metric 确认表达式、来源资产、维度与版本历史",
+              "changes + data_health 排查 2026-09 窗口的元数据变更、口径版本与采集新鲜度",
+              "query_metric 取华南区域 9 月 vs 8 月（compare=custom）总成交额与按日趋势，检查缺口",
+              "explain_change 自动扫描维度贡献（城市、门店、渠道等），必要时贡献拆解与下钻",
+              "factor_decompose 拆解 订单量 / 客单价（或访问量 / 转化率）因子",
+              "calendar_adjust 折算天数与周末差异"
             ]
+          }
+        },
+        {
+          "name": "search_metrics",
+          "args": {
+            "keyword": "成交额"
           }
         }
       ]
     },
     {
+      "content": "",
       "tool_calls": [
+        {
+          "name": "describe_metric",
+          "args": {
+            "code": "ec_store_sales"
+          }
+        },
+        {
+          "name": "changes",
+          "args": {
+            "start_date": "2026-08-01",
+            "end_date": "2026-09-30",
+            "metric_code": "ec_store_sales"
+          }
+        },
+        {
+          "name": "data_health",
+          "args": {
+            "metric_code": "ec_store_sales",
+            "start_date": "2026-08-01",
+            "end_date": "2026-09-30"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "query_metric",
+          "args": {
+            "metric_codes": [
+              "ec_store_sales"
+            ],
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30",
+            "compare": "custom",
+            "compare_start": "2026-08-01",
+            "compare_end": "2026-08-31",
+            "group_by": [
+              "region"
+            ],
+            "purpose": "取各区域 9 月与 8 月门店成交额，确认华南的降幅与量级"
+          }
+        },
+        {
+          "name": "explain_change",
+          "args": {
+            "metric_code": "ec_store_sales",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30",
+            "compare_start": "2026-08-01",
+            "compare_end": "2026-08-31",
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献",
+            "top_k": 8
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "query_metric",
+          "args": {
+            "compare": "custom",
+            "compare_end": "2026-08-31",
+            "compare_start": "2026-08-01",
+            "end_date": "2026-09-30",
+            "filters": [
+              {
+                "dimension": "region",
+                "values": [
+                  "华南"
+                ]
+              }
+            ],
+            "group_by": [
+              "store"
+            ],
+            "metric_codes": [
+              "ec_store_sales"
+            ],
+            "purpose": "华南区域内各部门店的 9 月 vs 8 月成交额，定位降幅来源",
+            "start_date": "2026-09-01"
+          }
+        },
+        {
+          "name": "query_metric",
+          "args": {
+            "end_date": "2026-09-30",
+            "filters": [
+              {
+                "dimension": "region",
+                "values": [
+                  "华南"
+                ]
+              }
+            ],
+            "group_by": [
+              "store"
+            ],
+            "metric_codes": [
+              "ec_store_sales"
+            ],
+            "purpose": "看华南各门店 9 月按日趋势，检查是否有某天缺失或骤降",
+            "start_date": "2026-09-01",
+            "time_grain": "day"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "coverage",
+          "args": {
+            "dataset": "D13",
+            "keys": [
+              "store"
+            ],
+            "period": "period",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30"
+          }
+        },
         {
           "name": "contribution",
           "args": {
-            "dataset": "D1",
+            "dataset": "D12",
             "keys": [
-              "地区"
+              "store"
             ],
-            "current": "指标甲",
-            "previous": "指标甲·对比期"
+            "current": "门店成交额",
+            "previous": "门店成交额·对比期"
+          }
+        },
+        {
+          "name": "describe_asset",
+          "args": {
+            "qualified": "default_catalog.ec_dw.dws_store_daily"
           }
         }
       ]
     },
     {
+      "content": "",
       "tool_calls": [
         {
-          "name": "submit_report",
+          "name": "describe_asset",
           "args": {
-            "title": "指标甲下降的原因",
-            "summary": [
-              "指标甲较上期下降 30%，主要在地区甲"
-            ],
-            "claims": [
+            "qualified": "default_catalog.ec_trade.orders"
+          }
+        },
+        {
+          "name": "describe_asset",
+          "args": {
+            "qualified": "default_catalog.ec_org.store_daily_traffic"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "query_sql",
+          "args": {
+            "datasource": "default_catalog",
+            "sql": "SELECT s.store_name AS store_name, o.order_date AS order_date, COUNT(*) AS order_cnt, SUM(o.paid_amount) AS paid_amount FROM default_catalog.ec_trade.orders o JOIN default_catalog.ec_org.store s ON s.store_id = o.store_id WHERE s.store_name = '深圳福田中心店' AND o.order_date >= '2026-09-01' AND o.order_date <= '2026-09-30' AND o.status <> 'cancelled' AND o.channel_type = '门店' GROUP BY s.store_name, o.order_date ORDER BY o.order_date",
+            "purpose": "口径 ec_store_sales 以门店日客流为主表内连接订单，深圳福田中心店 9 月 10 日起无记录；用订单明细确认这些天是否其实有门店交易（即客流主表缺数据导致口径少算），判断是数据缺口还是真实停业",
+            "columns": [
               {
-                "type": "calc",
-                "parts": [
-                  "地区甲较上期下降 ",
-                  {
-                    "dataset": "D2",
-                    "column": "change",
-                    "match": {
-                      "地区": "甲"
-                    },
-                    "direction": "down"
-                  },
-                  "，是首要原因"
-                ]
-              }
-            ],
-            "conclusion": "ranked_reasons",
-            "causes": [
+                "name": "store_name",
+                "kind": "level"
+              },
               {
-                "type": "member",
-                "entity": {
-                  "dimension": "地区",
-                  "member": "甲"
-                },
-                "direction": "down",
-                "contribution": {
-                  "dataset": "D2",
-                  "column": "change",
-                  "match": {
-                    "地区": "甲"
-                  }
-                },
-                "evidence": [
-                  "D2"
-                ]
+                "name": "order_date",
+                "kind": "level"
+              },
+              {
+                "name": "order_cnt",
+                "kind": "count"
+              },
+              {
+                "name": "paid_amount",
+                "kind": "level"
               }
             ]
           }
@@ -91,60 +238,4627 @@
       ]
     },
     {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_assets",
+          "args": {
+            "keyword": "订单"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "query_sql",
+          "args": {
+            "columns": [
+              {
+                "kind": "level",
+                "name": "store_name"
+              },
+              {
+                "kind": "level",
+                "name": "order_date"
+              },
+              {
+                "kind": "count",
+                "name": "order_cnt"
+              },
+              {
+                "kind": "level",
+                "name": "paid_amount"
+              }
+            ],
+            "datasource": "ec_trade",
+            "purpose": "口径 ec_store_sales 以门店日客流为主表内连接订单，深圳福田中心店 9 月 10 日起无记录；用订单明细确认这些天是否其实有门店交易（即客流主表缺数据导致口径少算），判断是数据缺口还是真实停业",
+            "sql": "SELECT s.store_name AS store_name, o.order_date AS order_date, COUNT(*) AS order_cnt, SUM(o.paid_amount) AS paid_amount FROM default_catalog.ec_trade.orders o JOIN default_catalog.ec_org.store s ON s.store_id = o.store_id WHERE s.store_name = '深圳福田中心店' AND o.order_date >= '2026-09-01' AND o.order_date <= '2026-09-30' AND o.status <> 'cancelled' AND o.channel_type = '门店' GROUP BY s.store_name, o.order_date ORDER BY o.order_date"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_metrics",
+          "args": {
+            "keyword": "订单"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "query_metric",
+          "args": {
+            "compare": "custom",
+            "compare_end": "2026-08-31",
+            "compare_start": "2026-08-01",
+            "end_date": "2026-09-30",
+            "filters": [
+              {
+                "dimension": "region",
+                "values": [
+                  "华南"
+                ]
+              }
+            ],
+            "group_by": [
+              "store"
+            ],
+            "metric_codes": [
+              "ec_store_sales",
+              "ec_store_orders"
+            ],
+            "purpose": "用订单口径交叉验证华南各门店成交额降幅：判断缺口只出现在客流主表还是订单同样缺",
+            "start_date": "2026-09-01"
+          }
+        },
+        {
+          "name": "query_metric",
+          "args": {
+            "end_date": "2026-09-30",
+            "filters": [
+              {
+                "dimension": "store",
+                "values": [
+                  "深圳福田中心店"
+                ]
+              }
+            ],
+            "metric_codes": [
+              "ec_store_sales",
+              "ec_store_orders"
+            ],
+            "purpose": "按日查看深圳福田中心店的成交额与订单数，确认 9 月 10 日后是否两套口径同时缺失",
+            "start_date": "2026-09-01",
+            "time_grain": "day"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
       "tool_calls": [
         {
           "name": "submit_report",
           "args": {
-            "title": "指标甲下降的原因",
-            "summary": [
-              "指标甲较上期下降 ",
+            "title": [
+              "华南区域",
               {
-                "dataset": "D2",
-                "summary": "total.change",
-                "direction": "down"
-              }
+                "window": "run_current",
+                "format": "month"
+              },
+              "门店成交额下降原因：一家门店的后半月数据缺口抵消了其他门店增长"
             ],
-            "claims": [
+            "summary": [
+              "华南区域门店成交额两期相比",
               {
-                "type": "calc",
-                "parts": [
-                  "地区甲较上期下降 ",
-                  {
-                    "dataset": "D2",
-                    "column": "change",
-                    "match": {
-                      "地区": "甲"
-                    },
-                    "direction": "down"
-                  },
-                  "，是首要原因"
-                ]
-              }
+                "dataset": "D3",
+                "column": "门店成交额·变化",
+                "match": {
+                  "region": "华南"
+                },
+                "direction": "down",
+                "format": "wan1"
+              },
+              "，降幅仅 ",
+              {
+                "dataset": "D3",
+                "column": "门店成交额·变化率",
+                "match": {
+                  "region": "华南"
+                },
+                "direction": "down",
+                "format": "pct1"
+              },
+              "；主要下行来自深圳福田中心店后半月完全没有数据，其余门店增长基本抵消。"
             ],
             "conclusion": "ranked_reasons",
             "causes": [
               {
                 "type": "member",
                 "entity": {
-                  "dimension": "地区",
-                  "member": "甲"
+                  "dimension": "store",
+                  "member": "深圳福田中心店"
                 },
                 "direction": "down",
                 "contribution": {
-                  "dataset": "D2",
+                  "dataset": "D15",
                   "column": "change",
                   "match": {
-                    "地区": "甲"
-                  }
+                    "store": "深圳福田中心店"
+                  },
+                  "format": "wan1"
                 },
                 "evidence": [
-                  "D2"
+                  "D15",
+                  "D14",
+                  "D16",
+                  "D17"
+                ]
+              },
+              {
+                "type": "member",
+                "entity": {
+                  "dimension": "store",
+                  "member": "深圳一号店"
+                },
+                "direction": "up",
+                "contribution": {
+                  "dataset": "D16",
+                  "column": "门店成交额·变化",
+                  "match": {
+                    "store": "深圳一号店"
+                  },
+                  "format": "wan1"
+                },
+                "evidence": [
+                  "D16",
+                  "D15"
                 ]
               }
-            ]
+            ],
+            "claims": [
+              {
+                "type": "fact",
+                "parts": [
+                  {
+                    "window": "run_current",
+                    "format": "month"
+                  },
+                  "，",
+                  {
+                    "dataset": "D3",
+                    "label": "region",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "区域的门店成交额为 ",
+                  {
+                    "dataset": "D3",
+                    "column": "门店成交额",
+                    "match": {
+                      "region": "华南"
+                    },
+                    "format": "wan1"
+                  },
+                  "，上期为 ",
+                  {
+                    "dataset": "D3",
+                    "column": "门店成交额·对比期",
+                    "match": {
+                      "region": "华南"
+                    },
+                    "format": "wan1"
+                  },
+                  "，两期相比",
+                  {
+                    "dataset": "D3",
+                    "column": "门店成交额·变化",
+                    "match": {
+                      "region": "华南"
+                    },
+                    "direction": "down",
+                    "format": "wan1"
+                  },
+                  "，降幅 ",
+                  {
+                    "dataset": "D3",
+                    "column": "门店成交额·变化率",
+                    "match": {
+                      "region": "华南"
+                    },
+                    "direction": "down",
+                    "format": "pct1"
+                  },
+                  "，属于轻微回落。"
+                ],
+                "refs": [
+                  "D3"
+                ]
+              },
+              {
+                "type": "fact",
+                "parts": [
+                  "先排查口径与数据本身：本期窗口内没有元数据变更，也没有口径版本流转；指标来源采集最近一次成功、无依赖漂移，该指标目前只有一个已发布版本，因此可以排除口径切换造成的断层。"
+                ],
+                "refs": [
+                  "D1",
+                  "D2"
+                ]
+              },
+              {
+                "type": "fact",
+                "parts": [
+                  "按门店逐日核查覆盖度，",
+                  {
+                    "dataset": "D14",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "在分析窗口内仅有记录天数 ",
+                  {
+                    "dataset": "D14",
+                    "column": "periods",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "int"
+                  },
+                  "，缺失天数 ",
+                  {
+                    "dataset": "D14",
+                    "column": "missing_count",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "int"
+                  },
+                  "，缺失集中在后半段直至期末；其余门店覆盖完整。"
+                ],
+                "refs": [
+                  "D14"
+                ]
+              },
+              {
+                "type": "fact",
+                "parts": [
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "门店成交额由 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·对比期",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "wan1"
+                  },
+                  "降至 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "wan1"
+                  },
+                  "，",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·变化",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "direction": "down",
+                    "format": "wan1"
+                  },
+                  "，降幅 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·变化率",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "direction": "down",
+                    "format": "pct1"
+                  },
+                  "；同店门店订单数",
+                  {
+                    "dataset": "D16",
+                    "column": "门店订单数·变化",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "direction": "down",
+                    "format": "int"
+                  },
+                  "，降幅 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店订单数·变化率",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "direction": "down",
+                    "format": "pct1"
+                  },
+                  "，订单口径同样只在该店缺数据前有数，两套口径同步断点。"
+                ],
+                "refs": [
+                  "D16",
+                  "D17"
+                ]
+              },
+              {
+                "type": "calc",
+                "parts": [
+                  "按门店拆解差额后，对华南形成抵消的是其他门店的增长：",
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳一号店"
+                    }
+                  },
+                  "成交额增加 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·变化",
+                    "match": {
+                      "store": "深圳一号店"
+                    },
+                    "format": "wan1"
+                  },
+                  "，",
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "厦门二号店"
+                    }
+                  },
+                  "成交额增加 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·变化",
+                    "match": {
+                      "store": "厦门二号店"
+                    },
+                    "format": "wan1"
+                  },
+                  "，广州各店也普遍小幅增长，使华南整体变化被压得很小。"
+                ],
+                "refs": [
+                  "D15",
+                  "D16"
+                ]
+              },
+              {
+                "type": "calc",
+                "parts": [
+                  "自动归因扫描了区域、门店、城市、商圈等级、楼层、门店类型等维度，全部门店合计成交额两期相比仅",
+                  {
+                    "dataset": "D11",
+                    "summary": "total.change",
+                    "format": "wan1"
+                  },
+                  "，各维度均被判定为变化不明显、以成员间相互抵消为主，因此不宜对整体做原因排名，真正显性的下行集中在单家门店。"
+                ],
+                "refs": [
+                  "D11"
+                ]
+              },
+              {
+                "type": "inference",
+                "parts": [
+                  "深圳福田中心店的降幅更可能来自数据缺失而非经营下滑：客流主表与订单口径在该店后半段同时无记录，而缺数据期间没有其他门店出现异常放量；但现有数据无法区分该店是停业闭店还是数据未上报。"
+                ],
+                "premise": [
+                  "该店缺失天数 ",
+                  {
+                    "dataset": "D14",
+                    "column": "missing_count",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "int"
+                  },
+                  "，成交额缺口 ",
+                  {
+                    "dataset": "D16",
+                    "column": "门店成交额·变化",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "direction": "down",
+                    "format": "wan1"
+                  },
+                  "，订单口径同步缺失。"
+                ]
+              },
+              {
+                "type": "recommendation",
+                "parts": [
+                  "建议先向区域运营核实该门店在后半月的营业状态：若为停业或闭店，应把华南改按在营门店可比口径重新计算降幅；若为数据未上报，应补齐客流与订单数据后复核华南实际成交额，再判断是否需要用促销拉动。"
+                ],
+                "premise": [
+                  "该店在分析窗口内缺失天数 ",
+                  {
+                    "dataset": "D14",
+                    "column": "missing_count",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    },
+                    "format": "int"
+                  },
+                  "，其成交额降幅为两期门店中最大。"
+                ],
+                "validation": "以门店主数据中的营业状态与 POS 交易流水逐日核对该店缺数据期间是否存在真实交易，补齐数据后按同口径重取两期数据对比。"
+              }
+            ],
+            "unexplained": "[\"深圳福田中心店后半段数据缺失的业务原因（停业闭店还是采集/上报中断）无法由现有数据集判定；其余门店覆盖完整，无数据缺口。\"]"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "submit_report",
+          "args": {
+            "causes": [
+              {
+                "contribution": {
+                  "column": "change",
+                  "dataset": "D15",
+                  "format": "wan1",
+                  "match": {
+                    "store": "深圳福田中心店"
+                  }
+                },
+                "direction": "down",
+                "entity": {
+                  "dimension": "store",
+                  "member": "深圳福田中心店"
+                },
+                "evidence": [
+                  "D15",
+                  "D14",
+                  "D16",
+                  "D17"
+                ],
+                "type": "member"
+              },
+              {
+                "contribution": {
+                  "column": "门店成交额·变化",
+                  "dataset": "D16",
+                  "format": "wan1",
+                  "match": {
+                    "store": "深圳一号店"
+                  }
+                },
+                "direction": "up",
+                "entity": {
+                  "dimension": "store",
+                  "member": "深圳一号店"
+                },
+                "evidence": [
+                  "D16",
+                  "D15"
+                ],
+                "type": "member"
+              }
+            ],
+            "claims": [
+              {
+                "parts": [
+                  {
+                    "format": "month",
+                    "window": "run_current"
+                  },
+                  "，",
+                  {
+                    "dataset": "D3",
+                    "label": "region",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "区域的门店成交额为 ",
+                  {
+                    "column": "门店成交额",
+                    "dataset": "D3",
+                    "format": "wan1",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "，上期为 ",
+                  {
+                    "column": "门店成交额·对比期",
+                    "dataset": "D3",
+                    "format": "wan1",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "，两期相比",
+                  {
+                    "column": "门店成交额·变化",
+                    "dataset": "D3",
+                    "direction": "down",
+                    "format": "wan1",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "，降幅 ",
+                  {
+                    "column": "门店成交额·变化率",
+                    "dataset": "D3",
+                    "direction": "down",
+                    "format": "pct1",
+                    "match": {
+                      "region": "华南"
+                    }
+                  },
+                  "，属于轻微回落。"
+                ],
+                "refs": [
+                  "D3"
+                ],
+                "type": "fact"
+              },
+              {
+                "parts": [
+                  "先排查口径与数据本身：本期窗口内没有元数据变更，也没有口径版本流转；指标来源采集状态正常、无依赖漂移，不存在其他已发布版本，因此可以排除口径切换造成的断层。"
+                ],
+                "refs": [
+                  "D1",
+                  "D2"
+                ],
+                "type": "fact"
+              },
+              {
+                "parts": [
+                  "按门店逐日核查覆盖度，",
+                  {
+                    "dataset": "D14",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "在分析窗口内仅有记录天数 ",
+                  {
+                    "column": "periods",
+                    "dataset": "D14",
+                    "format": "int",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，缺失天数 ",
+                  {
+                    "column": "missing_count",
+                    "dataset": "D14",
+                    "format": "int",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，缺失集中在后半段直至期末；其余门店覆盖完整。"
+                ],
+                "refs": [
+                  "D14"
+                ],
+                "type": "fact"
+              },
+              {
+                "parts": [
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "门店成交额由 ",
+                  {
+                    "column": "门店成交额·对比期",
+                    "dataset": "D16",
+                    "format": "wan1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "降至 ",
+                  {
+                    "column": "门店成交额",
+                    "dataset": "D16",
+                    "format": "wan1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，",
+                  {
+                    "column": "门店成交额·变化",
+                    "dataset": "D16",
+                    "direction": "down",
+                    "format": "wan1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，降幅 ",
+                  {
+                    "column": "门店成交额·变化率",
+                    "dataset": "D16",
+                    "direction": "down",
+                    "format": "pct1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "；同店门店订单数较上期下降 ",
+                  {
+                    "column": "门店订单数·变化",
+                    "dataset": "D16",
+                    "direction": "down",
+                    "format": "int",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，降幅 ",
+                  {
+                    "column": "门店订单数·变化率",
+                    "dataset": "D16",
+                    "direction": "down",
+                    "format": "pct1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，仅在该店缺数据前有记录，客流主表与订单口径同步断点。"
+                ],
+                "refs": [
+                  "D16",
+                  "D17"
+                ],
+                "type": "fact"
+              },
+              {
+                "parts": [
+                  "按门店拆解差额后，对华南形成抵消的是其他门店的增长：",
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "深圳一号店"
+                    }
+                  },
+                  "成交额增加 ",
+                  {
+                    "column": "门店成交额·变化",
+                    "dataset": "D16",
+                    "format": "wan1",
+                    "match": {
+                      "store": "深圳一号店"
+                    }
+                  },
+                  "，",
+                  {
+                    "dataset": "D16",
+                    "label": "store",
+                    "match": {
+                      "store": "厦门二号店"
+                    }
+                  },
+                  "成交额增加 ",
+                  {
+                    "column": "门店成交额·变化",
+                    "dataset": "D16",
+                    "format": "wan1",
+                    "match": {
+                      "store": "厦门二号店"
+                    }
+                  },
+                  "，广州各店也普遍小幅增长，使华南整体变化被压得很小。"
+                ],
+                "refs": [
+                  "D15",
+                  "D16"
+                ],
+                "type": "calc"
+              },
+              {
+                "parts": [
+                  "自动归因扫描了区域、门店、城市、商圈等级、楼层、门店类型等维度，全部门店合计成交额两期相比仅",
+                  {
+                    "dataset": "D11",
+                    "format": "wan1",
+                    "summary": "total.change"
+                  },
+                  "，各维度均被判定为变化不明显、以成员间相互抵消为主，因此不宜对整体做原因排名，真正显性的下行集中在单家门店。"
+                ],
+                "refs": [
+                  "D11"
+                ],
+                "type": "calc"
+              },
+              {
+                "parts": [
+                  "深圳福田中心店的降幅更可能来自数据缺失而非经营下滑：客流主表与订单口径在该店后半段同时无记录，期间未见其他门店异常放量；但现有数据无法区分该店是停业闭店还是数据未上报。"
+                ],
+                "premise": [
+                  "该店缺失天数 ",
+                  {
+                    "column": "missing_count",
+                    "dataset": "D14",
+                    "format": "int",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，成交额缺口 ",
+                  {
+                    "column": "门店成交额·变化",
+                    "dataset": "D16",
+                    "direction": "down",
+                    "format": "wan1",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，订单口径同步缺失。"
+                ],
+                "type": "inference"
+              },
+              {
+                "parts": [
+                  "建议先向区域运营核实该门店在后半月的营业状态：若为停业或闭店，应把华南改按在营门店可比口径重新计算降幅；若为数据未上报，应补齐客流与订单数据后复核华南实际成交额，再判断是否需要促销拉动。"
+                ],
+                "premise": [
+                  "该店在分析窗口内缺失天数 ",
+                  {
+                    "column": "missing_count",
+                    "dataset": "D14",
+                    "format": "int",
+                    "match": {
+                      "store": "深圳福田中心店"
+                    }
+                  },
+                  "，其成交额降幅为各门店中最大。"
+                ],
+                "type": "recommendation",
+                "validation": "以门店主数据中的营业状态与门店交易流水逐日核对该店缺数据期间是否存在真实交易，补齐数据后按同口径重取两期数据对比。"
+              }
+            ],
+            "conclusion": "ranked_reasons",
+            "summary": [
+              "华南区域门店成交额两期相比",
+              {
+                "column": "门店成交额·变化",
+                "dataset": "D3",
+                "direction": "down",
+                "format": "wan1",
+                "match": {
+                  "region": "华南"
+                }
+              },
+              "，降幅仅 ",
+              {
+                "column": "门店成交额·变化率",
+                "dataset": "D3",
+                "direction": "down",
+                "format": "pct1",
+                "match": {
+                  "region": "华南"
+                }
+              },
+              "；主要下行来自深圳福田中心店后半月完全没有数据，其余门店增长基本抵消。"
+            ],
+            "title": [
+              "华南区域",
+              {
+                "format": "month",
+                "window": "run_current"
+              },
+              "门店成交额下降原因：部分门店后半月的记录缺口抵消了其他门店增长"
+            ],
+            "unexplained": "[\"深圳福田中心店后半段数据缺失的业务原因（停业闭店还是采集/上报中断）无法由现有数据集判定；其余门店覆盖完整，无数据缺口。\"]"
           }
         }
       ]
     }
-  ]
+  ],
+  "fixtures": [
+    {
+      "tool": "search_metrics",
+      "datasets": []
+    },
+    {
+      "tool": "describe_metric",
+      "datasets": []
+    },
+    {
+      "tool": "changes",
+      "datasets": [
+        {
+          "seq": 1,
+          "kind": "context",
+          "title": "变更记录 2026-08-01~2026-09-30（ec_store_sales）",
+          "inputs": [],
+          "columns": [
+            "type",
+            "at",
+            "object",
+            "item",
+            "change",
+            "impacts",
+            "note"
+          ],
+          "rows": [],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "impacts": {
+                "kind": "count"
+              }
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-08-01"
+            },
+            "explore": false,
+            "partial": false,
+            "assumption": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "data_health",
+      "datasets": [
+        {
+          "seq": 2,
+          "kind": "context",
+          "title": "数据健康 ec_store_sales",
+          "inputs": [],
+          "columns": [
+            "base_asset",
+            "metric_status",
+            "drift",
+            "last_collected_at",
+            "collection_status",
+            "collection_started_at"
+          ],
+          "rows": [
+            [
+              "default_catalog.ec_dw.dws_store_daily",
+              "published",
+              "否",
+              "2026-10-30T08:47:31.098688+00:00",
+              "succeeded",
+              "2026-10-30T08:47:30.020010+00:00"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-08-01"
+            },
+            "explore": false,
+            "partial": false,
+            "assumption": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_metric",
+      "datasets": [
+        {
+          "seq": 3,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按region 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "region",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "华东",
+              "2337570.26",
+              "2412063.91",
+              "-74493.65",
+              "-0.0309"
+            ],
+            [
+              "华北",
+              "1732591.03",
+              "1681186.02",
+              "51405.01",
+              "0.0306"
+            ],
+            [
+              "华南",
+              "1969398.05",
+              "1977023.29",
+              "-7625.24",
+              "-0.0039"
+            ],
+            [
+              "西南",
+              "1737298.11",
+              "1683625.66",
+              "53672.45",
+              "0.0319"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "region"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "取各区域 9 月与 8 月门店成交额，确认华南的降幅与量级",
+            "assumption": false,
+            "time_column": null
+          }
+        }
+      ]
+    },
+    {
+      "tool": "explain_change",
+      "datasets": [
+        {
+          "seq": 4,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "7776857.45",
+              "7753898.88",
+              "22958.57",
+              "0.0030"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：总量",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 5,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按region 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "region",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "华东",
+              "2337570.26",
+              "2412063.91",
+              "-74493.65",
+              "-0.0309"
+            ],
+            [
+              "华北",
+              "1732591.03",
+              "1681186.02",
+              "51405.01",
+              "0.0306"
+            ],
+            [
+              "华南",
+              "1969398.05",
+              "1977023.29",
+              "-7625.24",
+              "-0.0039"
+            ],
+            [
+              "西南",
+              "1737298.11",
+              "1683625.66",
+              "53672.45",
+              "0.0319"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "region"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按region",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 6,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按store 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "store",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "上海一号店",
+              "269954.76",
+              "264227.34",
+              "5727.42",
+              "0.0217"
+            ],
+            [
+              "上海三号店",
+              "91177.58",
+              "76463.61",
+              "14713.97",
+              "0.1924"
+            ],
+            [
+              "上海二号店",
+              "133528.16",
+              "115404.77",
+              "18123.39",
+              "0.1570"
+            ],
+            [
+              "上海五号店",
+              "208932.52",
+              "231196.86",
+              "-22264.34",
+              "-0.0963"
+            ],
+            [
+              "上海四号店",
+              "148231.41",
+              "165581.22",
+              "-17349.81",
+              "-0.1048"
+            ],
+            [
+              "北京一号店",
+              "210352.95",
+              "194702.59",
+              "15650.36",
+              "0.0804"
+            ],
+            [
+              "北京三号店",
+              "239540.57",
+              "245027.05",
+              "-5486.48",
+              "-0.0224"
+            ],
+            [
+              "北京二号店",
+              "234166.42",
+              "189181.28",
+              "44985.14",
+              "0.2378"
+            ],
+            [
+              "北京五号店",
+              "271950.91",
+              "272817.04",
+              "-866.13",
+              "-0.0032"
+            ],
+            [
+              "北京四号店",
+              "255661.52",
+              "268953.71",
+              "-13292.19",
+              "-0.0494"
+            ],
+            [
+              "南京一号店",
+              "149419.61",
+              "153962.51",
+              "-4542.90",
+              "-0.0295"
+            ],
+            [
+              "南京三号店",
+              "92708.14",
+              "96298.55",
+              "-3590.41",
+              "-0.0373"
+            ],
+            [
+              "南京二号店",
+              "265762.90",
+              "263334.59",
+              "2428.31",
+              "0.0092"
+            ],
+            [
+              "厦门一号店",
+              "229741.88",
+              "212482.52",
+              "17259.36",
+              "0.0812"
+            ],
+            [
+              "厦门二号店",
+              "250006.65",
+              "205512.04",
+              "44494.61",
+              "0.2165"
+            ],
+            [
+              "天津一号店",
+              "137167.49",
+              "148932.57",
+              "-11765.08",
+              "-0.0790"
+            ],
+            [
+              "天津三号店",
+              "139568.55",
+              "148994.42",
+              "-9425.87",
+              "-0.0633"
+            ],
+            [
+              "天津二号店",
+              "244182.62",
+              "212577.36",
+              "31605.26",
+              "0.1487"
+            ],
+            [
+              "广州一号店",
+              "143404.36",
+              "134683.01",
+              "8721.35",
+              "0.0648"
+            ],
+            [
+              "广州三号店",
+              "274118.17",
+              "256114.62",
+              "18003.55",
+              "0.0703"
+            ],
+            [
+              "广州二号店",
+              "171359.97",
+              "156819.27",
+              "14540.70",
+              "0.0927"
+            ],
+            [
+              "广州四号店",
+              "160055.76",
+              "134621.31",
+              "25434.45",
+              "0.1889"
+            ],
+            [
+              "成都一号店",
+              "287060.48",
+              "260476.63",
+              "26583.85",
+              "0.1021"
+            ],
+            [
+              "成都二号店",
+              "146584.46",
+              "132678.63",
+              "13905.83",
+              "0.1048"
+            ],
+            [
+              "成都太古里店",
+              "325140.61",
+              "258236.27",
+              "66904.34",
+              "0.2591"
+            ],
+            [
+              "昆明一号店",
+              "116958.06",
+              "117458.17",
+              "-500.11",
+              "-0.0043"
+            ],
+            [
+              "昆明二号店",
+              "237826.76",
+              "250312.01",
+              "-12485.25",
+              "-0.0499"
+            ],
+            [
+              "杭州一号店",
+              "169480.48",
+              "183889.38",
+              "-14408.90",
+              "-0.0784"
+            ],
+            [
+              "杭州三号店",
+              "107353.55",
+              "113192.89",
+              "-5839.34",
+              "-0.0516"
+            ],
+            [
+              "杭州二号店",
+              "233959.43",
+              "245405.49",
+              "-11446.06",
+              "-0.0466"
+            ],
+            [
+              "深圳一号店",
+              "239061.23",
+              "182770.75",
+              "56290.48",
+              "0.3080"
+            ],
+            [
+              "深圳三号店",
+              "204529.30",
+              "233054.03",
+              "-28524.73",
+              "-0.1224"
+            ],
+            [
+              "深圳四号店",
+              "141707.28",
+              "160893.87",
+              "-19186.59",
+              "-0.1192"
+            ],
+            [
+              "深圳福田中心店",
+              "155413.45",
+              "300071.87",
+              "-144658.42",
+              "-0.4821"
+            ],
+            [
+              "苏州一号店",
+              "164306.61",
+              "170990.25",
+              "-6683.64",
+              "-0.0391"
+            ],
+            [
+              "苏州三号店",
+              "206697.93",
+              "216040.51",
+              "-9342.58",
+              "-0.0432"
+            ],
+            [
+              "苏州二号店",
+              "96057.18",
+              "116075.94",
+              "-20018.76",
+              "-0.1725"
+            ],
+            [
+              "重庆一号店",
+              "271304.96",
+              "295620.71",
+              "-24315.75",
+              "-0.0823"
+            ],
+            [
+              "重庆三号店",
+              "124496.57",
+              "138913.42",
+              "-14416.85",
+              "-0.1038"
+            ],
+            [
+              "重庆二号店",
+              "227926.21",
+              "229929.82",
+              "-2003.61",
+              "-0.0087"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "store"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按store",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 7,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按city 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "city",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "上海",
+              "851824.43",
+              "852873.80",
+              "-1049.37",
+              "-0.0012"
+            ],
+            [
+              "北京",
+              "1211672.37",
+              "1170681.67",
+              "40990.70",
+              "0.0350"
+            ],
+            [
+              "南京",
+              "507890.65",
+              "513595.65",
+              "-5705.00",
+              "-0.0111"
+            ],
+            [
+              "厦门",
+              "479748.53",
+              "417994.56",
+              "61753.97",
+              "0.1477"
+            ],
+            [
+              "天津",
+              "520918.66",
+              "510504.35",
+              "10414.31",
+              "0.0204"
+            ],
+            [
+              "广州",
+              "748938.26",
+              "682238.21",
+              "66700.05",
+              "0.0978"
+            ],
+            [
+              "成都",
+              "758785.55",
+              "651391.53",
+              "107394.02",
+              "0.1649"
+            ],
+            [
+              "昆明",
+              "354784.82",
+              "367770.18",
+              "-12985.36",
+              "-0.0353"
+            ],
+            [
+              "杭州",
+              "510793.46",
+              "542487.76",
+              "-31694.30",
+              "-0.0584"
+            ],
+            [
+              "深圳",
+              "740711.26",
+              "876790.52",
+              "-136079.26",
+              "-0.1552"
+            ],
+            [
+              "苏州",
+              "467061.72",
+              "503106.70",
+              "-36044.98",
+              "-0.0716"
+            ],
+            [
+              "重庆",
+              "623727.74",
+              "664463.95",
+              "-40736.21",
+              "-0.0613"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "city"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按city",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 8,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按district 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "district",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "核心商圈",
+              "2462824.29",
+              "2541298.14",
+              "-78473.85",
+              "-0.0309"
+            ],
+            [
+              "次级商圈",
+              "3432068.62",
+              "3317995.68",
+              "114072.94",
+              "0.0344"
+            ],
+            [
+              "社区",
+              "1881964.54",
+              "1894605.06",
+              "-12640.52",
+              "-0.0067"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "district"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按district",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 9,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按floor 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "floor",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "1F",
+              "2233702.32",
+              "2358888.38",
+              "-125186.06",
+              "-0.0531"
+            ],
+            [
+              "2F",
+              "1425377.59",
+              "1344294.81",
+              "81082.78",
+              "0.0603"
+            ],
+            [
+              "3F",
+              "1141216.19",
+              "1123998.61",
+              "17217.58",
+              "0.0153"
+            ],
+            [
+              "B1",
+              "1453861.80",
+              "1492770.40",
+              "-38908.60",
+              "-0.0261"
+            ],
+            [
+              "街铺",
+              "1522699.55",
+              "1433946.68",
+              "88752.87",
+              "0.0619"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "floor"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按floor",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 10,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按store_type 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "store_type",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "旗舰店",
+              "3125574.48",
+              "3169160.84",
+              "-43586.36",
+              "-0.0138"
+            ],
+            [
+              "标准店",
+              "3734061.90",
+              "3608735.48",
+              "125326.42",
+              "0.0347"
+            ],
+            [
+              "社区店",
+              "917221.07",
+              "976002.56",
+              "-58781.49",
+              "-0.0602"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "store_type"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "自动扫描华南门店成交额下降的主要维度成员贡献：按store_type",
+            "assumption": false,
+            "time_column": null
+          }
+        },
+        {
+          "seq": 11,
+          "kind": "calc",
+          "title": "自动归因：门店成交额 2026-09-01~2026-09-30 对比 2026-08-01~2026-08-31",
+          "inputs": [
+            "D4",
+            "D5",
+            "D6",
+            "D7",
+            "D8",
+            "D9",
+            "D10"
+          ],
+          "columns": [
+            "dimension",
+            "member",
+            "previous",
+            "current",
+            "member_change",
+            "contribution",
+            "ep",
+            "structure_effect",
+            "rate_effect",
+            "change_type",
+            "role"
+          ],
+          "rows": [
+            [
+              "store",
+              "成都太古里店",
+              "258236.27",
+              "325140.61",
+              "66904.34",
+              "66904.34",
+              "2.9141",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "深圳一号店",
+              "182770.75",
+              "239061.23",
+              "56290.48",
+              "56290.48",
+              "2.4518",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "北京二号店",
+              "189181.28",
+              "234166.42",
+              "44985.14",
+              "44985.14",
+              "1.9594",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "厦门二号店",
+              "205512.04",
+              "250006.65",
+              "44494.61",
+              "44494.61",
+              "1.9380",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "天津二号店",
+              "212577.36",
+              "244182.62",
+              "31605.26",
+              "31605.26",
+              "1.3766",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "成都一号店",
+              "260476.63",
+              "287060.48",
+              "26583.85",
+              "26583.85",
+              "1.1579",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "广州四号店",
+              "134621.31",
+              "160055.76",
+              "25434.45",
+              "25434.45",
+              "1.1078",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "上海二号店",
+              "115404.77",
+              "133528.16",
+              "18123.39",
+              "18123.39",
+              "0.7894",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store",
+              "深圳福田中心店",
+              "300071.87",
+              "155413.45",
+              "-144658.42",
+              "-144658.42",
+              "-6.3008",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "深圳三号店",
+              "233054.03",
+              "204529.30",
+              "-28524.73",
+              "-28524.73",
+              "-1.2424",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "重庆一号店",
+              "295620.71",
+              "271304.96",
+              "-24315.75",
+              "-24315.75",
+              "-1.0591",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "上海五号店",
+              "231196.86",
+              "208932.52",
+              "-22264.34",
+              "-22264.34",
+              "-0.9698",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "苏州二号店",
+              "116075.94",
+              "96057.18",
+              "-20018.76",
+              "-20018.76",
+              "-0.8720",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "深圳四号店",
+              "160893.87",
+              "141707.28",
+              "-19186.59",
+              "-19186.59",
+              "-0.8357",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "上海四号店",
+              "165581.22",
+              "148231.41",
+              "-17349.81",
+              "-17349.81",
+              "-0.7557",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store",
+              "重庆三号店",
+              "138913.42",
+              "124496.57",
+              "-14416.85",
+              "-14416.85",
+              "-0.6280",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "成都",
+              "651391.53",
+              "758785.55",
+              "107394.02",
+              "107394.02",
+              "4.6777",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "city",
+              "广州",
+              "682238.21",
+              "748938.26",
+              "66700.05",
+              "66700.05",
+              "2.9052",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "city",
+              "厦门",
+              "417994.56",
+              "479748.53",
+              "61753.97",
+              "61753.97",
+              "2.6898",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "city",
+              "北京",
+              "1170681.67",
+              "1211672.37",
+              "40990.70",
+              "40990.70",
+              "1.7854",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "city",
+              "天津",
+              "510504.35",
+              "520918.66",
+              "10414.31",
+              "10414.31",
+              "0.4536",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "city",
+              "深圳",
+              "876790.52",
+              "740711.26",
+              "-136079.26",
+              "-136079.26",
+              "-5.9272",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "重庆",
+              "664463.95",
+              "623727.74",
+              "-40736.21",
+              "-40736.21",
+              "-1.7743",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "苏州",
+              "503106.70",
+              "467061.72",
+              "-36044.98",
+              "-36044.98",
+              "-1.5700",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "杭州",
+              "542487.76",
+              "510793.46",
+              "-31694.30",
+              "-31694.30",
+              "-1.3805",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "昆明",
+              "367770.18",
+              "354784.82",
+              "-12985.36",
+              "-12985.36",
+              "-0.5656",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "南京",
+              "513595.65",
+              "507890.65",
+              "-5705.00",
+              "-5705.00",
+              "-0.2485",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "city",
+              "上海",
+              "852873.80",
+              "851824.43",
+              "-1049.37",
+              "-1049.37",
+              "-0.0457",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "floor",
+              "街铺",
+              "1433946.68",
+              "1522699.55",
+              "88752.87",
+              "88752.87",
+              "3.8658",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "floor",
+              "2F",
+              "1344294.81",
+              "1425377.59",
+              "81082.78",
+              "81082.78",
+              "3.5317",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "floor",
+              "3F",
+              "1123998.61",
+              "1141216.19",
+              "17217.58",
+              "17217.58",
+              "0.7499",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "floor",
+              "1F",
+              "2358888.38",
+              "2233702.32",
+              "-125186.06",
+              "-125186.06",
+              "-5.4527",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "floor",
+              "B1",
+              "1492770.40",
+              "1453861.80",
+              "-38908.60",
+              "-38908.60",
+              "-1.6947",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store_type",
+              "标准店",
+              "3608735.48",
+              "3734061.90",
+              "125326.42",
+              "125326.42",
+              "5.4588",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "store_type",
+              "社区店",
+              "976002.56",
+              "917221.07",
+              "-58781.49",
+              "-58781.49",
+              "-2.5603",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "store_type",
+              "旗舰店",
+              "3169160.84",
+              "3125574.48",
+              "-43586.36",
+              "-43586.36",
+              "-1.8985",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "district",
+              "次级商圈",
+              "3317995.68",
+              "3432068.62",
+              "114072.94",
+              "114072.94",
+              "4.9686",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "district",
+              "核心商圈",
+              "2541298.14",
+              "2462824.29",
+              "-78473.85",
+              "-78473.85",
+              "-3.4181",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "district",
+              "社区",
+              "1894605.06",
+              "1881964.54",
+              "-12640.52",
+              "-12640.52",
+              "-0.5506",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "region",
+              "西南",
+              "1683625.66",
+              "1737298.11",
+              "53672.45",
+              "53672.45",
+              "2.3378",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "region",
+              "华北",
+              "1681186.02",
+              "1732591.03",
+              "51405.01",
+              "51405.01",
+              "2.2390",
+              null,
+              null,
+              "",
+              "增加项"
+            ],
+            [
+              "region",
+              "华东",
+              "2412063.91",
+              "2337570.26",
+              "-74493.65",
+              "-74493.65",
+              "-3.2447",
+              null,
+              null,
+              "",
+              "减少项"
+            ],
+            [
+              "region",
+              "华南",
+              "1977023.29",
+              "1969398.05",
+              "-7625.24",
+              "-7625.24",
+              "-0.3321",
+              null,
+              null,
+              "",
+              "减少项"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "ep": {
+                "kind": "share"
+              },
+              "current": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "previous": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "rate_effect": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "contribution": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "member_change": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "structure_effect": {
+                "kind": "delta",
+                "unit": "元"
+              }
+            },
+            "explore": false,
+            "partial": false,
+            "summary": {
+              "note": "EP 是带符号的净贡献比例（可以超过 100%），各维度的 EP 不跨维度相加；排名只在已扫描的维度内成立；相互抵消或变化不明显时不排名，分别列出增加项与减少项",
+              "total": {
+                "change": "22958.57",
+                "current": "7776857.45",
+                "previous": "7753898.88"
+              },
+              "partial": false,
+              "scanned": [
+                "region",
+                "store",
+                "city",
+                "district",
+                "floor",
+                "store_type"
+              ],
+              "verdict": "no_material_change",
+              "algorithm": "additive",
+              "unscanned": [],
+              "dimensions": [
+                {
+                  "js": 0.004405,
+                  "verdict": "no_material_change",
+                  "dimension": "store",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                },
+                {
+                  "js": 0.001469,
+                  "verdict": "no_material_change",
+                  "dimension": "city",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                },
+                {
+                  "js": 0.000421,
+                  "verdict": "no_material_change",
+                  "dimension": "floor",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                },
+                {
+                  "js": 0.000197,
+                  "verdict": "no_material_change",
+                  "dimension": "store_type",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                },
+                {
+                  "js": 0.000147,
+                  "verdict": "no_material_change",
+                  "dimension": "district",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                },
+                {
+                  "js": 0.000128,
+                  "verdict": "no_material_change",
+                  "dimension": "region",
+                  "cumulative_ep": null,
+                  "threshold_met": null
+                }
+              ],
+              "metric_code": "ec_store_sales",
+              "cumulative_ep": null,
+              "threshold_met": null,
+              "primary_dimension": null
+            },
+            "assumption": false,
+            "summary_units": {
+              "total.change": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "cumulative_ep": {
+                "kind": "share"
+              },
+              "total.current": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "total.previous": {
+                "kind": "level",
+                "unit": "元"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_metric",
+      "datasets": [
+        {
+          "seq": 12,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按store 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "store",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率"
+          ],
+          "rows": [
+            [
+              "厦门一号店",
+              "229741.88",
+              "212482.52",
+              "17259.36",
+              "0.0812"
+            ],
+            [
+              "厦门二号店",
+              "250006.65",
+              "205512.04",
+              "44494.61",
+              "0.2165"
+            ],
+            [
+              "广州一号店",
+              "143404.36",
+              "134683.01",
+              "8721.35",
+              "0.0648"
+            ],
+            [
+              "广州三号店",
+              "274118.17",
+              "256114.62",
+              "18003.55",
+              "0.0703"
+            ],
+            [
+              "广州二号店",
+              "171359.97",
+              "156819.27",
+              "14540.70",
+              "0.0927"
+            ],
+            [
+              "广州四号店",
+              "160055.76",
+              "134621.31",
+              "25434.45",
+              "0.1889"
+            ],
+            [
+              "深圳一号店",
+              "239061.23",
+              "182770.75",
+              "56290.48",
+              "0.3080"
+            ],
+            [
+              "深圳三号店",
+              "204529.30",
+              "233054.03",
+              "-28524.73",
+              "-0.1224"
+            ],
+            [
+              "深圳四号店",
+              "141707.28",
+              "160893.87",
+              "-19186.59",
+              "-0.1192"
+            ],
+            [
+              "深圳福田中心店",
+              "155413.45",
+              "300071.87",
+              "-144658.42",
+              "-0.4821"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [
+                {
+                  "values": [
+                    "华南"
+                  ],
+                  "dimension": "region"
+                }
+              ],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "store"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "华南区域内各部门店的 9 月 vs 8 月成交额，定位降幅来源",
+            "assumption": false,
+            "time_column": null
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_metric",
+      "datasets": [
+        {
+          "seq": 13,
+          "kind": "governed",
+          "title": "门店成交额 2026-09-01~2026-09-30 按store 按日",
+          "inputs": [],
+          "columns": [
+            "period",
+            "store",
+            "门店成交额"
+          ],
+          "rows": [
+            [
+              "2026-09-01",
+              "厦门一号店",
+              "5893.37"
+            ],
+            [
+              "2026-09-01",
+              "厦门二号店",
+              "3769.26"
+            ],
+            [
+              "2026-09-01",
+              "广州一号店",
+              "3080.40"
+            ],
+            [
+              "2026-09-01",
+              "广州三号店",
+              "14011.15"
+            ],
+            [
+              "2026-09-01",
+              "广州二号店",
+              "6211.62"
+            ],
+            [
+              "2026-09-01",
+              "广州四号店",
+              "3982.61"
+            ],
+            [
+              "2026-09-01",
+              "深圳一号店",
+              "7088.40"
+            ],
+            [
+              "2026-09-01",
+              "深圳三号店",
+              "5683.16"
+            ],
+            [
+              "2026-09-01",
+              "深圳四号店",
+              "7801.65"
+            ],
+            [
+              "2026-09-01",
+              "深圳福田中心店",
+              "19091.41"
+            ],
+            [
+              "2026-09-02",
+              "厦门一号店",
+              "9071.79"
+            ],
+            [
+              "2026-09-02",
+              "厦门二号店",
+              "6173.08"
+            ],
+            [
+              "2026-09-02",
+              "广州一号店",
+              "2015.66"
+            ],
+            [
+              "2026-09-02",
+              "广州三号店",
+              "9188.96"
+            ],
+            [
+              "2026-09-02",
+              "广州二号店",
+              "4475.10"
+            ],
+            [
+              "2026-09-02",
+              "广州四号店",
+              "2109.20"
+            ],
+            [
+              "2026-09-02",
+              "深圳一号店",
+              "10730.38"
+            ],
+            [
+              "2026-09-02",
+              "深圳三号店",
+              "6141.71"
+            ],
+            [
+              "2026-09-02",
+              "深圳四号店",
+              "3741.60"
+            ],
+            [
+              "2026-09-02",
+              "深圳福田中心店",
+              "12760.34"
+            ],
+            [
+              "2026-09-03",
+              "厦门一号店",
+              "5770.50"
+            ],
+            [
+              "2026-09-03",
+              "厦门二号店",
+              "7723.58"
+            ],
+            [
+              "2026-09-03",
+              "广州一号店",
+              "2527.00"
+            ],
+            [
+              "2026-09-03",
+              "广州三号店",
+              "9663.29"
+            ],
+            [
+              "2026-09-03",
+              "广州二号店",
+              "12137.66"
+            ],
+            [
+              "2026-09-03",
+              "广州四号店",
+              "6433.63"
+            ],
+            [
+              "2026-09-03",
+              "深圳一号店",
+              "7988.52"
+            ],
+            [
+              "2026-09-03",
+              "深圳三号店",
+              "7100.97"
+            ],
+            [
+              "2026-09-03",
+              "深圳四号店",
+              "4874.62"
+            ],
+            [
+              "2026-09-03",
+              "深圳福田中心店",
+              "15738.53"
+            ],
+            [
+              "2026-09-04",
+              "厦门一号店",
+              "6429.98"
+            ],
+            [
+              "2026-09-04",
+              "厦门二号店",
+              "9461.09"
+            ],
+            [
+              "2026-09-04",
+              "广州一号店",
+              "5378.11"
+            ],
+            [
+              "2026-09-04",
+              "广州三号店",
+              "10158.88"
+            ],
+            [
+              "2026-09-04",
+              "广州二号店",
+              "9186.78"
+            ],
+            [
+              "2026-09-04",
+              "广州四号店",
+              "5433.20"
+            ],
+            [
+              "2026-09-04",
+              "深圳一号店",
+              "8155.55"
+            ],
+            [
+              "2026-09-04",
+              "深圳三号店",
+              "8541.54"
+            ],
+            [
+              "2026-09-04",
+              "深圳四号店",
+              "1726.80"
+            ],
+            [
+              "2026-09-04",
+              "深圳福田中心店",
+              "29445.42"
+            ],
+            [
+              "2026-09-05",
+              "厦门一号店",
+              "4059.92"
+            ],
+            [
+              "2026-09-05",
+              "厦门二号店",
+              "12545.26"
+            ],
+            [
+              "2026-09-05",
+              "广州一号店",
+              "14524.27"
+            ],
+            [
+              "2026-09-05",
+              "广州三号店",
+              "9019.47"
+            ],
+            [
+              "2026-09-05",
+              "广州二号店",
+              "3744.92"
+            ],
+            [
+              "2026-09-05",
+              "广州四号店",
+              "14869.54"
+            ],
+            [
+              "2026-09-05",
+              "深圳一号店",
+              "9103.69"
+            ],
+            [
+              "2026-09-05",
+              "深圳三号店",
+              "9092.70"
+            ],
+            [
+              "2026-09-05",
+              "深圳四号店",
+              "5409.76"
+            ],
+            [
+              "2026-09-05",
+              "深圳福田中心店",
+              "26132.82"
+            ],
+            [
+              "2026-09-06",
+              "厦门一号店",
+              "11597.71"
+            ],
+            [
+              "2026-09-06",
+              "厦门二号店",
+              "9667.65"
+            ],
+            [
+              "2026-09-06",
+              "广州一号店",
+              "1802.91"
+            ],
+            [
+              "2026-09-06",
+              "广州三号店",
+              "9848.28"
+            ],
+            [
+              "2026-09-06",
+              "广州二号店",
+              "5856.14"
+            ],
+            [
+              "2026-09-06",
+              "广州四号店",
+              "11904.80"
+            ],
+            [
+              "2026-09-06",
+              "深圳一号店",
+              "5720.63"
+            ],
+            [
+              "2026-09-06",
+              "深圳三号店",
+              "8955.18"
+            ],
+            [
+              "2026-09-06",
+              "深圳四号店",
+              "6672.46"
+            ],
+            [
+              "2026-09-06",
+              "深圳福田中心店",
+              "19924.05"
+            ],
+            [
+              "2026-09-07",
+              "厦门一号店",
+              "6918.16"
+            ],
+            [
+              "2026-09-07",
+              "厦门二号店",
+              "10232.73"
+            ],
+            [
+              "2026-09-07",
+              "广州一号店",
+              "2222.57"
+            ],
+            [
+              "2026-09-07",
+              "广州三号店",
+              "13604.01"
+            ],
+            [
+              "2026-09-07",
+              "广州二号店",
+              "5996.87"
+            ],
+            [
+              "2026-09-07",
+              "广州四号店",
+              "5237.46"
+            ],
+            [
+              "2026-09-07",
+              "深圳一号店",
+              "10232.92"
+            ],
+            [
+              "2026-09-07",
+              "深圳三号店",
+              "9222.94"
+            ],
+            [
+              "2026-09-07",
+              "深圳四号店",
+              "2810.11"
+            ],
+            [
+              "2026-09-07",
+              "深圳福田中心店",
+              "16227.81"
+            ],
+            [
+              "2026-09-08",
+              "厦门一号店",
+              "8627.49"
+            ],
+            [
+              "2026-09-08",
+              "厦门二号店",
+              "7556.17"
+            ],
+            [
+              "2026-09-08",
+              "广州一号店",
+              "5064.46"
+            ],
+            [
+              "2026-09-08",
+              "广州三号店",
+              "11329.22"
+            ],
+            [
+              "2026-09-08",
+              "广州二号店",
+              "4946.14"
+            ],
+            [
+              "2026-09-08",
+              "广州四号店",
+              "3159.90"
+            ],
+            [
+              "2026-09-08",
+              "深圳一号店",
+              "9794.64"
+            ],
+            [
+              "2026-09-08",
+              "深圳三号店",
+              "2853.52"
+            ],
+            [
+              "2026-09-08",
+              "深圳四号店",
+              "4136.47"
+            ],
+            [
+              "2026-09-08",
+              "深圳福田中心店",
+              "7377.76"
+            ],
+            [
+              "2026-09-09",
+              "厦门一号店",
+              "10290.35"
+            ],
+            [
+              "2026-09-09",
+              "厦门二号店",
+              "3610.09"
+            ],
+            [
+              "2026-09-09",
+              "广州一号店",
+              "6332.57"
+            ],
+            [
+              "2026-09-09",
+              "广州三号店",
+              "4409.32"
+            ],
+            [
+              "2026-09-09",
+              "广州二号店",
+              "7531.53"
+            ],
+            [
+              "2026-09-09",
+              "广州四号店",
+              "2040.70"
+            ],
+            [
+              "2026-09-09",
+              "深圳一号店",
+              "10099.64"
+            ],
+            [
+              "2026-09-09",
+              "深圳三号店",
+              "5686.32"
+            ],
+            [
+              "2026-09-09",
+              "深圳四号店",
+              "5998.98"
+            ],
+            [
+              "2026-09-09",
+              "深圳福田中心店",
+              "8715.31"
+            ],
+            [
+              "2026-09-10",
+              "厦门一号店",
+              "13632.06"
+            ],
+            [
+              "2026-09-10",
+              "厦门二号店",
+              "9382.06"
+            ],
+            [
+              "2026-09-10",
+              "广州一号店",
+              "3196.53"
+            ],
+            [
+              "2026-09-10",
+              "广州三号店",
+              "5954.87"
+            ],
+            [
+              "2026-09-10",
+              "广州二号店",
+              "8671.26"
+            ],
+            [
+              "2026-09-10",
+              "广州四号店",
+              "4892.71"
+            ],
+            [
+              "2026-09-10",
+              "深圳一号店",
+              "5216.59"
+            ],
+            [
+              "2026-09-10",
+              "深圳三号店",
+              "5823.73"
+            ],
+            [
+              "2026-09-10",
+              "深圳四号店",
+              "4378.32"
+            ],
+            [
+              "2026-09-11",
+              "厦门一号店",
+              "6695.42"
+            ],
+            [
+              "2026-09-11",
+              "厦门二号店",
+              "4758.48"
+            ],
+            [
+              "2026-09-11",
+              "广州一号店",
+              "1619.80"
+            ],
+            [
+              "2026-09-11",
+              "广州三号店",
+              "13185.84"
+            ],
+            [
+              "2026-09-11",
+              "广州二号店",
+              "3708.41"
+            ],
+            [
+              "2026-09-11",
+              "广州四号店",
+              "3197.09"
+            ],
+            [
+              "2026-09-11",
+              "深圳一号店",
+              "4153.57"
+            ],
+            [
+              "2026-09-11",
+              "深圳三号店",
+              "7687.51"
+            ],
+            [
+              "2026-09-11",
+              "深圳四号店",
+              "4021.86"
+            ],
+            [
+              "2026-09-12",
+              "厦门一号店",
+              "10458.46"
+            ],
+            [
+              "2026-09-12",
+              "厦门二号店",
+              "4002.90"
+            ],
+            [
+              "2026-09-12",
+              "广州一号店",
+              "4895.61"
+            ],
+            [
+              "2026-09-12",
+              "广州三号店",
+              "10501.00"
+            ],
+            [
+              "2026-09-12",
+              "广州二号店",
+              "11946.16"
+            ],
+            [
+              "2026-09-12",
+              "广州四号店",
+              "4762.00"
+            ],
+            [
+              "2026-09-12",
+              "深圳一号店",
+              "11755.06"
+            ],
+            [
+              "2026-09-12",
+              "深圳三号店",
+              "12258.81"
+            ],
+            [
+              "2026-09-12",
+              "深圳四号店",
+              "1917.46"
+            ],
+            [
+              "2026-09-13",
+              "厦门一号店",
+              "6093.88"
+            ],
+            [
+              "2026-09-13",
+              "厦门二号店",
+              "12774.91"
+            ],
+            [
+              "2026-09-13",
+              "广州一号店",
+              "5680.23"
+            ],
+            [
+              "2026-09-13",
+              "广州三号店",
+              "20264.81"
+            ],
+            [
+              "2026-09-13",
+              "广州二号店",
+              "7596.25"
+            ],
+            [
+              "2026-09-13",
+              "广州四号店",
+              "4359.62"
+            ],
+            [
+              "2026-09-13",
+              "深圳一号店",
+              "13678.60"
+            ],
+            [
+              "2026-09-13",
+              "深圳三号店",
+              "7584.66"
+            ],
+            [
+              "2026-09-13",
+              "深圳四号店",
+              "6835.27"
+            ],
+            [
+              "2026-09-14",
+              "厦门一号店",
+              "8066.92"
+            ],
+            [
+              "2026-09-14",
+              "厦门二号店",
+              "8082.77"
+            ],
+            [
+              "2026-09-14",
+              "广州一号店",
+              "2803.42"
+            ],
+            [
+              "2026-09-14",
+              "广州三号店",
+              "9246.33"
+            ],
+            [
+              "2026-09-14",
+              "广州二号店",
+              "4802.57"
+            ],
+            [
+              "2026-09-14",
+              "广州四号店",
+              "2086.13"
+            ],
+            [
+              "2026-09-14",
+              "深圳一号店",
+              "3851.06"
+            ],
+            [
+              "2026-09-14",
+              "深圳三号店",
+              "3676.72"
+            ],
+            [
+              "2026-09-14",
+              "深圳四号店",
+              "2990.81"
+            ],
+            [
+              "2026-09-15",
+              "厦门一号店",
+              "4923.08"
+            ],
+            [
+              "2026-09-15",
+              "厦门二号店",
+              "6438.79"
+            ],
+            [
+              "2026-09-15",
+              "广州一号店",
+              "5176.31"
+            ],
+            [
+              "2026-09-15",
+              "广州三号店",
+              "3440.94"
+            ],
+            [
+              "2026-09-15",
+              "广州二号店",
+              "2616.07"
+            ],
+            [
+              "2026-09-15",
+              "广州四号店",
+              "5824.29"
+            ],
+            [
+              "2026-09-15",
+              "深圳一号店",
+              "5913.83"
+            ],
+            [
+              "2026-09-15",
+              "深圳三号店",
+              "10237.81"
+            ],
+            [
+              "2026-09-15",
+              "深圳四号店",
+              "4144.50"
+            ],
+            [
+              "2026-09-16",
+              "厦门一号店",
+              "7257.99"
+            ],
+            [
+              "2026-09-16",
+              "厦门二号店",
+              "4722.27"
+            ],
+            [
+              "2026-09-16",
+              "广州一号店",
+              "3243.93"
+            ],
+            [
+              "2026-09-16",
+              "广州三号店",
+              "7348.09"
+            ],
+            [
+              "2026-09-16",
+              "广州二号店",
+              "5100.17"
+            ],
+            [
+              "2026-09-16",
+              "广州四号店",
+              "3766.07"
+            ],
+            [
+              "2026-09-16",
+              "深圳一号店",
+              "3390.63"
+            ],
+            [
+              "2026-09-16",
+              "深圳三号店",
+              "8511.79"
+            ],
+            [
+              "2026-09-16",
+              "深圳四号店",
+              "5500.30"
+            ],
+            [
+              "2026-09-17",
+              "厦门一号店",
+              "7565.02"
+            ],
+            [
+              "2026-09-17",
+              "厦门二号店",
+              "3392.19"
+            ],
+            [
+              "2026-09-17",
+              "广州一号店",
+              "6373.89"
+            ],
+            [
+              "2026-09-17",
+              "广州三号店",
+              "5281.66"
+            ],
+            [
+              "2026-09-17",
+              "广州二号店",
+              "4591.83"
+            ],
+            [
+              "2026-09-17",
+              "广州四号店",
+              "4187.97"
+            ],
+            [
+              "2026-09-17",
+              "深圳一号店",
+              "5122.62"
+            ],
+            [
+              "2026-09-17",
+              "深圳三号店",
+              "6788.13"
+            ],
+            [
+              "2026-09-17",
+              "深圳四号店",
+              "6331.60"
+            ],
+            [
+              "2026-09-18",
+              "厦门一号店",
+              "5949.03"
+            ],
+            [
+              "2026-09-18",
+              "厦门二号店",
+              "6279.50"
+            ],
+            [
+              "2026-09-18",
+              "广州一号店",
+              "5512.04"
+            ],
+            [
+              "2026-09-18",
+              "广州三号店",
+              "8303.46"
+            ],
+            [
+              "2026-09-18",
+              "广州二号店",
+              "3090.92"
+            ],
+            [
+              "2026-09-18",
+              "广州四号店",
+              "5566.09"
+            ],
+            [
+              "2026-09-18",
+              "深圳一号店",
+              "12750.74"
+            ],
+            [
+              "2026-09-18",
+              "深圳三号店",
+              "3004.90"
+            ],
+            [
+              "2026-09-18",
+              "深圳四号店",
+              "1762.16"
+            ],
+            [
+              "2026-09-19",
+              "厦门一号店",
+              "8428.48"
+            ],
+            [
+              "2026-09-19",
+              "厦门二号店",
+              "10400.95"
+            ],
+            [
+              "2026-09-19",
+              "广州一号店",
+              "4204.30"
+            ],
+            [
+              "2026-09-19",
+              "广州三号店",
+              "11367.46"
+            ],
+            [
+              "2026-09-19",
+              "广州二号店",
+              "5403.00"
+            ],
+            [
+              "2026-09-19",
+              "广州四号店",
+              "4085.77"
+            ],
+            [
+              "2026-09-19",
+              "深圳一号店",
+              "4929.76"
+            ],
+            [
+              "2026-09-19",
+              "深圳三号店",
+              "7454.68"
+            ],
+            [
+              "2026-09-19",
+              "深圳四号店",
+              "3220.99"
+            ],
+            [
+              "2026-09-20",
+              "厦门一号店",
+              "14193.47"
+            ],
+            [
+              "2026-09-20",
+              "厦门二号店",
+              "7669.74"
+            ],
+            [
+              "2026-09-20",
+              "广州一号店",
+              "4597.43"
+            ],
+            [
+              "2026-09-20",
+              "广州三号店",
+              "7916.49"
+            ],
+            [
+              "2026-09-20",
+              "广州二号店",
+              "3743.37"
+            ],
+            [
+              "2026-09-20",
+              "广州四号店",
+              "3176.22"
+            ],
+            [
+              "2026-09-20",
+              "深圳一号店",
+              "2739.48"
+            ],
+            [
+              "2026-09-20",
+              "深圳三号店",
+              "6036.86"
+            ],
+            [
+              "2026-09-20",
+              "深圳四号店",
+              "7355.73"
+            ],
+            [
+              "2026-09-21",
+              "厦门一号店",
+              "3618.49"
+            ],
+            [
+              "2026-09-21",
+              "厦门二号店",
+              "6222.31"
+            ],
+            [
+              "2026-09-21",
+              "广州一号店",
+              "1667.21"
+            ],
+            [
+              "2026-09-21",
+              "广州三号店",
+              "5986.58"
+            ],
+            [
+              "2026-09-21",
+              "广州二号店",
+              "2729.75"
+            ],
+            [
+              "2026-09-21",
+              "广州四号店",
+              "9460.90"
+            ],
+            [
+              "2026-09-21",
+              "深圳一号店",
+              "5446.24"
+            ],
+            [
+              "2026-09-21",
+              "深圳三号店",
+              "2198.29"
+            ],
+            [
+              "2026-09-21",
+              "深圳四号店",
+              "2145.36"
+            ],
+            [
+              "2026-09-22",
+              "厦门一号店",
+              "3059.92"
+            ],
+            [
+              "2026-09-22",
+              "厦门二号店",
+              "13798.13"
+            ],
+            [
+              "2026-09-22",
+              "广州一号店",
+              "2142.08"
+            ],
+            [
+              "2026-09-22",
+              "广州三号店",
+              "5097.77"
+            ],
+            [
+              "2026-09-22",
+              "广州二号店",
+              "1193.91"
+            ],
+            [
+              "2026-09-22",
+              "广州四号店",
+              "2619.43"
+            ],
+            [
+              "2026-09-22",
+              "深圳一号店",
+              "11325.55"
+            ],
+            [
+              "2026-09-22",
+              "深圳三号店",
+              "5173.50"
+            ],
+            [
+              "2026-09-22",
+              "深圳四号店",
+              "1356.62"
+            ],
+            [
+              "2026-09-23",
+              "厦门一号店",
+              "5432.36"
+            ],
+            [
+              "2026-09-23",
+              "厦门二号店",
+              "3670.01"
+            ],
+            [
+              "2026-09-23",
+              "广州一号店",
+              "1460.55"
+            ],
+            [
+              "2026-09-23",
+              "广州三号店",
+              "9021.17"
+            ],
+            [
+              "2026-09-23",
+              "广州二号店",
+              "2055.08"
+            ],
+            [
+              "2026-09-23",
+              "广州四号店",
+              "2478.76"
+            ],
+            [
+              "2026-09-23",
+              "深圳一号店",
+              "3145.25"
+            ],
+            [
+              "2026-09-23",
+              "深圳三号店",
+              "2279.11"
+            ],
+            [
+              "2026-09-23",
+              "深圳四号店",
+              "3998.90"
+            ],
+            [
+              "2026-09-24",
+              "厦门一号店",
+              "4048.70"
+            ],
+            [
+              "2026-09-24",
+              "厦门二号店",
+              "8905.57"
+            ],
+            [
+              "2026-09-24",
+              "广州一号店",
+              "8246.00"
+            ],
+            [
+              "2026-09-24",
+              "广州三号店",
+              "5023.07"
+            ],
+            [
+              "2026-09-24",
+              "广州二号店",
+              "3534.66"
+            ],
+            [
+              "2026-09-24",
+              "广州四号店",
+              "8227.76"
+            ],
+            [
+              "2026-09-24",
+              "深圳一号店",
+              "3778.31"
+            ],
+            [
+              "2026-09-24",
+              "深圳三号店",
+              "3526.80"
+            ],
+            [
+              "2026-09-24",
+              "深圳四号店",
+              "3244.11"
+            ],
+            [
+              "2026-09-25",
+              "厦门一号店",
+              "5297.38"
+            ],
+            [
+              "2026-09-25",
+              "厦门二号店",
+              "10680.63"
+            ],
+            [
+              "2026-09-25",
+              "广州一号店",
+              "5280.61"
+            ],
+            [
+              "2026-09-25",
+              "广州三号店",
+              "10774.83"
+            ],
+            [
+              "2026-09-25",
+              "广州二号店",
+              "4981.01"
+            ],
+            [
+              "2026-09-25",
+              "广州四号店",
+              "5585.94"
+            ],
+            [
+              "2026-09-25",
+              "深圳一号店",
+              "8902.11"
+            ],
+            [
+              "2026-09-25",
+              "深圳三号店",
+              "7353.17"
+            ],
+            [
+              "2026-09-25",
+              "深圳四号店",
+              "8497.56"
+            ],
+            [
+              "2026-09-26",
+              "厦门一号店",
+              "20610.84"
+            ],
+            [
+              "2026-09-26",
+              "厦门二号店",
+              "20172.20"
+            ],
+            [
+              "2026-09-26",
+              "广州一号店",
+              "12539.80"
+            ],
+            [
+              "2026-09-26",
+              "广州三号店",
+              "15163.84"
+            ],
+            [
+              "2026-09-26",
+              "广州二号店",
+              "8603.59"
+            ],
+            [
+              "2026-09-26",
+              "广州四号店",
+              "9315.40"
+            ],
+            [
+              "2026-09-26",
+              "深圳一号店",
+              "14120.36"
+            ],
+            [
+              "2026-09-26",
+              "深圳三号店",
+              "10040.57"
+            ],
+            [
+              "2026-09-26",
+              "深圳四号店",
+              "13432.78"
+            ],
+            [
+              "2026-09-27",
+              "厦门一号店",
+              "10699.97"
+            ],
+            [
+              "2026-09-27",
+              "厦门二号店",
+              "16019.41"
+            ],
+            [
+              "2026-09-27",
+              "广州一号店",
+              "8232.77"
+            ],
+            [
+              "2026-09-27",
+              "广州三号店",
+              "11663.60"
+            ],
+            [
+              "2026-09-27",
+              "广州二号店",
+              "7350.60"
+            ],
+            [
+              "2026-09-27",
+              "广州四号店",
+              "9671.78"
+            ],
+            [
+              "2026-09-27",
+              "深圳一号店",
+              "15429.81"
+            ],
+            [
+              "2026-09-27",
+              "深圳三号店",
+              "13393.62"
+            ],
+            [
+              "2026-09-27",
+              "深圳四号店",
+              "7162.60"
+            ],
+            [
+              "2026-09-28",
+              "厦门一号店",
+              "6844.29"
+            ],
+            [
+              "2026-09-28",
+              "厦门二号店",
+              "11003.20"
+            ],
+            [
+              "2026-09-28",
+              "广州一号店",
+              "4882.60"
+            ],
+            [
+              "2026-09-28",
+              "广州三号店",
+              "5753.77"
+            ],
+            [
+              "2026-09-28",
+              "广州二号店",
+              "7523.40"
+            ],
+            [
+              "2026-09-28",
+              "广州四号店",
+              "3588.69"
+            ],
+            [
+              "2026-09-28",
+              "深圳一号店",
+              "5813.87"
+            ],
+            [
+              "2026-09-28",
+              "深圳三号店",
+              "5332.10"
+            ],
+            [
+              "2026-09-28",
+              "深圳四号店",
+              "3817.10"
+            ],
+            [
+              "2026-09-29",
+              "厦门一号店",
+              "4885.32"
+            ],
+            [
+              "2026-09-29",
+              "厦门二号店",
+              "4707.45"
+            ],
+            [
+              "2026-09-29",
+              "广州一号店",
+              "3790.00"
+            ],
+            [
+              "2026-09-29",
+              "广州三号店",
+              "7702.41"
+            ],
+            [
+              "2026-09-29",
+              "广州二号店",
+              "5696.00"
+            ],
+            [
+              "2026-09-29",
+              "广州四号店",
+              "5388.10"
+            ],
+            [
+              "2026-09-29",
+              "深圳一号店",
+              "11453.42"
+            ],
+            [
+              "2026-09-29",
+              "深圳三号店",
+              "9169.20"
+            ],
+            [
+              "2026-09-29",
+              "深圳四号店",
+              "2328.00"
+            ],
+            [
+              "2026-09-30",
+              "厦门一号店",
+              "3321.53"
+            ],
+            [
+              "2026-09-30",
+              "厦门二号店",
+              "6184.27"
+            ],
+            [
+              "2026-09-30",
+              "广州一号店",
+              "4911.30"
+            ],
+            [
+              "2026-09-30",
+              "广州三号店",
+              "3887.60"
+            ],
+            [
+              "2026-09-30",
+              "广州二号店",
+              "6335.20"
+            ],
+            [
+              "2026-09-30",
+              "广州四号店",
+              "2644.00"
+            ],
+            [
+              "2026-09-30",
+              "深圳一号店",
+              "7230.00"
+            ],
+            [
+              "2026-09-30",
+              "深圳三号店",
+              "3719.30"
+            ],
+            [
+              "2026-09-30",
+              "深圳四号店",
+              "4092.80"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": null,
+              "filters": [
+                {
+                  "values": [
+                    "华南"
+                  ],
+                  "dimension": "region"
+                }
+              ],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "store"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": "day",
+              "compare_end": null,
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales"
+              ],
+              "clarification": null,
+              "compare_start": null
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "看华南各门店 9 月按日趋势，检查是否有某天缺失或骤降",
+            "assumption": false,
+            "time_column": "period"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "describe_asset",
+      "datasets": []
+    },
+    {
+      "tool": "describe_asset",
+      "datasets": []
+    },
+    {
+      "tool": "describe_asset",
+      "datasets": []
+    },
+    {
+      "tool": "query_sql",
+      "datasets": []
+    },
+    {
+      "tool": "search_assets",
+      "datasets": []
+    },
+    {
+      "tool": "query_sql",
+      "datasets": []
+    },
+    {
+      "tool": "search_metrics",
+      "datasets": []
+    },
+    {
+      "tool": "query_metric",
+      "datasets": [
+        {
+          "seq": 16,
+          "kind": "governed",
+          "title": "门店成交额、门店订单数 2026-09-01~2026-09-30 按store 对比2026-08-01~2026-08-31",
+          "inputs": [],
+          "columns": [
+            "store",
+            "门店成交额",
+            "门店成交额·对比期",
+            "门店成交额·变化",
+            "门店成交额·变化率",
+            "门店订单数",
+            "门店订单数·对比期",
+            "门店订单数·变化",
+            "门店订单数·变化率"
+          ],
+          "rows": [
+            [
+              "厦门一号店",
+              "229741.88",
+              "212482.52",
+              "17259.36",
+              "0.0812",
+              "389",
+              "381",
+              "8",
+              "0.0210"
+            ],
+            [
+              "厦门二号店",
+              "250006.65",
+              "205512.04",
+              "44494.61",
+              "0.2165",
+              "383",
+              "385",
+              "-2",
+              "-0.0052"
+            ],
+            [
+              "广州一号店",
+              "143404.36",
+              "134683.01",
+              "8721.35",
+              "0.0648",
+              "225",
+              "218",
+              "7",
+              "0.0321"
+            ],
+            [
+              "广州三号店",
+              "274118.17",
+              "256114.62",
+              "18003.55",
+              "0.0703",
+              "473",
+              "460",
+              "13",
+              "0.0283"
+            ],
+            [
+              "广州二号店",
+              "171359.97",
+              "156819.27",
+              "14540.70",
+              "0.0927",
+              "259",
+              "264",
+              "-5",
+              "-0.0189"
+            ],
+            [
+              "广州四号店",
+              "160055.76",
+              "134621.31",
+              "25434.45",
+              "0.1889",
+              "248",
+              "236",
+              "12",
+              "0.0508"
+            ],
+            [
+              "深圳一号店",
+              "239061.23",
+              "182770.75",
+              "56290.48",
+              "0.3080",
+              "367",
+              "360",
+              "7",
+              "0.0194"
+            ],
+            [
+              "深圳三号店",
+              "204529.30",
+              "233054.03",
+              "-28524.73",
+              "-0.1224",
+              "386",
+              "391",
+              "-5",
+              "-0.0128"
+            ],
+            [
+              "深圳四号店",
+              "141707.28",
+              "160893.87",
+              "-19186.59",
+              "-0.1192",
+              "230",
+              "238",
+              "-8",
+              "-0.0336"
+            ],
+            [
+              "深圳福田中心店",
+              "155413.45",
+              "300071.87",
+              "-144658.42",
+              "-0.4821",
+              "159",
+              "556",
+              "-397",
+              "-0.7140"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店订单数": {
+                "kind": "level",
+                "unit": "单"
+              },
+              "门店成交额·变化": {
+                "kind": "delta",
+                "unit": "元"
+              },
+              "门店订单数·变化": {
+                "kind": "delta",
+                "unit": "单"
+              },
+              "门店成交额·变化率": {
+                "kind": "rate_change"
+              },
+              "门店成交额·对比期": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店订单数·变化率": {
+                "kind": "rate_change"
+              },
+              "门店订单数·对比期": {
+                "kind": "level",
+                "unit": "单"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": "custom",
+              "filters": [
+                {
+                  "values": [
+                    "华南"
+                  ],
+                  "dimension": "region"
+                }
+              ],
+              "end_date": "2026-09-30",
+              "group_by": [
+                "store"
+              ],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": null,
+              "compare_end": "2026-08-31",
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales",
+                "ec_store_orders"
+              ],
+              "clarification": null,
+              "compare_start": "2026-08-01"
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "用订单口径交叉验证华南各门店成交额降幅：判断缺口只出现在客流主表还是订单同样缺",
+            "assumption": false,
+            "time_column": null
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_metric",
+      "datasets": [
+        {
+          "seq": 17,
+          "kind": "governed",
+          "title": "门店成交额、门店订单数 2026-09-01~2026-09-30 按日",
+          "inputs": [],
+          "columns": [
+            "period",
+            "门店成交额",
+            "门店订单数"
+          ],
+          "rows": [
+            [
+              "2026-09-01",
+              "19091.41",
+              "13"
+            ],
+            [
+              "2026-09-02",
+              "12760.34",
+              "16"
+            ],
+            [
+              "2026-09-03",
+              "15738.53",
+              "19"
+            ],
+            [
+              "2026-09-04",
+              "29445.42",
+              "19"
+            ],
+            [
+              "2026-09-05",
+              "26132.82",
+              "22"
+            ],
+            [
+              "2026-09-06",
+              "19924.05",
+              "24"
+            ],
+            [
+              "2026-09-07",
+              "16227.81",
+              "18"
+            ],
+            [
+              "2026-09-08",
+              "7377.76",
+              "14"
+            ],
+            [
+              "2026-09-09",
+              "8715.31",
+              "14"
+            ]
+          ],
+          "truncated": false,
+          "meta": {
+            "units": {
+              "门店成交额": {
+                "kind": "level",
+                "unit": "元"
+              },
+              "门店订单数": {
+                "kind": "level",
+                "unit": "单"
+              }
+            },
+            "intent": {
+              "limit": null,
+              "order": null,
+              "compare": null,
+              "filters": [
+                {
+                  "values": [
+                    "深圳福田中心店"
+                  ],
+                  "dimension": "store"
+                }
+              ],
+              "end_date": "2026-09-30",
+              "group_by": [],
+              "candidates": [],
+              "start_date": "2026-09-01",
+              "time_grain": "day",
+              "compare_end": null,
+              "metric_code": "ec_store_sales",
+              "metric_codes": [
+                "ec_store_sales",
+                "ec_store_orders"
+              ],
+              "clarification": null,
+              "compare_start": null
+            },
+            "window": {
+              "end": "2026-09-30",
+              "start": "2026-09-01"
+            },
+            "explore": false,
+            "partial": false,
+            "purpose": "按日查看深圳福田中心店的成交额与订单数，确认 9 月 10 日后是否两套口径同时缺失",
+            "assumption": false,
+            "time_column": "period"
+          }
+        }
+      ]
+    }
+  ],
+  "expect": {
+    "status": "with_inference",
+    "ok": true,
+    "revised": true,
+    "conclusion": "ranked_reasons"
+  }
 }
