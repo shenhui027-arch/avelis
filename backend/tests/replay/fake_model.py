@@ -7,7 +7,8 @@
   （列、行、量纲、窗口、查询意图、来源标记），不保存 SQL、数据源与资产编号。计算类工具不录产出，回放时用冻结的数据重新计算；
 - expect：真实运行的核验结论（status、ok、revised、conclusion）；
 - report_schema：录制时 submit_report 参数的模式版本（tools.REPORT_SCHEMA），与当前版本不同的轨迹跳过并提示重新录制。
-第 1 版是手工构造的轨迹（没有 fixtures，数据夹具在测试里冻结）；第 2 版由 scripts/record_replay_traces.py 从真实模型的运行录制。
+第 1 版是手工构造的轨迹（没有 fixtures，数据夹具在测试里冻结），按 ADR 0012 的流程：理解（submit_scope）→ 预检 →
+推理 → 核验与修订；第 2 版由 scripts/record_replay_traces.py 从真实模型的运行录制（流程改版后不再录制，留作格式）。
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ class ScriptedModel:
     def __init__(self, messages: list[dict[str, Any]]):
         self.messages, self.calls, self.seen = list(messages), 0, []
 
-    def bind_tools(self, tools):
+    def bind_tools(self, tools, **kwargs):
         self.tools = [t.name for t in tools]
         return self
 

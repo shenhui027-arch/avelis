@@ -1,4 +1,4 @@
-"""确定性回放（ADR 0009 第 5 点）：假模型按轨迹返回消息，驱动真实的分析图（计划 → 执行 → 核验 → 修订）。
+"""确定性回放（ADR 0009 第 5 点）：假模型按轨迹返回消息，驱动真实的分析图（理解 → 预检 → 推理 → 核验 → 修订，ADR 0012）。
 
 轨迹文件按字段白名单保存（见 tests/replay/fake_model.py）。第 2 版从真实模型的运行录制：取数类工具返回冻结的数据集，
 计算工具、核验与修订照常执行，必须得到与真实运行相同的核验结论；第 1 版是手工构造的轨迹，数据夹具在这里冻结。
@@ -40,15 +40,13 @@ def replay(name: str, monkeypatch):
     else:
         version = SimpleNamespace(kind="base", expression="SUM(x)", unit="件", unit_scale=1)
         box._dataset("governed", "指标甲 按地区 对比期", FIXTURE_COLUMNS, FIXTURE_ROWS,  # 冻结的数据夹具 D1
-                     meta={"intent": {}, "time_column": None,
+                     meta={"intent": {}, "time_column": None, "metric_codes": ["m_a"],
                            "units": governed_units(FIXTURE_COLUMNS, {"指标甲": version}, "对比期"),
                            "window": {"start": trace["window"]["start"], "end": trace["window"]["end"]}})
     model = ScriptedModel(trace["messages"])
     config = {"configurable": {"thread_id": f"replay:{name}", "toolbox": box, "model": model}, "recursion_limit": 50}
-    system = agent.system_message("2026-10-30", "Asia/Shanghai", trace["window"], box.budget)
     graph = agent.build_graph(MemorySaver())
-    graph.invoke({"messages": [system, HumanMessage(trace["question"])], "phase": "plan", "rounds": 0, "notes": []},
-                 config)
+    graph.invoke(agent.initial_state(trace["question"], "2026-10-30", "Asia/Shanghai", trace["window"]), config)
     if trace["version"] >= 2:  # 与真实运行一致：模型回复与取数夹具全部用完，核验结论相同
         expect = trace["expect"]
         assert model.calls == len(trace["messages"]) and not pending, (model.calls, pending[:1])
@@ -72,7 +70,11 @@ def test_first_pass(monkeypatch):
     assert v["status"] == "all_passed" and model.calls == 3
     assert report["summary"] == "指标甲较上期下降 100件" and report["conclusion"] == "ranked_reasons"
     assert report["causes"][0]["status"] == "verified" and report["causes"][0]["contribution"]["text"] == "-80件"
-    assert box.budget.used_tools == 2  # 计划与拆解；最终 submit_report 不计数
+    assert box.budget.used_tools == 1  # 只有拆解；理解阶段的 submit_scope 不经工具箱，submit_report 单独计数
+    understand, reason = model.seen[0], model.seen[1]
+    assert "候选口径" in understand[-1].content and "系统预检的上下文包" in reason[1].content
+    assert "D1 指标甲 按地区 对比期" in reason[1].content  # 上下文包列出已有的数据集
+    assert "2026-10-30" not in reason[0].content  # 系统提示只放稳定内容：日期在用户消息里
 
 
 def test_revised_pass(monkeypatch):
@@ -83,6 +85,8 @@ def test_revised_pass(monkeypatch):
         return
     assert model.calls == 4 and "第 1 个片段（文字）出现数字“30”" in feedback(model)[0].content
     assert box.report["summary"] == "指标甲较上期下降 100件"
+    first, last = model.seen[1], model.seen[-1]  # 修订提示追加在末尾：前缀不变，前缀缓存仍能命中
+    assert last[:len(first)] == first and last[-1].content.startswith("核验发现以下问题")
 
 
 def test_revised_fail(monkeypatch):

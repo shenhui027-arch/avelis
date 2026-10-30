@@ -417,7 +417,9 @@ def test_07_real_model_finds_planted_cause(stack, admin: Api):
     used = run["budget"]["used"]
     limits = run["budget"]["limits"]  # 修订会追加工具次数：与运行记录的上限比较
     assert used["queries"] <= limits["queries"] and used["tool_calls"] <= limits["tool_calls"]
-    assert run["steps"][0]["tool"] in ("submit_plan", "search_metrics", "describe_metric", "changes")
+    # ADR 0012：先是理解阶段的一次模型调用与 scope，随后是系统预检（不经模型）
+    assert [s["tool"] for s in run["steps"][:2]] == ["model", "understand"]
+    assert ((run["plan"] or {}).get("scope") or {}).get("question_type") == "change"
     ctx["llm_run"] = run["id"]
 
 
