@@ -278,7 +278,7 @@ PR #10 开发中，这套规则一天内改了 12 次，经过 5 轮 Codex 复�
 
 **执行**：
 - 用该数据源的只读账号执行。只读账号的授权是最后一道边界，校验层不能代替它。
-- 规划、执行、取数、序列化共用运行的统一截止时间；超时会向服务端发出取消，并确认查询已停止。
+- 规划、执行、取数、序列化共用运行的统一截止时间；服务端查询超时（StarRocks 的 query_timeout、PostgreSQL 的 statement_timeout）不超过剩余时间，保证查询在截止时由数据库终止；客户端超时时另发一次取消（尽力而为），审计如实记录取消是否发送成功。
 - StarRocks：设置 `query_timeout`、`query_mem_limit`、`pipeline_dop`。PostgreSQL：只读事务，设置 `statement_timeout`、`lock_timeout`、较低的 `work_mem`，`max_parallel_workers_per_gather = 0`。
 - 服务端资源组、`temp_file_limit` 等需要管理员配置的项写进部署文档，作为推荐项，产品不假装能强制。
 - 不要求先做 EXPLAIN。执行计划不是安全沙箱，第一版不调用。

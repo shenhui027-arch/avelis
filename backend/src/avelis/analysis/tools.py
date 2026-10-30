@@ -822,7 +822,10 @@ class AnalysisToolbox:
                                              exploration.resolver(self.session, self.user, source), max_rows=max_rows)
             shown = exploration.check_declared(validated, declared)
             connector = query_connector(self.session, source.datasource)
-            exploration.live_check(connector, validated)
+            check_timeout = int(min(self.EXPLORE_MAX_SECONDS, self.budget.remaining() - 5))
+            if check_timeout <= 0:
+                raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
+            exploration.live_check(connector, validated, timeout_seconds=check_timeout)
             self._authorize()
             exploration.recheck_access(self.session, self.user, validated)
             # 派发前重新检查截止时间：执行前核对可能已耗时；超时值 ≤ 0 时 statement_timeout = 0 等于不限时，必须拒绝

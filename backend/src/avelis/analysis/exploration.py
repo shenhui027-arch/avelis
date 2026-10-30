@@ -90,9 +90,8 @@ def resolver(session: Session, user: User, source: ExploreSource):
             upstream.pop(asset.id, None)
             if not upstream:
                 raise deny(label, "view_lineage_unknown", "是视图，但上游血缘未确认，无法判断上游是否都可见")
-            unresolved = _unresolved_lineage(session, closure)
-            if unresolved:
-                raise deny(label, "view_lineage_unresolved", f"是视图，它的上游有未解析或未绑定的来源（{unresolved}）")
+            if _unresolved_lineage(session, closure):  # 固定文案：未绑定的来源名可能是用户无权看到的表
+                raise deny(label, "view_lineage_unresolved", "是视图，但上游血缘不完整，无法确认可读范围，拒绝执行")
             if not all(access.can_read_asset(session, user, a, allowed) for a in upstream.values()):
                 raise deny(label, "view_upstream_not_visible", "是视图，它的上游有当前用户不可见的资产")
             definition = session.scalar(select(Definition.raw_sql).where(Definition.asset_version_id == version.id))
@@ -153,10 +152,11 @@ def check_declared(validated: Validated, declared: list[dict] | None) -> dict[st
     return out
 
 
-def live_check(connector: Any, validated: Validated) -> None:
-    """执行前核对物理身份与列：与绑定的资产版本不一致就拒绝（资产定义已变化），探索查询不执行。"""
+def live_check(connector: Any, validated: Validated, *, timeout_seconds: int) -> None:
+    """执行前核对物理身份与列：与绑定的资产版本不一致就拒绝（资产定义已变化），探索查询不执行。
+    核对查询同样受统一截止时间约束（timeout_seconds 取剩余时间）。"""
     objects = [(t.db, t.name) for t in validated.tables]
-    current = connector.describe_objects(objects)
+    current = connector.describe_objects(objects, timeout_seconds=timeout_seconds)
     for t in validated.tables:
         now = current.get((t.db, t.name)) or {}
         if t.physical_id and now.get("physical_id") != t.physical_id:
@@ -228,7 +228,9 @@ def record(session: Session, user: User, run_id: str, *, step: int, source: Expl
     elif isinstance(error, QueryError):
         detail.update(code=error.code, message=error.message)
         if getattr(error, "cancel", None):
-            detail["cancel"] = error.cancel  # cancelled / already_finished / cancel_failed
+            detail["cancel"] = error.cancel  # kill_sent / already_finished / cancel_failed
+        if getattr(error, "cancel_error", None):
+            detail["cancel_error"] = error.cancel_error  # 取消失败时的异常类别与消息（只进审计）
     if result is not None:
         detail.update(rows=len(result.rows), truncated=result.truncated, digest=digest(result))
     if limits:
