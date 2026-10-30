@@ -528,7 +528,8 @@
 .av-num { border-bottom: 1px dotted var(--line-strong); color: var(--text-primary); cursor: help; }
 .av-num.is-error { border-bottom-color: var(--danger); color: var(--danger); }
 .av-num.is-proposal { border-bottom-style: dashed; color: var(--warn); }
-.av-num sup { margin-left: 2px; font: 500 10px/1 var(--font-sans); color: var(--warn); }
+.av-num sup { margin-left: 2px; font: 500 10px/1 var(--font-sans); color: var(--text-tertiary); }
+.av-num.is-explore sup, .av-num.is-proposal sup { color: var(--warn); }
 .av-num.is-explore { border-bottom-style: dashed; }
 .av-analysis__verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .av-timeline { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
