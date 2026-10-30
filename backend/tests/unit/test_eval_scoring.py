@@ -11,7 +11,11 @@ Q = {q["id"]: q for q in DATA["questions"]}
 
 
 def test_question_set_shape():
-    qs = DATA["questions"]
+    holdout = [q for q in DATA["questions"] if q.get("holdout")]
+    assert len(holdout) == 6 and {q["id"] for q in holdout} == {f"h0{i}" for i in range(1, 7)}
+    held = Counter(q["category"] for q in holdout)
+    assert held["negative"] >= 1 and held["explore"] >= 1  # 至少各 1 道反例与探索题
+    qs = [q for q in DATA["questions"] if not q.get("holdout")]
     counts = Counter(q["category"] for q in qs)
     assert len(qs) == 20 and len({q["id"] for q in qs}) == 20
     assert sum(counts[c] for c in ("dimension", "factor", "calendar", "governance")) == 12

@@ -401,6 +401,12 @@ def truth(ds: Dataset) -> dict:
     ship_key = lambda s: (warehouse_region[s[2]], month(s[4]))  # noqa: E731
     shipment_cnt, delivery_hours = count(shipments, ship_key), count(shipments, ship_key, hours)
     live_items = [i for i in ds.tables["ec_trade.order_item"] if by_id[i[1]][10] != "cancelled"]
+    tickets = ds.tables["ec_service.service_ticket"]
+    ticket_key = lambda t: (by_id[t[1]][5], month(t[3]))  # noqa: E731
+    sat_sum = count(tickets, ticket_key, lambda t: t[5] or 0)
+    rated = count(tickets, ticket_key, lambda t: 1 if t[5] is not None else 0)
+    paid_channels = {c[0] for c in PAID_CHANNELS}
+    ad_paid = count([o for o in paid if o[9] in paid_channels], lambda o: (o[5], month(o[2])), lambda o: o[15])
     return {
         "version": VERSION,
         "rows": {t: len(r) for t, r in sorted(ds.tables.items())},
@@ -412,8 +418,16 @@ def truth(ds: Dataset) -> dict:
         "store_month": total([o for o in paid if o[7] == "门店"], lambda o: (store_name[o[4]], month(o[2]))),
         "logistics_region_month": {k: {"shipments": n, "delivery_hours": delivery_hours[k]}
                                    for k, n in shipment_cnt.items()},  # 按发货仓所在区域、发货日期
-        "ticket_region_month": {k: {"tickets": n} for k, n in count(  # 按订单区域、工单创建日期
-            ds.tables["ec_service.service_ticket"], lambda t: (by_id[t[1]][5], month(t[3]))).items()},
+        "ticket_region_month": {k: {"tickets": n, "satisfaction_sum": sat_sum[k], "rated": rated[k]}
+                                for k, n in count(tickets, ticket_key).items()},  # 按订单区域、工单创建日期
+        "ticket_region_category_month": {k: {"tickets": n} for k, n in count(
+            tickets, lambda t: (by_id[t[1]][5], t[4], month(t[3]))).items()},
+        "store_traffic_month": {k: {"visitors": n} for k, n in count(  # dws_store_daily：以门店日客流为主表
+            ds.tables["ec_org.store_daily_traffic"], lambda t: (store_name[t[0]], month(t[1])), lambda t: t[2]).items()},
+        "orders_day": total(paid, lambda o: str(o[2])),  # 按下单日期，不含取消单
+        "ad_region_month": {k: {"spend": str(v), "paid_amount": str(ad_paid.get(k, Decimal("0")))}
+                            for k, v in count(ds.tables["ec_marketing.ad_spend_daily"], lambda a: (a[2], month(a[0])),
+                                              lambda a: a[5]).items()},  # dws_marketing_daily：付费渠道花费与归因成交
         "category_month": {k: {"units": n} for k, n in count(  # 一级类目、下单日期，不含取消单
             live_items, lambda i: (l1_of[i[2]], month(by_id[i[1]][2])), lambda i: i[3]).items()},
         "traffic_rows_on_gap_day": len(gap),

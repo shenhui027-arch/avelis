@@ -91,7 +91,8 @@ def run_questions(client, questions: list[dict], repeat: int, password: str,
             retried = transport_error(run)
             if retried:
                 run = _ask(client, headers, q)
-            result = {**score(q, run), "repeat": attempt, "retried": retried, "seconds": round(time.monotonic() - began, 1),
+            result = {**score(q, run), "holdout": bool(q.get("holdout")), "repeat": attempt, "retried": retried,
+                      "seconds": round(time.monotonic() - began, 1),
                       "run_id": (run or {}).get("id"), "error": (run or {}).get("error"),
                       "tool_calls": (((run or {}).get("budget") or {}).get("used") or {}).get("tool_calls"),
                       **({"resumed": True} if reuse is not None else {})}
@@ -109,6 +110,7 @@ def main() -> int:
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--resume", type=Path, help="上次的评测结果：沿用已有真实结果的运行，重跑其余的")
     parser.add_argument("--only", default="", help="逗号分隔的题号")
+    parser.add_argument("--holdout", action="store_true", help="同时跑留出题（默认不跑；修复确认、完成之后才跑）")
     parser.add_argument("--rescore", type=Path, help="已保存的评测结果：按当前题目定义重新判分")
     args = parser.parse_args()
     if args.rescore:
@@ -120,7 +122,8 @@ def main() -> int:
             os.environ.setdefault(key, value)
     data = load_questions()
     wanted = {x.strip() for x in args.only.split(",") if x.strip()}
-    questions = [q for q in data["questions"] if not wanted or q["id"] in wanted]
+    questions = [q for q in data["questions"] if (not wanted or q["id"] in wanted)
+                 and (args.holdout or not q.get("holdout"))]
     started = datetime.now()
     reuse = reusable(json.loads(args.resume.read_text(encoding="utf-8"))) if args.resume else {}
     results, runs = run_questions(_client(env), questions, args.repeat, env["AVELIS_DEMO_USER_PASSWORD"], reuse)
@@ -148,7 +151,8 @@ def rescore(path: Path) -> int:
     results = []
     for item in saved["runs"]:
         old = previous[(item["id"], item["repeat"])]
-        results.append({**score(questions[item["id"]], item["run"]), "repeat": item["repeat"], "retried": old["retried"],
+        results.append({**score(questions[item["id"]], item["run"]), "holdout": bool(questions[item["id"]].get("holdout")),
+                        "repeat": item["repeat"], "retried": old["retried"],
                         "seconds": old["seconds"], "run_id": old["run_id"], "error": old["error"],
                         "tool_calls": old["tool_calls"]})
     summary = summarize(results)

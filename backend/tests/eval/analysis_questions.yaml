@@ -11,6 +11,8 @@
 #                       关键数值认首要原因的两期值或变化量——三者都是首要原因的正确事实，只认其中一个是题目定义错了
 #                       （2026-10-30 修正，评测第 5 步 d05、f01；容差不变）。
 #   expect.required_in_causes  这些关键字必须出现在通过核验的原因实体里（只写在摘要里不算）
+#   holdout       留出题：调优集（其余各题）看过结果之后另写的题，修复确认、完成之前不跑，也不据此调整；
+#                 运行器默认不跑，加 --holdout 才跑；汇总与门禁两组分开统计
 #   expect.forbidden    禁止出现在任何原因实体里的关键字
 #   expect.denied_ok    对抗题：运行因权限被拒绝或暂停也算通过
 version: ec-1
@@ -69,7 +71,10 @@ questions:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: up, entity: [西南, 物流]}  # 物流类工单增加是同一事件在另一个维度上的表现
       required_in_causes: [西南]  # 根因“西南”必须列为原因
-      key_value: {truth: {table: ticket_region_month, key: [SW], measure: tickets}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
+      # 关键数值认首要原因的两期值或变化量；“西南 / 物流”二维单元是根因西南里更具体的切片，实体算命中，
+      # 它的两期值与变化量也认（第 5 步评测 d06#2，主会话裁定）
+      key_value: {truth: [{table: ticket_region_month, key: [SW], measure: tickets},
+                          {table: ticket_region_category_month, key: [SW, 物流], measure: tickets}], tolerance: 0, abs: true}
       forbidden: [华北]
   # --- 因子原因 -----------------------------------------------------------------------
   - id: f01
@@ -187,3 +192,62 @@ questions:
       conclusion: [insufficient_evidence]
       denied_ok: true
       forbidden: [福田]
+  # --- 留出题（holdout）：2026-10-30 在调优集结果之后编写，修复确认、完成之前不跑 ------------------------
+  # 预埋场景：只有“中秋假期”（9/25–27）与两个品类节（七夕美妆节、中秋礼盒季）之前没有出过题；
+  # 其余几道换了指标或角度（满意度、进店客流、投放 ROI），不与调优集的题面重复。
+  - id: h01
+    holdout: true
+    category: dimension
+    question: 2026 年 8 月客服平均满意度为什么比 7 月低？
+    window: {kind: fixed, start: "2026-08-01", end: "2026-08-31", compare_start: "2026-07-01", compare_end: "2026-07-31"}
+    expect:
+      conclusion: [ranked_reasons]
+      primary: {types: [member], direction: down, entity: [西南, 物流]}
+      required_in_causes: [西南]
+      key_value: {truth: {table: ticket_region_month, key: [SW], measure: satisfaction_sum/rated}, tolerance: 0.01}  # 关键数值认首要原因的两期值或变化量
+      forbidden: [华东]
+  - id: h02
+    holdout: true
+    category: dimension
+    question: 深圳门店 2026 年 9 月的进店客流为什么比 8 月少？
+    expect:
+      conclusion: [ranked_reasons]
+      primary: {types: [member], direction: down, entity: [福田中心店]}
+      key_value: {truth: {table: store_traffic_month, key: [深圳福田中心店], measure: visitors}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
+      forbidden: [抖音]
+  - id: h03
+    holdout: true
+    category: factor
+    question: 华东区域 2026 年 9 月投放成交额下降，主要是投放花费减少还是投放 ROI 变化造成的？
+    expect:
+      conclusion: [ranked_reasons]
+      primary: {types: [factor], direction: down, entity: [花费]}
+      key_value: {truth: {table: ad_region_month, key: [EC], measure: spend}, tolerance: 0.01, abs: true}  # 关键数值认首要原因的两期值或变化量
+      forbidden: [福田]
+  - id: h04
+    holdout: true
+    category: calendar
+    question: 2026 年 9 月 21 日到 27 日全部区域的订单数为什么比前一周多？
+    window: {kind: fixed, start: "2026-09-21", end: "2026-09-27", compare_start: "2026-09-14", compare_end: "2026-09-20"}
+    expect:
+      conclusion: [ranked_reasons]
+      primary: {types: [calendar], direction: up, entity: []}
+      key_value: {truth: {table: orders_day, measure: orders, period: day}, tolerance: 0, abs: true}  # 订单数的两期值或变化量
+      forbidden: [福田, 抖音]
+  - id: h05
+    holdout: true
+    category: explore
+    question: 美妆类目 2026 年 8 月销量为什么比 7 月高？
+    window: {kind: fixed, start: "2026-08-01", end: "2026-08-31", compare_start: "2026-07-01", compare_end: "2026-07-31"}
+    expect:
+      conclusion: [ranked_reasons]
+      primary: {types: [factor, member], direction: up, entity: [七夕, 美妆节, 活动, 促销]}  # 营销活动表，无口径
+      key_value: {truth: {table: category_month, key: [美妆], measure: units}, tolerance: 0, abs: true}  # 美妆销量的两期值或变化量
+      forbidden: [抖音, 福田]
+  - id: h06
+    holdout: true
+    category: negative
+    question: 华北区域 2026 年 9 月成交额为什么比 8 月低？
+    expect:
+      conclusion: [no_material_change]  # 5058101.00 → 5045094.27，下降不到 1%
+      forbidden: [抖音, 福田, 太古里]
