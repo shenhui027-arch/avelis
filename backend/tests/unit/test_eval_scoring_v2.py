@@ -56,6 +56,15 @@ def test_key_value_must_bind_metric_entity_and_period():
     assert v2.score(D01, wrong_col)["key_value_hit"] is False
 
 
+def test_key_value_rejects_change_value_in_current_column_for_the_correct_store():
+    run = store_run(f"D3.门店成交额[store={FUTIAN}]", TRUTH["change"])
+    run["datasets"][0]["rows"][0][1] = str(TRUTH["change"])  # 同一门店的本期单元格误写成变化量
+    assert v1.score(D01, run)["key_value_hit"] is True  # v1 只看数值相同，漏掉所在列的期间
+    out = v2.score(D01, run)
+    assert out["key_value_hit"] is False and out["passed"] is False
+    assert "所在列" in out["key_value_detail"]["reason"]
+
+
 def test_derived_numbers_cannot_be_bound_automatically():
     derived = ({"ref": "D9", "kind": "calc", "title": "派生：两期差额", "columns": ["name", "value"], "rows": [],
                 "row_count": 0, "truncated": False, "inputs": ["D3"], "sql": None},
