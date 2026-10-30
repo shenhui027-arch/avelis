@@ -255,4 +255,5 @@ def test_verify_checks_title_summary_and_unexplained():
     assert not bad["ok"] and bad["unverified"] == 0 and bad["unverified_fields"] == 1
     summary = bad["fields"][1]
     assert summary["field"] == "summary" and summary["numbers"] == [
-        {"text": "30%", "verified": False}, {"text": "555", "verified": False}]  # D2 没有被任何事实引用
+        {"text": "30%", "verified": False},
+        {"text": "555", "verified": False, "found_in": ["D2"]}]  # D2 没有被任何事实引用：仍未核实，只提示出处

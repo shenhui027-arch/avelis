@@ -179,26 +179,38 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
     return {"phase": "done"}
 
 
+def _located(numbers: list[dict[str, Any]], titles: dict[str, str]) -> list[str]:
+    """出现在本次运行其他数据集里的未核实数字（核验时按同一套匹配规则查到的 found_in）：点名数据集，提示补引用。"""
+    return [f"  · {n['text']} 出现在 " + "、".join(f"{r}（{titles.get(r, '')}）" for r in n["found_in"][:3])
+            + f"，如果依据它，请把 {'、'.join(n['found_in'][:3])} 加入 refs" for n in numbers if n.get("found_in")]
+
+
 def revise(state: AnalysisState, config) -> dict[str, Any]:
     toolbox, _ = _ctx(config)
     claims = toolbox.report.get("claims", [])
+    titles = {ref: d.title for ref, d in toolbox.datasets().items()}
     lines = []
     for c in toolbox.verification["claims"]:
         if c["status"] == "unverified":
-            bad = [n["text"] for n in c["numbers"] if not n["verified"]]
+            bad = [n for n in c["numbers"] if not n["verified"]]
             extra = f"；引用了不存在的数据集 {'、'.join(c['missing_refs'])}" if c.get("missing_refs") else ""
             if c.get("no_refs"):
                 extra += "；没有引用数据集（事实与计算类结论必须引用）"
-            lines.append(f"- 第 {c['index'] + 1} 条（{claims[c['index']]['type']}）：{'、'.join(bad) or '—'}{extra}")
+            texts = "、".join(n["text"] for n in bad) or "—"
+            lines.append(f"- 第 {c['index'] + 1} 条（{claims[c['index']]['type']}）：{texts}{extra}")
+            lines += _located(bad, titles)
     names = {"title": "标题", "summary": "摘要", "unexplained": "未解释"}
     for f in toolbox.verification.get("fields", []):
         if f["status"] == "unverified":
-            bad = [n["text"] for n in f["numbers"] if not n["verified"]]
-            lines.append(f"- {names.get(f['field'], f['field'])}：{'、'.join(bad)}（须来自事实 / 计算类结论引用的数据集）")
+            bad = [n for n in f["numbers"] if not n["verified"]]
+            lines.append(f"- {names.get(f['field'], f['field'])}：{'、'.join(n['text'] for n in bad)}"
+                         "（须来自事实 / 计算类结论引用的数据集）")
+            lines += _located(bad, titles)
     toolbox.budget.tool_calls += REVISION_TOOL_CALLS
     toolbox.report = None
     message = ("核验发现下列数字在所引用的数据集里找不到：\n" + "\n".join(lines) +
-               "\n请修订：用 derive / describe 等工具算出这些数字并引用新的数据集，或改正引用；"
+               "\n请修订：标明“出现在”某数据集的数字，结论若依据它就把该数据集加入 refs；其余数字"
+               "用 derive / describe 等工具算出并引用新的数据集，或改正引用；"
                "估计值、推算值请改写为 inference。然后重新调用 submit_report 提交完整报告（保留其余结论）。")
     return {"messages": [HumanMessage(message)], "phase": "act", "revised": True}
 
