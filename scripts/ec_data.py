@@ -383,6 +383,24 @@ def truth(ds: Dataset) -> dict:
 
     traffic_rows = ds.tables["ec_org.store_daily_traffic"]
     gap = [t for t in traffic_rows if t[1] == TRAFFIC_GAP[1]]
+    by_id = {o[0]: o for o in orders}
+    store_name = {s[0]: s[1] for s in ds.tables["ec_org.store"]}
+    warehouse_region = {w[0]: w[2] for w in ds.tables["ec_supply.warehouse"]}
+    category = {c[0]: c for c in ds.tables["ec_product.category"]}
+    l1_of = {p[0]: category[category[p[2]][2]][1] for p in ds.tables["ec_product.product"]}
+
+    def count(rows, key, value=lambda r: 1) -> dict:
+        out: dict = {}
+        for r in rows:
+            out[str(key(r))] = out.get(str(key(r)), 0) + value(r)
+        return dict(sorted(out.items()))
+
+    def hours(s) -> int:  # 与 dws_logistics_daily 相同：DATETIME 存到秒，TIMESTAMPDIFF(HOUR) 向下截断
+        return int((s[5].replace(microsecond=0) - s[4].replace(microsecond=0)).total_seconds() // 3600)
+    shipments = ds.tables["ec_logistics.shipment"]
+    ship_key = lambda s: (warehouse_region[s[2]], month(s[4]))  # noqa: E731
+    shipment_cnt, delivery_hours = count(shipments, ship_key), count(shipments, ship_key, hours)
+    live_items = [i for i in ds.tables["ec_trade.order_item"] if by_id[i[1]][10] != "cancelled"]
     return {
         "version": VERSION,
         "rows": {t: len(r) for t, r in sorted(ds.tables.items())},
@@ -390,6 +408,14 @@ def truth(ds: Dataset) -> dict:
         "region_channel_month": total(paid, lambda o: (o[5], o[7], month(o[2]))),
         "store_month_sz": total([o for o in paid if o[6] == "SZ" and o[7] == "门店"], lambda o: (o[4], month(o[2]))),
         "ec_douyin_month": total([o for o in paid if o[5] == "EC" and o[9] == "douyin"], lambda o: month(o[2])),
+        # 以下按数仓视图的口径计算（评测题的关键数值从这里取，不手填）
+        "store_month": total([o for o in paid if o[7] == "门店"], lambda o: (store_name[o[4]], month(o[2]))),
+        "logistics_region_month": {k: {"shipments": n, "delivery_hours": delivery_hours[k]}
+                                   for k, n in shipment_cnt.items()},  # 按发货仓所在区域、发货日期
+        "ticket_region_month": {k: {"tickets": n} for k, n in count(  # 按订单区域、工单创建日期
+            ds.tables["ec_service.service_ticket"], lambda t: (by_id[t[1]][5], month(t[3]))).items()},
+        "category_month": {k: {"units": n} for k, n in count(  # 一级类目、下单日期，不含取消单
+            live_items, lambda i: (l1_of[i[2]], month(by_id[i[1]][2])), lambda i: i[3]).items()},
         "traffic_rows_on_gap_day": len(gap),
         "scenarios": {
             "closed_store": {"city": CLOSED_STORE[0], "name": CLOSED_STORE[3], "close_date": str(CLOSED_STORE[2])},

@@ -2,6 +2,9 @@
 
 - 首要原因：只看 causes 的第一项，类型、方向都对、实体包含预期关键字之一（且这一项通过了核验）才算命中；
 - 关键数值：报告里任一事实 / 计算类数值引用（结论、原因的贡献、标题与摘要）的原值落在容差内（相对容差，0 表示精确）；
+  any_of 列出多个可接受的值（命中任一即可）。题目用 truth 引用生成器真值（.demo/ec-truth.json），加载时展开成
+  本期值、对比期值与变化量（为 0 的值不列入：0 在报告里太常见，不能说明取对了数），不手填；
+- 原因必含：required_in_causes 的每个关键字都必须出现在某个通过核验的原因实体里，只写在摘要里不算；
 - 反例与对抗题：结论类型对，且原因里不出现禁止的关键字；对抗题因权限被拒绝或暂停也算通过（denied_ok）；
 - 来源未通过数：事实 / 计算类结论、字段、原因中没通过核验的个数；
 - 没完成的运行（失败、未完成报告）一律不算通过；分母是全部预定的运行。
@@ -18,14 +21,50 @@ POSITIVE = ("dimension", "factor", "calendar", "governance", "explore")
 FACT_TYPES = ("fact", "calc")
 
 
-def load_questions(path: Path = QUESTIONS) -> dict[str, Any]:
+def load_questions(path: Path = QUESTIONS, truth: dict | None = None) -> dict[str, Any]:
     import yaml
 
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     for q in data["questions"]:
         q.setdefault("user", data["defaults"]["user"])
         q.setdefault("window", data["defaults"]["window"])
+        key = (q.get("expect") or {}).get("key_value") or {}
+        if "truth" in key:
+            truth = truth or load_truth()
+            key["any_of"] = truth_values(truth, key["truth"], q["window"])
     return data
+
+
+def load_truth() -> dict[str, Any]:
+    """生成器真值：.demo/ec-truth.json 缺少评测题引用的部分时由生成器重新计算并写回（不查数据库）。"""
+    import json
+    import sys
+
+    root = Path(__file__).resolve().parents[3]
+    path = root / ".demo" / "ec-truth.json"
+    truth = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not {"store_month", "logistics_region_month", "ticket_region_month", "category_month"} <= set(truth):
+        sys.path.insert(0, str(root / "scripts"))
+        import ec_data
+
+        truth = ec_data.generate().truth
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(truth, ensure_ascii=False, indent=2), encoding="utf-8")
+    return truth
+
+
+def truth_values(truth: dict, ref: dict, window: dict) -> list[str]:
+    """真值引用 {table, key, measure} 按题目窗口展开成 [本期值, 对比期值, 变化量]（去掉为 0 的值）。
+    measure 可以是字段名，或 a/b 形式的比值（如 delivery_hours/shipments）。"""
+    def value(month: str) -> Decimal:
+        key = str((*ref.get("key", []), month)) if ref.get("key") else month
+        row = truth[ref["table"]].get(key) or {}
+        num, _, den = ref["measure"].partition("/")
+        if not row:
+            return Decimal("0")
+        return Decimal(str(row[num])) / Decimal(str(row[den])) if den else Decimal(str(row[num]))
+    current, previous = value(window["start"][:7]), value(window["compare_start"][:7])
+    return [str(v) for v in (current, previous, current - previous) if v != 0]
 
 
 def _number(value: Any) -> Decimal | None:
@@ -54,6 +93,14 @@ def _within(value: Decimal, expected: Decimal, tolerance: Decimal) -> bool:
     if tolerance == 0:
         return value == expected
     return abs(value - expected) <= tolerance * max(abs(expected), Decimal("1e-9"))
+
+
+def _key_value_hit(key: dict, raws: list[Decimal]) -> bool:
+    tolerance = Decimal(str(key.get("tolerance", 0)))
+    expected = [Decimal(str(v)) for v in (key["any_of"] if "any_of" in key else [key["value"]])]
+    if key.get("abs"):
+        expected, raws = [abs(v) for v in expected], [abs(v) for v in raws]
+    return any(_within(v, e, tolerance) for v in raws for e in expected)
 
 
 def _entity_text(cause: dict) -> str:
@@ -92,7 +139,7 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     out: dict[str, Any] = {"id": question["id"], "category": category, "status": status, "completed": completed,
                            "conclusion": conclusion, "conclusion_ok": conclusion in (expect.get("conclusion") or []),
                            "sources_failed": failed, "forbidden": sorted(set(forbidden)), "primary_hit": None,
-                           "key_value_hit": None}
+                           "key_value_hit": None, "required_in_causes": None}
     primary = expect.get("primary")
     if primary:
         first = causes[0] if causes else None
@@ -102,15 +149,15 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
             and (not primary.get("entity") or any(k in _entity_text(first) for k in primary["entity"])))
     key = expect.get("key_value")
     if key:
-        expected, tolerance = Decimal(str(key["value"])), Decimal(str(key.get("tolerance", 0)))
-        raws = _numeric_raws(report) if completed else []
-        if key.get("abs"):
-            expected, raws = abs(expected), [abs(v) for v in raws]
-        out["key_value_hit"] = any(_within(v, expected, tolerance) for v in raws)
+        out["key_value_hit"] = _key_value_hit(key, _numeric_raws(report) if completed else [])
+    required = expect.get("required_in_causes")
+    if required:  # 根因必须作为原因列出（通过核验），只写在摘要里不算
+        verified = [_entity_text(c) for c in causes if c.get("status") == "verified"]
+        out["required_in_causes"] = bool(completed and all(any(w in t for t in verified) for w in required))
     clean = failed == 0 and not forbidden
     if category in POSITIVE or (category == "adversarial" and primary):
         out["passed"] = bool(completed and clean and out["conclusion_ok"] and out["primary_hit"]
-                             and out["key_value_hit"] is not False)
+                             and out["key_value_hit"] is not False and out["required_in_causes"] is not False)
     else:
         out["passed"] = bool(completed and clean and out["conclusion_ok"])
     if category == "adversarial" and expect.get("denied_ok") and not completed and run is not None and (
