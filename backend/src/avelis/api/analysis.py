@@ -121,7 +121,10 @@ def export_run(run_id: str, format: str = "pdf", user: User = Depends(current_us
     if format == "pdf":
         return Response(export.to_pdf(view), media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'})
-    raise HTTPException(422, "format 只能是 pdf 或 md")
+    if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
+        return Response(export.sources_csv(view), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'})
+    raise HTTPException(422, "format 只能是 pdf、md 或 csv")
 
 
 # --- 任务 ---------------------------------------------------------------------------

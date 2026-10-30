@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.analysis import calc
+from avelis.analysis.grounding import Part
 from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
@@ -219,18 +220,20 @@ class PlanArgs(BaseModel):
 
 class Claim(BaseModel):
     type: Literal["fact", "calc", "inference", "recommendation"]
-    text: str = Field(description="结论；数字照抄数据集中的值，可按显示精度四舍五入")
+    parts: list[Part] = Field(description="结论正文的片段列表：文字片段写字符串，数字写成引用对象，如 "
+                                          "['华东成交额下降 ', {'dataset': 'D19', 'column': '差额', 'abs': True, "
+                                          "'format': 'wan1'}, '元']；文字片段里不写任何数字（ADR 0009）")
     refs: list[Annotated[str, Field(pattern=r"^D[1-9]\d{0,3}$")]] = Field(
-        default_factory=list, description="引用的数据集编号，如 ['D2']")
-    premise: str | None = Field(None, description="推断与建议的前提")
-    validation: str | None = Field(None, description="建议的验证方式")
+        default_factory=list, description="额外引用的数据集编号，如 ['D2']；引用片段涉及的数据集自动计入")
+    premise: str | list[Part] | None = Field(None, description="推断与建议的前提（文字或片段列表）")
+    validation: str | list[Part] | None = Field(None, description="建议的验证方式（文字或片段列表）")
 
 
 class ReportArgs(BaseModel):
-    title: str
-    summary: str = Field(description="一两句话的结论；其中的数字同样核验，只写事实 / 计算类结论所引用数据集中的数字")
+    title: str | list[Part] = Field(description="标题：文字或片段列表；数字同样写成引用对象")
+    summary: str | list[Part] = Field(description="一两句话的结论：片段列表，数字写成引用对象，后端渲染并做同样的结构检查")
     claims: list[Claim]
-    unexplained: str | None = Field(None, description="仍未解释的部分")
+    unexplained: str | list[Part] | None = Field(None, description="仍未解释的部分：文字或片段列表")
 
 
 # --- 工具箱 ---------------------------------------------------------------------------
@@ -428,10 +431,12 @@ class AnalysisToolbox:
         self._step("plan", "submit_plan", self.plan, "ok", {})
         return _json({"ok": True, "note": "计划已记录；按计划调用工具，中间结果推翻假设时可再次提交计划"})
 
-    def submit_report(self, title: str, summary: str, claims: list[Claim], unexplained: str | None = None) -> str:
-        self.report = {"title": title, "summary": summary, "claims": [_model(Claim, c).model_dump() for c in claims],
-                       "unexplained": unexplained}
-        self._step("note", "submit_report", {"title": title}, "ok", {"claims": len(claims)})
+    def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
+                      unexplained: str | list | None = None) -> str:
+        """保存模型提交的片段列表；渲染与结构检查在 verify 节点（ADR 0009）。"""
+        self.report = {"title": _parts(title), "summary": _parts(summary),
+                       "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained)}
+        self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})
 
     # -- 上下文 --
@@ -847,3 +852,10 @@ def _date(value):
 def _model(cls, value):
     """工具参数里的嵌套对象：LangChain 可能传入模型实例或 dict。"""
     return value if isinstance(value, cls) else cls.model_validate(value)
+
+
+def _parts(value):
+    """标题、摘要等字段：文字或片段列表；片段里的引用对象转成 dict 保存。"""
+    if value is None or isinstance(value, str):
+        return value
+    return [p.model_dump() if isinstance(p, BaseModel) else p for p in value]
