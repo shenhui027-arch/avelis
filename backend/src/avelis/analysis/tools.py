@@ -1141,7 +1141,8 @@ class AnalysisToolbox:
         units = {"previous": base, "current": base, "member_change": delta, "contribution": delta,
                  "ep": col("share"), "structure_effect": delta, "rate_effect": delta}
         summary_units = {"total.previous": base, "total.current": base, "total.change": delta,
-                         "cumulative_ep": col("share"), **({"residual": delta} if ratio else {})}
+                         "cumulative_ep": col("share"), "material_change_ratio": col("share"),
+                         **({"residual": delta} if ratio else {})}
         title = f"自动归因：{metric.name} {start}~{end} 对比 {cstart}~{cend}"
         ds = self._dataset("calc", title, cols, rows, inputs=inputs,
                            meta={"summary": summary, "args": args.model_dump(mode="json"), "units": units,

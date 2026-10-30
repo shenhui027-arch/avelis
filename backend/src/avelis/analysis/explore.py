@@ -42,7 +42,7 @@ AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN"
 STANDARD_DIALECT = ""  # Avelis 标准 SQL：sqlglot 通用方言（ANSI 子集），表名写 库.表 或 catalog.库.表
 # 标准函数（模型能用的全部函数）：类别与参数个数。每个都在 StarRocks、PostgreSQL 上有转换测试
 # （tests/unit/test_analysis_explore.py::test_standard_functions_translate），没有测试的函数不进这张清单。
-# 算术、CASE、CAST 是结构节点；日期加减写成 列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）。
+# 算术、CASE、CAST 是结构节点；日期加减只用一种写法：列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）。
 STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
     exp.Sum: ("聚合", 1, 1), exp.Count: ("聚合", 0, 1), exp.Avg: ("聚合", 1, 1), exp.Min: ("聚合", 1, 1),
     exp.Max: ("聚合", 1, 1),
