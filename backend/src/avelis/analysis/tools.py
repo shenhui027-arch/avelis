@@ -69,12 +69,12 @@ class Budget:
     seconds: int = 300
     explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
     report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
-    # 模型请求（含失败与重试）的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型。
-    # 累计 token 照常记录；上限默认不强制（None）：按第 13 节的 16 万累计输入，历史运行过半会被截断（多数是前缀缓存命中），
-    # 是否强制、按什么口径计由实验 manifest 决定后统一设置
+    # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型，记为预算截止。
+    # token 上限是 E1 前统一修订的值（manifest b0.token_cap_decision）：第 13 节的 16 万输入 / 2.4 万输出装不下 B0，
+    # 取 max(默认值, ceil(历史 P95 × 1.2))；None 表示不限（只记录）
     model_requests: int = 16
-    input_tokens: int | None = None
-    output_tokens: int | None = None  # 含提供方计费的推理 token
+    input_tokens: int | None = 552_321
+    output_tokens: int | None = 30_716  # 含提供方计费的推理 token
     used_model_requests: int = 0
     used_input_tokens: int = 0
     used_output_tokens: int = 0
