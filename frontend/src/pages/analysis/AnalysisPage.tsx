@@ -29,7 +29,7 @@ const TYPE_TONE: Record<string, "ok" | "info" | "warn" | ""> = { fact: "ok", cal
 const TOOL_LABEL: Record<string, string> = {
   submit_plan: "计划", search_metrics: "检索口径", describe_metric: "口径详情", search_assets: "检索资产",
   describe_asset: "资产详情", lineage: "血缘", changes: "变更记录", data_health: "数据健康", query_metric: "受治理查询",
-  contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算", correlate: "相关性",
+  explain_change: "自动归因", contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算", correlate: "相关性",
   segment_compare: "分组对比", outliers: "异常值", coverage: "覆盖度", submit_report: "提交报告",
 };
 const EXAMPLES = [
