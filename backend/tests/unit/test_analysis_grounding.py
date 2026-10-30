@@ -188,7 +188,8 @@ def test_explore_sources_are_marked_and_counted():
     seg = claim["segments"][1]
     assert result["status"] == "verified" and seg["explore"] is True and seg["source"] == "explore"
     assert seg["label"] == "D6 · 客流" and claim["segments"][3]["label"] == "D1 · 成交额 · 区域=华东"
-    assert v["sources"] == {"governed": 1, "explore": 1, "calc": 0, "context": 0}
+    assert v["sources"] == {"direct": {"governed": 1, "explore": 1, "calc": 0, "context": 0}, "with_explore": 1,
+                            "assumption": 0, "windows": 0, "labels": 0, "failed": 0}
 
 
 def test_inference_and_details_allow_numbers_and_still_render():

@@ -370,7 +370,8 @@ def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[s
         if isinstance(part, (NumberRef, CountRef)):
             segment.update(measure=meta["kind"], unit=meta["unit"], declared=meta["declared"],
                            source=ds.get("kind") or "", explore=bool(ds.get("explore")),
-                           assumption=bool(ds.get("assumption")))
+                           assumption=bool(ds.get("assumption")), truncated=bool(ds.get("truncated")),
+                           partial=bool(ds.get("partial")))
         if isinstance(part, NumberRef):
             segment.update(format=part.format or "", direction=part.direction or "", role=part.role)
         segments.append(segment)

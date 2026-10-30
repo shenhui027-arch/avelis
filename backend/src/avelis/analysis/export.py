@@ -51,9 +51,15 @@ def _verdict(verification: dict) -> str:
 
 
 def _composition(verification: dict) -> str:
-    """数字来源构成：口径、探索、计算、上下文各有多少个数字。"""
-    counts = verification.get("sources") or {}
-    return "、".join(f"{SOURCE_LABEL[k]} {counts[k]}" for k in SOURCE_LABEL if counts.get(k)) or "无"
+    """数字来源构成（两个维度）：直接来源（口径 / 探索 / 计算 / 上下文），其中含探索来源、假设的数量；日期、标签、
+    渲染失败另列。"""
+    sources = verification.get("sources") or {}
+    direct = sources.get("direct") or {}
+    parts = [f"{SOURCE_LABEL[k]} {direct[k]}" for k in SOURCE_LABEL if direct.get(k)]
+    extra = [f"{label} {sources[k]}" for k, label in (("with_explore", "其中含探索来源"), ("assumption", "其中假设"),
+                                                     ("windows", "日期"), ("labels", "标签"), ("failed", "渲染失败"))
+             if sources.get(k)]
+    return "、".join(parts + extra) or "无"
 
 
 def _segments(report: dict) -> list[tuple[str, str, dict]]:

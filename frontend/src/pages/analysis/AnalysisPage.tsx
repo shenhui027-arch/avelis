@@ -197,10 +197,16 @@ function RunDetail({ id }: { id: string }) {
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string;
     notes?: string[]; fields?: Record<string, FieldRecord> };
   const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
-    fields?: FieldCheck[]; sources?: Record<string, number> };
+    fields?: FieldCheck[]; sources?: { direct?: Record<string, number>; with_explore?: number; assumption?: number;
+      windows?: number; labels?: number; failed?: number } };
   const reportStatus = verification.status ? REPORT_STATUS[verification.status] : undefined;
-  const composition = Object.entries(verification.sources ?? {}).filter(([, n]) => n > 0)
-    .map(([k, n]) => `${SOURCE_LABEL[k] ?? k} ${n}`).join(" · ");
+  // 数字来源构成（两个维度）：直接来源，其中含探索来源、假设的数量；日期、标签、渲染失败另列
+  const sources = verification.sources ?? {};
+  const composition = [
+    ...Object.entries(sources.direct ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `${SOURCE_LABEL[k] ?? k} ${n}`),
+    ...([["with_explore", "其中含探索"], ["assumption", "其中假设"], ["windows", "日期"], ["labels", "标签"], ["failed", "渲染失败"]] as const)
+      .filter(([k]) => sources[k]).map(([k, label]) => `${label} ${sources[k]}`),
+  ].join(" · ");
   const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
   const checks = new Map((verification.claims ?? []).map((c) => [c.index, c]));
   const plan = (r.plan ?? {}) as { hypotheses?: string[]; steps?: string[] };

@@ -569,7 +569,8 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     assert not any("紧跟单位" in p for p in calc_problems)  # 解析失败的引用不是数值段
     assert verification["claims"][2]["problems"] == [
         "第 2 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]
-    assert report["claims"][2]["text"] == "西北 [?]" and verification["sources"]["governed"] == 3  # 摘要 1 个、第 1 条 2 个；窗口不算数字
+    assert report["claims"][2]["text"] == "西北 [?]" and verification["sources"]["direct"]["governed"] == 3  # 摘要 1、第 1 条 2；日期另列
+    assert verification["sources"]["windows"] == 1 and verification["sources"]["failed"] == 2
     message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
     assert "- 第 2 条（calc）：合计增长 [?] 元（D2）" in message and "方向与正负不一致" in message
     assert "- 第 3 条（fact）：西北 [?]" in message and "第 4 条" not in message and "出现在" not in message
@@ -597,8 +598,40 @@ def test_sources_csv_and_markdown_list_every_reference():
                     "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd"]
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": report,
             "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],
-                             "sources": {"governed": 1, "explore": 1}}}
+                             "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1,
+                                         "windows": 1}}}
     md = export.to_markdown(view)
-    assert "- 核验：来源全部通过，含未核实的推断" in md and "- 数字来源：口径 1、探索 1" in md
+    assert "- 核验：来源全部通过，含未核实的推断" in md and "- 数字来源：口径 1、探索 1、其中含探索来源 1、日期 1" in md
     assert "## 附录：数值来源" in md and "D6 · 客流 · 原值 =cmd · 未知 · 探索查询（未经口径审核） · 建议目标（非观测值）" in md
     assert export.to_pdf(view).startswith(b"%PDF")
+
+
+def test_marks_follow_the_saved_dependency_closure(monkeypatch):
+    """ADR 0009 第 6 点：来源、假设、截断沿服务端保存的依赖闭包传递；依赖缺失即拒绝；预览截断与结果截断分开标注。"""
+    from avelis.analysis.tools import MODEL_ROWS
+
+    box = make_box(monkeypatch=monkeypatch)
+    explore = box._dataset("explore", "探索：客流", ["门店", "客流", "客流·对比期"],
+                           [["A", "120", "100"], ["B", "80", "90"]], meta={"units": {"客流": {"kind": "level"}}})
+    units_dataset(box)  # D2 受治理
+    box.dispatch("contribution", {"dataset": "D1", "keys": ["门店"], "current": "客流", "previous": "客流·对比期"})
+    pick = {"name": "a", "dataset": "D3", "column": "change", "match": {"门店": "A"}}
+    box.dispatch("derive", {"label": "估算", "formula": "a * 0.3", "values": [pick]})  # D4：假设计算
+    box.dispatch("derive", {"label": "再加工", "formula": "a + b", "values": [
+        {"name": "a", "dataset": "D4", "column": "value", "match": {"name": "估算"}},
+        {"name": "b", "dataset": "D2", "column": "成交额", "match": {"区域": "华东"}}]})  # D5：探索 + 口径混合
+    ds = box.datasets()
+    assert explore.meta["root_kinds"] == ["explore"] and explore.meta["explore"] is True
+    assert ds["D3"].meta["closure"] == ["D1"] and ds["D3"].meta["explore"] is True
+    assert ds["D4"].meta["assumption"] is True and ds["D4"].meta["closure"] == ["D1", "D3"]
+    mixed = ds["D5"].meta
+    assert mixed["closure"] == ["D1", "D2", "D3", "D4"] and mixed["root_kinds"] == ["explore", "governed"]
+    assert mixed["explore"] is True and mixed["assumption"] is True  # 混合输入后标记不丢
+    assert ds["D2"].meta["explore"] is False and ds["D2"].meta["closure"] == []
+    with pytest.raises(tools.calc.CalcError, match="不在本次运行中"):
+        box._dataset("calc", "x", ["v"], [[1]], inputs=["D9"])
+    big = box._dataset("governed", "大表", ["k"], [[i] for i in range(MODEL_ROWS + 5)])
+    view = box._view(f"D{big.seq}", big)
+    assert view["context_truncated"] is True and "truncated" not in view and view["rows_shown"] == MODEL_ROWS
+    marks = box._view("D5", ds["D5"])["marks"]
+    assert marks == ["来源含探索查询（未经口径审核）", "来源含假设计算"]

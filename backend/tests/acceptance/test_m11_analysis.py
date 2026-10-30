@@ -60,7 +60,7 @@ def grounding_view(ds) -> dict:
     """数据集交给 ground_report 的结构（与 agent.verify 相同）。"""
     return {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
             "summary": ds.meta.get("summary"), "truncated": ds.truncated,
-            **{k: ds.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption")}}
+            **{k: ds.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption", "partial")}}
 
 
 def rows(ds_json: str) -> list[dict]:

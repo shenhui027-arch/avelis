@@ -155,16 +155,27 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict],
     return rendered, verification
 
 
-def _sources(rendered: dict) -> dict[str, int]:
-    """数字来源构成：口径（governed）、探索（explore，含以探索数据为输入的计算）、计算（calc）、上下文（context）。"""
-    counts = {"governed": 0, "explore": 0, "calc": 0, "context": 0}
-    records = [*rendered.get("fields", {}).values()]
-    for c in rendered.get("claims", []):
-        records += [c, *c.get("details", {}).values()]
+def _sources(rendered: dict) -> dict[str, Any]:
+    """数字来源构成（ADR 0009 第 6 点），只统计事实、计算类结论与标题、摘要、未解释里的片段，按出现次数计：
+    - direct：成功渲染的数值片段按直接来源计，口径查询 / 探索查询 / 计算三者互斥（CountRef 计入计算；
+      changes、data_health 的上下文证据另列 context）；
+    - with_explore：其中依赖闭包含探索查询的数量；assumption：其中来自假设计算的数量；
+    - windows、labels：日期与维度文本另列；failed：渲染失败的引用。"""
+    out: dict[str, Any] = {"direct": {"governed": 0, "explore": 0, "calc": 0, "context": 0}, "with_explore": 0,
+                           "assumption": 0, "windows": 0, "labels": 0, "failed": 0}
+    records = [*rendered.get("fields", {}).values(), *(c for c in rendered.get("claims", []) if c["type"] in CHECKED)]
     for record in records:
         for s in record.get("segments", []):
-            if s["kind"] in NUMERIC:
-                key = "explore" if s.get("explore") else s.get("source")
-                if key in counts:
-                    counts[key] += 1
-    return counts
+            if s["kind"] == "error":
+                out["failed"] += 1
+            elif s["kind"] == "window":
+                out["windows"] += 1
+            elif s["kind"] == "label":
+                out["labels"] += 1
+            elif s["kind"] in NUMERIC:
+                direct = "calc" if s["kind"] == "count" else s.get("source")
+                if direct in out["direct"]:
+                    out["direct"][direct] += 1
+                out["with_explore"] += bool(s.get("explore"))
+                out["assumption"] += bool(s.get("assumption"))
+    return out
