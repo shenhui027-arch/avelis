@@ -15,7 +15,8 @@
   “N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
   阿拉伯数字不看后面的单位、也不看前面是否紧贴字母（“GMV100万”），一律提取。金额、件数、家数、行数等全部核验；
 - 以失败为默认：去掉日期、日历词、序号与已提取的数字后，文本里仍有阿拉伯数字或中文数字字符
-  （零〇一二两三四五六七八九十百千万亿，常见的非数量词如“一致”“统一”“之一”除外）时，记一个无法识别的数字，未核实。
+  （零〇一二两三四五六七八九十百千万亿，常见的非数量词如“一致”“统一”“之一”除外）时，记一个无法识别的数字，未核实；
+  引用数据集里原样出现的名称（“广州四号店”，须含数字字符以外的汉字或字母）先去掉，不当作数字。
 事实与计算类结论必须引用存在的数据集，没有引用即未核实。标题、摘要与“未解释”中的数字按同样规则，
 对照全部事实 / 计算类结论引用的数据集核验。找不到的数字标为“未核实”，不静默删除。
 推断与建议类结论不强制核验，但其中的数字也会列出供人查看。
@@ -97,9 +98,17 @@ def _residual(rest: str, matched: list[tuple[int, int]]) -> str | None:
     return None if m is None else left[max(0, m.start() - 4):m.end() + 4].strip()
 
 
-def extract_numbers(text: str) -> list[dict[str, Any]]:
-    """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。"""
-    cleaned = _strip_calendar(text or "")
+def _strip_names(text: str, names: list[str]) -> str:
+    """去掉原样出现的数据集名称（“广州四号店”里的“四”是名称的一部分，不是数量）；长的先去。"""
+    for name in sorted(names, key=len, reverse=True):
+        text = text.replace(name, " ")
+    return text
+
+
+def extract_numbers(text: str, names: list[str] = ()) -> list[dict[str, Any]]:
+    """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。
+    names：引用数据集中带数字字符的名称（见 _names），原样出现时不当作数字。"""
+    cleaned = _strip_calendar(_strip_names(text or "", list(names)))
     found: list[tuple[int, dict[str, Any]]] = []
     spans: list[tuple[int, int]] = []
     for m in RANGE.finditer(cleaned):
@@ -157,6 +166,22 @@ def _candidates(datasets: list[dict]) -> list[Decimal]:
     return values
 
 
+# 名称必须含有数字字符以外的汉字或字母：纯数字的“三”、日期样的“2026-09”不算名称，照常核验
+_NAME_CHAR = re.compile(r"[A-Za-z一-鿿]")
+
+
+def _names(datasets: list[dict]) -> list[str]:
+    """引用数据集各行里含数字字符的字符串值（门店名、渠道名等）。"""
+    names = set()
+    for ds in datasets:
+        for row in ds.get("rows", []):
+            for v in (row.values() if isinstance(row, dict) else row):
+                if (isinstance(v, str) and NUMERAL.search(v)
+                        and any(_NAME_CHAR.match(ch) and not NUMERAL.match(ch) for ch in v)):
+                    names.add(v.strip())
+    return [n for n in names if n]
+
+
 def _flat_numbers(obj: Any) -> list[Decimal]:
     if obj is None or isinstance(obj, bool):
         return []
@@ -186,8 +211,9 @@ def matches(number: dict[str, Any], values: list[Decimal]) -> bool:
     return False
 
 
-def _check(text: str, values: list[Decimal]) -> list[dict[str, Any]]:
-    return [{"text": n["text"], "verified": matches(n, values)} for n in extract_numbers(text)]
+def _check(text: str, datasets: list[dict]) -> list[dict[str, Any]]:
+    values = _candidates(datasets)
+    return [{"text": n["text"], "verified": matches(n, values)} for n in extract_numbers(text, _names(datasets))]
 
 
 def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
@@ -200,7 +226,7 @@ def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
         refs = [r for r in given if r in datasets]
         missing_refs = [r for r in given if r not in datasets]
         checked = claim.get("type") in CHECKED
-        items = _check(claim.get("text", ""), _candidates([datasets[r] for r in refs]))
+        items = _check(claim.get("text", ""), [datasets[r] for r in refs])
         status = "unchecked" if not checked else (
             "unverified" if any(not x["verified"] for x in items) or missing_refs or not refs else "verified")
         if checked:
@@ -208,7 +234,7 @@ def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
         unverified += status == "unverified"
         results.append({"index": i, "type": claim.get("type"), "status": status, "numbers": items,
                         "missing_refs": missing_refs, **({"no_refs": True} if checked and not given else {})})
-    pool = _candidates([datasets[r] for r in sorted(cited)])
+    pool = [datasets[r] for r in sorted(cited)]
     field_results = []
     for name, text in (fields or {}).items():
         items = _check(text or "", pool)
