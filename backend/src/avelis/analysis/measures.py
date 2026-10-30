@@ -72,7 +72,9 @@ def constants(formula: str) -> list[Decimal]:
 
 
 def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
-    """按公式形式推断结果量纲：a/b 为比率，a/b-1 为变化率，a-b 为差额，同量纲加减保持原量纲，其余 unknown。"""
+    """按公式形式推断结果量纲：a/b 为比率，a/b-1 为变化率，a-b 为差额，同量纲加减保持原量纲，其余 unknown。
+    水平值除以计数（或计数除以水平值，如金额 / 订单数）是每单位的均值，按水平值处理（单位写成“分子/分母”），
+    不是无量纲比率：两个均值相减是差额，不会显示成百分比或“个百分点”。"""
     def kind_of(node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Expression):
             return kind_of(node.body)
@@ -83,6 +85,9 @@ def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
             if isinstance(node.op, ast.Div) and not isinstance(node.right, ast.Constant):
                 if left["kind"] == "delta" and right["kind"] in ("level", "count") and _same(left, right):
                     return {"kind": "rate_change"}  # (a-b)/b
+                if {left["kind"], right["kind"]} == {"level", "count"}:  # 金额 / 订单数：每单均值
+                    unit = "/".join(x for x in (left.get("unit"), right.get("unit")) if x)
+                    return col("level", unit)
                 if left["kind"] in ("level", "count", "delta") and right["kind"] in ("level", "count", "delta"):
                     unit = "" if _same(left, right) else "/".join(x for x in (left.get("unit"), right.get("unit")) if x)
                     return col("ratio", unit)

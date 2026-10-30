@@ -44,6 +44,7 @@ from avelis.models import (
     CollectionRun,
     ColumnVersion,
     Datasource,
+    Domain,
     MetricVersion,
     Metric,
     MetricVersionTransition,
@@ -124,6 +125,16 @@ class PermissionDenied(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def _grams(text: str) -> set[str]:
+    """检索用的词元：中文取相邻两个字（二元组），英文、数字与编码按词（含下划线切开的部分，两个字符以上）。"""
+    text = (text or "").lower()
+    out = set(re.findall(r"[a-z0-9]{2,}", text.replace("_", " ")))
+    out |= set(re.findall(r"[a-z0-9_]{2,}", text))
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        out |= {run[i:i + 2] for i in range(len(run) - 1)} if len(run) > 1 else {run}
+    return out
 
 
 def _scan_key(args) -> str:
@@ -688,24 +699,36 @@ class AnalysisToolbox:
 
     # -- 理解与系统预检（ADR 0012） --
     CANDIDATES = 10
+    ALL_CANDIDATES = 30  # 可见口径不超过这个数时全部给出
     PACK_CHARS = 15000  # 上下文包的长度上限（约 7500 token）；完整数据保存在数据集中
     META_TABLES, META_COLUMNS = 4, 20  # 来源闭包的元数据：最多几张表、每张表几列
     PACK_ROWS = 8
 
     def candidate_metrics(self, question: str) -> list[dict[str, Any]]:
-        """按问题文字从当前用户可见的口径中检索候选（ADR 0012 第 1 段）：名称、编码、别名出现在问题里的排前面
-        （命中的字越多越靠前），再按编码排序，截断到 CANDIDATES 个。"""
+        """按问题文字从当前用户可见的口径中检索候选（ADR 0012 第 1 段）。可见口径不超过 ALL_CANDIDATES 个时全部给出；
+        超过时按得分取前 CANDIDATES 个：中文按字的二元组、英文与编码按词，对名称、别名、编码、描述、维度名分别计分
+        （名称与别名权重高）。每个候选带业务域，同名口径可以区分。"""
         self.catalog = service.visible_catalog(self.session, self.user, with_values=False)
+        asked = _grams(question)
+        domains: dict[str | None, str | None] = {}
         scored = []
         for c in self.catalog.cards:
-            hits = [s for s in (c.name, c.code, *(c.aliases or [])) if s and s in question]
-            version = self.catalog.versions[c.code][1]
-            scored.append((-max((len(h) for h in hits), default=0), c.code, {
-                "code": c.code, "name": c.name, "aliases": list(c.aliases or []),
+            metric, version = self.catalog.versions[c.code]
+            domain_id = getattr(metric, "domain_id", None)
+            if domain_id not in domains:
+                domain = self.session.get(Domain, domain_id) if domain_id else None
+                domains[domain_id] = getattr(domain, "name", None)
+            fields = [(3, c.name), *((3, a) for a in c.aliases or []), (1, c.code), (1, c.description or ""),
+                      *((1, f"{d.get('name') or ''} {d.get('label') or ''}") for d in c.dimensions)]
+            score = sum(w * len(_grams(text) & asked) for w, text in fields)
+            scored.append((-score, c.code, {
+                "code": c.code, "name": c.name, "domain": domains[domain_id], "aliases": list(c.aliases or []),
+                "description": c.description or None,
                 "dimensions": [{"name": d["name"], "label": d.get("label")} for d in c.dimensions],
                 "unit": getattr(version, "unit", None), "kind": version.kind,
                 "formula": version.expression if version.kind == "derived" else None}))
-        return [entry for *_, entry in sorted(scored, key=lambda x: (x[0], x[1]))[:self.CANDIDATES]]
+        ranked = [entry for *_, entry in sorted(scored, key=lambda x: (x[0], x[1]))]
+        return ranked if len(ranked) <= self.ALL_CANDIDATES else ranked[:self.CANDIDATES]
 
     def record_scope(self, scope: Scope | None, raw: dict | None, problem: str | None) -> None:
         self.scope = scope
