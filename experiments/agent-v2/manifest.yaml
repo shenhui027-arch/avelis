@@ -85,13 +85,22 @@ b_raw:
 # --- B0：共同基线 = B_raw + 评分器 v2 + 底座修复（A、E、F），所有后续臂从这里出发 -----------------
 b0:
   base: b_raw
-  changes:  # 每项一个提交，见 PR 说明与 docs/agent-v2/diagnosis.md 第 4 节
-    - scorer_v2: backend/tests/eval/scoring_v2.py + analysis_questions_v2.yaml（不改 v1、不改历史分数）
-    - fix_A_clarification: 理解阶段写了 clarification 或选了候选外的指标时，运行停在 clarify 状态（不再静默删除指标、不带着未澄清的范围继续）
-    - fix_E_model_protocol: reasoning_content 受控往返；finish_reason=length / content_filter 作为基础设施错误；模型请求（含重试）计入预算
-    - fix_F_reuse: 复用键覆盖排序、行数、分组顺序、对比方式与指标版本；不满足请求语义的不复用
-    - eval_runner_meta: 评测结果写入代码 SHA 与评分器版本
-  sha: 见 PR 合并后的提交（本文件随 PR 提交，合并前以分支 claude/agent-v2-p0-4de0ae 的最后一个提交为准）
+  changes:  # 每项一个提交（分支 claude/agent-v2-p0-4de0ae），见 docs/agent-v2/diagnosis.md 第 4 节
+    - {item: scorer_v2, commits: [7f6f8e4, 2f55cca], files: [backend/tests/eval/scoring_v2.py, backend/tests/eval/analysis_questions_v2.yaml]}
+    - {item: fix_A_clarification, commit: 0378526}
+    - {item: fix_E_model_protocol, commit: 156a2dd}
+    - {item: fix_F_reuse, commit: 711ed85}
+    - {item: eval_runner_meta, commit: ac4eee9}
+    - {item: e1_framework, commit: 96e1aa6, note: 只在实验进程内生效，不改产品路径}
+  sha: 合并前以分支 claude/agent-v2-p0-4de0ae 的最后一个提交为准；合并后以合并提交为准（E1 运行前写入这里）
+  unchanged_from_b_raw:  # fingerprint.py 在 B0 上重算，与 B_raw 相同
+    prompts_sha256: 同 b_raw.prompts_sha256
+    tool_schemas_sha256: 同 b_raw.tool_schemas_sha256
+    locks_sha256: 同 b_raw.locks_sha256（没有新增依赖）
+  model_client: DeepSeek 用 avelis.llm_protocol.ReasoningRoundTripChatOpenAI（reasoning_content 往返）；客户端 max_retries=0，
+    流程在传输层临时错误时重试一次，计入 model_requests
+  scorer_v2_sha256: 9e14790ffbede1eca62b4250c9b55146d60ae73d8cb92aa971d2f54f8cd74be0  # LF 行尾
+  known_side_effect: 理解阶段写了追问的运行会停在 clarify（232512 中 26 次有 6 次写了追问），按未完成计分；E0/E1 单列澄清率
   budget:  # 任务书第 13 节；B0 冻结，E1 / E2 所有臂相同
     seconds: 300
     model_requests: 16  # 含重试；新增，tools.Budget.model_requests
@@ -99,10 +108,15 @@ b0:
     queries: 20
     explore: 8
     physical_sql_cap: 80  # 第 13 节的物理 SQL 上限：B0 未单独计数（受治理查询一次逻辑查询 = 两期最多 2 条），记为已知差距
-    input_tokens: 160000  # 累计；新增，超过后不再请求模型
-    output_tokens: 24000  # 累计，含提供方计费的推理 token；新增
+    input_tokens: null  # 记录累计值，默认不强制——见 token_cap_decision
+    output_tokens: null  # 记录累计值（含推理 token），默认不强制——见 token_cap_decision
     revisions: 1
-  scorer: v2（backend/tests/eval/scoring_v2.py，VERSION v2.0）——所有比较臂使用同一个冻结版本
+  token_cap_decision:  # 待协调会话在 E1 前决定（任务书第 13 节：无法容纳 B0 时运行前统一修订，不在中途扩容）
+    finding: 232512 的 26 次运行，累计输入均值 192653、最大 517904，其中前缀缓存命中均值 176778（约 92%）；
+      14 次超过 160000，累计输出均值 13308、最大 34295，2 次超过 24000；模型请求均值 8.4、最大 17，1 次超过 16
+    options: [按未缓存输入计 160000（缓存命中单列）, 把累计输入上限提高到能容纳历史最大值, 照原值强制（预计过半运行被截断）]
+    current: 只记录不强制；model_requests=16 照常强制
+  scorer: v2（backend/tests/eval/scoring_v2.py，VERSION v2.0，sha256 见 scorer_v2_sha256）——所有比较臂使用同一个冻结版本
 
 # --- E1：诊断性补齐信息实验（第 12 节），待授权 ------------------------------------------------
 e1:
@@ -114,6 +128,8 @@ e1:
   order: 每个重复内按场景 × 条件的固定伪随机顺序（seed 20261031），见 experiments/agent-v2/e1.py
   injection: experiments/agent-v2/e1_injections.yaml（D1 范围、D2 资产定位与元数据、D3 原始查询证据的来源与取法）
   per_run_budget: 同 b0.budget；注入内容的 token 单列（e1.py 记 injected_chars 与本地估算，按保守上界 1 字符 = 1 token）
-  cost_bound: 48 次 × 16 次模型请求 = 768 次请求上限；累计输入 ≤ 7.68M token、输出 ≤ 1.152M token（停止边界，不是预测）
+  cost_bound: 48 次 × 16 次模型请求 = 768 次请求上限（停止边界）；token 上限待 b0.token_cap_decision
+  cost_estimate_from_history: 按 232512 的均值，48 次约 9.2M 输入（其中约 8.5M 为缓存命中）、0.64M 输出；
+    价格按提供方当前价目由协调会话核算（本会话没有核实价格），D2/D3 的注入另加每次数千字符
   memory: 禁用跨题记忆（产品本来没有）；每次运行独立
   cache: 提供方前缀缓存无法关闭；四个条件同样受益，按条件记录 cache_hit_tokens
