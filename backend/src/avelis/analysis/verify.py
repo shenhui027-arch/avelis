@@ -11,8 +11,10 @@
 - 中文数字表示的数量（“三家”“五个”“三点五万”“百分之十二”）与大写数字（“壹佰”）不能可靠解析，一律标为未核实；
   系统提示要求模型用阿拉伯数字书写所有数量；
 - 只有真实存在的日历日期才当日期排除：完整的 YYYY-MM-DD（或 YYYY/MM/DD）与“M 月 D 日”（可带“YYYY 年”），
-  用日历校验（2026-02-31、平年的 2 月 29 日都不是日期）；另外“2026 年”“9 月”“8-9 月”、日历时长（不超过 31 的
-  “N 天 / N 周 / N 个月”）与“第 N”“前 N”中的序号不核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
+  用日历校验（2026-02-31、平年的 2 月 29 日都不是日期）；另外“2026 年”“9 月”“9 月份”“九月”“8-9 月”、单独的
+  “15 日 / 15 号”、“3 季度 / Q3”、日历时长（不超过 31 的“N 周 / N 个月”）、“第 N”“前 N”中的序号，以及“两期”
+  “两个时期”“两段”“两者”这类指代对比双方的说法不核验（“两家门店”仍是数量）。“N 天”是日历折算数据集里的天数，
+  按普通数字核验。09-15、9/10、2026-09 这类短写法不当日期，按数字（区间）核验；
   阿拉伯数字不看后面的单位、也不看前面是否紧贴字母（“GMV100万”），一律提取。金额、件数、家数、行数等全部核验；
 - 以失败为默认：去掉日期、日历词、序号与已提取的数字后，文本里仍有阿拉伯数字或中文数字字符
   （零〇一二两三四五六七八九十百千万亿，常见的非数量词如“一致”“统一”“之一”除外）时，记一个无法识别的数字，未核实；
@@ -35,10 +37,17 @@ SCALE_UNIT = r"%|个百分点|万|亿"
 FULL_DATE = re.compile(r"(?<![\d.])((?:19|20)\d{2})([-/])(\d{1,2})\2(\d{1,2})(?![\d.])")
 CN_DATE = re.compile(r"(?:(?<![\d.])((?:19|20)\d{2})\s*年\s*)?(?<![\d.])(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]")
 _M, _D = r"(?:0?[1-9]|1[0-2])", r"(?:0?[1-9]|[12]\d|3[01])"
+_CN_MONTH = r"(?<![零〇一二两三四五六七八九十百千万亿几第])(?:十[一二]|[一二三四五六七八九十])"
+# 日期与期间写法（不是数量）：YYYY 年、N 月 / N 月份 / 九月、单独的 N 日 / N 号、N 季度 / QN、第 N、前 N 等。
+# “N 天”不在这里：天数是 calendar_adjust 数据集里的数，按普通数字核验
 CALENDAR_WORDS = re.compile("|".join([
     r"(?<![\d.])(?:19|20)\d{2}\s*年", rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月", rf"(?<![\d.]){_M}\s*月(?!\s*\d{{1,2}}\s*[日号])",
-    r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:天|周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
+    rf"{_CN_MONTH}\s*月", rf"(?<![\d.月])(?<!月\s){_D}\s*[日号](?![店楼线门均])",
+    r"(?<![\d.])[1-4]\s*季度", r"(?<![零〇一二两三四五六七八九十百千万亿几])[一二三四]\s*季度", r"(?<![A-Za-z])Q[1-4](?!\d)",
+    r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
     r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"]), re.I)
+# 指代对比双方的固定说法（“两期差额”），不是数量；“两家门店”“两个区域”仍是数量
+COMPARISON = re.compile(r"两期|两个时期|两个周期|两段|两者")
 
 
 def _is_date(year: int, month: int, day: int) -> bool:
@@ -108,7 +117,7 @@ def _strip_names(text: str, names: list[str]) -> str:
 def extract_numbers(text: str, names: list[str] = ()) -> list[dict[str, Any]]:
     """结论中需要核验的数字（按出现顺序）。无法解析的数字 value 为 None。
     names：引用数据集中带数字字符的名称（见 _names），原样出现时不当作数字。"""
-    cleaned = _strip_calendar(_strip_names(text or "", list(names)))
+    cleaned = COMPARISON.sub(" ", _strip_calendar(_strip_names(text or "", list(names))))
     found: list[tuple[int, dict[str, Any]]] = []
     spans: list[tuple[int, int]] = []
     for m in RANGE.finditer(cleaned):
@@ -213,7 +222,8 @@ def matches(number: dict[str, Any], values: list[Decimal]) -> bool:
 
 def _check(text: str, datasets: list[dict]) -> list[dict[str, Any]]:
     values = _candidates(datasets)
-    return [{"text": n["text"], "verified": matches(n, values)} for n in extract_numbers(text, _names(datasets))]
+    return [{"text": n["text"], "verified": matches(n, values), **({"error": n["error"]} if n.get("error") else {})}
+            for n in extract_numbers(text, _names(datasets))]
 
 
 def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],

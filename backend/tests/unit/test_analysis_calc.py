@@ -10,6 +10,8 @@ import pytest
 from avelis.analysis import calc
 from avelis.analysis.verify import extract_numbers, verify_report
 
+CN_ERROR = "中文数字：请用阿拉伯数字书写"
+
 
 def test_contribution_ranks_members_by_change_and_shares_sum_to_one():
     rows = [{"region": "华东", "cur": "500", "prev": "400"}, {"region": "华南", "cur": "200", "prev": "350"},
@@ -81,13 +83,14 @@ def test_segment_describe_and_outliers():
 def test_extract_numbers_skips_dates_and_ordinals():
     text = "2026 年 9 月华南门店成交额 196.94 万，比 8 月下降 7,625.24（-3.7%），前 3 名中第 1 是 D2 的深圳"
     assert [n["text"] for n in extract_numbers(text)] == ["196.94万", "7,625.24", "-3.7%"]
-    assert [n["text"] for n in extract_numbers("9 月 10 日成交额 15,418.64，9 月 1 日至 9 月 9 日共 9 天")] == ["15,418.64"]
+    # 天数是日历折算数据集里的数：按普通数字核验（第五轮）
+    assert [n["text"] for n in extract_numbers("9 月 10 日成交额 15,418.64，9 月 1 日至 9 月 9 日共 9 天")] == ["15,418.64", "9"]
     assert [n["text"] for n in extract_numbers("2026-08-01~2026-08-09 订单 168")] == ["168"]
     # 短写法不当日期：9/10、08-09、2026-09 按数字核验（复核：只认完整、真实存在的日期）
     assert [n["text"] for n in extract_numbers("9/10 成交额 15,418.64")] == ["9", "10", "15,418.64"]
     assert [n["text"] for n in extract_numbers("08-09 订单 168")] == ["08", "09", "168"]
     assert [n["text"] for n in extract_numbers("8-9 月共 61 天")] == ["61"]  # 超过 31 的天数是数据，要核验
-    assert [n["text"] for n in extract_numbers("9 月少 1 天，8 月 31 天，其余 9 家门店")] == ["9"]
+    assert [n["text"] for n in extract_numbers("9 月少 1 天，8 月 31 天，其余 9 家门店")] == ["1", "31", "9"]
     # 数字紧贴汉字（\w 在 Unicode 下包括汉字，曾导致只取到千分位逗号后面的部分）
     assert [n["text"] for n in extract_numbers("9月订单数10,998单，减少1,899单，变化率-14.72%")] ==         ["10,998", "1,899", "-14.72%"]
 
@@ -171,29 +174,29 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
                                                        {"text": "3200", "verified": False}]
     assert check("日均 2400–3000 元/天")["status"] == "verified"
     assert check("约 8-9 万元")["numbers"] == [{"text": "8万", "verified": True}, {"text": "9万", "verified": False}]
-    assert check("成交额壹佰万元")["numbers"] == [{"text": "壹佰万", "verified": False}]
+    assert check("成交额壹佰万元")["numbers"] == [{"text": "壹佰万", "verified": False, "error": "无法解析的数字"}]
     # 中文数字表示的数量不能可靠解析：一律未核实（系统提示要求用阿拉伯数字）
     for text in ("共三家门店", "营收三点五万元", "共五个区域", "百分之十二的订单"):
         assert check(text)["status"] == "unverified", text
-    assert check("营收三点五万元")["numbers"] == [{"text": "三点五万", "verified": False}]  # 不会被当成 5 万
+    assert check("营收三点五万元")["numbers"] == [{"text": "三点五万", "verified": False, "error": CN_ERROR}]  # 不会被当成 5 万
     assert check("共 3 家门店")["status"] == "verified"
     assert check("统一口径，结果一致，是原因之一，第一名是福田店")["status"] == "verified"  # 不是数量
     # 以失败为默认（第四轮）：字母紧贴的数字照常提取；“零点五万”“〇个”未核实；还有认不出的数字字符时兜底为未核实
     assert [n["text"] for n in extract_numbers("GMV100万")] == ["100万"]
     assert check("GMV100万")["status"] == "unverified"  # D1 中没有 100 万
-    assert check("营收零点五万")["numbers"] == [{"text": "零点五万", "verified": False}]
+    assert check("营收零点五万")["numbers"] == [{"text": "零点五万", "verified": False, "error": CN_ERROR}]
     assert check("共〇个区域")["status"] == "unverified"
     leftover = check("持续五个月，两期对比")
     assert leftover["status"] == "unverified" and leftover["numbers"] and not leftover["numbers"][-1]["verified"]
-    assert extract_numbers("九月销售")[0]["error"] == "包含无法识别的数字"
-    # 验收反例：引用数据集里原样出现的名称（“广州四号店”）不是数量；不在数据集里的“两期”、纯数字值“三”仍未核实
+    assert extract_numbers("销售额翻了两番")[0]["error"] == "包含无法识别的数字"  # 两番：认不出的数量
+    # 验收反例：引用数据集里原样出现的名称（“广州四号店”）不是数量；“两家”、纯数字值“三”仍未核实
     stores = {"D1": {"rows": [{"store": "广州四号店", "delta": "25434.45"}, {"store": "厦门二号店", "delta": "44494.61"},
                               {"store": "三", "delta": "1"}, {"store": "2026-09", "delta": "2"}]}}
     named = "其余多数为增长（如广州四号店增加 25434.45、厦门二号店增加 44494.61）"
     assert verify_report([{"type": "fact", "text": named, "refs": ["D1"]}], stores)["ok"] is True
     assert verify_report([{"type": "fact", "text": named, "refs": ["D1"]}], {"D1": {"rows": [
         {"delta": "25434.45"}, {"delta": "44494.61"}]}})["ok"] is False  # 名称不在引用的数据集里：仍兜底未核实
-    for text in ("广州四号店两期合计 25434.45", "广州五号店增加 25434.45", "共三家门店", "2026-09 增加 2"):
+    for text in ("广州四号店两家合计 25434.45", "广州五号店增加 25434.45", "共三家门店", "2026-09 增加 2"):
         assert verify_report([{"type": "fact", "text": text, "refs": ["D1"]}], stores)["ok"] is False, text
     assert verify_report([{"type": "fact", "text": "x", "refs": ["D1"]}], stores,
                          {"summary": "广州四号店增长最多"})["ok"] is True  # 摘要同样适用
@@ -212,6 +215,34 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
     assert [n["text"] for n in extract_numbers("2024-02-29 成交 100")] == ["100"]
     assert [n["text"] for n in extract_numbers("2 月 31 日成交 100")] == ["2", "31", "100"]
     assert check("销量10-12箱")["status"] == "unverified"
+
+
+def test_comparison_and_calendar_wording_is_not_a_quantity():
+    """第五轮：指代对比双方的固定说法与日期、期间写法不是数量；“两家门店”与日历折算的天数仍要核验。"""
+    def texts(text):
+        return [n["text"] for n in extract_numbers(text)]
+
+    ds = {"D19": {"rows": [{"diff": "-1675.0000"}]}}
+    claim = [{"type": "calc", "text": "华东线上订单数两期差额为 -1675 笔（D19）", "refs": ["D19"]}]
+    assert texts(claim[0]["text"]) == ["-1675"]
+    assert verify_report(claim, ds)["ok"] is True
+    for text in ("两个时期对比", "两个周期合计", "两段相比", "两者之差"):
+        assert texts(text) == [], text
+    assert verify_report([{"type": "fact", "text": "两家门店下降 -1675", "refs": ["D19"]}], ds)["ok"] is False
+    assert verify_report([{"type": "fact", "text": "两个区域", "refs": ["D19"]}], ds)["ok"] is False
+    # 日期与期间写法
+    for text in ("9月", "9 月", "9月份", "九月", "十二月份", "15日", "15 号", "9 月上旬", "第3季度", "Q3", "3 季度",
+                 "三季度", "第2周", "上半年", "下半年", "2026年", "本期", "上期", "同期"):
+        assert texts(text + "成交 100") == ["100"], text
+    assert texts("广州10号店成交 100") == ["10", "100"]  # 店名里的“10 号”不是日期
+    assert texts("45 日成交 100") == ["45", "100"]  # 不合法的日期照常核验
+    # 日历折算的天数、周末日、节假日数：按普通数字核验，引用 calendar_adjust 的数据集即可通过
+    cal = {"D20": {"rows": [{"period": "current", "days": 30, "weekend_days": 8, "holidays": 3, "daily": "240.60"},
+                            {"period": "previous", "days": 31, "weekend_days": 10, "holidays": 0, "daily": "286.87"}]}}
+    text = "日历折算：本期 30 天（8 个周末日、3 个节假日）、上期 31 天（10 个周末日、0 个节假日）；日均 240.60 笔对 286.87 笔"
+    assert texts(text) == ["30", "8", "3", "31", "10", "0", "240.60", "286.87"]
+    assert verify_report([{"type": "calc", "text": text, "refs": ["D20"]}], cal)["ok"] is True
+    assert verify_report([{"type": "calc", "text": "本期 29 天", "refs": ["D20"]}], cal)["ok"] is False
 
 
 def test_verify_checks_title_summary_and_unexplained():
