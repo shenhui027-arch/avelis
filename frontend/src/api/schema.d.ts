@@ -2767,6 +2767,13 @@ export interface components {
             grain: string[];
             /** Dedupe Basis */
             dedupe_basis?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /**
+             * Unit Scale
+             * @default 1
+             */
+            unit_scale?: number;
             /** Dependency */
             dependency: {
                 [key: string]: unknown;
@@ -3361,6 +3368,8 @@ export interface components {
             status: string;
             /** Status Reason */
             status_reason?: string | null;
+            /** Unit */
+            unit?: string | null;
             /** Published At */
             published_at?: string | null;
         } & {
@@ -3400,6 +3409,17 @@ export interface components {
             grain?: string[];
             /** Dedupe Basis */
             dedupe_basis?: string | null;
+            /**
+             * Unit
+             * @description 单位，如 元、单、人；比率类可不填
+             */
+            unit?: string | null;
+            /**
+             * Unit Scale
+             * @description 列本身的倍数：列已是“万元”时为 10000
+             * @default 1
+             */
+            unit_scale?: number;
         };
         /** Window */
         Window: {

@@ -263,6 +263,7 @@
 .av-metric-detail__table td { white-space: normal; overflow-wrap: anywhere; }
 .av-metric-detail__table .av-tag { position: static; }
 .av-metric-form { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.av-metric-form__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); }
 .av-metric-form__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .av-metric-form__group { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 .av-metric-form__title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-title); }
