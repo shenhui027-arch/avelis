@@ -7,7 +7,8 @@
 - 可加：c_i = 成员差额，EP_i = c_i / ΔT（带符号的净贡献比例，可以超过 100%）。
 - 比率：w = b / Σb，r = a / b；c_i = (w_i1 − w_i0)·r_i0 + w_i1·(r_i1 − r_i0)，第一项是结构效应，第二项是比率效应，
   交互项归入比率效应（拆法不唯一）；新增、退出成员只有结构效应（w_1·r_1 或 −w_0·r_0），分母为 0 记为不可计算。
-- |ΔT| 低于对比期的 1%，或 |ΔT| / Σ|c_i| < 0.2（成员变化相互抵消）时不生成排名，分别列出增加项与减少项。
+- |ΔT| 低于对比期的显著性阈值（产品参数，默认 1%，可按指标配置），或 |ΔT| / Σ|c_i| < 0.2（成员变化相互抵消）时
+  不生成排名，分别列出增加项与减少项。这个判定就是报告的结论类型（ADR 0009 第 7 点），不交给模型选择。
 - 分布变化强度：两期成员份额分布的 JS 散度，只对非负、总量为正的分布计算。维度按它排序（并列按维度名），
   维度内成员按 |EP| 排序，取到累计 EP ≥ 0.67 或达到 top_k 为止；各维度的 EP 不跨维度相加。
 """
@@ -21,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 
 EP_THRESHOLD = Decimal("0.67")
-MIN_CHANGE_RATIO = Decimal("0.01")  # |ΔT| 低于对比期的 1%：总体变化不明显
+MIN_CHANGE_RATIO = Decimal("0.01")  # 默认的显著性阈值：|ΔT| 低于对比期的 1% 为总体变化不明显
 OFFSET_RATIO = Decimal("0.2")  # |ΔT| / Σ|c_i| 低于它：成员变化相互抵消
 RECONCILE_TOLERANCE = Decimal("1e-9")  # 只容忍浮点存储的表示误差（相对），不当作舍入差
 NULL_MEMBER = "（空）"
@@ -29,6 +30,7 @@ _SUM = re.compile(r"^SUM\s*\((?!\s*DISTINCT\b).+\)$", re.I | re.S)
 _COUNT_ALL = re.compile(r"^COUNT\s*\(\s*\*\s*\)$", re.I)
 _NON_ADDITIVE = re.compile(r"^(COUNT\s*\(\s*DISTINCT|AVG|MIN|MAX|MEDIAN|PERCENTILE|APPROX_)", re.I)
 _RATIO = re.compile(r"^\s*([A-Za-z_]\w*)\s*/\s*([A-Za-z_]\w*)\s*$")
+RATIO_FORMULA = _RATIO  # 派生比率口径的公式 a / b（自动因子拆解按它找分子为所问指标的比率口径）
 
 
 class AttributionError(ValueError):
@@ -173,11 +175,16 @@ def ratio_members(values: dict[tuple, tuple], totals: tuple[Decimal, Decimal, De
     return rows, total
 
 
-def judge(dim: Dimension, total_previous: Decimal, total_change: Decimal, top_k: int) -> Dimension:
+def immaterial(total_previous: Decimal, total_change: Decimal, threshold: Decimal = MIN_CHANGE_RATIO) -> bool:
+    return total_change == 0 or abs(total_change) < threshold * abs(total_previous)
+
+
+def judge(dim: Dimension, total_previous: Decimal, total_change: Decimal, top_k: int,
+          threshold: Decimal = MIN_CHANGE_RATIO) -> Dimension:
     """维度内的判定与截取：变化不明显 / 相互抵消时不排名，分别列出增加项与减少项；否则按 |EP| 取到累计 ≥ 0.67 或 top_k。"""
     computable = [r for r in dim.rows if r["contribution"] is not None]
     moved = sum((abs(r["contribution"]) for r in computable), Decimal(0))
-    if abs(total_change) < MIN_CHANGE_RATIO * abs(total_previous) or total_change == 0:
+    if immaterial(total_previous, total_change, threshold):
         dim.verdict = "no_material_change"
     elif moved and abs(total_change) / moved < OFFSET_RATIO:
         dim.verdict = "offsetting"
@@ -202,7 +209,9 @@ def rank(dims: list[Dimension]) -> list[Dimension]:
     return sorted(dims, key=lambda d: (d.js is None, -(d.js or 0.0), d.name))
 
 
-def verdict(dims: list[Dimension], scanned_any: bool) -> str:
+def verdict(dims: list[Dimension], scanned_any: bool, total_immaterial: bool = False) -> str:
+    if total_immaterial:  # 总量变化不显著：不论维度扫描到哪里，结论都是“没有实质变化”
+        return "no_material_change"
     if not scanned_any:
         return "insufficient_evidence"
     if all(d.verdict == "no_material_change" for d in dims):

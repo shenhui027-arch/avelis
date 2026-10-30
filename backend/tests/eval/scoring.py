@@ -1,6 +1,7 @@
 """分析评测的判分（ADR 0009 第 5 点，最小版本）：纯函数，不调用模型，只读运行结果里的 causes 与核验结果。
 
 - 首要原因：只看 causes 的第一项，类型、方向都对、实体包含预期关键字之一（且这一项通过了核验）才算命中；
+  实体按编码比对：成员看维度与取值，因子看指标编码（factor_metric_code），证据行看行内容；
 - 关键数值：报告里任一事实 / 计算类数值引用（结论、原因的贡献、标题与摘要）的原值落在容差内（相对容差，0 表示精确）；
   any_of 列出多个可接受的值（命中任一即可）。题目用 truth 引用生成器真值（.demo/ec-truth.json），加载时展开成
   本期值、对比期值与变化量（为 0 的值不列入：0 在报告里太常见，不能说明取对了数），不手填；
@@ -119,8 +120,11 @@ def _key_value_hit(key: dict, raws: list[Decimal]) -> bool:
 
 
 def _entity_text(cause: dict) -> str:
+    """原因实体按编码比对（ADR 0009 第 7 点）：成员的维度与取值、因子的指标编码、证据行；另加核验解析出的显示名
+    （证据行的内容，例如探索数据里的活动、调价记录）。"""
     e = cause.get("entity") or {}
-    return " ".join(str(e[k]) for k in ("dimension", "member", "factor", "event") if e.get(k))
+    keys = ("metric_code", "dimension", "member", "factor_metric_code", "evidence_id")
+    return " ".join([str(e[k]) for k in keys if e.get(k)] + ([str(cause["label"])] if cause.get("label") else []))
 
 
 TRANSPORT_MARKERS = ("APIConnectionError", "ConnectionError", "Connection error", "connection", "SSL", "timed out",

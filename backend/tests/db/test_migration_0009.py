@@ -11,6 +11,12 @@ from sqlalchemy import inspect, select, text
 pytestmark = pytest.mark.db
 
 
+def head(cfg) -> str:
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(cfg).get_current_head()
+
+
 def test_0009_adds_optional_unit_columns_and_round_trips(meta_db, factory):
     from alembic import command
 
@@ -39,7 +45,7 @@ def test_0009_adds_optional_unit_columns_and_round_trips(meta_db, factory):
 
     command.upgrade(cfg, "head")
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == head(cfg)  # 之后还有更新的迁移
         row = conn.execute(text("SELECT unit, unit_scale FROM metric_version WHERE id = :id"), {"id": version_id}).one()
         assert row.unit is None and row.unit_scale == 1
         assert conn.scalar(text("SELECT count(*) FROM domain WHERE example_questions <> '[]'::jsonb")) == 0

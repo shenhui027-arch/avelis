@@ -99,11 +99,12 @@ def _record(parts: Any, datasets: dict[str, dict], window: dict | None, *, check
     return {"parts": parts, "text": r["text"], "segments": r["segments"], "status": status, "errors": problems}, r["refs"]
 
 
-def ground_report(report: dict[str, Any], datasets: dict[str, dict],
-                  window: dict | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dict | None,
+                  explanations: dict[str, str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
-    report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}]}；
-    datasets：见 grounding.resolve；window：本次运行的窗口。"""
+    report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}],
+    conclusion, causes, metric_code}；datasets：见 grounding.resolve；window：本次运行的窗口；
+    explanations：本次运行里 explain_change 对各指标的判定（unsupported 表示不适用），结论类型以它为准。"""
     if report.get("incomplete"):  # 后端生成的“未完成”报告：没有引用，原样保留，不核验
         return report, {"ok": False, "status": "no_facts", "unverified": 0, "claims": [], "fields": [],
                         "unverified_fields": 0, "sources": {}}
@@ -145,6 +146,7 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict],
     rendered["claims"] = claims
     rendered["conclusion"] = report.get("conclusion")
     rendered["causes"], cause_results, conclusion_problems = _causes(report, datasets, window)
+    conclusion_problems += _conclusion_matches(report, explanations or {})
     unverified_fields = sum(f["status"] == "unverified" for f in field_results)
     unverified_causes = sum(c["status"] == "unverified" for c in cause_results)
     ok = unverified == 0 and unverified_fields == 0 and unverified_causes == 0 and not conclusion_problems
@@ -161,7 +163,31 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict],
 
 
 FACT_SOURCES = ("governed", "calc", "explore")
-TYPE_FIELDS = {"member": ("dimension", "member"), "factor": ("factor",), "calendar": (), "governance": ("event",)}
+# 每类原因的实体字段：任一组写全即可（成员、因子没有口径编码时用证据行 evidence_id）
+TYPE_FIELDS = {"member": (("metric_code", "dimension", "member"), ("evidence_id",)),
+               "factor": (("factor_metric_code",), ("evidence_id",)), "calendar": ((),),
+               "governance": (("evidence_id",),)}
+EXPLAIN_CONCLUSION = {"ranked_reasons": "ranked_reasons", "offsetting": "no_material_change",
+                      "no_material_change": "no_material_change"}
+
+
+def _conclusion_matches(report: dict, explanations: dict[str, str]) -> list[str]:
+    """结论类型交给确定性引擎（ADR 0009 第 7 点）：所问指标（metric_code）做过 explain_change 时，
+    报告的结论类型必须与它的判定一致（相互抵消按“没有实质变化”）；做过 explain_change 却没写所问指标的，要求写明。"""
+    code, conclusion = report.get("metric_code"), report.get("conclusion")
+    explained = {k: v for k, v in explanations.items() if v != "unsupported"}
+    if not code:
+        if explained:
+            return [f"本次运行对 {'、'.join(sorted(explained))} 做过自动归因：请在 metric_code 写明所问的指标"]
+        return []
+    verdict = explanations.get(code)
+    if verdict is None:
+        return [f"所问指标 {code} 没有做过 explain_change：结论类型由它判定，请先对 {code} 调用 explain_change"] if (
+            conclusion in ("ranked_reasons", "no_material_change")) else []
+    expected = EXPLAIN_CONCLUSION.get(verdict)
+    if expected and conclusion != expected:
+        return [f"explain_change 对 {code} 的判定是 {verdict}，结论类型应为 {expected}（不是 {conclusion}）"]
+    return []
 
 
 def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tuple[list, list, list[str]]:
@@ -187,9 +213,10 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
             rendered.append({"index": i, "raw": item, "status": "unverified", "errors": errs})
             results.append({"index": i, "status": "unverified", "problems": errs})
             continue
-        missing = [f for f in TYPE_FIELDS[cause.type] if not getattr(cause.entity, f)]
-        if missing:
-            errs.append(f"{cause.type} 类原因需要写 entity.{'、entity.'.join(missing)}")
+        groups = TYPE_FIELDS[cause.type]
+        if not any(all(getattr(cause.entity, f) for f in group) for group in groups):
+            errs.append(f"{cause.type} 类原因的实体需要写 " + " 或 ".join(
+                "、".join(f"entity.{f}" for f in group) for group in groups if group))
         evidence = list(dict.fromkeys(cause.evidence + ([cause.contribution.dataset] if cause.contribution else [])))
         for ref in evidence:
             ds = datasets.get(ref)
@@ -213,34 +240,49 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
                 errs.append(f"方向与贡献的正负不一致：direction={cause.direction}，原值 {seg.get('raw')}")
             if seg.get("assumption"):
                 errs.append("贡献来自假设计算，不能作为原因的证据")
+        label = None
         if not errs:
-            errs += _entity_problems(cause, {r: datasets[r] for r in evidence if r in datasets})
+            entity_errors, label = _entity_problems(cause, {r: datasets[r] for r in evidence if r in datasets},
+                                                    report.get("metric_code"))
+            errs += entity_errors
         status = "unverified" if errs else "verified"
         rendered.append({"index": i, "type": cause.type, "entity": cause.entity.model_dump(exclude_none=True),
+                         "label": label,
                          "direction": cause.direction, "contribution": contribution, "evidence": evidence,
                          "status": status, "errors": errs})
         results.append({"index": i, "status": status, "problems": errs})
     return rendered, results, problems
 
 
-def _entity_problems(cause: Cause, evidence: dict[str, dict]) -> list[str]:
+def _entity_problems(cause: Cause, evidence: dict[str, dict], asked: str | None) -> tuple[list[str], str | None]:
+    """实体按编码在证据里找：返回（问题，显示名称）。"""
     e = cause.entity
+    if e.evidence_id:  # 证据行：所在数据集必须在证据里
+        ref, row = e.evidence_id.split("#")
+        if ref not in evidence:
+            return [f"证据行 {e.evidence_id} 所在的数据集 {ref} 不在证据里"], None
+        rows = evidence[ref].get("rows") or []
+        if int(row) > len(rows):
+            return [f"证据行 {e.evidence_id} 不存在（{ref} 只有 {len(rows)} 行）"], None
+        values = [v for v in rows[int(row) - 1].values() if isinstance(v, str) and v.strip() and _number(v) is None]
+        return [], " · ".join(values[:4]) or e.evidence_id
     rows = [r for ds in evidence.values() for r in ds.get("rows") or []]
     if cause.type == "member":
+        codes = {c for ds in evidence.values() for c in ds.get("metric_codes") or []}
+        if codes and e.metric_code not in codes:
+            return [f"指标 {e.metric_code} 不在证据数据集的口径里（证据涉及：{'、'.join(sorted(codes))}）"], None
+        if not codes and e.metric_code != asked:
+            return [f"证据里没有口径编码：成员类原因的 metric_code 只能是所问指标 {asked or '（未写）'}"], None
         found = any(str(r.get(e.dimension, "")).strip() == e.member
                     or (str(r.get("dimension", "")).strip() == e.dimension and str(r.get("member", "")).strip() == e.member)
                     for r in rows)
-        return [] if found else [f"成员 {e.dimension}={e.member} 不在证据数据集里"]
+        return ([], e.member) if found else ([f"成员 {e.dimension}={e.member} 不在证据数据集里"], None)
     if cause.type == "factor":
-        return [] if any(str(r.get("factor", "")).strip() == e.factor for r in rows) else [f"因子 {e.factor} 不在证据数据集里"]
-    if cause.type == "governance":
-        ref, row = e.event.split("#")
-        if ref not in evidence:
-            return [f"事件 {e.event} 所在的数据集 {ref} 不在证据里"]
-        count = len(evidence[ref].get("rows") or [])
-        if int(row) > count:
-            return [f"事件 {e.event} 不存在（{ref} 只有 {count} 行）"]
-    return []
+        hit = next((r for r in rows if str(r.get("factor_metric_code") or "").strip() == e.factor_metric_code), None)
+        if hit is None:
+            return [f"因子指标 {e.factor_metric_code} 不在证据数据集里（因子拆解结果的 factor_metric_code 列）"], None
+        return [], str(hit.get("factor") or e.factor_metric_code)
+    return [], None
 
 
 def _number(value):

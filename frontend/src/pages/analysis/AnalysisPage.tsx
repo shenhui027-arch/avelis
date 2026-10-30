@@ -22,7 +22,8 @@ type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]
   validation?: string | null; details?: Record<string, FieldRecord> };
 type Check = { index: number; status: string; problems?: string[]; missing_refs?: string[] };
 type FieldCheck = { field: string; status: string; problems?: string[] };
-type CauseView = { index: number; type?: string; entity?: { dimension?: string; member?: string; factor?: string; event?: string };
+type CauseView = { index: number; type?: string; label?: string | null;
+  entity?: { metric_code?: string; dimension?: string; member?: string; factor_metric_code?: string; evidence_id?: string };
   direction?: string; contribution?: { text: string; segments?: Segment[] } | null; evidence?: string[]; status: string;
   errors?: string[] };
 const CAUSE_TYPE: Record<string, string> = { member: "成员", factor: "因子", calendar: "日历", governance: "治理事件" };
@@ -37,7 +38,9 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
     {causes?.length ? <ol className="av-causes">
       {causes.map((c) => {
         const e = c.entity ?? {};
-        const entity = e.member ? `${e.dimension ?? ""}：${e.member}` : e.factor ?? e.event ?? "日历因素";
+        // 实体按编码关联（ADR 0009 第 7 点）：显示核验时解析出的名称，编码放在悬停说明里
+        const entity = e.member ? `${e.dimension ?? ""}：${c.label ?? e.member}`
+          : c.label ?? e.factor_metric_code ?? e.evidence_id ?? "日历因素";
         return <li key={c.index} className={`av-cause${c.status === "unverified" ? " is-unverified" : ""}`}>
           <Pill tone="">{CAUSE_TYPE[c.type ?? ""] ?? c.type ?? "原因"}</Pill>
           <span className="av-cause__entity">{entity}</span>

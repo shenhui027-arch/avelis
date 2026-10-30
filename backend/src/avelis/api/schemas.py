@@ -379,6 +379,7 @@ class MetricVersionOut(Out):
     dedupe_basis: str | None = None
     unit: str | None = None
     unit_scale: int = 1
+    material_change_ratio: float | None = None
     dependency: list[Json]
     dependency_fingerprint: str | None = None
     asset_versions: Json

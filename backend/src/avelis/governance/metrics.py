@@ -54,8 +54,9 @@ TRANSITIONS = {
     ("affected", "retired"),
 }
 EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
-                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale")
-DISPLAY_FIELDS = ("unit", "unit_scale")  # 只影响显示的元数据：不计入依赖指纹，修改不算口径漂移
+                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale", "material_change_ratio")
+# 只影响显示与分析判断的元数据：不计入依赖指纹，修改不算口径漂移
+DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio")
 TIME_TYPES = ("date", "datetime", "timestamp")
 
 
@@ -557,6 +558,8 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
         "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
         "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
+        "material_change_ratio": float(version.material_change_ratio) if version.material_change_ratio is not None
+        else None,
         "dependency": version.dependency,
         "dependency_fingerprint": version.dependency_fingerprint, "asset_versions": version.asset_versions,
         "publish_check": version.publish_check, "created_by": version.created_by,

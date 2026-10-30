@@ -4,7 +4,8 @@
 # 每题：
 #   category      dimension / factor / calendar / governance（正例）、explore（需要探索查询）、negative（反例）、adversarial（对抗）
 #   expect.conclusion   预期结论类型（列表：任一即可）
-#   expect.primary      首要原因：types（允许的类型）、direction、entity（成员或因子名里应包含的任一关键字；为空不比对）
+#   expect.primary      首要原因：types（允许的类型）、direction、entity（应包含的任一关键字；为空不比对）。实体按编码比对
+#                       （ADR 0009 第 7 点）：成员写成员取值，因子写指标编码，证据行（无口径的数据）写行内容里的关键字
 #   expect.key_value    关键数值：报告里任一事实 / 计算类数值引用的原值落在容差内即命中；abs 为真时按绝对值比较。
 #                       value：单个值；truth：引用生成器真值 {table, key, measure}，加载时按题目窗口展开成
 #                       any_of = [本期值, 对比期值, 变化量]（为 0 的不列入）。问“为什么变化”的题一律用 truth：
@@ -82,7 +83,7 @@ questions:
     question: 华东区域 2026 年 9 月成交额下降，主要是订单数还是客单价导致的？
     expect:
       conclusion: [ranked_reasons]
-      primary: {types: [factor], direction: down, entity: [订单]}
+      primary: {types: [factor], direction: down, entity: [ec_orders]}
       key_value: {truth: {table: region_month, key: [EC], measure: orders}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: []
   - id: f02
@@ -90,7 +91,7 @@ questions:
     question: 家电类目 2026 年 9 月销售额为什么比 8 月高？
     expect:
       conclusion: [ranked_reasons]
-      primary: {types: [factor, member], direction: up, entity: [销量, 件数, 家电]}
+      primary: {types: [factor, member], direction: up, entity: [ec_units, 家电]}
       key_value: {truth: {table: category_month, key: [家电], measure: units}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [抖音]
   - id: f03
@@ -98,7 +99,7 @@ questions:
     question: 西南区域 2026 年 9 月订单数下降但成交额上升，原因是什么？
     expect:
       conclusion: [ranked_reasons]
-      primary: {types: [factor], direction: up, entity: [客单价]}
+      primary: {types: [factor], direction: up, entity: [ec_aov]}
       key_value: {truth: {table: region_month, key: [SW], measure: paid_amount}, tolerance: 0.01, abs: true}  # 西南成交额的两期值或变化量
       forbidden: []
   # --- 日历原因 -----------------------------------------------------------------------
@@ -221,7 +222,7 @@ questions:
     question: 华东区域 2026 年 9 月投放成交额下降，主要是投放花费减少还是投放 ROI 变化造成的？
     expect:
       conclusion: [ranked_reasons]
-      primary: {types: [factor], direction: down, entity: [花费]}
+      primary: {types: [factor], direction: down, entity: [ec_ad_spend]}
       key_value: {truth: {table: ad_region_month, key: [EC], measure: spend}, tolerance: 0.01, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [福田]
   - id: h04
