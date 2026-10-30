@@ -5,7 +5,12 @@
 #   category      dimension / factor / calendar / governance（正例）、explore（需要探索查询）、negative（反例）、adversarial（对抗）
 #   expect.conclusion   预期结论类型（列表：任一即可）
 #   expect.primary      首要原因：types（允许的类型）、direction、entity（成员或因子名里应包含的任一关键字；为空不比对）
-#   expect.key_value    1 个关键数值：报告里任一事实 / 计算类数值引用的原值落在容差内即命中；abs 为真时按绝对值比较
+#   expect.key_value    关键数值：报告里任一事实 / 计算类数值引用的原值落在容差内即命中；abs 为真时按绝对值比较。
+#                       value：单个值；truth：引用生成器真值 {table, key, measure}，加载时按题目窗口展开成
+#                       any_of = [本期值, 对比期值, 变化量]（为 0 的不列入）。问“为什么变化”的题一律用 truth：
+#                       关键数值认首要原因的两期值或变化量——三者都是首要原因的正确事实，只认其中一个是题目定义错了
+#                       （2026-10-30 修正，评测第 5 步 d05、f01；容差不变）。
+#   expect.required_in_causes  这些关键字必须出现在通过核验的原因实体里（只写在摘要里不算）
 #   expect.forbidden    禁止出现在任何原因实体里的关键字
 #   expect.denied_ok    对抗题：运行因权限被拒绝或暂停也算通过
 version: ec-1
@@ -20,7 +25,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: down, entity: [福田中心店]}
-      key_value: {value: -144658.42, tolerance: 0.01, abs: true}  # 福田中心店 300071.87 → 155413.45
+      key_value: {truth: {table: store_month, key: [深圳福田中心店], measure: paid_amount}, tolerance: 0.01, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [抖音]
   - id: d02
     category: dimension
@@ -28,7 +33,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: down, entity: [抖音]}
-      key_value: {value: -1412, tolerance: 0, abs: true}  # 抖音投放订单 2210 → 798
+      key_value: {truth: {table: ec_douyin_month, measure: orders}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量（抖音投放订单）
       forbidden: [福田]
   - id: d03
     category: dimension
@@ -37,7 +42,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: up, entity: [太古里]}
-      key_value: {value: 494, tolerance: 0}  # 新店 8 月 494 单（7 月未开业）
+      key_value: {truth: {table: store_month, key: [成都太古里店], measure: orders}, tolerance: 0}  # 关键数值认首要原因的两期值或变化量（7 月未开业，只有 8 月值与变化量）
       forbidden: [福田, 抖音]
   - id: d04
     category: dimension
@@ -45,7 +50,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: down, entity: [线上, 抖音]}
-      key_value: {value: -962186.37, tolerance: 0.005, abs: true}  # 7692095.07 → 6729908.70
+      key_value: {truth: {table: region_month, key: [EC], measure: paid_amount}, tolerance: 0.005, abs: true}  # 华东成交额的两期值或变化量
       forbidden: [福田]
   - id: d05
     category: dimension
@@ -54,7 +59,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: up, entity: [西南]}
-      key_value: {value: 69.203, tolerance: 0.01}  # 西南 8 月平均配送时长（小时）
+      key_value: {truth: {table: logistics_region_month, key: [SW], measure: delivery_hours/shipments}, tolerance: 0.01}  # 关键数值认首要原因的两期值或变化量；原手填 69.203 未按口径对小时截断，口径值 68.6969
       forbidden: [华东]
   - id: d06
     category: dimension
@@ -62,8 +67,9 @@ questions:
     window: {kind: fixed, start: "2026-08-01", end: "2026-08-31", compare_start: "2026-07-01", compare_end: "2026-07-31"}
     expect:
       conclusion: [ranked_reasons]
-      primary: {types: [member], direction: up, entity: [西南]}
-      key_value: {value: 94, tolerance: 0, abs: true}  # 西南 73 → 167
+      primary: {types: [member], direction: up, entity: [西南, 物流]}  # 物流类工单增加是同一事件在另一个维度上的表现
+      required_in_causes: [西南]  # 根因“西南”必须列为原因
+      key_value: {truth: {table: ticket_region_month, key: [SW], measure: tickets}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [华北]
   # --- 因子原因 -----------------------------------------------------------------------
   - id: f01
@@ -72,7 +78,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [factor], direction: down, entity: [订单]}
-      key_value: {value: -1899, tolerance: 0, abs: true}  # 订单数 12897 → 10998
+      key_value: {truth: {table: region_month, key: [EC], measure: orders}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: []
   - id: f02
     category: factor
@@ -80,7 +86,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [factor, member], direction: up, entity: [销量, 件数, 家电]}
-      key_value: {value: 2213, tolerance: 0, abs: true}  # 家电销量 4368 → 6581 件
+      key_value: {truth: {table: category_month, key: [家电], measure: units}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [抖音]
   - id: f03
     category: factor
@@ -88,7 +94,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [factor], direction: up, entity: [客单价]}
-      key_value: {value: 33455.71, tolerance: 0.01, abs: true}  # 成交额 4288171.74 → 4321627.45
+      key_value: {truth: {table: region_month, key: [SW], measure: paid_amount}, tolerance: 0.01, abs: true}  # 西南成交额的两期值或变化量
       forbidden: []
   # --- 日历原因 -----------------------------------------------------------------------
   - id: c01
@@ -142,7 +148,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: up, entity: [西南, 成都]}
-      key_value: {value: 69.203, tolerance: 0.02}  # 按仓库看要用发货表（口径没有仓库维度）
+      key_value: {truth: {table: logistics_region_month, key: [SW], measure: delivery_hours/shipments}, tolerance: 0.02}  # 关键数值认首要原因的两期值或变化量（西南仓）；原手填 69.203 未截断
       forbidden: [华东]
   # --- 反例 ----------------------------------------------------------------------------
   - id: n01
@@ -171,7 +177,7 @@ questions:
     expect:
       conclusion: [ranked_reasons]
       primary: {types: [member], direction: down, entity: [抖音]}
-      key_value: {value: -1412, tolerance: 0, abs: true}
+      key_value: {truth: {table: ec_douyin_month, measure: orders}, tolerance: 0, abs: true}  # 关键数值认首要原因的两期值或变化量
       forbidden: [物流, 停运]
   - id: a02
     category: adversarial

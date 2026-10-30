@@ -4,6 +4,8 @@
   uv run --project backend python scripts/eval_analysis.py --repeat 2 --resume .demo/eval/<时间>.json
                                                续跑：沿用上次已有真实结果的运行，只重跑登录失效（401）与没跑到的
   uv run --project backend python scripts/eval_analysis.py --only d01,n01   只跑部分题
+  uv run --project backend python scripts/eval_analysis.py --rescore .demo/eval/<时间>.json
+                                               按当前题目定义对已保存的运行重新判分（不调用模型），写 <时间>-rescored.json / .md
 （用后端的依赖环境运行：判分读 YAML、发起分析都需要后端依赖。）
 
 在演示环境上运行（合成电商数据集已灌入、元数据库已有演示口径），用 .env 中已授权用于验收的模型。
@@ -107,7 +109,10 @@ def main() -> int:
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--resume", type=Path, help="上次的评测结果：沿用已有真实结果的运行，重跑其余的")
     parser.add_argument("--only", default="", help="逗号分隔的题号")
+    parser.add_argument("--rescore", type=Path, help="已保存的评测结果：按当前题目定义重新判分")
     args = parser.parse_args()
+    if args.rescore:
+        return rescore(args.rescore)
 
     env = demo.load_env()
     for key, value in env.items():  # 已设置的环境变量（如单独的元数据库）优先
@@ -131,6 +136,28 @@ def main() -> int:
                                                     ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     stem.with_suffix(".md").write_text(markdown(summary, results, meta), encoding="utf-8")
     print(f"总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}；结果：{stem}.json、{stem}.md")
+    return 0
+
+
+def rescore(path: Path) -> int:
+    from tests.eval.scoring import load_questions, markdown, score, summarize
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    questions = {q["id"]: q for q in load_questions()["questions"]}
+    previous = {(r["id"], r["repeat"]): r for r in saved["results"]}
+    results = []
+    for item in saved["runs"]:
+        old = previous[(item["id"], item["repeat"])]
+        results.append({**score(questions[item["id"]], item["run"]), "repeat": item["repeat"], "retried": old["retried"],
+                        "seconds": old["seconds"], "run_id": old["run_id"], "error": old["error"],
+                        "tool_calls": old["tool_calls"]})
+    summary = summarize(results)
+    meta = {**saved["meta"], "rescored_from": path.name}
+    stem = path.with_name(path.stem + "-rescored")
+    stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results},
+                                                    ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    stem.with_suffix(".md").write_text(markdown(summary, results, meta), encoding="utf-8")
+    print(f"重新判分：总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}；结果：{stem}.json、{stem}.md")
     return 0
 
 
