@@ -552,3 +552,4 @@
 .av-chart__tick { fill: var(--text-tertiary); font: 400 9px var(--font-sans); }
 .av-chart__value { fill: var(--text-secondary); font: 400 9px var(--font-mono); }
 .av-chart__axis { stroke: var(--line-strong); stroke-width: 1; }
+.av-datasources__switch { display: flex; align-items: center; gap: var(--space-2); }
