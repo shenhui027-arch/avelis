@@ -4,6 +4,10 @@
   uv run --project backend python experiments/agent-v2/e1.py --run           执行（需要授权；调用真实模型、产生费用）
   uv run --project backend python experiments/agent-v2/e1.py --run --only h10 --conditions D0,D1 --repeat 1
 
+费用账本默认上限 30 元、已花 0 元，每次开始前预留 1.5 元；可用 --cap、--spent、--reserve 调整。
+预留依据：历史最大一次约 52 万输入、3.4 万输出，全部按高峰未命中计约 1.3 元。每次完成后保存费用与累计账本。
+运行详情或用量不完整时，按已知费用加一次预留金额入账，并保留实测费用明细。
+
 条件（材料见 e1_injections.yaml）：
 - D0：共同基线 B0，正常运行；
 - D1：理解阶段照常请求模型（请求次数与 D0 相同），之后用人工核对的范围替换模型给出的范围（不再待澄清）；
@@ -25,11 +29,15 @@ import random
 import sys
 import time
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterator
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "backend"), str(ROOT / "backend" / "src")]
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(ROOT / "scripts"),
+                str(ROOT / "backend"), str(ROOT / "backend" / "src")]
+
+from cost import Ledger, run_cost  # noqa: E402
 
 MATERIAL = Path(__file__).with_name("e1_injections.yaml")
 CONDITIONS = ("D0", "D1", "D2", "D3")
@@ -166,7 +174,14 @@ def main() -> int:
     parser.add_argument("--only", default="", help="逗号分隔的场景")
     parser.add_argument("--conditions", default=",".join(CONDITIONS))
     parser.add_argument("--repeat", type=int, default=2)
+    parser.add_argument("--cap", default="30", help="累计费用上限（元）")
+    parser.add_argument("--spent", default="0", help="此前已花费用（元）")
+    parser.add_argument("--reserve", default="1.5", help="每次运行前预留费用（元）")
     args = parser.parse_args()
+    try:
+        ledger = Ledger(args.cap, args.spent, per_run_reserve_cny=args.reserve)
+    except (InvalidOperation, ValueError):
+        parser.error("--cap、--spent、--reserve 必须是非负有限金额")
     material = load_material()
     scenarios = [s for s in material if not args.only or s in args.only.split(",")]
     conditions = [c for c in args.conditions.split(",") if c]
@@ -174,35 +189,71 @@ def main() -> int:
     if len(order) > 48:
         raise SystemExit(f"超过 E1 冻结上限 48 次：{len(order)}")
     if not args.run:
-        print(json.dumps({"order": order, "bounds": budget_bounds(len(order))}, ensure_ascii=False, indent=2))
+        print(json.dumps({"order": order, "bounds": budget_bounds(len(order)), "ledger": ledger.view()},
+                         ensure_ascii=False, indent=2))
         return 0
 
     import demo
     from eval_analysis import _ask, _client, _login, code_version
     from tests.eval import scoring_v2
 
-    env = demo.load_env()
-    questions = {q["id"]: q for q in scoring_v2.load_questions()["questions"]}
-    client = _client(env)
     started = datetime.now()
     results = []
+    client = None
+    stop_reason = None
+    out = demo.STATE / "experiments" / "e1"
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{started.strftime('%Y%m%d-%H%M%S')}.json"
+    meta = {"started": started.isoformat(timespec="seconds"), **code_version(),
+            "scorer": scoring_v2.VERSION, "seed": SEED, "material": MATERIAL.name,
+            "initial_spent_cny": str(args.spent)}
+
+    def save_results():
+        path.write_text(json.dumps({"meta": meta, "ledger": ledger.view(), "stop_reason": stop_reason,
+                                    "results": results}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
     for item in order:
+        if not ledger.can_start():
+            stop_reason = (f"费用预留不足：累计已花 {ledger.spent_cny} 元 + 每次预留 {ledger.per_run_reserve_cny} 元"
+                           f" > 上限 {ledger.cap_cny} 元，停止后续运行")
+            print(stop_reason, flush=True)
+            break
+        if client is None:
+            env = demo.load_env()
+            questions = {q["id"]: q for q in scoring_v2.load_questions()["questions"]}
+            client = _client(env)
         q = questions[item["scenario"]]
         with install(item["condition"], material[item["scenario"]]) as stats:
             headers = _login(client, q["user"], env["AVELIS_DEMO_USER_PASSWORD"])
             began = time.monotonic()
             run = _ask(client, headers, q)  # 只有一次运行：真实网络故障不在这里重试（任务书：原始失败不能被覆盖）
+        cost = run_cost(run or {})
+        estimate_reasons = []
+        if not run:
+            estimate_reasons.append("未取得运行详情")
+        else:
+            if not run.get("id"):
+                estimate_reasons.append("运行详情缺少 id")
+            if not run.get("steps"):
+                estimate_reasons.append("运行详情缺少步骤记录")
+        if cost["missing_usage"] > 0:
+            estimate_reasons.append(f"{cost['missing_usage']} 个模型步骤缺少用量")
+        cost_estimated = bool(estimate_reasons)
+        cost_estimate_reason = "；".join(estimate_reasons) or None
+        cost_accounted = Decimal(cost["total_cny"]) + (ledger.per_run_reserve_cny if cost_estimated else Decimal("0"))
+        ledger.add(cost_accounted)
         result = {**item, "seconds": round(time.monotonic() - began, 1), "run_id": (run or {}).get("id"),
-                  "injection": stats, "score": scoring_v2.score(q, run), "run": run}
+                  "injection": stats, "score": scoring_v2.score(q, run), "run": run,
+                  "cost": cost, "cost_estimated": cost_estimated, "cost_estimate_reason": cost_estimate_reason,
+                  "cost_accounted_cny": str(cost_accounted), "ledger": ledger.view()}
         results.append(result)
+        save_results()
         print(f"[{item['repeat']}] {item['scenario']} {item['condition']}: "
-              f"{'通过' if result['score']['passed'] else '未通过'}（{(run or {}).get('status')}）", flush=True)
-    out = demo.STATE / "experiments" / "e1"
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{started.strftime('%Y%m%d-%H%M%S')}.json"
-    path.write_text(json.dumps({"meta": {"started": started.isoformat(timespec="seconds"), **code_version(),
-                                         "scorer": scoring_v2.VERSION, "seed": SEED, "material": MATERIAL.name},
-                                "results": results}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+              f"{'通过' if result['score']['passed'] else '未通过'}（{(run or {}).get('status')}），"
+              f"本次入账 {cost_accounted} 元，累计 {ledger.spent_cny}/{ledger.cap_cny} 元，"
+              f"缺失用量步骤 {cost['missing_usage']}"
+              + (f"，估算原因：{cost_estimate_reason}" if cost_estimated else ""), flush=True)
+    save_results()
     print(f"结果：{path}")
     return 0
 

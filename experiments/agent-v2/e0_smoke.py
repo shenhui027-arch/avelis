@@ -2,6 +2,7 @@
 
   uv run --project backend python experiments/agent-v2/e0_smoke.py            打印计划，不请求
   uv run --project backend python experiments/agent-v2/e0_smoke.py --run      执行（读取 .env 的 AVELIS_MODEL_* ，不打印密钥）
+  用 --only 指定逗号分隔的检查项；after_checkpoint 必须同时选择 round_trip。
 
 检查项（每项写明请求次数）：
 1. 思考 low + 工具的两轮往返，回传 reasoning_content（2 次）：第二轮不得 400；记录 finish_reason、usage、推理 token、
@@ -25,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "backend" / "src")]
 MAX_REQUESTS = 7
+CHECKS = ("round_trip", "plain_client", "after_checkpoint", "forced_tool_thinking_off", "truncation")
 
 
 class Counter:
@@ -40,7 +42,16 @@ class Counter:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--only", help=f"只运行指定检查项，逗号分隔，默认全部：{','.join(CHECKS)}")
     args = parser.parse_args()
+    selected = set(CHECKS) if args.only is None else {name.strip() for name in args.only.split(",") if name.strip()}
+    if not selected:
+        parser.error("--only 至少需要一个检查项")
+    unknown = selected - set(CHECKS)
+    if unknown:
+        parser.error(f"--only 包含未知检查项：{','.join(sorted(unknown))}")
+    if "after_checkpoint" in selected and "round_trip" not in selected:
+        parser.error("after_checkpoint 依赖 round_trip，请在 --only 中同时选择 round_trip")
     if not args.run:
         print(__doc__)
         return 0
@@ -85,25 +96,30 @@ def main() -> int:
             result["second_error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
         return messages, result
 
-    messages, out["checks"]["round_trip"] = two_rounds(ReasoningRoundTripChatOpenAI)
-    _, out["checks"]["plain_client"] = two_rounds(ChatOpenAI)
-    serde = JsonPlusSerializer()
-    restored = serde.loads_typed(serde.dumps_typed({"m": messages}))["m"]
-    try:
+    if "round_trip" in selected:
+        messages, out["checks"]["round_trip"] = two_rounds(ReasoningRoundTripChatOpenAI)
+    if "plain_client" in selected:
+        _, out["checks"]["plain_client"] = two_rounds(ChatOpenAI)
+    if "after_checkpoint" in selected:
+        serde = JsonPlusSerializer()
+        restored = serde.loads_typed(serde.dumps_typed({"m": messages}))["m"]
+        try:
+            count.take()
+            reply = ReasoningRoundTripChatOpenAI(**base, reasoning_effort="low").bind_tools([tool]).invoke(
+                [*restored, HumanMessage("再调用一次 echo，value 为 again。")])
+            out["checks"]["after_checkpoint"] = summary(reply)
+        except Exception as exc:  # noqa: BLE001
+            out["checks"]["after_checkpoint"] = {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+    if "forced_tool_thinking_off" in selected:
         count.take()
-        reply = ReasoningRoundTripChatOpenAI(**base, reasoning_effort="low").bind_tools([tool]).invoke(
-            [*restored, HumanMessage("再调用一次 echo，value 为 again。")])
-        out["checks"]["after_checkpoint"] = summary(reply)
-    except Exception as exc:  # noqa: BLE001
-        out["checks"]["after_checkpoint"] = {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}
-    count.take()
-    forced = ReasoningRoundTripChatOpenAI(**base, extra_body={"thinking": {"type": "disabled"}}, max_tokens=200).bind_tools(
-        [tool], tool_choice="echo").invoke([HumanMessage("调用 echo，value 为 scope。")])
-    out["checks"]["forced_tool_thinking_off"] = summary(forced)
-    count.take()
-    cut = ReasoningRoundTripChatOpenAI(**base, extra_body={"thinking": {"type": "disabled"}}, max_tokens=8).invoke(
-        [HumanMessage("请用两百字介绍数据血缘。")])
-    out["checks"]["truncation"] = summary(cut)
+        forced = ReasoningRoundTripChatOpenAI(**base, extra_body={"thinking": {"type": "disabled"}}, max_tokens=200).bind_tools(
+            [tool], tool_choice="echo").invoke([HumanMessage("调用 echo，value 为 scope。")])
+        out["checks"]["forced_tool_thinking_off"] = summary(forced)
+    if "truncation" in selected:
+        count.take()
+        cut = ReasoningRoundTripChatOpenAI(**base, extra_body={"thinking": {"type": "disabled"}}, max_tokens=8).invoke(
+            [HumanMessage("请用两百字介绍数据血缘。")])
+        out["checks"]["truncation"] = summary(cut)
     out["requests"] = count.n
     path = demo.STATE / "experiments" / "e0" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
