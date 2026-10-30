@@ -181,8 +181,10 @@ function Segments({ segments, text }: { segments?: Segment[]; text?: string | nu
       s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");
     const cls = ["av-num", s.kind === "label" ? "" : "av-mono", s.role === "proposal" ? "is-proposal" : "",
       s.explore ? "is-explore" : ""].filter(Boolean).join(" ");
-    return <span key={i} className={cls} title={title}>{s.text}
-      {s.role === "proposal" ? <sup>建议目标</sup> : s.explore ? <sup>探索</sup> : null}</span>;
+    // 数字旁的来源标签：数据集编号（悬停看完整来源），探索数据与建议目标另标
+    const tag = [s.ref && s.ref !== "window" ? s.ref : "", s.explore ? "探索" : "", s.role === "proposal" ? "建议目标" : ""]
+      .filter(Boolean).join(" · ");
+    return <span key={i} className={cls} title={title}>{s.text}{tag ? <sup>{tag}</sup> : null}</span>;
   })}</>;
 }
 
