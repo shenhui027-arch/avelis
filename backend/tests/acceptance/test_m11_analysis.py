@@ -131,15 +131,19 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
                               compare="previous_period", purpose="华东线上成交额 = 订单数 × 客单价"))
         out = json.loads(box.factor_decompose(dataset="D1", total={"name": "成交额", "current": "成交额",
                                                                    "previous": "成交额·上一期"},
-                                              factors=[{"name": "订单数", "current": "订单数", "previous": "订单数·上一期"},
-                                                       {"name": "客单价", "current": "客单价", "previous": "客单价·上一期"}]))
+                                              factors=[{"name": "订单数", "current": "订单数", "previous": "订单数·上一期",
+                                                        "metric_code": "ec_orders"},
+                                                       {"name": "客单价", "current": "客单价", "previous": "客单价·上一期",
+                                                        "metric_code": "ec_aov"}]))
         assert "error" not in out, out
-        parts = {r[0]: r for r in out["rows"]}
+        factor_rows = [dict(zip(out["columns"], r)) for r in out["rows"]]
+        parts = {r["factor"]: r for r in factor_rows}
         change = Decimal(str(out["summary"]["total"]["change"]))
         # 各行（含输入不一致时单列的“未解释差额”）相加正好等于总差额；未解释差额不归给任何因子
-        assert sum(Decimal(str(r[4])) for r in out["rows"]) == change
+        assert sum(Decimal(str(r["contribution"])) for r in factor_rows) == change
         assert abs(Decimal(str(out["summary"]["unexplained"]))) <= abs(change) * Decimal("0.005")
-        assert Decimal(str(parts["订单数"][4])) < 0  # 抖音投放削减：订单数下降是主因
+        assert Decimal(str(parts["订单数"]["contribution"])) < 0  # 抖音投放削减：订单数下降是主因
+        assert parts["订单数"]["factor_metric_code"] == "ec_orders"  # 原因按编码关联
         # 按日看门店订单：北京 3 家店 9 月 28 日客流计数器故障，门店日视图当天缺这 3 家店
         daily = rows(box.query_metric(metric_codes=["ec_store_orders"], start_date="2026-09-27", end_date="2026-09-28",
                                       group_by=["store"], filters=[{"dimension": "city", "values": ["北京"]}],
@@ -166,6 +170,31 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
         scope.__exit__(None, None, None)
 
 
+def test_02b_explain_change_verdict_and_automatic_factor_decomposition(admin: Api):
+    """ADR 0009 第 7 点：explain_change 的判定就是报告的结论类型；成交额是已发布比率口径“客单价 = 成交额 / 订单数”的
+    分子，自动给出 成交额 = 订单数 × 客单价 的 LMDI 拆解（真实数据，与生成数据集的标准答案对账）。"""
+    t = ctx["truth"]
+    month_total = lambda m: sum(Decimal(v["paid_amount"]) for k, v in t["region_month"].items() if m in k)  # noqa: E731
+    scope, session, run, box = toolbox("wang")
+    try:
+        out = json.loads(box.dispatch("explain_change", {"metric_code": "ec_gmv", "start_date": SEP[0],
+                                                         "end_date": SEP[1], "compare_start": AUG[0],
+                                                         "compare_end": AUG[1], "dimensions": ["region"]}))
+        assert "error" not in out, out
+        summary = box.datasets()[out["dataset"]].meta["summary"]
+        change = month_total("2026-09") - month_total("2026-08")
+        assert Decimal(str(summary["total"]["change"])) == change and summary["conclusion"] == "ranked_reasons"
+        assert box.explanations["ec_gmv"] == "ranked_reasons"
+        factor = summary["factor_decomposition"]
+        assert factor["ratio_metric"] == "ec_aov" and factor["factors"] == ["ec_orders", "ec_aov"], factor
+        ds = box.datasets()[factor["dataset"]]
+        parts = {r["factor_metric_code"]: r for r in (dict(zip(ds.columns, row)) for row in ds.rows)}
+        assert sum(Decimal(str(r["contribution"])) for r in parts.values()) == change  # 贡献相加等于总差额
+        assert Decimal(str(parts["ec_orders"]["contribution"])) < 0  # 订单数下降是负贡献
+    finally:
+        scope.__exit__(None, None, None)
+
+
 def test_03_permission_budget_and_verification(admin: Api):
     from avelis.analysis.tools import Budget
     from avelis.analysis.verify import ground_report
@@ -179,7 +208,7 @@ def test_03_permission_budget_and_verification(admin: Api):
         assert "error" in json.loads(box.describe_asset(qualified="default_catalog.ec_dw.dws_region_daily"))
     finally:
         scope.__exit__(None, None, None)
-    scope, session, run, box = toolbox("wang", Budget(tool_calls=3, queries=1))
+    scope, session, run, box = toolbox("wang", Budget(tool_calls=5, queries=1))  # 其余工具 3 次，2 次留给报告
     try:  # 经统一分发层调用（与模型调用同一路径）：每次尝试都计数
         rows(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": SEP[0], "end_date": SEP[1],
                                            "group_by": ["region"], "purpose": "退款"}))
