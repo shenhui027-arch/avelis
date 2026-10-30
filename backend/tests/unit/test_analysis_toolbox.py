@@ -823,3 +823,17 @@ def test_revision_resets_only_this_rounds_report_attempts(monkeypatch):
     b.used_reports = b.reports_total = 4
     used, limits = b.view()["used"], b.view()["limits"]
     assert used["tool_calls"] == 12 <= limits["tool_calls"] and used["reports"] == 4
+
+
+def test_query_already_scanned_by_explain_change_is_reused(monkeypatch):
+    """模型按 explain_change 已扫描过的维度分组取数：直接返回已有数据集（含两期），不计额度，权限照样复核。"""
+    from avelis.analysis.tools import QueryArgs, _scan_key
+
+    catalog, executed = governed_catalog(monkeypatch)
+    box = make_box(budget=Budget(queries=5), catalog=catalog, monkeypatch=monkeypatch)
+    monkeypatch.setattr(box, "_metric_sources", lambda code: (None, None, [], {}))
+    scan = governed(box, ["地区", "指标甲", "指标甲·对比期"], [["甲", "10", "8"]])
+    box._scanned[_scan_key(QueryArgs(**{**QUERY, "compare": None}))] = scan
+    out = json.loads(box.dispatch("query_metric", {**QUERY, "order": "desc", "limit": 3}))
+    assert out["dataset"] == f"D{scan.seq}" and out["reused"] and executed == [] and box.budget.used_queries == 0
+    assert "explain_change 已按同样的指标、维度、窗口与筛选扫描过" in out["note"]
