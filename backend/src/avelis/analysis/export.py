@@ -29,7 +29,7 @@ EXPLORE_MARK = "探索查询（未经口径审核）"
 
 
 REF = re.compile(r"^D[1-9]\d{0,3}$")
-FIELD_LABEL = {"title": "标题", "summary": "摘要", "unexplained": "未解释"}
+FIELD_LABEL = {"title": "标题", "summary": "摘要", "unexplained": "未解释", "method": "分析方法"}
 
 
 def _refs(claim: dict) -> str:
@@ -65,7 +65,7 @@ def _composition(verification: dict) -> str:
 def _segments(report: dict) -> list[tuple[str, str, dict]]:
     """报告里全部引用段：（位置，类型，段）。"""
     out = []
-    for name in ("title", "summary", "unexplained"):
+    for name in ("title", "summary", "unexplained", "method"):
         for seg in ((report.get("fields") or {}).get(name) or {}).get("segments") or []:
             out.append((FIELD_LABEL[name], "字段", seg))
     for i, claim in enumerate(report.get("claims", [])):
@@ -157,6 +157,8 @@ def to_markdown(view: dict) -> str:
     lines += _cause_lines(report)
     if report.get("unexplained"):
         lines += ["", f"**仍未解释**：{report['unexplained']}"]
+    if report.get("method"):
+        lines += ["", f"**分析方法**：{report['method']}"]
     sources = _segments(report)
     if sources:
         lines += ["", "## 附录：数值来源", ""]
@@ -366,6 +368,8 @@ def to_pdf(view: dict) -> bytes:
         story += [Paragraph(esc(line), warn if "⚠" in line else base) for line in causes[2:]]
     if report.get("unexplained"):
         story += [Spacer(1, 4), Paragraph(f"<b>仍未解释</b>：{esc(report['unexplained'])}", base)]
+    if report.get("method"):
+        story += [Spacer(1, 4), Paragraph(f"<b>分析方法</b>：{esc(report['method'])}", base)]
     sources = _segments(report)
     if sources:
         story.append(Paragraph("数值来源", h2))

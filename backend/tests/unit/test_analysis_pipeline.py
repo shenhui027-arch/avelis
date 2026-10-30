@@ -128,8 +128,10 @@ def test_context_pack_is_capped_and_lists_what_it_leaves_out(monkeypatch):
     box = make_box(budget=Budget(), monkeypatch=monkeypatch)
     for i in range(100):
         governed(box, ["成员", "值"], [[f"成员{j}", str(j)] for j in range(30)])
+    box.precheck_notes = ["某一步：" + "失败原因" * 200]  # 很长的预检错误也受上限约束
     pack = box.context_pack()
-    assert len(pack) <= box.PACK_CHARS + 2000 and "其余数据集" in pack and "只列前 8 行" in pack
+    assert len(pack) <= box.PACK_CHARS and "个数据集放不下" in pack and "只列前 8 行" in pack
+    assert "预检中没有完成的步骤" in pack and pack.rstrip().endswith(("…", "D100"))
 
 
 def test_system_prompt_is_stable_and_has_neutral_contrast_examples():

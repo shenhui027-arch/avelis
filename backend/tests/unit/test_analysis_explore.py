@@ -298,3 +298,14 @@ def test_division_is_numeric_on_every_engine(engine):
     v = ok(engine, "SELECT SUM(amount) / SUM(qty) AS unit FROM d1.facts")
     assert ("CAST(SUM(" in v.sql and "AS DOUBLE PRECISION) / SUM(" in v.sql) if engine == "postgres" else \
         "SUM(`facts`.`amount`) / SUM(`facts`.`qty`)" in v.sql
+
+
+def test_unquoted_identifiers_fold_to_lowercase_before_routing_and_binding():
+    """路由与绑定之前按 PostgreSQL 规则规范化：未加引号的表名、库名折成小写，加了引号的原样保留。"""
+    from avelis.analysis.explore import table_refs
+
+    assert table_refs("SELECT 1 AS x FROM PUBLIC.ORDERS") == [(None, "public", "orders")]
+    assert table_refs('SELECT 1 AS x FROM "Sales"."Orders"') == [(None, "Sales", "Orders")]
+    v = ok("postgres", "SELECT REGION, SUM(AMOUNT) AS total FROM D1.FACTS GROUP BY REGION")
+    assert [t.asset_id for t in v.tables] == ["a1"] and '"facts"."region"' in v.sql
+    assert rejected("postgres", 'SELECT region FROM "D1".facts').code == "asset_not_visible"  # 加引号：大小写原样

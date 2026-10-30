@@ -21,6 +21,7 @@ from typing import Any, Callable
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, OptimizeError, ParseError, TokenError
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 from sqlglot.schema import MappingSchema
@@ -212,6 +213,8 @@ def _parse(sql: str, dialect: str = STANDARD_DIALECT) -> exp.Expression:
     if not isinstance(ast, exp.Select):
         raise ExploreRejected("syntax", "not_select", f"只允许 SELECT 或 WITH … SELECT（收到 {type(ast).__name__}）")
     if dialect == STANDARD_DIALECT:
+        # 标识符按 PostgreSQL 规则规范化：未加引号的折成小写，加了引号的原样保留。路由（table_refs）与绑定都用规范化后的名字
+        ast = normalize_identifiers(ast, dialect=STANDARD_DIALECT)
         # 标准 SQL 的除法一律是数值除法（不按 PostgreSQL 的整数相除取整），各引擎结果一致：目标是 PostgreSQL 时
         # 生成 CAST(… AS DOUBLE PRECISION)，StarRocks 的 / 本来就是数值除法
         for div in ast.find_all(exp.Div):
