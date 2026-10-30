@@ -309,3 +309,23 @@ def test_unquoted_identifiers_fold_to_lowercase_before_routing_and_binding():
     v = ok("postgres", "SELECT REGION, SUM(AMOUNT) AS total FROM D1.FACTS GROUP BY REGION")
     assert [t.asset_id for t in v.tables] == ["a1"] and '"facts"."region"' in v.sql
     assert rejected("postgres", 'SELECT region FROM "D1".facts').code == "asset_not_visible"  # 加引号：大小写原样
+
+
+@pytest.mark.parametrize("engine", ["starrocks", "postgres"])
+def test_conditional_aggregates_for_two_periods_are_evidence(engine):
+    """两期对比的常见写法：SUM(CASE WHEN 日期 BETWEEN … THEN 列 ELSE 0 END)。条件里的日期字面量只用来过滤，ELSE 0 是中性值，
+    整体是列的登记聚合，有资格作为证据；两个这样的 SUM 相减是差额。分支值是其他常量时仍判为假设。"""
+    cur = ("SUM(CASE WHEN f.event_date BETWEEN CAST('2026-09-01' AS DATE) AND CAST('2026-09-30' AS DATE) "
+           "THEN f.qty ELSE 0 END)")
+    prev = ("SUM(CASE WHEN f.event_date BETWEEN CAST('2026-08-01' AS DATE) AND CAST('2026-08-31' AS DATE) "
+            "THEN f.qty ELSE 0 END)")
+    v = ok(engine, f"SELECT f.region, {cur} AS cur, {prev} AS prev, {cur} - {prev} AS chg FROM d1.facts f GROUP BY f.region")
+    got = {c.name: (c.kind, c.eligible, c.assumption) for c in v.columns}
+    assert got["cur"] == ("level", True, False) and got["prev"] == ("level", True, False)
+    assert got["chg"] == ("delta", True, False)
+    deps = {c.name: c.deps for c in v.columns}["cur"]
+    assert any(d.endswith(".qty") for d in deps) and any(d.endswith(".event_date") for d in deps)
+    bad = ok(engine, "SELECT SUM(CASE WHEN f.qty > 5 THEN 99999 ELSE 0 END) AS padded FROM d1.facts f")
+    assert bad.columns[0].assumption is True and bad.columns[0].eligible is False  # 分支值是业务常量：假设
+    counted = ok(engine, "SELECT SUM(CASE WHEN f.region IN ('甲', '乙') THEN 1 ELSE 0 END) AS n FROM d1.facts f")
+    assert counted.columns[0].kind == "count" and counted.columns[0].eligible  # 条件计数照旧

@@ -852,3 +852,14 @@ def test_amount_per_order_is_a_level_not_a_ratio():
     assert measures.formula_unit("a/b", bare) == {"kind": "level"}
     assert measures.formula_unit("a/b - a/b", bare)["kind"] == "delta"
     assert measures.formula_unit("a/c", units) == {"kind": "ratio"}  # 同单位相除：比率
+
+
+def test_zero_is_a_neutral_constant_but_insensitive_inputs_are_still_rejected():
+    """常量白名单加入中性的 0；“每个输入都要影响结果”的检查保留：a*0+99999 仍被拒绝。"""
+    from decimal import Decimal
+
+    from avelis.analysis import measures
+    from avelis.governance.derived import evaluate as evaluate_formula
+
+    assert Decimal(0) in measures.CONSTANTS
+    assert measures.insensitive("a*0+99999", {"a": Decimal(5)}, evaluate_formula) == ["a"]
