@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "name": "revised_pass",
+  "question": "指标甲本期为什么比上期低？",
+  "window": {
+    "start": "2026-09-01",
+    "end": "2026-09-30",
+    "compare_start": "2026-08-01",
+    "compare_end": "2026-08-31"
+  },
+  "messages": [
+    {
+      "tool_calls": [
+        {
+          "name": "submit_plan",
+          "args": {
+            "hypotheses": [
+              "某个地区下降"
+            ],
+            "steps": [
+              "按地区拆解两期差额"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "contribution",
+          "args": {
+            "dataset": "D1",
+            "keys": [
+              "地区"
+            ],
+            "current": "指标甲",
+            "previous": "指标甲·对比期"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "submit_report",
+          "args": {
+            "title": "指标甲下降的原因",
+            "summary": [
+              "指标甲较上期下降 30%，主要在地区甲"
+            ],
+            "claims": [
+              {
+                "type": "calc",
+                "parts": [
+                  "地区甲较上期下降 ",
+                  {
+                    "dataset": "D2",
+                    "column": "change",
+                    "match": {
+                      "地区": "甲"
+                    },
+                    "direction": "down"
+                  },
+                  "，是首要原因"
+                ]
+              }
+            ],
+            "conclusion": "ranked_reasons",
+            "causes": [
+              {
+                "type": "member",
+                "entity": {
+                  "dimension": "地区",
+                  "member": "甲"
+                },
+                "direction": "down",
+                "contribution": {
+                  "dataset": "D2",
+                  "column": "change",
+                  "match": {
+                    "地区": "甲"
+                  }
+                },
+                "evidence": [
+                  "D2"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "submit_report",
+          "args": {
+            "title": "指标甲下降的原因",
+            "summary": [
+              "指标甲较上期下降 ",
+              {
+                "dataset": "D2",
+                "summary": "total.change",
+                "direction": "down"
+              }
+            ],
+            "claims": [
+              {
+                "type": "calc",
+                "parts": [
+                  "地区甲较上期下降 ",
+                  {
+                    "dataset": "D2",
+                    "column": "change",
+                    "match": {
+                      "地区": "甲"
+                    },
+                    "direction": "down"
+                  },
+                  "，是首要原因"
+                ]
+              }
+            ],
+            "conclusion": "ranked_reasons",
+            "causes": [
+              {
+                "type": "member",
+                "entity": {
+                  "dimension": "地区",
+                  "member": "甲"
+                },
+                "direction": "down",
+                "contribution": {
+                  "dataset": "D2",
+                  "column": "change",
+                  "match": {
+                    "地区": "甲"
+                  }
+                },
+                "evidence": [
+                  "D2"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

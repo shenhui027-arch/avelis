@@ -320,28 +320,54 @@ def assert_grounded(run: dict) -> None:
     for f in verification.get("fields", []):
         if f["status"] != "verified":
             problems.append(f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(f.get('problems') or [])}")
-    full = "\n".join(f"{k}: {report.get(k)}" for k in ("title", "summary", "unexplained"))
+    for c in verification.get("causes", []):
+        if c["status"] != "verified":
+            cause = (report.get("causes") or [])[c["index"]]
+            problems.append(f"原因 #{c['index']}：{json.dumps(cause.get('entity') or cause.get('raw'), ensure_ascii=False)}\n"
+                            f"  原因：{'；'.join(c.get('problems') or [])}")
+    problems += [f"结论类型：{p}" for p in (verification.get("conclusion") or {}).get("problems", [])]
+    full = "\n".join(f"{k}: {report.get(k)}" for k in ("title", "summary", "unexplained", "conclusion"))
     message = f"运行 {run['id']} 未全部核实（完整 JSON：{out}）\n" + "\n".join(problems) + f"\n--- 报告字段 ---\n{full}"
     if not (verification["ok"] and not problems):
         print(message)  # 断言说明可能被 pytest 截断；标准输出在失败时完整显示
     assert verification["ok"] and not problems, message
 
 
+def real_model_question(api: Api, question_id: str) -> tuple[dict, dict]:
+    """用真实模型运行评测集里的一题（与 scripts/eval_analysis.py 同一份题目与判分）；只有传输层错误（连接失败、SSL、
+    超时）时重跑一次，内容问题不重跑。"""
+    from tests.eval.scoring import load_questions, transport_error
+
+    question = {q["id"]: q for q in load_questions()["questions"]}[question_id]
+
+    def ask() -> dict:
+        return api.post("/api/analysis/runs?wait=true", {"question": question["question"], "window": question["window"]},
+                        expect=201)
+    run = ask()
+    if transport_error(run):
+        run = ask()
+    return question, run
+
+
+def assert_primary_cause(question: dict, run: dict) -> None:
+    """运行成功、首要原因命中（causes 第一项的类型、方向、实体都对）、来源未通过数为 0。"""
+    from tests.eval.scoring import score
+
+    assert run["status"] == "succeeded", run.get("error")
+    assert_grounded(run)  # 来源未通过数为 0；失败时输出完整的未通过项并留存运行 JSON
+    result = score(question, run)
+    assert result["sources_failed"] == 0 and result["primary_hit"], (
+        result, (run["report"].get("causes") or [])[:3], run["report"].get("conclusion"))
+
+
 @pytest.mark.llm
 def test_07_real_model_finds_planted_cause(stack, admin: Api):
-    """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？预埋原因：深圳福田中心店 9 月 10 日关店。"""
+    """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？预埋原因：深圳福田中心店 9 月 10 日关店（评测题 d01）。"""
     from avelis.bootstrap import model_from_env
 
     model_from_env()
-    wang = ctx["apis"]["wang"]
-    run = wang.post("/api/analysis/runs?wait=true", {
-        "question": "为什么 2026 年 9 月华南区域门店成交额比 8 月低？原因是什么？",
-        "window": {"kind": "fixed", "start": SEP[0], "end": SEP[1], "compare_start": AUG[0],
-                   "compare_end": AUG[1]}}, expect=201)
-    assert run["status"] == "succeeded", run.get("error")
-    report_text = json.dumps(run["report"], ensure_ascii=False)
-    assert "福田" in report_text, run["report"]
-    assert_grounded(run)
+    question, run = real_model_question(ctx["apis"]["wang"], "d01")
+    assert_primary_cause(question, run)
     governed = [d for d in run["datasets"] if d["kind"] == "governed"]
     assert governed and all(d["sql"] for d in governed)
     used = run["budget"]["used"]
@@ -352,14 +378,9 @@ def test_07_real_model_finds_planted_cause(stack, admin: Api):
 
 @pytest.mark.llm
 def test_08_real_model_online_orders_cause(admin: Api):
-    """华东 9 月线上订单为什么下降？预埋原因：抖音投放 9 月起削减 60%。"""
-    run = ctx["apis"]["wang"].post("/api/analysis/runs?wait=true", {
-        "question": "华东区域 2026 年 9 月线上订单数为什么比 8 月少？",
-        "window": {"kind": "fixed", "start": SEP[0], "end": SEP[1], "compare_start": AUG[0],
-                   "compare_end": AUG[1]}}, expect=201)
-    assert run["status"] == "succeeded", run.get("error")
-    assert "抖音" in json.dumps(run["report"], ensure_ascii=False), run["report"]
-    assert_grounded(run)
+    """华东 9 月线上订单为什么下降？预埋原因：抖音投放 9 月起削减 60%（评测题 d02）。"""
+    question, run = real_model_question(ctx["apis"]["wang"], "d02")
+    assert_primary_cause(question, run)
     pdf = ctx["apis"]["wang"].client.get(f"/api/analysis/runs/{run['id']}/export", params={"format": "pdf"},
                                          headers=ctx["apis"]["wang"].headers)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
