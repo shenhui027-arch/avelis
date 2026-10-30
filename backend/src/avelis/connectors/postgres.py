@@ -170,6 +170,8 @@ class PostgresConnector:
                         work_mem: str = "16MB") -> QueryResult:
         """执行校验后重新生成的探索查询（ADR 0009 第 6 点）：只读事务，statement_timeout 由服务端取消超时的查询，
         lock_timeout、较低的 work_mem、关闭并行；出错时按数据库错误报出，不返回部分结果。"""
+        if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
         try:
             with self._connect() as conn:
                 conn.autocommit = False

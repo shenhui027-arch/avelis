@@ -222,12 +222,13 @@ def test_real_resolver_binding_rules(monkeypatch):
         ("default_catalog", "d1", "v_ok"): SimpleNamespace(id="a5", kind="view", physical_id=None, current_version_id="v5"),
         ("default_catalog", "d1", "v_hidden"): SimpleNamespace(id="a6", kind="view", physical_id=None, current_version_id="v6"),
         ("default_catalog", "d1", "v_unknown"): SimpleNamespace(id="a7", kind="view", physical_id=None, current_version_id="v7"),
+        ("default_catalog", "d1", "v_unbound"): SimpleNamespace(id="a9", kind="view", physical_id=None, current_version_id="v9"),
         ("default_catalog", "d1", "secret"): SimpleNamespace(id="a8", kind="table", physical_id="18", current_version_id="v8"),
         ("appdb", "public", "plain"): SimpleNamespace(id="b1", kind="table", physical_id="21", current_version_id="w1"),
         ("appdb", "public", "parted"): SimpleNamespace(id="b2", kind="table", physical_id="22", current_version_id="w2"),
     }
     versions = {"v1": {"table_model": "DUPLICATE_KEYS"}, "v2": {}, "v3": {"table_model": "x"}, "v4": {"table_model": None},
-                "v5": {}, "v6": {}, "v7": {}, "v8": {"table_model": "x"},
+                "v5": {}, "v6": {}, "v7": {}, "v8": {"table_model": "x"}, "v9": {},
                 "w1": {"properties": {"relkind": "r"}}, "w2": {"properties": {"relkind": "p"}}}
 
     class Session:
@@ -236,8 +237,15 @@ def test_real_resolver_binding_rules(monkeypatch):
 
         def scalar(self, stmt):
             params = stmt.compile().params
+            if "asset_version_id_1" in params:  # 视图定义
+                return "SELECT c1 FROM d1.native"
             vals = [v for k, v in params.items() if k.startswith(("catalog_name", "db_name", "name"))]
             return assets.get(tuple(vals[:3]))
+
+        def execute(self, stmt):  # 血缘边：(source_asset_id, source_ref)
+            target = stmt.compile().params["target_asset_id_1"]
+            return {"a5": [("u1", "d1.native")], "a6": [("up_hidden", "d1.hidden")],
+                    "a9": [("u1", "d1.native"), (None, "d1.unknown_src")]}.get(target, [])
 
         def get(self, cls, ident, **kw):
             if cls is AssetVersion:
@@ -248,11 +256,13 @@ def test_real_resolver_binding_rules(monkeypatch):
         def scalars(self, stmt):
             return [SimpleNamespace(name="c1", data_type="int", comment=None)]
 
-    hidden = SimpleNamespace(id="up_hidden")
+    def node(ident, kind="table"):
+        return SimpleNamespace(id=ident, kind=kind, db_name="d1", name=ident, current_version_id=f"ver_{ident}")
     monkeypatch.setattr(exploration.access, "domain_ids", lambda s, u: {"dA"})
     monkeypatch.setattr(exploration.access, "can_read_asset", lambda s, u, a, allowed=None: a.id not in ("a8", "up_hidden"))
     monkeypatch.setattr(ask_service, "upstream_closure", lambda s, ids: {
-        "a5": {"a5": None, "u1": SimpleNamespace(id="u1")}, "a6": {"a6": None, "up": hidden}, "a7": {"a7": None}}[ids[0]])
+        "a5": {"a5": node("a5", "view"), "u1": node("u1")}, "a6": {"a6": node("a6", "view"), "up": node("up_hidden")},
+        "a7": {"a7": node("a7", "view")}, "a9": {"a9": node("a9", "view"), "u1": node("u1")}}[ids[0]])
 
     def bind(engine, catalog, db, name):
         source = ExploreSource(SimpleNamespace(id="ds1"), PROFILES[engine], "default_catalog" if engine == "starrocks" else "appdb")
@@ -268,9 +278,151 @@ def test_real_resolver_binding_rules(monkeypatch):
     assert code("starrocks", "ext_catalog", "d1", "t") == "kind_not_allowed"  # 外部 catalog
     assert code("starrocks", None, "d1", "dup_model_missing") == "kind_not_allowed"  # 看不出是原生内表：拒绝
     assert code("starrocks", None, "d1", "secret") == code("starrocks", None, "d1", "no_such") == "asset_not_visible"
-    assert bind("starrocks", None, "d1", "v_ok").kind == "view"
+    view = bind("starrocks", None, "d1", "v_ok")
+    assert view.kind == "view" and view.definition == "SELECT c1 FROM d1.native" and view.upstream == (("u1", "ver_u1"),)
+    assert code("starrocks", None, "d1", "v_unbound") == "view_lineage_unresolved"  # #2 上游有未绑定的来源边
     assert code("starrocks", None, "d1", "v_hidden") == "view_upstream_not_visible"
     assert code("starrocks", None, "d1", "v_unknown") == "view_lineage_unknown"
     assert code("starrocks", None, None, "native") == "table_unqualified"
     assert bind("postgres", None, "public", "plain").use_only is True
     assert code("postgres", None, "public", "parted") == "partitioned_table"
+
+
+def _view_validated():
+    from avelis.analysis.explore import BoundColumn, BoundTable, Validated
+
+    view = BoundTable("av", "vv1", None, "default_catalog", "d1", "v_sales", "view", (BoundColumn("c1", "int"),),
+                      definition="SELECT c1  FROM d1.base", upstream=(("ab", "vb1"),))
+    return Validated(sql="SELECT 1", tables=[view], columns=[], limit=10, dialect="starrocks", profile="starrocks/1")
+
+
+def test_view_definition_change_is_caught_before_execution():
+    """#3 视图被 CREATE OR REPLACE 改了定义：执行前与绑定版本的定义比较，变了就拒绝。"""
+    validated = _view_validated()
+
+    class Conn:
+        def __init__(self, definition):
+            self.definition = definition
+
+        def describe_objects(self, objects):
+            return {("d1", "v_sales"): {"physical_id": None, "columns": [["c1", "int"]], "definition": self.definition}}
+
+    exploration.live_check(Conn("SELECT c1 FROM   d1.base"), validated)  # 只是空白不同
+    with pytest.raises(ExploreRejected) as e:
+        exploration.live_check(Conn("SELECT c1 FROM d1.other"), validated)
+    assert e.value.code == "asset_changed" and "定义已变化" in e.value.message
+
+
+def test_recheck_covers_the_view_upstream_closure(monkeypatch):
+    """#4 执行前、交付前的权限复查一起看视图的上游闭包与绑定版本。"""
+    from avelis.models import Asset
+
+    validated = _view_validated()
+    assets = {"av": SimpleNamespace(id="av", status="active", current_version_id="vv1"),
+              "ab": SimpleNamespace(id="ab", status="active", current_version_id="vb1")}
+
+    class Session:
+        def get(self, cls, ident, **kw):
+            return assets.get(ident) if cls is Asset else None
+
+    visible = {"av": True, "ab": True}
+    monkeypatch.setattr(exploration.access, "domain_ids", lambda s, u: set())
+    monkeypatch.setattr(exploration.access, "can_read_asset", lambda s, u, a, allowed=None: visible[a.id])
+    exploration.recheck_access(Session(), None, validated)
+    visible["ab"] = False  # 撤掉上游的权限
+    with pytest.raises(ExploreRejected) as e:
+        exploration.recheck_access(Session(), None, validated)
+    assert e.value.code == "access_revoked" and "上游" in e.value.message
+    visible["ab"] = True
+    assets["ab"].current_version_id = "vb2"  # 上游有了新版本
+    with pytest.raises(ExploreRejected) as e:
+        exploration.recheck_access(Session(), None, validated)
+    assert e.value.code == "asset_changed"
+
+
+def test_calc_tools_inherit_column_evidence(monkeypatch):
+    """#5 假设列经过 derive 仍是假设；#6 CAST 出来的列经过 segment_compare 复制成分组键后，不能重新当作 LabelRef。"""
+    from avelis.analysis.verify import ground_report
+
+    result = QueryResult(columns=["region", "label", "fake", "total"], rows=[["r1", "1", 99999, 10], ["r2", "2", 99999, 20]],
+                         truncated=False)
+    box, _ = explore_box(monkeypatch, connector=FakeConnector(result=result))
+    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "purpose": "x", "sql":
+        "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total FROM d1.facts GROUP BY region, qty"}))
+    ref = out["dataset"]
+    assert box.datasets()[ref].meta["column_evidence"]["fake"]["assumption"] is True
+    derived = json.loads(box.dispatch("derive", {"label": "看似干净", "formula": "a", "values": [
+        {"name": "a", "dataset": ref, "column": "fake", "match": {"region": "r1"}}]}))
+    assert box.datasets()[derived["dataset"]].meta["assumption"] is True  # 不会因为再算一次就不是假设
+    grouped = json.loads(box.dispatch("segment_compare", {"dataset": ref, "segment": "label", "measures": ["total"]}))
+    seg = box.datasets()[grouped["dataset"]]
+    assert seg.meta["column_evidence"]["label"]["label_ok"] is False
+    data = {r: {"kind": d.kind, "columns": d.columns, "rows": [dict(zip(d.columns, x)) for x in d.rows],
+                "summary": d.meta.get("summary"),
+                **{k: d.meta.get(k) for k in ("units", "summary_units", "explore", "assumption", "column_evidence")}}
+            for r, d in box.datasets().items()}
+    claims = [{"type": "calc", "parts": ["结果 ", {"dataset": derived["dataset"], "summary": "value"}]},
+              {"type": "fact", "parts": [{"dataset": grouped["dataset"], "label": "label", "row": 1}, " 最高"]}]
+    _, v = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": claims}, data, None)
+    assert "假设计算" in v["claims"][0]["problems"][0]
+    assert "不是维度列的直接投影" in v["claims"][1]["problems"][0]
+
+
+def test_timeout_is_rechecked_before_dispatch(monkeypatch):
+    """#8 执行前核对耗时之后剩余时间不足：超时值 ≤ 0 时拒绝，不会用 statement_timeout = 0（不限时）执行。"""
+    box, conn = explore_box(monkeypatch)
+    times = iter([20.0, 4.0])  # 进入时还够；核对完之后只剩 4 秒（4 − 5 < 0）
+    monkeypatch.setattr(box.budget, "remaining", lambda: next(times))
+    out = json.loads(box.dispatch("query_sql", {"datasource": "源甲", "sql": GOOD, "purpose": "x"}))
+    assert out["code"] == "deadline" and out["sent_to_database"] is False
+    assert not [c for c in conn.calls if c[0] == "execute"] and audits(box)[-1]["sent_to_database"] is False
+
+
+@pytest.mark.parametrize("kill_error, outcome, words", [
+    (None, "cancelled", "已取消服务端查询"),
+    ((1094, "Unknown thread id"), "already_finished", "服务端查询已结束"),
+    ((1227, "Access denied"), "cancel_failed", "取消服务端查询失败"),
+])
+def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_error, outcome, words):
+    """#9 KILL QUERY 区分“已取消”“目标已结束”“取消失败”，不再一律报告“已取消”。"""
+    import pymysql
+
+    from avelis.connectors.starrocks import StarRocksConnector
+
+    killed = []
+
+    class Cursor:
+        def __init__(self, role):
+            self.role = role
+
+        def execute(self, sql):
+            if self.role == "killer":
+                killed.append(sql)
+                if kill_error:
+                    raise pymysql.err.InternalError(*kill_error)
+            elif sql.startswith("SELECT region"):
+                raise pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+
+        def fetchone(self):
+            return (42,)
+
+    class Conn:
+        def __init__(self, role):
+            self.role = role
+
+        def cursor(self, *a):
+            return Cursor(self.role)
+
+        def close(self):
+            pass
+
+    roles = iter(["query", "killer"])
+    connector = StarRocksConnector("h", 1, "u", "p")
+    monkeypatch.setattr(connector, "_connect", lambda read_timeout=60: Conn(next(roles)))
+    with pytest.raises(QueryError) as e:
+        connector.execute_explore("SELECT region FROM t", timeout_seconds=5, max_rows=10, mem_limit_bytes=1)
+    assert killed == ["KILL QUERY 42"] and e.value.cancel == outcome and words in e.value.message
+    detail = {}
+    monkeypatch.setattr(exploration.audit, "record", lambda s, u, a, t, i, **d: detail.update(d))
+    exploration.record(None, None, "r1", step=1, source=None, purpose="x", outcome="failed", error=e.value)
+    assert detail["cancel"] == outcome

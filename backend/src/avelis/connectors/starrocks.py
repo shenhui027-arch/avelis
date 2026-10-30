@@ -242,6 +242,8 @@ class StarRocksConnector:
                         pipeline_dop: int = 1) -> QueryResult:
         """执行校验后重新生成的探索查询：只读账号，服务端 query_timeout / query_mem_limit / pipeline_dop；
         客户端等待超过截止时间时向服务端发 KILL QUERY 并确认已停止，然后按超时报错（不返回部分结果）。"""
+        if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
         conn = self._connect(read_timeout=timeout_seconds + 5)
         connection_id = None
         try:
@@ -258,8 +260,12 @@ class StarRocksConnector:
         except pymysql.err.OperationalError as exc:
             errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
             if errno in (2013, 2006) and connection_id is not None:  # 客户端等待超时：取消服务端查询
-                self._kill_query(connection_id)
-                raise QueryError("timeout", errno, "探索查询超过截止时间，已向数据库发出取消") from exc
+                outcome = self._kill_query(connection_id)
+                text = {"cancelled": "已取消服务端查询", "already_finished": "服务端查询已结束",
+                        "cancel_failed": "取消服务端查询失败，查询可能仍在运行"}[outcome]
+                error = QueryError("timeout", errno, f"探索查询超过截止时间：{text}")
+                error.cancel = outcome  # 审计如实记录取消结果
+                raise error from exc
             message = str(exc.args[-1]) if exc.args else str(exc)
             raise QueryError(_classify(errno, message), errno, message) from exc
         except pymysql.MySQLError as exc:
@@ -269,12 +275,19 @@ class StarRocksConnector:
         finally:
             conn.close()
 
-    def _kill_query(self, connection_id: int) -> None:
-        killer = self._connect(read_timeout=10)
+    def _kill_query(self, connection_id: int) -> str:
+        """发 KILL QUERY：cancelled 已取消；already_finished 目标连接已不存在（1094，查询也已停止）；
+        cancel_failed 其他错误（查询可能仍在运行）。"""
+        try:
+            killer = self._connect(read_timeout=10)
+        except pymysql.MySQLError:
+            return "cancel_failed"
         try:
             killer.cursor().execute(f"KILL QUERY {int(connection_id)}")
-        except pymysql.MySQLError:
-            pass  # 连接已结束：查询也已停止
+            return "cancelled"
+        except pymysql.MySQLError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            return "already_finished" if errno == 1094 else "cancel_failed"
         finally:
             killer.close()
 
