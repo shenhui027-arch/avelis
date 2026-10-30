@@ -826,17 +826,22 @@ def test_revision_resets_only_this_rounds_report_attempts(monkeypatch):
 
 
 def test_query_already_scanned_by_explain_change_is_reused(monkeypatch):
-    """模型按 explain_change 已扫描过的维度分组取数：直接返回已有数据集（含两期），不计额度，权限照样复核。"""
+    """模型按 explain_change 已扫描过的维度与两期分组取数：直接返回已有数据集，不计额度，权限照样复核。
+    带排序或行数的请求不复用（扫描结果不满足“前 N 个”的语义，见 test_analysis_b0_fixes 的 F 组）。"""
     from avelis.analysis.tools import QueryArgs, _scan_key
 
     catalog, executed = governed_catalog(monkeypatch)
     box = make_box(budget=Budget(queries=5), catalog=catalog, monkeypatch=monkeypatch)
     monkeypatch.setattr(box, "_metric_sources", lambda code: (None, None, [], {}))
     scan = governed(box, ["地区", "指标甲", "指标甲·对比期"], [["甲", "10", "8"]])
-    box._scanned[_scan_key(QueryArgs(**{**QUERY, "compare": None}))] = scan
-    out = json.loads(box.dispatch("query_metric", {**QUERY, "order": "desc", "limit": 3}))
+    scan.meta["versions"] = {"m_a": "v1"}
+    two = {**QUERY, "compare": "custom", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+    box._scanned[_scan_key(QueryArgs(**two))] = scan
+    out = json.loads(box.dispatch("query_metric", two))
     assert out["dataset"] == f"D{scan.seq}" and out["reused"] and executed == [] and box.budget.used_queries == 0
     assert "explain_change 已按同样的指标、维度、窗口与筛选扫描过" in out["note"]
+    top = json.loads(box.dispatch("query_metric", {**two, "order": "desc", "limit": 3}))
+    assert top["dataset"] != f"D{scan.seq}" and len(executed) == 1 and executed[0].order == "desc"
 
 
 def test_amount_per_order_is_a_level_not_a_ratio():

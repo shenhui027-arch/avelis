@@ -413,13 +413,14 @@ def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):
 
 
 def test_dimension_scans_are_registered_for_reuse(monkeypatch):
-    """explain_change 扫描过的“指标 × 维度 × 窗口 × 筛选”登记为可复用：同样分组、带或不带对比期的取数都命中。"""
+    """explain_change 扫描过的“指标 × 维度 × 窗口 × 对比期 × 筛选”登记为可复用：同样分组、同样两期的取数命中；
+    只请求本期的取数不再用两期的扫描结果顶替（结果的列与请求不同，任务书 P0-F）。"""
     from avelis.analysis.tools import QueryArgs, _scan_key
 
     box, _ = additive_box(monkeypatch, SCENARIO)
     json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     base = dict(metric_codes=["x"], start_date=WINDOW["start"], end_date=WINDOW["end"], group_by=["维度A"], purpose="p")
     with_compare = QueryArgs(**base, compare="custom", compare_start=WINDOW["compare_start"],
-                             compare_end=WINDOW["compare_end"], order="desc", limit=5)
-    assert _scan_key(with_compare) in box._scanned and _scan_key(QueryArgs(**base)) in box._scanned
+                             compare_end=WINDOW["compare_end"])
+    assert _scan_key(with_compare) in box._scanned and _scan_key(QueryArgs(**base)) not in box._scanned
     assert _scan_key(QueryArgs(**{**base, "group_by": ["维度C"]})) not in box._scanned
