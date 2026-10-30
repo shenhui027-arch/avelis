@@ -162,7 +162,7 @@ class ContributionArgs(BaseModel):
 
 
 class Pair(BaseModel):
-    name: str = Field(description="因子名，如 订单数")
+    name: str = Field(description="因子名，如 数量、单价")
     current: str = Field(description="本期值列名")
     previous: str = Field(description="上期值列名")
 

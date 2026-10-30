@@ -143,7 +143,7 @@ class DemoIntentModel:
         if not spans:
             return Intent(clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标",
                           candidates=[m.name for m in metrics])
-        # 被更长的匹配完全包含的短匹配不算（如“退款后净销售额”包含“销售额”）
+        # 被更长的匹配完全包含的短匹配不算（如“<指标甲>净额”包含“<指标甲>”）
         spans = [s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0])
                                              for o in spans)]
         by_position: dict[tuple[int, int], dict[str, MetricCard]] = {}
