@@ -61,11 +61,19 @@ E0（最多 7 次请求，任务书上限 12 次；无业务数据）：
 uv run --project backend python experiments/agent-v2/e0_smoke.py --run
 ```
 
-E1（48 次 = 6 场景 × 4 条件 × 2 次；固定种子 20261031 打乱顺序；判分用 v2）：
+E0 已运行（8 次请求，约 0.0028 元，结果见 diagnosis.md 第 7 节）；需要指定主检出的 .env：
 
 ```bash
-uv run --project backend python experiments/agent-v2/e1.py --run
+AVELIS_ENV_FILE=<主检出>/.env uv run --project backend python experiments/agent-v2/e0_smoke.py --run
 ```
+
+E1（48 次 = 6 场景 × 4 条件 × 2 次；固定种子 20261031 打乱顺序；判分用 v2；费用上限 30 元，已扣除 E0 的花费）：
+
+```bash
+AVELIS_ENV_FILE=<主检出>/.env uv run --project backend python experiments/agent-v2/e1.py --run --cap 30 --spent 0.0028
+```
+
+账本每次运行前预留 1.5 元，预留不足就停止；运行详情或用量不完整时按预留额保守入账。
 
 - 每次运行的上限：墙钟 300 秒、模型请求 16 次（含重试）、工具 30 次（修订 +6）、查询 20 次、探索 8 次；
   注入的查询与元数据读取不占这些额度，另记在 inject 步骤。
@@ -78,8 +86,8 @@ uv run --project backend python experiments/agent-v2/e1.py --run
 
 | 项 | 状态 | 需要 |
 |---|---|---|
-| E0 协议冒烟 | 未运行 | 协调会话确认使用 `.env` 中的模型与费用；约 7 次小请求 |
-| E1 | 未运行 | 费用授权；私有元数据库与排期；token 上限口径的决定；材料 SQL 的元数据核对 |
+| E0 协议冒烟 | 已运行（8 次请求，0.0028 元）；发现并修复 max_tokens 字段不兼容 | — |
+| E1 | 未运行（费用已授权 30 元，等 E0 结果审查确认） | 确认；私有元数据库与排期；token 上限口径的决定；材料 SQL 的元数据核对 |
 | 与真实数据库的集成测试（澄清状态写库、版本变更后的复用） | 未运行 | 私有元数据库；本会话只有单元测试 |
 | 前端待澄清横幅 | 只改代码，未在浏览器里看过 | 演示环境 |
 

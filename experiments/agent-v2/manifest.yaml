@@ -102,7 +102,7 @@ b0:
   changes:  # 每项一个提交（分支 claude/agent-v2-p0-4de0ae），见 docs/agent-v2/diagnosis.md 第 4 节
     - {item: scorer_v2, commits: [7f6f8e4, 2f55cca], files: [backend/tests/eval/scoring_v2.py, backend/tests/eval/analysis_questions_v2.yaml]}
     - {item: fix_A_clarification, commit: 0378526}
-    - {item: fix_E_model_protocol, commit: 156a2dd}
+    - {item: fix_E_model_protocol, commits: [156a2dd, 0c7506c, c439193], note: c439193 为 E0 发现的 max_tokens 字段修复}
     - {item: fix_F_reuse, commit: 711ed85}
     - {item: eval_runner_meta, commit: ac4eee9}
     - {item: e1_framework, commit: 96e1aa6, note: 只在实验进程内生效，不改产品路径}
