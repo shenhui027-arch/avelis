@@ -186,6 +186,17 @@ def test_verify_requires_refs_ranges_and_parseable_numbers():
     leftover = check("持续五个月，两期对比")
     assert leftover["status"] == "unverified" and leftover["numbers"] and not leftover["numbers"][-1]["verified"]
     assert extract_numbers("九月销售")[0]["error"] == "包含无法识别的数字"
+    # 验收反例：引用数据集里原样出现的名称（“广州四号店”）不是数量；不在数据集里的“两期”、纯数字值“三”仍未核实
+    stores = {"D1": {"rows": [{"store": "广州四号店", "delta": "25434.45"}, {"store": "厦门二号店", "delta": "44494.61"},
+                              {"store": "三", "delta": "1"}, {"store": "2026-09", "delta": "2"}]}}
+    named = "其余多数为增长（如广州四号店增加 25434.45、厦门二号店增加 44494.61）"
+    assert verify_report([{"type": "fact", "text": named, "refs": ["D1"]}], stores)["ok"] is True
+    assert verify_report([{"type": "fact", "text": named, "refs": ["D1"]}], {"D1": {"rows": [
+        {"delta": "25434.45"}, {"delta": "44494.61"}]}})["ok"] is False  # 名称不在引用的数据集里：仍兜底未核实
+    for text in ("广州四号店两期合计 25434.45", "广州五号店增加 25434.45", "共三家门店", "2026-09 增加 2"):
+        assert verify_report([{"type": "fact", "text": text, "refs": ["D1"]}], stores)["ok"] is False, text
+    assert verify_report([{"type": "fact", "text": "x", "refs": ["D1"]}], stores,
+                         {"summary": "广州四号店增长最多"})["ok"] is True  # 摘要同样适用
     # ASCII 连字符的金额区间不是日期：两端都核验（复核反例：曾被当成 2400-32 删掉，只剩 0）
     zero = {"D1": {"rows": [{"v": "0"}]}}
     assert verify_report([{"type": "fact", "text": "利润在 2400-3200 元之间", "refs": ["D1"]}], zero)["ok"] is False
