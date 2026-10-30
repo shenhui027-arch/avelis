@@ -44,10 +44,24 @@ class Api:
         return self.call("PATCH", path, json=json, **kw)
 
 
+SECRET_WORDS = ("PASSWORD", "SECRET", "KEY", "TOKEN")
+
+
+class SecretEnv(dict):
+    """演示环境变量：取值照常，repr 隐去口令、密钥类字段。pytest 的失败回溯会打印测试参数（如 stack、demo_env），
+    不能把口令打进日志与模型上下文。"""
+
+    def __repr__(self) -> str:
+        return "{" + ", ".join(f"{k!r}: {'***' if any(w in k.upper() for w in SECRET_WORDS) else repr(v)}"
+                               for k, v in self.items()) + "}"
+
+    __str__ = __repr__
+
+
 @pytest.fixture(scope="session")
 def demo_env() -> dict[str, str]:
     import demo  # scripts/demo.py
 
     if not demo.ENV_FILE.exists():
         pytest.skip("缺少 .env：先运行 uv run scripts/demo.py up")
-    return demo.load_env()
+    return SecretEnv(demo.load_env())
