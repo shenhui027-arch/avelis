@@ -335,7 +335,7 @@ def assert_grounded(run: dict) -> None:
 
 def real_model_question(api: Api, question_id: str) -> tuple[dict, dict]:
     """用真实模型运行评测集里的一题（与 scripts/eval_analysis.py 同一份题目与判分）；只有传输层错误（连接失败、SSL、
-    超时）时重跑一次，内容问题不重跑。"""
+    超时、模型服务返回 5xx）时重跑一次，内容问题（模型写错表名、列名等）不重跑。"""
     from tests.eval.scoring import load_questions, transport_error
 
     question = {q["id"]: q for q in load_questions()["questions"]}[question_id]
