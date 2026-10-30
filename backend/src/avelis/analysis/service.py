@@ -267,6 +267,10 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
             error = toolbox.aborted
         elif toolbox.permission_lost:
             error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
+        elif toolbox.clarification:  # 待澄清：用户可见的短问题与可恢复的上下文（问题、范围、已用预算）
+            status = "clarify"
+            report = {"title": "需要澄清", "summary": toolbox.clarification["question"],
+                      "clarification": toolbox.clarification, "incomplete": True, "notes": state.get("notes", [])}
         else:
             status = "succeeded"
     except PermissionLost as exc:
@@ -292,13 +296,19 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     run.budget = budget.view()
     run.finished_at = utcnow()
     session.flush()
-    outcome = finish(session, run) if finish else {
-        "status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
+    outcome = finish(session, run) if finish else _outcome(run)
     _close_job(job, {**outcome, "analysis_run_id": run.id})
     audit.record(session, user, "analysis.finish", "analysis_run", run.id, status=run.status,
                  verified=(run.verification or {}).get("ok"), queries=budget.used_queries)
     session.commit()
     return {**outcome, "analysis_run_id": run.id}
+
+
+def _outcome(run: AnalysisRun) -> dict[str, Any]:
+    """运行终态 → Job 结果：待澄清是本次执行正常结束（等用户回答），不是失败。"""
+    if run.status == "clarify":
+        return {"status": "succeeded", "reason": None, "run_status": "clarify"}
+    return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
 
 
 def run_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -400,13 +410,17 @@ def _finish_task(session: Session, task_id: str, run: AnalysisRun) -> dict[str, 
     """任务运行的收尾（在运行终态的同一事务中）：明确的权限拒绝 → 暂停并通知；否则发完成 / 失败通知。"""
     task = session.get(AnalysisTask, task_id, with_for_update=True, populate_existing=True)
     if task is None:
-        return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
+        return _outcome(run)
     verification = run.verification or {}
     reason = _paused_by(run)
     if reason:
         # 明确的权限拒绝：不能用“还能看到别的口径”代替“有执行这个任务的权限”
         _pause(session, task, f"执行中被拒绝访问：{reason}")
         return {"status": "paused", "run_status": run.status, "reason": reason}
+    if run.status == "clarify":  # 定时任务无人回答追问：暂停任务并通知，等任务所有者改写问题后再启用
+        question = (run.report or {}).get("summary") or "问题需要澄清"
+        _pause(session, task, f"需要澄清：{question}")
+        return {"status": "paused", "run_status": run.status, "reason": question}
     if run.status != "succeeded":
         title, body = f"分析运行失败：{task.title}", run.error
     elif not verification.get("ok", False):

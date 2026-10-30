@@ -58,10 +58,12 @@ def test_understand_is_one_structured_call_without_thinking(monkeypatch):
     assert model.tool_choice == ["submit_scope"]
     candidates = json.loads(model.seen[0][-1].content.split("候选口径：", 1)[1].split("\n", 1)[0])
     assert [c["code"] for c in candidates] == ["m_a", "m_b", "m_c"]  # 别名“甲量”命中的排第一，其余按编码
-    assert out["scope"]["metric_codes"] == ["m_a"] and "不在候选口径中：m_x" in out["notes"][0]
+    # 候选外的指标 m_x 不再静默删除：停在待澄清（任务书 P0-A，见 test_analysis_b0_fixes）
+    assert out["phase"] == "clarify" and out["scope"]["metric_codes"] == ["m_a", "m_x"]
+    assert "不在候选口径中：m_x" in box.plan["problem"] and "m_x" in box.clarification["question"]
     assert box.plan["scope"]["filters"] == [{"dimension": "地区", "values": ["甲"]}]
     steps = [s for s in box.session.added if getattr(s, "tool", None) in ("model", "understand")]
-    assert [s.tool for s in steps] == ["model", "understand"]
+    assert [(s.kind, s.tool) for s in steps] == [("model", "model"), ("plan", "understand"), ("clarify", "understand")]
 
 
 def test_understand_failure_does_not_stop_the_analysis(monkeypatch):

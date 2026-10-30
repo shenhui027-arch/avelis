@@ -3,7 +3,8 @@
     理解 understand ──▶ 系统预检 precheck ──▶ 推理 reason（工具循环 → 核验 → 修订一轮 → 核验）──▶ 结束
 
 - 理解：系统按问题文字检索候选口径（前 10 个），模型做一次结构化输出（submit_scope）：问题类型、指标、筛选、窗口，
-  确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。
+  确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。写了追问、或选了候选以外的指标时，
+  运行停在“待澄清”（clarify），保存问题、范围与已用预算，不带着未澄清的范围继续预检与推理。
 - 系统预检：确定性代码按 scope 一次执行固定的排查（变化类：口径详情、变更、数据健康、explain_change、日历折算；
   关系类：按维度取数、分组对比、相关），产出数据集与一份紧凑的上下文包。查询计入额度、检查权限、记录步骤。
 - 推理：上下文包放在用户消息里；模型可以直接提交报告，也可以下钻，一轮可以发出多个工具调用。思考强度按页面配置。
@@ -150,7 +151,7 @@ class AnalysisState(TypedDict, total=False):
     scope: dict | None
     retried: bool  # 理解阶段已经按预检的反馈重选过一次
     feedback: str | None  # 预检反馈给理解阶段的原因
-    phase: str  # understand | precheck | reason | done
+    phase: str  # understand | clarify | precheck | reason | done
     revised: bool
     rounds: Annotated[int, operator.add]
     notes: Annotated[list[str], _merge]
@@ -237,10 +238,11 @@ def _window_text(window: dict | None) -> str:
 
 def understand(state: AnalysisState, config) -> dict[str, Any]:
     """理解（ADR 0012 第 1 段）：候选口径 + 一次结构化输出（submit_scope），关闭思考、限制输出长度。
-    没有得到合法的 scope 时记下原因，推理阶段照常进行（模型可以自己检索口径）。"""
+    没有得到合法的 scope 时记下原因，推理阶段照常进行（模型可以自己检索口径）。scope 带追问、或指标不在候选口径中时
+    停在待澄清：不静默删除指标、不带着未澄清的范围继续。"""
     toolbox, model = _ctx(config)
     ctx = state.get("context") or {}
-    scope, raw, problem = None, None, None
+    scope, raw, problem, question = None, None, None, None
     if _can_call_model(toolbox):
         candidates = toolbox.candidate_metrics(state["question"])
         codes = {c["code"] for c in candidates}
@@ -261,13 +263,21 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             if scope is None:
                 problem = "模型没有提交范围"
             elif any(c not in codes for c in scope.metric_codes):
-                problem = f"范围里的指标不在候选口径中：{'、'.join(c for c in scope.metric_codes if c not in codes)}"
-                scope = scope.model_copy(update={"metric_codes": [c for c in scope.metric_codes if c in codes]})
+                # 候选外的指标不静默删除（删掉会让范围变窄而不自知）：停下来请用户确认
+                outside = "、".join(c for c in scope.metric_codes if c not in codes)
+                problem = f"范围里的指标不在候选口径中：{outside}"
+                question = f"没有找到可用的指标 {outside}，请确认要分析的是哪个指标"
+            if scope is not None and (scope.clarification or "").strip():
+                question = scope.clarification.strip()
         except Exception as exc:  # noqa: BLE001 - 理解失败不终止分析：推理阶段可以自己检索
             problem = f"理解阶段失败：{type(exc).__name__}: {str(exc)[:200]}"
             if toolbox.stopped:
                 raise
     toolbox.record_scope(scope, raw, problem)
+    if question:  # 需要澄清（任务书 P0-A）：停在可见的“待澄清”状态，不带着未澄清的范围继续预检与推理
+        toolbox.request_clarification(question, scope, raw)
+        return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "clarify", "rounds": 1,
+                "notes": [f"需要澄清：{question}"]}
     return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "precheck", "rounds": 1,
             "notes": [problem] if problem else []}
 
@@ -405,7 +415,8 @@ def build_graph(checkpointer) -> Any:
     graph.add_node("precheck", precheck)
     graph.add_node("reason", reason)
     graph.add_edge(START, "understand")
-    graph.add_edge("understand", "precheck")
+    graph.add_conditional_edges("understand", lambda s: END if s.get("phase") == "clarify" else "precheck",
+                                {END: END, "precheck": "precheck"})
     graph.add_conditional_edges("precheck", lambda s: "understand" if s.get("phase") == "understand" else "reason",
                                 {"understand": "understand", "reason": "reason"})
     graph.add_edge("reason", END)
