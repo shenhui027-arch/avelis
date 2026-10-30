@@ -1,11 +1,15 @@
 """分析智能体评测运行器（ADR 0009 第 5 点，最小版本）。
 
-  uv run scripts/eval_analysis.py --repeat 2            串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
-  uv run scripts/eval_analysis.py --only d01,n01        只跑部分题
+  uv run --project backend python scripts/eval_analysis.py --repeat 2       串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
+  uv run --project backend python scripts/eval_analysis.py --repeat 2 --resume .demo/eval/<时间>.json
+                                               续跑：沿用上次已有真实结果的运行，只重跑登录失效（401）与没跑到的
+  uv run --project backend python scripts/eval_analysis.py --only d01,n01   只跑部分题
+（用后端的依赖环境运行：判分读 YAML、发起分析都需要后端依赖。）
 
 在演示环境上运行（合成电商数据集已灌入、元数据库已有演示口径），用 .env 中已授权用于验收的模型。
 每题用题目指定的演示账号发起分析（wait=true），按 backend/tests/eval/scoring.py 判分；只有传输层错误（连接失败、SSL、
-超时）时重跑一次。结果写到 .demo/eval/<时间>.json，并生成同名 Markdown 汇总（总体与分类的比例、重复运行的稳定性）。
+超时）时重跑一次。每题开始前重新登录（访问令牌 30 分钟过期，整轮评测超过这个时长）。
+结果写到 .demo/eval/<时间>.json，并生成同名 Markdown 汇总（总体与分类的比例、重复运行的稳定性）。
 """
 
 from __future__ import annotations
@@ -55,11 +59,53 @@ def _ask(client, headers: dict[str, str], question: dict) -> dict | None:
     return resp.json()
 
 
+def reusable(saved: dict) -> dict[tuple[str, int], tuple[dict, dict]]:
+    """上次结果里可以沿用的运行：系统里确有这次分析（有运行编号，即调用过模型），状态是 succeeded / failed / paused。
+    登录失效（401）、接口报错没建出运行的，以及没跑到的，都不在这里（续跑时重跑）。"""
+    results = {(r["id"], r["repeat"]): r for r in saved["results"]}
+    out = {}
+    for item in saved["runs"]:
+        run, key = item.get("run") or {}, (item["id"], item["repeat"])
+        if run.get("id") and run.get("status") in ("succeeded", "failed", "paused") and key in results:
+            out[key] = (results[key], item)
+    return out
+
+
+def run_questions(client, questions: list[dict], repeat: int, password: str,
+                  reuse: dict | None = None) -> tuple[list[dict], list[dict]]:
+    from tests.eval.scoring import score, transport_error
+
+    results, runs = [], []
+    for attempt in range(1, repeat + 1):
+        for q in questions:
+            if (q["id"], attempt) in (reuse or {}):  # 续跑：沿用上次的真实结果
+                result, item = reuse[(q["id"], attempt)]
+                results.append({**result, "resumed": False})
+                runs.append(item)
+                continue
+            headers = _login(client, q["user"], password)  # 每题取新令牌：访问令牌 30 分钟过期
+            began = time.monotonic()
+            run = _ask(client, headers, q)
+            retried = transport_error(run)
+            if retried:
+                run = _ask(client, headers, q)
+            result = {**score(q, run), "repeat": attempt, "retried": retried, "seconds": round(time.monotonic() - began, 1),
+                      "run_id": (run or {}).get("id"), "error": (run or {}).get("error"),
+                      "tool_calls": (((run or {}).get("budget") or {}).get("used") or {}).get("tool_calls"),
+                      **({"resumed": True} if reuse is not None else {})}
+            results.append(result)
+            runs.append({"id": q["id"], "repeat": attempt, "run": run})
+            print(f"[{attempt}/{repeat}] {q['id']} {q['category']}: {'通过' if result['passed'] else '未通过'}"
+                  f"（{result['status']}，{result['seconds']}s）" + ("，续跑" if reuse is not None else ""), flush=True)
+    return results, runs
+
+
 def main() -> int:
-    from tests.eval.scoring import load_questions, markdown, score, summarize, transport_error
+    from tests.eval.scoring import load_questions, markdown, summarize
 
     parser = argparse.ArgumentParser(description="分析智能体评测")
     parser.add_argument("--repeat", type=int, default=2)
+    parser.add_argument("--resume", type=Path, help="上次的评测结果：沿用已有真实结果的运行，重跑其余的")
     parser.add_argument("--only", default="", help="逗号分隔的题号")
     args = parser.parse_args()
 
@@ -71,28 +117,14 @@ def main() -> int:
     wanted = {x.strip() for x in args.only.split(",") if x.strip()}
     questions = [q for q in data["questions"] if not wanted or q["id"] in wanted]
     started = datetime.now()
-    client = _client(env)
-    password = env["AVELIS_DEMO_USER_PASSWORD"]
-    headers: dict[str, dict[str, str]] = {}
-    results, runs = [], []
-    for attempt in range(1, args.repeat + 1):
-        for q in questions:
-            headers.setdefault(q["user"], _login(client, q["user"], password))
-            began = time.monotonic()
-            run = _ask(client, headers[q["user"]], q)
-            retried = transport_error(run)
-            if retried:
-                run = _ask(client, headers[q["user"]], q)
-            result = {**score(q, run), "repeat": attempt, "retried": retried, "seconds": round(time.monotonic() - began, 1),
-                      "run_id": (run or {}).get("id"), "error": (run or {}).get("error"),
-                      "tool_calls": (((run or {}).get("budget") or {}).get("used") or {}).get("tool_calls")}
-            results.append(result)
-            runs.append({"id": q["id"], "repeat": attempt, "run": run})
-            print(f"[{attempt}/{args.repeat}] {q['id']} {q['category']}: {'通过' if result['passed'] else '未通过'}"
-                  f"（{result['status']}，{result['seconds']}s）", flush=True)
+    reuse = reusable(json.loads(args.resume.read_text(encoding="utf-8"))) if args.resume else {}
+    results, runs = run_questions(_client(env), questions, args.repeat, env["AVELIS_DEMO_USER_PASSWORD"], reuse)
     summary = summarize(results)
     meta = {"started": started.isoformat(timespec="seconds"), "version": data.get("version"), "repeat": args.repeat,
             "questions": [q["id"] for q in questions]}
+    if args.resume:
+        meta.update(resumed_from=args.resume.name, reused=sum(1 for r in results if not r.get("resumed")),
+                    resumed=sum(1 for r in results if r.get("resumed")))
     OUT.mkdir(parents=True, exist_ok=True)
     stem = OUT / started.strftime("%Y%m%d-%H%M%S")
     stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results, "runs": runs},
