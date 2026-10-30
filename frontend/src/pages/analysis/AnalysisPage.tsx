@@ -58,7 +58,7 @@ type WindowKind = "none" | "last_month" | "fixed";
 const TYPE_LABEL: Record<string, string> = { fact: "事实", calc: "计算", inference: "推断", recommendation: "建议" };
 const TYPE_TONE: Record<string, "ok" | "info" | "warn" | ""> = { fact: "ok", calc: "info", inference: "", recommendation: "warn" };
 const TOOL_LABEL: Record<string, string> = {
-  submit_plan: "计划", search_metrics: "检索口径", describe_metric: "口径详情", search_assets: "检索资产",
+  understand: "理解问题", search_metrics: "检索口径", describe_metric: "口径详情", search_assets: "检索资产",
   describe_asset: "资产详情", lineage: "血缘", changes: "变更记录", data_health: "数据健康", query_metric: "受治理查询",
   explain_change: "自动归因", contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算", correlate: "相关性",
   segment_compare: "分组对比", outliers: "异常值", coverage: "覆盖度", submit_report: "提交报告", model: "模型推理",
@@ -226,7 +226,7 @@ function RunDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
-  const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string;
+  const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[] };
   const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
     fields?: FieldCheck[]; sources?: { direct?: Record<string, number>; with_explore?: number; assumption?: number;
@@ -241,7 +241,6 @@ function RunDetail({ id }: { id: string }) {
   ].join(" · ");
   const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
   const checks = new Map((verification.claims ?? []).map((c) => [c.index, c]));
-  const plan = (r.plan ?? {}) as { hypotheses?: string[]; steps?: string[] };
   const budget = (r.budget ?? {}) as { limits?: Record<string, number>; used?: Record<string, number> };
   const running = r.status === "queued" || r.status === "running";
   return (
@@ -315,10 +314,8 @@ function RunDetail({ id }: { id: string }) {
           {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
         </section>
       ) : null}
-      {plan.hypotheses?.length ? (
-        <section className="av-analysis__plan"><h3>计划</h3>
-          <ul>{plan.hypotheses.map((h, i) => <li key={i}>{h}</li>)}</ul>
-        </section>
+      {report.method ? (
+        <section className="av-analysis__plan"><h3>分析方法</h3><p>{report.method}</p></section>
       ) : null}
       <section className="av-analysis__steps" aria-label="步骤"><h3>步骤 <span className="av-caption">{r.steps?.length ?? 0}</span></h3>
         <ol className="av-timeline">

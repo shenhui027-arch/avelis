@@ -55,7 +55,7 @@ def test_prompt_examples_come_from_visible_metrics():
     from avelis.analysis import agent
 
     budget = SimpleNamespace(tool_calls=10, queries=5)
-    empty = agent.system_message("2026-10-30", "UTC", None, budget, agent.prompt_example(SimpleNamespace(versions={})))
+    empty = agent.system_message(agent.prompt_example(SimpleNamespace(versions={})))
     assert '"column": "<指标>", "match": {"<维度>": "<成员>"}' in empty.content and "暂无可用口径" in empty.content
     catalog = SimpleNamespace(versions={
         "z_metric": (SimpleNamespace(name="指标乙"), SimpleNamespace(dimensions=[{"name": "dim_b"}])),
@@ -64,7 +64,7 @@ def test_prompt_examples_come_from_visible_metrics():
     })
     example = agent.prompt_example(catalog)
     assert example["metric"] == "指标甲" and example["dimension"] == "dim_a" and example["member"] == "<成员>"
-    text = agent.system_message("2026-10-30", "UTC", None, budget, example).content
+    text = agent.system_message(example).content
     assert '"column": "指标甲", "match": {"dim_a": "<成员>"}' in text and '"distinct": "dim_a"' in text
     assert not PATTERN.search(text)  # 提示词本身不含演示词
 

@@ -83,9 +83,9 @@ def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
     box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)  # 最后 2 次留给 submit_report：其余工具 3 次
     assert "未知工具" in box.dispatch("no_such_tool", {})
     assert "参数结构不对：metric_codes" in box.dispatch("query_metric", {"metric_codes": "x"})  # 写出出错的字段
-    assert "ok" in box.dispatch("submit_plan", {"hypotheses": [], "steps": []})
+    assert "metrics" in box.dispatch("search_metrics", {})
     assert box.budget.used_tools == 3
-    over = json.loads(box.dispatch("submit_plan", {"hypotheses": [], "steps": []}))  # 重复提交计划也计数
+    over = json.loads(box.dispatch("search_metrics", {}))  # 重复调用也计数
     assert "上限" in over["error"] and "留给 submit_report" in over["error"] and box.budget.used_tools == 3
     report = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}))
     assert report == {"ok": True} and box.report is not None  # 预留的次数里仍可提交
@@ -139,10 +139,10 @@ def test_invalid_tool_calls_are_counted_and_answered(monkeypatch):
 class CountingModel:
     """每次都只回复同一个工具调用的模型替身，记录被请求的次数。"""
 
-    def __init__(self, name="submit_plan", args=None):
-        self.calls, self.name, self.args = 0, name, args or {"hypotheses": [], "steps": []}
+    def __init__(self, name="search_metrics", args=None):
+        self.calls, self.name, self.args = 0, name, args or {}
 
-    def bind_tools(self, tools):
+    def bind_tools(self, tools, **kwargs):
         return self
 
     def invoke(self, messages):
@@ -157,7 +157,7 @@ def test_no_model_call_after_shared_deadline(monkeypatch):
     model = CountingModel()
     config = {"configurable": {"toolbox": box, "model": model}}
     state = {"messages": [HumanMessage("问题")]}
-    agent.plan(state, config)
+    agent.understand({"question": "问题", "context": {}}, config)  # 截止时间已过：理解阶段也不请求模型
     out = agent.act(state, config)
     assert model.calls == 0 and box.report is None
     assert agent.verify({"messages": []}, config)["phase"] == "done" and box.report["incomplete"]
@@ -168,8 +168,7 @@ def test_loop_ends_when_total_calls_are_used_up(monkeypatch):
     """第 7 点第 7 条：执行循环只在总调用次数（或截止时间）用完时结束，没有固定的宽限轮数：其他工具用完后循环继续，
     直到 submit_report 的预留次数也用完。"""
     box = make_box(budget=Budget(tool_calls=6), monkeypatch=monkeypatch)  # 其余工具 4 次，最后 2 次只能是 submit_report
-    model = ScriptedModel([("submit_plan", {"hypotheses": [], "steps": []})] * 4 +
-                          [("search_metrics", {})] * 3 + [("submit_report", "{bad")] * 2 + [("submit_plan", {})])
+    model = ScriptedModel([("search_metrics", {})] * 7 + [("submit_report", "not json")] * 2 + [("search_metrics", {})])
     config = {"configurable": {"toolbox": box, "model": model}}
     out = agent.act({"messages": [HumanMessage("问题")]}, config)
     assert box.budget.used_tools == 4 and box.budget.used_reports == 2 and box.budget.used_calls == 9
@@ -184,7 +183,7 @@ class ScriptedModel:
     def __init__(self, calls):
         self.calls, self.script = 0, list(calls)
 
-    def bind_tools(self, tools):
+    def bind_tools(self, tools, **kwargs):
         return self
 
     def invoke(self, messages):

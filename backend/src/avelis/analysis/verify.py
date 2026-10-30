@@ -29,7 +29,7 @@ from pydantic import ValidationError
 from avelis.analysis.grounding import CONCLUSIONS, Cause, describe_scope, render
 
 CHECKED = ("fact", "calc")
-FIELDS = ("title", "summary", "unexplained")
+FIELDS = ("title", "summary", "unexplained", "method")
 DETAILS = ("premise", "validation")
 NUMERIC = ("value", "count")
 DIGITS = re.compile(r"[0-9０-９][0-9０-９.,:/\-]*")

@@ -334,9 +334,18 @@ class OutlierArgs(BaseModel):
     keys: list[str]
 
 
-class PlanArgs(BaseModel):
-    hypotheses: list[str] = Field(description="待验证的假设（按先排查口径与数据、再拆维度、因子、日历的顺序）")
-    steps: list[str] = Field(description="准备做的查询与计算")
+class Scope(BaseModel):
+    """理解阶段的结构化输出（ADR 0012）：问题类型、指标、筛选、窗口；确定不了时写追问。"""
+    question_type: Literal["change", "relation", "other"] = Field(
+        description="change：为什么变化 / 是否变化；relation：什么关系、怎么分布；other：其他")
+    metric_codes: list[str] = Field(default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）")
+    filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选：维度名与取值（如某个区域）")
+    dimensions: list[str] = Field(default_factory=list, max_length=3, description="关系类问题要对比的维度名")
+    start_date: date | None = Field(None, description="本期开始；问题没有另说时不写（取本次分析的窗口）")
+    end_date: date | None = None
+    compare_start: date | None = Field(None, description="对比期开始；问题没有另说时不写")
+    compare_end: date | None = None
+    clarification: str | None = Field(None, description="确定不了指标或范围时，向用户追问的一句话")
 
 
 class Claim(BaseModel):
@@ -376,6 +385,8 @@ class ReportArgs(BaseModel):
                     "insufficient_evidence 证据不足。所问指标做过 explain_change 时必须与它的判定一致")
     scope: ReportScope | None = Field(None, description="所问的指标、筛选与窗口（问“为什么变化”时必填）：结论类型按"
                                                          "同一 scope 的 explain_change 判定核对")
+    method: str | list[Part] | None = Field(None, description="分析方法（可选）：怎么排查、用了哪些数据集；片段列表，"
+                                                             "数字写成引用对象")
     causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
                                                                    "第一项是首要原因；offsetting 时前两项是最大的减少项与"
                                                                    "增加项；其余两种结论不填）")
@@ -392,7 +403,8 @@ class AnalysisToolbox:
         self.aborted: str | None = None
         self.verification: dict | None = None  # 核验结果：终态时与运行一起写入
         self._allowed: set[str] = set()
-        self.plan: dict | None = None
+        self.plan: dict | None = None  # 理解阶段的 scope（运行记录里的 plan）
+        self.scope: Scope | None = None
         self.report: dict | None = None
         self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
         self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
@@ -630,15 +642,127 @@ class AnalysisToolbox:
             self._step("tool", name, json.loads(_json(args)), "error", {"error": message})
             return _json({"error": message})
 
-    # -- 计划与报告 --
-    def submit_plan(self, hypotheses: list[str], steps: list[str]) -> str:
-        self.plan = {"hypotheses": hypotheses, "steps": steps}
-        self._step("plan", "submit_plan", self.plan, "ok", {})
-        return _json({"ok": True, "note": "计划已记录；按计划调用工具，中间结果推翻假设时可再次提交计划"})
+    # -- 理解与系统预检（ADR 0012） --
+    CANDIDATES = 10
+    PACK_CHARS = 9000  # 上下文包的长度上限（约 4500 token）；完整数据保存在数据集中
+    PACK_ROWS = 8
+
+    def candidate_metrics(self, question: str) -> list[dict[str, Any]]:
+        """按问题文字从当前用户可见的口径中检索候选（ADR 0012 第 1 段）：名称、编码、别名出现在问题里的排前面
+        （命中的字越多越靠前），再按编码排序，截断到 CANDIDATES 个。"""
+        self.catalog = service.visible_catalog(self.session, self.user, with_values=False)
+        scored = []
+        for c in self.catalog.cards:
+            hits = [s for s in (c.name, c.code, *(c.aliases or [])) if s and s in question]
+            version = self.catalog.versions[c.code][1]
+            scored.append((-max((len(h) for h in hits), default=0), c.code, {
+                "code": c.code, "name": c.name, "aliases": list(c.aliases or []),
+                "dimensions": [{"name": d["name"], "label": d.get("label")} for d in c.dimensions],
+                "unit": getattr(version, "unit", None), "kind": version.kind,
+                "formula": version.expression if version.kind == "derived" else None}))
+        return [entry for *_, entry in sorted(scored, key=lambda x: (x[0], x[1]))[:self.CANDIDATES]]
+
+    def record_scope(self, scope: Scope | None, raw: dict | None, problem: str | None) -> None:
+        self.scope = scope
+        self.plan = {"scope": scope.model_dump(mode="json") if scope else None, "problem": problem}
+        self._step("plan", "understand", raw or {}, "ok" if scope else "error",
+                   {"scope": self.plan["scope"]} if scope else {"error": problem})
+
+    def precheck(self, scope: Scope) -> list[str]:
+        """系统预检（确定性，不经模型）：变化类按顺序执行 describe_metric、changes、data_health、explain_change
+        （带 scope 的筛选与自动因子拆解）、calendar_adjust；关系类按维度取多指标数据，做分组对比与相关。
+        查询照常计入额度、检查权限并记录步骤；某一步失败只记下，不影响其余步骤。返回产出的数据集编号。"""
+        refs: list[str] = []
+        self.precheck_notes: list[str] = []
+        window = self._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
+
+        def run(label: str, call) -> dict:
+            try:
+                out = json.loads(call())
+            except Exception as exc:  # noqa: BLE001 - 预检的单步失败如实记下
+                out = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+            if out.get("error"):
+                self.precheck_notes.append(f"{label}：{str(out['error'])[:200]}")
+            elif out.get("dataset"):
+                refs.append(out["dataset"])
+            return out
+        if not scope.metric_codes or not window["start"]:
+            return refs
+        code, filters = scope.metric_codes[0], [f.model_dump() for f in scope.filters]
+        if scope.question_type == "change":
+            self.precheck_metric = run("口径详情", lambda: self.describe_metric(code=code))
+            if not window["compare_start"]:
+                self.precheck_notes.append("没有对比期：跳过变更、归因与日历折算")
+                return refs
+            run("变更记录", lambda: self.changes(start_date=date.fromisoformat(window["compare_start"]),
+                                                end_date=date.fromisoformat(window["end"]), metric_code=code))
+            run("数据健康", lambda: self.data_health(metric_code=code, start_date=date.fromisoformat(window["compare_start"]),
+                                                    end_date=date.fromisoformat(window["end"])))
+            explained = run("自动归因", lambda: self.explain_change(
+                metric_code=code, filters=filters, start_date=window["start"], end_date=window["end"],
+                compare_start=window["compare_start"], compare_end=window["compare_end"], purpose="系统预检：自动归因"))
+            ds = self._datasets.get(explained.get("dataset") or "")
+            summary = (ds.meta or {}).get("summary") or {} if ds else {}
+            total = ds.inputs[0] if ds and ds.inputs else None
+            name = self.catalog.versions.get(code, (None,))[0] if getattr(self, "catalog", None) else None
+            if total and summary.get("algorithm") == "additive" and name is not None:
+                run("日历折算", lambda: self.calendar_adjust(dataset=total, current=name.name,
+                                                            previous=f"{name.name}·对比期"))
+        elif scope.question_type == "relation":
+            dims = scope.dimensions[:2]
+            for dim in dims:
+                out = run(f"按{dim}取数", lambda dim=dim: self.query_metric(
+                    metric_codes=scope.metric_codes, start_date=window["start"], end_date=window["end"],
+                    filters=filters, group_by=[dim], purpose=f"系统预检：按{dim}取数"))
+                ds = self._datasets.get(out.get("dataset") or "")
+                if ds is None:
+                    continue
+                measures = [c for c in ds.columns if c != dim]
+                run(f"按{dim}分组对比", lambda ref=out["dataset"], dim=dim, measures=measures: self.segment_compare(
+                    dataset=ref, segment=dim, measures=measures))
+                if len(measures) >= 2:
+                    run(f"按{dim}的相关", lambda ref=out["dataset"], measures=measures: self.correlate(
+                        dataset=ref, x=measures[0], y=measures[1]))
+        return refs
+
+    def context_pack(self) -> str:
+        """紧凑的上下文包（ADR 0012 第 2 段）：每个数据集的编号、标题、关键汇总与前若干行，总长度有上限；超出的只列编号与
+        标题。完整数据保存在数据集中，引用 Dn 照常核验。"""
+        lines: list[str] = []
+        metric = getattr(self, "precheck_metric", None) or {}
+        if metric and not metric.get("error"):
+            keep = {k: metric.get(k) for k in ("code", "name", "kind", "unit", "expression", "time_column", "dimensions",
+                                                "components") if metric.get(k) is not None}
+            lines.append("口径：" + _json(keep)[:1200])
+        used = sum(len(x) for x in lines)
+        skipped = []
+        for ref, ds in self._datasets.items():
+            head = f"{ref} {ds.title}（{ds.kind}，{len(ds.rows)} 行{'，截断' if ds.truncated else ''}）"
+            body = []
+            summary = (ds.meta or {}).get("summary")
+            if summary:
+                body.append("summary：" + _json(summary)[:1500])
+            body.append("列：" + "、".join(ds.columns))
+            body += ["  " + _json(r)[:300] for r in ds.rows[:self.PACK_ROWS]]
+            if len(ds.rows) > self.PACK_ROWS:
+                body.append(f"  （只列前 {self.PACK_ROWS} 行，共 {len(ds.rows)} 行）")
+            block = "\n".join([head, *body])
+            if used + len(block) > self.PACK_CHARS:
+                skipped.append(head)
+                continue
+            lines.append(block)
+            used += len(block)
+        if skipped:
+            lines.append("其余数据集（长度上限内放不下，需要时用计算工具读取）：" + "；".join(skipped))
+        notes = getattr(self, "precheck_notes", None) or []
+        if notes:
+            lines.append("预检中没有完成的步骤：" + "；".join(notes))
+        return "\n\n".join(lines) or "（没有预检数据）"
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
                       unexplained: str | list | None = None, conclusion: str | None = None,
-                      causes: list[Cause] | None = None, scope: ReportScope | None = None) -> str:
+                      causes: list[Cause] | None = None, scope: ReportScope | None = None,
+                      method: str | list | None = None) -> str:
         """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。scope 的窗口没写时取本次分析的窗口，
         登记键与 explain_change 用同一个函数生成。"""
         scope = _model(ReportScope, scope) if scope is not None else None
@@ -651,7 +775,8 @@ class AnalysisToolbox:
             key = scope_key(scope.metric_code, scope.filters, window)
         self.report = {"title": _parts(title), "summary": _parts(summary),
                        "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained),
-                       "conclusion": conclusion, "metric_code": scope.metric_code if scope else None,
+                       "method": _parts(method), "conclusion": conclusion,
+                       "metric_code": scope.metric_code if scope else None,
                        "scope": scope_view, "scope_key": key,
                        "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []]}
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
@@ -1542,7 +1667,6 @@ class AnalysisToolbox:
             return StructuredTool.from_function(fn, name=fn.__name__, args_schema=schema, description=doc)
 
         return [
-            t(self.submit_plan, PlanArgs, "提交分析计划（第一步必须调用）：假设清单与准备做的查询、计算"),
             t(self.search_metrics, Keyword, "检索可用的已治理指标（含派生指标公式与开放维度）"),
             t(self.describe_metric, Code, "指标详情：表达式、来源资产、时间字段、维度、组成、版本历史、依赖漂移"),
             t(self.search_assets, Keyword, "按名称或字段注释检索可见的数据资产"),
