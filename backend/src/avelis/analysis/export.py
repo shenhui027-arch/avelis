@@ -1,8 +1,9 @@
 """分析报告导出（ADR 0007 第 11 点）：Markdown、PDF（含图表与证据附录）、数据集 CSV。
 
-导出内容与报告页一致：结论标明类型与引用的数据集，未核实的结论同样标出原因；附录给出每个数据集的来源
-（受治理查询的 SQL 与口径版本，或计算工具的输入）。PDF、Markdown 使用渲染后的正文（text）；
-报告里每个数字的来源（数据集、取值路径、格式、原值）另有一张引用来源表（sources_csv，ADR 0009）。
+导出内容与报告页读同一份保存结果：结论标明类型与引用的数据集，未通过的结论与字段同样标出原因，推断 / 建议标为未核实；
+附录给出每个数据集的来源（受治理查询的 SQL 与口径版本，或计算工具的输入）与报告里每个数字的来源。
+PDF、Markdown 使用渲染后的正文（text）；每个数字的来源（数据集、取值路径、量纲、单位、格式、原值）另有一张
+引用来源表（sources_csv，ADR 0009）。来源含探索数据的数字标“探索查询（未经口径审核）”。
 PDF 嵌入中文 TrueType 字体（子集）：AVELIS_PDF_FONT 指定的字体文件，否则在常见位置找系统字体（Windows 等线 / 微软雅黑 /
 黑体，Linux 文泉驿 / Noto CJK）；都找不到时退回 reportlab 内置的 STSong-Light（不嵌入，需阅读器有亚洲字体包），并在报告中注明。
 """
@@ -17,8 +18,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 TYPE_LABEL = {"fact": "事实", "calc": "计算", "inference": "推断", "recommendation": "建议"}
-STATUS_LABEL = {"verified": "已核实", "unverified": "未核实", "unchecked": "不核验"}
-KIND_LABEL = {"governed": "受治理查询", "calc": "计算", "context": "元数据", "ungoverned": "未治理"}
+STATUS_LABEL = {"verified": "来源已校验", "unverified": "未通过", "unchecked": "推断 / 建议，未核实"}
+KIND_LABEL = {"governed": "受治理查询", "calc": "计算", "context": "上下文证据", "explore": "探索查询", "ungoverned": "未治理"}
+REPORT_STATUS = {"all_passed": "来源全部通过", "with_inference": "来源全部通过，含未核实的推断",
+                 "no_facts": "没有可核实的事实", "failed": "有未通过的事实或字段"}
+MEASURE_LABEL = {"level": "水平值", "delta": "差额", "ratio": "比率", "rate_change": "变化率", "share": "占比",
+                 "count": "计数", "unknown": "未知"}
+SOURCE_LABEL = {"governed": "口径", "explore": "探索", "calc": "计算", "context": "上下文"}
+EXPLORE_MARK = "探索查询（未经口径审核）"
 
 
 REF = re.compile(r"^D[1-9]\d{0,3}$")
@@ -34,12 +41,49 @@ def _refs(claim: dict) -> str:
 
 
 def _verdict(verification: dict) -> str:
-    if verification.get("ok"):
-        return "全部通过"
-    parts = [f"有 {verification.get('unverified', 0)} 条事实 / 计算类结论未核实"]
+    status = verification.get("status") or ("all_passed" if verification.get("ok") else "failed")
+    parts = [REPORT_STATUS.get(status, status)]
+    if verification.get("unverified"):
+        parts.append(f"{verification['unverified']} 条事实 / 计算类结论未通过")
     if verification.get("unverified_fields"):
-        parts.append(f"{verification['unverified_fields']} 处标题 / 摘要 / 未解释未通过检查")
+        parts.append(f"{verification['unverified_fields']} 处标题 / 摘要 / 未解释未通过")
     return "，".join(parts)
+
+
+def _composition(verification: dict) -> str:
+    """数字来源构成：口径、探索、计算、上下文各有多少个数字。"""
+    counts = verification.get("sources") or {}
+    return "、".join(f"{SOURCE_LABEL[k]} {counts[k]}" for k in SOURCE_LABEL if counts.get(k)) or "无"
+
+
+def _segments(report: dict) -> list[tuple[str, str, dict]]:
+    """报告里全部引用段：（位置，类型，段）。"""
+    out = []
+    for name in ("title", "summary", "unexplained"):
+        for seg in ((report.get("fields") or {}).get(name) or {}).get("segments") or []:
+            out.append((FIELD_LABEL[name], "字段", seg))
+    for i, claim in enumerate(report.get("claims", [])):
+        kind = TYPE_LABEL.get(claim.get("type"), claim.get("type") or "")
+        for seg in claim.get("segments") or []:
+            out.append((f"结论 {i + 1}", kind, seg))
+        for key, label in (("premise", "前提"), ("validation", "验证方式")):
+            for seg in ((claim.get("details") or {}).get(key) or {}).get("segments") or []:
+                out.append((f"结论 {i + 1} {label}", kind, seg))
+    return [x for x in out if x[2].get("kind") in ("value", "count", "label", "window")]
+
+
+def _source_note(seg: dict) -> str:
+    raw = seg.get("raw")
+    bits = [seg.get("label") or seg.get("path"), f"原值 {' ~ '.join(raw) if isinstance(raw, list) else raw}"]
+    if seg.get("measure"):
+        bits.append(MEASURE_LABEL.get(seg["measure"], seg["measure"]) + (f"（{seg['unit']}）" if seg.get("unit") else ""))
+    if seg.get("explore"):
+        bits.append(EXPLORE_MARK)
+    if seg.get("role") == "proposal":
+        bits.append("建议目标（非观测值）")
+    if seg.get("assumption"):
+        bits.append("假设计算")
+    return " · ".join(str(b) for b in bits if b)
 
 
 def _bad_fields(verification: dict) -> list[str]:
@@ -64,7 +108,8 @@ def to_markdown(view: dict) -> str:
     lines += [f"- 运行：{view['id']}（{view['status']}，模型 {view.get('model_adapter') or '—'}，"
               f"完成于 {view.get('finished_at') or '—'}）",
               "- 核验：" + _verdict(verification),
-              *[f"- ⚠ 未核实（{x}）" for x in _bad_fields(verification)],
+              "- 数字来源：" + _composition(verification),
+              *[f"- ⚠ 未通过（{x}）" for x in _bad_fields(verification)],
               "", "## 结论", "", report.get("summary") or "（无）", ""]
     for claim, check in _claims(view):
         mark = STATUS_LABEL.get(check.get("status"), "")
@@ -78,6 +123,10 @@ def to_markdown(view: dict) -> str:
             lines.append(f"  - 验证方式：{claim['validation']}")
     if report.get("unexplained"):
         lines += ["", f"**仍未解释**：{report['unexplained']}"]
+    sources = _segments(report)
+    if sources:
+        lines += ["", "## 附录：数值来源", ""]
+        lines += [f"- {where}（{kind}）“{seg.get('text')}”：{_source_note(seg)}" for where, kind, seg in sources]
     lines += ["", "## 附录：数据集", ""]
     for d in view.get("datasets", []):
         lines += [f"### {d['ref']} {d['title']}", "", f"- 类型：{KIND_LABEL.get(d['kind'], d['kind'])}；"
@@ -122,26 +171,20 @@ def to_csv(columns: list[str], rows: list[list]) -> bytes:
     return ("﻿" + buf.getvalue()).encode("utf-8")  # Excel 识别 UTF-8
 
 
-SOURCE_COLUMNS = ["位置", "类型", "显示值", "数据集", "取值路径", "格式", "绝对值", "角色", "原值"]
+SOURCE_COLUMNS = ["位置", "类型", "显示值", "来源标签", "数据集", "取值路径", "量纲", "单位", "格式", "方向", "标记", "原值"]
 
 
 def sources_csv(view: dict) -> bytes:
-    """引用来源表：报告里每个数值段来自哪个数据集的哪个值（ADR 0009）。"""
-    report = view.get("report") or {}
+    """引用来源表：报告里每个引用段来自哪个数据集的哪个值（ADR 0009）。"""
     rows = []
-
-    def add(where: str, kind: str, segments: list[dict] | None) -> None:
-        for s in segments or []:
-            if s.get("kind") == "value":
-                raw = s.get("raw")
-                rows.append([where, kind, s.get("text"), s.get("ref"), s.get("path"), s.get("format") or "",
-                             "是" if s.get("abs") else "", {"proposal": "建议目标"}.get(s.get("role"), ""),
-                             " ~ ".join(raw) if isinstance(raw, list) else raw])
-
-    for name in ("title", "summary", "unexplained"):
-        add(FIELD_LABEL.get(name, name), "字段", (report.get("segments") or {}).get(name))
-    for i, claim in enumerate(report.get("claims", [])):
-        add(f"结论 {i + 1}", TYPE_LABEL.get(claim.get("type"), claim.get("type") or ""), claim.get("segments"))
+    for where, kind, s in _segments(view.get("report") or {}):
+        raw = s.get("raw")
+        marks = [m for m, on in ((EXPLORE_MARK, s.get("explore")), ("建议目标（非观测值）", s.get("role") == "proposal"),
+                                 ("假设计算", s.get("assumption")), ("模型声明量纲", s.get("declared"))) if on]
+        rows.append([where, kind, s.get("text"), s.get("label"), s.get("ref"), s.get("path"),
+                     MEASURE_LABEL.get(s.get("measure"), s.get("measure") or ""), s.get("unit") or "",
+                     s.get("format") or "", {"up": "上升", "down": "下降"}.get(s.get("direction"), ""), "；".join(marks),
+                     " ~ ".join(raw) if isinstance(raw, list) else raw])
     return to_csv(SOURCE_COLUMNS, rows)
 
 
@@ -268,8 +311,9 @@ def to_pdf(view: dict) -> bytes:
     story.append(Paragraph(f"运行 {view['id']} · {view['status']} · 模型 {esc(view.get('model_adapter') or '—')} · "
                            f"完成于 {view.get('finished_at') or '—'}", small))
     story.append(Paragraph(f"核验：{_verdict(verification)}", base if verification.get("ok") else warn))
+    story.append(Paragraph(f"数字来源：{esc(_composition(verification))}", small))
     for x in _bad_fields(verification):
-        story.append(Paragraph(f"未核实（{esc(x)}）", warn))
+        story.append(Paragraph(f"未通过（{esc(x)}）", warn))
     story += [Paragraph("结论", h2), Paragraph(esc(report.get("summary") or "（无）"), base), Spacer(1, 4)]
     for claim, check in _claims(view):
         bad = check.get("problems") or [] if check.get("status") == "unverified" else []
@@ -277,12 +321,17 @@ def to_pdf(view: dict) -> bytes:
                 f"{STATUS_LABEL.get(check.get('status'), '')}）{esc(claim.get('text') or '')}")
         story.append(Paragraph(text, warn if bad else base))
         if bad:
-            story.append(Paragraph(f"未核实：{esc('；'.join(bad))}", warn))
+            story.append(Paragraph(f"未通过：{esc('；'.join(bad))}", warn))
         for key, label in (("premise", "前提"), ("validation", "验证方式")):
             if claim.get(key):
                 story.append(Paragraph(f"{label}：{esc(claim[key])}", small))
     if report.get("unexplained"):
         story += [Spacer(1, 4), Paragraph(f"<b>仍未解释</b>：{esc(report['unexplained'])}", base)]
+    sources = _segments(report)
+    if sources:
+        story.append(Paragraph("数值来源", h2))
+        story += [Paragraph(f"{esc(where)}（{esc(kind)}）“{esc(seg.get('text'))}”：{esc(_source_note(seg))}", small)
+                  for where, kind, seg in sources]
 
     story.append(Paragraph("图表与数据集", h2))
     for d in view.get("datasets", []):

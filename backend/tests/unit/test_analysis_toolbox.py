@@ -189,12 +189,12 @@ def test_truncated_input_is_reported_and_rejected_by_full_set_calcs(monkeypatch)
     assert box.datasets()["D2"].truncated
 
 
-def test_truncated_dataset_row_count_does_not_verify_totals():
-    """截断的数据集不是全集：不能用行数引用写“共几家门店”（ADR 0009：行数引用对截断数据集报错）。"""
+def test_truncated_dataset_count_ref_is_rejected():
+    """截断的数据集不是全集：不能用 CountRef 写“共几家门店”（ADR 0009）。"""
     from avelis.analysis.verify import ground_report
 
     rows = [{"store": s} for s in ("A", "B", "C")]
-    claim = {"type": "fact", "parts": ["共 ", {"dataset": "D1", "value": "rows"}, " 家门店"]}
+    claim = {"type": "fact", "parts": ["共 ", {"dataset": "D1", "distinct": "store"}, " 家门店"]}
     full, ok = ground_report({"title": "t", "summary": "s", "claims": [claim]}, {"D1": {"rows": rows}}, None)
     cut, bad = ground_report({"title": "t", "summary": "s", "claims": [claim]},
                              {"D1": {"rows": rows, "truncated": True}}, None)
@@ -463,60 +463,130 @@ def test_worker_scan_continues_after_a_failing_step(monkeypatch, caplog):
     assert "回收超时任务 失败" in caplog.text and "deadlock detected" in caplog.text
 
 
+def units_dataset(box):
+    """带量纲登记的受治理数据集（与 query_metric 登记的结构相同）。"""
+    from avelis.analysis.measures import governed_units
+
+    version = SimpleNamespace(kind="base", expression="SUM(amount)", unit="元", unit_scale=1)
+    columns = ["区域", "成交额", "成交额·对比期", "成交额·变化", "成交额·变化率"]
+    return box._dataset("governed", "成交额 按区域 对比期", columns,
+                        [["华东", "1969398.05", "2000000", "-30601.95", "-0.0153"],
+                         ["华南", "300071.87", "250000", "50071.87", "0.2003"]],
+                        meta={"intent": {}, "time_column": None, "units": governed_units(columns, {"成交额": version}, "对比期"),
+                              "window": {"start": "2026-09-01", "end": "2026-09-30"}})
+
+
+def test_tools_register_units_and_summary_paths(monkeypatch):
+    """ADR 0009：受治理查询、差额拆解、derive 登记量纲与单位；汇总路径登记后才能引用。"""
+    box = make_box(monkeypatch=monkeypatch)
+    units_dataset(box)
+    assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元"}
+    contribution = json.loads(box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额",
+                                                            "previous": "成交额·对比期"}))
+    meta = box.datasets()["D2"].meta
+    assert contribution["dataset"] == "D2" and meta["units"]["change"] == {"kind": "delta", "unit": "元"}
+    assert meta["summary_units"]["total.change_rate"] == {"kind": "rate_change"} and meta["explore"] is False
+    ratio = json.loads(box.dispatch("derive", {"label": "两期之比", "formula": "a / b", "values": [
+        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+        {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
+    assert ratio["summary"]["value"] == "1.2003" and box.datasets()["D3"].meta["summary_units"]["value"] == {"kind": "ratio"}
+    growth = json.loads(box.dispatch("derive", {"label": "增长率", "formula": "a / b - 1", "values": [
+        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+        {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
+    assert growth["dataset"] == "D4" and box.datasets()["D4"].meta["summary_units"]["value"] == {"kind": "rate_change"}
+    diff = json.loads(box.dispatch("derive", {"label": "差额", "formula": "a - b", "values": [
+        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+        {"name": "b", "dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}]}))
+    assert box.datasets()["D5"].meta["summary_units"]["value"] == {"kind": "delta", "unit": "元"} and diff["dataset"] == "D5"
+
+
+def test_derive_rejects_dead_inputs_and_marks_assumptions(monkeypatch):
+    """derive：每个输入都必须影响结果；非白名单常量把结果标为假设计算（ADR 0009 第 3 点）。"""
+    box = make_box(monkeypatch=monkeypatch)
+    units_dataset(box)
+    pick = {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}}
+    dead = json.loads(box.dispatch("derive", {"label": "x", "formula": "a * 0 + 99999", "values": [pick]}))
+    assert "不影响结果" in dead["error"] and len(box.datasets()) == 1
+    guess = json.loads(box.dispatch("derive", {"label": "按转化率 0.3 估算", "formula": "a * 0.3", "values": [pick]}))
+    assert box.datasets()["D2"].meta["assumption"] is True and "假设计算" in guess["summary"]["assumption"]
+    scaled = json.loads(box.dispatch("derive", {"label": "万元", "formula": "a / 10000", "values": [pick]}))
+    assert box.datasets()["D3"].meta["assumption"] is False and scaled["summary"]["value"] == "30.0072"
+    zero = json.loads(box.dispatch("derive", {"label": "除零", "formula": "a / (a - a)", "values": [pick]}))
+    assert "无法计算" in zero["error"]
+
+
 def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
-    """ADR 0009：submit_report 保存片段列表；verify 渲染并做结构检查；修订提示逐条写明问题（引用解析失败、
-    文字片段里的数字、方向不一致），不点名“出现在哪个数据集”。"""
+    """ADR 0009：submit_report 保存片段列表；verify 渲染、做结构检查并保存每个字段的 parts / text / segments / status /
+    errors；修订提示逐条写明第几条结论、第几个片段、什么原因。"""
     box = make_box(monkeypatch=monkeypatch)
     box.run.window = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01",
                       "compare_end": "2026-08-31"}
-    governed(box, ["区域", "成交额"], [["华东", "1969398.05"], ["华南", "300071.87"]])
-    box._dataset("calc", "派生：差额", ["name", "value"], [["diff", "-1675.0000"]],
-                 meta={"summary": {"label": "差额", "value": "-1675.0000"}})
+    units_dataset(box)
+    box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"})
+    huadong = {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}, "format": "wan2"}
     ok = box.dispatch("submit_report", {
-        "title": [{"window": "current", "format": "month"}, "华东成交额下降"],
-        "summary": ["华东成交额 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}, "format": "wan2"}, "元"],
+        "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"],
+        "summary": ["华东成交额 ", huadong],
         "claims": [
-            {"type": "fact", "parts": ["华东 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"},
-                                               "format": "wan2"}, "元"]},
-            {"type": "calc", "parts": ["订单增长 ", {"dataset": "D2", "value": "summary", "abs": True}, " 笔（D2）"]},
+            {"type": "fact", "parts": ["华东 ", huadong, "，较上期下降 ",
+                                       {"dataset": "D1", "column": "成交额·变化", "match": {"区域": "华东"},
+                                        "direction": "down", "format": "wan2"}]},
+            {"type": "calc", "parts": ["合计增长 ", {"dataset": "D2", "summary": "total.change", "direction": "down"},
+                                       " 元（D2）"]},
             {"type": "fact", "parts": ["西北 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "西北"}}]},
             {"type": "inference", "parts": ["可能约 3 成来自促销"], "premise": "促销力度与上期相近"}],
         "unexplained": "无"})
     assert json.loads(ok) == {"ok": True}
     state = agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
     report, verification = box.report, box.verification
-    assert state == {"phase": "revise"}
+    assert state == {"phase": "revise"} and verification["status"] == "failed"
     assert report["title"] == "2026 年 9 月华东成交额下降" and report["summary"] == "华东成交额 196.94万元"
+    assert report["fields"]["title"]["status"] == "verified" and report["fields"]["title"]["parts"][1] == "华东成交额下降"
     first = report["claims"][0]
-    assert first["text"] == "华东 196.94万元" and first["refs"] == ["D1"] and first["parts"][0] == "华东 "
-    assert [s["kind"] for s in first["segments"]] == ["text", "value", "text"]
-    assert first["segments"][1] | {} == {"kind": "value", "ref": "D1", "path": "D1.成交额[区域=华东]", "format": "wan2",
-                                         "raw": "1969398.05", "text": "196.94万", "abs": False, "role": "fact"}
-    statuses = [c["status"] for c in verification["claims"]]
-    assert statuses == ["verified", "unverified", "unverified", "unchecked"]
+    assert first["text"] == "华东 196.94万元，较上期下降 3.06万元" and first["refs"] == ["D1"] and first["status"] == "verified"
+    value = first["segments"][1]
+    assert {k: value[k] for k in ("kind", "part", "ref", "path", "label", "raw", "text", "measure", "unit", "source",
+                                   "explore", "format", "direction", "role")} == {
+        "kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东",
+        "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元", "source": "governed",
+        "explore": False, "format": "wan2", "direction": "", "role": "fact"}
+    assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified", "unchecked"]
     calc_problems = verification["claims"][1]["problems"]
-    assert any("方向与数值符号不一致" in p for p in calc_problems) and any("“2”" in p for p in calc_problems)
-    assert "条件选中了 0 行" in verification["claims"][2]["problems"][0]
-    assert report["claims"][2]["text"] == "西北 [?]"
+    assert calc_problems[0].startswith("第 2 个片段（D2.summary.total.change）：方向与正负不一致")
+    assert any("第 3 个片段（文字）出现数字“2”" in p for p in calc_problems)
+    assert not any("紧跟单位" in p for p in calc_problems)  # 解析失败的引用不是数值段
+    assert verification["claims"][2]["problems"] == [
+        "第 2 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]
+    assert report["claims"][2]["text"] == "西北 [?]" and verification["sources"]["governed"] == 3  # 摘要 1 个、第 1 条 2 个；窗口不算数字
     message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
-    assert "- 第 2 条（calc）：订单增长 1675 笔（D2）" in message and "方向与数值符号不一致" in message
+    assert "- 第 2 条（calc）：合计增长 [?] 元（D2）" in message and "方向与正负不一致" in message
     assert "- 第 3 条（fact）：西北 [?]" in message and "第 4 条" not in message and "出现在" not in message
     assert box.report is None and box.budget.tool_calls == Budget().tool_calls + agent.REVISION_TOOL_CALLS
 
 
-def test_sources_csv_lists_every_value_segment():
-    """引用来源表（ADR 0009）：每个数值段的位置、显示值、数据集、取值路径、格式与原值；以 = 开头的值防公式注入。"""
-    value = {"kind": "value", "ref": "D1", "path": "D1.成交额[区域=华东]", "format": "wan2", "raw": "1969398.05",
-             "text": "196.94万", "abs": False, "role": "fact"}
-    view = {"report": {"segments": {"title": [{"kind": "value", "ref": "window", "path": "window.current",
-                                               "format": "month", "raw": ["2026-09-01", "2026-09-30"],
-                                               "text": "2026 年 9 月"}, {"kind": "text", "text": "下滑"}]},
-                       "claims": [{"type": "fact", "segments": [{"kind": "text", "text": "华东 "}, value]},
-                                  {"type": "recommendation", "segments": [
-                                      {**value, "path": "D1.名称[#1]", "raw": "=cmd", "text": "=cmd", "format": "",
-                                       "role": "proposal", "abs": True}]}]}}
-    rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
-    assert rows == ["位置,类型,显示值,数据集,取值路径,格式,绝对值,角色,原值",
-                    "标题,字段,2026 年 9 月,window,window.current,month,,,2026-09-01 ~ 2026-09-30",
-                    "结论 1,事实,196.94万,D1,D1.成交额[区域=华东],wan2,,,1969398.05",
-                    "结论 2,建议,'=cmd,D1,D1.名称[#1],,是,建议目标,'=cmd"]
+def test_sources_csv_and_markdown_list_every_reference():
+    """引用来源表与 Markdown 附录（ADR 0009）：每个引用段的位置、来源标签、量纲、单位、格式、方向、标记与原值；
+    以 = 开头的值防公式注入。"""
+    value = {"kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东",
+             "format": "wan2", "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元",
+             "source": "governed", "explore": False, "direction": "", "role": "fact"}
+    window = {"kind": "window", "part": 1, "ref": "window", "path": "window.run_current", "label": "本期窗口",
+              "raw": ["2026-09-01", "2026-09-30"], "text": "2026 年 9 月"}
+    explore = {**value, "ref": "D6", "path": "D6.客流", "label": "D6 · 客流", "raw": "=cmd", "text": "=cmd",
+               "measure": "unknown", "unit": "", "format": "", "source": "explore", "explore": True, "role": "proposal"}
+    report = {"title": "t", "summary": "s", "fields": {"title": {"segments": [window, {"kind": "text", "text": "下滑"}]}},
+              "claims": [{"type": "fact", "text": "华东 196.94万元", "refs": ["D1"],
+                          "segments": [{"kind": "text", "text": "华东 "}, value]},
+                         {"type": "recommendation", "text": "=cmd", "refs": ["D6"], "segments": [explore]}]}
+    rows = export.sources_csv({"report": report}).decode("utf-8-sig").splitlines()
+    assert rows == ["位置,类型,显示值,来源标签,数据集,取值路径,量纲,单位,格式,方向,标记,原值",
+                    "标题,字段,2026 年 9 月,本期窗口,window,window.run_current,,,,,,2026-09-01 ~ 2026-09-30",
+                    "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,wan2,,,1969398.05",
+                    "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd"]
+    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": report,
+            "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],
+                             "sources": {"governed": 1, "explore": 1}}}
+    md = export.to_markdown(view)
+    assert "- 核验：来源全部通过，含未核实的推断" in md and "- 数字来源：口径 1、探索 1" in md
+    assert "## 附录：数值来源" in md and "D6 · 客流 · 原值 =cmd · 未知 · 探索查询（未经口径审核） · 建议目标（非观测值）" in md
+    assert export.to_pdf(view).startswith(b"%PDF")

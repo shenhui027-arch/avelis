@@ -528,6 +528,8 @@
 .av-num.is-error { border-bottom-color: var(--danger); color: var(--danger); }
 .av-num.is-proposal { border-bottom-style: dashed; color: var(--warn); }
 .av-num sup { margin-left: 2px; font: 500 10px/1 var(--font-sans); color: var(--warn); }
+.av-num.is-explore { border-bottom-style: dashed; }
+.av-analysis__verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .av-timeline { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .av-timeline__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 4px 0 4px 22px; position: relative; counter-increment: step; font: 400 12px/18px var(--font-sans); color: var(--text-secondary); }
 .av-timeline__item::before { content: counter(step); position: absolute; left: 0; width: 16px; color: var(--text-tertiary); font: 500 11px/18px var(--font-mono); text-align: right; }
