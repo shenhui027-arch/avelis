@@ -1,7 +1,8 @@
 """分析报告导出（ADR 0007 第 11 点）：Markdown、PDF（含图表与证据附录）、数据集 CSV。
 
-导出内容与报告页一致：结论标明类型与引用的数据集，未核实的数字同样标出；附录给出每个数据集的来源
-（受治理查询的 SQL 与口径版本，或计算工具的输入）。
+导出内容与报告页一致：结论标明类型与引用的数据集，未核实的结论同样标出原因；附录给出每个数据集的来源
+（受治理查询的 SQL 与口径版本，或计算工具的输入）。PDF、Markdown 使用渲染后的正文（text）；
+报告里每个数字的来源（数据集、取值路径、格式、原值）另有一张引用来源表（sources_csv，ADR 0009）。
 PDF 嵌入中文 TrueType 字体（子集）：AVELIS_PDF_FONT 指定的字体文件，否则在常见位置找系统字体（Windows 等线 / 微软雅黑 /
 黑体，Linux 文泉驿 / Noto CJK）；都找不到时退回 reportlab 内置的 STSong-Light（不嵌入，需阅读器有亚洲字体包），并在报告中注明。
 """
@@ -37,12 +38,12 @@ def _verdict(verification: dict) -> str:
         return "全部通过"
     parts = [f"有 {verification.get('unverified', 0)} 条事实 / 计算类结论未核实"]
     if verification.get("unverified_fields"):
-        parts.append(f"{verification['unverified_fields']} 处标题 / 摘要 / 未解释中的数字未核实")
+        parts.append(f"{verification['unverified_fields']} 处标题 / 摘要 / 未解释未通过检查")
     return "，".join(parts)
 
 
 def _bad_fields(verification: dict) -> list[str]:
-    return [f"{FIELD_LABEL.get(f['field'], f['field'])}：{'、'.join(n['text'] for n in f['numbers'] if not n['verified'])}"
+    return [f"{FIELD_LABEL.get(f['field'], f['field'])}：{'；'.join(f.get('problems') or [])}"
             for f in verification.get("fields", []) if f.get("status") == "unverified"]
 
 
@@ -63,14 +64,14 @@ def to_markdown(view: dict) -> str:
     lines += [f"- 运行：{view['id']}（{view['status']}，模型 {view.get('model_adapter') or '—'}，"
               f"完成于 {view.get('finished_at') or '—'}）",
               "- 核验：" + _verdict(verification),
-              *[f"- ⚠ 未核实的数字（{x}）" for x in _bad_fields(verification)],
+              *[f"- ⚠ 未核实（{x}）" for x in _bad_fields(verification)],
               "", "## 结论", "", report.get("summary") or "（无）", ""]
     for claim, check in _claims(view):
         mark = STATUS_LABEL.get(check.get("status"), "")
-        bad = [n["text"] for n in check.get("numbers", []) if not n["verified"]]
+        bad = check.get("problems") or [] if check.get("status") == "unverified" else []
         refs = _refs(claim)
-        lines.append(f"- **{TYPE_LABEL.get(claim['type'], claim['type'])}**（{refs}；{mark}）{claim['text']}"
-                     + (f" ⚠ 未核实的数字：{'、'.join(bad)}" if bad and claim["type"] in ("fact", "calc") else ""))
+        lines.append(f"- **{TYPE_LABEL.get(claim['type'], claim['type'])}**（{refs}；{mark}）{claim.get('text') or ''}"
+                     + (f" ⚠ {'；'.join(bad)}" if bad else ""))
         if claim.get("premise"):
             lines.append(f"  - 前提：{claim['premise']}")
         if claim.get("validation"):
@@ -119,6 +120,29 @@ def to_csv(columns: list[str], rows: list[list]) -> bytes:
     writer.writerow([_cell(str(c)) for c in columns])
     writer.writerows([[_cell(v) for v in r] for r in rows])
     return ("﻿" + buf.getvalue()).encode("utf-8")  # Excel 识别 UTF-8
+
+
+SOURCE_COLUMNS = ["位置", "类型", "显示值", "数据集", "取值路径", "格式", "绝对值", "角色", "原值"]
+
+
+def sources_csv(view: dict) -> bytes:
+    """引用来源表：报告里每个数值段来自哪个数据集的哪个值（ADR 0009）。"""
+    report = view.get("report") or {}
+    rows = []
+
+    def add(where: str, kind: str, segments: list[dict] | None) -> None:
+        for s in segments or []:
+            if s.get("kind") == "value":
+                raw = s.get("raw")
+                rows.append([where, kind, s.get("text"), s.get("ref"), s.get("path"), s.get("format") or "",
+                             "是" if s.get("abs") else "", {"proposal": "建议目标"}.get(s.get("role"), ""),
+                             " ~ ".join(raw) if isinstance(raw, list) else raw])
+
+    for name in ("title", "summary", "unexplained"):
+        add(FIELD_LABEL.get(name, name), "字段", (report.get("segments") or {}).get(name))
+    for i, claim in enumerate(report.get("claims", [])):
+        add(f"结论 {i + 1}", TYPE_LABEL.get(claim.get("type"), claim.get("type") or ""), claim.get("segments"))
+    return to_csv(SOURCE_COLUMNS, rows)
 
 
 FONT_CANDIDATES = [
@@ -245,15 +269,15 @@ def to_pdf(view: dict) -> bytes:
                            f"完成于 {view.get('finished_at') or '—'}", small))
     story.append(Paragraph(f"核验：{_verdict(verification)}", base if verification.get("ok") else warn))
     for x in _bad_fields(verification):
-        story.append(Paragraph(f"未核实的数字（{esc(x)}）", warn))
+        story.append(Paragraph(f"未核实（{esc(x)}）", warn))
     story += [Paragraph("结论", h2), Paragraph(esc(report.get("summary") or "（无）"), base), Spacer(1, 4)]
     for claim, check in _claims(view):
-        bad = [n["text"] for n in check.get("numbers", []) if not n["verified"]]
+        bad = check.get("problems") or [] if check.get("status") == "unverified" else []
         text = (f"<b>{esc(TYPE_LABEL.get(claim['type'], claim['type']))}</b>（{esc(_refs(claim))}；"
-                f"{STATUS_LABEL.get(check.get('status'), '')}）{esc(claim['text'])}")
-        story.append(Paragraph(text, warn if bad and claim["type"] in ("fact", "calc") else base))
-        if bad and claim["type"] in ("fact", "calc"):
-            story.append(Paragraph(f"未核实的数字：{esc('、'.join(bad))}", warn))
+                f"{STATUS_LABEL.get(check.get('status'), '')}）{esc(claim.get('text') or '')}")
+        story.append(Paragraph(text, warn if bad else base))
+        if bad:
+            story.append(Paragraph(f"未核实：{esc('；'.join(bad))}", warn))
         for key, label in (("premise", "前提"), ("validation", "验证方式")):
             if claim.get(key):
                 story.append(Paragraph(f"{label}：{esc(claim[key])}", small))

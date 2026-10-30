@@ -1,4 +1,5 @@
-// 分析：多步分析的报告、计划与步骤 | 数据集（图表、表格、SQL）。结论标明类型与引用，未核实的数字醒目标出。
+// 分析：多步分析的报告、计划与步骤 | 数据集（图表、表格、SQL）。结论标明类型与引用，未通过检查的结论醒目标出。
+// 报告里的数字由后端按引用渲染（ADR 0009）：按数值段显示，悬停可看来源数据集、取值路径与原值。
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -12,8 +13,12 @@ import { BarChart, LineChart } from "./charts";
 type Run = Schemas["AnalysisRunOut"];
 type Dataset = Schemas["AnalysisDatasetOut"];
 type Task = Schemas["AnalysisTaskOut"];
-type Claim = { type: string; text: string; refs?: string[]; premise?: string | null; validation?: string | null };
-type Check = { index: number; status: string; numbers: { text: string; verified: boolean }[]; missing_refs?: string[] };
+type Segment = { kind: "text" | "value" | "error"; text: string; ref?: string; path?: string; format?: string;
+  raw?: string | string[]; abs?: boolean; role?: string; error?: string };
+type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]; premise?: string | null;
+  validation?: string | null };
+type Check = { index: number; status: string; problems?: string[]; missing_refs?: string[] };
+type FieldCheck = { field: string; status: string; problems?: string[] };
 type WindowKind = "none" | "last_month" | "fixed";
 
 const TYPE_LABEL: Record<string, string> = { fact: "事实", calc: "计算", inference: "推断", recommendation: "建议" };
@@ -152,15 +157,28 @@ function Composer({ onStarted }: { onStarted: (id: string) => void }) {
 
 const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释" };
 
+function Segments({ segments, text }: { segments?: Segment[]; text?: string | null }) {
+  if (!segments?.length) return <>{text}</>;
+  return <>{segments.map((s, i) => {
+    if (s.kind === "text") return <span key={i}>{s.text}</span>;
+    if (s.kind === "error") return <span key={i} className="av-num is-error" title={s.error}>{s.text}</span>;
+    const raw = Array.isArray(s.raw) ? s.raw.join(" ~ ") : s.raw;
+    const title = [`来源 ${s.path}`, `原值 ${raw}`, s.format ? `格式 ${s.format}` : "", s.abs ? "取绝对值" : "",
+      s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");
+    return <span key={i} className={`av-num av-mono${s.role === "proposal" ? " is-proposal" : ""}`} title={title}>
+      {s.text}{s.role === "proposal" ? <sup>建议目标</sup> : null}</span>;
+  })}</>;
+}
+
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
   const [error, setError] = useState<string | null>(null);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
-  const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; notes?: string[] };
-  const verification = (r.verification ?? {}) as { ok?: boolean; unverified?: number; claims?: Check[];
-    fields?: { field: string; status: string; numbers: { text: string; verified: boolean }[] }[] };
+  const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string;
+    notes?: string[]; segments?: Record<string, Segment[]> };
+  const verification = (r.verification ?? {}) as { ok?: boolean; unverified?: number; claims?: Check[]; fields?: FieldCheck[] };
   const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
   const checks = new Map((verification.claims ?? []).map((c) => [c.index, c]));
   const plan = (r.plan ?? {}) as { hypotheses?: string[]; steps?: string[] };
@@ -170,7 +188,7 @@ function RunDetail({ id }: { id: string }) {
     <article className="av-analysis__run">
       <header className="av-analysis__run-hd">
         <div>
-          <h2>{report.title ?? r.question}</h2>
+          <h2>{report.title ? <Segments segments={report.segments?.title} text={report.title} /> : r.question}</h2>
           <span className="av-caption">{r.question}</span>
         </div>
         <div className="av-actions">
@@ -182,6 +200,10 @@ function RunDetail({ id }: { id: string }) {
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => download(
               `/api/analysis/runs/${r.id}/export?format=md`, `analysis-${r.id}.md`).catch((e) => setError(errorText(e)))}>
               <Icon name="download" />Markdown</button>
+            <button type="button" className="av-btn av-btn--secondary av-btn--sm" title="报告中每个数字的来源数据集、取值路径与原值"
+              onClick={() => download(`/api/analysis/runs/${r.id}/export?format=csv`, `analysis-${r.id}-sources.csv`)
+                .catch((e) => setError(errorText(e)))}>
+              <Icon name="download" />引用来源</button>
           </> : null}
         </div>
       </header>
@@ -198,24 +220,24 @@ function RunDetail({ id }: { id: string }) {
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "succeeded" ? (
         <section className="av-analysis__report" aria-label="报告">
-          <p className="av-analysis__summary">{report.summary}</p>
-          {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论的数字没能在引用的数据集中找到，已标出</div> : null}
+          <p className="av-analysis__summary"><Segments segments={report.segments?.summary} text={report.summary} /></p>
+          {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论未通过检查，已标出原因</div> : null}
           {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
-            {FIELD_LABEL[f.field] ?? f.field}中的数字未核实：{f.numbers.filter((n) => !n.verified).map((n) => n.text).join("、")}</div>)}
+            {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
           <ol className="av-claims">
             {(report.claims ?? []).map((c, i) => {
               const check = checks.get(i);
-              const bad = (check?.numbers ?? []).filter((n) => !n.verified).map((n) => n.text);
               const strict = c.type === "fact" || c.type === "calc";
+              const bad = strict && check?.status === "unverified" ? check.problems ?? [] : [];
               return (
                 <li key={i} className={`av-claim${strict && check?.status === "unverified" ? " is-unverified" : ""}`}>
                   <Pill tone={TYPE_TONE[c.type] ?? ""}>{TYPE_LABEL[c.type] ?? c.type}</Pill>
                   <div className="av-claim__body">
-                    <span>{c.text}</span>
+                    <span><Segments segments={c.segments} text={c.text} /></span>
                     {c.premise ? <span className="av-caption">前提：{c.premise}</span> : null}
                     {c.validation ? <span className="av-caption">验证方式：{c.validation}</span> : null}
-                    {strict && bad.length ? <span className="av-claim__bad">未核实：{bad.join("、")}</span> : null}
-                    {check?.missing_refs?.length ? <span className="av-claim__bad">引用了不存在的数据集：{check.missing_refs.join("、")}</span> : null}
+                    {!strict ? <span className="av-caption">推断 / 建议，未核实</span> : null}
+                    {bad.map((p, j) => <span key={j} className="av-claim__bad">{p}</span>)}
                   </div>
                   <span className="av-claim__refs">{(c.refs ?? []).map((ref) => (
                     <a key={ref} className="av-tag av-mono" href={`#dataset-${ref}`}>{ref}</a>))}</span>
@@ -223,7 +245,7 @@ function RunDetail({ id }: { id: string }) {
               );
             })}
           </ol>
-          {report.unexplained ? <p className="av-caption"><b>仍未解释：</b>{report.unexplained}</p> : null}
+          {report.unexplained ? <p className="av-caption"><b>仍未解释：</b><Segments segments={report.segments?.unexplained} text={report.unexplained} /></p> : null}
           {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
         </section>
       ) : null}

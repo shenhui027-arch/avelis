@@ -190,13 +190,16 @@ def test_truncated_input_is_reported_and_rejected_by_full_set_calcs(monkeypatch)
 
 
 def test_truncated_dataset_row_count_does_not_verify_totals():
-    from avelis.analysis.verify import verify_report
+    """截断的数据集不是全集：不能用行数引用写“共几家门店”（ADR 0009：行数引用对截断数据集报错）。"""
+    from avelis.analysis.verify import ground_report
 
     rows = [{"store": s} for s in ("A", "B", "C")]
-    full = verify_report([{"type": "fact", "text": "共 3 家门店", "refs": ["D1"]}], {"D1": {"rows": rows}})
-    cut = verify_report([{"type": "fact", "text": "共 3 家门店", "refs": ["D1"]}],
-                        {"D1": {"rows": rows, "truncated": True}})
-    assert full["ok"] and not cut["ok"]
+    claim = {"type": "fact", "parts": ["共 ", {"dataset": "D1", "value": "rows"}, " 家门店"]}
+    full, ok = ground_report({"title": "t", "summary": "s", "claims": [claim]}, {"D1": {"rows": rows}}, None)
+    cut, bad = ground_report({"title": "t", "summary": "s", "claims": [claim]},
+                             {"D1": {"rows": rows, "truncated": True}}, None)
+    assert ok["ok"] and full["claims"][0]["text"] == "共 3 家门店"
+    assert not bad["ok"] and "已截断" in bad["claims"][0]["problems"][0] and cut["claims"][0]["text"] == "共 [?] 家门店"
 
 
 # --- #9 日历折算的期间来自查询 -------------------------------------------------------------
@@ -295,10 +298,10 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
 def test_report_refs_must_be_dataset_numbers(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     out = box.dispatch("submit_report", {"title": "t", "summary": "s",
-                                         "claims": [{"type": "fact", "text": "x", "refs": ["<b>"]}]})
+                                         "claims": [{"type": "fact", "parts": ["x"], "refs": ["<b>"]}]})
     assert "ValidationError" in out and box.report is None
     ok = box.dispatch("submit_report", {"title": "t", "summary": "s",
-                                        "claims": [{"type": "fact", "text": "x", "refs": ["D12"]}]})
+                                        "claims": [{"type": "fact", "parts": ["x"], "refs": ["D12"]}]})
     assert json.loads(ok) == {"ok": True}
 
 
@@ -307,11 +310,12 @@ def test_exports_escape_refs_and_neutralise_formulas():
             "report": {"title": "t", "summary": "s", "claims": [
                 {"type": "fact", "text": "a", "refs": ["<link href='x'>", "D1"]}]},
             "verification": {"ok": False, "unverified": 1, "claims": [{"index": 0, "status": "unverified",
-                                                                         "numbers": []}],
+                                                                         "problems": ["文字片段里出现数字“7”"]}],
                              "fields": [{"field": "summary", "status": "unverified",
-                                         "numbers": [{"text": "999", "verified": False}]}], "unverified_fields": 1}}
+                                         "problems": ["文字片段里出现数字“999”"]}], "unverified_fields": 1}}
     md = export.to_markdown(view)
-    assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：999" in md
+    assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：文字片段里出现数字“999”" in md
+    assert "a ⚠ 文字片段里出现数字“7”" in md
     assert export.to_pdf(view).startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
     csv = export.to_csv(["=cmd", "值"], [["=HYPERLINK(\"http://x\")", -5], ["@SUM(A1)", "-12.5"],
                                         ["\tx", None], ["+1", 3]]).decode("utf-8-sig").splitlines()
@@ -459,50 +463,60 @@ def test_worker_scan_continues_after_a_failing_step(monkeypatch, caplog):
     assert "回收超时任务 失败" in caplog.text and "deadlock detected" in caplog.text
 
 
-def test_revision_names_the_dataset_that_holds_an_unverified_number():
-    """08 复盘：结论只引用 D18（升幅 0.0587），1.0587 却来自 D12。核验仍判未核实（不自动补引用），
-    修订提示按同一套匹配规则点名 D12；补上 D12 后才核实；哪里都没有的数字不点名任何数据集。"""
-    from avelis.analysis.verify import verify_report
-
-    def ds(title, value):
-        return SimpleNamespace(title=title, columns=["value"], rows=[[value]], meta={}, truncated=False)
-
-    sets = {"D12": ds("派生：抖音单均投放花费本期与上期", "1.0587"), "D18": ds("派生：抖音单均投放花费升幅", "0.0587")}
-    data = {ref: {"rows": [{"value": d.rows[0][0]}]} for ref, d in sets.items()}
-
-    def run(text, refs):
-        claims = [{"type": "calc", "text": text, "refs": refs}]
-        verification = verify_report(claims, data)
-        box = SimpleNamespace(report={"claims": claims}, verification=verification, datasets=lambda: sets,
-                              budget=SimpleNamespace(tool_calls=0))
-        message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
-        return verification, message
-
-    text = "本期为上期的 1.0587 倍，升幅 0.0587"
-    verification, message = run(text, ["D18"])
-    assert verification["ok"] is False and verification["claims"][0]["status"] == "unverified"
-    assert verification["claims"][0]["numbers"][0] == {"text": "1.0587", "verified": False, "found_in": ["D12"]}
-    assert "1.0587 出现在 D12（派生：抖音单均投放花费本期与上期）" in message and "把 D12 加入 refs" in message
-    assert verify_report([{"type": "calc", "text": text, "refs": ["D18", "D12"]}], data)["ok"] is True
-    verification, message = run("本期为上期的 1.2345 倍", ["D18"])
-    assert "found_in" not in verification["claims"][0]["numbers"][0]
-    assert "出现在" not in message.split("请修订")[0] and "D12" not in message and "derive" in message
-
-
-def test_revision_explains_unparseable_fragments():
-    """无法解析的片段（“两期总差额”）在修订提示里带上原因与改写方式，不点名数据集。"""
-    from avelis.analysis.verify import verify_report
-
-    sets = {"D1": SimpleNamespace(title="订单数", columns=["v"], rows=[["-1899"]], meta={}, truncated=False)}
-    claims = [{"type": "calc", "text": "两期总差额 -1899 笔", "refs": ["D1"]}]
-    verification = verify_report(claims, {"D1": {"rows": [{"v": "-1899"}]}})
-    assert verification["claims"][0]["status"] == "unverified"
-    assert verification["claims"][0]["numbers"] == [  # -1899 本身仍是已核实，只有无法识别的片段未核实
-        {"text": "-1899", "verified": True},
-        {"text": "两期总差额", "verified": False, "error": "包含无法识别的数字"}]
-    box = SimpleNamespace(report={"claims": claims}, verification=verification, datasets=lambda: sets,
-                          budget=SimpleNamespace(tool_calls=0))
+def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
+    """ADR 0009：submit_report 保存片段列表；verify 渲染并做结构检查；修订提示逐条写明问题（引用解析失败、
+    文字片段里的数字、方向不一致），不点名“出现在哪个数据集”。"""
+    box = make_box(monkeypatch=monkeypatch)
+    box.run.window = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01",
+                      "compare_end": "2026-08-31"}
+    governed(box, ["区域", "成交额"], [["华东", "1969398.05"], ["华南", "300071.87"]])
+    box._dataset("calc", "派生：差额", ["name", "value"], [["diff", "-1675.0000"]],
+                 meta={"summary": {"label": "差额", "value": "-1675.0000"}})
+    ok = box.dispatch("submit_report", {
+        "title": [{"window": "current", "format": "month"}, "华东成交额下降"],
+        "summary": ["华东成交额 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}, "format": "wan2"}, "元"],
+        "claims": [
+            {"type": "fact", "parts": ["华东 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"},
+                                               "format": "wan2"}, "元"]},
+            {"type": "calc", "parts": ["订单增长 ", {"dataset": "D2", "value": "summary", "abs": True}, " 笔（D2）"]},
+            {"type": "fact", "parts": ["西北 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "西北"}}]},
+            {"type": "inference", "parts": ["可能约 3 成来自促销"], "premise": "促销力度与上期相近"}],
+        "unexplained": "无"})
+    assert json.loads(ok) == {"ok": True}
+    state = agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
+    report, verification = box.report, box.verification
+    assert state == {"phase": "revise"}
+    assert report["title"] == "2026 年 9 月华东成交额下降" and report["summary"] == "华东成交额 196.94万元"
+    first = report["claims"][0]
+    assert first["text"] == "华东 196.94万元" and first["refs"] == ["D1"] and first["parts"][0] == "华东 "
+    assert [s["kind"] for s in first["segments"]] == ["text", "value", "text"]
+    assert first["segments"][1] | {} == {"kind": "value", "ref": "D1", "path": "D1.成交额[区域=华东]", "format": "wan2",
+                                         "raw": "1969398.05", "text": "196.94万", "abs": False, "role": "fact"}
+    statuses = [c["status"] for c in verification["claims"]]
+    assert statuses == ["verified", "unverified", "unverified", "unchecked"]
+    calc_problems = verification["claims"][1]["problems"]
+    assert any("方向与数值符号不一致" in p for p in calc_problems) and any("“2”" in p for p in calc_problems)
+    assert "条件选中了 0 行" in verification["claims"][2]["problems"][0]
+    assert report["claims"][2]["text"] == "西北 [?]"
     message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
-    assert "两期总差额（包含无法识别的数字）" in message and "两期相比" in message and "出现在" not in message.split("请修订")[0]
-    assert "“两期之差为100元”改写为“两期相比，差额为100元”" in message
-    assert "-1899" not in message.split("请修订")[0]  # 已核实的数字不出现在待修订列表里
+    assert "- 第 2 条（calc）：订单增长 1675 笔（D2）" in message and "方向与数值符号不一致" in message
+    assert "- 第 3 条（fact）：西北 [?]" in message and "第 4 条" not in message and "出现在" not in message
+    assert box.report is None and box.budget.tool_calls == Budget().tool_calls + agent.REVISION_TOOL_CALLS
+
+
+def test_sources_csv_lists_every_value_segment():
+    """引用来源表（ADR 0009）：每个数值段的位置、显示值、数据集、取值路径、格式与原值；以 = 开头的值防公式注入。"""
+    value = {"kind": "value", "ref": "D1", "path": "D1.成交额[区域=华东]", "format": "wan2", "raw": "1969398.05",
+             "text": "196.94万", "abs": False, "role": "fact"}
+    view = {"report": {"segments": {"title": [{"kind": "value", "ref": "window", "path": "window.current",
+                                               "format": "month", "raw": ["2026-09-01", "2026-09-30"],
+                                               "text": "2026 年 9 月"}, {"kind": "text", "text": "下滑"}]},
+                       "claims": [{"type": "fact", "segments": [{"kind": "text", "text": "华东 "}, value]},
+                                  {"type": "recommendation", "segments": [
+                                      {**value, "path": "D1.名称[#1]", "raw": "=cmd", "text": "=cmd", "format": "",
+                                       "role": "proposal", "abs": True}]}]}}
+    rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
+    assert rows == ["位置,类型,显示值,数据集,取值路径,格式,绝对值,角色,原值",
+                    "标题,字段,2026 年 9 月,window,window.current,month,,,2026-09-01 ~ 2026-09-30",
+                    "结论 1,事实,196.94万,D1,D1.成交额[区域=华东],wan2,,,1969398.05",
+                    "结论 2,建议,'=cmd,D1,D1.名称[#1],,是,建议目标,'=cmd"]

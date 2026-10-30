@@ -161,7 +161,7 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
 
 def test_03_permission_budget_and_verification(admin: Api):
     from avelis.analysis.tools import Budget
-    from avelis.analysis.verify import verify_report
+    from avelis.analysis.verify import ground_report
 
     scope, session, run, box = toolbox("sun")  # 孙悦不在电商经营域
     try:
@@ -184,11 +184,14 @@ def test_03_permission_budget_and_verification(admin: Api):
         assert "上限" in over["error"] and box.budget.used_tools == 3  # 工具次数用完
         d1 = {r["region"]: r["退款金额"] for r in rows(json.dumps(box._view("D1", box.datasets()["D1"]),
                                                                 ensure_ascii=False, default=str))}
-        report = verify_report([
-            {"type": "fact", "text": f"华南 9 月退款 {d1['华南']}", "refs": ["D1"]},
-            {"type": "fact", "text": "华南 9 月退款 1.00", "refs": ["D1"]}],
-            {"D1": {"rows": [dict(zip(box.datasets()["D1"].columns, r)) for r in box.datasets()["D1"].rows]}})
-        assert [c["status"] for c in report["claims"]] == ["verified", "unverified"]
+        ds = box.datasets()["D1"]
+        rendered, verification = ground_report({"title": "退款", "summary": "退款", "claims": [
+            {"type": "fact", "parts": ["华南退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "华南"}}]},
+            {"type": "fact", "parts": ["华南退款 1.00"], "refs": ["D1"]},
+            {"type": "fact", "parts": ["西藏退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "西藏"}}]}]},
+            {"D1": {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows]}}, None)
+        assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified"]
+        assert rendered["claims"][0]["text"] == f"华南退款 {Decimal(str(d1['华南'])).normalize():f}".rstrip(".")
     finally:
         scope.__exit__(None, None, None)
 
@@ -205,18 +208,20 @@ def test_04_api_requires_model_and_result_policy(admin: Api):
 
 def test_05_export_and_dataset_csv(admin: Api):
     """用确定性工具箱产出的运行验证导出：PDF / Markdown / CSV 与报告一致，他人不可见。"""
-    from avelis.analysis.verify import verify_report
+    from avelis.analysis.verify import ground_report
 
     scope, session, run, box = toolbox("wang")
     try:
         d = rows(box.query_metric(metric_codes=["ec_visitors"], start_date=SEP[0], end_date=SEP[1],
                                   group_by=["district"], purpose="各商圈等级客流"))
         top = max(d, key=lambda r: Decimal(str(r["进店客流"])))
-        run.report = {"title": "商圈等级与客流", "summary": "核心商圈客流最高。", "claims": [
-            {"type": "fact", "text": f"{top['district']} 9 月客流 {top['进店客流']}", "refs": ["D1"]},
-            {"type": "fact", "text": "社区店客流 1", "refs": ["D1"]}]}
         ds = box.datasets()["D1"]
-        run.verification = verify_report(run.report["claims"], {"D1": {"rows": [dict(zip(ds.columns, r)) for r in ds.rows]}})
+        run.report, run.verification = ground_report({"title": "商圈等级与客流", "summary": "核心商圈客流最高。", "claims": [
+            {"type": "fact", "parts": [{"dataset": "D1", "column": "district", "match": {"district": top["district"]}},
+                                       "客流 ", {"dataset": "D1", "column": "进店客流",
+                                                "match": {"district": top["district"]}}]},
+            {"type": "fact", "parts": ["社区店客流 1"], "refs": ["D1"]}]},
+            {"D1": {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows]}}, None)
         run.status = "succeeded"
         run_id = run.id
     finally:
@@ -225,7 +230,10 @@ def test_05_export_and_dataset_csv(admin: Api):
     view = wang.get(f"/api/analysis/runs/{run_id}")
     assert view["verification"]["unverified"] == 1 and view["datasets"][0]["ref"] == "D1"
     md = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "md"}, headers=wang.headers)
-    assert md.status_code == 200 and "未核实的数字：1" in md.text and "## 附录：数据集" in md.text
+    assert md.status_code == 200 and "文字片段里出现数字“1”" in md.text and "## 附录：数据集" in md.text
+    sources = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "csv"}, headers=wang.headers)
+    lines = sources.content.decode("utf-8-sig").splitlines()
+    assert lines[0].startswith("位置,类型,显示值,数据集,取值路径") and any(",D1,D1.进店客流[district=" in x for x in lines)
     pdf = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "pdf"}, headers=wang.headers)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and len(pdf.content) > 5000
     csv = wang.client.get(f"/api/analysis/runs/{run_id}/datasets/1/csv", headers=wang.headers)
@@ -297,17 +305,12 @@ def assert_grounded(run: dict) -> None:
         if c["status"] == "verified":
             continue
         claim = report["claims"][c["index"]]
-        reasons = [f"“{n['text']}”{n.get('error') or '在引用的数据集中找不到'}" for n in c["numbers"] if not n["verified"]]
-        if c.get("missing_refs"):
-            reasons.append(f"引用了不存在的数据集 {c['missing_refs']}")
-        if not claim.get("refs"):
-            reasons.append("没有引用数据集")
-        problems.append(f"结论 #{c['index']}（{c['type']}，引用 {claim.get('refs')}）\n  原文：{claim['text']}\n"
-                        f"  原因：{'；'.join(reasons) or '未知'}")
+        problems.append(f"结论 #{c['index']}（{c['type']}，引用 {claim.get('refs')}）\n  原文：{claim.get('text')}\n"
+                        f"  片段：{json.dumps(claim.get('parts'), ensure_ascii=False)}\n"
+                        f"  原因：{'；'.join(c.get('problems') or []) or '未知'}")
     for f in verification.get("fields", []):
         if f["status"] != "verified":
-            reasons = [f"“{n['text']}”{n.get('error') or '在引用的数据集中找不到'}" for n in f["numbers"] if not n["verified"]]
-            problems.append(f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(reasons)}")
+            problems.append(f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(f.get('problems') or [])}")
     full = "\n".join(f"{k}: {report.get(k)}" for k in ("title", "summary", "unexplained"))
     message = f"运行 {run['id']} 未全部核实（完整 JSON：{out}）\n" + "\n".join(problems) + f"\n--- 报告字段 ---\n{full}"
     if not (verification["ok"] and not problems):
