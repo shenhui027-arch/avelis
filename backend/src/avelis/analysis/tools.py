@@ -292,12 +292,22 @@ class AnalysisToolbox:
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
                  inputs: list[str] | None = None, meta: dict | None = None, truncated: bool = False) -> AnalysisDataset:
-        meta = dict(meta or {})
-        # 来源含探索数据的标记沿输入血缘传递（ADR 0009 第 6 点）
-        meta["explore"] = kind == "explore" or any(
-            (self._datasets[i].meta or {}).get("explore") for i in inputs or [] if i in self._datasets)
+        meta, inputs = dict(meta or {}), list(inputs or [])
+        # 来源、假设、截断、部分结果沿服务端保存的依赖闭包传递（ADR 0009 第 6 点“结果与来源标记”）：
+        # 输入只能是本次运行已有的数据集（缺失即拒绝；新数据集只依赖已有的，不会成环）
+        missing = [i for i in inputs if i not in self._datasets]
+        if missing:
+            raise calc.CalcError(f"依赖的数据集 {'、'.join(missing)} 不在本次运行中")
+        parents = [self._datasets[i] for i in inputs]
+        closure = sorted({*inputs, *(c for p in parents for c in (p.meta or {}).get("closure") or [])},
+                         key=lambda r: int(r[1:]))
+        roots = {kind} if not inputs else {k for p in parents for k in (p.meta or {}).get("root_kinds") or [p.kind]}
+        meta.update(closure=closure, root_kinds=sorted(roots), explore="explore" in roots,
+                    assumption=bool(meta.get("assumption") or any((p.meta or {}).get("assumption") for p in parents)),
+                    partial=bool(meta.get("partial") or any((p.meta or {}).get("partial") for p in parents)))
+        truncated = bool(truncated or any(p.truncated for p in parents))
         ds = AnalysisDataset(run_id=self.run.id, seq=len(self._datasets) + 1, kind=kind, title=title[:255],
-                             answer_id=answer_id, inputs=inputs or [], columns=columns,
+                             answer_id=answer_id, inputs=inputs, columns=columns,
                              rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta)))
         self.session.add(ds)
         self.session.flush()
@@ -322,10 +332,18 @@ class AnalysisToolbox:
         out = {"dataset": ref, "title": ds.title, "kind": ds.kind, "columns": ds.columns, "row_count": len(ds.rows),
                "rows": ds.rows[:MODEL_ROWS], "rows_shown": min(len(ds.rows), MODEL_ROWS),
                **({"summary": ds.meta.get("summary")} if ds.meta.get("summary") else {})}
-        if ds.truncated:
+        if ds.truncated:  # 结果截断（result_truncated）：数据集本身不是全集
             out["truncated"] = True
             out["note"] = ("数据集被截断：只含前若干行，不是全集。合计、覆盖度、相关性等需要全集的计算会被拒绝；"
                            "不要据此写总数、行数或全体结论，请缩小范围或减少分组后重新查询")
+        if len(ds.rows) > MODEL_ROWS:  # 预览截断（context_truncated）：数据集完整，只是给模型看的行数有限
+            out["context_truncated"] = True
+            out["context_note"] = (f"这里只预览前 {MODEL_ROWS} 行（共 {len(ds.rows)} 行），数据集本身是完整的；"
+                                   "需要全集统计时调用计算工具，不要从预览里数或加总")
+        for flag, text in (("explore", "来源含探索查询（未经口径审核）"), ("assumption", "来源含假设计算"),
+                           ("partial", "来源含部分结果")):
+            if (ds.meta or {}).get(flag):
+                out.setdefault("marks", []).append(text)
         return out
 
     # -- 授权 --

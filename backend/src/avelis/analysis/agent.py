@@ -178,7 +178,7 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
     toolbox, _ = _ctx(config)
     datasets = {ref: {"kind": d.kind, "columns": list(d.columns), "rows": [dict(zip(d.columns, r)) for r in d.rows],
                       "summary": d.meta.get("summary"), "truncated": d.truncated,
-                      **{k: d.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption")}}
+                      **{k: d.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption", "partial")}}
                 for ref, d in toolbox.datasets().items()}
     if toolbox.report is None:
         summary = (f"分析停止（{toolbox.stopped}）；以下列出已取得的数据集，未下结论。" if toolbox.stopped
