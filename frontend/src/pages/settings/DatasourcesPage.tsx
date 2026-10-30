@@ -8,7 +8,7 @@ import { errorText, useAction, useDatasources, useEngines, useTimeZone } from ".
 import { formatTime } from "../../format";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
-  Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, useMessage,
+  Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, Switch, useMessage,
 } from "../../components/ui";
 
 type Datasource = Schemas["DatasourceOut"];
@@ -103,6 +103,9 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
     body: { datasource_id: ds.id, host: alias.host.trim(), port: Number(alias.port), note: null },
   })), ["datasources"]);
   const credentialPurposes: CredentialPurpose[] = ds.engine.capabilities.includes("query") ? ["collect", "query"] : ["collect"];
+  const exploration = useAction((allow: boolean) => unwrap(api.PUT("/api/datasources/{datasource_id}/exploration", {
+    params: { path: { datasource_id: ds.id } }, body: { allow },
+  })), ["datasources"]);
 
   return (
     <>
@@ -187,6 +190,16 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
           </section>
 
           <CommentCoverage ds={ds} />
+
+          <section className="av-datasources__section" aria-labelledby="datasource-exploration">
+            <h3 id="datasource-exploration">探索查询 <Hint text="分析智能体可以按血缘与字段注释，在当前用户可见的已采集表上写只读 SELECT。结果标为“探索查询（未经口径审核）”" /></h3>
+            {ds.exploration_supported ? <dl className="av-kv">
+              <dt>状态</dt><dd className="av-datasources__switch">
+                <Switch label="允许探索查询" checked={!!ds.allow_exploration} disabled={!isAdmin || exploration.isPending}
+                  onChange={(value: boolean) => exploration.mutate(value, { onError: (e) => setMessage({ ok: false, text: errorText(e) }) })} />
+                <span className="av-muted">{ds.allow_exploration ? "已开启" : "已关闭"}{isAdmin ? "" : "（只有管理员可以修改）"}</span></dd>
+            </dl> : <span className="av-muted">该引擎尚不支持探索查询（第一版支持 StarRocks 与 PostgreSQL）</span>}
+          </section>
 
           <section className="av-datasources__section" aria-labelledby="datasource-credentials">
             <h3 id="datasource-credentials">凭据 <Hint text="密码只写不读，更换后使用新凭据连接" /></h3>
@@ -275,7 +288,7 @@ function scope(ds: Datasource): string {
   return Object.entries(ds.options).map(([key, value]) => `${options?.find((option) => option.key === key)?.label ?? key}：${optionText(value)}`).join(" · ") || "—";
 }
 
-// 选项值可能是列表或映射（如 catalog_databases：{shop_mysql: ["shop_dim"]}）
+// 选项值可能是列表或映射（如 catalog_databases：{catalog_a: ["db_a"]}）
 function optionText(value: unknown): string {
   if (Array.isArray(value)) return value.map(optionText).join(", ");
   if (value && typeof value === "object") return Object.entries(value).map(([k, v]) => `${k}（${optionText(v)}）`).join(", ");

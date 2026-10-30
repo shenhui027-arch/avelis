@@ -104,7 +104,8 @@ class QueryConnector(Protocol):
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]: ...
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]: ...
+    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+                         ) -> dict[tuple[str, str], dict[str, Any]]: ...
 
 
 def sha256_json(payload: Any) -> str:

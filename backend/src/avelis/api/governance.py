@@ -59,7 +59,7 @@ class JoinStep(BaseModel):
 
 class VersionSpec(BaseModel):
     """基础指标：base_asset_id、expression（聚合表达式）、time_column 必填。
-    派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 paid_sales / orders_cnt），其余不填。"""
+    派生指标：kind="derived"，expression 为引用其他指标编码的公式（如 metric_a / metric_b），其余不填。"""
     kind: str = Field(default="base", pattern=r"^(base|derived)$")
     description: str = Field(min_length=1)
     base_asset_id: str | None = None
@@ -71,6 +71,10 @@ class VersionSpec(BaseModel):
     joins: list[JoinStep] = Field(default_factory=list)
     grain: list[str] = Field(default_factory=list)
     dedupe_basis: str | None = None
+    unit: str | None = Field(default=None, max_length=16, description="单位，如 元、单、人；比率类可不填")
+    unit_scale: int = Field(default=1, ge=1, description="列本身的倍数：列已是“万元”时为 10000")
+    material_change_ratio: float | None = Field(
+        default=None, gt=0, lt=1, description="变化显著性阈值（相对对比期）：为空时用系统默认 1%")
 
     @model_validator(mode="after")
     def _base_fields(self) -> "VersionSpec":
@@ -96,7 +100,7 @@ def metric_view(session: Session, metric: Metric) -> dict:
     return {"id": metric.id, "code": metric.code, "name": metric.name, "aliases": metric.aliases,
             "domain_id": metric.domain_id, "owner": {"id": owner.id, "display_name": owner.display_name},
             "versions": [{"id": v.id, "version_no": v.version_no, "status": v.status,
-                          "status_reason": v.status_reason,
+                          "status_reason": v.status_reason, "unit": v.unit,
                           "published_at": v.published_at.isoformat() if v.published_at else None}
                          for v in versions]}
 
@@ -165,7 +169,7 @@ def update_version(version_id: str, body: VersionSpec, user: User = Depends(curr
 @router.post("/metric-versions/{version_id}/check", response_model=S.PublishCheckOut)
 def check_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """发布前检查（不改变状态）。"""
-    return metrics.publish_check(session, _visible_version(session, user, version_id))
+    return metrics.publish_check(session, _visible_version(session, user, version_id), user)
 
 
 @router.post("/metric-versions/{version_id}/submit", response_model=S.MetricVersionOut)

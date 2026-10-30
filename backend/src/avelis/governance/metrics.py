@@ -54,7 +54,9 @@ TRANSITIONS = {
     ("affected", "retired"),
 }
 EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
-                   "dimensions", "joins", "grain", "dedupe_basis")
+                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale", "material_change_ratio")
+# 只影响显示与分析判断的元数据：不计入依赖指纹，修改不算口径漂移
+DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio")
 TIME_TYPES = ("date", "datetime", "timestamp")
 
 
@@ -286,7 +288,7 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
 
 
 def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, Any]]) -> str:
-    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS}
+    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
     if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
         return sha256_json({"formula": version.expression, "components": [
             [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]})
@@ -318,8 +320,9 @@ def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str,
     return drift
 
 
-def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
-    """发布前检查：依赖证据完整、关联路径已批准、关联不放大可加度量、粒度说明。"""
+def publish_check(session: Session, version: MetricVersion, viewer: User) -> dict[str, Any]:
+    """发布前检查：依赖证据完整、关联路径已批准、关联不放大可加度量、粒度说明。
+    viewer：查看（或提交、批准）的人；注释缺口提示中只沿用他能看到的上游注释。"""
     resolved = validate_spec(session, version)
     if version.kind == "derived":
         return _derived_check(resolved)
@@ -362,11 +365,12 @@ def publish_check(session: Session, version: MetricVersion) -> dict[str, Any]:
                 f"或改用不放大的关联路径")
     blockers.extend(fan_out)
     # 字段含义以数据库列注释为准：依赖的列缺注释时提示（AVELIS_REQUIRE_COLUMN_COMMENTS=true 时阻断发布）
-    from avelis.governance.column_docs import GAPS, column_doc
+    from avelis.governance.column_docs import GAPS, column_doc, visible_to
 
+    can_see = visible_to(session, viewer)
     gaps = []
     for alias, column, role in sorted({(d["alias"], d["column"], d["role"]) for d in resolved["dependency"]}):
-        doc = column_doc(session, resolved["aliases"][alias], column)
+        doc = column_doc(session, resolved["aliases"][alias], column, can_see=can_see)
         if doc["status"] in GAPS:
             hint = f"（上游 {doc['source']} 有注释，可沿用）" if doc["status"] == "inherited" else ""
             gaps.append(f"字段 {doc['asset'].split('.', 1)[1]}.{column} 缺少数据库注释{hint}")
@@ -420,7 +424,7 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
     access.require_domain_maintainer(session, actor, metric.domain_id)
     if version.status != "draft":
         raise Conflict(f"只有草稿可以提交复核（当前 {version.status}）")
-    check = publish_check(session, version)
+    check = publish_check(session, version, actor)
     version.publish_check = check
     version.dependency = check["dependency"]
     if not check["ok"]:
@@ -459,7 +463,7 @@ def approve(session: Session, actor: User, version: MetricVersion, note: str | N
         raise Conflict(f"只有待复核的版本可以批准（当前 {version.status}）")
     if not get_settings().allow_self_review and actor.id in (version.submitted_by, version.created_by):
         raise Forbidden("禁止自审：提交人或创建人不能批准同一版本（AVELIS_ALLOW_SELF_REVIEW=false）")
-    check = publish_check(session, version)
+    check = publish_check(session, version, actor)
     if not check["ok"]:
         raise Conflict("发布前检查未通过", blockers=check["blockers"])
     if dependency_fingerprint(version, check["dependency"]) != version.dependency_fingerprint:
@@ -553,7 +557,10 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "base_asset": {"id": base.id, "qualified": f"{base.catalog_name}.{base.db_name}.{base.name}"} if base else None,
         "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
         "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
-        "dedupe_basis": version.dedupe_basis, "dependency": version.dependency,
+        "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
+        "material_change_ratio": float(version.material_change_ratio) if version.material_change_ratio is not None
+        else None,
+        "dependency": version.dependency,
         "dependency_fingerprint": version.dependency_fingerprint, "asset_versions": version.asset_versions,
         "publish_check": version.publish_check, "created_by": version.created_by,
         "submitted_by": version.submitted_by, "reviewed_by": version.reviewed_by,

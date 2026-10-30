@@ -4,6 +4,11 @@ Redis 丢失时 worker 会定期扫描 job 表中排队过久的任务，任务�
 worker 在执行中退出时，任务会停在 running：超过 AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS 仍未结束的任务如实记为失败
 （不自动重跑），否则该数据源的定时采集会因“已有任务在跑”而一直被跳过。
 定时采集：worker 按每个数据源的 collect_interval_minutes 轮询入队。
+定时分析（M8）：到期的分析任务入队 analysis；单次分析为 analysis_run（与运行在同一事务中创建）。
+wait=true 与“立即运行”同样创建 Job，在请求进程内领取并执行，中断时恢复器一样能回收。
+分析类 Job 的执行与终态由 analysis.service 负责：执行权是 Job 的本次尝试（attempts），运行与 Job 的终态同一事务提交；
+Job 的终态跟随分析的业务结果（失败 → failed，暂停或跳过 → skipped）。
+Job 被判定放弃时，关联的分析运行一并处理（analysis.service.reconcile_abandoned）。
 保留期清理：worker 每 AVELIS_HISTORY_PURGE_INTERVAL_HOURS 小时清理一次超期历史（ADR 0008）。
 """
 
@@ -49,6 +54,22 @@ def enqueue(kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
     return job_id
 
 
+ANALYSIS_KINDS = ("analysis", "analysis_run")
+TERMINAL = ("succeeded", "failed", "skipped")
+
+
+def run_and_wait(job_id: str, timeout_seconds: float) -> str | None:
+    """同步入口：在本进程内领取并执行 Job；若已被扫描 worker 抢先领取，等它到终态（或超时）再返回 Job 状态。"""
+    run_job(job_id)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        with session_scope() as session:
+            status = session.scalar(select(Job.status).where(Job.id == job_id))
+        if status in TERMINAL or status is None or time.monotonic() > deadline:
+            return status
+        time.sleep(1)
+
+
 def run_job(job_id: str) -> None:
     with session_scope() as session:
         claimed = session.execute(update(Job).where(Job.id == job_id, Job.status == "queued").values(
@@ -57,6 +78,9 @@ def run_job(job_id: str) -> None:
             return
         job = session.get(Job, job_id)
         kind, payload, actor, attempt = job.kind, dict(job.payload), job.created_by, job.attempts
+    if kind in ANALYSIS_KINDS:
+        _run_analysis_job(job_id, attempt, kind, payload)
+        return
     result: dict[str, Any] = {}
     error = None
     try:
@@ -66,10 +90,31 @@ def run_job(job_id: str) -> None:
         else:
             raise ValueError(f"未知任务类型 {kind}")
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
+        log.exception("任务 %s 失败", job_id)
         error = f"{type(exc).__name__}: {exc}"
     with session_scope() as session:
+        job = session.get(Job, job_id)
+        result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
         session.execute(update(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).values(
             status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow()))
+
+
+def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> None:
+    """分析类 Job：终态由分析服务与运行在同一事务中写入。意外异常时（仍持有本次尝试才）把 Job 记为失败，
+    并按恢复器同样的规则处理关联的运行，不留下 running 的运行。"""
+    from avelis.analysis import service as analysis_service
+
+    try:
+        analysis_service.run_job(job_id, attempt, kind, payload)
+    except Exception as exc:  # noqa: BLE001 - 如实记录
+        log.exception("分析任务 %s 失败", job_id)
+        error = f"{type(exc).__name__}: {str(exc)[:500]}"
+        with session_scope() as session:
+            job = session.scalar(select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
+                                 .with_for_update())
+            if job is not None:
+                job.status, job.error, job.finished_at = "failed", error, utcnow()
+                analysis_service.reconcile_abandoned(session, job, error)
 
 
 def collect_now(datasource_id: str, *, trigger: str, actor_id: str | None) -> str:
@@ -110,10 +155,16 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     older_than_seconds = (get_settings().worker_running_timeout_seconds if older_than_seconds is None
                           else older_than_seconds)
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+    reason = f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"
     with session_scope() as session:
-        ids = list(session.scalars(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
-            status="failed", finished_at=utcnow(),
-            error=f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑").returning(Job.id)))
+        rows = list(session.execute(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
+            status="failed", finished_at=utcnow(), error=reason).returning(Job.id, Job.kind, Job.payload, Job.result)))
+        for job_id, kind, _, _ in rows:  # 关联的分析运行一并处理：未结束的终结，已结束的按运行终态修正 Job
+            if kind in ANALYSIS_KINDS:
+                from avelis.analysis import service as analysis_service
+
+                analysis_service.reconcile_abandoned(session, session.get(Job, job_id, populate_existing=True), reason)
+    ids = [row[0] for row in rows]
     for job_id in ids:
         log.warning("任务 %s 运行超时，已记为失败", job_id)
     return ids
@@ -132,6 +183,26 @@ def purge_history_if_due() -> None:
         log.exception("保留期清理失败")
 
 
+def _guarded(name: str, fn, default=None):
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 - 记录后继续：一次扫描失败（如死锁被中止）不能让 worker 主循环退出
+        log.exception("%s 失败，下一轮重试", name)
+        return default
+
+
+def scan_once() -> None:
+    """一轮定时扫描：回收超时任务、入队到期任务、执行排队过久的任务、清理超期历史。每一项单独容错。"""
+    from avelis.analysis import service as analysis_service
+
+    _guarded("回收超时任务", abandoned_jobs)
+    due = [*_guarded("定时采集入队", schedule_due, []), *_guarded("定时分析入队", analysis_service.schedule_due, []),
+           *_guarded("扫描排队任务", stale_jobs, [])]
+    for job_id in due:
+        _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
+    _guarded("清理超期历史", purge_history_if_due)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
@@ -148,10 +219,7 @@ def main() -> None:
     while not stop:
         if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
             last_schedule = time.monotonic()
-            abandoned_jobs()
-            for job_id in schedule_due() + stale_jobs():
-                run_job(job_id)
-            purge_history_if_due()
+            scan_once()
         try:
             item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
         except Exception:
@@ -162,6 +230,8 @@ def main() -> None:
                 run_job(item[1])
             except CollectionFailed:
                 pass
+            except Exception:  # noqa: BLE001 - 单个任务的意外错误不能让 worker 退出
+                log.exception("任务 %s 执行异常", item[1])
     log.info("worker 已停止")
 
 

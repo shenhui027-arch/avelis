@@ -15,6 +15,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import timezone
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -39,6 +40,8 @@ PURPOSES = {
                 "hint": "用自然语言解释查询结果；仅在允许发送查询结果时使用"},
     "import": {"label": "导入血缘推断", "needs_tools": False,
                "hint": "对确定性解析覆盖不到的代码片段提出候选血缘"},
+    "analysis": {"label": "分析", "needs_tools": True,
+                 "hint": "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型"},
 }
 
 PRESETS = {
@@ -50,8 +53,23 @@ PRESETS = {
     "custom": {"name": "自定义（OpenAI 兼容）", "kind": "openai_compatible", "base_url": ""},
 }
 
+# 思考强度（ADR 0012）：页面按提供方实际支持的档位显示；DEFAULT_EFFORT 是各用途的默认档位，改默认值只改这里。
+EFFORTS = ("off", "low", "medium", "high", "max")
+EFFORT_LABELS = {"off": "关闭", "low": "低", "medium": "中", "high": "高", "max": "最高"}
+# 默认“低”（用户 2026-10-30 确认）：DeepSeek 的“中”会按“高”执行
+DEFAULT_EFFORT = {"ask": "low", "explain": "low", "import": "low", "analysis": "low"}
+# 提供方支持的档位 → 实际发送的档位。DeepSeek API 只有 low / high / max 三档，其他名称按官方映射表归入这三档
+# （medium 归入 high；https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/，对所有模型通用），关闭思考用
+# thinking.type=disabled，所以页面只列 关闭 / 低 / 高 / 最高。以前保存的“中”按映射表发送 high。
+# 实测（deepseek-flash，2026-10-30）：关闭时没有推理 token；low、high 推理量相近，max 明显更多；
+# 开启思考并带工具的多轮请求不带回 reasoning_content 也没有返回 400。其他提供方未核实，不传思考参数。
+DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "high": "high", "max": "max"}
+DEEPSEEK_ALIASES = {"medium": "high"}
+
 POLICY_KEY = "model_policy"
-DEFAULT_POLICY = {"send_results": False, "send_code": False}
+# 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
+# 而不是由产品限制。管理员仍可在模型配置页关闭；关闭后结果解释用模板，分析模式不可用。
+DEFAULT_POLICY = {"send_results": True, "send_code": True}
 
 
 def redact_error(text: str, api_key: str | None = None, *, limit: int = 300) -> str:
@@ -74,6 +92,41 @@ def _model_check(p: ModelProvider, model_id: str) -> dict[str, Any]:
     if model_id in checks.get("models", {}):
         return checks["models"][model_id]
     return checks if checks.get("model_id") == model_id else {}
+
+
+def effort_map(p: ModelProvider | None, model_id: str) -> dict[str, str] | None:
+    """该提供方、模型支持的思考档位 → 实际生效的档位；没有核实过的返回 None（不显示选项，也不传思考参数）。"""
+    if p is None or p.kind != "openai_compatible":
+        return None
+    if p.preset == "deepseek" or "api.deepseek.com" in (p.base_url or ""):
+        return dict(DEEPSEEK_EFFORTS)
+    return None
+
+
+def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str]]:
+    """页面上的档位选项：值、名称、实际生效的档位（与所选不同时页面注明）。"""
+    mapping = effort_map(p, model_id) or {}
+    return [{"value": e, "label": EFFORT_LABELS[e], "effective": mapping[e], "effective_label": EFFORT_LABELS[mapping[e]]}
+            for e in EFFORTS if e in mapping]
+
+
+def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None) -> str | None:
+    """实际生效的档位；提供方没有核实过的档位时为 None（不传思考参数，按提供方默认）。"""
+    mapping = effort_map(p, model_id)
+    if not mapping:
+        return None
+    effort = effort or ""
+    return mapping.get(effort) or mapping.get(DEEPSEEK_ALIASES.get(effort, ""))
+
+
+def _effort_kwargs(p: ModelProvider, model_id: str, effort: str | None) -> dict[str, Any]:
+    """思考强度的请求参数集中在这里（ADR 0012），调用方不分散判断。"""
+    effective = effective_effort(p, model_id, effort)
+    if effective is None:
+        return {}
+    if effective == "off":
+        return {"extra_body": {"thinking": {"type": "disabled"}}}
+    return {"reasoning_effort": effective}
 
 
 def _enabled_model(p: ModelProvider | None, model_id: str, *, needs_tools: bool = False) -> dict | None:
@@ -101,7 +154,8 @@ def endpoint_preview(provider: ModelProvider) -> str:
 def provider_view(p: ModelProvider) -> dict[str, Any]:
     return {"id": p.id, "code": p.code, "name": p.name, "kind": p.kind, "preset": p.preset, "base_url": p.base_url,
             "endpoint": endpoint_preview(p), "api_key": mask(p.api_key_hint), "has_api_key": bool(p.api_key_enc),
-            "enabled": p.enabled, "models": p.models, "last_check": p.last_check,
+            "enabled": p.enabled, "models": [{**m, "efforts": effort_options(p, m["id"])} for m in p.models],
+            "last_check": p.last_check,
             "updated_at": p.updated_at.isoformat()}  # UTCDateTime 读出时带 UTC 时区
 
 
@@ -115,8 +169,13 @@ def settings_view(session: Session) -> dict[str, Any]:
     out = {}
     for purpose, meta in PURPOSES.items():
         a = assignments.get(purpose)
+        p = session.get(ModelProvider, a.provider_id) if a else None
+        effort = (a.reasoning_effort if a else None) or DEFAULT_EFFORT[purpose]
+        effective = effective_effort(p, a.model_id, effort) if a else None
         out[purpose] = {**meta, "provider_id": a.provider_id if a else None, "model_id": a.model_id if a else None,
-                        "updated_at": a.updated_at.isoformat() if a else None}
+                        "updated_at": a.updated_at.isoformat() if a else None,
+                        "reasoning_effort": effort, "default_effort": DEFAULT_EFFORT[purpose],
+                        "effective_effort": effective}
     ask = assignments.get("ask")
     provider = session.get(ModelProvider, ask.provider_id) if ask else None
     configured = ask is not None and _enabled_model(provider, ask.model_id, needs_tools=True) is not None
@@ -231,14 +290,19 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
             raise Conflict(f"模型 {target['model_id']} 不在 {p.name} 的启用列表中")
         if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
             raise Conflict(f"{PURPOSES[purpose]['label']}需要该模型最近一次服务器检测成功且支持工具调用")
+        effort = target.get("reasoning_effort")
+        if effort is not None and effort not in (effort_map(p, model["id"]) or {}):
+            raise Invalid(f"{p.name} · {model['id']} 不支持思考强度“{EFFORT_LABELS.get(effort, effort)}”")
         if current is None:
             current = ModelAssignment(purpose=purpose, provider_id=p.id, model_id=model["id"], updated_by=actor.id)
             session.add(current)
         current.provider_id, current.model_id = p.id, model["id"]
+        current.reasoning_effort = effort
         current.updated_by, current.updated_at = actor.id, utcnow()
     if new_policy is not None:
         row = session.get(AppSetting, POLICY_KEY)
-        value = {**DEFAULT_POLICY, **{k: bool(v) for k, v in new_policy.items() if k in DEFAULT_POLICY}}
+        # 以当前已保存的策略为基础合并：部分更新不能把管理员明确关闭的设置重新打开（默认值只用于从未保存过的项）
+        value = {**policy(session), **{k: bool(v) for k, v in new_policy.items() if k in DEFAULT_POLICY}}
         if row is None:
             session.add(AppSetting(key=POLICY_KEY, value=value, updated_by=actor.id))
         else:
@@ -251,19 +315,23 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
 
 # --- 调用 -------------------------------------------------------------------------
 
-def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.0) -> BaseChatModel:
+def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.0, timeout: float = 60,
+                     max_retries: int = 2, effort: str | None = None, max_tokens: int | None = None) -> BaseChatModel:
+    """effort：思考强度（按提供方适配，见 _effort_kwargs；思考开启时 temperature 不生效，不依赖它）；
+    max_tokens：输出上限，阶段需要时由系统设定（如理解阶段）。"""
     if not p.api_key_enc:
         raise Conflict(f"提供方 {p.name} 未设置密钥")
     key = decrypt_secret(p.api_key_enc)
     if p.kind == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=60,
-                             max_retries=2, max_tokens=2048)
+        return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature,
+                             timeout=timeout, max_retries=max_retries, max_tokens=4096)
     from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=60,
-                      max_retries=2)
+    extra = {"max_tokens": max_tokens} if max_tokens else {}
+    return ChatOpenAI(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=timeout,
+                      max_retries=max_retries, **extra, **_effort_kwargs(p, model_id, effort))
 
 
 @dataclass
@@ -271,6 +339,10 @@ class Resolved:
     model: BaseChatModel
     adapter: str
     _api_key: str | None = field(default=None, repr=False)
+    # 按剩余时间重建模型（请求超时、重试次数）：分析的统一截止时间要覆盖每一次模型请求
+    factory: Callable[..., BaseChatModel] | None = field(default=None, repr=False)
+    effort: str | None = None  # 指派的思考强度
+    effective_effort: str | None = None  # 实际生效的档位（提供方没有核实过时为 None）
 
     def safe_error(self, error: Exception | str, *, limit: int = 300) -> str:
         return redact_error(str(error), self._api_key, limit=limit)
@@ -279,15 +351,22 @@ class Resolved:
 def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Resolved | None:
     """指派无效、模型不再启用或问数检测失效时返回 None，调用方标明并使用演示模型。"""
     a = session.get(ModelAssignment, purpose)
-    if a is None and purpose == "explain":
+    if a is None and purpose in ("explain", "analysis"):
         a = session.get(ModelAssignment, "ask")
     if a is None:
         return None
     p = session.get(ModelProvider, a.provider_id)
-    if _enabled_model(p, a.model_id, needs_tools=a.purpose == "ask") is None:
+    if _enabled_model(p, a.model_id, needs_tools=a.purpose in ("ask", "analysis")) is None:
         return None
-    return Resolved(build_chat_model(p, a.model_id, temperature=temperature), f"{p.code}:{a.model_id}",
-                    decrypt_secret(p.api_key_enc))
+    model_id = a.model_id
+    effort = a.reasoning_effort or DEFAULT_EFFORT.get(purpose, "medium")
+
+    def factory(timeout: float, max_retries: int, *, effort: str = effort, max_tokens: int | None = None) -> BaseChatModel:
+        """按剩余时间重建模型；阶段可以另定思考强度与输出上限（如理解阶段关闭思考）。"""
+        return build_chat_model(p, model_id, temperature=temperature, timeout=timeout, max_retries=max_retries,
+                                effort=effort, max_tokens=max_tokens)
+    return Resolved(build_chat_model(p, model_id, temperature=temperature, effort=effort), f"{p.code}:{model_id}",
+                    decrypt_secret(p.api_key_enc), factory, effort, effective_effort(p, model_id, effort))
 
 
 def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:

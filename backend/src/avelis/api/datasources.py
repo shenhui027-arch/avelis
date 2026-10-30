@@ -58,6 +58,7 @@ def datasource_view(session: Session, ds: Datasource) -> dict:
         "source_label": "测试适配器" if ds.is_test_adapter else "真实数据库",
         "status": ds.status, "server_identity": ds.server_identity,
         "collect_interval_minutes": ds.collect_interval_minutes,
+        "allow_exploration": ds.allow_exploration, "exploration_supported": _exploration_supported(ds),
         "credentials": [{"purpose": c.purpose, "username": c.username, "password": "已设置（不回传）",
                          "updated_at": c.updated_at.isoformat()} for c in creds],
         "last_run": run_view(last) if last else None,
@@ -65,6 +66,20 @@ def datasource_view(session: Session, ds: Datasource) -> dict:
         "aliases": [{"id": a.id, "host": a.host, "port": a.port, "note": a.note} for a in session.scalars(
             select(EndpointAlias).where(EndpointAlias.datasource_id == ds.id))],
     }
+
+
+def _exploration_supported(ds: Datasource) -> bool:
+    """引擎有探索档案（第一版：StarRocks、PostgreSQL）且具备问数执行能力。"""
+    from avelis.analysis.explore import profile_for
+
+    try:
+        return profile_for(ds.kind) is not None and engine_of(ds).supports(QUERY)
+    except Exception:  # noqa: BLE001 - 未知引擎
+        return False
+
+
+class Exploration(BaseModel):
+    allow: bool
 
 
 def run_view(run: CollectionRun) -> dict:
@@ -118,6 +133,20 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     session.flush()
     audit.record(session, user, "datasource.create", "datasource", ds.id, name=ds.name, kind=ds.kind,
                  host=ds.host, port=ds.port, credentials=[p for p in ("collect", "query") if getattr(body, p)])
+    return datasource_view(session, ds)
+
+
+@router.put("/datasources/{datasource_id}/exploration", response_model=S.DatasourceOut)
+def set_exploration(datasource_id: str, body: Exploration, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)) -> dict:
+    """按数据源开关探索查询（ADR 0009 第 6 点）：默认开启，管理员可以关闭。"""
+    access.require_role(session, user, "admin")
+    ds = session.get(Datasource, datasource_id)
+    if ds is None:
+        raise HTTPException(404, "数据源不存在")
+    ds.allow_exploration = body.allow
+    session.flush()
+    audit.record(session, user, "datasource.exploration", "datasource", ds.id, allow=body.allow)
     return datasource_view(session, ds)
 
 

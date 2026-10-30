@@ -4,6 +4,8 @@
   uv run python -m avelis.bootstrap demo           在现有元数据上补齐缺少的对象
   uv run python -m avelis.bootstrap demo --reset   先把演示 StarRocks 重置到基线、清空元数据库与 Redis 键
   加 --metrics：再发布异常场景走查（M4）所需的三个指标与关联路径——实付销售额、订单数、类目销售额（跨域）
+  合成电商数据集（scripts/ec_data.py）已灌入时：再建“电商经营”业务域与数据源“电商数仓（StarRocks）”并采集；
+  加 --metrics 时同时发布电商数仓视图上的口径（分析智能体 M8 的数据基础）
 """
 
 from __future__ import annotations
@@ -62,7 +64,24 @@ def reset_demo() -> None:
         cache.client().delete(*keys)
 
 
-def setup(reset: bool, metrics: bool = False) -> None:
+def ec_dataset_loaded() -> bool:
+    """合成电商数据集是否已灌入演示 StarRocks（看数据集版本标记，不读业务数据）。"""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import demo  # scripts/demo.py
+    import ec_data
+
+    try:
+        conn = demo.sr_root(demo.load_env())
+    except Exception:  # noqa: BLE001 - 演示库未启动
+        return False
+    try:
+        return bool(ec_data.loaded_checksum(conn))
+    finally:
+        conn.close()
+
+
+def setup(reset: bool, metrics: bool = False, ec: bool | None = False) -> None:
+    """ec：是否接入合成电商数据集；None 表示已灌入就接入（命令行默认）。验收默认不接入，避免改变既有用例的数据源与资产。"""
     from avelis.api.app import create_app
     from avelis.bootstrap import AUTOMATION_ADMIN, ensure_admin
 
@@ -88,6 +107,10 @@ def setup(reset: bool, metrics: bool = False) -> None:
         domains["product"] = admin("POST", "/api/domains", json={"code": "product", "name": "商品域",
                                                                  "owner_id": existing["zhao"]})
     zhang, zhao = _Api(client, "zhang", password), _Api(client, "zhao", password)
+    if not domains["trade"].get("example_questions"):  # 演示业务域的示例问题（ADR 0010：只写在演示种子里）
+        zhang("PUT", f"/api/domains/{domains['trade']['id']}/example-questions", json={"questions": [
+            {"text": t, "mode": "ask"} for t in ("2026-09-15 各区域实付销售额前 2", "2026-09-16 华东区实付销售额 环比",
+                                                 "2026-09-15 华东区实付销售额和订单数")]})
     for member in ("wang", "li", "sun"):
         zhang("PUT", f"/api/domains/{domains['trade']['id']}/members",
               json={"user_id": existing[member], "role": "viewer"})
@@ -134,9 +157,139 @@ def setup(reset: bool, metrics: bool = False) -> None:
     if metrics:
         _publish_metrics(client, password, {q: a["id"] for q, a in assets.items()},
                          {code: d["id"] for code, d in domains.items()})
-    print(f"演示环境已就绪：{len(existing)} 个用户、2 个业务域、{len(admin('GET', '/api/datasources'))} 个数据源、"
-          f"{len(assets)} 个资产（密码未打印）")
+    if ec or (ec is None and ec_dataset_loaded()):
+        _setup_ec(client, admin, password, existing, env, metrics)
+    assets = admin("GET", "/api/assets")
+    print(f"演示环境已就绪：{len(existing)} 个用户、{len(admin('GET', '/api/domains'))} 个业务域、"
+          f"{len(admin('GET', '/api/datasources'))} 个数据源、{len(assets)} 个资产（密码未打印）")
     client.close()
+
+
+EC_SOURCE = "电商数仓（StarRocks）"
+
+
+def _setup_ec(client: TestClient, admin: _Api, password: str, users: dict[str, str], env: dict[str, str],
+              metrics: bool) -> None:
+    """电商经营域：负责人张敏，王强、李娜、赵磊可查询（孙悦不在该域，用于越权验收）。"""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import ec_data
+
+    zhang = _Api(client, "zhang", password)
+    domains = {d["code"]: d for d in admin("GET", "/api/domains")}
+    domain = domains.get("ec") or admin("POST", "/api/domains", json={
+        "code": "ec", "name": "电商经营", "owner_id": users["zhang"],
+        "description": "合成电商数据集：门店与客流、交易、商品、会员、营销、供应链、物流、客服"})
+    for member in ("wang", "li", "zhao"):
+        zhang("PUT", f"/api/domains/{domain['id']}/members", json={"user_id": users[member], "role": "viewer"})
+    if not domain.get("example_questions"):
+        zhang("PUT", f"/api/domains/{domain['id']}/example-questions", json={"questions": [
+            {"text": t, "mode": "analysis"} for t in (
+                "为什么 2026 年 9 月华南区域门店成交额比 8 月低？", "华东区域 9 月线上订单数为什么比 8 月少？",
+                "门店客流和商圈等级、楼层有什么关系？哪些门店值得加投引流？")]})
+    sources = {d["name"]: d for d in admin("GET", "/api/datasources")}
+    ds = sources.get(EC_SOURCE) or admin("POST", "/api/datasources", json={
+        "name": EC_SOURCE, "kind": "starrocks", "host": "127.0.0.1", "port": int(env["SR_QUERY_PORT"]),
+        "options": {"databases": list(ec_data.DATABASES)},
+        "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
+        "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]}})
+    admin("POST", f"/api/datasources/{ds['id']}/collect?wait=true")
+    assets = {a["qualified"]: a for a in admin("GET", "/api/assets", params={"datasource_id": ds["id"]})}
+    for a in assets.values():
+        if a["domain_id"] != domain["id"]:
+            zhang("PATCH", f"/api/assets/{a['id']}", json={"domain_id": domain["id"]})
+    if metrics:
+        _publish_ec_metrics(client, password, {q: a["id"] for q, a in assets.items()}, domain["id"])
+
+
+def _dims(*pairs: tuple[str, str, str]) -> list[dict]:
+    return [{"name": n, "column": c, "label": label} for n, c, label in pairs]
+
+
+REGION = ("region", "region_name", "区域")
+EC_METRICS = [  # 编码、名称、视图、表达式、时间列、维度、粒度、说明
+    ("ec_gmv", "成交额", "dws_region_daily", "SUM(paid_amount)", "order_date",
+     _dims(REGION, ("channel", "channel_type", "渠道类型")), ["order_date", "region_code", "region_name", "channel_type"],
+     "实付金额（不含取消单，未扣退款），按下单日期"),
+    ("ec_orders", "订单数", "dws_region_daily", "SUM(order_cnt)", "order_date",
+     _dims(REGION, ("channel", "channel_type", "渠道类型")), ["order_date", "region_code", "region_name", "channel_type"],
+     "订单笔数（不含取消单）"),
+    ("ec_store_sales", "门店成交额", "dws_store_daily", "SUM(paid_amount)", "stat_date",
+     _dims(REGION, ("store", "store_name", "门店"), ("city", "city_name", "城市"), ("district", "district_level", "商圈等级"),
+           ("floor", "floor", "楼层"), ("store_type", "store_type", "门店类型")), ["stat_date", "store_id"],
+     "门店渠道实付金额，按客流日期（以门店日客流为主表）"),
+    ("ec_store_orders", "门店订单数", "dws_store_daily", "SUM(order_cnt)", "stat_date",
+     _dims(REGION, ("store", "store_name", "门店"), ("city", "city_name", "城市"), ("district", "district_level", "商圈等级"),
+           ("floor", "floor", "楼层"), ("store_type", "store_type", "门店类型")), ["stat_date", "store_id"],
+     "门店渠道订单笔数"),
+    ("ec_visitors", "进店客流", "dws_store_daily", "SUM(visitors)", "stat_date",
+     _dims(REGION, ("store", "store_name", "门店"), ("city", "city_name", "城市"), ("district", "district_level", "商圈等级"),
+           ("floor", "floor", "楼层"), ("store_type", "store_type", "门店类型")), ["stat_date", "store_id"],
+     "客流计数器记录的进店人数"),
+    ("ec_category_sales", "类目销售额", "dws_category_daily", "SUM(item_amount)", "order_date",
+     _dims(REGION, ("category", "category_l1", "一级类目")), ["order_date", "region_code", "region_name", "category_l1"],
+     "订单明细金额（扣活动优惠，不含取消单）"),
+    ("ec_units", "类目销量", "dws_category_daily", "SUM(units)", "order_date",
+     _dims(REGION, ("category", "category_l1", "一级类目")), ["order_date", "region_code", "region_name", "category_l1"],
+     "售出件数（不含取消单）"),
+    ("ec_ad_spend", "投放花费", "dws_marketing_daily", "SUM(spend)", "spend_date",
+     _dims(REGION, ("channel", "channel_name", "投放渠道")), ["spend_date", "region_code", "channel_code"], "付费渠道花费（元）"),
+    ("ec_ad_orders", "投放订单数", "dws_marketing_daily", "SUM(order_cnt)", "spend_date",
+     _dims(REGION, ("channel", "channel_name", "投放渠道")), ["spend_date", "region_code", "channel_code"],
+     "来源渠道归因到该付费渠道的订单（不含取消单）"),
+    ("ec_ad_gmv", "投放成交额", "dws_marketing_daily", "SUM(paid_amount)", "spend_date",
+     _dims(REGION, ("channel", "channel_name", "投放渠道")), ["spend_date", "region_code", "channel_code"],
+     "归因到该付费渠道的实付金额"),
+    ("ec_refund", "退款金额", "dws_refund_daily", "SUM(refund_amount)", "refund_date", _dims(REGION),
+     ["refund_date", "region_code", "region_name"], "退款金额，按退款日期"),
+    ("ec_delivery_total_hours", "配送总时长", "dws_logistics_daily", "SUM(delivery_hours)", "ship_date", _dims(REGION),
+     ["ship_date", "region_code", "region_name"], "发货到签收的小时数合计，按发货日期"),
+    ("ec_shipments", "发货单数", "dws_logistics_daily", "SUM(shipment_cnt)", "ship_date", _dims(REGION),
+     ["ship_date", "region_code", "region_name"], "线上订单发货单数，按发货日期"),
+    ("ec_tickets", "客服工单数", "dws_service_daily", "SUM(ticket_cnt)", "ticket_date",
+     _dims(REGION, ("ticket_category", "category", "问题分类")),
+     ["ticket_date", "region_code", "region_name", "category"], "客服工单数，按创建日期"),
+    ("ec_satisfaction_sum", "满意度评分合计", "dws_service_daily", "SUM(satisfaction_sum)", "ticket_date",
+     _dims(REGION, ("ticket_category", "category", "问题分类")),
+     ["ticket_date", "region_code", "region_name", "category"], "已评价工单的满意度评分之和（1–5 分）"),
+    ("ec_rated", "已评价工单数", "dws_service_daily", "SUM(rated_cnt)", "ticket_date",
+     _dims(REGION, ("ticket_category", "category", "问题分类")),
+     ["ticket_date", "region_code", "region_name", "category"], "有满意度评分的工单数"),
+]
+EC_UNITS = {  # 口径单位（ADR 0009）：报告里的数字由格式器带上单位
+    "ec_gmv": "元", "ec_orders": "单", "ec_store_sales": "元", "ec_store_orders": "单", "ec_visitors": "人",
+    "ec_category_sales": "元", "ec_units": "件", "ec_ad_spend": "元", "ec_ad_orders": "单", "ec_ad_gmv": "元",
+    "ec_refund": "元", "ec_delivery_total_hours": "小时", "ec_shipments": "单", "ec_tickets": "单",
+    "ec_satisfaction_sum": "分", "ec_rated": "单", "ec_aov": "元", "ec_delivery_hours": "小时", "ec_satisfaction": "分",
+}
+EC_DERIVED = [  # 编码、名称、公式、说明
+    ("ec_aov", "客单价", "ec_gmv / ec_orders", "成交额 / 订单数"),
+    ("ec_conversion", "进店转化率", "ec_store_orders / ec_visitors", "门店订单数 / 进店客流"),
+    ("ec_roi", "投放 ROI", "ec_ad_gmv / ec_ad_spend", "投放成交额 / 投放花费"),
+    ("ec_delivery_hours", "平均配送时长", "ec_delivery_total_hours / ec_shipments", "配送总时长 / 发货单数（小时）"),
+    ("ec_satisfaction", "平均满意度", "ec_satisfaction_sum / ec_rated", "满意度评分合计 / 已评价工单数（1–5 分）"),
+]
+
+
+def _publish_ec_metrics(client: TestClient, password: str, assets: dict[str, str], domain_id: str) -> None:
+    """电商经营域的口径：张敏创建、李娜批准；派生指标在组成指标发布后提交（锁定其版本）。已存在的跳过。"""
+    zhang, li = (_Api(client, u, password) for u in ("zhang", "li"))
+    existing = {m["code"] for m in zhang("GET", "/api/metrics")}
+
+    def publish(code: str, name: str, spec: dict) -> None:
+        if code in existing:
+            return
+        metric = zhang("POST", "/api/metrics", json={"code": code, "name": name, "domain_id": domain_id})
+        version = zhang("POST", f"/api/metrics/{metric['id']}/versions", json=spec)
+        zhang("POST", f"/api/metric-versions/{version['id']}/submit")
+        li("POST", f"/api/metric-versions/{version['id']}/approve", json={"note": "电商数据集演示口径"})
+
+    for code, name, view, expression, time_column, dims, grain, description in EC_METRICS:
+        publish(code, name, {"description": description, "base_asset_id": assets[f"default_catalog.ec_dw.{view}"],
+                             "expression": expression, "time_column": time_column, "dimensions": dims, "grain": grain,
+                             "unit": EC_UNITS.get(code)})
+    for code, name, formula, description in EC_DERIVED:
+        publish(code, name, {"kind": "derived", "description": description, "expression": formula,
+                             "unit": EC_UNITS.get(code)})
 
 
 def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], domains: dict[str, str]) -> None:
@@ -156,15 +309,16 @@ def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], 
     publish("paid_sales", "实付销售额", {
         "description": "订单实付金额按下单日期、区域汇总（不扣退款）", "expression": "SUM(sales_amount)",
         "base_asset_id": assets["default_catalog.shop.daily_sales"], "time_column": "order_date",
-        "dimensions": region, "grain": ["order_date", "region"]})
+        "dimensions": region, "grain": ["order_date", "region"], "unit": "元"})
     publish("orders_cnt", "订单数", {
         "description": "订单笔数", "base_asset_id": assets["default_catalog.shop.orders"],
         "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date", "dimensions": region,
-        "grain": ["order_date", "region"]})
+        "grain": ["order_date", "region"], "unit": "单"})
     if "aov" not in existing:  # 派生指标：客单价 = 实付销售额 / 订单数
         metric = zhang("POST", "/api/metrics", json={"code": "aov", "name": "客单价", "domain_id": domains["trade"]})
         version = zhang("POST", f"/api/metrics/{metric['id']}/versions", json={
-            "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt"})
+            "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt",
+            "unit": "元"})
         zhang("POST", f"/api/metric-versions/{version['id']}/submit")
         li("POST", f"/api/metric-versions/{version['id']}/approve", json={"note": "演示走查准备"})
     if "category_sales" in existing:

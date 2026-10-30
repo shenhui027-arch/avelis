@@ -136,7 +136,10 @@ class JobSession:
         return 1
 
     def execute(self, statement):
-        return SimpleNamespace(rowcount=self.apply_update(statement))
+        applied = self.apply_update(statement)
+        if statement._returning:  # UPDATE ... RETURNING：返回被更新的行
+            return [(self.job.id, self.job.kind, self.job.payload, self.job.result)] if applied else []
+        return SimpleNamespace(rowcount=applied)
 
     def scalars(self, statement):
         return [self.job.id] if self.apply_update(statement) else []

@@ -501,6 +501,12 @@ def seed(env: dict[str, str]) -> dict:
                 report["grant_errors"].append({"user": user, "grant": f"[{CATALOG}] {grant}", "error": str(exc)})
             finally:
                 cur.execute("SET CATALOG default_catalog")
+    # 电商数据集（scripts/ec_data.py）不在这里重建，但账号刚重建过：已灌入时重新授权
+    import ec_data
+
+    if ec_data.loaded_checksum(conn):
+        ec_data.grant(conn, env)
+        report["ec_dataset"] = ec_data.loaded_checksum(conn)
     conn.close()
 
     STATE.mkdir(exist_ok=True)

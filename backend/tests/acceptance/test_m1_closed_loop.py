@@ -567,13 +567,13 @@ def test_14_model_settings_and_real_model(stack, admin: Api):
     assert checked["ok"] is True and checked["tool_calling"] is True, checked
     settings = admin.put("/api/model-settings", {"assignments": {
         "ask": {"provider_id": provider["id"], "model_id": name}}})
-    assert settings["mode"] == "configured" and settings["policy"]["send_results"] is False
+    assert settings["mode"] == "configured" and settings["policy"]["send_results"] is True  # 默认允许（ADR 0007）
 
     wang = ctx["apis"]["wang"]
     answer = wang.post("/api/ask", {"question": "2026年9月15日华东区的退款后净销售额是多少？"})
     assert answer["evidence"]["model"]["adapter"] == f"deepseek:{name}"
     assert value_of(answer) == Decimal("270.00"), answer
-    assert answer["explanation_source"] == "template"  # 默认不把查询结果发给模型
+    assert answer["explanation_source"] == "model"  # 默认把查询结果发给结果解释模型（ADR 0007）
     follow = wang.post("/api/ask", {"question": "那华北呢？", "thread_id": answer["thread_id"]})
     assert value_of(follow) == Decimal("150.00"), follow
     # 已失效的口径：真实模型可以追问或交给后端拦截，但不能执行 SQL，也不能悄悄改用其他口径

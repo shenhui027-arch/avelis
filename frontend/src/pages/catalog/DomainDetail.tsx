@@ -28,6 +28,8 @@ export function DomainDetail({ domainId }: { domainId: string }) {
     params: { path: { domain_id: domainId } }, body,
   })), ["domains", "users"]);
   const isOwner = !!d && (me.data?.id === d.owner_id || !!me.data?.roles.includes("admin"));
+  const canMaintain = isOwner || (!!d && d.members.some((m) => m.user_id === me.data?.id && m.role === "maintainer"));
+  const [editingExamples, setEditingExamples] = useState(false);
   const domainAssets = (assets.data ?? []).filter((a) => a.domain_id === domainId);
   const domainMetrics = (metrics.data ?? []).filter((m) => m.domain_id === domainId);
   const query = searches[tab].trim().toLocaleLowerCase();
@@ -57,13 +59,17 @@ export function DomainDetail({ domainId }: { domainId: string }) {
           <header className="av-domain-detail__header">
             <div className="av-pagehd">
               <div className="av-pagehd__title"><h1>{d.name}</h1><span className="av-tag av-mono">{d.code}</span></div>
-              <div className="av-actions"><Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?domains=${d.id}`}><Icon name="lineage" small />域血缘</Link></div>
+              <div className="av-actions">
+                {canMaintain ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditingExamples(true)}>示例问题</button> : null}
+                <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?domains=${d.id}`}><Icon name="lineage" small />域血缘</Link></div>
             </div>
             <dl className="av-domain-detail__summary">
               <div><dt>负责人</dt><dd>{d.members.find((m) => m.user_id === d.owner_id)?.display_name ?? users.data?.find((u) => u.id === d.owner_id)?.display_name ?? (users.isError ? "加载失败" : users.isPending ? "加载中…" : "未提供")}</dd></div>
               {TABS.map((item) => <div key={item.value}><dt>{item.label}</dt><dd>{counts[item.value]}</dd></div>)}
             </dl>
             {d.description ? <p className="av-domain-detail__description">{d.description}</p> : null}
+            {editingExamples ? <ExampleQuestionsEditor domainId={d.id} questions={d.example_questions ?? []}
+              onClose={() => setEditingExamples(false)} /> : null}
             <Banner message={message} />
             <div className="av-tabs" role="tablist" aria-label="业务域内容">
               {TABS.map((item, index) => <button key={item.value} type="button" className="av-tab" role="tab"
@@ -126,6 +132,37 @@ export function DomainDetail({ domainId }: { domainId: string }) {
       ) : <Empty text="业务域不存在" compact />}
     </QueryState>
   );
+}
+
+/** 业务域的示例问题（ADR 0010）：问数页、分析页显示可见业务域的示例；没有配置时由系统按口径生成。每行一个问题。 */
+function ExampleQuestionsEditor({ domainId, questions, onClose }: { domainId: string; questions: { text: string; mode?: string }[]; onClose: () => void }) {
+  const lines = (mode: string) => questions.filter((q) => (q.mode ?? "both") === mode).map((q) => q.text).join("\n");
+  const [ask, setAsk] = useState(lines("ask"));
+  const [analysis, setAnalysis] = useState(lines("analysis"));
+  const [both, setBoth] = useState(lines("both"));
+  const [message, setMessage] = useMessage();
+  const split = (text: string, mode: string) => text.split("\n").map((t) => t.trim()).filter(Boolean).map((t) => ({ text: t.slice(0, 200), mode }));
+  const body = { questions: [...split(ask, "ask"), ...split(analysis, "analysis"), ...split(both, "both")] };
+  const save = useAction(() => unwrap(api.PUT("/api/domains/{domain_id}/example-questions", { params: { path: { domain_id: domainId } }, body })),
+    ["domains", "example-questions"]);
+  return <Drawer title="示例问题" width={560} onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
+    <button type="button" className="av-btn av-btn--primary" disabled={save.isPending || body.questions.length > 12}
+      onClick={() => save.mutate(undefined, { onSuccess: onClose, onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>
+      {save.isPending ? "保存中…" : "保存"}</button>
+  </>}>
+    <div className="av-metric-form">
+      <span className="av-help">每行一个问题，最多 12 个。没有配置时，问数页和分析页按本域口径自动生成示例。</span>
+      <label className="av-field"><span className="av-label">问数示例</span>
+        <textarea className="av-textarea" rows={4} value={ask} onChange={(e) => setAsk(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">分析示例</span>
+        <textarea className="av-textarea" rows={4} value={analysis} onChange={(e) => setAnalysis(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">两处都显示</span>
+        <textarea className="av-textarea" rows={2} value={both} onChange={(e) => setBoth(e.target.value)} /></label>
+      {body.questions.length > 12 ? <span className="av-help av-help--danger">超过 12 个问题</span> : null}
+      <Banner message={message} />
+    </div>
+  </Drawer>;
 }
 
 export function NewDomain({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {

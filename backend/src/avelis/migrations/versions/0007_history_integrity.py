@@ -4,7 +4,7 @@ Revision ID: 0007
 Revises: 0005
 Create Date: 2026-10-30 10:00:00
 
-M8a 的迁移 0006 合并后，本迁移的 down_revision 改为 '0006'（谁后合并谁调整）。
+迁移链：0005 → 0007（本迁移）→ 0008（M8a 分析，原 0006，按“谁后合并谁调整”接在本迁移之后）。
 """
 
 import sqlalchemy as sa

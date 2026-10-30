@@ -112,7 +112,7 @@ function Columns({ a }: { a: AssetDetailT }) {
                   <span className="av-mono av-muted av-asset-inline-gap">{c.fingerprint?.slice(0, 8)}</span></td>
                 <td>
                   {confirming === c.name ? (
-                    <label className="av-field"><span className="av-label">业务含义</span><input className="av-input" autoFocus value={meaning} placeholder="例如：订单实付金额" onChange={(e) => setMeaning(e.target.value)} /></label>
+                    <label className="av-field"><span className="av-label">业务含义</span><input className="av-input" autoFocus value={meaning} placeholder="例如：这一列在业务上表示什么" onChange={(e) => setMeaning(e.target.value)} /></label>
                   ) : valid ? <span>{valid.meaning}</span>
                     : stale ? <span className="av-status av-status--warn" title={stale.meaning}>推导已变化，原确认不再生效</span>
                       : <span className="av-muted">未确认</span>}

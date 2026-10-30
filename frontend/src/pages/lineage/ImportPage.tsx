@@ -116,7 +116,7 @@ function NewImport() {
       <PaneHeader title="原文"><Seg value={mode} onChange={setMode} label="来源"
         options={[{ value: "paste", label: "粘贴 SQL" }, { value: "file", label: "上传文件" }]} /></PaneHeader>
       {mode === "paste" ? <textarea className="av-editor av-editor--input" aria-label="SQL 原文"
-        placeholder={"INSERT INTO ads.daily_net\nSELECT order_date, region, SUM(paid_amount - refund_amount) AS net\nFROM shop.orders GROUP BY order_date, region;"}
+        placeholder={"INSERT INTO target_db.daily_summary\nSELECT event_date, category, SUM(amount) AS total\nFROM source_db.events GROUP BY event_date, category;"}
         value={content} onChange={(e) => setContent(e.target.value)} /> : <div className="av-empty av-import-upload">
         <input ref={fileInput} type="file" className="av-import-file-input" accept=".sql,.py,.sh,.bash"
           aria-label="上传原文文件" aria-describedby="import-file-hint" aria-invalid={!!fileError}
