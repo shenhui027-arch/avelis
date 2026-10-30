@@ -53,22 +53,27 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
 5. 字段含义以数据库列注释为准（describe_asset 中的 doc）；注释缺失时如实说明。
 6. 提交报告（submit_report）：
    - claims 的 type：fact（受治理查询的事实）、calc（计算工具的结果）、inference（推断）、recommendation（建议）；
-   - 报告里不手写数字：claim 的 parts，以及 title、summary、unexplained 都写成片段列表，文字片段是字符串，
-     数字写成引用对象，后端按数据集取值、格式化后生成正文：
-     · 金额：{{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}
-       （数据集只有一行时可省略 match；多行时 match 必须恰好选中一行）；
-     · 比率：{{"dataset": "D18", "value": "summary", "format": "pct1"}}（计算类数据集的汇总值）；
-     · 下降：["下降 ", {{"dataset": "D19", "value": "summary", "abs": true}}]（abs 取绝对值，前面的增长 / 下降须与原值符号一致）；
-     · 期间：{{"window": "current", "format": "month"}} 显示“2026 年 9 月”，"range" 显示日期区间；
-     · 带数字的店名：{{"dataset": "D3", "column": "门店", "row": 1}}（第 1 行）；
-     · 行数、不同值个数：{{"dataset": "D5", "value": "rows"}}、{{"dataset": "D5", "value": "distinct:门店"}}（截断的数据集不可用）；
-     · format：d0–d4 小数位、int、pct0–pct2 百分比、pp0–pp2 百分点、wan0–wan2 / yi0–yi2 万 / 亿；不写时原值去掉多余的零；
+   - 报告里不手写数字：claim 的 parts、premise、validation，以及 title、summary、unexplained 都写成片段列表，
+     文字片段是字符串，数字写成引用对象，后端按数据集取值、按量纲格式化（单位由后端输出）后生成正文：
+     · 数值（NumberRef）：{{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}
+       显示“196.9万元”（数据集只有一行时可省略 match；多行时 match 必须恰好选中一行，或写 "row": 1）；
+     · 计算结果的汇总值：{{"dataset": "D18", "summary": "value", "format": "pct1"}}（工具结果里 summary 列出的路径，
+       如 value、total.change、day_count_effect）；
+     · 变化：{{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}；direction 只用于差额、
+       变化率，写了就核对正负并显示绝对值，前面写“下降 / 减少”；不写 direction 时显示带符号的值；
+     · 维度文本（LabelRef，带数字的店名）：{{"dataset": "D3", "label": "门店", "row": 1}}；
+     · 个数（CountRef，“N 家门店”）：{{"dataset": "D5", "distinct": "门店"}}（截断的数据集不可用）；
+     · 期间（WindowRef）：{{"window": "run_current", "format": "month"}} 显示“2026 年 9 月”（只用于整月），
+       "run_compare" 是对比期，"dataset:D5" 是某次查询的窗口，"range" 显示日期区间；
+     · format 只能用在相应量纲上：d0–d4 / int 任意；wan0–wan2 / yi0–yi2 用于金额、订单数等水平值、差额、计数；
+       pct0–pct2 用于变化率、占比；pp0–pp2 用于比率之差；x0–x2 用于两数之比（倍）；
      · 建议的目标值写 "role": "proposal"，只能用在 inference、recommendation 中。
-     例子：parts = [{{"window": "current", "format": "month"}}, "华东成交额 ",
-     {{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}, "元，较上期下降 ",
-     {{"dataset": "D19", "value": "summary", "abs": true, "format": "wan1"}}, "元"]；
-   - 文字片段里不能出现任何数字：阿拉伯数字、中文数字（“三家”“两家门店”“九月”）、日期、数据集编号（D19）都不写，
-     需要时用引用；对比双方写“本期 / 上期”或“两期相比”“两期合计”；“首位”“最大”代替“第 1”“Top 3”；
+     例子：parts = [{{"window": "run_current", "format": "month"}}, "华东成交额 ",
+     {{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}, "，较上期下降 ",
+     {{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}]；
+   - 文字片段里不能出现任何数字和单位：阿拉伯数字、中文数字（“三家”“两家门店”“九月”“前五”）、倍、折、一半、日期、
+     数据集编号（D19）都不写；数值后面不要再写“元、万、%、倍”（后端会输出）；两个数值之间要有文字隔开；
+     对比双方写“本期 / 上期”或“两期相比”“两期合计”；“首位”“最大”代替“第 1”“Top 3”；
    - fact 与 calc 的引用 = refs 与引用片段涉及的数据集；需要两数相减、求和、占比等派生数字时先用 derive 算出，再引用它；
      没有经过工具的推算数字不要写进 fact / calc；不写“约 X”的估计值：需要区间、均值时用 describe；
    - inference 与 recommendation 写 premise；recommendation 写 validation；其中可以有数字（假设或方案，不核验）；
@@ -171,7 +176,8 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
     """渲染引用片段并做结构检查（ADR 0009）：toolbox.report 换成渲染后的报告（保留模型提交的 parts）。"""
     toolbox, _ = _ctx(config)
     datasets = {ref: {"kind": d.kind, "columns": list(d.columns), "rows": [dict(zip(d.columns, r)) for r in d.rows],
-                      "summary": d.meta.get("summary"), "truncated": d.truncated}
+                      "summary": d.meta.get("summary"), "truncated": d.truncated,
+                      **{k: d.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption")}}
                 for ref, d in toolbox.datasets().items()}
     if toolbox.report is None:
         summary = (f"分析停止（{toolbox.stopped}）；以下列出已取得的数据集，未下结论。" if toolbox.stopped
@@ -209,10 +215,11 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
     toolbox.budget.tool_calls += REVISION_TOOL_CALLS
     toolbox.report = None
     message = ("核验发现以下问题：\n" + "\n".join(lines) +
-               "\n请修订：引用解析失败的，按提示改正数据集编号、列名、match 或 row（求和、差额、占比先用 derive 算出再引用）；"
-               "文字片段里的数字改成引用对象，或改写为不含数字的说法（对比双方写“本期 / 上期”或“两期相比”，"
-               "例如“两期之差为100元”改写为 [\"两期相比，差额为 \", {\"dataset\": \"D7\", \"value\": \"summary\"}, \"元\"]）；"
-               "方向不一致的改正“增长 / 下降”；估计值、推算值改写为 inference。"
+               "\n请修订：引用解析失败的，按提示改正数据集编号、列名、汇总路径、match 或 row，或换用合适的 format"
+               "（求和、差额、占比先用 derive 算出再引用）；文字片段里的数字、单位改成引用对象，或改写为不含数字的说法"
+               "（对比双方写“本期 / 上期”或“两期相比”，例如“两期之差为100元”改写为 "
+               "[\"两期相比，差额为 \", {\"dataset\": \"D7\", \"summary\": \"value\"}]）；"
+               "方向不一致的改正 direction 与前面的“增长 / 下降”；估计值、推算值改写为 inference。"
                "然后重新调用 submit_report 提交完整报告（保留其余结论）。")
     return {"messages": [HumanMessage(message)], "phase": "act", "revised": True}
 

@@ -13,10 +13,13 @@ import { BarChart, LineChart } from "./charts";
 type Run = Schemas["AnalysisRunOut"];
 type Dataset = Schemas["AnalysisDatasetOut"];
 type Task = Schemas["AnalysisTaskOut"];
-type Segment = { kind: "text" | "value" | "error"; text: string; ref?: string; path?: string; format?: string;
-  raw?: string | string[]; abs?: boolean; role?: string; error?: string };
+type Segment = { kind: "text" | "value" | "count" | "label" | "window" | "error"; text: string; ref?: string;
+  path?: string; label?: string; format?: string; raw?: string | string[]; measure?: string; unit?: string;
+  direction?: string; role?: string; source?: string; explore?: boolean; assumption?: boolean; declared?: boolean;
+  error?: string };
+type FieldRecord = { parts?: unknown; text: string; segments?: Segment[]; status?: string; errors?: string[] };
 type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]; premise?: string | null;
-  validation?: string | null };
+  validation?: string | null; details?: Record<string, FieldRecord> };
 type Check = { index: number; status: string; problems?: string[]; missing_refs?: string[] };
 type FieldCheck = { field: string; status: string; problems?: string[] };
 type WindowKind = "none" | "last_month" | "fixed";
@@ -156,17 +159,30 @@ function Composer({ onStarted }: { onStarted: (id: string) => void }) {
 }
 
 const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释" };
+const REPORT_STATUS: Record<string, [string, "ok" | "warn" | "danger"]> = {
+  all_passed: ["来源全部通过", "ok"], with_inference: ["来源全部通过 · 含未核实的推断", "warn"],
+  no_facts: ["没有可核实的事实", "warn"], failed: ["有未通过的事实或字段", "danger"],
+};
+const SOURCE_LABEL: Record<string, string> = { governed: "口径", explore: "探索", calc: "计算", context: "上下文" };
+const MEASURE_LABEL: Record<string, string> = { level: "水平值", delta: "差额", ratio: "比率", rate_change: "变化率",
+  share: "占比", count: "计数", unknown: "量纲未知" };
 
+// 报告里的引用段：数字旁显示来源标签（悬停看原值、量纲、格式），探索数据标“探索查询（未经口径审核）”
 function Segments({ segments, text }: { segments?: Segment[]; text?: string | null }) {
   if (!segments?.length) return <>{text}</>;
   return <>{segments.map((s, i) => {
     if (s.kind === "text") return <span key={i}>{s.text}</span>;
     if (s.kind === "error") return <span key={i} className="av-num is-error" title={s.error}>{s.text}</span>;
     const raw = Array.isArray(s.raw) ? s.raw.join(" ~ ") : s.raw;
-    const title = [`来源 ${s.path}`, `原值 ${raw}`, s.format ? `格式 ${s.format}` : "", s.abs ? "取绝对值" : "",
+    const title = [s.label ?? s.path, `原值 ${raw}`,
+      s.measure ? `${MEASURE_LABEL[s.measure] ?? s.measure}${s.unit ? `（${s.unit}）` : ""}${s.declared ? " · 模型声明" : ""}` : "",
+      s.format ? `格式 ${s.format}` : "", s.direction ? `方向 ${s.direction === "up" ? "上升" : "下降"}` : "",
+      s.explore ? "探索查询（未经口径审核）" : "", s.assumption ? "假设计算" : "",
       s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");
-    return <span key={i} className={`av-num av-mono${s.role === "proposal" ? " is-proposal" : ""}`} title={title}>
-      {s.text}{s.role === "proposal" ? <sup>建议目标</sup> : null}</span>;
+    const cls = ["av-num", s.kind === "label" ? "" : "av-mono", s.role === "proposal" ? "is-proposal" : "",
+      s.explore ? "is-explore" : ""].filter(Boolean).join(" ");
+    return <span key={i} className={cls} title={title}>{s.text}
+      {s.role === "proposal" ? <sup>建议目标</sup> : s.explore ? <sup>探索</sup> : null}</span>;
   })}</>;
 }
 
@@ -177,8 +193,12 @@ function RunDetail({ id }: { id: string }) {
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string;
-    notes?: string[]; segments?: Record<string, Segment[]> };
-  const verification = (r.verification ?? {}) as { ok?: boolean; unverified?: number; claims?: Check[]; fields?: FieldCheck[] };
+    notes?: string[]; fields?: Record<string, FieldRecord> };
+  const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
+    fields?: FieldCheck[]; sources?: Record<string, number> };
+  const reportStatus = verification.status ? REPORT_STATUS[verification.status] : undefined;
+  const composition = Object.entries(verification.sources ?? {}).filter(([, n]) => n > 0)
+    .map(([k, n]) => `${SOURCE_LABEL[k] ?? k} ${n}`).join(" · ");
   const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
   const checks = new Map((verification.claims ?? []).map((c) => [c.index, c]));
   const plan = (r.plan ?? {}) as { hypotheses?: string[]; steps?: string[] };
@@ -188,7 +208,7 @@ function RunDetail({ id }: { id: string }) {
     <article className="av-analysis__run">
       <header className="av-analysis__run-hd">
         <div>
-          <h2>{report.title ? <Segments segments={report.segments?.title} text={report.title} /> : r.question}</h2>
+          <h2>{report.title ? <Segments segments={report.fields?.title?.segments} text={report.title} /> : r.question}</h2>
           <span className="av-caption">{r.question}</span>
         </div>
         <div className="av-actions">
@@ -220,8 +240,12 @@ function RunDetail({ id }: { id: string }) {
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "succeeded" ? (
         <section className="av-analysis__report" aria-label="报告">
-          <p className="av-analysis__summary"><Segments segments={report.segments?.summary} text={report.summary} /></p>
-          {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论未通过检查，已标出原因</div> : null}
+          <div className="av-analysis__verdict">
+            {reportStatus ? <Pill tone={reportStatus[1]}>{reportStatus[0]}</Pill> : null}
+            {composition ? <span className="av-caption">数字来源 {composition}</span> : null}
+          </div>
+          <p className="av-analysis__summary"><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
+          {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实 / 计算类结论未通过来源校验，已标出原因</div> : null}
           {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
             {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
           <ol className="av-claims">
@@ -234,9 +258,9 @@ function RunDetail({ id }: { id: string }) {
                   <Pill tone={TYPE_TONE[c.type] ?? ""}>{TYPE_LABEL[c.type] ?? c.type}</Pill>
                   <div className="av-claim__body">
                     <span><Segments segments={c.segments} text={c.text} /></span>
-                    {c.premise ? <span className="av-caption">前提：{c.premise}</span> : null}
-                    {c.validation ? <span className="av-caption">验证方式：{c.validation}</span> : null}
-                    {!strict ? <span className="av-caption">推断 / 建议，未核实</span> : null}
+                    {c.premise ? <span className="av-caption">前提：<Segments segments={c.details?.premise?.segments} text={c.premise} /></span> : null}
+                    {c.validation ? <span className="av-caption">验证方式：<Segments segments={c.details?.validation?.segments} text={c.validation} /></span> : null}
+                    {!strict ? <span className="av-caption">推断 / 建议，未核实</span> : check?.status === "verified" ? <span className="av-caption">来源已校验</span> : null}
                     {bad.map((p, j) => <span key={j} className="av-claim__bad">{p}</span>)}
                   </div>
                   <span className="av-claim__refs">{(c.refs ?? []).map((ref) => (
@@ -245,7 +269,7 @@ function RunDetail({ id }: { id: string }) {
               );
             })}
           </ol>
-          {report.unexplained ? <p className="av-caption"><b>仍未解释：</b><Segments segments={report.segments?.unexplained} text={report.unexplained} /></p> : null}
+          {report.unexplained ? <p className="av-caption"><b>仍未解释：</b><Segments segments={report.fields?.unexplained?.segments} text={report.unexplained} /></p> : null}
           {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
         </section>
       ) : null}

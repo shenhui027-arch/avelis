@@ -56,6 +56,13 @@ def toolbox(username: str, budget=None):
     return scope, session, run, box
 
 
+def grounding_view(ds) -> dict:
+    """数据集交给 ground_report 的结构（与 agent.verify 相同）。"""
+    return {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
+            "summary": ds.meta.get("summary"), "truncated": ds.truncated,
+            **{k: ds.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption")}}
+
+
 def rows(ds_json: str) -> list[dict]:
     view = json.loads(ds_json)
     assert "error" not in view, view
@@ -189,9 +196,9 @@ def test_03_permission_budget_and_verification(admin: Api):
             {"type": "fact", "parts": ["华南退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "华南"}}]},
             {"type": "fact", "parts": ["华南退款 1.00"], "refs": ["D1"]},
             {"type": "fact", "parts": ["西藏退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "西藏"}}]}]},
-            {"D1": {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows]}}, None)
+            {"D1": grounding_view(ds)}, None)
         assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified"]
-        assert rendered["claims"][0]["text"] == f"华南退款 {Decimal(str(d1['华南'])).normalize():f}".rstrip(".")
+        assert rendered["claims"][0]["text"].startswith("华南退款 ") and rendered["claims"][0]["segments"][1]["measure"] == "level"
     finally:
         scope.__exit__(None, None, None)
 
@@ -217,11 +224,11 @@ def test_05_export_and_dataset_csv(admin: Api):
         top = max(d, key=lambda r: Decimal(str(r["进店客流"])))
         ds = box.datasets()["D1"]
         run.report, run.verification = ground_report({"title": "商圈等级与客流", "summary": "核心商圈客流最高。", "claims": [
-            {"type": "fact", "parts": [{"dataset": "D1", "column": "district", "match": {"district": top["district"]}},
+            {"type": "fact", "parts": [{"dataset": "D1", "label": "district", "match": {"district": top["district"]}},
                                        "客流 ", {"dataset": "D1", "column": "进店客流",
                                                 "match": {"district": top["district"]}}]},
             {"type": "fact", "parts": ["社区店客流 1"], "refs": ["D1"]}]},
-            {"D1": {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows]}}, None)
+            {"D1": grounding_view(ds)}, None)
         run.status = "succeeded"
         run_id = run.id
     finally:
@@ -230,10 +237,12 @@ def test_05_export_and_dataset_csv(admin: Api):
     view = wang.get(f"/api/analysis/runs/{run_id}")
     assert view["verification"]["unverified"] == 1 and view["datasets"][0]["ref"] == "D1"
     md = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "md"}, headers=wang.headers)
-    assert md.status_code == 200 and "文字片段里出现数字“1”" in md.text and "## 附录：数据集" in md.text
+    assert md.status_code == 200 and "出现数字“1”" in md.text and "## 附录：数据集" in md.text
+    assert "## 附录：数值来源" in md.text and "D1 · 进店客流" in md.text
     sources = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "csv"}, headers=wang.headers)
     lines = sources.content.decode("utf-8-sig").splitlines()
-    assert lines[0].startswith("位置,类型,显示值,数据集,取值路径") and any(",D1,D1.进店客流[district=" in x for x in lines)
+    assert lines[0].startswith("位置,类型,显示值,来源标签,数据集,取值路径") and any(
+        ",D1,D1.进店客流[district=" in x and ",水平值," in x for x in lines)
     pdf = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "pdf"}, headers=wang.headers)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and len(pdf.content) > 5000
     csv = wang.client.get(f"/api/analysis/runs/{run_id}/datasets/1/csv", headers=wang.headers)

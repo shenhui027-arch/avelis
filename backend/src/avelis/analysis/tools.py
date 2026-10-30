@@ -23,8 +23,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.analysis import calc
+from avelis.analysis import calc, measures
 from avelis.analysis.grounding import Part
+from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
@@ -291,9 +292,13 @@ class AnalysisToolbox:
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
                  inputs: list[str] | None = None, meta: dict | None = None, truncated: bool = False) -> AnalysisDataset:
+        meta = dict(meta or {})
+        # 来源含探索数据的标记沿输入血缘传递（ADR 0009 第 6 点）
+        meta["explore"] = kind == "explore" or any(
+            (self._datasets[i].meta or {}).get("explore") for i in inputs or [] if i in self._datasets)
         ds = AnalysisDataset(run_id=self.run.id, seq=len(self._datasets) + 1, kind=kind, title=title[:255],
                              answer_id=answer_id, inputs=inputs or [], columns=columns,
-                             rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta or {})))
+                             rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta)))
         self.session.add(ds)
         self.session.flush()
         self._datasets[f"D{ds.seq}"] = ds
@@ -301,6 +306,11 @@ class AnalysisToolbox:
 
     def datasets(self) -> dict[str, AnalysisDataset]:
         return dict(self._datasets)
+
+    def _unit(self, ref: str, column: str) -> dict:
+        """数据集某列登记的量纲与单位；没登记的按 unknown。"""
+        ds = self._datasets.get(ref)
+        return dict(((ds.meta or {}).get("units") or {}).get(column) or measures.UNKNOWN) if ds else dict(measures.UNKNOWN)
 
     def _rows(self, ref: str) -> tuple[AnalysisDataset, list[dict]]:
         ds = self._datasets.get(ref)
@@ -644,12 +654,16 @@ class AnalysisToolbox:
                 f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
                 f" 对比{ {'previous_period': '上一期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
                 if args.compare else "")
+            versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
+            units = measures.governed_units(columns, versions,
+                                            service.PERIOD_LABEL[args.compare] if args.compare else None)
             ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                                truncated=bool(result.get("truncated")),
                                meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                      "intent": answer.intent, "freshness": answer.freshness,
                                      "purpose": args.purpose,
-                                     "time_column": columns[0] if args.time_grain else None})
+                                     "time_column": columns[0] if args.time_grain else None, "units": units,
+                                     "window": {"start": str(args.start_date), "end": str(args.end_date)}})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard("query_metric", args.model_dump(mode="json"), run)
 
@@ -662,9 +676,10 @@ class AnalysisToolbox:
             if truncated and full_set:
                 raise calc.CalcError(f"数据集 {'、'.join(truncated)} 被截断（不是全集），不能用于 {tool}："
                                      "请缩小时间范围、减少分组或加筛选后重新查询")
-            title, columns, rows, summary = fn()
+            title, columns, rows, summary, *extra = fn()
+            registered = extra[0] if extra else {}  # {units, summary_units, assumption}：量纲登记（ADR 0009）
             ds = self._dataset("calc", title, columns, rows, inputs=inputs, truncated=bool(truncated),
-                               meta={"summary": summary, "args": args})
+                               meta={"summary": summary, "args": args, **registered})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
         return self._guard(tool, args, run)
 
@@ -673,8 +688,13 @@ class AnalysisToolbox:
             _, rows = self._rows(dataset)
             out = calc.contribution(rows, keys, current, previous)
             cols = [*keys, "previous", "current", "change", "change_rate", "share_of_change"]
+            base = self._unit(dataset, current)
+            units = {"previous": base, "current": base, "change": like(base, "delta"),
+                     "change_rate": col("rate_change"), "share_of_change": col("share")}
             return (f"{dataset} 按{'、'.join(keys)}的差额拆解", cols, [[r[c] for c in cols] for r in out["rows"]],
-                    {"total": out["total"]})
+                    {"total": out["total"]}, {"units": units, "summary_units": {
+                        "total.previous": base, "total.current": base, "total.change": like(base, "delta"),
+                        "total.change_rate": col("rate_change")}})
         return self._calc("contribution", {"dataset": dataset, "keys": keys, "current": current,
                                            "previous": previous}, [dataset], fn)
 
@@ -694,8 +714,13 @@ class AnalysisToolbox:
             out = calc.factor_decompose((row[total.previous], row[total.current]),
                                         {f.name: (row[f.previous], row[f.current]) for f in factors})
             cols = ["factor", "previous", "current", "change_rate", "contribution", "share"]
+            base = self._unit(dataset, total.current)
+            units = {"previous": col("unknown"), "current": col("unknown"), "change_rate": col("rate_change"),
+                     "contribution": like(base, "delta"), "share": col("share")}
             return (f"{dataset} {total.name}的因子拆解", cols, [[f[c] for c in cols] for f in out["factors"]],
-                    {"total": out["total"], "unexplained": out["unexplained"]})
+                    {"total": out["total"], "unexplained": out["unexplained"]}, {"units": units, "summary_units": {
+                        "total.previous": base, "total.current": base, "total.change": like(base, "delta"),
+                        "unexplained": like(base, "delta")}})
         return self._calc("factor_decompose", {"dataset": dataset, "total": total.model_dump(),
                                                "factors": [f.model_dump() for f in factors], "match": match},
                           [dataset], fn, full_set=False)
@@ -708,8 +733,14 @@ class AnalysisToolbox:
             out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period, HOLIDAYS)
             cols = ["period", "days", "weekend_days", "holidays", "value", "daily"]
             rows_out = [["本期", *[out["current"][c] for c in cols[1:]]], ["上期", *[out["previous"][c] for c in cols[1:]]]]
+            base = self._unit(dataset, current)
+            delta, days = like(base, "delta"), col("count", "天")
+            units = {"days": days, "weekend_days": days, "holidays": days, "value": base, "daily": base}
             return (f"{dataset} {current}的日历折算", cols, rows_out,
-                    {k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")})
+                    {k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")},
+                    {"units": units, "summary_units": {"change": delta, "day_count_effect": delta,
+                                                       "daily_level_effect": delta,
+                                                       "daily_change_rate": col("rate_change")}})
         return self._calc("calendar_adjust", {"dataset": dataset, "current": current, "previous": previous,
                                               "match": match}, [dataset], fn, full_set=False)
 
@@ -718,7 +749,10 @@ class AnalysisToolbox:
             _, rows = self._rows(dataset)
             out = calc.correlate(rows, x, y)
             cols = list(out)
-            return f"{dataset} {x} 与 {y} 的相关性", cols, [[out[c] for c in cols]], out
+            units = {c: col("count") if c == "n" else col("unknown") for c in ("n", "pearson", "spearman", "p_value")
+                     if c in out}
+            return f"{dataset} {x} 与 {y} 的相关性", cols, [[out[c] for c in cols]], out, {
+                "units": units, "summary_units": units}
         return self._calc("correlate", {"dataset": dataset, "x": x, "y": y}, [dataset], fn)
 
     def coverage(self, dataset: str, keys: list[str] | None = None, period: str | None = None,
@@ -731,7 +765,9 @@ class AnalysisToolbox:
             period_col = period_col if period_col in ds.columns else None
             out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date))
             cols = [*(keys or []), "rows", "periods", "missing_count", "missing_periods"]
-            return (f"{dataset} 的覆盖度", cols, [[r.get(c) for c in cols] for r in out["rows"]], out["summary"])
+            counts = {c: col("count") for c in ("rows", "periods", "missing_count")}
+            return (f"{dataset} 的覆盖度", cols, [[r.get(c) for c in cols] for r in out["rows"]], out["summary"],
+                    {"units": counts, "summary_units": {k: col("count") for k in out["summary"]}})
         return self._calc("coverage", {"dataset": dataset, "keys": keys, "period": period, "start_date": start_date,
                                        "end_date": end_date}, [dataset], fn)
 
@@ -762,9 +798,21 @@ class AnalysisToolbox:
                 env[v.name] = total
                 rows_out.append([v.name, v.dataset, v.column, len(picked), total])
             result = evaluate(formula, env)
+            if result is None:
+                raise calc.CalcError("结果无法计算（除数为 0 或缺值）")
+            # 每个输入都必须真正影响结果（拒绝 a*0+99999 这类写法）；非白名单常量把结果标为假设计算（ADR 0009 第 3 点）
+            dead = measures.insensitive(formula, env, evaluate)
+            if dead:
+                raise calc.CalcError(f"输入 {'、'.join(dead)} 不影响结果：每个取值都必须参与计算")
+            assumption = bool(measures.constants(formula))
+            unit = measures.formula_unit(formula, {v.name: self._unit(v.dataset, v.column) for v in values})
             rows_out.append([label, None, formula, None, result])
-            return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out,
-                    {"label": label, "formula": formula, "value": result})
+            summary = {"label": label, "formula": formula, "value": result,
+                       **({"assumption": "公式含 1、100、1000、10000、1e8 以外的常量：假设计算，只能被推断、建议引用"}
+                          if assumption else {})}
+            # value 列里也有各输入的取值（量纲各不相同），只登记汇总值 summary.value 的量纲
+            return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out, summary,
+                    {"units": {"rows": col("count")}, "summary_units": {"value": unit}, "assumption": assumption})
         return self._calc("derive", {"label": label, "values": [v.model_dump() for v in values], "formula": formula},
                           sorted({v.dataset for v in values}), fn, full_set=False)
 
@@ -776,7 +824,10 @@ class AnalysisToolbox:
                 raise calc.CalcError(f"{dataset} 没有列 {column}")
             out = calc.describe([r.get(column) for r in picked])
             cols = list(out)
-            return f"{dataset} {column}的描述统计", cols, [[out[c] for c in cols]], out
+            base = self._unit(dataset, column)
+            units = {c: col("count") if c == "count" else dict(base) for c in cols}
+            return f"{dataset} {column}的描述统计", cols, [[out[c] for c in cols]], out, {
+                "units": units, "summary_units": units}
         return self._calc("describe", {"dataset": dataset, "column": column, "match": match}, [dataset], fn)
 
     def segment_compare(self, dataset: str, segment: str, measures: list[str]) -> str:
@@ -784,7 +835,10 @@ class AnalysisToolbox:
             _, rows = self._rows(dataset)
             out = calc.segment_compare(rows, segment, measures)
             cols = list(out[0]) if out else [segment]
-            return f"{dataset} 按{segment}分组对比", cols, [[r[c] for c in cols] for r in out], None
+            units = {"count": col("count")}
+            for m in measures:
+                units.update({f"{m}_{k}": self._unit(dataset, m) for k in ("sum", "mean", "median")})
+            return f"{dataset} 按{segment}分组对比", cols, [[r[c] for c in cols] for r in out], None, {"units": units}
         return self._calc("segment_compare", {"dataset": dataset, "segment": segment, "measures": measures},
                           [dataset], fn)
 
@@ -793,8 +847,11 @@ class AnalysisToolbox:
             _, rows = self._rows(dataset)
             out = calc.outliers(rows, value, keys)
             cols = [*keys, value, "side"]
-            return (f"{dataset} {value}的异常值", cols, [[r.get(c) for c in cols] for r in out["rows"]],
-                    {k: v for k, v in out.items() if k != "rows"})
+            base = self._unit(dataset, value)
+            summary = {k: v for k, v in out.items() if k != "rows"}
+            return (f"{dataset} {value}的异常值", cols, [[r.get(c) for c in cols] for r in out["rows"]], summary,
+                    {"units": {value: base}, "summary_units": {k: dict(base) for k in ("q1", "q3", "low", "high")
+                                                               if k in summary}})
         return self._calc("outliers", {"dataset": dataset, "value": value, "keys": keys}, [dataset], fn)
 
     def tools(self) -> list[StructuredTool]:
