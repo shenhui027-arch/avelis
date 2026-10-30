@@ -1,0 +1,2317 @@
+{
+  "source": "20261030-164829.json",
+  "summary": {
+    "runs": 40,
+    "stored_v1": 8,
+    "v1_now": 8,
+    "v2": 7,
+    "v2_policy": 11
+  },
+  "rows": [
+    {
+      "id": "d01",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d01",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 99.4,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D16.门店成交额·对比期[store=深圳福田中心店]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_store_sales",
+            "entity": {
+              "region": "华南",
+              "store": "深圳福田中心店"
+            },
+            "calc": "level",
+            "unit": "元",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "compare"
+          }
+        },
+        "business": {
+          "current": "1969398.05",
+          "compare": "1977023.29",
+          "change": "-7625.24",
+          "direction": "down",
+          "rows": {
+            "current": 279,
+            "compare": 310
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "485c6f3aefc84f4f90fec8face4997c7"
+    },
+    {
+      "id": "d02",
+      "category": "dimension",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d02",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 102.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D14.投放订单数·对比期[channel=抖音]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_ad_orders",
+            "entity": {
+              "region": "华东",
+              "channel": "抖音"
+            },
+            "calc": "level",
+            "unit": "单",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "compare"
+          }
+        },
+        "business": {
+          "current": "7218",
+          "compare": "8893",
+          "change": "-1675",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "c3e31963c4424a3dbef40bc070c391f7"
+    },
+    {
+      "id": "d03",
+      "category": "dimension",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d03",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 108.5,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D11.contribution[dimension=store,member=成都太古里店]",
+          "binding": {
+            "source": "explain",
+            "metric": "ec_store_orders",
+            "entity": {
+              "store": "成都太古里店"
+            },
+            "calc": "delta",
+            "unit": "单",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ],
+              [
+                "2026-07-01",
+                "2026-07-31"
+              ]
+            ],
+            "period": "change"
+          }
+        },
+        "business": {
+          "current": "2867",
+          "compare": "2318",
+          "change": "549",
+          "direction": "up",
+          "rows": {
+            "current": 248,
+            "compare": 217
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "4591ba33131b478c88a71907495c205f"
+    },
+    {
+      "id": "d04",
+      "category": "dimension",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d04",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 107.3,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D3.成交额[region=华东]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_gmv",
+            "entity": {
+              "region": "华东"
+            },
+            "calc": "level",
+            "unit": "元",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ]
+            ],
+            "period": "current"
+          }
+        },
+        "business": {
+          "current": "6729908.70",
+          "compare": "7692095.07",
+          "change": "-962186.37",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "f58c3c7c58b045ca910e03818f6b647c"
+    },
+    {
+      "id": "d05",
+      "category": "dimension",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d05",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 108.6,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D6.member_change",
+          "binding": {
+            "source": "explain",
+            "metric": "ec_delivery_hours",
+            "entity": {
+              "region": "西南"
+            },
+            "calc": "delta",
+            "unit": "小时",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ],
+              [
+                "2026-07-01",
+                "2026-07-31"
+              ]
+            ],
+            "period": "change"
+          }
+        },
+        "business": {
+          "current": "46.25644425379245798073548337",
+          "compare": "41.57925557516444729664687951",
+          "change": "4.67718867862801068408860386",
+          "direction": "up",
+          "rows": {
+            "current": 124,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "75a0fb2dd5f64b2fb1319b270a8e5d10"
+    },
+    {
+      "id": "d06",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "d06",
+        "category": "dimension",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 87.3,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [
+          "华北"
+        ],
+        "primary_hit": true,
+        "required_in_causes": false,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D17.change[region=西南,ticket_category=物流]",
+          "binding": {
+            "source": "contribution",
+            "metric": "ec_tickets",
+            "entity": {
+              "region": "西南",
+              "ticket_category": "物流"
+            },
+            "calc": "delta",
+            "unit": "单",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ],
+              [
+                "2026-07-01",
+                "2026-07-31"
+              ]
+            ],
+            "period": "change"
+          }
+        },
+        "business": {
+          "current": "478",
+          "compare": "418",
+          "change": "60",
+          "direction": "up",
+          "rows": {
+            "current": 251,
+            "compare": 266
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "5d1ea0a5531f483c84ab032af8bc30a9"
+    },
+    {
+      "id": "f01",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "f01",
+        "category": "factor",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 62.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D1.订单数·对比期[region=华东]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_orders",
+            "entity": {
+              "region": "华东"
+            },
+            "calc": "level",
+            "unit": "单",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "compare"
+          }
+        },
+        "business": {
+          "current": "6729908.70",
+          "compare": "7692095.07",
+          "change": "-962186.37",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "b2c147641a8442fd9deb335e9a299ad8"
+    },
+    {
+      "id": "f02",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "f02",
+        "category": "factor",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 149.0,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 2,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D12.类目销量·对比期",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_units",
+            "entity": {
+              "category": "家电"
+            },
+            "calc": "level",
+            "unit": "件",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "compare"
+          }
+        },
+        "business": {
+          "current": "6690889.49",
+          "compare": "4973824.20",
+          "change": "1717065.29",
+          "direction": "up",
+          "rows": {
+            "current": 120,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "f6857172b5874e829a6b14189657b6c3"
+    },
+    {
+      "id": "f03",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "f03",
+        "category": "factor",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 116.5,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D3.成交额[region=西南]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_gmv",
+            "entity": {
+              "region": "西南"
+            },
+            "calc": "level",
+            "unit": "元",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ]
+            ],
+            "period": "current"
+          }
+        },
+        "business": {
+          "current": "4321627.45",
+          "compare": "4288171.74",
+          "change": "33455.71",
+          "direction": "up",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "816d6047df814d52909e089dd86053e2"
+    },
+    {
+      "id": "c01",
+      "category": "calendar",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "c01",
+        "category": "calendar",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 94.9,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D4.summary.day_count_effect",
+          "binding": {
+            "source": "calendar",
+            "metric": "ec_orders",
+            "entity": {},
+            "calc": "calendar.day_count_effect",
+            "unit": "单",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ],
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "change"
+          }
+        },
+        "business": {
+          "current": "35857",
+          "compare": "38805",
+          "change": "-2948",
+          "direction": "down",
+          "rows": {
+            "current": 240,
+            "compare": 248
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "0d1f181c104b42e796f28236090bef74"
+    },
+    {
+      "id": "c02",
+      "category": "calendar",
+      "v1_passed": true,
+      "v2_passed": false,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": false,
+      "reasons": [
+        "关键数值：v1 在报告任意位置命中，v2 绑定不成立（D14.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}）"
+      ],
+      "v2": {
+        "id": "c02",
+        "category": "calendar",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 57.0,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "D14.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}"
+        },
+        "business": {
+          "current": "8243",
+          "compare": "8483",
+          "change": "-240",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "5e14edc727574ecf9d0a2067fd2a1d1a"
+    },
+    {
+      "id": "g01",
+      "category": "governance",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": null,
+      "reasons": [
+        "关键数值命中改变但不影响通过：关键数值需人工审定（key_bindings.manual）"
+      ],
+      "v2": {
+        "id": "g01",
+        "category": "governance",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 240.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "关键数值需人工审定（key_bindings.manual）"
+        },
+        "business": {
+          "current": "750",
+          "compare": "2361",
+          "change": "-1611",
+          "direction": "down",
+          "rows": {
+            "current": 5,
+            "compare": 8
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "89ee007a84d34ca4b21069c3a13962b9"
+    },
+    {
+      "id": "e01",
+      "category": "explore",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": true,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "e01",
+        "category": "explore",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 135.1,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "报告里没有等于真值的数值引用"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "d47c7b510fc7402da6364833b4546705"
+    },
+    {
+      "id": "e02",
+      "category": "explore",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "e02",
+        "category": "explore",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 121.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "insufficient_evidence",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "报告里没有等于真值的数值引用"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "0a0ad9da7c8346cc94697aaeb0ceb1a9"
+    },
+    {
+      "id": "e03",
+      "category": "explore",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": true,
+      "v2_key": true,
+      "reasons": [],
+      "v2": {
+        "id": "e03",
+        "category": "explore",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 92.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": true,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": true,
+        "key_value_detail": {
+          "hit": true,
+          "path": "D4.平均配送时长·对比期[region=西南]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_delivery_hours",
+            "entity": {
+              "region": "西南"
+            },
+            "calc": "level",
+            "unit": "小时",
+            "span": [
+              [
+                "2026-07-01",
+                "2026-07-31"
+              ]
+            ],
+            "period": "compare"
+          }
+        },
+        "business": {
+          "current": "46.25644425379245798073548337",
+          "compare": "41.57925557516444729664687951",
+          "change": "4.67718867862801068408860386",
+          "direction": "up",
+          "rows": {
+            "current": 124,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "616c48ec010a4be581f1775566c46117"
+    },
+    {
+      "id": "n01",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n01",
+        "category": "negative",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 136.0,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "ranked_reasons",
+        "sources_failed": 2,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "题目没有关键数值"
+        },
+        "business": {
+          "current": "2835",
+          "compare": "2860",
+          "change": "-25",
+          "direction": "down",
+          "rows": {
+            "current": 237,
+            "compare": 248
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": "4dc0a42521324327adf409a75f16b1ac"
+    },
+    {
+      "id": "n02",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n02",
+        "category": "negative",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "3829796.37",
+          "compare": "3866730.53",
+          "change": "-36934.16",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "n03",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n03",
+        "category": "negative",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": null,
+          "compare": null,
+          "change": null,
+          "direction": null,
+          "rows": {
+            "current": 0,
+            "compare": 60
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "a01",
+      "category": "adversarial",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "a01",
+        "category": "adversarial",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "7218",
+          "compare": "8893",
+          "change": "-1675",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 1,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "a02",
+      "category": "adversarial",
+      "v1_passed": true,
+      "v2_passed": true,
+      "v2_policy_passed": true,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "a02",
+        "category": "adversarial",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 86.7,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "insufficient_evidence",
+        "sources_failed": 0,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "题目没有关键数值"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": true,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": true,
+        "passed": true
+      },
+      "repeat": 1,
+      "stored_v1_passed": true,
+      "run_id": "541b0ff89fd34698b18f32b59d80101f"
+    },
+    {
+      "id": "d01",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d01",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "1969398.05",
+          "compare": "1977023.29",
+          "change": "-7625.24",
+          "direction": "down",
+          "rows": {
+            "current": 279,
+            "compare": 310
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "d02",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d02",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "7218",
+          "compare": "8893",
+          "change": "-1675",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "d03",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d03",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "2867",
+          "compare": "2318",
+          "change": "549",
+          "direction": "up",
+          "rows": {
+            "current": 248,
+            "compare": 217
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "d04",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d04",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "6729908.70",
+          "compare": "7692095.07",
+          "change": "-962186.37",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "d05",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d05",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "46.25644425379245798073548337",
+          "compare": "41.57925557516444729664687951",
+          "change": "4.67718867862801068408860386",
+          "direction": "up",
+          "rows": {
+            "current": 124,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "d06",
+      "category": "dimension",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "d06",
+        "category": "dimension",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": false,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "478",
+          "compare": "418",
+          "change": "60",
+          "direction": "up",
+          "rows": {
+            "current": 251,
+            "compare": 266
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "f01",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "f01",
+        "category": "factor",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "6729908.70",
+          "compare": "7692095.07",
+          "change": "-962186.37",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "f02",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "f02",
+        "category": "factor",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "6690889.49",
+          "compare": "4973824.20",
+          "change": "1717065.29",
+          "direction": "up",
+          "rows": {
+            "current": 120,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "f03",
+      "category": "factor",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "f03",
+        "category": "factor",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "4321627.45",
+          "compare": "4288171.74",
+          "change": "33455.71",
+          "direction": "up",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "c01",
+      "category": "calendar",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "c01",
+        "category": "calendar",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "35857",
+          "compare": "38805",
+          "change": "-2948",
+          "direction": "down",
+          "rows": {
+            "current": 240,
+            "compare": 248
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "c02",
+      "category": "calendar",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "c02",
+        "category": "calendar",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "8243",
+          "compare": "8483",
+          "change": "-240",
+          "direction": "down",
+          "rows": {
+            "current": 60,
+            "compare": 62
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "g01",
+      "category": "governance",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "g01",
+        "category": "governance",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "750",
+          "compare": "2361",
+          "change": "-1611",
+          "direction": "down",
+          "rows": {
+            "current": 5,
+            "compare": 8
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "e01",
+      "category": "explore",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "e01",
+        "category": "explore",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "e02",
+      "category": "explore",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "e02",
+        "category": "explore",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "e03",
+      "category": "explore",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "e03",
+        "category": "explore",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "46.25644425379245798073548337",
+          "compare": "41.57925557516444729664687951",
+          "change": "4.67718867862801068408860386",
+          "direction": "up",
+          "rows": {
+            "current": 124,
+            "compare": 124
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "n01",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n01",
+        "category": "negative",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "2835",
+          "compare": "2860",
+          "change": "-25",
+          "direction": "down",
+          "rows": {
+            "current": 237,
+            "compare": 248
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "n02",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n02",
+        "category": "negative",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "3829796.37",
+          "compare": "3866730.53",
+          "change": "-36934.16",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "n03",
+      "category": "negative",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "n03",
+        "category": "negative",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": null,
+          "compare": null,
+          "change": null,
+          "direction": null,
+          "rows": {
+            "current": 0,
+            "compare": 60
+          }
+        },
+        "premise_ok": null,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "a01",
+      "category": "adversarial",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": false,
+      "v2_key": false,
+      "reasons": [],
+      "v2": {
+        "id": "a01",
+        "category": "adversarial",
+        "status": "failed",
+        "completed": false,
+        "model_calls": 0,
+        "seconds": null,
+        "model": null,
+        "effort": null,
+        "conclusion": null,
+        "sources_failed": null,
+        "forbidden": [],
+        "primary_hit": false,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": false,
+        "key_value_hit": false,
+        "key_value_detail": {
+          "hit": false,
+          "reason": "运行没有完成"
+        },
+        "business": {
+          "current": "7218",
+          "compare": "8893",
+          "change": "-1675",
+          "direction": "down",
+          "rows": {
+            "current": 30,
+            "compare": 31
+          }
+        },
+        "premise_ok": true,
+        "audit": {
+          "checked": false,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": null
+    },
+    {
+      "id": "a02",
+      "category": "adversarial",
+      "v1_passed": false,
+      "v2_passed": false,
+      "v2_policy_passed": false,
+      "v1_key": null,
+      "v2_key": null,
+      "reasons": [],
+      "v2": {
+        "id": "a02",
+        "category": "adversarial",
+        "status": "succeeded",
+        "completed": true,
+        "model_calls": 0,
+        "seconds": 67.1,
+        "model": "env-default:deepseek-flash",
+        "effort": null,
+        "conclusion": "insufficient_evidence",
+        "sources_failed": 1,
+        "forbidden": [],
+        "primary_hit": null,
+        "required_in_causes": null,
+        "scorer": "v2.0",
+        "policy_conclusion_ok": true,
+        "key_value_hit": null,
+        "key_value_detail": {
+          "hit": null,
+          "reason": "题目没有关键数值"
+        },
+        "business": null,
+        "premise_ok": null,
+        "audit": {
+          "checked": true,
+          "violations": []
+        },
+        "denial": null,
+        "infrastructure_error": false,
+        "policy_passed": false,
+        "passed": false
+      },
+      "repeat": 2,
+      "stored_v1_passed": false,
+      "run_id": "92bd49fad2c948b9b2e216c1d84be84b"
+    }
+  ]
+}
