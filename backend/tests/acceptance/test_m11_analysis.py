@@ -283,13 +283,36 @@ def test_06_tasks_pause_and_schedule(admin: Api):
 def assert_grounded(run: dict) -> None:
     """真实模型的报告必须全部核验通过：每条事实与计算类结论都引用了数据集、其中每个数字都在数据集中找到，
     标题、摘要与“未解释”中的数字也一样（核验后有一轮修订）。不再放宽为“至多 20% 未核实”。"""
-    checks = [c for c in run["verification"]["claims"] if c["type"] in ("fact", "calc")]
-    assert checks, run["report"]
-    claims = run["report"]["claims"]
-    bad = [(claims[c["index"]]["text"], [n["text"] for n in c["numbers"] if not n["verified"]], c.get("missing_refs"))
-           for c in checks if c["status"] != "verified"]
-    fields = [f for f in run["verification"].get("fields", []) if f["status"] != "verified"]
-    assert run["verification"]["ok"] and not bad and not fields, (bad, fields)
+    import demo
+
+    # 完整运行（报告、核验、步骤、数据集）留底：后面的验收模块会重置元数据库，事后只能看这个文件
+    out = demo.STATE / "acceptance" / f"analysis-run-{run['id']}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(run, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    report, verification = run["report"], run["verification"]
+    checks = [c for c in verification["claims"] if c["type"] in ("fact", "calc")]
+    assert checks, report
+    problems = []
+    for c in checks:
+        if c["status"] == "verified":
+            continue
+        claim = report["claims"][c["index"]]
+        reasons = [f"“{n['text']}”{n.get('error') or '在引用的数据集中找不到'}" for n in c["numbers"] if not n["verified"]]
+        if c.get("missing_refs"):
+            reasons.append(f"引用了不存在的数据集 {c['missing_refs']}")
+        if not claim.get("refs"):
+            reasons.append("没有引用数据集")
+        problems.append(f"结论 #{c['index']}（{c['type']}，引用 {claim.get('refs')}）\n  原文：{claim['text']}\n"
+                        f"  原因：{'；'.join(reasons) or '未知'}")
+    for f in verification.get("fields", []):
+        if f["status"] != "verified":
+            reasons = [f"“{n['text']}”{n.get('error') or '在引用的数据集中找不到'}" for n in f["numbers"] if not n["verified"]]
+            problems.append(f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(reasons)}")
+    full = "\n".join(f"{k}: {report.get(k)}" for k in ("title", "summary", "unexplained"))
+    message = f"运行 {run['id']} 未全部核实（完整 JSON：{out}）\n" + "\n".join(problems) + f"\n--- 报告字段 ---\n{full}"
+    if not (verification["ok"] and not problems):
+        print(message)  # 断言说明可能被 pytest 截断；标准输出在失败时完整显示
+    assert verification["ok"] and not problems, message
 
 
 @pytest.mark.llm
