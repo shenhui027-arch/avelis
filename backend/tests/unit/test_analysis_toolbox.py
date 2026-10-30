@@ -457,3 +457,33 @@ def test_worker_scan_continues_after_a_failing_step(monkeypatch, caplog):
     jobs.scan_once()
     assert calls == ["collect", "analysis", "stale", "run j1", "purge"]
     assert "回收超时任务 失败" in caplog.text and "deadlock detected" in caplog.text
+
+
+def test_revision_names_the_dataset_that_holds_an_unverified_number():
+    """08 复盘：结论只引用 D18（升幅 0.0587），1.0587 却来自 D12。核验仍判未核实（不自动补引用），
+    修订提示按同一套匹配规则点名 D12；补上 D12 后才核实；哪里都没有的数字不点名任何数据集。"""
+    from avelis.analysis.verify import verify_report
+
+    def ds(title, value):
+        return SimpleNamespace(title=title, columns=["value"], rows=[[value]], meta={}, truncated=False)
+
+    sets = {"D12": ds("派生：抖音单均投放花费本期与上期", "1.0587"), "D18": ds("派生：抖音单均投放花费升幅", "0.0587")}
+    data = {ref: {"rows": [{"value": d.rows[0][0]}]} for ref, d in sets.items()}
+
+    def run(text, refs):
+        claims = [{"type": "calc", "text": text, "refs": refs}]
+        verification = verify_report(claims, data)
+        box = SimpleNamespace(report={"claims": claims}, verification=verification, datasets=lambda: sets,
+                              budget=SimpleNamespace(tool_calls=0))
+        message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
+        return verification, message
+
+    text = "本期为上期的 1.0587 倍，升幅 0.0587"
+    verification, message = run(text, ["D18"])
+    assert verification["ok"] is False and verification["claims"][0]["status"] == "unverified"
+    assert verification["claims"][0]["numbers"][0] == {"text": "1.0587", "verified": False, "found_in": ["D12"]}
+    assert "1.0587 出现在 D12（派生：抖音单均投放花费本期与上期）" in message and "把 D12 加入 refs" in message
+    assert verify_report([{"type": "calc", "text": text, "refs": ["D18", "D12"]}], data)["ok"] is True
+    verification, message = run("本期为上期的 1.2345 倍", ["D18"])
+    assert "found_in" not in verification["claims"][0]["numbers"][0]
+    assert "出现在" not in message.split("请修订")[0] and "D12" not in message and "derive" in message

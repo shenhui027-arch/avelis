@@ -41,7 +41,8 @@ _CN_MONTH = r"(?<![零〇一二两三四五六七八九十百千万亿几第])(?
 # 日期与期间写法（不是数量）：YYYY 年、N 月 / N 月份 / 九月、单独的 N 日 / N 号、N 季度 / QN、第 N、前 N 等。
 # “N 天”不在这里：天数是 calendar_adjust 数据集里的数，按普通数字核验
 CALENDAR_WORDS = re.compile("|".join([
-    r"(?<![\d.])(?:19|20)\d{2}\s*年", rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月", rf"(?<![\d.]){_M}\s*月(?!\s*\d{{1,2}}\s*[日号])",
+    r"(?<![\d.])(?:19|20)\d{2}\s*年", rf"(?<![\d.]){_M}\s*[-–~至]\s*{_M}\s*月",
+    rf"(?<![\d.]){_M}\s*月(?!\s*\d{{1,2}}\s*[日号])",
     rf"{_CN_MONTH}\s*月", rf"(?<![\d.月])(?<!月\s){_D}\s*[日号](?![店楼线门均])",
     r"(?<![\d.])[1-4]\s*季度", r"(?<![零〇一二两三四五六七八九十百千万亿几])[一二三四]\s*季度", r"(?<![A-Za-z])Q[1-4](?!\d)",
     r"(?<![\d.,])(?:[12]?\d|3[01])\s*(?:周|个月)", r"第\s*\d+", r"前\s*\d+", r"后\s*\d+", r"Top\s*\d+", r"D\d+",
@@ -220,10 +221,18 @@ def matches(number: dict[str, Any], values: list[Decimal]) -> bool:
     return False
 
 
-def _check(text: str, datasets: list[dict]) -> list[dict[str, Any]]:
+def _check(text: str, datasets: list[dict], lookup: dict[str, list[Decimal]] | None = None) -> list[dict[str, Any]]:
+    """lookup：本次运行全部数据集的候选值（编号 → 值）。未核实的数字若出现在别的数据集里，记在 found_in，
+    只用来提示补引用（核验结果不变，不自动补引用）。"""
     values = _candidates(datasets)
-    return [{"text": n["text"], "verified": matches(n, values), **({"error": n["error"]} if n.get("error") else {})}
-            for n in extract_numbers(text, _names(datasets))]
+    items = []
+    for n in extract_numbers(text, _names(datasets)):
+        item = {"text": n["text"], "verified": matches(n, values), **({"error": n["error"]} if n.get("error") else {})}
+        found = [ref for ref, cands in (lookup or {}).items() if matches(n, cands)] if not item["verified"] else []
+        if found:
+            item["found_in"] = found
+        items.append(item)
+    return items
 
 
 def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
@@ -231,12 +240,13 @@ def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
     """claims：[{type: fact|calc|inference|recommendation, text, refs: ["D1", ...]}]；datasets：编号 → {rows, summary}；
     fields：标题、摘要、未解释等报告文字，对照全部事实 / 计算类结论引用的数据集核验。"""
     results, unverified, cited = [], 0, set()
+    lookup = {ref: _candidates([ds]) for ref, ds in datasets.items()}
     for i, claim in enumerate(claims):
         given = list(claim.get("refs") or [])
         refs = [r for r in given if r in datasets]
         missing_refs = [r for r in given if r not in datasets]
         checked = claim.get("type") in CHECKED
-        items = _check(claim.get("text", ""), [datasets[r] for r in refs])
+        items = _check(claim.get("text", ""), [datasets[r] for r in refs], lookup)
         status = "unchecked" if not checked else (
             "unverified" if any(not x["verified"] for x in items) or missing_refs or not refs else "verified")
         if checked:
@@ -247,7 +257,7 @@ def verify_report(claims: list[dict[str, Any]], datasets: dict[str, dict],
     pool = [datasets[r] for r in sorted(cited)]
     field_results = []
     for name, text in (fields or {}).items():
-        items = _check(text or "", pool)
+        items = _check(text or "", pool, lookup)
         field_results.append({"field": name, "status": "unverified" if any(not x["verified"] for x in items)
                               else "verified", "numbers": items})
     unverified_fields = sum(f["status"] == "unverified" for f in field_results)
