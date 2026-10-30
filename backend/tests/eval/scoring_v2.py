@@ -30,7 +30,8 @@ from tests.eval import scoring as v1
 VERSION = "v2.0"
 SPEC = Path(__file__).with_name("analysis_questions_v2.yaml")
 NON_CONTENT_ERRORS = ("Timeout", "timed out", "APIConnectionError", "ConnectionError", "JSONDecodeError",
-                      "OutputParserException", "InternalServerError", "RateLimitError", "ModelTruncated")
+                      "OutputParserException", "InternalServerError", "RateLimitError", "ModelTruncated",
+                      "ModelProtocolError")
 
 
 # --- 题目 ----------------------------------------------------------------------------------

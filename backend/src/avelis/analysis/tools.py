@@ -69,6 +69,13 @@ class Budget:
     seconds: int = 300
     explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
     report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
+    # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型
+    model_requests: int = 16
+    input_tokens: int = 160_000
+    output_tokens: int = 24_000  # 含提供方计费的推理 token
+    used_model_requests: int = 0
+    used_input_tokens: int = 0
+    used_output_tokens: int = 0
     used_calls: int = 0  # 全部调用（含被拒绝的），只用于记录
     used_tools: int = 0  # submit_report 以外执行了的调用
     used_reports: int = 0  # 本轮 submit_report 的尝试次数（修订时清零）
@@ -79,24 +86,38 @@ class Budget:
 
     def view(self) -> dict[str, Any]:
         return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds,
-                           "explore": self.explore},
+                           "explore": self.explore, "model_requests": self.model_requests,
+                           "input_tokens": self.input_tokens, "output_tokens": self.output_tokens},
                 # tool_calls：执行了的调用（其他工具与累计的 submit_report 尝试），不超过上限；attempts 另含被拒绝的调用
                 "used": {"tool_calls": self.used_tools + self.reports_total, "attempts": self.used_calls,
                          "queries": self.used_queries, "explore": self.used_explore, "reports": self.reports_total,
+                         "model_requests": self.used_model_requests, "input_tokens": self.used_input_tokens,
+                         "output_tokens": self.used_output_tokens,
                          "seconds": round(time.monotonic() - self.started, 1)}}
+
+    def model_blocked(self) -> str | None:
+        """不能再请求模型的原因：请求次数（含重试）或累计 token 到上限。"""
+        if self.used_model_requests >= self.model_requests:
+            return f"模型请求已达上限 {self.model_requests} 次（含重试）"
+        if self.used_input_tokens >= self.input_tokens or self.used_output_tokens >= self.output_tokens:
+            return f"模型 token 已达累计上限（输入 {self.input_tokens}、输出 {self.output_tokens}）"
+        return None
 
     @classmethod
     def restore(cls, view: dict, **limits) -> "Budget":
         """从保存的预算视图（view()）恢复：已用的次数接着计数，不清零（澄清后恢复运行时用）；已用的秒数从截止时间里扣除，
         等待用户的时间不计入。limits：本次的上限（默认取保存时的上限）。"""
         saved, used = view.get("limits") or {}, view.get("used") or {}
-        budget = cls(**{k: limits.get(k, saved.get(k, getattr(cls, k, None))) for k in ("tool_calls", "queries", "seconds",
-                                                                                     "explore") if k in saved or k in limits})
+        keys = ("tool_calls", "queries", "seconds", "explore", "model_requests", "input_tokens", "output_tokens")
+        budget = cls(**{k: limits.get(k, saved.get(k)) for k in keys if k in saved or k in limits})
         budget.used_tools = max(0, int(used.get("tool_calls") or 0) - int(used.get("reports") or 0))
         budget.reports_total = int(used.get("reports") or 0)
         budget.used_calls = int(used.get("attempts") or 0)
         budget.used_queries = int(used.get("queries") or 0)
         budget.used_explore = int(used.get("explore") or 0)
+        budget.used_model_requests = int(used.get("model_requests") or 0)
+        budget.used_input_tokens = int(used.get("input_tokens") or 0)
+        budget.used_output_tokens = int(used.get("output_tokens") or 0)
         budget.started = time.monotonic() - float(used.get("seconds") or 0)
         return budget
 
