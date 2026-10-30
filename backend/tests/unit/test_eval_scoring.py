@@ -132,7 +132,7 @@ def test_why_change_questions_accept_both_periods_and_the_change():
     for raw, hit in (("68.6969", True), ("41.68", True), ("27.0168", True), ("46.2564", False)):
         claim = {"type": "fact", "segments": [seg(raw)]}
         assert score(Q["d05"], run(causes=[southwest], claims=[claim]))["key_value_hit"] is hit, raw
-    orders = {"type": "factor", "entity": {"factor": "订单数"}, "direction": "down", "status": "verified",
+    orders = {"type": "factor", "entity": {"factor_metric_code": "ec_orders"}, "direction": "down", "status": "verified",
               "contribution": {"segments": [seg("-1146871.42")]}}
     for raw, hit in (("12897", True), ("10998", True), ("1899", True), ("1675", False)):
         assert score(Q["f01"], run(causes=[orders], claims=[{"type": "fact", "segments": [seg(raw)]}]))[
@@ -153,3 +153,15 @@ def test_required_in_causes_must_be_a_verified_cause_not_just_the_summary():
     assert score(Q["d06"], run(causes=[logistics, unverified]))["required_in_causes"] is False
     both = score(Q["d06"], run(causes=[logistics, southwest]))
     assert both["required_in_causes"] is True and both["key_value_hit"] is True and both["passed"] is True
+
+
+def test_primary_cause_is_matched_by_codes():
+    """原因实体按编码比对（ADR 0009 第 7 点）：因子看指标编码，显示名不算；证据行按核验解析出的行内容比对。"""
+    def factor(entity, label=None):
+        return {"type": "factor", "entity": entity, "label": label, "direction": "down", "status": "verified",
+                "contribution": {"segments": [seg("-1146871.42")]}}
+    assert score(Q["f01"], run(causes=[factor({"factor_metric_code": "ec_orders"}, "订单数")]))["primary_hit"] is True
+    assert score(Q["f01"], run(causes=[factor({"factor_metric_code": "ec_aov"}, "客单价")]))["primary_hit"] is False
+    event = {"type": "factor", "entity": {"evidence_id": "D7#1"}, "label": "家电焕新季 · 品类节 · 家电", "direction": "down",
+             "status": "verified", "contribution": {"segments": [seg("-1")]}}
+    assert score(Q["e02"], run(causes=[event]))["primary_hit"] is True

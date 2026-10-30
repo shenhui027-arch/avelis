@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -60,7 +60,9 @@ class Budget:
     queries: int = 12
     seconds: int = 300
     explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
+    report_reserve: int = 2  # 工具调用里保留最后几次给 submit_report（参数解析失败时可以重交一次，ADR 0009 第 7 点）
     used_tools: int = 0
+    used_reports: int = 0  # 本轮 submit_report 的尝试次数（修订时清零）
     used_queries: int = 0
     used_explore: int = 0
     started: float = field(default_factory=time.monotonic)
@@ -76,8 +78,8 @@ class Budget:
         return self.started + self.seconds - time.monotonic()
 
     def exhausted(self) -> str | None:
-        if self.used_tools >= self.tool_calls:
-            return f"工具调用已达上限 {self.tool_calls} 次"
+        if self.used_tools >= self.tool_calls - self.report_reserve:
+            return f"工具调用已达上限 {self.tool_calls} 次（最后 {self.report_reserve} 次留给 submit_report）"
         if self.remaining() <= 0:
             return f"分析时长已超过 {self.seconds} 秒"
         return None
@@ -97,6 +99,52 @@ class PermissionDenied(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def json_error_path(raw: str) -> tuple[str, str]:
+    """参数 JSON 解析失败时，出错位置所在的字段路径（如 claims[3].parts[2]）与原因，回传给模型改正这一处。"""
+    try:
+        json.loads(raw)
+        return "", "结构不对"
+    except json.JSONDecodeError as e:
+        pos, reason = e.pos, e.msg
+    stack: list[list] = []  # [类型, 当前键或下标]
+    key, in_string, escape, token, expect_key = None, False, False, [], False
+    for ch in raw[:pos]:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+                if expect_key:
+                    key = "".join(token)
+            else:
+                token.append(ch)
+            continue
+        if ch == '"':
+            in_string, token = True, []
+        elif ch == "{":
+            stack.append(["dict", None])
+            expect_key = True
+        elif ch == "[":
+            stack.append(["list", 0])
+            expect_key = False
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+        elif ch == ":" and stack and stack[-1][0] == "dict":
+            stack[-1][1], expect_key = key, False
+        elif ch == "," and stack:
+            if stack[-1][0] == "list":
+                stack[-1][1] += 1
+            else:
+                expect_key = True
+    path = ""
+    for kind, at in stack:
+        path += f"[{at}]" if kind == "list" else (f".{at}" if path and at is not None else (at or ""))
+    return path, reason
 
 
 def _json(obj: Any) -> str:
@@ -183,6 +231,7 @@ class ContributionArgs(BaseModel):
 
 class Pair(BaseModel):
     name: str = Field(description="因子名，如 数量、单价")
+    metric_code: str | None = Field(None, description="因子对应的指标编码（有口径时写）：原因按编码关联")
     current: str = Field(description="本期值列名")
     previous: str = Field(description="上期值列名")
 
@@ -264,8 +313,9 @@ class Claim(BaseModel):
 
 
 # submit_report 参数的模式版本：片段、原因等结构改变时加一。回放轨迹记录录制时的版本，版本不同的轨迹要重新录制
-# （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定（ADR 0009 第 7 点）
-REPORT_SCHEMA = 2
+# （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定；3：原因按编码关联、报告写所问指标
+# （ADR 0009 第 7 点）
+REPORT_SCHEMA = 3
 
 
 class ReportArgs(BaseModel):
@@ -274,7 +324,10 @@ class ReportArgs(BaseModel):
     claims: list[Claim]
     unexplained: str | list[Part] | None = Field(None, description="仍未解释的部分：文字或片段列表")
     conclusion: Literal["ranked_reasons", "no_material_change", "insufficient_evidence"] = Field(
-        description="结论类型：ranked_reasons 有排序的原因；no_material_change 没有实质变化；insufficient_evidence 证据不足")
+        description="结论类型：ranked_reasons 有排序的原因；no_material_change 没有实质变化；insufficient_evidence 证据不足。"
+                    "所问指标做过 explain_change 时必须与它的判定一致")
+    metric_code: str | None = Field(None, description="所问的指标编码（问“为什么变化”时必填）：结论类型按 explain_change "
+                                                      "对它的判定核对")
     causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
                                                                    "第一项是首要原因；其余两种结论不填）")
 
@@ -297,6 +350,7 @@ class AnalysisToolbox:
         self._seq = 0
         self._datasets: dict[str, AnalysisDataset] = {}
         self._tools: dict[str, StructuredTool] | None = None
+        self.explanations: dict[str, str] = {}  # explain_change 对各指标的判定（unsupported 表示不适用）：核验结论类型用
 
     # -- 记录 --
     def _step(self, kind: str, tool: str | None, args: dict, status: str, output: dict, reason: str | None = None,
@@ -348,6 +402,8 @@ class AnalysisToolbox:
                     assumption=bool(meta.get("assumption") or any((p.meta or {}).get("assumption") for p in parents)),
                     partial=bool(meta.get("partial") or any((p.meta or {}).get("partial") for p in parents)))
         truncated = bool(truncated or any(p.truncated for p in parents))
+        if "metric_codes" not in meta:  # 原因按编码关联：计算结果继承输入的口径编码
+            meta["metric_codes"] = sorted({c for p in parents for c in (p.meta or {}).get("metric_codes") or []})
         ds = AnalysisDataset(run_id=self.run.id, seq=len(self._datasets) + 1, kind=kind, title=title[:255],
                              answer_id=answer_id, inputs=inputs, columns=columns,
                              rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta)))
@@ -474,7 +530,12 @@ class AnalysisToolbox:
         self.check_executor()
         if self.stopped:
             return _json({"error": f"{self.stopped}：不再执行工具"})
-        if name != "submit_report":
+        if name == "submit_report":
+            if self.budget.used_reports >= self.budget.report_reserve:
+                self._step("tool", name, {}, "denied", {"error": "提交次数已用完"})
+                return _json({"error": f"submit_report 本轮已尝试 {self.budget.used_reports} 次，不能再提交"})
+            self.budget.used_reports += 1
+        else:
             over = self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
             if over:
                 self._step("tool", name, args if isinstance(args, dict) else {"raw": str(args)[:500]}, "denied",
@@ -486,11 +547,21 @@ class AnalysisToolbox:
             self._step("tool", name, {}, "error", {"error": "未知工具"})
             return _json({"error": f"未知工具 {name}"})
         if not isinstance(args, dict):
-            self._step("tool", name, {"raw": str(args)[:500]}, "error", {"error": "参数无法解析"})
-            return _json({"error": f"工具 {name} 的参数无法解析，请修正后重试"})
+            path, reason = json_error_path(str(args))
+            message = f"参数无法解析：JSON 在 {path or '开头'} 处出错（{reason}）"
+            self._step("tool", name, {"raw": str(args)[:500]}, "error", {"error": message})
+            return _json({"error": f"工具 {name} 的{message}，请修正这一处后重交" +
+                          ("（还可以重交一次）" if name == "submit_report" and self.budget.used_reports
+                           < self.budget.report_reserve else "")})
         try:
             return str(tool.invoke(args))
-        except Exception as exc:  # noqa: BLE001 - 参数校验失败等如实返回给模型
+        except ValidationError as exc:  # 参数结构不对：逐条写出出错的字段路径
+            problems = [f"{'.'.join(str(x) for x in e['loc']) or '参数'}：{e['msg']}" for e in exc.errors()[:6]]
+            message = f"参数结构不对：{'；'.join(problems)}"
+            self._step("tool", name, json.loads(_json(args)), "error", {"error": message})
+            return _json({"error": message + ("（还可以重交一次）" if name == "submit_report" and
+                                              self.budget.used_reports < self.budget.report_reserve else "")})
+        except Exception as exc:  # noqa: BLE001 - 其他错误如实返回给模型
             message = f"{type(exc).__name__}: {str(exc)[:500]}"
             self._step("tool", name, json.loads(_json(args)), "error", {"error": message})
             return _json({"error": message})
@@ -503,11 +574,11 @@ class AnalysisToolbox:
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
                       unexplained: str | list | None = None, conclusion: str | None = None,
-                      causes: list[Cause] | None = None) -> str:
+                      causes: list[Cause] | None = None, metric_code: str | None = None) -> str:
         """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。"""
         self.report = {"title": _parts(title), "summary": _parts(summary),
                        "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained),
-                       "conclusion": conclusion,
+                       "conclusion": conclusion, "metric_code": metric_code,
                        "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []]}
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})
@@ -763,6 +834,7 @@ class AnalysisToolbox:
         ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                            truncated=bool(result.get("truncated")),
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
+                                 "metric_codes": list(args.metric_codes),
                                  "intent": answer.intent, "freshness": answer.freshness,
                                  "purpose": args.purpose,
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
@@ -930,6 +1002,7 @@ class AnalysisToolbox:
                 components[c["metric_code"]] = self.session.get(MetricVersion, c["version_id"])
         rule = attribution.applicability(version, components)
         if rule["algorithm"] is None:
+            self.explanations[args.metric_code] = "unsupported"
             return {"supported": False, "metric_code": args.metric_code, "reason": rule["reason"],
                     "note": "不支持自动归因：可以用 query_metric 按维度查询后用 contribution 拆解，或说明无法归因"}, None, "ok"
         allowed = [d["name"] for d in version.dimensions or []]
@@ -985,6 +1058,8 @@ class AnalysisToolbox:
         else:
             total_prev, total_cur = totals
         total_change = total_cur - total_prev
+        configured = getattr(version, "material_change_ratio", None)
+        threshold = calc.Decimal(str(configured if configured is not None else get_settings().material_change_ratio))
 
         def scan(group_by: list[str]) -> attribution.Dimension | None:
             label = "×".join(group_by)
@@ -1021,7 +1096,7 @@ class AnalysisToolbox:
                 dim.rows = attribution.additive_members({k: (v[0], v[1]) for k, v in members.items()}, total_change)
                 dim.js = attribution.js_divergence([v[0] or calc.Decimal(0) for v in members.values()],
                                                    [v[1] or calc.Decimal(0) for v in members.values()])
-            return attribution.judge(dim, total_prev, total_change, args.top_k)
+            return attribution.judge(dim, total_prev, total_change, args.top_k, threshold)
 
         scanned = [d for d in (scan([name]) for name in dims) if d is not None]
         if args.depth == 2:
@@ -1032,7 +1107,9 @@ class AnalysisToolbox:
                     if pair is not None:
                         scanned.append(pair)
         ranked = attribution.rank(scanned)
-        conclusion = attribution.verdict(ranked, bool(scanned))
+        conclusion = attribution.verdict(ranked, bool(scanned), attribution.immaterial(total_prev, total_change, threshold))
+        self.explanations[args.metric_code] = conclusion
+        factor = None if ratio else self._auto_factor(args, metric, totals, (start, end, cstart, cend), inputs)
         primary = next((d for d in ranked if d.verdict == "ranked"), None)
         cols = ["dimension", "member", "previous", "current", "member_change", "contribution", "ep",
                 "structure_effect", "rate_effect", "change_type", "role"]
@@ -1042,7 +1119,10 @@ class AnalysisToolbox:
             "total": {"previous": attribution.q(total_prev) if ratio else total_prev,
                       "current": attribution.q(total_cur) if ratio else total_cur,
                       "change": attribution.q(total_change) if ratio else total_change},
-            "verdict": conclusion, "primary_dimension": primary.name if primary else None,
+            "verdict": conclusion, "material_change_ratio": threshold,
+            "conclusion": {"ranked_reasons": "ranked_reasons", "offsetting": "no_material_change",
+                           "no_material_change": "no_material_change"}.get(conclusion, "insufficient_evidence"),
+            "factor_decomposition": factor, "primary_dimension": primary.name if primary else None,
             "cumulative_ep": primary.cumulative_ep if primary else None,
             "threshold_met": primary.threshold_met if primary else None,
             "partial": bool(unscanned), "scanned": [d.name for d in scanned], "unscanned": unscanned,
@@ -1065,8 +1145,74 @@ class AnalysisToolbox:
         title = f"自动归因：{metric.name} {start}~{end} 对比 {cstart}~{cend}"
         ds = self._dataset("calc", title, cols, rows, inputs=inputs,
                            meta={"summary": summary, "args": args.model_dump(mode="json"), "units": units,
-                                 "summary_units": summary_units, "partial": bool(unscanned)})
-        return self._view(f"D{ds.seq}", ds), ds, "ok"
+                                 "summary_units": summary_units, "partial": bool(unscanned),
+                                 "metric_codes": sorted({args.metric_code, *codes})})
+        view = self._view(f"D{ds.seq}", ds)
+        view["conclusion_note"] = (f"对 {args.metric_code} 的判定：{summary['conclusion']}。报告的 conclusion 必须与它一致，"
+                                   f"metric_code 写 {args.metric_code}")
+        return view, ds, "ok"
+
+    def _auto_factor(self, args: ExplainArgs, metric: Metric, totals: list, period: tuple,
+                     inputs: list[str]) -> dict | None:
+        """所问指标是某个已发布比率口径 a / b 的分子时，同时给出 a = b × (a/b) 的 LMDI 因子拆解（ADR 0009 第 7 点）：
+        按口径元数据判断，与行业无关。比率口径或分母对当前用户不可见、预算不够、取值不为正时跳过并写明原因。"""
+        candidates = []
+        try:
+            published = list(self.session.scalars(select(MetricVersion).where(
+                MetricVersion.status == "published", MetricVersion.kind == "derived")))
+        except Exception:  # noqa: BLE001 - 测试替身没有口径表
+            return None
+        for version in published:
+            if not isinstance(version, MetricVersion):
+                continue
+            m = attribution.RATIO_FORMULA.match(version.expression or "")
+            if m and m.group(1) == args.metric_code:
+                ratio_metric = self.session.get(Metric, version.metric_id)
+                if ratio_metric is not None:
+                    candidates.append((ratio_metric.code, m.group(2), ratio_metric.name))
+        if not candidates:
+            return None
+        ratio_code, denominator, ratio_name = sorted(candidates)[0]
+        try:
+            self._metric(ratio_code)
+            denom_metric = self._metric(denominator)[0]
+        except Exception as exc:  # noqa: BLE001 - 不可见、未发布：不拆
+            return {"skipped": f"比率口径 {ratio_code} 或分母 {denominator} 当前不可用（{getattr(exc, 'message', exc)}）"}
+        blocked = self._subquery_gate(args.metric_code)
+        if blocked:
+            return {"skipped": blocked, "ratio_metric": ratio_code}
+        start, end, cstart, cend = period
+        out, b_ds, status = self._run_query(QueryArgs(
+            metric_codes=[denominator], start_date=start, end_date=end, compare="custom", compare_start=cstart,
+            compare_end=cend, purpose=f"{args.purpose}：因子拆解的分母"))
+        if b_ds is None:
+            return {"skipped": out.get("message") or status, "ratio_metric": ratio_code}
+        inputs.append(f"D{b_ds.seq}")
+        row = dict(zip(b_ds.columns, b_ds.rows[0])) if b_ds.rows else {}
+        b0, b1 = calc.number(row.get(f"{denom_metric.name}·对比期")), calc.number(row.get(denom_metric.name))
+        a0, a1 = totals
+        if not b0 or not b1:
+            return {"skipped": "分母为 0，不能拆解", "ratio_metric": ratio_code}
+        try:
+            out = calc.factor_decompose((a0, a1), {denominator: (b0, b1), ratio_code: (a0 / b0, a1 / b1)})
+        except calc.CalcError as exc:
+            return {"skipped": str(exc), "ratio_metric": ratio_code}
+        names = {denominator: denom_metric.name, ratio_code: ratio_name}
+        cols = ["factor_metric_code", "factor", "previous", "current", "change_rate", "contribution", "share"]
+        rows = [[r["factor"] if r["factor"] in names else None, names.get(r["factor"], r["factor"]),
+                 r["previous"], r["current"], r["change_rate"], r["contribution"], r["share"]] for r in out["factors"]]
+        base = measures.metric_unit(self._metric_sources(args.metric_code)[1])
+        units = {"previous": col("unknown"), "current": col("unknown"), "change_rate": col("rate_change"),
+                 "contribution": like(base, "delta"), "share": col("share")}
+        ds = self._dataset("calc", f"因子拆解：{metric.name} = {denom_metric.name} × {ratio_name}", cols, rows,
+                           inputs=list(dict.fromkeys(inputs)),
+                           meta={"summary": {"total": out["total"], "unexplained": out["unexplained"],
+                                             "ratio_metric": ratio_code},
+                                 "units": units, "metric_codes": sorted({args.metric_code, denominator, ratio_code}),
+                                 "summary_units": {"total.previous": base, "total.current": base,
+                                                   "total.change": like(base, "delta"),
+                                                   "unexplained": like(base, "delta")}})
+        return {"dataset": f"D{ds.seq}", "ratio_metric": ratio_code, "factors": [denominator, ratio_code]}
 
     # -- 计算 --
     def _calc(self, tool: str, args: dict, inputs: list[str], fn, *, full_set: bool = True) -> str:
@@ -1146,7 +1292,10 @@ class AnalysisToolbox:
             row = self._pick(rows, match or {})
             out = calc.factor_decompose((row[total.previous], row[total.current]),
                                         {f.name: (row[f.previous], row[f.current]) for f in factors})
-            cols = ["factor", "previous", "current", "change_rate", "contribution", "share"]
+            codes = {f.name: f.metric_code for f in factors}
+            cols = ["factor_metric_code", "factor", "previous", "current", "change_rate", "contribution", "share"]
+            for f in out["factors"]:
+                f["factor_metric_code"] = codes.get(f["factor"])
             base = self._unit(dataset, total.current)
             units = {"previous": col("unknown"), "current": col("unknown"), "change_rate": col("rate_change"),
                      "contribution": like(base, "delta"), "share": col("share")}

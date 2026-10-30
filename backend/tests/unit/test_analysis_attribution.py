@@ -315,3 +315,49 @@ def test_explain_change_ratio_metric_uses_numerator_and_denominator(monkeypatch)
     assert summary["residual"] == "0.0000" and "拆法不唯一" in summary["note"]
     assert ds.meta["units"]["previous"] == {"kind": "ratio", "unit": "元"}
     assert queries.calls[0] == ((), "custom") and "z" not in rows  # 分母为 0 的成员不可计算，不参与排名
+
+
+# --- ADR 0009 第 7 点：结论类型由 explain_change 判定；分子属于已发布比率口径时自动给出因子拆解 ----------------------
+
+def test_material_change_threshold_is_a_per_metric_setting(monkeypatch):
+    """变化显著性阈值是产品参数（默认 1%），口径版本可以单独配置；判定写进 explanations，报告的结论类型据此核对。"""
+    box, _ = additive_box(monkeypatch, SCENARIO)  # 总量 1000 → 700，变化 30%
+    out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
+    summary = box.datasets()[out["dataset"]].meta["summary"]
+    assert summary["conclusion"] == "ranked_reasons" and summary["material_change_ratio"] == "0.01"
+    assert box.explanations == {"x": "ranked_reasons"} and "metric_code 写 x" in out["conclusion_note"]
+    strict, _ = additive_box(monkeypatch, SCENARIO)
+    strict._metric_sources("x")[1].material_change_ratio = D("0.5")  # 这个指标 50% 以内都算不显著
+    out = json.loads(strict.dispatch("explain_change", {"metric_code": "x"}))
+    summary = strict.datasets()[out["dataset"]].meta["summary"]
+    assert summary["verdict"] == summary["conclusion"] == "no_material_change" and strict.explanations["x"] == summary["verdict"]
+
+
+def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):
+    """所问指标 x 是已发布比率口径 r = x / y 的分子：explain_change 同时给出 x = y × r 的 LMDI 拆解，因子带口径编码。"""
+    from avelis.models import Metric, MetricVersion
+
+    box, queries = additive_box(monkeypatch, SCENARIO)
+    ratio = MetricVersion(id="vr", metric_id="mr", kind="derived", status="published", expression="x / y")
+    box.session.store[(Metric, "mr")] = SimpleNamespace(id="mr", code="r", name="比率甲")
+    monkeypatch.setattr(box.session, "scalars", lambda stmt: [ratio])
+    monkeypatch.setattr(box, "_metric", lambda code: (SimpleNamespace(name={"r": "比率甲", "y": "指标乙"}[code]), None))
+    run_query = box._run_query
+
+    def with_denominator(qa):
+        if qa.metric_codes == ["y"]:  # 分母：两期 50 → 70
+            box.budget.used_queries += 1
+            return {}, box._dataset("governed", "指标乙", ["指标乙", "指标乙·对比期"], [["70", "50"]],
+                                    meta={"metric_codes": ["y"]}), "ok"
+        return run_query(qa)
+    monkeypatch.setattr(box, "_run_query", with_denominator)
+    out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
+    factor = box.datasets()[out["dataset"]].meta["summary"]["factor_decomposition"]
+    assert factor["ratio_metric"] == "r" and factor["factors"] == ["y", "r"]
+    ds = box.datasets()[factor["dataset"]]
+    rows = {r[0]: dict(zip(ds.columns, r)) for r in ds.rows}
+    assert set(rows) == {"y", "r"} and rows["y"]["factor"] == "指标乙" and rows["r"]["factor"] == "比率甲"
+    total = sum(D(str(r["contribution"])) for r in rows.values())
+    assert total == D("-300")  # 各因子贡献相加等于总差额
+    assert D(str(rows["y"]["contribution"])) > 0 > D(str(rows["r"]["contribution"]))  # 分母上升、比率下降
+    assert ds.meta["metric_codes"] == ["r", "x", "y"] and ds.meta["units"]["contribution"]["kind"] == "delta"

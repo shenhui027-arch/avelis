@@ -80,15 +80,31 @@ def governed(box, columns, rows, *, intent=None, truncated=False):
 # --- #10 统一分发计数与截止时间 ---------------------------------------------------------
 
 def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
-    box = make_box(budget=Budget(tool_calls=3), monkeypatch=monkeypatch)
+    box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)  # 最后 2 次留给 submit_report：其余工具 3 次
     assert "未知工具" in box.dispatch("no_such_tool", {})
-    assert "ValidationError" in box.dispatch("query_metric", {"metric_codes": "x"})  # 参数不符合 schema
+    assert "参数结构不对：metric_codes" in box.dispatch("query_metric", {"metric_codes": "x"})  # 写出出错的字段
     assert "ok" in box.dispatch("submit_plan", {"hypotheses": [], "steps": []})
     assert box.budget.used_tools == 3
     over = json.loads(box.dispatch("submit_plan", {"hypotheses": [], "steps": []}))  # 重复提交计划也计数
-    assert "上限" in over["error"] and box.budget.used_tools == 3
+    assert "上限" in over["error"] and "留给 submit_report" in over["error"] and box.budget.used_tools == 3
     report = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}))
-    assert report == {"ok": True} and box.report is not None  # 只有最终报告不计数、预算用完后仍可提交
+    assert report == {"ok": True} and box.report is not None  # 预留的次数里仍可提交
+
+
+def test_report_reserve_allows_one_resubmission_after_a_parse_error(monkeypatch):
+    """第 7 点第 5 条：预算里保留最后 2 次给 submit_report；参数解析失败时回传出错的 JSON 路径，允许重交一次。"""
+    box = make_box(budget=Budget(tool_calls=3), monkeypatch=monkeypatch)
+    box.budget.used_tools = 1
+    assert "上限" in json.loads(box.dispatch("search_metrics", {}))["error"]  # 其余工具已用完：3 − 2
+    broken = '{"title": "t", "summary": "s", "claims": [{"type": "fact", "parts": ["x", {"dataset": "D1" "column": "a"}]}]}'
+    first = json.loads(box.dispatch("submit_report", broken))
+    assert "claims[0].parts[1].dataset" in first["error"] and "还可以重交一次" in first["error"]
+    second = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
+                                                       "conclusion": "insufficient_evidence"}))
+    assert second == {"ok": True}
+    third = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
+                                                      "conclusion": "insufficient_evidence"}))
+    assert "不能再提交" in third["error"]
 
 
 def test_invalid_tool_calls_are_counted_and_answered(monkeypatch):
@@ -138,7 +154,7 @@ def test_no_model_call_after_shared_deadline(monkeypatch):
 
 
 def test_repeated_plan_calls_exhaust_budget_then_grace_then_stop(monkeypatch):
-    box = make_box(budget=Budget(tool_calls=4), monkeypatch=monkeypatch)
+    box = make_box(budget=Budget(tool_calls=6), monkeypatch=monkeypatch)  # 其余工具 4 次，2 次留给报告
     model = CountingModel()
     config = {"configurable": {"toolbox": box, "model": model}}
     agent.act({"messages": [HumanMessage("问题")]}, config)
@@ -311,7 +327,7 @@ def test_report_refs_must_be_dataset_numbers(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     out = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
                                          "claims": [{"type": "fact", "parts": ["x"], "refs": ["<b>"]}]})
-    assert "ValidationError" in out and box.report is None
+    assert "参数结构不对：claims.0.refs.0" in out and box.report is None
     ok = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
                                         "claims": [{"type": "fact", "parts": ["x"], "refs": ["D12"]}]})
     assert json.loads(ok) == {"ok": True}

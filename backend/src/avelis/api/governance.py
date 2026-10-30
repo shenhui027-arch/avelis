@@ -73,6 +73,8 @@ class VersionSpec(BaseModel):
     dedupe_basis: str | None = None
     unit: str | None = Field(default=None, max_length=16, description="单位，如 元、单、人；比率类可不填")
     unit_scale: int = Field(default=1, ge=1, description="列本身的倍数：列已是“万元”时为 10000")
+    material_change_ratio: float | None = Field(
+        default=None, gt=0, lt=1, description="变化显著性阈值（相对对比期）：为空时用系统默认 1%")
 
     @model_validator(mode="after")
     def _base_fields(self) -> "VersionSpec":

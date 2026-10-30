@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import false as sa_false
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column
@@ -401,6 +402,8 @@ class MetricVersion(Base):
     # 单位（ADR 0009）：如 元、单、人；unit_scale 是列本身的倍数（列已是“万元”时为 10000）。缺单位的口径列入治理待补
     unit: Mapped[str | None] = mapped_column(String(16))
     unit_scale: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1", nullable=False)
+    # 变化显著性阈值（ADR 0009 第 7 点）：为空时用系统默认；只影响分析判断，不计入依赖指纹
+    material_change_ratio: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
     dependency: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     dependency_fingerprint: Mapped[str | None] = mapped_column(String(64))
     asset_versions: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)

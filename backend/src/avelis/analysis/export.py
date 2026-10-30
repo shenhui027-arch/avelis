@@ -92,8 +92,9 @@ def _cause_lines(report: dict) -> list[str]:
         return []
     lines = ["", "## 原因排序", f"结论类型：{CONCLUSION.get(conclusion, conclusion or '—')}"]
     for i, c in enumerate(causes, start=1):
-        e = c.get("entity") or {}
-        entity = f"{e.get('dimension', '')}：{e['member']}" if e.get("member") else e.get("factor") or e.get("event") or "日历因素"
+        e, label = c.get("entity") or {}, c.get("label")
+        entity = (f"{e.get('dimension', '')}：{label or e['member']}" if e.get("member") else
+                  label or e.get("factor_metric_code") or e.get("evidence_id") or "日历因素")
         contribution = (c.get("contribution") or {}).get("text")
         bad = "；".join(c.get("errors") or [])
         lines.append(f"{i}. {CAUSE_TYPE.get(c.get('type'), c.get('type') or '原因')} · {entity} · "

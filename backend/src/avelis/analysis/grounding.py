@@ -71,12 +71,15 @@ DATASET_REF = r"^D[1-9]\d{0,3}$"
 
 
 class CauseEntity(_Ref):
-    """原因的实体：成员写维度与成员，因子写因子名，治理事件写上下文证据的行（D3#2：D3 的第 2 行）。"""
-    dimension: str | None = Field(None, description="成员类原因：维度名（与证据数据集中的维度列或 dimension 列一致）")
+    """原因的实体按编码关联（ADR 0009 第 7 点），不靠显示名对齐；界面另显示名称：
+    成员 {metric_code, dimension, member}；因子 {factor_metric_code}；证据行 {evidence_id}（D3#2：D3 的第 2 行，
+    治理事件必须用它，没有口径编码的成员、因子也用它）。"""
+    metric_code: str | None = Field(None, description="成员类原因：被解释的指标编码")
+    dimension: str | None = Field(None, description="成员类原因：维度名（口径里的维度名，与证据中的维度列或 dimension 列一致）")
     member: str | None = Field(None, description="成员类原因：成员取值")
-    factor: str | None = Field(None, description="因子类原因：因子名（与 factor_decompose 结果的 factor 列一致）")
-    event: str | None = Field(None, pattern=r"^D[1-9]\d{0,3}#[1-9]\d{0,4}$",
-                              description="治理事件：changes / data_health 数据集的行，如 D3#2")
+    factor_metric_code: str | None = Field(None, description="因子类原因：因子的指标编码（因子拆解结果的 factor_metric_code 列）")
+    evidence_id: str | None = Field(None, pattern=r"^D[1-9]\d{0,3}#[1-9]\d{0,4}$",
+                                    description="证据行：数据集编号#行号，如 D3#2")
 
 
 class Cause(_Ref):
