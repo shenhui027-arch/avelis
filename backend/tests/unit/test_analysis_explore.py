@@ -255,5 +255,46 @@ def test_every_standard_function_has_a_translation_test():
     from sqlglot import exp
 
     from avelis.analysis.explore import STANDARD_FUNCTIONS
-    tested = {exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.Nullif, exp.DateTrunc}
+    tested = {exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.Nullif, exp.TimestampTrunc}
     assert set(STANDARD_FUNCTIONS) == tested  # 新增标准函数时必须同时补上 TRANSLATIONS
+
+
+# --- 源方言与标识符大小写（标准 SQL 按 sqlglot 的 postgres 方言解析，tobymao/sqlglot#8845） -----------------------
+
+CASED = (BoundColumn("OrderID", "bigint", "订单号"), BoundColumn("AMT", "decimal(18,2)", "金额"),
+         BoundColumn("订单数", "int", "订单数"), BoundColumn("region", "varchar(16)", "地区"))
+
+
+def cased_resolver(catalog_default):
+    table = BoundTable("a9", "v9", "109", catalog_default, "d1", "orders", "table", CASED)
+
+    def resolve(catalog, db, name):
+        if (db, name) != ("d1", "orders"):
+            raise ExploreRejected("binding", "asset_not_visible", f"表 {name} 不存在或当前用户不可见")
+        return table
+    return resolve
+
+
+@pytest.mark.parametrize("engine,catalog,quote", [("starrocks", "default_catalog", "`"), ("postgres", "appdb", '"')])
+def test_identifier_case_follows_postgres_rules(engine, catalog, quote):
+    """有大写字母的列名（StarRocks 资产的大写、大小写混合列名，PostgreSQL 加了引号的列名）写法与 describe_asset 一致并加
+    双引号；中文列名加不加引号都可以；生成的 SQL 用目标方言的引号保留原样。只差大小写时提示加双引号的写法。"""
+    def run(sql):
+        return validate(sql, PROFILES[engine], cased_resolver(catalog), max_rows=100)
+    v = run('SELECT "OrderID", SUM("AMT") AS total, SUM(订单数) AS n, SUM("订单数") AS m FROM d1.orders GROUP BY "OrderID"')
+    q = quote
+    assert f"{q}orders{q}.{q}OrderID{q}" in v.sql and f"{q}orders{q}.{q}AMT{q}" in v.sql and f"{q}订单数{q}" in v.sql
+    assert {c.name: c.deps for c in v.columns}["total"] == [f"{catalog}.d1.orders.AMT"]
+    assert {c.name: c.deps for c in v.columns}["n"] == [f"{catalog}.d1.orders.订单数"]
+    with pytest.raises(ExploreRejected) as e:
+        run("SELECT OrderID, SUM(amt) AS total FROM d1.orders GROUP BY OrderID")  # 不加引号：折成小写，找不到
+    assert e.value.code == "column_unresolved" and e.value.view()["sent_to_database"] is False
+    assert any('写成 "AMT"' in h for h in e.value.hints) and any('写成 "OrderID"' in h for h in e.value.hints)
+
+
+@pytest.mark.parametrize("engine", ["starrocks", "postgres"])
+def test_division_is_numeric_on_every_engine(engine):
+    """标准 SQL 的除法是数值除法：不按 PostgreSQL 的整数相除取整，两个引擎结果一致。"""
+    v = ok(engine, "SELECT SUM(amount) / SUM(qty) AS unit FROM d1.facts")
+    assert ("CAST(SUM(" in v.sql and "AS DOUBLE PRECISION) / SUM(" in v.sql) if engine == "postgres" else \
+        "SUM(`facts`.`amount`) / SUM(`facts`.`qty`)" in v.sql

@@ -1,8 +1,9 @@
 """探索查询的校验（ADR 0009 第 6 点）：允许清单，凡不确定的一律拒绝；执行的是由校验后的 AST 重新生成的 SQL。
 
 现有的 ask.compiler.validate_sql 是禁止清单、列检查有跳过路径，这里不复用它。本模块是纯函数，不连数据库：
-- 模型一律用 Avelis 标准 SQL 书写：ANSI 的受限子集，按 sqlglot 通用方言解析（STANDARD_DIALECT），标准函数只有
-  STANDARD_FUNCTIONS 这张小清单；不让模型凭自己的知识猜方言；
+- 模型一律用 Avelis 标准 SQL 书写：PostgreSQL 写法的受限子集，按 sqlglot 的 postgres 方言解析（STANDARD_DIALECT），
+  标准函数只有 STANDARD_FUNCTIONS 这张小清单；不让模型凭自己的知识猜目标引擎的方言。标识符按 PostgreSQL 规则：
+  不加引号的折成小写，加双引号的按原样匹配（有大写字母的列名要加双引号，写法与 describe_asset 返回的一致）；
 - 引擎能力档案（ExploreProfile）：目标方言、表源规则、执行参数，以及标准函数转换到本引擎后的节点（复核用）；
   没有档案的引擎不提供 query_sql。第一版只有 StarRocks、PostgreSQL；
 - table_refs()：解析标准 SQL，列出物理表引用（数据源由调用方按资产确定，见 exploration.route）；
@@ -39,7 +40,10 @@ BANNED_FUNCTIONS = {"sleep", "pg_sleep", "pg_sleep_for", "pg_sleep_until", "benc
                     "pg_cancel_backend", "set_config", "current_setting"}
 
 AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN", exp.Max: "MAX"}
-STANDARD_DIALECT = ""  # Avelis 标准 SQL：sqlglot 通用方言（ANSI 子集），表名写 库.表 或 catalog.库.表
+# Avelis 标准 SQL 的源方言：sqlglot 上游要求明确源方言，默认方言 "" 不在支持范围
+# （https://github.com/tobymao/sqlglot/issues/8845）。标准函数本来就是 PostgreSQL 的写法，sqlglot 对它的支持与测试最完善。
+# 本模块里所有的解析、qualify 与 .sql() 都显式传方言（tests/unit/test_sqlglot_usage.py 防回流）。
+STANDARD_DIALECT = "postgres"
 # 标准函数（模型能用的全部函数）：类别与参数个数。每个都在 StarRocks、PostgreSQL 上有转换测试
 # （tests/unit/test_analysis_explore.py::test_standard_functions_translate），没有测试的函数不进这张清单。
 # 算术、CASE、CAST 是结构节点。日期加减只有一种写法：列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）：
@@ -48,7 +52,7 @@ STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
     exp.Sum: ("聚合", 1, 1), exp.Count: ("聚合", 0, 1), exp.Avg: ("聚合", 1, 1), exp.Min: ("聚合", 1, 1),
     exp.Max: ("聚合", 1, 1),
     exp.Coalesce: ("条件", 2, 4), exp.Nullif: ("条件", 2, 2),
-    exp.DateTrunc: ("日期", 2, 2),
+    exp.TimestampTrunc: ("日期", 2, 2),  # DATE_TRUNC('month', 列)：postgres 方言解析为 TimestampTrunc
 }
 DATE_UNITS = {"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"}  # 日期截断与 INTERVAL 允许的单位
 # 结构节点的允许清单（函数另外按档案核对）
@@ -122,8 +126,8 @@ class ExploreProfile:
     settings: dict[str, Any] = field(default_factory=dict)  # 执行参数，见连接器 execute_explore
 
 
-# DATE_TRUNC 转换后按目标方言解析为 TimestampTrunc
-_TRANSLATED = {**STANDARD_FUNCTIONS, exp.TimestampTrunc: ("日期", 2, 2)}
+# 标准函数转换到目标方言后，按目标方言解析出的节点与标准 SQL 相同
+_TRANSLATED = dict(STANDARD_FUNCTIONS)
 PROFILES: dict[str, ExploreProfile] = {
     "starrocks": ExploreProfile("starrocks", "2", "starrocks", True, functions=dict(_TRANSLATED),
                                 settings={"query_timeout": "按统一截止时间", "query_mem_limit": 2 * 1024 ** 3,
@@ -207,6 +211,11 @@ def _parse(sql: str, dialect: str = STANDARD_DIALECT) -> exp.Expression:
     ast = statements[0]
     if not isinstance(ast, exp.Select):
         raise ExploreRejected("syntax", "not_select", f"只允许 SELECT 或 WITH … SELECT（收到 {type(ast).__name__}）")
+    if dialect == STANDARD_DIALECT:
+        # 标准 SQL 的除法一律是数值除法（不按 PostgreSQL 的整数相除取整），各引擎结果一致：目标是 PostgreSQL 时
+        # 生成 CAST(… AS DOUBLE PRECISION)，StarRocks 的 / 本来就是数值除法
+        for div in ast.find_all(exp.Div):
+            div.set("typed", False)
     return ast
 
 
@@ -262,7 +271,8 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
         if isinstance(node, exp.Cast):
             to = node.args.get("to")
             if not isinstance(to, exp.DataType) or to.this not in CAST_TYPES:
-                raise ExploreRejected("syntax", "cast_type", f"不支持转换成 {to.sql() if to else '未知类型'}")
+                raise ExploreRejected("syntax", "cast_type",
+                                      f"不支持转换成 {to.sql(dialect=STANDARD_DIALECT) if to else '未知类型'}")
         if isinstance(node, exp.Var) and not isinstance(node.parent, (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)):
             raise ExploreRejected("syntax", "variable", "不允许变量")
         if isinstance(node, exp.Interval) and (_unit(node) not in DATE_UNITS
@@ -391,8 +401,14 @@ def _qualify(ast: exp.Expression, bound: dict[int, BoundTable], profile: Explore
         return qualify(tree, dialect=STANDARD_DIALECT, schema=schema, validate_qualify_columns=True,
                        quote_identifiers=True, expand_stars=False, identify=True)
     except OptimizeError as e:
+        tables = {b.asset_id: b for b in bound.values()}.values()
         hints = [f"{t.qualified}：" + "、".join(f"{c.name}" + (f"（{c.comment}）" if c.comment else "")
-                                              for c in t.columns[:60]) for t in {b.asset_id: b for b in bound.values()}.values()]
+                                              for c in t.columns[:60]) for t in tables]
+        # 只差大小写：标识符按 PostgreSQL 规则，不加引号的折成小写，有大写字母的列名要加双引号
+        written = {i.name for i in ast.find_all(exp.Identifier) if not i.quoted}
+        cased = sorted({c.name for t in tables for c in t.columns if c.name != c.name.lower()
+                        and c.name.lower() in {w.lower() for w in written}})
+        hints += [f'列名有大写字母时加双引号：写成 "{name}"' for name in cased]
         raise ExploreRejected("column", "column_unresolved", f"列无法唯一解析：{str(e).splitlines()[0][:160]}",
                               hints) from None
 
@@ -457,7 +473,8 @@ def _outputs(tree: exp.Expression) -> list[OutputColumn]:
                 "ratio": "ratio"}.get(info.kind, "unknown" if info.numeric else "text")
         direct = info.kind == "column"
         out.append(OutputColumn(
-            name=projection.alias_or_name, expression=projection.sql(), deps=sorted(info.deps), kind=kind,
+            name=projection.alias_or_name, expression=projection.sql(dialect=STANDARD_DIALECT), deps=sorted(info.deps),
+            kind=kind,
             eligible=not assumption and info.numeric and info.kind in ("column", "agg_level", "count", "ratio", "arith"),
             label_ok=direct and not info.numeric, assumption=assumption and info.numeric))
     return out
@@ -531,14 +548,14 @@ def _column(node: exp.Column, scope: Scope) -> _Info:
     if isinstance(source, exp.Table):
         bound: BoundTable | None = source.meta.get("avelis_bound")
         col = next((c for c in bound.columns if c.name == node.name), None) if bound else None
-        return _Info("column", {f"{bound.qualified}.{node.name}" if bound else node.sql()},
+        return _Info("column", {f"{bound.qualified}.{node.name}" if bound else node.sql(dialect=STANDARD_DIALECT)},
                      numeric=bool(col and _is_numeric(col.data_type)))
     if isinstance(source, Scope):
         for projection in source.expression.expressions:
             if projection.alias_or_name == node.name:
                 inner = projection.unalias() if isinstance(projection, exp.Alias) else projection
                 return _analyze(inner, source)
-    return _Info("other", {node.sql()}, bad_constant=True)
+    return _Info("other", {node.sql(dialect=STANDARD_DIALECT)}, bad_constant=True)
 
 
 def _scope_inputs(scope: Scope) -> set[str]:
@@ -567,7 +584,8 @@ def _regenerate(tree: exp.Expression, bound: dict[int, BoundTable], profile: Exp
     for table in final.find_all(exp.Table):
         target: BoundTable | None = table.meta.get("avelis_bound")
         if target is None and not _is_cte_ref(table):
-            raise ExploreRejected("binding", "unbound_table", f"表 {table.sql()} 没有绑定到已采集的资产")
+            raise ExploreRejected("binding", "unbound_table",
+                                  f"表 {table.sql(dialect=STANDARD_DIALECT)} 没有绑定到已采集的资产")
         if target is not None:
             if not profile.catalog_in_sql:
                 table.set("catalog", None)
