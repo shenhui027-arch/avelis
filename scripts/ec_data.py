@@ -412,6 +412,8 @@ def truth(ds: Dataset) -> dict:
         "rows": {t: len(r) for t, r in sorted(ds.tables.items())},
         "region_month": total(paid, lambda o: (o[5], month(o[2]))),
         "region_channel_month": total(paid, lambda o: (o[5], o[7], month(o[2]))),
+        "channel_month": total(paid, lambda o: (o[7], month(o[2]))),  # 全部区域按渠道类型
+        "store_orders_day": total([o for o in paid if o[7] == "门店"], lambda o: str(o[2])),  # 门店渠道，按下单日期
         "store_month_sz": total([o for o in paid if o[6] == "SZ" and o[7] == "门店"], lambda o: (o[4], month(o[2]))),
         "ec_douyin_month": total([o for o in paid if o[5] == "EC" and o[9] == "douyin"], lambda o: month(o[2])),
         # 以下按数仓视图的口径计算（评测题的关键数值从这里取，不手填）
@@ -430,7 +432,10 @@ def truth(ds: Dataset) -> dict:
                                               lambda a: a[5]).items()},  # dws_marketing_daily：付费渠道花费与归因成交
         "category_month": {k: {"units": n} for k, n in count(  # 一级类目、下单日期，不含取消单
             live_items, lambda i: (l1_of[i[2]], month(by_id[i[1]][2])), lambda i: i[3]).items()},
+        "region_category_month": {k: {"units": n} for k, n in count(
+            live_items, lambda i: (by_id[i[1]][5], l1_of[i[2]], month(by_id[i[1]][2])), lambda i: i[3]).items()},
         "traffic_rows_on_gap_day": len(gap),
+        "views_daily": views_daily(ds),
         "scenarios": {
             "closed_store": {"city": CLOSED_STORE[0], "name": CLOSED_STORE[3], "close_date": str(CLOSED_STORE[2])},
             "appliance_promo": {"campaign": "家电焕新季", "start": "2026-09-01", "end": "2026-09-20", "rate": "0.85"},
@@ -441,6 +446,74 @@ def truth(ds: Dataset) -> dict:
             "traffic_gap": {"city": TRAFFIC_GAP[0], "date": str(TRAFFIC_GAP[1]), "stores": 3},
             "price_up": {"category": "数码", "from": str(PRICE_UP[0]), "factor": str(PRICE_UP[1])},
         },
+    }
+
+
+def views_daily(ds: Dataset) -> dict:
+    """数仓日汇总视图按定义算出的日明细（列名与视图一致，维度取值与口径维度一致）：评测题的期望结论由它按产品的
+    判定规则算出（tests/eval/scoring.py），不手填。只按生成数据计算，不查数据库。"""
+    region = {r[0]: r[1] for r in ds.tables["ec_org.region"]}
+    city = {c[0]: c for c in ds.tables["ec_org.city"]}
+    store = {s[0]: s for s in ds.tables["ec_org.store"]}
+    category = {c[0]: c for c in ds.tables["ec_product.category"]}
+    l1_of = {p[0]: category[category[p[2]][2]][1] for p in ds.tables["ec_product.product"]}
+    channel = {c[0]: c[1] for c in ds.tables["ec_marketing.channel"]}
+    warehouse_region = {w[0]: w[2] for w in ds.tables["ec_supply.warehouse"]}
+    orders = ds.tables["ec_trade.orders"]
+    live = [o for o in orders if o[10] != "cancelled"]
+    by_id = {o[0]: o for o in orders}
+
+    def grouped(rows, key, values) -> list[list]:
+        out: dict = {}
+        for r in rows:
+            k = key(r)
+            out[k] = [a + b for a, b in zip(out.get(k) or [0] * len(values(r)), values(r))]
+        return [[*map(str, k), *map(str, v)] for k, v in sorted(out.items())]
+
+    store_orders: dict = {}
+    for o in live:
+        if o[7] == "门店":
+            n, amount = store_orders.get((o[4], o[2]), (0, Decimal("0")))
+            store_orders[(o[4], o[2])] = (n + 1, amount + o[15])
+    store_rows = []
+    for t in ds.tables["ec_org.store_daily_traffic"]:  # 以门店日客流为主表：没有客流记录的那天，订单随之缺失
+        s = store[t[0]]
+        n, amount = store_orders.get((t[0], t[1]), (0, Decimal("0")))
+        store_rows.append([str(t[1]), region[city[s[2]][2]], s[1], city[s[2]][1], s[4], str(s[5]), s[7],
+                           str(t[2]), str(n), str(amount)])
+    ad_orders: dict = {}
+    for o in live:
+        n, amount = ad_orders.get((o[2], o[5], o[9]), (0, Decimal("0")))
+        ad_orders[(o[2], o[5], o[9])] = (n + 1, amount + o[15])
+    marketing_rows = []
+    for a in ds.tables["ec_marketing.ad_spend_daily"]:
+        n, amount = ad_orders.get((a[0], a[2], a[1]), (0, Decimal("0")))
+        marketing_rows.append([str(a[0]), region[a[2]], channel[a[1]], str(a[5]), str(n), str(amount)])
+    tickets = ds.tables["ec_service.service_ticket"]
+    return {
+        "dws_region_daily": {
+            "columns": ["order_date", "region_name", "channel_type", "order_cnt", "paid_amount"],
+            "rows": grouped(live, lambda o: (o[2], region[o[5]], o[7]), lambda o: (1, o[15]))},
+        "dws_store_daily": {
+            "columns": ["stat_date", "region_name", "store_name", "city_name", "district_level", "floor", "store_type",
+                        "visitors", "order_cnt", "paid_amount"],
+            "rows": store_rows},
+        "dws_category_daily": {
+            "columns": ["order_date", "region_name", "category_l1", "units", "item_amount"],
+            "rows": grouped([i for i in ds.tables["ec_trade.order_item"] if by_id[i[1]][10] != "cancelled"],
+                            lambda i: (by_id[i[1]][2], region[by_id[i[1]][5]], l1_of[i[2]]), lambda i: (i[3], i[6]))},
+        "dws_marketing_daily": {
+            "columns": ["spend_date", "region_name", "channel_name", "spend", "order_cnt", "paid_amount"],
+            "rows": marketing_rows},
+        "dws_logistics_daily": {  # 与视图相同：DATETIME 存到秒，TIMESTAMPDIFF(HOUR) 向下截断
+            "columns": ["ship_date", "region_name", "shipment_cnt", "delivery_hours"],
+            "rows": grouped(ds.tables["ec_logistics.shipment"], lambda s: (s[4].date(), region[warehouse_region[s[2]]]),
+                            lambda s: (1, int((s[5].replace(microsecond=0) - s[4].replace(microsecond=0))
+                                              .total_seconds() // 3600)))},
+        "dws_service_daily": {
+            "columns": ["ticket_date", "region_name", "category", "ticket_cnt", "rated_cnt", "satisfaction_sum"],
+            "rows": grouped(tickets, lambda t: (t[3].date(), region[by_id[t[1]][5]], t[4]),
+                            lambda t: (1, 1 if t[5] is not None else 0, t[5] or 0))},
     }
 
 

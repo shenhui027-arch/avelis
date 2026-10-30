@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from avelis.analysis.grounding import CONCLUSIONS, Cause, render
+from avelis.analysis.grounding import CONCLUSIONS, Cause, describe_scope, render
 
 CHECKED = ("fact", "calc")
 FIELDS = ("title", "summary", "unexplained")
@@ -103,8 +103,8 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
                   explanations: dict[str, str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
     report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}],
-    conclusion, causes, metric_code}；datasets：见 grounding.resolve；window：本次运行的窗口；
-    explanations：本次运行里 explain_change 对各指标的判定（unsupported 表示不适用），结论类型以它为准。"""
+    conclusion, causes, metric_code, scope, scope_key}；datasets：见 grounding.resolve；window：本次运行的窗口；
+    explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），结论类型以它为准。"""
     if report.get("incomplete"):  # 后端生成的“未完成”报告：没有引用，原样保留，不核验
         return report, {"ok": False, "status": "no_facts", "unverified": 0, "claims": [], "fields": [],
                         "unverified_fields": 0, "sources": {}}
@@ -167,32 +167,35 @@ FACT_SOURCES = ("governed", "calc", "explore")
 TYPE_FIELDS = {"member": (("metric_code", "dimension", "member"), ("evidence_id",)),
                "factor": (("factor_metric_code",), ("evidence_id",)), "calendar": ((),),
                "governance": (("evidence_id",),)}
-EXPLAIN_CONCLUSION = {"ranked_reasons": "ranked_reasons", "offsetting": "no_material_change",
-                      "no_material_change": "no_material_change"}
+EXPLAIN_CONCLUSIONS = ("ranked_reasons", "offsetting", "no_material_change")
+WITH_CAUSES = ("ranked_reasons", "offsetting")
 
 
 def _conclusion_matches(report: dict, explanations: dict[str, str]) -> list[str]:
-    """结论类型交给确定性引擎（ADR 0009 第 7 点）：所问指标（metric_code）做过 explain_change 时，
-    报告的结论类型必须与它的判定一致（相互抵消按“没有实质变化”）；做过 explain_change 却没写所问指标的，要求写明。"""
-    code, conclusion = report.get("metric_code"), report.get("conclusion")
+    """结论类型交给确定性引擎（ADR 0009 第 7 点第 3、9 条）：报告的 scope（所问指标、筛选与窗口）做过 explain_change 时，
+    结论类型必须与同一 scope 的判定一致；只和 scope 完全相同的判定比对。做过 explain_change 却没写 scope 的，要求写明；
+    断言了变化情况却没有同范围判定的，要求用这个 scope 调用 explain_change。explanations：登记键 → 判定。"""
+    key, conclusion = report.get("scope_key"), report.get("conclusion")
     explained = {k: v for k, v in explanations.items() if v != "unsupported"}
-    if not code:
+    if not key:
         if explained:
-            return [f"本次运行对 {'、'.join(sorted(explained))} 做过自动归因：请在 metric_code 写明所问的指标"]
+            return [f"本次运行做过自动归因（{'；'.join(describe_scope(k) for k in sorted(explained))}）："
+                    "请在 scope 写明所问的指标、筛选与窗口"]
         return []
-    verdict = explanations.get(code)
+    verdict = explanations.get(key)
     if verdict is None:
-        return [f"所问指标 {code} 没有做过 explain_change：结论类型由它判定，请先对 {code} 调用 explain_change"] if (
-            conclusion in ("ranked_reasons", "no_material_change")) else []
-    expected = EXPLAIN_CONCLUSION.get(verdict)
-    if expected and conclusion != expected:
-        return [f"explain_change 对 {code} 的判定是 {verdict}，结论类型应为 {expected}（不是 {conclusion}）"]
+        return [f"没有与报告 scope {describe_scope(key)} 相同范围的 explain_change 判定：结论类型由它判定，"
+                "请用这个 scope（同样的 metric_code、filters 与窗口）调用 explain_change"] if (
+            conclusion in EXPLAIN_CONCLUSIONS) else []
+    if verdict in EXPLAIN_CONCLUSIONS and conclusion != verdict:
+        return [f"explain_change 对 {describe_scope(key)}的判定是 {verdict}，结论类型应为 {verdict}（不是 {conclusion}）"]
     return []
 
 
 def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tuple[list, list, list[str]]:
     """原因项的核验（ADR 0009 第 5 点）：结构合法；证据存在且类型对；贡献引用能解析、方向与正负一致；实体在证据里找得到；
-    结论类型与原因列表一致（ranked_reasons 至少一项，其余两种不能有原因）。"""
+    结论类型与原因列表一致（ranked_reasons 至少一项；offsetting 前两项是最大的减少项与增加项，方向一减一增；
+    其余两种不能有原因）。"""
     conclusion = report.get("conclusion")
     raw = report.get("causes") or []
     problems: list[str] = []
@@ -200,7 +203,10 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
         problems.append(f"结论类型应为 {'、'.join(CONCLUSIONS)} 之一")
     elif conclusion == "ranked_reasons" and not raw:
         problems.append("结论为 ranked_reasons 时必须给出至少一个原因")
-    elif conclusion != "ranked_reasons" and raw:
+    elif conclusion == "offsetting" and {c.get("direction") if isinstance(c, dict) else c.direction
+                                         for c in raw[:2]} != {"up", "down"}:
+        problems.append("结论为 offsetting 时前两项原因应是最大的减少项与增加项（方向一减一增）")
+    elif conclusion not in WITH_CAUSES and raw:
         problems.append(f"结论为 {conclusion} 时不能给出原因排序")
     rendered, results = [], []
     for i, item in enumerate(raw):

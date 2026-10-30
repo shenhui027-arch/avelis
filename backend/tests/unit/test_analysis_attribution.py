@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from avelis.analysis import attribution, tools
+from avelis.analysis.grounding import scope_key
 from avelis.analysis.tools import Budget
 from avelis.models import Metric, MetricVersion
 from tests.unit.test_analysis_toolbox import make_box
@@ -84,8 +85,20 @@ def test_judge_ranks_until_threshold_or_top_k_and_detects_offsetting():
     d, total = dim([D(100), D(-95)])  # 相互抵消：|ΔT| / Σ|c| = 5 / 195 < 0.2
     out = attribution.judge(d, D(200), total, top_k=5)
     assert out.verdict == "offsetting" and [r["role"] for r in out.selected] == ["增加项", "减少项"]
-    d, total = dim([D(1), D(0)])  # 接近 0：|ΔT| = 1 < 对比期 200 的 1%
+    d, total = dim([D(1), D(0)])  # 成员变动 Σ|c| = 1 < 对比期 200 的 1%
     assert attribution.judge(d, D(200), total, top_k=5).verdict == "no_material_change"
+    # 判定顺序（第 7 点第 8 条）：总变化不到阈值、成员变动达到阈值（一个成员大减、其他成员增长对冲）是相互抵消，
+    # 不是没有实质变化；最大的减少项与增加项都列出
+    d, total = dim([D(-120), D(60), D(59)])  # |ΔT| = 1 < 100（对比期 10000 的 1%），Σ|c| = 239 ≥ 100
+    out = attribution.judge(d, D(10000), total, top_k=5)
+    assert out.verdict == "offsetting"
+    assert [(r["member"], r["role"]) for r in out.selected] == [("m1", "增加项"), ("m2", "增加项"), ("m0", "减少项")]
+    d, total = dim([D(-60), D(30), D(29)])  # Σ|c| = 119 < 对比期 20000 的 1%：没有实质变化
+    assert attribution.judge(d, D(20000), total, top_k=5).verdict == "no_material_change"
+    # 没有候选维度（指标没有维度，或维度都被筛选掉了）：成员只有范围总量自己，按总变化判定
+    assert attribution.verdict([], False, total_immaterial=True, candidates=False) == "no_material_change"
+    assert attribution.verdict([], False, total_immaterial=False, candidates=False) == "ranked_reasons"
+    assert attribution.verdict([], False, total_immaterial=False) == "insufficient_evidence"  # 有候选维度却没扫成
     ties = attribution.rank([attribution.Dimension("B", js=0.2), attribution.Dimension("A", js=0.2),
                              attribution.Dimension("C", js=None)])
     assert [x.name for x in ties] == ["A", "B", "C"]  # 并列按维度名，不可计算的排最后
@@ -211,13 +224,44 @@ def test_explain_change_offsetting_and_no_material_change(monkeypatch):
     assert summary["verdict"] == "no_material_change" and summary["cumulative_ep"] is None
 
 
+def test_explain_change_filters_apply_to_every_subquery_and_key_the_verdict(monkeypatch):
+    """第 7 点第 9 条：筛选与 query_metric 相同，总量与各维度子查询都带上；被筛选的维度不再扫描；
+    判定按（指标、规范化的筛选、窗口）登记，与对整个指标的判定分开。"""
+    box, queries = additive_box(monkeypatch, SCENARIO)
+    seen = []
+    original = queries.__call__
+
+    def record(qa):
+        seen.append([f.model_dump() for f in qa.filters])
+        return original(qa)
+    monkeypatch.setattr(box, "_run_query", record)
+    region = [{"dimension": "维度B", "values": ["b2", "b1", "b1"]}]
+    out = json.loads(box.dispatch("explain_change", {"metric_code": "x", "filters": region}))
+    summary = box.datasets()[out["dataset"]].meta["summary"]
+    assert seen and all(f == region for f in seen)  # 每个子查询都带同样的筛选
+    assert summary["scanned"] == ["维度A"] and summary["scope"]["filters"] == region  # 维度B 被筛选：不扫描
+    filtered = scope_key("x", [{"dimension": "维度B", "values": ["b1", "b2"]}], summary["scope"])
+    assert list(box.explanations) == [filtered]
+    json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
+    assert set(box.explanations) == {filtered, scope_key("x", [], summary["scope"])}  # 整个指标单独登记
+
+
+def test_explain_change_with_every_dimension_filtered_judges_the_scope_total(monkeypatch):
+    """筛选覆盖了全部维度时没有可扫描的维度：按范围总量判定（变化达到阈值为 ranked_reasons），不是证据不足。"""
+    box, _ = additive_box(monkeypatch, SCENARIO)
+    both = [{"dimension": "维度A", "values": ["a1"]}, {"dimension": "维度B", "values": ["b1"]}]
+    out = json.loads(box.dispatch("explain_change", {"metric_code": "x", "filters": both}))
+    summary = box.datasets()[out["dataset"]].meta["summary"]
+    assert summary["scanned"] == [] and summary["conclusion"] == "ranked_reasons" and summary["partial"] is False
+
+
 def test_explain_change_partial_on_budget_truncation_and_deadline(monkeypatch):
     box, _ = additive_box(monkeypatch, SCENARIO, budget=Budget(queries=2))
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     ds = box.datasets()[out["dataset"]]
     summary = ds.meta["summary"]
     assert summary["partial"] is True and summary["scanned"] == ["维度A"]  # 预算耗尽：只扫了一个维度
-    assert summary["unscanned"] == [{"dimension": "维度B", "reason": "受治理查询额度（2 次）已用完"}]
+    assert summary["unscanned"] == [{"dimension": "维度B", "reason": "查询额度已用完（2 次）"}]
     assert ds.meta["partial"] is True and "排名只在已扫描的维度内成立" in summary["note"]
     box, _ = additive_box(monkeypatch, SCENARIO, truncated=["维度A"])
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
@@ -325,13 +369,17 @@ def test_material_change_threshold_is_a_per_metric_setting(monkeypatch):
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     summary = box.datasets()[out["dataset"]].meta["summary"]
     assert summary["conclusion"] == "ranked_reasons" and summary["material_change_ratio"] == "0.01"
-    assert box.explanations == {"x": "ranked_reasons"} and "metric_code 写 x" in out["conclusion_note"]
+    key = scope_key("x", [], summary["scope"])
+    assert box.explanations == {key: "ranked_reasons"} and "scope 照抄 summary.scope" in out["conclusion_note"]
+    assert summary["scope"] == {"metric_code": "x", "filters": [], "start_date": WINDOW["start"], "end_date": WINDOW["end"],
+                                "compare_start": WINDOW["compare_start"], "compare_end": WINDOW["compare_end"]}
     assert box.datasets()[out["dataset"]].meta["summary_units"]["material_change_ratio"]["kind"] == "share"  # 阈值可引用
     strict, _ = additive_box(monkeypatch, SCENARIO)
     strict._metric_sources("x")[1].material_change_ratio = D("0.5")  # 这个指标 50% 以内都算不显著
     out = json.loads(strict.dispatch("explain_change", {"metric_code": "x"}))
     summary = strict.datasets()[out["dataset"]].meta["summary"]
-    assert summary["verdict"] == summary["conclusion"] == "no_material_change" and strict.explanations["x"] == summary["verdict"]
+    assert summary["verdict"] == summary["conclusion"] == "no_material_change" and \
+        strict.explanations[scope_key("x", [], summary["scope"])] == summary["verdict"]
 
 
 def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):

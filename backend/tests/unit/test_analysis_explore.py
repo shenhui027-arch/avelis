@@ -109,7 +109,7 @@ def test_limit_is_generated_by_the_system(engine):
     ("SELECT sleep(5) AS s FROM d1.facts", "syntax", "banned_function"),
     ("SELECT my_udf(amount) AS u FROM d1.facts", "syntax", "function_not_allowed"),
     ("SELECT ROUND(amount, 2) AS r FROM d1.facts", "syntax", "function_not_allowed"),  # 不在标准函数清单
-    ("SELECT DATE_ADD(event_date, INTERVAL 7 DAY) AS d FROM d1.facts", "syntax", "function_not_allowed"),
+    ("SELECT DATE_ADD(event_date, INTERVAL 7 DAY) AS d FROM d1.facts", "syntax", "function_not_allowed"),  # 规范形式唯一
     ("SELECT DATE_TRUNC('hour', event_date) AS d FROM d1.facts", "syntax", "date_unit"),
     ("SELECT event_date + INTERVAL '3' HOUR AS d FROM d1.facts", "syntax", "date_unit"),
     ("SELECT `region` FROM d1.facts", "parse", "parse_error"),  # 方言写法（反引号）不是标准 SQL

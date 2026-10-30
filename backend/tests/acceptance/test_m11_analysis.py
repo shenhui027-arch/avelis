@@ -184,13 +184,28 @@ def test_02b_explain_change_verdict_and_automatic_factor_decomposition(admin: Ap
         summary = box.datasets()[out["dataset"]].meta["summary"]
         change = month_total("2026-09") - month_total("2026-08")
         assert Decimal(str(summary["total"]["change"])) == change and summary["conclusion"] == "ranked_reasons"
-        assert box.explanations["ec_gmv"] == "ranked_reasons"
+        from avelis.analysis.grounding import scope_key
+
+        assert box.explanations[scope_key("ec_gmv", [], summary["scope"])] == "ranked_reasons"
         factor = summary["factor_decomposition"]
         assert factor["ratio_metric"] == "ec_aov" and factor["factors"] == ["ec_orders", "ec_aov"], factor
         ds = box.datasets()[factor["dataset"]]
         parts = {r["factor_metric_code"]: r for r in (dict(zip(ds.columns, row)) for row in ds.rows)}
         assert sum(Decimal(str(r["contribution"])) for r in parts.values()) == change  # 贡献相加等于总差额
         assert Decimal(str(parts["ec_orders"]["contribution"])) < 0  # 订单数下降是负贡献
+        # 第 7 点第 9 条：带筛选（华东）时总量、各维度与因子拆解的分母都只取华东，判定按这个范围单独登记
+        east = [{"dimension": "region", "values": ["华东"]}]
+        out = json.loads(box.dispatch("explain_change", {"metric_code": "ec_gmv", "start_date": SEP[0], "end_date": SEP[1],
+                                                         "compare_start": AUG[0], "compare_end": AUG[1], "filters": east}))
+        assert "error" not in out, out
+        summary = box.datasets()[out["dataset"]].meta["summary"]
+        ec = lambda m: Decimal(t["region_month"][str(("EC", m))]["paid_amount"])  # noqa: E731
+        assert Decimal(str(summary["total"]["change"])) == ec("2026-09") - ec("2026-08")
+        assert summary["scanned"] == ["channel"] and summary["scope"]["filters"] == east  # 区域被筛选：不再扫描
+        factor = summary["factor_decomposition"]
+        ds = box.datasets()[factor["dataset"]]
+        assert sum(Decimal(str(dict(zip(ds.columns, row))["contribution"])) for row in ds.rows) == ec("2026-09") - ec("2026-08")
+        assert box.explanations[scope_key("ec_gmv", east, summary["scope"])] == summary["conclusion"]
     finally:
         scope.__exit__(None, None, None)
 
@@ -214,7 +229,7 @@ def test_03_permission_budget_and_verification(admin: Api):
                                            "group_by": ["region"], "purpose": "退款"}))
         again = json.loads(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": AUG[0],
                                                          "end_date": AUG[1], "purpose": "超出查询预算"}))
-        assert "上限" in again["error"]
+        assert "查询额度已用完" in again["error"] and "计算工具与 submit_report 仍可用" in again["error"]
         box.dispatch("search_metrics", {})
         over = json.loads(box.dispatch("search_metrics", {}))
         assert "上限" in over["error"] and box.budget.used_tools == 3  # 工具次数用完
@@ -400,7 +415,8 @@ def test_07_real_model_finds_planted_cause(stack, admin: Api):
     governed = [d for d in run["datasets"] if d["kind"] == "governed"]
     assert governed and all(d["sql"] for d in governed)
     used = run["budget"]["used"]
-    assert used["queries"] <= run["budget"]["limits"]["queries"] and used["tool_calls"] <= 30
+    limits = run["budget"]["limits"]  # 修订会追加工具次数：与运行记录的上限比较
+    assert used["queries"] <= limits["queries"] and used["tool_calls"] <= limits["tool_calls"]
     assert run["steps"][0]["tool"] in ("submit_plan", "search_metrics", "describe_metric", "changes")
     ctx["llm_run"] = run["id"]
 

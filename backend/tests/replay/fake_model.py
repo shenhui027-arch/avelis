@@ -94,8 +94,9 @@ def replay_fetches(box, fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return original(name, args, only_report=only_report)
         assert pending and pending[0]["tool"] == name, f"回放顺序不一致：模型调用 {name}，下一个夹具是 {pending[:1]}"
         fixture = pending.pop(0)
+        box.budget.used_calls += 1
         box.budget.used_tools += 1
-        box.budget.used_queries += name == "query_metric"
+        box.budget.used_queries += name in ("query_metric", "query_sql", "sample_values")
         box.budget.used_explore += name in ("query_sql", "sample_values")
         last = None
         for ds in fixture["datasets"]:
