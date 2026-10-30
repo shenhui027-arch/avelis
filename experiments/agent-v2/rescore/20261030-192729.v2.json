@@ -4,7 +4,7 @@
     "runs": 52,
     "stored_v1": 22,
     "v1_now": 22,
-    "v2": 18,
+    "v2": 22,
     "v2_policy": 29
   },
   "rows": [
@@ -714,13 +714,11 @@
       "id": "c02",
       "category": "calendar",
       "v1_passed": true,
-      "v2_passed": false,
+      "v2_passed": true,
       "v2_policy_passed": true,
       "v1_key": true,
-      "v2_key": false,
-      "reasons": [
-        "关键数值：v1 在报告任意位置命中，v2 绑定不成立（D13.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}）"
-      ],
+      "v2_key": true,
+      "reasons": [],
       "v2": {
         "id": "c02",
         "category": "calendar",
@@ -737,10 +735,30 @@
         "required_in_causes": null,
         "scorer": "v2.0",
         "policy_conclusion_ok": true,
-        "key_value_hit": false,
+        "key_value_hit": true,
         "key_value_detail": {
-          "hit": false,
-          "reason": "D13.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}"
+          "hit": true,
+          "path": "D13.summary.day_count_effect",
+          "binding": {
+            "source": "calendar",
+            "metric": "ec_orders",
+            "entity": {
+              "region": "华北"
+            },
+            "calc": "calendar.day_count_effect",
+            "unit": "单",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ],
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "change"
+          }
         },
         "business": {
           "current": "8243",
@@ -760,7 +778,7 @@
         "denial": null,
         "infrastructure_error": false,
         "policy_passed": true,
-        "passed": false
+        "passed": true
       },
       "repeat": 1,
       "stored_v1_passed": true,
@@ -1356,13 +1374,11 @@
       "id": "h03",
       "category": "factor",
       "v1_passed": true,
-      "v2_passed": false,
+      "v2_passed": true,
       "v2_policy_passed": true,
       "v1_key": true,
-      "v2_key": false,
-      "reasons": [
-        "关键数值：v1 在报告任意位置命中，v2 绑定不成立（D3.投放花费·对比期[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费·变化[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境）"
-      ],
+      "v2_key": true,
+      "reasons": [],
       "v2": {
         "id": "h03",
         "category": "factor",
@@ -1379,10 +1395,26 @@
         "required_in_causes": null,
         "scorer": "v2.0",
         "policy_conclusion_ok": true,
-        "key_value_hit": false,
+        "key_value_hit": true,
         "key_value_detail": {
-          "hit": false,
-          "reason": "D3.投放花费·对比期[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费·变化[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境"
+          "hit": true,
+          "path": "D3.投放花费·对比期[region=华东]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_ad_spend",
+            "entity": {
+              "region": "华东"
+            },
+            "calc": "level",
+            "unit": "元",
+            "span": [
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "compare"
+          }
         },
         "business": {
           "current": "2533878.04",
@@ -1402,7 +1434,7 @@
         "denial": null,
         "infrastructure_error": false,
         "policy_passed": true,
-        "passed": false
+        "passed": true
       },
       "repeat": 1,
       "stored_v1_passed": true,
@@ -2283,13 +2315,11 @@
       "id": "c02",
       "category": "calendar",
       "v1_passed": true,
-      "v2_passed": false,
+      "v2_passed": true,
       "v2_policy_passed": true,
       "v1_key": true,
-      "v2_key": false,
-      "reasons": [
-        "关键数值：v1 在报告任意位置命中，v2 绑定不成立（D11.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}）"
-      ],
+      "v2_key": true,
+      "reasons": [],
       "v2": {
         "id": "c02",
         "category": "calendar",
@@ -2306,10 +2336,30 @@
         "required_in_causes": null,
         "scorer": "v2.0",
         "policy_conclusion_ok": true,
-        "key_value_hit": false,
+        "key_value_hit": true,
         "key_value_detail": {
-          "hit": false,
-          "reason": "D11.summary.day_count_effect：数值相同但实体 / 筛选是 {}，不是 {'region': '华北'}"
+          "hit": true,
+          "path": "D11.summary.day_count_effect",
+          "binding": {
+            "source": "calendar",
+            "metric": "ec_orders",
+            "entity": {
+              "region": "华北"
+            },
+            "calc": "calendar.day_count_effect",
+            "unit": "单",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ],
+              [
+                "2026-08-01",
+                "2026-08-31"
+              ]
+            ],
+            "period": "change"
+          }
         },
         "business": {
           "current": "8243",
@@ -2329,7 +2379,7 @@
         "denial": null,
         "infrastructure_error": false,
         "policy_passed": true,
-        "passed": false
+        "passed": true
       },
       "repeat": 2,
       "stored_v1_passed": true,
@@ -2938,13 +2988,11 @@
       "id": "h03",
       "category": "factor",
       "v1_passed": true,
-      "v2_passed": false,
+      "v2_passed": true,
       "v2_policy_passed": true,
       "v1_key": true,
-      "v2_key": false,
-      "reasons": [
-        "关键数值：v1 在报告任意位置命中，v2 绑定不成立（D3.投放花费[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费·对比期[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境）"
-      ],
+      "v2_key": true,
+      "reasons": [],
       "v2": {
         "id": "h03",
         "category": "factor",
@@ -2961,10 +3009,26 @@
         "required_in_causes": null,
         "scorer": "v2.0",
         "policy_conclusion_ok": true,
-        "key_value_hit": false,
+        "key_value_hit": true,
         "key_value_detail": {
-          "hit": false,
-          "reason": "D3.投放花费[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境；D3.投放花费·对比期[region=华东]：数值相同但D3（query_metric）追溯不到受治理查询的口径语境"
+          "hit": true,
+          "path": "D3.投放花费[region=华东]",
+          "binding": {
+            "source": "governed",
+            "metric": "ec_ad_spend",
+            "entity": {
+              "region": "华东"
+            },
+            "calc": "level",
+            "unit": "元",
+            "span": [
+              [
+                "2026-09-01",
+                "2026-09-30"
+              ]
+            ],
+            "period": "current"
+          }
         },
         "business": {
           "current": "2533878.04",
@@ -2984,7 +3048,7 @@
         "denial": null,
         "infrastructure_error": false,
         "policy_passed": true,
-        "passed": false
+        "passed": true
       },
       "repeat": 2,
       "stored_v1_passed": true,

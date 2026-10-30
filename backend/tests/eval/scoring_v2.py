@@ -114,7 +114,7 @@ def independent_change(truth: dict, spec: dict, window: dict) -> dict[str, Any]:
 
 PATH = re.compile(r"^(?P<ds>D\d+)\.(?P<col>.+?)(?:\[(?P<sel>[^\]]*)\])?$")
 DAY = r"\d{4}-\d{2}-\d{2}"
-GOVERNED_TITLE = re.compile(rf"^(?P<names>\S+) (?P<s>{DAY})~(?P<e>{DAY})(?: 按(?P<group>\S+))?(?: 按(?P<grain>日|月))?"
+GOVERNED_TITLE = re.compile(rf"^(?P<names>.+?) (?P<s>{DAY})~(?P<e>{DAY})(?: 按(?P<group>\S+))?(?: 按(?P<grain>日|月))?"
                             rf"(?: 对比(?:(?P<cs>{DAY})~(?P<ce>{DAY})|(?P<prev>上一期|去年同期)))?$")
 SUFFIX = {"·对比期": "compare", "·变化率": "rate", "·变化": "change"}
 
@@ -277,6 +277,7 @@ class RunIndex:
                     "unit": unit, "span": self._span(ctx, period), "period": period}, None
         if tool == "calendar_adjust":
             args = step.get("args") or {}
+            entity.update({str(k): str(v) for k, v in (args.get("match") or {}).items()})  # 在分组结果里选定的行
             metric = (ctx.get("names") or {}).get(args.get("current")) or ctx.get("metric")
             if col.startswith("summary."):
                 key = col.split(".", 1)[1]
