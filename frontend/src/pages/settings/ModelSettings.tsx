@@ -12,6 +12,7 @@ type Provider = Schemas["ProviderOut"];
 type Settings = Schemas["SettingsOut"];
 type PresetsOut = Schemas["PresetsOut"];
 type Message = { ok: boolean; text: string } | null;
+type Effort = NonNullable<Schemas["Target"]["reasoning_effort"]>;
 
 const PLAT: Record<string, string> = { openai_compatible: "OAI", anthropic: "ANT" };
 
@@ -325,19 +326,30 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
   const purposes = Object.entries(settings.assignments);
   const initial = useMemo(() => Object.fromEntries(Object.entries(settings.assignments).map(([k, v]) =>
     [k, v.provider_id && v.model_id ? `${v.provider_id}|${v.model_id}` : ""])), [settings.assignments]);
+  const initialEffort = useMemo(() => Object.fromEntries(Object.entries(settings.assignments).map(([k, v]) =>
+    [k, v.reasoning_effort])), [settings.assignments]);
   const [choice, setChoice] = useState<Record<string, string>>(initial);
+  const [effort, setEffort] = useState<Record<string, string>>(initialEffort);
   const [policy, setPolicy] = useState(settings.policy);
   const [message, setMessage] = useState<Message>(null);
   useEffect(() => setChoice(initial), [initial]);
+  useEffect(() => setEffort(initialEffort), [initialEffort]);
   useEffect(() => setPolicy(settings.policy), [settings.policy]);
   const options = providers.filter((p) => p.enabled && p.has_api_key)
-    .flatMap((p) => p.models.filter((m) => m.enabled).map((m) => ({ value: `${p.id}|${m.id}`, label: `${p.name} · ${m.id}`, tools: m.tool_calling })));
+    .flatMap((p) => p.models.filter((m) => m.enabled).map((m) => ({ value: `${p.id}|${m.id}`, label: `${p.name} · ${m.id}`,
+      tools: m.tool_calling, efforts: m.efforts ?? [] })));
+  // 思考强度（ADR 0012）：只列所选模型支持的档位；所选档位不在其中时按该用途的默认档位
+  const effortOf = (key: string) => {
+    const efforts = options.find((o) => o.value === choice[key])?.efforts ?? [];
+    const wanted = effort[key] ?? settings.assignments[key]?.default_effort;
+    return efforts.find((e) => e.value === wanted) ?? efforts.find((e) => e.value === settings.assignments[key]?.default_effort);
+  };
   const save = useMutation({
     mutationFn: () => unwrap(api.PUT("/api/model-settings", {
       body: {
         assignments: Object.fromEntries(Object.entries(choice).map(([k, v]) => {
           const [provider_id, model_id] = v.split("|");
-          return [k, v ? { provider_id, model_id } : null];
+          return [k, v ? { provider_id, model_id, reasoning_effort: (effortOf(k)?.value ?? null) as Effort | null } : null];
         })),
         policy,
       },
@@ -345,7 +357,8 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
     onSuccess: async () => { setMessage({ ok: true, text: "已保存" }); await onSaved(); },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
-  const dirty = JSON.stringify(choice) !== JSON.stringify(initial) || JSON.stringify(policy) !== JSON.stringify(settings.policy);
+  const dirty = JSON.stringify(choice) !== JSON.stringify(initial) || JSON.stringify(policy) !== JSON.stringify(settings.policy)
+    || JSON.stringify(effort) !== JSON.stringify(initialEffort);
   const disabled = !isAdmin || save.isPending;
 
   return (
@@ -365,6 +378,13 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
                 </Select>
                 {choice[key] && !picked ? <span className="av-status av-status--warn">请选择可用模型</span> : null}
                 {p.needs_tools && picked && picked.tools !== true ? <span className="av-status av-status--warn">工具调用未检测通过</span> : null}
+                {picked && picked.efforts.length ? <span className="av-models__effort">
+                  <Select value={effortOf(key)?.value ?? ""} disabled={disabled} label={`${p.label}的思考强度`}
+                    onChange={(value) => setEffort({ ...effort, [key]: value })}>
+                    {picked.efforts.map((e) => <option key={e.value} value={e.value}>
+                      思考强度：{e.label}{e.effective !== e.value ? `（实际按“${e.effective_label}”执行）` : ""}</option>)}
+                  </Select>
+                </span> : null}
               </label>
             );
           })}
@@ -384,7 +404,7 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
         <ModelFeedback message={message} busy={save.isPending} />
         <div className="av-actions">
           <button type="button" className="av-btn av-btn--secondary" disabled={disabled || !dirty}
-            onClick={() => { setChoice(initial); setPolicy(settings.policy); setMessage(null); }}>还原</button>
+            onClick={() => { setChoice(initial); setEffort(initialEffort); setPolicy(settings.policy); setMessage(null); }}>还原</button>
           <button type="submit" className="av-btn av-btn--primary" disabled={disabled || !dirty}>{save.isPending ? "保存中…" : "保存配置"}</button>
         </div>
       </div>

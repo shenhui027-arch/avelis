@@ -754,6 +754,8 @@ class ModelAssignment(Base):
     purpose: Mapped[str] = mapped_column(String(16), primary_key=True)
     provider_id: Mapped[str] = fk("model_provider.id", index=False)
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # 思考强度 off / low / medium / high / max（ADR 0012）；为空时取 modelcfg.DEFAULT_EFFORT
+    reasoning_effort: Mapped[str | None] = mapped_column(String(8))
     updated_by: Mapped[str] = fk("app_user.id", index=False)
     updated_at: Mapped[datetime] = created()
 
@@ -804,6 +806,7 @@ class AnalysisRun(Base):
     verification: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     budget: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)  # 上限与已用
     model_adapter: Mapped[str | None] = mapped_column(String(64))
+    reasoning_effort: Mapped[str | None] = mapped_column(String(8))  # 实际生效的思考强度（ADR 0012）
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created()
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

@@ -245,12 +245,13 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     user = session.get(User, run.user_id, populate_existing=True)
     budget = Budget()
     status, error, plan, report, verification, adapter, toolbox = "failed", None, {}, {}, {}, None, None
+    effective = None  # 实际生效的思考强度（ADR 0012）
     try:
         problem = identity_problem(session, user)
         if problem:
             raise PermissionLost(problem)
         resolved = require_analysis_model(session)
-        adapter = resolved.adapter
+        adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
                                   adapter=adapter)
         settings = get_settings()
@@ -291,6 +292,7 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         return {"status": "lost", "analysis_run_id": run_id, "reason": "执行权已失去"}
     run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
     run.model_adapter = adapter
+    run.reasoning_effort = effective
     run.budget = budget.view()
     run.finished_at = utcnow()
     session.flush()
@@ -494,6 +496,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[s
     data = {"id": run.id, "task_id": run.task_id, "question": run.question, "trigger": run.trigger,
             "status": run.status, "window": run.window,
             "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
+            "reasoning_effort": run.reasoning_effort,
             "error": run.error, "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,

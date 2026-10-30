@@ -251,6 +251,7 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
                            # 度量（ADR 0012）：模型调用次数与运行总耗时（秒）
                            "model_calls": sum(1 for s in steps if s.get("kind") == "model") if run else None,
                            "seconds": ((run or {}).get("budget") or {}).get("used", {}).get("seconds"),
+                           "model": (run or {}).get("model_adapter"), "effort": (run or {}).get("reasoning_effort"),
                            "conclusion": conclusion, "conclusion_ok": conclusion in (expect.get("conclusion") or []),
                            "sources_failed": failed, "forbidden": sorted(set(forbidden)), "primary_hit": None,
                            "key_value_hit": None, "required_in_causes": None}
@@ -326,9 +327,13 @@ def summarize(results: list[dict]) -> dict[str, Any]:
             groups[name] = {"overall": rate(members), "completed": rate(members, "completed"),
                             "primary_hit": rate(pos, "primary_hit"),
                             "sources_failed_runs": sum(1 for r in members if r.get("sources_failed"))}
+    by_model: dict[str, list[dict]] = {}  # 按实际使用的模型与思考强度分组（ADR 0012）
+    for r in results:
+        by_model.setdefault(f"{r.get('model') or '—'} · {r.get('effort') or '—'}", []).append(r)
     return {
         "groups": groups,
         "latency": latency(results),
+        "by_model": {k: {"overall": rate(rs), "latency": latency(rs)} for k, rs in sorted(by_model.items())},
         "overall": rate(results),
         "completed": rate(results, "completed"),
         "primary_hit": rate(positives, "primary_hit"),
@@ -352,7 +357,10 @@ def markdown(summary: dict, results: list[dict], meta: dict) -> str:
              ""]
     lat = summary.get("latency") or latency(results)
     lines += [f"- 耗时（变化类）：中位 {lat['change_seconds']['median']} 秒，P90 {lat['change_seconds']['p90']} 秒；"
-              f"模型调用中位 {lat['change_model_calls']['median']} 次，P90 {lat['change_model_calls']['p90']} 次", ""]
+              f"模型调用中位 {lat['change_model_calls']['median']} 次，P90 {lat['change_model_calls']['p90']} 次"]
+    lines += [f"- 模型 · 思考强度 {k}：通过 {pct(v['overall'])}；变化类中位 {v['latency']['change_seconds']['median']} 秒"
+              for k, v in (summary.get("by_model") or {}).items()]
+    lines.append("")
     names = {"tuning": "调优集", "holdout": "留出题"}
     lines += [f"- {names[g]}：总体 {pct(v['overall'])}；完成率 {pct(v['completed'])}；首要原因命中（正例）"
               f"{pct(v['primary_hit'])}；来源未通过的运行 {v['sources_failed_runs']}"

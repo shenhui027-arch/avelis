@@ -222,3 +222,7 @@ def test_latency_summary_reports_median_and_p90_of_model_calls_and_seconds():
     assert lat["change_model_calls"] == {"n": 4, "median": 5.5, "p90": 8}
     assert "耗时（变化类）：中位 45.0 秒，P90 90.0 秒" in markdown(summarize(results), results, {})
     assert score(Q["d02"], None)["model_calls"] is None
+    tagged = [{**r, "model": "ds:deepseek-flash", "effort": e} for r, e in zip(results, ("low", "low", "high", "high"))]
+    by_model = summarize(tagged)["by_model"]
+    assert set(by_model) == {"ds:deepseek-flash · low", "ds:deepseek-flash · high"}
+    assert by_model["ds:deepseek-flash · low"]["latency"]["change_seconds"]["median"] == 40.0

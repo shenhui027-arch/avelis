@@ -236,3 +236,53 @@ def test_explain_assignment_does_not_require_tool_check(monkeypatch, provider):
     session = MemorySession(provider, explain)
     assert session.get(AppSetting, modelcfg.POLICY_KEY) is None
     assert modelcfg.resolve(session, "explain").model is model
+
+
+def deepseek():
+    return ModelProvider(id="ds-id", code="ds", name="DeepSeek", kind="openai_compatible", preset="deepseek",
+                         base_url="https://api.deepseek.com", api_key_enc="encrypted", enabled=True,
+                         models=[{"id": "deepseek-flash", "enabled": True, "tool_calling": True}],
+                         last_check={"models": {"deepseek-flash": successful_check("deepseek-flash")}})
+
+
+def test_reasoning_effort_request_parameters_are_adapted_per_provider(provider):
+    """ADR 0012：思考强度的请求参数集中在 build_chat_model。DeepSeek 关闭思考用 thinking.type=disabled，
+    其余档位传 reasoning_effort，medium 按官方文档换成 high；没有核实过的提供方不传思考参数。"""
+    ds = deepseek()
+    off = modelcfg.build_chat_model(ds, "deepseek-flash", effort="off", max_tokens=1000)
+    assert off.extra_body == {"thinking": {"type": "disabled"}} and off.reasoning_effort is None and off.max_tokens == 1000
+    assert modelcfg.build_chat_model(ds, "deepseek-flash", effort="medium").reasoning_effort == "high"
+    assert modelcfg.build_chat_model(ds, "deepseek-flash", effort="low").reasoning_effort == "low"
+    assert modelcfg.build_chat_model(ds, "deepseek-flash", effort="max").reasoning_effort == "max"
+    other = modelcfg.build_chat_model(provider, MODEL_ID, effort="high")
+    assert other.reasoning_effort is None and other.extra_body is None and other.max_tokens is None
+    assert [o["value"] for o in modelcfg.effort_options(ds, "deepseek-flash")] == list(modelcfg.EFFORTS)
+    medium = next(o for o in modelcfg.effort_options(ds, "deepseek-flash") if o["value"] == "medium")
+    assert medium["effective"] == "high" and medium["effective_label"] == "高"  # 页面注明实际生效的档位
+    assert modelcfg.effort_options(provider, MODEL_ID) == []
+
+
+def test_assignment_effort_is_saved_validated_and_resolved(monkeypatch):
+    """思考强度存在用途指派上；不支持的档位拒绝；没设置时按默认档位；resolve 记下实际生效的档位，阶段可另定。"""
+    ds = deepseek()
+    session = MemorySession(ds)
+    actor = User(id="actor", username="admin")
+    modelcfg.save_settings(session, actor, {"analysis": {"provider_id": "ds-id", "model_id": "deepseek-flash",
+                                                         "reasoning_effort": "low"}}, None)
+    view = modelcfg.settings_view(session)["assignments"]["analysis"]
+    assert view["reasoning_effort"] == "low" and view["effective_effort"] == "low"
+    resolved = modelcfg.resolve(session, "analysis")
+    assert resolved.effort == "low" and resolved.effective_effort == "low" and resolved.model.reasoning_effort == "low"
+    understand = resolved.factory(timeout=30, max_retries=0, effort="off", max_tokens=1000)
+    assert understand.extra_body == {"thinking": {"type": "disabled"}} and understand.max_tokens == 1000
+    modelcfg.save_settings(session, actor, {"analysis": {"provider_id": "ds-id", "model_id": "deepseek-flash"}}, None)
+    view = modelcfg.settings_view(session)["assignments"]["analysis"]
+    assert view["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"] == "medium" and view["effective_effort"] == "high"
+    plain = ModelProvider(id="provider-id", code="unit", name="测试模型", kind="openai_compatible",
+                          base_url="https://unit.invalid/v1", api_key_enc="encrypted", enabled=True,
+                          models=[{"id": MODEL_ID, "enabled": True, "tool_calling": True}],
+                          last_check={"models": {MODEL_ID: successful_check()}})
+    session.rows[ModelProvider, "provider-id"] = plain
+    with pytest.raises(modelcfg.Invalid):
+        modelcfg.save_settings(session, actor, {"ask": {"provider_id": "provider-id", "model_id": MODEL_ID,
+                                                        "reasoning_effort": "high"}}, None)

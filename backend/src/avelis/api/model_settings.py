@@ -49,12 +49,22 @@ class CheckBody(BaseModel):
 class Target(BaseModel):
     provider_id: str
     model_id: str
+    reasoning_effort: Literal["off", "low", "medium", "high", "max"] | None = Field(
+        default=None, description="思考强度；不写时按该用途的默认档位")
+
+
+class EffortOut(BaseModel):
+    value: str
+    label: str
+    effective: str = Field(description="实际生效的档位（提供方会把某些档位映射成另一档）")
+    effective_label: str
 
 
 class ModelOut(BaseModel):
     id: str
     enabled: bool
     tool_calling: bool | None = None
+    efforts: list[EffortOut] = Field(default_factory=list, description="该模型支持的思考档位；为空时不支持设置")
 
 
 class CheckOut(BaseModel):
@@ -103,6 +113,9 @@ class AssignmentOut(PurposeOut):
     provider_id: str | None
     model_id: str | None
     updated_at: str | None
+    reasoning_effort: str
+    default_effort: str
+    effective_effort: str | None
 
 
 class PolicyOut(BaseModel):

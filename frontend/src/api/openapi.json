@@ -5667,6 +5667,25 @@
        }
       ],
       "title": "Updated At"
+     },
+     "reasoning_effort": {
+      "type": "string",
+      "title": "Reasoning Effort"
+     },
+     "default_effort": {
+      "type": "string",
+      "title": "Default Effort"
+     },
+     "effective_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Effective Effort"
      }
     },
     "type": "object",
@@ -5676,7 +5695,10 @@
      "hint",
      "provider_id",
      "model_id",
-     "updated_at"
+     "updated_at",
+     "reasoning_effort",
+     "default_effort",
+     "effective_effort"
     ],
     "title": "AssignmentOut"
    },
@@ -7529,6 +7551,35 @@
     ],
     "title": "DomainRef"
    },
+   "EffortOut": {
+    "properties": {
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "effective": {
+      "type": "string",
+      "title": "Effective",
+      "description": "实际生效的档位（提供方会把某些档位映射成另一档）"
+     },
+     "effective_label": {
+      "type": "string",
+      "title": "Effective Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "value",
+     "label",
+     "effective",
+     "effective_label"
+    ],
+    "title": "EffortOut"
+   },
    "EngineOptionOut": {
     "properties": {
      "key": {
@@ -9032,6 +9083,17 @@
       "title": "Unit Scale",
       "default": 1
      },
+     "material_change_ratio": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Material Change Ratio"
+     },
      "dependency": {
       "items": {
        "additionalProperties": true,
@@ -9227,6 +9289,14 @@
        }
       ],
       "title": "Tool Calling"
+     },
+     "efforts": {
+      "items": {
+       "$ref": "#/components/schemas/EffortOut"
+      },
+      "type": "array",
+      "title": "Efforts",
+      "description": "该模型支持的思考档位；为空时不支持设置"
      }
     },
     "type": "object",
@@ -10192,6 +10262,25 @@
      "model_id": {
       "type": "string",
       "title": "Model Id"
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "off",
+         "low",
+         "medium",
+         "high",
+         "max"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort",
+      "description": "思考强度；不写时按该用途的默认档位"
      }
     },
     "type": "object",
@@ -10962,6 +11051,20 @@
       "title": "Unit Scale",
       "description": "列本身的倍数：列已是“万元”时为 10000",
       "default": 1
+     },
+     "material_change_ratio": {
+      "anyOf": [
+       {
+        "type": "number",
+        "exclusiveMaximum": 1.0,
+        "exclusiveMinimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Material Change Ratio",
+      "description": "变化显著性阈值（相对对比期）：为空时用系统默认 1%"
      }
     },
     "type": "object",

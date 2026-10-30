@@ -1711,6 +1711,12 @@ export interface components {
             model_id: string | null;
             /** Updated At */
             updated_at: string | null;
+            /** Reasoning Effort */
+            reasoning_effort: string;
+            /** Default Effort */
+            default_effort: string;
+            /** Effective Effort */
+            effective_effort: string | null;
         };
         /** AuditOut */
         AuditOut: {
@@ -2335,6 +2341,20 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** EffortOut */
+        EffortOut: {
+            /** Value */
+            value: string;
+            /** Label */
+            label: string;
+            /**
+             * Effective
+             * @description 实际生效的档位（提供方会把某些档位映射成另一档）
+             */
+            effective: string;
+            /** Effective Label */
+            effective_label: string;
+        };
         /** EngineOptionOut */
         EngineOptionOut: {
             /** Key */
@@ -2899,6 +2919,8 @@ export interface components {
              * @default 1
              */
             unit_scale?: number;
+            /** Material Change Ratio */
+            material_change_ratio?: number | null;
             /** Dependency */
             dependency: {
                 [key: string]: unknown;
@@ -2960,6 +2982,11 @@ export interface components {
             enabled: boolean;
             /** Tool Calling */
             tool_calling?: boolean | null;
+            /**
+             * Efforts
+             * @description 该模型支持的思考档位；为空时不支持设置
+             */
+            efforts?: components["schemas"]["EffortOut"][];
         };
         /** Note */
         Note: {
@@ -3286,6 +3313,11 @@ export interface components {
             provider_id: string;
             /** Model Id */
             model_id: string;
+            /**
+             * Reasoning Effort
+             * @description 思考强度；不写时按该用途的默认档位
+             */
+            reasoning_effort?: ("off" | "low" | "medium" | "high" | "max") | null;
         };
         /** TaskCreate */
         TaskCreate: {
@@ -3545,6 +3577,11 @@ export interface components {
              * @default 1
              */
             unit_scale?: number;
+            /**
+             * Material Change Ratio
+             * @description 变化显著性阈值（相对对比期）：为空时用系统默认 1%
+             */
+            material_change_ratio?: number | null;
         };
         /** Window */
         Window: {
