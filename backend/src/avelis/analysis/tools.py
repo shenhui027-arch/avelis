@@ -69,10 +69,12 @@ class Budget:
     seconds: int = 300
     explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
     report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
-    # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型
+    # 模型请求（含失败与重试）的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型。
+    # 累计 token 照常记录；上限默认不强制（None）：按第 13 节的 16 万累计输入，历史运行过半会被截断（多数是前缀缓存命中），
+    # 是否强制、按什么口径计由实验 manifest 决定后统一设置
     model_requests: int = 16
-    input_tokens: int = 160_000
-    output_tokens: int = 24_000  # 含提供方计费的推理 token
+    input_tokens: int | None = None
+    output_tokens: int | None = None  # 含提供方计费的推理 token
     used_model_requests: int = 0
     used_input_tokens: int = 0
     used_output_tokens: int = 0
@@ -99,7 +101,8 @@ class Budget:
         """不能再请求模型的原因：请求次数（含重试）或累计 token 到上限。"""
         if self.used_model_requests >= self.model_requests:
             return f"模型请求已达上限 {self.model_requests} 次（含重试）"
-        if self.used_input_tokens >= self.input_tokens or self.used_output_tokens >= self.output_tokens:
+        if (self.input_tokens is not None and self.used_input_tokens >= self.input_tokens) or (
+                self.output_tokens is not None and self.used_output_tokens >= self.output_tokens):
             return f"模型 token 已达累计上限（输入 {self.input_tokens}、输出 {self.output_tokens}）"
         return None
 

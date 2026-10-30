@@ -349,3 +349,15 @@ def test_identical_query_is_not_reused_after_a_version_change_or_revocation(monk
     monkeypatch.setattr(box, "_metric_sources", revoked)
     denied = ask(box)
     assert denied["status"] == "denied" and "rows" not in denied and len(executed) == 2
+
+
+def test_token_totals_are_recorded_and_the_cap_applies_only_when_set(monkeypatch):
+    reply = AIMessage(content="", tool_calls=[], usage_metadata={"input_tokens": 900, "output_tokens": 50,
+                                                                  "total_tokens": 950})
+    box = make_box(monkeypatch=monkeypatch)
+    agent._round({"messages": []}, box, Replies(reply))
+    used = box.budget.view()["used"]
+    assert (used["input_tokens"], used["output_tokens"]) == (900, 50) and box.budget.model_blocked() is None
+    capped = make_box(budget=Budget(input_tokens=900), monkeypatch=monkeypatch)
+    agent._round({"messages": []}, capped, Replies(reply))
+    assert "token" in capped.budget.model_blocked() and not agent._can_call_model(capped)

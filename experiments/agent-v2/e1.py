@@ -153,8 +153,10 @@ def budget_bounds(runs: int) -> dict[str, int]:
     from avelis.analysis.tools import Budget
 
     b = Budget(queries=20)
-    return {"runs": runs, "model_requests": runs * b.model_requests, "input_tokens": runs * b.input_tokens,
-            "output_tokens": runs * b.output_tokens, "seconds_wall": runs * b.seconds}
+    return {"runs": runs, "model_requests": runs * b.model_requests,
+            "input_tokens": runs * b.input_tokens if b.input_tokens else "不强制（见 manifest b0.token_cap_decision）",
+            "output_tokens": runs * b.output_tokens if b.output_tokens else "不强制（见 manifest b0.token_cap_decision）",
+            "seconds_wall": runs * b.seconds}
 
 
 def main() -> int:
