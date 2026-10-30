@@ -231,9 +231,10 @@ class QueryArgs(BaseModel):
 
 class QuerySqlArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sql: str = Field(description="一条 Avelis 标准 SQL 的 SELECT（ANSI 子集，标识符用双引号）：写出列名，表写 库.表 或 "
-                                 "catalog.库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，日期加减写 "
-                                 "列 ± INTERVAL 'n' DAY；等值 JOIN。系统按表所在的数据源生成方言并加行数上限，不要写方言")
+    sql: str = Field(description="一条 SELECT，用 PostgreSQL 写法的受限子集：写出列名，表写 库.表 或 catalog.库.表；"
+                                 "函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，日期加减写 列 ± INTERVAL 'n' DAY；"
+                                 "等值 JOIN；列名与 describe_asset 一致，有大写字母的加双引号。系统按表所在的数据源生成方言"
+                                 "并加行数上限，不用管目标数据库")
     purpose: str = Field(description="查询目的；有口径能覆盖时应优先用 query_metric，这里写明为什么需要探索查询")
 
 

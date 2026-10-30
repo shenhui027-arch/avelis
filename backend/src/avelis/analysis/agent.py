@@ -54,9 +54,9 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    (4) 日历：天数、周末、节假日差异用 calendar_adjust；
    必要时用 time_grain=day 看日趋势，找某天某些成员缺失或骤降，再用 lineage 查看口径的主表定位原因。
    口径覆盖不到的数据（工具里有 query_sql 时）：先用 describe_asset、lineage 读字段注释与关联键，再用 query_sql 写一条
-   Avelis 标准 SQL 的 SELECT（写出列名，表写 库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，日期加减写
-   列 ± INTERVAL 'n' DAY；等值 JOIN）。不用填数据源，也不要写某个数据库的方言：系统按表所在的数据源生成方言；一条查询只能
-   用同一个数据源的表。purpose 里说明为什么不用口径；写过滤条件前可用 sample_values 看取值。
+   SELECT，用 PostgreSQL 写法的受限子集（写出列名，表写 库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，
+   日期加减写 列 ± INTERVAL 'n' DAY；等值 JOIN；列名与 describe_asset 返回的一致，有大写字母的加双引号，如 "OrderID"）。
+   不用填数据源，也不用管目标数据库：系统按表所在的数据源生成方言；一条查询只能用同一个数据源的表。purpose 里说明为什么不用口径；写过滤条件前可用 sample_values 看取值。
    探索结果带“探索查询（未经口径审核）”标记；被拒绝时按返回的错误与可用列改正，不要尝试绕过。
 4. “什么关系 / 怎么做”：用同一维度的多指标查询，再用 correlate、segment_compare；相关不等于因果，建议必须写明前提与验证方式。
 5. 字段含义以数据库列注释为准（describe_asset 中的 doc）；注释缺失时如实说明。
