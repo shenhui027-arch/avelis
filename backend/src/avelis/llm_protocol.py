@@ -5,6 +5,8 @@
   langchain_openai.ChatOpenAI 只按 OpenAI 规范解析，既不读取也不回传这个字段，这里补上受控的原样往返：
   响应里的 reasoning_content 放进 AIMessage.additional_kwargs（不进入 content，不展示给用户，不写步骤记录与普通日志），
   之后的请求把同一条助手消息的 reasoning_content 原样带回。消息对象可以按 LangChain 的序列化保存与恢复，字段随之保留。
+- DeepSeek 官方 Chat Completions 的输出上限字段是 max_tokens；langchain_openai 1.7.1 改发的 max_completion_tokens
+  经实测被忽略（上限 8，实际输出 141 token），因此请求时改回 max_tokens。
 - finish_reason：length（输出被截断）与 content_filter 不是模型的正常回答，按基础设施错误处理（ModelProtocolError），
   不把截断的工具参数当作模型写错的内容去修复或重交。
 - 工具调用编号：同一条回复里的工具调用必须各有编号且互不重复，否则无法逐个回复（下一次请求会被拒），也按协议错误处理。
@@ -61,6 +63,8 @@ class ReasoningRoundTripChatOpenAI(ChatOpenAI):
 
     def _get_request_payload(self, input_: Any, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        if "max_completion_tokens" in payload:
+            payload["max_tokens"] = payload.pop("max_completion_tokens")
         messages = self._convert_input(input_).to_messages()
         for message, out in zip(messages, payload.get("messages") or []):  # 与父类逐条转换，顺序一一对应
             if isinstance(message, AIMessage) and REASONING_FIELD in message.additional_kwargs:

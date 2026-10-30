@@ -361,3 +361,16 @@ def test_token_totals_are_recorded_and_the_cap_applies_only_when_set(monkeypatch
     capped = make_box(budget=Budget(input_tokens=900), monkeypatch=monkeypatch)
     agent._round({"messages": []}, capped, Replies(reply))
     assert "token" in capped.budget.model_blocked() and not agent._can_call_model(capped)
+
+
+def test_deepseek_output_limit_uses_max_tokens_on_the_wire():
+    for cls, expected, unexpected in (
+        (ReasoningRoundTripChatOpenAI, "max_tokens", "max_completion_tokens"),
+        (ChatOpenAI, "max_completion_tokens", "max_tokens"),
+    ):
+        bodies: list[dict] = []
+        model = cls(model="deepseek-flash", api_key="unit-test-key", base_url="https://deepseek.invalid",
+                    http_client=fake_deepseek(bodies), max_tokens=8, max_retries=0)
+        model.invoke([HumanMessage("调用 echo")])
+        assert len(bodies) == 1 and bodies[0][expected] == 8
+        assert unexpected not in bodies[0]
