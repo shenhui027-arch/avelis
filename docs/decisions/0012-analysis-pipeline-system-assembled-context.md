@@ -41,13 +41,13 @@
 - 工具返回值统一紧凑化：汇总加有限行预览，按 token 设上限；被截断时注明。
 
 **模型与思考强度可配置**（用户要求，2026-10-30）：
-- 模型设置页的每个用途（问数理解、导入解析、分析）除了选模型，还可以选**思考强度**：关闭 / 低 / 中 / 高 / 最高。默认是“中”。
+- 模型设置页的每个用途（问数理解、导入解析、分析）除了选模型，还可以选**思考强度**：关闭 / 低 / 中 / 高 / 最高（按提供方实际支持的档位显示）。默认是“低”：DeepSeek 的“中”会按“高”执行，所以选“低”（用户 2026-10-30 确认）。
 - 选项按提供方的能力显示，只显示该模型支持的档位；提供方会把某个档位映射成另一档时（例如某档实际按“高”执行），在界面上注明实际生效的档位。映射关系以提供方官方文档为准，并用一次真实调用记录到的推理 token 数核实。
 - 请求参数按提供方适配：OpenAI 兼容接口使用 `reasoning_effort`；需要单独关闭思考的提供方（如 DeepSeek）按其文档传关闭参数。开启思考并且使用工具调用时，按提供方要求在后续请求中带回推理内容（DeepSeek 要求带回 `reasoning_content`，否则返回 400）。
 - 每次运行的记录里保存当次实际使用的模型与思考强度，评测汇总按这两项分组，便于比较速度与准确性。
 - 实现与实测（2026-10-30，DeepSeek `deepseek-flash`，以[官方文档](https://api-docs.deepseek.com/guides/thinking_mode/)为准）：
-  - 参数在 `modelcfg.build_chat_model` 集中适配：“关闭”传 `extra_body={"thinking": {"type": "disabled"}}`；其余档位传 `reasoning_effort`。文档只有 low / high / max，“中”按“高”执行，页面注明。没有核实过的提供方不显示档位、不传思考参数。
-  - 默认档位在 `modelcfg.DEFAULT_EFFORT` 一处配置（当前各用途为“中”）；按阶段固定的参数由系统决定，不在页面开放（例如理解阶段关闭思考、限制输出长度）。
+  - 参数在 `modelcfg.build_chat_model` 集中适配：“关闭”传 `extra_body={"thinking": {"type": "disabled"}}`；其余档位传 `reasoning_effort`。DeepSeek API 只有 low / high / max 三档，其他名称按官方映射表归入这三档（medium 归入 high，对所有模型通用，见[中文文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)），所以 DeepSeek 只列 关闭 / 低 / 高 / 最高。没有核实过的提供方不显示档位、不传思考参数。
+  - 默认档位在 `modelcfg.DEFAULT_EFFORT` 一处配置（各用途为“低”）；按阶段固定的参数由系统决定，不在页面开放（例如理解阶段关闭思考、限制输出长度）。
   - 实测推理 token（同一请求各 3 次）：关闭时为 0；低 3942–7946、中 3741–7979、高 3665–6389，三档相近；最高 9149–12128，明显更多。
   - 开启思考并使用工具调用的三轮真实请求，不带回 `reasoning_content` 也没有返回 400（默认档位与 `reasoning_effort=high` 各一次）。langchain_openai 不保留 `reasoning_content`，目前不在适配层带回；提供方改为强制时再补。
   - 思考开启时 temperature 不生效，不依赖它。
