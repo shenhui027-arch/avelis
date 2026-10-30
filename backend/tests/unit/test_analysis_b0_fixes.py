@@ -4,6 +4,7 @@ A. 理解阶段写了追问（Scope.clarification）或选了候选以外的指�
    恢复时预算接着计数。
 E. 模型接入按提供方官方协议：reasoning_content 原样往返（HTTP 层用伪造的提供方核对）、截断与编号问题按基础设施错误、
    重试计入模型请求预算。
+F. 查询复用不改变请求语义：排序、行数、列顺序、对比期、按日 / 按月、筛选、权限与口径版本变化时都不复用已有数据集。
 """
 
 from __future__ import annotations
@@ -273,3 +274,78 @@ def test_only_providers_with_a_verified_thinking_protocol_get_the_round_trip(mon
     other.preset, other.base_url = "custom", "https://unit.invalid/v1"
     model = modelcfg.build_chat_model(other, "deepseek-flash")
     assert type(model) is ChatOpenAI and model.max_retries == 2  # 默认值不变；分析流程按阶段传 max_retries=0
+
+
+# --- F. 查询复用语义 ------------------------------------------------------------------------------
+
+def reuse_box(monkeypatch):
+    from tests.unit.test_analysis_toolbox import governed, governed_catalog
+
+    catalog, executed = governed_catalog(monkeypatch)
+    box = make_box(budget=Budget(queries=20), catalog=catalog, monkeypatch=monkeypatch)
+    monkeypatch.setattr(box, "_metric_sources", lambda code: (None, None, [], {}))
+    return box, executed, catalog, governed
+
+
+TWO = {"metric_codes": ["m_a"], "start_date": "2026-09-01", "end_date": "2026-09-30", "group_by": ["地区"],
+       "compare": "custom", "compare_start": "2026-08-01", "compare_end": "2026-08-31", "purpose": "按地区两期"}
+
+
+def ask(box, **changes):
+    return json.loads(box.dispatch("query_metric", {**TWO, **changes}))
+
+
+def test_scan_reuse_only_when_the_request_semantics_match(monkeypatch):
+    from avelis.analysis.tools import QueryArgs, _scan_key
+
+    box, executed, _, governed = reuse_box(monkeypatch)
+    scan = governed(box, ["地区", "指标甲", "指标甲·对比期"], [["乙", "5", "6"], ["甲", "10", "8"]])
+    scan.meta["versions"] = {"m_a": "v1"}
+    box._scanned[_scan_key(QueryArgs(**TWO))] = scan
+    same = ask(box, filters=[], purpose="换个说法")
+    assert same["dataset"] == "D1" and same["reused"] and executed == []
+    # 每一种语义变化都要重新查询（executed 记下真正执行的查询意图），不能返回 D1
+    variants = {"排序": {"order": "desc"}, "行数": {"limit": 1}, "上一期": {"compare": "previous_period"},
+                "只要本期": {"compare": None, "compare_start": None, "compare_end": None},
+                "另一对比期": {"compare_start": "2026-07-01", "compare_end": "2026-07-31"},
+                "按日": {"time_grain": "day", "compare": None, "compare_start": None, "compare_end": None},
+                "筛选": {"filters": [{"dimension": "地区", "values": ["甲"]}]}}
+    for label, change in variants.items():
+        before = len(executed)
+        out = ask(box, **change)
+        assert out.get("dataset") != "D1" and len(executed) == before + 1, label
+        intent = executed[-1]
+        for field, value in change.items():
+            got = getattr(intent, field)
+            assert (got.isoformat() if hasattr(got, "isoformat") else got) == value or (
+                field == "filters" and [f.model_dump() for f in got] == value), (label, field)
+
+
+def test_column_order_and_metric_order_are_part_of_the_request(monkeypatch):
+    from avelis.analysis.tools import QueryArgs, _scan_key
+
+    a = QueryArgs(**{**TWO, "group_by": ["地区", "渠道"]})
+    b = QueryArgs(**{**TWO, "group_by": ["渠道", "地区"]})
+    assert _scan_key(a) != _scan_key(b)
+    assert _scan_key(QueryArgs(**{**TWO, "metric_codes": ["m_a", "m_b"]})) != _scan_key(
+        QueryArgs(**{**TWO, "metric_codes": ["m_b", "m_a"]}))
+    # 筛选的先后与取值的重复不改变语义：同一个键
+    f1 = [{"dimension": "地区", "values": ["甲", "乙"]}, {"dimension": "渠道", "values": ["线上"]}]
+    f2 = [{"dimension": "渠道", "values": ["线上", "线上"]}, {"dimension": "地区", "values": ["乙", "甲"]}]
+    assert _scan_key(QueryArgs(**{**TWO, "filters": f1})) == _scan_key(QueryArgs(**{**TWO, "filters": f2}))
+
+
+def test_identical_query_is_not_reused_after_a_version_change_or_revocation(monkeypatch):
+    box, executed, catalog, _ = reuse_box(monkeypatch)
+    first = ask(box)
+    assert ask(box)["dataset"] == first["dataset"] == "D1" and len(executed) == 1
+    catalog.versions["m_a"][1].id = "v2"  # 口径发布了新版本：旧数据集按旧版本算出，不能当作当前结果
+    fresh = ask(box)
+    assert fresh["dataset"] == "D2" and len(executed) == 2
+    assert box.datasets()["D2"].meta["versions"] == {"m_a": "v2"}
+
+    def revoked(code):
+        box._deny("没有权限读取指标的来源", metric_code=code)
+    monkeypatch.setattr(box, "_metric_sources", revoked)
+    denied = ask(box)
+    assert denied["status"] == "denied" and "rows" not in denied and len(executed) == 2

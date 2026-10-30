@@ -174,12 +174,12 @@ def _grams(text: str) -> set[str]:
 
 
 def _scan_key(args) -> str:
-    """维度扫描的去重键：指标、分组维度、本期、对比期与规范化的筛选（不含排序、行数与 purpose）。只请求本期的查询
-    （不带对比）用对比期为空的键，命中时返回带两期的数据集。"""
-    compare = (str(args.compare_start), str(args.compare_end)) if args.compare == "custom" else (
-        None if args.compare is None else args.compare)
+    """维度扫描的去重键：指标（按请求顺序，决定结果的列顺序）、分组维度（按请求顺序）、本期、对比期（方式与日期）与
+    规范化的筛选（筛选的先后与取值的重复不改变语义）。排序、行数不在键里：带 order 或 limit 的请求不用扫描结果复用
+    （扫描结果是全体成员、按维度值排列，不满足“前 N 个”的语义）。"""
+    compare = (str(args.compare_start), str(args.compare_end)) if args.compare == "custom" else args.compare
     filters = sorted((f.dimension, sorted(set(f.values))) for f in args.filters)
-    return json.dumps([sorted(args.metric_codes), sorted(args.group_by), str(args.start_date), str(args.end_date),
+    return json.dumps([list(args.metric_codes), list(args.group_by), str(args.start_date), str(args.end_date),
                        compare, filters], ensure_ascii=False)
 
 
@@ -1203,18 +1203,24 @@ class AnalysisToolbox:
 
     def _run_query(self, args: QueryArgs) -> tuple[dict, AnalysisDataset | None, str]:
         """执行一次受治理查询并保存为数据集（query_metric 与 explain_change 的子查询共用）。
-        与本次运行已有数据集完全相同的查询（口径、窗口、维度、过滤、排序与行数）在授权核对后直接返回那个数据集，不计额度。"""
+        与本次运行已有数据集完全相同的查询（口径、窗口、维度、过滤、排序与行数）在授权核对后直接返回那个数据集，不计额度；
+        复用还要求所用的口径版本与当前可查询的版本相同（版本变了就重新查询），不满足请求语义的数据集不复用。"""
         # 按当前授权核对每个请求的口径，只把它们交给查询管线（管线再核对来源闭包、状态与执行前核对）
         scoped = service.Catalog([], {code: self._metric(code) for code in args.metric_codes})
+        version_ids = {code: str(getattr(scoped.versions[code][1], "id", "")) for code in args.metric_codes}
+
+        def current(ds: AnalysisDataset | None) -> AnalysisDataset | None:
+            return ds if ds is not None and (ds.meta or {}).get("versions") == version_ids else None
         key = json.dumps(args.model_dump(mode="json", exclude={"purpose"}), sort_keys=True, ensure_ascii=False)
-        reused = self._governed.get(key)
+        reused = current(self._governed.get(key))
         if reused is not None:
             for code in args.metric_codes:  # 复用前同样核对来源闭包的权限与当前可查询状态（撤权后不再交付）
                 self._metric_sources(code)
             ref = f"D{reused.seq}"
             return {**self._view(ref, reused), "reused": True,
                     "note": f"与 {ref} 是相同的受治理查询：直接复用 {ref}，不计查询额度"}, reused, "ok"
-        scanned = self._scanned.get(_scan_key(args)) if args.group_by and not args.time_grain else None
+        scanned = current(self._scanned.get(_scan_key(args))) if (
+            args.group_by and not args.time_grain and args.order is None and args.limit is None) else None
         if scanned is not None:  # explain_change 已扫描过同样的指标 × 维度 × 窗口 × 筛选（含两期）：直接复用
             for code in args.metric_codes:
                 self._metric_sources(code)
@@ -1260,7 +1266,7 @@ class AnalysisToolbox:
         ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                            truncated=bool(result.get("truncated")),
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
-                                 "metric_codes": list(args.metric_codes),
+                                 "metric_codes": list(args.metric_codes), "versions": version_ids,
                                  "intent": answer.intent, "freshness": answer.freshness,
                                  "purpose": args.purpose,
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
@@ -1467,10 +1473,8 @@ class AnalysisToolbox:
                            compare_start=cstart if compare else None, compare_end=cend if compare else None,
                            purpose=f"{args.purpose}：{purpose}")
             out, ds, status = self._run_query(qa)
-            if ds is not None and compare and not ds.truncated:  # 模型再按同样的维度分组取数时直接复用
-                for key in (_scan_key(qa), _scan_key(qa.model_copy(update={"compare": None, "compare_start": None,
-                                                                           "compare_end": None}))):
-                    self._scanned.setdefault(key, ds)
+            if ds is not None and compare and not ds.truncated:  # 模型再按同样的维度、两期分组取数时直接复用
+                self._scanned.setdefault(_scan_key(qa), ds)
             if ds is None:
                 if status == "denied" and out.get("error_code") == "permission":
                     raise PermissionDenied(out.get("message") or "查询被拒绝")
