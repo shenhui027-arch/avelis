@@ -275,7 +275,7 @@ function scope(ds: Datasource): string {
   return Object.entries(ds.options).map(([key, value]) => `${options?.find((option) => option.key === key)?.label ?? key}：${optionText(value)}`).join(" · ") || "—";
 }
 
-// 选项值可能是列表或映射（如 catalog_databases：{shop_mysql: ["shop_dim"]}）
+// 选项值可能是列表或映射（如 catalog_databases：{catalog_a: ["db_a"]}）
 function optionText(value: unknown): string {
   if (Array.isArray(value)) return value.map(optionText).join(", ");
   if (value && typeof value === "object") return Object.entries(value).map(([k, v]) => `${k}（${optionText(v)}）`).join(", ");

@@ -50,6 +50,15 @@ class DomainCreate(BaseModel):
     owner_id: str
 
 
+class ExampleQuestionIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+    mode: str = Field(default="both", pattern=r"^(ask|analysis|both)$")
+
+
+class ExampleQuestionsSet(BaseModel):
+    questions: list[ExampleQuestionIn] = Field(default_factory=list, max_length=12)
+
+
 class MemberSet(BaseModel):
     user_id: str
     role: str = Field(pattern=r"^(owner|maintainer|viewer)$")
@@ -59,7 +68,9 @@ def domain_view(session: Session, d: Domain) -> dict:
     members = session.execute(select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
                               .join(User, User.id == DomainMember.user_id).where(DomainMember.domain_id == d.id))
     return {"id": d.id, "code": d.code, "name": d.name, "description": d.description, "owner_id": d.owner_id,
-            "members": [{"user_id": u, "role": r, "username": n, "display_name": dn} for u, r, n, dn in members]}
+            "members": [{"user_id": u, "role": r, "username": n, "display_name": dn} for u, r, n, dn in members],
+            "example_questions": [q if isinstance(q, dict) else {"text": str(q), "mode": "both"}
+                                  for q in d.example_questions or []]}
 
 
 @router.get("/domains", response_model=list[S.DomainOut])
@@ -99,6 +110,27 @@ def set_member(domain_id: str, body: MemberSet, user: User = Depends(current_use
     session.flush()
     audit.record(session, user, "domain.member", "domain", domain_id, member=body.user_id, role=body.role)
     return domain_view(session, d)
+
+
+@router.put("/domains/{domain_id}/example-questions", response_model=S.DomainOut)
+def set_example_questions(domain_id: str, body: ExampleQuestionsSet, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)) -> dict:
+    """业务域的示例问题（ADR 0010）：由负责人、维护者维护，问数页与分析页从 /example-questions 读取。"""
+    d = session.get(Domain, domain_id) or _404("业务域不存在")
+    access.require_domain_maintainer(session, user, domain_id)
+    d.example_questions = [q.model_dump() for q in body.questions]
+    session.flush()
+    audit.record(session, user, "domain.example_questions", "domain", domain_id, count=len(body.questions))
+    return domain_view(session, d)
+
+
+@router.get("/example-questions", response_model=S.ExampleQuestionsOut)
+def get_example_questions(mode: str = Query("ask", pattern=r"^(ask|analysis)$"), user: User = Depends(current_user),
+                          session: Session = Depends(get_session)) -> dict:
+    """当前用户可见业务域配置的示例问题；都没有配置时按模板从可见口径生成（ADR 0010 第 3 点）。"""
+    from avelis.ask.examples import example_questions
+
+    return {"questions": example_questions(session, user, mode)}
 
 
 # --- 资产 -------------------------------------------------------------------------

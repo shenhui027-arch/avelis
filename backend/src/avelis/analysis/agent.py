@@ -49,7 +49,7 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    (2) 维度贡献：优先调用 explain_change（自动扫描候选维度，给出成员贡献 EP、分布变化强度与排名；summary 里的
        verdict 为 offsetting 或 no_material_change 时不要编造排名，如实写变化不明显或相互抵消；partial 时说明未扫描的维度）；
        它不支持的指标再用 query_metric 带 compare 按维度分组后调用 contribution，必要时逐层下钻；
-   (3) 因子：有乘法关系时（如 成交额 = 订单数 × 客单价、门店订单数 = 进店客流 × 转化率）用 factor_decompose；
+   (3) 因子：有乘法关系时（如 总量 = 数量 × 单价、转化量 = 访问量 × 转化率）用 factor_decompose；
    (4) 日历：天数、周末、节假日差异用 calendar_adjust；
    必要时用 time_grain=day 看日趋势，找某天某些成员缺失或骤降，再用 lineage 查看口径的主表定位原因。
 4. “什么关系 / 怎么做”：用同一维度的多指标查询，再用 correlate、segment_compare；相关不等于因果，建议必须写明前提与验证方式。
@@ -58,23 +58,24 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    - claims 的 type：fact（受治理查询的事实）、calc（计算工具的结果）、inference（推断）、recommendation（建议）；
    - 报告里不手写数字：claim 的 parts、premise、validation，以及 title、summary、unexplained 都写成片段列表，
      文字片段是字符串，数字写成引用对象，后端按数据集取值、按量纲格式化（单位由后端输出）后生成正文：
-     · 数值（NumberRef）：{{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}
-       显示“196.9万元”（数据集只有一行时可省略 match；多行时 match 必须恰好选中一行，或写 "row": 1）；
+     （下面例子里的指标、维度取自你能访问的口径：{example_note}）
+     · 数值（NumberRef）：{{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}, "format": "wan1"}}
+       显示为“12.3万”加口径单位（数据集只有一行时可省略 match；多行时 match 必须恰好选中一行，或写 "row": 1）；
      · 计算结果的汇总值：{{"dataset": "D18", "summary": "value", "format": "pct1"}}（工具结果里 summary 列出的路径，
        如 value、total.change、day_count_effect）；
      · 变化：{{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}；direction 只用于差额、
        变化率，写了就核对正负并显示绝对值，前面写“下降 / 减少”；不写 direction 时显示带符号的值；
-     · 维度文本（LabelRef，带数字的店名）：{{"dataset": "D3", "label": "门店", "row": 1}}；
-     · 个数（CountRef，“N 家门店”）：{{"dataset": "D5", "distinct": "门店"}}（截断的数据集不可用）；
+     · 维度文本（LabelRef，成员名称，尤其是名称里带数字时）：{{"dataset": "D3", "label": "{dimension}", "row": 1}}；
+     · 个数（CountRef，“N 个{dimension}”）：{{"dataset": "D5", "distinct": "{dimension}"}}（截断的数据集不可用）；
      · 期间（WindowRef）：{{"window": "run_current", "format": "month"}} 显示“2026 年 9 月”（只用于整月），
        "run_compare" 是对比期，"dataset:D5" 是某次查询的窗口，"range" 显示日期区间；
-     · format 只能用在相应量纲上：d0–d4 / int 任意；wan0–wan2 / yi0–yi2 用于金额、订单数等水平值、差额、计数；
+     · format 只能用在相应量纲上：d0–d4 / int 任意；wan0–wan2 / yi0–yi2 用于水平值（金额、数量等）、差额、计数；
        pct0–pct2 用于变化率、占比；pp0–pp2 用于比率之差；x0–x2 用于两数之比（倍）；
      · 建议的目标值写 "role": "proposal"，只能用在 inference、recommendation 中。
-     例子：parts = [{{"window": "run_current", "format": "month"}}, "华东成交额 ",
-     {{"dataset": "D5", "column": "成交额", "match": {{"区域": "华东"}}, "format": "wan1"}}, "，较上期下降 ",
+     例子：parts = [{{"window": "run_current", "format": "month"}}, "{member} 的{metric} ",
+     {{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}, "format": "wan1"}}, "，较上期下降 ",
      {{"dataset": "D19", "summary": "total.change", "direction": "down", "format": "wan1"}}]；
-   - 文字片段里不能出现任何数字和单位：阿拉伯数字、中文数字（“三家”“两家门店”“九月”“前五”）、倍、折、一半、日期、
+   - 文字片段里不能出现任何数字和单位：阿拉伯数字、中文数字（“三个”“两个地区”“九月”“前五”）、倍、一半、日期、
      数据集编号（D19）都不写；数值后面不要再写“元、万、%、倍”（后端会输出）；两个数值之间要有文字隔开；
      对比双方写“本期 / 上期”或“两期相比”“两期合计”；“首位”“最大”代替“第 1”“Top 3”；
    - fact 与 calc 的引用 = refs 与引用片段涉及的数据集；需要两数相减、求和、占比等派生数字时先用 derive 算出，再引用它；
@@ -243,11 +244,29 @@ def build_graph(checkpointer) -> Any:
     return graph.compile(checkpointer=checkpointer)
 
 
-def system_message(today, tz: str, window: dict | None, budget) -> SystemMessage:
+PLACEHOLDER_EXAMPLE = {"metric": "<指标>", "dimension": "<维度>", "member": "<成员>",
+                       "example_note": "暂无可用口径，用占位符表示"}
+
+
+def prompt_example(catalog) -> dict[str, str]:
+    """系统提示里的写法示例取自当前用户可见的已发布口径（ADR 0010）：按编码排序，取第一个有维度的指标及其首个维度；
+    没有可用口径时用中性占位。成员取值不预先查询，用占位符。"""
+    for code in sorted(getattr(catalog, "versions", {}) or {}):
+        metric, version = catalog.versions[code]
+        dims = [d for d in (getattr(version, "dimensions", None) or []) if d.get("name")]
+        if version is not None and dims:
+            def safe(text: str) -> str:  # 写进 JSON 示例与 format 模板：去掉引号、花括号
+                return str(text).replace('"', "").replace("{", "").replace("}", "")
+            return {"metric": safe(metric.name), "dimension": safe(dims[0]["name"]), "member": "<成员>",
+                    "example_note": f"指标 {safe(metric.name)}（{safe(code)}）、维度 {safe(dims[0]['name'])}"}
+    return dict(PLACEHOLDER_EXAMPLE)
+
+
+def system_message(today, tz: str, window: dict | None, budget, example: dict[str, str] | None = None) -> SystemMessage:
     text = ""
     if window and window.get("start"):
         text = (f"分析窗口：本期 {window['start']} 至 {window['end']}" +
                 (f"，对比期 {window['compare_start']} 至 {window['compare_end']}" if window.get("compare_start") else "")
                 + "。")
     return SystemMessage(SYSTEM_PROMPT.format(today=today, tz=tz, window=text, tools=budget.tool_calls,
-                                              queries=budget.queries))
+                                              queries=budget.queries, **(example or PLACEHOLDER_EXAMPLE)))

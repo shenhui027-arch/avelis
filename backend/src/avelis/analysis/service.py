@@ -254,8 +254,9 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
                                   adapter=adapter)
         settings = get_settings()
+        example = analysis_agent.prompt_example(ask_service.visible_catalog(session, user, with_values=False))
         system = analysis_agent.system_message(business_today(settings.business_timezone),
-                                               settings.business_timezone, run.window, budget)
+                                               settings.business_timezone, run.window, budget, example)
         config = {"configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved},
                   "recursion_limit": 50}
         from langchain_core.messages import HumanMessage

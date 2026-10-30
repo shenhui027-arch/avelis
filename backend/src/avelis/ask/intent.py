@@ -188,7 +188,7 @@ class DemoIntentModel:
             order = "desc"
         if order and not group_by:
             return Intent(metric_codes=[c.code for c in ordered],
-                          clarification="排名需要一个维度，请说明按什么排（例如“按区域”）",
+                          clarification="排名需要一个维度，请说明按哪个维度排（候选见下）",
                           candidates=[d.get("label") or d["name"] for d in shared])
         return Intent(metric_codes=[c.code for c in ordered], start_date=start, end_date=end, filters=filters,
                       group_by=group_by, order=order, limit=min(limit, MAX_LIMIT) if limit else None,

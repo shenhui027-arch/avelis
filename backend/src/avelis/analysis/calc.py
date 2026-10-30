@@ -68,7 +68,7 @@ def _log_mean(a: float, b: float) -> float:
 
 
 def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]) -> dict[str, Any]:
-    """总量 = 各因子之积（如 成交额 = 订单数 × 客单价）。用对数平均分解（LMDI-I），各因子贡献相加等于总差额。
+    """总量 = 各因子之积（如 总量 = 数量 × 单价）。用对数平均分解（LMDI-I），各因子贡献相加等于总差额。
     total、factors 的值均为（上期, 本期）。要求全部为正数，且各因子之积与总量一致（误差 0.5% 以内）。
     各因子贡献相加等于因子之积的变化；总量与因子之积的差（输入不一致）单列为“未解释差额”，不归给任何因子。"""
     t0, t1 = (number(v) for v in total)

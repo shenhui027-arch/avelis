@@ -37,7 +37,7 @@ class NumberRef(_Ref):
     column: str | None = Field(None, description="数值列名；与 summary 二选一")
     summary: str | None = Field(None, description="计算类数据集登记的汇总路径，如 value、total.change、day_count_effect")
     match: dict[str, str | int | float] | None = Field(
-        None, description="选行条件，如 {'区域': '华东'}，必须恰好选中一行（不做隐式求和，求和先用 derive）")
+        None, description="选行条件，如 {'<维度>': '<成员>'}，必须恰好选中一行（不做隐式求和，求和先用 derive）")
     row: int | None = Field(None, ge=1, description="第几行（从 1 开始），与 match 二选一；只用来定位，不代表排名")
     format: Format | None = Field(None, description="d0–d4 / int：数值加单位；wan0–wan2 / yi0–yi2：万 / 亿（水平、差额、计数）；"
                                                     "pct0–pct2：百分比（变化率、占比）；pp0–pp2：百分点（比率差）；"
@@ -49,7 +49,7 @@ class NumberRef(_Ref):
 
 
 class LabelRef(_Ref):
-    """维度列的文本值，例如带数字的店名“广州10号店”；只能取维度列。用 label 写列名（与 NumberRef 的 column 区分）。"""
+    """维度列的文本值，例如名称里带数字的成员；只能取维度列。用 label 写列名（与 NumberRef 的 column 区分）。"""
     dataset: str = Field(pattern=REF_PATTERN)
     label: str = Field(description="维度列名")
     match: dict[str, str | int | float] | None = None
@@ -57,7 +57,7 @@ class LabelRef(_Ref):
 
 
 class CountRef(_Ref):
-    """某个维度列的不同值个数（“N 家门店”）；不计 NULL 和空串；截断的数据集不可用。"""
+    """某个维度列的不同值个数（“N 个成员”）；不计 NULL 和空串；截断的数据集不可用。"""
     dataset: str = Field(pattern=REF_PATTERN)
     distinct: str = Field(description="维度列名")
 
@@ -94,7 +94,7 @@ def as_part(part: Any) -> Part:
 
 
 def describe(ref: Ref) -> str:
-    """引用的简短写法：D5.成交额[区域=华东]、D3.门店[#1]、D12.summary.value、D5.distinct(门店)、window.run_current。"""
+    """引用的简短写法：D5.<指标>[<维度>=<成员>]、D3.<维度>[#1]、D12.summary.value、D5.distinct(<维度>)、window.run_current。"""
     if isinstance(ref, WindowRef):
         return f"window.{ref.window}"
     if isinstance(ref, CountRef):
@@ -109,7 +109,7 @@ def describe(ref: Ref) -> str:
 
 
 def source_label(ref: Ref) -> str:
-    """界面在数字旁显示的来源标签：D5 · 成交额 · 区域=华东。"""
+    """界面在数字旁显示的来源标签：D5 · <指标> · <维度>=<成员>。"""
     if isinstance(ref, WindowRef):
         return {"run_current": "本期窗口", "run_compare": "对比期窗口"}.get(ref.window, ref.window.replace(":", " · "))
     if isinstance(ref, CountRef):

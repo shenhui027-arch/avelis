@@ -108,6 +108,11 @@ class MemberOut(Out):
     display_name: str
 
 
+class ExampleQuestion(Out):
+    text: str
+    mode: str = "both"
+
+
 class DomainOut(Out):
     id: str
     code: str
@@ -115,6 +120,17 @@ class DomainOut(Out):
     description: str | None = None
     owner_id: str
     members: list[MemberOut]
+    example_questions: list[ExampleQuestion] = []
+
+
+class ExampleQuestionOut(Out):
+    text: str
+    domain: str | None = None
+    source: str
+
+
+class ExampleQuestionsOut(Out):
+    questions: list[ExampleQuestionOut]
 
 
 class DatasourceRef(Out):

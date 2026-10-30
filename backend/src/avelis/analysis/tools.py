@@ -109,7 +109,7 @@ class Code(BaseModel):
 
 
 class Qualified(BaseModel):
-    qualified: str = Field(description="资产全名 catalog.db.name，如 default_catalog.ec_dw.dws_store_daily")
+    qualified: str = Field(description="资产全名 catalog.db.name，如 <catalog>.<库>.<表>")
 
 
 class Window(BaseModel):
@@ -157,8 +157,8 @@ class ExplainArgs(BaseModel):
 class ContributionArgs(BaseModel):
     dataset: str = Field(description="数据集编号，如 D2")
     keys: list[str] = Field(description="维度列")
-    current: str = Field(description="本期值列名，如 成交额")
-    previous: str = Field(description="上期值列名，如 成交额·上一期")
+    current: str = Field(description="本期值列名，如 <指标>")
+    previous: str = Field(description="上期值列名，如 <指标>·上一期")
 
 
 class Pair(BaseModel):
@@ -169,15 +169,15 @@ class Pair(BaseModel):
 
 class FactorArgs(BaseModel):
     dataset: str
-    total: Pair = Field(description="总量的本期与上期列，如 成交额 / 成交额·上一期")
-    factors: list[Pair] = Field(min_length=2, description="乘积等于总量的因子，如 订单数、客单价")
+    total: Pair = Field(description="总量的本期与上期列，如 <指标> / <指标>·上一期")
+    factors: list[Pair] = Field(min_length=2, description="乘积等于总量的因子，如 数量、单价")
     match: dict[str, str] = Field(default_factory=dict, description="选行条件（维度列 → 值）；数据集只有一行时可省略")
 
 
 class CalendarArgs(BaseModel):
     dataset: str = Field(description="带对比期的受治理查询数据集；两期日期取自该次查询，不能另行指定")
-    current: str = Field(description="本期值列名，如 成交额")
-    previous: str = Field(description="对比期值列名，如 成交额·对比期")
+    current: str = Field(description="本期值列名，如 <指标>")
+    previous: str = Field(description="对比期值列名，如 <指标>·对比期")
     match: dict[str, str] = Field(default_factory=dict)
 
 
@@ -200,13 +200,13 @@ class ValueRef(BaseModel):
     dataset: str = Field(description="数据集编号")
     column: str = Field(description="列名")
     match: dict[str, str] = Field(default_factory=dict, description="选行条件；选出多行时对该列求和")
-    exclude: dict[str, str] = Field(default_factory=dict, description="排除的行（如排除某门店后求其余合计）")
+    exclude: dict[str, str] = Field(default_factory=dict, description="排除的行（如排除某个成员后求其余合计）")
 
 
 class DeriveArgs(BaseModel):
-    label: str = Field(description="结果的名称，如 其余门店成交额合计")
+    label: str = Field(description="结果的名称，如 其余成员合计")
     values: list[ValueRef] = Field(min_length=1, max_length=8)
-    formula: str = Field(description="只用变量名、数字与 + - * / 括号，如 total - futian、a / b")
+    formula: str = Field(description="只用变量名、数字与 + - * / 括号，如 total - part、a / b")
 
 
 class DescribeArgs(BaseModel):
@@ -235,8 +235,8 @@ class PlanArgs(BaseModel):
 class Claim(BaseModel):
     type: Literal["fact", "calc", "inference", "recommendation"]
     parts: list[Part] = Field(description="结论正文的片段列表：文字片段写字符串，数字写成引用对象，如 "
-                                          "['华东成交额下降 ', {'dataset': 'D19', 'column': '差额', 'abs': True, "
-                                          "'format': 'wan1'}, '元']；文字片段里不写任何数字（ADR 0009）")
+                                          "['<成员>较上期下降 ', {'dataset': 'D19', 'summary': 'total.change', 'direction': 'down', "
+                                          "'format': 'wan1'}]；文字片段里不写任何数字（ADR 0009）")
     refs: list[Annotated[str, Field(pattern=r"^D[1-9]\d{0,3}$")]] = Field(
         default_factory=list, description="额外引用的数据集编号，如 ['D2']；引用片段涉及的数据集自动计入")
     premise: str | list[Part] | None = Field(None, description="推断与建议的前提（文字或片段列表）")
@@ -655,7 +655,7 @@ class AnalysisToolbox:
             rows = [[o["base_asset"], o["metric_status"], "是" if o["drift"] else "否", _iso(o["last_collected_at"]),
                      c["status"], _iso(c["started_at"])] for o in out for c in o["recent_collections"] or [{}]]
             rows.sort(key=lambda r: (r[0], "" if r[5] is None else r[5]), reverse=False)
-            note = ("数据完整性需要看数据本身：用 query_metric 按 time_grain=day 并按门店等维度分组，"
+            note = ("数据完整性需要看数据本身：用 query_metric 按 time_grain=day 并按成员维度分组，"
                     "找出某天某些成员缺失或骤降；再用 lineage 查看口径的主表（缺失可能来自上游）。")
             ds = self._dataset("context", f"数据健康 {metric_code}",
                                ["base_asset", "metric_status", "drift", "last_collected_at", "collection_status",
@@ -1107,7 +1107,7 @@ class AnalysisToolbox:
             t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异（两期日期取自数据集的查询窗口）"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
-            t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某门店后的合计、两期差额），结果可引用"),
+            t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某个成员后的合计、两期差额），结果可引用"),
             t(self.describe, DescribeArgs, "一列的个数、合计、均值、中位数、最小值、最大值（可按条件选行）"),
             t(self.segment_compare, SegmentArgs, "按某列分组对比各度量"),
             t(self.outliers, OutlierArgs, "四分位距法找异常值"),
