@@ -135,15 +135,19 @@ def _can_call_model(toolbox: AnalysisToolbox) -> bool:
 
 
 def model_usage(reply: AIMessage) -> dict[str, int | None]:
-    """一次模型调用的 token 数（ADR 0012 度量）：输入、输出与前缀缓存命中。模型服务没给的记 None。
-    缓存命中优先取 DeepSeek 的 prompt_cache_hit_tokens，其次取 OpenAI 兼容的 cached_tokens（LangChain 的 cache_read）。"""
+    """一次模型调用的 token 数（ADR 0012 度量）：输入、输出、前缀缓存命中与推理（thinking）。模型服务没给的记 None。
+    缓存命中优先取 DeepSeek 的 prompt_cache_hit_tokens，其次取 OpenAI 兼容的 cached_tokens（LangChain 的 cache_read）；
+    推理 token 取 completion_tokens_details.reasoning_tokens（LangChain 的 output_token_details.reasoning）。"""
     usage = getattr(reply, "usage_metadata", None) or {}
     raw = ((getattr(reply, "response_metadata", None) or {}).get("token_usage") or {})
     cached = raw.get("prompt_cache_hit_tokens")
     if cached is None:
         cached = (usage.get("input_token_details") or {}).get("cache_read")
+    reasoning = (raw.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    if reasoning is None:
+        reasoning = (usage.get("output_token_details") or {}).get("reasoning")
     return {"input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
-            "cache_hit_tokens": cached}
+            "cache_hit_tokens": cached, "reasoning_tokens": reasoning}
 
 
 def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report: bool = False) -> list[AnyMessage]:
@@ -159,8 +163,9 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
         toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}"},
                       started=started)
         raise
-    calls = len(reply.tool_calls or []) + len(getattr(reply, "invalid_tool_calls", None) or [])
-    toolbox._step("model", "model", {}, "ok", {**model_usage(reply), "tool_calls": calls}, started=started)
+    names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
+    toolbox._step("model", "model", {}, "ok", {**model_usage(reply), "tool_calls": len(names), "tools": names},
+                  started=started)
     out: list[AnyMessage] = [reply]
     for call in reply.tool_calls or []:
         result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
