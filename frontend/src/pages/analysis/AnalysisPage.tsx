@@ -1,7 +1,7 @@
 // 分析：多步分析的报告、计划与步骤 | 数据集（图表、表格、SQL）。结论标明类型与引用，未通过检查的结论醒目标出。
 // 报告里的数字由后端按引用渲染（ADR 0009）：按数值段显示，悬停可看来源数据集、取值路径与原值。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
@@ -164,7 +164,11 @@ const MEASURE_LABEL: Record<string, string> = { level: "水平值", delta: "差�
   share: "占比", count: "计数", unknown: "量纲未知" };
 
 // 报告里的引用段：数字旁显示来源标签（悬停看原值、量纲、格式），探索数据标“探索查询（未经口径审核）”
+// 数据集编号 → 实际执行的 SQL：探索查询的数字悬停可看 SQL（ADR 0009 第 6 点）
+const DatasetSql = createContext<Record<string, string>>({});
+
 function Segments({ segments, text }: { segments?: Segment[]; text?: string | null }) {
+  const sqlOf = useContext(DatasetSql);
   if (!segments?.length) return <>{text}</>;
   return <>{segments.map((s, i) => {
     if (s.kind === "text") return <span key={i}>{s.text}</span>;
@@ -173,7 +177,8 @@ function Segments({ segments, text }: { segments?: Segment[]; text?: string | nu
     const title = [s.label ?? s.path, `原值 ${raw}`,
       s.measure ? `${MEASURE_LABEL[s.measure] ?? s.measure}${s.unit ? `（${s.unit}）` : ""}${s.declared ? " · 模型声明" : ""}` : "",
       s.format ? `格式 ${s.format}` : "", s.direction ? `方向 ${s.direction === "up" ? "上升" : "下降"}` : "",
-      s.explore ? "探索查询（未经口径审核）" : "", s.assumption ? "假设计算" : "",
+      s.explore ? (s.source === "explore" && s.ref && sqlOf[s.ref] ? `探索查询（未经口径审核）\nSQL：${sqlOf[s.ref]}`
+        : "来源含探索查询（未经口径审核），SQL 见数据集附录") : "", s.assumption ? "假设计算" : "",
       s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");
     const cls = ["av-num", s.kind === "label" ? "" : "av-mono", s.role === "proposal" ? "is-proposal" : "",
       s.explore ? "is-explore" : ""].filter(Boolean).join(" ");
@@ -232,6 +237,7 @@ function RunDetail({ id }: { id: string }) {
         </div>
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
       <div className="av-analysis__meta av-caption">
         {r.window && (r.window as { start?: string }).start ? <span className="av-mono">
           {(r.window as { start: string; end: string }).start} ~ {(r.window as { end: string }).end}
@@ -295,6 +301,7 @@ function RunDetail({ id }: { id: string }) {
           ))}
         </ol>
       </section>
+      </DatasetSql.Provider>
     </article>
   );
 }
@@ -312,8 +319,8 @@ function Datasets({ id }: { id: string }) {
           <div className="av-dataset__hd">
             <span className="av-tag av-mono">{d.ref}</span>
             <span className="av-dataset__title">{d.title}</span>
-            <Pill tone={d.kind === "governed" ? "ok" : d.kind === "ungoverned" ? "warn" : "info"}>
-              {{ governed: "受治理", calc: "计算", context: "元数据", ungoverned: "未治理" }[d.kind] ?? d.kind}</Pill>
+            <Pill tone={d.kind === "governed" ? "ok" : d.kind === "ungoverned" || d.kind === "explore" ? "warn" : "info"}>
+              {{ governed: "受治理", calc: "计算", context: "上下文证据", explore: "探索查询（未经口径审核）", ungoverned: "未治理" }[d.kind] ?? d.kind}</Pill>
             <button type="button" className="av-btn av-btn--ghost av-btn--sm" title="导出 CSV" onClick={() => download(
               `/api/analysis/runs/${id}/datasets/${d.seq}/csv`, `analysis-${id}-${d.ref}.csv`).catch((e) => setError(errorText(e)))}>
               <Icon name="download" /></button>
