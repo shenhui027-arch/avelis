@@ -237,6 +237,7 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
             lines += [f"  · {p}" for p in c["problems"]]
     lines += [f"- 结论类型：{p}" for p in (toolbox.verification.get("conclusion") or {}).get("problems", [])]
     toolbox.budget.tool_calls += REVISION_TOOL_CALLS
+    toolbox.budget.used_reports = 0  # 修订是新的一轮：submit_report 的预留次数重新计算
     toolbox.report = None
     message = ("核验发现以下问题：\n" + "\n".join(lines) +
                "\n请修订：引用解析失败的，按提示改正数据集编号、列名、汇总路径、match 或 row"
