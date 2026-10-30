@@ -10,6 +10,8 @@
 # - D3 只给查询：运行时以发起人身份经 query_metric（受治理）或 query_sql（探索，带探索标记）执行，结果是普通数据集；
 #   不附原因标签、推导结论或报告答案。SQL 只用历史轨迹里通过校验的表与列；被校验拒绝时记为注入失败，不算模型失败。
 # - 注入不占用分析的工具与查询额度（单独计数），注入文字的字符数单列（按 1 字符 ≤ 1 token 记保守上界）。
+# - 运行前核对（2026-10-31，私有元数据库 avelis_e1，以 wang 的身份 describe_asset）：全部资产可见，全部 SQL 用到的列都存在；
+#   改动只有 e01 的调价查询（见该处注释）。
 version: e1-1
 scenarios:
   h10:
@@ -53,8 +55,10 @@ scenarios:
                start_date: "2026-09-01", end_date: "2026-09-30", compare: custom, compare_start: "2026-07-01",
                compare_end: "2026-07-31", purpose: "实验注入：两期销售额与销量"}
       - tool: query_sql
-        args: {sql: "SELECT effective_date, reason, old_price, new_price FROM default_catalog.ec_product.price_change WHERE effective_date BETWEEN DATE '2026-07-01' AND DATE '2026-09-30'",
-               purpose: "实验注入：两期之间的商品价格变更记录（原始记录）"}
+        # 2026-10-31 运行前核对（describe_asset，wang）：price_change 只有 product_id，没有类目；商品挂末级类目，
+        # 一级类目是末级类目的 parent_id（category 表注释）。按题目范围“数码类商品”加关联筛选，原 SQL 返回全部类目的调价记录
+        args: {sql: "SELECT pc.product_id, pc.effective_date, pc.reason, pc.old_price, pc.new_price FROM default_catalog.ec_product.price_change AS pc INNER JOIN default_catalog.ec_product.product AS p ON p.product_id = pc.product_id INNER JOIN default_catalog.ec_product.category AS c2 ON c2.category_id = p.category_id INNER JOIN default_catalog.ec_product.category AS c1 ON c1.category_id = c2.parent_id WHERE pc.effective_date BETWEEN DATE '2026-07-01' AND DATE '2026-09-30' AND c1.category_name = '数码'",
+               purpose: "实验注入：两期之间数码类商品的价格变更记录（原始记录）"}
   h07:
     question: 2026 年 7 月全部区域的线上订单数为什么比 6 月少？
     scope:  # D1：理解阶段曾丢掉“线上”筛选

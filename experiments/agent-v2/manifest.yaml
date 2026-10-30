@@ -105,7 +105,8 @@ b0:
     - {item: fix_E_model_protocol, commits: [156a2dd, 0c7506c, c439193], note: c439193 为 E0 发现的 max_tokens 字段修复}
     - {item: fix_F_reuse, commit: 711ed85}
     - {item: eval_runner_meta, commit: ac4eee9}
-    - {item: e1_framework, commit: 96e1aa6, note: 只在实验进程内生效，不改产品路径}
+    - {item: e1_framework, commits: [96e1aa6, c9c48ba], note: 只在实验进程内生效，不改产品路径}
+    - {item: token_caps_frozen, note: 运行前统一修订的 token 上限，见 token_cap_decision}
   sha: 合并前以分支 claude/agent-v2-p0-4de0ae 的最后一个提交为准；合并后以合并提交为准（E1 运行前写入这里）
   unchanged_from_b_raw:  # fingerprint.py 在 B0 上重算，与 B_raw 相同
     prompts_sha256: 同 b_raw.prompts_sha256
@@ -131,14 +132,21 @@ b0:
     queries: 20
     explore: 8
     physical_sql_cap: 80  # 第 13 节的物理 SQL 上限：B0 未单独计数（受治理查询一次逻辑查询 = 两期最多 2 条），记为已知差距
-    input_tokens: null  # 记录累计值，默认不强制——见 token_cap_decision
-    output_tokens: null  # 记录累计值（含推理 token），默认不强制——见 token_cap_decision
+    input_tokens: 552321  # 运行前统一修订，见 token_cap_decision（任务书默认 160000）
+    output_tokens: 30716  # 含推理 token；运行前统一修订（任务书默认 24000）
     revisions: 1
-  token_cap_decision:  # 待协调会话在 E1 前决定（任务书第 13 节：无法容纳 B0 时运行前统一修订，不在中途扩容）
-    finding: 232512 的 26 次运行，累计输入均值 192653、最大 517904，其中前缀缓存命中均值 176778（约 92%）；
-      14 次超过 160000，累计输出均值 13308、最大 34295，2 次超过 24000；模型请求均值 8.4、最大 17，1 次超过 16
-    options: [按未缓存输入计 160000（缓存命中单列）, 把累计输入上限提高到能容纳历史最大值, 照原值强制（预计过半运行被截断）]
-    current: 只记录不强制；model_requests=16 照常强制
+  token_cap_decision:  # 运行前统一修订（2026-10-31，协调会话批准；任务书第 13 节：装不下 B0 时运行前统一修订一次，不在中途改）
+    method: 用 .demo/eval/20261030-232512.json（26 次新流程运行）求每次运行的累计量的 P95（最近秩）；
+      历史 P95 超过任务书默认值即为“装不下”，上限取 max(默认值, ceil(P95 × 1.2))；运行中触达上限按预算截止停止，不自动加额
+    computed:  # 默认值 / P95 / 最大值 / ceil(P95×1.2) → 采用
+      input_tokens: [160000, 460267, 517904, 552321, 552321]  # 装不下，修订
+      output_tokens: [24000, 25596, 34295, 30716, 30716]  # 含推理 token；装不下，修订
+      model_requests: [16, 15, 17, 18, 16]  # P95 在默认值内，不修订（1/26 次超过 16，会按预算截止）
+      seconds: [300, 147.7, 190.6, 178, 300]
+      tool_calls: [30, 29, 30, 35, 30]  # 修订一轮 +6，上限 36
+      queries: [20, 14, 14, 17, 20]
+      explore: [8, 7, 8, 9, 8]  # P95 在默认值内，不修订
+    enforced_in: tools.Budget 默认值（input_tokens 552321、output_tokens 30716）
   scorer: v2（backend/tests/eval/scoring_v2.py，VERSION v2.0，sha256 见 scorer_v2_sha256）——所有比较臂使用同一个冻结版本
 
 # --- E1：诊断性补齐信息实验（第 12 节），待授权 ------------------------------------------------
@@ -155,4 +163,13 @@ e1:
   cost_estimate_from_history: 按 232512 的均值，48 次约 9.2M 输入（其中约 8.5M 为缓存命中）、0.64M 输出；
     价格按提供方当前价目由协调会话核算（本会话没有核实价格），D2/D3 的注入另加每次数千字符
   memory: 禁用跨题记忆（产品本来没有）；每次运行独立
+  seed: 20261031  # 每个重复内“场景 × 条件”按此种子打乱（e1.plan）
+  environment:
+    metadata_db: avelis_e1（meta-pg 上的私有库，bootstrap migrate 到分支最新，bootstrap demo --metrics 建演示数据；未动共用库 avelis）
+    migration: 不需要（models.py 只改注释，status 仍为 String(16)）
+    containers: 已在运行，未执行 compose
+    source_data: 共用演示源库（StarRocks 电商数仓等），只读；运行期间不重置
+    permission_snapshot_before: 8c9e6c60e695815189a62800d9f6cc7079d168b50b6017e6682d5d9edb33d63b  # wang：交易域、商品域、电商经营；sun：交易域
+    extra_model_requests: bootstrap demo 与 E1 运行器各做 1 次模型连通性检测（不在账本内，按 0.005 元起算 --spent 兜底）
+  material_check: 运行前以 wang 身份 describe_asset 核对全部资产与列，全部 query_sql 通过探索校验（未执行）；e01 调价查询按题目范围加类目关联
   cache: 提供方前缀缓存无法关闭；四个条件同样受益，按条件记录 cache_hit_tokens

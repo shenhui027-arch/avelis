@@ -354,7 +354,8 @@ def test_identical_query_is_not_reused_after_a_version_change_or_revocation(monk
 def test_token_totals_are_recorded_and_the_cap_applies_only_when_set(monkeypatch):
     reply = AIMessage(content="", tool_calls=[], usage_metadata={"input_tokens": 900, "output_tokens": 50,
                                                                   "total_tokens": 950})
-    box = make_box(monkeypatch=monkeypatch)
+    assert (Budget().input_tokens, Budget().output_tokens) == (552_321, 30_716)  # E1 前统一修订的冻结值
+    box = make_box(budget=Budget(input_tokens=None, output_tokens=None), monkeypatch=monkeypatch)
     agent._round({"messages": []}, box, Replies(reply))
     used = box.budget.view()["used"]
     assert (used["input_tokens"], used["output_tokens"]) == (900, 50) and box.budget.model_blocked() is None
