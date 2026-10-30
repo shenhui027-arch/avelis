@@ -46,7 +46,9 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
 3. “为什么变了”按顺序排查：
    (1) 口径与数据本身：changes（元数据变更与口径版本流转）、data_health、describe_metric；changes 与 data_health
        的结果也是数据集（Dn，上下文证据，有截取范围），治理原因的结论引用它们；
-   (2) 维度贡献：query_metric 带 compare 并按维度分组，再调用 contribution，必要时逐层下钻（区域 → 城市 → 门店）；
+   (2) 维度贡献：优先调用 explain_change（自动扫描候选维度，给出成员贡献 EP、分布变化强度与排名；summary 里的
+       verdict 为 offsetting 或 no_material_change 时不要编造排名，如实写变化不明显或相互抵消；partial 时说明未扫描的维度）；
+       它不支持的指标再用 query_metric 带 compare 按维度分组后调用 contribution，必要时逐层下钻；
    (3) 因子：有乘法关系时（如 成交额 = 订单数 × 客单价、门店订单数 = 进店客流 × 转化率）用 factor_decompose；
    (4) 日历：天数、周末、节假日差异用 calendar_adjust；
    必要时用 time_grain=day 看日趋势，找某天某些成员缺失或骤降，再用 lineage 查看口径的主表定位原因。

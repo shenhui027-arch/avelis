@@ -157,10 +157,15 @@ def test_rule4_chinese_quantities_with_final_whitelist():
         _, result, _ = check([words, "，", HUADONG])
         assert result["status"] == "unverified", words
         assert "出现中文数字" in result["problems"][0], words
-    for words in ("增长一倍", "翻番", "接近半数", "打八折"):
+    for words in ("增长一倍", "翻番", "接近半数"):
         _, result, _ = check([words, "，", HUADONG])
         assert any("数量词" in p for p in result["problems"]), words
-    for words in ("两期相比，", "两期合计，", "两者之差，", "口径统一、结果一致，是原因之一，", "十分明显，"):
+    # 单独的“折”不是数量词（折扣、转折）；“八折”里的“八”由中文数字检查拦下；数值段后面紧跟“折”仍拒绝
+    _, eight, _ = check(["打八折，", HUADONG])
+    assert eight["status"] == "unverified" and "出现中文数字“八”" in eight["problems"][0]
+    assert check([HUADONG, "折"])[1]["status"] == "unverified"
+    for words in ("两期相比，", "两期合计，", "两者之差，", "口径统一、结果一致，是原因之一，", "十分明显，",
+                  "促销折扣带动销量，", "出现转折，"):
         assert check([words, HUADONG])[1]["status"] == "verified", words
 
 

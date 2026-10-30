@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.analysis import calc, measures
+from avelis.analysis import attribution, calc, measures
 from avelis.analysis.grounding import Part
 from avelis.analysis.measures import col, like
 from avelis.ask import service
@@ -139,6 +139,19 @@ class QueryArgs(BaseModel):
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(None, ge=1, le=100)
     purpose: str = Field(description="这次查询要回答什么（写进步骤记录）")
+
+
+class ExplainArgs(BaseModel):
+    metric_code: str = Field(description="指标编码")
+    start_date: date | None = Field(None, description="本期开始；不写时取本次分析的窗口")
+    end_date: date | None = None
+    compare_start: date | None = Field(None, description="对比期开始；不写时取本次分析的对比期")
+    compare_end: date | None = None
+    dimensions: list[str] = Field(default_factory=list, max_length=8,
+                                  description="候选维度名；不写时取该指标允许的维度（最多 8 个）")
+    depth: Literal[1, 2] = Field(1, description="2：对第一层排名前 3 的维度两两组合再扫描")
+    top_k: int = Field(5, ge=1, le=20, description="每个维度最多返回的成员数")
+    purpose: str = Field("自动归因", description="这次归因要回答什么（写进步骤记录）")
 
 
 class ContributionArgs(BaseModel):
@@ -656,53 +669,235 @@ class AnalysisToolbox:
     # -- 受治理查询 --
     def query_metric(self, **kwargs) -> str:
         args = QueryArgs(**kwargs)
+        return self._guard("query_metric", args.model_dump(mode="json"), lambda: self._run_query(args))
+
+    def _run_query(self, args: QueryArgs) -> tuple[dict, AnalysisDataset | None, str]:
+        """执行一次受治理查询并保存为数据集（query_metric 与 explain_change 的子查询共用）。"""
+        if self.budget.used_queries >= self.budget.queries:
+            raise ValueError(f"受治理查询已达上限 {self.budget.queries} 次：请基于已有数据集继续")
+        # 按当前授权核对每个请求的口径，只把它们交给查询管线（管线再核对来源闭包、状态与执行前核对）
+        scoped = service.Catalog([], {code: self._metric(code) for code in args.metric_codes})
+        self.budget.used_queries += 1
+        intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
+                        filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
+                        compare=args.compare, compare_start=args.compare_start, compare_end=args.compare_end,
+                        order=args.order, limit=args.limit)
+        started = time.monotonic()
+        answer = service.start_answer(self.session, self.user, f"[分析 {self.run.id}] {args.purpose}",
+                                      self.adapter, None)
+        answer.intent = intent.model_dump(mode="json")
+        service.fulfil(self.session, self.user, intent, answer, scoped)
+        service.finish_answer(self.session, self.user, answer, started)
+        if answer.status == "denied" and answer.error_code == "permission":
+            self.denials.append({"message": answer.message, "metric_codes": args.metric_codes,
+                                 "answer_id": answer.id})
+        if answer.status != "answered":
+            return ({"status": answer.status, "error_code": answer.error_code, "message": answer.message,
+                     "answer_id": answer.id}, None, answer.status)
+        result = answer.result
+        names = [scoped.versions[c][0].name for c in args.metric_codes]
+        columns = list(result["columns"])
+        if columns and columns[-1] == "value" and len(names) == 1:  # 单指标下推时结果列名为 value：统一成指标名
+            columns[-1] = names[0]
+        if len(set(columns)) != len(columns):  # 列名重复会让按列取值互相覆盖：如实拒绝
+            raise calc.CalcError(f"查询结果的列名重复（{'、'.join(columns)}），无法作为数据集使用")
+        title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
+            f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
+            f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
+            f" 对比{ {'previous_period': '上一期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
+            if args.compare else "")
+        versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
+        units = measures.governed_units(columns, versions,
+                                        service.PERIOD_LABEL[args.compare] if args.compare else None)
+        ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
+                           truncated=bool(result.get("truncated")),
+                           meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
+                                 "intent": answer.intent, "freshness": answer.freshness,
+                                 "purpose": args.purpose,
+                                 "time_column": columns[0] if args.time_grain else None, "units": units,
+                                 "window": {"start": str(args.start_date), "end": str(args.end_date)}})
+        return self._view(f"D{ds.seq}", ds), ds, "ok"
+
+    # -- 自动归因 --
+    SUBQUERY_RESERVE_SECONDS = 15  # 子查询前至少要剩的时间：不够就停止扫描，返回 partial
+
+    def _subquery_gate(self, metric_code: str) -> str | None:
+        """每个子查询前的核对：执行权、账号与角色、口径与来源闭包的权限（失败即抛出，按 ADR 0007 处理）；
+        查询额度与统一截止时间不够时返回原因（停止扫描，结果标为 partial）。"""
+        self.check_executor()
+        if self.aborted:
+            raise calc.CalcError(self.aborted)
+        self._authorize()
+        self._metric_sources(metric_code)
+        if self.budget.used_queries >= self.budget.queries:
+            return f"受治理查询额度（{self.budget.queries} 次）已用完"
+        if self.budget.remaining() <= self.SUBQUERY_RESERVE_SECONDS:
+            return "接近统一截止时间"
+        return None
+
+    def explain_change(self, **kwargs) -> str:
+        """自动归因（ADR 0009 第 4 点）：按候选维度各发一次受治理查询，计算成员贡献与分布变化强度，给出排名。"""
+        args = ExplainArgs(**kwargs)
 
         def run():
-            if self.budget.used_queries >= self.budget.queries:
-                raise ValueError(f"受治理查询已达上限 {self.budget.queries} 次：请基于已有数据集继续")
-            # 按当前授权核对每个请求的口径，只把它们交给查询管线（管线再核对来源闭包、状态与执行前核对）
-            scoped = service.Catalog([], {code: self._metric(code) for code in args.metric_codes})
-            self.budget.used_queries += 1
-            intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
-                            filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
-                            compare=args.compare, compare_start=args.compare_start, compare_end=args.compare_end,
-                            order=args.order, limit=args.limit)
-            started = time.monotonic()
-            answer = service.start_answer(self.session, self.user, f"[分析 {self.run.id}] {args.purpose}",
-                                          self.adapter, None)
-            answer.intent = intent.model_dump(mode="json")
-            service.fulfil(self.session, self.user, intent, answer, scoped)
-            service.finish_answer(self.session, self.user, answer, started)
-            if answer.status == "denied" and answer.error_code == "permission":
-                self.denials.append({"message": answer.message, "metric_codes": args.metric_codes,
-                                     "answer_id": answer.id})
-            if answer.status != "answered":
-                return ({"status": answer.status, "error_code": answer.error_code, "message": answer.message,
-                         "answer_id": answer.id}, None, answer.status)
-            result = answer.result
-            names = [scoped.versions[c][0].name for c in args.metric_codes]
-            columns = list(result["columns"])
-            if columns and columns[-1] == "value" and len(names) == 1:  # 单指标下推时结果列名为 value：统一成指标名
-                columns[-1] = names[0]
-            if len(set(columns)) != len(columns):  # 列名重复会让按列取值互相覆盖：如实拒绝
-                raise calc.CalcError(f"查询结果的列名重复（{'、'.join(columns)}），无法作为数据集使用")
-            title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
-                f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
-                f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
-                f" 对比{ {'previous_period': '上一期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
-                if args.compare else "")
-            versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
-            units = measures.governed_units(columns, versions,
-                                            service.PERIOD_LABEL[args.compare] if args.compare else None)
-            ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
-                               truncated=bool(result.get("truncated")),
-                               meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
-                                     "intent": answer.intent, "freshness": answer.freshness,
-                                     "purpose": args.purpose,
-                                     "time_column": columns[0] if args.time_grain else None, "units": units,
-                                     "window": {"start": str(args.start_date), "end": str(args.end_date)}})
-            return self._view(f"D{ds.seq}", ds), ds, "ok"
-        return self._guard("query_metric", args.model_dump(mode="json"), run)
+            try:
+                return self._explain(args)
+            except PermissionLost as exc:  # 中途撤权：之后一律拒绝，分析停止
+                self.permission_lost = exc.message
+                return {"error": f"{exc.message}：之后的取数与上下文一律拒绝，分析停止", "status": "denied"}, None, "denied"
+        return self._guard("explain_change", args.model_dump(mode="json"), run)
+
+    def _explain(self, args: ExplainArgs) -> tuple[dict, AnalysisDataset | None, str]:
+        window = self.run.window or {}
+        start, end = args.start_date or _opt_date(window.get("start")), args.end_date or _opt_date(window.get("end"))
+        cstart = args.compare_start or _opt_date(window.get("compare_start"))
+        cend = args.compare_end or _opt_date(window.get("compare_end"))
+        if not all((start, end, cstart, cend)):
+            raise ValueError("自动归因需要本期与对比期：本次分析没有窗口时请传 start_date、end_date、compare_start、compare_end")
+        metric, version, _, _ = self._metric_sources(args.metric_code)
+        components = {}
+        if version.kind == "derived":
+            for c in version.components or []:
+                components[c["metric_code"]] = self.session.get(MetricVersion, c["version_id"])
+        rule = attribution.applicability(version, components)
+        if rule["algorithm"] is None:
+            return {"supported": False, "metric_code": args.metric_code, "reason": rule["reason"],
+                    "note": "不支持自动归因：可以用 query_metric 按维度查询后用 contribution 拆解，或说明无法归因"}, None, "ok"
+        allowed = [d["name"] for d in version.dimensions or []]
+        dims = list(dict.fromkeys(args.dimensions)) or allowed[:8]
+        unknown = [d for d in dims if d not in allowed]
+        if unknown:
+            raise ValueError(f"维度 {'、'.join(unknown)} 不是指标 {args.metric_code} 允许的维度（可用：{'、'.join(allowed) or '无'}）")
+        ratio = rule["algorithm"] == "ratio"
+        codes = [rule["numerator"], rule["denominator"]] if ratio else [args.metric_code]
+        names = [self.session.get(Metric, c["metric_id"]).name for code in codes for c in version.components
+                 if c["metric_code"] == code] if ratio else [metric.name]
+        inputs: list[str] = []
+        unscanned: list[dict] = []
+
+        def query(group_by: list[str], purpose: str, compare: bool = True) -> tuple[AnalysisDataset | None, str | None]:
+            blocked = self._subquery_gate(args.metric_code)
+            if blocked:
+                return None, blocked
+            qa = QueryArgs(metric_codes=codes, start_date=start if compare else cstart, end_date=end if compare else cend,
+                           group_by=group_by, compare="custom" if compare else None,
+                           compare_start=cstart if compare else None, compare_end=cend if compare else None,
+                           purpose=f"{args.purpose}：{purpose}")
+            out, ds, status = self._run_query(qa)
+            if ds is None:
+                if status == "denied" and out.get("error_code") == "permission":
+                    raise PermissionDenied(out.get("message") or "查询被拒绝")
+                return None, out.get("message") or status
+            inputs.append(f"D{ds.seq}")
+            if ds.truncated:
+                return None, "结果被截断（成员过多），不是全集"
+            return ds, None
+
+        def cells(ds: AnalysisDataset, key_cols: list[str]) -> dict[tuple, list]:
+            out = {}
+            for r in (dict(zip(ds.columns, row)) for row in ds.rows):
+                vals = []
+                for n in names:
+                    vals += [calc.number(r.get(f"{n}·对比期")), calc.number(r.get(n))]
+                out[tuple(r.get(k) for k in key_cols)] = vals  # [prev, cur] 或 [a0, a1, b0, b1]
+            return out
+
+        total_ds, reason = query([], "总量")
+        if total_ds is None:
+            raise calc.CalcError(f"总量查询没有完成（{reason}），不能归因")
+        totals = next(iter(cells(total_ds, []).values()), None)
+        if totals is None or any(v is None for v in totals):
+            raise calc.CalcError("总量查询没有返回两期的值，不能归因")
+        if ratio:
+            a0, a1, b0, b1 = totals
+            if not b0 or not b1:
+                raise calc.CalcError("比率的分母总量为 0，不能归因")
+            total_prev, total_cur = a0 / b0, a1 / b1
+        else:
+            total_prev, total_cur = totals
+        total_change = total_cur - total_prev
+
+        def scan(group_by: list[str]) -> attribution.Dimension | None:
+            label = "×".join(group_by)
+            ds, why = query(group_by, f"按{label}")
+            if ds is None:
+                unscanned.append({"dimension": label, "reason": why})
+                return None
+            members = cells(ds, group_by)
+            prev_parts = lambda: [v[0] for v in members.values() if v[0] is not None]  # noqa: E731
+            needs_exits = not attribution.reconciles(prev_parts(), totals[0]) or (
+                ratio and not attribution.reconciles([v[2] for v in members.values() if v[2] is not None], totals[2]))
+            if needs_exits:  # 对比期查询只带本期出现的成员：补查对比期，找出退出的成员
+                before, why = query(group_by, f"按{label}（对比期成员）", compare=False)
+                if before is None:
+                    unscanned.append({"dimension": label, "reason": f"需要补查对比期成员，但{why}"})
+                    return None
+                for r in (dict(zip(before.columns, row)) for row in before.rows):
+                    key = tuple(r.get(k) for k in group_by)
+                    if key not in members:
+                        vals = [calc.number(r.get(n)) for n in names]
+                        members[key] = [vals[0], None] if not ratio else [vals[0], None, vals[1], None]
+            checks = [(0, totals[0]), (1, totals[1])] + ([(2, totals[2]), (3, totals[3])] if ratio else [])
+            for i, total in checks:
+                if not attribution.reconciles([v[i] for v in members.values() if v[i] is not None], total):
+                    unscanned.append({"dimension": label, "reason": "成员合计与总量对不上（可能有重复计数或过滤差异），拒绝归因"})
+                    return None
+            dim = attribution.Dimension(label)
+            if ratio:
+                values = {k: (v[0], v[2], v[1], v[3]) for k, v in members.items()}
+                dim.rows, _ = attribution.ratio_members(values, (a0, b0, a1, b1), total_change)
+                dim.js = attribution.js_divergence([v[2] or calc.Decimal(0) for v in members.values()],
+                                                   [v[3] or calc.Decimal(0) for v in members.values()])
+            else:
+                dim.rows = attribution.additive_members({k: (v[0], v[1]) for k, v in members.items()}, total_change)
+                dim.js = attribution.js_divergence([v[0] or calc.Decimal(0) for v in members.values()],
+                                                   [v[1] or calc.Decimal(0) for v in members.values()])
+            return attribution.judge(dim, total_prev, total_change, args.top_k)
+
+        scanned = [d for d in (scan([name]) for name in dims) if d is not None]
+        if args.depth == 2:
+            top = [d.name for d in attribution.rank(scanned)[:3]]
+            for i, first in enumerate(top):
+                for second in top[i + 1:]:
+                    pair = scan(sorted([first, second]))
+                    if pair is not None:
+                        scanned.append(pair)
+        ranked = attribution.rank(scanned)
+        conclusion = attribution.verdict(ranked, bool(scanned))
+        primary = next((d for d in ranked if d.verdict == "ranked"), None)
+        cols = ["dimension", "member", "previous", "current", "member_change", "contribution", "ep",
+                "structure_effect", "rate_effect", "change_type", "role"]
+        rows = [[d.name, *[r[c] for c in cols[1:-1]], r["role"]] for d in ranked for r in d.selected]
+        summary = {
+            "metric_code": args.metric_code, "algorithm": rule["algorithm"],
+            "total": {"previous": attribution.q(total_prev) if ratio else total_prev,
+                      "current": attribution.q(total_cur) if ratio else total_cur,
+                      "change": attribution.q(total_change) if ratio else total_change},
+            "verdict": conclusion, "primary_dimension": primary.name if primary else None,
+            "cumulative_ep": primary.cumulative_ep if primary else None,
+            "threshold_met": primary.threshold_met if primary else None,
+            "partial": bool(unscanned), "scanned": [d.name for d in scanned], "unscanned": unscanned,
+            "dimensions": [{"dimension": d.name, "js": d.js, "verdict": d.verdict, "cumulative_ep": d.cumulative_ep,
+                            "threshold_met": d.threshold_met} for d in ranked],
+            "note": ("EP 是带符号的净贡献比例（可以超过 100%），各维度的 EP 不跨维度相加；排名只在已扫描的维度内成立；"
+                     "相互抵消或变化不明显时不排名，分别列出增加项与减少项"
+                     + ("；比率拆解：结构效应 + 比率效应，交互项归入比率效应，这种拆法不唯一" if ratio else "")),
+        }
+        if ratio:
+            covered = sum((r["contribution"] for r in scanned[0].rows if r["contribution"] is not None),
+                          calc.Decimal(0)) if scanned else calc.Decimal(0)
+            summary["residual"] = attribution.q(total_change - covered)  # 不可计算成员与舍入：单列，不归给任何成员
+        base = measures.metric_unit(version)
+        delta = like(base, "delta")
+        units = {"previous": base, "current": base, "member_change": delta, "contribution": delta,
+                 "ep": col("share"), "structure_effect": delta, "rate_effect": delta}
+        summary_units = {"total.previous": base, "total.current": base, "total.change": delta,
+                         "cumulative_ep": col("share"), **({"residual": delta} if ratio else {})}
+        title = f"自动归因：{metric.name} {start}~{end} 对比 {cstart}~{cend}"
+        ds = self._dataset("calc", title, cols, rows, inputs=inputs,
+                           meta={"summary": summary, "args": args.model_dump(mode="json"), "units": units,
+                                 "summary_units": summary_units, "partial": bool(unscanned)})
+        return self._view(f"D{ds.seq}", ds), ds, "ok"
 
     # -- 计算 --
     def _calc(self, tool: str, args: dict, inputs: list[str], fn, *, full_set: bool = True) -> str:
@@ -905,6 +1100,8 @@ class AnalysisToolbox:
             t(self.changes, Window, "时间窗口内的元数据变更与口径版本流转（排查“是不是口径或数据本身变了”）"),
             t(self.data_health, Health, "指标来源的数据源采集情况与新鲜度"),
             t(self.query_metric, QueryArgs, "受治理查询：按已发布口径取数，产生数据集 Dn（权限与执行前核对照常生效）"),
+            t(self.explain_change, ExplainArgs, "自动归因：按候选维度扫描两期变化，给出成员贡献（EP）、分布变化强度与排名；"
+              "可加指标与 a / b 比率指标适用，不可加指标会说明不支持"),
             t(self.contribution, ContributionArgs, "两期差额按维度拆解（贡献、变化率、占总变化比例）"),
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
             t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异（两期日期取自数据集的查询窗口）"),
@@ -941,6 +1138,10 @@ def _periods(ds: AnalysisDataset, current: str, previous: str) -> tuple[tuple[da
 def _iso(value) -> str | None:
     """上下文数据集里的时间统一写成 ISO 字符串（固定排序、可序列化）。"""
     return None if value is None else (value.isoformat() if hasattr(value, "isoformat") else str(value))
+
+
+def _opt_date(value) -> date | None:
+    return date.fromisoformat(str(value)) if value else None
 
 
 def _date(value):
