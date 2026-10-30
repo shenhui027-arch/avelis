@@ -1,0 +1,119 @@
+# 分析智能体 v2 对照实验 manifest（任务书第 3、12、13 节）。不含任何密钥；.env 只列键名。
+# 可由代码算出的字段由 experiments/agent-v2/fingerprint.py 生成（命令见 docs/agent-v2/handoff.md），这里冻结抄录。
+# 冻结规则：E1 运行前若需改动本文件的任何 B0 字段，先升版本号并写明原因，不在运行中途改；不为差结果加预算、改评分规则。
+
+manifest_version: 1
+frozen_at: 2026-10-31
+authorization:
+  real_model_calls: none  # 本会话不调用真实模型；E0 冒烟、E1 运行等协调会话确认费用后另行授权
+  reference: 任务书《分析智能体优化与对照实验》第 2、12、13 节；协调会话 local_305ac1bd 的指示
+
+# --- B_raw：本轮开始时的状态（不含任何修复） ---------------------------------------------------
+b_raw:
+  git:
+    repo: shenhui027-arch/avelis
+    sha: 475c738bf09ec9c910c534cdf01119384f5976ba  # main，PR #10 合并提交；本地与 origin/main 一致（2026-10-31 核对）
+    uncommitted_diff: none  # 工作区干净
+    tree_equal_to: db33bda5f2c5962ba84c6ea888f41202ab97bed6  # 合并提交与 PR 最后一个提交的树相同
+  locks_sha256:
+    backend/uv.lock: 84d0ade2f51dc38c241d61d4205742ec06e5113e9a561ad5590281012145b828
+    uv.lock: 6bcba8133dd9cd11085ca6d845d87648b90c6f280bab33a43d7adfd39e525174
+    frontend/pnpm-lock.yaml: 497cd7ed3bf4b86276765ce4319afbd2978ff8d81f2caddc3e6950ab85462950
+  key_libraries: {langchain-openai: 1.7.1, langchain-core: 1.6.11, langgraph: 1.2.15, sqlglot: 30.25.0}
+  model:
+    configured_by: bootstrap.model_from_env（提供方 preset=custom，code=env-default）
+    model_id: deepseek-flash  # .env 的 AVELIS_MODEL_NAME；“实际返回的 ID/版本”历史运行没有记录（model_adapter 只记指派）
+    endpoint_class: DeepSeek 官方 OpenAI 兼容接口（https://api.deepseek.com，Chat Completions）
+    client: langchain_openai.ChatOpenAI（官方 OpenAI 规范实现，不解析也不回传 reasoning_content）
+    reasoning_effort:
+      analysis_assignment_default: low  # modelcfg.DEFAULT_EFFORT；DeepSeek 档位 off/low/high/max
+      understand: off  # 发送 extra_body.thinking.type=disabled
+      reason: low  # 发送 reasoning_effort=low（思考开启）
+    request_params:
+      temperature: 0.2  # service.require_analysis_model；思考开启时提供方忽略（官方文档：思考模式不支持 temperature）
+      understand: {max_tokens: 1000, tool_choice: submit_scope, tools: [submit_scope]}
+      reason: {max_tokens: null, tool_choice: null（auto）, tools: 工具箱全部工具（是否含 query_sql/sample_values 取决于数据源是否开启探索）}
+      timeout_seconds: min(60, 统一截止时间剩余秒数)，不少于 1
+      max_retries: 剩余时间 > 120 秒时 1（openai 客户端内部重试，不计入任何预算、不记步骤），否则 0
+      streaming: false
+    protocol_gaps_found:  # 第 4 节修复 E 的依据
+      - reasoning_content 不往返：官方文档要求“携带了 tools 参数的请求，在后续所有请求中，必须完整回传 reasoning_content”，否则 400；
+        ChatOpenAI 丢弃该字段。modelcfg.py 的注释以“实测没报 400”为据，不符合官方协议
+      - finish_reason=length（输出截断）未检测，截断的工具参数按普通内容错误处理
+      - 客户端内部重试不计入预算
+  prompts_sha256:  # fingerprint.py：SYSTEM_PROMPT 模板（未填示例）、UNDERSTAND_PROMPT、占位示例填充后的系统提示
+    system_template: 0dc066b43893dc70a9276ce10f6694f318ea1f83df637224cc1b7c5b7baef066
+    understand: eff0745abf8d41851e194d5ca23c51fef2e4b0f7159abf8ec97accb25e8ed585
+    system_placeholder_rendered: c3ffde0060ae865b2ee39cacbb60afe142b961019775e904fa96036f7e1d8a1b
+  tool_schemas_sha256:  # convert_to_openai_tool 后按键排序的 JSON
+    reason_with_explore: 992463d9645962a4c874cc6fa0490fd5ec785d694def67f0005ceecedf348eac
+    reason_without_explore: fff8466c358b1a1cb178f24cf6f17d9a0af7d08012b168a16f14e07aecc782ad
+    submit_scope: b7d550d2b7bb7dedd6aabcec7fcd14dc5f3955911675b7ac7afdbf4a348c1d23
+  data:
+    generator: scripts/ec_data.py VERSION=ec-1（sha256 945536ef3c00fc0eb6eac9bad3a4dddb6180d0c6cefe90e352a70793fc90b77a）
+    truth_file: .demo/ec-truth.json sha256 41647a6bfc319b7d2678562c5e23d9fc0fcee738e583bca93290ccf49833fe05
+      # 主检出与本 worktree 由生成器重算的文件哈希相同（生成器确定性）
+    question_set: backend/tests/eval/analysis_questions.yaml sha256 31040fa2445a70e56b0eb91ce16d2dd25cc21e0eed1c5eb802c539d86c6a61ce
+    calendar: tools.HOLIDAYS（硬编码 2026-06-19~21、2026-09-25~27；没有日历版本号）——任务书第 8 节要求的日历版本未落地
+    business_timezone: Asia/Shanghai
+  scorer:
+    v1: backend/tests/eval/scoring.py sha256 c2a6125c617ffad0081deb1a9f2cade69e981f45bb738d6c4b89448b2b58f76f
+  budget:  # tools.Budget 默认值与 Settings
+    seconds: 300
+    tool_calls: 30  # 修订一轮 +6（agent.REVISION_TOOL_CALLS），运行记录里的上限因此显示 36
+    report_reserve: 2
+    queries: 20  # AVELIS_ANALYSIS_QUERY_LIMIT 默认值
+    explore: 8
+    model_requests: 未限制  # 只有统一截止时间兜底
+    tokens: 未限制、未累计
+    physical_sql: 未单独计数
+  cache:
+    governed_query_reuse: 同一运行内，参数完全相同的 query_metric 复用数据集（键不含指标版本）
+    scan_reuse: explain_change 扫描过的“指标×维度×窗口×筛选”供 query_metric 复用（键不含 order、limit；
+      只请求本期的查询返回两期数据集；分组维度排序后比较）
+    provider_prefix_cache: DeepSeek 服务端前缀缓存（命中数记在 model 步骤 cache_hit_tokens）
+    cross_question_memory: 无
+  permission_snapshot:
+    method: 演示账号 wang（电商经营域可见）/ sun（电商经营域不可见）；权限由 governance.access 在每次工具调用前按当前授权核对
+    snapshot_record: 历史评测文件没有保存权限快照；E1 运行前用 handoff.md 第 3 节的命令导出账号 → 业务域 → 角色并记哈希
+  historical_eval_files:  # .demo/eval/（主检出），文件里没有记录代码 SHA；按开始时间与提交时间推断
+    20261030-232512.json: {runs: 26, code_inferred: d120e30 前后（新流程 理解→预检→推理 的第一版）, note: 推断，未记录}
+    20261031-001339.json: {runs: 3, code_inferred: a8eb594, note: 推断，未记录}
+    20261031-002333.json: {runs: 1, code_inferred: db33bda（与 B_raw 同树）, note: 推断，未记录}
+    earlier: 20261030-164829 / 172230 / 192729 为旧流程（没有 model 步骤），只作参考
+
+# --- B0：共同基线 = B_raw + 评分器 v2 + 底座修复（A、E、F），所有后续臂从这里出发 -----------------
+b0:
+  base: b_raw
+  changes:  # 每项一个提交，见 PR 说明与 docs/agent-v2/diagnosis.md 第 4 节
+    - scorer_v2: backend/tests/eval/scoring_v2.py + analysis_questions_v2.yaml（不改 v1、不改历史分数）
+    - fix_A_clarification: 理解阶段写了 clarification 或选了候选外的指标时，运行停在 clarify 状态（不再静默删除指标、不带着未澄清的范围继续）
+    - fix_E_model_protocol: reasoning_content 受控往返；finish_reason=length / content_filter 作为基础设施错误；模型请求（含重试）计入预算
+    - fix_F_reuse: 复用键覆盖排序、行数、分组顺序、对比方式与指标版本；不满足请求语义的不复用
+    - eval_runner_meta: 评测结果写入代码 SHA 与评分器版本
+  sha: 见 PR 合并后的提交（本文件随 PR 提交，合并前以分支 claude/agent-v2-p0-4de0ae 的最后一个提交为准）
+  budget:  # 任务书第 13 节；B0 冻结，E1 / E2 所有臂相同
+    seconds: 300
+    model_requests: 16  # 含重试；新增，tools.Budget.model_requests
+    tool_calls: 30  # 修订一轮 +6，上限 36（与第 13 节“最多 36 次可执行工具动作”一致）
+    queries: 20
+    explore: 8
+    physical_sql_cap: 80  # 第 13 节的物理 SQL 上限：B0 未单独计数（受治理查询一次逻辑查询 = 两期最多 2 条），记为已知差距
+    input_tokens: 160000  # 累计；新增，超过后不再请求模型
+    output_tokens: 24000  # 累计，含提供方计费的推理 token；新增
+    revisions: 1
+  scorer: v2（backend/tests/eval/scoring_v2.py，VERSION v2.0）——所有比较臂使用同一个冻结版本
+
+# --- E1：诊断性补齐信息实验（第 12 节），待授权 ------------------------------------------------
+e1:
+  status: 未运行（BLOCKED：需要协调会话确认费用与授权）
+  scenarios: [h10, e01, h07, f02, h09, d02]  # 已看过的开发题，不称盲测
+  conditions: [D0, D1, D2, D3]
+  repeats: 2
+  runs_max: 48
+  order: 每个重复内按场景 × 条件的固定伪随机顺序（seed 20261031），见 experiments/agent-v2/e1.py
+  injection: experiments/agent-v2/e1_injections.yaml（D1 范围、D2 资产定位与元数据、D3 原始查询证据的来源与取法）
+  per_run_budget: 同 b0.budget；注入内容的 token 单列（e1.py 记 injected_chars 与本地估算，按保守上界 1 字符 = 1 token）
+  cost_bound: 48 次 × 16 次模型请求 = 768 次请求上限；累计输入 ≤ 7.68M token、输出 ≤ 1.152M token（停止边界，不是预测）
+  memory: 禁用跨题记忆（产品本来没有）；每次运行独立
+  cache: 提供方前缀缓存无法关闭；四个条件同样受益，按条件记录 cache_hit_tokens
