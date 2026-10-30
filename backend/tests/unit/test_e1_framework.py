@@ -115,7 +115,7 @@ def test_plan_is_48_runs_in_a_fixed_shuffled_order():
     assert {(o["scenario"], o["condition"]) for o in order if o["repeat"] == 1} == {
         (s, c) for s in material for c in e1.CONDITIONS}
     bounds = e1.budget_bounds(len(order))
-    assert bounds["model_requests"] == 48 * 16 and bounds["input_tokens"] == 48 * 160_000
+    assert bounds["model_requests"] == 48 * 16 and bounds["seconds_wall"] == 48 * 300
     for item in material.values():  # 材料不含报告答案：只有范围、资产定位与查询
         assert set(item) <= {"question", "scope", "assets", "evidence"}
         assert all(set(e) == {"tool", "args"} and e["tool"] in ("query_metric", "query_sql") for e in item.get("evidence", []))
