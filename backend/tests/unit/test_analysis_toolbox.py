@@ -92,16 +92,20 @@ def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
 
 
 def test_report_reserve_allows_one_resubmission_after_a_parse_error(monkeypatch):
-    """第 7 点第 5 条：预算里保留最后 2 次给 submit_report；参数解析失败时回传出错的 JSON 路径，允许重交一次。"""
+    """第 7 点第 5、10 条：预算里保留最后 2 次给 submit_report；参数先用 json_repair 只修语法，修不了才算解析失败，
+    回传出错的位置并允许重交一次；修好的参数照常严格校验，步骤记录标明 repaired 并保留原文摘要。"""
     box = make_box(budget=Budget(tool_calls=3), monkeypatch=monkeypatch)
     box.budget.used_tools = 1
-    assert "上限" in json.loads(box.dispatch("search_metrics", {}))["error"]  # 其余工具已用完：3 − 2
-    broken = '{"title": "t", "summary": "s", "claims": [{"type": "fact", "parts": ["x", {"dataset": "D1" "column": "a"}]}]}'
-    first = json.loads(box.dispatch("submit_report", broken))
-    assert "claims[0].parts[1].dataset" in first["error"] and "还可以重交一次" in first["error"]
-    second = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
-                                                       "conclusion": "insufficient_evidence"}))
-    assert second == {"ok": True}
+    for _ in range(3):  # 其余工具已用完（3 − 2）；被拒绝的调用不占用 submit_report 的预留次数
+        assert "上限" in json.loads(box.dispatch("search_metrics", {}))["error"]
+    first = json.loads(box.dispatch("submit_report", "报告如下：标题 t"))  # 不是 JSON：修不了
+    assert "参数无法解析" in first["error"] and "还可以重交一次" in first["error"]
+    broken = ('{"title": 标题, "summary": "s", "conclusion": "insufficient_evidence", '
+              '"claims": [{"type": "inference", "parts": ["x"] "premise": "p"}]}')  # 字符串没加引号、少了逗号
+    second = json.loads(box.dispatch("submit_report", broken))
+    assert second == {"ok": True} and box.report["title"] == "标题"
+    step = box.session.added[-1]
+    assert step.tool == "submit_report" and step.output["repaired"] is True and step.output["raw_excerpt"] == broken
     third = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
                                                       "conclusion": "insufficient_evidence"}))
     assert "不能再提交" in third["error"]
@@ -160,14 +164,101 @@ def test_no_model_call_after_shared_deadline(monkeypatch):
     assert any("没有提交报告" in n for n in out["notes"])
 
 
-def test_repeated_plan_calls_exhaust_budget_then_grace_then_stop(monkeypatch):
-    box = make_box(budget=Budget(tool_calls=6), monkeypatch=monkeypatch)  # 其余工具 4 次，2 次留给报告
-    model = CountingModel()
+def test_loop_ends_when_total_calls_are_used_up(monkeypatch):
+    """第 7 点第 7 条：执行循环只在总调用次数（或截止时间）用完时结束，没有固定的宽限轮数：其他工具用完后循环继续，
+    直到 submit_report 的预留次数也用完。"""
+    box = make_box(budget=Budget(tool_calls=6), monkeypatch=monkeypatch)  # 其余工具 4 次，最后 2 次只能是 submit_report
+    model = ScriptedModel([("submit_plan", {"hypotheses": [], "steps": []})] * 4 +
+                          [("search_metrics", {})] * 3 + [("submit_report", "{bad")] * 2 + [("submit_plan", {})])
     config = {"configurable": {"toolbox": box, "model": model}}
-    agent.act({"messages": [HumanMessage("问题")]}, config)
-    assert box.budget.used_tools == 4  # 超过上限的调用一律被拒，不再计数
-    assert model.calls == 4 + agent.GRACE_ROUNDS  # 用完后只给两轮宽限，之后不再请求模型
-    assert box.report is None
+    out = agent.act({"messages": [HumanMessage("问题")]}, config)
+    assert box.budget.used_tools == 4 and box.budget.used_reports == 2 and box.budget.used_calls == 9
+    assert model.calls == 9 and box.report is None  # 被拒绝的三次之后两次提交仍可用；都失败后循环结束
+    notices = [m.content for m in out["messages"] if isinstance(m, HumanMessage)]
+    assert sum("submit_report 提交报告" in n for n in notices) == 1  # 只剩预留次数时提示一次
+
+
+class ScriptedModel:
+    """按顺序回复给定工具调用的模型替身（每轮一个调用）。"""
+
+    def __init__(self, calls):
+        self.calls, self.script = 0, list(calls)
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        self.calls += 1
+        name, args = self.script.pop(0)
+        if isinstance(args, str):  # 参数无法解析：LangChain 放在 invalid_tool_calls
+            return AIMessage(content="", tool_calls=[], invalid_tool_calls=[
+                {"name": name, "args": args, "id": f"c{self.calls}", "error": "Expecting value", "type": "invalid_tool_call"}])
+        return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": f"c{self.calls}"}])
+
+
+def governed_catalog(monkeypatch):
+    """一个已发布口径 m_a 与替身查询管线：记录真正执行的查询次数。"""
+    metric = SimpleNamespace(id="m1", code="m_a", name="指标甲", domain_id="dA")
+    version = SimpleNamespace(id="v1", kind="base", expression="SUM(amount)", unit="元", unit_scale=1, dimensions=[],
+                              components=None)
+    executed = []
+
+    def start_answer(session, user, question, adapter, cache):
+        return SimpleNamespace(id=f"a{len(executed) + 1}", intent=None)
+
+    def fulfil(session, user, intent, answer, scoped):
+        executed.append(intent)
+        answer.status, answer.error_code, answer.message = "answered", None, None
+        answer.result = {"columns": ["地区", "value"], "rows": [["甲", 10], ["乙", 5]]}
+        answer.sql, answer.metric_version_ids, answer.freshness = "SELECT 1", ["v1"], None
+
+    monkeypatch.setattr(tools.service, "start_answer", start_answer)
+    monkeypatch.setattr(tools.service, "fulfil", fulfil)
+    monkeypatch.setattr(tools.service, "finish_answer", lambda *a: None)
+    return ask_service.Catalog([], {"m_a": (metric, version)}), executed
+
+
+QUERY = {"metric_codes": ["m_a"], "start_date": "2026-09-01", "end_date": "2026-09-30", "group_by": ["地区"],
+         "purpose": "按地区"}
+
+
+def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatch):
+    """第 7 点第 7 条：同一次运行中与已有数据集完全相同的受治理查询直接返回那个数据集，不计查询额度；
+    参数不同（这里多了过滤条件）的照常执行、计数。"""
+    catalog, executed = governed_catalog(monkeypatch)
+    box = make_box(budget=Budget(queries=2), catalog=catalog, monkeypatch=monkeypatch)
+    first = json.loads(box.dispatch("query_metric", QUERY))
+    again = json.loads(box.dispatch("query_metric", {**QUERY, "purpose": "换个说法再查一次"}))
+    assert first["dataset"] == again["dataset"] == "D1" and again["reused"] is True and "不计查询额度" in again["note"]
+    assert len(executed) == 1 and box.budget.used_queries == 1 and len(box.datasets()) == 1
+    other = json.loads(box.dispatch("query_metric", {**QUERY, "filters": [{"dimension": "地区", "values": ["甲"]}]}))
+    assert other["dataset"] == "D2" and len(executed) == 2 and box.budget.used_queries == 2
+    # 额度用完后，相同的查询仍可复用；新的查询被拒
+    assert json.loads(box.dispatch("query_metric", QUERY))["dataset"] == "D1"
+    blocked = json.loads(box.dispatch("query_metric", {**QUERY, "group_by": []}))
+    assert "查询额度已用完" in blocked["error"] and len(executed) == 2
+
+
+def test_query_quota_only_stops_query_tools(monkeypatch):
+    """查询额度用完只停用查询类工具：循环继续，计算工具与 submit_report 照常可用（语法有错的报告参数修复后提交）。"""
+    catalog, executed = governed_catalog(monkeypatch)
+    box = make_box(budget=Budget(queries=1), catalog=catalog, monkeypatch=monkeypatch)
+    box.budget.used_queries = 1
+    rows = [["甲", 10, 8], ["乙", 5, 6]]
+    governed(box, ["地区", "指标甲", "指标甲·上一期"], rows)
+    broken = '{"title": 标题, "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}'  # 修复后可用
+    model = ScriptedModel([
+        ("query_metric", QUERY),
+        ("contribution", {"dataset": "D1", "keys": ["地区"], "current": "指标甲", "previous": "指标甲·上一期"}),
+        ("submit_report", broken)])
+    config = {"configurable": {"toolbox": box, "model": model}}
+    out = agent.act({"messages": [HumanMessage("问题")]}, config)
+    tool_replies = [json.loads(m.content) for m in out["messages"] if type(m).__name__ == "ToolMessage"]
+    assert "查询额度已用完" in tool_replies[0]["error"] and "计算工具与 submit_report 仍可用" in tool_replies[0]["error"]
+    assert tool_replies[1]["dataset"] == "D2"  # 计算工具照常执行
+    assert tool_replies[2] == {"ok": True} and box.report is not None and model.calls == 3 and executed == []
+    notices = [m.content for m in out["messages"] if isinstance(m, HumanMessage)]
+    assert sum("查询类工具" in n and "已停用" in n for n in notices) == 1
 
 
 def test_model_request_timeout_follows_remaining_time(monkeypatch):
@@ -658,3 +749,19 @@ def test_marks_follow_the_saved_dependency_closure(monkeypatch):
     assert view["context_truncated"] is True and "truncated" not in view and view["rows_shown"] == MODEL_ROWS
     marks = box._view("D5", ds["D5"])["marks"]
     assert marks == ["来源含探索查询（未经口径审核）", "来源含假设计算"]
+
+
+def test_report_scope_copied_from_explain_change_matches_its_verdict(monkeypatch):
+    """第 7 点第 9 条：报告照抄 explain_change 结果里的 summary.scope，登记键相同；没写的日期取本次分析的窗口。"""
+    from avelis.analysis.grounding import scope_key
+
+    box = make_box(monkeypatch=monkeypatch)
+    box.run.window = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+    copied = {"metric_code": "m_a", "filters": [{"dimension": "地区", "values": ["甲"]}], "start_date": "2026-09-01",
+              "end_date": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+    report = {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
+    assert json.loads(box.dispatch("submit_report", {**report, "scope": copied})) == {"ok": True}
+    assert box.report["scope"] == copied and box.report["scope_key"] == scope_key("m_a", copied["filters"], box.run.window)
+    box.budget.used_reports = 0
+    box.dispatch("submit_report", {**report, "scope": {"metric_code": "m_a", "filters": copied["filters"]}})
+    assert box.report["scope"] == copied  # 窗口取本次分析的窗口

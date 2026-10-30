@@ -181,12 +181,14 @@ def immaterial(total_previous: Decimal, total_change: Decimal, threshold: Decima
 
 def judge(dim: Dimension, total_previous: Decimal, total_change: Decimal, top_k: int,
           threshold: Decimal = MIN_CHANGE_RATIO) -> Dimension:
-    """维度内的判定与截取：变化不明显 / 相互抵消时不排名，分别列出增加项与减少项；否则按 |EP| 取到累计 ≥ 0.67 或 top_k。"""
+    """维度内的判定与截取（ADR 0009 第 4 点的判定顺序）：先看成员变动 Σ|c_i|，未达阈值为变化不明显；达到阈值而
+    |ΔT| 低于阈值或 |ΔT| / Σ|c_i| < 0.2 为相互抵消。这两种不排名，分别列出增加项与减少项（最大的减少项与增加项是首要
+    原因）；否则按 |EP| 取到累计 ≥ 0.67 或 top_k。"""
     computable = [r for r in dim.rows if r["contribution"] is not None]
     moved = sum((abs(r["contribution"]) for r in computable), Decimal(0))
-    if immaterial(total_previous, total_change, threshold):
+    if immaterial(total_previous, moved, threshold):
         dim.verdict = "no_material_change"
-    elif moved and abs(total_change) / moved < OFFSET_RATIO:
+    elif immaterial(total_previous, total_change, threshold) or abs(total_change) / moved < OFFSET_RATIO:
         dim.verdict = "offsetting"
     if dim.verdict != "ranked":
         ups = sorted((r for r in computable if r["contribution"] > 0), key=lambda r: (-r["contribution"], r["member"]))
@@ -209,9 +211,12 @@ def rank(dims: list[Dimension]) -> list[Dimension]:
     return sorted(dims, key=lambda d: (d.js is None, -(d.js or 0.0), d.name))
 
 
-def verdict(dims: list[Dimension], scanned_any: bool, total_immaterial: bool = False) -> str:
-    if total_immaterial:  # 总量变化不显著：不论维度扫描到哪里，结论都是“没有实质变化”
-        return "no_material_change"
+def verdict(dims: list[Dimension], scanned_any: bool, total_immaterial: bool = False, candidates: bool = True) -> str:
+    """总体判定。candidates：有没有候选维度。没有候选维度（指标没有维度，或维度都被筛选掉了）时成员只有范围总量自己，
+    Σ|c_i| = |ΔT|：按总变化判定，达到阈值为 ranked_reasons（原因来自因子、日历等），否则没有实质变化。
+    有候选维度却一个都没扫成：证据不足。"""
+    if not candidates:
+        return "no_material_change" if total_immaterial else "ranked_reasons"
     if not scanned_any:
         return "insufficient_evidence"
     if all(d.verdict == "no_material_change" for d in dims):

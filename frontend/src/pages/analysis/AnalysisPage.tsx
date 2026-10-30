@@ -27,7 +27,7 @@ type CauseView = { index: number; type?: string; label?: string | null;
   direction?: string; contribution?: { text: string; segments?: Segment[] } | null; evidence?: string[]; status: string;
   errors?: string[] };
 const CAUSE_TYPE: Record<string, string> = { member: "成员", factor: "因子", calendar: "日历", governance: "治理事件" };
-const CONCLUSION: Record<string, string> = { ranked_reasons: "有排序的原因", no_material_change: "没有实质变化",
+const CONCLUSION: Record<string, string> = { ranked_reasons: "有排序的原因", offsetting: "成员变化相互抵消", no_material_change: "没有实质变化",
   insufficient_evidence: "证据不足" };
 
 /** 原因排序（ADR 0009 第 5 点）：按影响大小排列，第一项是首要原因；每项标明类型、实体、方向、贡献与证据。 */
@@ -50,7 +50,7 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
           {(c.errors ?? []).map((p, j) => <span key={j} className="av-claim__bad">{p}</span>)}
         </li>;
       })}
-    </ol> : <span className="av-caption">{conclusion === "no_material_change" ? "两期相比没有实质变化（或成员变化相互抵消），不给出原因排序" : "证据不足，不给出原因排序"}</span>}
+    </ol> : <span className="av-caption">{conclusion === "no_material_change" ? "两期相比没有实质变化，不给出原因" : "证据不足，不给出原因排序"}</span>}
   </section>;
 }
 type WindowKind = "none" | "last_month" | "fixed";

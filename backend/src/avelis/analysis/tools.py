@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.analysis import attribution, calc, measures
-from avelis.analysis.grounding import Cause, Part
+from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import DimensionFilter, Intent, comparison_range
@@ -56,12 +56,19 @@ MODEL_ROWS = 60  # 一次返回给模型的数据行上限；完整数据集保�
 
 @dataclass
 class Budget:
+    """预算按工具类别分开（ADR 0009 第 7 点第 7 条）：
+    - tool_calls 是总调用次数，其中最后 report_reserve 次留给 submit_report：其他工具最多执行 tool_calls − report_reserve 次，
+      submit_report 每轮最多尝试 report_reserve 次（解析失败后可以重交），这几次总是可用，被拒绝的调用不占用它们；
+    - queries 是查询类工具（query_metric、query_sql、sample_values、explain_change 的子查询）共用的额度，
+      用完只停用查询类工具，计算工具与 submit_report 照常可用；
+    - explore 是其中探索查询的单独上限。"""
     tool_calls: int = 30
-    queries: int = 12
+    queries: int = field(default_factory=lambda: get_settings().analysis_query_limit)
     seconds: int = 300
     explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
-    report_reserve: int = 2  # 工具调用里保留最后几次给 submit_report（参数解析失败时可以重交一次，ADR 0009 第 7 点）
-    used_tools: int = 0
+    report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
+    used_calls: int = 0  # 全部调用（含被拒绝的），只用于记录
+    used_tools: int = 0  # submit_report 以外执行了的调用
     used_reports: int = 0  # 本轮 submit_report 的尝试次数（修订时清零）
     used_queries: int = 0
     used_explore: int = 0
@@ -70,14 +77,29 @@ class Budget:
     def view(self) -> dict[str, Any]:
         return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds,
                            "explore": self.explore},
-                "used": {"tool_calls": self.used_tools, "queries": self.used_queries, "explore": self.used_explore,
+                # tool_calls：执行了的调用（其他工具与 submit_report 的尝试），不超过上限；attempts 另含被拒绝的调用
+                "used": {"tool_calls": self.used_tools + self.used_reports, "attempts": self.used_calls,
+                         "queries": self.used_queries, "explore": self.used_explore, "reports": self.used_reports,
                          "seconds": round(time.monotonic() - self.started, 1)}}
+
+    def queries_exhausted(self) -> str | None:
+        if self.used_queries >= self.queries:
+            return f"查询额度已用完（{self.queries} 次）"
+        return None
+
+    def spent(self) -> str | None:
+        """执行循环结束的条件之一：总调用次数用完。其他工具的次数用完后只剩 submit_report 的预留次数，
+        预留次数也用完（本轮再也交不了报告）才算用完；其余情况由统一截止时间兜底。"""
+        if self.used_reports >= self.report_reserve:
+            return f"submit_report 本轮已尝试 {self.used_reports} 次"
+        return None
 
     def remaining(self) -> float:
         """距统一截止时间还剩的秒数（计划、执行、修订、宽限共用同一个截止时间）。"""
         return self.started + self.seconds - time.monotonic()
 
     def exhausted(self) -> str | None:
+        """submit_report 以外的工具不能再调用的原因：只剩留给 submit_report 的次数，或统一截止时间已到。"""
         if self.used_tools >= self.tool_calls - self.report_reserve:
             return f"工具调用已达上限 {self.tool_calls} 次（最后 {self.report_reserve} 次留给 submit_report）"
         if self.remaining() <= 0:
@@ -99,6 +121,18 @@ class PermissionDenied(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def repair_arguments(raw: str) -> dict | None:
+    """工具参数的 JSON 语法修复（开源 json_repair，ADR 0009 第 7 点第 10 条）：只修语法问题（字符串没加引号、多了或少了
+    逗号、括号没闭合等），修复结果必须是一个对象，否则算解析失败。字段与类型不在这里改，修复后照常严格校验。"""
+    from json_repair import repair_json
+
+    try:
+        repaired = repair_json(raw, return_objects=True)
+    except Exception:  # noqa: BLE001 - 修不了就是解析失败
+        return None
+    return repaired if isinstance(repaired, dict) and repaired else None
 
 
 def json_error_path(raw: str) -> tuple[str, str]:
@@ -211,6 +245,9 @@ class SampleArgs(BaseModel):
 
 class ExplainArgs(BaseModel):
     metric_code: str = Field(description="指标编码")
+    filters: list[DimensionFilter] = Field(default_factory=list, description=(
+        "题目范围的筛选（与 query_metric 的 filters 相同，如某个区域、渠道）：总量、各维度与因子拆解的子查询都带上；"
+        "被筛选的维度不再作为候选维度扫描"))
     start_date: date | None = Field(None, description="本期开始；不写时取本次分析的窗口")
     end_date: date | None = None
     compare_start: date | None = Field(None, description="对比期开始；不写时取本次分析的对比期")
@@ -314,8 +351,18 @@ class Claim(BaseModel):
 
 # submit_report 参数的模式版本：片段、原因等结构改变时加一。回放轨迹记录录制时的版本，版本不同的轨迹要重新录制
 # （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定；3：原因按编码关联、报告写所问指标
-# （ADR 0009 第 7 点）
-REPORT_SCHEMA = 3
+# （ADR 0009 第 7 点）；4：结论类型增加 offsetting（相互抵消，第 8 条），所问指标改为 scope（指标、筛选与窗口，第 9 条）
+REPORT_SCHEMA = 4
+
+
+class ReportScope(BaseModel):
+    """报告所回答的范围（ADR 0009 第 7 点第 9 条）：结论类型只和 scope 完全相同的 explain_change 判定比对。"""
+    metric_code: str = Field(description="所问的指标编码")
+    filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选（与 explain_change 相同）")
+    start_date: date | None = Field(None, description="本期开始；不写时取本次分析的窗口")
+    end_date: date | None = None
+    compare_start: date | None = Field(None, description="对比期开始；不写时取本次分析的对比期")
+    compare_end: date | None = None
 
 
 class ReportArgs(BaseModel):
@@ -323,13 +370,14 @@ class ReportArgs(BaseModel):
     summary: str | list[Part] = Field(description="一两句话的结论：片段列表，数字写成引用对象，后端渲染并做同样的结构检查")
     claims: list[Claim]
     unexplained: str | list[Part] | None = Field(None, description="仍未解释的部分：文字或片段列表")
-    conclusion: Literal["ranked_reasons", "no_material_change", "insufficient_evidence"] = Field(
-        description="结论类型：ranked_reasons 有排序的原因；no_material_change 没有实质变化；insufficient_evidence 证据不足。"
-                    "所问指标做过 explain_change 时必须与它的判定一致")
-    metric_code: str | None = Field(None, description="所问的指标编码（问“为什么变化”时必填）：结论类型按 explain_change "
-                                                      "对它的判定核对")
+    conclusion: Literal["ranked_reasons", "offsetting", "no_material_change", "insufficient_evidence"] = Field(
+        description="结论类型：ranked_reasons 有排序的原因；offsetting 成员变化相互抵消；no_material_change 没有实质变化；"
+                    "insufficient_evidence 证据不足。所问指标做过 explain_change 时必须与它的判定一致")
+    scope: ReportScope | None = Field(None, description="所问的指标、筛选与窗口（问“为什么变化”时必填）：结论类型按"
+                                                         "同一 scope 的 explain_change 判定核对")
     causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
-                                                                   "第一项是首要原因；其余两种结论不填）")
+                                                                   "第一项是首要原因；offsetting 时前两项是最大的减少项与"
+                                                                   "增加项；其余两种结论不填）")
 
 
 # --- 工具箱 ---------------------------------------------------------------------------
@@ -349,14 +397,18 @@ class AnalysisToolbox:
         self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
         self._seq = 0
         self._datasets: dict[str, AnalysisDataset] = {}
+        self._governed: dict[str, AnalysisDataset] = {}  # 受治理查询参数（不含 purpose）→ 数据集：相同查询复用
+        self._repair: dict | None = None  # 当前调用的参数经过语法修复时的标记（写进这次调用的步骤记录）
         self._tools: dict[str, StructuredTool] | None = None
-        self.explanations: dict[str, str] = {}  # explain_change 对各指标的判定（unsupported 表示不适用）：核验结论类型用
+        self.explanations: dict[str, str] = {}  # explain_change 的判定，键是 scope_key（指标、筛选、窗口）；unsupported 表示不适用
 
     # -- 记录 --
     def _step(self, kind: str, tool: str | None, args: dict, status: str, output: dict, reason: str | None = None,
               dataset: AnalysisDataset | None = None, started: float | None = None) -> None:
         if self.aborted:  # 已失去执行权：不再写入
             return
+        if self._repair:  # 这次调用的参数经过语法修复：步骤记录标明，并保留原文摘要
+            output = {**output, **self._repair}
         self._seq += 1
         self.session.add(AnalysisStep(
             run_id=self.run.id, seq=self._seq, kind=kind, tool=tool, args=json.loads(_json(args)), status=status,
@@ -523,13 +575,14 @@ class AnalysisToolbox:
 
     # -- 统一分发 --
     def dispatch(self, name: str, args: Any, *, only_report: bool = False) -> str:
-        """模型的每一次工具调用都从这里进入：参数校验之前就计入工具次数（未知工具、参数无效、重复提交计划都算），
-        只有最终的 submit_report 不计数，预算用完后也只能调用它。only_report：时间将尽，只接受 submit_report。"""
+        """模型的每一次工具调用都从这里进入：参数校验之前就计数（未知工具、参数无效、重复提交计划都算）。
+        其他工具的次数用完后只能调用 submit_report（被拒绝的调用不占用它的预留次数）。only_report：时间将尽，只接受 submit_report。"""
         if self._tools is None:
             self._tools = {t.name: t for t in self.tools()}
         self.check_executor()
         if self.stopped:
             return _json({"error": f"{self.stopped}：不再执行工具"})
+        self.budget.used_calls += 1
         if name == "submit_report":
             if self.budget.used_reports >= self.budget.report_reserve:
                 self._step("tool", name, {}, "denied", {"error": "提交次数已用完"})
@@ -546,13 +599,23 @@ class AnalysisToolbox:
         if tool is None:
             self._step("tool", name, {}, "error", {"error": "未知工具"})
             return _json({"error": f"未知工具 {name}"})
-        if not isinstance(args, dict):
+        if not isinstance(args, dict):  # 参数不是合法 JSON：先只修语法（ADR 0009 第 7 点第 10 条），修好后照常做严格的结构校验
+            repaired = repair_arguments(str(args))
+            if repaired is not None:
+                self._repair = {"repaired": True, "raw_excerpt": str(args)[:300]}
+                try:
+                    return self._invoke(tool, name, repaired)
+                finally:
+                    self._repair = None
             path, reason = json_error_path(str(args))
             message = f"参数无法解析：JSON 在 {path or '开头'} 处出错（{reason}）"
             self._step("tool", name, {"raw": str(args)[:500]}, "error", {"error": message})
             return _json({"error": f"工具 {name} 的{message}，请修正这一处后重交" +
                           ("（还可以重交一次）" if name == "submit_report" and self.budget.used_reports
                            < self.budget.report_reserve else "")})
+        return self._invoke(tool, name, args)
+
+    def _invoke(self, tool: StructuredTool, name: str, args: dict) -> str:
         try:
             return str(tool.invoke(args))
         except ValidationError as exc:  # 参数结构不对：逐条写出出错的字段路径
@@ -574,11 +637,21 @@ class AnalysisToolbox:
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
                       unexplained: str | list | None = None, conclusion: str | None = None,
-                      causes: list[Cause] | None = None, metric_code: str | None = None) -> str:
-        """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。"""
+                      causes: list[Cause] | None = None, scope: ReportScope | None = None) -> str:
+        """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。scope 的窗口没写时取本次分析的窗口，
+        登记键与 explain_change 用同一个函数生成。"""
+        scope = _model(ReportScope, scope) if scope is not None else None
+        scope_view, key = None, None
+        if scope is not None:
+            window = self._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
+            scope_view = {"metric_code": scope.metric_code, "filters": [f.model_dump() for f in scope.filters],
+                          "start_date": window["start"], "end_date": window["end"],
+                          "compare_start": window["compare_start"], "compare_end": window["compare_end"]}
+            key = scope_key(scope.metric_code, scope.filters, window)
         self.report = {"title": _parts(title), "summary": _parts(summary),
                        "claims": [_model(Claim, c).model_dump() for c in claims], "unexplained": _parts(unexplained),
-                       "conclusion": conclusion, "metric_code": metric_code,
+                       "conclusion": conclusion, "metric_code": scope.metric_code if scope else None,
+                       "scope": scope_view, "scope_key": key,
                        "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []]}
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})
@@ -794,11 +867,19 @@ class AnalysisToolbox:
         return self._guard("query_metric", args.model_dump(mode="json"), lambda: self._run_query(args))
 
     def _run_query(self, args: QueryArgs) -> tuple[dict, AnalysisDataset | None, str]:
-        """执行一次受治理查询并保存为数据集（query_metric 与 explain_change 的子查询共用）。"""
-        if self.budget.used_queries >= self.budget.queries:
-            raise ValueError(f"受治理查询已达上限 {self.budget.queries} 次：请基于已有数据集继续")
+        """执行一次受治理查询并保存为数据集（query_metric 与 explain_change 的子查询共用）。
+        与本次运行已有数据集完全相同的查询（口径、窗口、维度、过滤、排序与行数）在授权核对后直接返回那个数据集，不计额度。"""
         # 按当前授权核对每个请求的口径，只把它们交给查询管线（管线再核对来源闭包、状态与执行前核对）
         scoped = service.Catalog([], {code: self._metric(code) for code in args.metric_codes})
+        key = json.dumps(args.model_dump(mode="json", exclude={"purpose"}), sort_keys=True, ensure_ascii=False)
+        reused = self._governed.get(key)
+        if reused is not None:
+            ref = f"D{reused.seq}"
+            return {**self._view(ref, reused), "reused": True,
+                    "note": f"与 {ref} 是相同的受治理查询：直接复用 {ref}，不计查询额度"}, reused, "ok"
+        exhausted = self.budget.queries_exhausted()
+        if exhausted:
+            raise ValueError(f"{exhausted}：查询类工具已停用，请基于已有数据集继续，计算工具与 submit_report 仍可用")
         self.budget.used_queries += 1
         intent = Intent(metric_codes=args.metric_codes, start_date=args.start_date, end_date=args.end_date,
                         filters=args.filters, group_by=args.group_by, time_grain=args.time_grain,
@@ -839,6 +920,7 @@ class AnalysisToolbox:
                                  "purpose": args.purpose,
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
                                  "window": {"start": str(args.start_date), "end": str(args.end_date)}})
+        self._governed[key] = ds
         return self._view(f"D{ds.seq}", ds), ds, "ok"
 
     # -- 探索查询 --
@@ -870,7 +952,8 @@ class AnalysisToolbox:
             asset = self.session.scalar(select(Asset).where(
                 Asset.catalog_name + "." + Asset.db_name + "." + Asset.name == args.asset, Asset.status == "active"))
             if asset is None:
-                self.budget.used_explore += 1  # 失败的调用同样计数
+                self.budget.used_explore += 1  # 失败的调用同样计数（探索上限与查询额度）
+                self.budget.used_queries += 1
                 raise ValueError(f"资产 {args.asset} 不存在或当前用户不可见")
             from sqlglot import exp
 
@@ -896,9 +979,13 @@ class AnalysisToolbox:
         from avelis.analysis import exploration
         from avelis.engines import query_connector
 
+        exhausted = self.budget.queries_exhausted()
+        if exhausted:
+            raise ValueError(f"{exhausted}：查询类工具已停用，请基于已有数据集继续，计算工具与 submit_report 仍可用")
         if self.budget.used_explore >= self.budget.explore:
             raise ValueError(f"探索查询已达上限 {self.budget.explore} 次：请基于已有数据集继续")
         self.budget.used_explore += 1
+        self.budget.used_queries += 1
         step, source, validated, sent, result = self.budget.used_explore, None, None, False, None
         max_rows = max_rows or get_settings().query_max_rows
         limits = {"max_rows": max_rows, "mem_limit_bytes": self.EXPLORE_MEM_LIMIT}
@@ -970,8 +1057,9 @@ class AnalysisToolbox:
             raise calc.CalcError(self.aborted)
         self._authorize()
         self._metric_sources(metric_code)
-        if self.budget.used_queries >= self.budget.queries:
-            return f"受治理查询额度（{self.budget.queries} 次）已用完"
+        exhausted = self.budget.queries_exhausted()
+        if exhausted:
+            return exhausted
         if self.budget.remaining() <= self.SUBQUERY_RESERVE_SECONDS:
             return "接近统一截止时间"
         return None
@@ -988,13 +1076,19 @@ class AnalysisToolbox:
                 return {"error": f"{exc.message}：之后的取数与上下文一律拒绝，分析停止", "status": "denied"}, None, "denied"
         return self._guard("explain_change", args.model_dump(mode="json"), run)
 
-    def _explain(self, args: ExplainArgs) -> tuple[dict, AnalysisDataset | None, str]:
+    def _window(self, start: date | None, end: date | None, cstart: date | None, cend: date | None) -> dict[str, str | None]:
+        """本期、对比期的起止日期：没写的取本次分析的窗口（explain_change 与报告 scope 共用，登记键才一致）。"""
         window = self.run.window or {}
-        start, end = args.start_date or _opt_date(window.get("start")), args.end_date or _opt_date(window.get("end"))
-        cstart = args.compare_start or _opt_date(window.get("compare_start"))
-        cend = args.compare_end or _opt_date(window.get("compare_end"))
-        if not all((start, end, cstart, cend)):
+        picked = (start or _opt_date(window.get("start")), end or _opt_date(window.get("end")),
+                  cstart or _opt_date(window.get("compare_start")), cend or _opt_date(window.get("compare_end")))
+        return {k: str(v) if v else None for k, v in zip(("start", "end", "compare_start", "compare_end"), picked)}
+
+    def _explain(self, args: ExplainArgs) -> tuple[dict, AnalysisDataset | None, str]:
+        window = self._window(args.start_date, args.end_date, args.compare_start, args.compare_end)
+        if not all(window.values()):
             raise ValueError("自动归因需要本期与对比期：本次分析没有窗口时请传 start_date、end_date、compare_start、compare_end")
+        start, end, cstart, cend = (date.fromisoformat(window[k]) for k in ("start", "end", "compare_start", "compare_end"))
+        key = scope_key(args.metric_code, args.filters, window)
         metric, version, _, _ = self._metric_sources(args.metric_code)
         components = {}
         if version.kind == "derived":
@@ -1002,11 +1096,13 @@ class AnalysisToolbox:
                 components[c["metric_code"]] = self.session.get(MetricVersion, c["version_id"])
         rule = attribution.applicability(version, components)
         if rule["algorithm"] is None:
-            self.explanations[args.metric_code] = "unsupported"
+            self.explanations[key] = "unsupported"
             return {"supported": False, "metric_code": args.metric_code, "reason": rule["reason"],
                     "note": "不支持自动归因：可以用 query_metric 按维度查询后用 contribution 拆解，或说明无法归因"}, None, "ok"
         allowed = [d["name"] for d in version.dimensions or []]
-        dims = list(dict.fromkeys(args.dimensions)) or allowed[:8]
+        filtered = {f.dimension for f in args.filters}  # 被筛选的维度只有选中的成员：不再作为候选维度扫描
+        dims = [d for d in dict.fromkeys(args.dimensions) if d not in filtered] or [
+            d for d in allowed if d not in filtered][:8]
         unknown = [d for d in dims if d not in allowed]
         if unknown:
             raise ValueError(f"维度 {'、'.join(unknown)} 不是指标 {args.metric_code} 允许的维度（可用：{'、'.join(allowed) or '无'}）")
@@ -1022,7 +1118,7 @@ class AnalysisToolbox:
             if blocked:
                 return None, blocked
             qa = QueryArgs(metric_codes=codes, start_date=start if compare else cstart, end_date=end if compare else cend,
-                           group_by=group_by, compare="custom" if compare else None,
+                           filters=args.filters, group_by=group_by, compare="custom" if compare else None,
                            compare_start=cstart if compare else None, compare_end=cend if compare else None,
                            purpose=f"{args.purpose}：{purpose}")
             out, ds, status = self._run_query(qa)
@@ -1107,8 +1203,9 @@ class AnalysisToolbox:
                     if pair is not None:
                         scanned.append(pair)
         ranked = attribution.rank(scanned)
-        conclusion = attribution.verdict(ranked, bool(scanned), attribution.immaterial(total_prev, total_change, threshold))
-        self.explanations[args.metric_code] = conclusion
+        conclusion = attribution.verdict(ranked, bool(scanned), attribution.immaterial(total_prev, total_change, threshold),
+                                         candidates=bool(dims))
+        self.explanations[key] = conclusion
         factor = None if ratio else self._auto_factor(args, metric, totals, (start, end, cstart, cend), inputs)
         primary = next((d for d in ranked if d.verdict == "ranked"), None)
         cols = ["dimension", "member", "previous", "current", "member_change", "contribution", "ep",
@@ -1120,8 +1217,10 @@ class AnalysisToolbox:
                       "current": attribution.q(total_cur) if ratio else total_cur,
                       "change": attribution.q(total_change) if ratio else total_change},
             "verdict": conclusion, "material_change_ratio": threshold,
-            "conclusion": {"ranked_reasons": "ranked_reasons", "offsetting": "no_material_change",
-                           "no_material_change": "no_material_change"}.get(conclusion, "insufficient_evidence"),
+            "scope": {"metric_code": args.metric_code, "filters": [f.model_dump() for f in args.filters],  # 字段同报告 scope
+                      "start_date": window["start"], "end_date": window["end"],
+                      "compare_start": window["compare_start"], "compare_end": window["compare_end"]},
+            "conclusion": conclusion,
             "factor_decomposition": factor, "primary_dimension": primary.name if primary else None,
             "cumulative_ep": primary.cumulative_ep if primary else None,
             "threshold_met": primary.threshold_met if primary else None,
@@ -1149,8 +1248,8 @@ class AnalysisToolbox:
                                  "summary_units": summary_units, "partial": bool(unscanned),
                                  "metric_codes": sorted({args.metric_code, *codes})})
         view = self._view(f"D{ds.seq}", ds)
-        view["conclusion_note"] = (f"对 {args.metric_code} 的判定：{summary['conclusion']}。报告的 conclusion 必须与它一致，"
-                                   f"metric_code 写 {args.metric_code}")
+        view["conclusion_note"] = (f"对 {describe_scope(key)}的判定：{summary['conclusion']}。报告的 conclusion 必须与它一致，"
+                                   "scope 照抄 summary.scope（同样的 metric_code、filters 与窗口）")
         return view, ds, "ok"
 
     def _auto_factor(self, args: ExplainArgs, metric: Metric, totals: list, period: tuple,
@@ -1184,8 +1283,8 @@ class AnalysisToolbox:
             return {"skipped": blocked, "ratio_metric": ratio_code}
         start, end, cstart, cend = period
         out, b_ds, status = self._run_query(QueryArgs(
-            metric_codes=[denominator], start_date=start, end_date=end, compare="custom", compare_start=cstart,
-            compare_end=cend, purpose=f"{args.purpose}：因子拆解的分母"))
+            metric_codes=[denominator], start_date=start, end_date=end, filters=args.filters, compare="custom",
+            compare_start=cstart, compare_end=cend, purpose=f"{args.purpose}：因子拆解的分母"))
         if b_ds is None:
             return {"skipped": out.get("message") or status, "ratio_metric": ratio_code}
         inputs.append(f"D{b_ds.seq}")

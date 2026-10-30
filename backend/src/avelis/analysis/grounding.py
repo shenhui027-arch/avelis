@@ -66,8 +66,34 @@ class WindowRef(_Ref):
 
 Ref = NumberRef | LabelRef | CountRef | WindowRef
 Part = str | NumberRef | LabelRef | CountRef | WindowRef
-CONCLUSIONS = ("ranked_reasons", "no_material_change", "insufficient_evidence")
+CONCLUSIONS = ("ranked_reasons", "offsetting", "no_material_change", "insufficient_evidence")
 DATASET_REF = r"^D[1-9]\d{0,3}$"
+
+
+def scope_key(metric_code: str, filters: list, window: dict) -> str:
+    """explain_change 判定与报告 scope 的登记键（ADR 0009 第 7 点第 9 条）：指标、规范化后的筛选（按维度排序，
+    取值排序、去重）与窗口（本期、对比期的起止日期）。filters 的项是 {dimension, values} 或同名属性的对象；
+    window 的本期起止写 start_date / end_date（与报告 scope 的字段相同），也接受 start / end（分析窗口的写法）。"""
+    import json
+
+    def pair(f) -> tuple[str, list[str]]:
+        dim, values = (f["dimension"], f["values"]) if isinstance(f, dict) else (f.dimension, f.values)
+        return str(dim), sorted({str(v) for v in values})
+    norm = sorted(pair(f) for f in filters or [])
+    picked = {"start": window.get("start_date") or window.get("start"), "end": window.get("end_date") or window.get("end"),
+              "compare_start": window.get("compare_start"), "compare_end": window.get("compare_end")}
+    dates = {k: str(v) if v else None for k, v in picked.items()}
+    return json.dumps({"metric_code": metric_code, "filters": norm, "window": dates}, ensure_ascii=False, sort_keys=True)
+
+
+def describe_scope(key: str) -> str:
+    """登记键的可读写法（核验反馈用）：指标、筛选与窗口。"""
+    import json
+
+    s = json.loads(key)
+    filters = "，".join(f"{d}={'/'.join(v)}" for d, v in s["filters"]) or "无筛选"
+    w = s["window"]
+    return f"{s['metric_code']}（{filters}；本期 {w['start']}~{w['end']}，对比期 {w['compare_start']}~{w['compare_end']}）"
 
 
 class CauseEntity(_Ref):

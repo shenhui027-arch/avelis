@@ -1,6 +1,9 @@
 """分析评测的判分（ADR 0009 第 5 点，最小版本）：纯函数，不调用模型，只读运行结果里的 causes 与核验结果。
 
-- 首要原因：只看 causes 的第一项，类型、方向都对、实体包含预期关键字之一（且这一项通过了核验）才算命中；
+- 期望结论：写 conclusion_from（口径编码与题目范围的过滤）的题，由生成器的视图日明细按产品的判定规则
+  （avelis.analysis.attribution，与 explain_change 同一套函数）和产品阈值算出，不手填；
+- 首要原因：看 causes 的第一项（结论为 offsetting 时看前两项，即最大的减少项与增加项中方向与预期相同的那一项），
+  类型、方向都对、实体包含预期关键字之一（且这一项通过了核验）才算命中；
   实体按编码比对：成员看维度与取值，因子看指标编码（factor_metric_code），证据行看行内容；
 - 关键数值：报告里任一事实 / 计算类数值引用（结论、原因的贡献、标题与摘要）的原值落在容差内（相对容差，0 表示精确）；
   any_of 列出多个可接受的值（命中任一即可）。题目用 truth 引用生成器真值（.demo/ec-truth.json），加载时展开成
@@ -30,11 +33,15 @@ def load_questions(path: Path = QUESTIONS, truth: dict | None = None) -> dict[st
     for q in data["questions"]:
         q.setdefault("user", data["defaults"]["user"])
         q.setdefault("window", data["defaults"]["window"])
-        key = (q.get("expect") or {}).get("key_value") or {}
+        expect = q.get("expect") or {}
+        key = expect.get("key_value") or {}
         if "truth" in key:  # 一个或多个真值引用，各自展开后合并
             truth = truth or load_truth()
             refs = key["truth"] if isinstance(key["truth"], list) else [key["truth"]]
             key["any_of"] = [v for ref in refs for v in truth_values(truth, ref, q["window"])]
+        if "conclusion_from" in expect:
+            truth = truth or load_truth()
+            expect["conclusion"] = [expected_conclusion(truth, expect["conclusion_from"], q["window"])]
     return data
 
 
@@ -48,6 +55,7 @@ def load_truth() -> dict[str, Any]:
     truth = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     needed = {"store_month", "logistics_region_month", "ticket_region_month", "ticket_region_category_month",
               "category_month", "store_traffic_month", "orders_day", "ad_region_month"}
+    needed |= {"views_daily", "channel_month", "store_orders_day", "region_category_month"}
     if not needed <= set(truth) or "satisfaction_sum" not in next(iter(truth["ticket_region_month"].values())):
         sys.path.insert(0, str(root / "scripts"))
         import ec_data
@@ -82,6 +90,84 @@ def truth_values(truth: dict, ref: dict, window: dict) -> list[str]:
     current = value(window["start"], window["end"])
     previous = value(window["compare_start"], window["compare_end"])
     return [str(v) for v in (current, previous, current - previous) if v != 0]
+
+
+def _metric_specs() -> dict[str, dict]:
+    """评测数据集的口径：视图、度量列、维度（名称 → 视图列）；派生比率取组成指标共有的维度（与口径服务相同）。"""
+    from avelis.demo_setup import EC_DERIVED, EC_METRICS
+
+    specs: dict[str, dict] = {}
+    for code, _, view, expression, *_rest in EC_METRICS:
+        dims = _rest[1]
+        specs[code] = {"view": view, "measures": [re.fullmatch(r"SUM\((\w+)\)", expression).group(1)],
+                       "dims": {d["name"]: d["column"] for d in dims}}
+    for code, _, formula, _ in EC_DERIVED:
+        num, den = (specs[c.strip()] for c in formula.split("/"))
+        assert num["view"] == den["view"]
+        specs[code] = {"view": num["view"], "measures": num["measures"] + den["measures"],
+                       "dims": {n: c for n, c in num["dims"].items() if n in den["dims"]}}
+    return specs
+
+
+def expected_conclusion(truth: dict, spec: dict, window: dict, threshold: Decimal | None = None) -> str:
+    """explain_change 对题目范围应给出的结论：视图日明细按题目的过滤与窗口取两期，逐个维度计算成员贡献，
+    再用产品的判定函数（attribution.judge / verdict，第一层扫描）与产品阈值得出。任一期没有数据为证据不足。"""
+    from datetime import date
+
+    from avelis.analysis import attribution
+    from avelis.config import Settings
+
+    metric = _metric_specs()[spec["metric"]]
+    threshold = threshold if threshold is not None else Decimal(str(Settings.material_change_ratio))
+    facts = truth["views_daily"][metric["view"]]
+    columns = facts["columns"]
+    filters = {metric["dims"][name]: str(value) for name, value in (spec.get("filters") or {}).items()}
+    periods = {"cur": (window["start"], window["end"]), "prev": (window["compare_start"], window["compare_end"])}
+    rows: dict[str, list[dict]] = {"cur": [], "prev": []}
+    for raw in facts["rows"]:
+        r = dict(zip(columns, raw))
+        if any(r[c] != v for c, v in filters.items()):
+            continue
+        day = date.fromisoformat(r[columns[0]])
+        for name, (start, end) in periods.items():
+            if date.fromisoformat(start) <= day <= date.fromisoformat(end):
+                rows[name].append(r)
+    if not rows["cur"] or not rows["prev"]:
+        return "insufficient_evidence"
+
+    def sums(items: list[dict]) -> list[Decimal]:
+        return [sum((Decimal(r[m]) for r in items), Decimal(0)) for m in metric["measures"]]
+
+    ratio = len(metric["measures"]) == 2
+    (p_vals, c_vals) = sums(rows["prev"]), sums(rows["cur"])
+    if ratio:
+        a0, b0 = p_vals
+        a1, b1 = c_vals
+        if not b0 or not b1:
+            return "insufficient_evidence"
+        total_prev, total_change = a0 / b0, a1 / b1 - a0 / b0
+    else:
+        total_prev, total_change = p_vals[0], c_vals[0] - p_vals[0]
+    dims = [(n, c) for n, c in metric["dims"].items() if n not in (spec.get("filters") or {})][:8]  # 被筛选的维度不扫描
+    scanned = []
+    for name, column in dims:
+        members: dict[tuple, dict[str, list[Decimal]]] = {}
+        for period, items in rows.items():
+            groups: dict[tuple, list[dict]] = {}
+            for r in items:
+                groups.setdefault((r[column],), []).append(r)
+            for key, part in groups.items():
+                members.setdefault(key, {})[period] = sums(part)
+        dim = attribution.Dimension(name)
+        if ratio:
+            values = {k: (*(v.get("prev") or (None, None)), *(v.get("cur") or (None, None))) for k, v in members.items()}
+            dim.rows, _ = attribution.ratio_members(values, (a0, b0, a1, b1), total_change)
+        else:
+            dim.rows = attribution.additive_members(
+                {k: ((v.get("prev") or [None])[0], (v.get("cur") or [None])[0]) for k, v in members.items()}, total_change)
+        scanned.append(attribution.judge(dim, total_prev, total_change, 5, threshold))
+    return attribution.verdict(attribution.rank(scanned), bool(scanned),
+                               attribution.immaterial(total_prev, total_change, threshold), candidates=bool(dims))
 
 
 def _number(value: Any) -> Decimal | None:
@@ -166,7 +252,9 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
                            "key_value_hit": None, "required_in_causes": None}
     primary = expect.get("primary")
     if primary:
-        first = causes[0] if causes else None
+        # 相互抵消时最大的减少项与增加项（前两项）都是首要原因：取方向与预期相同的那一项
+        heads = [c for c in causes[:2] if c.get("direction") == primary["direction"]] if conclusion == "offsetting"             else causes[:1]
+        first = heads[0] if heads else None
         out["primary_hit"] = bool(
             completed and first and first.get("status") == "verified" and first.get("type") in primary["types"]
             and first.get("direction") == primary["direction"]

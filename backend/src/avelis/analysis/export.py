@@ -82,7 +82,8 @@ def _segments(report: dict) -> list[tuple[str, str, dict]]:
 
 
 CAUSE_TYPE = {"member": "成员", "factor": "因子", "calendar": "日历", "governance": "治理事件"}
-CONCLUSION = {"ranked_reasons": "有排序的原因", "no_material_change": "没有实质变化", "insufficient_evidence": "证据不足"}
+CONCLUSION = {"ranked_reasons": "有排序的原因", "offsetting": "成员变化相互抵消", "no_material_change": "没有实质变化",
+              "insufficient_evidence": "证据不足"}
 
 
 def _cause_lines(report: dict) -> list[str]:

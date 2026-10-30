@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from avelis.analysis.grounding import scope_key
 from avelis.analysis.verify import ground_report
 
 DATA = {
@@ -16,6 +17,10 @@ DATA = {
            "rows": [{"factor_metric_code": "m_r", "factor": "单价", "contribution": "-30"},
                     {"factor_metric_code": None, "factor": "自定义因子", "contribution": "-5"}],
            "units": {"contribution": {"kind": "delta"}}},
+    "D7": {"kind": "calc", "metric_codes": ["m_a"], "columns": ["dimension", "member", "contribution"],
+           "rows": [{"dimension": "地区", "member": "甲", "contribution": "-80"},
+                    {"dimension": "地区", "member": "丙", "contribution": "79"}],
+           "units": {"contribution": {"kind": "delta"}}},
     "D6": {"kind": "explore", "explore": True, "columns": ["门店", "变化"], "rows": [{"门店": "店甲", "变化": "-9"}],
            "units": {"变化": {"kind": "delta"}}},
     "D5": {"kind": "calc", "columns": ["value"], "rows": [{"value": "5"}], "summary": {"value": "5"},
@@ -25,10 +30,16 @@ MEMBER = {"type": "member", "entity": {"metric_code": "m_a", "dimension": "地�
           "contribution": {"dataset": "D2", "column": "contribution", "match": {"member": "甲"}}, "evidence": ["D2"]}
 
 
-def run(conclusion, causes, metric_code=None, explanations=None):
+WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+
+
+def run(conclusion, causes, metric_code=None, explanations=None, filters=()):
+    """explanations：指标编码 → 判定（无筛选、同一窗口），或已经是登记键 → 判定。"""
     report = {"title": "t", "summary": "s", "claims": [{"type": "fact", "parts": ["x"], "refs": ["D1"]}],
-              "conclusion": conclusion, "causes": causes, "metric_code": metric_code}
-    return ground_report(report, DATA, None, explanations)
+              "conclusion": conclusion, "causes": causes, "metric_code": metric_code,
+              "scope_key": scope_key(metric_code, list(filters), WINDOW) if metric_code else None}
+    keyed = {k if k.startswith("{") else scope_key(k, [], WINDOW): v for k, v in (explanations or {}).items()}
+    return ground_report(report, DATA, None, keyed)
 
 
 def problems(causes, conclusion="ranked_reasons", **kw):
@@ -121,16 +132,51 @@ def test_entities_are_linked_by_codes_not_display_names():
 
 
 def test_conclusion_follows_explain_change_verdict():
-    """第 7 点第 3 条：所问指标做过 explain_change 时，结论类型必须与它的判定一致（相互抵消按没有实质变化）。"""
+    """第 7 点第 3 条：所问指标做过 explain_change 时，结论类型必须与它的判定一致（相互抵消是单独的结论类型）。"""
     assert problems([], "no_material_change", metric_code="m_a", explanations={"m_a": "no_material_change"}) == []
-    assert problems([], "no_material_change", metric_code="m_a", explanations={"m_a": "offsetting"}) == []
-    assert problems([MEMBER], "ranked_reasons", metric_code="m_a", explanations={"m_a": "no_material_change"}) == [
-        "explain_change 对 m_a 的判定是 no_material_change，结论类型应为 no_material_change（不是 ranked_reasons）"]
+    assert problems([], "no_material_change", metric_code="m_a", explanations={"m_a": "offsetting"}) == [
+        "explain_change 对 m_a（无筛选；本期 2026-09-01~2026-09-30，对比期 2026-08-01~2026-08-31）的判定是 offsetting，"
+        "结论类型应为 offsetting（不是 no_material_change）"]
+    assert "结论类型应为 no_material_change（不是 ranked_reasons）" in problems(
+        [MEMBER], "ranked_reasons", metric_code="m_a", explanations={"m_a": "no_material_change"})[0]
     assert "结论类型应为 ranked_reasons" in problems([], "no_material_change", metric_code="m_a",
                                                  explanations={"m_a": "ranked_reasons"})[0]
-    # 做过自动归因却没写所问指标：要求写明；所问指标没做过 explain_change 却断言变化情况：要求先做
-    assert "请在 metric_code 写明所问的指标" in problems([MEMBER], explanations={"m_a": "ranked_reasons"})[0]
-    assert "请先对 m_a 调用 explain_change" in problems([MEMBER], metric_code="m_a", explanations={})[0]
+    # 做过自动归因却没写 scope：要求写明；没有同范围的判定却断言变化情况：要求用这个 scope 调用 explain_change
+    assert "请在 scope 写明所问的指标、筛选与窗口" in problems([MEMBER], explanations={"m_a": "ranked_reasons"})[0]
+    assert "请用这个 scope" in problems([MEMBER], metric_code="m_a", explanations={})[0]
     assert problems([], "insufficient_evidence", metric_code="m_a", explanations={}) == []
     # 不适用自动归因的指标（如不可加）：不约束
     assert problems([MEMBER], "ranked_reasons", metric_code="m_a", explanations={"m_a": "unsupported"}) == []
+
+
+def test_offsetting_lists_the_largest_decrease_and_increase_first():
+    """第 7 点第 8 条：相互抵消时给出原因，前两项是最大的减少项与增加项（方向一减一增）；结论按 explain_change 核对。"""
+    down = {"type": "member", "entity": {"metric_code": "m_a", "dimension": "地区", "member": "甲"}, "direction": "down",
+            "contribution": {"dataset": "D7", "column": "contribution", "match": {"member": "甲"}}, "evidence": ["D7"]}
+    up = {"type": "member", "entity": {"metric_code": "m_a", "dimension": "地区", "member": "丙"}, "direction": "up",
+          "contribution": {"dataset": "D7", "column": "contribution", "match": {"member": "丙"}}, "evidence": ["D7"]}
+    rendered, v = run("offsetting", [down, up], metric_code="m_a", explanations={"m_a": "offsetting"})
+    assert v["ok"] and [c["status"] for c in v["causes"]] == ["verified", "verified"]
+    assert rendered["conclusion"] == "offsetting"
+    assert problems([down], "offsetting", metric_code="m_a", explanations={"m_a": "offsetting"}) == [
+        "结论为 offsetting 时前两项原因应是最大的减少项与增加项（方向一减一增）"]
+    assert problems([], "offsetting") == ["结论为 offsetting 时前两项原因应是最大的减少项与增加项（方向一减一增）"]
+    assert "结论类型应为 ranked_reasons" in problems([down, up], "offsetting", metric_code="m_a",
+                                                 explanations={"m_a": "ranked_reasons"})[0]
+
+
+def test_conclusion_is_compared_only_with_the_same_scope():
+    """第 7 点第 9 条：结论只和 scope（指标、规范化后的筛选与窗口）完全相同的 explain_change 比对。
+    对整个指标的判定不能用来核对某个区域的结论；筛选的维度、取值顺序与重复不影响登记键。"""
+    region = [{"dimension": "地区", "values": ["甲"]}]
+    whole = {"m_a": "ranked_reasons"}  # 只对整个指标做过 explain_change
+    out = problems([], "no_material_change", metric_code="m_a", explanations=whole, filters=region)
+    assert len(out) == 1 and "没有与报告 scope m_a（地区=甲；" in out[0] and "请用这个 scope" in out[0]
+    keyed = {scope_key("m_a", [{"dimension": "地区", "values": ["甲", "甲"]}], WINDOW): "no_material_change"}
+    assert problems([], "no_material_change", metric_code="m_a", explanations=keyed, filters=region) == []
+    assert scope_key("m_a", [{"dimension": "b", "values": ["2", "1"]}, {"dimension": "a", "values": ["x"]}], WINDOW) == \
+        scope_key("m_a", [{"dimension": "a", "values": ["x"]}, {"dimension": "b", "values": ["1", "2", "1"]}], WINDOW)
+    other = {**WINDOW, "compare_start": "2026-07-01", "compare_end": "2026-07-31"}
+    assert scope_key("m_a", region, WINDOW) != scope_key("m_a", region, other)  # 窗口不同也是不同的范围
+    # 不是“为什么变化”的报告（证据不足、没写 scope、没做过 explain_change）：不受约束
+    assert problems([], "insufficient_evidence", explanations={}) == []
