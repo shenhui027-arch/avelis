@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -128,14 +129,18 @@ def _entity_text(cause: dict) -> str:
 
 
 TRANSPORT_MARKERS = ("APIConnectionError", "ConnectionError", "Connection error", "connection", "SSL", "timed out",
-                     "Timeout", "UNEXPECTED_EOF", "连接")
+                     "Timeout", "UNEXPECTED_EOF", "连接", "InternalServerError", "ServiceUnavailable", "Bad Gateway")
+# 模型服务返回 5xx（OpenAI 兼容客户端的写法 “Error code: 503”）：服务端临时故障，与内容无关
+PROVIDER_5XX = re.compile(r"Error code:\s*5\d\d\b")
 
 
 def transport_error(run: dict | None) -> bool:
-    """运行失败是否来自传输层（连接失败、SSL、超时）：只有这种情况重跑一次，内容问题不重跑。"""
+    """运行失败是否来自传输层（连接失败、SSL、超时、模型服务返回 5xx）：只有这种情况重跑一次；
+    内容问题（模型写错表名、列名，核验不通过等）不重跑，如实记录。"""
     if not run or run.get("status") != "failed":
         return False
-    return any(m in (run.get("error") or "") for m in TRANSPORT_MARKERS)
+    error = run.get("error") or ""
+    return any(m in error for m in TRANSPORT_MARKERS) or bool(PROVIDER_5XX.search(error))
 
 
 def sources_failed(verification: dict) -> int:

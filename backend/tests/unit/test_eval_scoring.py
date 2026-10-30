@@ -165,3 +165,15 @@ def test_primary_cause_is_matched_by_codes():
     event = {"type": "factor", "entity": {"evidence_id": "D7#1"}, "label": "家电焕新季 · 品类节 · 家电", "direction": "down",
              "status": "verified", "contribution": {"segments": [seg("-1")]}}
     assert score(Q["e02"], run(causes=[event]))["primary_hit"] is True
+
+
+def test_provider_5xx_is_a_transport_error_but_content_errors_are_not():
+    from tests.eval.scoring import transport_error
+
+    failed = lambda error: {"status": "failed", "error": error}  # noqa: E731
+    assert transport_error(failed("OpenAIAPIError: Error code: 500 - Internal Server Error (request_id: x)"))
+    assert transport_error(failed("Error code: 503 - Service Unavailable"))
+    assert transport_error(failed("APIConnectionError: Connection error."))
+    assert not transport_error(failed("D14 没有列 expected_periods"))  # 模型写错列名：内容问题
+    assert not transport_error(failed("Error code: 400 - invalid request"))  # 4xx 不是服务端临时故障
+    assert not transport_error({"status": "succeeded", "error": "Error code: 500"})
