@@ -497,7 +497,12 @@ def test_revision_explains_unparseable_fragments():
     claims = [{"type": "calc", "text": "两期总差额 -1899 笔", "refs": ["D1"]}]
     verification = verify_report(claims, {"D1": {"rows": [{"v": "-1899"}]}})
     assert verification["claims"][0]["status"] == "unverified"
+    assert verification["claims"][0]["numbers"] == [  # -1899 本身仍是已核实，只有无法识别的片段未核实
+        {"text": "-1899", "verified": True},
+        {"text": "两期总差额", "verified": False, "error": "包含无法识别的数字"}]
     box = SimpleNamespace(report={"claims": claims}, verification=verification, datasets=lambda: sets,
                           budget=SimpleNamespace(tool_calls=0))
     message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
     assert "两期总差额（包含无法识别的数字）" in message and "两期相比" in message and "出现在" not in message.split("请修订")[0]
+    assert "“两期之差为100元”改写为“两期相比，差额为100元”" in message
+    assert "-1899" not in message.split("请修订")[0]  # 已核实的数字不出现在待修订列表里
