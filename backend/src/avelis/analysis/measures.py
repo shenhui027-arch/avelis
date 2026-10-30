@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 UNKNOWN = {"kind": "unknown"}
-CONSTANTS = {Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}
+CONSTANTS = {Decimal(0), Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}  # 0 是中性常量
 
 
 def col(kind: str, unit: str | None = "", scale: Any = 1, of_ratio: bool = False) -> dict[str, Any]:

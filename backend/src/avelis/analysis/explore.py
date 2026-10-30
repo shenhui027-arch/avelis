@@ -33,7 +33,8 @@ MAX_DEPTH = 40
 MAX_IN_LIST = 200
 MAX_ORDER_KEYS = 10
 MAX_JOINS = 4
-ALLOWED_CONSTANTS = {Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}
+# 不改变量纲的常量：中性的 0（条件聚合的 ELSE 0 等）、1，以及换算倍数
+ALLOWED_CONSTANTS = {Decimal(0), Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}
 # 原来禁止清单里的函数：作为额外一道防线，名字出现在任何函数节点上都拒绝
 BANNED_FUNCTIONS = {"sleep", "pg_sleep", "pg_sleep_for", "pg_sleep_until", "benchmark", "load_file", "pg_read_file",
                     "pg_read_binary_file", "pg_ls_dir", "lo_import", "lo_export", "dblink", "url", "file", "files", "s3",
@@ -473,12 +474,13 @@ def _outputs(tree: exp.Expression) -> list[OutputColumn]:
         has_data = bool(info.deps)
         assumption = not has_data or info.bad_constant or info.kind in ("const", "other")
         kind = {"column": "level" if info.numeric else "text", "agg_level": "level", "count": "count",
-                "ratio": "ratio"}.get(info.kind, "unknown" if info.numeric else "text")
+                "ratio": "ratio", "delta": "delta"}.get(info.kind, "unknown" if info.numeric else "text")
         direct = info.kind == "column"
         out.append(OutputColumn(
             name=projection.alias_or_name, expression=projection.sql(dialect=STANDARD_DIALECT), deps=sorted(info.deps),
             kind=kind,
-            eligible=not assumption and info.numeric and info.kind in ("column", "agg_level", "count", "ratio", "arith"),
+            eligible=not assumption and info.numeric and info.kind in ("column", "agg_level", "count", "ratio", "arith",
+                                                                       "delta"),
             label_ok=direct and not info.numeric, assumption=assumption and info.numeric))
     return out
 
@@ -511,12 +513,16 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
         if inner.kind == "arith" and not inner.bad_constant:
             return _Info("agg_level", inner.deps, inner.constants)
         return _Info("other", inner.deps, inner.constants, inner.numeric, True)
+    if isinstance(node, exp.Case):
+        return _case(node, scope)
     if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
         left, right = _analyze(node.this, scope), _analyze(node.expression, scope)
         bad = left.bad_constant or right.bad_constant or not (left.numeric and right.numeric)
         aggs = ("agg_level", "count", "ratio")
         if isinstance(node, exp.Div) and left.kind in aggs and right.kind in aggs:
             kind = "ratio"
+        elif isinstance(node, exp.Sub) and left.kind == right.kind and left.kind in ("agg_level", "count"):
+            kind = "delta"  # 两期的条件聚合相减：差额
         else:
             kind = "arith"
         return _Info(kind, left.deps | right.deps, left.constants | right.constants, True, bad)
@@ -527,6 +533,29 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
     deps = _deps(node, scope)
     return _Info("other", deps, numeric=not isinstance(node, (exp.Lower, exp.Upper, exp.Trim, exp.Substring)),
                  bad_constant=True)
+
+
+def _case(node: exp.Case, scope: Scope) -> _Info:
+    """CASE WHEN 条件 THEN 值 ELSE 值 END（ADR 0009 第 6 点“证据资格”）：WHEN 条件里的字面量（含 CAST、BETWEEN、IN 里的）
+    只用来过滤，不进入数值；THEN / ELSE 的分支值是列、0、1 或 NULL 时不算业务常量，整体按列处理（条件聚合是列的登记聚合）。
+    分支里有其他常量或表达式时如实分析，带出相应的假设标记。"""
+    if node.this is not None:  # CASE x WHEN …：按值匹配，不在允许的写法里
+        return _Info("other", _deps(node, scope), bad_constant=True)
+    ifs = node.args.get("ifs") or []
+    branches = [w.args.get("true") for w in ifs] + [node.args.get("default")]
+    filters = set().union(*(_deps(w.this, scope) for w in ifs)) if ifs else set()
+
+    def neutral(value: exp.Expression | None) -> bool:
+        return value is None or isinstance(value, exp.Null) or (
+            isinstance(value, exp.Literal) and not value.is_string and _decimal(value.this) in (Decimal(0), Decimal(1)))
+    values = [_analyze(b, scope) for b in branches if not neutral(b)]
+    if values and all(v.kind == "column" for v in values):
+        return _Info("column", set().union(*(v.deps for v in values)) | filters,
+                     numeric=all(v.numeric for v in values))
+    if not values:  # 只有 0 / 1 / NULL：条件计数的指示值
+        return _Info("const", filters)
+    deps = set().union(*(v.deps for v in values)) | filters
+    return _Info("other", deps, set().union(*(v.constants for v in values)), all(v.numeric for v in values), True)
 
 
 def _conditional_count(node: exp.Expression) -> bool:
