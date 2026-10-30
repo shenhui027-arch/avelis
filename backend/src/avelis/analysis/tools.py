@@ -589,7 +589,18 @@ class AnalysisToolbox:
                                         "to": t.to_status, "reason": t.reason, "at": t.at})
             note = ("元数据变更按采集时间记录（只能确定发生在两次采集之间）；口径版本流转为治理操作时间。"
                     "本窗口内没有变更不代表数据没有问题，还需查看数据健康与数据本身。")
-            return {"change_sets": sets, "metric_transitions": transitions, "note": note}, None, "ok"
+            # 上下文证据数据集（ADR 0009 第 3 点）：固定结构的事件行、固定排序，注明截取范围，可在报告中引用
+            rows = [["元数据变更", _iso(cs["at"]), e["asset"], e["column"], e["kind"], cs["impacts"], None]
+                    for cs in sets for e in cs["events"]]
+            rows += [["口径版本流转", _iso(t["at"]), t["metric"], f"V{t['version_no']}", f"{t['from'] or '—'} → {t['to']}",
+                      None, t["reason"]] for t in transitions]
+            rows.sort(key=lambda r: (r[1] or "", r[0], str(r[2]), str(r[3])))
+            ds = self._dataset("context", f"变更记录 {start_date}~{end_date}" + (f"（{metric_code}）" if metric_code else ""),
+                               ["type", "at", "object", "item", "change", "impacts", "note"], rows,
+                               meta={"units": {"impacts": col("count")}, "window": {"start": str(start_date), "end": str(end_date)},
+                                     "scope": "每个变更集最多 30 个事件；只含当前用户可见的资产与口径；不是完整历史"})
+            return ({"dataset": f"D{ds.seq}", "change_sets": sets, "metric_transitions": transitions, "note": note},
+                    ds, "ok")
         return self._guard("changes", {"start_date": start_date, "end_date": end_date, "metric_code": metric_code},
                            run)
 
@@ -610,9 +621,17 @@ class AnalysisToolbox:
                             "last_collected_at": boundary["last_collected_at"],
                             "recent_collections": [{"status": r.status, "started_at": r.started_at} for r in runs],
                             "metric_status": v.status, "drift": bool(v.status != "published")})
+            rows = [[o["base_asset"], o["metric_status"], "是" if o["drift"] else "否", _iso(o["last_collected_at"]),
+                     c["status"], _iso(c["started_at"])] for o in out for c in o["recent_collections"] or [{}]]
+            rows.sort(key=lambda r: (r[0], "" if r[5] is None else r[5]), reverse=False)
             note = ("数据完整性需要看数据本身：用 query_metric 按 time_grain=day 并按门店等维度分组，"
                     "找出某天某些成员缺失或骤降；再用 lineage 查看口径的主表（缺失可能来自上游）。")
-            return {"sources": out, "note": note}, None, "ok"
+            ds = self._dataset("context", f"数据健康 {metric_code}",
+                               ["base_asset", "metric_status", "drift", "last_collected_at", "collection_status",
+                                "collection_started_at"], rows,
+                               meta={"window": {"start": str(start_date), "end": str(end_date)},
+                                     "scope": "每个来源只列最近 5 次采集；采集只给状态与时间，不含数据源的原始错误"})
+            return {"dataset": f"D{ds.seq}", "sources": out, "note": note}, ds, "ok"
         return self._guard("data_health", {"metric_code": metric_code, "start_date": start_date,
                                            "end_date": end_date}, run)
 
@@ -899,6 +918,11 @@ def _periods(ds: AnalysisDataset, current: str, previous: str) -> tuple[tuple[da
         raise calc.CalcError(f"列 {current} / {previous} 不是该数据集的本期值与"
                              f"{service.PERIOD_LABEL[compare]}值（应为 指标名 与 指标名·{service.PERIOD_LABEL[compare]}）")
     return (start, end), before
+
+
+def _iso(value) -> str | None:
+    """上下文数据集里的时间统一写成 ISO 字符串（固定排序、可序列化）。"""
+    return None if value is None else (value.isoformat() if hasattr(value, "isoformat") else str(value))
 
 
 def _date(value):

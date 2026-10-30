@@ -267,6 +267,12 @@ def test_data_health_checks_component_domain_and_source_closure(monkeypatch):
     out = json.loads(box.dispatch("data_health", args))
     assert out["sources"][0]["recent_collections"] == [{"status": "failed", "started_at": "2026-09-01 00:00:00"}]
     assert "secret" not in json.dumps(out, ensure_ascii=False)  # 不返回数据源的原始错误
+    # 上下文证据数据集（ADR 0009 第 3 点）：有 D 编号、固定结构，注明截取范围，也不含原始错误
+    ds = box.datasets()[out["dataset"]]
+    assert ds.kind == "context" and ds.columns == ["base_asset", "metric_status", "drift", "last_collected_at",
+                                                   "collection_status", "collection_started_at"]
+    assert ds.rows[0][4:] == ["failed", "2026-09-01T00:00:00"] and "最近 5 次采集" in ds.meta["scope"]
+    assert "secret" not in json.dumps(ds.rows, ensure_ascii=False)
 
 
 def test_changes_with_metric_only_returns_its_sources(monkeypatch):
@@ -291,6 +297,12 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     assert scoped["change_sets"][0]["impacts"] == 1
     everything = json.loads(box.dispatch("changes", args))
     assert len(everything["change_sets"][0]["events"]) == 2
+    # 上下文证据数据集：固定结构的事件行、固定排序（时间、类型、对象、项目），注明截取范围；只含当前范围内的事件
+    scoped_ds, all_ds = box.datasets()[scoped["dataset"]], box.datasets()[everything["dataset"]]
+    assert scoped_ds.kind == "context" and scoped_ds.columns == ["type", "at", "object", "item", "change", "impacts", "note"]
+    assert scoped_ds.rows == [["元数据变更", "2026-09-02T00:00:00", "c.d.sales_src", "x", "column_added", 1, None]]
+    assert [r[2] for r in all_ds.rows] == ["c.d.ad_spend", "c.d.sales_src"] and "最多 30 个事件" in all_ds.meta["scope"]
+    assert scoped_ds.meta["units"] == {"impacts": {"kind": "count"}}
 
 
 # --- #16 引用编号 ------------------------------------------------------------------------
