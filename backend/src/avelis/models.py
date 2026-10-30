@@ -393,6 +393,9 @@ class MetricVersion(Base):
     joins: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     grain: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     dedupe_basis: Mapped[str | None] = mapped_column(Text)
+    # 单位（ADR 0009）：如 元、单、人；unit_scale 是列本身的倍数（列已是“万元”时为 10000）。缺单位的口径列入治理待补
+    unit: Mapped[str | None] = mapped_column(String(16))
+    unit_scale: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1", nullable=False)
     dependency: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     dependency_fingerprint: Mapped[str | None] = mapped_column(String(64))
     asset_versions: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)

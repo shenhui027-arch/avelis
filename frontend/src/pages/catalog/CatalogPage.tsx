@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useAssets, useDomains, useJoinPaths, useMetrics, type Asset } from "../../api/hooks";
-import { Count, Empty, Icon, KIND_LABEL, QueryState, Status } from "../../components/ui";
+import { Count, Empty, Icon, KIND_LABEL, Pill, QueryState, Status } from "../../components/ui";
 import { useRoles } from "../../layout/Shell";
 import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
@@ -105,7 +105,8 @@ export function CatalogPage() {
             {section === "metrics" ? <QueryState query={metrics} isEmpty={() => metricList.length === 0}
               emptyText={term ? "没有匹配指标" : "还没有指标"} emptyAction={term ? clearSearch : createMetric}>
               {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>指标</th><th>编码</th><th>状态</th><th>负责人</th><th className="end">操作</th></tr></thead>
-                <tbody>{metricList.map((m) => <tr key={m.id}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link></td><td className="av-mono">{m.code}</td>
+                <tbody>{metricList.map((m) => <tr key={m.id}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
+                  {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title="口径没有单位：报告里的数字不带单位，请在新版本中补上">单位待补</Pill></> : null}</td><td className="av-mono">{m.code}</td>
                   <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/metrics/${m.id}`}>查看详情</Link></td></tr>)}</tbody></table></div>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} isEmpty={() => assetList.length === 0}

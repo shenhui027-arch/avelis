@@ -71,6 +71,8 @@ class VersionSpec(BaseModel):
     joins: list[JoinStep] = Field(default_factory=list)
     grain: list[str] = Field(default_factory=list)
     dedupe_basis: str | None = None
+    unit: str | None = Field(default=None, max_length=16, description="单位，如 元、单、人；比率类可不填")
+    unit_scale: int = Field(default=1, ge=1, description="列本身的倍数：列已是“万元”时为 10000")
 
     @model_validator(mode="after")
     def _base_fields(self) -> "VersionSpec":
@@ -96,7 +98,7 @@ def metric_view(session: Session, metric: Metric) -> dict:
     return {"id": metric.id, "code": metric.code, "name": metric.name, "aliases": metric.aliases,
             "domain_id": metric.domain_id, "owner": {"id": owner.id, "display_name": owner.display_name},
             "versions": [{"id": v.id, "version_no": v.version_no, "status": v.status,
-                          "status_reason": v.status_reason,
+                          "status_reason": v.status_reason, "unit": v.unit,
                           "published_at": v.published_at.isoformat() if v.published_at else None}
                          for v in versions]}
 

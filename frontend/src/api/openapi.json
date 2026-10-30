@@ -8718,6 +8718,22 @@
       ],
       "title": "Dedupe Basis"
      },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit"
+     },
+     "unit_scale": {
+      "type": "integer",
+      "title": "Unit Scale",
+      "default": 1
+     },
      "dependency": {
       "items": {
        "additionalProperties": true,
@@ -10509,6 +10525,17 @@
       ],
       "title": "Status Reason"
      },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit"
+     },
      "published_at": {
       "anyOf": [
        {
@@ -10617,6 +10644,26 @@
        }
       ],
       "title": "Dedupe Basis"
+     },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 16
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unit",
+      "description": "单位，如 元、单、人；比率类可不填"
+     },
+     "unit_scale": {
+      "type": "integer",
+      "minimum": 1.0,
+      "title": "Unit Scale",
+      "description": "列本身的倍数：列已是“万元”时为 10000",
+      "default": 1
      }
     },
     "type": "object",

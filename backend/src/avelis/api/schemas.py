@@ -306,6 +306,7 @@ class VersionBrief(Out):
     version_no: int
     status: str
     status_reason: str | None = None
+    unit: str | None = None
     published_at: str | None = None
 
 
@@ -358,6 +359,8 @@ class MetricVersionOut(Out):
     joins: list[Json]
     grain: list[str]
     dedupe_basis: str | None = None
+    unit: str | None = None
+    unit_scale: int = 1
     dependency: list[Json]
     dependency_fingerprint: str | None = None
     asset_versions: Json

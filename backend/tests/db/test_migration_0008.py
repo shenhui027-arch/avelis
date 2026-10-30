@@ -70,7 +70,7 @@ def test_0008_upgrade_downgrade_upgrade_with_data(meta_db, factory):
     after_up, chain_up = _history(engine)
     assert after_up == before and chain_up["ok"] and chain_up["head"] == chain["head"]
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0009"  # head：0008 之后还有 0009（口径单位）
         assert TABLES <= set(inspect(conn).get_table_names())
         assert conn.scalar(text("SELECT count(*) FROM analysis_run")) == 0
     with session_scope() as s:  # 再升级后可以正常写入

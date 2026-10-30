@@ -246,6 +246,12 @@ EC_METRICS = [  # 编码、名称、视图、表达式、时间列、维度、�
      _dims(REGION, ("ticket_category", "category", "问题分类")),
      ["ticket_date", "region_code", "region_name", "category"], "有满意度评分的工单数"),
 ]
+EC_UNITS = {  # 口径单位（ADR 0009）：报告里的数字由格式器带上单位
+    "ec_gmv": "元", "ec_orders": "单", "ec_store_sales": "元", "ec_store_orders": "单", "ec_visitors": "人",
+    "ec_category_sales": "元", "ec_units": "件", "ec_ad_spend": "元", "ec_ad_orders": "单", "ec_ad_gmv": "元",
+    "ec_refund": "元", "ec_delivery_total_hours": "小时", "ec_shipments": "单", "ec_tickets": "单",
+    "ec_satisfaction_sum": "分", "ec_rated": "单", "ec_aov": "元", "ec_delivery_hours": "小时", "ec_satisfaction": "分",
+}
 EC_DERIVED = [  # 编码、名称、公式、说明
     ("ec_aov", "客单价", "ec_gmv / ec_orders", "成交额 / 订单数"),
     ("ec_conversion", "进店转化率", "ec_store_orders / ec_visitors", "门店订单数 / 进店客流"),
@@ -270,9 +276,11 @@ def _publish_ec_metrics(client: TestClient, password: str, assets: dict[str, str
 
     for code, name, view, expression, time_column, dims, grain, description in EC_METRICS:
         publish(code, name, {"description": description, "base_asset_id": assets[f"default_catalog.ec_dw.{view}"],
-                             "expression": expression, "time_column": time_column, "dimensions": dims, "grain": grain})
+                             "expression": expression, "time_column": time_column, "dimensions": dims, "grain": grain,
+                             "unit": EC_UNITS.get(code)})
     for code, name, formula, description in EC_DERIVED:
-        publish(code, name, {"kind": "derived", "description": description, "expression": formula})
+        publish(code, name, {"kind": "derived", "description": description, "expression": formula,
+                             "unit": EC_UNITS.get(code)})
 
 
 def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], domains: dict[str, str]) -> None:
@@ -292,15 +300,16 @@ def _publish_metrics(client: TestClient, password: str, assets: dict[str, str], 
     publish("paid_sales", "实付销售额", {
         "description": "订单实付金额按下单日期、区域汇总（不扣退款）", "expression": "SUM(sales_amount)",
         "base_asset_id": assets["default_catalog.shop.daily_sales"], "time_column": "order_date",
-        "dimensions": region, "grain": ["order_date", "region"]})
+        "dimensions": region, "grain": ["order_date", "region"], "unit": "元"})
     publish("orders_cnt", "订单数", {
         "description": "订单笔数", "base_asset_id": assets["default_catalog.shop.orders"],
         "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date", "dimensions": region,
-        "grain": ["order_date", "region"]})
+        "grain": ["order_date", "region"], "unit": "单"})
     if "aov" not in existing:  # 派生指标：客单价 = 实付销售额 / 订单数
         metric = zhang("POST", "/api/metrics", json={"code": "aov", "name": "客单价", "domain_id": domains["trade"]})
         version = zhang("POST", f"/api/metrics/{metric['id']}/versions", json={
-            "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt"})
+            "kind": "derived", "description": "实付销售额 / 订单数", "expression": "paid_sales / orders_cnt",
+            "unit": "元"})
         zhang("POST", f"/api/metric-versions/{version['id']}/submit")
         li("POST", f"/api/metric-versions/{version['id']}/approve", json={"note": "演示走查准备"})
     if "category_sales" in existing:

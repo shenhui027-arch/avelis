@@ -141,6 +141,7 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
             {v.joins.length ? <><dt>关联</dt><dd className="av-metric-detail__tags">{v.joins.map((j) => <span key={String(j.alias)} className="av-tag">{String(j.from ?? "b")} → {String(j.alias)}{j.pre_aggregate ? " · 先聚合" : ""}</span>)}</dd></> : null}
             {v.dedupe_basis ? <><dt>防重复依据</dt><dd>{v.dedupe_basis}</dd></> : null}
             </>}
+            <dt>单位</dt><dd>{v.unit ? <>{v.unit}{v.unit_scale && v.unit_scale !== 1 ? <span className="av-tag av-mono">×{v.unit_scale}</span> : null}</> : <Pill tone="warn">单位待补</Pill>}</dd>
           </dl>
         </div>
       </section>
@@ -297,11 +298,14 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
   const editorId = useId();
   const [description, setDescription] = useState(base?.description ?? "");
   const [expression, setExpression] = useState(base?.expression ?? "");
+  const [unit, setUnit] = useState(base?.unit ?? "");
+  const [unitScale, setUnitScale] = useState(String(base?.unit_scale ?? 1));
   const [message, setMessage] = useMessage();
   // Consume Python numeric literals first, including digit separators and base prefixes.
   const codes = [...new Set((expression.match(/0[xX](?:_?[\da-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+|(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
     .filter((token) => /^[A-Za-z_]/.test(token)))];
-  const body = { kind: "derived", description: description.trim(), expression: expression.trim() } satisfies Schemas["VersionSpec"];
+  const body = { kind: "derived", description: description.trim(), expression: expression.trim(), unit: unit.trim() || null,
+    unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)) } satisfies Schemas["VersionSpec"];
   const save = useAction(() => mode === "edit" && base
     ? unwrap(api.PUT("/api/metric-versions/{version_id}", { params: { path: { version_id: base.id } }, body }))
     : unwrap(api.POST("/api/metrics/{metric_id}/versions", { params: { path: { metric_id: metricId } }, body })), ["metrics", "metric-version"]);
@@ -338,6 +342,12 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
           })}</div> : <span className="av-help">输入公式以查看引用指标</span>}
         <span className="av-help">引用提示仅检查编码，最终以后端校验为准</span>
       </div>
+      <div className="av-metric-form__row">
+        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、单、人；比率类可不填。缺单位的口径会列为待补" /></span>
+          <input className="av-input" maxLength={16} placeholder="元" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
+        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已是“万元”时填 10000，默认 1" /></span>
+          <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
+      </div>
       <Banner message={message} />
     </form>
   </Drawer>;
@@ -356,6 +366,8 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
     time_column: base?.time_column ?? "", timezone: base?.timezone ?? "Asia/Shanghai", filters: base?.filters ?? "",
     grain: (base?.grain ?? []).join(", "), dedupe_basis: base?.dedupe_basis ?? "",
   });
+  const [unit, setUnit] = useState(base?.unit ?? "");
+  const [unitScale, setUnitScale] = useState(String(base?.unit_scale ?? 1));
   const [dims, setDims] = useState<Dim[]>((base?.dimensions ?? []).map((d) => ({ name: String(d.name), column: String(d.column), label: String(d.label ?? "") })));
   const [joins, setJoins] = useState<JoinRow[]>((base?.joins ?? []).map((j) => ({ alias: String(j.alias), join_path_id: String(j.join_path_id), from: String(j.from ?? "b"), pre_aggregate: !!j.pre_aggregate })));
   const [attempted, setAttempted] = useState(false);
@@ -373,6 +385,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const body = {
     ...form, description: form.description.trim(), expression: form.expression.trim(), time_column: form.time_column.trim(), timezone: form.timezone.trim(),
     filters: form.filters.trim() || null, dedupe_basis: form.dedupe_basis.trim() || null,
+    unit: unit.trim() || null, unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)),
     grain: form.grain.split(/[,，×]/).map((s) => s.trim()).filter(Boolean),
     dimensions: dims.map((d) => ({ name: d.name.trim(), column: d.column.trim(), label: d.label.trim() || null })),
     joins: joins.map((j) => ({ ...j, alias: j.alias.trim(), from: j.from.trim() })),
@@ -469,6 +482,12 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
       </section>
       <label className="av-field"><span className="av-label">统计粒度</span><input className="av-input av-mono" placeholder="order_date, region" value={form.grain} onChange={(e) => setForm({ ...form, grain: e.target.value })} /></label>
       <label className="av-field"><span className="av-label">避免重复计数的依据</span><input className="av-input" value={form.dedupe_basis} onChange={(e) => setForm({ ...form, dedupe_basis: e.target.value })} /></label>
+      <div className="av-metric-form__row">
+        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、单、人；比率类可不填。缺单位的口径会列为待补" /></span>
+          <input className="av-input" maxLength={16} placeholder="元" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
+        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已是“万元”时填 10000，默认 1" /></span>
+          <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
+      </div>
       <Banner message={message} />
     </form>
   </Drawer>;

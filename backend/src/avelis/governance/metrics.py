@@ -54,7 +54,8 @@ TRANSITIONS = {
     ("affected", "retired"),
 }
 EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
-                   "dimensions", "joins", "grain", "dedupe_basis")
+                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale")
+DISPLAY_FIELDS = ("unit", "unit_scale")  # 只影响显示的元数据：不计入依赖指纹，修改不算口径漂移
 TIME_TYPES = ("date", "datetime", "timestamp")
 
 
@@ -286,7 +287,7 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
 
 
 def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, Any]]) -> str:
-    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS}
+    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
     if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
         return sha256_json({"formula": version.expression, "components": [
             [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]})
@@ -555,7 +556,8 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "base_asset": {"id": base.id, "qualified": f"{base.catalog_name}.{base.db_name}.{base.name}"} if base else None,
         "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
         "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
-        "dedupe_basis": version.dedupe_basis, "dependency": version.dependency,
+        "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
+        "dependency": version.dependency,
         "dependency_fingerprint": version.dependency_fingerprint, "asset_versions": version.asset_versions,
         "publish_check": version.publish_check, "created_by": version.created_by,
         "submitted_by": version.submitted_by, "reviewed_by": version.reviewed_by,
