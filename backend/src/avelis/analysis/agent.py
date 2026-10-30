@@ -10,7 +10,10 @@
 - 推理：上下文包放在用户消息里；模型可以直接提交报告，也可以下钻，一轮可以发出多个工具调用。思考强度按页面配置。
   核验没过时把问题追加在消息末尾给一轮修订（前缀不变，模型服务的前缀缓存仍能命中）。
 - 预算：每次工具调用都经 toolbox.dispatch 计数（ADR 0009 第 7 点第 7 条）；理解、预检与推理共用同一个截止时间，
-  每次请求模型前检查，并按剩余时间设置请求超时与重试。发起人失去权限或运行被终结时立即停止。
+  每次请求模型前检查，并按剩余时间设置请求超时。模型请求（含失败与重试）与累计 token 计入 Budget，到上限不再请求；
+  传输层的临时错误在这里重试一次（客户端内部不重试，重试同样计数、记步骤）。发起人失去权限或运行被终结时立即停止。
+- 接入协议（llm_protocol）：DeepSeek 的 reasoning_content 按官方协议原样往返；finish_reason=length / content_filter、
+  工具调用编号缺失或重复按基础设施错误（ModelProtocolError）结束运行，不当作模型内容错误。
 - 系统提示只放稳定内容（规则、工具说明、写法示例、对照示例）；日期、窗口、预算、scope 与上下文包都在用户消息里。
 状态存于 avelis_agent 模式（与问数共用 PostgreSQL checkpointer），会话编号为 analysis:<运行编号>。
 """
@@ -29,6 +32,7 @@ from langgraph.graph.message import add_messages
 
 from avelis.analysis.tools import AnalysisToolbox, Scope
 from avelis.analysis.verify import ground_report
+from avelis.llm_protocol import ModelProtocolError, protocol_problem
 
 REVISION_TOOL_CALLS = 6
 UNDERSTAND_MAX_TOKENS = 1000  # 理解阶段只输出 scope：关闭思考、限制输出长度（ADR 0012，系统固定）
@@ -163,33 +167,55 @@ def _ctx(config) -> tuple[AnalysisToolbox, Any]:
 
 
 def _model_for(model, budget, **phase):
-    """按统一截止时间构造本次请求的模型：超时不超过剩余时间，剩余时间不多时不重试。phase：阶段固定的参数
-    （理解阶段 effort="off"、max_tokens）；不写时用页面配置的思考强度。"""
+    """按统一截止时间构造本次请求的模型：超时不超过剩余时间。客户端不自行重试（重试在 _invoke 里做并计入预算）。
+    phase：阶段固定的参数（理解阶段 effort="off"、max_tokens）；不写时用页面配置的思考强度。"""
     factory = getattr(model, "factory", None)
     if factory is None:  # 测试替身或未带工厂的模型
         return getattr(model, "model", model)
-    remaining = budget.remaining()
-    return factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, remaining)),
-                   max_retries=1 if remaining > 2 * MODEL_TIMEOUT_SECONDS else 0, **phase)
+    return factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, budget.remaining())), max_retries=0, **phase)
+
+
+TRANSIENT_ERRORS = {"APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError"}
 
 
 def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMessage:
-    """请求一次模型并记一个 model 步骤：耗时、token 数与本轮发出的工具调用（ADR 0012 度量）。"""
-    started = time.monotonic()
-    try:
-        reply: AIMessage = bound.invoke(messages)
-    except Exception as exc:
-        toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}"},
-                      started=started)
-        raise
-    names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
-    toolbox._step("model", "model", {}, "ok", {**model_usage(reply), "tool_calls": len(names), "tools": names},
-                  started=started)
-    return reply
+    """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
+    传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
+    回复不符合接入协议（截断等）时记下错误码并抛出 ModelProtocolError。reasoning_content 不写进步骤记录。"""
+    budget = toolbox.budget
+    retried = False
+    while True:
+        budget.used_model_requests += 1
+        started = time.monotonic()
+        try:
+            reply: AIMessage = bound.invoke(messages)
+        except Exception as exc:
+            transient = type(exc).__name__ in TRANSIENT_ERRORS
+            retry = (transient and not retried and budget.remaining() > 2 * MODEL_TIMEOUT_SECONDS
+                     and not budget.model_blocked() and not toolbox.stopped)
+            toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                                                          **({"error_code": "model_transport"} if transient else {}),
+                                                          "retry": retry}, started=started)
+            if retry:
+                retried = True
+                continue
+            raise
+        usage = model_usage(reply)
+        budget.used_input_tokens += usage["input_tokens"] or 0
+        budget.used_output_tokens += usage["output_tokens"] or 0
+        problem = protocol_problem(reply)
+        names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
+        finish = (getattr(reply, "response_metadata", None) or {}).get("finish_reason")
+        toolbox._step("model", "model", {}, "error" if problem else "ok",
+                      {**usage, "tool_calls": len(names), "tools": names, **({"finish_reason": finish} if finish else {}),
+                       **({"error_code": problem.code, "error": problem.message} if problem else {})}, started=started)
+        if problem:
+            raise problem
+        return reply
 
 
 def _can_call_model(toolbox: AnalysisToolbox) -> bool:
-    return not toolbox.stopped and toolbox.budget.remaining() > 0
+    return not toolbox.stopped and toolbox.budget.remaining() > 0 and not toolbox.budget.model_blocked()
 
 
 def model_usage(reply: AIMessage) -> dict[str, int | None]:
@@ -269,6 +295,8 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
                 question = f"没有找到可用的指标 {outside}，请确认要分析的是哪个指标"
             if scope is not None and (scope.clarification or "").strip():
                 question = scope.clarification.strip()
+        except ModelProtocolError:
+            raise  # 模型接入错误（截断、协议不符）是基础设施错误，不当作“理解没有结果”继续
         except Exception as exc:  # noqa: BLE001 - 理解失败不终止分析：推理阶段可以自己检索
             problem = f"理解阶段失败：{type(exc).__name__}: {str(exc)[:200]}"
             if toolbox.stopped:
@@ -331,7 +359,9 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
     told: set[str] = set()
     while toolbox.report is None and _can_call_model(toolbox) and not budget.spent():
         closing = budget.remaining() < REPORT_RESERVE_SECONDS
-        over = budget.exhausted() or ("分析时长即将用完" if closing else None)
+        last_request = budget.used_model_requests >= budget.model_requests - 1
+        over = budget.exhausted() or ("分析时长即将用完" if closing else None) or (
+            "模型请求次数即将用完" if last_request else None)
         notices = {"report_only": f"{over}。请立即基于已有数据集调用 submit_report 提交报告。" if over else None,
                    "queries": (f"{budget.queries_exhausted()}：查询类工具（query_metric、query_sql、sample_values、"
                                "explain_change）已停用；计算工具与 submit_report 仍可用，请基于已有数据集继续并提交报告。"

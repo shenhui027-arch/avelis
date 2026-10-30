@@ -61,8 +61,9 @@ DEFAULT_EFFORT = {"ask": "low", "explain": "low", "import": "low", "analysis": "
 # 提供方支持的档位 → 实际发送的档位。DeepSeek API 只有 low / high / max 三档，其他名称按官方映射表归入这三档
 # （medium 归入 high；https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/，对所有模型通用），关闭思考用
 # thinking.type=disabled，所以页面只列 关闭 / 低 / 高 / 最高。以前保存的“中”按映射表发送 high。
-# 实测（deepseek-flash，2026-10-30）：关闭时没有推理 token；low、high 推理量相近，max 明显更多；
-# 开启思考并带工具的多轮请求不带回 reasoning_content 也没有返回 400。其他提供方未核实，不传思考参数。
+# 实测（deepseek-flash，2026-10-30）：关闭时没有推理 token；low、high 推理量相近，max 明显更多。
+# 多轮工具调用按官方协议原样回传 reasoning_content（同一文档：携带 tools 的请求，后续所有请求必须完整回传，否则 400），
+# 由 llm_protocol.ReasoningRoundTripChatOpenAI 处理；“几次没报 400”不作为兼容的依据。其他提供方未核实，不传思考参数。
 DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "high": "high", "max": "max"}
 DEEPSEEK_ALIASES = {"medium": "high"}
 
@@ -329,9 +330,13 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
                              timeout=timeout, max_retries=max_retries, max_tokens=4096)
     from langchain_openai import ChatOpenAI
 
+    from avelis.llm_protocol import ReasoningRoundTripChatOpenAI
+
     extra = {"max_tokens": max_tokens} if max_tokens else {}
-    return ChatOpenAI(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=timeout,
-                      max_retries=max_retries, **extra, **_effort_kwargs(p, model_id, effort))
+    # 核实过思考协议的提供方（目前只有 DeepSeek）用带 reasoning_content 往返的实现；其余按 OpenAI 规范
+    cls = ReasoningRoundTripChatOpenAI if effort_map(p, model_id) else ChatOpenAI
+    return cls(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=timeout,
+               max_retries=max_retries, **extra, **_effort_kwargs(p, model_id, effort))
 
 
 @dataclass
