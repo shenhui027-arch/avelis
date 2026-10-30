@@ -5,8 +5,22 @@
 manifest_version: 1
 frozen_at: 2026-10-31
 authorization:
-  real_model_calls: none  # 本会话不调用真实模型；E0 冒烟、E1 运行等协调会话确认费用后另行授权
-  reference: 任务书《分析智能体优化与对照实验》第 2、12、13 节；协调会话 local_305ac1bd 的指示
+  real_model_calls: E0 与 E1  # 用户批准，经协调会话 local_305ac1bd 转达（2026-10-31）
+  amount_cap_cny: 30  # E0 + E1 合计，达到即停止，不得超出
+  date: 2026-10-31
+  scope: E0 协议冒烟（≤12 次小请求，无业务数据）；E1 ≤48 次运行（6 场景 × D0–D3 × 2）；E1 须在 E0 结果回报并获确认后运行
+  model: .env 现有的 DeepSeek Flash 指派（只读取，不打印密钥）
+  pricing:  # https://api-docs.deepseek.com/zh-cn/quick_start/pricing，2026-10-31 读取；元 / 百万 token
+    model: deepseek-flash（DeepSeek-V4.1-Flash-1017）
+    peak: {cache_hit_input: 0.04, cache_miss_input: 2, output: 8}
+    off_peak: {cache_hit_input: 0.02, cache_miss_input: 1, output: 4}
+    peak_hours: 北京时间周一至周五（法定节假日除外）9:00–12:00、14:00–18:00；其余为空闲时段
+    reasoning_tokens: 页面未说明；按已包含在 completion_tokens 中计（不重复计费）
+  spent:
+    e0: {requests: 8, cache_miss_input: 1432, cache_hit_input: 640, output: 346, period: off_peak, cny: "0.0028"}
+    e1: {cny: "0", note: 待 E0 结果审查确认后运行；运行时以 --spent 0.0028 起算}
+  retry_rule: 真实网络故障按流程规则只重试一次，计入请求数与费用上限；不为结果不好增加预算、重试或运行次数
+  reference: 任务书《分析智能体优化与对照实验》第 2、12、13 节
 
 # --- B_raw：本轮开始时的状态（不含任何修复） ---------------------------------------------------
 b_raw:
@@ -100,6 +114,15 @@ b0:
   model_client: DeepSeek 用 avelis.llm_protocol.ReasoningRoundTripChatOpenAI（reasoning_content 往返）；客户端 max_retries=0，
     流程在传输层临时错误时重试一次，计入 model_requests
   scorer_v2_sha256: 9e14790ffbede1eca62b4250c9b55146d60ae73d8cb92aa971d2f54f8cd74be0  # LF 行尾
+  scorer_git_blobs:  # git hash-object；所有实验臂运行前核对，不同就停下
+    backend/tests/eval/scoring.py: 165f7f0054b540ad7984abf973605925d7eaa517
+    backend/tests/eval/scoring_v2.py: d0ee96f45d91248d11b2b19a629d517fcb5c3c10
+    backend/tests/eval/analysis_questions.yaml: 52b359925e192b25e86340fc5aeef6b318395e0b
+    backend/tests/eval/analysis_questions_v2.yaml: 93ab74cb605db7692f268bc8d1624a04f35dfd8f
+  mutation_checks:  # 把修复改回原行为，相关测试必须失败（临时 worktree 中逐项定点变异，2026-10-31）
+    caught: [A 不停在待澄清, A 静默删除候选外指标, E 不回传 reasoning_content, E 不检测截断与编号, E 重试不计数,
+             F 带排序 / 行数也用扫描结果, F 不核对口径版本, v2 对抗题改回 v1, v2 不核对绑定, v2 不核对期间列, v2 不做审计]
+    note: “v2 不核对期间列”第一次没被抓住（测试缺口），补测试后被抓住
   known_side_effect: 理解阶段写了追问的运行会停在 clarify（232512 中 26 次有 6 次写了追问），按未完成计分；E0/E1 单列澄清率
   budget:  # 任务书第 13 节；B0 冻结，E1 / E2 所有臂相同
     seconds: 300
