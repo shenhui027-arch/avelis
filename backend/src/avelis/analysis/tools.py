@@ -85,6 +85,21 @@ class Budget:
                          "queries": self.used_queries, "explore": self.used_explore, "reports": self.reports_total,
                          "seconds": round(time.monotonic() - self.started, 1)}}
 
+    @classmethod
+    def restore(cls, view: dict, **limits) -> "Budget":
+        """从保存的预算视图（view()）恢复：已用的次数接着计数，不清零（澄清后恢复运行时用）；已用的秒数从截止时间里扣除，
+        等待用户的时间不计入。limits：本次的上限（默认取保存时的上限）。"""
+        saved, used = view.get("limits") or {}, view.get("used") or {}
+        budget = cls(**{k: limits.get(k, saved.get(k, getattr(cls, k, None))) for k in ("tool_calls", "queries", "seconds",
+                                                                                     "explore") if k in saved or k in limits})
+        budget.used_tools = max(0, int(used.get("tool_calls") or 0) - int(used.get("reports") or 0))
+        budget.reports_total = int(used.get("reports") or 0)
+        budget.used_calls = int(used.get("attempts") or 0)
+        budget.used_queries = int(used.get("queries") or 0)
+        budget.used_explore = int(used.get("explore") or 0)
+        budget.started = time.monotonic() - float(used.get("seconds") or 0)
+        return budget
+
     def queries_exhausted(self) -> str | None:
         if self.used_queries >= self.queries:
             return f"查询额度已用完（{self.queries} 次）"
@@ -468,6 +483,7 @@ class AnalysisToolbox:
         self._repair: dict | None = None  # 当前调用的参数经过语法修复时的标记（写进这次调用的步骤记录）
         self._tools: dict[str, StructuredTool] | None = None
         self.explanations: dict[str, str] = {}  # explain_change 的判定，键是 scope_key（指标、筛选、窗口）；unsupported 表示不适用
+        self.clarification: dict | None = None  # 需要用户澄清时的问题与可恢复上下文（request_clarification）
 
     # -- 记录 --
     def _step(self, kind: str, tool: str | None, args: dict, status: str, output: dict, reason: str | None = None,
@@ -735,6 +751,15 @@ class AnalysisToolbox:
         self.plan = {"scope": scope.model_dump(mode="json") if scope else None, "problem": problem}
         self._step("plan", "understand", raw or {}, "ok" if scope else "error",
                    {"scope": self.plan["scope"]} if scope else {"error": problem})
+
+    def request_clarification(self, question: str, scope: Scope | None, raw: dict | None) -> None:
+        """需要用户澄清（任务书 P0-A）：记一个 clarify 步骤，保存可恢复的上下文——原问题、模型给出的范围（含原始参数）、
+        追问与此刻已用的预算（恢复时用 Budget.restore 接着计数，额度不清零）。等待用户的时间不计入分析耗时。"""
+        self.clarification = {"question": question[:300], "scope": scope.model_dump(mode="json") if scope else None,
+                              "raw_scope": raw, "budget": self.budget.view(),
+                              "resume": {"run_question": getattr(self.run, "question", None),
+                                         "window": getattr(self.run, "window", None)}}
+        self._step("clarify", "understand", raw or {}, "waiting", {"question": self.clarification["question"]})
 
     def precheck(self, scope: Scope) -> list[str]:
         """系统预检（确定性，不经模型）：变化类按顺序执行 describe_metric、changes、data_health、explain_change

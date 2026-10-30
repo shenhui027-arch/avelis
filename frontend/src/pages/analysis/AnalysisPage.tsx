@@ -278,6 +278,7 @@ function RunDetail({ id }: { id: string }) {
       </div>
       {running ? <div className="av-banner">分析进行中：已完成 {r.steps?.length ?? 0} 步</div> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
+      {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
       {r.status === "succeeded" ? (
         <section className="av-analysis__report" aria-label="报告">
           <div className="av-analysis__verdict">

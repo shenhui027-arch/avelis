@@ -68,7 +68,7 @@ def reusable(saved: dict) -> dict[tuple[str, int], tuple[dict, dict]]:
     out = {}
     for item in saved["runs"]:
         run, key = item.get("run") or {}, (item["id"], item["repeat"])
-        if run.get("id") and run.get("status") in ("succeeded", "failed", "paused") and key in results:
+        if run.get("id") and run.get("status") in ("succeeded", "failed", "paused", "clarify") and key in results:
             out[key] = (results[key], item)
     return out
 

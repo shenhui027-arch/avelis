@@ -799,7 +799,7 @@ class AnalysisRun(Base):
     user_id: Mapped[str] = fk("app_user.id", index=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
-    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | succeeded | failed | stopped
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | succeeded | failed | stopped | clarify
     window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     plan: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     report: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
