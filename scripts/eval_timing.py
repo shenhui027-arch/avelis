@@ -34,6 +34,12 @@ def phases(steps: list[dict]) -> dict[str, dict[str, float]]:
         if kind == "note" and tool == "submit_report" and s.get("status") == "ok":
             reported = True
             continue
+        if kind == "model" and "submit_scope" in (o.get("tools") or []):  # 理解阶段（含预检后重选的那一次）
+            out["理解"]["model_calls"] += 1
+            out["理解"]["output"] += o.get("output_tokens") or 0
+            out["理解"]["reasoning"] += o.get("reasoning_tokens") or 0
+            out["理解"]["seconds"] += (s.get("duration_ms") or 0) / 1000
+            continue
         if kind == "model":
             if reported:
                 phase = "修订"

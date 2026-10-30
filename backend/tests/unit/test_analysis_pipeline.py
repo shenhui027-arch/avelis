@@ -73,7 +73,8 @@ def test_understand_failure_does_not_stop_the_analysis(monkeypatch):
 
 
 def test_precheck_runs_the_fixed_change_sequence_with_the_scope_filters(monkeypatch):
-    """变化类预检：口径详情 → 变更 → 数据健康 → explain_change（带筛选）→ 日历折算；某一步失败只记下。"""
+    """变化类预检：口径详情 → 变更 → 数据健康 → explain_change（带筛选）→ 日历折算 → 两期日趋势 → 覆盖度
+    → 来源闭包的元数据与血缘；某一步失败只记下。"""
     cat = catalog()
     box = make_box(budget=Budget(), catalog=cat, monkeypatch=monkeypatch)
     box.catalog = cat
@@ -94,15 +95,30 @@ def test_precheck_runs_the_fixed_change_sequence_with_the_scope_filters(monkeypa
         {"dataset": "D1"}))
     monkeypatch.setattr(box, "explain_change", explain)
     monkeypatch.setattr(box, "calendar_adjust", lambda **kw: calls.append(("calendar_adjust", kw)) or json.dumps(
-        {"dataset": "D3"}))
+        {"dataset": f"D{box._dataset('calc', '日历折算', ['x'], [['1']]).seq}"}))
+
+    def daily(**kw):
+        calls.append(("query_metric", kw["time_grain"], kw["filters"], kw["start_date"]))
+        ds = governed(box, ["period", "指标甲"], [["2026-08-01", "3"]])
+        return json.dumps({"dataset": f"D{ds.seq}"})
+    monkeypatch.setattr(box, "query_metric", daily)
+    monkeypatch.setattr(box, "coverage", lambda **kw: calls.append(("coverage", kw["dataset"])) or json.dumps(
+        {"dataset": "D5"}))
+    monkeypatch.setattr(box, "_source_metadata", lambda code: calls.append(("metadata", code)) or [
+        {"table": "c.d.t", "columns": [{"name": "x", "comment": "金额"}], "upstream": ["c.d.raw"]}])
     scope = Scope(question_type="change", metric_codes=["m_a"], filters=[{"dimension": "地区", "values": ["甲"]}])
     refs = box.precheck(scope)
-    assert [c[0] for c in calls] == ["describe_metric", "changes", "data_health", "explain_change", "calendar_adjust"]
+    assert [c[0] for c in calls] == ["describe_metric", "changes", "data_health", "explain_change", "calendar_adjust",
+                                     "query_metric", "coverage", "metadata"]
     assert calls[3][1] == [{"dimension": "地区", "values": ["甲"]}] and calls[3][2] == WINDOW["compare_start"]
     assert calls[4][1] == {"dataset": f"D{total.seq}", "current": "指标甲", "previous": "指标甲·对比期"}
-    assert refs == ["D1", "D2", "D3"] and box.precheck_notes == ["变更记录：变更记录不可用"]
+    assert calls[5][1:] == ("day", [{"dimension": "地区", "values": ["甲"]}], WINDOW["compare_start"])  # 两期、带筛选
+    assert refs == ["D1", "D2", "D3", "D4", "D5"] and box.precheck_notes == ["变更记录：变更记录不可用"]
+    assert box.precheck_groups == {"attribution": ["D1", "D2", "D3"], "trend": ["D4", "D5"]}
+    assert box.precheck_problem is None
     pack = box.context_pack()
     assert "口径：" in pack and "D2 自动归因" in pack and "summary：" in pack and "变更记录不可用" in pack
+    assert pack.index("D2 自动归因") < pack.index("D4 测试") < pack.index("来源表 ")  # 判定与归因 → 日趋势 → 元数据
 
 
 def test_precheck_relation_compares_segments_and_correlates(monkeypatch):
@@ -130,7 +146,7 @@ def test_context_pack_is_capped_and_lists_what_it_leaves_out(monkeypatch):
         governed(box, ["成员", "值"], [[f"成员{j}", str(j)] for j in range(30)])
     box.precheck_notes = ["某一步：" + "失败原因" * 200]  # 很长的预检错误也受上限约束
     pack = box.context_pack()
-    assert len(pack) <= box.PACK_CHARS and "个数据集放不下" in pack and "只列前 8 行" in pack
+    assert len(pack) <= box.PACK_CHARS and "项放不下" in pack and "只列前 8 行" in pack
     assert "预检中没有完成的步骤" in pack and pack.rstrip().endswith(("…", "D100"))
 
 
@@ -139,3 +155,39 @@ def test_system_prompt_is_stable_and_has_neutral_contrast_examples():
     text = agent.system_message().content
     assert "对照示例" in text and "<指标>" in text and "<成员甲>" in text
     assert "今天是" not in text and "分析窗口：本期" not in text and "预算：工具调用最多" not in text
+
+
+def test_context_pack_truncates_metadata_before_trend_and_attribution(monkeypatch):
+    """超出上限时按“判定与归因 → 日趋势与覆盖 → 元数据与血缘”的优先级截断；归因按维度各列前 3 个成员。"""
+    box = make_box(budget=Budget(), monkeypatch=monkeypatch)
+    rows = [[dim, f"{dim}{i}", "1", "2", "增加项"] for dim in ("地区", "渠道") for i in range(5)]
+    attribution = box._dataset("calc", "自动归因", ["dimension", "member", "previous", "current", "role"], rows)
+    trend = governed(box, ["period", "指标甲"], [[f"2026-09-{d:02d}", "1"] for d in range(1, 31)])
+    box.precheck_groups = {"attribution": [f"D{attribution.seq}"], "trend": [f"D{trend.seq}"]}
+    box.precheck_meta = [{"table": f"c.d.t{i}", "columns": [{"name": "x" * 50, "comment": "y" * 400}] * 8}
+                         for i in range(10)]
+    pack = box.context_pack()
+    assert len(pack) <= box.PACK_CHARS and "D1 自动归因" in pack and "D2 测试" in pack
+    assert "各维度只列前 3 个成员" in pack and "地区2" in pack and "地区3" not in pack
+    assert "项放不下" in pack and "来源表 c.d.t9" in pack.split("项放不下")[1]  # 元数据最先被省略
+
+
+def test_understanding_is_corrected_once_when_the_precheck_has_no_data(monkeypatch):
+    """理解出的指标在预检里没有数据：把原因反馈给理解阶段重选一次（计入模型调用），第二次仍没有就照常进入推理。"""
+    box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
+    config = {"configurable": {"toolbox": box, "model": None}}
+
+    def precheck(scope):
+        box.precheck_problem = "指标 m_a 在这个范围里没有可归因的数据"
+        return []
+    monkeypatch.setattr(box, "precheck", precheck)
+    scope = {"question_type": "change", "metric_codes": ["m_a"]}
+    first = agent.precheck({"scope": scope}, config)
+    assert first["phase"] == "understand" and first["retried"] and "没有可归因的数据" in first["feedback"]
+    assert agent.precheck({"scope": scope, "retried": True}, config)["phase"] == "reason"
+    model = Phased([AIMessage(content="", tool_calls=[{"name": "submit_scope", "args": {"question_type": "change",
+                                                                                         "metric_codes": ["m_b"]},
+                                                       "id": "s2"}])])
+    out = agent.understand({"question": "问题", "context": {}, "feedback": first["feedback"]},
+                           {"configurable": {"toolbox": box, "model": model}})
+    assert "上一次的范围在系统预检里没有数据：指标 m_a" in model.seen[0][-1].content and out["scope"]["metric_codes"] == ["m_b"]

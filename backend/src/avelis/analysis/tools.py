@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -123,6 +124,16 @@ class PermissionDenied(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def _scan_key(args) -> str:
+    """维度扫描的去重键：指标、分组维度、本期、对比期与规范化的筛选（不含排序、行数与 purpose）。只请求本期的查询
+    （不带对比）用对比期为空的键，命中时返回带两期的数据集。"""
+    compare = (str(args.compare_start), str(args.compare_end)) if args.compare == "custom" else (
+        None if args.compare is None else args.compare)
+    filters = sorted((f.dimension, sorted(set(f.values))) for f in args.filters)
+    return json.dumps([sorted(args.metric_codes), sorted(args.group_by), str(args.start_date), str(args.end_date),
+                       compare, filters], ensure_ascii=False)
 
 
 def repair_arguments(raw: str) -> dict | None:
@@ -442,6 +453,7 @@ class AnalysisToolbox:
         self._seq = 0
         self._datasets: dict[str, AnalysisDataset] = {}
         self._governed: dict[str, AnalysisDataset] = {}  # 受治理查询参数（不含 purpose）→ 数据集：相同查询复用
+        self._scanned: dict[str, AnalysisDataset] = {}  # explain_change 扫描过的“指标 × 维度 × 窗口 × 筛选” → 数据集
         self._repair: dict | None = None  # 当前调用的参数经过语法修复时的标记（写进这次调用的步骤记录）
         self._tools: dict[str, StructuredTool] | None = None
         self.explanations: dict[str, str] = {}  # explain_change 的判定，键是 scope_key（指标、筛选、窗口）；unsupported 表示不适用
@@ -676,7 +688,8 @@ class AnalysisToolbox:
 
     # -- 理解与系统预检（ADR 0012） --
     CANDIDATES = 10
-    PACK_CHARS = 9000  # 上下文包的长度上限（约 4500 token）；完整数据保存在数据集中
+    PACK_CHARS = 15000  # 上下文包的长度上限（约 7500 token）；完整数据保存在数据集中
+    META_TABLES, META_COLUMNS = 4, 20  # 来源闭包的元数据：最多几张表、每张表几列
     PACK_ROWS = 8
 
     def candidate_metrics(self, question: str) -> list[dict[str, Any]]:
@@ -706,9 +719,12 @@ class AnalysisToolbox:
         查询照常计入额度、检查权限并记录步骤；某一步失败只记下，不影响其余步骤。返回产出的数据集编号。"""
         refs: list[str] = []
         self.precheck_notes: list[str] = []
+        self.precheck_groups: dict[str, list[str]] = {"attribution": [], "trend": []}
+        self.precheck_meta: list[dict] = []
+        self.precheck_problem: str | None = None  # 所选指标在预检里没有数据的原因：理解阶段据此重选一次
         window = self._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
 
-        def run(label: str, call) -> dict:
+        def run(label: str, call, group: str = "attribution") -> dict:
             try:
                 out = json.loads(call())
             except Exception as exc:  # noqa: BLE001 - 预检的单步失败如实记下
@@ -717,12 +733,18 @@ class AnalysisToolbox:
                 self.precheck_notes.append(f"{label}：{str(out['error'])[:200]}")
             elif out.get("dataset"):
                 refs.append(out["dataset"])
+                self.precheck_groups[group].append(out["dataset"])
             return out
+        if scope.question_type in ("change", "relation") and not scope.metric_codes:
+            self.precheck_problem = "没有选出候选口径里的指标"
         if not scope.metric_codes or not window["start"]:
             return refs
         code, filters = scope.metric_codes[0], [f.model_dump() for f in scope.filters]
         if scope.question_type == "change":
             self.precheck_metric = run("口径详情", lambda: self.describe_metric(code=code))
+            if self.precheck_metric.get("error"):
+                self.precheck_problem = f"指标 {code} 不可用：{str(self.precheck_metric['error'])[:200]}"
+                return refs
             if not window["compare_start"]:
                 self.precheck_notes.append("没有对比期：跳过变更、归因与日历折算")
                 return refs
@@ -733,6 +755,8 @@ class AnalysisToolbox:
             explained = run("自动归因", lambda: self.explain_change(
                 metric_code=code, filters=filters, start_date=window["start"], end_date=window["end"],
                 compare_start=window["compare_start"], compare_end=window["compare_end"], purpose="系统预检：自动归因"))
+            if explained.get("error"):
+                self.precheck_problem = f"指标 {code} 在这个范围里没有可归因的数据：{str(explained['error'])[:200]}"
             ds = self._datasets.get(explained.get("dataset") or "")
             summary = (ds.meta or {}).get("summary") or {} if ds else {}
             total = ds.inputs[0] if ds and ds.inputs else None
@@ -740,8 +764,18 @@ class AnalysisToolbox:
             if total and summary.get("algorithm") == "additive" and name is not None:
                 run("日历折算", lambda: self.calendar_adjust(dataset=total, current=name.name,
                                                             previous=f"{name.name}·对比期"))
+            if factor := (summary.get("factor_decomposition") or {}).get("dataset"):
+                self.precheck_groups["attribution"].append(factor)
+            daily = run("日趋势", lambda: self.query_metric(
+                metric_codes=[code], start_date=window["compare_start"], end_date=window["end"], filters=filters,
+                time_grain="day", purpose="系统预检：两期的日趋势"), "trend")
+            if daily.get("dataset"):
+                run("覆盖度", lambda: self.coverage(dataset=daily["dataset"], start_date=date.fromisoformat(
+                    window["compare_start"]), end_date=date.fromisoformat(window["end"])), "trend")
+            self.precheck_meta = self._source_metadata(code)
         elif scope.question_type == "relation":
             dims = scope.dimensions[:2]
+            self.precheck_meta = self._source_metadata(code)
             for dim in dims:
                 out = run(f"按{dim}取数", lambda dim=dim: self.query_metric(
                     metric_codes=scope.metric_codes, start_date=window["start"], end_date=window["end"],
@@ -755,11 +789,45 @@ class AnalysisToolbox:
                 if len(measures) >= 2:
                     run(f"按{dim}的相关", lambda ref=out["dataset"], measures=measures: self.correlate(
                         dataset=ref, x=measures[0], y=measures[1]))
+            if dims and not refs:
+                self.precheck_problem = f"指标 {'、'.join(scope.metric_codes)} 按 {'、'.join(dims)} 取不到数据"
         return refs
 
+    def _source_metadata(self, code: str) -> list[dict]:
+        """所问口径来源闭包的元数据与血缘子图（ADR 0012 预检）：每张表的列（口径里用到的、有注释的排在前面）、字段注释、
+        上游一层与视图定义摘要。读取照常经过权限核对并记录步骤；读不到的表跳过。"""
+        try:
+            _, version, versions, closure = self._metric_sources(code)
+        except Exception:  # noqa: BLE001 - 不可见时不给元数据
+            return []
+        used: set[str] = set()
+        for v in versions or [version]:
+            used |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", f"{v.expression or ''} {v.time_column or ''}"))
+            used |= {d.get("column") for d in (v.dimensions or []) if d.get("column")}
+        tables = []
+        for asset in list(closure.values())[:self.META_TABLES]:
+            qualified = f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
+            try:
+                detail = json.loads(self.describe_asset(qualified=qualified))
+                graph = json.loads(self.lineage(qualified=qualified))
+            except Exception:  # noqa: BLE001 - 单表失败不影响其余
+                continue
+            if detail.get("error"):
+                continue
+            columns = sorted(detail.get("columns") or [], key=lambda c: (
+                c["name"] not in used, not ((c.get("doc") or {}).get("comment"))))[:self.META_COLUMNS]
+            tables.append({"table": qualified, "kind": detail.get("kind"), "comment": detail.get("comment"),
+                           "columns": [{"name": c["name"], "type": c.get("type"),
+                                        "comment": (c.get("doc") or {}).get("comment")} for c in columns],
+                           "upstream": sorted({e["source"] for e in graph.get("edges") or []
+                                               if e.get("target") == qualified})[:8],
+                           "definition": (detail.get("definition") or "")[:400] or None})
+        return tables
+
     def context_pack(self) -> str:
-        """紧凑的上下文包（ADR 0012 第 2 段）：每个数据集的编号、标题、关键汇总与前若干行。总长度（含分隔符、预检错误与
-        省略标记）不超过 PACK_CHARS：放不下的数据集只在末尾的省略标记里列编号，标记本身也受上限约束。
+        """紧凑的上下文包（ADR 0012 第 2 段）。按优先级排列，超出上限时从后往前截断：判定与归因（explain_change 的判定、
+        各维度前 3 个成员的两期明细、因子拆解、日历折算、变更与数据健康）→ 日趋势与覆盖 → 来源闭包的元数据与血缘 →
+        其他数据集。总长度（含分隔符、预检错误与省略标记）不超过 PACK_CHARS；放不下的在末尾的省略标记里列出。
         完整数据保存在数据集中，引用 Dn 照常核验。"""
         sep, cap = "\n\n", self.PACK_CHARS
         lines: list[str] = []
@@ -773,36 +841,63 @@ class AnalysisToolbox:
             lines.append(text)
             used += cost
             return True
-        reserve = 300  # 留给预检错误与省略标记
+        reserve = 400  # 留给预检错误与省略标记
+        omitted: list[str] = []
         metric = getattr(self, "precheck_metric", None) or {}
         if metric and not metric.get("error"):
             keep = {k: metric.get(k) for k in ("code", "name", "kind", "unit", "expression", "time_column", "dimensions",
                                                 "components") if metric.get(k) is not None}
             add("口径：" + _json(keep)[:1200], cap - reserve)
-        omitted: list[str] = []
-        for ref, ds in self._datasets.items():
-            head = f"{ref} {ds.title}（{ds.kind}，{len(ds.rows)} 行{'，截断' if ds.truncated else ''}）"
-            body = []
-            summary = (ds.meta or {}).get("summary")
-            if summary:
-                body.append("summary：" + _json(summary)[:1500])
-            body.append("列：" + "、".join(ds.columns))
-            body += ["  " + _json(r)[:300] for r in ds.rows[:self.PACK_ROWS]]
-            if len(ds.rows) > self.PACK_ROWS:
-                body.append(f"  （只列前 {self.PACK_ROWS} 行，共 {len(ds.rows)} 行）")
-            if omitted or not add("\n".join([head, *body]), cap - reserve):
+        groups = getattr(self, "precheck_groups", None) or {}
+        first = [r for r in groups.get("attribution", []) if r in self._datasets]
+        trend = [r for r in groups.get("trend", []) if r in self._datasets]
+        rest = [r for r in self._datasets if r not in first and r not in trend]
+        for ref in first + trend:
+            if omitted or not add(self._pack_block(ref, self._datasets[ref]), cap - reserve):
+                omitted.append(ref)
+        for table in getattr(self, "precheck_meta", None) or []:
+            block = "来源表 " + _json(table)[:2500]
+            if omitted or not add(block, cap - reserve):
+                omitted.append(f"来源表 {table['table']}")
+        for ref in rest:
+            if omitted or not add(self._pack_block(ref, self._datasets[ref]), cap - reserve):
                 omitted.append(ref)
         notes = getattr(self, "precheck_notes", None) or []
         if notes:
-            room = cap - used - len(sep) - (120 if omitted else 0)
+            room = cap - used - len(sep) - (160 if omitted else 0)
             text = "预检中没有完成的步骤：" + "；".join(notes)
             add(text if len(text) <= room else text[:max(0, room - 1)] + "…", cap)
         if omitted:
-            marker = f"其余 {len(omitted)} 个数据集放不下，需要时用计算工具读取："
+            marker = f"其余 {len(omitted)} 项放不下，需要时用工具读取："
             room = cap - used - len(sep) - len(marker)
             listed = "、".join(omitted)
             add(marker + (listed if len(listed) <= room else listed[:max(0, room - 1)] + "…"), cap)
         return sep.join(lines) or "（没有预检数据）"
+
+    def _pack_block(self, ref: str, ds: AnalysisDataset) -> str:
+        """上下文包里的一个数据集：编号、标题、关键汇总与前若干行；自动归因按维度各列前 3 个成员的两期明细。"""
+        head = f"{ref} {ds.title}（{ds.kind}，{len(ds.rows)} 行{'，截断' if ds.truncated else ''}）"
+        body = []
+        summary = (ds.meta or {}).get("summary")
+        if summary:
+            body.append("summary：" + _json(summary)[:1500])
+        body.append("列：" + "、".join(ds.columns))
+        if "dimension" in ds.columns and "role" in ds.columns:  # 自动归因：各维度前 3 个成员
+            seen: dict[str, int] = {}
+            picked = []
+            for r in ds.rows:
+                dim = r[ds.columns.index("dimension")]
+                if seen.get(dim, 0) < 3:
+                    seen[dim] = seen.get(dim, 0) + 1
+                    picked.append(r)
+            body += ["  " + _json(r)[:300] for r in picked]
+            if len(picked) < len(ds.rows):
+                body.append(f"  （各维度只列前 3 个成员，共 {len(ds.rows)} 行）")
+        else:
+            body += ["  " + _json(r)[:300] for r in ds.rows[:self.PACK_ROWS]]
+            if len(ds.rows) > self.PACK_ROWS:
+                body.append(f"  （只列前 {self.PACK_ROWS} 行，共 {len(ds.rows)} 行）")
+        return "\n".join([head, *body])
 
     def submit_report(self, title: str | list, summary: str | list, claims: list[Claim],
                       unexplained: str | list | None = None, conclusion: str | None = None,
@@ -1050,6 +1145,14 @@ class AnalysisToolbox:
             ref = f"D{reused.seq}"
             return {**self._view(ref, reused), "reused": True,
                     "note": f"与 {ref} 是相同的受治理查询：直接复用 {ref}，不计查询额度"}, reused, "ok"
+        scanned = self._scanned.get(_scan_key(args)) if args.group_by and not args.time_grain else None
+        if scanned is not None:  # explain_change 已扫描过同样的指标 × 维度 × 窗口 × 筛选（含两期）：直接复用
+            for code in args.metric_codes:
+                self._metric_sources(code)
+            ref = f"D{scanned.seq}"
+            return {**self._view(ref, scanned), "reused": True,
+                    "note": f"explain_change 已按同样的指标、维度、窗口与筛选扫描过：直接复用 {ref}（含本期与对比期），"
+                            "不计查询额度"}, scanned, "ok"
         exhausted = self.budget.queries_exhausted()
         if exhausted:
             raise ValueError(f"{exhausted}：查询类工具已停用，请基于已有数据集继续，计算工具与 submit_report 仍可用")
@@ -1295,6 +1398,10 @@ class AnalysisToolbox:
                            compare_start=cstart if compare else None, compare_end=cend if compare else None,
                            purpose=f"{args.purpose}：{purpose}")
             out, ds, status = self._run_query(qa)
+            if ds is not None and compare and not ds.truncated:  # 模型再按同样的维度分组取数时直接复用
+                for key in (_scan_key(qa), _scan_key(qa.model_copy(update={"compare": None, "compare_start": None,
+                                                                           "compare_end": None}))):
+                    self._scanned.setdefault(key, ds)
             if ds is None:
                 if status == "denied" and out.get("error_code") == "permission":
                     raise PermissionDenied(out.get("message") or "查询被拒绝")

@@ -410,3 +410,16 @@ def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):
     assert total == D("-300")  # 各因子贡献相加等于总差额
     assert D(str(rows["y"]["contribution"])) > 0 > D(str(rows["r"]["contribution"]))  # 分母上升、比率下降
     assert ds.meta["metric_codes"] == ["r", "x", "y"] and ds.meta["units"]["contribution"]["kind"] == "delta"
+
+
+def test_dimension_scans_are_registered_for_reuse(monkeypatch):
+    """explain_change 扫描过的“指标 × 维度 × 窗口 × 筛选”登记为可复用：同样分组、带或不带对比期的取数都命中。"""
+    from avelis.analysis.tools import QueryArgs, _scan_key
+
+    box, _ = additive_box(monkeypatch, SCENARIO)
+    json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
+    base = dict(metric_codes=["x"], start_date=WINDOW["start"], end_date=WINDOW["end"], group_by=["维度A"], purpose="p")
+    with_compare = QueryArgs(**base, compare="custom", compare_start=WINDOW["compare_start"],
+                             compare_end=WINDOW["compare_end"], order="desc", limit=5)
+    assert _scan_key(with_compare) in box._scanned and _scan_key(QueryArgs(**base)) in box._scanned
+    assert _scan_key(QueryArgs(**{**base, "group_by": ["维度C"]})) not in box._scanned
