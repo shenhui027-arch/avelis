@@ -765,3 +765,29 @@ def test_report_scope_copied_from_explain_change_matches_its_verdict(monkeypatch
     box.budget.used_reports = 0
     box.dispatch("submit_report", {**report, "scope": {"metric_code": "m_a", "filters": copied["filters"]}})
     assert box.report["scope"] == copied  # 窗口取本次分析的窗口
+
+
+def test_each_model_call_records_latency_tokens_and_tool_calls(monkeypatch):
+    """ADR 0012 度量：每次模型调用记一个 model 步骤：耗时、输入 / 输出 / 缓存命中的 token 数、本轮工具调用数。"""
+    box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)
+    reply = AIMessage(content="", tool_calls=[{"name": "search_metrics", "args": {}, "id": "c1"},
+                                              {"name": "search_metrics", "args": {}, "id": "c2"}],
+                      usage_metadata={"input_tokens": 1200, "output_tokens": 80, "total_tokens": 1280},
+                      response_metadata={"token_usage": {"prompt_cache_hit_tokens": 1024}})
+
+    class Model:
+        def bind_tools(self, tools):
+            return self
+
+        def invoke(self, messages):
+            return reply
+
+    agent._round({"messages": []}, box, Model())
+    steps = [s for s in box.session.added if getattr(s, "kind", None) == "model"]
+    assert len(steps) == 1 and steps[0].seq == 1 and steps[0].duration_ms is not None  # 在这一轮的工具步骤之前
+    assert steps[0].output == {"input_tokens": 1200, "output_tokens": 80, "cache_hit_tokens": 1024, "tool_calls": 2}
+    plain = AIMessage(content="", usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12,
+                                                  "input_token_details": {"cache_read": 8}})
+    assert agent.model_usage(plain) == {"input_tokens": 10, "output_tokens": 2, "cache_hit_tokens": 8}
+    assert agent.model_usage(AIMessage(content="")) == {"input_tokens": None, "output_tokens": None,
+                                                        "cache_hit_tokens": None}

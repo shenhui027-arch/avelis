@@ -818,7 +818,7 @@ class AnalysisStep(Base):
     id: Mapped[str] = pk()
     run_id: Mapped[str] = fk("analysis_run.id")
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # plan | tool | note
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # plan | tool | note | model（模型调用的度量）
     tool: Mapped[str | None] = mapped_column(String(64))
     args: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)

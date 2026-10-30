@@ -246,7 +246,11 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     conclusion = report.get("conclusion")
     failed = sources_failed(verification) if completed else None
     forbidden = [w for w in expect.get("forbidden") or [] for c in causes if w in _entity_text(c)]
+    steps = (run or {}).get("steps") or []
     out: dict[str, Any] = {"id": question["id"], "category": category, "status": status, "completed": completed,
+                           # 度量（ADR 0012）：模型调用次数与运行总耗时（秒）
+                           "model_calls": sum(1 for s in steps if s.get("kind") == "model") if run else None,
+                           "seconds": ((run or {}).get("budget") or {}).get("used", {}).get("seconds"),
                            "conclusion": conclusion, "conclusion_ok": conclusion in (expect.get("conclusion") or []),
                            "sources_failed": failed, "forbidden": sorted(set(forbidden)), "primary_hit": None,
                            "key_value_hit": None, "required_in_causes": None}
@@ -278,8 +282,30 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     return out
 
 
+CHANGE_CATEGORIES = ("dimension", "factor", "calendar", "governance", "explore", "negative", "adversarial")
+
+
+def _spread(values: list) -> dict[str, Any]:
+    """中位数与 P90（最近秩）；没有数据时为 None。"""
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return {"n": 0, "median": None, "p90": None}
+    mid = len(vals) // 2
+    median = vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+    return {"n": len(vals), "median": round(median, 1), "p90": round(vals[max(0, -(-len(vals) * 9 // 10) - 1)], 1)}
+
+
+def latency(results: list[dict]) -> dict[str, Any]:
+    """每次运行的模型调用次数与总耗时的中位数、P90（全部运行，以及“为什么变化”类：评测集里除关系类以外都是）。"""
+    change = [r for r in results if r["category"] in CHANGE_CATEGORIES]
+    return {"model_calls": _spread([r.get("model_calls") for r in results]),
+            "seconds": _spread([r.get("seconds") for r in results]),
+            "change_model_calls": _spread([r.get("model_calls") for r in change]),
+            "change_seconds": _spread([r.get("seconds") for r in change])}
+
+
 def summarize(results: list[dict]) -> dict[str, Any]:
-    """总体与分类的通过比例、首要原因命中率（正例）、同一题重复运行的稳定性（各次结果是否一致）。"""
+    """总体与分类的通过比例、首要原因命中率（正例）、同一题重复运行的稳定性（各次结果是否一致），以及耗时度量。"""
     def rate(items: list[dict], key: str = "passed") -> dict[str, Any]:
         n = len(items)
         hit = sum(1 for r in items if r.get(key))
@@ -302,6 +328,7 @@ def summarize(results: list[dict]) -> dict[str, Any]:
                             "sources_failed_runs": sum(1 for r in members if r.get("sources_failed"))}
     return {
         "groups": groups,
+        "latency": latency(results),
         "overall": rate(results),
         "completed": rate(results, "completed"),
         "primary_hit": rate(positives, "primary_hit"),
@@ -323,6 +350,9 @@ def markdown(summary: dict, results: list[dict], meta: dict) -> str:
              f"- 稳定性：{summary['stability']['stable']}/{summary['stability']['questions']} 题各次结果一致"
              + (f"（不一致：{'、'.join(summary['stability']['unstable'])}）" if summary['stability']['unstable'] else ""),
              ""]
+    lat = summary.get("latency") or latency(results)
+    lines += [f"- 耗时（变化类）：中位 {lat['change_seconds']['median']} 秒，P90 {lat['change_seconds']['p90']} 秒；"
+              f"模型调用中位 {lat['change_model_calls']['median']} 次，P90 {lat['change_model_calls']['p90']} 次", ""]
     names = {"tuning": "调优集", "holdout": "留出题"}
     lines += [f"- {names[g]}：总体 {pct(v['overall'])}；完成率 {pct(v['completed'])}；首要原因命中（正例）"
               f"{pct(v['primary_hit'])}；来源未通过的运行 {v['sources_failed_runs']}"
