@@ -476,6 +476,7 @@ class Scope(BaseModel):
     metric_codes: list[str] = Field(default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）")
     filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选：维度名与取值（如某个区域）")
     dimensions: list[str] = Field(default_factory=list, max_length=3, description="取数时的分组或关系类问题要对比的维度名")
+    time_grain: Literal["day", "month"] | None = Field(None, description="只在问题要求按日、按月列出时填写")
     order: Literal["asc", "desc"] | None = Field(None, description="只在取数问排名时填写：升序 / 降序")
     limit: int | None = Field(None, ge=1, le=MAX_LIMIT, description="只在取数问前 N 时填写，最多 100")
     start_date: date | None = Field(None, description="本期开始；问题没有另说时不写（取本次分析的窗口）")

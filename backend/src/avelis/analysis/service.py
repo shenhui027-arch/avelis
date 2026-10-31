@@ -329,8 +329,6 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     for candidate in checkpoint.get("candidates") or []:
         if candidate not in candidates:
             candidates.append(candidate)
-    if candidates:
-        checkpoint["candidates"] = candidates
     # 停止请求与最终完成竞争时，以本次行锁读取的标记为准，不再请求模型或执行工具。
     if run.stop_requested:
         if toolbox is None:
@@ -344,6 +342,14 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         checkpoint["resume_pending"] = False
         checkpoint["snapshot"] = toolbox.snapshot()
     run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
+    if candidates:
+        # 等理解阶段结束后补引用，避免连续追问时丢掉前一轮回答；仍无引用的理解候选不提供保存。
+        if status != "waiting" or checkpoint["pending"]["kind"] != "clarify":
+            for candidate in candidates:
+                if candidate["source"]["checkpoint"] == "understand" and not candidate["refs"]:
+                    candidate["refs"] = _scope_metric_refs(session, checkpoint)
+            candidates = [c for c in candidates if c["refs"] or c["source"]["checkpoint"] != "understand"]
+        checkpoint["candidates"] = candidates
     run.checkpoint = checkpoint
     run.model_adapter = adapter
     run.reasoning_effort = effective

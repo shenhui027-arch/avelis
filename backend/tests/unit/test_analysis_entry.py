@@ -255,8 +255,31 @@ def test_lookup_maps_understood_window_and_ranking_to_intent(monkeypatch, order,
     assert len(model.seen) == box.budget.used_model_requests == box.budget.used_queries == 1
 
 
+@pytest.mark.parametrize("question,time_grain", [
+    ("9 月每天的产量", "day"),
+    ("今年每月的产量", "month"),
+    ("9 月的产量", None),
+])
+def test_lookup_maps_understood_time_grain_to_intent(monkeypatch, question, time_grain):
+    scope = {"time_grain": time_grain} if time_grain else {}
+    box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(**scope)])
+    box.run.question = state["question"] = question
+    window = {"start": "2026-09-01", "end": "2026-09-30"}
+    box.run.window = state["context"]["window"] = window
+    _, calls = fake_ask(monkeypatch, box)
+
+    final = agent.build_graph(MemorySaver()).invoke(state, config)
+
+    assert final["phase"] == "done" and prechecks == [] and len(calls) == 1
+    assert calls[0].time_grain == time_grain
+    assert box.plan["scope"]["time_grain"] == time_grain
+    assert len(model.seen) == box.budget.used_model_requests == box.budget.used_queries == 1
+
+
 @pytest.mark.parametrize("scope,error", [
     ({"compare_start": "2026-08-31", "compare_end": "2026-08-01"}, "compare_start"),
+    ({"time_grain": "day", "compare_start": "2026-08-01", "compare_end": "2026-08-31"},
+     "按时间分组时不能同时"),
     ({"metric_codes": []}, "取数范围没有指标"),
 ])
 def test_invalid_lookup_intent_falls_back_without_asking_or_spending_a_query(monkeypatch, scope, error):
