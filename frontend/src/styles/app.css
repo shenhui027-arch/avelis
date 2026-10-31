@@ -1,7 +1,14 @@
 /* 应用层补充：只引用 tokens.css 的变量。设计系统暂缺的组件在此扩展（av-switch、av-hint、av-drawer），
    后续回收进 Avelis UI 设计系统。 */
 
-html, body, #root { height: 100%; margin: 0; background: var(--bg-canvas); }
+html, body, #root { height: 100%; margin: 0; }
+/* 应用背景：主题渐变图铺满并固定，玻璃面板透出它（素材见 public/brand，规范见设计系统 v2） */
+body { background: var(--bg-canvas) url("/brand/app-dark.webp") center / cover fixed no-repeat; }
+:root[data-theme="light"] body { background-image: url("/brand/app-light.webp"); }
+/* 玻璃面板：半透明底 + 模糊 + 顶部细高光 */
+.av-panel, .av-workspace, .av-inspector, .av-stages, .av-answer, .av-composer, .av-auth__card, .av-drawer, .av-menu, .av-float, .av-minimap {
+  -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); }
+.av-panel, .av-workspace, .av-stages, .av-answer, .av-composer { box-shadow: var(--shadow-glass); }
 body { font-family: var(--font-sans); }
 .av-app { height: 100vh; min-height: 0; }
 .av-main { min-height: 0; overflow: hidden; }
@@ -19,8 +26,8 @@ body { font-family: var(--font-sans); }
 .av-hint:focus-visible { color: var(--text-primary); outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 
 /* 抽屉 */
-.av-backdrop { position: fixed; inset: 0; z-index: 20; background: var(--bg-scrim); }
-.av-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 21; display: flex; flex-direction: column; width: 440px; max-width: 100vw; background: var(--bg-overlay); border-left: 1px solid var(--line-default); box-shadow: var(--shadow-overlay); }
+.av-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--bg-scrim); }
+.av-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 51; display: flex; flex-direction: column; width: 440px; max-width: 100vw; background: var(--bg-overlay); border-left: 1px solid var(--line-default); box-shadow: var(--shadow-overlay); }
 .av-drawer__bd { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
 .av-drawer__ft { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line-subtle); }
 
@@ -79,7 +86,7 @@ body { font-family: var(--font-sans); }
 .av-input-group .av-input { flex: 1; min-width: 0; }
 
 /* 认证页：登录（品牌区 + 表单）与单卡片页（修改口令） */
-.av-auth, .av-login { min-height: 100vh; background: var(--bg-canvas); color: var(--text-primary); }
+.av-auth, .av-login { min-height: 100vh; background: transparent; color: var(--text-primary); }
 .av-auth { display: grid; place-items: center; padding: var(--space-6); }
 .av-auth__brand { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font: 600 16px/24px var(--font-sans); letter-spacing: -0.01em; }
 .av-auth__card { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; max-width: 360px; padding: var(--space-8) var(--space-6); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-overlay); }
@@ -93,7 +100,7 @@ body { font-family: var(--font-sans); }
 .av-auth__card > .av-btn--lg { width: 100%; }
 
 .av-login { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(400px, 1fr); }
-.av-login__brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) 56px; overflow: hidden; border-right: 1px solid var(--line-subtle); background-color: var(--bg-base); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px); background-size: 20px 20px; }
+.av-login__brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) 56px; overflow: hidden; border-right: 1px solid var(--line-subtle); background-color: var(--bg-surface); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px); background-size: 20px 20px; }
 .av-login__pitch { display: flex; flex-direction: column; gap: var(--space-3); max-width: 460px; }
 .av-login__pitch h1 { margin: 0; font: 600 32px/40px var(--font-sans); letter-spacing: -0.02em; }
 .av-login__pitch p { margin: 0; color: var(--text-secondary); font: 400 15px/24px var(--font-sans); }
