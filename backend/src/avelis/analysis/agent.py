@@ -291,6 +291,11 @@ def _ctx(config) -> tuple[AnalysisToolbox, Any]:
     return c["toolbox"], c["model"]
 
 
+def _model_timeout_seconds() -> float:
+    # 保留离线实验的进程内临时覆盖；常规请求在调用时读取配置。
+    return MODEL_TIMEOUT_SECONDS if MODEL_TIMEOUT_SECONDS != 60 else get_settings().model_timeout_seconds
+
+
 def _model_for(model, budget, **phase):
     """返回本次请求的模型及是否实际使用预算输出上限；仅在剩余额度低于阶段上限或预算阈值时收紧输出。
     超时不超过剩余时间，客户端不自行重试（_invoke 负责并计入预算）。
@@ -304,7 +309,7 @@ def _model_for(model, budget, **phase):
         phase_limit if phase_limit is not None else BUDGET_OUTPUT_CEILING)
     if output_budget_limited:
         phase["max_tokens"] = remaining
-    return (factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, budget.remaining())), max_retries=0, **phase),
+    return (factory(timeout=max(1.0, min(_model_timeout_seconds(), budget.remaining())), max_retries=0, **phase),
             output_budget_limited)
 
 
@@ -437,7 +442,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tool
             reply: AIMessage = bound.invoke(messages)
         except Exception as exc:
             transient = _is_transient_error(exc)
-            retry = (transient and not retried and budget.remaining() > 2 * MODEL_TIMEOUT_SECONDS
+            retry = (transient and not retried and budget.remaining() > 2 * _model_timeout_seconds()
                      and not budget.model_blocked() and not toolbox.stopped)
             toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}",
                                                           **({"error_code": "model_transport"} if transient else {}),

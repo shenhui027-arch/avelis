@@ -1,0 +1,135 @@
+# Avelis 部署编排：应用（API + 前端，单端口）、worker、PostgreSQL 元数据库、Redis（Valkey）。
+#
+#   cd deploy/docker
+#   cp avelis.example.toml avelis.toml   # 填写【必填】项
+#   docker compose up -d --build
+#   浏览器打开 http://<服务器 IP>:8080
+#
+# 应用配置全部在 avelis.toml（挂载到容器 /etc/avelis/avelis.toml）。.env 只放编排参数（对外端口、镜像名），可选。
+# 内置 postgres 与 redis 的口令也取自 avelis.toml：一次性的 config 服务先校验配置，再把口令导出给它们。
+# 使用外部 PostgreSQL / Redis：docker compose -f compose.yaml -f compose.external.yaml up -d，见 docs/deployment.md。
+#
+# 与仓库里的演示环境（deploy/demo/compose.yaml，项目名 avelis-demo）完全独立：
+# 项目名、网络、数据卷都不同，不会重建或删除演示容器。
+
+name: avelis
+
+x-avelis: &avelis
+  image: ${AVELIS_IMAGE:-avelis:0.1.0}
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  init: true
+  environment:
+    AVELIS_CONFIG: /etc/avelis/avelis.toml
+    # 容器里不读仓库根目录的 .env
+    AVELIS_ENV_FILE: /nonexistent
+  volumes:
+    - &config-mount
+      type: bind
+      source: ./avelis.toml
+      target: /etc/avelis/avelis.toml
+      read_only: true
+      bind:
+        create_host_path: false   # 没有 avelis.toml 时直接报错，而不是建一个同名空目录
+  extra_hosts:
+    # Linux 上让容器能用 host.docker.internal 访问宿主机上的数据库（Docker Desktop 自带）
+    - "host.docker.internal:host-gateway"
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  # 一次性：校验 avelis.toml（有错就打印中文说明并退出），并把内置服务的口令导出到共享卷
+  config:
+    <<: *avelis
+    restart: "no"
+    command: ["python", "-m", "avelis.config", "export-service-secrets", "/run/avelis-secrets"]
+    volumes:
+      - *config-mount
+      - service-secrets:/run/avelis-secrets
+    healthcheck:
+      disable: true
+
+  app:
+    <<: *avelis
+    restart: unless-stopped
+    ports:
+      - "${AVELIS_BIND_ADDRESS:-0.0.0.0}:${AVELIS_HTTP_PORT:-8080}:8000"
+    depends_on:
+      config:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+  worker:
+    <<: *avelis
+    restart: unless-stopped
+    command: ["python", "-m", "avelis.jobs"]
+    depends_on:
+      # 等应用完成迁移并就绪后再启动
+      app:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    depends_on:
+      config:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: avelis
+      POSTGRES_DB: avelis
+      POSTGRES_PASSWORD_FILE: /run/avelis-secrets/postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - service-secrets:/run/avelis-secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avelis -d avelis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    depends_on:
+      config:
+        condition: service_completed_successfully
+    # 读口令后仍经官方入口脚本启动（由它降权为 valkey 用户）；口令文件缺失或为空时拒绝启动，不会退化成无认证
+    command: ["sh", "-c", "p=$$(cat /run/avelis-secrets/redis_password 2>/dev/null) && [ -n \"$$p\" ] || { echo '缺少 Redis 口令：请在 avelis.toml 的 [redis] password 填写' >&2; exit 1; }; exec docker-entrypoint.sh valkey-server --requirepass \"$$p\" --appendonly yes"]
+    volumes:
+      - redisdata:/data
+      - service-secrets:/run/avelis-secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/avelis-secrets/redis_password)\" valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
+  redisdata:
+  service-secrets:
+
+networks:
+  default:
+    # 显式子网：主机上 Compose 项目很多时，Docker 默认地址池可能用尽（all predefined address pools have been fully subnetted）。
+    # 与本机或内网网段冲突时，在 .env 修改 AVELIS_DOCKER_SUBNET
+    ipam:
+      config:
+        - subnet: ${AVELIS_DOCKER_SUBNET:-10.240.18.0/24}
