@@ -718,6 +718,14 @@
 
 /* 分析过程流（像对话一样实时展开每一步；运行中可插话、可停止） */
 .av-runlog { display: flex; flex-direction: column; gap: var(--space-3); }
+/* 思考区：标题行可折叠；推理原文是灰色正文，左侧细线，不藏在按钮后面 */
+.av-think__hd { display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-2); height: 32px; padding: 0 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); background: var(--bg-raised); color: var(--text-secondary); font: 500 13px/1 var(--font-sans); cursor: pointer; }
+.av-think__hd:hover { color: var(--text-primary); }
+.av-think__hd[aria-expanded="true"] .av-icon:last-child { transform: rotate(180deg); }
+.av-think__ft { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0 0 40px; }
+.av-thought { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--line-default); }
+.av-thought__text { margin: 0; color: var(--text-tertiary); font: 400 13px/22px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-thought__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .av-runlog__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .av-runlog__steps::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 13px; width: 1px; background: var(--line-subtle); }
 .av-runlog__step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); padding: 6px 0; }
