@@ -352,7 +352,7 @@ function RunDetail({ id }: { id: string }) {
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       {challenging && done ? <FollowupForm runId={r.id} onClose={() => setChallenging(false)} /> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      {running || r.status === "waiting" ? <RunTranscript run={r} live={running} /> : null}
+      {running || r.status === "waiting" ? <RunTranscript run={r} live={running || r.status === "waiting"} /> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
       {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
