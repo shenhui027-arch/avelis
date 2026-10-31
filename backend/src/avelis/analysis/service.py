@@ -31,8 +31,8 @@ from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
-from avelis.governance import access, experiences
-from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
+from avelis.governance import access, experiences, joins
+from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
 from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
@@ -316,6 +316,8 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         checkpoint.update(confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
                           confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
                           proposal=state.get("proposal") or checkpoint.get("proposal") or {})
+        if "inherited" in state:
+            checkpoint["inherited"] = state["inherited"]
         if status != "waiting":
             checkpoint.pop("pending", None)
             checkpoint["resume_pending"] = False
@@ -514,6 +516,38 @@ def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
     return refs
 
 
+def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, checkpoint: dict,
+                             feedback: dict) -> None:
+    confirmed = {d["item_id"] for d in feedback["decisions"] if d["decision"] == "confirmed"}
+    proposal = dict(checkpoint.get("proposal") or {})
+    proposal["items"] = [dict(item) for item in proposal.get("items") or []]
+    candidates = list(checkpoint.get("join_candidates") or [])
+    warnings = list(checkpoint.get("warnings") or [])
+    for item in proposal["items"]:
+        if item["id"] not in confirmed or item.get("kind") != "join" or item.get("source") != "inferred":
+            continue
+        assets = analysis_agent.validate_proposal_join(session, user, item)
+        if assets is None:
+            warning = "这条关联缺少结构，无法提议为关联路径"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        spec = item["join"]
+        try:
+            path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
+                                 right_asset_id=assets[1].id, right_columns=spec["right_columns"],
+                                 source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+        except GovernanceError as exc:
+            warning = f"这条关联没能提议为关联路径：{exc}"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        candidate = {"item_id": item["id"], "id": path.id, "status": path.status}
+        if candidate not in candidates:
+            candidates.append(candidate)
+    checkpoint.update(proposal=proposal, join_candidates=candidates, warnings=warnings)
+
+
 def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> AnalysisRun:
     """只领取一次暂停；新 Job、反馈、状态转换与审计由 API 在同一事务提交。"""
     from avelis import jobs
@@ -535,6 +569,7 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
             refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
     else:
         feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+        _propose_confirmed_joins(session, user, run, checkpoint, feedback)
         candidates = experiences.candidates_from_feedback(
             run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
             refs=_scope_metric_refs(session, checkpoint))
@@ -816,6 +851,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 verification=restrict_verification(run.verification or {}, report),
                 messages=[message_view(message) for message in messages],
                 proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
+                join_candidates=checkpoint.get("join_candidates") or [],
+                checkpoint_warnings=checkpoint.get("warnings") or [],
                 confirmed_scope=checkpoint.get("confirmed_scope") or {},
                 confirmed_items=checkpoint.get("confirmed_items") or [],
                 steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,

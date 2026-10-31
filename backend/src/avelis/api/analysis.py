@@ -177,6 +177,16 @@ def replace_experience(experience_id: str, body: S.ExperienceCandidate, user: Us
     return experiences.replace_experience(session, user, experience_id, **body.model_dump(exclude_none=True))
 
 
+@router.post("/analysis/experiences/{experience_id}/to-join-path", response_model=S.JoinPathOut)
+def experience_to_join_path(experience_id: str, user: User = Depends(current_user),
+                            session: Session = Depends(get_session)) -> dict:
+    from avelis.api.governance import join_path_view
+
+    path = experiences.to_join_path(session, user, experience_id)
+    session.commit()  # 先提交再返回：前端收到后立即刷新经验列表
+    return join_path_view(session, path)
+
+
 def _dataset(session: Session, run: AnalysisRun, seq: int) -> AnalysisDataset:
     d = session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == seq))
     if d is None:

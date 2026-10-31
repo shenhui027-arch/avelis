@@ -528,7 +528,7 @@ export interface paths {
         };
         /**
          * Lineage Graph
-         * @description 资产级节点 + 列级边（按关系类型汇总）+ 外部表身份映射。只返回用户可见的资产。
+         * @description 资产级节点、列级边、外部表身份映射与关联路径。只返回用户可见的资产。
          */
         get: operations["lineage_graph_api_lineage_graph_get"];
         put?: never;
@@ -1177,6 +1177,23 @@ export interface paths {
         put?: never;
         /** Replace Experience */
         post: operations["replace_experience_api_analysis_experiences__experience_id__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/experiences/{experience_id}/to-join-path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Experience To Join Path */
+        post: operations["experience_to_join_path_api_analysis_experiences__experience_id__to_join_path_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1889,6 +1906,10 @@ export interface components {
             experience_id?: string | null;
             /** Experience Version */
             experience_version?: number | null;
+            /** Join */
+            join?: {
+                [key: string]: unknown;
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -1986,6 +2007,12 @@ export interface components {
             } | null;
             /** Experience Candidates */
             experience_candidates?: components["schemas"]["ExperienceCandidate"][];
+            /** Join Candidates */
+            join_candidates?: {
+                [key: string]: unknown;
+            }[];
+            /** Checkpoint Warnings */
+            checkpoint_warnings?: string[];
             /** Confirmed Scope */
             confirmed_scope?: {
                 [key: string]: unknown;
@@ -3089,6 +3116,30 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** GraphJoinOut */
+        GraphJoinOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Left Asset Id */
+            left_asset_id: string;
+            /** Left Columns */
+            left_columns: string[];
+            /** Right Asset Id */
+            right_asset_id: string;
+            /** Right Columns */
+            right_columns: string[];
+            /** Cardinality */
+            cardinality: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "pending";
+        } & {
+            [key: string]: unknown;
+        };
         /** GraphNodeOut */
         GraphNodeOut: {
             /** Id */
@@ -3119,6 +3170,8 @@ export interface components {
             edges: components["schemas"]["GraphEdgeOut"][];
             /** Identity Links */
             identity_links: components["schemas"]["LinkOut"][];
+            /** Joins */
+            joins?: components["schemas"]["GraphJoinOut"][];
         } & {
             [key: string]: unknown;
         };
@@ -3332,6 +3385,12 @@ export interface components {
             approvals: {
                 [key: string]: unknown;
             }[];
+            /** Source */
+            source?: {
+                [key: string]: unknown;
+            } | null;
+            /** Created By */
+            created_by?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -6494,6 +6553,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExperienceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    experience_to_join_path_api_analysis_experiences__experience_id__to_join_path_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experience_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinPathOut"];
                 };
             };
             /** @description Validation Error */
