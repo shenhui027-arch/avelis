@@ -20,6 +20,7 @@ from datetime import time as dtime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from langgraph.types import Command
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -30,9 +31,9 @@ from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
-from avelis.governance import access
+from avelis.governance import access, experiences
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
-from avelis.models import AnalysisRun, AnalysisTask, Notification, User
+from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
 _GRAPH: dict[str, Any] = {}
@@ -161,7 +162,7 @@ def require_analysis_model(session: Session) -> modelcfg.Resolved:
 
 
 def create_run(session: Session, user: User, question: str, window: dict | None, *, task: AnalysisTask | None = None,
-               trigger: str = "manual") -> AnalysisRun:
+               trigger: str = "manual", confirmation_mode: str = "auto") -> AnalysisRun:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     if not question.strip():
         raise Invalid("请输入要分析的问题")
@@ -169,7 +170,7 @@ def create_run(session: Session, user: User, question: str, window: dict | None,
     tz = get_settings().business_timezone
     run = AnalysisRun(task_id=task.id if task else None, user_id=user.id, question=question.strip(), trigger=trigger,
                       status="queued", window=resolve_window(window, business_today(tz)),
-                      budget=Budget().view())
+                      budget=Budget().view(), confirmation_mode=confirmation_mode, checkpoint={})
     session.add(run)
     session.flush()
     audit.record(session, user, "analysis.create", "analysis_run", run.id, trigger=trigger,
@@ -217,9 +218,14 @@ def _claim_run(session: Session, run_id: str, job, attempt: int) -> str | None:
     """领取执行权：Job 由本次尝试持有、运行仍在排队时，条件更新为 running 并写入执行权标记；否则返回 None。
     已终结的运行不会被迟到的执行者重新改回 running。"""
     token = f"{job.id}:{attempt}"
+    pending = session.get(AnalysisRun, run_id)
+    saved = (pending.checkpoint or {}).get("snapshot") if pending else None
+    # 恢复继承暂停前的预算；执行权仍只属于新 Job 的本次尝试。
+    budget = (saved or {}).get("budget") or Budget().view()
     claimed = session.execute(update(AnalysisRun).where(AnalysisRun.id == run_id, AnalysisRun.status == "queued")
-                              .values(status="running", started_at=utcnow(), error=None,
-                                      budget={**Budget().view(), "executor": token, "job_id": job.id})).rowcount
+                              .values(status="running", started_at=(pending.started_at if pending else None) or utcnow(),
+                                      finished_at=None, error=None,
+                                      budget={**budget, "executor": token, "job_id": job.id})).rowcount
     return token if claimed else None
 
 
@@ -243,32 +249,64 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     session.commit()
     run = session.get(AnalysisRun, run_id, populate_existing=True)
     user = session.get(User, run.user_id, populate_existing=True)
-    budget = Budget()
+    checkpoint = dict(run.checkpoint or {})
+    saved = checkpoint.get("snapshot") or {}
+    budget = Budget.restore(saved["budget"]) if saved.get("budget") else Budget()
     status, error, plan, report, verification, adapter, toolbox = "failed", None, {}, {}, {}, None, None
     effective = None  # 实际生效的思考强度（ADR 0012）
     try:
-        problem = identity_problem(session, user)
-        if problem:
-            raise PermissionLost(problem)
+        if not checkpoint.get("resume_pending"):
+            problem = identity_problem(session, user)
+            if problem:
+                raise PermissionLost(problem)
         resolved = require_analysis_model(session)
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
                                   adapter=adapter)
+        if checkpoint.get("resume_pending"):
+            toolbox.restore(saved)
+            budget = toolbox.budget
         settings = get_settings()
         example = analysis_agent.prompt_example(ask_service.visible_catalog(session, user, with_values=False))
         config = {"configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved},
                   "recursion_limit": 50}
-        _graph().invoke(analysis_agent.initial_state(run.question, business_today(settings.business_timezone),
-                                                     settings.business_timezone, run.window, example), config)
-        state = _graph().get_state(config).values
+        graph = _graph()
+        if checkpoint.get("resume_pending"):
+            if not graph.get_state(config).next:
+                raise Conflict("分析检查点不存在或已经恢复")
+            result = graph.invoke(Command(resume=checkpoint["feedback"]), config)
+        else:
+            result = graph.invoke(analysis_agent.initial_state(
+                run.question, business_today(settings.business_timezone), settings.business_timezone, run.window,
+                example, inherited=checkpoint.get("inherited"), confirmation_mode=run.confirmation_mode,
+                unattended=run.trigger == "schedule"), config)
+        state = graph.get_state(config).values
         plan, verification = toolbox.plan or {}, dict(toolbox.verification or {})
         report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
-        if toolbox.aborted:
+        if toolbox.user_stopped:
+            status, error = "stopped", "用户停止"
+        elif toolbox.aborted:
             error = toolbox.aborted
         elif toolbox.permission_lost:
             error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
+        elif result.get("__interrupt__"):
+            status = "waiting"
+            checkpoint.update(pending=result["__interrupt__"][0].value,
+                              proposal=state.get("proposal") or {}, snapshot=toolbox.snapshot(), resume_pending=False)
+            report = {"title": "等待确认", "incomplete": True, "notes": state.get("notes", [])}
+        elif toolbox.clarification:  # 待澄清：用户可见的短问题与可恢复的上下文（问题、范围、已用预算）
+            status = "clarify"
+            report = {"title": "需要澄清", "summary": toolbox.clarification["question"],
+                      "clarification": toolbox.clarification, "incomplete": True, "notes": state.get("notes", [])}
         else:
             status = "succeeded"
+        checkpoint.update(confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
+                          confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
+                          proposal=state.get("proposal") or checkpoint.get("proposal") or {})
+        if status != "waiting":
+            checkpoint.pop("pending", None)
+            checkpoint["resume_pending"] = False
+            checkpoint["snapshot"] = toolbox.snapshot()
     except PermissionLost as exc:
         error = f"发起人权限不足：{exc.message}"
         report = {"permission": {"lost": exc.message, "denials": []}}
@@ -286,19 +324,52 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         log.warning("分析 %s 的执行权已失去（运行 %s），不写入本次结果", run_id, run.status)
         session.rollback()
         return {"status": "lost", "analysis_run_id": run_id, "reason": "执行权已失去"}
+    # 插话在执行过程中独立提交；不能被执行入口时复制的旧 checkpoint 覆盖。
+    candidates = list((run.checkpoint or {}).get("candidates") or [])
+    for candidate in checkpoint.get("candidates") or []:
+        if candidate not in candidates:
+            candidates.append(candidate)
+    # 停止请求与最终完成竞争时，以本次行锁读取的标记为准，不再请求模型或执行工具。
+    if run.stop_requested:
+        if toolbox is None:
+            toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget)
+            toolbox.restore(saved)
+            budget = toolbox.budget
+        status, error = "stopped", "用户停止"
+        report, verification = _stopped_report(toolbox, notes=report.get("notes"))
+        plan = toolbox.plan or plan
+        checkpoint.pop("pending", None)
+        checkpoint["resume_pending"] = False
+        checkpoint["snapshot"] = toolbox.snapshot()
     run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
+    if candidates:
+        # 等理解阶段结束后补引用，避免连续追问时丢掉前一轮回答；仍无引用的理解候选不提供保存。
+        if status != "waiting" or checkpoint["pending"]["kind"] != "clarify":
+            for candidate in candidates:
+                if candidate["source"]["checkpoint"] == "understand" and not candidate["refs"]:
+                    candidate["refs"] = _scope_metric_refs(session, checkpoint)
+            candidates = [c for c in candidates if c["refs"] or c["source"]["checkpoint"] != "understand"]
+        checkpoint["candidates"] = candidates
+    run.checkpoint = checkpoint
     run.model_adapter = adapter
     run.reasoning_effort = effective
     run.budget = budget.view()
-    run.finished_at = utcnow()
+    run.finished_at = None if status == "waiting" else utcnow()
     session.flush()
-    outcome = finish(session, run) if finish else {
-        "status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
+    outcome = (finish(session, run) if finish else
+               _finish_task(session, run.task_id, run) if run.task_id else _outcome(run))
     _close_job(job, {**outcome, "analysis_run_id": run.id})
-    audit.record(session, user, "analysis.finish", "analysis_run", run.id, status=run.status,
+    audit.record(session, user, "analysis.wait" if status == "waiting" else "analysis.finish", "analysis_run", run.id, status=run.status,
                  verified=(run.verification or {}).get("ok"), queries=budget.used_queries)
     session.commit()
     return {**outcome, "analysis_run_id": run.id}
+
+
+def _outcome(run: AnalysisRun) -> dict[str, Any]:
+    """运行终态 → Job 结果：待澄清是本次执行正常结束（等用户回答），不是失败。"""
+    if run.status in ("clarify", "waiting"):
+        return {"status": "succeeded", "reason": None, "run_status": run.status}
+    return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
 
 
 def run_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -321,7 +392,7 @@ def reconcile_abandoned(session: Session, job, reason: str) -> None:
     if not already:
         run.status, run.error, run.finished_at = "failed", reason, utcnow()
         run.budget = {k: v for k, v in (run.budget or {}).items() if k != "executor"}  # 收回执行权
-    outcome = {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
+    outcome = _outcome(run)
     if job.kind == "analysis" and run.task_id:
         if not (already and _task_notified(session, run)):
             outcome = _finish_task(session, run.task_id, run)
@@ -334,6 +405,163 @@ def visible_run(session: Session, user: User, run_id: str) -> AnalysisRun:
     run = session.get(AnalysisRun, run_id)
     if run is None or (run.user_id != user.id and not access.is_admin(session, user)):
         raise NotFound("分析不存在或不属于当前用户")
+    return run
+
+
+def _live_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    """插话和停止只属于发起人；管理员读取权限不包含代为交互。"""
+    run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
+    if run is None or run.user_id != user.id:
+        raise NotFound("分析不存在或不属于当前用户")
+    if run.status not in ("queued", "running", "waiting"):
+        raise Conflict("分析已经结束，不能插话或停止")
+    return run
+
+
+def add_message(session: Session, user: User, run_id: str, text: str) -> AnalysisMessage:
+    run = _live_run(session, user, run_id)
+    if not text.strip():
+        raise Invalid("请输入插话内容")
+    message = AnalysisMessage(run_id=run.id, user_id=user.id, text=text)
+    session.add(message)
+    session.flush()
+    audit.record(session, user, "analysis.message", "analysis_run", run.id,
+                 message_id=message.id, text=message.text)
+    return message
+
+
+def _stopped_report(toolbox: AnalysisToolbox, *, notes: list[str] | None = None) -> tuple[dict, dict]:
+    """沿用预算截止的后端未完成报告与核验路径；停止不调用模型、不增加步骤。"""
+    toolbox.user_stopped = True
+    toolbox.report = None
+    analysis_agent.verify({}, {"configurable": {"toolbox": toolbox, "model": None}})
+    stop_notes = list(notes or [])
+    if "分析停止：用户停止" not in stop_notes:
+        stop_notes.append("分析停止：用户停止")
+    report = {**toolbox.report, "notes": stop_notes}
+    if toolbox.permission_lost or toolbox.denials:
+        report["permission"] = {"lost": toolbox.permission_lost, "denials": toolbox.denials}
+    return report, dict(toolbox.verification or {})
+
+
+def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    run = _live_run(session, user, run_id)
+    run.stop_requested = True
+    if run.status == "waiting":
+        checkpoint = dict(run.checkpoint or {})
+        saved = checkpoint.get("snapshot") or {}
+        toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), Budget())
+        toolbox.restore(saved)
+        run.report, run.verification = _stopped_report(toolbox, notes=(run.report or {}).get("notes"))
+        run.plan = toolbox.plan or run.plan
+        run.status, run.error, run.finished_at = "stopped", "用户停止", utcnow()
+        checkpoint.pop("pending", None)
+        checkpoint["resume_pending"] = False
+        checkpoint["snapshot"] = toolbox.snapshot()
+        run.checkpoint = checkpoint
+    audit.record(session, user, "analysis.stop", "analysis_run", run.id, status=run.status)
+    session.flush()
+    return run
+
+
+def message_view(message: AnalysisMessage) -> dict[str, Any]:
+    return {"id": message.id, "text": message.text, "created_at": message.created_at.isoformat(),
+            "consumed_at": message.consumed_at.isoformat() if message.consumed_at else None}
+
+
+def _feedback(proposal: dict, feedback: dict) -> dict:
+    """每项必须明确确认或否决；补充文字不隐式确认任何提议。"""
+    expected = {item["id"] for item in proposal.get("items") or []}
+    decisions = feedback.get("decisions") or []
+    supplied = [d.get("item_id") for d in decisions]
+    if len(supplied) != len(set(supplied)) or set(supplied) != expected:
+        raise Invalid("请逐项确认或否决，且不要重复提交同一项")
+    return {"decisions": [{"item_id": d["item_id"], "decision": d["decision"]} for d in decisions],
+            "supplement": (feedback.get("supplement") or "").strip()}
+
+
+def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
+    from avelis.governance.metrics import latest_governed_version
+
+    scope = (checkpoint.get("snapshot") or {}).get("scope") or checkpoint.get("confirmed_scope") or {}
+    refs = []
+    for code in scope.get("metric_codes") or []:
+        metric = session.scalar(select(Metric).where(Metric.code == code))
+        version = latest_governed_version(session, metric) if metric else None
+        if version is not None:
+            refs.append({"object_type": "metric_version", "object_id": version.id, "version": version.version_no})
+    return refs
+
+
+def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> AnalysisRun:
+    """只领取一次暂停；新 Job、反馈、状态转换与审计由 API 在同一事务提交。"""
+    from avelis import jobs
+
+    run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
+    if run is None or run.user_id != user.id:
+        raise NotFound("分析不存在或不属于当前用户")
+    if run.status != "waiting":
+        raise Conflict("这次确认已提交，或分析当前不在等待确认")
+    checkpoint = dict(run.checkpoint or {})
+    pending = checkpoint["pending"]
+    if pending["kind"] == "clarify":
+        answer = (feedback.get("answer") or "").strip()
+        if not answer:
+            raise Invalid("请回答追问后继续分析")
+        feedback = {"answer": answer}
+        candidates = experiences.candidates_from_feedback(
+            run_id=run.id, proposal={}, feedback={"supplement": f"问题：{pending['question']} 回答：{answer}"},
+            refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
+    else:
+        feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+        candidates = experiences.candidates_from_feedback(
+            run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
+            refs=_scope_metric_refs(session, checkpoint))
+    checkpoint.pop("pending")
+    checkpoint.update(feedback=feedback, resume_pending=True)
+    checkpoint["candidates"] = [*(checkpoint.get("candidates") or []), *candidates]
+    claimed = session.execute(update(AnalysisRun).where(AnalysisRun.id == run.id, AnalysisRun.status == "waiting")
+                              .values(status="queued", checkpoint=checkpoint, finished_at=None)).rowcount
+    if not claimed:
+        raise Conflict("这次确认已提交")
+    job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
+    run.status, run.checkpoint = "queued", checkpoint
+    run.budget = {**(run.budget or {}), "job_id": job_id}
+    run.finished_at = None
+    audit.record(session, user, "analysis.resume", "analysis_run", run.id,
+                 feedback=feedback, job_id=job_id)
+    session.flush()
+    return run
+
+
+def followup_run(session: Session, user: User, run_id: str, text: str,
+                 confirmation_mode: str = "auto") -> AnalysisRun:
+    parent = visible_run(session, user, run_id)
+    if parent.user_id != user.id:
+        raise Forbidden("只有发起人可以继续分析")
+    if parent.status != "succeeded":
+        raise Conflict("只有已完成的分析可以发起续问")
+    text = text.strip()
+    saved = parent.checkpoint or {}
+    lookup = (parent.report or {}).get("kind") == "lookup"
+    scope = ((parent.plan or {}).get("scope") if lookup else
+             saved.get("confirmed_scope") or (parent.plan or {}).get("scope")) or {}
+    window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
+    run = create_run(session, user, text if lookup or not scope else parent.question, window,
+                     confirmation_mode=confirmation_mode)
+    run.parent_run_id = parent.id
+    inherited = {"user_text": text}
+    if lookup:
+        inherited.update(previous_question=parent.question, previous_scope=scope, previous_window=parent.window or {})
+    else:
+        inherited.update(scope=scope, items=saved.get("confirmed_items") or [])
+    run.checkpoint = {"inherited": inherited,
+                      "candidates": experiences.candidates_from_feedback(
+                          run_id=run.id, proposal={}, feedback={"challenge": text},
+                          refs=_scope_metric_refs(session, saved), checkpoint="conclusion")}
+    audit.record(session, user, "analysis.followup", "analysis_run", run.id,
+                 parent_run_id=parent.id, user_text=text)
+    session.flush()
     return run
 
 
@@ -400,13 +628,19 @@ def _finish_task(session: Session, task_id: str, run: AnalysisRun) -> dict[str, 
     """任务运行的收尾（在运行终态的同一事务中）：明确的权限拒绝 → 暂停并通知；否则发完成 / 失败通知。"""
     task = session.get(AnalysisTask, task_id, with_for_update=True, populate_existing=True)
     if task is None:
-        return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
+        return _outcome(run)
     verification = run.verification or {}
     reason = _paused_by(run)
     if reason:
         # 明确的权限拒绝：不能用“还能看到别的口径”代替“有执行这个任务的权限”
         _pause(session, task, f"执行中被拒绝访问：{reason}")
         return {"status": "paused", "run_status": run.status, "reason": reason}
+    if run.status == "waiting":
+        return _outcome(run)
+    if run.status == "clarify":  # 定时任务无人回答追问：暂停任务并通知，等任务所有者改写问题后再启用
+        question = (run.report or {}).get("summary") or "问题需要澄清"
+        _pause(session, task, f"需要澄清：{question}")
+        return {"status": "paused", "run_status": run.status, "reason": question}
     if run.status != "succeeded":
         title, body = f"分析运行失败：{task.title}", run.error
     elif not verification.get("ok", False):
@@ -486,23 +720,38 @@ def schedule_due() -> list[str]:
     return queued
 
 
-def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[str, Any]:
-    from avelis.models import AnalysisDataset, AnalysisStep
+def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
+    from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
-    data = {"id": run.id, "task_id": run.task_id, "question": run.question, "trigger": run.trigger,
-            "status": run.status, "window": run.window,
+    checkpoint = run.checkpoint or {}
+    data = {"id": run.id, "task_id": run.task_id, "parent_run_id": run.parent_run_id,
+            "confirmation_mode": run.confirmation_mode, "question": run.question, "trigger": run.trigger,
+            "status": run.status, "window": run.window, "pending": checkpoint.get("pending"),
             "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
             "reasoning_effort": run.reasoning_effort,
             "error": run.error, "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-            "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok")}
+            "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
         return data
+    if user is not None and (run.report or {}).get("kind") == "lookup":
+        from avelis.api.ask import answer_view
+
+        answer = session.scalar(select(Answer).where(
+            Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
+        if answer is not None:
+            data["answer"] = answer_view(answer)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
     datasets = session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
                                .order_by(AnalysisDataset.seq))
+    messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
+                               .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
     data.update(plan=run.plan, report=run.report, verification=run.verification,
+                messages=[message_view(message) for message in messages],
+                proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
+                confirmed_scope=checkpoint.get("confirmed_scope") or {},
+                confirmed_items=checkpoint.get("confirmed_items") or [],
                 steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool, "args": s.args, "reason": s.reason,
                         "status": s.status, "output": s.output, "dataset": _ref(session, s.dataset_id),
                         "duration_ms": s.duration_ms, "at": s.created_at.isoformat()} for s in steps],

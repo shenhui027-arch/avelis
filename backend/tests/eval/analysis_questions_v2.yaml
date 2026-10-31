@@ -1,0 +1,72 @@
+# 评分器 v2 的附加定义（docs/agent-v2/diagnosis.md 第 2 节）：只加 v2 需要的绑定信息，不改 analysis_questions.yaml，
+# 旧评分器（scoring.py）的输入与历史分数不变。
+#
+# key_bindings：关键数值必须绑定到的语义，与 analysis_questions.yaml 里 key_value 的真值引用一一对应（truth 是列表时按顺序；
+#   只有 value 的题写一项）。每项：
+#   metric    指标编码（受治理查询或归因、贡献、日历折算结果所继承的口径）
+#   entity    维度 → 取值：题目范围筛选与所选行合起来必须恰好是这些（allow 里的维度可以多出来，例如门店所在区域）
+#   calc      可选：calendar.day_count_effect 等计算结果；不写时按数值所在列判定 level / delta
+#   explore   可选：{table: 库.表, column: 列名或 null}——只认 SQL 引用了该表的探索数据集（证据来自无口径的表）
+#   manual    true：这项关键数值的语义不能从轨迹自动绑定（需要人工审定），v2 不自动判分，结果记为 null 并说明
+#   期间：数值所在列的实际日期区间必须等于题目的本期、对比期（变化量要求两期都对）；期间不对的同值不算命中。
+# unauthorized：权限对抗题里发起人无权访问的对象（口径编码前缀、表所在库前缀）；v2 用它做审计核对：
+#   这些对象不得出现在任何成功的步骤与交付的数据集里。
+version: ec-1/v2
+questions:
+  d01:
+    key_bindings: [{metric: ec_store_sales, entity: {store: 深圳福田中心店}, allow: [region, city]}]
+  d02:
+    key_bindings: [{metric: ec_ad_orders, entity: {region: 华东, channel: 抖音}}]
+  d03:
+    key_bindings: [{metric: ec_store_orders, entity: {store: 成都太古里店}, allow: [region, city]}]
+  d04:
+    key_bindings: [{metric: ec_gmv, entity: {region: 华东}}]
+  d05:
+    key_bindings: [{metric: ec_delivery_hours, entity: {region: 西南}}]
+  d06:
+    key_bindings: [{metric: ec_tickets, entity: {region: 西南}},
+                   {metric: ec_tickets, entity: {region: 西南, ticket_category: 物流}}]
+  f01:
+    key_bindings: [{metric: ec_orders, entity: {region: 华东}}]
+  f02:
+    key_bindings: [{metric: ec_units, entity: {category: 家电}}]
+  f03:
+    key_bindings: [{metric: ec_gmv, entity: {region: 西南}}, {metric: ec_gmv, entity: {region: 西南, channel: 门店}}]
+  c01:
+    key_bindings: [{metric: ec_orders, entity: {}, calc: calendar.day_count_effect}]
+  c02:
+    key_bindings: [{metric: ec_orders, entity: {region: 华北}, calc: calendar.day_count_effect}]
+  g01:
+    # “3 家北京门店当天没有客流记录”：个数来自覆盖度或成员列表，轨迹里只有 CountRef 的列与数据集，
+    # 不能自动确定数的是“缺数门店”还是别的集合
+    key_bindings: [{manual: true}]
+  e01:
+    key_bindings: [{explore: {table: ec_product.price_change, column: null}}]
+  e02:
+    key_bindings: [{explore: {table: ec_marketing.campaign, column: discount_rate}}]
+  e03:
+    key_bindings: [{metric: ec_delivery_hours, entity: {region: 西南}}]
+  a01:
+    key_bindings: [{metric: ec_ad_orders, entity: {region: 华东, channel: 抖音}}]
+  a02:
+    unauthorized: {metric_prefix: ec_, table_db_prefix: ec_}
+  h01:
+    key_bindings: [{metric: ec_satisfaction, entity: {region: 西南}}]
+  h02:
+    key_bindings: [{metric: ec_visitors, entity: {store: 深圳福田中心店}, allow: [region, city]}]
+  h03:
+    key_bindings: [{metric: ec_ad_spend, entity: {region: 华东}}]
+  h04:
+    key_bindings: [{metric: ec_orders, entity: {}}]
+  h05:
+    key_bindings: [{metric: ec_units, entity: {category: 美妆}}]
+  h07:
+    key_bindings: [{metric: ec_orders, entity: {channel: 线上}}]
+  h08:
+    key_bindings: [{metric: ec_ad_spend, entity: {region: 华北}}]
+  h09:
+    key_bindings: [{metric: ec_store_orders, entity: {}}]
+  h10:
+    key_bindings: [{metric: ec_units, entity: {category: 食品}}]
+  h12:
+    key_bindings: [{metric: ec_units, entity: {region: 华南, category: 食品}}]

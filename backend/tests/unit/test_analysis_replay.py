@@ -17,6 +17,7 @@ from avelis.analysis import agent
 from avelis.analysis.measures import governed_units
 from avelis.analysis.tools import Budget
 from tests.replay.fake_model import TRACES, ScriptedModel, load_trace, replay_fetches
+from tests.unit.test_analysis_pipeline import catalog
 from tests.unit.test_analysis_toolbox import make_box
 
 FIXTURE_COLUMNS = ["地区", "指标甲", "指标甲·对比期", "指标甲·变化", "指标甲·变化率"]
@@ -32,7 +33,8 @@ def replay(name: str, monkeypatch):
     if trace["version"] >= 2 and trace.get("report_schema", 1) != REPORT_SCHEMA:
         pytest.skip(f"轨迹 {name} 录制于报告模式 v{trace.get('report_schema', 1)}，当前是 v{REPORT_SCHEMA}："
                     "需要用 scripts/record_replay_traces.py 从新的评测运行重新录制")
-    box = make_box(budget=Budget(), monkeypatch=monkeypatch)
+    box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
+    monkeypatch.setattr(agent.service, "version_sources", lambda session, version: {})  # 取数及来源在旧轨迹中已冻结。
     box.run.window = dict(trace["window"])
     pending: list = []
     if trace["version"] >= 2:  # 录制的轨迹：取数类工具按顺序返回冻结的数据集
@@ -43,13 +45,16 @@ def replay(name: str, monkeypatch):
                      meta={"intent": {}, "time_column": None, "metric_codes": ["m_a"],
                            "units": governed_units(FIXTURE_COLUMNS, {"指标甲": version}, "对比期"),
                            "window": {"start": trace["window"]["start"], "end": trace["window"]["end"]}})
-    model = ScriptedModel(trace["messages"])
+    # 原轨迹保留；在理解之后补上 ADR 0013 的空提议，真实执行新增节点且不改变既有取数与核验消息。
+    messages = [trace["messages"][0], {"tool_calls": [{"name": "submit_proposal", "args": {"items": []}}]},
+                *trace["messages"][1:]]
+    model = ScriptedModel(messages)
     config = {"configurable": {"thread_id": f"replay:{name}", "toolbox": box, "model": model}, "recursion_limit": 50}
     graph = agent.build_graph(MemorySaver())
     graph.invoke(agent.initial_state(trace["question"], "2026-10-30", "Asia/Shanghai", trace["window"]), config)
     if trace["version"] >= 2:  # 与真实运行一致：模型回复与取数夹具全部用完，核验结论相同
         expect = trace["expect"]
-        assert model.calls == len(trace["messages"]) and not pending, (model.calls, pending[:1])
+        assert model.calls == len(messages) and not pending, (model.calls, pending[:1])
         v = box.verification
         assert (v["status"], v["ok"], v["revised"]) == (expect["status"], expect["ok"], expect["revised"]), v
         assert box.report["conclusion"] == expect["conclusion"]
@@ -67,11 +72,11 @@ def test_first_pass(monkeypatch):
     if trace["version"] >= 2:
         assert v["status"] in ("all_passed", "with_inference")
         return
-    assert v["status"] == "all_passed" and model.calls == 3
+    assert v["status"] == "all_passed" and model.calls == 4
     assert report["summary"] == "指标甲较上期下降 100件" and report["conclusion"] == "ranked_reasons"
     assert report["causes"][0]["status"] == "verified" and report["causes"][0]["contribution"]["text"] == "-80件"
     assert box.budget.used_tools == 1  # 只有拆解；理解阶段的 submit_scope 不经工具箱，submit_report 单独计数
-    understand, reason = model.seen[0], model.seen[1]
+    understand, reason = model.seen[0], model.seen[2]
     assert "候选口径" in understand[-1].content and "系统预检的上下文包" in reason[1].content
     assert "D1 指标甲 按地区 对比期" in reason[1].content  # 上下文包列出已有的数据集
     assert "2026-10-30" not in reason[0].content  # 系统提示只放稳定内容：日期在用户消息里
@@ -83,9 +88,9 @@ def test_revised_pass(monkeypatch):
     assert v["ok"] and v["revised"] is True and len(feedback(model)) == 1  # 修订提示逐条写明问题
     if trace["version"] >= 2:
         return
-    assert model.calls == 4 and "第 1 个片段（文字）出现数字“30”" in feedback(model)[0].content
+    assert model.calls == 5 and "第 1 个片段（文字）出现数字“30”" in feedback(model)[0].content
     assert box.report["summary"] == "指标甲较上期下降 100件"
-    first, last = model.seen[1], model.seen[-1]  # 修订提示追加在末尾：前缀不变，前缀缓存仍能命中
+    first, last = model.seen[2], model.seen[-1]  # 修订提示追加在末尾：前缀不变，前缀缓存仍能命中
     assert last[:len(first)] == first and last[-1].content.startswith("核验发现以下问题")
 
 
@@ -95,7 +100,7 @@ def test_revised_fail(monkeypatch):
     assert not v["ok"] and v["revised"] is True and v["status"] == "failed" and len(feedback(model)) == 1  # 只修订一轮
     if trace["version"] >= 2:
         return
-    assert model.calls == 4
+    assert model.calls == 5
     assert v["unverified_fields"] == 1 and v["fields"][1]["field"] == "summary"
     assert box.report["summary"] == "指标甲较上期下降 30%，主要在地区甲"  # 如实保存，不静默改写
 

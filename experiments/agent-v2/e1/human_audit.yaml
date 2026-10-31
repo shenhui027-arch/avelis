@@ -1,0 +1,26 @@
+# E1 首要原因的人工审定（docs/agent-v2/results-e1.md 第 1.1 节）：首要原因是否指向预埋机制。不是评分结果，只用于核对评分器。
+#
+# original：E1 回报时的审定（2026-10-31，提交 b360dd4）；weak 表示当时认为首要原因只绑定到单日的行。
+# corrected：评分器 v2.1 编写前复核原始轨迹后的更正（2026-10-31），只在两处有理由时改动，逐条写在 note：
+#   1. 三次 weak 的证据行来自 DATE_TRUNC('MONTH', order_date) 分组的探索查询，行里的 2026-09-01 / 2026-07-01 是月份，
+#      不是单日：这三行是整个本期的 douyin 来源订单，机制找到了 → true。
+#   2. h10 / D2 第 1 次的首要原因是“礼盒销量增加”（二级类目的差额）。生成器（scripts/ec_data.py CAMPAIGNS 第 4 项）提高的是
+#      整个一级类目“食品”的下单权重，没有单独提高“礼盒”：这是贡献最大的成员，不是机制 → false。
+# 未列出的运行 original 与 corrected 都是 false。
+runs:
+  "d02:D0:2": {original: true, corrected: true, note: "douyin（D17，按来源渠道的差额拆解）；有 1 条来源未通过核验，所以不通过"}
+  "d02:D1:1": {original: weak, corrected: true, note: "D11 第 10 行 2026-09-01 · douyin：DATE_TRUNC MONTH 分组，是 9 月整月"}
+  "d02:D1:2": {original: true, corrected: true, note: "douyin（D14 探索，来源渠道）"}
+  "d02:D2:1": {original: true, corrected: true, note: "douyin（D14，D12 的差额拆解）"}
+  "d02:D2:2": {original: true, corrected: true, note: "douyin · current（D14 探索）"}
+  "d02:D3:1": {original: true, corrected: true, note: "抖音（D8，注入的受治理投放查询）"}
+  "d02:D3:2": {original: true, corrected: true, note: "douyin（D13，D11 的差额拆解）"}
+  "e01:D2:2": {original: true, corrected: true, note: "2026-08-15 · 成本上涨（D15，price_change 记录）"}
+  "e01:D3:1": {original: true, corrected: true, note: "成本上涨 · 2026-08-15（D26，price_change 汇总）"}
+  "e01:D3:2": {original: true, corrected: true, note: "成本上涨（D14，price_change 汇总）"}
+  "f02:D2:2": {original: true, corrected: true, note: "件数变化的贡献（D21 派生，输入是家电两期件数）：销量因子，与题目定义的 ec_units 因子一致"}
+  "h07:D0:2": {original: weak, corrected: true, note: "D17 第 2 行 douyin · 2026-07-01：DATE_TRUNC MONTH 分组，是 7 月整月的付费渠道订单"}
+  "h07:D1:2": {original: weak, corrected: true, note: "D12 第 7 行 2026-07-01 · douyin：DATE_TRUNC MONTH 分组，是 7 月整月"}
+  "h07:D2:2": {original: true, corrected: true, note: "投放归因订单较 6 月变化（D14 派生，输入 D9 dws_marketing_daily 两月的付费渠道行）"}
+  "h07:D3:1": {original: true, corrected: true, note: "投放花费合计变化（D16 派生，输入 D9 受治理投放花费按渠道）"}
+  "h10:D2:1": {original: true, corrected: false, note: "礼盒销量增加：生成器提高的是整个食品类目，礼盒只是贡献最大的二级类目，不是机制"}
