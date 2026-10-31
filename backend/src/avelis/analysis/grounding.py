@@ -351,7 +351,7 @@ def display(value: Decimal, meta: dict, precision: int | None = None, direction:
     """系统按量纲决定显示格式（ADR 0009 第 1 点“量纲与单位”）：模型不选格式，只能指定小数位。
     - level、delta、count（有口径单位）：先按 unit_scale 换算回基本单位，绝对值 ≥ 1 亿用“亿”、≥ 1 万用“万”（2 位），
       否则原值；后接口径单位；没有单位时按 unknown 显示；
-    - ratio：无单位时 ×100 带 %（如转化率），有单位时原值加单位（如 元/单）；
+    - ratio：无单位时 ×100 带 %（如转化率），有单位时原值加单位（如 <单位>/<单位>）；
     - rate_change、share：×100 带 %；ratio 的差（of_ratio，且无单位）：×100 带“个百分点”；
     - unknown：原值、千分位、不带单位。
     direction：水平值（level、ratio）以外都可以写，核对正负后显示绝对值；不写时差额、变化率带符号。"""

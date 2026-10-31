@@ -165,7 +165,7 @@ class DemoIntentModel:
 
         days = self._dates(text, today)
         if not days:
-            return Intent(metric_code=card.code, clarification="请指定日期或日期范围（例如 2026-09-15）")
+            return Intent(metric_code=card.code, clarification="请指定日期或日期范围（例如 YYYY-MM-DD）")
         start, end = min(days), max(days)
 
         filters, group_by = [], []

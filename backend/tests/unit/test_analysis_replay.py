@@ -18,7 +18,7 @@ from avelis.analysis.measures import governed_units
 from avelis.analysis.tools import Budget
 from tests.replay.fake_model import TRACES, ScriptedModel, load_trace, replay_fetches
 from tests.unit.test_analysis_pipeline import catalog
-from tests.unit.test_analysis_toolbox import make_box
+from tests.unit.test_analysis_toolbox import governed_meta, make_box
 
 FIXTURE_COLUMNS = ["地区", "指标甲", "指标甲·对比期", "指标甲·变化", "指标甲·变化率"]
 FIXTURE_ROWS = [["甲", "120", "200", "-80", "-0.4000"], ["乙", "80", "100", "-20", "-0.2000"]]
@@ -42,7 +42,7 @@ def replay(name: str, monkeypatch):
     else:
         version = SimpleNamespace(kind="base", expression="SUM(x)", unit="件", unit_scale=1)
         box._dataset("governed", "指标甲 按地区 对比期", FIXTURE_COLUMNS, FIXTURE_ROWS,  # 冻结的数据夹具 D1
-                     meta={"intent": {}, "time_column": None, "metric_codes": ["m_a"],
+                     meta={**governed_meta(box, "指标甲", version=version),
                            "units": governed_units(FIXTURE_COLUMNS, {"指标甲": version}, "对比期"),
                            "window": {"start": trace["window"]["start"], "end": trace["window"]["end"]}})
     # 原轨迹保留；在理解之后补上 ADR 0013 的空提议，真实执行新增节点且不改变既有取数与核验消息。
