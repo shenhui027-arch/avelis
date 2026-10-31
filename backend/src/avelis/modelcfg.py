@@ -66,6 +66,7 @@ DEFAULT_EFFORT = {"ask": "low", "explain": "low", "import": "low", "analysis": "
 # 由 llm_protocol.ReasoningRoundTripChatOpenAI 处理；“几次没报 400”不作为兼容的依据。其他提供方未核实，不传思考参数。
 DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "high": "high", "max": "max"}
 DEEPSEEK_ALIASES = {"medium": "high"}
+DEFAULT_CONTEXT_WINDOWS = {"deepseek": 1_000_000}
 
 POLICY_KEY = "model_policy"
 # 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
@@ -102,6 +103,15 @@ def effort_map(p: ModelProvider | None, model_id: str) -> dict[str, str] | None:
     if p.preset == "deepseek" or "api.deepseek.com" in (p.base_url or ""):
         return dict(DEEPSEEK_EFFORTS)
     return None
+
+
+def _context_window(p: ModelProvider, model: dict) -> tuple[int | None, str | None]:
+    configured = model.get("context_window")
+    if configured is not None:
+        return configured, "configured"
+    if p.kind == "openai_compatible" and (p.preset == "deepseek" or "api.deepseek.com" in (p.base_url or "")):
+        return DEFAULT_CONTEXT_WINDOWS["deepseek"], "default"
+    return None, None
 
 
 def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str]]:
@@ -203,10 +213,11 @@ def analysis_models_view(session: Session) -> dict[str, Any]:
     for p in session.scalars(select(ModelProvider).order_by(ModelProvider.name)):
         for model in p.models:
             if _enabled_model(p, model["id"], needs_tools=True) is not None:
+                context_window, context_window_source = _context_window(p, model)
                 models.append({"provider_id": p.id, "provider_name": p.name, "model_id": model["id"],
                                "efforts": [{"value": option["value"], "label": option["label"]}
                                            for option in effort_options(p, model["id"])],
-                               "context_window": model.get("context_window")})
+                               "context_window": context_window, "context_window_source": context_window_source})
     assignment = get_assignment(session, "analysis")
     provider = session.get(ModelProvider, assignment.provider_id) if assignment else None
     default = None
@@ -403,6 +414,7 @@ class Resolved:
     factory: Callable[..., BaseChatModel] | None = field(default=None, repr=False)
     effort: str | None = None  # 指派的思考强度
     effective_effort: str | None = None  # 实际生效的档位（提供方没有核实过时为 None）
+    context_window: int | None = None
 
     def safe_error(self, error: Exception | str, *, limit: int = 300) -> str:
         return redact_error(str(error), self._api_key, limit=limit)
@@ -433,8 +445,10 @@ def _resolve_model(p: ModelProvider, model_id: str, effort: str, *, temperature:
         """按剩余时间重建模型；阶段可以另定思考强度与输出上限（如理解阶段关闭思考）。"""
         return build_chat_model(p, model_id, temperature=temperature, timeout=timeout, max_retries=max_retries,
                                 effort=effort, max_tokens=max_tokens)
+    model = next(m for m in p.models if m["id"] == model_id)
     return Resolved(build_chat_model(p, model_id, temperature=temperature, effort=effort), f"{p.code}:{model_id}",
-                    decrypt_secret(p.api_key_enc), factory, effort, effective_effort(p, model_id, effort))
+                    decrypt_secret(p.api_key_enc), factory, effort, effective_effort(p, model_id, effort),
+                    _context_window(p, model)[0])
 
 
 def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:

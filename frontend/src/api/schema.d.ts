@@ -1068,6 +1068,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/runs/{run_id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compact Run
+         * @description 请求在下一次模型调用前压缩上下文；等待确认期间保留请求。
+         */
+        post: operations["compact_run_api_analysis_runs__run_id__compact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}/followup": {
         parameters: {
             query?: never;
@@ -1664,6 +1684,8 @@ export interface components {
             efforts: components["schemas"]["AnalysisEffortOut"][];
             /** Context Window */
             context_window?: number | null;
+            /** Context Window Source */
+            context_window_source?: ("configured" | "default") | null;
         };
         /** AnalysisModelsOut */
         AnalysisModelsOut: {
@@ -6072,6 +6094,37 @@ export interface operations {
         };
     };
     stop_run_api_analysis_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compact_run_api_analysis_runs__run_id__compact_post: {
         parameters: {
             query?: never;
             header?: never;
