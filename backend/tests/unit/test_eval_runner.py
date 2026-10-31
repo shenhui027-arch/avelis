@@ -65,3 +65,65 @@ def test_resume_reuses_real_runs_and_reruns_401_and_missing(capsys):
     assert [(r["id"], r["repeat"], r["resumed"]) for r in results] == [
         ("d01", 1, False), ("n01", 1, True), ("d01", 2, True), ("n01", 2, True)]
     assert runs[0]["run"]["id"] == "old1" and len(client.asked) == 3 and client.issued == 3
+
+
+def test_confirm_all_executes_resumed_job_without_a_worker(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import JSON, MetaData, create_engine, select
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from avelis import db, jobs
+    from avelis.analysis import service
+    from avelis.api import analysis, deps
+    from avelis.models import AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, Job, User
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    metadata = MetaData()
+    for model in (User, AnalysisTask, AnalysisRun, AnalysisStep, AnalysisDataset, AnalysisMessage, Job):
+        table = model.__table__.to_metadata(metadata)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+    metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setattr(db, "session_factory", lambda: factory)
+    monkeypatch.setattr(deps, "session_factory", lambda: factory)
+    monkeypatch.setattr(service.audit, "record", lambda *args, **kwargs: None)
+    wakes, executed = [], []
+    monkeypatch.setattr(jobs, "_wake", lambda job_id: wakes.append(job_id))
+
+    def execute(session, run_id, job_id, attempt):
+        job, run = session.get(Job, job_id), session.get(AnalysisRun, run_id)
+        assert job.status == "running" and job.attempts == attempt == 1
+        assert run.checkpoint["feedback"]["decisions"] == [{"item_id": "P1", "decision": "confirmed"}]
+        run.status, run.finished_at = "succeeded", db.utcnow()
+        job.status, job.finished_at = "succeeded", db.utcnow()
+        executed.append(job_id)
+
+    monkeypatch.setattr(service, "execute", execute)
+
+    def no_wait(seconds):
+        raise AssertionError("确认后应在本进程执行，不应等待 worker")
+
+    monkeypatch.setattr(eval_analysis.time, "sleep", no_wait)
+    with factory.begin() as session:
+        user = User(id="eval-user", username="eval", display_name="评测用户", password_hash="unused")
+        run = AnalysisRun(id="eval-run", user_id=user.id, question="检查收入变化", status="waiting", trigger="manual",
+                          checkpoint={"pending": {"kind": "assumptions"}, "proposal": {"items": [
+                              {"id": "P1", "kind": "hypothesis", "content": "检查收入变化", "source": "inferred"}]}})
+        session.add_all([user, run])
+    app = FastAPI()
+    app.include_router(analysis.router)
+    app.dependency_overrides[deps.current_user] = lambda: user
+    path = f"/api/analysis/runs/{run.id}"
+    with TestClient(app) as client:
+        result = eval_analysis._confirm_all(client, {}, client.get(path).json())
+        assert result["status"] == "succeeded" and result["id"] == run.id
+    with factory() as session:
+        job = session.scalar(select(Job))
+        assert job.status == "succeeded" and job.attempts == 1
+        assert executed == wakes == [job.id]
+    engine.dispose()

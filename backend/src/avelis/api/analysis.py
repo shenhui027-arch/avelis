@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -15,6 +15,7 @@ from avelis.analysis import service as analysis
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
+from avelis.governance import experiences
 from avelis.governance.errors import NotFound
 from avelis.models import AnalysisDataset, AnalysisRun, AnalysisTask, Job, Notification, User
 
@@ -32,6 +33,7 @@ class Window(BaseModel):
 class RunCreate(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     window: Window | None = None
+    confirmation_mode: Literal["auto", "always"] = "auto"
 
 
 class TaskCreate(BaseModel):
@@ -61,7 +63,8 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
                session: Session = Depends(get_session)) -> dict:
     """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
     analysis.warm_up()
-    run = analysis.create_run(session, user, body.question, _window(body.window))
+    run = analysis.create_run(session, user, body.question, _window(body.window),
+                              confirmation_mode=body.confirmation_mode)
     # 运行与 Job 同一事务提交，之后才执行或唤醒 worker：不会留下没有 Job、恢复器回收不到的分析
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
@@ -70,19 +73,85 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
         session.expire_all()
     else:
         jobs._wake(job_id)
-    return analysis.run_view(session, session.get(AnalysisRun, run.id))
+    return analysis.run_view(session, session.get(AnalysisRun, run.id), user=user)
 
 
 @router.get("/analysis/runs", response_model=list[S.AnalysisRunOut])
 def list_runs(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
                            .order_by(AnalysisRun.created_at.desc()).limit(100))
-    return [analysis.run_view(session, r, full=False) for r in runs]
+    return [analysis.run_view(session, r, full=False, user=user) for r in runs]
 
 
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
 def get_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    return analysis.run_view(session, analysis.visible_run(session, user, run_id))
+    return analysis.run_view(session, analysis.visible_run(session, user, run_id), user=user)
+
+
+@router.post("/analysis/runs/{run_id}/resume", response_model=S.AnalysisRunOut)
+def resume_run(run_id: str, body: S.AnalysisResumeIn, user: User = Depends(current_user),
+               session: Session = Depends(get_session)) -> dict:
+    """确认本次提议并原子领取，重复提交不会创建第二个 Job。"""
+    run = analysis.resume_run(session, user, run_id, body.model_dump())
+    job_id = run.budget["job_id"]
+    session.commit()
+    jobs._wake(job_id)
+    return analysis.run_view(session, run, user=user)
+
+
+@router.post("/analysis/runs/{run_id}/messages", status_code=201, response_model=S.AnalysisMessageOut)
+def add_message(run_id: str, body: S.AnalysisMessageIn, user: User = Depends(current_user),
+                session: Session = Depends(get_session)) -> dict:
+    """记录插话；只在下一次模型调用前生效，等待确认期间不消费。"""
+    message = analysis.add_message(session, user, run_id, body.text)
+    session.commit()
+    return analysis.message_view(message)
+
+
+@router.post("/analysis/runs/{run_id}/stop", response_model=S.AnalysisRunOut)
+def stop_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """请求在下一个安全点停止；等待确认的运行立即结束。"""
+    run = analysis.stop_run(session, user, run_id)
+    session.commit()
+    return analysis.run_view(session, run, user=user)
+
+
+@router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
+def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user),
+                 session: Session = Depends(get_session)) -> dict:
+    """对已完成报告发起新运行，继承已确认的范围与假设。"""
+    analysis.warm_up()
+    run = analysis.followup_run(session, user, run_id, body.text, confirmation_mode=body.confirmation_mode)
+    job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
+    session.commit()
+    jobs._wake(job_id)
+    return analysis.run_view(session, run, user=user)
+
+
+# --- 个人经验 -----------------------------------------------------------------------
+
+@router.get("/analysis/experiences", response_model=list[S.ExperienceOut])
+def list_experiences(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
+    return experiences.list_experiences(session, user)
+
+
+@router.post("/analysis/experiences", status_code=201, response_model=S.ExperienceOut)
+def save_experience(body: S.ExperienceCandidate, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)) -> dict:
+    """仅在用户明确提交保存时持久化。候选确认与长期保存分开。"""
+    return experiences.save_experience(session, user, **body.model_dump(exclude_none=True))
+
+
+@router.post("/analysis/experiences/{experience_id}/revoke", response_model=S.ExperienceOut)
+def revoke_experience(experience_id: str, body: S.ExperienceRevokeIn, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)) -> dict:
+    return experiences.revoke_experience(session, user, experience_id, reason=body.reason)
+
+
+@router.post("/analysis/experiences/{experience_id}/replace", response_model=S.ExperienceOut)
+def replace_experience(experience_id: str, body: S.ExperienceCandidate, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)) -> dict:
+    return experiences.replace_experience(session, user, experience_id, **body.model_dump(exclude_none=True))
 
 
 def _dataset(session: Session, run: AnalysisRun, seq: int) -> AnalysisDataset:
@@ -114,7 +183,7 @@ def export_run(run_id: str, format: str = "pdf", user: User = Depends(current_us
     run = analysis.visible_run(session, user, run_id)
     if run.status != "succeeded":
         raise HTTPException(409, "分析尚未完成，不能导出")
-    view = analysis.run_view(session, run)
+    view = analysis.run_view(session, run, user=user)
     if format == "md":
         return Response(export.to_markdown(view).encode("utf-8"), media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'})
@@ -177,13 +246,13 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
         reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
         label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
         raise HTTPException(409, f"{label}：{reason}")
-    return analysis.run_view(session, session.get(AnalysisRun, run_id))
+    return analysis.run_view(session, session.get(AnalysisRun, run_id), user=user)
 
 
 @router.get("/analysis/tasks/{task_id}/runs", response_model=list[S.AnalysisRunOut])
 def task_runs(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     task = _task(session, user, task_id)
-    return [analysis.run_view(session, r, full=False) for r in session.scalars(
+    return [analysis.run_view(session, r, full=False, user=user) for r in session.scalars(
         select(AnalysisRun).where(AnalysisRun.task_id == task.id).order_by(AnalysisRun.created_at.desc()).limit(50))]
 
 

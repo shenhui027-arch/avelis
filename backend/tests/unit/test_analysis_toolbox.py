@@ -273,7 +273,7 @@ def test_model_request_timeout_follows_remaining_time(monkeypatch):
     class Resolved:
         model = None
 
-        def factory(self, timeout, max_retries):
+        def factory(self, timeout, max_retries, max_tokens=None):
             seen.append((timeout, max_retries))
             return CountingModel("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"})
 
@@ -352,14 +352,14 @@ def test_calendar_adjust_uses_dataset_query_window(monkeypatch):
 
 def _derived_catalog():
     d_metric = SimpleNamespace(id="mD", code="ec_d", name="派生", domain_id="dA")
-    d_version = SimpleNamespace(id="vD", kind="derived", status="published", base_asset_id=None, components=[
+    d_version = SimpleNamespace(id="vD", version_no=1, kind="derived", status="published", base_asset_id=None, components=[
         {"metric_id": "mB", "version_id": "vB", "metric_name": "组成 B"}])
     return ask_service.Catalog([], {"ec_d": (d_metric, d_version)})
 
 
 def _health_objects():
     comp = Metric(id="mB", code="ec_b", name="组成 B", domain_id="dB", owner_id="o", created_by="o")
-    comp_v = MetricVersion(id="vB", metric_id="mB", kind="base", status="published", base_asset_id="a1")
+    comp_v = MetricVersion(id="vB", version_no=1, metric_id="mB", kind="base", status="published", base_asset_id="a1")
     asset = Asset(id="a1", datasource_id="ds1", catalog_name="c", db_name="d", name="t", domain_id="dB")
     return [comp, comp_v, asset]
 
@@ -399,7 +399,7 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     from avelis.api import governance
 
     metric = SimpleNamespace(id="mS", code="sales", name="销售", domain_id="dA")
-    version = SimpleNamespace(id="vS", kind="base", status="published", base_asset_id="a1", components=None)
+    version = SimpleNamespace(id="vS", version_no=1, kind="base", status="published", base_asset_id="a1", components=None)
     catalog = ask_service.Catalog([], {"sales": (metric, version)})
     box = make_box(catalog=catalog, scalars=[SimpleNamespace(id="cs1")], monkeypatch=monkeypatch)
     monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: {"dA"})
@@ -793,7 +793,7 @@ def test_each_model_call_records_latency_tokens_and_tool_calls(monkeypatch):
     steps = [s for s in box.session.added if getattr(s, "kind", None) == "model"]
     assert len(steps) == 1 and steps[0].seq == 1 and steps[0].duration_ms is not None  # 在这一轮的工具步骤之前
     assert steps[0].output == {"input_tokens": 1200, "output_tokens": 80, "cache_hit_tokens": 1024, "reasoning_tokens": 30,
-                               "tool_calls": 2, "tools": ["search_metrics", "search_metrics"]}
+                               "tool_calls": 2, "tools": ["search_metrics", "search_metrics"], "text": ""}
     plain = AIMessage(content="", usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12,
                                                   "input_token_details": {"cache_read": 8}})
     assert agent.model_usage(plain) == {"input_tokens": 10, "output_tokens": 2, "cache_hit_tokens": 8,
@@ -826,17 +826,22 @@ def test_revision_resets_only_this_rounds_report_attempts(monkeypatch):
 
 
 def test_query_already_scanned_by_explain_change_is_reused(monkeypatch):
-    """模型按 explain_change 已扫描过的维度分组取数：直接返回已有数据集（含两期），不计额度，权限照样复核。"""
+    """模型按 explain_change 已扫描过的维度与两期分组取数：直接返回已有数据集，不计额度，权限照样复核。
+    带排序或行数的请求不复用（扫描结果不满足“前 N 个”的语义，见 test_analysis_b0_fixes 的 F 组）。"""
     from avelis.analysis.tools import QueryArgs, _scan_key
 
     catalog, executed = governed_catalog(monkeypatch)
     box = make_box(budget=Budget(queries=5), catalog=catalog, monkeypatch=monkeypatch)
     monkeypatch.setattr(box, "_metric_sources", lambda code: (None, None, [], {}))
     scan = governed(box, ["地区", "指标甲", "指标甲·对比期"], [["甲", "10", "8"]])
-    box._scanned[_scan_key(QueryArgs(**{**QUERY, "compare": None}))] = scan
-    out = json.loads(box.dispatch("query_metric", {**QUERY, "order": "desc", "limit": 3}))
+    scan.meta["versions"] = {"m_a": "v1"}
+    two = {**QUERY, "compare": "custom", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+    box._scanned[_scan_key(QueryArgs(**two))] = scan
+    out = json.loads(box.dispatch("query_metric", two))
     assert out["dataset"] == f"D{scan.seq}" and out["reused"] and executed == [] and box.budget.used_queries == 0
     assert "explain_change 已按同样的指标、维度、窗口与筛选扫描过" in out["note"]
+    top = json.loads(box.dispatch("query_metric", {**two, "order": "desc", "limit": 3}))
+    assert top["dataset"] != f"D{scan.seq}" and len(executed) == 1 and executed[0].order == "desc"
 
 
 def test_amount_per_order_is_a_level_not_a_ratio():

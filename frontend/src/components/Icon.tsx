@@ -36,6 +36,8 @@ const PATHS: Record<string, string> = {
   zoomout: "M7 11.25a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5zm3.2-1.05 3.3 3.3M5 7h4",
   bell: "M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1H3zM6.5 13.5a1.5 1.5 0 0 0 3 0",
   fit: "M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3",
+  sidebar: "M2.5 3h11v10h-11zM6.5 3v10",
+  palette: "M8 2.5a5.5 5.5 0 1 0 0 11c1 0 1.5-.6 1.5-1.3 0-1 .9-1.7 1.9-1.7h.6a2 2 0 0 0 2-2A5.5 5.5 0 0 0 8 2.5zM5 8.5h.01M6.5 5.5h.01M9.5 5.5h.01",
 };
 
 export function Icon({ name, small, title }: { name: keyof typeof PATHS | string; small?: boolean; title?: string }) {

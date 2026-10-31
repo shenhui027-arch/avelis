@@ -991,6 +991,141 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Run
+         * @description 确认本次提议并原子领取，重复提交不会创建第二个 Job。
+         */
+        post: operations["resume_run_api_analysis_runs__run_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Message
+         * @description 记录插话；只在下一次模型调用前生效，等待确认期间不消费。
+         */
+        post: operations["add_message_api_analysis_runs__run_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Run
+         * @description 请求在下一个安全点停止；等待确认的运行立即结束。
+         */
+        post: operations["stop_run_api_analysis_runs__run_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/followup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Followup Run
+         * @description 对已完成报告发起新运行，继承已确认的范围与假设。
+         */
+        post: operations["followup_run_api_analysis_runs__run_id__followup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/experiences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Experiences */
+        get: operations["list_experiences_api_analysis_experiences_get"];
+        put?: never;
+        /**
+         * Save Experience
+         * @description 仅在用户明确提交保存时持久化。候选确认与长期保存分开。
+         */
+        post: operations["save_experience_api_analysis_experiences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/experiences/{experience_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Experience */
+        post: operations["revoke_experience_api_analysis_experiences__experience_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/experiences/{experience_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace Experience */
+        post: operations["replace_experience_api_analysis_experiences__experience_id__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}/datasets/{seq}": {
         parameters: {
             query?: never;
@@ -1435,6 +1570,94 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisDecisionIn */
+        AnalysisDecisionIn: {
+            /** Item Id */
+            item_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "confirmed" | "rejected";
+        };
+        /** AnalysisFollowupIn */
+        AnalysisFollowupIn: {
+            /** Text */
+            text: string;
+            /**
+             * Confirmation Mode
+             * @default auto
+             * @enum {string}
+             */
+            confirmation_mode?: "auto" | "always";
+        };
+        /** AnalysisMessageIn */
+        AnalysisMessageIn: {
+            /** Text */
+            text: string;
+        };
+        /** AnalysisMessageOut */
+        AnalysisMessageOut: {
+            /** Id */
+            id: string;
+            /** Text */
+            text: string;
+            /** Created At */
+            created_at: string;
+            /** Consumed At */
+            consumed_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisProposalItem */
+        AnalysisProposalItem: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "asset" | "join" | "hypothesis";
+            /** Content */
+            content: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "upstream" | "experience" | "inferred" | "user";
+            /** Refs */
+            refs?: {
+                [key: string]: unknown;
+            }[];
+            /** Experience Id */
+            experience_id?: string | null;
+            /** Experience Version */
+            experience_version?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisProposalOut */
+        AnalysisProposalOut: {
+            /** Items */
+            items?: components["schemas"]["AnalysisProposalItem"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisResumeIn */
+        AnalysisResumeIn: {
+            /**
+             * Answer
+             * @default
+             */
+            answer?: string;
+            /** Decisions */
+            decisions?: components["schemas"]["AnalysisDecisionIn"][];
+            /**
+             * Supplement
+             * @default
+             */
+            supplement?: string;
+        };
         /** AnalysisRunOut */
         AnalysisRunOut: {
             /** Id */
@@ -1475,6 +1698,10 @@ export interface components {
             report?: {
                 [key: string]: unknown;
             } | null;
+            /** Answer */
+            answer?: {
+                [key: string]: unknown;
+            } | null;
             /** Verification */
             verification?: {
                 [key: string]: unknown;
@@ -1483,6 +1710,29 @@ export interface components {
             steps?: components["schemas"]["AnalysisStepOut"][] | null;
             /** Datasets */
             datasets?: components["schemas"]["AnalysisDatasetOut"][] | null;
+            /** Messages */
+            messages?: components["schemas"]["AnalysisMessageOut"][];
+            /** Parent Run Id */
+            parent_run_id?: string | null;
+            /**
+             * Confirmation Mode
+             * @default auto
+             * @enum {string}
+             */
+            confirmation_mode?: "auto" | "always";
+            proposal?: components["schemas"]["AnalysisProposalOut"] | null;
+            /** Pending */
+            pending?: {
+                [key: string]: unknown;
+            } | null;
+            /** Experience Candidates */
+            experience_candidates?: components["schemas"]["ExperienceCandidate"][];
+            /** Confirmed Scope */
+            confirmed_scope?: {
+                [key: string]: unknown;
+            };
+            /** Confirmed Items */
+            confirmed_items?: components["schemas"]["AnalysisProposalItem"][];
         } & {
             [key: string]: unknown;
         };
@@ -2443,6 +2693,94 @@ export interface components {
             /** Questions */
             questions?: components["schemas"]["ExampleQuestionIn"][];
         };
+        /** ExperienceCandidate */
+        ExperienceCandidate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "join" | "driver" | "alias" | "rule" | "preference" | "negative";
+            /** Content */
+            content: string;
+            /** Refs */
+            refs?: components["schemas"]["ExperienceRef"][];
+            source: components["schemas"]["ExperienceSource"];
+        };
+        /** ExperienceOut */
+        ExperienceOut: {
+            /** Id */
+            id: string;
+            /** Owner Id */
+            owner_id: string;
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "personal";
+            /** Current Version */
+            current_version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "revoked" | "superseded";
+            /** Created At */
+            created_at: string;
+            /** Version Id */
+            version_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "join" | "driver" | "alias" | "rule" | "preference" | "negative";
+            /** Content */
+            content: string;
+            /** Refs */
+            refs: components["schemas"]["ExperienceRef"][];
+            source: components["schemas"]["ExperienceSource"];
+            /** Confirmed By */
+            confirmed_by: string;
+            /** Confirmed At */
+            confirmed_at: string;
+            /** Superseded By */
+            superseded_by?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ExperienceRef */
+        ExperienceRef: {
+            /**
+             * Object Type
+             * @enum {string}
+             */
+            object_type: "asset" | "metric" | "metric_version";
+            /** Object Id */
+            object_id: string;
+            /** Version */
+            version?: number | null;
+        };
+        /** ExperienceRevokeIn */
+        ExperienceRevokeIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason?: string;
+        };
+        /** ExperienceSource */
+        ExperienceSource: {
+            /** Run Id */
+            run_id: string;
+            /** Checkpoint */
+            checkpoint: string;
+            /**
+             * User Text
+             * @default
+             */
+            user_text?: string;
+        };
         /** Exploration */
         Exploration: {
             /** Allow */
@@ -3213,6 +3551,12 @@ export interface components {
             /** Question */
             question: string;
             window?: components["schemas"]["Window"] | null;
+            /**
+             * Confirmation Mode
+             * @default auto
+             * @enum {string}
+             */
+            confirmation_mode?: "auto" | "always";
         };
         /** RunOut */
         RunOut: {
@@ -5552,6 +5896,265 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_run_api_analysis_runs__run_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisResumeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_message_api_analysis_runs__run_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisMessageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisMessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_run_api_analysis_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    followup_run_api_analysis_runs__run_id__followup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisFollowupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_experiences_api_analysis_experiences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceOut"][];
+                };
+            };
+        };
+    };
+    save_experience_api_analysis_experiences_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceCandidate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_experience_api_analysis_experiences__experience_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experience_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceRevokeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_experience_api_analysis_experiences__experience_id__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experience_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceCandidate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceOut"];
                 };
             };
             /** @description Validation Error */

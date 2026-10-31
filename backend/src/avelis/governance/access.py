@@ -65,8 +65,11 @@ def can_see_object(session: Session, user: User, object_type: str, object_id: st
                    allowed: set[str] | None = None) -> bool:
     """列表、详情、工作台、审计共用的对象可见性：资产按业务域（含未归属策略）；指标按所属业务域；
     关联路径要两侧资产都可见；答案只给提问人；用户只能看自己。管理员可见全部。"""
-    from avelis.models import Answer, Asset, JoinPath, Metric, MetricVersion
+    from avelis.models import Answer, Asset, Experience, JoinPath, Metric, MetricVersion
 
+    if object_type == "experience":
+        experience = session.get(Experience, object_id)
+        return experience is not None and experience.owner_id == user.id and experience.scope == "personal"
     if is_admin(session, user):
         return True
     allowed = domain_ids(session, user) if allowed is None else allowed

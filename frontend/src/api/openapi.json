@@ -3362,6 +3362,417 @@
     }
    }
   },
+  "/api/analysis/runs/{run_id}/resume": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Resume Run",
+    "description": "确认本次提议并原子领取，重复提交不会创建第二个 Job。",
+    "operationId": "resume_run_api_analysis_runs__run_id__resume_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalysisResumeIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/messages": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Add Message",
+    "description": "记录插话；只在下一次模型调用前生效，等待确认期间不消费。",
+    "operationId": "add_message_api_analysis_runs__run_id__messages_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalysisMessageIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisMessageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/stop": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Stop Run",
+    "description": "请求在下一个安全点停止；等待确认的运行立即结束。",
+    "operationId": "stop_run_api_analysis_runs__run_id__stop_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/followup": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Followup Run",
+    "description": "对已完成报告发起新运行，继承已确认的范围与假设。",
+    "operationId": "followup_run_api_analysis_runs__run_id__followup_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalysisFollowupIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/experiences": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Experiences",
+    "operationId": "list_experiences_api_analysis_experiences_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ExperienceOut"
+         },
+         "type": "array",
+         "title": "Response List Experiences Api Analysis Experiences Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Save Experience",
+    "description": "仅在用户明确提交保存时持久化。候选确认与长期保存分开。",
+    "operationId": "save_experience_api_analysis_experiences_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceCandidate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/analysis/experiences/{experience_id}/revoke": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Revoke Experience",
+    "operationId": "revoke_experience_api_analysis_experiences__experience_id__revoke_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceRevokeIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/experiences/{experience_id}/replace": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Replace Experience",
+    "operationId": "replace_experience_api_analysis_experiences__experience_id__replace_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceCandidate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/datasets/{seq}": {
    "get": {
     "tags": [
@@ -4755,6 +5166,216 @@
     ],
     "title": "AnalysisDatasetOut"
    },
+   "AnalysisDecisionIn": {
+    "properties": {
+     "item_id": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Item Id"
+     },
+     "decision": {
+      "type": "string",
+      "enum": [
+       "confirmed",
+       "rejected"
+      ],
+      "title": "Decision"
+     }
+    },
+    "type": "object",
+    "required": [
+     "item_id",
+     "decision"
+    ],
+    "title": "AnalysisDecisionIn"
+   },
+   "AnalysisFollowupIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Text"
+     },
+     "confirmation_mode": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "always"
+      ],
+      "title": "Confirmation Mode",
+      "default": "auto"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AnalysisFollowupIn"
+   },
+   "AnalysisMessageIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AnalysisMessageIn"
+   },
+   "AnalysisMessageOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "consumed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Consumed At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "text",
+     "created_at"
+    ],
+    "title": "AnalysisMessageOut"
+   },
+   "AnalysisProposalItem": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "asset",
+       "join",
+       "hypothesis"
+      ],
+      "title": "Kind"
+     },
+     "content": {
+      "type": "string",
+      "title": "Content"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "upstream",
+       "experience",
+       "inferred",
+       "user"
+      ],
+      "title": "Source"
+     },
+     "refs": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Refs"
+     },
+     "experience_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Experience Id"
+     },
+     "experience_version": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Experience Version"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "content",
+     "source"
+    ],
+    "title": "AnalysisProposalItem"
+   },
+   "AnalysisProposalOut": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisProposalItem"
+      },
+      "type": "array",
+      "title": "Items"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "AnalysisProposalOut"
+   },
+   "AnalysisResumeIn": {
+    "properties": {
+     "answer": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Answer",
+      "default": ""
+     },
+     "decisions": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisDecisionIn"
+      },
+      "type": "array",
+      "maxItems": 100,
+      "title": "Decisions"
+     },
+     "supplement": {
+      "type": "string",
+      "maxLength": 4000,
+      "title": "Supplement",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "AnalysisResumeIn"
+   },
    "AnalysisRunOut": {
     "properties": {
      "id": {
@@ -4877,6 +5498,18 @@
       ],
       "title": "Report"
      },
+     "answer": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Answer"
+     },
      "verification": {
       "anyOf": [
        {
@@ -4916,6 +5549,74 @@
        }
       ],
       "title": "Datasets"
+     },
+     "messages": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisMessageOut"
+      },
+      "type": "array",
+      "title": "Messages"
+     },
+     "parent_run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Run Id"
+     },
+     "confirmation_mode": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "always"
+      ],
+      "title": "Confirmation Mode",
+      "default": "auto"
+     },
+     "proposal": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisProposalOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "pending": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pending"
+     },
+     "experience_candidates": {
+      "items": {
+       "$ref": "#/components/schemas/ExperienceCandidate"
+      },
+      "type": "array",
+      "title": "Experience Candidates"
+     },
+     "confirmed_scope": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Confirmed Scope"
+     },
+     "confirmed_items": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisProposalItem"
+      },
+      "type": "array",
+      "title": "Confirmed Items"
      }
     },
     "additionalProperties": true,
@@ -7789,6 +8490,230 @@
     "type": "object",
     "title": "ExampleQuestionsSet"
    },
+   "ExperienceCandidate": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "join",
+       "driver",
+       "alias",
+       "rule",
+       "preference",
+       "negative"
+      ],
+      "title": "Kind"
+     },
+     "content": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Content"
+     },
+     "refs": {
+      "items": {
+       "$ref": "#/components/schemas/ExperienceRef"
+      },
+      "type": "array",
+      "title": "Refs"
+     },
+     "source": {
+      "$ref": "#/components/schemas/ExperienceSource"
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind",
+     "content",
+     "source"
+    ],
+    "title": "ExperienceCandidate"
+   },
+   "ExperienceOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "owner_id": {
+      "type": "string",
+      "title": "Owner Id"
+     },
+     "scope": {
+      "type": "string",
+      "const": "personal",
+      "title": "Scope"
+     },
+     "current_version": {
+      "type": "integer",
+      "title": "Current Version"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "active",
+       "revoked",
+       "superseded"
+      ],
+      "title": "Status"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "version_id": {
+      "type": "string",
+      "title": "Version Id"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "join",
+       "driver",
+       "alias",
+       "rule",
+       "preference",
+       "negative"
+      ],
+      "title": "Kind"
+     },
+     "content": {
+      "type": "string",
+      "title": "Content"
+     },
+     "refs": {
+      "items": {
+       "$ref": "#/components/schemas/ExperienceRef"
+      },
+      "type": "array",
+      "title": "Refs"
+     },
+     "source": {
+      "$ref": "#/components/schemas/ExperienceSource"
+     },
+     "confirmed_by": {
+      "type": "string",
+      "title": "Confirmed By"
+     },
+     "confirmed_at": {
+      "type": "string",
+      "title": "Confirmed At"
+     },
+     "superseded_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Superseded By"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "owner_id",
+     "scope",
+     "current_version",
+     "status",
+     "created_at",
+     "version_id",
+     "version",
+     "kind",
+     "content",
+     "refs",
+     "source",
+     "confirmed_by",
+     "confirmed_at"
+    ],
+    "title": "ExperienceOut"
+   },
+   "ExperienceRef": {
+    "properties": {
+     "object_type": {
+      "type": "string",
+      "enum": [
+       "asset",
+       "metric",
+       "metric_version"
+      ],
+      "title": "Object Type"
+     },
+     "object_id": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Object Id"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     }
+    },
+    "type": "object",
+    "required": [
+     "object_type",
+     "object_id"
+    ],
+    "title": "ExperienceRef"
+   },
+   "ExperienceRevokeIn": {
+    "properties": {
+     "reason": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Reason",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "ExperienceRevokeIn"
+   },
+   "ExperienceSource": {
+    "properties": {
+     "run_id": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Run Id"
+     },
+     "checkpoint": {
+      "type": "string",
+      "maxLength": 80,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Checkpoint"
+     },
+     "user_text": {
+      "type": "string",
+      "maxLength": 4000,
+      "title": "User Text",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "run_id",
+     "checkpoint"
+    ],
+    "title": "ExperienceSource"
+   },
    "Exploration": {
     "properties": {
      "allow": {
@@ -9970,6 +10895,15 @@
         "type": "null"
        }
       ]
+     },
+     "confirmation_mode": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "always"
+      ],
+      "title": "Confirmation Mode",
+      "default": "auto"
      }
     },
     "type": "object",
