@@ -661,6 +661,8 @@ def test_factor_decompose_exposes_subunit_residual_for_integer_totals(total, fac
     (("1000000000000", "1000000000000.001"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)}, 0),
     (("5000", "4400"), {"指标甲": (100, 80), "指标乙": (50, 55)}, 0),
     (("100", "100"), {"指标甲": (10, 20), "指标乙": (10, 5)}, 0),
+    # 大额正负贡献相互抵消、净变化很小：尾差校正以精确净变化为准，不能被舍成 0（PR #26 复核）
+    (("1000000000000", "1000000000000.001"), {"指标甲": ("1000000", "10000000"), "指标乙": ("1000000", "100000.0000000001")}, 0),
     # 输入不一致：差额只来自总量与因子之积之差，照常单列
     (("1000000000000", "1000000000000.003"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)},
      Decimal("0.002")),
@@ -671,7 +673,7 @@ def test_factor_decompose_separates_input_mismatch_from_float_error(total, facto
     assert out["unexplained"] == unexplained
     assert ("未解释差额" in parts) == bool(unexplained)
     assert sum(parts.values()) == out["total"]["change"]  # 贡献 + 未解释差额精确等于总变化
-    assert all("E" not in str(v) for v in parts.values())
+    assert all("E" not in str(v) for v in [*parts.values(), out["unexplained"]])
 
 
 def _batch1_additive_derived_box(monkeypatch, formula, second_expression='COUNT(*)'):

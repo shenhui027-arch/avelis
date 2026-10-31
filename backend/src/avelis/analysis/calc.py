@@ -105,7 +105,7 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         p1 = math.prod((v[1] for v in vals.values()), start=Decimal(1))
         weight = p1 if p1 == p0 else (p1 - p0) / (p1.ln() - p0.ln())
         exact = {name: weight * (b / a).ln() for name, (a, b) in vals.items()}
-        unexplained = change - (p1 - p0)
+        unexplained = (change - (p1 - p0)) or Decimal(0)  # 零写成 0，不写 0E-10
         # 所有贡献按同一绝对精度（最大量级的 15 位有效数字）舍入；剩下的几个末位单位只是表示尾差，
         # 并入绝对值最大的贡献，使贡献之和精确等于因子之积的变化
         scale = max([abs(p1 - p0), *map(abs, exact.values())])
@@ -113,7 +113,7 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         contributions = {n: c.quantize(step) for n, c in exact.items()}
         if contributions:
             largest = max(contributions, key=lambda n: abs(contributions[n]))
-            contributions[largest] += (p1 - p0).quantize(step) - sum(contributions.values(), Decimal(0))
+            contributions[largest] += (p1 - p0) - sum(contributions.values(), Decimal(0))  # 以精确净变化为准，不先舍入
         contributions = {n: c if c else Decimal(0) for n, c in contributions.items()}  # 零写成 0，不写 0E-17
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
              "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in exact]
