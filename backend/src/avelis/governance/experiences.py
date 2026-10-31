@@ -27,7 +27,11 @@ def _require_user(session: Session, actor: User) -> None:
 
 def candidates_from_feedback(*, run_id: str, proposal: dict, feedback: dict, refs: list[dict],
                              checkpoint: str = "assumptions") -> list[dict]:
-    """只整理用户补充、质疑和对推断的明确决策，不把已知来源重复列为经验。"""
+    """保留用户补充（含插话）、质疑、否决的推断和确认的推断关联（join）。
+
+    否决的推断作为否定经验；确认的 hypothesis、asset 只关于本次分析，不生成候选。
+    已知来源不重复列为经验。
+    """
     items = {str(item.get("id")): item for item in proposal.get("items", []) if isinstance(item, dict)}
     candidates: list[dict] = []
     for field in ("supplement", "challenge"):
@@ -42,7 +46,8 @@ def candidates_from_feedback(*, run_id: str, proposal: dict, feedback: dict, ref
             item_id = str(decision.get("item_id", ""))
             item = items.get(item_id)
             if (item is None or item.get("source") != "inferred" or item_id in seen
-                    or decision.get("decision") != choice):
+                    or decision.get("decision") != choice
+                    or (choice == "confirmed" and item.get("kind") != "join")):
                 continue
             seen.add(item_id)
             text = str(item.get("content", "")).strip()
@@ -50,7 +55,7 @@ def candidates_from_feedback(*, run_id: str, proposal: dict, feedback: dict, ref
                 continue
             rejected = choice == "rejected"
             content = (("否决：" if rejected else "") + text)[:CONTENT_CHARS]
-            kind = "negative" if rejected else ("join" if item.get("kind") == "join" else "rule")
+            kind = "negative" if rejected else "join"
             candidates.append({"kind": kind, "content": content,
                                "refs": _merge_refs(item.get("refs") or [], refs),
                                "source": {"run_id": run_id, "checkpoint": checkpoint,
