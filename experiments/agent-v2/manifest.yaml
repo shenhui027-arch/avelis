@@ -231,3 +231,19 @@ scorer_v2_1_2:
     backend/tests/eval/scoring_v2_1_2.py: c87d057416341db4fc4d2188130e527655670444
     experiments/agent-v2/rescore_v2_1_2.py: 6d5e2884435c7d50469ea8371838157c0ae61641
   rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一重判，与 v2.1.1 并列，逐条列出判定变化
+
+# --- 评分器 v2.1.3（协调会话 2026-10-31；E2 的运行与判分照旧用 v2.1.1）-----------------------------------------
+scorer_v2_1_3:
+  version: v2.1.3
+  reason: PR #11 评审线程 4430639097——运行详情只保存每个数据集的前 50 行，评分器按保存的行选行、展开、核对实体时看不到被截掉的行。
+    contribution 这一处已修补过两次，按“同一处补丁达到 3 次就回头查架构”的规则，改成一条通用规则，不再单独补 contribution
+  rule: 任何一条绑定路径（关键数值的各分支、首要原因机制匹配中读取行的部分）上，只要用到的数据集保存的行数少于 row_count，
+    就判为不确定、不予绑定；只读 SQL（来源表）的判断不受影响。结果里分别记 uncertain_truncated 与 uncertain_details
+  v2_1_2_note: v2.1.2（66f1d7e）冻结后没有给任何运行判过分、没有产生任何结果；v2.1.3 在它的基础上只加这一条规则
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_3.py: e45f1cbefc3046994899da8d7b88a201b8bb0d005302cbee8ace36e87a40bab4
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_3.py: 312bec6cf41b6857ed195b080c8d456269aa6807
+    experiments/agent-v2/rescore_v2_1_3.py: a652124f811a0aadbffb0aaf3ef722381055d3d5
+  rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一用 v2.1.3 重判，与 v2.1.1 并列；统计因截断判为不确定的运行数及其中判定变化的次数
