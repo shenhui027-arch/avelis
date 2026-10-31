@@ -33,6 +33,7 @@ from avelis.models import (
     DomainMember,
     Grain,
     IdentityLink,
+    JoinPath,
     LineageEdge,
     ParseResult,
     User,
@@ -406,7 +407,7 @@ def confirm_column(asset_id: str, column: str, body: ConfirmBody, user: User = D
 def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔；多个域会串联显示"),
                   asset_id: str | None = None, user: User = Depends(current_user),
                   session: Session = Depends(get_session)) -> dict:
-    """资产级节点 + 列级边（按关系类型汇总）+ 外部表身份映射。只返回用户可见的资产。"""
+    """资产级节点、列级边、外部表身份映射与关联路径。只返回用户可见的资产。"""
     allowed = access.domain_ids(session, user)
     assets = {a.id: a for a in session.scalars(select(Asset).where(Asset.status == "active"))
               if access.can_read_asset(session, user, a, allowed)}
@@ -469,8 +470,14 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         g["relations"].add(e.relation)
         g["origins"].add(e.origin)
     edge_list = [{**g, "relations": sorted(g["relations"]), "origins": sorted(g["origins"])} for g in grouped.values()]
+    joins = [{"id": j.id, "code": j.code, "left_asset_id": j.left_asset_id, "left_columns": j.left_columns,
+              "right_asset_id": j.right_asset_id, "right_columns": j.right_columns,
+              "cardinality": j.cardinality, "status": j.status}
+             for j in session.scalars(select(JoinPath).where(JoinPath.status.in_(["approved", "pending"]))
+                                      .order_by(JoinPath.code))
+             if j.left_asset_id in included and j.right_asset_id in included]
     return {"nodes": nodes, "edges": edge_list,
-            "identity_links": [_link_view(session, x) for x in links if x.source_asset_id in included]}
+            "identity_links": [_link_view(session, x) for x in links if x.source_asset_id in included], "joins": joins}
 
 
 def _404(message: str):

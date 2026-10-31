@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,14 @@ def create(session: Session, actor: User, *, code: str, name: str, left_asset_id
     access.require_role(session, actor, "steward")
     if session.scalar(select(JoinPath.id).where(JoinPath.code == code)):
         raise Conflict(f"关联路径编码 {code} 已存在")
+    left, right = _validate_sides(session, left_asset_id, left_columns, right_asset_id, right_columns)
+    path = _create(session, actor, code, name, left, left_columns, right, right_columns)
+    audit.record(session, actor, "join_path.create", "join_path", path.id, code=code, cardinality=path.cardinality)
+    return path
+
+
+def _validate_sides(session: Session, left_asset_id: str, left_columns: list[str], right_asset_id: str,
+                    right_columns: list[str]) -> tuple[Asset, Asset]:
     left, right = session.get(Asset, left_asset_id), session.get(Asset, right_asset_id)
     if left is None or right is None or "deleted" in (left.status, right.status):
         raise NotFound("关联两侧的资产不存在或已删除")
@@ -44,6 +54,11 @@ def create(session: Session, actor: User, *, code: str, name: str, left_asset_id
         missing = set(cols) - _columns(session, asset)
         if missing:
             raise Invalid(f"{asset.db_name}.{asset.name} 没有列：{', '.join(sorted(missing))}")
+    return left, right
+
+
+def _create(session: Session, actor: User, code: str, name: str, left: Asset, left_columns: list[str],
+            right: Asset, right_columns: list[str], source: dict | None = None) -> JoinPath:
     card = cardinality(session, left.id, left_columns, right.id, right_columns,
                        fingerprints=current_fingerprint_map(session))
     fps = current_fingerprints(session)
@@ -51,11 +66,43 @@ def create(session: Session, actor: User, *, code: str, name: str, left_asset_id
                   for a, cols in ((left, left_columns), (right, right_columns)) for c in cols]
     path = JoinPath(code=code, name=name, left_asset_id=left.id, left_columns=left_columns, right_asset_id=right.id,
                     right_columns=right_columns, cardinality=card.value, cardinality_basis=card.basis,
-                    status="pending", dependency=dependency, created_by=actor.id)
+                    status="pending", dependency=dependency, created_by=actor.id, source=source)
     session.add(path)
     session.flush()
     required_domains(session, path)
-    audit.record(session, actor, "join_path.create", "join_path", path.id, code=code, cardinality=card.value)
+    return path
+
+
+def propose(session: Session, actor: User, *, left_asset_id: str, left_columns: list[str], right_asset_id: str,
+            right_columns: list[str], source: dict | None = None) -> JoinPath:
+    access.require_role(session, actor, "analyst", "steward", "reviewer")
+    left, right = _validate_sides(session, left_asset_id, left_columns, right_asset_id, right_columns)
+    allowed = access.domain_ids(session, actor)
+    if not all(access.can_read_asset(session, actor, asset, allowed) for asset in (left, right)):
+        raise Forbidden("只能提议当前可见资产之间的关联路径")
+    pairs = sorted(zip(left_columns, right_columns))
+    for path in session.scalars(select(JoinPath).where(
+            ((JoinPath.left_asset_id == left.id) & (JoinPath.right_asset_id == right.id)) |
+            ((JoinPath.left_asset_id == right.id) & (JoinPath.right_asset_id == left.id)))):
+        same = (path.left_asset_id == left.id and path.right_asset_id == right.id and
+                sorted(zip(path.left_columns, path.right_columns)) == pairs)
+        reverse = (path.left_asset_id == right.id and path.right_asset_id == left.id and
+                   sorted(zip(path.right_columns, path.left_columns)) == pairs)
+        if same or reverse:
+            audit.record(session, actor, "join_path.propose", "join_path", path.id, code=path.code,
+                         cardinality=path.cardinality, reused=True, source=source)
+            return path
+    base = re.sub(r"[^a-z0-9_]+", "_", "_".join([
+        left.name, *left_columns, right.name, *right_columns]).lower()).strip("_") or "join_path"
+    code, suffix = base[:64], 1
+    while session.scalar(select(JoinPath.id).where(JoinPath.code == code)):
+        suffix += 1
+        tail = f"_{suffix}"
+        code = base[:64 - len(tail)] + tail
+    name = f"{left.name} 与 {right.name} 按 {'、'.join(left_columns)} 关联"[:128]
+    path = _create(session, actor, code, name, left, left_columns, right, right_columns, source)
+    audit.record(session, actor, "join_path.propose", "join_path", path.id, code=code,
+                 cardinality=path.cardinality, reused=False, source=source)
     return path
 
 
