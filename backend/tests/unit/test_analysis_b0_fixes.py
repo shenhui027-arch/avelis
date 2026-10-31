@@ -10,6 +10,7 @@ F. 查询复用不改变请求语义：排序、行数、列顺序、对比期�
 from __future__ import annotations
 
 import json
+import ssl
 from types import SimpleNamespace
 
 import httpx
@@ -18,6 +19,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
+from langchain_openai.chat_models.base import OpenAITimeoutError
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel
@@ -173,12 +175,14 @@ class Replies:
 
     def __init__(self, *replies):
         self.replies, self.calls = list(replies), 0
+        self.seen = []
 
     def bind_tools(self, tools, **kwargs):
         return self
 
     def invoke(self, messages):
         self.calls += 1
+        self.seen.append(list(messages))
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -241,19 +245,137 @@ def test_empty_reply_without_content_is_legal_and_nudged(monkeypatch):
 
 
 def test_retries_count_against_the_model_request_budget(monkeypatch):
-    class APIConnectionError(Exception):  # 与 openai 的传输错误同名：按临时错误重试一次
-        pass
-
     box = make_box(monkeypatch=monkeypatch)
-    model = Replies(APIConnectionError("reset"), AIMessage(content="", tool_calls=[]))
+    model = Replies(OpenAITimeoutError(request=httpx.Request("POST", "https://x")),
+                    AIMessage(content="", tool_calls=[]))
     agent._round({"messages": []}, box, model)
     assert model.calls == 2 and box.budget.used_model_requests == 2
     first, second = model_steps(box)
-    assert first.status == "error" and first.output["retry"] is True and second.status == "ok"
-    box2 = make_box(monkeypatch=monkeypatch)  # 内容类错误不重试
-    with pytest.raises(ValueError):
-        agent._round({"messages": []}, box2, Replies(ValueError("bad"), AIMessage(content="")))
-    assert box2.budget.used_model_requests == 1
+    assert first.status == "error" and first.output["error_code"] == "model_transport"
+    assert first.output["retry"] is True and second.status == "ok"
+
+
+def wrapped_ssl_error(*, context=False):
+    wrapped = Exception("包装后的连接错误")
+    inner = ssl.SSLError("TLS 连接中断")
+    if context:
+        wrapped.__context__ = inner
+        inner.__context__ = wrapped  # 包装链里存在环，也不能漏掉传输错误或无限遍历
+    else:
+        wrapped.__cause__ = inner
+    return wrapped
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param(openai.APIConnectionError(request=httpx.Request("POST", "https://x")), id="openai-connection"),
+    pytest.param(httpx.ReadTimeout("读取超时"), id="httpx-read-timeout"),
+    pytest.param(wrapped_ssl_error(), id="ssl-cause"),
+    pytest.param(wrapped_ssl_error(context=True), id="ssl-context-cycle"),
+])
+def test_real_transport_errors_retry_once(monkeypatch, error):
+    box = make_box(monkeypatch=monkeypatch)
+    model = Replies(error, AIMessage(content="完成"))
+    agent._round({"messages": []}, box, model)
+    assert model.calls == box.budget.used_model_requests == 2
+    assert [s.status for s in model_steps(box)] == ["error", "ok"]
+    assert model_steps(box)[0].output["retry"] is True
+    assert model_steps(box)[0].output["error_code"] == "model_transport"
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param(openai.BadRequestError("参数错误", response=httpx.Response(
+        400, request=httpx.Request("POST", "https://x")), body={}), id="bad-request"),
+    pytest.param(openai.AuthenticationError("鉴权失败", response=httpx.Response(
+        401, request=httpx.Request("POST", "https://x")), body={}), id="authentication"),
+    pytest.param(ValueError("内容错误"), id="value-error"),
+    pytest.param(ModelProtocolError("model_protocol", "协议错误"), id="model-protocol"),
+])
+def test_non_transport_errors_are_not_retried(monkeypatch, error):
+    box = make_box(monkeypatch=monkeypatch)
+    model = Replies(error, AIMessage(content="不应请求"))
+    with pytest.raises(type(error)) as caught:
+        agent._round({"messages": []}, box, model)
+    assert caught.value is error
+    assert model.calls == box.budget.used_model_requests == 1
+    assert len(model_steps(box)) == 1 and model_steps(box)[0].output["retry"] is False
+    assert "error_code" not in model_steps(box)[0].output
+
+
+def test_an_unrelated_error_with_a_transport_class_name_is_not_retried(monkeypatch):
+    class APIConnectionError(Exception):
+        pass
+
+    box = make_box(monkeypatch=monkeypatch)
+    model = Replies(APIConnectionError("只是同名"), AIMessage(content="不应请求"))
+    with pytest.raises(APIConnectionError):
+        agent._round({"messages": []}, box, model)
+    assert model.calls == box.budget.used_model_requests == 1
+    assert model_steps(box)[0].output["retry"] is False
+    assert "error_code" not in model_steps(box)[0].output
+
+
+@pytest.mark.parametrize("limit", ["requests", "time", "stopped", "input_tokens", "output_tokens"])
+def test_transport_retries_respect_the_remaining_run_budget(monkeypatch, limit):
+    budget = Budget(model_requests=1 if limit == "requests" else 16)
+    box = make_box(budget=budget, monkeypatch=monkeypatch)
+    error = openai.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    model = Replies(error, AIMessage(content="不应请求"))
+    original_invoke = model.invoke
+
+    def fail_and_reach_limit(messages):
+        if limit == "stopped":
+            box.permission_lost = "发起人已失去权限"
+        elif limit == "input_tokens":
+            budget.used_input_tokens = budget.input_tokens
+        elif limit == "output_tokens":
+            budget.used_output_tokens = budget.output_tokens
+        return original_invoke(messages)
+
+    model.invoke = fail_and_reach_limit
+    if limit == "time":
+        monkeypatch.setattr(budget, "remaining", lambda: 2 * agent.MODEL_TIMEOUT_SECONDS)
+    with pytest.raises(openai.APIConnectionError):
+        agent._round({"messages": []}, box, model)
+    assert model.calls == budget.used_model_requests == 1
+    assert len(model_steps(box)) == 1 and model_steps(box)[0].output["retry"] is False
+    assert model_steps(box)[0].output["error_code"] == "model_transport"
+
+
+@pytest.mark.parametrize("restored", [False, True], ids=["same-run", "resumed-run"])
+@pytest.mark.parametrize("model_requests", [3, 4], ids=["retry-budget-exhausted", "retry-budget-available"])
+def test_each_model_request_can_retry_once_within_the_run_budget(monkeypatch, restored, model_requests):
+    box = make_box(budget=Budget(model_requests=model_requests), monkeypatch=monkeypatch)
+    error = httpx.ReadTimeout("再次超时")
+    model = Replies(openai.APIConnectionError(request=httpx.Request("POST", "https://x")),
+                    AIMessage(content="第一轮成功"), error, AIMessage(content="第二轮成功"))
+    agent._round({"messages": []}, box, model)
+    assert model.calls == box.budget.used_model_requests == 2
+    if restored:
+        box.budget = Budget.restore(box.budget.view())
+    if model_requests == 3:
+        with pytest.raises(httpx.ReadTimeout) as caught:
+            agent._round({"messages": []}, box, model)
+        assert caught.value is error
+        assert [s.output.get("retry") for s in model_steps(box)] == [True, None, False]
+    else:
+        agent._round({"messages": []}, box, model)
+        assert [s.status for s in model_steps(box)] == ["error", "ok", "error", "ok"]
+        assert [s.output.get("retry") for s in model_steps(box)] == [True, None, True, None]
+    assert model.calls == box.budget.used_model_requests == model_requests
+    assert box.budget.model_blocked()
+
+
+def test_consecutive_transport_errors_in_one_request_retry_only_once(monkeypatch):
+    box = make_box(monkeypatch=monkeypatch)
+    error = httpx.ReadTimeout("重试仍超时")
+    model = Replies(openai.APIConnectionError(request=httpx.Request("POST", "https://x")),
+                    error, AIMessage(content="不应请求"))
+    with pytest.raises(httpx.ReadTimeout) as caught:
+        agent._round({"messages": []}, box, model)
+    assert caught.value is error and model.calls == box.budget.used_model_requests == 2
+    assert [s.status for s in model_steps(box)] == ["error", "error"]
+    assert [s.output["retry"] for s in model_steps(box)] == [True, False]
+    assert all(s.output["error_code"] == "model_transport" for s in model_steps(box))
 
 
 def test_model_request_cap_stops_the_loop(monkeypatch):
@@ -362,6 +484,149 @@ def test_token_totals_are_recorded_and_the_cap_applies_only_when_set(monkeypatch
     capped = make_box(budget=Budget(input_tokens=900), monkeypatch=monkeypatch)
     agent._round({"messages": []}, capped, Replies(reply))
     assert "token" in capped.budget.model_blocked() and not agent._can_call_model(capped)
+
+
+@pytest.mark.parametrize("field", ["content", "tool_calls", "reasoning_content", "tool_result"])
+def test_input_budget_rejects_estimated_prefix_growth_before_the_next_request(monkeypatch, field):
+    box = make_box(budget=Budget(input_tokens=100), monkeypatch=monkeypatch)
+    messages = [HumanMessage("原问题")]
+    reply = AIMessage(content="x" * 21 if field == "content" else "",
+                      tool_calls=[search("c1", "x" * 21)] if field == "tool_calls" else [],
+                      additional_kwargs={"reasoning_content": "x" * 21} if field == "reasoning_content" else {},
+                      usage_metadata={"input_tokens": 40, "output_tokens": 1, "total_tokens": 41})
+    model = Replies(reply, AIMessage(content="不应请求"))
+    assert agent._invoke(model, messages, box) is reply
+    added = [reply, *([ToolMessage(content="x" * 21, tool_call_id="c1")] if field == "tool_result" else [])]
+    chars = sum(len(m.content) + (len(json.dumps(m.tool_calls, ensure_ascii=False, default=str))
+                                 if getattr(m, "tool_calls", None) else 0)
+                + (len(json.dumps(m.additional_kwargs, ensure_ascii=False, default=str))
+                   if m.additional_kwargs else 0) for m in added)
+    assert agent._round({"messages": [*messages, *added]}, box, model) == []
+    assert model.calls == box.budget.used_model_requests == 1 and box.budget.used_input_tokens == 40
+    assert box.budget.model_blocked() and not agent._can_call_model(box)
+    step = model_steps(box)[-1]
+    assert step.status == "skipped" and step.output == {
+        "error_code": "budget_tokens", "estimated_input_tokens": 40 + chars,
+        "used_input_tokens": 40, "input_tokens": 100,
+    }
+
+
+@pytest.mark.parametrize("growth", [19, 20], ids=["within-cap", "equal-to-cap"])
+def test_input_estimates_within_the_remaining_budget_allow_the_request(monkeypatch, growth):
+    box = make_box(budget=Budget(input_tokens=100), monkeypatch=monkeypatch)
+    messages = [HumanMessage("原问题")]
+    first = AIMessage(content="x" * growth,
+                      usage_metadata={"input_tokens": 40, "output_tokens": 1, "total_tokens": 41})
+    second = AIMessage(content="完成", usage_metadata={"input_tokens": 40 + growth, "output_tokens": 1,
+                                                     "total_tokens": 41 + growth})
+    model = Replies(first, second)
+    agent._invoke(model, messages, box)
+    out = agent._round({"messages": [*messages, first]}, box, model)
+    assert out[0] is second and model.calls == box.budget.used_model_requests == 2
+    assert box.budget.used_input_tokens == 80 + growth
+    assert [s.status for s in model_steps(box)] == ["ok", "ok"]
+
+
+def test_input_budget_cutoff_still_verifies_an_incomplete_report_with_existing_datasets(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=100), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    dataset = box._dataset("governed", "已取得的数据", ["指标甲"], [["1"]])
+    messages = [HumanMessage("原问题")]
+    first = AIMessage(content="x" * 21,
+                      usage_metadata={"input_tokens": 40, "output_tokens": 1, "total_tokens": 41})
+    model = Replies(first, AIMessage(content="不应请求"))
+    config = {"configurable": {"toolbox": box, "model": model}}
+    agent._invoke(model, messages, box)
+    out = agent.act({"messages": [*messages, first]}, config)
+    assert out["phase"] == "verify" and model.calls == 1
+    assert any("预算内没有提交报告" in note for note in out["notes"])
+    assert model_steps(box)[-1].output["error_code"] == "budget_tokens"
+    assert agent.verify(out, config)["phase"] == "done"
+    assert box.report["incomplete"] is True and box.verification["status"] == "no_facts"
+    assert "已取得的数据集" in box.report["summary"]
+    assert box.datasets() == {"D1": dataset} and dataset.title == "已取得的数据"
+
+
+def test_nearly_exhausted_input_tokens_prompt_for_a_report_and_block_other_tools(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=400), monkeypatch=monkeypatch)
+    messages = [HumanMessage("原问题")]
+    first = AIMessage(content="x" * 100,
+                      usage_metadata={"input_tokens": 100, "output_tokens": 1, "total_tokens": 101})
+    report = {"title": "证据不足", "summary": "仅基于已有数据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    model = Replies(first, AIMessage(content="", tool_calls=[
+        search("c1"), {"name": "submit_report", "args": report, "id": "c2"},
+    ]))
+    agent._invoke(model, messages, box)
+    estimate = box.budget.estimate_input_tokens([*messages, first])
+    assert box.budget.used_input_tokens + estimate <= box.budget.input_tokens
+    assert box.budget.used_input_tokens + 2 * estimate > box.budget.input_tokens
+    out = agent.act({"messages": [*messages, first]}, {"configurable": {"toolbox": box, "model": model}})
+    assert model.calls == 2 and box.report is not None
+    notices = [m.content for m in model.seen[-1] if isinstance(m, HumanMessage)]
+    assert sum("token 即将用完" in text for text in notices) == 1
+    replies = {m.tool_call_id: json.loads(m.content) for m in out["messages"] if isinstance(m, ToolMessage)}
+    assert "只能调用 submit_report" in replies["c1"]["error"] and replies["c2"] == {"ok": True}
+    assert box.budget.used_tools == 0 and box.budget.used_reports == 1
+
+
+def test_different_conversations_and_restored_budgets_estimate_all_message_characters():
+    budget = Budget(input_tokens=1000)
+    prefix = [HumanMessage("旧问题" * 10)]
+    budget.used_input_tokens = 7
+    budget.remember_model_input(prefix, 7)
+    added = AIMessage(content="新回复")
+    assert budget.estimate_input_tokens([*prefix, added]) == 7 + len(added.content)
+    different = [HumanMessage(prefix[0].content), added]  # 内容相同但不是原消息，也不能沿用旧对话的实际用量
+    expected = len(prefix[0].content) + len(added.content)
+    assert budget.estimate_input_tokens(different) == expected
+    restored = Budget.restore(budget.view())
+    assert restored.used_input_tokens == 7
+    assert restored.estimate_input_tokens([*prefix, added]) == expected
+
+
+def test_unlimited_input_tokens_neither_estimate_nor_block_requests(monkeypatch):
+    budget = Budget(input_tokens=None)
+    budget.used_input_tokens = 10**9
+    box = make_box(budget=budget, monkeypatch=monkeypatch)
+    messages = [HumanMessage("原问题" * 1000)]
+    assert budget.estimate_input_tokens(messages) is None
+    monkeypatch.setattr(budget, "estimate_input_tokens", lambda messages: pytest.fail("不限输入时不应预估"))
+    report = {"title": "证据不足", "summary": "已有数据不足", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    model = Replies(AIMessage(content="完成"), AIMessage(content="", tool_calls=[
+        {"name": "submit_report", "args": report, "id": "c1"},
+    ]))
+    agent._round({"messages": messages}, box, model)
+    agent.act({"messages": messages}, {"configurable": {"toolbox": box, "model": model}})
+    assert model.calls == box.budget.used_model_requests == 2 and box.report is not None
+    assert budget.model_blocked() is None and [s.status for s in model_steps(box)] == ["ok", "ok"]
+
+
+def test_input_cutoff_during_understanding_finishes_the_graph_normally(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=1), catalog=catalog(), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    model = Replies()
+    state = run_graph(box, model)
+    assert state["phase"] == "done" and model.calls == box.budget.used_model_requests == 0
+    assert box.report["incomplete"] is True and box.verification["status"] == "no_facts"
+    assert len(model_steps(box)) == 1 and model_steps(box)[0].output["error_code"] == "budget_tokens"
+    assert not any("理解阶段失败" in note for note in state["notes"])
+
+
+def test_input_cutoff_during_revision_uses_the_same_incomplete_report_path(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=10), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    box.report = {"title": "待修订", "summary": "证据不足", "claims": []}
+    box.verification = {"claims": [], "fields": []}
+    model = Replies()
+    config = {"configurable": {"toolbox": box, "model": model}}
+    revision = agent.revise({}, config)
+    out = agent.act({"messages": [HumanMessage("原问题"), *revision["messages"]]}, config)
+    assert out["phase"] == "verify" and model.calls == box.budget.used_model_requests == 0
+    assert model_steps(box)[-1].output["error_code"] == "budget_tokens"
+    assert agent.verify({"revised": True}, config)["phase"] == "done"
+    assert box.report["incomplete"] is True and box.verification["revised"] is True
 
 
 def test_deepseek_output_limit_uses_max_tokens_on_the_wire():
