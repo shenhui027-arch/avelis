@@ -44,7 +44,8 @@ class Settings:
     database_url: str
     redis_url: str
     secret: str
-    access_token_minutes: int = 30
+    access_token_minutes: int = 120  # 单个登录凭证有效期（闲置超时），单位分钟
+    session_max_hours: int = 168  # 一次登录最长可续期时长，单位小时；到期后必须重新登录
     login_max_failures: int = 5
     login_lock_minutes: int = 15
     business_timezone: str = "Asia/Shanghai"
@@ -82,6 +83,16 @@ def _database_url(env: dict[str, str]) -> str:
     return url
 
 
+def _positive_int(env: dict[str, str], key: str, default: int) -> int:
+    try:
+        value = int(env.get(key, str(default)))
+    except ValueError:
+        raise ValueError(f"{key} 必须为正整数") from None
+    if value <= 0:
+        raise ValueError(f"{key} 必须为正整数")
+    return value
+
+
 def build_settings(env: dict[str, str] | None = None) -> Settings:
     env = load_env() if env is None else env
     redis_password = quote_plus(env.get("AVELIS_REDIS_PASSWORD", ""))
@@ -96,6 +107,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         database_url=_database_url(env),
         redis_url=redis_url,
         secret=secret,
+        access_token_minutes=_positive_int(env, "AVELIS_ACCESS_TOKEN_MINUTES", Settings.access_token_minutes),
+        session_max_hours=_positive_int(env, "AVELIS_SESSION_MAX_HOURS", Settings.session_max_hours),
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),
         allow_self_review=env.get("AVELIS_ALLOW_SELF_REVIEW", "false").lower() == "true",
         cors_origins=tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins,

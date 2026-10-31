@@ -67,6 +67,33 @@
     }
    }
   },
+  "/api/auth/refresh": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Refresh",
+    "description": "轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。",
+    "operationId": "refresh_api_auth_refresh_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/me/password": {
    "post": {
     "tags": [
@@ -3552,6 +3579,54 @@
     }
    }
   },
+  "/api/analysis/runs/{run_id}/compact": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Compact Run",
+    "description": "请求在下一次模型调用前压缩上下文；等待确认期间保留请求。",
+    "operationId": "compact_run_api_analysis_runs__run_id__compact_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/followup": {
    "post": {
     "tags": [
@@ -3799,13 +3874,14 @@
     }
    }
   },
-  "/api/analysis/runs/{run_id}/datasets/{seq}": {
+  "/api/analysis/runs/{run_id}/datasets/{ref}": {
    "get": {
     "tags": [
      "analysis"
     ],
     "summary": "Get Dataset",
-    "operationId": "get_dataset_api_analysis_runs__run_id__datasets__seq__get",
+    "description": "D 编号返回分页详情；数字序号保留原有全行结构。",
+    "operationId": "get_dataset_api_analysis_runs__run_id__datasets__ref__get",
     "security": [
      {
       "OAuth2PasswordBearer": []
@@ -3822,12 +3898,35 @@
       }
      },
      {
-      "name": "seq",
+      "name": "ref",
       "in": "path",
       "required": true,
       "schema": {
+       "type": "string",
+       "title": "Ref"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
        "type": "integer",
-       "title": "Seq"
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 1000,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
       }
      }
     ],
@@ -3837,9 +3936,81 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Get Dataset Api Analysis Runs  Run Id  Datasets  Seq  Get"
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/AnalysisDatasetDetailOut"
+          },
+          {
+           "$ref": "#/components/schemas/AnalysisDatasetLegacyOut"
+          }
+         ],
+         "title": "Response Get Dataset Api Analysis Runs  Run Id  Datasets  Ref  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/datasets/{ref}/rerun": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Rerun",
+    "operationId": "rerun_api_analysis_runs__run_id__datasets__ref__rerun_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     },
+     {
+      "name": "ref",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ref"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalysisDatasetRerunIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisDatasetDetailOut"
         }
        }
       }
@@ -5123,6 +5294,278 @@
     ],
     "title": "AliasOut"
    },
+   "AnalysisDatasetDetailOut": {
+    "properties": {
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "row_count": {
+      "type": "integer",
+      "title": "Row Count"
+     },
+     "truncated": {
+      "type": "boolean",
+      "title": "Truncated"
+     },
+     "inputs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Inputs"
+     },
+     "sql": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql"
+     },
+     "metric_version_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Metric Version Ids"
+     },
+     "metric_codes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Metric Codes"
+     },
+     "window": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Window"
+     },
+     "time_column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Column"
+     },
+     "units": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Units"
+     },
+     "summary_units": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Summary Units"
+     },
+     "purpose": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Purpose"
+     },
+     "answer_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Answer Id"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "explore": {
+      "type": "boolean",
+      "title": "Explore"
+     },
+     "assumption": {
+      "type": "boolean",
+      "title": "Assumption"
+     },
+     "partial": {
+      "type": "boolean",
+      "title": "Partial"
+     },
+     "rerunnable": {
+      "type": "boolean",
+      "title": "Rerunnable"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisDatasetSource"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "meta": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Meta"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     },
+     "rows": {
+      "items": {
+       "items": {},
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Rows"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total",
+      "description": "已保存的行数；truncated=true 时不代表来源数据全集"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref",
+     "kind",
+     "title",
+     "columns",
+     "row_count",
+     "truncated",
+     "inputs",
+     "sql",
+     "metric_version_ids",
+     "metric_codes",
+     "window",
+     "time_column",
+     "units",
+     "summary_units",
+     "purpose",
+     "answer_id",
+     "created_at",
+     "explore",
+     "assumption",
+     "partial",
+     "rerunnable",
+     "source",
+     "meta",
+     "offset",
+     "limit",
+     "rows",
+     "total"
+    ],
+    "title": "AnalysisDatasetDetailOut"
+   },
+   "AnalysisDatasetLegacyOut": {
+    "properties": {
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "rows": {
+      "items": {
+       "items": {},
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Rows"
+     },
+     "truncated": {
+      "type": "boolean",
+      "title": "Truncated"
+     },
+     "meta": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Meta"
+     },
+     "inputs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Inputs"
+     },
+     "answer_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Answer Id"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref",
+     "kind",
+     "title",
+     "columns",
+     "rows",
+     "truncated",
+     "meta",
+     "inputs",
+     "answer_id"
+    ],
+    "title": "AnalysisDatasetLegacyOut",
+    "description": "数字序号 GET 的原有完整数据集结构。"
+   },
    "AnalysisDatasetOut": {
     "properties": {
      "ref": {
@@ -5163,6 +5606,11 @@
      "truncated": {
       "type": "boolean",
       "title": "Truncated",
+      "default": false
+     },
+     "restricted": {
+      "type": "boolean",
+      "title": "Restricted",
       "default": false
      },
      "inputs": {
@@ -5217,6 +5665,81 @@
      "row_count"
     ],
     "title": "AnalysisDatasetOut"
+   },
+   "AnalysisDatasetRerunIn": {
+    "properties": {
+     "window": {
+      "$ref": "#/components/schemas/AnalysisDatasetRerunWindow"
+     }
+    },
+    "type": "object",
+    "required": [
+     "window"
+    ],
+    "title": "AnalysisDatasetRerunIn"
+   },
+   "AnalysisDatasetRerunWindow": {
+    "properties": {
+     "start": {
+      "type": "string",
+      "format": "date",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date",
+      "title": "End"
+     },
+     "compare_start": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compare Start"
+     },
+     "compare_end": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compare End"
+     }
+    },
+    "type": "object",
+    "required": [
+     "start",
+     "end"
+    ],
+    "title": "AnalysisDatasetRerunWindow"
+   },
+   "AnalysisDatasetSource": {
+    "properties": {
+     "run_id": {
+      "type": "string",
+      "title": "Run Id"
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "run_id",
+     "ref"
+    ],
+    "title": "AnalysisDatasetSource"
    },
    "AnalysisDecisionIn": {
     "properties": {
@@ -5429,6 +5952,21 @@
        }
       ],
       "title": "Context Window"
+     },
+     "context_window_source": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "configured",
+         "default"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Context Window Source"
      }
     },
     "type": "object",
@@ -11821,6 +12359,10 @@
       "type": "string",
       "title": "Expires At"
      },
+     "expires_in": {
+      "type": "integer",
+      "title": "Expires In"
+     },
      "must_change_password": {
       "type": "boolean",
       "title": "Must Change Password",
@@ -11831,7 +12373,8 @@
     "required": [
      "access_token",
      "token_type",
-     "expires_at"
+     "expires_at",
+     "expires_in"
     ],
     "title": "TokenOut"
    },

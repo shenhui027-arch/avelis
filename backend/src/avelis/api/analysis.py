@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from avelis import jobs, modelcfg
 from avelis.analysis import export
 from avelis.analysis import service as analysis
+from avelis.analysis.dataset_access import require_dataset_access
+from avelis.analysis.rerun import rerun_dataset
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
@@ -128,6 +130,14 @@ def stop_run(run_id: str, user: User = Depends(current_user), session: Session =
     return analysis.run_view(session, run, user=user)
 
 
+@router.post("/analysis/runs/{run_id}/compact", response_model=S.AnalysisRunOut)
+def compact_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """请求在下一次模型调用前压缩上下文；等待确认期间保留请求。"""
+    run = analysis.compact_run(session, user, run_id)
+    session.commit()
+    return analysis.run_view(session, run, user=user)
+
+
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
 def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict:
@@ -175,18 +185,59 @@ def _dataset(session: Session, run: AnalysisRun, seq: int) -> AnalysisDataset:
     return d
 
 
-@router.get("/analysis/runs/{run_id}/datasets/{seq}")
-def get_dataset(run_id: str, seq: int, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict[str, Any]:
+def _dataset_seq(ref: str) -> int:
+    if not re.fullmatch(r"D[1-9][0-9]*", ref):
+        raise NotFound("数据集不存在")
+    return int(ref[1:])
+
+
+def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    meta = d.meta or {}
+    source = meta.get("rerun_of")
+    return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns,
+            "row_count": len(d.rows), "truncated": d.truncated, "inputs": d.inputs,
+            "sql": meta.get("sql"), "metric_version_ids": meta.get("metric_version_ids", []),
+            "metric_codes": meta.get("metric_codes", []), "window": meta.get("window", {}),
+            "time_column": meta.get("time_column"), "units": meta.get("units", {}),
+            "summary_units": meta.get("summary_units", {}), "purpose": meta.get("purpose"),
+            "answer_id": d.answer_id, "created_at": d.created_at.isoformat(),
+            "explore": bool(meta.get("explore")), "assumption": bool(meta.get("assumption")),
+            "partial": bool(meta.get("partial")), "rerunnable": d.kind == "governed" and bool(meta.get("intent")),
+            "source": {"run_id": source["run_id"], "ref": source["ref"]} if source else None,
+            "meta": meta, "offset": offset, "limit": limit, "rows": d.rows[offset:offset + limit],
+            "total": len(d.rows)}
+
+
+@router.get("/analysis/runs/{run_id}/datasets/{ref}",
+            response_model=S.AnalysisDatasetDetailOut | S.AnalysisDatasetLegacyOut)
+def get_dataset(run_id: str, ref: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000),
+                user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
+    """D 编号返回分页详情；数字序号保留原有全行结构。"""
+    legacy = bool(re.fullmatch(r"[0-9]+", ref))
+    seq = int(ref) if legacy else _dataset_seq(ref)
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
-    return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns, "rows": d.rows,
-            "truncated": d.truncated, "meta": d.meta, "inputs": d.inputs, "answer_id": d.answer_id}
+    require_dataset_access(session, user, d)
+    if legacy:
+        return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns, "rows": d.rows,
+                "truncated": d.truncated, "meta": d.meta, "inputs": d.inputs, "answer_id": d.answer_id}
+    return _dataset_detail(d, offset=offset, limit=limit)
+
+
+@router.post("/analysis/runs/{run_id}/datasets/{ref}/rerun", response_model=S.AnalysisDatasetDetailOut)
+def rerun(run_id: str, ref: str, body: S.AnalysisDatasetRerunIn, user: User = Depends(current_user),
+          session: Session = Depends(get_session)) -> dict[str, Any]:
+    run = analysis.visible_run(session, user, run_id)
+    d = _dataset(session, run, _dataset_seq(ref))
+    result = rerun_dataset(session, user, run, d, body.window.model_dump(mode="json", exclude_none=True))
+    session.commit()
+    return _dataset_detail(result)
 
 
 @router.get("/analysis/runs/{run_id}/datasets/{seq}/csv")
 def dataset_csv(run_id: str, seq: int, user: User = Depends(current_user),
                 session: Session = Depends(get_session)) -> Response:
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
+    require_dataset_access(session, user, d)
     return Response(export.to_csv(d.columns, d.rows), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-D{d.seq}.csv"'})
 
