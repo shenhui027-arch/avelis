@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
+from html.parser import HTMLParser
 
 import pytest
 from reportlab.graphics.shapes import Drawing, String
@@ -35,10 +36,35 @@ def _pdf_text(story):
     return "\n".join(texts)
 
 
-@pytest.fixture(params=["markdown", "pdf"])
+@pytest.fixture(params=["markdown", "pdf", "html"])
 def render(request, monkeypatch):
     if request.param == "markdown":
         return lambda view, **kwargs: export.to_markdown(view, **kwargs)
+    if request.param == "html":
+        def html_text(view, **kwargs):
+            class Text(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.parts = []
+                    self.hidden = False
+
+                def handle_starttag(self, tag, attrs):
+                    if tag in ("style", "title"):
+                        self.hidden = True
+
+                def handle_endtag(self, tag):
+                    if tag in ("style", "title"):
+                        self.hidden = False
+
+                def handle_data(self, data):
+                    if not self.hidden:
+                        self.parts.append(data)
+
+            parsed = Text()
+            parsed.feed(export.to_html(view, **kwargs))
+            return "\n".join(parsed.parts)
+
+        return html_text
     return lambda view, **kwargs: _pdf_text(_pdf_story(monkeypatch, view, **kwargs))
 
 
@@ -49,6 +75,68 @@ def _assert_brief(text):
     assert not REFERENCE.search(text)
     for phrase in ("附录", "用到的数据", "数字来源", "查询明细", "version-", "推断，未核实"):
         assert phrase not in text
+
+
+@pytest.mark.parametrize("audience", ["brief", "full"])
+def test_restricted_export_discards_stale_rows_metadata_and_report_text(render, audience):
+    view = sample_view()
+    restricted = view["datasets"][0]
+    restricted.update(restricted=True, title="受限标题不可交付", columns=["受限列不可交付"],
+                      rows=[["受限行不可交付"]], sql="SELECT '受限查询不可交付'",
+                      metric_version_ids=["受限版本不可交付"],
+                      meta={"summary": "受限汇总不可交付", "sql": "SELECT '受限元数据不可交付'"})
+    view["report"] = {"title": "中立报告", "summary": "可见摘要", "claims": [
+        {"type": "fact", "refs": ["D1"], "text": "受限结论不可交付"},
+        {"type": "inference", "refs": ["D3"], "text": "可见判断", "premise": "旧前提不可交付",
+         "errors": ["受限前提核验原值不可交付"],
+         "details": {"premise": {"text": "受限前提不可交付", "refs": ["D1"]}}}],
+        "fields": {"unexplained": {"text": "受限未知项不可交付", "refs": ["D1"]}},
+        "unexplained": "受限未知项不可交付",
+        "causes": [{"type": "member", "label": "受限原因不可交付", "evidence": ["D1"],
+                    "entity": {"member": "受限成员不可交付"}, "contribution": {"text": "受限贡献不可交付"}}]}
+    view["verification"]["conclusion"] = {"status": "unverified", "problems": ["受限极值与范围不可交付"]}
+    original = deepcopy(view)
+
+    text = render(view, audience=audience, datasets=["D1"])
+
+    assert "不可交付" not in text
+    assert "可见判断" in text and "可见摘要" in text
+    assert "[无访问权限]" not in text
+    assert (export.RESTRICTED_NOTE in text) is (audience == "full")
+    if audience == "brief":
+        _assert_brief(text)
+    assert view == original
+
+
+def test_restricted_datasets_are_ineligible_for_charts_tables_and_core_metrics():
+    view = sample_view()
+    for dataset in view["datasets"]:
+        dataset["restricted"] = True
+    font, _ = export.pdf_font()
+
+    assert export._key_datasets(view) == []
+    assert export._core_metrics(view) == []
+    assert export._chart(view["datasets"][2], font) is None
+    assert export._table_data(view["datasets"][2]) == []
+
+
+def test_restricted_records_keep_visible_verification_indices_aligned(render):
+    view = sample_view()
+    view["datasets"][0]["restricted"] = True
+    view["report"] = {"title": "报告", "claims": [
+        {"type": "fact", "refs": ["D1"], "text": "已失权"},
+        {"type": "fact", "refs": ["D3"], "text": "可见结论", "errors": ["结论未通过"]}],
+        "causes": [{"type": "factor", "label": "已失权", "evidence": ["D1"]},
+                   {"type": "factor", "label": "可见原因", "evidence": ["D3"], "errors": ["原因未通过"]}]}
+    view["verification"] = {"claims": [{"index": 0, "status": "verified"},
+                                       {"index": 1, "status": "unverified", "problems": ["结论未通过"]}],
+                            "causes": [{"index": 0, "status": "verified"},
+                                       {"index": 1, "status": "unverified", "problems": ["原因未通过"]}]}
+
+    text = render(view, audience="brief")
+
+    assert "有 2 处数字未通过系统校验" in text
+    assert "已失权" not in text
 
 
 @pytest.mark.parametrize("kwargs", [{}, {"audience": "brief"}, {"appendix": False},

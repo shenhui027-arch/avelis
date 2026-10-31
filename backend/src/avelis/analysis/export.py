@@ -1,4 +1,4 @@
-"""分析报告导出（ADR 0007 第 11 点）：Markdown、PDF（含图表与证据附录）、数据集 CSV。
+"""分析报告导出（ADR 0007 第 11 点）：Markdown、HTML、PDF（含图表与证据附录）、数据集 CSV。
 
 导出内容与报告页读同一份保存结果。默认 brief 只给出正文、可读标签与白话风险提示；full 保留引用编号、
 原始检查原因和依据附录。appendix 为旧参数，只有未指定 audience 时才决定受众。
@@ -203,6 +203,50 @@ def _meta(d: dict) -> dict:
     return d.get("meta") or {}
 
 
+RESTRICTED_NOTE = "你已没有该数据的访问权限"
+
+
+def _export_view(view: dict) -> dict:
+    """受限标记是导出的权限边界；不信任同一对象里残留的行、元数据或已渲染文字。"""
+    from avelis.analysis.dataset_projection import restrict_report, restrict_verification
+
+    restricted = {d["ref"] for d in view.get("datasets") or [] if d.get("restricted")}
+    if not restricted:
+        return view
+    report = restrict_report(view.get("report") or {}, restricted)
+    fields = {name: record for name, record in (report.get("fields") or {}).items()
+              if not record.get("restricted")}
+    claims = []
+    for claim in report.get("claims") or []:
+        if claim.get("restricted"):
+            continue
+        visible = {**claim, "details": {key: detail for key, detail in (claim.get("details") or {}).items()
+                                       if not detail.get("restricted")}}
+        # 旧报告同时保存平铺文本和 details，不能回退到已经遮蔽的旧文本。
+        for key, detail in (claim.get("details") or {}).items():
+            if detail.get("restricted"):
+                visible.pop(key, None)
+                visible["errors"] = []  # 旧核验错误可能复述该前提中的原值。
+        claims.append(visible)
+    projected = {**report, "fields": fields,
+                 "claims": claims,
+                 "causes": [cause for cause in report.get("causes") or [] if not cause.get("restricted")]}
+    for name, record in (report.get("fields") or {}).items():
+        if record.get("restricted"):
+            projected.pop(name, None)
+    verification = restrict_verification(view.get("verification") or {}, report)
+    if verification.get("conclusion"):
+        verification["conclusion"]["problems"] = []  # 全局结论检查可能复述任意受限来源。
+    # 过滤后下标会变化，核验记录按原结论和原因的对应关系重新编号。
+    for key in ("claims", "causes"):
+        checks = {item["index"]: item for item in verification.get(key) or []}
+        readable = [i for i, record in enumerate(report.get(key) or []) if not record.get("restricted")]
+        verification[key] = [{**checks[old], "index": new} for new, old in enumerate(readable) if old in checks]
+    return {**view, "report": projected, "verification": verification,
+            "datasets": [{"ref": d["ref"], "kind": d.get("kind"), "restricted": True, "rows": []}
+                         if d.get("restricted") else d for d in view.get("datasets") or []]}
+
+
 def _units(d: dict) -> dict:
     return _meta(d).get("units") or d.get("units") or {}
 
@@ -214,6 +258,8 @@ def _export_labels(d: dict, view: dict) -> dict:
     names, dimensions, docs = [], {}, {}
     while pending:
         item = pending.pop(0)
+        if item.get("restricted"):
+            continue
         if item.get("ref") in seen:
             continue
         seen.add(item.get("ref"))
@@ -289,7 +335,7 @@ def _key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
     report = view.get("report") or {}
     counts = _reference_counts(report)
     eligible = {d["ref"]: d for d in view.get("datasets") or []
-                if d.get("kind") != "context" and len(d.get("rows") or []) >= 2
+                if not d.get("restricted") and d.get("kind") != "context" and len(d.get("rows") or []) >= 2
                 and any(number(row[i]) is not None for i in _metric_columns(d) for row in d["rows"])
                 and not _duplicates_cause_chart(d, report)}
     if datasets is not None:
@@ -351,7 +397,7 @@ def _core_metrics(view: dict) -> list[dict]:
     refs = _reference_counts(view.get("report") or {})
     for d in view.get("datasets") or []:
         intent, units = _meta(d).get("intent") or {}, _units(d)
-        if (d.get("kind") != "governed" or not refs[d["ref"]] or len(d.get("rows") or []) != 1
+        if (d.get("restricted") or d.get("kind") != "governed" or not refs[d["ref"]] or len(d.get("rows") or []) != 1
                 or intent.get("group_by") or intent.get("time_grain") or d.get("time_column")):
             continue
         cols = d.get("columns") or []
@@ -389,7 +435,7 @@ def _header(view: dict) -> str:
         metrics = _core_metrics(view)
         core_ref = metrics[0]["ref"] if metrics else None
         candidates = sorted((d for d in view.get("datasets") or []
-                             if d.get("kind") == "governed" and counts[d["ref"]]),
+                             if not d.get("restricted") and d.get("kind") == "governed" and counts[d["ref"]]),
                             key=lambda d: (d["ref"] != core_ref, -counts[d["ref"]]))
         for d in candidates:
             meta = _meta(d)
@@ -467,6 +513,8 @@ def _cause_text(cause: dict) -> str:
 
 
 def _table_data(d: dict, *, brief: bool = False) -> list[list[str]]:
+    if d.get("restricted"):
+        return []
     cols, units = (d.get("columns") or [])[:6], _units(d)
     headers = [_column_label(d, c) for c in cols] if brief else cols
 
@@ -550,7 +598,7 @@ def _claim_errors(claim: dict, check: dict) -> list[str]:
 def _data_check_note(view: dict) -> str:
     notes = dict.fromkeys([_verdict(view.get("verification") or {}),
                            *(_context_note(d).rstrip("。") for d in view.get("datasets") or []
-                             if d.get("kind") == "context")])
+                             if d.get("kind") == "context" and not d.get("restricted"))])
     return "；".join(notes) + "。"
 
 
@@ -565,12 +613,13 @@ def _appendix_datasets(view: dict, selected: list[dict]) -> list[dict]:
     refs = set(_reference_counts(body))
     refs.update(d["ref"] for d in selected)
     refs.update(m["ref"] for m in _core_metrics(view))
-    return [_brief_dataset(d, view) for d in view.get("datasets") or []
-            if d["ref"] in refs and d.get("kind") in DATA_SOURCE_LABEL]
+    return [d if d.get("restricted") else _brief_dataset(d, view) for d in view.get("datasets") or []
+            if d.get("restricted") or (d["ref"] in refs and d.get("kind") in DATA_SOURCE_LABEL)]
 
 
 def _dataset_listing(datasets: list[dict]) -> list[list[str]]:
     return [["编号", "名称", "来源", "行数", "是否截断"]] + [
+        [d["ref"], RESTRICTED_NOTE, "—", "—", "—"] if d.get("restricted") else
         [d["ref"], _dataset_title(d), DATA_SOURCE_LABEL[d["kind"]],
          str(d.get("row_count", len(d.get("rows") or []))), "是" if d.get("truncated") else "否"]
         for d in datasets]
@@ -599,6 +648,7 @@ def _markdown_claim(claim: dict, check: dict, *, brief: bool = False) -> list[st
 
 def to_markdown(view: dict, *, audience: Audience | None = None, appendix: bool | None = None,
                 datasets: list[str] | None = None) -> str:
+    view = _export_view(view)
     brief = resolve_audience(audience, appendix) == "brief"
     notes = _brief_footer(view, datasets) if brief else []
     if brief:
@@ -648,7 +698,7 @@ def to_markdown(view: dict, *, audience: Audience | None = None, appendix: bool 
         lines += _markdown_table(_dataset_listing(used))
         lines += ["", "### 查询明细", ""]
         for d in used:
-            if d.get("kind") not in ("governed", "explore"):
+            if d.get("restricted") or d.get("kind") not in ("governed", "explore"):
                 continue
             versions = d.get("metric_version_ids") or _meta(d).get("metric_version_ids") or []
             lines += [f"#### {d['ref']} {_dataset_title(d)}", "",
@@ -683,6 +733,7 @@ SOURCE_COLUMNS = ["位置", "类型", "显示值", "来源标签", "数据集", 
 
 def sources_csv(view: dict) -> bytes:
     """引用来源表：报告里每个引用段来自哪个数据集的哪个值（ADR 0009）。"""
+    view = _export_view(view)
     rows = []
     for where, kind, s in _segments(view.get("report") or {}):
         raw = s.get("raw")
@@ -801,6 +852,8 @@ def _chart(d: dict, font: str, *, brief: bool = False):
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.lib.colors import HexColor
 
+    if d.get("restricted"):
+        return None
     cols, rows = d.get("columns") or [], d.get("rows") or []
     if not rows or len(cols) < 2:
         return None
@@ -879,6 +932,7 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    view = _export_view(view)
     brief = resolve_audience(audience, appendix) == "brief"
     notes = _brief_footer(view, datasets) if brief else []
     if brief:
@@ -1043,7 +1097,7 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
         story.append(table(_dataset_listing(used), [28, 227, 140, 38, width - 433]))
         story.append(heading("查询明细"))
         for d in used:
-            if d.get("kind") not in ("governed", "explore"):
+            if d.get("restricted") or d.get("kind") not in ("governed", "explore"):
                 continue
             versions = d.get("metric_version_ids") or _meta(d).get("metric_version_ids") or []
             story.append(p(f"{d['ref']} {_dataset_title(d)} · 口径版本：" + ("、".join(versions) or "未登记"), small))
@@ -1065,3 +1119,10 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
                       bottomMargin=15 * mm, title=title, author="Avelis").build(
                           story, onFirstPage=page_number, onLaterPages=page_number)
     return buf.getvalue()
+
+
+def to_html(view: dict, *, audience: Audience | None = None, appendix: bool | None = None,
+            datasets: list[str] | None = None) -> str:
+    from avelis.analysis.export_html import to_html as render_html
+
+    return render_html(view, audience=audience, appendix=appendix, datasets=datasets)

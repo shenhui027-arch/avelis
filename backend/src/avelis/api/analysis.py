@@ -303,8 +303,10 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
         selected = list(dict.fromkeys(ref.strip() for ref in datasets.split(",")))
         if any(not re.fullmatch(r"D[1-9][0-9]*", ref) or ref not in saved for ref in selected):
             raise HTTPException(422, "datasets 只能包含本次运行已有的 D 编号，以逗号分隔")
-    if format in ("md", "pdf"):
+    if format in ("md", "pdf", "html"):
         for dataset in view["datasets"]:
+            if dataset.get("restricted"):
+                continue
             d = saved[dataset["ref"]]
             dataset.update(rows=d.rows, meta=_export_metadata(session, user, d.meta))
     if format == "md":
@@ -314,10 +316,14 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
     if format == "pdf":
         return Response(export.to_pdf(view, audience=resolved_audience, datasets=selected), media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'})
+    if format == "html":
+        return Response(export.to_html(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
+                        media_type="text/html; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.html"'})
     if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
         return Response(export.sources_csv(view), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'})
-    raise HTTPException(422, "format 只能是 pdf、md 或 csv")
+    raise HTTPException(422, "format 只能是 pdf、html、md 或 csv")
 
 
 # --- 任务 ---------------------------------------------------------------------------
