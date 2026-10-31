@@ -49,6 +49,9 @@ class MemorySession:
     def flush(self):
         pass
 
+    def commit(self):
+        pass
+
     @staticmethod
     def _matches(row, clause):
         if isinstance(clause, BooleanClauseList):
