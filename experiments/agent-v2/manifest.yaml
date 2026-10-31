@@ -212,3 +212,27 @@ scorer_v2_1_1:
     experiments/agent-v2/rescore_v2_1_1.py: 97b0404816f72ea96c9214443a4a7f6690c9887f
     backend/tests/eval/analysis_questions_v2_1.yaml: 99e4f3db3f28a15e378ae4497320861f9853edbe  # 同 v2.1，未改
   depends_on_frozen: scoring_v2_1.py、scoring_v2.py、scoring.py 的 blob 同 scorer_v2_1 与 b0.scorer_git_blobs
+
+# --- E2：2×2 对照（任务书第 12 节；用户经协调会话批准，费用上限 20 元，2026-10-31）-------------------------------
+e2:
+  status: 已冻结，待运行（自动权限分类器拦截了真实模型调用，等用户放行）
+  branch: claude/agent-v2-p1-rh  # 不混进 PR #11
+  code_sha_frozen: 99b9d05627788c29017ae4dc3381e463f4f63f38  # 运行器另记录运行时的 git_sha 与 git_dirty
+  conditions: {B0: {retrieval: false, investigation: false}, R: {retrieval: true, investigation: false},
+               H: {retrieval: false, investigation: true}, RH: {retrieval: true, investigation: true}}
+  changes:  # R、H 的变更清单（运行前冻结）
+    R: [e37bf45 元数据图 find / neighbors / path（权限先行、深度 ≤3、输出有上限）, R 预检参考表（闭包直接邻居，k ≤12，≤2500 字符）,
+        线索边只在同一数据源内（已知局限见 docs/agent-v2/p1-design.md 第 5 节）]
+    H: [16d61da 变化分布特征写进上下文包, 核验阶段的修订条件（与现有修订共用一轮）, 修订出口写 unexplained（不改报告协议）, 对照示例]
+  scenarios: [h10, e01, h07, f02, h09, d02, e02, h05, d06, f01, c02, g01, d03, n01, a02, h12]  # 开发集，含 E1 的 6 个；不称盲测
+  repeats: 2
+  runs_max: 128
+  seed: 20261101
+  scorer: v2.1.1（sha256 见 scorer_v2_1_1）
+  budget: 同 b0.budget（冻结上限，不扩容）
+  environment:
+    metadata_db: avelis_e1（私有库，未改；P1 没有新迁移）
+    permission_snapshot_before: 8c9e6c60e695815189a62800d9f6cc7079d168b50b6017e6682d5d9edb33d63b  # 与 E1 前后相同
+  cost: {cap_cny: 20, per_run_reserve_cny: 1.5, spent_cny: 0}
+  smoke_before_run: h10 × R / H / RH 各 1 次（不计入 128 次，费用计入 20 元上限），确认开关在真实环境中不崩溃
+  command: AVELIS_DEMO_USER_PASSWORD 由本地启动器从主检出 .env 传入（不打印）；e2.py --run --truth <主检出>/.demo/ec-truth.json --cap 20 --spent <冒烟费用>
