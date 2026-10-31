@@ -42,6 +42,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh
+         * @description 轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。
+         */
+        post: operations["refresh_api_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/password": {
         parameters: {
             query?: never;
@@ -3869,6 +3889,8 @@ export interface components {
             token_type: string;
             /** Expires At */
             expires_at: string;
+            /** Expires In */
+            expires_in: number;
             /**
              * Must Change Password
              * @default false
@@ -4124,6 +4146,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenOut"];
                 };
             };
         };
