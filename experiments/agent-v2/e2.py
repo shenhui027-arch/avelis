@@ -20,6 +20,7 @@ import sys
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from inspect import signature
 from pathlib import Path
 from typing import Iterator
 
@@ -97,6 +98,52 @@ def install(condition: str) -> Iterator[dict[str, bool]]:
         get_settings.cache_clear()
 
 
+@contextlib.contextmanager
+def install_effort(effort: str) -> Iterator[None]:
+    """客户端初始化后临时设置分析思考强度，独立事务保存并恢复原始指派。"""
+    from avelis import modelcfg
+    from avelis.bootstrap import ensure_admin
+    from avelis.db import session_scope
+    from avelis.models import ModelAssignment, User
+
+    admin_id = ensure_admin(superadmin=False)
+    original = None
+    try:
+        with session_scope() as session:
+            admin = session.get(User, admin_id)
+            assignment = session.get(ModelAssignment, "analysis")
+            if assignment is None:
+                raise RuntimeError("analysis 用途缺少当前模型指派")
+            original = {"provider_id": assignment.provider_id, "model_id": assignment.model_id,
+                        "reasoning_effort": assignment.reasoning_effort}
+            modelcfg.save_settings(session, admin, {"analysis": {**original, "reasoning_effort": effort}}, None)
+        yield
+    finally:
+        if original is not None:
+            with session_scope() as session:
+                admin = session.get(User, admin_id)
+                modelcfg.save_settings(session, admin, {"analysis": original}, None)
+
+
+@contextlib.contextmanager
+def install_output_token_cap(cap: int | None) -> Iterator[None]:
+    """只临时替换构造函数的输出默认值，保留已有实例、显式传参和其他预算。"""
+    if cap is None:
+        yield
+        return
+    from avelis.analysis.tools import Budget
+
+    original = Budget.__init__.__defaults__
+    names = list(signature(Budget).parameters)[-len(original):]
+    updated = list(original)
+    updated[names.index("output_tokens")] = cap
+    try:
+        Budget.__init__.__defaults__ = tuple(updated)
+        yield
+    finally:
+        Budget.__init__.__defaults__ = original
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="E2 产品开关 2×2 实验")
     mode = parser.add_mutually_exclusive_group()
@@ -109,7 +156,14 @@ def main() -> int:
     parser.add_argument("--cap", default="20", help="累计费用上限（元）")
     parser.add_argument("--spent", default="0", help="此前已花费用（元）")
     parser.add_argument("--reserve", default="1.5", help="每次运行前预留费用（元）")
+    parser.add_argument("--effort", choices=("low", "max"), help="临时设置分析用途的思考强度")
+    parser.add_argument("--output-token-cap", type=int, metavar="N", help="临时设置新建 Budget 的输出 token 上限")
+    parser.add_argument("--tag", default="e2", help="结果目录名（默认 e2）")
     args = parser.parse_args()
+    if args.output_token_cap is not None and args.output_token_cap <= 0:
+        parser.error("--output-token-cap 必须是正整数")
+    if not args.tag.strip() or args.tag in {".", ".."} or any(c in args.tag for c in "/\\:"):
+        parser.error("--tag 必须是单个目录名")
     scenarios = ([s.strip() for s in args.only.split(",") if s.strip()]
                  if args.only else list(SCENARIOS))
     conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
@@ -122,18 +176,20 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     if not args.run:
-        print(json.dumps({"order": order, "bounds": budget_bounds(len(order)), "ledger": ledger.view()},
+        with install_output_token_cap(args.output_token_cap):
+            bounds = budget_bounds(len(order))
+        print(json.dumps({"order": order, "bounds": bounds, "ledger": ledger.view()},
                          ensure_ascii=False, indent=2))
         return 0
     if args.truth is None:
         parser.error("--run 必须显式提供 --truth，不能默认读取演示真值")
 
-    from tests.eval import scoring_v2_1_1
+    from tests.eval import scoring_v2_1_3
 
     truth = json.loads(args.truth.read_text(encoding="utf-8"))
     if not isinstance(truth, dict) or not truth:
         parser.error("--truth 必须是非空 JSON 对象")
-    questions = {q["id"]: q for q in scoring_v2_1_1.load_questions(truth)["questions"]}
+    questions = {q["id"]: q for q in scoring_v2_1_3.load_questions(truth)["questions"]}
     missing = set(scenarios) - questions.keys()
     if missing:
         parser.error(f"题目文件缺少场景：{', '.join(sorted(missing))}")
@@ -145,14 +201,15 @@ def main() -> int:
     results = []
     client = None
     stop_reason = None
-    out = demo.STATE / "experiments" / "e2"
+    out = demo.STATE / "experiments" / args.tag
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{started.strftime('%Y%m%d-%H%M%S')}.json"
     meta = {"started": started.isoformat(timespec="seconds"), **code_version(),
             "conditions": conditions, "flags": {c: FLAGS[c].copy() for c in conditions},
             "scenarios": scenarios, "repeat": args.repeat, "seed": SEED,
-            "scorer": scoring_v2_1_1.VERSION,
-            "scorer_sha256": hashlib.sha256(Path(scoring_v2_1_1.__file__).read_bytes()).hexdigest(),
+            "effort": args.effort, "output_token_cap": args.output_token_cap, "tag": args.tag,
+            "scorer": scoring_v2_1_3.VERSION,
+            "scorer_sha256": hashlib.sha256(Path(scoring_v2_1_3.__file__).read_bytes()).hexdigest(),
             "truth": str(args.truth), "initial_spent_cny": str(args.spent)}
 
     def save_results():
@@ -160,51 +217,65 @@ def main() -> int:
                                     "results": results}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     try:
-        for item in order:
-            if not ledger.can_start():
-                stop_reason = (f"费用预留不足：累计已花 {ledger.spent_cny} 元 + 每次预留 {ledger.per_run_reserve_cny} 元"
-                               f" > 上限 {ledger.cap_cny} 元，停止后续运行")
-                print(stop_reason, flush=True)
-                break
-            q = questions[item["scenario"]]
-            with install(item["condition"]):
-                if client is None:
-                    if not os.environ.get("AVELIS_DEMO_USER_PASSWORD"):
-                        raise RuntimeError("缺少进程环境变量 AVELIS_DEMO_USER_PASSWORD")
-                    client = _client(dict(os.environ))
-                headers = _login(client, q["user"], os.environ["AVELIS_DEMO_USER_PASSWORD"])
-                flags = assert_flags(item["condition"])  # 发起每次运行前再次核对，失配立即停止。
-                began = time.monotonic()
-                run = _ask(client, headers, q)  # 只调用一次，保留原始失败，运行器不重试。
-                seconds = round(time.monotonic() - began, 1)
-            cost = run_cost(run or {})
-            estimate_reasons = []
-            if not run:
-                estimate_reasons.append("未取得运行详情")
-            else:
-                if not run.get("id"):
-                    estimate_reasons.append("运行详情缺少 id")
-                if not run.get("steps"):
-                    estimate_reasons.append("运行详情缺少步骤记录")
-            if cost["missing_usage"] > 0:
-                estimate_reasons.append(f"{cost['missing_usage']} 个模型步骤缺少用量")
-            cost_estimated = bool(estimate_reasons)
-            cost_estimate_reason = "；".join(estimate_reasons) or None
-            cost_accounted = (Decimal(cost["total_cny"])
-                              + (ledger.per_run_reserve_cny if cost_estimated else Decimal("0")))
-            ledger.add(cost_accounted)
-            result = {**item, "flags": flags, "seconds": seconds, "run_id": (run or {}).get("id"),
-                      "score": scoring_v2_1_1.score(q, run), "run": run,
-                      "cost": cost, "cost_estimated": cost_estimated, "cost_estimate_reason": cost_estimate_reason,
-                      "cost_accounted_cny": str(cost_accounted), "ledger": ledger.view()}
-            results.append(result)
-            save_results()
-            print(f"[{item['repeat']}] {item['scenario']} {item['condition']}: "
-                  f"{'通过' if result['score']['passed'] else '未通过'}（{(run or {}).get('status')}），"
-                  f"本次入账 {cost_accounted} 元，累计 {ledger.spent_cny}/{ledger.cap_cny} 元，"
-                  f"缺失用量步骤 {cost['missing_usage']}"
-                  + (f"，估算原因：{cost_estimate_reason}" if cost_estimated else ""), flush=True)
-    except Exception as exc:
+        with contextlib.ExitStack() as overrides:
+            overrides.enter_context(install_output_token_cap(args.output_token_cap))
+            for item in order:
+                if not ledger.can_start():
+                    stop_reason = (f"费用预留不足：累计已花 {ledger.spent_cny} 元 + 每次预留 {ledger.per_run_reserve_cny} 元"
+                                   f" > 上限 {ledger.cap_cny} 元，停止后续运行")
+                    print(stop_reason, flush=True)
+                    break
+                q = questions[item["scenario"]]
+                with install(item["condition"]):
+                    if client is None:
+                        if not os.environ.get("AVELIS_DEMO_USER_PASSWORD"):
+                            raise RuntimeError("缺少进程环境变量 AVELIS_DEMO_USER_PASSWORD")
+                        client = _client(dict(os.environ))
+                        if args.effort is not None:
+                            # 初始化会重写分析指派，因此必须等客户端就绪后再设置思考强度。
+                            overrides.enter_context(install_effort(args.effort))
+                    headers = _login(client, q["user"], os.environ["AVELIS_DEMO_USER_PASSWORD"])
+                    flags = assert_flags(item["condition"])  # 发起每次运行前再次核对，失配立即停止。
+                    began = time.monotonic()
+                    run = _ask(client, headers, q)  # 只调用一次，保留原始失败，运行器不重试。
+                    seconds = round(time.monotonic() - began, 1)
+                cost = run_cost(run or {})
+                estimate_reasons = []
+                if not run:
+                    estimate_reasons.append("未取得运行详情")
+                else:
+                    if not run.get("id"):
+                        estimate_reasons.append("运行详情缺少 id")
+                    if not run.get("steps"):
+                        estimate_reasons.append("运行详情缺少步骤记录")
+                if cost["missing_usage"] > 0:
+                    estimate_reasons.append(f"{cost['missing_usage']} 个模型步骤缺少用量")
+                cost_estimated = bool(estimate_reasons)
+                cost_estimate_reason = "；".join(estimate_reasons) or None
+                cost_accounted = (Decimal(cost["total_cny"])
+                                  + (ledger.per_run_reserve_cny if cost_estimated else Decimal("0")))
+                ledger.add(cost_accounted)
+                result = {**item, "flags": flags, "seconds": seconds, "run_id": (run or {}).get("id"),
+                          "score": scoring_v2_1_3.score(q, run), "run": run,
+                          "cost": cost, "cost_estimated": cost_estimated, "cost_estimate_reason": cost_estimate_reason,
+                          "cost_accounted_cny": str(cost_accounted), "ledger": ledger.view()}
+                results.append(result)
+                save_results()
+                # 先保留本次原始运行与费用，再核对实验参数；失配不重试、不继续运行。
+                if args.effort is not None:
+                    actual_effort = (run or {}).get("reasoning_effort")
+                    if actual_effort != args.effort:
+                        raise RuntimeError(f"reasoning_effort 不匹配：期望 {args.effort!r}，实际 {actual_effort!r}")
+                if args.output_token_cap is not None:
+                    actual_cap = (((run or {}).get("budget") or {}).get("limits") or {}).get("output_tokens")
+                    if actual_cap != args.output_token_cap:
+                        raise RuntimeError(f"output_tokens 不匹配：期望 {args.output_token_cap}，实际 {actual_cap!r}")
+                print(f"[{item['repeat']}] {item['scenario']} {item['condition']}: "
+                      f"{'通过' if result['score']['passed'] else '未通过'}（{(run or {}).get('status')}），"
+                      f"本次入账 {cost_accounted} 元，累计 {ledger.spent_cny}/{ledger.cap_cny} 元，"
+                      f"缺失用量步骤 {cost['missing_usage']}"
+                      + (f"，估算原因：{cost_estimate_reason}" if cost_estimated else ""), flush=True)
+    except (Exception, KeyboardInterrupt) as exc:
         stop_reason = f"运行中止：{type(exc).__name__}: {exc}"
         raise
     finally:

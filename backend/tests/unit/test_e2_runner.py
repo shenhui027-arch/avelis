@@ -9,7 +9,9 @@ import json
 import os
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,8 +71,8 @@ def forbid_run_imports(monkeypatch):
     original_import = builtins.__import__
 
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name in {"demo", "eval_analysis", "tests.eval.scoring_v2_1_1"} or (
-            name == "tests.eval" and "scoring_v2_1_1" in (fromlist or ())
+        if name in {"demo", "eval_analysis", "tests.eval.scoring_v2_1_3"} or (
+            name == "tests.eval" and "scoring_v2_1_3" in (fromlist or ())
         ):
             pytest.fail(f"计划或参数检查不应导入运行依赖：{name}")
         return original_import(name, globals, locals, fromlist, level)
@@ -106,6 +108,19 @@ def test_plan_supports_a_small_retest():
         (s, c) for s in ("h10", "h12") for c in ("B0", "RH")
     )
     assert all(item["repeat"] == 1 for item in order)
+
+
+def test_b0_plan_contains_32_deterministic_runs(monkeypatch, capsys):
+    forbid_run_imports(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["e2.py", "--plan", "--conditions", "B0"])
+    assert e2.main() == 0
+    order = json.loads(capsys.readouterr().out)["order"]
+    assert order == e2.plan(list(FROZEN_SCENARIOS), ["B0"], 2, e2.SEED)
+    assert len(order) == 32
+    assert [item["repeat"] for item in order] == [1] * 16 + [2] * 16
+    assert Counter((item["scenario"], item["condition"]) for item in order) == Counter(
+        {(scenario, "B0"): 2 for scenario in FROZEN_SCENARIOS}
+    )
 
 
 @pytest.mark.parametrize(("scenarios", "conditions", "repeat"), [
@@ -209,6 +224,19 @@ def test_plan_cli_does_not_read_truth_or_import_run_dependencies(monkeypatch, tm
     ["--plan", "--repeat", "3"],
     ["--plan", "--only", "unknown"],
     ["--plan", "--conditions", "D0"],
+    ["--plan", "--effort", "high"],
+    ["--plan", "--output-token-cap", "0"],
+    ["--plan", "--output-token-cap", "-1"],
+    ["--plan", "--output-token-cap", "1.5"],
+    ["--plan", "--tag", ""],
+    ["--plan", "--tag", "."],
+    ["--plan", "--tag", ".."],
+    ["--plan", "--tag", "../outside"],
+    ["--plan", "--tag", "one/two"],
+    ["--plan", "--tag", "one\\two"],
+    ["--plan", "--tag", "/outside"],
+    ["--plan", "--tag", "C:\\outside"],
+    ["--plan", "--tag", "C:outside"],
 ])
 def test_cli_rejects_invalid_arguments_before_importing_run_dependencies(monkeypatch, args):
     forbid_run_imports(monkeypatch)
@@ -227,7 +255,10 @@ COSTED_RUN = {"id": "unit-e2-run", "status": "succeeded", "steps": [COSTED_STEP]
 
 @pytest.fixture
 def fake_runtime(monkeypatch, tmp_path):
+    import avelis
+    import avelis.db as db
     import tests.eval as eval_package
+    from avelis.models import ModelAssignment, User
 
     truth = {"unit": "明确传入的测试真值"}
     truth_path = tmp_path / "truth.json"
@@ -237,7 +268,39 @@ def fake_runtime(monkeypatch, tmp_path):
     questions = [{"id": scenario, "user": "unit-user", "question": scenario,
                   "window": {"start": "2026-10-01", "end": "2026-10-31"}} for scenario in e2.SCENARIOS]
     state = SimpleNamespace(run=COSTED_RUN, asks=[], scores=[], clients=[], logins=[], truths=[], saves=[],
-                            truth_path=truth_path, scorer_path=scorer_path, questions=questions)
+                            truth_path=truth_path, scorer_path=scorer_path, questions=questions,
+                            events=[], settings_saves=[], sessions=[], save_paths=[], client_effort=None,
+                            assignment=SimpleNamespace(purpose="analysis", provider_id="before-client-provider",
+                                                       model_id="before-client-model", reasoning_effort="high"),
+                            admin=SimpleNamespace(id="unit-admin"))
+
+    class FakeSession:
+        def get(self, model, key):
+            if model is User:
+                assert key == state.admin.id
+                return state.admin
+            assert model is ModelAssignment and key == "analysis"
+            return state.assignment
+
+    @contextmanager
+    def session_scope():
+        session = FakeSession()
+        state.sessions.append(session)
+        yield session
+
+    def ensure_admin(*, superadmin):
+        assert superadmin is False
+        state.events.append("ensure_admin")
+        return state.admin.id
+
+    def save_settings(session, actor, assignments, new_policy):
+        assert session in state.sessions and actor is state.admin and new_policy is None
+        assert set(assignments) == {"analysis"}
+        target = dict(assignments["analysis"])
+        state.settings_saves.append((session, target))
+        state.events.append(("save_settings", target["reasoning_effort"]))
+        for name, value in target.items():
+            setattr(state.assignment, name, value)
 
     def forbidden(*args, **kwargs):
         pytest.fail("E2 不应读取演示环境或 E1 注入材料")
@@ -248,6 +311,11 @@ def fake_runtime(monkeypatch, tmp_path):
 
     def client(env):
         state.clients.append(True)
+        state.events.append("client")
+        # 模拟 model_from_env 重写指派；必须等它执行后再取模型及原思考强度。
+        state.assignment.provider_id = "unit-provider"
+        state.assignment.model_id = "unit-model"
+        state.assignment.reasoning_effort = state.client_effort
         return object()
 
     def login(client, user, password):
@@ -256,8 +324,10 @@ def fake_runtime(monkeypatch, tmp_path):
 
     def ask(client, headers, question):
         state.asks.append((question, settings_flags()))
-        if isinstance(state.run, Exception):
+        if isinstance(state.run, BaseException):
             raise state.run
+        if callable(state.run):
+            return state.run()
         return state.run
 
     def score(question, run):
@@ -270,16 +340,24 @@ def fake_runtime(monkeypatch, tmp_path):
         _ask=ask, _client=client, _login=login,
         code_version=lambda: {"git_sha": "unit-sha", "git_dirty": True},
     ))
-    scorer = SimpleNamespace(VERSION="unit-v2.1.1", __file__=str(scorer_path),
+    scorer = SimpleNamespace(VERSION="unit-v2.1.3", __file__=str(scorer_path),
                              load_questions=load_questions, score=score)
-    monkeypatch.setattr(eval_package, "scoring_v2_1_1", scorer, raising=False)
-    monkeypatch.setitem(sys.modules, "tests.eval.scoring_v2_1_1", scorer)
+    monkeypatch.setattr(eval_package, "scoring_v2_1_3", scorer, raising=False)
+    monkeypatch.setitem(sys.modules, "tests.eval.scoring_v2_1_3", scorer)
+    bootstrap = SimpleNamespace(ensure_admin=ensure_admin)
+    modelcfg = SimpleNamespace(save_settings=save_settings)
+    monkeypatch.setitem(sys.modules, "avelis.bootstrap", bootstrap)
+    monkeypatch.setattr(avelis, "bootstrap", bootstrap, raising=False)
+    monkeypatch.setitem(sys.modules, "avelis.modelcfg", modelcfg)
+    monkeypatch.setattr(avelis, "modelcfg", modelcfg, raising=False)
+    monkeypatch.setattr(db, "session_scope", session_scope)
     monkeypatch.setattr(sys.modules["e1"], "load_material", forbidden)
     write_text = Path.write_text
 
     def capture_save(path, text, *args, **kwargs):
-        if path.parent == tmp_path / "experiments" / "e2":
+        if path.parent.parent == tmp_path / "experiments":
             state.saves.append(json.loads(text))
+            state.save_paths.append(path)
         return write_text(path, text, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", capture_save)
@@ -345,7 +423,7 @@ def test_run_saves_each_result_and_preserves_failed_run_without_retry(monkeypatc
     assert meta["conditions"] == ["H", "RH"] and meta["scenarios"] == ["h10"]
     assert meta["flags"] == {condition: EXPECTED_FLAGS[condition] for condition in ("H", "RH")}
     assert meta["seed"] == 20261101 and meta["initial_spent_cny"] == "0"
-    assert meta["scorer"] == "unit-v2.1.1"
+    assert meta["scorer"] == "unit-v2.1.3"
     assert meta["scorer_sha256"] == hashlib.sha256(state.scorer_path.read_bytes()).hexdigest()
 
 
@@ -388,3 +466,167 @@ def test_run_rechecks_flags_before_asking_and_restores_env_on_mismatch(monkeypat
     assert "不匹配" in state.saves[-1]["stop_reason"]
     assert tuple(os.environ.get(name) for name in ENV_NAMES) == initial
     assert settings_flags() == {"analysis_retrieval": True, "analysis_investigation": False}
+
+
+def run_fake(monkeypatch, state, *args):
+    monkeypatch.setattr(sys, "argv", ["e2.py", "--run", "--truth", str(state.truth_path),
+                                      "--only", "h10", "--conditions", "B0,R", "--repeat", "1", *args])
+    return e2.main()
+
+
+def live_run(state):
+    from avelis.analysis.tools import Budget
+
+    return {**COSTED_RUN, "reasoning_effort": state.assignment.reasoning_effort,
+            "budget": Budget().view()}
+
+
+def test_default_run_does_not_save_settings_or_change_budget(monkeypatch, fake_runtime):
+    from avelis.analysis.tools import Budget
+
+    state = fake_runtime
+    defaults = Budget.__init__.__defaults__
+    limits = Budget().view()["limits"]
+    assert limits["output_tokens"] == 30_716
+
+    def run():
+        assert Budget.__init__.__defaults__ is defaults
+        assert Budget().view()["limits"] == limits
+        return live_run(state)
+
+    state.run = run
+    assert run_fake(monkeypatch, state) == 0
+    assert state.settings_saves == state.sessions == []
+    assert state.events == ["client"]
+    assert Budget.__init__.__defaults__ is defaults
+    assert Budget().view()["limits"] == limits
+    meta = state.saves[-1]["meta"]
+    assert meta["effort"] is None and meta["output_token_cap"] is None and meta["tag"] == "e2"
+
+
+@pytest.mark.parametrize("effort", ["low", "max"])
+@pytest.mark.parametrize("original", [None, "high"])
+def test_effort_is_set_after_client_and_restored_without_changing_model(monkeypatch, fake_runtime, effort, original):
+    state = fake_runtime
+    state.client_effort = original
+    state.run = lambda: live_run(state)
+    assert run_fake(monkeypatch, state, "--effort", effort) == 0
+    assert state.events == ["client", "ensure_admin", ("save_settings", effort), ("save_settings", original)]
+    assert len(state.settings_saves) == 2
+    set_session, set_target = state.settings_saves[0]
+    restore_session, restore_target = state.settings_saves[1]
+    assert set_session is not restore_session
+    assert set_target == {"provider_id": "unit-provider", "model_id": "unit-model", "reasoning_effort": effort}
+    assert restore_target == {**set_target, "reasoning_effort": original}
+    assert vars(state.assignment) == {"purpose": "analysis", **restore_target}
+    data = state.saves[-1]
+    assert len(state.asks) == len(data["results"]) == 2
+    assert data["stop_reason"] is None and data["meta"]["effort"] == effort
+    assert all(result["run"]["reasoning_effort"] == effort for result in data["results"])
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("模拟传输失败"), KeyboardInterrupt("模拟中断")])
+def test_effort_and_cap_are_restored_on_exception_or_interrupt(monkeypatch, fake_runtime, failure):
+    from avelis.analysis.tools import Budget
+
+    state = fake_runtime
+    state.client_effort = "low"
+    defaults = Budget.__init__.__defaults__
+    limits = Budget().view()["limits"]
+
+    def run():
+        assert state.assignment.reasoning_effort == "max"
+        assert Budget().output_tokens == 90_000
+        raise failure
+
+    state.run = run
+    with pytest.raises(type(failure), match=str(failure)):
+        run_fake(monkeypatch, state, "--effort", "max", "--output-token-cap", "90000")
+    assert len(state.asks) == 1 and state.scores == []
+    assert state.assignment.reasoning_effort == "low"
+    assert [target["reasoning_effort"] for _, target in state.settings_saves] == ["max", "low"]
+    assert Budget.__init__.__defaults__ is defaults
+    assert Budget().view()["limits"] == limits
+    assert type(failure).__name__ in state.saves[-1]["stop_reason"]
+    assert state.saves[-1]["results"] == []
+
+
+def test_output_cap_changes_only_new_budget_output_default_and_restores_it(monkeypatch, fake_runtime):
+    from avelis.analysis.tools import Budget
+
+    state = fake_runtime
+    defaults = Budget.__init__.__defaults__
+    existing = Budget()
+    limits = existing.view()["limits"]
+    expected = {**limits, "output_tokens": 90_000}
+
+    def run():
+        assert Budget().view()["limits"] == expected
+        assert Budget(output_tokens=123).output_tokens == 123
+        assert existing.view()["limits"] == limits
+        return live_run(state)
+
+    state.run = run
+    assert run_fake(monkeypatch, state, "--output-token-cap", "90000") == 0
+    assert state.settings_saves == []
+    assert Budget.__init__.__defaults__ is defaults
+    assert Budget().view()["limits"] == limits
+    data = state.saves[-1]
+    assert data["meta"]["output_token_cap"] == 90_000
+    assert data["meta"]["effort"] is None
+    assert all(result["run"]["budget"]["limits"] == expected for result in data["results"])
+
+
+def test_plan_output_cap_updates_bounds_and_restores_budget(monkeypatch, capsys):
+    from avelis.analysis.tools import Budget
+
+    forbid_run_imports(monkeypatch)
+    defaults = Budget.__init__.__defaults__
+    baseline = e2.budget_bounds(32)
+    monkeypatch.setattr(sys, "argv", ["e2.py", "--plan", "--conditions", "B0", "--effort", "max",
+                                      "--output-token-cap", "90000"])
+    assert e2.main() == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["bounds"] == {**baseline, "output_tokens": 32 * 90_000}
+    assert Budget.__init__.__defaults__ is defaults
+    assert e2.budget_bounds(32) == baseline
+
+
+@pytest.mark.parametrize(("parameter", "value", "field", "run"), [
+    ("--effort", "max", "reasoning_effort", {**COSTED_RUN, "reasoning_effort": "low"}),
+    ("--effort", "max", "reasoning_effort", COSTED_RUN),
+    ("--output-token-cap", "90000", "output_tokens",
+     {**COSTED_RUN, "budget": {"limits": {"output_tokens": 30_716}}}),
+    ("--output-token-cap", "90000", "output_tokens", COSTED_RUN),
+    ("--output-token-cap", "90000", "output_tokens", {**COSTED_RUN, "budget": {}}),
+    ("--output-token-cap", "90000", "output_tokens", {**COSTED_RUN, "budget": {"limits": {}}}),
+])
+def test_run_parameter_mismatch_is_saved_and_stops_without_retry(monkeypatch, fake_runtime, parameter, value, field, run):
+    from avelis.analysis.tools import Budget
+
+    state = fake_runtime
+    state.run = run
+    defaults = Budget.__init__.__defaults__
+    with pytest.raises(RuntimeError, match=field):
+        run_fake(monkeypatch, state, parameter, value)
+    assert len(state.asks) == len(state.scores) == 1
+    assert [len(snapshot["results"]) for snapshot in state.saves] == [1, 1]
+    data = state.saves[-1]
+    assert field in data["stop_reason"] and "不匹配" in data["stop_reason"]
+    assert data["results"][0]["run"] == run
+    assert data["results"][0]["score"] == {"passed": True}
+    assert Decimal(data["ledger"]["spent_cny"]) == Decimal("0.6")
+    assert state.assignment.reasoning_effort is None
+    assert Budget.__init__.__defaults__ is defaults
+
+
+def test_tag_selects_output_directory_and_is_recorded(monkeypatch, fake_runtime, tmp_path):
+    state = fake_runtime
+    assert run_fake(monkeypatch, state, "--tag", "e2-max-输出") == 0
+    assert state.save_paths
+    assert all(path.parent == tmp_path / "experiments" / "e2-max-输出" for path in state.save_paths)
+    data = state.saves[-1]
+    assert data["meta"]["tag"] == "e2-max-输出"
+    started = datetime.fromisoformat(data["meta"]["started"])
+    assert state.save_paths[-1].name == f"{started.strftime('%Y%m%d-%H%M%S')}.json"
+    assert json.loads(state.save_paths[-1].read_text(encoding="utf-8")) == data
