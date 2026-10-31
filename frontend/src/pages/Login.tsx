@@ -68,8 +68,8 @@ function AnswerPreview() {
           <div><small>环比</small><b className="is-up">+12.4%</b></div>
           <div className="av-login__spark-bars">{bars.map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}</div>
         </div>
-        <p>增长主要来自 <mark>新渠道</mark> 与 <mark>复购提升</mark>，两者合计贡献 83%<sup>D3</sup><sup>D7</sup></p>
-        <div className="av-login__chips"><span>口径 V3 · 已审核</span><span>列级血缘 12 条</span><span>2 个仍待验证</span></div>
+        <p>变化主要来自 <mark>两个成员</mark> 的增长，合计贡献 83%<sup>D3</sup><sup>D7</sup>，口径与数据均可追溯</p>
+        <div className="av-login__chips"><span>口径 V3 · 已审核</span><span>列级血缘 12 条</span><span>2 个仍待验证</span><span className="av-login__demo">产品示意</span></div>
       </div>
     </div>
   );
