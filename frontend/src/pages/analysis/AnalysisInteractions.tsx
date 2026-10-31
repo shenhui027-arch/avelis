@@ -63,7 +63,8 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
           onClick={() => setDecisions(Object.fromEntries(items.map((i) => [i.id, "confirmed"])))}>全部确认</button>
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <ol className="av-proposals">
+      {!items.length ? <p className="av-caption">没有需要确认的依据，可以直接继续，或补充你知道的规则。</p> : null}
+      <ol className="av-proposals" hidden={!items.length}>
         {items.map((i) => (
           <li key={i.id} className={`av-proposal${decisions[i.id] === "rejected" ? " is-rejected" : ""}`}>
             <Pill tone="">{ITEM_KIND[i.kind] ?? i.kind}</Pill>

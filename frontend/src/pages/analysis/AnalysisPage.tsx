@@ -10,6 +10,7 @@ import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/
 import { formatTime } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
 import { BarChart, LineChart } from "./charts";
+import { RunTranscript } from "./RunTranscript";
 
 type Run = Schemas["AnalysisRunOut"];
 type Dataset = Schemas["AnalysisDatasetOut"];
@@ -33,13 +34,6 @@ const CAUSE_TYPE: Record<string, string> = { member: "成员", factor: "因子",
 const CONCLUSION: Record<string, string> = { ranked_reasons: "有排序的原因", offsetting: "成员变化相互抵消", no_material_change: "没有实质变化",
   insufficient_evidence: "证据不足" };
 const TYPE_LABEL: Record<string, string> = { fact: "事实", calc: "计算", inference: "推断", recommendation: "建议" };
-const TOOL_LABEL: Record<string, string> = {
-  understand: "理解问题", search_metrics: "检索口径", describe_metric: "口径详情", search_assets: "检索资产",
-  describe_asset: "资产详情", lineage: "血缘", changes: "变更记录", data_health: "数据健康", query_metric: "受治理查询",
-  query_sql: "探索查询", explain_change: "自动归因", contribution: "差额拆解", factor_decompose: "因子拆解", calendar_adjust: "日历折算",
-  correlate: "相关性", segment_compare: "分组对比", outliers: "异常值", coverage: "覆盖度", derive: "派生计算",
-  submit_report: "提交报告", submit_proposal: "提出依据", assumptions: "确认依据", model: "模型推理",
-};
 const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释", method: "分析方法" };
 const REPORT_STATUS: Record<string, [string, "ok" | "warn" | "danger"]> = {
   all_passed: ["来源全部通过", "ok"], with_inference: ["来源通过 · 含推断", "warn"],
@@ -281,21 +275,6 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
   </section>;
 }
 
-function RunProgress({ run }: { run: Run }) {
-  const steps = run.steps ?? [];
-  const recent = steps.slice(-4);
-  return (
-    <section className="av-doc__progress" aria-live="polite">
-      <div className="av-doc__progress-hd"><span className="av-spinner" aria-hidden />
-        {run.status === "queued" ? "排队中" : `分析中 · 已完成 ${steps.length} 步`}</div>
-      {recent.length ? <ol className="av-doc__progress-steps">
-        {recent.map((s) => <li key={s.seq}>{TOOL_LABEL[s.tool ?? ""] ?? s.tool ?? s.kind}
-          {s.reason ? <span className="av-caption"> · {s.reason}</span> : null}</li>)}
-      </ol> : null}
-    </section>
-  );
-}
-
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
@@ -349,12 +328,12 @@ function RunDetail({ id }: { id: string }) {
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       {challenging && done ? <FollowupForm runId={r.id} onClose={() => setChallenging(false)} /> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      {running ? <RunProgress run={r} /> : null}
+      {running || r.status === "waiting" ? <RunTranscript run={r} live={running} /> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
       {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
-      {r.status === "waiting" && hitl.pending?.kind !== "clarify" && hitl.proposal?.items.length
-        ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal.items} /> : null}
+      {r.status === "waiting" && hitl.pending?.kind !== "clarify"
+        ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done ? <>
         <section className="av-doc__summary" aria-label="摘要">
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
@@ -395,25 +374,15 @@ function RunDetail({ id }: { id: string }) {
         </section>
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
-      {r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
-      {!running ? <details className="av-doc__more">
+      {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
+      {!running && r.status !== "waiting" ? <details className="av-doc__more">
         <summary>方法与过程 <span className="av-caption">{r.steps?.length ?? 0} 步</span></summary>
         {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
         <p className="av-caption av-doc__meta">
           <span>模型 {r.model_adapter ?? "—"}</span>
           {budget.used ? <span>模型请求 {budget.used.model_requests}/{budget.limits?.model_requests} · 工具 {budget.used.tool_calls}/{budget.limits?.tool_calls} · 查询 {budget.used.queries}/{budget.limits?.queries} · {budget.used.seconds}s</span> : null}
         </p>
-        <ol className="av-timeline">
-          {(r.steps ?? []).map((s) => (
-            <li key={s.seq} className={`av-timeline__item is-${s.status}`}>
-              <span className="av-timeline__tool">{TOOL_LABEL[s.tool ?? ""] ?? s.tool ?? s.kind}</span>
-              {s.reason ? <span className="av-timeline__reason">{s.reason}</span> : null}
-              {s.dataset ? <a className="av-tag av-mono" href={`#dataset-${s.dataset}`}>{s.dataset}</a> : null}
-              {s.status !== "ok" ? <span className="av-caption av-timeline__err">{String((s.output as { error?: string; message?: string }).error
-                ?? (s.output as { message?: string }).message ?? s.status)}</span> : null}
-            </li>
-          ))}
-        </ol>
+        <RunTranscript run={r} />
       </details> : null}
       </DatasetSql.Provider>
     </article>

@@ -3420,6 +3420,112 @@
     }
    }
   },
+  "/api/analysis/runs/{run_id}/messages": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Add Message",
+    "description": "记录插话；只在下一次模型调用前生效，等待确认期间不消费。",
+    "operationId": "add_message_api_analysis_runs__run_id__messages_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalysisMessageIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisMessageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/runs/{run_id}/stop": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Stop Run",
+    "description": "请求在下一个安全点停止；等待确认的运行立即结束。",
+    "operationId": "stop_run_api_analysis_runs__run_id__stop_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/followup": {
    "post": {
     "tags": [
@@ -5109,6 +5215,57 @@
     ],
     "title": "AnalysisFollowupIn"
    },
+   "AnalysisMessageIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AnalysisMessageIn"
+   },
+   "AnalysisMessageOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "consumed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Consumed At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "text",
+     "created_at"
+    ],
+    "title": "AnalysisMessageOut"
+   },
    "AnalysisProposalItem": {
     "properties": {
      "id": {
@@ -5380,6 +5537,13 @@
        }
       ],
       "title": "Datasets"
+     },
+     "messages": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisMessageOut"
+      },
+      "type": "array",
+      "title": "Messages"
      },
      "parent_run_id": {
       "anyOf": [
