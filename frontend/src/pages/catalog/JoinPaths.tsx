@@ -111,7 +111,7 @@ function JoinReview({ path, onClose, onUpdated }: { path: JoinPath; onClose: () 
         <label className="av-field"><span className="av-label">代表业务域</span><Select value={selectedDomain} onChange={setDomain} disabled={decide.isPending} label="代表业务域">
           {mine.map((id) => <option key={id} value={id}>{rows.find((d) => d.id === id)?.name ?? id}</option>)}
         </Select></label>
-        <label className="av-field"><span className="av-label">审核意见（选填）</span><textarea className="av-input" rows={3} value={note} disabled={decide.isPending} onChange={(e) => setNote(e.target.value)} /></label>
+        <label className="av-field"><span className="av-label">审核意见（选填）</span><textarea className="av-textarea" rows={3} value={note} disabled={decide.isPending} onChange={(e) => setNote(e.target.value)} /></label>
       </> : <span className="av-caption">当前没有你需要审核的业务域</span>}
       {path.approvals.length ? <details className="av-asset-evidence"><summary>审核记录</summary><div className="av-join-history">{path.approvals.map((approval, i) => <dl className="av-kv" key={i}>
         <dt>业务域</dt><dd>{rows.find((d) => d.id === approval.domain_id)?.name ?? String(approval.domain_id)}</dd>

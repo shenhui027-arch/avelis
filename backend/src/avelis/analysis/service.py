@@ -422,12 +422,12 @@ def visible_run(session: Session, user: User, run_id: str) -> AnalysisRun:
 
 
 def _live_run(session: Session, user: User, run_id: str) -> AnalysisRun:
-    """插话和停止只属于发起人；管理员读取权限不包含代为交互。"""
+    """运行交互只属于发起人；管理员读取权限不包含代为交互。"""
     run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
     if run is None or run.user_id != user.id:
         raise NotFound("分析不存在或不属于当前用户")
     if run.status not in ("queued", "running", "waiting"):
-        raise Conflict("分析已经结束，不能插话或停止")
+        raise Conflict("分析已经结束，不能插话、停止或压缩上下文")
     return run
 
 
@@ -473,6 +473,14 @@ def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
         checkpoint["snapshot"] = toolbox.snapshot()
         run.checkpoint = checkpoint
     audit.record(session, user, "analysis.stop", "analysis_run", run.id, status=run.status)
+    session.flush()
+    return run
+
+
+def compact_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    run = _live_run(session, user, run_id)
+    run.compact_requested = True
+    audit.record(session, user, "analysis.compact", "analysis_run", run.id, status=run.status)
     session.flush()
     return run
 

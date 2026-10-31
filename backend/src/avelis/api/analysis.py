@@ -129,6 +129,14 @@ def stop_run(run_id: str, user: User = Depends(current_user), session: Session =
     return analysis.run_view(session, run, user=user)
 
 
+@router.post("/analysis/runs/{run_id}/compact", response_model=S.AnalysisRunOut)
+def compact_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """请求在下一次模型调用前压缩上下文；等待确认期间保留请求。"""
+    run = analysis.compact_run(session, user, run_id)
+    session.commit()
+    return analysis.run_view(session, run, user=user)
+
+
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
 def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict:
