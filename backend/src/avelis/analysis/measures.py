@@ -14,7 +14,8 @@ from decimal import Decimal
 from typing import Any
 
 UNKNOWN = {"kind": "unknown"}
-CONSTANTS = {Decimal(0), Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}  # 0 是中性常量
+# 0 是中性常量；其余用于比例、数量级与时间单位换算，探索查询共用此白名单。
+CONSTANTS = {Decimal(value) for value in (0, 1, 24, 60, 100, 1000, 3600, 10000, 1000000, 100000000, 1000000000)}
 
 
 def col(kind: str, unit: str | None = "", scale: Any = 1, of_ratio: bool = False) -> dict[str, Any]:
@@ -42,7 +43,10 @@ def like(base: dict | None, kind: str | None = None, **extra) -> dict[str, Any]:
 
 
 def metric_kind(version: Any) -> str:
-    """派生指标 a / b 为比率，其余为水平值。"""
+    """优先使用显式量纲；未声明时，派生指标 a / b 为比率，其余为水平值。"""
+    declared = getattr(version, "value_kind", None)
+    if declared in {"level", "ratio", "count"}:
+        return declared
     return "ratio" if getattr(version, "kind", "base") == "derived" and "/" in (version.expression or "") else "level"
 
 
@@ -55,17 +59,32 @@ def governed_units(columns: list[str], metrics: dict[str, Any], period_label: st
     units: dict[str, dict] = {}
     for name, version in metrics.items():
         base = metric_unit(version)
-        for column, meta in ((name, base), (f"{name}·{period_label}", base), (f"{name}·变化", like(base, "delta")),
-                             (f"{name}·变化率", {"kind": "rate_change"})):
+        declared = [(name, base)]
+        if period_label is not None:
+            declared.extend(((f"{name}·{period_label}", base), (f"{name}·变化", like(base, "delta")),
+                             (f"{name}·变化率", {"kind": "rate_change"})))
+        for column, meta in declared:
             if column in columns:
                 units[column] = meta
     return units
 
 
+def governed_polarity(columns: list[str], metrics: dict[str, Any], period_label: str | None) -> dict[str, str]:
+    """指标各期间与变化列沿用锁定版本的期望方向；未声明时不推测。"""
+    polarity: dict[str, str] = {}
+    for name, version in metrics.items():
+        direction = getattr(version, "polarity", None)
+        if direction not in {"up_good", "down_good"}:
+            continue
+        for column in governed_units(columns, {name: version}, period_label):
+            polarity[column] = direction
+    return polarity
+
+
 # --- derive ----------------------------------------------------------------------------
 
 def constants(formula: str) -> list[Decimal]:
-    """公式里不在白名单（1、100、1000、10000、1e8）里的常量。"""
+    """公式里不在白名单（0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9）里的常量。"""
     tree = ast.parse(formula.strip(), mode="eval")
     return [Decimal(str(n.value)) for n in ast.walk(tree)
             if isinstance(n, ast.Constant) and Decimal(str(n.value)) not in CONSTANTS]

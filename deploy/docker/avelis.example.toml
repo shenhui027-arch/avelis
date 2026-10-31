@@ -101,6 +101,8 @@ initial_admin_password = ""       # AVELIS_INITIAL_ADMIN_PASSWORD
 [business]
 # 业务时区：日期类问题（“昨天”“上月”）按它计算
 timezone = "Asia/Shanghai"        # AVELIS_BUSINESS_TIMEZONE
+# 数字显示：cn 万/亿 | intl K/M/B；两者从绝对值 1e4 起缩写，intl 的 K 除以 1e3。AVELIS_NUMBER_STYLE
+number_style = "cn"
 # 未归属业务域的资产：deny（只有管理员与维护者可见）| allow（所有人可见）
 unassigned_asset_policy = "deny"  # AVELIS_UNASSIGNED_ASSET_POLICY
 # 口径依赖的列缺数据库注释时：false 只提示 | true 阻断发布

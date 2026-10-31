@@ -872,9 +872,12 @@ class AnalysisToolbox:
                                                          ast.Add, ast.Sub, ast.UnaryOp, ast.USub))
                                       for node in ast.walk(ast.parse(version.expression.strip(), mode="eval"))) and (
                         all(code in components for code in referenced) and all(
-                            component is not None and attribution.base_additive(component.expression)[0]
+                            component is not None and getattr(component, "value_kind", None) != "ratio"
+                            and attribution.base_additive(component.expression)[0]
                             for component in components.values())):
                     rule = {"algorithm": "additive", "reason": ""}
+            if getattr(version, "value_kind", None) == "ratio":
+                rule = {"algorithm": None, "reason": "口径声明为比率量纲"}
             names = [metric.name, f"{metric.name}·变化"]
             if intent.get("compare"):
                 names.append(f"{metric.name}·{service.PERIOD_LABEL[intent['compare']]}")
@@ -1708,8 +1711,14 @@ class AnalysisToolbox:
             f" 对比{ {'previous_period': '上一期', 'previous_calendar': '上一自然期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
             if args.compare else "")
         versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
-        units = measures.governed_units(columns, versions,
-                                        service.PERIOD_LABEL[args.compare] if args.compare else None)
+        period_label = service.PERIOD_LABEL[args.compare] if args.compare else None
+        units = measures.governed_units(columns, versions, period_label)
+        dimension_labels: dict[str, str] = {}
+        measure_labels: dict[str, str] = {}
+        for name, version in versions.items():
+            for dimension in version.dimensions or []:
+                dimension_labels.setdefault(dimension["name"], dimension.get("label") or dimension["name"])
+            measure_labels.update({column: name for column in measures.governed_units(columns, {name: version}, period_label)})
         ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                            truncated=bool(result.get("truncated")),
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
@@ -1719,6 +1728,8 @@ class AnalysisToolbox:
                                  "missing_member_rows": (getattr(answer, "evidence", None) or {}).get("missing_member_rows", []),
                                  "purpose": args.purpose,
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
+                                 "polarity": measures.governed_polarity(columns, versions, period_label),
+                                 "dimension_labels": dimension_labels, "measure_labels": measure_labels,
                                  "window": {"start": str(args.start_date), "end": str(args.end_date)}})
         self._governed[key] = ds
         return self._view(f"D{ds.seq}", ds), ds, "ok"
@@ -1842,6 +1853,8 @@ class AnalysisToolbox:
                                  "upstream_asset_ids": sorted({asset_id for t in validated.tables
                                                                for asset_id, _ in t.upstream}),
                                  "units": exploration.units(validated.columns),
+                                 "intent": {"group_by": list(getattr(validated, "group_by", []))},
+                                 "time_column": getattr(validated, "time_column", None),
                                  "column_evidence": exploration.evidence(validated.columns), "preview": preview})
         view = self._view(f"D{ds.seq}", ds)
         view["sql"] = validated.sql
@@ -2138,6 +2151,16 @@ class AnalysisToolbox:
             copied = {col: ev for col, ev in evidence.items() if col in columns}
             if copied:
                 registered["column_evidence"] = {**registered.get("column_evidence", {}), **copied}
+            # 只继承计算明确保留的输入列；同名的统计输出不代表复制了原时间列。
+            retained = set(args.get("keys") or [])
+            if tool == "segment_compare":
+                retained.add(args["segment"])
+            if tool == "outliers":
+                retained.add(args["value"])
+            time_columns = {(self._datasets[ref].meta or {}).get("time_column") for ref in inputs if ref in self._datasets}
+            copied_times = time_columns.intersection(columns, retained)
+            if len(copied_times) == 1:
+                registered.setdefault("time_column", copied_times.pop())
             ds = self._dataset("calc", title, columns, rows, inputs=inputs, truncated=bool(truncated),
                                meta={"summary": summary, "args": args, **registered})
             return self._view(f"D{ds.seq}", ds), ds, "ok"
@@ -2233,7 +2256,7 @@ class AnalysisToolbox:
             return (f"{dataset} {current}的日历折算", cols, rows_out,
                     {**{k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")},
                      "holidays_note": "未配置业务日历，节假日未知"},
-                    {"units": units, "summary_units": {"change": delta, "day_count_effect": delta,
+                    {"time_column": "period", "units": units, "summary_units": {"change": delta, "day_count_effect": delta,
                                                        "daily_level_effect": delta,
                                                        "daily_change_rate": col("rate_change")}})
         return self._calc("calendar_adjust", {"dataset": dataset, "current": current, "previous": previous,
@@ -2338,11 +2361,12 @@ class AnalysisToolbox:
             unit = measures.formula_unit(formula, {v.name: self._unit(v.dataset, v.column) for v in values})
             rows_out.append([label, None, formula, None, result])
             summary = {"label": label, "formula": formula, "value": result,
-                       **({"assumption": "公式含 1、100、1000、10000、1e8 以外的常量：假设计算，只能被推断、建议引用"}
+                       **({"assumption": "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"}
                           if assumption else {})}
-            # value 列里也有各输入的取值（量纲各不相同），只登记汇总值 summary.value 的量纲
+            # value 混合各输入的量纲，登记 unknown；只在 summary.value 登记结果量纲。
             return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out, summary,
-                    {"units": {"rows": col("count")}, "summary_units": {"value": unit}, "assumption": assumption})
+                    {"units": {"rows": col("count"), "value": col("unknown")},
+                     "summary_units": {"value": unit}, "assumption": assumption})
         return self._calc("derive", {"label": label, "values": [v.model_dump() for v in values], "formula": formula},
                           sorted({v.dataset for v in values}), fn, full_set=False)
 

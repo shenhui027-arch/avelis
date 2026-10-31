@@ -10,7 +10,7 @@ import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/
 import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
-import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
+import { columnRole, resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
@@ -27,7 +27,7 @@ type Claim = { type: string; text: string; segments?: Segment[]; refs?: string[]
 type Check = { index: number; status: string; problems?: string[]; missing_refs?: string[] };
 type FieldCheck = { field: string; status: string; problems?: string[] };
 type CauseView = { index: number; type?: string; label?: string | null;
-  entity?: { metric_code?: string; dimension?: string; member?: string; factor_metric_code?: string; evidence_id?: string };
+  entity?: { metric_code?: string; dimension?: string; dimension_label?: string; member?: string; factor_metric_code?: string; evidence_id?: string };
   direction?: string; contribution?: { text: string; segments?: Segment[] } | null; evidence?: string[]; status: string;
   errors?: string[] };
 type WindowKind = "none" | "last_month" | "fixed";
@@ -288,8 +288,8 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
     {causes?.length ? <ol className="av-causes">
       {causes.map((c, n) => {
         const e = c.entity ?? {};
-        const entity = e.member ? `${e.dimension ?? ""} · ${c.label ?? e.member}`
-          : c.label ?? e.factor_metric_code ?? e.evidence_id ?? "日历因素";
+        const entity = e.member ? `${e.dimension_label ?? e.dimension ?? ""} · ${c.label ?? e.member}`
+          : c.label ?? e.factor_metric_code ?? e.evidence_id ?? (c.type === "calendar" ? "日历因素" : "未标注实体");
         return <li key={c.index} className={`av-cause${c.status === "unverified" ? " is-unverified" : ""}${n === 0 ? " is-primary" : ""}`}>
           <span className="av-cause__rank">{n + 1}</span>
           <span className="av-cause__main">
@@ -313,7 +313,7 @@ function LookupAnswer({ a }: { a: Answer }) {
   const single = result.rows?.length === 1 && result.columns?.length === 1;
   return (
     <section className="av-doc__section" aria-label="结果">
-      {single ? <div className="av-lookup__value"><span>{resultCell(result.rows![0][0], result.columns![0])}</span>
+      {single ? <div className="av-lookup__value"><span>{resultCell(result.rows![0][0], result.columns![0], false, columnRole(result, result.columns![0]))}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
       {!single && result.rows?.length ? <ResultTable result={result} dimensions={intent.group_by ?? []} /> : null}

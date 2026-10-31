@@ -1679,6 +1679,14 @@ export interface components {
             units: {
                 [key: string]: unknown;
             };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
             /** Summary Units */
             summary_units: {
                 [key: string]: unknown;
@@ -1741,6 +1749,10 @@ export interface components {
             inputs: string[];
             /** Answer Id */
             answer_id: string | null;
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -1780,6 +1792,18 @@ export interface components {
             metric_version_ids?: string[];
             /** Time Column */
             time_column?: string | null;
+            /** Units */
+            units?: {
+                [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -2611,6 +2635,18 @@ export interface components {
             doc?: components["schemas"]["ColumnDocOut"] | null;
             /** Confirmations */
             confirmations: components["schemas"]["ConfirmationOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ColumnRole */
+        ColumnRole: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "time" | "dimension" | "measure" | "change" | "rate";
+            /** Label */
+            label: string;
         } & {
             [key: string]: unknown;
         };

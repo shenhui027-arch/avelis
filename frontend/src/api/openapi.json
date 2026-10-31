@@ -5465,6 +5465,24 @@
       "type": "object",
       "title": "Units"
      },
+     "polarity": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "up_good",
+        "down_good"
+       ]
+      },
+      "type": "object",
+      "title": "Polarity"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
+     },
      "summary_units": {
       "additionalProperties": true,
       "type": "object",
@@ -5637,6 +5655,13 @@
        }
       ],
       "title": "Answer Id"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
      }
     },
     "additionalProperties": true,
@@ -5740,6 +5765,29 @@
        }
       ],
       "title": "Time Column"
+     },
+     "units": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Units"
+     },
+     "polarity": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "up_good",
+        "down_good"
+       ]
+      },
+      "type": "object",
+      "title": "Polarity"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
      }
     },
     "additionalProperties": true,
@@ -8339,6 +8387,32 @@
      "confirmations"
     ],
     "title": "ColumnOut"
+   },
+   "ColumnRole": {
+    "properties": {
+     "role": {
+      "type": "string",
+      "enum": [
+       "time",
+       "dimension",
+       "measure",
+       "change",
+       "rate"
+      ],
+      "title": "Role"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "role",
+     "label"
+    ],
+    "title": "ColumnRole"
    },
    "CommentCoverageOut": {
     "properties": {

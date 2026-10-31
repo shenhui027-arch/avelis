@@ -27,9 +27,11 @@ export function errorText(e: unknown): string {
 
 export const useAppSettings = () => useQuery({
   queryKey: ["settings"],
-  queryFn: () => unwrap(api.GET("/api/settings")) as Promise<{ business_timezone?: string; self_review_policy?: string }>,
+  queryFn: () => unwrap(api.GET("/api/settings")) as Promise<{ business_timezone?: string; self_review_policy?: string; number_style?: "cn" | "intl" }>,
 });
 export const useTimeZone = () => useAppSettings().data?.business_timezone ?? "Asia/Shanghai";
+/** 数字显示体系（ADR 0014）：cn 用万、亿，intl 用 K、M、B；与后端报告渲染一致 */
+export const useNumberStyle = () => useAppSettings().data?.number_style ?? "cn";
 export const useWorkbench = () => useQuery({ queryKey: ["workbench"], queryFn: () => unwrap(api.GET("/api/workbench")) });
 export const useDatasources = () => useQuery({ queryKey: ["datasources"], queryFn: () => unwrap(api.GET("/api/datasources")) });
 /** 支持问数执行的数据源（按引擎能力，不按数据库类型）：指标与关联路径只能建在这些数据源的资产上。 */

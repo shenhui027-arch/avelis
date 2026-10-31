@@ -114,8 +114,11 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | 配置文件 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `timezone` | `AVELIS_BUSINESS_TIMEZONE` | `Asia/Shanghai` | 业务时区 |
+| `number_style` | `AVELIS_NUMBER_STYLE` | `cn` | 数字显示体系：`cn` 使用万、亿；`intl` 使用 K、M、B，报告正文与导出共用，应用设置接口同时提供给前端图表 |
 | `unassigned_asset_policy` | `AVELIS_UNASSIGNED_ASSET_POLICY` | `deny` | 未归属业务域的资产：`deny`（只有管理员与维护者可见）/ `allow` |
 | `require_column_comments` | `AVELIS_REQUIRE_COLUMN_COMMENTS` | `false` | 口径依赖的列缺数据库注释时是否阻断发布（否则只提示） |
+
+`number_style` 按换算回基本单位后的绝对值选择缩写：`cn` 在 ≥ `1e8` 时用亿、≥ `1e4` 时用万；`intl` 在 ≥ `1e9` 时用 B、≥ `1e6` 时用 M、≥ `1e4` 时用 K（除以 `1e3`）。两种体系都从 `1e4` 起缩写，因此 `1e3` 至小于 `1e4` 的数仍按普通数字显示。百分比、百分点、带单位的比率和未知量纲保持原有格式。
 
 ### 问数与查询 `[query]`
 

@@ -6,7 +6,7 @@ import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useExampleQuestions, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatTime } from "../../format";
-import { changeTone, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
+import { changeTone, columnRole, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 
 const STEP_LABEL: Record<string, string> = { understand: "理解", clarify: "追问", govern: "版本与权限", explain: "解释" };
 
@@ -156,7 +156,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       ) : null}
       {single ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{resultCell(result.rows![0][0], result.columns![0])}</span>
+          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{resultCell(result.rows![0][0], result.columns![0], false, columnRole(result, result.columns![0]))}</span>
           <span className="av-caption">{a.message}</span>
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
@@ -204,9 +204,10 @@ export function ResultTable({ result, dimensions }: { result: AskResult; dimensi
         <tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column, columnIndex) => {
           const dimension = columnIndex < dimensions.length;
           const value = row[columnIndex];
-          const tone = !dimension && /·变化(?:率)?$/.test(column) ? changeTone(value) : "";
+          const role = columnRole(result, column);
+          const tone = !dimension && (role === "change" || role === "rate") ? changeTone(value, result.polarity?.[column]) : "";
           return <td key={columnIndex} className={`${dimension ? "av-answer-table__dimension" : "av-answer-table__number"}${tone ? ` av-answer-change--${tone}` : ""}`}>
-            {resultCell(value, column, dimension)}
+            {resultCell(value, column, dimension, role)}
           </td>;
         })}</tr>)}</tbody>
       </table>

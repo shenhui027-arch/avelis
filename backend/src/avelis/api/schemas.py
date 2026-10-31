@@ -793,6 +793,11 @@ class AnalysisStepOut(Out):
     output: Json = Field(default_factory=dict)
 
 
+class ColumnRole(Out):
+    role: Literal["time", "dimension", "measure", "change", "rate"]
+    label: str
+
+
 class AnalysisDatasetOut(Out):
     ref: str
     seq: int
@@ -808,6 +813,9 @@ class AnalysisDatasetOut(Out):
     summary: Any = None
     metric_version_ids: list[str] = Field(default_factory=list)
     time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
+    units: Json = Field(default_factory=dict)
+    polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
 
 
 class AnalysisDatasetLegacyOut(Out):
@@ -822,6 +830,7 @@ class AnalysisDatasetLegacyOut(Out):
     meta: Json
     inputs: list[str]
     answer_id: str | None
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
 
 
 class AnalysisDatasetSource(Out):
@@ -843,6 +852,8 @@ class AnalysisDatasetDetailOut(Out):
     window: Json
     time_column: str | None
     units: Json
+    polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
     summary_units: Json
     purpose: str | None
     answer_id: str | None

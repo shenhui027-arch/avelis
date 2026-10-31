@@ -646,8 +646,8 @@
 .av-cause__entity { color: var(--text-primary); font: var(--type-body-strong); }
 .av-cause__type { color: var(--text-tertiary); font: var(--type-caption); }
 .av-cause__dir { font: 600 14px/1 var(--font-sans); text-align: center; }
-.av-cause__dir.is-up { color: var(--ok, var(--accent-text)); }
-.av-cause__dir.is-down { color: var(--danger); }
+/* 原因的涨跌不代表好坏（期望方向见口径，ADR 0014）：箭头用中性色 */
+.av-cause__dir.is-up, .av-cause__dir.is-down { color: var(--text-secondary); }
 .av-cause__value { font: var(--type-num); white-space: nowrap; }
 .av-timeline { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .av-timeline__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 3px 0 3px 26px; position: relative; counter-increment: step; color: var(--text-secondary); font: 400 12px/18px var(--font-sans); }

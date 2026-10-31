@@ -787,7 +787,9 @@ def schedule_due() -> list[str]:
 
 def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
     from avelis.analysis.dataset_access import can_read_dataset
-    from avelis.analysis.dataset_projection import record_refs, restrict_report, restrict_verification
+    from avelis.analysis.dataset_projection import (
+        build_column_roles, dataset_meta, record_refs, report_dimension_labels, restrict_report, restrict_verification,
+    )
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
@@ -820,7 +822,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             answer = session.scalar(select(Answer).where(
                 Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
             if answer is not None:
-                data["answer"] = answer_view(answer)
+                data["answer"] = answer_view(answer, session=session)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
     datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
                                     .order_by(AnalysisDataset.seq)))
@@ -829,6 +831,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     readable = {d.id for d in datasets} - restricted
     report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
                              lookup_restricted=lookup_restricted)
+    report = report_dimension_labels(session, report, [d for d in datasets if d.id in readable])
+    metadata = {d.id: dataset_meta(session, d) for d in datasets if d.id in readable}
     has_restricted = bool(restricted or lookup_restricted)
 
     def is_metric_code(value) -> bool:
@@ -895,7 +899,11 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                            "truncated": d.truncated, "summary": None if d.id in restricted else d.meta.get("summary"),
                            "sql": None if d.id in restricted else d.meta.get("sql"),
                            "metric_version_ids": d.meta.get("metric_version_ids", []),
-                           "time_column": d.meta.get("time_column")} for d in datasets])
+                           "time_column": d.meta.get("time_column"),
+                           "units": metadata[d.id].get("units", {}) if d.id in readable else {},
+                           "polarity": metadata[d.id].get("polarity", {}) if d.id in readable else {},
+                           "column_roles": build_column_roles(d.columns, metadata[d.id]) if d.id in readable else {}}
+                          for d in datasets])
     return data
 
 
