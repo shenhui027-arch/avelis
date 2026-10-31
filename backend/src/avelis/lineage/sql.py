@@ -139,7 +139,7 @@ def strip_alias_prefixes(expression: exp.Expression) -> exp.Expression:
 
 def fold_identifiers(dialect_name: str) -> Callable[[exp.Expression], exp.Expression]:
     """供引擎选用的规整函数：按该引擎的规则折叠未加引号的标识符（Oracle 存为大写）。
-    视图原文里写的 store.sales 在数据字典中是 STORE.SALES，表名与列名都要先折叠，才能对上已采集的资产。"""
+    视图原文里写的 schema_a.table_a 在数据字典中是 SCHEMA_A.TABLE_A，表名与列名都要先折叠，才能对上已采集的资产。"""
     def fold(expression: exp.Expression) -> exp.Expression:
         return normalize_identifiers(expression, dialect=dialect_name)
     return fold

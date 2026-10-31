@@ -17,8 +17,12 @@ SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql
 DEMO_TERMS = [r"\bec_", r"\bdws_", r"ec_dw", r"paid_sales", r"orders_cnt", "成交额", "门店", "客单价", "华东", "华南",
               "华北", "西南", "客流", "抖音", "福田", "广州", "深圳", "商圈", "楼层", "投放", "实付", "daily_sales", "shop_dim",
               r"shop\.orders", r"\bmfg_", "production_report", "material_receipt", "maintenance_order",
-              "恒达材料", "HD-20260820-A"]
+              "恒达材料", "HD-20260820-A", "sales_amount", "order_date", r"'paid'", r"\bstore\b", r"\bSTORE\b"]
 PATTERN = re.compile("|".join(DEMO_TERMS))
+# 写死的日历日期（演示期间的节假日、默认窗口）：Python 的 date(年, ...) 与前端带引号的 YYYY-MM-DD 字面量
+# （后端的带引号日期多是协议版本号，如模型接口的 API 版本，不扫）
+DATE_LITERALS = {".py": re.compile(r"\bdate\(20\d\d,"), ".ts": re.compile(r"[\"'`]20\d\d-\d\d-\d\d[\"'`]")}
+DATE_LITERALS[".tsx"] = DATE_LITERALS[".ts"]
 
 
 def _files():
@@ -38,6 +42,19 @@ def test_product_code_has_no_demo_business_terms():
             for m in PATTERN.finditer(line):
                 hits.append(f"{path.relative_to(ROOT)}:{no}: “{m.group(0)}” in {line.strip()[:80]}")
     assert not hits, "产品代码里出现了演示数据集的词（ADR 0010）：\n" + "\n".join(hits)
+
+
+def test_product_code_has_no_hardcoded_calendar_dates():
+    """日期只能来自用户输入、数据或配置：写死的节假日、默认窗口会把演示期间带进其他场景。"""
+    hits = []
+    for path in _files():
+        pattern = DATE_LITERALS.get(path.suffix)
+        if pattern is None:
+            continue
+        for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if m := pattern.search(line):
+                hits.append(f"{path.relative_to(ROOT)}:{no}: “{m.group(0)}” in {line.strip()[:80]}")
+    assert not hits, "产品代码里写死了日历日期：\n" + "\n".join(hits)
 
 
 def test_product_code_does_not_import_demo_modules():

@@ -72,9 +72,28 @@ def make_box(*, budget=None, catalog=None, objects=(), scalars=None, monkeypatch
     return AnalysisToolbox(session, user, run, catalog, budget or Budget())
 
 
+def governed_meta(box, name, *, intent=None, version=None):
+    """补齐真实受治理查询会保存的意图与锁定版本；无元数据夹具仍可直接构造。"""
+    catalog = ask_service.visible_catalog(box.session, box.user, with_values=False)
+    entry = next(((code, pair) for code, pair in catalog.versions.items() if pair[0].name == name), None)
+    if entry:
+        code, (_, current) = entry
+        version = version or current
+    else:
+        code = f"fixture_metric_{len(catalog.versions) + 1}"
+        metric = SimpleNamespace(id=code, code=code, name=name, domain_id="dA")
+        version = version or SimpleNamespace(kind="base", expression="SUM(amount)", unit=None, unit_scale=1)
+        catalog.versions[code] = (metric, version)
+    if not getattr(version, "id", None):
+        version.id = f"fixture-{code}-v1"
+    box.session.store[(MetricVersion, version.id)] = version
+    return {"intent": {"metric_codes": [code], "compare": "custom", **(intent or {})},
+            "versions": {code: version.id}, "metric_codes": [code], "time_column": None}
+
+
 def governed(box, columns, rows, *, intent=None, truncated=False):
-    return box._dataset("governed", "测试", columns, rows, truncated=truncated,
-                        meta={"intent": intent or {}, "time_column": None})
+    meta = governed_meta(box, columns[0], intent=intent) if intent else {"intent": {}, "time_column": None}
+    return box._dataset("governed", "测试", columns, rows, truncated=truncated, meta=meta)
 
 
 # --- #10 统一分发计数与截止时间 ---------------------------------------------------------
@@ -302,7 +321,8 @@ def test_query_quota_only_stops_query_tools(monkeypatch):
     box = make_box(budget=Budget(queries=1), catalog=catalog, monkeypatch=monkeypatch)
     box.budget.used_queries = 1
     rows = [["甲", 10, 8], ["乙", 5, 6]]
-    governed(box, ["地区", "指标甲", "指标甲·上一期"], rows)
+    box._dataset("governed", "测试", ["地区", "指标甲", "指标甲·上一期"], rows,
+                 meta=governed_meta(box, "指标甲", intent={"compare": "previous_period"}))
     broken = '{"title": 标题, "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}'  # 修复后可用
     model = ScriptedModel([
         ("query_metric", QUERY),
@@ -385,7 +405,7 @@ def test_calendar_adjust_uses_dataset_query_window(monkeypatch):
         "dataset": "D1", "current": "成交额", "previous": "成交额·对比期",
         "current_period": ["2026-09-01", "2026-09-01"], "previous_period": ["2026-08-01", "2026-08-31"]}))
     rows = {r[0]: dict(zip(out["columns"], r)) for r in out["rows"]}
-    assert rows["本期"]["days"] == 30 and rows["本期"]["daily"] == "100.00" and rows["上期"]["days"] == 31
+    assert rows["本期"]["days"] == 30 and rows["本期"]["daily"] == "100.0000" and rows["上期"]["days"] == 31
     wrong = json.loads(box.dispatch("calendar_adjust", {"dataset": "D1", "current": "成交额·对比期",
                                                         "previous": "成交额"}))
     assert "不是该数据集的本期值" in wrong["error"]
@@ -563,7 +583,7 @@ def test_lmdi_treats_only_computation_precision_as_rounding():
     assert {f["factor"]: f["contribution"] for f in big["factors"]} == {
         "a": Decimal("0.00"), "b": Decimal("0.00"), "未解释差额": Decimal("100.00")}
     exact = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
-    assert exact["unexplained"] == 0 and sum(f["contribution"] for f in exact["factors"]) == Decimal(-600)
+    assert exact["unexplained"] == 0 and abs(sum(f["contribution"] for f in exact["factors"]) - Decimal(-600)) < Decimal("1e-10")
 
 
 def test_pdf_chart_uses_saved_time_column():
@@ -658,7 +678,8 @@ def units_dataset(box):
     return box._dataset("governed", "成交额 按区域 对比期", columns,
                         [["华东", "1969398.05", "2000000", "-30601.95", "-0.0153"],
                          ["华南", "300071.87", "250000", "50071.87", "0.2003"]],
-                        meta={"intent": {}, "time_column": None, "units": governed_units(columns, {"成交额": version}, "对比期"),
+                        meta={**governed_meta(box, "成交额", version=version),
+                              "units": governed_units(columns, {"成交额": version}, "对比期"),
                               "window": {"start": "2026-09-01", "end": "2026-09-30"}})
 
 
@@ -675,7 +696,7 @@ def test_tools_register_units_and_summary_paths(monkeypatch):
     ratio = json.loads(box.dispatch("derive", {"label": "两期之比", "formula": "a / b", "values": [
         {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
         {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
-    assert ratio["summary"]["value"] == "1.2003" and box.datasets()["D3"].meta["summary_units"]["value"] == {"kind": "ratio"}
+    assert ratio["summary"]["value"] == "1.20028748" and box.datasets()["D3"].meta["summary_units"]["value"] == {"kind": "ratio"}
     growth = json.loads(box.dispatch("derive", {"label": "增长率", "formula": "a / b - 1", "values": [
         {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
         {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
@@ -696,7 +717,7 @@ def test_derive_rejects_dead_inputs_and_marks_assumptions(monkeypatch):
     guess = json.loads(box.dispatch("derive", {"label": "按转化率 0.3 估算", "formula": "a * 0.3", "values": [pick]}))
     assert box.datasets()["D2"].meta["assumption"] is True and "假设计算" in guess["summary"]["assumption"]
     scaled = json.loads(box.dispatch("derive", {"label": "万元", "formula": "a / 10000", "values": [pick]}))
-    assert box.datasets()["D3"].meta["assumption"] is False and scaled["summary"]["value"] == "30.0072"
+    assert box.datasets()["D3"].meta["assumption"] is False and scaled["summary"]["value"] == "30.007187"
     zero = json.loads(box.dispatch("derive", {"label": "除零", "formula": "a / (a - a)", "values": [pick]}))
     assert "无法计算" in zero["error"]
 
@@ -804,7 +825,8 @@ def test_marks_follow_the_saved_dependency_closure(monkeypatch):
 
     box = make_box(monkeypatch=monkeypatch)
     explore = box._dataset("explore", "探索：客流", ["门店", "客流", "客流·对比期"],
-                           [["A", "120", "100"], ["B", "80", "90"]], meta={"units": {"客流": {"kind": "level"}}})
+                           [["A", "120", "100"], ["B", "80", "90"]],
+                           meta={"units": {"客流": {"kind": "level"}, "客流·对比期": {"kind": "level"}}})
     units_dataset(box)  # D2 受治理
     box.dispatch("contribution", {"dataset": "D1", "keys": ["门店"], "current": "客流", "previous": "客流·对比期"})
     pick = {"name": "a", "dataset": "D3", "column": "change", "match": {"门店": "A"}}

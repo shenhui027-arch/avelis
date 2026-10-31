@@ -343,9 +343,9 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
         <span className="av-help">引用提示仅检查编码，最终以后端校验为准</span>
       </div>
       <div className="av-metric-form__row">
-        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、单、人；比率类可不填。缺单位的口径会列为待补" /></span>
-          <input className="av-input" maxLength={16} placeholder="元" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
-        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已是“万元”时填 10000，默认 1" /></span>
+        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、件、吨、kWh；比率类可不填。缺单位的口径会列为待补" /></span>
+          <input className="av-input" maxLength={16} placeholder="如 件、kWh" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
+        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已按万计（如“万元”“万件”）时填 10000，默认 1" /></span>
           <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
       </div>
       <Banner message={message} />
@@ -426,7 +426,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
         </label>}
       </QueryState>}</QueryState>
       <label className="av-field"><span className="av-label">表达式 <Hint text="基础资产直接写列名；关联资产写 别名.列" /></span>
-        <input required className="av-input av-mono" placeholder="SUM(sales_amount)" value={form.expression} onChange={(e) => setForm({ ...form, expression: e.target.value })} /></label>
+        <input required className="av-input av-mono" placeholder="SUM(measure_col)" value={form.expression} onChange={(e) => setForm({ ...form, expression: e.target.value })} /></label>
       <div className="av-metric-form__columns">
         <label className="av-field"><span className="av-label">时间字段</span>
           <input required className="av-input av-mono" list={`${editorId}-cols`} value={form.time_column} onChange={(e) => setForm({ ...form, time_column: e.target.value })} /></label>
@@ -436,7 +436,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
       {form.base_asset_id ? <QueryState query={asset} rows={1}>{() => null}</QueryState> : null}
       <datalist id={`${editorId}-cols`}>{columns.map((c) => <option key={c} value={c} />)}</datalist>
       <label className="av-field"><span className="av-label">过滤条件（可选）</span>
-        <input className="av-input av-mono" placeholder="status = 'paid'" value={form.filters} onChange={(e) => setForm({ ...form, filters: e.target.value })} /></label>
+        <input className="av-input av-mono" placeholder="status_col = 'value'" value={form.filters} onChange={(e) => setForm({ ...form, filters: e.target.value })} /></label>
       <section className="av-metric-form__group" aria-label="允许维度">
         <h3 className="av-metric-form__title">允许维度</h3>
         {dims.map((d, i) => <fieldset key={i} className="av-metric-form__fieldset">
@@ -480,12 +480,12 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
           {!paths.data?.length ? <span className="av-help">暂无关联路径</span> : null}
         </>}</QueryState>
       </section>
-      <label className="av-field"><span className="av-label">统计粒度</span><input className="av-input av-mono" placeholder="order_date, region" value={form.grain} onChange={(e) => setForm({ ...form, grain: e.target.value })} /></label>
+      <label className="av-field"><span className="av-label">统计粒度</span><input className="av-input av-mono" placeholder="date_col, dim_col" value={form.grain} onChange={(e) => setForm({ ...form, grain: e.target.value })} /></label>
       <label className="av-field"><span className="av-label">避免重复计数的依据</span><input className="av-input" value={form.dedupe_basis} onChange={(e) => setForm({ ...form, dedupe_basis: e.target.value })} /></label>
       <div className="av-metric-form__row">
-        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、单、人；比率类可不填。缺单位的口径会列为待补" /></span>
-          <input className="av-input" maxLength={16} placeholder="元" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
-        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已是“万元”时填 10000，默认 1" /></span>
+        <label className="av-field"><span className="av-label">单位 <Hint text="报告里的数字由系统带上单位，如 元、件、吨、kWh；比率类可不填。缺单位的口径会列为待补" /></span>
+          <input className="av-input" maxLength={16} placeholder="如 件、kWh" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
+        <label className="av-field"><span className="av-label">列的倍数 <Hint text="列本身已按万计（如“万元”“万件”）时填 10000，默认 1" /></span>
           <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
       </div>
       <Banner message={message} />
