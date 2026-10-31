@@ -15,6 +15,10 @@ from tests.unit.test_analysis_toolbox import governed, make_box
 WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
 
 
+def proposal_reply():
+    return AIMessage(content="", tool_calls=[{"name": "submit_proposal", "args": {"items": []}, "id": "p1"}])
+
+
 def catalog():
     def card(code, name, aliases=()):
         return SimpleNamespace(code=code, name=name, aliases=list(aliases), status="published", description=None,

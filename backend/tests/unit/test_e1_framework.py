@@ -18,7 +18,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from avelis.analysis import agent
 from avelis.analysis.tools import AnalysisToolbox, Budget
-from tests.unit.test_analysis_pipeline import WINDOW, Phased, catalog
+from tests.unit.test_analysis_pipeline import WINDOW, Phased, catalog, proposal_reply
 from tests.unit.test_analysis_toolbox import governed, make_box
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -42,6 +42,7 @@ MATERIAL = {
 def run(condition, monkeypatch):
     box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
     box.run.window, box.run.question = dict(WINDOW), "地区甲的指标乙为什么下降？"
+    monkeypatch.setattr(agent.service, "version_sources", lambda session, version: {})  # 来源由本测试的元数据替身提供。
     prechecked, seen = [], {}
     monkeypatch.setattr(box, "precheck", lambda scope: prechecked.append(scope.metric_codes) or [])
 
@@ -60,11 +61,13 @@ def run(condition, monkeypatch):
 
     def act(state, config):
         seen["user"] = state["messages"][1].content
+        box.report = {"title": "中性结果", "summary": "证据不足", "claims": []}
         return {"messages": [], "phase": "verify", "rounds": 1, "notes": []}
     monkeypatch.setattr(agent, "act", act)
     monkeypatch.setattr(agent, "verify", lambda state, config: {"phase": "done"})
     model = Phased([AIMessage(content="", tool_calls=[{"name": "submit_scope", "id": "s1", "args": {
-        "question_type": "change", "metric_codes": ["m_a"], "clarification": "是指标甲还是指标乙？"}}])])
+        "question_type": "change", "metric_codes": ["m_a"], "clarification": "是指标甲还是指标乙？"}}]),
+        proposal_reply()])
     holder = {}
     with e1.install(condition, MATERIAL, rebuild=lambda: holder.update(graph=agent.build_graph(MemorySaver()))) as stats:
         config = {"configurable": {"thread_id": condition, "toolbox": box, "model": model}}
@@ -85,7 +88,8 @@ def test_d0_is_the_unmodified_product_flow(monkeypatch):
 
 def test_d1_replaces_only_the_scope(monkeypatch):
     box, state, stats, seen, prechecked, model = run("D1", monkeypatch)
-    assert len(model.seen) == 1  # 理解阶段照常请求一次模型
+    assert len(model.seen) == 2  # 理解与假设提议各请求一次模型，实验只替换范围。
+    assert model.tool_choice == ["submit_scope", "submit_proposal"]
     assert prechecked == [["m_b"]] and box.plan["model_scope"]["metric_codes"] == ["m_a"] and box.clarification is None
     assert [s.tool for s in injected(box)] == ["scope"] and "实验提供的相关资产" not in seen["user"]
     assert box.datasets() == {}

@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from avelis.analysis import agent, service
 from avelis.analysis.tools import Budget
 from avelis.llm_protocol import ModelProtocolError, ModelTruncated, ReasoningRoundTripChatOpenAI
-from tests.unit.test_analysis_pipeline import WINDOW, Phased, catalog
+from tests.unit.test_analysis_pipeline import WINDOW, Phased, catalog, proposal_reply
 from tests.unit.test_analysis_toolbox import make_box
 
 CONTEXT = {"today": "2026-10-30", "tz": "UTC", "window": WINDOW}
@@ -79,12 +79,19 @@ def test_scope_without_clarification_still_runs_the_precheck(monkeypatch):
     box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
     seen = []
     monkeypatch.setattr(box, "precheck", lambda scope: seen.append(scope.metric_codes) or [])
-    model = Phased([scope_reply(metric_codes=["m_a"], clarification="  "),
-                    AIMessage(content="", tool_calls=[])])
-    monkeypatch.setattr(agent, "act", lambda state, config: {"messages": [], "phase": "verify", "rounds": 1, "notes": []})
+    monkeypatch.setattr(agent.service, "version_sources", lambda session, version: {})  # 冻结目录不带来源资产。
+    model = Phased([scope_reply(metric_codes=["m_a"], clarification="  "), proposal_reply()])
+
+    def act(state, config):
+        box.report = {"title": "中性结果", "summary": "证据不足", "claims": []}
+        return {"messages": [], "phase": "verify", "rounds": 1, "notes": []}
+
+    monkeypatch.setattr(agent, "act", act)
     monkeypatch.setattr(agent, "verify", lambda state, config: {"phase": "done"})
     state = run_graph(box, model)
     assert seen == [["m_a"]] and box.clarification is None and state["phase"] == "done"
+    assert model.tool_choice == ["submit_scope", "submit_proposal"]
+    assert box.budget.used_model_requests == 2
 
 
 def test_budget_restore_keeps_counting_after_clarification():

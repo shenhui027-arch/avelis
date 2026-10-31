@@ -352,14 +352,14 @@ def test_calendar_adjust_uses_dataset_query_window(monkeypatch):
 
 def _derived_catalog():
     d_metric = SimpleNamespace(id="mD", code="ec_d", name="派生", domain_id="dA")
-    d_version = SimpleNamespace(id="vD", kind="derived", status="published", base_asset_id=None, components=[
+    d_version = SimpleNamespace(id="vD", version_no=1, kind="derived", status="published", base_asset_id=None, components=[
         {"metric_id": "mB", "version_id": "vB", "metric_name": "组成 B"}])
     return ask_service.Catalog([], {"ec_d": (d_metric, d_version)})
 
 
 def _health_objects():
     comp = Metric(id="mB", code="ec_b", name="组成 B", domain_id="dB", owner_id="o", created_by="o")
-    comp_v = MetricVersion(id="vB", metric_id="mB", kind="base", status="published", base_asset_id="a1")
+    comp_v = MetricVersion(id="vB", version_no=1, metric_id="mB", kind="base", status="published", base_asset_id="a1")
     asset = Asset(id="a1", datasource_id="ds1", catalog_name="c", db_name="d", name="t", domain_id="dB")
     return [comp, comp_v, asset]
 
@@ -399,7 +399,7 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     from avelis.api import governance
 
     metric = SimpleNamespace(id="mS", code="sales", name="销售", domain_id="dA")
-    version = SimpleNamespace(id="vS", kind="base", status="published", base_asset_id="a1", components=None)
+    version = SimpleNamespace(id="vS", version_no=1, kind="base", status="published", base_asset_id="a1", components=None)
     catalog = ask_service.Catalog([], {"sales": (metric, version)})
     box = make_box(catalog=catalog, scalars=[SimpleNamespace(id="cs1")], monkeypatch=monkeypatch)
     monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: {"dA"})

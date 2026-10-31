@@ -796,10 +796,14 @@ class AnalysisRun(Base):
     __table_args__ = (Index("ix_analysis_run_user", "user_id", "created_at"),)
     id: Mapped[str] = pk()
     task_id: Mapped[str | None] = fk("analysis_task.id", nullable=True)
+    parent_run_id: Mapped[str | None] = fk("analysis_run.id", nullable=True)
     user_id: Mapped[str] = fk("app_user.id", index=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
-    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | succeeded | failed | stopped | clarify
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | waiting | succeeded | failed | stopped | clarify
+    confirmation_mode: Mapped[str] = mapped_column(String(8), default="auto", server_default="auto", nullable=False)
+    # 假设检查点：提议、预算与工具快照、用户反馈；JSON 整体赋值，避免遗漏原地修改
+    checkpoint: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)
     window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     plan: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     report: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
@@ -866,3 +870,33 @@ class Notification(Base):
     link: Mapped[str | None] = mapped_column(String(255))
     read_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = created()
+
+
+class Experience(Base):
+    """用户明确保存的个人经验。撤销与替代只改状态，版本正文保留。"""
+
+    __tablename__ = "experience"
+    __table_args__ = (Index("ix_experience_owner_status", "owner_id", "status"),)
+    id: Mapped[str] = pk()
+    owner_id: Mapped[str] = fk("app_user.id", index=False)
+    scope: Mapped[str] = mapped_column(String(16), default="personal", server_default="personal", nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active", nullable=False)
+    created_at: Mapped[datetime] = created()
+
+
+class ExperienceVersion(Base):
+    """经验正文只追加；替代时只补 superseded_by，原内容与引用保持不变。"""
+
+    __tablename__ = "experience_version"
+    __table_args__ = (UniqueConstraint("experience_id", "version"),)
+    id: Mapped[str] = pk()
+    experience_id: Mapped[str] = fk("experience.id")
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # join | driver | alias | rule | preference | negative
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    refs: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    source: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    confirmed_by: Mapped[str] = fk("app_user.id", index=False)
+    confirmed_at: Mapped[datetime] = created()
+    superseded_by: Mapped[str | None] = fk("experience_version.id", nullable=True)
