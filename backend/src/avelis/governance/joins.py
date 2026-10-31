@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from avelis import audit
@@ -73,13 +74,8 @@ def _create(session: Session, actor: User, code: str, name: str, left: Asset, le
     return path
 
 
-def propose(session: Session, actor: User, *, left_asset_id: str, left_columns: list[str], right_asset_id: str,
-            right_columns: list[str], source: dict | None = None) -> JoinPath:
-    access.require_role(session, actor, "analyst", "steward", "reviewer")
-    left, right = _validate_sides(session, left_asset_id, left_columns, right_asset_id, right_columns)
-    allowed = access.domain_ids(session, actor)
-    if not all(access.can_read_asset(session, actor, asset, allowed) for asset in (left, right)):
-        raise Forbidden("只能提议当前可见资产之间的关联路径")
+def _existing_path(session: Session, left: Asset, left_columns: list[str], right: Asset,
+                   right_columns: list[str]) -> JoinPath | None:
     pairs = sorted(zip(left_columns, right_columns))
     for path in session.scalars(select(JoinPath).where(
             ((JoinPath.left_asset_id == left.id) & (JoinPath.right_asset_id == right.id)) |
@@ -89,20 +85,53 @@ def propose(session: Session, actor: User, *, left_asset_id: str, left_columns: 
         reverse = (path.left_asset_id == right.id and path.right_asset_id == left.id and
                    sorted(zip(path.right_columns, path.left_columns)) == pairs)
         if same or reverse:
-            audit.record(session, actor, "join_path.propose", "join_path", path.id, code=path.code,
-                         cardinality=path.cardinality, reused=True, source=source)
             return path
+    return None
+
+
+def _code_conflict(error: IntegrityError) -> bool:
+    if getattr(error.orig, "sqlstate", None) == "23505":
+        return error.orig.diag.constraint_name == "uq_join_path_code"
+    return (getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE" and
+            str(error.orig) == "UNIQUE constraint failed: join_path.code")
+
+
+def propose(session: Session, actor: User, *, left_asset_id: str, left_columns: list[str], right_asset_id: str,
+            right_columns: list[str], source: dict | None = None) -> JoinPath:
+    access.require_role(session, actor, "analyst", "steward", "reviewer")
+    left, right = _validate_sides(session, left_asset_id, left_columns, right_asset_id, right_columns)
+    allowed = access.domain_ids(session, actor)
+    if not all(access.can_read_asset(session, actor, asset, allowed) for asset in (left, right)):
+        raise Forbidden("只能提议当前可见资产之间的关联路径")
+    path = _existing_path(session, left, left_columns, right, right_columns)
+    reused = path is not None
     base = re.sub(r"[^a-z0-9_]+", "_", "_".join([
         left.name, *left_columns, right.name, *right_columns]).lower()).strip("_") or "join_path"
     code, suffix = base[:64], 1
-    while session.scalar(select(JoinPath.id).where(JoinPath.code == code)):
-        suffix += 1
-        tail = f"_{suffix}"
-        code = base[:64 - len(tail)] + tail
     name = f"{left.name} 与 {right.name} 按 {'、'.join(left_columns)} 关联"[:128]
-    path = _create(session, actor, code, name, left, left_columns, right, right_columns, source)
-    audit.record(session, actor, "join_path.propose", "join_path", path.id, code=code,
-                 cardinality=path.cardinality, reused=False, source=source)
+    for _ in range(5):
+        if path is not None:
+            break
+        while session.scalar(select(JoinPath.id).where(JoinPath.code == code)):
+            suffix += 1
+            tail = f"_{suffix}"
+            code = base[:64 - len(tail)] + tail
+        savepoint = session.begin_nested()
+        try:
+            with savepoint:
+                path = _create(session, actor, code, name, left, left_columns, right, right_columns, source)
+        except IntegrityError as error:
+            if not _code_conflict(error):
+                raise
+            path = _existing_path(session, left, left_columns, right, right_columns)
+            reused = path is not None
+            suffix += 1
+            tail = f"_{suffix}"
+            code = base[:64 - len(tail)] + tail
+    if path is None:
+        raise Conflict("关联路径编码发生并发冲突，请重试")
+    audit.record(session, actor, "join_path.propose", "join_path", path.id, code=path.code,
+                 cardinality=path.cardinality, reused=reused, source=source)
     return path
 
 

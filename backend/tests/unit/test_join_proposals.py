@@ -1,16 +1,18 @@
 """关联提议的离线持久化、权限、复用及现有分域审批。"""
 
 import re
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import JSON, MetaData, create_engine, func, select
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from avelis.api.governance import join_path_view
 from avelis.db import Base
 from avelis.governance import experiences, joins
-from avelis.governance.errors import Forbidden, Invalid
+from avelis.governance.errors import Conflict, Forbidden, Invalid
 from avelis.models import (
     AnalysisRun, Asset, AuditEvent, ColumnVersion, Domain, DomainMember, Experience, ExperienceVersion,
     Grain, JoinPath, User, UserRole,
@@ -121,6 +123,106 @@ def test_code_collision_adds_suffix_and_non_ascii_names_remain_valid(state):
     session.get(Asset, "right").name = "右侧/记录"
     third = propose(state, left_columns=["key_a"], right_columns=["key_a"])
     assert re.fullmatch(r"[a-z0-9_]{1,64}", third.code)
+
+
+def hide_code_once(session, monkeypatch, code):
+    scalar = session.scalar
+    query = select(JoinPath.id).where(JoinPath.code == code)
+    hidden = False
+
+    def stale_scalar(statement, *args, **kwargs):
+        nonlocal hidden
+        if not hidden and statement.compare(query):
+            hidden = True
+            return None
+        return scalar(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "scalar", stale_scalar)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unique_conflict_reuses_concurrent_path_and_preserves_outer_transaction(state, monkeypatch, reverse):
+    session, actor, *_ = state
+    changes = {"left_asset_id": "right", "right_asset_id": "left",
+               "left_columns": ["key_b", "key_a"], "right_columns": ["key_b", "key_a"]} if reverse else {}
+    existing = propose(state, **changes)
+    existing.code = "left_records_key_a_key_b_right_records_key_a_key_b"
+    session.commit()
+    actor.display_name = "确认后仍保留"
+    find = joins._existing_path
+    lookups = 0
+
+    def stale_path(*args):
+        nonlocal lookups
+        lookups += 1
+        return None if lookups == 1 else find(*args)
+
+    monkeypatch.setattr(joins, "_existing_path", stale_path)
+    hide_code_once(session, monkeypatch, existing.code)
+    path = propose(state, source={"run_id": "concurrent_run"})
+    session.commit()
+
+    assert path.id == existing.id
+    assert lookups == 2
+    assert path.source["run_id"] == "run_a"
+    assert session.scalar(select(func.count()).select_from(JoinPath)) == 1
+    assert session.get(User, actor.id).display_name == "确认后仍保留"
+    events = list(session.scalars(select(AuditEvent).where(AuditEvent.action == "join_path.propose")))
+    assert [event.detail["reused"] for event in events] == [False, True]
+    assert events[-1].detail["source"] == {"run_id": "concurrent_run"}
+
+
+def test_unique_conflict_with_another_join_retries_next_suffix(state, monkeypatch):
+    session, *_ = state
+    existing = propose(state, right_columns=["key_b", "key_a"])
+    existing.code = "left_records_key_a_key_b_right_records_key_a_key_b"
+    session.commit()
+    hide_code_once(session, monkeypatch, existing.code)
+
+    path = propose(state)
+    session.commit()
+
+    assert path.id != existing.id
+    assert path.code == existing.code + "_2"
+    assert session.scalar(select(func.count()).select_from(JoinPath)) == 2
+
+
+def test_repeated_code_conflicts_stop_after_bounded_retries(state, monkeypatch):
+    session, *_ = state
+    codes = []
+    error = IntegrityError("insert", {}, SimpleNamespace(
+        sqlstate="23505", diag=SimpleNamespace(constraint_name="uq_join_path_code")))
+
+    def conflict(session, actor, code, *args):
+        codes.append(code)
+        raise error
+
+    monkeypatch.setattr(joins, "_create", conflict)
+    with pytest.raises(Conflict, match="并发冲突"):
+        propose(state)
+
+    base = "left_records_key_a_key_b_right_records_key_a_key_b"
+    assert codes == [base, *(f"{base}_{suffix}" for suffix in range(2, 6))]
+    assert session.is_active
+    assert session.scalar(select(func.count()).select_from(JoinPath)) == 0
+
+
+@pytest.mark.parametrize("sqlstate, constraint", [("23503", "fk_join_path_left_asset_id_asset"),
+                                                 ("23505", "pk_join_path")])
+def test_unrelated_integrity_error_is_not_retried(state, monkeypatch, sqlstate, constraint):
+    error = IntegrityError("insert", {}, SimpleNamespace(
+        sqlstate=sqlstate, diag=SimpleNamespace(constraint_name=constraint)))
+    calls = []
+
+    def fail(*args):
+        calls.append(None)
+        raise error
+
+    monkeypatch.setattr(joins, "_create", fail)
+    with pytest.raises(IntegrityError) as caught:
+        propose(state)
+    assert caught.value is error
+    assert len(calls) == 1
 
 
 def test_analyst_cannot_directly_create_or_approve_and_domains_still_both_approve(state):

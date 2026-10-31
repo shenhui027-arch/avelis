@@ -11,8 +11,8 @@ from avelis.analysis.tools import AnalysisToolbox, Budget
 from avelis.api.schemas import AnalysisRunOut
 from avelis.ask.service import Catalog
 from avelis.governance import joins
-from avelis.governance.errors import Conflict
-from avelis.models import AnalysisRun, DomainMember, JoinPath
+from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
+from avelis.models import AnalysisRun, Asset, DomainMember, JoinPath, UserRole
 from tests.unit.test_analysis_hitl import reply
 from tests.unit.test_analysis_pipeline import Phased
 from tests.unit.test_join_proposals import state  # noqa: F401
@@ -132,6 +132,55 @@ def test_confirmed_join_without_valid_structure_records_checkpoint_warning(state
     assert "join" not in run.checkpoint["proposal"]["items"][0]
     assert session.scalar(select(func.count()).select_from(JoinPath)) == 0
     assert service.run_view(session, run)["checkpoint_warnings"] == run.checkpoint["warnings"]
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_unassigned_asset_join_warns_and_confirmation_continues(state, monkeypatch, side):
+    session, actor, *_ = state
+    session.get(Asset, side).domain_id = None
+    session.scalar(select(UserRole).where(UserRole.user_id == actor.id)).role = "steward"
+    run, queued = waiting(state, monkeypatch)
+    confirm(session, actor, run)
+    session.commit()
+    session.expire_all()
+    warning = (f"这条关联没能提议为关联路径：资产 space.{side}_records 未归属业务域，"
+               "无法确定由谁批准关联路径")
+    assert run.status == "queued" and len(queued) == 1
+    assert run.checkpoint["resume_pending"] and "pending" not in run.checkpoint
+    assert run.checkpoint["warnings"] == [warning]
+    assert run.checkpoint["proposal"]["items"][0]["join"] == SPEC
+    assert run.checkpoint["candidates"] == run.checkpoint["join_candidates"] == []
+    assert session.scalar(select(func.count()).select_from(JoinPath)) == 0
+    assert service.run_view(session, run)["checkpoint_warnings"] == [warning]
+
+
+@pytest.mark.parametrize("error", [GovernanceError, Conflict, Forbidden, Invalid, NotFound])
+def test_join_proposal_governance_error_becomes_checkpoint_warning(state, monkeypatch, error):
+    session, actor, *_ = state
+    run, queued = waiting(state, monkeypatch)
+
+    def fail(*args, **kwargs):
+        raise error("提议失败")
+
+    monkeypatch.setattr(joins, "propose", fail)
+    confirm(session, actor, run)
+    assert run.status == "queued" and len(queued) == 1
+    assert run.checkpoint["warnings"] == ["这条关联没能提议为关联路径：提议失败"]
+    assert run.checkpoint["join_candidates"] == []
+
+
+@pytest.mark.parametrize("target,error", [(joins, RuntimeError), (service.experiences, Conflict)])
+def test_confirmation_does_not_swallow_unrelated_errors(state, monkeypatch, target, error):
+    session, actor, *_ = state
+    run, queued = waiting(state, monkeypatch)
+
+    def fail(*args, **kwargs):
+        raise error("不应忽略")
+
+    monkeypatch.setattr(target, "propose" if target is joins else "candidates_from_feedback", fail)
+    with pytest.raises(error, match="不应忽略"):
+        confirm(session, actor, run)
+    assert run.status == "waiting" and not queued
 
 
 @pytest.mark.parametrize("phase", ["propose", "checkpoint"])
