@@ -29,6 +29,7 @@ from avelis.models import (
 from tests.unit.test_analysis_hitl import configured, proposal, reply, report_reply, scope_reply, waiting_run
 from tests.unit.test_analysis_pipeline import Phased, WINDOW, catalog
 from tests.unit.test_analysis_toolbox import MemorySession, governed, make_box
+from tests.unit.test_experiences import MemorySession as ExperienceSession
 
 
 INTERJECTION_PREFIX = "用户在分析过程中插话（以此为准调整方向，不改变安全与核验规则）："
@@ -306,6 +307,73 @@ def test_each_interjection_creates_rule_candidate_with_current_scope_refs(monkey
             "refs": [{"object_type": "metric_version", "object_id": "metric-version-a", "version": 3}],
             "source": {"run_id": box.run.id, "checkpoint": "interject", "user_text": message.text}}
     assert box.consume_messages() == [] and len(box.run.checkpoint["candidates"]) == 2
+
+
+@pytest.mark.parametrize("metric_codes", [["m_a"], []])
+def test_queued_interjection_gets_scope_refs_before_save_and_recall(monkeypatch, metric_codes):
+    metric = Metric(id="metric-a", code="m_a", name="指标甲", domain_id="dA")
+    version = MetricVersion(id="metric-version-a", metric_id=metric.id, version_no=3,
+                            status="published", kind="base", dimensions=[])
+    cat = catalog()
+    cat.cards = [card for card in cat.cards if card.code == "m_a"]
+    cat.versions = {"m_a": (metric, version)}
+    box = make_box(monkeypatch=monkeypatch, catalog=cat, objects=[metric, version])
+    session = LiveSession.replace(box.session)
+    user = box.user
+    user.username = "user-a"
+    run = AnalysisRun(id="queued-run", user_id=user.id, question="检查指标变化", trigger="manual", status="queued",
+                      stop_requested=False, confirmation_mode="auto", checkpoint={}, window=dict(WINDOW),
+                      plan={}, report={}, verification={}, budget=Budget().view(), created_at=utcnow())
+    job = Job(id="queued-job", status="running", attempts=1, kind="analysis_run", result={},
+              payload={"run_id": run.id})
+    session.store[(AnalysisRun, run.id)] = run
+    session.store[(Job, job.id)] = job
+    saved_session = ExperienceSession([run, metric, version])
+    scalar = session.scalar
+    monkeypatch.setattr(session, "scalar", lambda statement: saved_session.scalar(statement)
+                        if statement.column_descriptions[0].get("entity") in (Metric, MetricVersion)
+                        else scalar(statement))
+    message = service.add_message(session, user, run.id, "只看相同渠道的记录")
+    model = Phased([reply("submit_scope", {"question_type": "other", "metric_codes": metric_codes}, "scope"),
+                    reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    model.adapter = "fake"
+    graph = agent.build_graph(MemorySaver())
+    monkeypatch.setattr(service, "warm_up", lambda: None)
+    monkeypatch.setattr(service, "_graph", lambda: graph)
+    monkeypatch.setattr(service, "require_analysis_model", lambda session: model)
+    invoke = model.invoke
+
+    def inspect_first_request(messages):
+        if not model.seen:
+            assert message.consumed_at is not None
+            assert run.checkpoint["candidates"][0]["refs"] == []
+            assert graph.get_state({"configurable": {"thread_id": f"analysis:{run.id}"}}).values.get("scope") is None
+        return invoke(messages)
+
+    monkeypatch.setattr(model, "invoke", inspect_first_request)
+
+    def precheck(current, scope):
+        current.scope = scope
+        ds = governed(current, ["值"], [["7"]])
+        return [f"D{ds.seq}"]
+
+    monkeypatch.setattr(tools.AnalysisToolbox, "precheck", precheck)
+    result = service.execute(session, run.id, job.id, 1)
+    assert result["status"] == run.status == "succeeded" and run.verification["ok"]
+    assert len(model.seen) == 3 and message.text in model.seen[0][-1].content
+    candidates = run.checkpoint["candidates"]
+    if metric_codes:
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate["content"] == message.text and candidate["source"]["checkpoint"] == "interject"
+        assert candidate["refs"] == [
+            {"object_type": "metric_version", "object_id": version.id, "version": version.version_no}]
+        saved = experiences.save_experience(saved_session, user, **candidate)
+        recalled = experiences.recall(saved_session, user, metric_codes=metric_codes, question=message.text)
+        assert [item["id"] for item in recalled] == [saved["id"]]
+        assert recalled[0]["content"] == message.text and recalled[0]["refs"] == candidate["refs"]
+    else:
+        assert candidates == []
 
 
 def test_consumed_interjections_survive_snapshot_without_reconsumption(monkeypatch):
