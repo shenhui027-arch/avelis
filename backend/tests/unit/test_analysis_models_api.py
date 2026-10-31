@@ -92,10 +92,12 @@ def test_models_http_roles_and_secret_free_response(api, role, expected):
         assert data["default"] == {"provider_id": "ds", "model_id": "default", "reasoning_effort": "high"}
         assert data["models"][0] == {
             "provider_id": "ds", "provider_name": "DeepSeek", "model_id": "chosen", "context_window": 131072,
+            "context_window_source": "configured",
             "efforts": [{"value": value, "label": label}
                         for value, label in (("off", "关闭"), ("low", "低"), ("high", "高"), ("max", "最高"))],
         }
-        assert data["models"][1]["context_window"] is None
+        assert data["models"][1]["context_window"] == 1_000_000
+        assert data["models"][1]["context_window_source"] == "default"
         assert all(secret not in response.text for secret in ("offline-ciphertext", "offline-test-key", "hint", "api_key"))
     assert calls == []
 

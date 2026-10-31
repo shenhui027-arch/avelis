@@ -695,6 +695,7 @@ class AnalysisModelOut(AnalysisModelIn):
     provider_name: str
     efforts: list[AnalysisEffortOut]
     context_window: int | None = None
+    context_window_source: Literal["configured", "default"] | None = None
 
 
 class AnalysisModelsOut(BaseModel):

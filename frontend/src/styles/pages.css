@@ -700,11 +700,32 @@
 .av-analysis__followup { position: relative; }
 .av-analysis__followup textarea { min-height: 48px; max-height: 160px; padding: 12px 14px 4px; resize: none; font-size: 14px; }
 .av-analysis__followup .av-compose__bar { border-top: none; padding: 4px 8px 8px 12px; }
-/* 上下文用量：最近一次请求的输入 token / 上下文窗口 */
-.av-context { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); font: 400 12px/1 var(--font-sans); white-space: nowrap; }
-.av-context svg { color: var(--accent-text); }
-.av-context.is-warn svg { color: var(--warn); }
-.av-context.is-danger svg { color: var(--danger); }
+/* 输入框底栏的模型、思考强度与上下文（参照 Claude Code：轻量文字按钮 + 小圆环，点开是玻璃菜单） */
+.av-mbar { position: relative; display: inline-flex; }
+.av-mbar__btn { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: 500 13px/1 var(--font-sans); white-space: nowrap; cursor: pointer; }
+.av-mbar__btn:hover, .av-mbar__btn[aria-expanded="true"] { background: var(--bg-raised); color: var(--text-primary); }
+.av-mbar__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.av-mbar__effort { color: var(--text-tertiary); font-weight: 400; }
+.av-mbar__ring { width: 30px; padding: 0; justify-content: center; color: var(--accent-text); }
+.av-mbar.is-warn .av-mbar__ring { color: var(--warn); }
+.av-mbar.is-danger .av-mbar__ring { color: var(--danger); }
+.av-mbar__menu { right: 0; left: auto; min-width: 248px; padding: var(--space-2); }
+.av-menu.av-menu--up.av-mbar__menu { left: auto; right: 0; }
+.av-mbar__sec { padding: 6px 8px 4px; color: var(--text-tertiary); font: 500 11px/14px var(--font-sans); letter-spacing: .06em; }
+.av-mbar__item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--space-2); white-space: nowrap; }
+.av-mbar__check { display: inline-flex; color: var(--accent-text); }
+.av-mbar__meta { color: var(--text-tertiary); font-size: 11px; }
+.av-mbar__efforts { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; margin: 2px 4px 4px; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-raised); }
+.av-mbar__efforts button { height: 28px; border: none; border-radius: 6px; background: transparent; color: var(--text-secondary); font: 500 12px/1 var(--font-sans); cursor: pointer; }
+.av-mbar__efforts button[aria-checked="true"] { background: var(--accent-subtle); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--line-default); }
+.av-mbar__ctx { display: flex; flex-direction: column; gap: var(--space-2); width: 200px; min-width: 0; padding: var(--space-3); }
+.av-mbar__ctx .av-mbar__sec { padding: 0; }
+.av-mbar__usage { color: var(--text-secondary); font: 400 12px/18px var(--font-mono); }
+.av-mbar__usage b { color: var(--text-primary); font: 600 18px/24px var(--font-mono); }
+.av-mbar__bar { height: 4px; border-radius: 2px; background: var(--bg-raised); overflow: hidden; }
+.av-mbar__bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-gradient); }
+.av-mbar__hint { margin: 0; color: var(--text-tertiary); font: 400 12px/18px var(--font-sans); }
+.av-mbar__ctx .av-btn { align-self: flex-start; }
 .av-analysis__followup .av-banner { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); }
 .av-compose__send { width: 36px; height: 36px; border-radius: 12px; }
 .av-analysis__parent { display: inline-block; margin-top: 2px; }

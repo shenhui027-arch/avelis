@@ -83,7 +83,7 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
         <label htmlFor={`sup-${runId}`} className="av-sr">补充</label>
-        <textarea id={`sup-${runId}`} className="av-input" rows={2} maxLength={4000} value={supplement}
+        <textarea id={`sup-${runId}`} className="av-textarea" rows={2} maxLength={4000} value={supplement}
           placeholder="补充（可选）：还要看的表、关联或业务规则" onChange={(e) => setSupplement(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || pending > 0}>
           <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
@@ -109,7 +109,7 @@ export function ClarifyPanel({ runId, question }: { runId: string; question: str
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
         <label htmlFor={`ans-${runId}`} className="av-sr">回答</label>
-        <textarea id={`ans-${runId}`} className="av-input" rows={2} maxLength={2000} value={answer} autoFocus
+        <textarea id={`ans-${runId}`} className="av-textarea" rows={2} maxLength={2000} value={answer} autoFocus
           placeholder="例如：指的是哪个口径、哪个范围" onChange={(e) => setAnswer(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || !answer.trim()}>
           <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
@@ -167,8 +167,8 @@ export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; se
         placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="av-compose__bar">
-        <ModelPicker state={picker} />
         <span className="av-compose__spacer" />
+        <ModelPicker state={picker} />
         <ContextMeter run={run} />
         <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
           disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
@@ -208,7 +208,7 @@ function CandidateRow({ candidate, saved }: { candidate: Candidate; saved: boole
       <Select label="经验类型" value={kind} onChange={setKind} disabled={saved} style={{ width: 104 }}>
         {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
       </Select>
-      <textarea className="av-input" rows={2} maxLength={4000} value={content} disabled={saved} aria-label="经验内容"
+      <textarea className="av-textarea" rows={2} maxLength={4000} value={content} disabled={saved} aria-label="经验内容"
         title={refsTitle(candidate.refs)} onChange={(e) => setContent(e.target.value)} />
       {error ? <span className="av-claim__bad">{error}</span> : <span />}
       {saved ? <Pill tone="ok">已保存</Pill> : (
@@ -280,7 +280,7 @@ function EditExperience({ experience, onClose }: { experience: Experience; onClo
           {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select></label>
       <label className="av-field"><span className="av-label">内容</span>
-        <textarea className="av-input" rows={6} maxLength={4000} value={content} onChange={(e) => setContent(e.target.value)} /></label>
+        <textarea className="av-textarea" rows={8} maxLength={4000} value={content} onChange={(e) => setContent(e.target.value)} /></label>
       <span className="av-caption">旧版本保留在留底中</span>
     </Drawer>
   );
