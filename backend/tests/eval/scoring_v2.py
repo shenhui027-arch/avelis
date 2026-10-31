@@ -36,12 +36,13 @@ NON_CONTENT_ERRORS = ("Timeout", "timed out", "APIConnectionError", "ConnectionE
 
 # --- 题目 ----------------------------------------------------------------------------------
 
-def load_questions(truth: dict | None = None, spec_path: Path = SPEC) -> dict[str, Any]:
+def load_questions(truth: dict | None = None, spec_path: Path = SPEC,
+                   questions_path: Path | None = None) -> dict[str, Any]:
     """v1 的题目（含政策结论与关键数值候选）加上 v2 的绑定定义；真值按引用逐期展开（不丢掉为 0 的值）。"""
     import yaml
 
     truth = truth or v1.load_truth()
-    data = v1.load_questions(truth=truth)
+    data = v1.load_questions(path=questions_path, truth=truth) if questions_path else v1.load_questions(truth=truth)
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))["questions"]
     for q in data["questions"]:
         extra = spec.get(q["id"]) or {}
@@ -120,15 +121,17 @@ SUFFIX = {"·对比期": "compare", "·变化率": "rate", "·变化": "change"}
 
 
 def _metric_names() -> dict[str, str]:
-    from avelis.demo_setup import EC_DERIVED, EC_METRICS
+    from avelis import demo_setup
 
-    return {**{m[1]: m[0] for m in EC_METRICS}, **{m[1]: m[0] for m in EC_DERIVED}}
+    metrics = (*demo_setup.EC_METRICS, *getattr(demo_setup, "MFG_METRICS", ()))
+    derived = (*demo_setup.EC_DERIVED, *getattr(demo_setup, "MFG_DERIVED", ()))
+    return {**{m[1]: m[0] for m in metrics}, **{m[1]: m[0] for m in derived}}
 
 
 def _units() -> dict[str, str]:
-    from avelis.demo_setup import EC_UNITS
+    from avelis import demo_setup
 
-    return dict(EC_UNITS)
+    return {**demo_setup.EC_UNITS, **getattr(demo_setup, "MFG_UNITS", {})}
 
 
 def _shift(start: date, end: date, mode: str) -> tuple[date, date]:

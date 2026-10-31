@@ -507,6 +507,12 @@ def seed(env: dict[str, str]) -> dict:
     if ec_data.loaded_checksum(conn):
         ec_data.grant(conn, env)
         report["ec_dataset"] = ec_data.loaded_checksum(conn)
+    # 制造数据集同样独立保留；演示账号重建后恢复只读授权。
+    import mfg_data
+
+    if mfg_data.loaded_checksum(conn):
+        mfg_data.grant(conn, env)
+        report["mfg_dataset"] = mfg_data.loaded_checksum(conn)
     conn.close()
 
     STATE.mkdir(exist_ok=True)
