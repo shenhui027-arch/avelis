@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.analysis import attribution, calc, measures
+from avelis.analysis import attribution, calc, measures, retrieval
 from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
@@ -828,6 +828,7 @@ class AnalysisToolbox:
         self.precheck_notes: list[str] = []
         self.precheck_groups: dict[str, list[str]] = {"attribution": [], "trend": []}
         self.precheck_meta: list[dict] = []
+        self.precheck_refs: list[dict] = []
         self.precheck_problem: str | None = None  # 所选指标在预检里没有数据的原因：理解阶段据此重选一次
         window = self._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
 
@@ -880,6 +881,9 @@ class AnalysisToolbox:
                 run("覆盖度", lambda: self.coverage(dataset=daily["dataset"], start_date=date.fromisoformat(
                     window["compare_start"]), end_date=date.fromisoformat(window["end"])), "trend")
             self.precheck_meta = self._source_metadata(code)
+            if get_settings().analysis_retrieval:
+                found = run("参考表", lambda: self._reference_tables(code))
+                self.precheck_refs = found.get("tables") or []
         elif scope.question_type == "relation":
             dims = scope.dimensions[:2]
             self.precheck_meta = self._source_metadata(code)
@@ -931,6 +935,23 @@ class AnalysisToolbox:
                            "definition": (detail.get("definition") or "")[:400] or None})
         return tables
 
+    def _reference_tables(self, code: str) -> str:
+        """R 预检的元数据调用：沿用分发层的工具次数、截止时间与提交预留，不占查询额度。"""
+        self.check_executor()
+        if self.stopped:
+            return _json({"error": f"{self.stopped}：不再执行工具"})
+        self.budget.used_calls += 1
+        if over := self.budget.exhausted():
+            self._step("tool", "reference_tables", {"code": code}, "denied", {"error": over})
+            return _json({"error": f"{over}：只能调用 submit_report 提交报告，并在 unexplained 中说明未完成的部分"})
+        self.budget.used_tools += 1
+
+        def run():
+            _, version, versions, closure = self._metric_sources(code)
+            refs = retrieval.reference_tables(self._retrieval_graph(), versions or [version], closure, k=12)
+            return {"tables": refs}, None, "ok"
+        return self._guard("reference_tables", {"code": code}, run)
+
     def context_pack(self) -> str:
         """紧凑的上下文包（ADR 0012 第 2 段）。按优先级排列，超出上限时从后往前截断：判定与归因（explain_change 的判定、
         各维度前 3 个成员的两期明细、因子拆解、日历折算、变更与数据健康）→ 日趋势与覆盖 → 来源闭包的元数据与血缘 →
@@ -966,6 +987,10 @@ class AnalysisToolbox:
             block = "来源表 " + _json(table)[:2500]
             if omitted or not add(block, cap - reserve):
                 omitted.append(f"来源表 {table['table']}")
+        if get_settings().analysis_retrieval and (refs := getattr(self, "precheck_refs", None)):
+            block = retrieval.reference_block(refs, limit=2500)
+            if omitted or not add(block, cap - reserve):
+                omitted.extend(f"参考表 {table['table']}" for table in refs)
         for ref in rest:
             if omitted or not add(self._pack_block(ref, self._datasets[ref]), cap - reserve):
                 omitted.append(ref)
@@ -1030,6 +1055,24 @@ class AnalysisToolbox:
         return _json({"ok": True})
 
     # -- 上下文 --
+    def _retrieval_graph(self) -> retrieval.MetadataGraph:
+        return retrieval.MetadataGraph(self.session, self.user, self._allowed, metric_sources=self._metric_sources)
+
+    def find(self, keyword: str) -> str:
+        def run():
+            return self._retrieval_graph().find(keyword), None, "ok"
+        return self._guard("find", {"keyword": keyword}, run)
+
+    def neighbors(self, node: str, relation: str | None = None, direction: str = "both", depth: int = 1) -> str:
+        def run():
+            return self._retrieval_graph().neighbors(node, relation=relation, direction=direction, depth=depth), None, "ok"
+        return self._guard("neighbors", {"node": node, "relation": relation, "direction": direction, "depth": depth}, run)
+
+    def path(self, start: str, end: str, max_depth: int = 3) -> str:
+        def run():
+            return self._retrieval_graph().path(start, end, max_depth=max_depth), None, "ok"
+        return self._guard("path", {"start": start, "end": end, "max_depth": max_depth}, run)
+
     def search_metrics(self, keyword: str = "") -> str:
         def run():
             self.catalog = service.visible_catalog(self.session, self.user, with_values=False)  # 列表本身需要全量
@@ -1931,7 +1974,7 @@ class AnalysisToolbox:
         def t(fn, schema, doc):
             return StructuredTool.from_function(fn, name=fn.__name__, args_schema=schema, description=doc)
 
-        return [
+        tools = [
             t(self.search_metrics, Keyword, "检索可用的已治理指标（含派生指标公式与开放维度）"),
             t(self.describe_metric, Code, "指标详情：表达式、来源资产、时间字段、维度、组成、版本历史、依赖漂移"),
             t(self.search_assets, Keyword, "按名称或字段注释检索可见的数据资产"),
@@ -1957,6 +2000,14 @@ class AnalysisToolbox:
             t(self.outliers, OutlierArgs, "四分位距法找异常值"),
             t(self.submit_report, ReportArgs, "提交最终报告：结论分事实 / 计算 / 推断 / 建议，事实与计算必须引用数据集"),
         ]
+        if get_settings().analysis_retrieval:
+            note = "只是发现线索，不是批准的关联，跨表比较走探索查询校验或分别查询后合并"
+            tools.extend([
+                t(self.find, retrieval.FindArgs, "在可见的已发布口径、资产与列的名称和注释中检索，最多 20 条"),
+                t(self.neighbors, retrieval.NeighborsArgs, "沿元数据图展开，深度最多 3 层、最多 30 个节点；线索边" + note),
+                t(self.path, retrieval.PathArgs, "查找元数据图中最多 3 层的最短路径，最多 3 条；线索边" + note),
+            ])
+        return tools
 
 
 # 演示数据期间的法定节假日（日历折算用）
