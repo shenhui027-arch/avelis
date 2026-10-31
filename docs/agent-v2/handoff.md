@@ -34,6 +34,10 @@ uv run --project backend python experiments/agent-v2/rescore_v2.py --eval-dir <�
 ```
 
 ```bash
+uv run --project backend python experiments/agent-v2/rescore_v2_1.py --eval-dir <主检出>/.demo/eval --truth <主检出>/.demo/ec-truth.json     --e1 .demo/experiments/e1/20261031-015646.json --audit experiments/agent-v2/e1/human_audit.yaml
+```
+
+```bash
 uv run --project backend python experiments/agent-v2/e1.py --plan
 ```
 
@@ -87,7 +91,8 @@ AVELIS_ENV_FILE=<主检出>/.env uv run --project backend python experiments/age
 | 项 | 状态 | 需要 |
 |---|---|---|
 | E0 协议冒烟 | 已运行（8 次请求，0.0028 元）；发现并修复 max_tokens 字段不兼容 | — |
-| E1 | 已完成 48 次，实际 3.52 元（结果见 `docs/agent-v2/results-e1.md`） | 评分器 v2.1 的裁定（实体同义写法、探索证据关键数值）；两个 B0 缺陷的修复排期 |
+| E1 | 已完成 48 次，实际 3.52 元（结果见 `docs/agent-v2/results-e1.md`）；已用评分器 v2.1 重判（`docs/agent-v2/scorer-v2_1.md`） | 是否出 v2.1.1 修正跨维度成员拆分（3 次历史假阴性） |
+| B0 缺陷（传输错误重试、token 上限预估） | 已修复并有回归测试（`57896ef`），未用真实模型复测 | 下次授权运行时观察 |
 | 与真实数据库的集成测试（澄清状态写库、版本变更后的复用） | 未运行 | 私有元数据库；本会话只有单元测试 |
 | 前端待澄清横幅 | 只改代码，未在浏览器里看过 | 演示环境 |
 
