@@ -121,7 +121,8 @@ function Thought({ text }: { text: string }) {
 /** 思考与过程：运行中展开并跟到最新一步（用户往上翻时不打扰）；完成后标题是“已深度思考（用时）”，可折叠。
  *  插话与停止在页面底部的固定输入框里。 */
 export function RunTranscript({ run, live, footer }: { run: Run; live?: boolean; footer?: ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(!!live);
+  useEffect(() => { setOpen(!!live); }, [live]);
   const steps = run.steps ?? [];
   const messages = ((run as Run & { messages?: Message[] }).messages ?? []).filter((m) => !m.consumed_at);
   const end = useRef<HTMLDivElement>(null);
