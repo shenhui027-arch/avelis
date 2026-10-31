@@ -153,7 +153,7 @@ const RUN_TONE: Record<string, string> = { queued: "flow", running: "flow", wait
 function RecentRuns() {
   const runs = useAnalysisRuns();
   const location = useLocation();
-  const items = (runs.data ?? []).slice(0, 8);
+  const items = runs.data ?? [];
   if (!items.length) return null;
   return (
     <>
@@ -174,12 +174,15 @@ function RecentRuns() {
   );
 }
 
+// 没有保存过偏好时，窄屏（1100px 及以下）默认收起
 function readCollapsed() {
   try {
-    return localStorage.getItem("avelis.sidebar") === "collapsed";
+    const saved = localStorage.getItem("avelis.sidebar");
+    if (saved) return saved === "collapsed";
   } catch {
-    return false;
+    // 拿不到存储时按屏宽决定
   }
+  return window.innerWidth <= 1100;
 }
 
 function Sidebar() {
@@ -221,7 +224,7 @@ function Sidebar() {
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
         <Link key={n.to} to={n.to} className="av-sb__nv" title={n.label}
-          aria-current={/^\/analysis(\/runs.*)?$/.test(location.pathname) ? "page" : undefined}>
+          aria-current={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname) ? "page" : undefined}>
           <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
         </Link>
       ) : (
