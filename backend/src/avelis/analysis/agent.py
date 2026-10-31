@@ -35,7 +35,7 @@ from langgraph.graph.message import add_messages
 
 from avelis.analysis.tools import AnalysisToolbox, Scope
 from avelis.analysis.verify import ground_report
-from avelis.llm_protocol import ModelProtocolError, protocol_problem
+from avelis.llm_protocol import ModelProtocolError, protocol_problem, response_finish_reason
 
 REVISION_TOOL_CALLS = 6
 UNDERSTAND_MAX_TOKENS = 1000  # 理解阶段只输出 scope：关闭思考、限制输出长度（ADR 0012，系统固定）
@@ -256,8 +256,8 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tool
         budget.remember_model_input(messages, usage["input_tokens"])
         problem = protocol_problem(reply)
         names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
-        finish = (getattr(reply, "response_metadata", None) or {}).get("finish_reason")
-        budget_cutoff = finish == "length" and output_budget_limited
+        finish = response_finish_reason(reply)
+        budget_cutoff = finish in ("length", "max_tokens") and output_budget_limited
         if budget_cutoff:
             budget._blocked_output_tokens = True  # usage 缺失时也停止请求，不伪造已用 token 数。
             error = {"error_code": "budget_output_tokens", "error": "模型回复因剩余输出 token 额度而截断"}
