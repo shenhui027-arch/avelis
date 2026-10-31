@@ -7,14 +7,41 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "backend"), str(ROOT / "backend" / "src")]
 from tests.eval import scoring as v1
 from tests.eval import scoring_v2 as v2
 
+
+def _agent_steps(steps: list[dict], assets: list[dict]) -> list[dict]:
+    """保留工具步骤，排除 reason 标注的实验注入及 metadata 前连续的注入资产读取。
+
+    只有紧挨 inject/metadata 之前、连续的 tool/describe_asset，且 args.qualified
+    属于该场景注入材料 assets，才算注入读取；遇到不匹配步骤就停止回溯。
+    """
+    qualified = {asset["qualified"] for asset in assets}
+    metadata_reads = set()
+    for i, step in enumerate(steps):
+        if step.get("kind") != "inject" or step.get("tool") != "metadata":
+            continue
+        j = i - 1
+        while j >= 0:
+            read = steps[j]
+            if (read.get("kind") != "tool" or read.get("tool") != "describe_asset"
+                    or (read.get("args") or {}).get("qualified") not in qualified):
+                break
+            metadata_reads.add(j)
+            j -= 1
+    return [step for i, step in enumerate(steps) if step["kind"] == "tool"
+            and "实验注入" not in (step.get("reason") or "") and i not in metadata_reads]
+
+
 path = sys.argv[1]
 d = json.load(open(path, encoding="utf-8"))
 qs = {q["id"]: q for q in v1.load_questions()["questions"]}
+material = yaml.safe_load(Path(__file__).with_name("e1_injections.yaml").read_text(encoding="utf-8"))["scenarios"]
 EVENT = re.compile(r"ec_marketing\.campaign|ec_product\.price_change|marketing_daily|ad_spend|campaign|price_change", re.I)
 rows = []
 for r in d["results"]:
@@ -28,7 +55,7 @@ for r in d["results"]:
     rep = run.get("report") or {}
     causes = rep.get("causes") or []
     first = causes[0] if causes else {}
-    agent_steps = [s for s in steps if s["kind"] == "tool" and "实验注入" not in (s.get("reason") or "")]
+    agent_steps = _agent_steps(steps, (material.get(r["scenario"]) or {}).get("assets") or [])
     event_q = sum(1 for s in agent_steps if s["tool"] in ("query_sql", "query_metric", "describe_asset")
                   and EVENT.search(json.dumps(s.get("args"), ensure_ascii=False)))
     inj = r.get("injection") or {}
