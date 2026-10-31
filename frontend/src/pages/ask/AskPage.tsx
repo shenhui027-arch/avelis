@@ -190,7 +190,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
   );
 }
 
-function ResultTable({ result, dimensions }: { result: AskResult; dimensions: string[] }) {
+export function ResultTable({ result, dimensions }: { result: AskResult; dimensions: string[] }) {
   const columns = result.columns ?? [];
   const rows = result.rows ?? [];
   return (
@@ -213,7 +213,7 @@ function ResultTable({ result, dimensions }: { result: AskResult; dimensions: st
   );
 }
 
-function Evidence({ a }: { a: Answer }) {
+export function Evidence({ a }: { a: Answer }) {
   const tz = useTimeZone();
   const [tab, setTab] = useState<"source" | "sql" | "steps">("source");
   const ev = a.evidence ?? {};

@@ -14,8 +14,7 @@ const NAV = [
   { to: "/lineage", label: "血缘", icon: "lineage" },
   { to: "/catalog", label: "目录", icon: "catalog" },
   { to: "/changes", label: "变更", icon: "change" },
-  { to: "/ask", label: "问数", icon: "ask" },
-  { to: "/analysis", label: "分析", icon: "analysis" },
+  { to: "/analysis", label: "问数", icon: "ask" },
 ];
 
 const CRUMBS: [RegExp, string[]][] = [
@@ -26,7 +25,8 @@ const CRUMBS: [RegExp, string[]][] = [
   [/^\/catalog\/domains/, ["目录", "业务域"]],
   [/^\/catalog\/joins/, ["目录", "关联路径"]],
   [/^\/changes/, ["变更"]],
-  [/^\/ask/, ["问数"]],
+  [/^\/ask/, ["问数", "旧版记录"]],
+  [/^\/analysis/, ["问数"]],
   [/^\/settings\/datasources/, ["设置", "数据源"]],
   [/^\/settings\/models/, ["设置", "模型配置"]],
   [/^\/settings\/users/, ["设置", "用户"]],

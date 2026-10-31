@@ -537,10 +537,14 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
         raise Conflict("只有已完成的分析可以发起续问")
     text = text.strip()
     saved = parent.checkpoint or {}
+    lookup = (parent.report or {}).get("kind") == "lookup"
+    scope = ((parent.plan or {}).get("scope") if lookup else
+             saved.get("confirmed_scope") or (parent.plan or {}).get("scope")) or {}
     window = {**parent.window, "kind": "fixed"} if (parent.window or {}).get("start") else None
-    run = create_run(session, user, parent.question, window, confirmation_mode=confirmation_mode)
+    run = create_run(session, user, text if lookup or not scope else parent.question, window,
+                     confirmation_mode=confirmation_mode)
     run.parent_run_id = parent.id
-    run.checkpoint = {"inherited": {"scope": saved.get("confirmed_scope") or (parent.plan or {}).get("scope") or {},
+    run.checkpoint = {"inherited": {"scope": scope,
                                      "items": saved.get("confirmed_items") or [], "user_text": text},
                       "candidates": experiences.candidates_from_feedback(
                           run_id=run.id, proposal={}, feedback={"challenge": text},
@@ -706,8 +710,8 @@ def schedule_due() -> list[str]:
     return queued
 
 
-def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[str, Any]:
-    from avelis.models import AnalysisDataset, AnalysisStep
+def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
+    from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
     data = {"id": run.id, "task_id": run.task_id, "parent_run_id": run.parent_run_id,
@@ -721,6 +725,13 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[s
             "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
         return data
+    if user is not None and (run.report or {}).get("kind") == "lookup":
+        from avelis.api.ask import answer_view
+
+        answer = session.scalar(select(Answer).where(
+            Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
+        if answer is not None:
+            data["answer"] = answer_view(answer)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
     datasets = session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
                                .order_by(AnalysisDataset.seq))

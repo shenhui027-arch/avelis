@@ -73,19 +73,19 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
         session.expire_all()
     else:
         jobs._wake(job_id)
-    return analysis.run_view(session, session.get(AnalysisRun, run.id))
+    return analysis.run_view(session, session.get(AnalysisRun, run.id), user=user)
 
 
 @router.get("/analysis/runs", response_model=list[S.AnalysisRunOut])
 def list_runs(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
                            .order_by(AnalysisRun.created_at.desc()).limit(100))
-    return [analysis.run_view(session, r, full=False) for r in runs]
+    return [analysis.run_view(session, r, full=False, user=user) for r in runs]
 
 
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
 def get_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    return analysis.run_view(session, analysis.visible_run(session, user, run_id))
+    return analysis.run_view(session, analysis.visible_run(session, user, run_id), user=user)
 
 
 @router.post("/analysis/runs/{run_id}/resume", response_model=S.AnalysisRunOut)
@@ -96,7 +96,7 @@ def resume_run(run_id: str, body: S.AnalysisResumeIn, user: User = Depends(curre
     job_id = run.budget["job_id"]
     session.commit()
     jobs._wake(job_id)
-    return analysis.run_view(session, run)
+    return analysis.run_view(session, run, user=user)
 
 
 @router.post("/analysis/runs/{run_id}/messages", status_code=201, response_model=S.AnalysisMessageOut)
@@ -113,7 +113,7 @@ def stop_run(run_id: str, user: User = Depends(current_user), session: Session =
     """请求在下一个安全点停止；等待确认的运行立即结束。"""
     run = analysis.stop_run(session, user, run_id)
     session.commit()
-    return analysis.run_view(session, run)
+    return analysis.run_view(session, run, user=user)
 
 
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
@@ -125,7 +125,7 @@ def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(c
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
     jobs._wake(job_id)
-    return analysis.run_view(session, run)
+    return analysis.run_view(session, run, user=user)
 
 
 # --- 个人经验 -----------------------------------------------------------------------
@@ -183,7 +183,7 @@ def export_run(run_id: str, format: str = "pdf", user: User = Depends(current_us
     run = analysis.visible_run(session, user, run_id)
     if run.status != "succeeded":
         raise HTTPException(409, "分析尚未完成，不能导出")
-    view = analysis.run_view(session, run)
+    view = analysis.run_view(session, run, user=user)
     if format == "md":
         return Response(export.to_markdown(view).encode("utf-8"), media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'})
@@ -246,13 +246,13 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
         reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
         label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
         raise HTTPException(409, f"{label}：{reason}")
-    return analysis.run_view(session, session.get(AnalysisRun, run_id))
+    return analysis.run_view(session, session.get(AnalysisRun, run_id), user=user)
 
 
 @router.get("/analysis/tasks/{task_id}/runs", response_model=list[S.AnalysisRunOut])
 def task_runs(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     task = _task(session, user, task_id)
-    return [analysis.run_view(session, r, full=False) for r in session.scalars(
+    return [analysis.run_view(session, r, full=False, user=user) for r in session.scalars(
         select(AnalysisRun).where(AnalysisRun.task_id == task.id).order_by(AnalysisRun.created_at.desc()).limit(50))]
 
 
