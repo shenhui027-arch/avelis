@@ -443,6 +443,7 @@ def test_data_health_checks_component_domain_and_source_closure(monkeypatch):
     assert ds.kind == "context" and ds.columns == ["base_asset", "metric_status", "drift", "last_collected_at",
                                                    "collection_status", "collection_started_at"]
     assert ds.rows[0][4:] == ["failed", "2026-09-01T00:00:00"] and "最近 5 次采集" in ds.meta["scope"]
+    assert ds.meta["asset_ids"] == ["a1", "a2"] and ds.meta["metric_version_ids"] == ["vB", "vD"]
     assert "secret" not in json.dumps(ds.rows, ensure_ascii=False)
 
 
@@ -474,6 +475,8 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     assert scoped_ds.rows == [["元数据变更", "2026-09-02T00:00:00", "c.d.sales_src", "x", "column_added", 1, None]]
     assert [r[2] for r in all_ds.rows] == ["c.d.ad_spend", "c.d.sales_src"] and "最多 30 个事件" in all_ds.meta["scope"]
     assert scoped_ds.meta["units"] == {"impacts": {"kind": "count"}}
+    assert scoped_ds.meta["asset_ids"] == ["a0"] and scoped_ds.meta["metric_version_ids"] == []
+    assert all_ds.meta["asset_ids"] == ["a0", "ad"]
 
 
 # --- #16 引用编号 ------------------------------------------------------------------------

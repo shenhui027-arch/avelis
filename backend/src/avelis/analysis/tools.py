@@ -1435,6 +1435,7 @@ class AnalysisToolbox:
                 scope_assets = set(closure)
                 scope_objects = scope_assets | {version.id, *(v.id for v in versions)}
             sets = []
+            asset_ids, metric_version_ids = set(), set()
             for cs in self.session.scalars(select(ChangeSet).where(ChangeSet.created_at >= lo,
                                                                    ChangeSet.created_at < hi)
                                            .order_by(ChangeSet.created_at)):
@@ -1442,6 +1443,7 @@ class AnalysisToolbox:
                 events = [e for e in v["events"] if scope_assets is None or e["asset_id"] in scope_assets]
                 impacts = [i for i in v["impacts"] if scope_assets is None or i["object_id"] in scope_objects]
                 if events:
+                    asset_ids.update(e["asset_id"] for e in events[:30] if e.get("asset_id"))
                     sets.append({"at": v["created_at"], "events": [
                         {"kind": e["kind"], "asset": e["asset"], "column": e["column"]} for e in events][:30],
                         "impacts": len(impacts)})
@@ -1457,6 +1459,7 @@ class AnalysisToolbox:
                             MetricVersion, MetricVersion.id == MetricVersionTransition.metric_version_id)
                         .where(MetricVersion.metric_id == metric.id, MetricVersionTransition.at >= lo,
                                MetricVersionTransition.at < hi)):
+                    metric_version_ids.add(mv.id)
                     transitions.append({"metric": metric.name, "version_no": mv.version_no, "from": t.from_status,
                                         "to": t.to_status, "reason": t.reason, "at": t.at})
             note = ("元数据变更按采集时间记录（只能确定发生在两次采集之间）；口径版本流转为治理操作时间。"
@@ -1470,6 +1473,7 @@ class AnalysisToolbox:
             ds = self._dataset("context", f"变更记录 {start_date}~{end_date}" + (f"（{metric_code}）" if metric_code else ""),
                                ["type", "at", "object", "item", "change", "impacts", "note"], rows,
                                meta={"units": {"impacts": col("count")}, "window": {"start": str(start_date), "end": str(end_date)},
+                                      "asset_ids": sorted(asset_ids), "metric_version_ids": sorted(metric_version_ids),
                                      "scope": "每个变更集最多 30 个事件；只含当前用户可见的资产与口径；不是完整历史"})
             return ({"dataset": f"D{ds.seq}", "change_sets": sets, "metric_transitions": transitions, "note": note},
                     ds, "ok")
@@ -1479,7 +1483,7 @@ class AnalysisToolbox:
     def data_health(self, metric_code: str, start_date: date, end_date: date) -> str:
         def run():
             # 组成指标的业务域与来源闭包逐项核对；采集只给状态与时间，不返回数据源的原始错误
-            _, _, versions, _ = self._metric_sources(metric_code)
+            _, version, versions, closure = self._metric_sources(metric_code)
             out = []
             for v in versions:
                 base = self.session.get(Asset, v.base_asset_id) if v.base_asset_id else None
@@ -1502,6 +1506,8 @@ class AnalysisToolbox:
                                ["base_asset", "metric_status", "drift", "last_collected_at", "collection_status",
                                 "collection_started_at"], rows,
                                meta={"window": {"start": str(start_date), "end": str(end_date)},
+                                      "asset_ids": sorted(closure),
+                                      "metric_version_ids": sorted({version.id, *(v.id for v in versions)}),
                                      "scope": "每个来源只列最近 5 次采集；采集只给状态与时间，不含数据源的原始错误"})
             return {"dataset": f"D{ds.seq}", "sources": out, "note": note}, ds, "ok"
         return self._guard("data_health", {"metric_code": metric_code, "start_date": start_date,
@@ -1699,6 +1705,8 @@ class AnalysisToolbox:
                                  "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
                                  "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
                                              "qualified": t.qualified} for t in validated.tables],
+                                 "upstream_asset_ids": sorted({asset_id for t in validated.tables
+                                                               for asset_id, _ in t.upstream}),
                                  "units": exploration.units(validated.columns),
                                  "column_evidence": exploration.evidence(validated.columns), "preview": preview})
         view = self._view(f"D{ds.seq}", ds)
