@@ -3,11 +3,11 @@
 // 外部表与真实表是“同一张表”（点线 + 链条标记），导入的设计时表为虚线占位节点。点击列高亮列级路径。
 import dagre from "@dagrejs/dagre";
 import {
-  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow,
+  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore,
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
@@ -309,6 +309,22 @@ function Canvas() {
     const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.16 }); });
     return () => cancelAnimationFrame(frame);
   }, [graph.data, graph.isSuccess, density, flow]);
+  // 选中表后，把它和高亮的上下游一起动画移到可见区域；属性栏刚打开时画布会变窄，等画布宽度更新后再定位
+  const latest = useRef({ edges, path });
+  latest.current = { edges, path };
+  const width = useStore((st) => st.width);
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setTimeout(() => {
+      const ids = new Set([selected]);
+      for (const e of latest.current.edges) {
+        if (latest.current.path.edgeKeys.has(e.id)) { ids.add(e.source); ids.add(e.target); }
+      }
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      void flow.fitView({ nodes: [...ids].map((id) => ({ id })), padding: 0.2, maxZoom: 1.1, duration: still ? 0 : 500 });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [selected, width, flow]);
 
   return (
     <div className="av-lineage" data-inspector-open={inspectorOpen}>
