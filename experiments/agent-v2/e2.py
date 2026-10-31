@@ -15,6 +15,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import sys
 import time
@@ -144,6 +145,41 @@ def install_output_token_cap(cap: int | None) -> Iterator[None]:
         Budget.__init__.__defaults__ = original
 
 
+@contextlib.contextmanager
+def install_model_timeout(seconds: float | None) -> Iterator[None]:
+    """只临时替换模型请求和重试判断在调用时读取的超时值。"""
+    if seconds is None:
+        yield
+        return
+    from avelis.analysis import agent
+
+    original = agent.MODEL_TIMEOUT_SECONDS
+    try:
+        agent.MODEL_TIMEOUT_SECONDS = seconds
+        yield
+    finally:
+        agent.MODEL_TIMEOUT_SECONDS = original
+
+
+@contextlib.contextmanager
+def install_run_seconds(seconds: int | None) -> Iterator[None]:
+    """只临时替换新建预算的时长默认值，保留已有实例和显式传参。"""
+    if seconds is None:
+        yield
+        return
+    from avelis.analysis.tools import Budget
+
+    original = Budget.__init__.__defaults__
+    names = list(signature(Budget).parameters)[-len(original):]
+    updated = list(original)
+    updated[names.index("seconds")] = seconds
+    try:
+        Budget.__init__.__defaults__ = tuple(updated)
+        yield
+    finally:
+        Budget.__init__.__defaults__ = original
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="E2 产品开关 2×2 实验")
     mode = parser.add_mutually_exclusive_group()
@@ -158,10 +194,16 @@ def main() -> int:
     parser.add_argument("--reserve", default="1.5", help="每次运行前预留费用（元）")
     parser.add_argument("--effort", choices=("low", "max"), help="临时设置分析用途的思考强度")
     parser.add_argument("--output-token-cap", type=int, metavar="N", help="临时设置新建 Budget 的输出 token 上限")
+    parser.add_argument("--model-timeout", type=float, metavar="S", help="临时设置单次模型请求超时（秒）")
+    parser.add_argument("--run-seconds", type=int, metavar="S", help="临时设置新建 Budget 的运行时长（秒）")
     parser.add_argument("--tag", default="e2", help="结果目录名（默认 e2）")
     args = parser.parse_args()
     if args.output_token_cap is not None and args.output_token_cap <= 0:
         parser.error("--output-token-cap 必须是正整数")
+    if args.model_timeout is not None and (not math.isfinite(args.model_timeout) or args.model_timeout <= 0):
+        parser.error("--model-timeout 必须是有限正数")
+    if args.run_seconds is not None and args.run_seconds <= 0:
+        parser.error("--run-seconds 必须是正整数")
     if not args.tag.strip() or args.tag in {".", ".."} or any(c in args.tag for c in "/\\:"):
         parser.error("--tag 必须是单个目录名")
     scenarios = ([s.strip() for s in args.only.split(",") if s.strip()]
@@ -176,7 +218,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     if not args.run:
-        with install_output_token_cap(args.output_token_cap):
+        with install_output_token_cap(args.output_token_cap), install_run_seconds(args.run_seconds):
             bounds = budget_bounds(len(order))
         print(json.dumps({"order": order, "bounds": bounds, "ledger": ledger.view()},
                          ensure_ascii=False, indent=2))
@@ -208,6 +250,7 @@ def main() -> int:
             "conditions": conditions, "flags": {c: FLAGS[c].copy() for c in conditions},
             "scenarios": scenarios, "repeat": args.repeat, "seed": SEED,
             "effort": args.effort, "output_token_cap": args.output_token_cap, "tag": args.tag,
+            "model_timeout": args.model_timeout, "run_seconds": args.run_seconds,
             "scorer": scoring_v2_1_3.VERSION,
             "scorer_sha256": hashlib.sha256(Path(scoring_v2_1_3.__file__).read_bytes()).hexdigest(),
             "truth": str(args.truth), "initial_spent_cny": str(args.spent)}
@@ -219,6 +262,8 @@ def main() -> int:
     try:
         with contextlib.ExitStack() as overrides:
             overrides.enter_context(install_output_token_cap(args.output_token_cap))
+            overrides.enter_context(install_model_timeout(args.model_timeout))
+            overrides.enter_context(install_run_seconds(args.run_seconds))
             for item in order:
                 if not ledger.can_start():
                     stop_reason = (f"费用预留不足：累计已花 {ledger.spent_cny} 元 + 每次预留 {ledger.per_run_reserve_cny} 元"
@@ -270,6 +315,10 @@ def main() -> int:
                     actual_cap = (((run or {}).get("budget") or {}).get("limits") or {}).get("output_tokens")
                     if actual_cap != args.output_token_cap:
                         raise RuntimeError(f"output_tokens 不匹配：期望 {args.output_token_cap}，实际 {actual_cap!r}")
+                if args.run_seconds is not None:
+                    actual_seconds = (((run or {}).get("budget") or {}).get("limits") or {}).get("seconds")
+                    if actual_seconds != args.run_seconds:
+                        raise RuntimeError(f"seconds 不匹配：期望 {args.run_seconds}，实际 {actual_seconds!r}")
                 print(f"[{item['repeat']}] {item['scenario']} {item['condition']}: "
                       f"{'通过' if result['score']['passed'] else '未通过'}（{(run or {}).get('status')}），"
                       f"本次入账 {cost_accounted} 元，累计 {ledger.spent_cny}/{ledger.cap_cny} 元，"
