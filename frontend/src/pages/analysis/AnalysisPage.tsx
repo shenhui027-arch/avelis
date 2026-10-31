@@ -247,6 +247,28 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
 }
 
 /** 原因排序（ADR 0009 第 5 点）：第一项是首要原因；每项标明实体、方向、贡献与证据。 */
+/** 还没查清、可以让模型继续查的点：报告里“仍未解释”的每一条，加上未通过来源校验的结论。
+ *  点“继续查”把它放进底部输入框，用户可以改了再发。 */
+function NextSteps({ text, unverified, onPick }: { text?: string; unverified: number; onPick: (text: string) => void }) {
+  const items = (text ?? "").split(/[；;]\s*/).map((s) => s.trim().replace(/[。.]$/, "")).filter(Boolean);
+  if (unverified) items.push(`有 ${unverified} 条事实或计算未通过来源校验，需要重新核对`);
+  if (!items.length) return null;
+  return (
+    <section className="av-next" aria-label="还没查清">
+      <h2><Icon name="search" />还没查清 · 可以让模型继续查</h2>
+      <ul>
+        {items.map((item) => (
+          <li key={item}>
+            <span>{item}</span>
+            <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => onPick(`继续查：${item}`)}>
+              继续查</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: string }) {
   if (!conclusion && !causes?.length) return null;
   return <section className="av-doc__section" aria-label="原因排序">
@@ -292,6 +314,7 @@ function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
   const [error, setError] = useState<string | null>(null);
+  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
@@ -362,12 +385,14 @@ function RunDetail({ id }: { id: string }) {
             {composition ? <span className="av-caption">数字来源 {composition}</span> : null}
           </div>
         </section>
-        {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实或计算未通过来源校验，已在下方标出</div> : null}
+        {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实或计算未通过来源校验，已在“结论依据”里标出</div> : null}
         {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
           {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
         <Causes causes={report.causes} conclusion={report.conclusion} />
-        <section className="av-doc__section" aria-label="结论">
-          <h2>结论</h2>
+        <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
+          onPick={(text) => setSeed({ text, n: (seed?.n ?? 0) + 1 })} />
+        <details className="av-fold" open={!!(verification.ok === false && verification.unverified)}>
+          <summary>结论依据 <span className="av-caption">{report.claims?.length ?? 0} 条事实、计算与推断</span></summary>
           <ol className="av-claims">
             {(report.claims ?? []).map((c, i) => {
               const check = checks.get(i);
@@ -389,16 +414,15 @@ function RunDetail({ id }: { id: string }) {
               );
             })}
           </ol>
-          {report.unexplained ? <p className="av-doc__note"><b>仍未解释</b><Segments segments={report.fields?.unexplained?.segments} text={report.unexplained} /></p> : null}
           {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
-        </section>
+        </details>
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
       {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
       </DatasetSql.Provider>
     </article>
     </div>
-    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
+    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} seed={seed} />}</div> : null}
     </>
   );
 }
