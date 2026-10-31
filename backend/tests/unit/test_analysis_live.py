@@ -617,13 +617,20 @@ def test_http_stop_requests_next_safe_point_and_writes_audit(live_api, status):
                for event in session.added)
 
 
-def test_http_waiting_stop_finishes_immediately_and_preserves_saved_evidence(live_api):
+def test_http_waiting_stop_finishes_immediately_and_preserves_saved_evidence(live_api, monkeypatch):
     client, session, _, run, queued = live_api
     box = SimpleNamespace(run=run, user=SimpleNamespace(id=run.user_id), session=session)
     pending = interject(box, "等待时发出的补充")
     saved = run.checkpoint["snapshot"]
+    source = Asset(id="saved-source", status="active", domain_id="dA")
+    metric = Metric(id="saved-metric", domain_id="dA")
+    version = MetricVersion(id="saved-version", metric_id=metric.id, kind="base", base_asset_id=source.id, joins=[])
+    for obj in (source, metric, version):
+        session.store[(type(obj), obj.id)] = obj
+    monkeypatch.setattr(ask_service, "upstream_closure", lambda session, ids: {source.id: source} if ids else {})
     saved["datasets"] = {"D1": {"id": "dataset-a", "seq": 1, "kind": "governed", "title": "已取数据",
-        "answer_id": None, "inputs": [], "columns": ["值"], "rows": [["7"]], "truncated": False, "meta": {}}}
+        "answer_id": None, "inputs": [], "columns": ["值"], "rows": [["7"]], "truncated": False,
+        "meta": {"metric_version_ids": [version.id]}}}
     old_step = AnalysisStep(id="step-a", run_id=run.id, seq=1, kind="tool", tool="query_metric", args={},
                             output={"dataset": "D1"}, status="ok", created_at=utcnow())
     session.add(old_step)

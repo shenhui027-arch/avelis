@@ -83,7 +83,7 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
         <label htmlFor={`sup-${runId}`} className="av-sr">补充</label>
-        <textarea id={`sup-${runId}`} className="av-input" rows={2} maxLength={4000} value={supplement}
+        <textarea id={`sup-${runId}`} className="av-textarea" rows={2} maxLength={4000} value={supplement}
           placeholder="补充（可选）：还要看的表、关联或业务规则" onChange={(e) => setSupplement(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || pending > 0}>
           <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
@@ -109,7 +109,7 @@ export function ClarifyPanel({ runId, question }: { runId: string; question: str
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
         <label htmlFor={`ans-${runId}`} className="av-sr">回答</label>
-        <textarea id={`ans-${runId}`} className="av-input" rows={2} maxLength={2000} value={answer} autoFocus
+        <textarea id={`ans-${runId}`} className="av-textarea" rows={2} maxLength={2000} value={answer} autoFocus
           placeholder="例如：指的是哪个口径、哪个范围" onChange={(e) => setAnswer(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || !answer.trim()}>
           <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
@@ -167,8 +167,8 @@ export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; se
         placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="av-compose__bar">
-        <ModelPicker state={picker} />
         <span className="av-compose__spacer" />
+        <ModelPicker state={picker} />
         <ContextMeter run={run} />
         <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
           disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
@@ -208,7 +208,7 @@ function CandidateRow({ candidate, saved }: { candidate: Candidate; saved: boole
       <Select label="经验类型" value={kind} onChange={setKind} disabled={saved} style={{ width: 104 }}>
         {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
       </Select>
-      <textarea className="av-input" rows={2} maxLength={4000} value={content} disabled={saved} aria-label="经验内容"
+      <textarea className="av-textarea" rows={2} maxLength={4000} value={content} disabled={saved} aria-label="经验内容"
         title={refsTitle(candidate.refs)} onChange={(e) => setContent(e.target.value)} />
       {error ? <span className="av-claim__bad">{error}</span> : <span />}
       {saved ? <Pill tone="ok">已保存</Pill> : (
@@ -229,6 +229,10 @@ export function ExperienceList() {
   const [error, setError] = useState<string | null>(null);
   const revoke = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/revoke", {
     params: { path: { experience_id: id } }, body: {} as never })), ["analysis-experiences"]);
+  // 表关联由治理维护：旧的“关联”经验可以转成待审核的关联路径，转完后经验自动撤销
+  const [proposed, setProposed] = useState<{ name: string; status: string } | null>(null);
+  const toJoin = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/to-join-path", {
+    params: { path: { experience_id: id } } })), ["analysis-experiences", "join-paths"]);
   const rows = (list.data ?? []).filter((e) => all || e.status === "active");
   return (
     <section className="av-analysis__experiences">
@@ -237,6 +241,9 @@ export function ExperienceList() {
           options={[{ value: "active", label: "有效" }, { value: "all", label: "全部" }]} />
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {proposed ? <div className="av-banner av-banner--info">
+        {proposed.status === "approved" ? "已有相同的关联路径" : "已提议为关联路径，等待负责人审核"}：{proposed.name}
+        <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">查看</Link></div> : null}
       {list.isSuccess && !rows.length ? <Empty text="还没有个人经验：在分析中确认或补充后保存" compact /> : null}
       <div className="av-analysis__list">
         {rows.map((e) => (
@@ -248,6 +255,11 @@ export function ExperienceList() {
                 {e.status !== "active" ? ` · ${e.status === "revoked" ? "已撤销" : "已替代"}` : ""}</span></span>
             <span className="av-actions">
               {e.status === "active" ? <>
+                {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
+                  title="表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用"
+                  onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
+                    onSuccess: (out) => setProposed(out as { name: string; status: string }),
+                    onError: (err) => setError(errorText(err)) }); }}>转为关联路径</button> : null}
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>编辑</button>
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
                   onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>撤销</button>
@@ -280,7 +292,7 @@ function EditExperience({ experience, onClose }: { experience: Experience; onClo
           {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select></label>
       <label className="av-field"><span className="av-label">内容</span>
-        <textarea className="av-input" rows={6} maxLength={4000} value={content} onChange={(e) => setContent(e.target.value)} /></label>
+        <textarea className="av-textarea" rows={8} maxLength={4000} value={content} onChange={(e) => setContent(e.target.value)} /></label>
       <span className="av-caption">旧版本保留在留底中</span>
     </Drawer>
   );

@@ -245,6 +245,57 @@ def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatc
     assert denied["status"] == "denied" and "dataset" not in denied and len(executed) == 2
 
 
+def test_view_dataset_pages_saved_rows_and_records_without_query_budget(monkeypatch):
+    box = make_box(budget=Budget(queries=0), monkeypatch=monkeypatch)
+    rows = [[f"成员{i}", i] for i in range(65)]
+    summary = {"total": "2080"}
+    box._dataset("explore", "已有数据", ["member", "value"], rows, truncated=True,
+                 meta={"summary": summary, "units": {"value": {"kind": "count", "unit": "个"}},
+                       "summary_units": {"total": {"kind": "count", "unit": "个"}},
+                       "assumption": True, "partial": True})
+
+    def no_query(*args, **kwargs):
+        pytest.fail("回看数据集不得重新执行查询")
+
+    monkeypatch.setattr(box.session, "execute", no_query)
+    monkeypatch.setattr(tools.service, "fulfil", no_query)
+    first = json.loads(box.dispatch("view_dataset", {"ref": "D1"}))
+    assert first["dataset"] == "D1" and first["columns"] == ["member", "value"]
+    assert first["rows"] == rows[:60] and first["rows_shown"] == 60
+    assert first["offset"] == 0 and first["next_offset"] == 60 and first["row_count"] == 65
+    assert first["summary"] == summary and first["units"]["value"] == {"kind": "count", "unit": "个"}
+    assert first["summary_units"] == {"total": {"kind": "count", "unit": "个"}}
+    assert first["root_kinds"] == ["explore"] and first["inputs"] == []
+    assert first["truncated"] is True and first["context_truncated"] is True
+    assert first["marks"] == ["来源含探索查询（未经口径审核）", "来源含假设计算", "来源含部分结果"]
+    page = json.loads(box.dispatch("view_dataset", {"ref": "D1", "offset": 60, "limit": 5}))
+    assert page["rows"] == rows[60:] and page["next_offset"] is None
+    empty = json.loads(box.dispatch("view_dataset", {"ref": "D1", "offset": 65}))
+    assert empty["rows"] == [] and empty["rows_shown"] == 0 and empty["next_offset"] is None
+    assert box.budget.used_queries == box.budget.used_explore == 0
+    assert box.budget.used_tools == box.budget.used_calls == 3 and len(box.datasets()) == 1
+    steps = [step for step in box.session.added if getattr(step, "kind", None) == "tool"]
+    assert len(steps) == 3 and all(step.tool == "view_dataset" and step.status == "ok" for step in steps)
+    assert steps[1].args == {"ref": "D1", "offset": 60, "limit": 5} and steps[1].output["rows"] == rows[60:]
+    compacted = box.context_summary()
+    assert "需要细节用 view_dataset 重新查看对应数据集" in compacted
+    context = json.loads(compacted.split("\n", 1)[1].split("\n", 1)[0])
+    assert context["datasets"][0]["summary"] == summary and context["datasets"][0]["rows"] == rows[:5]
+
+
+@pytest.mark.parametrize("args", [{"ref": "D2"}, {"ref": "other-run:D1"},
+                                  {"ref": "D1", "offset": -1}, {"ref": "D1", "limit": 0},
+                                  {"ref": "D1", "limit": 61}])
+def test_view_dataset_rejects_unknown_refs_and_invalid_pages(monkeypatch, args):
+    box = make_box(budget=Budget(queries=0), monkeypatch=monkeypatch)
+    governed(box, ["value"], [[1]])
+    out = json.loads(box.dispatch("view_dataset", args))
+    expected = "不在本次运行中" if args["ref"] != "D1" else "参数结构不对"
+    assert expected in out["error"]
+    assert box.budget.used_tools == 1 and box.budget.used_queries == 0
+    assert box.session.added[-1].tool == "view_dataset" and box.session.added[-1].status == "error"
+
+
 def test_query_quota_only_stops_query_tools(monkeypatch):
     """查询额度用完只停用查询类工具：循环继续，计算工具与 submit_report 照常可用（语法有错的报告参数修复后提交）。"""
     catalog, executed = governed_catalog(monkeypatch)
@@ -392,6 +443,7 @@ def test_data_health_checks_component_domain_and_source_closure(monkeypatch):
     assert ds.kind == "context" and ds.columns == ["base_asset", "metric_status", "drift", "last_collected_at",
                                                    "collection_status", "collection_started_at"]
     assert ds.rows[0][4:] == ["failed", "2026-09-01T00:00:00"] and "最近 5 次采集" in ds.meta["scope"]
+    assert ds.meta["asset_ids"] == ["a1", "a2"] and ds.meta["metric_version_ids"] == ["vB", "vD"]
     assert "secret" not in json.dumps(ds.rows, ensure_ascii=False)
 
 
@@ -423,6 +475,8 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     assert scoped_ds.rows == [["元数据变更", "2026-09-02T00:00:00", "c.d.sales_src", "x", "column_added", 1, None]]
     assert [r[2] for r in all_ds.rows] == ["c.d.ad_spend", "c.d.sales_src"] and "最多 30 个事件" in all_ds.meta["scope"]
     assert scoped_ds.meta["units"] == {"impacts": {"kind": "count"}}
+    assert scoped_ds.meta["asset_ids"] == ["a0"] and scoped_ds.meta["metric_version_ids"] == []
+    assert all_ds.meta["asset_ids"] == ["a0", "ad"]
 
 
 # --- #16 引用编号 ------------------------------------------------------------------------

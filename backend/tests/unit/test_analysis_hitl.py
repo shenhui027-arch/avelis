@@ -662,8 +662,9 @@ def test_resume_candidates_use_item_refs_and_scope_metric_refs_only(monkeypatch,
         "supplement": "本次补充"})
     candidates = run.checkpoint["candidates"]
     assert queried == [{"code_1": "revenue"}]
-    assert [c["refs"] for c in candidates] == [[metric_ref], [other_ref, metric_ref], [first_ref, metric_ref]]
-    assert [c["content"] for c in candidates] == ["本次补充", "否决：待验证关联", proposal()["items"][0]["content"]]
+    assert [c["refs"] for c in candidates] == [[metric_ref], [other_ref, metric_ref]]
+    assert [c["content"] for c in candidates] == ["本次补充", "否决：待验证关联"]
+    assert run.checkpoint["warnings"] == ["这条关联缺少结构，无法提议为关联路径"]
 
 
 @pytest.mark.parametrize("source", ["upstream", "experience", "inferred"])

@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Json = dict[str, Any]
 
@@ -306,10 +307,22 @@ class GraphEdgeOut(Out):
     origins: list[str]
 
 
+class GraphJoinOut(Out):
+    id: str
+    code: str
+    left_asset_id: str
+    left_columns: list[str]
+    right_asset_id: str
+    right_columns: list[str]
+    cardinality: str
+    status: Literal["approved", "pending"]
+
+
 class GraphOut(Out):
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
     identity_links: list[LinkOut]
+    joins: list[GraphJoinOut] = Field(default_factory=list)
 
 
 # --- 口径、变更 --------------------------------------------------------------------
@@ -418,6 +431,8 @@ class JoinPathOut(Out):
     cardinality_basis: Json
     required_domains: list[str]
     approvals: list[Json]
+    source: Json | None = None
+    created_by: str | None = None
 
 
 class TaskOut(Out):
@@ -659,6 +674,7 @@ class AnalysisProposalItem(Out):
     refs: list[Json] = Field(default_factory=list)
     experience_id: str | None = None
     experience_version: int | None = None
+    join: Json | None = None
 
 
 class AnalysisProposalOut(Out):
@@ -694,6 +710,7 @@ class AnalysisModelOut(AnalysisModelIn):
     provider_name: str
     efforts: list[AnalysisEffortOut]
     context_window: int | None = None
+    context_window_source: Literal["configured", "default"] | None = None
 
 
 class AnalysisModelsOut(BaseModel):
@@ -780,11 +797,82 @@ class AnalysisDatasetOut(Out):
     rows: list[list[Any]]
     row_count: int
     truncated: bool = False
+    restricted: bool = False
     inputs: list[str] = Field(default_factory=list)
     sql: str | None = None
     summary: Any = None
     metric_version_ids: list[str] = Field(default_factory=list)
     time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
+
+
+class AnalysisDatasetLegacyOut(Out):
+    """数字序号 GET 的原有完整数据集结构。"""
+
+    ref: str
+    kind: str
+    title: str
+    columns: list[str]
+    rows: list[list[Any]]
+    truncated: bool
+    meta: Json
+    inputs: list[str]
+    answer_id: str | None
+
+
+class AnalysisDatasetSource(Out):
+    run_id: str
+    ref: str
+
+
+class AnalysisDatasetDetailOut(Out):
+    ref: str
+    kind: str
+    title: str
+    columns: list[str]
+    row_count: int
+    truncated: bool
+    inputs: list[str]
+    sql: str | None
+    metric_version_ids: list[str]
+    metric_codes: list[str]
+    window: Json
+    time_column: str | None
+    units: Json
+    summary_units: Json
+    purpose: str | None
+    answer_id: str | None
+    created_at: str
+    explore: bool
+    assumption: bool
+    partial: bool
+    rerunnable: bool
+    source: AnalysisDatasetSource | None
+    meta: Json
+    offset: int
+    limit: int
+    rows: list[list[Any]]
+    total: int = Field(description="已保存的行数；truncated=true 时不代表来源数据全集")
+
+
+class AnalysisDatasetRerunWindow(BaseModel):
+    start: date
+    end: date
+    compare_start: date | None = None
+    compare_end: date | None = None
+
+    @model_validator(mode="after")
+    def valid_range(self) -> "AnalysisDatasetRerunWindow":
+        if self.start > self.end:
+            raise ValueError("时间窗口的开始日期晚于结束日期")
+        if bool(self.compare_start) != bool(self.compare_end):
+            raise ValueError("对比窗口需要同时提供 compare_start 与 compare_end")
+        if self.compare_start and self.compare_end and self.compare_start > self.compare_end:
+            raise ValueError("对比窗口的开始日期晚于结束日期")
+        return self
+
+
+class AnalysisDatasetRerunIn(BaseModel):
+    window: AnalysisDatasetRerunWindow
 
 
 class AnalysisRunOut(Out):
@@ -815,6 +903,8 @@ class AnalysisRunOut(Out):
     proposal: AnalysisProposalOut | None = None
     pending: Json | None = None
     experience_candidates: list[ExperienceCandidate] = Field(default_factory=list)
+    join_candidates: list[Json] = Field(default_factory=list)
+    checkpoint_warnings: list[str] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
 
