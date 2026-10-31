@@ -651,6 +651,76 @@ class WorkbenchOut(Out):
 
 # --- 分析智能体（M8） ---------------------------------------------------------------
 
+class AnalysisProposalItem(Out):
+    id: str
+    kind: Literal["asset", "join", "hypothesis"]
+    content: str
+    source: Literal["upstream", "experience", "inferred", "user"]
+    refs: list[Json] = Field(default_factory=list)
+    experience_id: str | None = None
+    experience_version: int | None = None
+
+
+class AnalysisProposalOut(Out):
+    items: list[AnalysisProposalItem] = Field(default_factory=list)
+
+
+class AnalysisDecisionIn(BaseModel):
+    item_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["confirmed", "rejected"]
+
+
+class AnalysisResumeIn(BaseModel):
+    decisions: list[AnalysisDecisionIn] = Field(default_factory=list, max_length=100)
+    supplement: str = Field(default="", max_length=4000)
+
+
+class AnalysisFollowupIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    confirmation_mode: Literal["auto", "always"] = "auto"
+
+
+class ExperienceRef(BaseModel):
+    object_type: Literal["asset", "metric", "metric_version"]
+    object_id: str = Field(min_length=1, max_length=64)
+    version: int | None = Field(default=None, ge=1, strict=True)
+
+
+class ExperienceSource(BaseModel):
+    run_id: str = Field(min_length=1, max_length=64)
+    checkpoint: str = Field(min_length=1, max_length=80, pattern=r"\S")
+    user_text: str = Field(default="", max_length=4000)
+
+
+class ExperienceCandidate(BaseModel):
+    kind: Literal["join", "driver", "alias", "rule", "preference", "negative"]
+    content: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    refs: list[ExperienceRef] = Field(default_factory=list)
+    source: ExperienceSource
+
+
+class ExperienceRevokeIn(BaseModel):
+    reason: str = Field(default="", max_length=1000)
+
+
+class ExperienceOut(Out):
+    id: str
+    owner_id: str
+    scope: Literal["personal"]
+    current_version: int
+    status: Literal["active", "revoked", "superseded"]
+    created_at: str
+    version_id: str
+    version: int
+    kind: Literal["join", "driver", "alias", "rule", "preference", "negative"]
+    content: str
+    refs: list[ExperienceRef]
+    source: ExperienceSource
+    confirmed_by: str
+    confirmed_at: str
+    superseded_by: str | None = None
+
+
 class AnalysisStepOut(Out):
     seq: int
     kind: str
@@ -697,6 +767,12 @@ class AnalysisRunOut(Out):
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
     datasets: list[AnalysisDatasetOut] | None = None
+    parent_run_id: str | None = None
+    confirmation_mode: Literal["auto", "always"] = "auto"
+    proposal: AnalysisProposalOut | None = None
+    experience_candidates: list[ExperienceCandidate] = Field(default_factory=list)
+    confirmed_scope: Json = Field(default_factory=dict)
+    confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
 
 
 class AnalysisTaskOut(Out):
