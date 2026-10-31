@@ -337,13 +337,28 @@ def test_analysis_model_list_has_no_guessed_efforts_or_context(provider):
     assert view["models"][0]["efforts"] == []
     assert view["models"][0]["context_window"] is None
     assert view["models"][0]["context_window_source"] is None
-    assert view["default"]["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"]
+    assert view["default"]["reasoning_effort"] is None
     analysis = ModelAssignment(purpose="analysis", provider_id=provider.id, model_id="unavailable")
     session.rows[ModelAssignment, "analysis"] = analysis
     assert modelcfg.analysis_models_view(session)["default"] is None
     del session.rows[ModelAssignment, "analysis"]
     del session.rows[ModelAssignment, "ask"]
     assert modelcfg.analysis_models_view(session)["default"] is None
+
+
+@pytest.mark.parametrize("purpose", ["ask", "analysis"])
+@pytest.mark.parametrize("effort,expected", [
+    ("medium", "high"), ("off", "off"), ("low", "low"), ("high", "high"), ("max", "max"),
+    (None, "low"), ("", "low"), ("invalid", None),
+])
+def test_analysis_model_default_effort_is_a_supported_choice(purpose, effort, expected):
+    ds = deepseek()
+    assigned = ModelAssignment(purpose=purpose, provider_id=ds.id, model_id="deepseek-flash", reasoning_effort=effort)
+    view = modelcfg.analysis_models_view(MemorySession(ds, assigned))
+    actual = view["default"]["reasoning_effort"]
+    assert actual == expected
+    assert actual is None or actual in {option["value"] for option in view["models"][0]["efforts"]}
+    assert assigned.reasoning_effort == effort
 
 
 @pytest.mark.parametrize("invalid", ["removed", "disabled", "provider_disabled", "missing_key", "stale_check"])
