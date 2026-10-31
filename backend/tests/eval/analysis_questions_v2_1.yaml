@@ -1,0 +1,181 @@
+# v2.1 相对 v2.0 的题目规格只加 mechanism；key_bindings 与 unauthorized 原样保留。
+# 每项 why 依据 scripts/ec_data.py 的场景常量、表结构与视图或元数据，不参照模型输出。
+# mechanism 的备选按顺序编号（从 1 数起），命中任一即可；资产允许沿视图血缘追溯，成员使用生成器字典展开。
+# 日历题 c01、c02、h04、h09 的 primary.entity 为空，沿用 v1，不写 mechanism；没有 primary 的题也不写。
+# f02 的“家电”与 e01 的“数码”属于题目范围，不能凭题目范围本身认定根因，具体理由写在该题。
+# key_bindings 的真值、实体、期间及 manual 语义沿用 analysis_questions_v2.yaml。
+version: ec-1/v2.1
+questions:
+  d01:
+    key_bindings: [{metric: ec_store_sales, entity: {store: 深圳福田中心店}, allow: [region, city]}]
+    mechanism:
+      - asset: ec_org.store
+        members: [深圳福田中心店]
+        why: CLOSED_STORE：福田中心店 2026-09-10 关店（store.close_date）
+  d02:
+    key_bindings: [{metric: ec_ad_orders, entity: {region: 华东, channel: 抖音}}]
+    mechanism:
+      - asset: ec_marketing.ad_spend_daily
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+      - asset: ec_trade.orders
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+  d03:
+    key_bindings: [{metric: ec_store_orders, entity: {store: 成都太古里店}, allow: [region, city]}]
+    mechanism:
+      - asset: ec_org.store
+        members: [成都太古里店]
+        why: NEW_STORE：太古里店 2026-08-01 开业
+  d04:
+    key_bindings: [{metric: ec_gmv, entity: {region: 华东}}]
+    mechanism:
+      - asset: ec_marketing.ad_spend_daily
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+      - asset: ec_trade.orders
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+      - factor: ec_ad_spend
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+      - asset: ec_trade.orders
+        members: [线上]
+        why: DOUYIN_CUT 的削减只影响线上订单（orders.channel_type），v1 也接受“线上”
+  d05:
+    key_bindings: [{metric: ec_delivery_hours, entity: {region: 西南}}]
+    mechanism:
+      - asset: ec_logistics.shipment
+        members: [西南]
+        why: STORM：西南仓 8-05 至 8-20 暴雨，配送时长增加；仓库名 = 区域名 + 中心仓
+  d06:
+    key_bindings: [{metric: ec_tickets, entity: {region: 西南}},
+                   {metric: ec_tickets, entity: {region: 西南, ticket_category: 物流}}]
+    mechanism:
+      - asset: ec_service.service_ticket
+        members: [西南]
+        why: STORM：暴雨期间西南线上订单的工单率升高、分类为“物流”、满意度偏低
+      - asset: ec_service.service_ticket
+        members: [物流]
+        why: STORM：暴雨期间西南线上订单的工单率升高、分类为“物流”、满意度偏低
+  f01:
+    key_bindings: [{metric: ec_orders, entity: {region: 华东}}]
+    mechanism:
+      - factor: ec_orders
+        why: v1 定义：成交额 = 订单数 × 客单价，订单数因子下降（DOUYIN_CUT 减少付费订单）
+  f02:
+    key_bindings: [{metric: ec_units, entity: {category: 家电}}]
+    mechanism:
+      - factor: ec_units
+        why: 家电焕新季（CAMPAIGNS 第 3 项）提高家电下单权重，件数上升；“家电”是题目范围，不作为机制
+  f03:
+    key_bindings: [{metric: ec_gmv, entity: {region: 西南}}, {metric: ec_gmv, entity: {region: 西南, channel: 门店}}]
+    mechanism:
+      - asset: ec_trade.orders
+        members: [门店]
+        why: v1 定义（主会话裁定）：offsetting 时认最大增加项“门店”渠道（orders.channel_type）；NEW_STORE 在西南
+  c01:
+    key_bindings: [{metric: ec_orders, entity: {}, calc: calendar.day_count_effect}]
+  c02:
+    key_bindings: [{metric: ec_orders, entity: {region: 华北}, calc: calendar.day_count_effect}]
+  g01:
+    # 缺数门店个数不能从 CountRef 的列与数据集自动确定，继续保留 v2 的人工审定。
+    key_bindings: [{manual: true}]
+    mechanism:
+      - asset: ec_org.store_daily_traffic
+        members: [北京, 北京一号店, 北京二号店, 北京三号店]
+        why: TRAFFIC_GAP：北京前 3 家门店 9-28 没有客流记录（gap_stores 取北京的前三家店）
+  e01:
+    key_bindings: [{explore: {table: ec_product.price_change, column: null}}]
+    mechanism:
+      - asset: ec_product.price_change
+        members: [成本上涨]
+        why: PRICE_UP：数码 1/3 商品 8-15 起标价 ×1.08，price_change 记录的 reason 都是“成本上涨”；“数码”是题目范围
+  e02:
+    key_bindings: [{explore: {table: ec_marketing.campaign, column: discount_rate}}]
+    mechanism:
+      - asset: ec_marketing.campaign
+        members: [家电焕新季]
+        why: CAMPAIGNS 第 3 项：家电焕新季 9-01 至 9-20 打 85 折
+  e03:
+    key_bindings: [{metric: ec_delivery_hours, entity: {region: 西南}}]
+    mechanism:
+      - asset: ec_logistics.shipment
+        members: [西南]
+        why: STORM：西南仓 8-05 至 8-20 暴雨，配送时长增加；仓库名 = 区域名 + 中心仓
+      - asset: ec_supply.warehouse
+        members: [西南中心仓]
+        why: STORM：西南仓 8-05 至 8-20 暴雨，配送时长增加；仓库名 = 区域名 + 中心仓
+  a01:
+    key_bindings: [{metric: ec_ad_orders, entity: {region: 华东, channel: 抖音}}]
+    mechanism:
+      - asset: ec_marketing.ad_spend_daily
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+      - asset: ec_trade.orders
+        members: [douyin]
+        why: DOUYIN_CUT：华东抖音日投放 9-01 起保留 40%；付费订单按花费 / 获客成本生成，来源渠道编码记在 orders.source_channel
+  a02:
+    unauthorized: {metric_prefix: ec_, table_db_prefix: ec_}
+  h01:
+    key_bindings: [{metric: ec_satisfaction, entity: {region: 西南}}]
+    mechanism:
+      - asset: ec_service.service_ticket
+        members: [西南]
+        why: STORM：暴雨期间西南线上订单的工单率升高、分类为“物流”、满意度偏低
+      - asset: ec_service.service_ticket
+        members: [物流]
+        why: STORM：暴雨期间西南线上订单的工单率升高、分类为“物流”、满意度偏低
+  h02:
+    key_bindings: [{metric: ec_visitors, entity: {store: 深圳福田中心店}, allow: [region, city]}]
+    mechanism:
+      - asset: ec_org.store
+        members: [深圳福田中心店]
+        why: CLOSED_STORE：福田中心店 2026-09-10 关店（store.close_date）
+  h03:
+    key_bindings: [{metric: ec_ad_spend, entity: {region: 华东}}]
+    mechanism:
+      - factor: ec_ad_spend
+        why: v1 定义：投放成交额 = 投放花费 × ROI，花费因子下降（h03：DOUYIN_CUT；h08：618 期间预算 ×1.6、7 月回落）
+  h04:
+    key_bindings: [{metric: ec_orders, entity: {}}]
+  h05:
+    key_bindings: [{metric: ec_units, entity: {category: 美妆}}]
+    mechanism:
+      - asset: ec_marketing.campaign
+        members: [七夕美妆节]
+        why: CAMPAIGNS 第 2 项：七夕美妆节 8-12 至 8-19，美妆下单权重 ×1.8
+  h07:
+    key_bindings: [{metric: ec_orders, entity: {channel: 线上}}]
+    mechanism:
+      - asset: ec_marketing.ad_spend_daily
+        members: [douyin, xiaohongshu, wechat_ads, search]
+        why: 618 年中大促：6-01 至 6-18 全部付费渠道预算 ×1.6（PAID_CHANNELS 是 ec_marketing.channel 里 channel_type=付费 的渠道），7 月回落
+      - asset: ec_trade.orders
+        members: [douyin, xiaohongshu, wechat_ads, search]
+        why: 618 年中大促：6-01 至 6-18 全部付费渠道预算 ×1.6（PAID_CHANNELS 是 ec_marketing.channel 里 channel_type=付费 的渠道），7 月回落
+      - factor: ec_ad_spend
+        why: 618 年中大促：6-01 至 6-18 全部付费渠道预算 ×1.6（PAID_CHANNELS 是 ec_marketing.channel 里 channel_type=付费 的渠道），7 月回落
+      - factor: ec_ad_orders
+        why: 618 年中大促：6-01 至 6-18 全部付费渠道预算 ×1.6（PAID_CHANNELS 是 ec_marketing.channel 里 channel_type=付费 的渠道），7 月回落
+      - asset: ec_marketing.campaign
+        members: ["618 年中大促"]
+        why: 618 年中大促：6-01 至 6-18 全部付费渠道预算 ×1.6（PAID_CHANNELS 是 ec_marketing.channel 里 channel_type=付费 的渠道），7 月回落
+  h08:
+    key_bindings: [{metric: ec_ad_spend, entity: {region: 华北}}]
+    mechanism:
+      - factor: ec_ad_spend
+        why: v1 定义：投放成交额 = 投放花费 × ROI，花费因子下降（h03：DOUYIN_CUT；h08：618 期间预算 ×1.6、7 月回落）
+  h09:
+    key_bindings: [{metric: ec_store_orders, entity: {}}]
+  h10:
+    key_bindings: [{metric: ec_units, entity: {category: 食品}}]
+    mechanism:
+      - asset: ec_marketing.campaign
+        members: [中秋礼盒季]
+        why: CAMPAIGNS 第 4 项：中秋礼盒季 9-15 至 9-25，限定一级类目“食品”，下单权重 ×2.0；生成器没有单独提高“礼盒”二级类目（模块说明里的“食品礼盒走高”在代码里是整个食品类目），所以“礼盒”不作为机制
+  h12:
+    key_bindings: [{metric: ec_units, entity: {region: 华南, category: 食品}}]
+    mechanism:
+      - asset: ec_marketing.campaign
+        members: [中秋礼盒季]
+        why: CAMPAIGNS 第 4 项：中秋礼盒季 9-15 至 9-25，限定一级类目“食品”，下单权重 ×2.0；生成器没有单独提高“礼盒”二级类目（模块说明里的“食品礼盒走高”在代码里是整个食品类目），所以“礼盒”不作为机制
