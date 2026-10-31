@@ -1497,7 +1497,7 @@
      "目录与血缘"
     ],
     "summary": "Lineage Graph",
-    "description": "资产级节点 + 列级边（按关系类型汇总）+ 外部表身份映射。只返回用户可见的资产。",
+    "description": "资产级节点、列级边、外部表身份映射与关联路径。只返回用户可见的资产。",
     "operationId": "lineage_graph_api_lineage_graph_get",
     "security": [
      {
@@ -3847,6 +3847,53 @@
     }
    }
   },
+  "/api/analysis/experiences/{experience_id}/to-join-path": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Experience To Join Path",
+    "operationId": "experience_to_join_path_api_analysis_experiences__experience_id__to_join_path_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/JoinPathOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/datasets/{seq}": {
    "get": {
     "tags": [
@@ -5561,6 +5608,18 @@
        }
       ],
       "title": "Experience Version"
+     },
+     "join": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Join"
      }
     },
     "additionalProperties": true,
@@ -5863,6 +5922,21 @@
       },
       "type": "array",
       "title": "Experience Candidates"
+     },
+     "join_candidates": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Join Candidates"
+     },
+     "checkpoint_warnings": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Checkpoint Warnings"
      },
      "confirmed_scope": {
       "additionalProperties": true,
@@ -9121,6 +9195,65 @@
     ],
     "title": "GraphEdgeOut"
    },
+   "GraphJoinOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "left_asset_id": {
+      "type": "string",
+      "title": "Left Asset Id"
+     },
+     "left_columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Left Columns"
+     },
+     "right_asset_id": {
+      "type": "string",
+      "title": "Right Asset Id"
+     },
+     "right_columns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Right Columns"
+     },
+     "cardinality": {
+      "type": "string",
+      "title": "Cardinality"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "approved",
+       "pending"
+      ],
+      "title": "Status"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "left_asset_id",
+     "left_columns",
+     "right_asset_id",
+     "right_columns",
+     "cardinality",
+     "status"
+    ],
+    "title": "GraphJoinOut"
+   },
    "GraphNodeOut": {
     "properties": {
      "id": {
@@ -9217,6 +9350,13 @@
       },
       "type": "array",
       "title": "Identity Links"
+     },
+     "joins": {
+      "items": {
+       "$ref": "#/components/schemas/GraphJoinOut"
+      },
+      "type": "array",
+      "title": "Joins"
      }
     },
     "additionalProperties": true,
@@ -9790,6 +9930,29 @@
       },
       "type": "array",
       "title": "Approvals"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "created_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created By"
      }
     },
     "additionalProperties": true,

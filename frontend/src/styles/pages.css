@@ -812,3 +812,22 @@
   .av-hero::after { opacity: .35; }
 }
 .av-models__ctx { width: 120px; height: var(--size-control-sm); }
+/* 血缘：搜索表、可点击的上下游、缩放比例、分组的影响条件 */
+.av-lineage__search { position: relative; display: flex; align-items: center; gap: var(--space-2); width: min(280px, 32vw); height: var(--size-control-sm, 28px); padding: 0 var(--space-2); border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-tertiary); }
+.av-lineage__search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+.av-lineage__search input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--text-primary); font: 400 13px/20px var(--font-sans); outline: none; }
+.av-menu.av-lineage__search-menu { position: absolute; top: calc(100% + 4px); left: 0; right: auto; min-width: 100%; max-width: 420px; z-index: 20; }
+.av-lineage__search-menu .av-menu__item { display: flex; justify-content: space-between; gap: var(--space-3); white-space: nowrap; }
+.av-lineage__search-empty { display: block; padding: var(--space-2) var(--space-3); }
+.av-lineage__flow-item.is-link { width: 100%; padding: 0; border: none; background: none; color: inherit; text-align: left; cursor: pointer; }
+.av-lineage__flow-item.is-link:hover .av-chain__item { border-color: var(--accent); }
+.av-lineage__flow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-lineage__zoom-value { min-width: 52px; font-variant-numeric: tabular-nums; }
+.av-lineage__influences > .av-lineage__stack { margin-top: var(--space-2); }
+@media (max-width: 760px) { .av-lineage__search { width: 160px; } }
+.av-canvas .av-flow--join { stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; }
+.av-canvas .av-flow--join.is-design { opacity: .55; }
+.av-lineage__legend-item--join line { stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; }
+.av-lineage__toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; }
+.av-lineage__toolbar .av-seg, .av-lineage__toolbar .av-seg * { white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 1280px) { .av-lineage__search { width: 200px; } }

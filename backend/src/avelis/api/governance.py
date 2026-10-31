@@ -225,12 +225,14 @@ class Decision(BaseModel):
 
 def join_path_view(session: Session, path: JoinPath) -> dict:
     left, right = session.get(Asset, path.left_asset_id), session.get(Asset, path.right_asset_id)
+    creator = session.get(User, path.created_by)
     approvals = session.scalars(select(JoinPathApproval).where(JoinPathApproval.join_path_id == path.id))
     try:
         required = joins.required_domains(session, path)
     except metrics.Conflict as exc:
         required = [exc.message]
     return {"id": path.id, "code": path.code, "name": path.name, "status": path.status,
+            "source": path.source, "created_by": creator.display_name if creator else None,
             "left": {"asset_id": left.id, "qualified": qualified(left), "columns": path.left_columns},
             "right": {"asset_id": right.id, "qualified": qualified(right), "columns": path.right_columns},
             "cardinality": path.cardinality, "cardinality_basis": path.cardinality_basis,

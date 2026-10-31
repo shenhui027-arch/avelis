@@ -306,10 +306,22 @@ class GraphEdgeOut(Out):
     origins: list[str]
 
 
+class GraphJoinOut(Out):
+    id: str
+    code: str
+    left_asset_id: str
+    left_columns: list[str]
+    right_asset_id: str
+    right_columns: list[str]
+    cardinality: str
+    status: Literal["approved", "pending"]
+
+
 class GraphOut(Out):
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
     identity_links: list[LinkOut]
+    joins: list[GraphJoinOut] = Field(default_factory=list)
 
 
 # --- 口径、变更 --------------------------------------------------------------------
@@ -418,6 +430,8 @@ class JoinPathOut(Out):
     cardinality_basis: Json
     required_domains: list[str]
     approvals: list[Json]
+    source: Json | None = None
+    created_by: str | None = None
 
 
 class TaskOut(Out):
@@ -659,6 +673,7 @@ class AnalysisProposalItem(Out):
     refs: list[Json] = Field(default_factory=list)
     experience_id: str | None = None
     experience_version: int | None = None
+    join: Json | None = None
 
 
 class AnalysisProposalOut(Out):
@@ -816,6 +831,8 @@ class AnalysisRunOut(Out):
     proposal: AnalysisProposalOut | None = None
     pending: Json | None = None
     experience_candidates: list[ExperienceCandidate] = Field(default_factory=list)
+    join_candidates: list[Json] = Field(default_factory=list)
+    checkpoint_warnings: list[str] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
 
