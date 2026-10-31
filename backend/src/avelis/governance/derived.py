@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import ast
-from decimal import Decimal, DivisionByZero, InvalidOperation
+from decimal import Decimal, DivisionByZero, InvalidOperation, localcontext
 from typing import Any
 
 from avelis.governance.errors import Invalid
@@ -49,6 +49,16 @@ def parse_formula(formula: str) -> list[str]:
     return codes
 
 
+def significant12(value: Decimal) -> Decimal:
+    """保留 12 位有效数字且不舍入整数位，至少保留 4 位小数。"""
+    places = max(4, 11 - value.adjusted()) if value else 4
+    with localcontext() as context:
+        context.prec = max(context.prec, value.adjusted() + places + 2)
+        rounded = value.quantize(Decimal(1).scaleb(-places))
+    integer, fraction = format(rounded, "f").split(".")
+    return Decimal(f"{integer}.{fraction.rstrip('0').ljust(4, '0')}")
+
+
 def evaluate(formula: str, values: dict[str, Any]) -> Decimal | None:
     """按公式计算；任一引用值缺失、除数为 0 时返回 None。"""
     tree = ast.parse(formula.strip(), mode="eval")
@@ -84,4 +94,4 @@ def evaluate(formula: str, values: dict[str, Any]) -> Decimal | None:
         raise Invalid(f"公式包含不支持的语法 {type(node).__name__}")
 
     result = ev(tree)
-    return None if result is None else result.quantize(Decimal("0.0001"))
+    return None if result is None else significant12(result)

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import sqlglot
+from sqlglot import exp
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -57,6 +59,7 @@ from avelis.models import (
 
 TRACEABLE_NOTE = "可追溯 ≠ 可复现：保存了 SQL、口径与元数据版本，但不保存数据快照，历史答案不保证能按当时数据重算。"
 DISCOVERY_NOTE = "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
+DIMENSION_VALUES_LIMIT = 200
 
 
 @dataclass
@@ -483,6 +486,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                                           else comparison_range(intent.start_date, intent.end_date, intent.compare))))
     values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
     keys: list[tuple] = []
+    comparison_keys: list[tuple] = []
     plan, sqls, sources, lineage = [], [], {}, []
     truncated, cache_hits = False, []
     for code, (metric, version) in runs.items():
@@ -507,6 +511,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
             values[(code, label)] = rows
             if label == "current":
                 keys += [k for k in rows if k not in keys]
+            else:
+                comparison_keys += [k for k in rows if k not in comparison_keys]
             truncated = truncated or bool(sub.result.get("truncated"))
             cache_hits.append(sub.cache_hit)
             for s in sub.evidence.get("sources", []):
@@ -516,6 +522,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                 answer.freshness = sub.freshness
             if label == "current" and "limits" in sub.evidence:
                 answer.evidence["limits"] = sub.evidence["limits"]
+    keys += [k for k in comparison_keys if k not in keys]
 
     def value(code: str, label: str, key: tuple) -> Decimal | None:
         metric, version = catalog.versions[code]
@@ -523,6 +530,11 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
             return evaluate(version.expression, {c["metric_code"]: values[(c["metric_code"], label)].get(key)
                                                  for c in version.components})
         return values[(code, label)].get(key)
+
+    def missing_row(code: str, label: str, key: tuple) -> bool:
+        _, version = catalog.versions[code]
+        components = [c["metric_code"] for c in version.components] if version.kind == "derived" else [code]
+        return all(key not in values[(component, label)] for component in components)
 
     metric_columns = []
     for _, metric, _ in requested:
@@ -535,13 +547,19 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         if intent.compare:
             columns += [f"{metric.name}·{PERIOD_LABEL[intent.compare]}", f"{metric.name}·变化", f"{metric.name}·变化率"]
     rows_out = []
-    for key in keys or [()]:
+    missing_members: dict[tuple, list[str]] = {}
+    for key in keys or ([()] if not intent.group_by and not intent.time_grain else []):
         row: list[Any] = list(key)
-        for code, _, _ in requested:
+        missing_members[key] = []
+        for code, metric, _ in requested:
             current = value(code, "current", key)
             row.append(current)
+            if missing_row(code, "current", key):
+                missing_members[key].append(metric.name)
             if intent.compare:
                 before = value(code, intent.compare, key)
+                if missing_row(code, intent.compare, key):
+                    missing_members[key].append(f"{metric.name}·{PERIOD_LABEL[intent.compare]}")
                 delta = current - before if current is not None and before is not None else None
                 rate = (delta / before).quantize(Decimal("0.0001")) if delta is not None and before else None
                 row += [before, delta, rate]
@@ -555,6 +573,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         rows_out = present + [r for r in rows_out if r[first] is None]
     if intent.limit:
         rows_out = rows_out[:intent.limit]
+    key_width = len(intent.group_by) + (1 if intent.time_grain else 0)
+    answer.evidence["missing_member_rows"] = [missing_members[tuple(r[:key_width])] for r in rows_out]
 
     first_code, first_metric, first_version = requested[0]
     answer.status = "answered"
@@ -707,7 +727,32 @@ def _column_type(session: Session, asset: Asset, column: str) -> str:
         ColumnVersion.asset_version_id == asset.current_version_id, ColumnVersion.name == column)) or "").lower()
 
 
-def _dimension_values(session: Session, user: User, version: MetricVersion, settings) -> dict[str, list[str]]:
+def _existing_dimension_values(session: Session, user: User, version: MetricVersion, dimension: str,
+                               values: list[str], settings) -> set[str] | None:
+    """精确核验样本之外的取值；守卫或查询失败时返回未知，不据此宣称取值不存在。"""
+    requested = list(dict.fromkeys(values))
+    if not requested:
+        return set()
+    if len(requested) > DIMENSION_VALUES_LIMIT:
+        return None
+    if version.kind == "derived":
+        if (version.status != "published" or dependency_drift(session, version)
+                or dimension not in {d["name"] for d in version.dimensions or []}):
+            return None
+        checked = []
+        for component in version.components or []:
+            source = session.get(MetricVersion, component["version_id"])
+            checked.append(_existing_dimension_values(session, user, source, dimension, requested, settings)
+                           if source else None)
+        existing = set().union(*(values or set() for values in checked))
+        return existing if checked and (all(values is not None for values in checked)
+                                        or set(requested) <= existing) else None
+    result = _dimension_values(session, user, version, settings, exact_values={dimension: requested})
+    return set(result[dimension]) if dimension in result else None
+
+
+def _dimension_values(session: Session, user: User, version: MetricVersion, settings, *,
+                      exact_values: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
     """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。
 
     与正式问数同一套守卫，且在读缓存之前执行：口径已发布且依赖未漂移；维度所在资产的完整来源闭包对当前用户都可见；
@@ -718,7 +763,8 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
     if version.kind == "derived":  # 派生：取值来自锁定的组成指标（各自按完整来源权限过滤）
         for c in version.components or []:
             component = session.get(MetricVersion, c["version_id"])
-            for name, vals in (_dimension_values(session, user, component, settings) if component else {}).items():
+            for name, vals in (_dimension_values(session, user, component, settings, exact_values=exact_values)
+                               if component else {}).items():
                 out.setdefault(name, vals)
         shared = {d["name"] for d in version.dimensions or []}
         return {k: v for k, v in out.items() if k in shared}
@@ -729,6 +775,8 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
     aliases = resolved["aliases"]
     allowed = access.domain_ids(session, user)
     for dim in version.dimensions or []:
+        if exact_values is not None and dim["name"] not in exact_values:
+            continue
         alias, column = dim["column"].split(".", 1) if "." in dim["column"] else ("b", dim["column"])
         asset = aliases.get(alias)
         if asset is None:
@@ -737,10 +785,12 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         if not all(access.can_read_asset(session, user, a, allowed) for a in closure.values()):
             continue
         key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}"
-        try:
-            cached = cache.client().get(key)
-        except Exception:
-            cached = None
+        cached = None
+        if exact_values is None:
+            try:
+                cached = cache.client().get(key)
+            except Exception:
+                pass
         if cached is not None:
             out[dim["name"]] = cached.split("\x1f") if cached else []
             continue
@@ -749,23 +799,48 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         if not engine.supports(QUERY):
             continue
         qualified = f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
-        sql = distinct_values_sql(qualified, column, limit=200, dialect=dialect_of(ds))
+        dialect = dialect_of(ds)
+        sql = distinct_values_sql(qualified, column, limit=DIMENSION_VALUES_LIMIT, dialect=dialect)
+        if exact_values is not None:
+            literals = [exp.National(this=v) if dialect.national_strings else exp.Literal.string(v)
+                        for v in exact_values[dim["name"]]]
+            matches = [exp.Max(this=exp.Case().when(
+                exp.In(this=exp.column(column, table="t"), expressions=[value.copy()]), exp.Literal.number(1))
+                .else_(exp.Literal.number(0))) for value in literals]
+            sql = (sqlglot.parse_one(sql, read=dialect.name)
+                   .select(*matches, append=False).distinct(distinct=False)
+                   .where(exp.In(this=exp.column(column, table="t"), expressions=literals))
+                   .sql(dialect=dialect.name, identify=True))
         try:
-            validate_sql(sql, dialect=dialect_of(ds), allowed_tables={qualified}, schema={qualified: {column}},
-                         max_rows=200)
+            validate_sql(sql, dialect=dialect, allowed_tables={qualified}, schema={qualified: {column}},
+                         max_rows=DIMENSION_VALUES_LIMIT)
             connector = query_connector(session, ds)
             dep = [{"asset_id": asset.id, "column": column}]
             if _live_check(session, ds, connector, closure.values(), dep, settings):
                 continue  # 库侧已变、尚未采集：不读取（已排队采集）
-            result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2, max_rows=200)
+            result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
+                                              max_rows=DIMENSION_VALUES_LIMIT)
         except (QueryError, ValidationFailed):
             continue
-        values = [str(r[0]) for r in result.rows]
+        if exact_values is not None and result.truncated:
+            continue
+        if exact_values is not None:
+            requested = exact_values[dim["name"]]
+            if result.rows and (len(result.rows) != 1 or len(result.rows[0]) != len(requested)):
+                continue
+            flags = [_decimal(value) if value is not None else Decimal(0)
+                     for value in result.rows[0]] if result.rows else [Decimal(0)] * len(requested)
+            if any(flag not in (Decimal(0), Decimal(1)) for flag in flags):
+                continue
+            values = [value for value, flag in zip(requested, flags) if flag == 1]
+        else:
+            values = [str(r[0]) for r in result.rows]
         out[dim["name"]] = values
-        try:
-            cache.client().set(key, "\x1f".join(values), ex=600)
-        except Exception:
-            pass
+        if exact_values is None:
+            try:
+                cache.client().set(key, "\x1f".join(values), ex=600)
+            except Exception:
+                pass
     return out
 
 

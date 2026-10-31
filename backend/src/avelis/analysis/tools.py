@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import time
@@ -18,13 +19,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
+import sqlglot
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlglot import exp
+from sqlglot.errors import ParseError, TokenError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.analysis import attribution, calc, investigation, measures, retrieval
+from avelis.analysis import attribution, calc, explore, investigation, measures, retrieval
 from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
@@ -34,6 +38,7 @@ from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
 from avelis.governance import access
+from avelis.governance.derived import parse_formula
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
     AnalysisDataset,
@@ -264,7 +269,7 @@ def _scalars(value: Any):
 
 
 def _appears(value: Any, raw: str) -> bool:
-    """标量值在原文里原样出现：修复不能补出原文没有的值（例如 {"region":} 被补成空字符串）。"""
+    """标量值在原文里原样出现：修复不能补出原文没有的值（例如 {"<维度>":} 被补成空字符串）。"""
     if value is None:
         return "null" in raw
     if isinstance(value, bool):
@@ -444,7 +449,7 @@ class CorrelateArgs(BaseModel):
 
 class CoverageArgs(BaseModel):
     dataset: str
-    keys: list[str] = Field(default_factory=list, description="按哪些列统计（如 store）；为空表示整个数据集")
+    keys: list[str] = Field(default_factory=list, description="按哪些列统计（如 <维度>）；为空表示整个数据集")
     period: str | None = Field(None, description="日期列；为空时用数据集的时间段列（按日分组时），没有则只计行数")
     start_date: date | None = Field(None, description="应覆盖的起始日期（用于找缺失的日期）")
     end_date: date | None = None
@@ -814,6 +819,69 @@ class AnalysisToolbox:
         if ds is None:
             raise calc.CalcError(f"数据集 {ref} 不存在（可用：{'、'.join(self._datasets) or '无'}）")
         return ds, [dict(zip(ds.columns, r)) for r in ds.rows]
+
+    def _column_expression(self, ref: str, column: str) -> exp.Expression | None:
+        """只读已保存的列表达式证据，用探索查询已有的 SQLGlot 方言解析。"""
+        evidence = (self._datasets[ref].meta.get("column_evidence") or {}).get(column) or {}
+        expression = evidence.get("expression")
+        if not expression:
+            return None
+        try:
+            return sqlglot.parse_one(expression, read=explore.STANDARD_DIALECT)
+        except (ParseError, TokenError):
+            return None
+
+    def _require_additive(self, ref: str, columns: list[str]) -> None:
+        """成员相加只放行可确认的可加指标；计算列按已登记的量纲核对。"""
+        ds = self._datasets[ref]
+        if ds.kind != "governed":
+            for column in columns:
+                expression = self._column_expression(ref, column)
+                if expression is not None and any(
+                        attribution._NON_ADDITIVE.match(node.sql(dialect=explore.STANDARD_DIALECT))
+                        for node in expression.walk() if isinstance(node, exp.Func)):
+                    raise calc.CalcError(f"列 {column} 的表达式含不可加聚合，不能按成员相加")
+                kind = self._unit(ref, column).get("kind", "unknown")
+                if kind in {"ratio", "rate_change", "share", "unknown"}:
+                    raise calc.CalcError(f"列 {column} 的量纲为 {kind}，不能按成员相加")
+            return
+        intent = ds.meta.get("intent") or {}
+        codes = intent.get("metric_codes") or ([intent["metric_code"]] if intent.get("metric_code") else [])
+        if not codes:
+            raise calc.CalcError("受治理数据集缺少指标意图，无法确认可加性，不能按成员相加")
+        rules = {}
+        for code in codes:
+            metric, _ = self._metric(code)
+            version_id = (ds.meta.get("versions") or {}).get(code)
+            if not version_id:
+                raise calc.CalcError(f"指标 {code} 缺少锁定的查询版本，无法确认可加性")
+            version = self.session.get(MetricVersion, version_id)
+            if version is None:
+                raise calc.CalcError(f"指标 {code} 的查询版本不可用，无法确认可加性")
+            components = {c["metric_code"]: self.session.get(MetricVersion, c["version_id"])
+                          for c in version.components or []} if version.kind == "derived" else {}
+            rule = attribution.applicability(version, components)
+            if version.kind == "derived":
+                try:
+                    referenced = parse_formula(version.expression)
+                except GovernanceError:
+                    referenced = []
+                if referenced and all(isinstance(node, (ast.Expression, ast.Name, ast.Load, ast.BinOp,
+                                                         ast.Add, ast.Sub, ast.UnaryOp, ast.USub))
+                                      for node in ast.walk(ast.parse(version.expression.strip(), mode="eval"))) and (
+                        all(code in components for code in referenced) and all(
+                            component is not None and attribution.base_additive(component.expression)[0]
+                            for component in components.values())):
+                    rule = {"algorithm": "additive", "reason": ""}
+            names = [metric.name, f"{metric.name}·变化"]
+            if intent.get("compare"):
+                names.append(f"{metric.name}·{service.PERIOD_LABEL[intent['compare']]}")
+            rules.update({name: rule for name in names})
+        for column in columns:
+            rule = rules.get(column)
+            if rule is None or rule["algorithm"] != "additive":
+                reason = (rule.get("reason") or "派生比率不能按成员相加") if rule else "无法确认该列对应的可加指标"
+                raise calc.CalcError(f"列 {column} 不能按成员相加：{reason}")
 
     def _view(self, ref: str, ds: AnalysisDataset, *, offset: int = 0, limit: int = MODEL_ROWS) -> dict:
         rows = ds.rows[offset:offset + limit]
@@ -1586,6 +1654,7 @@ class AnalysisToolbox:
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                  "metric_codes": list(args.metric_codes), "versions": version_ids,
                                  "intent": answer.intent, "freshness": answer.freshness,
+                                 "missing_member_rows": (getattr(answer, "evidence", None) or {}).get("missing_member_rows", []),
                                  "purpose": args.purpose,
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
                                  "window": {"start": str(args.start_date), "end": str(args.end_date)}})
@@ -1769,7 +1838,7 @@ class AnalysisToolbox:
         if rule["algorithm"] is None:
             self.explanations[key] = "unsupported"
             return {"supported": False, "metric_code": args.metric_code, "reason": rule["reason"],
-                    "note": "不支持自动归因：可以用 query_metric 按维度查询后用 contribution 拆解，或说明无法归因"}, None, "ok"
+                    "note": "该指标不能按成员相加拆解，应如实说明无法归因及原因"}, None, "ok"
         allowed = [d["name"] for d in version.dimensions or []]
         filtered = {f.dimension for f in args.filters}  # 被筛选的维度只有选中的成员：不再作为候选维度扫描
         dims = [d for d in dict.fromkeys(args.dimensions) if d not in filtered] or [
@@ -2037,14 +2106,18 @@ class AnalysisToolbox:
 
     def contribution(self, dataset: str, keys: list[str], current: str, previous: str) -> str:
         def fn():
-            _, rows = self._rows(dataset)
+            ds, rows = self._rows(dataset)
+            self._require_additive(dataset, [current, previous])
+            for row, absent in zip(rows, ds.meta.get("missing_member_rows") or []):
+                for column in absent:
+                    row[column] = calc.Decimal(0)
             out = calc.contribution(rows, keys, current, previous)
             cols = [*keys, "previous", "current", "change", "change_rate", "share_of_change"]
             base = self._unit(dataset, current)
             units = {"previous": base, "current": base, "change": like(base, "delta"),
                      "change_rate": col("rate_change"), "share_of_change": col("share")}
             return (f"{dataset} 按{'、'.join(keys)}的差额拆解", cols, [[r[c] for c in cols] for r in out["rows"]],
-                    {"total": out["total"]}, {"units": units, "summary_units": {
+                    {"total": out["total"], **out.get("summary", {})}, {"units": units, "summary_units": {
                         "total.previous": base, "total.current": base, "total.change": like(base, "delta"),
                         "total.change_rate": col("rate_change")}})
         return self._calc("contribution", {"dataset": dataset, "keys": keys, "current": current,
@@ -2084,15 +2157,17 @@ class AnalysisToolbox:
         def fn():
             ds, rows = self._rows(dataset)
             current_period, previous_period = _periods(ds, current, previous)
+            self._require_additive(dataset, [current, previous])
             row = self._pick(rows, match or {})
-            out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period, HOLIDAYS)
+            out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period)
             cols = ["period", "days", "weekend_days", "holidays", "value", "daily"]
             rows_out = [["本期", *[out["current"][c] for c in cols[1:]]], ["上期", *[out["previous"][c] for c in cols[1:]]]]
             base = self._unit(dataset, current)
             delta, days = like(base, "delta"), col("count", "天")
             units = {"days": days, "weekend_days": days, "holidays": days, "value": base, "daily": base}
             return (f"{dataset} {current}的日历折算", cols, rows_out,
-                    {k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")},
+                    {**{k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")},
+                     "holidays_note": "未配置业务日历，节假日未知"},
                     {"units": units, "summary_units": {"change": delta, "day_count_effect": delta,
                                                        "daily_level_effect": delta,
                                                        "daily_change_rate": col("rate_change")}})
@@ -2114,10 +2189,17 @@ class AnalysisToolbox:
                  start_date: date | None = None, end_date: date | None = None) -> str:
         def fn():
             ds, rows = self._rows(dataset)
+            if ds.kind == "governed" and (ds.meta.get("intent") or {}).get("time_grain") != "day":
+                raise calc.CalcError("非日粒度，不能按天判断缺失")
             period_col = period or ds.meta.get("time_column")
             if period and period not in ds.columns:
                 raise calc.CalcError(f"{dataset} 没有日期列 {period}")
             period_col = period_col if period_col in ds.columns else None
+            expression = self._column_expression(dataset, period_col) if period_col else None
+            if expression is not None and any(
+                    isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and explore._unit(node) != "DAY"
+                    for node in expression.walk()):
+                raise calc.CalcError("非日粒度，不能按天判断缺失")
             out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date))
             cols = [*(keys or []), "rows", "periods", "missing_count", "missing_periods"]
             counts = {c: col("count") for c in ("rows", "periods", "missing_count")}
@@ -2149,7 +2231,13 @@ class AnalysisToolbox:
                     raise calc.CalcError(f"数据集 {v.dataset} 被截断（不是全集）：只能按条件取单行，不能求和或排除")
                 if v.column not in picked[0]:
                     raise calc.CalcError(f"{v.dataset} 没有列 {v.column}")
-                total = sum((calc.number(r[v.column]) or 0 for r in picked), calc.Decimal(0))
+                if len(picked) > 1 or v.exclude:
+                    self._require_additive(v.dataset, [v.column])
+                numbers = [calc.number(r[v.column]) for r in picked]
+                if any(n is None for n in numbers):
+                    raise calc.CalcError(f"{v.dataset}.{v.column} 取值为空，不能当 0 参与计算")
+                scale = calc.number(self._unit(v.dataset, v.column).get("scale", 1))
+                total = sum(numbers, calc.Decimal(0)) * scale
                 env[v.name] = total
                 rows_out.append([v.name, v.dataset, v.column, len(picked), total])
             result = evaluate(formula, env)
@@ -2232,7 +2320,7 @@ class AnalysisToolbox:
               "可加指标与 a / b 比率指标适用，不可加指标会说明不支持"),
             t(self.contribution, ContributionArgs, "两期差额按维度拆解（贡献、变化率、占总变化比例）"),
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
-            t(self.calendar_adjust, CalendarArgs, "按天数、周末、节假日折算两期差异（两期日期取自数据集的查询窗口）"),
+            t(self.calendar_adjust, CalendarArgs, "只按自然日天数折算两期差异，周六日天数仅供参考，节假日未知（两期日期取自数据集的查询窗口）"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
             t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某个成员后的合计、两期差额），结果可引用"),
@@ -2249,11 +2337,6 @@ class AnalysisToolbox:
                 t(self.path, retrieval.PathArgs, "查找元数据图中最多 3 层的最短路径，最多 3 条；线索边" + note),
             ])
         return tools
-
-
-# 演示数据期间的法定节假日（日历折算用）
-HOLIDAYS = {date(2026, 6, 19), date(2026, 6, 20), date(2026, 6, 21), date(2026, 9, 25), date(2026, 9, 26),
-            date(2026, 9, 27)}
 
 
 def _periods(ds: AnalysisDataset, current: str, previous: str) -> tuple[tuple[date, date], tuple[date, date]]:
