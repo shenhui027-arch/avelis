@@ -325,7 +325,6 @@ function RunDetail({ id }: { id: string }) {
         <div className="av-doc__titles">
           <h1>{report.title && done ? <Segments segments={report.fields?.title?.segments} text={report.title} /> : r.question}</h1>
           <p className="av-doc__sub">
-            {done && report.title ? <span>{r.question}</span> : null}
             {win?.start ? <span className="av-mono">{win.start} ~ {win.end}{win.compare_start ? `　对比 ${win.compare_start} ~ ${win.compare_end}` : ""}</span> : null}
             <span>{formatTime(r.created_at, tz)}</span>
             {hitl.parent_run_id ? <Link to={`/analysis/runs/${hitl.parent_run_id}`}>续问自上一次分析</Link> : null}
@@ -338,8 +337,13 @@ function RunDetail({ id }: { id: string }) {
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      {live ? <RunTranscript run={r} live />
-        : <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>}
+      <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>
+      {r.steps?.length || live ? <RunTranscript run={r} live={live} footer={<>
+        {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
+        <p className="av-caption av-doc__meta">
+          <span>模型 {r.model_adapter ?? "—"}</span>
+          {budget.used ? <span>模型请求 {budget.used.model_requests}/{budget.limits?.model_requests} · 工具 {budget.used.tool_calls}/{budget.limits?.tool_calls} · 查询 {budget.used.queries}/{budget.limits?.queries} · {budget.used.seconds}s</span> : null}
+        </p></>} /> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
       {stopped ? <div className="av-banner av-banner--info">已停止，下面是停止前已经得到的部分结果</div> : null}
@@ -388,15 +392,6 @@ function RunDetail({ id }: { id: string }) {
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
       {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
-      {!running && r.status !== "waiting" ? <details className="av-doc__more">
-        <summary>方法与过程 <span className="av-caption">{r.steps?.length ?? 0} 步</span></summary>
-        {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
-        <p className="av-caption av-doc__meta">
-          <span>模型 {r.model_adapter ?? "—"}</span>
-          {budget.used ? <span>模型请求 {budget.used.model_requests}/{budget.limits?.model_requests} · 工具 {budget.used.tool_calls}/{budget.limits?.tool_calls} · 查询 {budget.used.queries}/{budget.limits?.queries} · {budget.used.seconds}s</span> : null}
-        </p>
-        <RunTranscript run={r} />
-      </details> : null}
       </DatasetSql.Provider>
     </article>
     </div>
