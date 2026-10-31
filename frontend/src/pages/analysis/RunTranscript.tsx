@@ -110,7 +110,7 @@ function StepRow({ s }: { s: Step }) {
   );
 }
 
-/** 过程流；live 时底部可以插话与停止。 */
+/** 过程流；运行中自动跟到最新一步（用户往上翻时不打扰），插话与停止在页面底部的固定输入框里。 */
 export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
   const steps = run.steps ?? [];
   const messages = ((run as Run & { messages?: Message[] }).messages ?? []).filter((m) => !m.consumed_at);
@@ -118,13 +118,18 @@ export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
   const [follow, setFollow] = useState(true);
   useEffect(() => {
     if (!live) return;
-    const scroller = end.current?.closest(".av-analysis__center");
+    const scroller = end.current?.closest(".av-analysis__scroll");
     if (!scroller) return;
     const onScroll = () => setFollow(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120);
     scroller.addEventListener("scroll", onScroll);
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [live]);
-  useEffect(() => { if (live && follow) end.current?.scrollIntoView({ block: "end" }); }, [live, follow, steps.length, messages.length]);
+  // 跟到对话区最底部（等待确认时确认面板在过程流下方，也要露出来）
+  useEffect(() => {
+    if (!live || !follow) return;
+    const scroller = end.current?.closest(".av-analysis__scroll");
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }, [live, follow, steps.length, messages.length, run.status]);
   return (
     <section className={`av-runlog${live ? " is-live" : ""}`} aria-label="分析过程" aria-live={live ? "polite" : undefined}>
       <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{run.question}</span></div>
@@ -137,12 +142,12 @@ export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
           <span className="av-caption">{run.status === "queued" ? "排队中" : "正在进行下一步…"}</span></li> : null}
       </ol>
       <div ref={end} />
-      {live ? <Interject run={run} /> : null}
     </section>
   );
 }
 
-function Interject({ run }: { run: Run }) {
+/** 运行中的插话与停止：固定在对话区下方。 */
+export function Interject({ run }: { run: Run }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const send = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/messages" as never, {

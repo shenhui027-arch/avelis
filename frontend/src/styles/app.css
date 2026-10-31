@@ -11,7 +11,7 @@ body { background: var(--bg-canvas) url("/brand/app-dark.webp") center / cover f
 .av-panel, .av-workspace, .av-stages, .av-answer, .av-composer { box-shadow: var(--shadow-glass); }
 body { font-family: var(--font-sans); }
 .av-app { height: 100vh; min-height: 0; }
-.av-main { min-height: 0; overflow: hidden; }
+.av-main { position: relative; min-height: 0; overflow: hidden; }
 
 /* 开关 */
 .av-switch { position: relative; display: inline-flex; flex: none; width: 32px; height: 18px; padding: 0; border: 1px solid var(--line-default); border-radius: var(--radius-full); background: var(--bg-active); cursor: pointer; transition: background-color .12s, border-color .12s; }

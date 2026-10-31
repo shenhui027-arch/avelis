@@ -12,7 +12,7 @@ import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupFo
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { BarChart, LineChart } from "./charts";
-import { RunTranscript } from "./RunTranscript";
+import { Interject, RunTranscript } from "./RunTranscript";
 
 type Run = Schemas["AnalysisRunOut"];
 type Dataset = Schemas["AnalysisDatasetOut"];
@@ -78,10 +78,12 @@ export function AnalysisPage() {
   return (
     <div className={`av-analysis${evidence ? " has-evidence" : ""}`}>
       <main className="av-analysis__center">
-        {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
-          : view === "experiences" ? <div className="av-analysis__page">
-            <PageHead title="个人经验" hint="在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回" /><ExperienceList /></div>
-          : runId ? <RunDetail id={runId} /> : <Composer />}
+        {runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
+          {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
+            : view === "experiences" ? <div className="av-analysis__page">
+              <PageHead title="个人经验" hint="在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回" /><ExperienceList /></div>
+            : <Composer />}
+        </div>}
       </main>
       {evidence ? <aside className="av-analysis__evidence" aria-label="证据"><Datasets id={runId!} /></aside> : null}
     </div>
@@ -95,6 +97,7 @@ function PageHead({ title, hint }: { title: string; hint?: string }) {
 /** 状态：一个点加两三个字。 */
 function RunState({ run }: { run: Run }) {
   if (run.status === "waiting") return <Status value="waiting" label="待确认" />;
+  if (run.status === "stopped") return <Status value="stopped" label="已停止" />;
   if (run.status !== "succeeded") return <Status value={run.status} />;
   return run.verified ? <Status value="verified" label="核验通过" /> : <Status value="unverified" label="有未核实" />;
 }
@@ -313,7 +316,10 @@ function RunDetail({ id }: { id: string }) {
   const done = r.status === "succeeded";
   const stopped = r.status === "stopped";
   const win = r.window as { start?: string; end?: string; compare_start?: string; compare_end?: string } | null;
+  const live = running || r.status === "waiting";
   return (
+    <>
+    <div className="av-analysis__scroll">
     <article className="av-doc">
       <header className="av-doc__hd">
         <div className="av-doc__titles">
@@ -332,7 +338,7 @@ function RunDetail({ id }: { id: string }) {
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      {running || r.status === "waiting" ? <RunTranscript run={r} live={running || r.status === "waiting"} />
+      {live ? <RunTranscript run={r} live />
         : <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
@@ -392,8 +398,10 @@ function RunDetail({ id }: { id: string }) {
         <RunTranscript run={r} />
       </details> : null}
       </DatasetSql.Provider>
-      {done ? <FollowupForm runId={r.id} /> : null}
     </article>
+    </div>
+    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm runId={r.id} />}</div> : null}
+    </>
   );
 }
 
