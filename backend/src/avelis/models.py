@@ -811,6 +811,7 @@ class AnalysisRun(Base):
     verification: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     budget: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)  # 上限与已用
     model_adapter: Mapped[str | None] = mapped_column(String(64))
+    model_choice: Mapped[dict | None] = mapped_column(JsonType, nullable=True)  # 用户按次选择；空时沿用默认指派
     reasoning_effort: Mapped[str | None] = mapped_column(String(8))  # 实际生效的思考强度（ADR 0012）
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created()

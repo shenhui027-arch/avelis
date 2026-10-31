@@ -21,6 +21,7 @@ class ModelEntry(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     enabled: bool = True
     tool_calling: bool | None = None
+    context_window: int | None = Field(default=None, strict=True)
 
 
 class ProviderCreate(BaseModel):
@@ -64,6 +65,7 @@ class ModelOut(BaseModel):
     id: str
     enabled: bool
     tool_calling: bool | None = None
+    context_window: int | None = None
     efforts: list[EffortOut] = Field(default_factory=list, description="该模型支持的思考档位；为空时不支持设置")
 
 

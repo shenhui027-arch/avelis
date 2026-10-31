@@ -676,9 +676,36 @@ class AnalysisResumeIn(BaseModel):
     supplement: str = Field(default="", max_length=4000)
 
 
+class AnalysisModelIn(BaseModel):
+    provider_id: str
+    model_id: str
+
+
+class AnalysisModelChoice(AnalysisModelIn):
+    reasoning_effort: str
+
+
+class AnalysisEffortOut(BaseModel):
+    value: str
+    label: str
+
+
+class AnalysisModelOut(AnalysisModelIn):
+    provider_name: str
+    efforts: list[AnalysisEffortOut]
+    context_window: int | None = None
+
+
+class AnalysisModelsOut(BaseModel):
+    models: list[AnalysisModelOut]
+    default: AnalysisModelChoice | None = None
+
+
 class AnalysisFollowupIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000, pattern=r"\S")
     confirmation_mode: Literal["auto", "always"] = "auto"
+    model: AnalysisModelIn | None = None
+    reasoning_effort: str | None = None
 
 
 class AnalysisMessageIn(BaseModel):
@@ -770,6 +797,8 @@ class AnalysisRunOut(Out):
     window: Json = Field(default_factory=dict)
     budget: Json = Field(default_factory=dict)
     model_adapter: str | None = None
+    model_choice: AnalysisModelChoice | None = None
+    reasoning_effort: str | None = None
     error: str | None = None
     created_at: str
     finished_at: str | None = None

@@ -552,7 +552,8 @@ def test_same_waiting_run_can_only_be_resumed_once(monkeypatch):
     assert result.status == "queued" and result.checkpoint["resume_pending"]
     with pytest.raises(Conflict):
         service.resume_run(session, user, run.id, feedback)
-    assert len(queued) == 1 and len(run.checkpoint["candidates"]) == 2
+    assert len(queued) == 1 and len(run.checkpoint["candidates"]) == 1
+    assert run.checkpoint["candidates"][0]["content"] == "补充范围"
 
 
 @pytest.mark.parametrize("with_metric", [False, True])
@@ -642,6 +643,7 @@ def test_resume_candidates_use_item_refs_and_scope_metric_refs_only(monkeypatch,
     other_ref = {"object_type": "asset", "object_id": "asset-b", "version": 2}
     inherited_ref = {"object_type": "asset", "object_id": "asset-old", "version": 1}
     metric_ref = {"object_type": "metric_version", "object_id": "revenue-v3", "version": 3}
+    run.checkpoint["proposal"]["items"][0]["kind"] = "join"
     run.checkpoint["proposal"]["items"][0]["refs"] = [first_ref]
     run.checkpoint["proposal"]["items"].append({"id": "P2", "kind": "join", "content": "待验证关联",
                                                 "source": "inferred", "refs": [other_ref]})
@@ -673,9 +675,9 @@ def test_resume_candidates_use_system_source_and_keep_user_supplement(monkeypatc
         "decisions": [{"item_id": "P1", "decision": decision}], "supplement": "本次补充"})
     candidates = run.checkpoint["candidates"]
     expected = ["本次补充"]
-    if source == "inferred":
-        expected.append(("否决：" if decision == "rejected" else "") + proposal()["items"][0]["content"])
-        assert candidates[-1]["kind"] == ("negative" if decision == "rejected" else "rule")
+    if source == "inferred" and decision == "rejected":
+        expected.append("否决：" + proposal()["items"][0]["content"])
+        assert candidates[-1]["kind"] == "negative"
     assert [c["content"] for c in candidates] == expected
 
 

@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 import avelis.ask.llm  # noqa: F401 - 先关闭外部追踪
 from avelis import audit
 from avelis.db import utcnow
-from avelis.governance.errors import Conflict, Invalid, NotFound
+from avelis.governance.errors import Conflict, GovernanceError, Invalid, NotFound
 from avelis.models import AppSetting, ModelAssignment, ModelProvider, User
 from avelis.security import decrypt_secret, encrypt_secret
 
@@ -111,6 +111,11 @@ def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str
             for e in EFFORTS if e in mapping]
 
 
+def _validate_effort(p: ModelProvider, model_id: str, effort: str | None) -> None:
+    if effort is not None and effort not in (effort_map(p, model_id) or {}):
+        raise Invalid(f"{p.name} · {model_id} 不支持思考强度“{EFFORT_LABELS.get(effort, effort)}”")
+
+
 def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None) -> str | None:
     """实际生效的档位；提供方没有核实过的档位时为 None（不传思考参数，按提供方默认）。"""
     mapping = effort_map(p, model_id)
@@ -155,7 +160,8 @@ def endpoint_preview(provider: ModelProvider) -> str:
 def provider_view(p: ModelProvider) -> dict[str, Any]:
     return {"id": p.id, "code": p.code, "name": p.name, "kind": p.kind, "preset": p.preset, "base_url": p.base_url,
             "endpoint": endpoint_preview(p), "api_key": mask(p.api_key_hint), "has_api_key": bool(p.api_key_enc),
-            "enabled": p.enabled, "models": [{**m, "efforts": effort_options(p, m["id"])} for m in p.models],
+            "enabled": p.enabled, "models": [{**m, "context_window": m.get("context_window"),
+                                               "efforts": effort_options(p, m["id"])} for m in p.models],
             "last_check": p.last_check,
             "updated_at": p.updated_at.isoformat()}  # UTCDateTime 读出时带 UTC 时区
 
@@ -185,6 +191,51 @@ def settings_view(session: Session) -> dict[str, Any]:
             "note": None if configured else "未配置有效的问数理解模型：使用演示模型（规则匹配）"}
 
 
+def get_assignment(session: Session, purpose: str) -> ModelAssignment | None:
+    assignment = session.get(ModelAssignment, purpose)
+    if assignment is None and purpose in ("explain", "analysis"):
+        assignment = session.get(ModelAssignment, "ask")
+    return assignment
+
+
+def analysis_models_view(session: Session) -> dict[str, Any]:
+    models = []
+    for p in session.scalars(select(ModelProvider).order_by(ModelProvider.name)):
+        for model in p.models:
+            if _enabled_model(p, model["id"], needs_tools=True) is not None:
+                models.append({"provider_id": p.id, "provider_name": p.name, "model_id": model["id"],
+                               "efforts": [{"value": option["value"], "label": option["label"]}
+                                           for option in effort_options(p, model["id"])],
+                               "context_window": model.get("context_window")})
+    assignment = get_assignment(session, "analysis")
+    provider = session.get(ModelProvider, assignment.provider_id) if assignment else None
+    default = None
+    if assignment and _enabled_model(provider, assignment.model_id, needs_tools=True) is not None:
+        default = {"provider_id": assignment.provider_id, "model_id": assignment.model_id,
+                   "reasoning_effort": assignment.reasoning_effort or DEFAULT_EFFORT["analysis"]}
+    return {"models": models, "default": default}
+
+
+def analysis_model_choice(session: Session, model: dict | None = None,
+                          reasoning_effort: str | None = None) -> dict | None:
+    if model is None and reasoning_effort is None:
+        return None
+    if model is None:
+        assignment = get_assignment(session, "analysis")
+        if assignment is None:
+            raise GovernanceError("未配置可用的分析模型")
+        model = {"provider_id": assignment.provider_id, "model_id": assignment.model_id}
+    provider = session.get(ModelProvider, model["provider_id"])
+    if _enabled_model(provider, model["model_id"], needs_tools=True) is None:
+        raise GovernanceError("所选模型不可用于分析：请启用提供方和模型、设置密钥并通过工具调用检测")
+    try:
+        _validate_effort(provider, model["model_id"], reasoning_effort)
+    except Invalid as exc:
+        raise GovernanceError(exc.message) from None
+    return {"provider_id": provider.id, "model_id": model["model_id"],
+            "reasoning_effort": reasoning_effort if reasoning_effort is not None else DEFAULT_EFFORT["analysis"]}
+
+
 # --- 维护 -------------------------------------------------------------------------
 
 def _get(session: Session, provider_id: str) -> ModelProvider:
@@ -207,7 +258,11 @@ def _normalise_models(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not mid or mid in seen:
             continue
         seen.add(mid)
-        out.append({"id": mid, "enabled": bool(m.get("enabled", True)), "tool_calling": m.get("tool_calling")})
+        context_window = m.get("context_window")
+        if context_window is not None and (type(context_window) is not int or not 1024 <= context_window <= 10_000_000):
+            raise Invalid("context_window 必须是 1024 到 10000000 之间的整数")
+        out.append({"id": mid, "enabled": bool(m.get("enabled", True)), "tool_calling": m.get("tool_calling"),
+                    "context_window": context_window})
     return out
 
 
@@ -292,8 +347,7 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
         if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
             raise Conflict(f"{PURPOSES[purpose]['label']}需要该模型最近一次服务器检测成功且支持工具调用")
         effort = target.get("reasoning_effort")
-        if effort is not None and effort not in (effort_map(p, model["id"]) or {}):
-            raise Invalid(f"{p.name} · {model['id']} 不支持思考强度“{EFFORT_LABELS.get(effort, effort)}”")
+        _validate_effort(p, model["id"], effort)
         if current is None:
             current = ModelAssignment(purpose=purpose, provider_id=p.id, model_id=model["id"], updated_by=actor.id)
             session.add(current)
@@ -356,17 +410,25 @@ class Resolved:
 
 def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Resolved | None:
     """指派无效、模型不再启用或问数检测失效时返回 None，调用方标明并使用演示模型。"""
-    a = session.get(ModelAssignment, purpose)
-    if a is None and purpose in ("explain", "analysis"):
-        a = session.get(ModelAssignment, "ask")
+    a = get_assignment(session, purpose)
     if a is None:
         return None
     p = session.get(ModelProvider, a.provider_id)
     if _enabled_model(p, a.model_id, needs_tools=a.purpose in ("ask", "analysis")) is None:
         return None
-    model_id = a.model_id
     effort = a.reasoning_effort or DEFAULT_EFFORT.get(purpose, "medium")
+    return _resolve_model(p, a.model_id, effort, temperature=temperature)
 
+
+def resolve_choice(session: Session, provider_id: str, model_id: str, reasoning_effort: str | None = None,
+                   *, temperature: float = 0.0) -> Resolved | None:
+    p = session.get(ModelProvider, provider_id)
+    if _enabled_model(p, model_id, needs_tools=True) is None:
+        return None
+    return _resolve_model(p, model_id, reasoning_effort or DEFAULT_EFFORT["analysis"], temperature=temperature)
+
+
+def _resolve_model(p: ModelProvider, model_id: str, effort: str, *, temperature: float) -> Resolved:
     def factory(timeout: float, max_retries: int, *, effort: str = effort, max_tokens: int | None = None) -> BaseChatModel:
         """按剩余时间重建模型；阶段可以另定思考强度与输出上限（如理解阶段关闭思考）。"""
         return build_chat_model(p, model_id, temperature=temperature, timeout=timeout, max_retries=max_retries,
