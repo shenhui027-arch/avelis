@@ -4160,6 +4160,58 @@
        "default": "pdf",
        "title": "Format"
       }
+     },
+     {
+      "name": "audience",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "brief",
+          "full"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Audience"
+      }
+     },
+     {
+      "name": "appendix",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Appendix"
+      }
+     },
+     {
+      "name": "datasets",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasets"
+      }
      }
     ],
     "responses": {

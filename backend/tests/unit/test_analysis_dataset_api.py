@@ -142,7 +142,9 @@ def test_detail_exposes_source_and_stored_provenance_flags(api):
 @pytest.mark.parametrize("domain", ["asset-domain", "metric-domain"])
 def test_current_domain_membership_revocation_restricts_all_http_reads_and_calc_inputs(api, domain):
     secret = "private-row-marker"
-    api.dataset.rows = [[secret, 10]]
+    api.dataset.rows = [[secret, 10], ["other-row", 20]]
+    api.run.report = {**api.run.report, "claims": [
+        {"type": "fact", "text": "指标明细见数据。", "refs": ["D1"]}]}
     calc = AnalysisDataset(id="calc", run_id=api.run.id, seq=2, kind="calc", title="计算结果", inputs=["D1"],
                            columns=["derived"], rows=[["private-calculation-marker"]], meta={"closure": ["D1"]})
     api.session.add_all([calc, AnalysisStep(run_id=api.run.id, seq=1, kind="tool", tool="query_metric",
@@ -325,7 +327,7 @@ def test_revoked_report_values_and_sql_are_hidden_in_views_and_exports_without_r
     assert secret not in api.client.get("/api/analysis/runs").text
     detail = api.client.get("/api/analysis/runs/run").json()
     assert detail["datasets"][0]["summary"] is None and detail["datasets"][0]["sql"] is None
-    assert detail["steps"][0]["args"]["sql"] is None
+    assert detail["steps"][0]["args"] == detail["steps"][1]["args"] == {}
     assert detail["steps"][0]["output"] == {"rows": [], "restricted": True}
     api.session.refresh(api.run)
     assert api.run.report == original and api.run.verification == {"ok": True}

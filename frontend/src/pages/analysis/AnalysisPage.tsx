@@ -228,6 +228,7 @@ function Segments({ segments, text }: { segments?: Segment[]; text?: string | nu
 
 function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [full, setFull] = useState(false); // 默认导出给决策者看的简报；勾选后带上依据附录（完整版）
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -235,17 +236,20 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
-  const item = (label: string, format: string, name: string) => (
+  const item = (label: string, format: string, ext: string) => (
     <button type="button" role="menuitem" className="av-menu__item" onClick={() => {
       setOpen(false);
-      download(`/api/analysis/runs/${run.id}/export?format=${format}`, `analysis-${run.id}${name}`).catch((e) => onError(errorText(e)));
+      const audience = full ? "full" : "brief";
+      download(`/api/analysis/runs/${run.id}/export?format=${format}&audience=${audience}`,
+        `analysis-${run.id}${full ? "-full" : ""}.${ext}`).catch((e) => onError(errorText(e)));
     }}>{label}</button>);
   return (
     <span className="av-analysis__menu" ref={ref}>
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen(!open)}><Icon name="download" />导出<Icon name="chevron" small /></button>
       {open ? <div className="av-menu" role="menu">
-        {item("PDF 报告", "pdf", ".pdf")}{item("Markdown", "md", ".md")}{item("数字引用来源（CSV）", "csv", "-sources.csv")}
+        {item("PDF", "pdf", "pdf")}{item("HTML", "html", "html")}{item("Markdown", "md", "md")}
+        <label className="av-menu__item av-analysis__export-full"><input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} />附带依据（数据来源与查询明细）</label>
       </div> : null}
     </span>
   );
@@ -423,6 +427,13 @@ function RunDetail({ id }: { id: string }) {
         </details>
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
+      {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
+        <section className="av-analysis__joins" aria-label="关联路径">
+          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />你确认的 {r.join_candidates.length} 条关联已提交为关联路径，
+            负责人审核通过后所有分析都能用。<Link to="/catalog/joins">查看</Link></p> : null}
+          {r.checkpoint_warnings?.map((w) => <div key={w} className="av-banner av-banner--warn" role="status"><Icon name="info" />{w}</div>)}
+        </section>
+      ) : null}
       {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
       </DatasetSql.Provider>
     </article>
