@@ -99,6 +99,23 @@ def resume_run(run_id: str, body: S.AnalysisResumeIn, user: User = Depends(curre
     return analysis.run_view(session, run)
 
 
+@router.post("/analysis/runs/{run_id}/messages", status_code=201, response_model=S.AnalysisMessageOut)
+def add_message(run_id: str, body: S.AnalysisMessageIn, user: User = Depends(current_user),
+                session: Session = Depends(get_session)) -> dict:
+    """记录插话；只在下一次模型调用前生效，等待确认期间不消费。"""
+    message = analysis.add_message(session, user, run_id, body.text)
+    session.commit()
+    return analysis.message_view(message)
+
+
+@router.post("/analysis/runs/{run_id}/stop", response_model=S.AnalysisRunOut)
+def stop_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """请求在下一个安全点停止；等待确认的运行立即结束。"""
+    run = analysis.stop_run(session, user, run_id)
+    session.commit()
+    return analysis.run_view(session, run)
+
+
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
 def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict:

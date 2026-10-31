@@ -276,10 +276,22 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
     预算上限造成的截断记为预算截止；其他接入协议错误记下错误码并抛出 ModelProtocolError。
-    reasoning_content 不写进步骤记录。"""
+    text / thinking 仅为步骤展示摘要，不改写回复对象，也不参与核验或协议回传。"""
     budget = toolbox.budget
     retried = False
     while True:
+        if not _can_call_model(toolbox):
+            return None
+        toolbox.consume_messages()
+        present = {message.id for message in messages}
+        for batch in toolbox.interjections:
+            if batch["id"] not in present:
+                messages.append(HumanMessage(
+                    "用户在分析过程中插话（以此为准调整方向，不改变安全与核验规则）：\n" + batch["text"],
+                    id=batch["id"]))
+                present.add(batch["id"])
+        if not _can_call_model(toolbox):
+            return None
         estimate = budget.estimate_input_tokens(messages) if budget.input_tokens is not None else None
         if estimate is not None and budget.used_input_tokens + estimate > budget.input_tokens:
             budget._blocked_input_estimate = estimate
@@ -315,8 +327,13 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
             error = {"error_code": "budget_output_tokens", "error": "模型回复因剩余输出 token 额度而截断"}
         else:
             error = {"error_code": problem.code, "error": problem.message} if problem else {}
+        text = reply.content if isinstance(reply.content, str) else "".join(
+            block if isinstance(block, str) else block.get("text", "")
+            for block in reply.content if isinstance(block, str) or isinstance(block, dict) and block.get("type") == "text")
+        thinking = (reply.additional_kwargs or {}).get("reasoning_content")
         toolbox._step("model", "model", {}, "error" if problem else "ok",
                       {**usage, "tool_calls": len(names), "tools": names, **({"finish_reason": finish} if finish else {}),
+                       "text": text[:1500], **({"thinking": thinking[:3000]} if isinstance(thinking, str) and thinking else {}),
                        **error}, started=started)
         if budget_cutoff:
             return None  # 截断内容和工具调用不执行，由现有预算截止路径生成未完成报告。
@@ -326,6 +343,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
 
 
 def _can_call_model(toolbox: AnalysisToolbox) -> bool:
+    toolbox.check_executor()
     return not toolbox.stopped and toolbox.budget.remaining() > 0 and not toolbox.budget.model_blocked()
 
 
@@ -351,17 +369,25 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
     if not _can_call_model(toolbox):
         return []
     request_model, output_budget_limited = _model_for(model, toolbox.budget)
+    before = len(state["messages"])
     reply = _invoke(request_model.bind_tools(toolbox.tools()), state["messages"], toolbox,
                     output_budget_limited=output_budget_limited)
+    appended = state["messages"][before:]
     if reply is None:
-        return []
-    out: list[AnyMessage] = [reply]
+        return appended
+    out: list[AnyMessage] = [*appended, reply]
     for call in reply.tool_calls or []:
+        toolbox.check_executor()
+        if toolbox.stopped:
+            break
         result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
         out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
     # 参数无法解析的调用（LangChain 放在 invalid_tool_calls）也必须逐个回复，否则下一轮请求会因缺少工具消息被拒（400）；
     # 回复用 dispatch 的结果：其中有出错的 JSON 路径与原因、还能否重交
     for call in getattr(reply, "invalid_tool_calls", None) or []:
+        toolbox.check_executor()
+        if toolbox.stopped:
+            break
         if call.get("id"):
             result = toolbox.dispatch(call.get("name") or "?", str(call.get("args") or ""), only_report=only_report)
             out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
@@ -390,6 +416,7 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         messages = [*state["understand_messages"], HumanMessage("用户对追问的回答：" + feedback["answer"])]
     inherited = state.get("inherited") or {}
     if inherited.get("scope"):
+        toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
         scope = Scope.model_validate({**inherited["scope"], "clarification": None})
         toolbox.record_scope(scope, scope.model_dump(mode="json"), None)
         return {"scope": scope.model_dump(mode="json"), "phase": "precheck", "rounds": 0}
@@ -548,7 +575,7 @@ def checkpoint(state: AnalysisState, config) -> dict[str, Any]:
     inherited = state.get("inherited") or {}
     unattended = state["unattended"]
     mode = state["confirmation_mode"]
-    pause = (_can_call_model(toolbox) and not unattended
+    pause = (bool(items) and _can_call_model(toolbox) and not unattended
              and (mode == "always" or any(i["source"] == "inferred" for i in items)))
     feedback = None
     if pause:
