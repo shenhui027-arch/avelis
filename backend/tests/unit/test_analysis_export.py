@@ -214,7 +214,7 @@ def test_cause_labels_follow_type_and_saved_readable_fields(cause, expected):
     assert "code" not in export._cause_label(cause)
 
 
-def test_context_only_claims_move_to_data_checks_and_other_claims_stay_in_body(monkeypatch):
+def test_context_checks_are_summarized_without_repeating_context_only_claims(monkeypatch):
     view = sample_view()
     claims = [
         {"type": "fact", "text": "仅上下文检查结论。", "refs": ["D7", "D8"], "segments": []},
@@ -227,9 +227,11 @@ def test_context_only_claims_move_to_data_checks_and_other_claims_stay_in_body(m
     view["report"]["claims"] = claims
     markdown = export.to_markdown(view, audience="full")
     body, appendix = markdown.split("## 附录", 1)
-    checks = appendix.split("### 数据集清单", 1)[0]
+    checks = appendix.split("### 数据检查", 1)[1].split("### 用到的数据", 1)[0].strip()
+    assert "已保存范围内未发现变更" in checks and "已保存的采集记录均成功，无口径漂移" in checks
+    assert "已保存 2 条检查记录，未保存汇总结论" in checks and "\n" not in checks
     for claim in claims[:2]:
-        assert claim["text"] not in body and claim["text"] in checks
+        assert claim["text"] not in markdown
         assert claim["text"] not in export.to_markdown(view, appendix=False)
     for claim in claims[2:]:
         assert claim["text"] in body
@@ -238,7 +240,10 @@ def test_context_only_claims_move_to_data_checks_and_other_claims_stay_in_body(m
     pdf_body = "\n".join(_story_text(story[:break_at]))
     pdf_appendix = "\n".join(_story_text(story[break_at + 1:]))
     for claim in claims[:2]:
-        assert claim["text"] not in pdf_body and claim["text"] in pdf_appendix
+        assert claim["text"] not in pdf_body + pdf_appendix
+    assert checks in pdf_appendix
+    listing = appendix.split("### 用到的数据", 1)[1].split("### 查询明细", 1)[0]
+    assert not {"D7", "D8", "D9"} & set(re.findall(r"^\| (D\d+) \|", listing, re.MULTILINE))
     assert all(claim["text"] in pdf_body for claim in claims[2:])
     claim = {"type": "inference", "refs": ["D7"], "segments": [],
              "details": {"premise": {"segments": [_value("D3", "差额甲", "-120000", "-12万元")]}}}
@@ -397,7 +402,12 @@ def test_renderer_preserves_model_segment_order_even_when_sentence_is_awkward():
 
 def test_markdown_has_executive_sections_and_separate_appendix():
     view = sample_view()
+    view["report"]["method"] = "按已保存的对比结果检查指标与成员变化。"
+    for dataset in view["datasets"]:
+        if dataset["kind"] == "governed":
+            dataset["sql"] = f"SELECT {dataset['seq']} AS saved_dataset"
     text = export.to_markdown(view, audience="full")
+    body, appendix = text.split("## 附录", 1)
     headings = ["# 指标变化分析", "## 核心指标", "## 结论", "## 主要原因", "## 关键发现", "## 判断与建议",
                 "## 还没查清", "## 关键数据", "## 附录"]
     assert [text.index(h) for h in headings] == sorted(text.index(h) for h in headings)
@@ -407,13 +417,27 @@ def test_markdown_has_executive_sections_and_separate_appendix():
     assert "sample-run-id" not in text and "sample-model" not in text and "02:34:56" not in text
     assert "sample_step" not in text and "过程标识不可导出" not in text and "## 步骤" not in text
     assert "成员 ·" not in text and "dimension_code：" not in text
-    assert "推断，未核实" in text and "数字来源与查询明细见附录" in text
-    for heading in ("数据检查", "数据集清单", "数字来源", "查询明细"):
-        assert heading in text
+    assert "推断，未核实" in body
+    assert appendix.lstrip().startswith("**分析方法**：按已保存的对比结果检查指标与成员变化。")
+    assert re.findall(r"^### (.+)$", appendix, re.MULTILINE) == ["数据检查", "用到的数据", "查询明细"]
+    assert "数字来源" not in text and "来源构成" not in text and "可追溯 ≠ 可复现" not in text
+    assert "来源全部通过" not in body and "来源全部通过" in appendix
+    listing, queries = appendix.split("### 用到的数据", 1)[1].split("### 查询明细", 1)
+    assert re.findall(r"^\| (D\d+) \|", listing, re.MULTILINE) == [
+        "D1", "D2", "D3", "D4", "D5", "D6", "D10", "D11", "D12"]
+    assert "| 编号 | 名称 | 来源 | 行数 | 是否截断 |" in listing
+    assert "| D2 | 指标明细 | 计算 | 3 | 否 |" in listing
+    assert "| D3 | 观测甲 · 按分组 | 指标口径 | 25 | 是 |" in listing
+    assert "指标甲分组对比" not in listing
+    query_refs = re.findall(r"^#### (D\d+) ", queries, re.MULTILINE)
+    assert query_refs == ["D1", "D3", "D4", "D5", "D6", "D10", "D11", "D12"]
+    for seq in (1, 3, 4, 5, 6, 10, 11, 12):
+        assert f"SELECT {seq} AS saved_dataset" in queries and f"口径版本：version-{seq}\n" in queries
+    for seq in range(13, 19):
+        assert f"SELECT {seq} AS saved_dataset" not in queries
     assert "已保存范围内未发现变更" in text and "已保存的采集记录均成功，无口径漂移" in text
     assert "共 25 行，显示前 10 行" in text and "结果被截断" in text
     assert "—" in text  # 指标乙保存的空值
-    assert "可追溯 ≠ 可复现" in text
 
 
 def test_key_datasets_use_saved_units_references_and_limit():
@@ -426,13 +450,14 @@ def test_key_datasets_use_saved_units_references_and_limit():
     assert [d["ref"] for d in export._key_datasets(view, ["D2", "D5", "D5", "D4", "D3"])] == ["D5", "D4"]
     text = export.to_markdown(view, audience="full", datasets=["D5"]).split("## 附录", 1)[0]
     assert "另一个可选指标" in text and "指标甲分组对比" not in text
-    assert "SELECT " not in text and "数据集清单" not in text and "sample_step" not in text
+    assert "SELECT " not in text and "用到的数据" not in text and "sample_step" not in text
     brief = export.to_markdown(view, appendix=False, datasets=["D5"])
-    assert "## 附录" not in brief and "SELECT " not in brief and "数据集清单" not in brief
+    assert "## 附录" not in brief and "SELECT " not in brief and "用到的数据" not in brief
     full = export.to_markdown(view, audience="full")
     body, appendix = full.split("## 附录", 1)
     assert len(re.findall(r"^### D\d+ ", body, re.MULTILINE)) == 2
-    assert "另一个可选指标" not in body and "另一个可选指标" in appendix
+    assert "另一个可选指标" not in body + appendix
+    assert "| D5 | 指标丙 · 按成员 | 指标口径 | 2 | 否 |" in appendix
 
 
 def test_core_metrics_require_governed_ungrouped_single_row_and_registered_roles():
@@ -545,7 +570,10 @@ def test_pdf_generates_compact_body_and_appendix_starts_with_page_break(monkeypa
     break_at = next(i for i, item in enumerate(story) if isinstance(item, PageBreak))
     body, appendix = "\n".join(_story_text(story[:break_at])), "\n".join(_story_text(story[break_at + 1:]))
     assert all(title in body for title in ("指标变化分析", "核心指标", "结论", "主要原因", "还没查清"))
-    assert "附录" in appendix and "数据集清单" in appendix and "数字来源" in appendix and "查询明细" in appendix
+    assert "附录" in appendix and "用到的数据" in appendix and "查询明细" in appendix
+    assert "数字来源" not in body + appendix and "数据集清单" not in body + appendix
+    assert all(f"version-{seq}" not in appendix for seq in range(13, 19))
+    assert "version-1" in appendix and "version-3" in appendix
     assert "其余成员两期合计为净增长+13.70万元。" in body
     assert "sample_step" not in body + appendix and "sample-run-id" not in body
     assert len(re.findall(rb"/Type\s*/Page\b", pdf)) <= 8
