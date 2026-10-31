@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.analysis import attribution, calc, measures, retrieval
+from avelis.analysis import attribution, calc, investigation, measures, retrieval
 from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
@@ -830,6 +830,8 @@ class AnalysisToolbox:
         self.precheck_meta: list[dict] = []
         self.precheck_refs: list[dict] = []
         self.precheck_problem: str | None = None  # 所选指标在预检里没有数据的原因：理解阶段据此重选一次
+        if get_settings().analysis_investigation:
+            self.precheck_distribution = None
         window = self._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
 
         def run(label: str, call, group: str = "attribution") -> dict:
@@ -880,6 +882,9 @@ class AnalysisToolbox:
             if daily.get("dataset"):
                 run("覆盖度", lambda: self.coverage(dataset=daily["dataset"], start_date=date.fromisoformat(
                     window["compare_start"]), end_date=date.fromisoformat(window["end"])), "trend")
+            if get_settings().analysis_investigation:
+                self.precheck_distribution = investigation.distribution(
+                    ds, self._datasets.get(daily.get("dataset") or ""), self._datasets, window)
             self.precheck_meta = self._source_metadata(code)
             if get_settings().analysis_retrieval:
                 found = run("参考表", lambda: self._reference_tables(code))
@@ -980,7 +985,13 @@ class AnalysisToolbox:
         first = [r for r in groups.get("attribution", []) if r in self._datasets]
         trend = [r for r in groups.get("trend", []) if r in self._datasets]
         rest = [r for r in self._datasets if r not in first and r not in trend]
-        for ref in first + trend:
+        for ref in first:
+            if omitted or not add(self._pack_block(ref, self._datasets[ref]), cap - reserve):
+                omitted.append(ref)
+        if get_settings().analysis_investigation and (value := getattr(self, "precheck_distribution", None)):
+            if omitted or not add(investigation.distribution_block(value), cap - reserve):
+                omitted.append("变化的分布特征")
+        for ref in trend:
             if omitted or not add(self._pack_block(ref, self._datasets[ref]), cap - reserve):
                 omitted.append(ref)
         for table in getattr(self, "precheck_meta", None) or []:

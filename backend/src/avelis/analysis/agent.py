@@ -24,6 +24,7 @@ import json
 import operator
 import ssl
 import time
+from types import SimpleNamespace
 from typing import Annotated, Any, TypedDict
 
 import httpx
@@ -33,9 +34,14 @@ from langchain_core.tools import StructuredTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
+from avelis.analysis import investigation
 from avelis.analysis.tools import AnalysisToolbox, Scope
 from avelis.analysis.verify import ground_report
+from avelis.ask import service
+from avelis.config import get_settings
+from avelis.engines import dialect_of, get_engine
 from avelis.llm_protocol import ModelProtocolError, protocol_problem
+from avelis.models import Datasource, MetricVersion
 
 REVISION_TOOL_CALLS = 6
 UNDERSTAND_MAX_TOKENS = 1000  # 理解阶段只输出 scope：关闭思考、限制输出长度（ADR 0012，系统固定）
@@ -139,6 +145,20 @@ D. 预检已经给出判定与首要成员
    正确：直接写报告；只对需要解释的成员细查（例如<成员甲>按日看缺口，或查它的上游表），再提交。
 E. 数字写成引用
    反例：摘要文字里写“下降了一百二十万”或阿拉伯数字。正确：数字写成 NumberRef 等引用对象，由系统渲染（结构核验会拦截）。"""
+
+
+INVESTIGATION_EXAMPLES = """
+
+证据解释的对照示例（成员甲、成员乙、记录表丙、指标 X 都是中性占位）：
+反例：把贡献最大的成员甲写成原因。
+错在哪：成员甲与成员乙等成员的变化率相近，贡献大可能只是基数大，贡献定位不能解释驱动因素。
+正确写法：说明变化在成员之间分布均匀，用记录表丙里同期的记录检验驱动因素；检验不了时在 unexplained 写明未检验的驱动因素与理由。
+反例：把乘法拆解里的因子当成机制。
+错在哪：因子说明指标 X 是“怎么变”的，没有说明“为什么变”。
+正确写法：把因子作为分解结果，再用已有证据检验驱动因素，不能仅凭因子贡献认定机制。
+反例：看到记录表丙里的记录就采纳为原因。
+错在哪：还没有检验记录的生效时间与范围是否能解释变化。
+正确写法：核对生效时间、范围与变化是否对得上；对不上就在 unexplained 写明证据不足，不要求把记录改选为原因。"""
 
 
 UNDERSTAND_PROMPT = """你是 Avelis 分析的问题理解器：读用户问题与候选口径，调用一次 submit_scope，写出问题的范围。
@@ -439,6 +459,47 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
     return {"messages": messages, "phase": "verify", "rounds": 1, "notes": notes}
 
 
+def _investigation_feedback(toolbox: AnalysisToolbox) -> str | None:
+    """给纯函数补齐已取得数据的版本闭包与数据源方言，不改变权限或持久化元数据。"""
+    value = getattr(toolbox, "precheck_distribution", None)
+    if not value or not any(d.get("uniform") is True for d in value.get("dimensions", {}).values()):
+        return None
+    report = toolbox.report
+    code = (report.get("scope") or {}).get("metric_code") or report.get("metric_code")
+    if not code:
+        return None
+    datasets = toolbox.datasets()
+    try:
+        pinned = next(((d.meta or {}).get("versions", {}).get(code) for d in datasets.values()
+                       if (d.meta or {}).get("versions", {}).get(code)), None)
+        version = (toolbox.session.get(MetricVersion, pinned) if pinned else
+                   toolbox.catalog.versions.get(code, (None, None))[1])
+        if version is None:
+            return None
+        versions = ([toolbox.session.get(MetricVersion, c["version_id"]) for c in version.components or []]
+                    if version.kind == "derived" else [version])
+        if not versions or any(v is None for v in versions):
+            return None
+        closure = {f"{a.catalog_name}.{a.db_name}.{a.name}" for v in versions
+                   for a in service.version_sources(toolbox.session, v).values()}
+    except Exception:  # noqa: BLE001 - 闭包不可确定时不给修订条件，既有核验照常进行。
+        return None
+    views = {}
+    for ref, dataset in datasets.items():
+        meta = dict(dataset.meta or {})
+        if meta.get("sql"):
+            try:
+                source = toolbox.session.get(Datasource, meta["datasource_id"]) if meta.get("datasource_id") else None
+                meta["dialect"] = (dialect_of(source).name if source else
+                                   get_engine(meta["engine"]).sql.name if meta.get("engine") else
+                                   meta.get("dialect") or "starrocks")
+            except Exception:  # noqa: BLE001 - 数据源或引擎信息不可得时使用固定回退方言。
+                meta["dialect"] = "starrocks"
+        views[ref] = SimpleNamespace(kind=dataset.kind, columns=dataset.columns, rows=dataset.rows,
+                                     inputs=dataset.inputs, meta=meta, truncated=dataset.truncated)
+    return investigation.needs_revision(report, views, closure, value)
+
+
 def verify(state: AnalysisState, config) -> dict[str, Any]:
     """渲染引用片段并做结构检查（ADR 0009）：toolbox.report 换成渲染后的报告（保留模型提交的 parts）。"""
     toolbox, _ = _ctx(config)
@@ -457,7 +518,14 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
                                    getattr(toolbox, "explanations", {}), scope.question_type if scope else None)
     toolbox.report = report
     toolbox.verification = {**result, "revised": bool(state.get("revised"))}
-    if (not result["ok"] and not state.get("revised") and not report.get("incomplete")
+    feedback = None
+    if get_settings().analysis_investigation:
+        toolbox.investigation_feedback = None
+        if (not state.get("revised") and not report.get("incomplete") and not toolbox.stopped
+                and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS):
+            feedback = _investigation_feedback(toolbox)
+            toolbox.investigation_feedback = feedback
+    if ((not result["ok"] or feedback) and not state.get("revised") and not report.get("incomplete")
             and not toolbox.stopped and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS):
         return {"phase": "revise"}
     return {"phase": "done"}
@@ -487,6 +555,8 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
             lines.append(f"- 原因第 {c['index'] + 1} 项")
             lines += [f"  · {p}" for p in c["problems"]]
     lines += [f"- 结论类型：{p}" for p in (toolbox.verification.get("conclusion") or {}).get("problems", [])]
+    if get_settings().analysis_investigation and (feedback := getattr(toolbox, "investigation_feedback", None)):
+        lines.append(f"- 证据解释：{feedback}")
     toolbox.budget.tool_calls += REVISION_TOOL_CALLS
     toolbox.budget.used_reports = 0  # 修订是新的一轮：submit_report 的预留次数重新计算
     toolbox.report = None
@@ -534,7 +604,10 @@ def prompt_example(catalog) -> dict[str, str]:
 
 def system_message(example: dict[str, str] | None = None) -> SystemMessage:
     """稳定的系统提示：只随当前用户可见的口径示例变化，不含日期、窗口、预算（放在用户消息里，前缀缓存才能命中）。"""
-    return SystemMessage(SYSTEM_PROMPT.format(**(example or PLACEHOLDER_EXAMPLE)))
+    text = SYSTEM_PROMPT.format(**(example or PLACEHOLDER_EXAMPLE))
+    if get_settings().analysis_investigation:
+        text += INVESTIGATION_EXAMPLES
+    return SystemMessage(text)
 
 
 def initial_state(question: str, today, tz: str, window: dict | None, example: dict[str, str] | None = None) -> dict:
