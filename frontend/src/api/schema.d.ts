@@ -1011,6 +1011,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/runs/{run_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Message
+         * @description 记录插话；只在下一次模型调用前生效，等待确认期间不消费。
+         */
+        post: operations["add_message_api_analysis_runs__run_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Run
+         * @description 请求在下一个安全点停止；等待确认的运行立即结束。
+         */
+        post: operations["stop_run_api_analysis_runs__run_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}/followup": {
         parameters: {
             query?: never;
@@ -1551,6 +1591,24 @@ export interface components {
              */
             confirmation_mode?: "auto" | "always";
         };
+        /** AnalysisMessageIn */
+        AnalysisMessageIn: {
+            /** Text */
+            text: string;
+        };
+        /** AnalysisMessageOut */
+        AnalysisMessageOut: {
+            /** Id */
+            id: string;
+            /** Text */
+            text: string;
+            /** Created At */
+            created_at: string;
+            /** Consumed At */
+            consumed_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AnalysisProposalItem */
         AnalysisProposalItem: {
             /** Id */
@@ -1648,6 +1706,8 @@ export interface components {
             steps?: components["schemas"]["AnalysisStepOut"][] | null;
             /** Datasets */
             datasets?: components["schemas"]["AnalysisDatasetOut"][] | null;
+            /** Messages */
+            messages?: components["schemas"]["AnalysisMessageOut"][];
             /** Parent Run Id */
             parent_run_id?: string | null;
             /**
@@ -5859,6 +5919,72 @@ export interface operations {
                 "application/json": components["schemas"]["AnalysisResumeIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_message_api_analysis_runs__run_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisMessageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisMessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_run_api_analysis_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

@@ -674,3 +674,29 @@
 .av-chart__value { fill: var(--text-secondary); font: 400 9px var(--font-mono); }
 .av-chart__axis { stroke: var(--line-strong); stroke-width: 1; }
 .av-datasources__switch { display: flex; align-items: center; gap: var(--space-2); }
+
+/* 分析过程流（像对话一样实时展开每一步；运行中可插话、可停止） */
+.av-trace { display: flex; flex-direction: column; gap: var(--space-3); }
+.av-trace__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.av-trace__steps::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 13px; width: 1px; background: var(--line-subtle); }
+.av-trace__step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); padding: 6px 0; }
+.av-trace__icon { z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--line-default); border-radius: 50%; background: var(--bg-base); color: var(--text-tertiary); }
+.av-trace__step.is-model .av-trace__icon { border-color: var(--accent); color: var(--accent-text); }
+.av-trace__step.is-bad .av-trace__icon { border-color: var(--danger); color: var(--danger); }
+.av-trace__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 3px; }
+.av-trace__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
+.av-trace__title { color: var(--text-primary); font: 500 13px/20px var(--font-sans); }
+.av-trace__reason { color: var(--text-tertiary); font: var(--type-caption); }
+.av-trace__time { margin-left: auto; color: var(--text-disabled); font: var(--type-mono); }
+.av-trace__detail { color: var(--text-secondary); font: var(--type-body-compact); overflow-wrap: anywhere; }
+.av-trace__detail.is-thought { padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--accent-subtle); color: var(--text-primary); white-space: pre-wrap; }
+.av-trace__body .av-code, .av-trace__body pre { max-height: 220px; overflow: auto; }
+.av-trace__more { align-self: flex-start; padding: 0; border: none; background: none; color: var(--accent-text); font: var(--type-caption); cursor: pointer; }
+.av-trace__thinking { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--bg-raised); color: var(--text-secondary); font: 400 12px/19px var(--font-sans); white-space: pre-wrap; }
+.av-trace__err { color: var(--danger); font: var(--type-caption); }
+.av-trace__user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 6px 0; }
+.av-trace__bubble { max-width: 80%; padding: var(--space-2) var(--space-3); border: 1px solid var(--accent); border-radius: var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg); background: var(--accent-subtle); color: var(--text-primary); font: var(--type-body); white-space: pre-wrap; }
+.av-trace__user.is-question .av-trace__bubble { border-color: var(--line-default); background: var(--bg-raised); }
+.av-trace__step.is-pending { align-items: center; grid-template-columns: 28px auto; padding-left: 6px; }
+.av-trace__composer { position: sticky; bottom: 0; z-index: 2; padding: var(--space-3) 0 var(--space-4); background: linear-gradient(180deg, transparent, var(--bg-base) 24px); }
+.av-compose--inline textarea { min-height: 56px; font-size: 14px; }
