@@ -66,17 +66,18 @@ class Budget:
     - queries 是查询类工具（query_metric、query_sql、sample_values、explain_change 的子查询）共用的额度，
       用完只停用查询类工具，计算工具与 submit_report 照常可用；
     - explore 是其中探索查询的单独上限。"""
-    tool_calls: int = 30
+    tool_calls: int = field(default_factory=lambda: get_settings().analysis_tool_calls)
     queries: int = field(default_factory=lambda: get_settings().analysis_query_limit)
-    seconds: int = 300
-    explore: int = 8  # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
+    seconds: int = field(default_factory=lambda: get_settings().analysis_seconds)
+    # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
+    explore: int = field(default_factory=lambda: get_settings().analysis_explore_limit)
     report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
     # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型，记为预算截止。
     # token 上限是 E1 前统一修订的值（manifest b0.token_cap_decision）：第 13 节的 16 万输入 / 2.4 万输出装不下 B0，
     # 取 max(默认值, ceil(历史 P95 × 1.2))；None 表示不限（只记录）
-    model_requests: int = 16
-    input_tokens: int | None = 552_321
-    output_tokens: int | None = 30_716  # 含提供方计费的推理 token
+    model_requests: int = field(default_factory=lambda: get_settings().analysis_model_requests)
+    input_tokens: int | None = field(default_factory=lambda: get_settings().analysis_input_tokens)
+    output_tokens: int | None = field(default_factory=lambda: get_settings().analysis_output_tokens)  # 含提供方计费的推理 token
     used_model_requests: int = 0
     used_input_tokens: int = 0
     used_output_tokens: int = 0

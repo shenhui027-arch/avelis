@@ -195,6 +195,10 @@ def test_assert_flags_detects_a_change_before_the_next_request():
 
 @pytest.mark.parametrize("with_truth", [False, True])
 def test_plan_cli_does_not_read_truth_or_import_run_dependencies(monkeypatch, tmp_path, capsys, with_truth):
+    from avelis.analysis import tools
+
+    memory_settings = config.build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789"})
+    monkeypatch.setattr(tools, "get_settings", lambda: memory_settings)
     forbid_run_imports(monkeypatch)
 
     def forbidden(*args, **kwargs):

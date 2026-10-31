@@ -45,7 +45,6 @@ from avelis.models import Answer, AskThread, User
 
 AGENT_SCHEMA = "avelis_agent"
 RESET = "\x00reset"
-MAX_TOOL_ROUNDS = 8
 
 
 def _merge_turns(old: list[str] | None, new: list[str] | None) -> list[str]:
@@ -272,7 +271,7 @@ def understand(state: AgentState, config) -> dict[str, Any]:
     history = _history_for_model(list(state.get("messages", [])), modelcfg.policy(session)["send_results"])
     new_messages: list[AnyMessage] = []
     calls = []
-    for _ in range(MAX_TOOL_ROUNDS):
+    for _ in range(settings.ask_max_tool_rounds):
         reply: AIMessage = bound.invoke([system, *history, *new_messages])
         new_messages.append(reply)
         if not reply.tool_calls:
@@ -376,7 +375,8 @@ def graph():
     if url not in _STATE:
         with psycopg.connect(url, autocommit=True) as conn:
             conn.execute(f"CREATE SCHEMA IF NOT EXISTS {AGENT_SCHEMA}")
-        pool = ConnectionPool(url, min_size=1, max_size=5, open=True, kwargs={
+        # 取连接时先检查：元数据库重启后池里的旧连接已失效，不检查会让问数一直失败到服务重启
+        pool = ConnectionPool(url, min_size=1, max_size=5, open=True, check=ConnectionPool.check_connection, kwargs={
             "autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
             "options": f"-c search_path={AGENT_SCHEMA}"})
         saver = PostgresSaver(pool)

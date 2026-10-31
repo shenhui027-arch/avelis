@@ -204,6 +204,13 @@ def scan_once() -> None:
 
 
 def main() -> None:
+    from avelis.config import ConfigError, report_config_error
+
+    try:
+        get_settings()
+    except ConfigError as exc:
+        report_config_error(exc)
+        raise SystemExit(2) from None
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
 
