@@ -1,13 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="b" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1a2246"/><stop offset="1" stop-color="#0a0e1c"/></linearGradient>
-    <linearGradient id="l" x1="14" y1="50" x2="30" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3d6cf0"/><stop offset="1" stop-color="#7b6bff"/></linearGradient>
-    <linearGradient id="r" x1="50" y1="50" x2="34" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#7b6bff"/></linearGradient>
+    <linearGradient id="t" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1b2350"/><stop offset="1" stop-color="#080b1c"/></linearGradient>
+    <linearGradient id="l" x1="10" y1="56" x2="32" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3d6cf0"/><stop offset="1" stop-color="#8b7bff"/></linearGradient>
+    <linearGradient id="r" x1="54" y1="56" x2="32" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b7bff"/></linearGradient>
+    <linearGradient id="b" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7b6bff" stop-opacity=".3"/><stop offset=".45" stop-color="#22d3ee"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#b)"/>
-  <g transform="translate(8 8) scale(.75)">
-    <path d="M16.5 46 C20 34 24 23 29 17" fill="none" stroke="url(#l)" stroke-width="8" stroke-linecap="round"/>
-    <path d="M47.5 46 C44 34 40 23 35 17" fill="none" stroke="url(#r)" stroke-width="8" stroke-linecap="round"/>
-    <circle cx="32" cy="13" r="8.5" fill="#8f80ff"/>
+  <rect width="64" height="64" rx="15" fill="url(#t)"/>
+  <g transform="translate(6 7) scale(.8)">
+    <path d="M32 6 L6 57 H20.5 L32 31 Z" fill="url(#l)"/>
+    <path d="M32 6 L32 31 L43.5 57 H58 Z" fill="url(#r)"/>
+    <rect x="16" y="40.5" width="34" height="5" rx="2.5" fill="url(#b)"/>
+    <circle cx="32" cy="8.5" r="5" fill="#d4ceff"/>
   </g>
 </svg>
