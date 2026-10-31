@@ -896,6 +896,76 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
     assert len(notices) == 1 and notices[0].kind == "analysis_finished"
 
 
+def test_lookup_source_permission_denial_is_recorded_and_pauses_scheduled_task(monkeypatch):
+    from tests.unit.test_analysis_entry import configured as entry_configured, fake_ask, scope_reply as lookup_scope
+
+    box, model, _, _, _ = entry_configured(monkeypatch, [lookup_scope(),
+        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], unattended=True)
+    session, user = box.session, box.user
+    user.username = "user-a"
+    task = AnalysisTask(id="task-a", title="定时取数", question="指标甲是多少？", owner_id=user.id,
+                        status="active", next_run_at=service.utcnow())
+    run = AnalysisRun(id="lookup-run", task_id=task.id, user_id=user.id, question=task.question,
+                      trigger="schedule", status="queued", confirmation_mode="auto", window=dict(WINDOW),
+                      checkpoint={}, budget=Budget().view(), plan={}, report={}, verification={})
+    box.run = run
+    job = Job(id="lookup-job", status="running", attempts=1, kind="analysis", result={},
+              payload={"task_id": task.id})
+    session.store.update({(AnalysisRun, run.id): run, (AnalysisTask, task.id): task})
+    session.rollback = lambda: None
+    session.scalar = lambda statement: job if job.status == "running" else None
+    answer, ask_calls = fake_ask(monkeypatch, box, status="denied")
+    answer.error_code, answer.message = "permission", "无权访问口径指标甲的数据来源 source-a"
+
+    def flush():
+        for index, obj in enumerate(session.added):
+            if getattr(obj, "id", None) is None:
+                obj.id = f"object-{index}"
+            session.store[(type(obj), obj.id)] = obj
+
+    def execute(statement):
+        if getattr(statement, "is_update", False):
+            if statement.compile().params.get("status_1") != run.status:
+                return SimpleNamespace(rowcount=0)
+            for key, value in statement._values.items():
+                setattr(run, key.key if hasattr(key, "key") else key, value.value)
+            return SimpleNamespace(rowcount=1)
+        return SimpleNamespace(one_or_none=lambda: SimpleNamespace(status=run.status, budget=run.budget))
+
+    session.flush, session.execute = flush, execute
+    graph = agent.build_graph(MemorySaver())
+    model.adapter = "fake"
+    monkeypatch.setattr(service, "warm_up", lambda: None)
+    monkeypatch.setattr(service, "_graph", lambda: graph)
+    monkeypatch.setattr(service, "require_analysis_model", lambda s: model)
+    toolboxes = []
+
+    def precheck(current, scope):
+        # 口径仍可见，lookup 的拒绝来自问数管线里的来源权限检查。
+        assert current._metric("m_a") == current.catalog.versions["m_a"]
+        current.scope = scope
+        current.budget.used_queries += 1
+        toolboxes.append(current)
+        return [f"D{governed(current, ['值'], [['7']]).seq}"]
+
+    monkeypatch.setattr(tools.AnalysisToolbox, "precheck", precheck)
+    outcome = service.execute(session, run.id, job.id, 1)
+
+    denials = [{"message": answer.message, "metric_codes": ["m_a"], "answer_id": answer.id}]
+    assert len(ask_calls) == 1 and ask_calls[0].metric_codes == ["m_a"]
+    assert len(toolboxes) == 1 and toolboxes[0].denials == denials
+    assert run.checkpoint["snapshot"]["state"]["denials"] == denials
+    assert run.report["permission"] == {"lost": None, "denials": denials}
+    assert run.plan["scope"]["question_type"] == "lookup" and len(model.seen) == 3
+    assert outcome["status"] == "paused" and outcome["run_status"] == run.status == "succeeded"
+    assert task.status == "paused" and task.next_run_at is None and job.status == "skipped"
+    assert service._paused_by(run) == outcome["reason"] == answer.message
+    assert answer.message in task.paused_reason
+    notices = [obj for obj in session.added if isinstance(obj, Notification)]
+    assert len(notices) == 1 and notices[0].kind == "analysis_paused"
+    assert answer.message in notices[0].body
+
+
 def test_valid_reference_cannot_ground_an_unrelated_hypothesis(monkeypatch):
     ref = {"object_type": "asset", "object_id": "asset-a", "version": 1}
     box, _, config, state, _ = configured(monkeypatch, [scope_reply(),
