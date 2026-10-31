@@ -154,3 +154,7 @@
   .av-login__aurora i, .av-login__answer, .av-login__star.is-sink circle { animation: none; }
   .av-login__spark { display: none; }
 }
+.av-login__chips .av-login__demo { margin-left: auto; border-style: dashed; }
+@media (prefers-reduced-motion: reduce) {
+  .av-login__submit, .av-login__submit:hover:not(:disabled) { transform: none; transition: none; }
+}
