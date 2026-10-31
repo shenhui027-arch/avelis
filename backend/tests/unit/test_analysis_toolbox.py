@@ -445,10 +445,10 @@ def test_exports_escape_refs_and_neutralise_formulas():
                                                                          "problems": ["文字片段里出现数字“7”"]}],
                              "fields": [{"field": "summary", "status": "unverified",
                                          "problems": ["文字片段里出现数字“999”"]}], "unverified_fields": 1}}
-    md = export.to_markdown(view)
+    md = export.to_markdown(view, audience="full")
     assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：文字片段里出现数字“999”" in md
     assert "a" in md and "文字片段里出现数字“7”" in md and "⚠" in md
-    assert export.to_pdf(view).startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
     csv = export.to_csv(["=cmd", "值"], [["=HYPERLINK(\"http://x\")", -5], ["@SUM(A1)", "-12.5"],
                                         ["\tx", None], ["+1", 3]]).decode("utf-8-sig").splitlines()
     assert csv == ["'=cmd,值", "\"'=HYPERLINK(\"\"http://x\"\")\",-5", "'@SUM(A1),-12.5", "'\tx,", "+1,3"]
@@ -720,12 +720,12 @@ def test_sources_csv_and_markdown_list_every_reference():
             "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],
                              "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1,
                                          "windows": 1}}}
-    md = export.to_markdown(view)
+    md = export.to_markdown(view, audience="full")
     assert "来源全部通过" in md and "未核实" in md
     assert "## 附录" in md and "数字来源" in md and "| D6 | 客流 | =cmd |" in md
     assert "D6.客流" not in md
     assert "探索查询（未经口径审核）" in md and "建议目标（非观测值）" in md
-    assert export.to_pdf(view).startswith(b"%PDF")
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")
 
 
 def test_marks_follow_the_saved_dependency_closure(monkeypatch):

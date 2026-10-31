@@ -225,7 +225,7 @@ def test_context_only_claims_move_to_data_checks_and_other_claims_stay_in_body(m
         {"type": "fact", "text": "数值段含业务数据的结论。", "refs": ["D7"], "segments": [_value("D3", "差额甲", "-120000", "-12万元")]},
     ]
     view["report"]["claims"] = claims
-    markdown = export.to_markdown(view)
+    markdown = export.to_markdown(view, audience="full")
     body, appendix = markdown.split("## 附录", 1)
     checks = appendix.split("### 数据集清单", 1)[0]
     for claim in claims[:2]:
@@ -233,7 +233,7 @@ def test_context_only_claims_move_to_data_checks_and_other_claims_stay_in_body(m
         assert claim["text"] not in export.to_markdown(view, appendix=False)
     for claim in claims[2:]:
         assert claim["text"] in body
-    story = _pdf_story(monkeypatch, view)
+    story = _pdf_story(monkeypatch, view, audience="full")
     break_at = next(i for i, item in enumerate(story) if isinstance(item, PageBreak))
     pdf_body = "\n".join(_story_text(story[:break_at]))
     pdf_appendix = "\n".join(_story_text(story[break_at + 1:]))
@@ -328,7 +328,7 @@ def test_pdf_core_levels_are_dark_and_only_changes_use_sign_color(monkeypatch):
 
 
 def test_pdf_reasons_have_only_chart_with_small_gray_references(monkeypatch):
-    story = _pdf_story(monkeypatch, sample_view(), appendix=False)
+    story = _pdf_story(monkeypatch, sample_view(), audience="full")
     start = next(i for i, item in enumerate(story) if isinstance(item, Paragraph) and item.getPlainText().startswith("主要原因"))
     end = next(i for i, item in enumerate(story[start + 1:], start + 1) if isinstance(item, Paragraph) and item.getPlainText() == "关键发现")
     cause_items = story[start + 1:end]
@@ -348,7 +348,7 @@ def test_pdf_reason_without_numeric_contribution_and_errors_remain_visible(monke
     view = sample_view()
     view["report"]["causes"][0]["errors"] = ["保存的贡献值尚未核实"]
     view["report"]["causes"][1]["contribution"] = {"text": "尚未量化", "segments": []}
-    story = _pdf_story(monkeypatch, view, appendix=False)
+    story = _pdf_story(monkeypatch, view, audience="full")
     text = "\n".join(_story_text(story))
     assert "保存的贡献值尚未核实" in text and "成员乙" in text and "尚未量化" in text
     assert not re.search(r"[1-6]\. (成员甲|成员乙|成员丙|日历因素|指标丁|治理事件)", text)
@@ -358,7 +358,7 @@ def test_pdf_findings_are_compact_bullets_and_references_wrap_as_one_group(monke
     view = sample_view()
     claim = {"type": "fact", "text": "比较已保存的指标结果，主要成员的变化仍需结合各项证据进行核对。", "refs": ["D13", "D16"], "segments": []}
     view["report"]["claims"] = [claim]
-    story = _pdf_story(monkeypatch, view, appendix=False)
+    story = _pdf_story(monkeypatch, view, audience="full")
     paragraph = next(item for item in _flowables(story) if isinstance(item, Paragraph) and claim["text"] in item.getPlainText())
     assert paragraph.bulletText or paragraph.getPlainText().startswith("•")
     assert paragraph.style.leading < 14
@@ -392,12 +392,12 @@ def test_renderer_preserves_model_segment_order_even_when_sentence_is_awkward():
     claim["details"]["premise"]["segments"] = [
         {"kind": "text", "text": "其余成员两期合计为净增长。"},
         _value("D2", "contribution", "137000", "13.70万元", row=2)]
-    assert "前提：其余成员两期合计为净增长。13.70万元" in export.to_markdown(view, appendix=False)
+    assert "前提：其余成员两期合计为净增长。13.70万元" in export.to_markdown(view, audience="full")
 
 
 def test_markdown_has_executive_sections_and_separate_appendix():
     view = sample_view()
-    text = export.to_markdown(view)
+    text = export.to_markdown(view, audience="full")
     headings = ["# 指标变化分析", "## 核心指标", "## 结论", "## 主要原因", "## 关键发现", "## 判断与建议",
                 "## 还没查清", "## 关键数据", "## 附录"]
     assert [text.index(h) for h in headings] == sorted(text.index(h) for h in headings)
@@ -424,10 +424,12 @@ def test_key_datasets_use_saved_units_references_and_limit():
     assert not {"D1", "D6", "D7", "D8", "D9", "D10", "D11"} & {d["ref"] for d in chosen}
     assert [d["ref"] for d in export._key_datasets(view, ["D5", "D4"])] == ["D5", "D4"]
     assert [d["ref"] for d in export._key_datasets(view, ["D2", "D5", "D5", "D4", "D3"])] == ["D5", "D4"]
-    text = export.to_markdown(view, appendix=False, datasets=["D5"])
-    assert "另一个可选指标" in text and "指标甲分组对比" not in text and "## 附录" not in text
+    text = export.to_markdown(view, audience="full", datasets=["D5"]).split("## 附录", 1)[0]
+    assert "另一个可选指标" in text and "指标甲分组对比" not in text
     assert "SELECT " not in text and "数据集清单" not in text and "sample_step" not in text
-    full = export.to_markdown(view)
+    brief = export.to_markdown(view, appendix=False, datasets=["D5"])
+    assert "## 附录" not in brief and "SELECT " not in brief and "数据集清单" not in brief
+    full = export.to_markdown(view, audience="full")
     body, appendix = full.split("## 附录", 1)
     assert len(re.findall(r"^### D\d+ ", body, re.MULTILINE)) == 2
     assert "另一个可选指标" not in body and "另一个可选指标" in appendix
@@ -499,8 +501,8 @@ def test_unchecked_inference_reference_errors_remain_visible_in_body(monkeypatch
         claim["details"]["premise"]["errors"] = [reason] if in_detail else []
         view["report"]["claims"] = [claim]
         view["verification"]["claims"] = [{"index": 0, "status": "unchecked", "problems": []}]
-        assert reason in export.to_markdown(view, appendix=False)
-        assert export.to_pdf(view, appendix=False).startswith(b"%PDF")
+        assert reason in export.to_markdown(view, audience="full")
+        assert export.to_pdf(view, audience="full").startswith(b"%PDF")
         assert reason in "\n".join(_story_text(captured[-1]))
 
 
@@ -537,7 +539,7 @@ def test_pdf_generates_compact_body_and_appendix_starts_with_page_break(monkeypa
         return original(self, flowables, *args, **kwargs)
 
     monkeypatch.setattr(SimpleDocTemplate, "build", record)
-    pdf = export.to_pdf(sample_view())
+    pdf = export.to_pdf(sample_view(), audience="full")
     assert pdf.startswith(b"%PDF")
     story = captured[-1]
     break_at = next(i for i, item in enumerate(story) if isinstance(item, PageBreak))

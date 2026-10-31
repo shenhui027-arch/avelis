@@ -108,12 +108,12 @@ def test_exports_show_cause_ranking():
     rendered, verification = run("ranked_reasons", [MEMBER, {**MEMBER, "direction": "up"}])
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
             "verification": verification}
-    md = export.to_markdown(view)
+    md = export.to_markdown(view, audience="full")
     assert "## 主要原因" in md and "有排序的原因" in md
     assert "1. 甲" in md and "下降" in md and "2. 甲" in md and "上升" in md and "方向与贡献" in md
     assert "成员 · 地区：" not in md
     assert "原因 1" in md and "-80" in md  # 数字来源附录也列出原因的贡献
-    assert export.to_pdf(view).startswith(b"%PDF")
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")
     rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
     assert any(r.startswith("原因 1,原因,-80,") for r in rows)
 
@@ -222,8 +222,8 @@ def test_method_is_rendered_checked_and_exported_like_other_fields():
     assert not v2["ok"] and any(f["field"] == "method" for f in v2["fields"] if f["status"] == "unverified")
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
             "verification": v}
-    md = export.to_markdown(view)
+    md = export.to_markdown(view, audience="full")
     assert "分析方法" in md and "100" in md and "数字来源" in md
-    assert export.to_pdf(view).startswith(b"%PDF")
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")
     rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
     assert any(r.startswith("分析方法,字段,100,") for r in rows)
