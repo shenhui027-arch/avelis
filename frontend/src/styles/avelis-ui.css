@@ -165,7 +165,7 @@
 .av-catalog { height: calc(100vh - var(--size-topbar)); display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .av-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
-.av-pane--rail { background: var(--bg-canvas); }
+.av-pane--rail { background: var(--bg-surface); -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); }
 .av-pane__body { flex: 1; min-height: 0; overflow: auto; }
 .av-pane-hd { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-3); height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-subtle); }
 .av-pane-hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-title); color: var(--text-primary); }
@@ -237,7 +237,7 @@
 .av-vtrack__line { flex: 1; min-width: 24px; height: 1px; background: var(--line-strong); }
 
 /* Lineage canvas */
-.av-canvas { position: relative; overflow: hidden; background-color: var(--bg-canvas); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px); background-size: 16px 16px; }
+.av-canvas { position: relative; overflow: hidden; background-color: transparent; background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px); background-size: 16px 16px; }
 .av-lane { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line-subtle); }
 .av-lane--violet { background: color-mix(in srgb, var(--domain-violet) 5%, transparent); }
 .av-lane--teal { background: color-mix(in srgb, var(--domain-teal) 5%, transparent); }

@@ -250,13 +250,13 @@
 
 /* BEGIN metric */
 .av-metric-detail { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
-.av-metric-detail__header { display: flex; flex: none; flex-direction: column; gap: var(--space-2); padding: var(--space-5) var(--space-6) var(--space-4); background: var(--bg-base); }
+.av-metric-detail__header { display: flex; flex: none; flex-direction: column; gap: var(--space-2); padding: var(--space-5) var(--space-6) var(--space-4); }
 .av-metric-detail__header > .av-caption { font: var(--type-caption); }
 .av-metric-detail__actions { flex-wrap: wrap; }
 .av-metric-detail__actions > .av-btn { min-width: calc(var(--space-8) * 2); height: var(--size-control-sm); }
 .av-metric-detail__versions { overflow-x: auto; padding-block: var(--space-1); }
 .av-metric-detail__versions .av-vtrack__step { min-height: var(--size-control-md); font: var(--type-body-compact); }
-.av-metric-detail__tabs { flex: none; padding-inline: var(--space-6); background: var(--bg-base); }
+.av-metric-detail__tabs { flex: none; padding-inline: var(--space-6); }
 .av-metric-detail__body { display: flex; flex: 1; flex-direction: column; gap: var(--space-4); min-height: 0; min-width: 0; overflow: auto; padding: var(--space-5) var(--space-6); }
 .av-metric-detail__body:focus-visible, .av-metric-detail__versions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .av-metric-detail__body > .av-panel { flex: none; }
@@ -414,7 +414,7 @@
 /* BEGIN models */
 .av-models { height: 100%; min-height: 0; }
 .av-models__workspace { grid-template-columns: calc(var(--space-6) * 10) minmax(0, 1fr); }
-.av-models__providers { background: var(--bg-canvas); }
+.av-models__providers { background: var(--bg-surface); }
 .av-models__provider { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-height: var(--size-list-row); padding: var(--space-3) var(--space-4); }
 .av-models__provider-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .av-models__provider .av-row__title, .av-models__provider .av-row__meta { overflow-wrap: anywhere; }

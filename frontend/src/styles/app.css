@@ -86,7 +86,7 @@ body { font-family: var(--font-sans); }
 .av-input-group .av-input { flex: 1; min-width: 0; }
 
 /* 认证页：登录（品牌区 + 表单）与单卡片页（修改口令） */
-.av-auth, .av-login { min-height: 100vh; background: var(--bg-canvas); color: var(--text-primary); }
+.av-auth, .av-login { min-height: 100vh; background: transparent; color: var(--text-primary); }
 .av-auth { display: grid; place-items: center; padding: var(--space-6); }
 .av-auth__brand { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font: 600 16px/24px var(--font-sans); letter-spacing: -0.01em; }
 .av-auth__card { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; max-width: 360px; padding: var(--space-8) var(--space-6); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-overlay); }
@@ -100,7 +100,7 @@ body { font-family: var(--font-sans); }
 .av-auth__card > .av-btn--lg { width: 100%; }
 
 .av-login { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(400px, 1fr); }
-.av-login__brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) 56px; overflow: hidden; border-right: 1px solid var(--line-subtle); background-color: var(--bg-base); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px); background-size: 20px 20px; }
+.av-login__brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) 56px; overflow: hidden; border-right: 1px solid var(--line-subtle); background-color: var(--bg-surface); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px); background-size: 20px 20px; }
 .av-login__pitch { display: flex; flex-direction: column; gap: var(--space-3); max-width: 460px; }
 .av-login__pitch h1 { margin: 0; font: 600 32px/40px var(--font-sans); letter-spacing: -0.02em; }
 .av-login__pitch p { margin: 0; color: var(--text-secondary); font: 400 15px/24px var(--font-sans); }
