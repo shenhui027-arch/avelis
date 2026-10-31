@@ -28,7 +28,7 @@ from avelis.analysis import attribution, calc, investigation, measures, retrieva
 from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
-from avelis.ask.intent import DimensionFilter, Intent, comparison_range
+from avelis.ask.intent import MAX_LIMIT, DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
@@ -475,7 +475,9 @@ class Scope(BaseModel):
         description="lookup：只取数值、排名、明细或对比；change：为什么变化 / 是否变化；relation：什么关系、怎么分布；other：其他")
     metric_codes: list[str] = Field(default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）")
     filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选：维度名与取值（如某个区域）")
-    dimensions: list[str] = Field(default_factory=list, max_length=3, description="关系类问题要对比的维度名")
+    dimensions: list[str] = Field(default_factory=list, max_length=3, description="取数时的分组或关系类问题要对比的维度名")
+    order: Literal["asc", "desc"] | None = Field(None, description="只在取数问排名时填写：升序 / 降序")
+    limit: int | None = Field(None, ge=1, le=MAX_LIMIT, description="只在取数问前 N 时填写，最多 100")
     start_date: date | None = Field(None, description="本期开始；问题没有另说时不写（取本次分析的窗口）")
     end_date: date | None = None
     compare_start: date | None = Field(None, description="对比期开始；问题没有另说时不写")

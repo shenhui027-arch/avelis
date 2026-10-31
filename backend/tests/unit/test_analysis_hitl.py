@@ -16,7 +16,7 @@ from avelis.analysis.tools import Budget, PermissionDenied, PermissionLost
 from avelis.api.schemas import AnalysisResumeIn, AnalysisRunOut
 from avelis.governance import experiences
 from avelis.governance.errors import Conflict, Invalid, NotFound
-from avelis.models import AnalysisRun, AnalysisTask, Job, Notification
+from avelis.models import AnalysisRun, AnalysisTask, Asset, AssetVersion, Job, Metric, MetricVersion, Notification
 from tests.unit.test_analysis_pipeline import Phased, WINDOW, catalog as pipeline_catalog
 from tests.unit.test_analysis_toolbox import governed, make_box
 
@@ -869,6 +869,54 @@ def test_experience_content_and_refs_come_from_recalled_version(monkeypatch):
     assert not result.get("__interrupt__") and item["source"] == "experience"
     assert item["content"] == exp["content"] and item["refs"] == [ref]
     assert item["experience_id"] == "exp-a" and item["experience_version"] == 2
+
+
+@pytest.mark.parametrize("decision", ["confirmed", "rejected"])
+@pytest.mark.parametrize("revoked", [False, True])
+def test_resume_excludes_revoked_experience_proposals_from_every_model_request(monkeypatch, decision, revoked):
+    cat = pipeline_catalog()
+    metric, version = cat.versions["m_a"]
+    metric.code = "m_a"
+    version.id, version.metric_id, version.version_no = "metric-v1", metric.id, 1
+    asset = Asset(id="asset-b", domain_id="dB", catalog_name="catalog", db_name="schema", name="asset_b")
+    asset_version = AssetVersion(id="asset-b-v1", asset_id=asset.id, version_no=1)
+    exp = {"id": "exp-e", "version": 2, "content": "经验E的保密关联规则", "refs": [
+        {"object_type": "metric_version", "object_id": version.id, "version": 1},
+        {"object_type": "asset", "object_id": asset.id, "version": 1}]}
+    monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
+    scope = reply("submit_scope", {"question_type": "other", "metric_codes": ["m_a"]}, "scope")
+    box, model, config, state, calls = configured(monkeypatch, [scope, reply("submit_proposal",
+        proposal(experience_id=exp["id"], experience_version=exp["version"]), "p"),
+        AIMessage(content="继续核对已有数据"), report_reply()], mode="always", catalog=cat)
+    box.session.store.update({(Metric, metric.id): metric, (MetricVersion, version.id): version,
+                              (Asset, asset.id): asset})
+    monkeypatch.setattr(box.session, "scalar", lambda statement: asset_version)
+    monkeypatch.setattr(agent.service, "version_sources", lambda s, v: {})
+    allowed = {"dA", "dB"}
+    monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: allowed)
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"] and calls == ["precheck"]
+    assert first["proposal"]["items"][0]["content"] == exp["content"]
+    assert box.scope.metric_codes == ["m_a"] and not getattr(box, "precheck_meta", None)
+    request_count = len(model.seen)
+
+    if revoked:
+        allowed.remove("dB")
+    final = graph.invoke(Command(resume={"decisions": [{"item_id": "P1", "decision": decision}]}), config)
+    resumed_requests = [json.dumps([m.model_dump(mode="json") for m in messages], ensure_ascii=False)
+                        for messages in model.seen[request_count:]]
+    assert len(resumed_requests) == 2 and final["phase"] == "done" and box.verification["ok"]
+    assert all((exp["content"] in request) is (not revoked) for request in resumed_requests)
+    assert box.snapshot()["state"]["proposal"] == final["proposal"]
+    if revoked:
+        assert final["proposal"]["items"] == box.proposal["items"] == box.experiences == []
+        assert final["confirmed_items"] == box.confirmed_items == []
+        assert final["feedback"]["decisions"] == [] and box.report["sources"] == []
+    else:
+        assert final["proposal"]["items"] == first["proposal"]["items"] and box.experiences == [exp]
+        assert bool(final["confirmed_items"]) is (decision == "confirmed")
+        assert box.report["sources"][0]["status"] == decision
 
 
 def test_supplement_uses_current_run_user_id_and_full_api_length(monkeypatch):
