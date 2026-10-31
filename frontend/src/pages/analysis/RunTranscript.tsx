@@ -61,6 +61,11 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
           a.supplement ? `补充：${a.supplement}` : "") };
     }
     case "message": return { icon: "send", title: "你的插话", user: String(o.text ?? a.text ?? "") };
+    case "compact": {
+      const kt = (n: unknown) => (typeof n === "number" ? `${(n / 1000).toFixed(1)}k` : "?");
+      return { icon: "fit", title: o.reason === "manual" ? "按你的要求压缩了上下文" : "上下文接近上限，已自动压缩",
+        detail: `${kt(o.before_tokens)} → ${kt(o.after_tokens)} · 早期 ${o.summarized_messages ?? "?"} 条过程换成数据集清单与步骤摘要` };
+    }
     case "submit_report": return { icon: "check", title: "提交报告",
       detail: typeof a.title === "string" ? a.title : undefined };
     case "model": {
@@ -192,7 +197,7 @@ export function Interject({ run }: { run: Run }) {
         <div className="av-compose__bar">
           <span className="av-caption">Enter 发送 · Shift+Enter 换行</span>
           <span className="av-compose__spacer" />
-          <ContextMeter run={run} />
+          <ContextMeter run={run} live />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={stop.isPending}
             onClick={() => stop.mutate(undefined, { onError: (e) => setError(errorText(e)) })}>停止</button>
           <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={send.isPending || !text.trim()} onClick={submit}>

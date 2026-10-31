@@ -225,6 +225,7 @@ def test_resolve_uses_enabled_checked_model(monkeypatch, provider):
     monkeypatch.setattr(modelcfg, "build_chat_model", lambda *args, **kwargs: model)
     result = modelcfg.resolve(MemorySession(provider, assignment()), "ask")
     assert result.model is model and result.adapter == f"unit:{MODEL_ID}"
+    assert result.context_window is None
     assert KEY not in repr(result)
     assert KEY not in result.safe_error(f"provider returned {KEY}")
 
@@ -324,7 +325,7 @@ def test_analysis_model_list_contains_checked_models_and_safe_fields(monkeypatch
     assert view == {"models": [{"provider_id": "ds-id", "provider_name": "DeepSeek", "model_id": "deepseek-flash",
                                  "efforts": [{"value": value, "label": modelcfg.EFFORT_LABELS[value]}
                                              for value in ("off", "low", "high", "max")],
-                                 "context_window": 131072}],
+                                 "context_window": 131072, "context_window_source": "configured"}],
                     "default": {"provider_id": "ds-id", "model_id": "deepseek-flash", "reasoning_effort": "high"}}
     assert all(secret not in json.dumps(view) for secret in (KEY, "encrypted", "api_key", "base_url"))
 
@@ -335,13 +336,29 @@ def test_analysis_model_list_has_no_guessed_efforts_or_context(provider):
     view = modelcfg.analysis_models_view(session)
     assert view["models"][0]["efforts"] == []
     assert view["models"][0]["context_window"] is None
-    assert view["default"]["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"]
+    assert view["models"][0]["context_window_source"] is None
+    assert view["default"]["reasoning_effort"] is None
     analysis = ModelAssignment(purpose="analysis", provider_id=provider.id, model_id="unavailable")
     session.rows[ModelAssignment, "analysis"] = analysis
     assert modelcfg.analysis_models_view(session)["default"] is None
     del session.rows[ModelAssignment, "analysis"]
     del session.rows[ModelAssignment, "ask"]
     assert modelcfg.analysis_models_view(session)["default"] is None
+
+
+@pytest.mark.parametrize("purpose", ["ask", "analysis"])
+@pytest.mark.parametrize("effort,expected", [
+    ("medium", "high"), ("off", "off"), ("low", "low"), ("high", "high"), ("max", "max"),
+    (None, "low"), ("", "low"), ("invalid", None),
+])
+def test_analysis_model_default_effort_is_a_supported_choice(purpose, effort, expected):
+    ds = deepseek()
+    assigned = ModelAssignment(purpose=purpose, provider_id=ds.id, model_id="deepseek-flash", reasoning_effort=effort)
+    view = modelcfg.analysis_models_view(MemorySession(ds, assigned))
+    actual = view["default"]["reasoning_effort"]
+    assert actual == expected
+    assert actual is None or actual in {option["value"] for option in view["models"][0]["efforts"]}
+    assert assigned.reasoning_effort == effort
 
 
 @pytest.mark.parametrize("invalid", ["removed", "disabled", "provider_disabled", "missing_key", "stale_check"])
@@ -441,3 +458,42 @@ def test_context_window_rejects_invalid_values(context_window):
 def test_provider_view_returns_null_for_old_model_context(provider):
     provider.updated_at = modelcfg.utcnow()
     assert modelcfg.provider_view(provider)["models"][0]["context_window"] is None
+
+
+@pytest.mark.parametrize("preset,base_url", [
+    ("deepseek", "https://unit.invalid/v1"),
+    ("custom", "https://api.deepseek.com/v1"),
+])
+@pytest.mark.parametrize("configured", [None, 131072])
+def test_deepseek_context_default_and_configured_override(monkeypatch, preset, base_url, configured):
+    ds = deepseek()
+    ds.preset, ds.base_url = preset, base_url
+    ds.updated_at = modelcfg.utcnow()
+    if configured is not None:
+        ds.models[0]["context_window"] = configured
+    assigned = ModelAssignment(purpose="ask", provider_id=ds.id, model_id="deepseek-flash")
+    session = MemorySession(ds, assigned)
+    monkeypatch.setattr(modelcfg, "build_chat_model", lambda *args, **kwargs: object())
+
+    expected = configured if configured is not None else 1_000_000
+    source = "configured" if configured is not None else "default"
+    analysis_model = modelcfg.analysis_models_view(session)["models"][0]
+    assert analysis_model["context_window"] == expected
+    assert analysis_model["context_window_source"] == source
+    assert modelcfg.resolve(session, "analysis").context_window == expected
+    assert modelcfg.resolve_choice(session, ds.id, "deepseek-flash").context_window == expected
+    provider_model = modelcfg.provider_view(ds)["models"][0]
+    assert provider_model["context_window"] == configured
+    assert "context_window_source" not in provider_model
+    assert ds.models[0].get("context_window") == configured
+
+
+def test_other_provider_configured_context_is_effective(monkeypatch, provider):
+    provider.models[0]["context_window"] = 64000
+    provider.last_check = successful_check()
+    session = MemorySession(provider, assignment())
+    monkeypatch.setattr(modelcfg, "build_chat_model", lambda *args, **kwargs: object())
+    model = modelcfg.analysis_models_view(session)["models"][0]
+    assert model["context_window"] == 64000 and model["context_window_source"] == "configured"
+    assert modelcfg.resolve(session, "analysis").context_window == 64000
+    assert modelcfg.resolve_choice(session, provider.id, MODEL_ID).context_window == 64000
