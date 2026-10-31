@@ -18,7 +18,7 @@ from avelis.models import AnalysisDataset, AnalysisRun, AnalysisStep, User
 
 def rerun_dataset(session: Session, user: User, run: AnalysisRun, dataset: AnalysisDataset,
                   window: dict[str, Any]) -> AnalysisDataset:
-    """同一运行下追加数据集与步骤；由调用方一起提交，不改报告或核验结果。"""
+    """成功时由调用方一起提交数据集与步骤；取数失败先提交问数审计，不改报告或核验结果。"""
     run = session.scalar(select(AnalysisRun).where(AnalysisRun.id == run.id).with_for_update()
                          .execution_options(populate_existing=True))
     if run is None or run.user_id != user.id or dataset.run_id != run.id:
@@ -56,6 +56,7 @@ def rerun_dataset(session: Session, user: User, run: AnalysisRun, dataset: Analy
     ask.fulfil(session, user, intent, answer, catalog)
     ask.finish_answer(session, user, answer, started)
     if answer.status != "answered":
+        session.commit()
         if answer.status == "denied" and answer.error_code == "permission":
             raise Forbidden("你已没有该数据的访问权限")
         error = Invalid if answer.status == "clarify" or answer.error_code == "invalid_intent" else Conflict

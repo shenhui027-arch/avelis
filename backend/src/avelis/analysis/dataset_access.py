@@ -102,7 +102,7 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
             result = bool(ids) and all(version_visible(v) for v in ids) and assets_visible(sources)
         elif d.kind in ("explore", "ungoverned"):
             ids = {table["asset_id"] for table in meta.get("tables") or [] if table.get("asset_id")}
-            result = bool(ids) and assets_visible(ids)
+            result = bool(ids) and assets_visible(ids | set(meta.get("upstream_asset_ids") or []))
         elif d.kind == "context":
             result = context_visible(d, meta)
         else:

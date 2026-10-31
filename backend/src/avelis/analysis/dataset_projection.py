@@ -17,6 +17,15 @@ def _ref(part: dict) -> str | None:
     return path.removeprefix("window.dataset:").split(".", 1)[0] or None
 
 
+def record_refs(record: dict) -> set[str]:
+    """从保存的引用片段推导依赖，兼容没有 refs 的字段和只有 refs 的旧结论。"""
+    refs = set(record.get("refs") or [])
+    for part in [*(record.get("parts") or []), *(record.get("segments") or [])]:
+        if isinstance(part, dict) and (ref := _ref(part)):
+            refs.add(ref)
+    return refs
+
+
 def _hide(record: dict) -> None:
     kept = {k: record[k] for k in ("type", "refs", "explicit_refs", "status") if k in record}
     record.clear()
@@ -25,16 +34,16 @@ def _hide(record: dict) -> None:
 
 
 def _record(record: dict, restricted_refs: set[str]) -> bool:
+    if not record_refs(record) & restricted_refs:
+        return False
     parts, segments = record.get("parts") or [], record.get("segments") or []
     hidden_parts = {i for i, part in enumerate(parts, 1)
                     if isinstance(part, dict) and _ref(part) in restricted_refs}
     hidden = [i for i, seg in enumerate(segments)
               if _ref(seg) in restricted_refs or seg.get("part") in hidden_parts]
     if not hidden:
-        if hidden_parts or set(record.get("refs") or []) & restricted_refs:
-            _hide(record)  # 旧报告只有显式 refs，不能从正文里拆出各来源。
-            return True
-        return False
+        _hide(record)  # 旧报告缺少可拆分的片段，只能遮蔽整个字段。
+        return True
     for i in hidden:
         segment = segments[i]
         ref = _ref(segment)

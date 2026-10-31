@@ -1634,6 +1634,8 @@ class AnalysisToolbox:
                                  "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
                                  "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
                                              "qualified": t.qualified} for t in validated.tables],
+                                 "upstream_asset_ids": sorted({asset_id for t in validated.tables
+                                                               for asset_id, _ in t.upstream}),
                                  "units": exploration.units(validated.columns),
                                  "column_evidence": exploration.evidence(validated.columns), "preview": preview})
         view = self._view(f"D{ds.seq}", ds)
