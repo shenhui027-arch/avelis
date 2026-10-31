@@ -85,25 +85,25 @@ function StepRow({ s }: { s: Step }) {
   const bad = s.status !== "ok" && s.status !== "skipped";
   const err = (s.output as { error?: string; message?: string } | null);
   if (d.user !== undefined) return (
-    <li className="av-trace__user"><span className="av-trace__bubble">{d.user}</span><span className="av-caption">已生效</span></li>);
+    <li className="av-runlog__user"><span className="av-runlog__bubble">{d.user}</span><span className="av-caption">已生效</span></li>);
   return (
-    <li className={`av-trace__step is-${s.kind}${bad ? " is-bad" : ""}`}>
-      <span className="av-trace__icon"><Icon name={d.icon} small /></span>
-      <div className="av-trace__body">
-        <div className="av-trace__line">
-          <span className="av-trace__title">{d.title}</span>
-          {s.reason && s.kind !== "model" ? <span className="av-trace__reason">{s.reason}</span> : null}
+    <li className={`av-runlog__step is-${s.kind}${bad ? " is-bad" : ""}`}>
+      <span className="av-runlog__icon"><Icon name={d.icon} small /></span>
+      <div className="av-runlog__body">
+        <div className="av-runlog__line">
+          <span className="av-runlog__title">{d.title}</span>
+          {s.reason && s.kind !== "model" ? <span className="av-runlog__reason">{s.reason}</span> : null}
           {s.dataset ? <a className="av-tag av-mono" href={`#dataset-${s.dataset}`}>{s.dataset}</a> : null}
-          {s.duration_ms ? <span className="av-trace__time">{(Number(s.duration_ms) / 1000).toFixed(1)}s</span> : null}
+          {s.duration_ms ? <span className="av-runlog__time">{(Number(s.duration_ms) / 1000).toFixed(1)}s</span> : null}
         </div>
-        {d.detail ? <div className={`av-trace__detail${s.kind === "model" ? " is-thought" : ""}`}>{d.detail}</div> : null}
+        {d.detail ? <div className={`av-runlog__detail${s.kind === "model" ? " is-thought" : ""}`}>{d.detail}</div> : null}
         {d.code ? <Code sql={d.code} /> : null}
         {d.thinking ? <>
-          <button type="button" className="av-trace__more" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <button type="button" className="av-runlog__more" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? "收起思考过程" : "查看思考过程"}</button>
-          {open ? <pre className="av-trace__thinking">{d.thinking}</pre> : null}
+          {open ? <pre className="av-runlog__thinking">{d.thinking}</pre> : null}
         </> : null}
-        {bad ? <div className="av-trace__err">{String(err?.error ?? err?.message ?? s.status)}</div> : null}
+        {bad ? <div className="av-runlog__err">{String(err?.error ?? err?.message ?? s.status)}</div> : null}
       </div>
     </li>
   );
@@ -125,14 +125,14 @@ export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
   }, [live]);
   useEffect(() => { if (live && follow) end.current?.scrollIntoView({ block: "end" }); }, [live, follow, steps.length, messages.length]);
   return (
-    <section className={`av-trace${live ? " is-live" : ""}`} aria-label="分析过程" aria-live={live ? "polite" : undefined}>
-      <div className="av-trace__user is-question"><span className="av-trace__bubble">{run.question}</span></div>
-      <ol className="av-trace__steps">
+    <section className={`av-runlog${live ? " is-live" : ""}`} aria-label="分析过程" aria-live={live ? "polite" : undefined}>
+      <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{run.question}</span></div>
+      <ol className="av-runlog__steps">
         {steps.map((s) => <StepRow key={s.seq} s={s} />)}
         {messages.map((m) => (
-          <li key={m.id} className="av-trace__user"><span className="av-trace__bubble">{m.text}</span>
+          <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">待生效</Pill></li>))}
-        {live && run.status !== "waiting" ? <li className="av-trace__step is-pending"><span className="av-spinner" aria-hidden />
+        {live && run.status !== "waiting" ? <li className="av-runlog__step is-pending"><span className="av-spinner" aria-hidden />
           <span className="av-caption">{run.status === "queued" ? "排队中" : "正在进行下一步…"}</span></li> : null}
       </ol>
       <div ref={end} />
@@ -154,7 +154,7 @@ function Interject({ run }: { run: Run }) {
     send.mutate(undefined, { onSuccess: () => setText(""), onError: (e) => setError(errorText(e)) });
   };
   return (
-    <div className="av-trace__composer">
+    <div className="av-runlog__composer">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <div className="av-compose av-compose--inline">
         <label htmlFor={`int-${run.id}`} className="av-sr">插话</label>
