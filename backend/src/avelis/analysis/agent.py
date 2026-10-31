@@ -372,8 +372,36 @@ def _compact(messages: list[AnyMessage], toolbox: AnalysisToolbox, reason: str, 
     return after_tokens
 
 
+def _prepare_context(messages: list[AnyMessage], toolbox: AnalysisToolbox, tools: list[StructuredTool] | None,
+                     context_window: int | None, *, allow_compact: bool = True) -> int | None:
+    """先纳入插话与压缩请求，再估算输入，供执行循环与直接模型调用共用。"""
+    budget = toolbox.budget
+    toolbox.consume_messages()
+    present = {message.id for message in messages}
+    for message in messages:
+        if message.id == CONTEXT_SUMMARY_ID:
+            present.update(message.response_metadata.get("interjection_ids", []))
+    for batch in toolbox.interjections:
+        if batch["id"] not in present:
+            messages.append(HumanMessage(
+                "用户在分析过程中插话（以此为准调整方向，不改变安全与核验规则）：\n" + batch["text"],
+                id=batch["id"]))
+            present.add(batch["id"])
+    manual = allow_compact and toolbox.consume_compact_request()
+    if not _can_call_model(toolbox):
+        return None
+    windows = [value for value in (context_window, budget.input_tokens) if value is not None]
+    window = min(windows) if windows else None
+    estimate = (budget.estimate_input_tokens(messages, tools, force=True) if context_window is not None or manual
+                else budget.estimate_input_tokens(messages, tools) if budget.input_tokens is not None else None)
+    if allow_compact and (manual or window is not None and estimate > window * 0.75):
+        estimate = _compact(messages, toolbox, "manual" if manual else "auto", estimate, tools)
+    return estimate
+
+
 def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tools: list[StructuredTool] | None = None,
-            output_budget_limited: bool = False, context_window: int | None = None) -> AIMessage | None:
+            output_budget_limited: bool = False, context_window: int | None = None,
+            context_prepared: bool = False) -> AIMessage | None:
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
     预算上限造成的截断记为预算截止；其他接入协议错误记下错误码并抛出 ModelProtocolError。
@@ -383,26 +411,18 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tool
     while True:
         if not _can_call_model(toolbox):
             return None
-        toolbox.consume_messages()
-        present = {message.id for message in messages}
-        for message in messages:
-            if message.id == CONTEXT_SUMMARY_ID:
-                present.update(message.response_metadata.get("interjection_ids", []))
-        for batch in toolbox.interjections:
-            if batch["id"] not in present:
-                messages.append(HumanMessage(
-                    "用户在分析过程中插话（以此为准调整方向，不改变安全与核验规则）：\n" + batch["text"],
-                    id=batch["id"]))
-                present.add(batch["id"])
-        manual = toolbox.consume_compact_request()
+        if context_prepared:
+            # act 已压缩，仍需把随后追加的预算提示计入最终输入检查。
+            estimate = (budget.estimate_input_tokens(messages, tools, force=context_window is not None)
+                        if context_window is not None or budget.input_tokens is not None else None)
+        else:
+            # 同一次请求的重试继续纳入插话，但不重复压缩；新手动请求留到下一轮。
+            estimate = _prepare_context(messages, toolbox, tools, context_window, allow_compact=not retried)
+        context_prepared = False
         if not _can_call_model(toolbox):
             return None
         windows = [value for value in (context_window, budget.input_tokens) if value is not None]
         window = min(windows) if windows else None
-        estimate = (budget.estimate_input_tokens(messages, tools, force=True) if context_window is not None or manual
-                    else budget.estimate_input_tokens(messages, tools) if budget.input_tokens is not None else None)
-        if manual or window is not None and estimate > window * 0.75:
-            estimate = _compact(messages, toolbox, "manual" if manual else "auto", estimate, tools)
         if estimate is not None and ((window is not None and estimate > window) or
                 budget.input_tokens is not None and budget.used_input_tokens + estimate > budget.input_tokens):
             budget._blocked_input_estimate = estimate
@@ -475,7 +495,8 @@ def model_usage(reply: AIMessage) -> dict[str, int | None]:
             "cache_hit_tokens": cached, "reasoning_tokens": reasoning}
 
 
-def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report: bool = False) -> list[AnyMessage]:
+def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report: bool = False,
+           context_prepared: bool = False) -> list[AnyMessage]:
     """模型一轮：生成回复，所有工具调用（含参数无法解析的）都经 toolbox.dispatch 计数与执行。
     每次模型调用记一个 model 步骤：耗时、token 数与本轮发出的工具调用数（ADR 0012 度量）。"""
     if not _can_call_model(toolbox):
@@ -484,7 +505,8 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
     before = {id(message) for message in state["messages"]}
     tools = toolbox.tools()
     reply = _invoke(request_model.bind_tools(tools), state["messages"], toolbox, tools=tools,
-                    output_budget_limited=output_budget_limited, context_window=getattr(model, "context_window", None))
+                    output_budget_limited=output_budget_limited, context_window=getattr(model, "context_window", None),
+                    context_prepared=context_prepared)
     appended = [message for message in state["messages"]
                 if id(message) not in before and message.id != CONTEXT_SUMMARY_ID]
     if reply is None:
@@ -859,11 +881,13 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
     budget = toolbox.budget
     told: set[str] = set()
     while toolbox.report is None and _can_call_model(toolbox) and not budget.spent():
+        estimate = _prepare_context(messages, toolbox, toolbox.tools(), getattr(model, "context_window", None))
+        if not _can_call_model(toolbox):
+            break
         closing = budget.remaining() < REPORT_RESERVE_SECONDS
         last_request = budget.used_model_requests >= budget.model_requests - 1
-        estimate = (budget.estimate_input_tokens(messages, toolbox.tools())
-                    if budget.input_tokens is not None else None)
-        last_tokens = estimate is not None and budget.used_input_tokens + 2 * estimate > budget.input_tokens
+        last_tokens = (budget.input_tokens is not None and estimate is not None
+                       and budget.used_input_tokens + 2 * estimate > budget.input_tokens)
         over = budget.exhausted() or ("分析时长即将用完" if closing else None) or (
             "模型请求次数即将用完" if last_request else None) or ("token 即将用完" if last_tokens else None)
         notices = {"report_only": f"{over}。请立即基于已有数据集调用 submit_report 提交报告。" if over else None,
@@ -875,7 +899,7 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
                 told.add(key)
                 messages.append(HumanMessage(text))
         request_messages = list(messages)
-        out = _round({"messages": request_messages}, toolbox, model, only_report=bool(over))
+        out = _round({"messages": request_messages}, toolbox, model, only_report=bool(over), context_prepared=True)
         present = {id(message) for message in request_messages}
         messages = [*request_messages, *(message for message in out if id(message) not in present)]
     notes = [] if toolbox.report else ["模型在预算内没有提交报告：报告由后端生成并标为未完成"]

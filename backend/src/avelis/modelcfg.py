@@ -222,8 +222,12 @@ def analysis_models_view(session: Session) -> dict[str, Any]:
     provider = session.get(ModelProvider, assignment.provider_id) if assignment else None
     default = None
     if assignment and _enabled_model(provider, assignment.model_id, needs_tools=True) is not None:
+        efforts = effort_map(provider, assignment.model_id) or {}
+        effort = assignment.reasoning_effort or DEFAULT_EFFORT["analysis"]
+        if effort not in efforts:
+            effort = DEEPSEEK_ALIASES.get(effort)
         default = {"provider_id": assignment.provider_id, "model_id": assignment.model_id,
-                   "reasoning_effort": assignment.reasoning_effort or DEFAULT_EFFORT["analysis"]}
+                   "reasoning_effort": effort if effort in efforts else None}
     return {"models": models, "default": default}
 
 

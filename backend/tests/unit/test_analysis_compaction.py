@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+
+import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -190,6 +193,137 @@ def test_act_keeps_compacted_history_across_rounds_without_reinjecting_old_inter
         assert_tool_groups_complete(requested)
     assert sum(message.id == SUMMARY_ID for message in result["messages"]) == 1
     assert len(result["messages"]) < len(messages)
+
+
+@pytest.mark.parametrize("mode", ["none", "auto", "manual"])
+def test_act_decides_report_only_from_the_compacted_token_estimate(monkeypatch, mode):
+    report = {"title": "已检查", "summary": "仍需补充依据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    box, model, config, _, _ = live_box(monkeypatch, [
+        reply("search_metrics", {}, "lookup"), reply("submit_report", report, "report"),
+    ])
+    available = [tool for tool in box.tools() if tool.name in {"search_metrics", "submit_report"}]
+    monkeypatch.setattr(box, "tools", lambda: available)
+    messages = long_history()
+    before = box.budget.estimate_input_tokens(messages, available)
+    box.budget = Budget(input_tokens=2 * before, used_input_tokens=1)
+    assert box.budget.used_input_tokens + 2 * before > box.budget.input_tokens
+    if mode == "auto":
+        model.context_window = before
+    elif mode == "manual":
+        box.run.compact_requested = True
+
+    agent.act({"messages": messages}, config)
+
+    lookup = next(step for step in box.session.added if isinstance(step, AnalysisStep)
+                  and step.kind == "tool" and step.tool == "search_metrics")
+    assert lookup.status == ("denied" if mode == "none" else "ok")
+    assert any("请立即基于已有数据集" in str(message.content) for message in model.seen[0]) == (mode == "none")
+    assert box.report is not None
+    if mode == "none":
+        assert context_steps(box) == []
+    else:
+        assert len(context_steps(box)) == 1 and context_steps(box)[0].output["reason"] == mode
+        if mode == "manual":
+            assert box.run.compact_requested is False
+        assert box.budget.used_input_tokens + 2 * context_steps(box)[0].output["after_tokens"] <= box.budget.input_tokens
+
+
+@pytest.mark.parametrize(("limited_by", "notice"), [
+    ("time", "分析时长即将用完"), ("requests", "模型请求次数即将用完"), ("tools", "工具调用已达上限"),
+])
+def test_act_compaction_does_not_remove_other_report_only_limits(monkeypatch, limited_by, notice):
+    report = {"title": "已检查", "summary": "仍需补充依据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    response = AIMessage(content="", tool_calls=[
+        {"name": "search_metrics", "args": {}, "id": "lookup"},
+        {"name": "submit_report", "args": report, "id": "report"},
+    ])
+    box, model, config, _, _ = live_box(monkeypatch, [response])
+    available = [tool for tool in box.tools() if tool.name in {"search_metrics", "submit_report"}]
+    monkeypatch.setattr(box, "tools", lambda: available)
+    messages = long_history()
+    before = box.budget.estimate_input_tokens(messages, available)
+    box.budget = Budget(input_tokens=2 * before, used_input_tokens=1)
+    model.context_window = before
+    if limited_by == "requests":
+        box.budget.used_model_requests = box.budget.model_requests - 1
+    elif limited_by == "tools":
+        box.budget.used_tools = box.budget.tool_calls - box.budget.report_reserve
+    else:
+        compact = agent._compact
+
+        def time_runs_low(*args, **kwargs):
+            estimate = compact(*args, **kwargs)
+            monkeypatch.setattr(box.budget, "remaining", lambda: agent.REPORT_RESERVE_SECONDS - 1)
+            return estimate
+
+        monkeypatch.setattr(agent, "_compact", time_runs_low)
+
+    agent.act({"messages": messages}, config)
+
+    lookup = next(step for step in box.session.added if isinstance(step, AnalysisStep)
+                  and step.kind == "tool" and step.tool == "search_metrics")
+    assert lookup.status == "denied" and box.report is not None
+    assert len(context_steps(box)) == 1
+    assert any(notice in str(message.content) for message in model.seen[0])
+
+
+@pytest.mark.parametrize("retry", [False, True])
+def test_act_compacts_only_once_when_retained_input_remains_above_the_threshold(monkeypatch, retry):
+    report = {"title": "已检查", "summary": "仍需补充依据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    box, model, config, _, _ = live_box(monkeypatch, [reply("submit_report", report, "report")])
+    box.budget = Budget(input_tokens=100_000)
+    model.context_window = 40_000
+    available = [tool for tool in box.tools() if tool.name == "submit_report"]
+    monkeypatch.setattr(box, "tools", lambda: available)
+    messages = long_history()
+    messages[1].content += "问题" * 10_500
+    if retry:
+        invoke = model.invoke
+        attempts = 0
+
+        def first_attempt_times_out(current):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                interject(box, "重试时也要保留这条新插话")
+                raise httpx.ReadTimeout("临时网络超时")
+            return invoke(current)
+
+        monkeypatch.setattr(model, "invoke", first_attempt_times_out)
+
+    agent.act({"messages": messages}, config)
+
+    assert box.report is not None and len(model.seen) == len(context_steps(box)) == 1
+    assert 40_000 * 0.75 < context_steps(box)[0].output["after_tokens"] < 40_000
+    assert box.budget.used_model_requests == (2 if retry else 1)
+    if retry:
+        assert any("重试时也要保留这条新插话" in str(message.content) for message in model.seen[0])
+
+
+def test_model_can_view_old_dataset_rows_after_context_compaction(monkeypatch):
+    report = {"title": "已检查", "summary": "仍需补充依据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    box, model, config, _, _ = live_box(monkeypatch, [
+        reply("view_dataset", {"ref": "D1"}, "view"), reply("submit_report", report, "report"),
+    ])
+    box.budget = Budget(input_tokens=100_000)
+    model.context_window = 20_000
+    dataset = governed(box, ["地区", "销售额"], [[f"地区{index}", str(index)] for index in range(8)])
+    available = [tool for tool in box.tools() if tool.name in {"view_dataset", "submit_report"}]
+    monkeypatch.setattr(box, "tools", lambda: available)
+    queries_before = box.budget.used_queries
+
+    agent.act({"messages": long_history()}, config)
+
+    viewed = next(message for message in model.seen[1]
+                  if isinstance(message, ToolMessage) and message.tool_call_id == "view")
+    data = json.loads(viewed.content)
+    assert data["columns"] == dataset.columns and data["rows"] == dataset.rows
+    assert box.budget.used_queries == queries_before and box.budget.used_tools == 1
+    assert len(context_steps(box)) == 1 and box.report is not None
 
 
 def test_compaction_compares_full_estimates_when_actual_prefix_usage_is_reusable(monkeypatch):

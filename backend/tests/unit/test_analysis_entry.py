@@ -17,7 +17,7 @@ from avelis.api.schemas import AnalysisRunOut, AnswerOut
 from avelis.ask import agent as ask_agent
 from avelis.ask import service as ask_service
 from avelis.db import utcnow
-from avelis.models import AnalysisRun, Answer, Job
+from avelis.models import AnalysisRun, Answer, Asset, Job, Metric, MetricVersion
 from tests.unit.test_analysis_hitl import configured as hitl_configured, reply, report_reply, waiting_run
 from tests.unit.test_analysis_pipeline import WINDOW, big_catalog, catalog as pipeline_catalog
 
@@ -33,6 +33,15 @@ def configured(monkeypatch, responses, **kwargs):
 
 def fake_ask(monkeypatch, box, *, status="answered", explanation="指标甲的值为七"):
     versions = dict(getattr(box, "catalog", ask_service.Catalog([], {})).versions)
+    # 历史答案读取会按保存版本复查来源；会话替身也保留真实可授权的版本与资产。
+    source = Asset(id="lookup-source", status="active", domain_id="dA")
+    metric = Metric(id="lookup-metric", code="lookup-metric", domain_id="dA")
+    version = MetricVersion(id="metric-v1", metric_id=metric.id, kind="base", base_asset_id=source.id, joins=[])
+    for obj in (source, metric, version):
+        box.session.store[(type(obj), obj.id)] = obj
+    upstream_closure = ask_service.upstream_closure
+    monkeypatch.setattr(ask_service, "upstream_closure", lambda session, ids:
+                        {source.id: source} if set(ids) == {source.id} else upstream_closure(session, ids))
     answer = Answer(id="answer-a", question=box.run.question, asked_by=box.user.id, asked_at=utcnow(),
                     status=status, model_adapter="fake-ask", intent={"metric_codes": ["m_a"]}, plan={},
                     sql="SELECT SUM(value) FROM metric_a", metric_version_ids=["metric-v1"],

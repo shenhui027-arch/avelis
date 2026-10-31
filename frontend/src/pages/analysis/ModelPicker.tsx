@@ -35,7 +35,9 @@ export function useModelChoice(initial?: ModelChoice | null) {
   const find = (c: ModelChoice | null) => c && models.find((m) => m.provider_id === c.provider_id && m.model_id === c.model_id);
   const model = find(saved) ?? find(list.data?.default ?? null) ?? models[0];
   const preferred = find(saved) ? saved?.reasoning_effort : list.data?.default?.reasoning_effort;
-  const effort = model?.efforts.some((e) => e.value === preferred) ? preferred ?? null : model?.efforts[0]?.value ?? null;
+  const fallback = list.data?.default?.reasoning_effort;
+  const effort = model?.efforts.some((e) => e.value === preferred) ? preferred ?? null
+    : model?.efforts.some((e) => e.value === fallback) ? fallback ?? null : null;
   const choice: ModelChoice | null = model ? { provider_id: model.provider_id, model_id: model.model_id, reasoning_effort: effort } : null;
   const set = (next: ModelChoice) => {
     setSaved(next);
@@ -72,7 +74,7 @@ export function ModelPicker({ state }: { state: ReturnType<typeof useModelChoice
   if (!model || !choice) return null;
   const effortLabel = model.efforts.find((e) => e.value === choice.reasoning_effort)?.label;
   const pick = (m: AnalysisModel) => set({ provider_id: m.provider_id, model_id: m.model_id,
-    reasoning_effort: m.efforts.some((x) => x.value === choice.reasoning_effort) ? choice.reasoning_effort : m.efforts[0]?.value ?? null });
+    reasoning_effort: m.efforts.some((x) => x.value === choice.reasoning_effort) ? choice.reasoning_effort : null });
   return (
     <div className="av-mbar" ref={ref}>
       <button type="button" className="av-mbar__btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}
