@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
@@ -17,7 +19,7 @@ from avelis.ask import service as ask_service
 from avelis.db import utcnow
 from avelis.models import AnalysisRun, Answer, Job
 from tests.unit.test_analysis_hitl import configured as hitl_configured, reply, report_reply, waiting_run
-from tests.unit.test_analysis_pipeline import WINDOW, catalog as pipeline_catalog
+from tests.unit.test_analysis_pipeline import WINDOW, big_catalog, catalog as pipeline_catalog
 
 
 def scope_reply(question_type="lookup", **extra):
@@ -331,27 +333,120 @@ def test_run_view_handles_a_missing_lookup_answer(monkeypatch):
     assert service.run_view(session, run, user=user).get("answer") is None
 
 
-@pytest.mark.parametrize("has_scope", [False, True])
-def test_lookup_followup_inherits_understood_scope_or_understands_new_question(monkeypatch, has_scope):
+@pytest.mark.parametrize("scope_location", ["scope", "window", "missing"])
+@pytest.mark.parametrize("text,start,end,region,dimensions", [
+    ("改查 2026 年 8 月华南", "2026-08-01", "2026-08-31", "华南", []),
+    ("那华南呢", "2026-09-01", "2026-09-30", "华南", []),
+    ("按产线拆开", "2026-09-01", "2026-09-30", "华东", ["产线"]),
+])
+def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
+        monkeypatch, scope_location, text, start, end, region, dimensions):
     session, user, parent, _ = waiting_run(monkeypatch)
-    understood = {"question_type": "lookup", "metric_codes": ["m_a"], "filters": []}
+    parent.question = "2026 年 9 月华东订单量"
+    previous_window = {"start": "2026-09-01", "end": "2026-09-30"}
+    understood = {"question_type": "lookup", "metric_codes": ["m_a"], "dimensions": [],
+                  "filters": [{"dimension": "地区", "values": ["华东"]}]}
+    if scope_location == "scope":
+        understood.update(start_date=previous_window["start"], end_date=previous_window["end"])
+    parent.window = {} if scope_location == "scope" else previous_window
     parent.status, parent.report = "succeeded", {"kind": "lookup", "answer_id": "original-answer"}
-    parent.plan = {"scope": understood} if has_scope else {}
-    parent.checkpoint = {"confirmed_scope": {"question_type": "change", "metric_codes": []}} if has_scope else {}
+    parent.plan = {"scope": understood} if scope_location != "missing" else {}
+    parent.checkpoint = {"confirmed_scope": {"question_type": "change", "metric_codes": []},
+                         "confirmed_items": [{"id": "P1", "content": "上一轮已确认项"}]}
     monkeypatch.setattr(service, "require_analysis_model", lambda s: SimpleNamespace(adapter="fake"))
     monkeypatch.setattr(service.access, "require_role", lambda *a: None)
-    text = "换成上期的指标甲是多少？"
     child = service.followup_run(session, user, parent.id, text)
     assert child.parent_run_id == parent.id and child.question == text
-    assert child.checkpoint["inherited"]["scope"] == (understood if has_scope else {})
-    assert child.checkpoint["inherited"]["user_text"] == text
+    assert child.window == {}
+    inherited = child.checkpoint["inherited"]
+    expected_scope = understood if scope_location != "missing" else {}
+    assert inherited == {"user_text": text, "previous_question": parent.question,
+                         "previous_scope": expected_scope, "previous_window": parent.window}
 
-    box, model, config, _, prechecks = configured(monkeypatch, [] if has_scope else [scope_reply()])
+    filters = [{"dimension": "地区", "values": [region]}]
+    box, model, config, _, prechecks = configured(monkeypatch, [scope_reply(
+        start_date=start, end_date=end, filters=filters, dimensions=dimensions)])
     box.run.question = child.question
+    box.run.window = child.window
+    candidate_questions = []
+    candidate_metrics = box.candidate_metrics
+
+    def candidates(question):
+        candidate_questions.append(question)
+        return candidate_metrics(question)
+
+    monkeypatch.setattr(box, "candidate_metrics", candidates)
     _, calls = fake_ask(monkeypatch, box)
     state = agent.initial_state(child.question, "2026-10-31", "UTC", child.window,
-                                inherited=child.checkpoint["inherited"])
+                                inherited=inherited)
     final = agent.build_graph(MemorySaver()).invoke(state, config)
     assert final["phase"] == "done" and box.report["kind"] == "lookup" and prechecks == []
     assert len(calls) == 1 and calls[0].metric_codes == ["m_a"]
-    assert len(model.seen) == (0 if has_scope else 1)
+    intent = calls[0]
+    assert str(intent.start_date) == start and str(intent.end_date) == end
+    assert [f.model_dump() for f in intent.filters] == filters and intent.group_by == dimensions
+    assert intent.compare is None and intent.compare_start is None and intent.compare_end is None
+    assert len(model.seen) == box.budget.used_model_requests == 1
+    assert len(candidate_questions) == 1
+    assert parent.question in candidate_questions[0] and text in candidate_questions[0]
+    prompt = next(message.content for message in model.seen[0] if isinstance(message, HumanMessage))
+    lines = dict(line.split("：", 1) for line in prompt.splitlines() if "：" in line)
+    assert lines["用户问题"] == text and lines["上一轮问题"] == parent.question
+    assert json.loads(lines["上一轮理解的范围"]) == expected_scope
+    assert json.loads(lines["上一轮窗口"]) == parent.window
+    assert "未提到的部分沿用上一轮" in prompt and "相对时间仍按今天计算" in prompt
+    assert "2026-10-31" in prompt
+
+
+def test_lookup_followup_keeps_metric_candidates_across_short_questions(monkeypatch):
+    filters = [{"dimension": "地区", "values": ["华南"]}]
+    previous_scope = {"question_type": "lookup", "metric_codes": ["m_units"], "filters": filters,
+                      "start_date": "2026-09-01", "end_date": "2026-09-30"}
+    box, model, config, _, prechecks = configured(monkeypatch,
+        [scope_reply(**previous_scope, dimensions=["产线"])], catalog=big_catalog(40))
+    box.run.question, box.run.window = "按产线拆开", {}
+    bare_candidates = box.candidate_metrics(f"那华南呢\n{box.run.question}")
+    assert len(bare_candidates) == box.CANDIDATES
+    assert "m_units" not in {candidate["code"] for candidate in bare_candidates}
+    _, calls = fake_ask(monkeypatch, box)
+    inherited = {"user_text": box.run.question, "previous_question": "那华南呢",
+                 "previous_scope": previous_scope, "previous_window": {}}
+    state = agent.initial_state(box.run.question, "2026-10-31", "UTC", box.run.window, inherited=inherited)
+
+    final = agent.build_graph(MemorySaver()).invoke(state, config)
+
+    assert final["phase"] == "done" and not final.get("__interrupt__")
+    assert box.report["kind"] == "lookup" and box.clarification is None and prechecks == []
+    assert len(model.seen) == box.budget.used_model_requests == 1
+    prompt = next(message.content for message in model.seen[0] if isinstance(message, HumanMessage))
+    candidates = json.loads(next(line.removeprefix("候选口径：") for line in prompt.splitlines()
+                                 if line.startswith("候选口径：")))
+    assert "m_units" in {candidate["code"] for candidate in candidates}
+    assert len(calls) == 1
+    intent = calls[0]
+    assert intent.metric_codes == ["m_units"] and intent.group_by == ["产线"]
+    assert [f.model_dump() for f in intent.filters] == filters
+    assert str(intent.start_date) == "2026-09-01" and str(intent.end_date) == "2026-09-30"
+
+
+@pytest.mark.parametrize("cutoff", ["deadline", "model_requests"])
+def test_lookup_followup_does_not_reuse_previous_scope_without_a_model_call(monkeypatch, cutoff):
+    box, model, config, _, prechecks = configured(monkeypatch, [])
+    box.run.question, box.run.window = "那华南呢", {}
+    _, calls = fake_ask(monkeypatch, box)
+    inherited = {"user_text": box.run.question, "previous_question": "2026 年 9 月华东订单量",
+                 "previous_scope": {"question_type": "lookup", "metric_codes": ["m_a"],
+                                    "filters": [{"dimension": "地区", "values": ["华东"]}],
+                                    "start_date": "2026-09-01", "end_date": "2026-09-30"},
+                 "previous_window": {}}
+    state = agent.initial_state(box.run.question, "2026-10-31", "UTC", box.run.window, inherited=inherited)
+    if cutoff == "deadline":
+        box.budget.started -= box.budget.seconds + 1
+    else:
+        box.budget.used_model_requests = box.budget.model_requests
+
+    result = agent.understand(state, config)
+
+    assert result["phase"] == "precheck" and result["scope"] is None
+    assert box.scope is None and box.plan["scope"] is None
+    assert model.seen == [] and calls == [] and prechecks == []
