@@ -802,6 +802,7 @@ class AnalysisRun(Base):
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | waiting | succeeded | failed | stopped | clarify
     stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
+    compact_requested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confirmation_mode: Mapped[str] = mapped_column(String(8), default="auto", server_default="auto", nullable=False)
     # 假设检查点：提议、预算与工具快照、用户反馈；JSON 整体赋值，避免遗漏原地修改
     checkpoint: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)

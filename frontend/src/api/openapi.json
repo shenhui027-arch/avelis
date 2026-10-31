@@ -3552,6 +3552,54 @@
     }
    }
   },
+  "/api/analysis/runs/{run_id}/compact": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Compact Run",
+    "description": "请求在下一次模型调用前压缩上下文；等待确认期间保留请求。",
+    "operationId": "compact_run_api_analysis_runs__run_id__compact_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisRunOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/followup": {
    "post": {
     "tags": [
@@ -5403,6 +5451,21 @@
        }
       ],
       "title": "Context Window"
+     },
+     "context_window_source": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "configured",
+         "default"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Context Window Source"
      }
     },
     "type": "object",
