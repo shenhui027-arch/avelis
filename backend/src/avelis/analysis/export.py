@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from avelis.analysis.grounding import _unit, display, number
+from avelis.analysis.grounding import _unit, compact, display, number
 
 TYPE_LABEL = {"fact": "事实", "calc": "计算", "inference": "推断", "recommendation": "建议"}
 DATA_SOURCE_LABEL = {"governed": "指标口径", "explore": "临时查询，未经口径审核", "calc": "计算"}
@@ -53,7 +53,8 @@ CALC_COLUMN_LABELS = {
     "change_type": "变化类型", "role": "作用",
 }
 CALC_PERIOD_LABELS = {"current": "本期", "previous": "对比期", "baseline": "对比期",
-                      "previous_period": "上一期", "previous_year": "去年同期", "custom": "对比期"}
+                      "previous_period": "上一期", "previous_calendar": "上一自然期",
+                      "previous_year": "去年同期", "custom": "对比期"}
 
 
 def resolve_audience(audience: Audience | None = None, appendix: bool | None = None) -> Audience:
@@ -277,6 +278,20 @@ def _units(d: dict) -> dict:
     return _meta(d).get("units") or d.get("units") or {}
 
 
+def _column_roles(d: dict) -> dict | None:
+    """空契约也有意义：只有完全没有契约的旧结果才走兼容推断。"""
+    if "column_roles" in d:
+        return d["column_roles"]
+    return _meta(d).get("column_roles")
+
+
+def _time_column(d: dict) -> str | None:
+    roles = _column_roles(d)
+    if roles is not None:
+        return next((c for c in d.get("columns") or [] if (roles.get(c) or {}).get("role") == "time"), None)
+    return d.get("time_column") or _meta(d).get("time_column")
+
+
 def _export_labels(d: dict, view: dict) -> dict:
     """计算结果沿输入继承显示元数据，固定列名另由产品映射；不改原始结果列。"""
     saved = {item["ref"]: item for item in view.get("datasets") or []}
@@ -302,6 +317,9 @@ def _export_labels(d: dict, view: dict) -> dict:
 
 
 def _column_label(d: dict, column: str) -> str:
+    roles = _column_roles(d)
+    if roles is not None:
+        return str((roles.get(column) or {}).get("label") or column)
     meta = _meta(d)
     labels = meta.get("export_labels") or meta
     dim = next((dim for dim in labels.get("dimensions") or [] if dim.get("name") == column), {})
@@ -353,8 +371,19 @@ METRIC_KINDS = {"level", "delta", "ratio", "rate_change", "share"}
 
 
 def _metric_columns(d: dict) -> list[int]:
+    roles = _column_roles(d)
+    if roles is not None:
+        return [i for i, c in enumerate(d.get("columns") or [])
+                if (roles.get(c) or {}).get("role") in ("measure", "change", "rate")]
     units = _units(d)
     return [i for i, c in enumerate(d.get("columns") or []) if (units.get(c) or {}).get("kind") in METRIC_KINDS]
+
+
+def _chart_value(d: dict, numeric: list[int]) -> int:
+    cols, roles = d.get("columns") or [], _column_roles(d)
+    if roles is not None:
+        return next((i for i in numeric if (roles.get(cols[i]) or {}).get("role") == "change"), numeric[0])
+    return next((i for i in numeric if (_units(d).get(cols[i]) or {}).get("kind") == "delta"), numeric[0])
 
 
 def _key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
@@ -371,6 +400,9 @@ def _key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
 
 def _chart_labels(d: dict, numeric: list[int]) -> list[int]:
     cols, meta = d.get("columns") or [], _meta(d)
+    roles = _column_roles(d)
+    if roles is not None:
+        return [i for i, c in enumerate(cols) if (roles.get(c) or {}).get("role") in ("dimension", "time")]
     keys = (meta.get("args") or {}).get("keys") or (meta.get("intent") or {}).get("group_by") or []
     if "member" in cols:
         keys = ["member"]
@@ -382,9 +414,9 @@ def _duplicates_cause_chart(d: dict, report: dict) -> bool:
     """仅跳过主要原因已画出的成员视图；同一证据的其他维度或趋势仍可入选。"""
     cols, rows = d.get("columns") or [], d.get("rows") or []
     numeric = _metric_columns(d)
-    if not numeric or ((d.get("time_column") or _meta(d).get("time_column")) in cols and len(rows) > 2):
+    if not numeric or (_time_column(d) in cols and len(rows) > 2):
         return False
-    value = next((i for i in numeric if (_units(d).get(cols[i]) or {}).get("kind") == "delta"), numeric[0])
+    value = _chart_value(d, numeric)
     rows = [r for r in rows if number(r[value]) is not None][:10]
     labels = [cols[i] for i in _chart_labels(d, numeric)]
     for cause in report.get("causes") or []:
@@ -423,6 +455,7 @@ def _core_scope_matches(d: dict, scope: dict) -> bool:
     """只排除已知范围冲突；旧报告或数据集缺少范围信息时沿用原有选择规则。"""
     from avelis.analysis.grounding import scope_key
     from avelis.ask.intent import comparison_range
+    from avelis.governance.errors import Invalid
 
     meta = _meta(d)
     intent, saved = meta.get("intent") or {}, meta.get("window") or {}
@@ -432,11 +465,12 @@ def _core_scope_matches(d: dict, scope: dict) -> bool:
     window = {"start_date": intent.get("start_date") or saved.get("start"),
               "end_date": intent.get("end_date") or saved.get("end"),
               "compare_start": intent.get("compare_start"), "compare_end": intent.get("compare_end")}
-    if intent.get("compare") in ("previous_period", "previous_year") and window["start_date"] and window["end_date"]:
+    if (intent.get("compare") in ("previous_period", "previous_calendar", "previous_year")
+            and window["start_date"] and window["end_date"]):
         try:
             start, end = comparison_range(date.fromisoformat(str(window["start_date"])),
                                           date.fromisoformat(str(window["end_date"])), intent["compare"])
-        except ValueError:
+        except (ValueError, Invalid):
             pass
         else:
             window.update(compare_start=start, compare_end=end)
@@ -466,7 +500,7 @@ def _core_metrics(view: dict) -> list[dict]:
             if len(group) != 4:
                 continue
             a, b, delta, rate = [_unit(units.get(c)) for c in group]
-            if (a["kind"] not in ("level", "ratio") or a != b
+            if (a["kind"] not in ("level", "ratio", "count") or a != b
                     or delta["kind"] != "delta" or rate["kind"] != "rate_change"):
                 continue
             values = d["rows"][0][start:start + 4]
@@ -482,6 +516,7 @@ def _header(view: dict) -> str:
     w = view.get("window") or {}
     if not w:
         from avelis.ask.intent import comparison_range
+        from avelis.governance.errors import Invalid
 
         counts = _reference_counts(view.get("report") or {})
         metrics = _core_metrics(view)
@@ -497,11 +532,11 @@ def _header(view: dict) -> str:
             w = {"start": saved["start"], "end": saved["end"]}
             if intent.get("compare") == "custom" and intent.get("compare_start") and intent.get("compare_end"):
                 w.update(compare_start=intent["compare_start"], compare_end=intent["compare_end"])
-            elif intent.get("compare") in ("previous_period", "previous_year"):
+            elif intent.get("compare") in ("previous_period", "previous_calendar", "previous_year"):
                 try:
                     start, end = comparison_range(date.fromisoformat(str(w["start"])),
                                                   date.fromisoformat(str(w["end"])), intent["compare"])
-                except ValueError:
+                except (ValueError, Invalid):
                     pass
                 else:
                     w.update(compare_start=str(start), compare_end=str(end))
@@ -529,10 +564,13 @@ def _cause_label(cause: dict) -> str:
     if kind == "governance":
         return "治理事件"
     if kind == "member":
-        return entity.get("member") or label or "未命名成员"
+        member = entity.get("member")
+        if member is not None:
+            return f"{entity['dimension_label']}：{member}" if entity.get("dimension_label") else str(member)
+        return label or "未标注实体"
     if kind == "factor":
         return label or "因子指标"
-    return label or entity.get("member") or "未命名原因"
+    return label or entity.get("member") or "未标注实体"
 
 
 def _cause_value(cause: dict, datasets: dict[str, dict] | None = None) -> tuple[Decimal | None, str]:
@@ -855,8 +893,7 @@ def _ellipsis(text: str, font: str, size: float, width: float) -> str:
 
 
 def _axis(value: float) -> str:
-    scale, suffix = (1e8, "亿") if abs(value) >= 1e8 else (1e4, "万") if abs(value) >= 1e4 else (1, "")
-    return (f"{value / scale:,.2f}".rstrip("0").rstrip(".")) + suffix
+    return compact(number(value), strip=True, group=True)
 
 
 def _bar_chart(data: list[tuple[str, float, str]], font: str, width: float = 468,
@@ -899,7 +936,7 @@ def _bar_chart(data: list[tuple[str, float, str]], font: str, width: float = 468
 
 
 def _chart(d: dict, font: str, *, brief: bool = False):
-    """只画已登记指标；旧调用没有 meta 时兼容数值列，空值始终跳过。"""
+    """按列契约选轴；旧结果没有契约时沿用原有推断，空值始终跳过。"""
     from reportlab.graphics.charts.lineplots import LinePlot
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.lib.colors import HexColor
@@ -909,25 +946,27 @@ def _chart(d: dict, font: str, *, brief: bool = False):
     cols, rows = d.get("columns") or [], d.get("rows") or []
     if not rows or len(cols) < 2:
         return None
-    units = _units(d)
+    units, roles = _units(d), _column_roles(d)
     numeric = _metric_columns(d)
-    if not numeric and not units:
+    if roles is None and not numeric and not units:
         numeric = [i for i in range(len(cols)) if any(_num(r[i]) is not None for r in rows)
                    and all(r[i] is None or _num(r[i]) is not None for r in rows)]
     if not numeric:
         return None
-    value = next((i for i in numeric if units.get(cols[i], {}).get("kind") == "delta"), numeric[0])
+    value = _chart_value(d, numeric)
     if len(rows) == 2 and (units.get(cols[value]) or {}).get("kind") == "level":
         a, b = (number(r[value]) for r in rows)
         # 两行水平值的差距不超过绝对最大值的 10% 时，表格已能直接表达对比。
         if a is not None and b is not None and a * b >= 0 and abs(a - b) <= max(abs(a), abs(b)) * Decimal("0.1"):
             return None
-    time_column = d.get("time_column") or _meta(d).get("time_column")
+    time_column = _time_column(d)
     if time_column in cols and len(rows) > 2:
         ti = cols.index(time_column)
         periods = sorted({str(r[ti]) for r in rows})
         index = {p: i for i, p in enumerate(periods)}
-        dimensions = [i for i in range(len(cols)) if i != ti and cols[i] not in units and i not in numeric]
+        dimensions = ([i for i, c in enumerate(cols) if (roles.get(c) or {}).get("role") == "dimension"]
+                      if roles is not None else
+                      [i for i in range(len(cols)) if i != ti and cols[i] not in units and i not in numeric])
         series: dict[str, list] = {}
         for r in rows:
             n = _num(r[value])

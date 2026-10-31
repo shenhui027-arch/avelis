@@ -89,17 +89,25 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "metric_version_ids": ["version"], "metric_codes": ["measure"],
         "window": {"start": "2026-01-01", "end": "2026-01-03"}, "time_column": "period",
         "units": {"指标": {"kind": "level", "unit": "件"}},
+        "polarity": {},
+        "column_roles": {"period": {"role": "time", "label": "period"},
+                         "指标": {"role": "measure", "label": "指标"}},
         "summary_units": {"total": {"kind": "level", "unit": "件"}}, "purpose": "检查变化",
         "answer_id": None, "created_at": api.dataset.created_at.isoformat(),
         "explore": False, "assumption": False, "partial": False, "rerunnable": True,
-        "source": None, "meta": api.dataset.meta, "offset": 0, "limit": 100,
+        "source": None, "meta": {**api.dataset.meta, "polarity": {}, "dimension_labels": {},
+                                "measure_labels": {"指标": "指标"}}, "offset": 0, "limit": 100,
         "rows": api.dataset.rows[:100], "total": 1205,
     }
     response = api.client.get("/api/analysis/runs/run/datasets/1?offset=100&limit=1")
     assert response.status_code == 200, response.text
     assert response.json() == {
         "ref": "D1", "kind": "governed", "title": api.dataset.title, "columns": api.dataset.columns,
-        "rows": api.dataset.rows, "truncated": True, "meta": api.dataset.meta, "inputs": [], "answer_id": None,
+        "rows": api.dataset.rows, "truncated": True,
+        "meta": {**api.dataset.meta, "polarity": {}, "dimension_labels": {}, "measure_labels": {"指标": "指标"}},
+        "inputs": [], "answer_id": None,
+        "column_roles": {"period": {"role": "time", "label": "period"},
+                         "指标": {"role": "measure", "label": "指标"}},
     }
     view = api.client.get("/api/analysis/runs/run").json()
     assert view["datasets"][0]["rows"] == api.dataset.rows[:50]

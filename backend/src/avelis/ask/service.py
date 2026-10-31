@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from avelis import audit, cache
+from avelis.analysis import measures
+from avelis.analysis.dataset_projection import build_column_roles
 from avelis.ask.compiler import TIME_GRAINS, ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
 from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
@@ -129,10 +131,16 @@ def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog
     单指标、无对比：整条下推为一条 SQL。多个指标、对比期、派生指标：展开为执行计划（见 _fulfil_plan）。"""
     try:
         version = catalog.versions.get(intent.metric_code or "", (None, None))[1]
-        if intent.is_simple and (version is None or version.kind != "derived"):
+        simple = intent.is_simple and (version is None or version.kind != "derived")
+        if simple:
             _fulfil(session, user, intent, answer, catalog.versions, get_settings())
         else:
             _fulfil_plan(session, user, intent, answer, catalog, get_settings())
+        if answer.status == "answered":
+            requested = ([catalog.versions[intent.metric_code]] if simple
+                         else [catalog.versions[code] for code in intent.metric_codes])
+            answer.result = _result_contract(answer.result, intent, requested,
+                                             value_column="value" if simple else None)
     except GovernanceError as exc:
         answer.status = "error"
         answer.message = exc.message
@@ -442,6 +450,37 @@ def _dimension_docs(session: Session, user: User, version: MetricVersion, aliase
 
 PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期",
                 "previous_calendar": "上一自然期", "custom": "对比期"}
+
+
+def _result_contract(result: dict, intent: Intent, requested: list[tuple[Metric, MetricVersion]], *,
+                     value_column: str | None = None) -> dict:
+    """用执行时锁定的口径补齐展示契约；返回副本，避免修改缓存保存的结果。"""
+    columns = result.get("columns") or []
+    period_label = PERIOD_LABEL.get(intent.compare)
+    metrics = {metric.name: version for metric, version in requested}
+    if value_column is not None:
+        metric, version = requested[0]
+        # 单指标 SQL 的结果别名固定为 value，按编译契约映射，不从列名或值推断。
+        units = {value_column: measures.metric_unit(version)} if value_column in columns else {}
+        directions = measures.governed_polarity([metric.name], {metric.name: version}, period_label)
+        polarity = ({value_column: directions[metric.name]}
+                    if value_column in columns and metric.name in directions else {})
+        labels = {value_column: metric.name}
+    else:
+        units = measures.governed_units(columns, metrics, period_label)
+        polarity = measures.governed_polarity(columns, metrics, period_label)
+        labels = {column: metric.name for metric, version in requested
+                  for column in measures.governed_units(columns, {metric.name: version}, period_label)}
+    dimension_labels = {}
+    for _, version in requested:
+        for dimension in version.dimensions or []:
+            dimension_labels.setdefault(dimension["name"], dimension.get("label") or dimension["name"])
+    # 编译器与计划组装都将显式时间分组列放在首列，其名称可能因重名而改变。
+    meta = {"units": units, "intent": intent.model_dump(mode="json"),
+            "time_column": columns[0] if intent.time_grain and columns else None,
+            "dimension_labels": dimension_labels, "measure_labels": labels}
+    return {**result, "units": units, "polarity": polarity,
+            "column_roles": build_column_roles(columns, meta)}
 
 
 def _scratch(answer: Answer, user: User) -> Answer:

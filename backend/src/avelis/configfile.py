@@ -55,6 +55,7 @@ CONFIG_KEYS = {
     "bootstrap.initial_admin_username": ConfigKey("AVELIS_INITIAL_ADMIN_USERNAME", str, "admin"),
     "bootstrap.initial_admin_password": ConfigKey("AVELIS_INITIAL_ADMIN_PASSWORD", str, ""),
     "business.timezone": ConfigKey("AVELIS_BUSINESS_TIMEZONE", str, "Asia/Shanghai"),
+    "business.number_style": ConfigKey("AVELIS_NUMBER_STYLE", str, "cn"),
     "business.unassigned_asset_policy": ConfigKey("AVELIS_UNASSIGNED_ASSET_POLICY", str, "deny"),
     "business.require_column_comments": ConfigKey("AVELIS_REQUIRE_COLUMN_COMMENTS", bool, False),
     "query.timeout_seconds": ConfigKey("AVELIS_QUERY_TIMEOUT_SECONDS", int, 30),

@@ -20,6 +20,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from avelis.config import get_settings
+
 REF_PATTERN = r"^D[1-9]\d{0,3}$"
 KINDS = ("level", "delta", "ratio", "rate_change", "share", "count", "unknown")
 
@@ -328,6 +330,18 @@ def _rounded(v: Decimal, places: int, *, strip: bool = False, group: bool = Fals
     return text.rstrip("0").rstrip(".") if strip and "." in text else text
 
 
+def compact(value: Decimal, precision: int = 2, *, strip: bool = False, group: bool = False) -> str:
+    """正文与导出图轴共用缩写；两种体系都从绝对值 1 万起缩写，intl 的 K 除以 1 千。"""
+    scales = ((YI, "亿"), (WAN, "万"))
+    if get_settings().number_style == "intl":
+        scales = ((Decimal(1000000000), "B"), (Decimal(1000000), "M"), (Decimal(1000), "K"))
+    if abs(value) >= WAN:
+        for scale, suffix in scales:
+            if abs(value) >= scale:
+                return _rounded(value / scale, precision, strip=strip, group=group) + suffix
+    return _rounded(value, precision, strip=strip, group=group)
+
+
 def fmt(ref: Ref, raw: Any, meta: dict) -> str:
     """按量纲与格式把原值变成显示文字（四舍五入 ROUND_HALF_UP），单位由这里输出。"""
     if isinstance(ref, WindowRef):
@@ -349,8 +363,8 @@ def fmt(ref: Ref, raw: Any, meta: dict) -> str:
 def display(value: Decimal, meta: dict, precision: int | None = None, direction: str | None = None,
             raw: str = "") -> str:
     """系统按量纲决定显示格式（ADR 0009 第 1 点“量纲与单位”）：模型不选格式，只能指定小数位。
-    - level、delta、count（有口径单位）：先按 unit_scale 换算回基本单位，绝对值 ≥ 1 亿用“亿”、≥ 1 万用“万”（2 位），
-      否则原值；后接口径单位；没有单位时按 unknown 显示；
+    - level、delta、count（有口径单位）：先按 unit_scale 换算回基本单位；cn 用亿、万，intl 用 B、M、K，
+      两者均从绝对值 1 万起缩写（2 位），否则原值；后接口径单位；没有单位时按 unknown 显示；
     - ratio：无单位时 ×100 带 %（如转化率），有单位时原值加单位（如 <单位>/<单位>）；
     - rate_change、share：×100 带 %；ratio 的差（of_ratio，且无单位）：×100 带“个百分点”；
     - unknown：原值、千分位、不带单位。
@@ -375,10 +389,8 @@ def display(value: Decimal, meta: dict, precision: int | None = None, direction:
         return sign + _rounded(value * 100, places(1)) + "个百分点"
     if kind in ("level", "delta", "count") and unit:
         base = value * meta["scale"]
-        if abs(base) >= YI:
-            return sign + _rounded(base / YI, places(2)) + "亿" + unit
         if abs(base) >= WAN:
-            return sign + _rounded(base / WAN, places(2)) + "万" + unit
+            return sign + compact(base, places(2)) + unit
         return sign + _rounded(base, places(0 if kind == "count" else 2), strip=not fixed) + unit
     if kind == "ratio":
         return sign + _rounded(value, places(2), strip=not fixed) + unit

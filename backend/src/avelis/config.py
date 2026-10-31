@@ -70,6 +70,7 @@ class Settings:
     login_max_failures: int = 5
     login_lock_minutes: int = 15
     business_timezone: str = "Asia/Shanghai"
+    number_style: str = "cn"
     allow_self_review: bool = False
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
     query_timeout_seconds: int = 30
@@ -227,6 +228,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
         access_token_minutes=_positive_int(env, "AVELIS_ACCESS_TOKEN_MINUTES", Settings.access_token_minutes),
         session_max_hours=_positive_int(env, "AVELIS_SESSION_MAX_HOURS", Settings.session_max_hours),
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),
+        number_style=_enum(env, "AVELIS_NUMBER_STYLE", Settings.number_style, ("cn", "intl")),
         allow_self_review=env.get("AVELIS_ALLOW_SELF_REVIEW", "false").lower() == "true",
         cors_origins=cors_origins,
         query_timeout_seconds=_positive_int(env, "AVELIS_QUERY_TIMEOUT_SECONDS", Settings.query_timeout_seconds),
@@ -340,6 +342,10 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
             _nonempty_string(values, key, default)
         except ValueError as exc:
             values.problem(key, str(exc))
+    try:
+        _enum(values, "AVELIS_NUMBER_STYLE", Settings.number_style, ("cn", "intl"))
+    except ValueError as exc:
+        values.problem("AVELIS_NUMBER_STYLE", str(exc))
     try:
         _enum(values, "AVELIS_LOG_LEVEL", Settings.log_level,
               ("critical", "error", "warning", "info", "debug", "trace"))
