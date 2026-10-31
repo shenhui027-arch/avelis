@@ -32,7 +32,7 @@ from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
 from avelis.governance import access, experiences, joins
-from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
+from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
 from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
@@ -533,9 +533,15 @@ def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, che
                 warnings.append(warning)
             continue
         spec = item["join"]
-        path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
-                             right_asset_id=assets[1].id, right_columns=spec["right_columns"],
-                             source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+        try:
+            path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
+                                 right_asset_id=assets[1].id, right_columns=spec["right_columns"],
+                                 source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+        except GovernanceError as exc:
+            warning = f"这条关联没能提议为关联路径：{exc}"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
         candidate = {"item_id": item["id"], "id": path.id, "status": path.status}
         if candidate not in candidates:
             candidates.append(candidate)
