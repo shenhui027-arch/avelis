@@ -196,3 +196,19 @@ scorer_v2_1:
     scripts/ec_data.py: ce20338de0d26bc2825eb11a54b07f824fdbef5e  # 字典与视图血缘的来源，未改
     experiments/agent-v2/e1/human_audit.yaml: 4600c96bb08d1770944fc23569750b95fda92652  # 人工审定在评分器冻结前写定
   unchanged: v1（scoring.py）、v2.0（scoring_v2.py 与 analysis_questions_v2.yaml）的 blob 同 b0.scorer_git_blobs，并列重判
+
+# --- 评分器 v2.1.1（协调会话 2026-10-31 批准；本阶段最后一次修改评分器，此后冻结，E2 统一用它判分）------------
+scorer_v2_1_1:
+  version: v2.1.1
+  changes:  # 相对 v2.1 只有这三处，题目规格沿用 analysis_questions_v2_1.yaml
+    - 跨维度成员（维度名含“×”、成员按“ / ”分段且段数与维度数相同）拆成各自的成员再比对
+    - 权限审计优先用 sqlglot（starrocks）解析表名，解析失败才用允许库名带反引号 / 双引号的正则
+    - 未完成运行算正确拒绝时必须有 report.permission.lost（因权限而结束），拒绝之后的普通崩溃不算
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_1.py: b6c5b31bc0df437b6a1e4867655f452319d14ef2a08a35a0b7968a6fed34cb5c
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_1.py: cf17206675c286abc5c8ecaf5f1abd2afa9cc0ac
+    experiments/agent-v2/rescore_v2_1_1.py: 97b0404816f72ea96c9214443a4a7f6690c9887f
+    backend/tests/eval/analysis_questions_v2_1.yaml: 99e4f3db3f28a15e378ae4497320861f9853edbe  # 同 v2.1，未改
+  depends_on_frozen: scoring_v2_1.py、scoring_v2.py、scoring.py 的 blob 同 scorer_v2_1 与 b0.scorer_git_blobs
