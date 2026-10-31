@@ -273,7 +273,7 @@ e2:
 
 # --- E2b：思考强度对照（用户 2026-10-31：“模型就不换了，你可以用更强的思考来做”；费用从 E2 的 20 元授权里出）-----------
 e2b:
-  status: 已暂停（2026-10-31 15:2x）：max 档单次请求经常超过冻结的 60 秒超时，运行失败；跑了 4 次（第 5 次中途终止），等待决定，见 docs/agent-v2/results-e2b.md
+  status: 已作废（2026-10-31 15:2x 暂停）：max 档单次请求经常超过冻结的 60 秒超时，运行失败；跑了 4 次（第 5 次中途终止）；用户决定放宽超时重跑，见 e2b_2
   code_sha_frozen: 233b092e29f2c538df05051374bec35969c09b42
   purpose: 区分问题在模型能力还是系统设计；模型不变（DeepSeek Flash），只把分析阶段的思考强度调到 max（理解阶段固定关闭思考，不变）
   arms:
@@ -293,7 +293,7 @@ e2b:
 
 # --- E2b-2：思考强度 max 重跑（用户 2026-10-31：“放宽超时重跑”）；前提已改变，与 E2b 第一版分开 -------------------------
 e2b_2:
-  status: 已冻结，待运行
+  status: 已完成（2026-10-31 17:26），32 次全部跑完，见 docs/agent-v2/results-e2b.md
   code_sha_frozen: d2e87647cc7904fa586475c18626e978ffccfa8a
   premise_changed: 相对 E2 / E2b 第一版，放宽了单次请求超时与单次运行时长。这两项是“最高”档这个条件本身的参数——最高档单次请求实测最长 108 秒，
     超过了冻结的 60 秒，按原上限运行会因超时失败而测不出模型能力；不是为了把结果调好看而加预算
@@ -313,3 +313,15 @@ e2b_2:
     estimate: 第一版每次实测 0.09–0.26 元；32 次约 3–8 元；按每次 1.5 元的保守预留，到上限就停
   restore: 结束或被强行终止时，把私有库 avelis_e1 里分析用途的 reasoning_effort 恢复为原值（null）
   command: e2.py --run --truth <主检出>/.demo/ec-truth.json --conditions B0 --effort max --output-token-cap 54976 --model-timeout 162 --run-seconds 488 --tag e2b2 --cap 20 --spent 7.65121642
+  result:
+    file: .demo/experiments/e2b2/20261031-153430.json  # 本 worktree；摘要在同名 .summary.json
+    run_sha: 071eb5c00116bf1e4250c940eaa37bdbf022d02d
+    passed: 12  # B0 @ low 也是 12
+    primary_hit: 11  # low 10
+    budget_fallback_reports: 5  # low 0；输入或输出 token 用尽，没有模型报告
+    seconds_completed: {median: 278.0, p90: 348.7}  # low 77.4 / 111.0
+    cost_cny: 4.99457794
+    cost_per_pass_cny: 0.416  # low 0.127
+    max_model_request_seconds: 160.5
+    ledger_after_cny: 12.64579436
+    effort_restored: true  # 结束后核对私有库 analysis.reasoning_effort = null
