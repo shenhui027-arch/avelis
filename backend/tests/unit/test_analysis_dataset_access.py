@@ -84,7 +84,7 @@ def test_revocation_restricts_governed_calc_run_and_step_rows(dataset_db, revoke
     assert all(d["restricted"] and d["rows"] == [] for d in view["datasets"])
     assert all(d["summary"] is None and d["sql"] is None for d in view["datasets"])
     assert view["steps"][0]["output"] == {"rows": [], "restricted": True}
-    assert view["steps"][0]["args"]["sql"] is None
+    assert "sql" not in view["steps"][0]["args"]
     assert service.run_view(session, run)["datasets"][0]["rows"] == [[7], [9]]
 
 
@@ -149,6 +149,79 @@ def test_revocation_hides_model_and_unattributed_outputs_but_keeps_interjections
     assert outputs[7] == interjection
     assert steps[0].output == model_output  # 读取投影不改写保存的模型原文。
     assert service.run_view(session, run)["steps"][0]["output"] == model_output
+
+
+@pytest.mark.parametrize("kind,association", [
+    ("tool", "restricted"), ("tool", "readable"), ("tool", None),
+    ("model", None), ("plan", None), ("note", None), ("context", None), ("user", None),
+])
+def test_revocation_projects_all_step_args_and_reasons(dataset_db, kind, association):
+    session, user, run, dataset, asset, _, _ = dataset_db
+    visible_asset = Asset(id="visible-asset", datasource_id="source", kind="table", catalog_name="local",
+                          db_name="data", name="visible_facts", domain_id="visible")
+    visible = AnalysisDataset(id="visible-dataset", run_id=run.id, seq=2, kind="context", title="可见数据",
+                              columns=["value"], rows=[[4321]], meta={"asset_ids": [visible_asset.id]})
+    args = {
+        "metric_codes": ["m"], "metric_code": "m", "code": "m",
+        "start_date": "2026-01-01", "end_date": "2026-01-31",
+        "compare_start": "2025-12-01", "compare_end": "2025-12-31",
+        "dataset": "D1", "ref": "D2",
+        "window": {"start": "2026-01-01", "end": "2026-01-31", "member": "受限成员甲"},
+        "filters": [{"dimension": "member", "op": "eq", "values": ["受限成员甲"]}],
+        "purpose": "分析受限成员甲的 7654321", "question": "受限成员甲为何变化",
+        "sql": "SELECT * FROM facts WHERE member = '受限成员甲'",
+        "match": {"member": "受限成员甲"}, "label": "受限成员甲", "unknown": {"value": 7654321},
+    }
+    reason = "受限成员甲贡献 7654321，继续查询"
+    step = AnalysisStep(run_id=run.id, seq=1, kind=kind, tool="query_metric", status="ok",
+                        dataset_id={"restricted": dataset.id, "readable": visible.id}.get(association),
+                        args=deepcopy(args), reason=reason, output={})
+    session.add_all([visible_asset, visible, step])
+    session.commit()
+    full_step = service.run_view(session, run, user=user)["steps"][0]
+    assert full_step["args"] == args and full_step["reason"] == reason
+
+    asset.domain_id = "hidden"
+    session.commit()
+    projected = service.run_view(session, run, user=user)["steps"][0]
+    if kind == "user":
+        assert projected == full_step
+    else:
+        assert projected["tool"] == "query_metric"
+        assert projected["args"] == {
+            key: value for key, value in args.items()
+            if key in {"metric_codes", "metric_code", "code", "start_date", "end_date",
+                       "compare_start", "compare_end", "dataset", "ref"}
+        } | {"window": {"start": "2026-01-01", "end": "2026-01-31"}}
+        assert projected["reason"] is None
+        assert "受限成员甲" not in str(projected["args"])
+        assert "7654321" not in str(projected["args"])
+    assert step.args == args and step.reason == reason
+    assert service.run_view(session, run)["steps"][0] == full_step
+
+
+def test_revocation_omits_unvalidated_values_in_structural_step_args(dataset_db):
+    session, user, run, dataset, asset, _, _ = dataset_db
+    args = {
+        "code": {"member": "受限成员甲"}, "metric_code": "受限成员甲",
+        "metric_codes": ["m", {"value": 7654321}],
+        "start_date": {"value": 7654321}, "end_date": "2026-01-31",
+        "compare_start": "受限成员甲", "compare_end": "2026-02-30",
+        "dataset": {"member": "受限成员甲"}, "ref": "受限成员甲",
+        "window": {"start": "受限成员甲", "end": "2026-01-31", "compare_start": [7654321]},
+    }
+    step = AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="error",
+                        dataset_id=dataset.id, args=deepcopy(args), reason="受限成员甲 7654321", output={})
+    session.add(step)
+    session.commit()
+    assert service.run_view(session, run, user=user)["steps"][0]["args"] == args
+
+    asset.domain_id = "hidden"
+    session.commit()
+    projected = service.run_view(session, run, user=user)["steps"][0]
+    assert projected["args"] == {"end_date": "2026-01-31", "window": {"end": "2026-01-31"}}
+    assert projected["reason"] is None
+    assert step.args == args
 
 
 def test_derived_components_and_historical_versions_are_checked(dataset_db):

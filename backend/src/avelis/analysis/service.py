@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
@@ -828,17 +829,42 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     readable = {d.id for d in datasets} - restricted
     report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
                              lookup_restricted=lookup_restricted)
+    has_restricted = bool(restricted or lookup_restricted)
+
+    def is_metric_code(value) -> bool:
+        return isinstance(value, str) and re.fullmatch(r"[a-z0-9_]{1,64}", value) is not None
+
+    def is_window_date(value) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
 
     def step_args(step) -> dict:
         args = dict(step.args)
-        if step.dataset_id in restricted and "sql" in args:
-            args["sql"] = None
-        if (restricted or lookup_restricted) and step.tool == "submit_report" and "title" in args:
-            args["title"] = report.get("title")
-        return args
+        if not has_restricted or step.kind == "user":
+            return args
+        # 后续步骤可能复述任意来源的数据，只保留明确的结构字段。
+        projected = {key: value for key, value in args.items()
+                     if key in {"code", "metric_code"} and is_metric_code(value)}
+        codes = args.get("metric_codes")
+        if isinstance(codes, list) and all(is_metric_code(code) for code in codes):
+            projected["metric_codes"] = codes
+        projected.update({key: value for key, value in args.items()
+                          if key in {"start_date", "end_date", "compare_start", "compare_end"}
+                          and is_window_date(value)})
+        projected.update({key: args[key] for key in ("dataset", "ref")
+                          if isinstance(args.get(key), str) and args[key] in known})
+        if isinstance(args.get("window"), dict):
+            projected["window"] = {key: value for key, value in args["window"].items()
+                                   if key in {"start", "end", "compare_start", "compare_end"}
+                                   and is_window_date(value)}
+        return projected
 
     def step_output(step) -> dict:
-        if not (restricted or lookup_restricted) or step.kind == "user":
+        if not has_restricted or step.kind == "user":
             return step.output
         if step.kind == "tool" and step.dataset_id in readable:
             return step.output
@@ -857,7 +883,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 confirmed_items=checkpoint.get("confirmed_items") or [],
                 steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,
                         "args": step_args(s),
-                        "reason": s.reason,
+                        "reason": None if has_restricted and s.kind != "user" else s.reason,
                         "status": s.status,
                         "output": step_output(s),
                         "dataset": _ref(session, s.dataset_id),
