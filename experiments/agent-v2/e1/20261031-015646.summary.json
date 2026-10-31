@@ -65,7 +65,7 @@
    "ec_store_orders"
   ],
   "first_cause": "factor:{\"factor_metric_code\": \"ec_visitors\"}:进店客流:up:verified",
-  "agent_event_queries": 1,
+  "agent_event_queries": 0,
   "injected_chars": 2214,
   "inject_failed": [],
   "cost": "0.05447984",
@@ -146,7 +146,7 @@
    "category_sales"
   ],
   "first_cause": "member:{\"member\": \"华北\", \"dimension\": \"region\", \"metric_code\": \"ec_category_sales\"}:华北:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 2418,
   "inject_failed": [],
   "cost": "0.10006200",
@@ -250,7 +250,7 @@
    "ec_orders"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D16#2\"}:投放花费合计变化 · spend_chg:down:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 0,
   "injected_chars": 2870,
   "inject_failed": [],
   "cost": "0.06679284",
@@ -412,7 +412,7 @@
    "ec_orders"
   ],
   "first_cause": "member:{\"evidence_id\": \"D8#3\"}:抖音:down:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 3551,
   "inject_failed": [],
   "cost": "0.06350900",
@@ -445,7 +445,7 @@
    "ec_store_orders"
   ],
   "first_cause": "factor:{\"factor_metric_code\": \"ec_visitors\"}:进店客流:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 1682,
   "inject_failed": [],
   "cost": "0.07300808",
@@ -523,7 +523,7 @@
    "ec_orders"
   ],
   "first_cause": "member:{\"member\": \"华东\", \"dimension\": \"region\", \"metric_code\": \"ec_orders\"}:华东:down:verified",
-  "agent_event_queries": 4,
+  "agent_event_queries": 2,
   "injected_chars": 2145,
   "inject_failed": [],
   "cost": "0.08860520",
@@ -563,7 +563,7 @@
    "ec_units"
   ],
   "first_cause": "member:{\"member\": \"华南\", \"dimension\": \"region\", \"metric_code\": \"ec_units\"}:华南:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 2980,
   "inject_failed": [],
   "cost": "0.06026336",
@@ -603,7 +603,7 @@
    "category_sales"
   ],
   "first_cause": "member:{\"member\": \"华北\", \"dimension\": \"region\", \"metric_code\": \"ec_category_sales\"}:华北:up:verified",
-  "agent_event_queries": 1,
+  "agent_event_queries": 0,
   "injected_chars": 2955,
   "inject_failed": [],
   "cost": "0.06841812",
@@ -649,7 +649,7 @@
    "ec_orders"
   ],
   "first_cause": "member:{\"evidence_id\": \"D14#1\"}:douyin:down:verified",
-  "agent_event_queries": 3,
+  "agent_event_queries": 2,
   "injected_chars": 3026,
   "inject_failed": [],
   "cost": "0.09125376",
@@ -691,7 +691,7 @@
    "ec_units"
   ],
   "first_cause": "member:{\"evidence_id\": \"D13#1\"}:手机配件:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 2222,
   "inject_failed": [],
   "cost": "0.12428328",
@@ -802,7 +802,7 @@
    "ec_units"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D13#3\"}:礼盒销量增加 · sep - aug:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 2418,
   "inject_failed": [],
   "cost": "0.06168344",
@@ -881,7 +881,7 @@
    "ec_aov"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D26#1\"}:成本上涨 · 2026-08-15:up:verified",
-  "agent_event_queries": 4,
+  "agent_event_queries": 3,
   "injected_chars": 2999,
   "inject_failed": [],
   "cost": "0.08393608",
@@ -954,7 +954,7 @@
    "ec_store_orders"
   ],
   "first_cause": "factor:{\"factor_metric_code\": \"ec_visitors\"}:进店客流:up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 1682,
   "inject_failed": [],
   "cost": "0.05294308",
@@ -1000,7 +1000,7 @@
    "ec_orders"
   ],
   "first_cause": "member:{\"evidence_id\": \"D13#1\", \"metric_code\": \"ec_orders\"}:douyin:down:verified",
-  "agent_event_queries": 4,
+  "agent_event_queries": 3,
   "injected_chars": 3551,
   "inject_failed": [],
   "cost": "0.05789236",
@@ -1040,7 +1040,7 @@
    "category_sales"
   ],
   "first_cause": "member:{\"member\": \"华北\", \"dimension\": \"region\", \"metric_code\": \"ec_category_sales\"}:华北:up:verified",
-  "agent_event_queries": 1,
+  "agent_event_queries": 0,
   "injected_chars": 2955,
   "inject_failed": [],
   "cost": "0.05996052",
@@ -1086,7 +1086,7 @@
    "ec_orders"
   ],
   "first_cause": "member:{\"evidence_id\": \"D14#1\"}:douyin · current:down:verified",
-  "agent_event_queries": 4,
+  "agent_event_queries": 3,
   "injected_chars": 3026,
   "inject_failed": [],
   "cost": "0.08578820",
@@ -1202,7 +1202,7 @@
    "ec_units"
   ],
   "first_cause": "member:{\"member\": \"华南\", \"dimension\": \"region\", \"metric_code\": \"ec_units\"}:华南:up:verified",
-  "agent_event_queries": 3,
+  "agent_event_queries": 2,
   "injected_chars": 2418,
   "inject_failed": [],
   "cost": "0.04581056",
@@ -1282,7 +1282,7 @@
    "ec_orders"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D14#3\"}:投放归因订单较6月变化 · d - c:down:verified",
-  "agent_event_queries": 4,
+  "agent_event_queries": 2,
   "injected_chars": 2145,
   "inject_failed": [],
   "cost": "0.06226564",
@@ -1323,7 +1323,7 @@
    "ec_aov"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D15#5\"}:2026-08-15 · 成本上涨:up:verified",
-  "agent_event_queries": 3,
+  "agent_event_queries": 2,
   "injected_chars": 2222,
   "inject_failed": [],
   "cost": "0.14656696",
@@ -1401,7 +1401,7 @@
    "category_sales"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D21#4\"}:件数变化的贡献 · (q1 - q0) * (a0 / q0):up:verified",
-  "agent_event_queries": 2,
+  "agent_event_queries": 1,
   "injected_chars": 2418,
   "inject_failed": [],
   "cost": "0.09727900",
@@ -1695,7 +1695,7 @@
    "ec_units"
   ],
   "first_cause": "member:{\"member\": \"华南\", \"dimension\": \"region\", \"metric_code\": \"ec_units\"}:华南:up:verified",
-  "agent_event_queries": 1,
+  "agent_event_queries": 0,
   "injected_chars": 2980,
   "inject_failed": [],
   "cost": "0.08043256",
@@ -1737,7 +1737,7 @@
    "ec_units"
   ],
   "first_cause": "factor:{\"evidence_id\": \"D14#1\"}:成本上涨:up:verified",
-  "agent_event_queries": 5,
+  "agent_event_queries": 4,
   "injected_chars": 2999,
   "inject_failed": [],
   "cost": "0.10490284",
@@ -1770,7 +1770,7 @@
    "ec_store_orders"
   ],
   "first_cause": "factor:{\"factor_metric_code\": \"ec_visitors\"}:进店客流:up:verified",
-  "agent_event_queries": 1,
+  "agent_event_queries": 0,
   "injected_chars": 2214,
   "inject_failed": [],
   "cost": "0.11787088",
@@ -1799,7 +1799,7 @@
   "scope_filters": null,
   "model_scope": null,
   "first_cause": null,
-  "agent_event_queries": 2,
+  "agent_event_queries": 0,
   "injected_chars": 2870,
   "inject_failed": [],
   "cost": "0.05211472",
