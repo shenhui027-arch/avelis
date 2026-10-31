@@ -193,6 +193,13 @@ def _model_for(model, budget, **phase):
 TRANSIENT_ERRORS = (openai.APIConnectionError, openai.InternalServerError, openai.RateLimitError,
                     httpx.TimeoutException, httpx.TransportError, ssl.SSLError, TimeoutError, ConnectionError)
 
+try:
+    import anthropic
+except ImportError:
+    pass
+else:
+    TRANSIENT_ERRORS += (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError)
+
 
 def _is_transient_error(exc: Exception) -> bool:
     """按类型识别包装后的传输异常；同时检查 cause / context，最多八层并按身份防环。"""
@@ -212,7 +219,7 @@ def _is_transient_error(exc: Exception) -> bool:
     return False
 
 
-def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
+def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tools: list[StructuredTool] | None = None,
             output_budget_limited: bool = False) -> AIMessage | None:
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
@@ -221,7 +228,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
     budget = toolbox.budget
     retried = False
     while True:
-        estimate = budget.estimate_input_tokens(messages) if budget.input_tokens is not None else None
+        estimate = budget.estimate_input_tokens(messages, tools) if budget.input_tokens is not None else None
         if estimate is not None and budget.used_input_tokens + estimate > budget.input_tokens:
             budget._blocked_input_estimate = estimate
             toolbox._step("model", "model", {}, "skipped",
@@ -292,7 +299,8 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
     if not _can_call_model(toolbox):
         return []
     request_model, output_budget_limited = _model_for(model, toolbox.budget)
-    reply = _invoke(request_model.bind_tools(toolbox.tools()), state["messages"], toolbox,
+    tools = toolbox.tools()
+    reply = _invoke(request_model.bind_tools(tools), state["messages"], toolbox, tools=tools,
                     output_budget_limited=output_budget_limited)
     if reply is None:
         return []
@@ -339,7 +347,7 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             model, toolbox.budget, effort="off", max_tokens=UNDERSTAND_MAX_TOKENS)
         bound = request_model.bind_tools([tool], tool_choice="submit_scope")
         try:
-            reply = _invoke(bound, messages, toolbox, output_budget_limited=output_budget_limited)
+            reply = _invoke(bound, messages, toolbox, tools=[tool], output_budget_limited=output_budget_limited)
             call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None) if reply else None
             raw = call["args"] if call else None
             scope = Scope.model_validate(raw) if raw is not None else None
@@ -419,7 +427,8 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
     while toolbox.report is None and _can_call_model(toolbox) and not budget.spent():
         closing = budget.remaining() < REPORT_RESERVE_SECONDS
         last_request = budget.used_model_requests >= budget.model_requests - 1
-        estimate = budget.estimate_input_tokens([*state["messages"], *messages]) if budget.input_tokens is not None else None
+        estimate = (budget.estimate_input_tokens([*state["messages"], *messages], toolbox.tools())
+                    if budget.input_tokens is not None else None)
         last_tokens = estimate is not None and budget.used_input_tokens + 2 * estimate > budget.input_tokens
         over = budget.exhausted() or ("分析时长即将用完" if closing else None) or (
             "模型请求次数即将用完" if last_request else None) or ("token 即将用完" if last_tokens else None)
