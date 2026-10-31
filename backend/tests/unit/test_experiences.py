@@ -19,6 +19,7 @@ from avelis.models import (
     DomainMember,
     Experience,
     ExperienceVersion,
+    JoinPath,
     Metric,
     MetricVersion,
     User,
@@ -46,6 +47,9 @@ class MemorySession:
         self.added.append(obj)
 
     def flush(self):
+        pass
+
+    def commit(self):
         pass
 
     @staticmethod
@@ -130,11 +134,10 @@ def test_candidates_are_editable_deterministic_and_do_not_persist(state):
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=refs)
     assert candidates == experiences.candidates_from_feedback(run_id="r1", proposal=proposal,
                                                              feedback=feedback, refs=refs)
-    assert [c["kind"] for c in candidates] == ["rule", "rule", "negative", "join"]
-    assert [c["content"] for c in candidates] == ["保持相同窗口", "检查缺失记录", "否决：关联记录", "key_a = key_b"]
+    assert [c["kind"] for c in candidates] == ["rule", "rule", "negative"]
+    assert [c["content"] for c in candidates] == ["保持相同窗口", "检查缺失记录", "否决：关联记录"]
     assert [c["source"]["user_text"] for c in candidates] == [c["content"] for c in candidates]
-    assert candidates[-1]["refs"] == item_refs + refs
-    assert all(c["refs"] == refs for c in candidates[:-1])
+    assert all(c["refs"] == refs for c in candidates)
     candidates[-1]["content"] = "编辑后的内容"
     assert proposal["items"][0]["content"] == "key_a = key_b"
     assert len(session.store) == before
@@ -152,7 +155,7 @@ def test_candidates_ignore_decisions_without_new_inferred_information(source, de
                                                feedback={"decisions": feedback["decisions"]}, refs=[]) == []
 
 
-@pytest.mark.parametrize("kind", ["hypothesis", "asset"])
+@pytest.mark.parametrize("kind", ["hypothesis", "asset", "join"])
 def test_candidates_ignore_confirmed_analysis_specific_inferences(kind):
     proposal = {"items": [{"id": "p1", "kind": kind, "source": "inferred", "content": "本次分析推断"}]}
     feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"}]}
@@ -175,7 +178,7 @@ def test_candidates_keep_user_text(field, text):
     assert candidates[0]["source"]["user_text"] == text
 
 
-def test_candidates_keep_decision_order_within_rejections_and_confirmations():
+def test_candidates_keep_decision_order_within_rejections():
     proposal = {"items": [{"id": f"p{number}", "kind": "join", "source": "inferred",
                            "content": f"推断 {number}"} for number in range(1, 5)]}
     feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"},
@@ -184,7 +187,7 @@ def test_candidates_keep_decision_order_within_rejections_and_confirmations():
                               {"item_id": "p4", "decision": "rejected"},
                               {"item_id": "p2", "decision": "rejected"}]}
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[])
-    assert [c["content"] for c in candidates] == ["否决：推断 2", "否决：推断 4", "推断 1", "推断 3"]
+    assert [c["content"] for c in candidates] == ["否决：推断 2", "否决：推断 4"]
 
 
 def test_explicit_save_pins_versions_and_records_real_actor(state):
@@ -253,6 +256,210 @@ def test_replace_retains_old_content_and_links_exact_new_version(state):
     assert [item["id"] for item in recall(state)] == [replacement["id"]]
     assert {row.action for row in session.added if isinstance(row, AuditEvent)} >= {
         "experience.save", "experience.replace"}
+
+
+def test_save_deduplicates_active_content_and_kind_after_trimming(state):
+    session, actor, _ = state
+    first = save(state)
+    duplicate = save(state, content=f"  {first['content']}\n")
+    assert duplicate["id"] == first["id"]
+    assert len([row for row in session.added if isinstance(row, Experience)]) == 1
+    different_kind = save(state, kind="join")
+    assert different_kind["id"] != first["id"]
+    experiences.revoke_experience(session, actor, first["id"])
+    assert save(state)["id"] != first["id"]
+
+
+def test_list_deduplicates_legacy_active_experiences_but_keeps_history(state):
+    session, actor, _ = state
+    saved = save(state)
+    original = session.get(Experience, saved["id"])
+    version = session.get(ExperienceVersion, saved["version_id"])
+    session.add(Experience(id="duplicate", owner_id=actor.id, scope="personal", status="active",
+                           current_version=1, created_at=original.created_at))
+    session.add(ExperienceVersion(id="duplicate-version", experience_id="duplicate", version=1,
+                                  kind=version.kind, content=f" {version.content} ", refs=version.refs,
+                                  source=version.source, confirmed_by=actor.id, confirmed_at=version.confirmed_at))
+    assert len(experiences.list_experiences(session, actor)) == 1
+    session.get(Experience, "duplicate").status = "revoked"
+    assert len(experiences.list_experiences(session, actor)) == 2
+
+
+def test_replace_same_content_returns_current_without_superseding_itself(state):
+    session, actor, _ = state
+    saved = save(state)
+    replacement = experiences.replace_experience(session, actor, saved["id"], kind=saved["kind"],
+                                                 content=f" {saved['content']} ", refs=saved["refs"],
+                                                 source=saved["source"])
+    assert replacement["id"] == saved["id"] and replacement["status"] == "active"
+    assert session.get(ExperienceVersion, saved["version_id"]).superseded_by is None
+
+
+def test_replace_reuses_another_active_experience(state):
+    session, actor, _ = state
+    original = save(state)
+    existing = save(state, content="另一条规则")
+    replacement = experiences.replace_experience(session, actor, original["id"], kind=existing["kind"],
+                                                 content=existing["content"], refs=existing["refs"],
+                                                 source=existing["source"])
+    assert replacement["id"] == existing["id"]
+    assert session.get(Experience, original["id"]).status == "superseded"
+    assert session.get(ExperienceVersion, original["version_id"]).superseded_by == existing["version_id"]
+
+
+@pytest.fixture
+def join_proposals(state, monkeypatch):
+    session, _, _ = state
+    session.add(Asset(id="a3", status="active", datasource_id="ds", domain_id="domain-a",
+                      catalog_name="catalog", db_name="space", name="attributes", current_version_id="av3"))
+    proposed = []
+
+    def propose(session, actor, **spec):
+        proposed.append(spec)
+        return JoinPath(id="jp1", code="proposed_path", name="记录与属性按键关联", status="pending",
+                        cardinality="unknown", cardinality_basis={}, created_by=actor.id, **spec)
+
+    monkeypatch.setattr(experiences.joins, "propose", propose)
+    return proposed
+
+
+@pytest.mark.parametrize("prefix", ["", "space.", "catalog.space."])
+def test_to_join_path_resolves_names_proposes_and_revokes(state, join_proposals, prefix):
+    session, actor, _ = state
+    content = f"{prefix}records.key_a = {prefix}attributes.key_b（关联说明）"
+    saved = save(state, kind="join", content=content)
+    result = experiences.to_join_path(session, actor, saved["id"])
+    assert result.id == "jp1" and result.status == "pending"
+    assert join_proposals == [{"left_asset_id": "a1", "left_columns": ["key_a"], "right_asset_id": "a3",
+                               "right_columns": ["key_b"], "source": {
+                                   "run_id": "r1", "checkpoint": "assumptions", "user_text": content}}]
+    assert session.get(Experience, saved["id"]).status == "revoked"
+    assert session.get(ExperienceVersion, saved["version_id"]).content == content
+    assert any(row.action == "experience.revoke" for row in session.added if isinstance(row, AuditEvent))
+
+
+def test_to_join_path_parses_multiple_keys_and_reversed_pair(state, join_proposals):
+    session, actor, _ = state
+    saved = save(state, kind="join", content="`space`.`records`.`key_a` = attributes.key_b AND "
+                                             "attributes.key_d = records.key_c")
+    experiences.to_join_path(session, actor, saved["id"])
+    assert join_proposals[0]["left_columns"] == ["key_a", "key_c"]
+    assert join_proposals[0]["right_columns"] == ["key_b", "key_d"]
+
+
+@pytest.mark.parametrize(("content", "side"), [
+    ("missing.key_a = attributes.key_b", "左侧"),
+    ("records.key_a = detail.key_b", "右侧"),
+])
+def test_to_join_path_requires_visible_unique_asset_on_each_side(state, join_proposals, content, side):
+    session, actor, _ = state
+    saved = save(state, kind="join", content=content)
+    with pytest.raises(Invalid, match=side):
+        experiences.to_join_path(session, actor, saved["id"])
+    assert join_proposals == [] and session.get(Experience, saved["id"]).status == "active"
+
+
+@pytest.mark.parametrize(("name", "side"), [("records", "左侧"), ("attributes", "右侧")])
+def test_to_join_path_rejects_ambiguous_short_name(state, join_proposals, name, side):
+    session, actor, _ = state
+    session.add(Asset(id="ambiguous", status="active", datasource_id="ds", domain_id="domain-a",
+                      catalog_name="catalog", db_name="other_space", name=name))
+    saved = save(state, kind="join", content="records.key_a = attributes.key_b")
+    with pytest.raises(Invalid, match=f"{side}.*多个") as exc:
+        experiences.to_join_path(session, actor, saved["id"])
+    assert exc.value.status_code == 422
+    assert join_proposals == [] and session.get(Experience, saved["id"]).status == "active"
+
+
+@pytest.mark.parametrize("content", [
+    "缺少结构的关联",
+    "records.key_a = attributes.key_b OR records.key_c = attributes.key_d",
+    "records.key_a = attributes.key_b + 1",
+    "NOT records.key_a = attributes.key_b",
+    "否决：records.key_a = attributes.key_b",
+    "关联说明：records.key_a = attributes.key_b",
+    "records.key_a = attributes.key_b 不成立",
+    "records.key_a = attributes.key_b AND NOT records.key_c = attributes.key_d",
+])
+def test_to_join_path_requires_equalities_connected_by_and(state, join_proposals, content):
+    session, actor, _ = state
+    saved = save(state, kind="join", content=content)
+    with pytest.raises(Invalid) as exc:
+        experiences.to_join_path(session, actor, saved["id"])
+    assert exc.value.status_code == 422
+    assert join_proposals == [] and session.get(Experience, saved["id"]).status == "active"
+
+
+def test_to_join_path_rejects_negative_kind_even_with_plain_equality(state, join_proposals):
+    session, actor, _ = state
+    saved = save(state, kind="negative", content="records.key_a = attributes.key_b")
+    with pytest.raises(Invalid, match="否定经验") as exc:
+        experiences.to_join_path(session, actor, saved["id"])
+    assert exc.value.status_code == 422
+    assert join_proposals == [] and session.get(Experience, saved["id"]).status == "active"
+
+
+@pytest.mark.parametrize("note", ["（关联说明）", "(关联说明)", "（仅按 records.key_c = attributes.key_d）"])
+def test_to_join_path_allows_trailing_note_without_parsing_note_equalities(state, join_proposals, note):
+    session, actor, _ = state
+    saved = save(state, kind="join", content=f"records.key_a = attributes.key_b {note}")
+    experiences.to_join_path(session, actor, saved["id"])
+    assert join_proposals[0]["left_columns"] == ["key_a"]
+    assert join_proposals[0]["right_columns"] == ["key_b"]
+
+
+def test_to_join_path_is_owner_only_and_failed_proposal_keeps_experience(state, join_proposals, monkeypatch):
+    session, actor, other = state
+    saved = save(state, kind="join", content="records.key_a = attributes.key_b")
+    with pytest.raises(NotFound):
+        experiences.to_join_path(session, other, saved["id"])
+
+    def fail(*args, **kwargs):
+        raise Invalid("列不存在")
+
+    monkeypatch.setattr(experiences.joins, "propose", fail)
+    with pytest.raises(Invalid, match="列不存在"):
+        experiences.to_join_path(session, actor, saved["id"])
+    assert session.get(Experience, saved["id"]).status == "active"
+
+
+def test_to_join_path_api_serializes_governance_view_and_errors(state, join_proposals):
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from avelis.api import analysis
+    from avelis.api.deps import current_user, get_session
+    from avelis.governance.errors import GovernanceError
+
+    session, actor, other = state
+    actor.display_name = "用户甲"
+    saved = save(state, kind="join", content="records.key_a = attributes.key_b")
+    app = FastAPI()
+    app.include_router(analysis.router)
+    app.dependency_overrides[current_user] = lambda: actor
+    app.dependency_overrides[get_session] = lambda: session
+
+    @app.exception_handler(GovernanceError)
+    async def governance_error(_, exc):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    with TestClient(app) as client:
+        app.dependency_overrides[current_user] = lambda: other
+        denied = client.post(f"/api/analysis/experiences/{saved['id']}/to-join-path")
+        assert denied.status_code == 404
+        app.dependency_overrides[current_user] = lambda: actor
+        converted = client.post(f"/api/analysis/experiences/{saved['id']}/to-join-path")
+        assert converted.status_code == 200, converted.text
+        result = converted.json()
+        assert result["id"] == "jp1" and result["status"] == "pending"
+        assert result["left"]["asset_id"] == "a1" and result["right"]["asset_id"] == "a3"
+        assert result["source"]["user_text"] == saved["content"] and result["created_by"] == "用户甲"
+        session.add(Asset(id="ambiguous", status="active", datasource_id="ds", domain_id="domain-a",
+                          catalog_name="catalog", db_name="other_space", name="records"))
+        ambiguous = save(state, kind="join", content="records.key_a = attributes.key_b")
+        rejected = client.post(f"/api/analysis/experiences/{ambiguous['id']}/to-join-path")
+        assert rejected.status_code == 422 and "左侧" in rejected.json()["detail"]
 
 
 def test_all_referenced_assets_must_be_visible_and_versions_must_exist(state):
