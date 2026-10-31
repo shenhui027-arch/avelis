@@ -270,3 +270,23 @@ e2:
   cost: {cap_cny: 20, per_run_reserve_cny: 1.5, spent_cny: 0}
   smoke_before_run: h10 × R / H / RH 各 1 次（不计入 128 次，费用计入 20 元上限），确认开关在真实环境中不崩溃
   command: AVELIS_DEMO_USER_PASSWORD 由本地启动器从主检出 .env 传入（不打印）；e2.py --run --truth <主检出>/.demo/ec-truth.json --cap 20 --spent <冒烟费用>
+
+# --- E2b：思考强度对照（用户 2026-10-31：“模型就不换了，你可以用更强的思考来做”；费用从 E2 的 20 元授权里出）-----------
+e2b:
+  status: 已冻结，待运行
+  code_sha_frozen: 233b092e29f2c538df05051374bec35969c09b42
+  purpose: 区分问题在模型能力还是系统设计；模型不变（DeepSeek Flash），只把分析阶段的思考强度调到 max（理解阶段固定关闭思考，不变）
+  arms:
+    - {condition: B0, effort: max, runs: 32}  # 优先
+    - {condition: RH, effort: max, runs: 32}  # E2 中通过最多的组合（与 B0 的差在噪声内，按预先定的规则选）；预算够才跑
+  baseline: E2 同一条件的“低”档结果（.demo/experiments/e2/20261031-123611.json）
+  scenarios: 同 e2（16 个，每个 2 次，种子 20261101）
+  scorer: v2.1.3
+  budget:  # 只调高累计输出 token 上限，运行前冻结，运行中不改
+    output_tokens: 54976  # = 30716 × 1.79；ADR 0012 实测推理 token：低 3942–7946、最高 9149–12128，按两档区间中点之比 10638.5 / 5944 ≈ 1.79
+    unchanged: [model_requests 16, tool_calls 30, queries 20, explore 8, seconds 300, input_tokens 552321]
+  cost:
+    cap_cny: 20  # 与 E2 合计
+    spent_before_cny: 6.74219368  # E2 128 次 + 冒烟 3 次
+    estimate_cny: {B0_max: "≈3.0（E2 B0 每次 0.048 元 × 2 的保守放大）", RH_max: "≈3.7"}
+  command: e2.py --run --truth <主检出>/.demo/ec-truth.json --conditions B0 --effort max --output-token-cap 54976 --tag e2b --cap 20 --spent <已花>
