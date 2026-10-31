@@ -7,7 +7,7 @@
   之后的请求把同一条助手消息的 reasoning_content 原样带回。消息对象可以按 LangChain 的序列化保存与恢复，字段随之保留。
 - DeepSeek 官方 Chat Completions 的输出上限字段是 max_tokens；langchain_openai 1.7.1 改发的 max_completion_tokens
   经实测被忽略（上限 8，实际输出 141 token），因此请求时改回 max_tokens。
-- finish_reason：length（输出被截断）与 content_filter 不是模型的正常回答，按基础设施错误处理（ModelProtocolError），
+- finish_reason=length / stop_reason=max_tokens（输出被截断）与 content_filter 不是模型的正常回答，按基础设施错误处理（ModelProtocolError），
   不把截断的工具参数当作模型写错的内容去修复或重交。
 - 工具调用编号：同一条回复里的工具调用必须各有编号且互不重复，否则无法逐个回复（下一次请求会被拒），也按协议错误处理。
 """
@@ -20,7 +20,8 @@ from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 REASONING_FIELD = "reasoning_content"
-ABNORMAL_FINISH = {"length": "model_truncated", "content_filter": "model_content_filter"}
+ABNORMAL_FINISH = {"length": "model_truncated", "max_tokens": "model_truncated",
+                   "content_filter": "model_content_filter"}
 
 
 class ModelProtocolError(RuntimeError):
@@ -32,14 +33,20 @@ class ModelProtocolError(RuntimeError):
 
 
 class ModelTruncated(ModelProtocolError):
-    """finish_reason=length：输出达到上限被截断。"""
+    """finish_reason=length 或 stop_reason=max_tokens：输出达到上限被截断。"""
+
+
+def response_finish_reason(reply: AIMessage) -> str | None:
+    """读取提供方的原始终止原因，兼容 OpenAI 与 Anthropic 的字段。"""
+    metadata = getattr(reply, "response_metadata", None) or {}
+    return metadata.get("finish_reason") or metadata.get("stop_reason")
 
 
 def protocol_problem(reply: AIMessage) -> ModelProtocolError | None:
     """一次回复是否违反接入协议；正常时返回 None。没有 content 也没有工具调用的回复是合法的（由调用方提示继续）。"""
-    finish = (getattr(reply, "response_metadata", None) or {}).get("finish_reason")
+    finish = response_finish_reason(reply)
     if finish in ABNORMAL_FINISH:
-        cls = ModelTruncated if finish == "length" else ModelProtocolError
+        cls = ModelTruncated if finish in ("length", "max_tokens") else ModelProtocolError
         return cls(ABNORMAL_FINISH[finish], f"模型回复的 finish_reason 为 {finish}（输出不完整，不作为模型内容处理）")
     ids = [c.get("id") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
     if any(not i for i in ids):

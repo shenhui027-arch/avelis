@@ -95,8 +95,8 @@ class Budget:
     # 与 E1 注入字符的口径一致：按 1 字符 ≤ 1 token 预留输入，作为保守上界，避免下一次请求越过累计上限。
     _INPUT_TOKENS_PER_CHAR = 1
 
-    def estimate_input_tokens(self, messages: list[Any]) -> int | None:
-        """前缀相同时沿用上次实际输入量，只估新增消息；切换对话或恢复预算后按全部字符估算。"""
+    def estimate_input_tokens(self, messages: list[Any], tools: list[StructuredTool] | None = None) -> int | None:
+        """前缀相同时沿用上次实际输入量，只估新增消息；否则按全部消息与本次工具定义的字符估算。"""
         if self.input_tokens is None:
             return None
         prefix = self._last_input_messages
@@ -104,6 +104,11 @@ class Budget:
                        and all(old is new for old, new in zip(prefix, messages)))
         added = messages[len(prefix):] if same_prefix else messages
         chars = 0
+        if not same_prefix and tools:
+            # 上次实际输入已包含工具定义；没有可复用前缀时才计入本次绑定的名称、说明与参数 schema。
+            chars += len(json.dumps([{"name": tool.name, "description": tool.description,
+                                     "parameters": tool.get_input_schema().model_json_schema()} for tool in tools],
+                                   ensure_ascii=False, default=str))
         for message in added:
             # 正文、工具调用参数和 reasoning_content 都会回传；其他 additional_kwargs 也一并保守计入。
             for value in (message.content, getattr(message, "tool_calls", None), message.additional_kwargs):
