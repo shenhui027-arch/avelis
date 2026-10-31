@@ -87,7 +87,9 @@ const auth: Middleware = {
     return request;
   },
   async onResponse({ response, request }) {
-    // 发出时用的凭证已被续期替换：换上新凭证重发一次，不当作会话过期
+    // 发出时用的凭证已被续期替换：换上新凭证重发一次，不当作会话过期。
+    // 续期还在进行时，旧凭证的 401 可能先于续期结果到达：先等续期完成，再判断凭证是否已换新
+    if (response.status === 401 && refreshing) await refreshing;
     const sent = request.headers.get("Authorization")?.replace(/^Bearer /, "");
     const copy = retries.get(request);
     if (response.status === 401 && copy && sent && token.get() && sent !== token.get()) {

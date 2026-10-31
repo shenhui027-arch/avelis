@@ -270,15 +270,47 @@ def test_save_deduplicates_active_content_and_kind_after_trimming(state):
     assert save(state)["id"] != first["id"]
 
 
+@pytest.mark.parametrize(("object_type", "object_ids", "scope_key", "scope_ids"), [
+    ("metric_version", ["mv1", "mv2"], "metric_codes", ["metric_a", "metric_b"]),
+    ("asset", ["a1", "a2"], "asset_keys", ["a1", "a2"]),
+])
+def test_same_content_is_saved_and_recalled_for_each_reference_scope(
+        state, object_type, object_ids, scope_key, scope_ids):
+    session, actor, _ = state
+    session.domains[actor.id].add("domain-b")
+    session.add(Metric(id="m2", code="metric_b", domain_id="domain-b"))
+    session.add(MetricVersion(id="mv2", metric_id="m2", version_no=1, status="published", kind="base",
+                              base_asset_id="a2", joins=[], components=[]))
+    saved = [save(state, content="按 key_a 对齐", refs=[{
+        "object_type": object_type, "object_id": object_id, "version": 1}]) for object_id in object_ids]
+    assert saved[0]["id"] != saved[1]["id"]
+    assert {item["id"] for item in experiences.list_experiences(session, actor)} == {
+        item["id"] for item in saved}
+    for item, scope_id in zip(saved, scope_ids):
+        recalled = experiences.recall(session, actor, question="key_a", **{scope_key: [scope_id]})
+        assert [result["id"] for result in recalled] == [item["id"]]
+
+
+def test_save_deduplicates_reference_order_and_repeated_refs(state):
+    refs = [{"object_type": "metric_version", "object_id": "mv1", "version": 1},
+            {"object_type": "asset", "object_id": "a1", "version": 1}]
+    saved = save(state, refs=refs)
+    duplicate = save(state, content=f" {saved['content']} ", refs=[refs[1], refs[0], refs[1]])
+    assert duplicate["id"] == saved["id"]
+    assert len([row for row in state[0].added if isinstance(row, Experience)]) == 1
+
+
 def test_list_deduplicates_legacy_active_experiences_but_keeps_history(state):
     session, actor, _ = state
-    saved = save(state)
+    saved = save(state, refs=[{"object_type": "metric_version", "object_id": "mv1", "version": 1},
+                              {"object_type": "asset", "object_id": "a1", "version": 1}])
     original = session.get(Experience, saved["id"])
     version = session.get(ExperienceVersion, saved["version_id"])
     session.add(Experience(id="duplicate", owner_id=actor.id, scope="personal", status="active",
                            current_version=1, created_at=original.created_at))
     session.add(ExperienceVersion(id="duplicate-version", experience_id="duplicate", version=1,
-                                  kind=version.kind, content=f" {version.content} ", refs=version.refs,
+                                  kind=version.kind, content=f" {version.content} ",
+                                  refs=[version.refs[1], version.refs[0], version.refs[1]],
                                   source=version.source, confirmed_by=actor.id, confirmed_at=version.confirmed_at))
     assert len(experiences.list_experiences(session, actor)) == 1
     session.get(Experience, "duplicate").status = "revoked"
@@ -293,6 +325,23 @@ def test_replace_same_content_returns_current_without_superseding_itself(state):
                                                  source=saved["source"])
     assert replacement["id"] == saved["id"] and replacement["status"] == "active"
     assert session.get(ExperienceVersion, saved["version_id"]).superseded_by is None
+
+
+def test_replace_only_refs_creates_new_version_and_moves_recall_scope(state):
+    session, actor, _ = state
+    session.domains[actor.id].add("domain-b")
+    saved = save(state, refs=[{"object_type": "asset", "object_id": "a1", "version": 1}])
+    replacement = experiences.replace_experience(session, actor, saved["id"], kind=saved["kind"],
+                                                 content=saved["content"], refs=[{
+                                                     "object_type": "asset", "object_id": "a2", "version": 1}],
+                                                 source=saved["source"])
+    assert replacement["id"] != saved["id"] and replacement["version_id"] != saved["version_id"]
+    assert session.get(Experience, saved["id"]).status == "superseded"
+    old_version = session.get(ExperienceVersion, saved["version_id"])
+    assert old_version.refs == saved["refs"] and old_version.superseded_by == replacement["version_id"]
+    assert experiences.recall(session, actor, asset_keys=["a1"], question="key_a") == []
+    assert [item["id"] for item in experiences.recall(session, actor, asset_keys=["a2"], question="key_a")] == [
+        replacement["id"]]
 
 
 def test_replace_reuses_another_active_experience(state):
