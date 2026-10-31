@@ -11,12 +11,11 @@ import { formatTime } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
-import { BarChart, LineChart } from "./charts";
+import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
 
 type Run = Schemas["AnalysisRunOut"];
-type Dataset = Schemas["AnalysisDatasetOut"];
 type Task = Schemas["AnalysisTaskOut"];
 type Segment = { kind: "text" | "value" | "count" | "label" | "window" | "error"; text: string; ref?: string;
   path?: string; label?: string; precision?: number | null; raw?: string | string[]; measure?: string; unit?: string;
@@ -76,10 +75,16 @@ export function AnalysisPage() {
   const { runId, section } = useParams();
   const view = section === "tasks" || section === "experiences" ? section : "runs";
   const evidence = view === "runs" && !!runId;
+  const dataset = useOpenDataset();
+  const run = useRun(evidence ? runId : undefined);
   return (
     <div className={`av-analysis${evidence ? " has-evidence" : ""}`}>
       <main className="av-analysis__center">
-        {runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
+        {runId && view === "runs" && dataset.ref ? <div className="av-analysis__scroll">
+          <DatasetView key={dataset.ref} runId={runId} refId={dataset.ref} onClose={dataset.close} onOpen={dataset.open}
+            canRerun={!!run.data && !["queued", "running", "waiting"].includes(run.data.status)}
+            onDownload={(seq, ref) => void download(`/api/analysis/runs/${runId}/datasets/${seq}/csv`, `analysis-${runId}-${ref}.csv`)} />
+        </div> : runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
           {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
             : view === "experiences" ? <div className="av-analysis__page">
               <PageHead title="个人经验" hint="在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回" /><ExperienceList /></div>
@@ -442,6 +447,7 @@ function Datasets({ id }: { id: string }) {
     return () => window.removeEventListener("hashchange", sync);
   }, []);
   const datasets = run.data?.datasets ?? [];
+  const main = useOpenDataset();
   return (
     <div className="av-evidence">
       <header className="av-evidence__hd"><h2>证据</h2><span className="av-caption">{datasets.length} 个数据集</span></header>
@@ -462,7 +468,8 @@ function Datasets({ id }: { id: string }) {
               <Pill tone={tone}>{label}</Pill>
               <Icon name="chevron" small />
             </button>
-            {isOpen ? <div className="av-dataset__bd">
+            {isOpen && d.restricted ? <div className="av-dataset__bd"><span className="av-caption">你已没有该数据的访问权限</span></div>
+              : isOpen ? <div className="av-dataset__bd">
               <DatasetChart d={d} />
               <div className="av-table-wrap"><table className="av-table av-dataset__table">
                 <thead><tr>{d.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
@@ -470,6 +477,8 @@ function Datasets({ id }: { id: string }) {
               </table></div>
               <div className="av-dataset__ft">
                 <span className="av-caption">{d.row_count} 行{d.inputs?.length ? ` · 输入 ${d.inputs.join("、")}` : ""}</span>
+                <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-pressed={main.ref === d.ref}
+                  onClick={() => main.open(d.ref)}><Icon name="fit" small />展开</button>
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => download(
                   `/api/analysis/runs/${id}/datasets/${d.seq}/csv`, `analysis-${id}-${d.ref}.csv`).catch((e) => setError(errorText(e)))}>
                   <Icon name="download" />CSV</button>
@@ -481,35 +490,6 @@ function Datasets({ id }: { id: string }) {
       })}
     </div>
   );
-}
-
-function numeric(v: unknown): number | null {
-  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 首列是保存的时间段列（time_column）时画趋势；否则对 change / contribution（或第一个数值列）画贡献条。 */
-function DatasetChart({ d }: { d: Dataset }) {
-  const cols = d.columns;
-  const trend = !!d.time_column && cols[0] === d.time_column;
-  const numCols = cols.map((_, i) => i).filter((i) => !(trend && i === 0) && d.rows.some((r) => numeric(r[i]) !== null)
-    && d.rows.every((r) => r[i] == null || numeric(r[i]) !== null));
-  if (!d.rows.length || !numCols.length) return null;
-  const value = numCols.find((i) => cols[i].endsWith("·变化") || cols[i] === "change" || cols[i] === "contribution")
-    ?? numCols.find((i) => !cols[i].endsWith("变化率") && cols[i] !== "change_rate") ?? numCols[0];
-  if (trend && d.rows.length > 2) {
-    const series = new Map<string, { x: string; y: number }[]>();
-    for (const r of d.rows) {
-      const key = r.slice(1, value).map(String).join(" / ") || cols[value];
-      const y = numeric(r[value]);
-      if (y !== null) series.set(key, [...(series.get(key) ?? []), { x: String(r[0]), y }]);
-    }
-    return <LineChart series={[...series].slice(0, 6).map(([name, points]) => ({ name, points }))} label={cols[value]} />;
-  }
-  if (d.rows.length < 2) return null;
-  const labelCols = cols.map((_, i) => i).filter((i) => !numCols.includes(i)).slice(0, 2);
-  const bars = d.rows.slice(0, 12).map((r, i) => ({ label: labelCols.map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: numeric(r[value]) ?? 0 }));
-  return <BarChart bars={bars} label={cols[value]} />;
 }
 
 function TaskList() {
