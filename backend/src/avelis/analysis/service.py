@@ -540,12 +540,16 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     lookup = (parent.report or {}).get("kind") == "lookup"
     scope = ((parent.plan or {}).get("scope") if lookup else
              saved.get("confirmed_scope") or (parent.plan or {}).get("scope")) or {}
-    window = {**parent.window, "kind": "fixed"} if (parent.window or {}).get("start") else None
+    window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
     run = create_run(session, user, text if lookup or not scope else parent.question, window,
                      confirmation_mode=confirmation_mode)
     run.parent_run_id = parent.id
-    run.checkpoint = {"inherited": {"scope": scope,
-                                     "items": saved.get("confirmed_items") or [], "user_text": text},
+    inherited = {"user_text": text}
+    if lookup:
+        inherited.update(previous_question=parent.question, previous_scope=scope, previous_window=parent.window or {})
+    else:
+        inherited.update(scope=scope, items=saved.get("confirmed_items") or [])
+    run.checkpoint = {"inherited": inherited,
                       "candidates": experiences.candidates_from_feedback(
                           run_id=run.id, proposal={}, feedback={"challenge": text},
                           refs=_scope_metric_refs(session, saved), checkpoint="conclusion")}
