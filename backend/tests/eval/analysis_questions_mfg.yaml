@@ -9,7 +9,7 @@ defaults:
 questions:
   m01:
     category: explore
-    question: 华南工厂 2026 年 9 月良率为什么比 8 月低？请追查物料批次和供应商，说明哪些产线受影响。
+    question: 华南工厂 2026 年 9 月良率为什么比 8 月低？
     why: BAD_MATERIAL：恒达材料在 2026-08-20 入库的 HD-20260820-A 精密合金在 9 月用于华南1号线和华南2号线，裂纹不良增加；入库表不在良率口径血缘内，须通过批次号发现证据。
     expect:
       conclusion_from: {metric: mfg_yield, filters: {factory: 华南工厂}}
@@ -28,7 +28,7 @@ questions:
         why: 必须找到批次入库及供应商证据；单看生产报工或按产线拆分良率不足以说明物料机制。
   m02:
     category: explore
-    question: 华南工厂 2026 年 9 月产量为什么比 8 月低？华南3号线是否发生了故障？请核对维护工单。
+    question: 华南工厂 2026 年 9 月产量为什么比 8 月低？
     why: PLANNED_MAINTENANCE：华南3号线 2026-09-08 至 09-14 计划停线检修，维护工单注明计划性；不能把计划检修编造成故障。
     expect:
       conclusion_from: {metric: mfg_production, filters: {factory: 华南工厂}}
@@ -42,7 +42,7 @@ questions:
         why: 工单日期覆盖 2026-09-08 至 09-14，计划性维护对应停线窗口；不能仅由产量下降推断故障。
   m03:
     category: dimension
-    question: 西南工厂 2026 年 9 月产量为什么比 8 月高？新产线的爬坡情况怎样？
+    question: 西南工厂 2026 年 9 月产量为什么比 8 月高？
     why: NEW_LINE_RAMP：西南4号线 2026-08-01 上线，前两周产量与良率尚在爬坡，9 月产量继续增长；其他产线没有同类投产事件。
     expect:
       conclusion_from: {metric: mfg_production, filters: {factory: 西南工厂}}
@@ -56,7 +56,7 @@ questions:
         why: 产线主数据注明 2026-08-01 上线；报工可验证新增产量及前两周低良率，机制是新线爬坡。
   m04:
     category: calendar
-    question: 华南1号线 2026 年 9 月 25 日到 27 日产量为什么比 9 月 18 日到 20 日少？请区分节假日停产和设备异常。
+    question: 华南1号线 2026 年 9 月 25 日到 27 日产量为什么比 9 月 18 日到 20 日少？
     window: {kind: fixed, start: "2026-09-25", end: "2026-09-27", compare_start: "2026-09-18", compare_end: "2026-09-20"}
     why: MID_AUTUMN_SHUTDOWN：华南工厂中秋 2026-09-25 至 09-27 排班为放假停产，两期都是三天；产量变化来自工作安排而非月份天数或设备故障。
     expect:
@@ -67,7 +67,7 @@ questions:
     key_bindings: [{metric: mfg_production, entity: {line: 华南1号线}, allow: [factory, region]}]
   m05:
     category: dimension
-    question: 华东工厂 2026 年 9 月总产量与 8 月基本不变，是否每条产线都没有变化？请列出相互抵消的变化。
+    question: 华东工厂 2026 年 9 月总产量和 8 月比有什么变化？为什么？
     why: OFFSETTING_LINES：华东1号线与华东2号线 9 月一升一降，工厂总量基本不变；必须同时指出两条线，不能仅凭合计平稳推断所有产线稳定。
     expect:
       conclusion_from: {metric: mfg_production, filters: {factory: 华东工厂}}
@@ -82,7 +82,7 @@ questions:
         why: 在 offsetting 的前两项中按方向核对最大增加项；另一条线的减少必须同时出现在经过核验的原因中。
   m06:
     category: governance
-    question: 西南2号线 2026-09-18 的能耗为什么比前一天低？当天产量正常，这是否意味着节能改善？
+    question: 西南2号线 2026-09-18 的能耗为什么比前一天低？
     window: {kind: fixed, start: "2026-09-18", end: "2026-09-18", compare_start: "2026-09-17", compare_end: "2026-09-17"}
     why: ENERGY_GAP：西南2号线 2026-09-18 缺少三个班次的计量读数，但报工仍正常；缺失的能耗不应当作零耗电或节能效果，关键数值引用实际读数数。
     expect:
@@ -97,7 +97,7 @@ questions:
         why: 计量源表缺读，正常报工和预期读数用于交叉核对；不能把缺读解释为真实能耗下降。
   m07:
     category: negative
-    question: 华东3号线 2026 年 9 月单位能耗比 8 月有实质变化吗？请避免把噪声当作节能或恶化。
+    question: 华东3号线 2026 年 9 月单位能耗比 8 月有变化吗？
     why: STABLE_UNIT_ENERGY：该产线没有预埋事件，两期能耗随产量同尺度变化；按既有产品阈值应判没有实质变化。负例按原评分规则核对结论、来源和禁止项，数值命中另列。
     expect:
       conclusion_from: {metric: mfg_unit_energy, filters: {line: 华东3号线}}
@@ -106,7 +106,7 @@ questions:
     key_bindings: [{metric: mfg_unit_energy, entity: {line: 华东3号线}, allow: [factory, region]}]
   m08:
     category: explore
-    question: 2026 年 8 月不同设备型号的单位能耗有什么关系？请比较精益A型、标准B型和重载C型，指出单位能耗最高的型号。
+    question: 2026 年 8 月不同设备型号的单位能耗有什么差别？
     window: {kind: fixed, start: "2026-08-01", end: "2026-08-31", compare_start: "2026-08-01", compare_end: "2026-08-31"}
     why: MODEL_ENERGY_RELATION：型号的单位能耗有不同的生成基线，重载C型最高。选择读数完整的 8 月；本题问同一期型号差异而非因果或时间变化，沿用 explore 正例门槛核对机制和绑定值，不调用变化结论推导。
     expect:
