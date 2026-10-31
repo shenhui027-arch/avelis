@@ -681,6 +681,17 @@ class AnalysisFollowupIn(BaseModel):
     confirmation_mode: Literal["auto", "always"] = "auto"
 
 
+class AnalysisMessageIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000, pattern=r"\S")
+
+
+class AnalysisMessageOut(Out):
+    id: str
+    text: str
+    created_at: str
+    consumed_at: str | None = None
+
+
 class ExperienceRef(BaseModel):
     object_type: Literal["asset", "metric", "metric_version"]
     object_id: str = Field(min_length=1, max_length=64)
@@ -768,6 +779,7 @@ class AnalysisRunOut(Out):
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
     datasets: list[AnalysisDatasetOut] | None = None
+    messages: list[AnalysisMessageOut] = Field(default_factory=list)
     parent_run_id: str | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
     proposal: AnalysisProposalOut | None = None

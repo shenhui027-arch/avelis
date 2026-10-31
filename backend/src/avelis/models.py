@@ -801,6 +801,7 @@ class AnalysisRun(Base):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | waiting | succeeded | failed | stopped | clarify
+    stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
     confirmation_mode: Mapped[str] = mapped_column(String(8), default="auto", server_default="auto", nullable=False)
     # 假设检查点：提议、预算与工具快照、用户反馈；JSON 整体赋值，避免遗漏原地修改
     checkpoint: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)
@@ -817,6 +818,20 @@ class AnalysisRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
+class AnalysisMessage(Base):
+    """发起人在运行中的补充：下次模型调用前消费，消费步骤与原文始终保留。"""
+
+    __tablename__ = "analysis_message"
+    __table_args__ = (Index("ix_analysis_message_run_created", "run_id", "created_at"),)
+    id: Mapped[str] = pk()
+    run_id: Mapped[str] = fk("analysis_run.id", index=False)
+    user_id: Mapped[str] = fk("app_user.id")
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = created()
+    consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    consumed_seq: Mapped[int | None] = mapped_column(Integer)
+
+
 class AnalysisStep(Base):
     """分析中的一步：计划、工具调用或说明。理由来自模型，参数与产出由后端记录。"""
 
@@ -825,7 +840,7 @@ class AnalysisStep(Base):
     id: Mapped[str] = pk()
     run_id: Mapped[str] = fk("analysis_run.id")
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # plan | tool | note | model（模型调用的度量）
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # plan | tool | note | model | user
     tool: Mapped[str | None] = mapped_column(String(64))
     args: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)

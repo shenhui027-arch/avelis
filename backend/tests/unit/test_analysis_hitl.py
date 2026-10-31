@@ -272,6 +272,53 @@ def test_automatic_always_and_unattended_modes(monkeypatch, mode, unattended, so
             assert box.report["sources"][0]["status"] == "unconfirmed"
 
 
+def test_always_mode_does_not_pause_without_proposal_items(monkeypatch):
+    box, model, config, state, calls = configured(monkeypatch, [scope_reply(),
+        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], mode="always")
+    result = agent.build_graph(MemorySaver()).invoke(state, config)
+    assert result["phase"] == "done" and not result.get("__interrupt__")
+    assert result["proposal"]["items"] == [] and box.verification["ok"]
+    assert calls == ["precheck"] and len(model.seen) == 3
+
+
+def test_followup_precheck_keeps_the_original_calendar_dataset(monkeypatch):
+    cat = pipeline_catalog()
+    cat.versions["m_a"][1].id, cat.versions["m_a"][1].version_no = "metric-v1", 1
+    scope = {"question_type": "change", "metric_codes": ["m_a"]}
+    outcomes = []
+    for followup in (False, True):
+        box = make_box(monkeypatch=monkeypatch, catalog=cat)
+        box.catalog = agent.service.Catalog([], {})
+        box.run.window = dict(WINDOW)
+        total = governed(box, ["指标甲", "指标甲·对比期"], [["3000", "3100"]], intent={
+            "start_date": WINDOW["start"], "end_date": WINDOW["end"], "compare": "custom",
+            "compare_start": WINDOW["compare_start"], "compare_end": WINDOW["compare_end"]})
+
+        def explain(**kwargs):
+            ds = box._dataset("calc", "自动归因", ["member"], [["甲"]], inputs=[f"D{total.seq}"],
+                              meta={"summary": {"algorithm": "additive"}})
+            return json.dumps({"dataset": f"D{ds.seq}"})
+
+        monkeypatch.setattr(box, "describe_metric", lambda code: json.dumps({"code": code}))
+        for name in ("changes", "data_health", "query_metric"):
+            monkeypatch.setattr(box, name, lambda **kwargs: "{}")
+        monkeypatch.setattr(box, "explain_change", explain)
+        monkeypatch.setattr(box, "_source_metadata", lambda code: [])
+        model = Phased([] if followup else [reply("submit_scope", scope, "scope")])
+        config = {"configurable": {"toolbox": box, "model": model}}
+        state = {"question": "指标甲为什么变化？", "inherited": {"scope": scope} if followup else {}}
+        understood = agent.understand(state, config)
+        assert agent.precheck(understood, config)["phase"] == "reason"
+        calendar = [ds for ds in box.datasets().values() if "日历折算" in ds.title]
+        assert len(calendar) == 1 and box.precheck_notes == []
+        ds = calendar[0]
+        outcomes.append((ds.columns, ds.rows, ds.meta["summary"], agent._upstream_refs(box, box.scope)))
+        assert len(model.seen) == (0 if followup else 1)
+    assert outcomes[0] == outcomes[1]
+    assert [row[1] for row in outcomes[1][1]] == [30, 31]
+    assert outcomes[1][3] == [{"object_type": "metric_version", "object_id": "metric-v1", "version": 1}]
+
+
 def test_inferred_proposal_keeps_only_system_supplied_refs(monkeypatch):
     known = {"object_type": "asset", "object_id": "asset-a", "version": 1}
     args = proposal(refs=[known, {"object_type": "asset", "object_id": "unknown", "version": 1}])

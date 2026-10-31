@@ -372,7 +372,8 @@ def test_question_set_loads_with_generated_truth_and_no_implicit_demo_state(data
     assert set(questions) == {f"m{i:02d}" for i in range(1, 9)} | {"ma01"}
     assert {question["category"] for question in questions.values()} >= {
         "explore", "dimension", "calendar", "governance", "negative", "adversarial"}
-    assert "关系" in questions["m08"]["question"]
+    assert questions["m08"]["question"] == raw["questions"]["m08"]["question"]
+    assert questions["m08"]["expect"]["conclusion"] == ["ranked_reasons"]
     assert questions["ma01"]["user"] == "sun" and questions["ma01"]["expect"]["denied_ok"]
     assert questions["ma01"]["v2"]["unauthorized"] == {"metric_prefix": "mfg_", "table_db_prefix": "mfg_"}
     for question_id, original in raw["questions"].items():

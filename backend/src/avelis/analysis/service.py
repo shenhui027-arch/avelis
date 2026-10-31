@@ -33,7 +33,7 @@ from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
-from avelis.models import AnalysisRun, AnalysisTask, Metric, Notification, User
+from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
 _GRAPH: dict[str, Any] = {}
@@ -283,7 +283,9 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         state = graph.get_state(config).values
         plan, verification = toolbox.plan or {}, dict(toolbox.verification or {})
         report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
-        if toolbox.aborted:
+        if toolbox.user_stopped:
+            status, error = "stopped", "用户停止"
+        elif toolbox.aborted:
             error = toolbox.aborted
         elif toolbox.permission_lost:
             error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
@@ -322,6 +324,25 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         log.warning("分析 %s 的执行权已失去（运行 %s），不写入本次结果", run_id, run.status)
         session.rollback()
         return {"status": "lost", "analysis_run_id": run_id, "reason": "执行权已失去"}
+    # 插话在执行过程中独立提交；不能被执行入口时复制的旧 checkpoint 覆盖。
+    candidates = list((run.checkpoint or {}).get("candidates") or [])
+    for candidate in checkpoint.get("candidates") or []:
+        if candidate not in candidates:
+            candidates.append(candidate)
+    if candidates:
+        checkpoint["candidates"] = candidates
+    # 停止请求与最终完成竞争时，以本次行锁读取的标记为准，不再请求模型或执行工具。
+    if run.stop_requested:
+        if toolbox is None:
+            toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget)
+            toolbox.restore(saved)
+            budget = toolbox.budget
+        status, error = "stopped", "用户停止"
+        report, verification = _stopped_report(toolbox, notes=report.get("notes"))
+        plan = toolbox.plan or plan
+        checkpoint.pop("pending", None)
+        checkpoint["resume_pending"] = False
+        checkpoint["snapshot"] = toolbox.snapshot()
     run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
     run.checkpoint = checkpoint
     run.model_adapter = adapter
@@ -379,6 +400,67 @@ def visible_run(session: Session, user: User, run_id: str) -> AnalysisRun:
     if run is None or (run.user_id != user.id and not access.is_admin(session, user)):
         raise NotFound("分析不存在或不属于当前用户")
     return run
+
+
+def _live_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    """插话和停止只属于发起人；管理员读取权限不包含代为交互。"""
+    run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
+    if run is None or run.user_id != user.id:
+        raise NotFound("分析不存在或不属于当前用户")
+    if run.status not in ("queued", "running", "waiting"):
+        raise Conflict("分析已经结束，不能插话或停止")
+    return run
+
+
+def add_message(session: Session, user: User, run_id: str, text: str) -> AnalysisMessage:
+    run = _live_run(session, user, run_id)
+    if not text.strip():
+        raise Invalid("请输入插话内容")
+    message = AnalysisMessage(run_id=run.id, user_id=user.id, text=text)
+    session.add(message)
+    session.flush()
+    audit.record(session, user, "analysis.message", "analysis_run", run.id,
+                 message_id=message.id, text=message.text)
+    return message
+
+
+def _stopped_report(toolbox: AnalysisToolbox, *, notes: list[str] | None = None) -> tuple[dict, dict]:
+    """沿用预算截止的后端未完成报告与核验路径；停止不调用模型、不增加步骤。"""
+    toolbox.user_stopped = True
+    toolbox.report = None
+    analysis_agent.verify({}, {"configurable": {"toolbox": toolbox, "model": None}})
+    stop_notes = list(notes or [])
+    if "分析停止：用户停止" not in stop_notes:
+        stop_notes.append("分析停止：用户停止")
+    report = {**toolbox.report, "notes": stop_notes}
+    if toolbox.permission_lost or toolbox.denials:
+        report["permission"] = {"lost": toolbox.permission_lost, "denials": toolbox.denials}
+    return report, dict(toolbox.verification or {})
+
+
+def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    run = _live_run(session, user, run_id)
+    run.stop_requested = True
+    if run.status == "waiting":
+        checkpoint = dict(run.checkpoint or {})
+        saved = checkpoint.get("snapshot") or {}
+        toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), Budget())
+        toolbox.restore(saved)
+        run.report, run.verification = _stopped_report(toolbox, notes=(run.report or {}).get("notes"))
+        run.plan = toolbox.plan or run.plan
+        run.status, run.error, run.finished_at = "stopped", "用户停止", utcnow()
+        checkpoint.pop("pending", None)
+        checkpoint["resume_pending"] = False
+        checkpoint["snapshot"] = toolbox.snapshot()
+        run.checkpoint = checkpoint
+    audit.record(session, user, "analysis.stop", "analysis_run", run.id, status=run.status)
+    session.flush()
+    return run
+
+
+def message_view(message: AnalysisMessage) -> dict[str, Any]:
+    return {"id": message.id, "text": message.text, "created_at": message.created_at.isoformat(),
+            "consumed_at": message.consumed_at.isoformat() if message.consumed_at else None}
 
 
 def _feedback(proposal: dict, feedback: dict) -> dict:
@@ -636,13 +718,16 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[s
             "error": run.error, "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-            "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok")}
+            "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
         return data
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
     datasets = session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
                                .order_by(AnalysisDataset.seq))
+    messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
+                               .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
     data.update(plan=run.plan, report=run.report, verification=run.verification,
+                messages=[message_view(message) for message in messages],
                 proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
                 confirmed_scope=checkpoint.get("confirmed_scope") or {},
                 confirmed_items=checkpoint.get("confirmed_items") or [],
