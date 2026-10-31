@@ -13,7 +13,7 @@
   --login-muted: #a3acc8;
   --login-faint: #6f7898;
   --login-link: rgba(124, 140, 255, .28);
-  position: relative; isolation: isolate; display: flex; flex-direction: column; min-height: 100vh; overflow: hidden;
+  position: relative; isolation: isolate; display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; overflow: clip;
   background: var(--login-bg); color: var(--login-text);
 }
 :root[data-theme="light"] .av-login {
