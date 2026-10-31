@@ -24,3 +24,6 @@ deploy/demo/drivers/*.jar
 # Browser profiles left by design previews
 .brand-qa-chrome/
 .worktrees/
+
+# 部署配置（含口令与密钥）
+deploy/docker/avelis.toml
