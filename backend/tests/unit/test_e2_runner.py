@@ -228,6 +228,16 @@ def test_plan_cli_does_not_read_truth_or_import_run_dependencies(monkeypatch, tm
     ["--plan", "--output-token-cap", "0"],
     ["--plan", "--output-token-cap", "-1"],
     ["--plan", "--output-token-cap", "1.5"],
+    ["--plan", "--model-timeout", "0"],
+    ["--plan", "--model-timeout", "-1"],
+    ["--plan", "--model-timeout", "nan"],
+    ["--plan", "--model-timeout", "inf"],
+    ["--plan", "--model-timeout=-inf"],
+    ["--plan", "--run-seconds", "0"],
+    ["--plan", "--run-seconds", "-1"],
+    ["--plan", "--run-seconds", "1.5"],
+    ["--plan", "--run-seconds", "nan"],
+    ["--plan", "--run-seconds", "inf"],
     ["--plan", "--tag", ""],
     ["--plan", "--tag", "."],
     ["--plan", "--tag", ".."],
@@ -482,16 +492,20 @@ def live_run(state):
 
 
 def test_default_run_does_not_save_settings_or_change_budget(monkeypatch, fake_runtime):
+    from avelis.analysis import agent
     from avelis.analysis.tools import Budget
 
     state = fake_runtime
     defaults = Budget.__init__.__defaults__
     limits = Budget().view()["limits"]
     assert limits["output_tokens"] == 30_716
+    assert limits["seconds"] == 300
+    assert agent.MODEL_TIMEOUT_SECONDS == 60
 
     def run():
         assert Budget.__init__.__defaults__ is defaults
         assert Budget().view()["limits"] == limits
+        assert agent.MODEL_TIMEOUT_SECONDS == 60
         return live_run(state)
 
     state.run = run
@@ -500,8 +514,10 @@ def test_default_run_does_not_save_settings_or_change_budget(monkeypatch, fake_r
     assert state.events == ["client"]
     assert Budget.__init__.__defaults__ is defaults
     assert Budget().view()["limits"] == limits
+    assert agent.MODEL_TIMEOUT_SECONDS == 60
     meta = state.saves[-1]["meta"]
     assert meta["effort"] is None and meta["output_token_cap"] is None and meta["tag"] == "e2"
+    assert meta["model_timeout"] is None and meta["run_seconds"] is None
 
 
 @pytest.mark.parametrize("effort", ["low", "max"])
@@ -526,27 +542,33 @@ def test_effort_is_set_after_client_and_restored_without_changing_model(monkeypa
 
 
 @pytest.mark.parametrize("failure", [RuntimeError("模拟传输失败"), KeyboardInterrupt("模拟中断")])
-def test_effort_and_cap_are_restored_on_exception_or_interrupt(monkeypatch, fake_runtime, failure):
+def test_run_overrides_are_restored_on_exception_or_interrupt(monkeypatch, fake_runtime, failure):
+    from avelis.analysis import agent
     from avelis.analysis.tools import Budget
 
     state = fake_runtime
     state.client_effort = "low"
+    monkeypatch.setattr(agent, "MODEL_TIMEOUT_SECONDS", 47.0)
     defaults = Budget.__init__.__defaults__
     limits = Budget().view()["limits"]
 
     def run():
         assert state.assignment.reasoning_effort == "max"
         assert Budget().output_tokens == 90_000
+        assert Budget().seconds == 42
+        assert agent.MODEL_TIMEOUT_SECONDS == 17.5
         raise failure
 
     state.run = run
     with pytest.raises(type(failure), match=str(failure)):
-        run_fake(monkeypatch, state, "--effort", "max", "--output-token-cap", "90000")
+        run_fake(monkeypatch, state, "--effort", "max", "--output-token-cap", "90000",
+                 "--model-timeout", "17.5", "--run-seconds", "42")
     assert len(state.asks) == 1 and state.scores == []
     assert state.assignment.reasoning_effort == "low"
     assert [target["reasoning_effort"] for _, target in state.settings_saves] == ["max", "low"]
     assert Budget.__init__.__defaults__ is defaults
     assert Budget().view()["limits"] == limits
+    assert agent.MODEL_TIMEOUT_SECONDS == 47.0
     assert type(failure).__name__ in state.saves[-1]["stop_reason"]
     assert state.saves[-1]["results"] == []
 
@@ -592,6 +614,105 @@ def test_plan_output_cap_updates_bounds_and_restores_budget(monkeypatch, capsys)
     assert e2.budget_bounds(32) == baseline
 
 
+def test_model_timeout_is_read_for_each_request_and_retry_and_restores_original(monkeypatch):
+    from avelis.analysis import agent
+
+    monkeypatch.setattr(agent, "MODEL_TIMEOUT_SECONDS", 47.0)
+    requests = []
+    model = SimpleNamespace(factory=lambda **kwargs: requests.append(kwargs) or "stub-model")
+    budget = SimpleNamespace(remaining_output_tokens=lambda: None, remaining=lambda: 80,
+                             input_tokens=None, used_model_requests=0, model_blocked=lambda: False)
+    steps = []
+    toolbox = SimpleNamespace(budget=budget, stopped=False, _step=lambda *args, **kwargs: steps.append(args))
+
+    def fail(messages):
+        raise TimeoutError("模拟请求超时")
+
+    bound = SimpleNamespace(invoke=fail)
+    with e2.install_model_timeout(17.5):
+        assert agent._model_for(model, budget) == ("stub-model", False)
+        assert requests[-1]["timeout"] == 17.5 and requests[-1]["max_retries"] == 0
+        with pytest.raises(TimeoutError, match="模拟请求超时"):
+            agent._invoke(bound, [], toolbox)
+        assert budget.used_model_requests == 2
+        assert [step[4]["retry"] for step in steps] == [True, False]
+
+    assert agent.MODEL_TIMEOUT_SECONDS == 47.0
+    assert agent._model_for(model, budget) == ("stub-model", False)
+    assert requests[-1]["timeout"] == 47.0
+    steps.clear()
+    budget.used_model_requests = 0
+    with pytest.raises(TimeoutError, match="模拟请求超时"):
+        agent._invoke(bound, [], toolbox)
+    assert budget.used_model_requests == 1 and steps[0][4]["retry"] is False
+
+
+def test_timeout_and_run_seconds_apply_to_new_budgets_and_restore(monkeypatch, fake_runtime):
+    from avelis.analysis import agent
+    from avelis.analysis.tools import Budget
+
+    state = fake_runtime
+    defaults = Budget.__init__.__defaults__
+    original_timeout = agent.MODEL_TIMEOUT_SECONDS
+    existing = Budget()
+    limits = existing.view()["limits"]
+    expected = {**limits, "output_tokens": 90_000, "seconds": 42}
+
+    def run():
+        assert agent.MODEL_TIMEOUT_SECONDS == 17.5
+        assert Budget().view()["limits"] == expected
+        assert Budget(seconds=123, output_tokens=456).seconds == 123
+        assert Budget(seconds=123, output_tokens=456).output_tokens == 456
+        assert existing.view()["limits"] == limits
+        return live_run(state)
+
+    state.run = run
+    assert run_fake(monkeypatch, state, "--model-timeout", "17.5", "--run-seconds", "42",
+                    "--output-token-cap", "90000") == 0
+    assert agent.MODEL_TIMEOUT_SECONDS == original_timeout
+    assert Budget.__init__.__defaults__ is defaults
+    assert Budget().view()["limits"] == limits
+    data = state.saves[-1]
+    assert data["meta"]["model_timeout"] == 17.5 and data["meta"]["run_seconds"] == 42
+    assert data["stop_reason"] is None and len(data["results"]) == 2
+    assert all(result["run"]["budget"]["limits"] == expected for result in data["results"])
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("模拟失败"), KeyboardInterrupt("模拟中断")])
+def test_run_seconds_restores_the_previous_override_on_failure(failure):
+    from avelis.analysis.tools import Budget
+
+    defaults = Budget.__init__.__defaults__
+    with e2.install_run_seconds(410):
+        outer_defaults = Budget.__init__.__defaults__
+        with pytest.raises(type(failure), match=str(failure)):
+            with e2.install_run_seconds(42):
+                assert Budget().seconds == 42
+                raise failure
+        assert Budget.__init__.__defaults__ is outer_defaults
+        assert Budget().seconds == 410
+    assert Budget.__init__.__defaults__ is defaults
+
+
+def test_plan_run_seconds_updates_bounds_and_restores_budget(monkeypatch, capsys):
+    from avelis.analysis import agent
+    from avelis.analysis.tools import Budget
+
+    forbid_run_imports(monkeypatch)
+    defaults = Budget.__init__.__defaults__
+    original_timeout = agent.MODEL_TIMEOUT_SECONDS
+    baseline = e2.budget_bounds(32)
+    monkeypatch.setattr(sys, "argv", ["e2.py", "--plan", "--conditions", "B0",
+                                      "--run-seconds", "42", "--model-timeout", "17.5",
+                                      "--output-token-cap", "90000"])
+    assert e2.main() == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["bounds"] == {**baseline, "seconds_wall": 32 * 42, "output_tokens": 32 * 90_000}
+    assert agent.MODEL_TIMEOUT_SECONDS == original_timeout
+    assert Budget.__init__.__defaults__ is defaults
+    assert e2.budget_bounds(32) == baseline
+
+
 @pytest.mark.parametrize(("parameter", "value", "field", "run"), [
     ("--effort", "max", "reasoning_effort", {**COSTED_RUN, "reasoning_effort": "low"}),
     ("--effort", "max", "reasoning_effort", COSTED_RUN),
@@ -600,6 +721,10 @@ def test_plan_output_cap_updates_bounds_and_restores_budget(monkeypatch, capsys)
     ("--output-token-cap", "90000", "output_tokens", COSTED_RUN),
     ("--output-token-cap", "90000", "output_tokens", {**COSTED_RUN, "budget": {}}),
     ("--output-token-cap", "90000", "output_tokens", {**COSTED_RUN, "budget": {"limits": {}}}),
+    ("--run-seconds", "42", "seconds", {**COSTED_RUN, "budget": {"limits": {"seconds": 300}}}),
+    ("--run-seconds", "42", "seconds", COSTED_RUN),
+    ("--run-seconds", "42", "seconds", {**COSTED_RUN, "budget": {}}),
+    ("--run-seconds", "42", "seconds", {**COSTED_RUN, "budget": {"limits": {}}}),
 ])
 def test_run_parameter_mismatch_is_saved_and_stops_without_retry(monkeypatch, fake_runtime, parameter, value, field, run):
     from avelis.analysis.tools import Budget
