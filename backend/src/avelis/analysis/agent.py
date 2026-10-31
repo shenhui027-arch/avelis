@@ -224,7 +224,6 @@ class AnalysisState(TypedDict, total=False):
     unattended: bool
     clarification: str | None
     clarifications: list[dict]
-    understand_messages: list[AnyMessage]
 
 
 def _ctx(config) -> tuple[AnalysisToolbox, Any]:
@@ -408,12 +407,10 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     toolbox, model = _ctx(config)
     previous_scope = toolbox.scope
     clarifications = list(state.get("clarifications") or [])
-    messages = None
     if state.get("phase") == "clarify" and (question := state.get("clarification")):
         feedback = interrupt({"kind": "clarify", "question": question})
         toolbox.check_resume_permissions()
         clarifications.append({"question": question, "answer": feedback["answer"]})
-        messages = [*state["understand_messages"], HumanMessage("用户对追问的回答：" + feedback["answer"])]
     inherited = state.get("inherited") or {}
     if inherited.get("scope"):
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
@@ -428,13 +425,12 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         tool = StructuredTool.from_function(lambda **kw: "", name="submit_scope", args_schema=Scope,
                                             description="提交问题的范围（只调用一次）")
         feedback = state.get("feedback")
-        if messages is None:
-            messages = [SystemMessage(UNDERSTAND_PROMPT), HumanMessage(
-                f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
-                f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{state['question']}"
-                + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else ""))]
-            for item in clarifications:
-                messages.append(HumanMessage(f"追问：{item['question']}\n用户对追问的回答：{item['answer']}"))
+        messages = [SystemMessage(UNDERSTAND_PROMPT), HumanMessage(
+            f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
+            f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{state['question']}"
+            + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else ""))]
+        for item in clarifications:
+            messages.append(HumanMessage(f"追问：{item['question']}\n用户对追问的回答：{item['answer']}"))
         request_model, output_budget_limited = _model_for(
             model, toolbox.budget, effort="off", max_tokens=UNDERSTAND_MAX_TOKENS)
         bound = request_model.bind_tools([tool], tool_choice="submit_scope")
@@ -465,16 +461,14 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         if problem:  # 候选外的范围保留在 plan 和图状态中，恢复授权仍以此前有效的范围为准。
             toolbox.scope = previous_scope
         return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "clarify", "rounds": 1,
-                "clarification": question, "clarifications": clarifications,
-                "understand_messages": [*messages, reply, ToolMessage(
-                    content="需要澄清：" + question, tool_call_id=call["id"])]}
+                "clarification": question, "clarifications": clarifications}
     if question:  # 无人值守或已回答两次：沿原路径结束，不带着未澄清的范围继续。
         toolbox.request_clarification(question, scope, raw)
         return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "clarify", "rounds": 1,
-                "clarification": None, "clarifications": clarifications, "understand_messages": [],
+                "clarification": None, "clarifications": clarifications,
                 "notes": [f"需要澄清：{question}"]}
     return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "precheck", "rounds": 1,
-            "clarification": None, "clarifications": clarifications, "understand_messages": [],
+            "clarification": None, "clarifications": clarifications,
             "notes": [problem] if problem else []}
 
 

@@ -83,8 +83,7 @@ def test_understand_answer_resumes_same_run_before_precheck_and_reaches_reason(m
     assert resume_checks == [True]
     assert model.tool_choice == ["submit_scope", "submit_scope", "submit_proposal", None]
     assert box.budget.used_model_requests == len(model.seen) == 4
-    assert model.seen[1][:2] == model.seen[0]
-    assert any(isinstance(m, HumanMessage) and m.content == f"用户对追问的回答：{answer}"
+    assert any(isinstance(m, HumanMessage) and question in m.content and answer in m.content
                for m in model.seen[1][2:])
     assert question in model.seen[-1][1].content and answer in model.seen[-1][1].content
     assert all(answer not in m.content for messages in model.seen for m in messages if isinstance(m, SystemMessage))
@@ -138,6 +137,46 @@ def test_valid_scope_metric_revocation_still_blocks_understand_resume(monkeypatc
     assert box.denials[-1]["metric_code"] == "m_a"
 
 
+@pytest.mark.parametrize("metric_codes", [[], ["m_a"]])
+def test_understand_resume_excludes_revoked_candidate_metadata(monkeypatch, metric_codes):
+    question, answer = "请确认要分析哪个地区？", "华东地区"
+    catalog = pipeline_catalog()
+    catalog.cards[:] = [card for card in catalog.cards if card.code in {"m_a", "m_b"}]
+    revoked = next(card for card in catalog.cards if card.code == "m_b")
+    revoked.name, revoked.description = "候选乙保密名称", "候选乙保密业务描述"
+    revoked.dimensions = [{"name": "候选乙保密维度", "label": "候选乙保密维度标签"}]
+    metric, _ = catalog.versions["m_b"]
+    metric.domain_id = "dB"
+    formula = "private_numerator / private_denominator"
+    catalog.versions["m_b"] = (metric, SimpleNamespace(kind="derived", expression=formula, unit="%"))
+    catalog.versions.pop("m_c")
+    scope = {"question_type": "other", "metric_codes": metric_codes}
+    box, model, config, state, calls = configured(monkeypatch, [
+        reply("submit_scope", {**scope, "clarification": question}, "first"),
+        reply("submit_scope", scope, "second"),
+        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], catalog=catalog)
+    allowed = {"dA", "dB"}
+    monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: allowed)
+    monkeypatch.setattr(agent.service, "visible_catalog", lambda s, u, with_values: type(catalog)(
+        [card for card in catalog.cards if catalog.versions[card.code][0].domain_id in allowed],
+        {code: pair for code, pair in catalog.versions.items() if pair[0].domain_id in allowed}))
+    monkeypatch.setattr(agent.service, "version_sources", lambda s, v: {})
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"] and calls == [] and len(model.seen) == 1
+    first_input = json.dumps([message.model_dump(mode="json") for message in model.seen[0]], ensure_ascii=False)
+    metadata = (revoked.name, revoked.description, formula, "候选乙保密维度")
+    assert all(value in first_input for value in metadata)
+
+    allowed.remove("dB")
+    final = graph.invoke(Command(resume={"answer": answer}), config)
+    second_input = json.dumps([message.model_dump(mode="json") for message in model.seen[1]], ensure_ascii=False)
+    assert all(value not in second_input for value in metadata)
+    assert "指标甲" in second_input and question in second_input and answer in second_input
+    assert final["phase"] == "done" and calls == ["precheck"]
+    assert len(model.seen) == box.budget.used_model_requests == 4
+
+
 def test_understand_stops_as_clarify_after_two_answers(monkeypatch):
     questions = ["请确认地区？", "请确认渠道？", "请确认门店？"]
     box, model, config, state, calls = configured(monkeypatch, [clarify_reply(q) for q in questions])
@@ -150,6 +189,8 @@ def test_understand_stops_as_clarify_after_two_answers(monkeypatch):
     assert not final.get("__interrupt__") and final["phase"] == "clarify"
     assert final["clarifications"] == [{"question": questions[0], "answer": "华东"},
                                         {"question": questions[1], "answer": "直营"}]
+    for item in final["clarifications"]:
+        assert any(item["question"] in m.content and item["answer"] in m.content for m in model.seen[2])
     assert box.clarification["question"] == questions[2]
     assert len(model.seen) == box.budget.used_model_requests == 3 and calls == []
     assert graph.get_state(config).next == ()
