@@ -1,11 +1,11 @@
-// 分析：左侧导航（新建、任务、经验、最近记录）| 中间报告文档 | 右侧证据（数据集、图表、SQL）。
+// 问数：对话（问题、过程、回答、追问）| 右侧证据（数据集、图表、SQL）；新建、最近对话、经验与定时任务在应用侧边栏。
 // 报告里的数字由后端按引用渲染（ADR 0009）：数字下划线可悬停看来源数据集、取值路径与原值；人机协作见 AnalysisInteractions（ADR 0013）。
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
+import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
@@ -47,10 +47,7 @@ const MEASURE_LABEL: Record<string, string> = { level: "水平值", delta: "差�
 const KIND_LABEL: Record<string, [string, "ok" | "warn" | "info"]> = { governed: ["受治理", "ok"], calc: ["计算", "info"],
   context: ["上下文", "info"], explore: ["探索", "warn"], ungoverned: ["未治理", "warn"] };
 
-// 有进行中的运行时定期刷新，左侧列表的状态与运行详情保持一致
-const useRuns = () => useQuery({ queryKey: ["analysis-runs"], queryFn: () => unwrap(api.GET("/api/analysis/runs")),
-  refetchInterval: (q) => (q.state.data?.some((r) => ["queued", "running"].includes(r.status)) ? 4000 : false) });
-const useTasks = () => useQuery({ queryKey: ["analysis-tasks"], queryFn: () => unwrap(api.GET("/api/analysis/tasks")) });
+const useTasks = useAnalysisTasks;
 const useRun = (id?: string) => useQuery({
   queryKey: ["analysis-run", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/analysis/runs/{run_id}", { params: { path: { run_id: id! } } })),
@@ -80,7 +77,6 @@ export function AnalysisPage() {
   const evidence = view === "runs" && !!runId;
   return (
     <div className={`av-analysis${evidence ? " has-evidence" : ""}`}>
-      <AnalysisNav runId={runId} />
       <main className="av-analysis__center">
         {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
           : view === "experiences" ? <div className="av-analysis__page">
@@ -103,34 +99,6 @@ function RunState({ run }: { run: Run }) {
   return run.verified ? <Status value="verified" label="核验通过" /> : <Status value="unverified" label="有未核实" />;
 }
 
-function AnalysisNav({ runId }: { runId?: string }) {
-  const runs = useRuns();
-  const tasks = useTasks();
-  const tz = useTimeZone();
-  return (
-    <nav className="av-analysis__nav" aria-label="分析导航">
-      <Link to="/analysis" className="av-btn av-btn--primary av-analysis__new"><Icon name="plus" />新问题</Link>
-      <div className="av-analysis__navgroup">
-        <NavLink to="/analysis/tasks" className="av-analysis__navitem"><Icon name="refresh" />定时任务
-          {tasks.data?.length ? <span className="av-count">{tasks.data.length}</span> : null}</NavLink>
-        <NavLink to="/analysis/experiences" className="av-analysis__navitem"><Icon name="chip" />个人经验</NavLink>
-        <Link to="/ask" className="av-analysis__navitem"><Icon name="ask" />旧版问数记录</Link>
-      </div>
-      <div className="av-analysis__navlabel">最近</div>
-      <div className="av-analysis__runs">
-        {(runs.data ?? []).map((r) => (
-          <Link key={r.id} to={`/analysis/runs/${r.id}`} className="av-analysis__runitem"
-            aria-current={r.id === runId ? "page" : undefined}>
-            <span className="av-analysis__runtitle">{r.title ?? r.question}</span>
-            <span className="av-analysis__runmeta"><RunState run={r} /><span>{formatTime(r.created_at, tz)}</span></span>
-          </Link>
-        ))}
-        {runs.isSuccess && !runs.data.length ? <span className="av-caption av-analysis__navempty">还没有分析记录</span> : null}
-      </div>
-    </nav>
-  );
-}
-
 function Composer() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
@@ -143,11 +111,17 @@ function Composer() {
   const [mode, setMode] = useState<"auto" | "always">("auto");
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tasks = useTasks();
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", {
     body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode } as never })), ["analysis-runs"]);
   return (
     <section className="av-analysis__compose">
-      <h1>想知道什么？</h1>
+      <div className="av-hero">
+        <div className="av-hero__text">
+          <h1>想知道什么？</h1>
+          <p>问一个数，或者问它为什么变了。每一步查了什么都看得见，随时可以插话纠偏。</p>
+        </div>
+      </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <form className="av-compose" onSubmit={(e) => {
         e.preventDefault();
@@ -176,10 +150,21 @@ function Composer() {
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!text.trim()} onClick={() => setScheduling(true)}>
             <Icon name="refresh" />定时</button>
           <button className="av-btn av-btn--primary av-btn--sm" type="submit" disabled={start.isPending || !text.trim()}>
-            <Icon name="play" />{start.isPending ? "提交中…" : "开始分析"}</button>
+            <Icon name="send" />{start.isPending ? "提交中…" : "提问"}</button>
         </div>
       </form>
+      <div className="av-entries">
+        <button type="button" className="av-entry" onClick={() => setText(askExamples[0]?.text ?? "")}>
+          <span className="av-entry__icon is-lookup" aria-hidden /><b>取数</b><span>查一个数，带口径和来源</span></button>
+        <button type="button" className="av-entry" onClick={() => setText(analysisExamples[0]?.text ?? "")}>
+          <span className="av-entry__icon is-analysis" aria-hidden /><b>归因分析</b><span>为什么变了，逐步给出依据</span></button>
+        <Link className="av-entry" to="/analysis/experiences">
+          <span className="av-entry__icon is-experience" aria-hidden /><b>个人经验</b><span>分析时按口径与资产自动召回</span></Link>
+        <Link className="av-entry" to="/analysis/tasks">
+          <span className="av-entry__icon is-schedule" aria-hidden /><b>定时任务</b><span>{tasks.data?.length ? `${tasks.data.length} 个` : "按时自动分析"}</span></Link>
+      </div>
       {examples.length ? <div className="av-compose__examples" aria-label="问题示例">
+        <span className="av-compose__examples-hd">试试这些</span>
         {examples.map((e) => <button key={e} type="button" className="av-compose__example" onClick={() => setText(e)}>{e}</button>)}
       </div> : null}
       {scheduling ? <ScheduleDrawer body={{ question: text, window: windowBody(kind, fixed) }} onClose={() => setScheduling(false)} /> : null}
@@ -301,7 +286,6 @@ function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
   const [error, setError] = useState<string | null>(null);
-  const [challenging, setChallenging] = useState(false);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
@@ -343,17 +327,13 @@ function RunDetail({ id }: { id: string }) {
         </div>
         <div className="av-doc__actions">
           <RunState run={r} />
-          {done ? <>
-            <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-expanded={challenging}
-              onClick={() => setChallenging(!challenging)}>质疑 / 补充</button>
-            {!lookup ? <ExportMenu run={r} onError={setError} /> : null}
-          </> : null}
+          {done && !lookup ? <ExportMenu run={r} onError={setError} /> : null}
         </div>
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {challenging && done ? <FollowupForm runId={r.id} onClose={() => setChallenging(false)} /> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      {running || r.status === "waiting" ? <RunTranscript run={r} live={running || r.status === "waiting"} /> : null}
+      {running || r.status === "waiting" ? <RunTranscript run={r} live={running || r.status === "waiting"} />
+        : <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
       {stopped ? <div className="av-banner av-banner--info">已停止，下面是停止前已经得到的部分结果</div> : null}
@@ -412,6 +392,7 @@ function RunDetail({ id }: { id: string }) {
         <RunTranscript run={r} />
       </details> : null}
       </DatasetSql.Provider>
+      {done ? <FollowupForm runId={r.id} /> : null}
     </article>
   );
 }

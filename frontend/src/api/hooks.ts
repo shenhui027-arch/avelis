@@ -97,3 +97,8 @@ export function useAction<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>,
     },
   });
 }
+
+// 分析运行与定时任务：侧边栏的最近对话与分析页共用；有进行中的运行时定期刷新，状态与详情一致
+export const useAnalysisRuns = () => useQuery({ queryKey: ["analysis-runs"], queryFn: () => unwrap(api.GET("/api/analysis/runs")),
+  refetchInterval: (q) => (q.state.data?.some((r) => ["queued", "running"].includes(r.status)) ? 4000 : false) });
+export const useAnalysisTasks = () => useQuery({ queryKey: ["analysis-tasks"], queryFn: () => unwrap(api.GET("/api/analysis/tasks")) });
