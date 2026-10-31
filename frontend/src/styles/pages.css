@@ -741,3 +741,16 @@
 .av-lookup__value { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: var(--shadow-glass); }
 .av-lookup__value > span:first-child { color: var(--text-primary); font: 500 32px/40px var(--font-mono); }
 .av-doc__lead { margin: 0; color: var(--text-primary); font: 400 15px/26px var(--font-sans); white-space: pre-wrap; }
+
+/* 问数窄屏：证据栏先变窄，再移到对话下方 */
+@media (max-width: 1279px) {
+  .av-analysis.has-evidence { grid-template-columns: minmax(0, 1fr) 320px; }
+  .av-doc { padding-inline: var(--space-5); }
+  .av-analysis__compose { padding-inline: var(--space-5); }
+}
+@media (max-width: 860px) {
+  .av-analysis, .av-analysis.has-evidence { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .av-analysis__center { overflow: visible; }
+  .av-analysis__evidence { max-height: none; border-left: none; border-top: 1px solid var(--line-subtle); }
+  .av-hero::after { opacity: .35; }
+}

@@ -331,3 +331,13 @@
 
 /* 复合输入框在外层绘制焦点（审计：输入框取消 outline 后需要可见焦点） */
 .av-composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+
+/* 窄屏：1100px 以下侧边栏自动收起为图标（此时不提供展开） */
+@media (max-width: 1100px) {
+  .av-sb { width: 72px; padding-inline: 12px; }
+  .av-sb .av-sb__label, .av-sb .av-sb__toggle, .av-sb .av-logo b, .av-sb .av-sb__recent { display: none; }
+  .av-sb .av-sb__brand { justify-content: center; padding: 0; }
+  .av-sb .av-sb__ws { justify-content: center; padding: 6px 0; }
+  .av-sb .av-sb__nv { justify-content: center; padding: 0; }
+  .av-sb .av-sb__foot { flex-direction: column; }
+}
