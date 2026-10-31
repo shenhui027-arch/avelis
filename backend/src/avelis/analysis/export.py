@@ -64,13 +64,24 @@ def resolve_audience(audience: Audience | None = None, appendix: bool | None = N
     return "full" if appendix else "brief"
 
 
-def _brief_text(value: str) -> str:
+def _brief_text(value: str, *, references: bool = False) -> str:
     """旧报告的自由文字也可能带引用和术语；只调整展示，不改保存结果。"""
     value = re.sub(r"```.*?```", "", value, flags=re.S)
     value = re.sub(r"(?im)^.*\bSELECT\b.*$", "", value)
-    ref_list = r"D[1-9]\d*(?:\s*[、,，·]\s*D[1-9]\d*)*"
-    value = re.sub(rf"[（(\[]\s*{ref_list}\s*[）)\]]", "", value)
-    value = re.sub(r"(?<![A-Za-z0-9_])D[1-9]\d*(?![A-Za-z0-9_])", "", value)
+    if references:
+        ref_list = r"D[1-9]\d*(?:\s*[、,，·]\s*D[1-9]\d*)*"
+        value = re.sub(rf"[（(\[]\s*{ref_list}\s*[）)\]]", "", value)
+
+        def reference(match):
+            # refs 只说明记录用过数据集，不能证明正文里的同名成员是引用。
+            # 没有片段元数据的旧正文，只清理明确的数据来源语境中的裸引用。
+            before, after = value[:match.start()], value[match.end():]
+            contextual = (re.search(r"(?:引用(?:数据集)?|数据集|受治理(?:指标|查询)?|来源已校验|来源已确认)\s*$", before)
+                          or re.match(r"\s*的?\s*(?:受治理(?:指标|查询|计算)|探索查询|口径版本)", after))
+            return "" if contextual else match[0]
+
+        # 中文也是词字符，不能把“成员D1”里的成员编号当成独立引用。
+        value = re.sub(r"(?<!\w)D[1-9]\d*(?!\w)", reference, value)
     for old, new in (("推断，未核实", "待验证"), ("受治理查询", "已审核指标"), ("受治理", "已审核"),
                      ("探索查询", "临时查询"), ("上下文", "相关信息"), ("口径版本", "指标定义"),
                      ("来源已校验", "来源已确认"), ("核验", "检查"), ("计算", "分析"),
@@ -80,25 +91,40 @@ def _brief_text(value: str) -> str:
 
 
 def _brief_view(view: dict) -> dict:
-    text_keys = {"title", "summary", "unexplained", "method", "text", "premise", "validation", "label", "member"}
+    text_keys = {"title", "summary", "unexplained", "method", "text", "premise", "validation"}
+    report = view.get("report") or {}
     version_ids = sorted({str(version) for d in view.get("datasets") or []
                           for version in [*(d.get("metric_version_ids") or []),
                                           *(_meta(d).get("metric_version_ids") or []),
                                           *(_meta(d).get("versions") or {}).values()]}, key=len, reverse=True)
 
-    def clean(value, key=""):
+    def clean(value, key="", grounded=False):
         if isinstance(value, dict):
-            return {k: clean(v, k) for k, v in value.items()}
+            if key == "entity" or value.get("kind") == "label":
+                return dict(value)
+            if value.get("kind") == "ref":
+                return {**value, "text": ""}
+            segments = value.get("segments") or []
+            # 有落地标签或引用片段时，文字片段已给出位置语义，不能再按编号猜测引用。
+            structured = any(segment.get("kind") in ("ref", "label") for segment in segments)
+            result = {k: clean(v, k, structured if k == "segments" else grounded) for k, v in value.items()}
+            if segments and value.get("text") == _rendered(value):
+                result["text"] = _rendered(result)
+            return result
         if isinstance(value, list):
-            return [clean(v, key) for v in value]
+            return [clean(v, key, grounded) for v in value]
         if isinstance(value, str) and key in text_keys:
             for version_id in version_ids:
                 if version_id:
                     value = value.replace(version_id, "")
-            return _brief_text(value)
+            return _brief_text(value, references=not grounded)
         return value
 
-    return {**view, "report": clean(view.get("report") or {})}
+    cleaned = clean(report)
+    for name, record in (report.get("fields") or {}).items():
+        if record.get("segments") and report.get(name) == _rendered(record):
+            cleaned[name] = _rendered(cleaned["fields"][name])
+    return {**view, "report": cleaned}
 
 
 def _brief_footer(view: dict, datasets: list[str] | None = None) -> list[str]:
@@ -393,12 +419,38 @@ def _table_value(value: Any, meta: dict | None = None) -> str:
     return text
 
 
+def _core_scope_matches(d: dict, scope: dict) -> bool:
+    """只排除已知范围冲突；旧报告或数据集缺少范围信息时沿用原有选择规则。"""
+    from avelis.analysis.grounding import scope_key
+    from avelis.ask.intent import comparison_range
+
+    meta = _meta(d)
+    intent, saved = meta.get("intent") or {}, meta.get("window") or {}
+    if scope.get("filters") is not None and intent.get("filters") is not None:
+        if scope_key("", scope["filters"], {}) != scope_key("", intent["filters"], {}):
+            return False
+    window = {"start_date": intent.get("start_date") or saved.get("start"),
+              "end_date": intent.get("end_date") or saved.get("end"),
+              "compare_start": intent.get("compare_start"), "compare_end": intent.get("compare_end")}
+    if intent.get("compare") in ("previous_period", "previous_year") and window["start_date"] and window["end_date"]:
+        try:
+            start, end = comparison_range(date.fromisoformat(str(window["start_date"])),
+                                          date.fromisoformat(str(window["end_date"])), intent["compare"])
+        except ValueError:
+            pass
+        else:
+            window.update(compare_start=start, compare_end=end)
+    return all(not scope.get(key) or not value or str(scope[key]) == str(value)
+               for key, value in window.items())
+
+
 def _core_metrics(view: dict) -> list[dict]:
     refs = _reference_counts(view.get("report") or {})
     for d in view.get("datasets") or []:
         intent, units = _meta(d).get("intent") or {}, _units(d)
         if (d.get("restricted") or d.get("kind") != "governed" or not refs[d["ref"]] or len(d.get("rows") or []) != 1
-                or intent.get("group_by") or intent.get("time_grain") or d.get("time_column")):
+                or intent.get("group_by") or intent.get("time_grain") or d.get("time_column")
+                or not _core_scope_matches(d, (view.get("report") or {}).get("scope") or {})):
             continue
         cols = d.get("columns") or []
         # 受治理结果的列序契约：每个指标依次为本期、对比期、差额、变化率（ask.service）。
@@ -1010,7 +1062,7 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
 
     def table(rows, widths=None):
         result = Table([[p(v, small) for v in row] for row in rows], repeatRows=1,
-                       colWidths=widths or [width / len(rows[0])] * len(rows[0]), hAlign="LEFT")
+                       colWidths=widths or [width / len(rows[0])] * len(rows[0]), hAlign="LEFT", splitInRow=1)
         result.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F2F4F7")),
                                     ("LINEBELOW", (0, 0), (-1, 0), 0.4, colors.HexColor(LINE)),
                                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1029,13 +1081,14 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
             color = (NEGATIVE if m["raw"] < 0 else POSITIVE if m["raw"] > 0 else GRAY) if m["measure"] in (
                 "delta", "rate_change") else DARK
             cards.append([p(m["label"], small), Paragraph(f'<font size="15" color="{color}">{esc(m["text"])}</font>', base)])
-        strip = Table([cards], colWidths=[width / len(cards)] * len(cards))
+        strip = Table([cards], colWidths=[width / len(cards)] * len(cards), splitInRow=1)
         strip.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFF")),
                                    ("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0, colors.white),
                                    ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
         story.append(strip)
     story.append(heading("结论"))
-    box = Table([[p(_field(report, "summary") or "（无）", summary)]], colWidths=[width])
+    # 与正文引用表格一致，单个段落超过一页时在行内拆分，保留完整内容和每页的底色。
+    box = Table([[p(_field(report, "summary") or "（无）", summary)]], colWidths=[width], splitInRow=1)
     box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EFF4FF")),
                              ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                              ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10)]))
@@ -1070,7 +1123,8 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
             story += claim_block(c, check)
     if unexplained := _field(report, "unexplained"):
         story.append(heading("还没查清"))
-        unresolved = Table([[p("• " + item.strip())] for item in unexplained.split("；") if item.strip()], colWidths=[width])
+        unresolved = Table([[p("• " + item.strip())] for item in unexplained.split("；") if item.strip()],
+                           colWidths=[width], splitInRow=1)
         unresolved.setStyle(TableStyle([("LINEBEFORE", (0, 0), (0, -1), 2, colors.HexColor(BLUE)),
                                         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F9FAFB")),
                                         ("LEFTPADDING", (0, 0), (-1, -1), 9)]))
