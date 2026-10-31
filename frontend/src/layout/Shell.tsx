@@ -165,7 +165,7 @@ function RecentRuns() {
             <Link key={r.id} to={`/analysis/runs/${r.id}`} className="av-sb__rc"
               aria-current={location.pathname === `/analysis/runs/${r.id}` ? "page" : undefined}>
               <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}`} />
-              <span>{r.title ?? r.question}</span>
+              <span>{r.status === "succeeded" ? r.title ?? r.question : r.question}</span>
             </Link>
           );
         })}
