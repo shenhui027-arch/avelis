@@ -3228,6 +3228,32 @@
     }
    }
   },
+  "/api/analysis/models": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Analysis Models",
+    "operationId": "list_analysis_models_api_analysis_models_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisModelsOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/analysis/runs": {
    "post": {
     "tags": [
@@ -5190,6 +5216,24 @@
     ],
     "title": "AnalysisDecisionIn"
    },
+   "AnalysisEffortOut": {
+    "properties": {
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "value",
+     "label"
+    ],
+    "title": "AnalysisEffortOut"
+   },
    "AnalysisFollowupIn": {
     "properties": {
      "text": {
@@ -5207,6 +5251,27 @@
       ],
       "title": "Confirmation Mode",
       "default": "auto"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      }
     },
     "type": "object",
@@ -5265,6 +5330,115 @@
      "created_at"
     ],
     "title": "AnalysisMessageOut"
+   },
+   "AnalysisModelChoice": {
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "reasoning_effort": {
+      "type": "string",
+      "title": "Reasoning Effort"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_id",
+     "model_id",
+     "reasoning_effort"
+    ],
+    "title": "AnalysisModelChoice"
+   },
+   "AnalysisModelIn": {
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_id",
+     "model_id"
+    ],
+    "title": "AnalysisModelIn"
+   },
+   "AnalysisModelOut": {
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "provider_name": {
+      "type": "string",
+      "title": "Provider Name"
+     },
+     "efforts": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisEffortOut"
+      },
+      "type": "array",
+      "title": "Efforts"
+     },
+     "context_window": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Context Window"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_id",
+     "model_id",
+     "provider_name",
+     "efforts"
+    ],
+    "title": "AnalysisModelOut"
+   },
+   "AnalysisModelsOut": {
+    "properties": {
+     "models": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisModelOut"
+      },
+      "type": "array",
+      "title": "Models"
+     },
+     "default": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelChoice"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "models"
+    ],
+    "title": "AnalysisModelsOut"
    },
    "AnalysisProposalItem": {
     "properties": {
@@ -5436,6 +5610,27 @@
        }
       ],
       "title": "Model Adapter"
+     },
+     "model_choice": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelChoice"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      },
      "error": {
       "anyOf": [
@@ -10186,6 +10381,17 @@
        }
       ],
       "title": "Tool Calling"
+     },
+     "context_window": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Context Window"
      }
     },
     "type": "object",
@@ -10214,6 +10420,17 @@
        }
       ],
       "title": "Tool Calling"
+     },
+     "context_window": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Context Window"
      },
      "efforts": {
       "items": {
@@ -10904,6 +11121,27 @@
       ],
       "title": "Confirmation Mode",
       "default": "auto"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      }
     },
     "type": "object",

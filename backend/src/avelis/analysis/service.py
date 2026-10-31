@@ -152,25 +152,37 @@ def next_run(expr: str, after: datetime) -> datetime:
 
 # --- 运行 ---------------------------------------------------------------------------
 
-def require_analysis_model(session: Session) -> modelcfg.Resolved:
+def require_analysis_model(session: Session, model_choice: dict | None = None) -> modelcfg.Resolved:
     if not modelcfg.policy(session)["send_results"]:
         raise Conflict("分析模式需要允许向模型发送查询结果（模型配置 → 数据外发）。需保密请接入本地模型")
-    resolved = modelcfg.resolve(session, "analysis", temperature=0.2)
+    resolved = (modelcfg.resolve_choice(session, **model_choice, temperature=0.2) if model_choice is not None else
+                modelcfg.resolve(session, "analysis", temperature=0.2))
     if resolved is None:
         raise Conflict("分析模式需要配置并检测通过一个支持工具调用的模型（模型配置 → 分析，未指定时沿用问数模型）")
     return resolved
 
 
 def create_run(session: Session, user: User, question: str, window: dict | None, *, task: AnalysisTask | None = None,
-               trigger: str = "manual", confirmation_mode: str = "auto") -> AnalysisRun:
+               trigger: str = "manual", confirmation_mode: str = "auto", model: dict | None = None,
+               reasoning_effort: str | None = None, _model_choice: dict | None = None) -> AnalysisRun:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     if not question.strip():
         raise Invalid("请输入要分析的问题")
-    require_analysis_model(session)
+    choice = _model_choice
+    if choice is not None:
+        choice = {**modelcfg.analysis_model_choice(
+            session, {key: choice[key] for key in ("provider_id", "model_id")}),
+                  "reasoning_effort": choice["reasoning_effort"]}
+    elif model is not None or reasoning_effort is not None:
+        choice = modelcfg.analysis_model_choice(session, model, reasoning_effort)
+    if choice is not None:
+        require_analysis_model(session, choice)
+    else:
+        require_analysis_model(session)
     tz = get_settings().business_timezone
     run = AnalysisRun(task_id=task.id if task else None, user_id=user.id, question=question.strip(), trigger=trigger,
                       status="queued", window=resolve_window(window, business_today(tz)),
-                      budget=Budget().view(), confirmation_mode=confirmation_mode, checkpoint={})
+                      budget=Budget().view(), confirmation_mode=confirmation_mode, checkpoint={}, model_choice=choice)
     session.add(run)
     session.flush()
     audit.record(session, user, "analysis.create", "analysis_run", run.id, trigger=trigger,
@@ -259,7 +271,8 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
             problem = identity_problem(session, user)
             if problem:
                 raise PermissionLost(problem)
-        resolved = require_analysis_model(session)
+        resolved = (require_analysis_model(session, run.model_choice) if run.model_choice is not None else
+                    require_analysis_model(session))
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
                                   adapter=adapter)
@@ -535,7 +548,8 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
 
 
 def followup_run(session: Session, user: User, run_id: str, text: str,
-                 confirmation_mode: str = "auto") -> AnalysisRun:
+                 confirmation_mode: str = "auto", *, model: dict | None = None,
+                 reasoning_effort: str | None = None) -> AnalysisRun:
     parent = visible_run(session, user, run_id)
     if parent.user_id != user.id:
         raise Forbidden("只有发起人可以继续分析")
@@ -547,8 +561,15 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     scope = ((parent.plan or {}).get("scope") if lookup else
              saved.get("confirmed_scope") or (parent.plan or {}).get("scope")) or {}
     window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
+    inherited_choice = None
+    if model is None and reasoning_effort is None and parent.model_choice is not None:
+        # 未核实思考档位时也能继承模型；隐含默认值不作为用户新提交的档位校验。
+        inherited_choice = dict(parent.model_choice)
+    elif model is None and parent.model_choice is not None:
+        model = {key: parent.model_choice[key] for key in ("provider_id", "model_id")}
     run = create_run(session, user, text if lookup or not scope else parent.question, window,
-                     confirmation_mode=confirmation_mode)
+                     confirmation_mode=confirmation_mode, model=model, reasoning_effort=reasoning_effort,
+                     _model_choice=inherited_choice)
     run.parent_run_id = parent.id
     inherited = {"user_text": text}
     if lookup:
@@ -728,7 +749,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             "confirmation_mode": run.confirmation_mode, "question": run.question, "trigger": run.trigger,
             "status": run.status, "window": run.window, "pending": checkpoint.get("pending"),
             "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
-            "reasoning_effort": run.reasoning_effort,
+            "reasoning_effort": run.reasoning_effort, "model_choice": run.model_choice,
             "error": run.error, "created_at": run.created_at.isoformat(),
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,

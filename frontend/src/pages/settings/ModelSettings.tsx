@@ -263,7 +263,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
           {models.length === 0 && addable.length === 0 ? <Empty text="还没有模型，请获取列表或手动添加" compact /> : (
             <div className="av-table-wrap">
               <table className="av-table av-models__table">
-                <thead><tr><th>模型</th><th>工具调用</th><th>启用</th><th className="end">操作</th></tr></thead>
+                <thead><tr><th>模型</th><th>工具调用</th><th>上下文窗口 <Hint text="模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，不填只显示用量" /></th><th>启用</th><th className="end">操作</th></tr></thead>
                 <tbody>
                   {models.map((m) => (
                     <tr key={m.id} aria-busy={checking === m.id}>
@@ -271,6 +271,13 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
                       <td>{m.tool_calling === true ? <span className="av-status av-status--ok">支持</span>
                         : m.tool_calling === false ? <span className="av-status av-status--danger">不支持</span>
                           : <span className="av-status">未检测</span>}</td>
+                      <td><input className="av-input av-mono av-models__ctx" type="number" min={1024} max={10000000} step={1024}
+                        aria-label={`${m.id} 的上下文窗口（token）`} placeholder="未填" disabled={disabled}
+                        defaultValue={m.context_window ?? ""} key={`${m.id}-${m.context_window ?? ""}`}
+                        onBlur={(e) => {
+                          const v = e.currentTarget.value.trim() ? Number(e.currentTarget.value) : null;
+                          if (v !== (m.context_window ?? null)) setModels(models.map((x) => x.id === m.id ? { ...x, context_window: v } : x));
+                        }} /></td>
                       <td><Switch label={`启用模型 ${m.id}`} checked={m.enabled} disabled={disabled}
                         onChange={(v) => setModels(models.map((x) => x.id === m.id ? { ...x, enabled: v } : x))} /></td>
                       <td className="end"><div className="av-actions">
@@ -283,7 +290,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
                   ))}
                   {addable.map((id) => (
                     <tr key={`f-${id}`}>
-                      <td className="av-mono av-muted">{id}</td><td><span className="av-caption">可添加</span></td><td />
+                      <td className="av-mono av-muted">{id}</td><td><span className="av-caption">可添加</span></td><td /><td />
                       <td className="end"><button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={disabled}
                         onClick={() => setModels([...models, { id, enabled: true, tool_calling: null }])}>添加</button></td>
                     </tr>

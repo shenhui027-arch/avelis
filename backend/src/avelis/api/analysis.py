@@ -9,13 +9,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import jobs
+from avelis import jobs, modelcfg
 from avelis.analysis import export
 from avelis.analysis import service as analysis
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
-from avelis.governance import experiences
+from avelis.governance import access, experiences
 from avelis.governance.errors import NotFound
 from avelis.models import AnalysisDataset, AnalysisRun, AnalysisTask, Job, Notification, User
 
@@ -34,6 +34,8 @@ class RunCreate(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     window: Window | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
+    model: S.AnalysisModelIn | None = None
+    reasoning_effort: str | None = None
 
 
 class TaskCreate(BaseModel):
@@ -58,13 +60,21 @@ def _window(w: Window | None) -> dict | None:
 SYNC_WAIT_SECONDS = 420  # 同步入口最长等待：分析预算 300 秒，另留模型请求与收尾的余量
 
 
+@router.get("/analysis/models", response_model=S.AnalysisModelsOut)
+def list_analysis_models(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    access.require_role(session, user, "analyst", "steward", "reviewer")
+    return modelcfg.analysis_models_view(session)
+
+
 @router.post("/analysis/runs", status_code=201, response_model=S.AnalysisRunOut)
 def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
     analysis.warm_up()
     run = analysis.create_run(session, user, body.question, _window(body.window),
-                              confirmation_mode=body.confirmation_mode)
+                              confirmation_mode=body.confirmation_mode,
+                              model=body.model.model_dump() if body.model else None,
+                              reasoning_effort=body.reasoning_effort)
     # 运行与 Job 同一事务提交，之后才执行或唤醒 worker：不会留下没有 Job、恢复器回收不到的分析
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
@@ -121,7 +131,9 @@ def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(c
                  session: Session = Depends(get_session)) -> dict:
     """对已完成报告发起新运行，继承已确认的范围与假设。"""
     analysis.warm_up()
-    run = analysis.followup_run(session, user, run_id, body.text, confirmation_mode=body.confirmation_mode)
+    run = analysis.followup_run(session, user, run_id, body.text, confirmation_mode=body.confirmation_mode,
+                                model=body.model.model_dump() if body.model else None,
+                                reasoning_effort=body.reasoning_effort)
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
     jobs._wake(job_id)

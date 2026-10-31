@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { ContextMeter } from "./ModelPicker";
 
 type Run = Schemas["AnalysisRunOut"];
 type Step = NonNullable<Run["steps"]>[number];
@@ -190,6 +191,7 @@ export function Interject({ run }: { run: Run }) {
         <div className="av-compose__bar">
           <span className="av-caption">Enter 发送 · Shift+Enter 换行</span>
           <span className="av-compose__spacer" />
+          <ContextMeter run={run} />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={stop.isPending}
             onClick={() => stop.mutate(undefined, { onError: (e) => setError(errorText(e)) })}>停止</button>
           <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={send.isPending || !text.trim()} onClick={submit}>
