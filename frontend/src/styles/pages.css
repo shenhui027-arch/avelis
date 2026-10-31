@@ -831,3 +831,16 @@
 .av-lineage__toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font: 500 12px/16px var(--font-sans); white-space: nowrap; cursor: pointer; }
 .av-lineage__toolbar .av-seg, .av-lineage__toolbar .av-seg * { white-space: nowrap; flex-shrink: 0; }
 @media (max-width: 1280px) { .av-lineage__search { width: 200px; } }
+/* 血缘检查器：左边缘拖动调宽（宽度记在本机），内容换行显示，不出现横向滚动 */
+.av-lineage[data-inspector-open="true"] { grid-template-columns: minmax(0, 1fr) var(--lineage-inspector-w, var(--size-inspector)); }
+.av-lineage__inspector { position: relative; overflow-x: hidden; }
+.av-lineage__resize { position: absolute; top: 0; bottom: 0; left: 0; z-index: 2; width: 6px; cursor: col-resize; touch-action: none; }
+.av-lineage__resize:hover, .av-lineage__resize:active { background: linear-gradient(90deg, var(--accent) 0 2px, transparent 2px); }
+.av-lineage__inspector .av-chain__item { height: auto; min-height: 32px; padding: 6px 10px; align-items: flex-start; }
+.av-lineage__inspector .av-chain__item span:last-child, .av-lineage__inspector .av-lineage__flow-name { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.av-lineage__inspector .av-chain__item .av-tag { flex-shrink: 0; }
+.av-lineage__chain-link { width: 100%; text-align: left; cursor: pointer; }
+.av-lineage__chain-link:hover { border-color: var(--accent); }
+.av-lineage__qualified { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .av-lineage__resize { display: none; } }
+.av-lineage__inspector .av-kv dd { min-width: 0; } .av-lineage__inspector .av-lineage__grain-tag { height: auto; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
