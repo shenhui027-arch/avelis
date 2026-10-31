@@ -1,7 +1,14 @@
 /* 应用层补充：只引用 tokens.css 的变量。设计系统暂缺的组件在此扩展（av-switch、av-hint、av-drawer），
    后续回收进 Avelis UI 设计系统。 */
 
-html, body, #root { height: 100%; margin: 0; background: var(--bg-canvas); }
+html, body, #root { height: 100%; margin: 0; }
+/* 应用背景：主题渐变图铺满并固定，玻璃面板透出它（素材见 public/brand，规范见设计系统 v2） */
+body { background: var(--bg-canvas) url("/brand/app-dark.webp") center / cover fixed no-repeat; }
+:root[data-theme="light"] body { background-image: url("/brand/app-light.webp"); }
+/* 玻璃面板：半透明底 + 模糊 + 顶部细高光 */
+.av-panel, .av-workspace, .av-inspector, .av-stages, .av-answer, .av-composer, .av-auth__card, .av-drawer, .av-menu, .av-float, .av-minimap {
+  -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); }
+.av-panel, .av-workspace, .av-stages, .av-answer, .av-composer { box-shadow: var(--shadow-glass); }
 body { font-family: var(--font-sans); }
 .av-app { height: 100vh; min-height: 0; }
 .av-main { min-height: 0; overflow: hidden; }

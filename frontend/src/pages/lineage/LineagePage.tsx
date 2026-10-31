@@ -3,7 +3,8 @@
 // 外部表与真实表是“同一张表”（点线 + 链条标记），导入的设计时表为虚线占位节点。点击列高亮列级路径。
 import dagre from "@dagrejs/dagre";
 import {
-  Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps,
+  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow,
+  type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useState } from "react";
@@ -96,7 +97,43 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
   );
 }
 
+// 流动连线：数据沿边从上游流向下游。选中列的路径用渐变亮线和较快的光点，其余边变暗；
+// 边不多时其余边也有慢而淡的光点。系统设置“减少动态效果”时光点隐藏（见 pages.css）。
+type FlowData = { tone: "value" | "influence" | "identity"; design: boolean; onPath: boolean; dim: boolean; ambient: boolean };
+
+function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, label, labelStyle,
+  labelBgStyle }: EdgeProps<Edge<FlowData>>) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const d = data!;
+  const gid = `flow-${id}`;
+  const dots = d.onPath ? [0, 0.8] : d.ambient && !d.dim && d.tone !== "identity" ? [0] : [];
+  return (
+    <>
+      {d.onPath ? <>
+        <defs>
+          <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={sourceX} y1={sourceY} x2={targetX} y2={targetY}>
+            <stop offset="0" stopColor="#3d6cf0" /><stop offset=".6" stopColor="#6d5cff" /><stop offset="1" stopColor="#22d3ee" />
+          </linearGradient>
+        </defs>
+        <path d={path} className="av-flow__glow" />
+      </> : null}
+      <BaseEdge id={id} path={path} label={label} labelX={labelX} labelY={labelY} labelStyle={labelStyle} labelBgStyle={labelBgStyle}
+        className={`av-flow av-flow--${d.tone}${d.design ? " is-design" : ""}${d.onPath ? " is-path" : ""}${d.dim ? " is-dim" : ""}`}
+        style={d.onPath ? { stroke: `url(#${gid})` } : undefined} />
+      {dots.length ? <g className={`av-flow__dots${d.onPath ? " is-path" : ""}`}>
+        {dots.map((delay) => (
+          <circle key={delay} r={d.onPath ? 3 : 1.8}>
+            <animateMotion dur={d.onPath ? "1.6s" : "3.4s"} begin={`${delay}s`} repeatCount="indefinite" path={path} />
+          </circle>
+        ))}
+      </g> : null}
+    </>
+  );
+}
+
 const nodeTypes = { asset: AssetNode };
+const edgeTypes = { flow: FlowEdge };
+const AMBIENT_LIMIT = 120;
 
 export function LineagePage() {
   return <ReactFlowProvider><Canvas /></ReactFlowProvider>;
@@ -194,7 +231,9 @@ function Canvas() {
         },
       };
     });
-    const builtEdges: Edge[] = [];
+    const builtEdges: Edge<FlowData>[] = [];
+    const hasPath = path.edgeKeys.size > 0;
+    const ambient = g.edges.length <= AMBIENT_LIMIT;
     for (const e of g.edges) {
       const value = e.relations.some((r) => VALUE.has(r));
       const designTime = e.origins.every((o) => o !== "parsed" && o !== "manual");
@@ -202,16 +241,11 @@ function Canvas() {
       const onPath = path.edgeKeys.has(key);
       layout.setEdge(e.source, e.target);
       builtEdges.push({
-        id: key, source: e.source, target: e.target, type: "default",
+        id: key, source: e.source, target: e.target, type: "flow",
         label: !value && e.relations.includes("join_key") ? "关联" : undefined,
         labelStyle: { fill: "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
         labelBgStyle: { fill: "var(--bg-overlay)" },
-        style: {
-          stroke: onPath ? "var(--signal)" : value ? "var(--edge-default)" : "var(--warn)",
-          strokeWidth: onPath ? 2 : 1.5,
-          strokeDasharray: !value ? "4 4" : designTime ? "6 4" : undefined,
-          filter: onPath ? "drop-shadow(0 0 3px var(--signal))" : undefined,
-        },
+        data: { tone: value ? "value" : "influence", design: designTime, onPath, dim: hasPath && !onPath, ambient },
       });
     }
     for (const l of g.identity_links) {
@@ -220,9 +254,9 @@ function Canvas() {
       layout.setEdge(l.target.id, src.id);
       const onPath = path.edgeKeys.has(`id:${l.id}`);
       builtEdges.push({
-        id: `id:${l.id}`, source: l.target.id, target: src.id, label: "同一张表",
+        id: `id:${l.id}`, source: l.target.id, target: src.id, type: "flow", label: "同一张表",
         labelStyle: { fill: "var(--text-tertiary)", fontSize: 11 }, labelBgStyle: { fill: "var(--bg-overlay)" },
-        style: { stroke: onPath ? "var(--signal)" : "var(--edge-identity)", strokeDasharray: "1 5", strokeLinecap: "round", strokeWidth: 2 },
+        data: { tone: "identity", design: false, onPath, dim: hasPath && !onPath, ambient },
       });
     }
     dagre.layout(layout);
@@ -275,7 +309,7 @@ function Canvas() {
           <QueryState query={graph} isEmpty={(data) => !data.nodes.length}
             emptyText={domainIds.length || focusAsset ? "没有匹配的血缘" : "暂无血缘"}
             emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>清除筛选</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">导入血缘</Link>}>
-            {() => <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.1} maxZoom={1.6}
+            {() => <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView minZoom={0.1} maxZoom={1.6}
               proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
               onNodeClick={(_, node) => { setSelected(node.id); setColumn(null); setShowColumns(false); }}
               onPaneClick={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />}
@@ -311,7 +345,11 @@ function Canvas() {
 
 function Legend({ tone, label }: { tone: "value" | "influence" | "identity" | "design" | "path"; label: string }) {
   return <span className={"av-caption av-lineage__legend-item av-lineage__legend-item--" + tone}>
-    <svg width="24" height="6" aria-hidden="true"><line x1="0" y1="3" x2="24" y2="3" /></svg>{label}
+    <svg width="24" height="6" aria-hidden="true">
+      {tone === "path" ? <defs><linearGradient id="av-legend-flow" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+        <stop offset="0" stopColor="#3d6cf0" /><stop offset="1" stopColor="#22d3ee" /></linearGradient></defs> : null}
+      <line x1="0" y1="3" x2="24" y2="3" />
+    </svg>{label}
   </span>;
 }
 
