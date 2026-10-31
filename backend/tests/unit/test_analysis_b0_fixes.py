@@ -640,3 +640,192 @@ def test_deepseek_output_limit_uses_max_tokens_on_the_wire():
         model.invoke([HumanMessage("调用 echo")])
         assert len(bodies) == 1 and bodies[0][expected] == 8
         assert unexpected not in bodies[0]
+
+
+@pytest.mark.parametrize("limit, used, remaining", [
+    (100, 0, 100), (100, 27, 73), (100, 100, 0), (100, 120, 0), (None, 10**9, None),
+])
+def test_remaining_output_tokens_is_a_nonnegative_pure_budget_view(limit, used, remaining):
+    budget = Budget(output_tokens=limit)
+    budget.used_output_tokens = used
+    assert budget.remaining_output_tokens() == remaining
+    assert budget.used_output_tokens == used and budget.output_tokens == limit
+
+
+@pytest.mark.parametrize("limit, used, expected", [(40, 7, 33), (2000, 0, 1000)])
+def test_understanding_requests_the_smaller_of_phase_and_remaining_output_tokens(monkeypatch, limit, used, expected):
+    box = make_box(budget=Budget(output_tokens=limit), catalog=catalog(), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = used
+    model = Phased([scope_reply(metric_codes=["m_a"])])
+    out = agent.understand({"question": "问题", "context": CONTEXT},
+                           {"configurable": {"toolbox": box, "model": model}})
+    assert model.phases == [{"effort": "off", "max_tokens": expected}]
+    assert len(model.seen) == 1 and box.budget.used_model_requests == 1
+    assert out["phase"] == "precheck" and out["scope"]["metric_codes"] == ["m_a"]
+
+
+@pytest.mark.parametrize("restored", [False, True], ids=["same-run", "resumed-run"])
+def test_reasoning_output_caps_follow_actual_usage_between_requests(monkeypatch, restored):
+    box = make_box(budget=Budget(output_tokens=40), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = 2
+    first = AIMessage(content="第一轮", usage_metadata={"input_tokens": 10, "output_tokens": 7, "total_tokens": 17})
+    second = AIMessage(content="第二轮", usage_metadata={"input_tokens": 12, "output_tokens": 3, "total_tokens": 15})
+    model = Phased([first, second])
+    assert agent._round({"messages": []}, box, model)[0] is first
+    if restored:
+        box.budget = Budget.restore(box.budget.view())
+    assert agent._round({"messages": [first]}, box, model)[0] is second
+    assert model.phases == [{"max_tokens": 38}, {"max_tokens": 31}]
+    assert box.budget.used_output_tokens == 12 and box.budget.remaining_output_tokens() == 28
+    assert [s.output["output_tokens"] for s in model_steps(box)] == [7, 3]
+
+
+@pytest.mark.parametrize("remaining", [13, 5000, 8191])
+@pytest.mark.parametrize("output_used", [None, 0, 4], ids=["usage-missing", "zero-usage", "below-request-cap"])
+def test_budget_limited_length_discards_content_and_tools_and_blocks_the_next_request(monkeypatch, remaining, output_used):
+    box = make_box(budget=Budget(output_tokens=remaining + 2), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = 2
+    usage = ({"input_tokens": 10, "output_tokens": output_used, "total_tokens": 10 + output_used}
+             if output_used is not None else None)
+    reply = AIMessage(content="截断的内容不能继续使用", tool_calls=[search("c1")],
+                      response_metadata={"finish_reason": "length"}, usage_metadata=usage)
+    model = Phased([reply, AIMessage(content="不应请求")])
+    assert agent._round({"messages": []}, box, model) == []
+    assert model.phases == [{"max_tokens": remaining}] and len(model.seen) == 1
+    assert box.budget.used_output_tokens == 2 + (output_used or 0)  # 没有伪造已用量来阻断下一次请求。
+    assert box.budget.used_calls == 0 and box.budget.model_blocked()
+    step = model_steps(box)[0]
+    assert step.status == "error" and step.output["error_code"] == "budget_output_tokens"
+    assert step.output["output_tokens"] == output_used and step.output["finish_reason"] == "length"
+    assert agent._round({"messages": []}, box, model) == []
+    assert len(model.seen) == box.budget.used_model_requests == 1 and len(model_steps(box)) == 1
+
+
+@pytest.mark.parametrize("remaining, output_used", [
+    (30_000, None), (30_000, 23_000), (8192, None), (None, None),
+], ids=["ample-budget", "usage-crosses-ceiling", "equal-to-ceiling", "unlimited-output"])
+def test_reasoning_without_a_budget_cap_still_raises_model_truncated(monkeypatch, remaining, output_used):
+    box = make_box(budget=Budget(output_tokens=remaining), monkeypatch=monkeypatch)
+    usage = ({"input_tokens": 10, "output_tokens": output_used, "total_tokens": 10 + output_used}
+             if output_used is not None else None)
+    reply = AIMessage(content="提供方默认上限造成的截断", tool_calls=[search("c1")],
+                      response_metadata={"finish_reason": "length"}, usage_metadata=usage)
+    model = Phased([reply])
+    with pytest.raises(ModelTruncated):
+        agent._round({"messages": []}, box, model)
+    assert model.phases == [{}] and len(model.seen) == box.budget.used_model_requests == 1
+    assert box.budget.used_calls == 0 and box.budget.used_output_tokens == (output_used or 0)
+    assert box.budget.model_blocked() is None
+    step = model_steps(box)[0]
+    assert step.status == "error" and step.output["error_code"] == "model_truncated"
+    assert step.output["output_tokens"] == output_used and step.output["finish_reason"] == "length"
+
+
+@pytest.mark.parametrize("limit", [agent.UNDERSTAND_MAX_TOKENS, 30_000, None],
+                         ids=["equal-to-phase-cap", "phase-cap-is-smaller", "unlimited-output"])
+def test_understanding_phase_limit_still_raises_model_truncated(monkeypatch, limit):
+    box = make_box(budget=Budget(output_tokens=limit), monkeypatch=monkeypatch)
+    model = Phased([AIMessage(content="截断", response_metadata={"finish_reason": "length"})])
+    with pytest.raises(ModelTruncated):
+        agent.understand({"question": "问题", "context": CONTEXT},
+                         {"configurable": {"toolbox": box, "model": model}})
+    assert model.phases == [{"effort": "off", "max_tokens": agent.UNDERSTAND_MAX_TOKENS}]
+    assert model_steps(box)[0].output["error_code"] == "model_truncated"
+    assert box.budget.model_blocked() is None
+
+
+def test_length_without_a_factory_is_not_treated_as_a_budget_limited_request(monkeypatch):
+    box = make_box(budget=Budget(output_tokens=10), monkeypatch=monkeypatch)
+    model = Replies(AIMessage(content="截断", response_metadata={"finish_reason": "length"}))
+    with pytest.raises(ModelTruncated):
+        agent._round({"messages": []}, box, model)
+    assert model.calls == 1 and model_steps(box)[0].output["error_code"] == "model_truncated"
+    assert box.budget.used_output_tokens == 0 and box.budget.model_blocked() is None
+
+
+@pytest.mark.parametrize("used", [10, 11], ids=["exhausted", "over-budget"])
+def test_exhausted_output_tokens_skip_understanding_and_reasoning_before_factory(monkeypatch, used):
+    box = make_box(budget=Budget(output_tokens=10), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = used
+    model = Phased([])
+    assert agent._round({"messages": []}, box, model) == []
+    out = agent.understand({"question": "问题", "context": CONTEXT},
+                           {"configurable": {"toolbox": box, "model": model}})
+    assert out["scope"] is None and model.phases == model.seen == []
+    assert box.budget.used_model_requests == 0 and model_steps(box) == []
+
+
+def test_unlimited_output_tokens_do_not_add_a_request_cap_or_block_but_keep_the_phase_cap(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=None, output_tokens=None), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = 10**9
+    first = AIMessage(content="第一轮", usage_metadata={"input_tokens": 1, "output_tokens": 5, "total_tokens": 6})
+    model = Phased([first, scope_reply(metric_codes=[])])
+    assert agent._round({"messages": []}, box, model)[0] is first
+    agent.understand({"question": "问题", "context": CONTEXT},
+                     {"configurable": {"toolbox": box, "model": model}})
+    assert model.phases == [{}, {"effort": "off", "max_tokens": agent.UNDERSTAND_MAX_TOKENS}]
+    assert len(model.seen) == box.budget.used_model_requests == 2
+    assert box.budget.used_output_tokens == 10**9 + 5 and box.budget.model_blocked() is None
+
+
+def test_output_cutoff_during_understanding_finishes_the_graph_and_preserves_existing_datasets(monkeypatch):
+    box = make_box(budget=Budget(input_tokens=None, output_tokens=20), catalog=catalog(), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    dataset = box._dataset("governed", "已取得的数据", ["指标甲"], [["1"]])
+    reply = scope_reply(metric_codes=["m_a"], clarification="截断的追问不能执行")
+    reply.response_metadata = {"finish_reason": "length"}
+    model = Phased([reply, AIMessage(content="不应请求")])
+    monkeypatch.setattr(box, "precheck", lambda scope: pytest.fail("截断的范围不能用于预检"))
+    state = run_graph(box, model)
+    assert state["phase"] == "done" and state["scope"] is None and box.clarification is None
+    assert model.phases == [{"effort": "off", "max_tokens": 20}] and len(model.seen) == 1
+    assert model_steps(box)[0].output["error_code"] == "budget_output_tokens"
+    assert box.report["incomplete"] is True and box.verification["status"] == "no_facts"
+    assert "已取得的数据集" in box.report["summary"]
+    assert box.datasets() == {"D1": dataset} and dataset.title == "已取得的数据"
+    assert not any("理解阶段失败" in note for note in state["notes"])
+
+
+@pytest.mark.parametrize("revised", [False, True], ids=["reasoning", "revision"])
+def test_output_cutoff_finishes_reasoning_and_revision_with_existing_datasets(monkeypatch, revised):
+    box = make_box(budget=Budget(input_tokens=None, output_tokens=20), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    dataset = box._dataset("governed", "已取得的数据", ["指标甲"], [["1"]])
+    reply = AIMessage(content="截断", tool_calls=[search("c1")], response_metadata={"finish_reason": "length"})
+    model = Phased([reply, AIMessage(content="不应请求")])
+    config = {"configurable": {"toolbox": box, "model": model}}
+    messages = [HumanMessage("原问题")]
+    if revised:
+        box.report = {"title": "待修订", "summary": "证据不足", "claims": []}
+        box.verification = {"claims": [], "fields": []}
+        messages += agent.revise({}, config)["messages"]
+    out = agent.act({"messages": messages}, config)
+    assert out["phase"] == "verify" and model.phases == [{"max_tokens": 20}]
+    assert len(model.seen) == box.budget.used_model_requests == 1 and box.budget.used_calls == 0
+    assert model_steps(box)[0].output["error_code"] == "budget_output_tokens"
+    assert agent.verify({"revised": revised}, config)["phase"] == "done"
+    assert box.report["incomplete"] is True and box.verification["revised"] is revised
+    assert box.datasets() == {"D1": dataset} and "已取得的数据集" in box.report["summary"]
+
+
+def test_transport_retry_reuses_the_same_remaining_output_cap(monkeypatch):
+    box = make_box(budget=Budget(output_tokens=20), monkeypatch=monkeypatch)
+    box.budget.used_output_tokens = 3
+    request_caps = []
+
+    class RetryingPhased(Phased):
+        def factory(self, timeout, max_retries, **phase):
+            self.cap = phase["max_tokens"]
+            return super().factory(timeout, max_retries, **phase)
+
+        def invoke(self, messages):
+            request_caps.append(self.cap)
+            reply = super().invoke(messages)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+    model = RetryingPhased([httpx.ReadTimeout("首次超时"), AIMessage(content="完成")])
+    assert agent._round({"messages": []}, box, model)[0].content == "完成"
+    assert request_caps == [17, 17] and box.budget.used_model_requests == 2
+    assert box.budget.used_output_tokens == 3 and [s.status for s in model_steps(box)] == ["error", "ok"]
