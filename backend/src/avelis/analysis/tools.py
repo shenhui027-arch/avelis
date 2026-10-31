@@ -944,8 +944,9 @@ class AnalysisToolbox:
                 return _json({"error": f"submit_report 本轮已尝试 {self.budget.used_reports} 次，不能再提交"})
             self.budget.used_reports += 1
             self.budget.reports_total += 1
-        elif name != "view_dataset":  # 重看已有数据集不查库、不占额度；只能交报告时也允许，压缩后才能找回证据
-            over = self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
+        else:
+            # 重看已有数据集不查库：只能交报告时也允许（压缩后靠它找回证据），仍计入工具调用次数
+            over = None if name == "view_dataset" else self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
             if over:
                 self._step("tool", name, args if isinstance(args, dict) else {"raw": str(args)[:500]}, "denied",
                            {"error": over})
