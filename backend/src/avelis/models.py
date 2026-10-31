@@ -448,6 +448,7 @@ class JoinPath(Base):
     cardinality_basis: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # pending | approved | rejected | affected
     dependency: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    source: Mapped[dict | None] = mapped_column(JsonType)
     created_by: Mapped[str] = fk("app_user.id", index=False)
     created_at: Mapped[datetime] = created()
 

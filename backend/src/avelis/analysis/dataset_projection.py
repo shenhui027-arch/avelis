@@ -111,4 +111,10 @@ def restrict_verification(verification: dict, projected_report: dict) -> dict:
             record = records[item["index"]]
             if record.get("restricted") or any(d.get("restricted") for d in (record.get("details") or {}).values()):
                 item["problems"] = []
+    records = [*fields.values(), *(projected_report.get("claims") or []), *(projected_report.get("causes") or [])]
+    if (projected.get("conclusion") or {}).get("problems") and (
+            projected_report.get("restricted") or any(
+                record.get("restricted") or any(d.get("restricted") for d in (record.get("details") or {}).values())
+                for record in records)):
+        projected["conclusion"]["problems"] = [RESTRICTED_TEXT] * len(projected["conclusion"]["problems"])
     return projected
