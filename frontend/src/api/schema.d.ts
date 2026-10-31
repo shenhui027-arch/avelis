@@ -6704,6 +6704,9 @@ export interface operations {
         parameters: {
             query?: {
                 format?: string;
+                audience?: ("brief" | "full") | null;
+                appendix?: boolean | null;
+                datasets?: string | null;
             };
             header?: never;
             path: {

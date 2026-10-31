@@ -519,10 +519,10 @@ def test_exports_escape_refs_and_neutralise_formulas():
                                                                          "problems": ["文字片段里出现数字“7”"]}],
                              "fields": [{"field": "summary", "status": "unverified",
                                          "problems": ["文字片段里出现数字“999”"]}], "unverified_fields": 1}}
-    md = export.to_markdown(view)
+    md = export.to_markdown(view, audience="full")
     assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：文字片段里出现数字“999”" in md
-    assert "a ⚠ 文字片段里出现数字“7”" in md
-    assert export.to_pdf(view).startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
+    assert "a" in md and "文字片段里出现数字“7”" in md and "⚠" in md
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
     csv = export.to_csv(["=cmd", "值"], [["=HYPERLINK(\"http://x\")", -5], ["@SUM(A1)", "-12.5"],
                                         ["\tx", None], ["+1", 3]]).decode("utf-8-sig").splitlines()
     assert csv == ["'=cmd,值", "\"'=HYPERLINK(\"\"http://x\"\")\",-5", "'@SUM(A1),-12.5", "'\tx,", "+1,3"]
@@ -772,9 +772,8 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     assert box.report is None and box.budget.tool_calls == Budget().tool_calls + agent.REVISION_TOOL_CALLS
 
 
-def test_sources_csv_and_markdown_list_every_reference():
-    """引用来源表与 Markdown 附录（ADR 0009）：每个引用段的位置、来源标签、量纲、单位、小数位、方向、标记与原值；
-    以 = 开头的值防公式注入。"""
+def test_sources_csv_keeps_reference_details_and_markdown_lists_used_datasets():
+    """CSV 保留每个引用段及公式注入防护，Markdown 附录只列正文使用的数据与查询。"""
     value = {"kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东", "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元",
              "source": "governed", "explore": False, "precision": 2, "direction": "", "role": "fact"}
     window = {"kind": "window", "part": 1, "ref": "window", "path": "window.run_current", "label": "本期窗口",
@@ -791,14 +790,33 @@ def test_sources_csv_and_markdown_list_every_reference():
                     "标题,字段,2026 年 9 月,本期窗口,window,window.run_current,,,,,,2026-09-01 ~ 2026-09-30",
                     "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,2,,,1969398.05",
                     "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd"]
-    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": report,
+    datasets = [
+        {"ref": "D1", "kind": "governed", "title": "查询：成交额", "columns": ["成交额"],
+         "rows": [["1969398.05"]], "row_count": 1, "truncated": False,
+         "units": {"成交额": {"kind": "level", "unit": "元"}}, "sql": "SELECT 1969398.05 AS amount",
+         "metric_version_ids": ["version-1"]},
+        {"ref": "D2", "kind": "governed", "title": "未引用查询", "columns": ["成交额"],
+         "rows": [["1"]], "units": {"成交额": {"kind": "level", "unit": "元"}},
+         "sql": "SELECT 1 AS unused", "metric_version_ids": ["version-unused"]},
+        {"ref": "D6", "kind": "explore", "title": "探索：客流", "columns": ["客流"],
+         "rows": [["=cmd"]], "row_count": 1, "truncated": True,
+         "units": {"客流": {"kind": "level"}}, "sql": "SELECT '=cmd' AS flow"},
+    ]
+    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": datasets, "steps": [], "report": report,
             "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],
                              "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1,
                                          "windows": 1}}}
-    md = export.to_markdown(view)
-    assert "- 核验：来源全部通过，含未核实的推断" in md and "- 数字来源：口径 1、探索 1、其中含探索来源 1、日期 1" in md
-    assert "## 附录：数值来源" in md and "D6 · 客流 · 原值 =cmd · 未知 · 探索查询（未经口径审核） · 建议目标（非观测值）" in md
-    assert export.to_pdf(view).startswith(b"%PDF")
+    md = export.to_markdown(view, audience="full")
+    assert "来源全部通过" in md and "未核实" in md
+    assert "## 附录" in md and "### 用到的数据" in md and "数字来源" not in md
+    assert "| D1 | 成交额 | 指标口径 | 1 | 否 |" in md
+    assert "| D6 | 客流 | 临时查询，未经口径审核 | 1 | 是 |" in md
+    assert "SELECT 1969398.05 AS amount" in md and "口径版本：version-1" in md
+    assert "SELECT '=cmd' AS flow" in md and "口径版本：未登记" in md
+    assert "SELECT 1 AS unused" not in md and "version-unused" not in md and "| D2 |" not in md
+    assert "D6.客流" not in md
+    assert "探索查询（未经口径审核）" not in md and "建议目标（非观测值）" not in md
+    assert export.to_pdf(view, audience="full").startswith(b"%PDF")
 
 
 def test_marks_follow_the_saved_dependency_closure(monkeypatch):

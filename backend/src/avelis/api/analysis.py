@@ -20,7 +20,8 @@ from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import NotFound
-from avelis.models import AnalysisDataset, AnalysisRun, AnalysisTask, Job, Notification, User
+from avelis.models import (AnalysisDataset, AnalysisRun, AnalysisTask, Asset, ColumnVersion, Job,
+                           Metric, MetricVersion, Notification, User)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -251,23 +252,88 @@ def dataset_csv(run_id: str, seq: int, user: User = Depends(current_user),
                     headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-D{d.seq}.csv"'})
 
 
+def _export_metadata(session: Session, user: User, meta: dict) -> dict:
+    """只为本次导出补齐名称，沿用数据集保存的版本，不改写历史元数据。"""
+    versions = meta.get("versions") or {}
+    version_ids = list(versions.values()) or meta.get("metric_version_ids") or []
+    metric_codes = meta.get("metric_codes") or list(versions)
+    labels: dict[str, Any] = {"metric_names": [], "dimensions": [],
+                              "column_docs": dict(meta.get("column_docs") or {})}
+    can_see = None
+    for version_id in dict.fromkeys(version_ids):
+        version = session.get(MetricVersion, version_id)
+        metric = session.get(Metric, version.metric_id) if version else None
+        if metric is None or (metric_codes and metric.code not in metric_codes):
+            continue
+        if metric.name not in labels["metric_names"]:
+            labels["metric_names"].append(metric.name)
+        for dimension in version.dimensions or []:
+            labels["dimensions"].append(dict(dimension))
+            name, ref = dimension.get("name"), dimension.get("column") or ""
+            if not name or not ref or labels["column_docs"].get(name, {}).get("comment"):
+                continue
+            alias, column = ref.split(".", 1) if "." in ref else ("b", ref)
+            dependency = next((d for d in version.dependency or []
+                               if d.get("role") == "dimension" and d.get("alias") == alias
+                               and d.get("column") == column), None)
+            if dependency is None:
+                continue
+            asset_id = dependency.get("asset_id")
+            snapshot = (version.asset_versions or {}).get(asset_id) or {}
+            if not snapshot.get("version_id"):
+                continue
+            asset = session.get(Asset, asset_id)
+            if can_see is None:
+                from avelis.governance.column_docs import visible_to
+
+                can_see = visible_to(session, user)
+            if asset is None or not can_see(asset):
+                continue
+            comment = session.scalar(select(ColumnVersion.comment).where(
+                ColumnVersion.asset_version_id == snapshot["version_id"], ColumnVersion.name == column))
+            if comment and comment.strip() and comment.strip().lower() != column.lower():
+                labels["column_docs"][name] = {"comment": comment.strip()}
+    return {**meta, "export_labels": labels}
+
+
 @router.get("/analysis/runs/{run_id}/export")
-def export_run(run_id: str, format: str = "pdf", user: User = Depends(current_user),
+def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "full"] | None = None,
+               appendix: bool | None = None, datasets: str | None = None,
+               user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> Response:
     run = analysis.visible_run(session, user, run_id)
     if run.status != "succeeded":
         raise HTTPException(409, "分析尚未完成，不能导出")
+    resolved_audience = export.resolve_audience(audience, appendix)
     view = analysis.run_view(session, run, user=user)
+    saved = {f"D{d.seq}": d for d in session.scalars(
+        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
+    selected = None
+    if datasets is not None:
+        selected = list(dict.fromkeys(ref.strip() for ref in datasets.split(",")))
+        if any(not re.fullmatch(r"D[1-9][0-9]*", ref) or ref not in saved for ref in selected):
+            raise HTTPException(422, "datasets 只能包含本次运行已有的 D 编号，以逗号分隔")
+    if format in ("md", "pdf", "html"):
+        for dataset in view["datasets"]:
+            if dataset.get("restricted"):
+                continue
+            d = saved[dataset["ref"]]
+            dataset.update(rows=d.rows, meta=_export_metadata(session, user, d.meta))
     if format == "md":
-        return Response(export.to_markdown(view).encode("utf-8"), media_type="text/markdown; charset=utf-8",
+        return Response(export.to_markdown(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
+                        media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'})
     if format == "pdf":
-        return Response(export.to_pdf(view), media_type="application/pdf",
+        return Response(export.to_pdf(view, audience=resolved_audience, datasets=selected), media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'})
+    if format == "html":
+        return Response(export.to_html(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
+                        media_type="text/html; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.html"'})
     if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
         return Response(export.sources_csv(view), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'})
-    raise HTTPException(422, "format 只能是 pdf、md 或 csv")
+    raise HTTPException(422, "format 只能是 pdf、html、md 或 csv")
 
 
 # --- 任务 ---------------------------------------------------------------------------
