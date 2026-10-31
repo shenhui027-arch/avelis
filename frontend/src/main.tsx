@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
+import { keepSessionAlive } from "./api/client";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
 import { AskPage } from "./pages/ask/AskPage";
@@ -59,6 +60,8 @@ const router = createBrowserRouter([
     ],
   },
 ]);
+
+keepSessionAlive();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
