@@ -27,7 +27,7 @@ export function ChangePassword() {
     try {
       const out = await unwrap(api.POST("/api/me/password", {
         body: { current_password: form.current, new_password: form.next } }));
-      token.set(out.access_token);
+      token.issue(out);
       await queryClient.invalidateQueries({ queryKey: ["me"] });
       navigate(forced ? from : "/", { replace: true });
     } catch (e) {

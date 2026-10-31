@@ -174,15 +174,27 @@ function RecentRuns() {
   );
 }
 
-// 没有保存过偏好时，窄屏（1100px 及以下）默认收起
-function readCollapsed() {
+// 没有保存过偏好时跟随窗口宽度：1100px 及以下收起，拉宽后自动展开
+const NARROW = "(max-width: 1100px)";
+
+function savedCollapsed(): boolean | null {
   try {
     const saved = localStorage.getItem("avelis.sidebar");
-    if (saved) return saved === "collapsed";
+    return saved ? saved === "collapsed" : null;
   } catch {
-    // 拿不到存储时按屏宽决定
+    return null; // 拿不到存储时按屏宽决定
   }
-  return window.innerWidth <= 1100;
+}
+
+function useCollapsed() {
+  const [collapsed, setCollapsed] = useState(() => savedCollapsed() ?? window.matchMedia(NARROW).matches);
+  useEffect(() => {
+    const media = window.matchMedia(NARROW);
+    const follow = () => { if (savedCollapsed() === null) setCollapsed(media.matches); };
+    media.addEventListener("change", follow);
+    return () => media.removeEventListener("change", follow);
+  }, []);
+  return [collapsed, setCollapsed] as const;
 }
 
 function Sidebar() {
@@ -190,7 +202,7 @@ function Sidebar() {
   const location = useLocation();
   const sources = useDatasources();
   const tasks = useAnalysisTasks();
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [collapsed, setCollapsed] = useCollapsed();
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   const ok = primary?.last_run ? primary.last_run.status === "succeeded" : null;
   const toggle = () => {

@@ -5,12 +5,60 @@ import type { components, paths } from "./schema";
 export type Schemas = components["schemas"];
 
 const TOKEN_KEY = "avelis.token";
+const EXPIRY_KEY = "avelis.token.expiry"; // {issued, expires}：毫秒时间戳，用来决定何时续期
+
+type Issued = { access_token: string; expires_at: string; expires_in?: number };
 
 export const token = {
   get: () => sessionStorage.getItem(TOKEN_KEY),
   set: (value: string) => sessionStorage.setItem(TOKEN_KEY, value),
-  clear: () => sessionStorage.removeItem(TOKEN_KEY),
+  /** 登录、改密码、续期拿到新凭证时一起记下有效期。 */
+  issue: (out: Issued) => {
+    sessionStorage.setItem(TOKEN_KEY, out.access_token);
+    sessionStorage.setItem(EXPIRY_KEY, JSON.stringify({ issued: Date.now(), expires: Date.parse(out.expires_at) }));
+  },
+  expiry: (): { issued: number; expires: number } | null => {
+    try {
+      return JSON.parse(sessionStorage.getItem(EXPIRY_KEY) ?? "null");
+    } catch {
+      return null;
+    }
+  },
+  clear: () => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(EXPIRY_KEY);
+  },
 };
+
+/** 使用中自动续期：凭证用过一半、且这段时间里用户有过操作时，换一张新凭证；一直闲置则照常到期回登录页。 */
+export function keepSessionAlive(): () => void {
+  let active = 0;
+  let pending = false;
+  const mark = () => { active = Date.now(); };
+  const check = async () => {
+    const value = token.get(), expiry = token.expiry();
+    if (!value || !expiry || pending || active < expiry.issued) return;
+    const now = Date.now();
+    if (now >= expiry.expires || now < expiry.issued + (expiry.expires - expiry.issued) / 2) return;
+    pending = true;
+    try {
+      const response = await fetch("/api/auth/refresh", { method: "POST", headers: { Authorization: `Bearer ${value}` } });
+      if (response.ok && token.get() === value) token.issue(await response.json());
+    } finally {
+      pending = false;
+    }
+  };
+  const events = ["pointerdown", "keydown", "wheel"] as const;
+  events.forEach((e) => window.addEventListener(e, mark, { passive: true }));
+  const timer = window.setInterval(check, 60_000);
+  const onVisible = () => { if (document.visibilityState === "visible") void check(); };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    events.forEach((e) => window.removeEventListener(e, mark));
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public body?: unknown) {
@@ -58,7 +106,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   const response = await fetch("/api/auth/token", { method: "POST", body });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(response.status, json.detail ?? "登录失败");
-  token.set(json.access_token);
+  token.issue(json);
   return { mustChangePassword: !!json.must_change_password, expiresAt: json.expires_at };
 }
 
