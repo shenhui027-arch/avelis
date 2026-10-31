@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass
@@ -76,6 +78,7 @@ class QueryResult:
     columns: list[str]
     rows: list[list[Any]]
     truncated: bool
+    warnings: list[str] = field(default_factory=list)
 
 
 class QueryError(Exception):
@@ -100,7 +103,8 @@ class Connector(Protocol):
 
 
 class QueryConnector(Protocol):
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int) -> QueryResult: ...
+    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
+                       timezone: str | None = None) -> QueryResult: ...
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]: ...
 
@@ -114,3 +118,21 @@ def sha256_json(payload: Any) -> str:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def checked_timezone(name: str) -> str:
+    """只接受可解析的 IANA 时区，不能把未知名称当成本地时区。"""
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise QueryError("other", None, f"业务时区无效：{name}") from exc
+    return name
+
+
+def current_timezone_offset(name: str) -> str:
+    """数据库没有时区表时，明确回退到执行时刻的固定偏移。"""
+    offset = datetime.now(ZoneInfo(checked_timezone(name))).utcoffset()
+    minutes = int(offset.total_seconds() / 60)
+    sign = "+" if minutes >= 0 else "-"
+    hours, minutes = divmod(abs(minutes), 60)
+    return f"{sign}{hours:02d}:{minutes:02d}"

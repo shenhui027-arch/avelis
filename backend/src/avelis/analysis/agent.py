@@ -70,17 +70,19 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    需要更多数据时再下钻，可以在一轮里同时发出多个互不依赖的工具调用。预检已经覆盖的维度和数据不要重复查询（同样的指标、
    维度、窗口与筛选会直接返回已有数据集）；预检足以回答时直接提交报告，只对需要解释的成员或日期细查。
 2. 报告里的每个数字都必须来自工具返回的数据集（D1、D2……）。数据只能用 query_metric 按已发布口径获取；
-   差额拆解、因子拆解、日历折算、相关性、行数与缺失天数（coverage）等一律调用计算工具，不要自己心算或数行数。
-   分析窗口给了对比期时，query_metric 用 compare=custom 并传 compare_start、compare_end（上一期是紧邻的同长度区间，不等于自然月）。
+   差额拆解、因子拆解、日历折算、相关性、行数与缺失期间（coverage）等一律调用计算工具，不要自己心算或数行数。
+   分析窗口给了对比期时，query_metric 用 compare=custom 并传 compare_start、compare_end；previous_period 是紧邻的同长度区间，
+   previous_calendar 取上一自然期，只适用于整月、整季或整年。
 3. “为什么变了”：系统预检已按固定顺序排查过，结果在上下文包里：
    (1) 口径与数据本身：口径详情、changes（元数据变更与口径版本流转）、data_health；它们的结果也是数据集（上下文证据），
        治理原因的结论引用它们；
    (2) 维度贡献：explain_change（按 scope 的筛选扫描候选维度，给出成员贡献 EP、分布变化强度与排名，所问指标是已发布
        比率口径的分子时同时给出因子拆解）；summary 里的 verdict 为 no_material_change 时不要编造原因，如实写变化不明显；
        为 offsetting 时写明成员变化相互抵消，分别列出最大的减少项与增加项；partial 时说明未扫描的维度；
-   (3) 日历：calendar_adjust 只按自然日天数折算，周六日天数仅供参考，节假日未知；
+   (3) 日历：calendar_adjust 只对 time_aggregation=sum 的口径按自然日天数折算，last / avg 不能折算；周六日天数仅供参考，节假日未知；
    需要更细的证据时再下钻：query_metric 带 compare 按维度分组后用 contribution 逐层拆，有乘法关系时（如 总量 = 数量 ×
-   单价）用 factor_decompose，用 time_grain=day 看日趋势找某天某些成员缺失或骤降，再用 lineage 查看口径的主表定位原因。
+   单价）用 factor_decompose，按口径的 data_grain 看趋势找某期间某些成员缺失或骤降；time_grain 可用 day、week、month、quarter、year，
+   不能比 data_grain 更细，周从周一开始，季用季初日期。再用 lineage 查看口径的主表定位原因。
    口径覆盖不到的数据（工具里有 query_sql 时）：先用 describe_asset、lineage 读字段注释与关联键，再用 query_sql 写一条
    SELECT，用 PostgreSQL 写法的受限子集（写出列名，表写 库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，
    日期加减写 列 ± INTERVAL 'n' DAY；等值 JOIN；列名与 describe_asset 返回的一致，有大写字母的加双引号，如 "ColumnName"）。
@@ -177,7 +179,7 @@ UNDERSTAND_PROMPT = """你是 Avelis 分析的问题理解器：读用户问题�
 - metric_codes：所问的指标编码，只能取自候选口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
 - filters：问题限定的范围，写成指标维度名与取值（取值照问题里的写法，例如某个地区名）；不要把问题没提到的范围写进来；
 - dimensions：取数时的分组或关系类问题要对比的维度名（取自该指标的维度）；
-- time_grain：只在问题要求按日、按月列出时填写 day、month；
+- time_grain：只在问题要求按日、周、月、季或年列出时填写 day、week、month、quarter、year；周用周一日期，季用季初日期 YYYY-MM-DD；
 - order / limit：只在取数问排名、前 N 时填写，order 为 asc / desc，limit 为前 N 的正整数（最多 100）；
 - 窗口：问题没有另说时不写，系统用本次分析的窗口（续问需写出沿用的上一轮窗口）；
   问题写了别的日期区间（如某一周、前一周）时写明本期与对比期的起止；

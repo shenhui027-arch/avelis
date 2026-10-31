@@ -169,7 +169,11 @@ def _time_distribution(dataset: Any, scope: dict) -> dict:
         return result
     meta = dataset.meta or {}
     intent = meta.get("intent") or {}
-    if intent.get("time_grain") != "day" or intent.get("group_by") or len(intent.get("metric_codes") or []) > 1:
+    if intent.get("time_grain") != "day" or any(
+            grain != "day" for grain in (meta.get("data_grains") or {}).values()):
+        result["reason"] = "时间集中度只适用于日粒度；当前数据或查询不是日粒度，无法计算单日偏差"
+        return result
+    if intent.get("group_by") or len(intent.get("metric_codes") or []) > 1:
         return result
     start, end, before, bend = (_date(scope.get(k)) for k in ("start", "end", "compare_start", "compare_end"))
     if None in (start, end, before, bend) or start > end or before > bend:

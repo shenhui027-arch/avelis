@@ -26,6 +26,7 @@ function stepClass(s: Record<string, unknown>, a: { status: string }): string {
 }
 
 export function AskPage() {
+  const tz = useTimeZone();
   const { threadId } = useParams();
   const navigate = useNavigate();
   const thread = useThread(threadId);
@@ -72,7 +73,7 @@ export function AskPage() {
               <Link key={t.id} to={`/ask/${t.id}`} className="av-row" onClick={() => setShowHistory(false)}
                 style={{ "--row-cols": "minmax(0, 1fr) auto auto", minHeight: 40 } as React.CSSProperties}>
                 <span className="av-row__title">{t.title}</span><Status value={t.status} />
-                <span className="av-row__meta av-mono">{formatTime(t.updated_at, "Asia/Shanghai").slice(5)}</span>
+                <span className="av-row__meta av-mono">{formatTime(t.updated_at, tz).slice(5)}</span>
               </Link>
             ))}
           </div>
