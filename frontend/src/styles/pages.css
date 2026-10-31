@@ -586,8 +586,9 @@
 .av-compose__example:hover { background: var(--bg-raised); color: var(--text-primary); }
 
 /* 报告文档 */
-.av-doc { display: flex; flex-direction: column; gap: var(--space-4); max-width: 800px; margin: 0 auto; padding: var(--space-5) var(--space-8) var(--space-6); }
-.av-doc__hd { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line-subtle); }
+.av-doc { --doc-pad: var(--space-8); display: flex; flex-direction: column; gap: var(--space-4); max-width: 800px; margin: 0 auto; padding: 0 var(--doc-pad) var(--space-6); }
+/* 标题栏固定在对话区顶部，对话从它下面滑过 */
+.av-doc__hd { position: sticky; top: 0; z-index: 3; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin: 0 calc(var(--doc-pad) * -1); padding: var(--space-5) var(--doc-pad) var(--space-3); border-bottom: 1px solid var(--line-subtle); background: var(--bg-overlay); -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%); }
 .av-doc__titles { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .av-doc__titles h1 { margin: 0; font: 600 16px/24px var(--font-sans); color: var(--text-primary); }
 .av-doc__sub { display: flex; flex-wrap: wrap; gap: 4px var(--space-3); margin: 0; color: var(--text-tertiary); font: var(--type-caption); }
@@ -696,8 +697,14 @@
 .av-proposal--edit textarea { min-height: 48px; resize: vertical; }
 .av-proposal--edit > .av-btn, .av-proposal--edit > .av-pill { justify-self: end; }
 .av-analysis__sources > summary .av-caption + a { margin-left: auto; color: var(--accent-text); text-decoration: none; }
-.av-analysis__followup { position: relative; flex-direction: row; align-items: flex-end; gap: var(--space-2); padding: 8px 8px 8px 4px; }
-.av-analysis__followup textarea { flex: 1; min-height: 40px; max-height: 160px; padding: 8px 12px; resize: none; font-size: 14px; }
+.av-analysis__followup { position: relative; }
+.av-analysis__followup textarea { min-height: 48px; max-height: 160px; padding: 12px 14px 4px; resize: none; font-size: 14px; }
+.av-analysis__followup .av-compose__bar { border-top: none; padding: 4px 8px 8px 12px; }
+/* 上下文用量：最近一次请求的输入 token / 上下文窗口 */
+.av-context { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); font: 400 12px/1 var(--font-sans); white-space: nowrap; }
+.av-context svg { color: var(--accent-text); }
+.av-context.is-warn svg { color: var(--warn); }
+.av-context.is-danger svg { color: var(--danger); }
 .av-analysis__followup .av-banner { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); }
 .av-compose__send { width: 36px; height: 36px; border-radius: 12px; }
 .av-analysis__parent { display: inline-block; margin-top: 2px; }
@@ -718,6 +725,29 @@
 
 /* 分析过程流（像对话一样实时展开每一步；运行中可插话、可停止） */
 .av-runlog { display: flex; flex-direction: column; gap: var(--space-3); }
+/* 还没查清：报告里最显眼的下一步，每条可以让模型继续查 */
+.av-next { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--bg-surface); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: var(--shadow-glass), 0 0 0 3px var(--warn-subtle); }
+.av-next h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--warn); font: 600 14px/20px var(--font-sans); }
+.av-next ul { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.av-next li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: 10px 0; border-top: 1px solid var(--line-subtle); color: var(--text-primary); font: var(--type-body); }
+.av-next li:first-child { border-top: none; padding-top: 2px; }
+/* 默认折叠的次要内容：结论依据、分析依据、保存为经验 */
+.av-fold { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-raised); }
+.av-fold > summary { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); color: var(--text-secondary); font: 500 13px/20px var(--font-sans); cursor: pointer; list-style: none; }
+.av-fold > summary::-webkit-details-marker { display: none; }
+.av-fold > summary::before { content: "›"; display: inline-block; width: 10px; color: var(--text-tertiary); transition: transform .15s; }
+.av-fold[open] > summary::before { transform: rotate(90deg); }
+.av-fold > summary:hover { color: var(--text-primary); }
+.av-fold > :not(summary) { margin: 0 var(--space-4) var(--space-4); }
+.av-fold.av-analysis__candidates { padding: 0; gap: 0; }
+/* 思考区：标题行可折叠；推理原文是灰色正文，左侧细线，不藏在按钮后面 */
+.av-think__hd { display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-2); height: 32px; padding: 0 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); background: var(--bg-raised); color: var(--text-secondary); font: 500 13px/1 var(--font-sans); cursor: pointer; }
+.av-think__hd:hover { color: var(--text-primary); }
+.av-think__hd[aria-expanded="true"] .av-icon:last-child { transform: rotate(180deg); }
+.av-think__ft { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0 0 40px; }
+.av-thought { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--line-default); }
+.av-thought__text { margin: 0; color: var(--text-tertiary); font: 400 13px/22px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-thought__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .av-runlog__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .av-runlog__steps::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 13px; width: 1px; background: var(--line-subtle); }
 .av-runlog__step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); padding: 6px 0; }
@@ -749,7 +779,7 @@
 /* 问数窄屏：证据栏先变窄，再移到对话下方 */
 @media (max-width: 1279px) {
   .av-analysis.has-evidence { grid-template-columns: minmax(0, 1fr) 320px; }
-  .av-doc { padding-inline: var(--space-5); }
+  .av-doc { --doc-pad: var(--space-5); }
   .av-dock { padding-inline: var(--space-5); }
   .av-analysis__compose { padding-inline: var(--space-5); }
 }
@@ -760,3 +790,4 @@
   .av-analysis__evidence { max-height: none; border-left: none; border-top: 1px solid var(--line-subtle); }
   .av-hero::after { opacity: .35; }
 }
+.av-models__ctx { width: 120px; height: var(--size-control-sm); }

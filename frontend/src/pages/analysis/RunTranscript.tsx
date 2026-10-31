@@ -1,10 +1,11 @@
 // 分析过程流（ADR 0013）：像对话一样实时展开模型每一步在做什么——理解、查了哪个口径或哪张表、写了什么 SQL、
 // 每轮的思路；运行中可以随时插话纠偏（下一次调用模型前生效）或停止。完成后折叠在报告下方作为“分析过程”。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { ContextMeter } from "./ModelPicker";
 
 type Run = Schemas["AnalysisRunOut"];
 type Step = NonNullable<Run["steps"]>[number];
@@ -82,7 +83,6 @@ const TOOL_NAME: Record<string, string> = { query_metric: "受治理查询", que
 
 function StepRow({ s }: { s: Step }) {
   const d = describe(s);
-  const [open, setOpen] = useState(false);
   const bad = s.status !== "ok" && s.status !== "skipped";
   const err = (s.output as { error?: string; message?: string } | null);
   if (d.user !== undefined) return (
@@ -99,19 +99,30 @@ function StepRow({ s }: { s: Step }) {
         </div>
         {d.detail ? <div className={`av-runlog__detail${s.kind === "model" ? " is-thought" : ""}`}>{d.detail}</div> : null}
         {d.code ? <Code sql={d.code} /> : null}
-        {d.thinking ? <>
-          <button type="button" className="av-runlog__more" aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? "收起思考过程" : "查看思考过程"}</button>
-          {open ? <pre className="av-runlog__thinking">{d.thinking}</pre> : null}
-        </> : null}
+        {d.thinking ? <Thought text={d.thinking} /> : null}
         {bad ? <div className="av-runlog__err">{String(err?.error ?? err?.message ?? s.status)}</div> : null}
       </div>
     </li>
   );
 }
 
-/** 过程流；运行中自动跟到最新一步（用户往上翻时不打扰），插话与停止在页面底部的固定输入框里。 */
-export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
+/** 一段模型推理原文：默认直接显示，较长时先显示前几行，可展开全文。 */
+function Thought({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  const long = text.length > 600 || text.split("\n").length > 8;
+  return (
+    <div className="av-thought">
+      <p className={`av-thought__text${long && !full ? " is-clamped" : ""}`}>{text}</p>
+      {long ? <button type="button" className="av-runlog__more" onClick={() => setFull(!full)}>{full ? "收起" : "展开全文"}</button> : null}
+    </div>
+  );
+}
+
+/** 思考与过程：运行中展开并跟到最新一步（用户往上翻时不打扰）；完成后标题是“已深度思考（用时）”，可折叠。
+ *  插话与停止在页面底部的固定输入框里。 */
+export function RunTranscript({ run, live, footer }: { run: Run; live?: boolean; footer?: ReactNode }) {
+  const [open, setOpen] = useState(!!live);
+  useEffect(() => { setOpen(!!live); }, [live]);
   const steps = run.steps ?? [];
   const messages = ((run as Run & { messages?: Message[] }).messages ?? []).filter((m) => !m.consumed_at);
   const end = useRef<HTMLDivElement>(null);
@@ -130,9 +141,17 @@ export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
     const scroller = end.current?.closest(".av-analysis__scroll");
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }, [live, follow, steps.length, messages.length, run.status]);
+  const seconds = Math.round(steps.reduce((sum, s) => sum + Number(s.duration_ms ?? 0), 0) / 1000);
+  const thoughts = steps.filter((s) => s.kind === "model" && (s.output as { thinking?: string } | null)?.thinking).length;
   return (
-    <section className={`av-runlog${live ? " is-live" : ""}`} aria-label="分析过程" aria-live={live ? "polite" : undefined}>
-      <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{run.question}</span></div>
+    <section className={`av-runlog${live ? " is-live" : ""}`} aria-label="思考与过程" aria-live={live ? "polite" : undefined}>
+      <button type="button" className="av-think__hd" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {live ? <span className="av-dot av-dot--flow" /> : <Icon name="chip" small />}
+        <span>{live ? (run.status === "waiting" ? "思考暂停，等你确认" : "正在思考…") : `已深度思考（用时 ${seconds} 秒）`}</span>
+        <span className="av-caption">{steps.length} 步{thoughts ? ` · ${thoughts} 段推理` : ""}</span>
+        <Icon name="chevron" small />
+      </button>
+      {open ? <>
       <ol className="av-runlog__steps">
         {steps.map((s) => <StepRow key={s.seq} s={s} />)}
         {messages.map((m) => (
@@ -141,6 +160,8 @@ export function RunTranscript({ run, live }: { run: Run; live?: boolean }) {
         {live && run.status !== "waiting" ? <li className="av-runlog__step is-pending"><span className="av-spinner" aria-hidden />
           <span className="av-caption">{run.status === "queued" ? "排队中" : "正在进行下一步…"}</span></li> : null}
       </ol>
+      {footer && !live ? <div className="av-think__ft">{footer}</div> : null}
+      </> : null}
       <div ref={end} />
     </section>
   );
@@ -171,6 +192,7 @@ export function Interject({ run }: { run: Run }) {
         <div className="av-compose__bar">
           <span className="av-caption">Enter 发送 · Shift+Enter 换行</span>
           <span className="av-compose__spacer" />
+          <ContextMeter run={run} />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={stop.isPending}
             onClick={() => stop.mutate(undefined, { onError: (e) => setError(errorText(e)) })}>停止</button>
           <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={send.isPending || !text.trim()} onClick={submit}>

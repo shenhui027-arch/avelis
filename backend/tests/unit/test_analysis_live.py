@@ -123,7 +123,7 @@ def user_interjections(messages):
             if isinstance(message, HumanMessage) and message.content.startswith(INTERJECTION_PREFIX)]
 
 
-def test_model_display_is_truncated_without_changing_original_protocol(monkeypatch):
+def test_model_display_is_complete_without_changing_original_protocol(monkeypatch):
     text, thinking = "正" * 1600, "思" * 3100
     response = AIMessage(content=text, additional_kwargs={"reasoning_content": thinking},
                          tool_calls=[{"name": "search_metrics", "args": {}, "id": "search"}])
@@ -131,7 +131,7 @@ def test_model_display_is_truncated_without_changing_original_protocol(monkeypat
     messages = [SystemMessage("固定安全规则"), HumanMessage("检查变化")]
     result = agent._round({"messages": messages}, box, model)
     step = model_steps(box)[0]
-    assert step.output["text"] == text[:1500] and step.output["thinking"] == thinking[:3000]
+    assert step.output["text"] == text and step.output["thinking"] == thinking
     assert step.output["tools"] == ["search_metrics"] and step.output["tool_calls"] == 1
     assert result[0] is response and response.content == text
     assert response.additional_kwargs["reasoning_content"] == thinking
@@ -531,6 +531,23 @@ def live_api(monkeypatch):
     app.dependency_overrides[get_session] = lambda: session
     with TestClient(app) as client:
         yield client, session, user, run, queued
+
+
+def test_model_display_returns_full_text_and_thinking_in_run_view_and_http(live_api):
+    client, session, user, run, _ = live_api
+    text = "正文" * 1000
+    thinking = "第一段\n" + "思" * 3100 + "\n\n第二段\n" + "考" * 3200 + "\n推理结束。"
+    response = AIMessage(content=text, additional_kwargs={"reasoning_content": thinking})
+    box = tools.AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), Budget())
+    assert agent._invoke(Phased([response]), [HumanMessage("检查变化")], box) is response
+    step = model_steps(box)[0]
+    assert step.output["text"] == text and step.output["thinking"] == thinking
+    view = service.run_view(session, run, user=user)
+    assert view["steps"][0]["output"] == step.output
+    assert AnalysisRunOut.model_validate(view).steps[0].output == step.output
+    detail = client.get(f"/api/analysis/runs/{run.id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["steps"][0]["output"] == step.output
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "waiting"])

@@ -1,13 +1,14 @@
 // 分析的人机协作（ADR 0013）：预检后确认依据、对报告质疑或补充、把确认过的内容保存为个人经验。
 // 只有用户明确保存的内容才进入经验库；本次确认只对本次分析生效。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { api, unwrap } from "../../api/client";
+import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import { Drawer, Empty, Icon, Pill, Seg, Select, shortName } from "../../components/ui";
 import { formatTime } from "../../format";
+import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 
 type Ref = { object_type: string; object_id: string; version?: number | null };
 export type ProposalItem = { id: string; kind: string; content: string; source: string; refs?: Ref[];
@@ -122,7 +123,7 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
   if (!items?.length && !experiences?.length) return null;
   const pending = (items ?? []).filter((i) => i.status === "unconfirmed").length;
   return (
-    <details className="av-doc__more av-analysis__sources" aria-label="分析依据">
+    <details className="av-fold av-analysis__sources" aria-label="分析依据">
       <summary>分析依据 <span className="av-caption">{items?.length ?? 0} 项{pending ? ` · ${pending} 项未确认` : ""}</span>
         {experiences?.length ? <Link className="av-caption" to="/analysis/experiences">用到经验 {experiences.length} 条</Link> : null}</summary>
       <ol className="av-proposals av-proposals--compact">
@@ -142,12 +143,17 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
 
 /** 对已完成的报告质疑或补充规则：带着已确认的范围与依据重新分析一次。 */
 /** 回答下方常驻的输入框：继续追问、指出哪里不对或补充规则，都会基于这次分析开一轮新的。 */
-export function FollowupForm({ runId }: { runId: string }) {
+export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; seed?: { text: string; n: number } | null }) {
+  const runId = run.id;
   const navigate = useNavigate();
   const [text, setText] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  // 报告里点“继续查”：把那一条放进输入框并聚焦，用户改了再发
+  useEffect(() => { if (seed) { setText(seed.text); input.current?.focus(); } }, [seed]);
   const [error, setError] = useState<string | null>(null);
+  const picker = useModelChoice((run as { model_choice?: ModelChoice | null }).model_choice);
   const followup = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
-    params: { path: { run_id: runId } }, body: { text } as never })), ["analysis-runs"]);
+    params: { path: { run_id: runId } }, body: { text, ...picker.body } as never })), ["analysis-runs"]);
   return (
     <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();
@@ -157,11 +163,16 @@ export function FollowupForm({ runId }: { runId: string }) {
     }}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <label htmlFor={`fu-${runId}`} className="av-sr">质疑或补充</label>
-      <textarea id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
+      <textarea ref={input} id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
         placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
-      <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
-        disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
+      <div className="av-compose__bar">
+        <ModelPicker state={picker} />
+        <span className="av-compose__spacer" />
+        <ContextMeter run={run} />
+        <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
+          disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
+      </div>
     </form>
   );
 }
@@ -177,12 +188,12 @@ export function CandidatesPanel({ candidates }: { candidates?: Candidate[] }) {
   if (!candidates?.length) return null;
   const saved = new Set((list.data ?? []).map(candidateKey));
   return (
-    <section className="av-analysis__candidates" aria-label="保存为经验">
-      <h3>保存为经验</h3>
+    <details className="av-fold av-analysis__candidates" aria-label="保存为经验">
+      <summary>保存为经验 <span className="av-caption">{candidates.length} 条你确认或纠正过的内容</span></summary>
       <ol className="av-proposals">
         {candidates.map((c, i) => <CandidateRow key={`${i}-${candidateKey(c)}`} candidate={c} saved={saved.has(candidateKey(c))} />)}
       </ol>
-    </section>
+    </details>
   );
 }
 

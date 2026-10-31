@@ -289,7 +289,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tool
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
     预算上限造成的截断记为预算截止；其他接入协议错误记下错误码并抛出 ModelProtocolError。
-    text / thinking 仅为步骤展示摘要，不改写回复对象，也不参与核验或协议回传。"""
+    text / thinking 完整保存，仅用于步骤展示，不改写回复对象，也不参与核验或协议回传。"""
     budget = toolbox.budget
     retried = False
     while True:
@@ -346,7 +346,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *, tool
         thinking = (reply.additional_kwargs or {}).get("reasoning_content")
         toolbox._step("model", "model", {}, "error" if problem else "ok",
                       {**usage, "tool_calls": len(names), "tools": names, **({"finish_reason": finish} if finish else {}),
-                       "text": text[:1500], **({"thinking": thinking[:3000]} if isinstance(thinking, str) and thinking else {}),
+                       "text": text, **({"thinking": thinking} if isinstance(thinking, str) and thinking else {}),
                        **error}, started=started)
         if budget_cutoff:
             return None  # 截断内容和工具调用不执行，由现有预算截止路径生成未完成报告。

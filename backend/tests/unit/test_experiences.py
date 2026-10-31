@@ -143,7 +143,7 @@ def test_candidates_are_editable_deterministic_and_do_not_persist(state):
 @pytest.mark.parametrize("source", ["upstream", "experience", None])
 @pytest.mark.parametrize("decision", ["confirmed", "rejected"])
 def test_candidates_ignore_decisions_without_new_inferred_information(source, decision):
-    proposal = {"items": [{"id": "p1", "source": source, "content": "已知关联"}]}
+    proposal = {"items": [{"id": "p1", "kind": "join", "source": source, "content": "已知关联"}]}
     feedback = {"decisions": [{"item_id": "p1", "decision": decision}],
                 "supplement": "用户补充", "challenge": "用户质疑"}
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[])
@@ -152,8 +152,31 @@ def test_candidates_ignore_decisions_without_new_inferred_information(source, de
                                                feedback={"decisions": feedback["decisions"]}, refs=[]) == []
 
 
+@pytest.mark.parametrize("kind", ["hypothesis", "asset"])
+def test_candidates_ignore_confirmed_analysis_specific_inferences(kind):
+    proposal = {"items": [{"id": "p1", "kind": kind, "source": "inferred", "content": "本次分析推断"}]}
+    feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"}]}
+    assert experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[]) == []
+
+
+def test_candidates_keep_rejected_hypothesis_as_negative():
+    proposal = {"items": [{"id": "p1", "kind": "hypothesis", "source": "inferred", "content": "未确认：原因假设"}]}
+    feedback = {"decisions": [{"item_id": "p1", "decision": "rejected"}]}
+    candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[])
+    assert [(c["kind"], c["content"]) for c in candidates] == [("negative", "否决：未确认：原因假设")]
+
+
+@pytest.mark.parametrize(("field", "text"), [("supplement", "用户补充"), ("challenge", "用户质疑"),
+                                          ("supplement", "分析中的用户插话")])
+def test_candidates_keep_user_text(field, text):
+    candidates = experiences.candidates_from_feedback(run_id="r1", proposal={"items": []},
+                                                     feedback={field: text}, refs=[])
+    assert [(c["kind"], c["content"]) for c in candidates] == [("rule", text)]
+    assert candidates[0]["source"]["user_text"] == text
+
+
 def test_candidates_keep_decision_order_within_rejections_and_confirmations():
-    proposal = {"items": [{"id": f"p{number}", "kind": "rule", "source": "inferred",
+    proposal = {"items": [{"id": f"p{number}", "kind": "join", "source": "inferred",
                            "content": f"推断 {number}"} for number in range(1, 5)]}
     feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"},
                               {"item_id": "p2", "decision": "rejected"},

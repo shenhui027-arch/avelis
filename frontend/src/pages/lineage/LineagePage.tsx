@@ -3,11 +3,11 @@
 // 外部表与真实表是“同一张表”（点线 + 链条标记），导入的设计时表为虚线占位节点。点击列高亮列级路径。
 import dagre from "@dagrejs/dagre";
 import {
-  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow,
+  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore,
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
@@ -159,11 +159,36 @@ function Canvas() {
     return map;
   }, [domains.data]);
 
-  // 列级路径：从选中的列向上游、下游各走一遍（只走取值关系）
+  // 选中路径：选了列时走列级取值关系；只选了表时走表级上下游（含“同一张表”）。都向上游、下游各走一遍
   const path = useMemo(() => {
     const cols = new Set<ColKey>();
     const edgeKeys = new Set<string>();
-    if (!column || !graph.data) return { cols, edgeKeys };
+    if (!graph.data) return { cols, edgeKeys };
+    if (!column) {
+      if (!selected) return { cols, edgeKeys };
+      const up = new Map<string, { node: string; edge: string }[]>();
+      const down = new Map<string, { node: string; edge: string }[]>();
+      const link = (from: string, to: string, edge: string) => {
+        down.set(from, [...(down.get(from) ?? []), { node: to, edge }]);
+        up.set(to, [...(up.get(to) ?? []), { node: from, edge }]);
+      };
+      for (const e of graph.data.edges) link(e.source, e.target, `${e.source}->${e.target}`);
+      for (const l of graph.data.identity_links) {
+        const src = graph.data.nodes.find((n) => n.qualified === l.source);
+        if (src && l.target) link(l.target.id, src.id, `id:${l.id}`);
+      }
+      for (const next of [up, down]) {
+        const stack = [selected];
+        const visited = new Set<string>();
+        while (stack.length) {
+          const n = stack.pop()!;
+          if (visited.has(n)) continue;
+          visited.add(n);
+          for (const step of next.get(n) ?? []) { edgeKeys.add(step.edge); stack.push(step.node); }
+        }
+      }
+      return { cols, edgeKeys };
+    }
     const up = new Map<ColKey, { from: ColKey; edge: string }[]>();
     const down = new Map<ColKey, { to: ColKey; edge: string }[]>();
     for (const e of graph.data.edges) {
@@ -204,7 +229,7 @@ function Canvas() {
     walk(column, up);
     walk(column, down as unknown as Map<ColKey, { from?: ColKey; edge: string }[]>);
     return { cols, edgeKeys };
-  }, [column, graph.data]);
+  }, [column, selected, graph.data]);
 
   const { nodes, edges } = useMemo(() => {
     if (!graph.data) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
@@ -284,6 +309,22 @@ function Canvas() {
     const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.16 }); });
     return () => cancelAnimationFrame(frame);
   }, [graph.data, graph.isSuccess, density, flow]);
+  // 选中表后，把它和高亮的上下游一起动画移到可见区域；属性栏刚打开时画布会变窄，等画布宽度更新后再定位
+  const latest = useRef({ edges, path });
+  latest.current = { edges, path };
+  const width = useStore((st) => st.width);
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setTimeout(() => {
+      const ids = new Set([selected]);
+      for (const e of latest.current.edges) {
+        if (latest.current.path.edgeKeys.has(e.id)) { ids.add(e.source); ids.add(e.target); }
+      }
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      void flow.fitView({ nodes: [...ids].map((id) => ({ id })), padding: 0.2, maxZoom: 1.1, duration: still ? 0 : 500 });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [selected, width, flow]);
 
   return (
     <div className="av-lineage" data-inspector-open={inspectorOpen}>

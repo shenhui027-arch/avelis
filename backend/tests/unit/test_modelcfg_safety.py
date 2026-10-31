@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from avelis import modelcfg
-from avelis.governance.errors import Conflict
+from avelis.governance.errors import Conflict, GovernanceError
 from avelis.models import AppSetting, ModelAssignment, ModelProvider, User
 
 KEY = "sk-unit-secret-0123456789"
@@ -29,7 +29,8 @@ class MemorySession:
         return None
 
     def scalars(self, statement):
-        return [row for (kind, _), row in self.rows.items() if kind is ModelAssignment]
+        entity = statement.column_descriptions[0]["entity"]
+        return [row for (kind, _), row in self.rows.items() if kind is entity]
 
     def add(self, row):
         key = row.purpose if isinstance(row, ModelAssignment) else row.key
@@ -306,3 +307,137 @@ def test_assignment_effort_is_saved_validated_and_resolved(monkeypatch):
     with pytest.raises(modelcfg.Invalid):
         modelcfg.save_settings(session, actor, {"ask": {"provider_id": "provider-id", "model_id": MODEL_ID,
                                                         "reasoning_effort": "high"}}, None)
+
+
+def test_analysis_model_list_contains_checked_models_and_safe_fields(monkeypatch):
+    ds = deepseek()
+    ds.models[0]["context_window"] = 131072
+    ds.models.extend([{"id": "disabled", "enabled": False, "tool_calling": True},
+                      {"id": "unchecked", "enabled": True, "tool_calling": True}])
+    ds.last_check["models"]["disabled"] = successful_check("disabled")
+    ds.last_check["models"]["unchecked"] = {"ok": False, "tool_calling": True}
+    ask = ModelAssignment(purpose="ask", provider_id=ds.id, model_id="deepseek-flash", reasoning_effort="high")
+    session = MemorySession(ds, ask)
+    monkeypatch.setattr(modelcfg, "build_chat_model", lambda *args, **kwargs: pytest.fail("列表不应创建模型"))
+    monkeypatch.setattr(modelcfg, "decrypt_secret", lambda *args: pytest.fail("列表不应解密密钥"))
+    view = modelcfg.analysis_models_view(session)
+    assert view == {"models": [{"provider_id": "ds-id", "provider_name": "DeepSeek", "model_id": "deepseek-flash",
+                                 "efforts": [{"value": value, "label": modelcfg.EFFORT_LABELS[value]}
+                                             for value in ("off", "low", "high", "max")],
+                                 "context_window": 131072}],
+                    "default": {"provider_id": "ds-id", "model_id": "deepseek-flash", "reasoning_effort": "high"}}
+    assert all(secret not in json.dumps(view) for secret in (KEY, "encrypted", "api_key", "base_url"))
+
+
+def test_analysis_model_list_has_no_guessed_efforts_or_context(provider):
+    provider.last_check = successful_check()
+    session = MemorySession(provider, assignment())
+    view = modelcfg.analysis_models_view(session)
+    assert view["models"][0]["efforts"] == []
+    assert view["models"][0]["context_window"] is None
+    assert view["default"]["reasoning_effort"] == modelcfg.DEFAULT_EFFORT["analysis"]
+    analysis = ModelAssignment(purpose="analysis", provider_id=provider.id, model_id="unavailable")
+    session.rows[ModelAssignment, "analysis"] = analysis
+    assert modelcfg.analysis_models_view(session)["default"] is None
+    del session.rows[ModelAssignment, "analysis"]
+    del session.rows[ModelAssignment, "ask"]
+    assert modelcfg.analysis_models_view(session)["default"] is None
+
+
+@pytest.mark.parametrize("invalid", ["removed", "disabled", "provider_disabled", "missing_key", "stale_check"])
+def test_analysis_model_list_and_selection_reject_unavailable_models(provider, invalid):
+    provider.last_check = successful_check()
+    if invalid == "removed":
+        provider.models = []
+    elif invalid == "disabled":
+        provider.models[0]["enabled"] = False
+    elif invalid == "provider_disabled":
+        provider.enabled = False
+    elif invalid == "missing_key":
+        provider.api_key_enc = None
+    else:
+        provider.last_check = {}
+    session = MemorySession(provider, assignment())
+    assert modelcfg.analysis_models_view(session) == {"models": [], "default": None}
+    with pytest.raises(GovernanceError):
+        modelcfg.analysis_model_choice(session, {"provider_id": provider.id, "model_id": MODEL_ID})
+    assert modelcfg.resolve_choice(session, provider.id, MODEL_ID) is None
+
+
+def test_analysis_selection_defaults_and_effort_only_use_shared_assignment():
+    ds = deepseek()
+    session = MemorySession(ds)
+    target = {"provider_id": ds.id, "model_id": "deepseek-flash"}
+    assert modelcfg.analysis_model_choice(session) is None
+    assert modelcfg.analysis_model_choice(session, target) == {**target, "reasoning_effort": "low"}
+    with pytest.raises(GovernanceError):
+        modelcfg.analysis_model_choice(session, reasoning_effort="high")
+    session.rows[ModelAssignment, "ask"] = ModelAssignment(purpose="ask", **target, reasoning_effort="max")
+    assert modelcfg.analysis_model_choice(session, reasoning_effort="high") == {**target, "reasoning_effort": "high"}
+    session.rows[ModelAssignment, "analysis"] = ModelAssignment(purpose="analysis", provider_id=ds.id,
+                                                                model_id="invalid-model")
+    with pytest.raises(GovernanceError):
+        modelcfg.analysis_model_choice(session, reasoning_effort="high")
+
+
+def test_analysis_selection_and_settings_share_effort_validation(provider):
+    ds = deepseek()
+    session = MemorySession(ds)
+    target = {"provider_id": ds.id, "model_id": "deepseek-flash", "reasoning_effort": "medium"}
+    with pytest.raises(modelcfg.Invalid) as settings_error:
+        modelcfg.save_settings(session, User(id="actor"), {"analysis": target}, None)
+    with pytest.raises(GovernanceError) as choice_error:
+        modelcfg.analysis_model_choice(session, target, target["reasoning_effort"])
+    assert str(choice_error.value) == str(settings_error.value)
+    assert choice_error.value.status_code == 400
+    with pytest.raises(GovernanceError):
+        modelcfg.analysis_model_choice(session, {"provider_id": "missing", "model_id": "model"})
+    provider.last_check = successful_check()
+    unknown = MemorySession(provider)
+    target = {"provider_id": provider.id, "model_id": MODEL_ID}
+    assert modelcfg.analysis_model_choice(unknown, target)["reasoning_effort"] == "low"
+    with pytest.raises(GovernanceError):
+        modelcfg.analysis_model_choice(unknown, target, "low")
+
+
+def test_resolve_choice_uses_selected_model_and_shared_factory(monkeypatch):
+    ds = deepseek()
+    session = MemorySession(ds)
+    calls = []
+
+    def build(provider, model_id, **kwargs):
+        calls.append((provider.id, model_id, kwargs))
+        return object()
+
+    monkeypatch.setattr(modelcfg, "build_chat_model", build)
+    resolved = modelcfg.resolve_choice(session, ds.id, "deepseek-flash", "max", temperature=0.4)
+    assert resolved.adapter == "ds:deepseek-flash" and resolved.effort == resolved.effective_effort == "max"
+    assert calls == [(ds.id, "deepseek-flash", {"temperature": 0.4, "effort": "max"})]
+    resolved.factory(25, 0, effort="off", max_tokens=1000)
+    assert calls[-1] == (ds.id, "deepseek-flash", {"temperature": 0.4, "timeout": 25, "max_retries": 0,
+                                                 "effort": "off", "max_tokens": 1000})
+    assert KEY not in repr(resolved) and KEY not in resolved.safe_error(KEY)
+
+
+@pytest.mark.parametrize("context_window", [None, 1024, 131072, 10_000_000])
+def test_context_window_is_saved_and_returned(provider, context_window):
+    from avelis.api.model_settings import ModelEntry, ModelOut
+
+    entry = ModelEntry(id=MODEL_ID, context_window=context_window)
+    modelcfg.update_provider(MemorySession(provider), User(id="actor"), provider.id,
+                             {"models": [entry.model_dump()]})
+    view = modelcfg.provider_view(provider)
+    assert provider.models[0]["context_window"] == context_window
+    assert view["models"][0]["context_window"] == context_window
+    assert ModelOut.model_validate(view["models"][0]).context_window == context_window
+
+
+@pytest.mark.parametrize("context_window", [1023, 10_000_001, 1.5, True, "131072"])
+def test_context_window_rejects_invalid_values(context_window):
+    with pytest.raises(modelcfg.Invalid, match="context_window"):
+        modelcfg._normalise_models([{"id": MODEL_ID, "context_window": context_window}])
+
+
+def test_provider_view_returns_null_for_old_model_context(provider):
+    provider.updated_at = modelcfg.utcnow()
+    assert modelcfg.provider_view(provider)["models"][0]["context_window"] is None

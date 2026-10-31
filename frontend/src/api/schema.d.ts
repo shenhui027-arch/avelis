@@ -953,6 +953,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Analysis Models */
+        get: operations["list_analysis_models_api_analysis_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs": {
         parameters: {
             query?: never;
@@ -1580,6 +1597,13 @@ export interface components {
              */
             decision: "confirmed" | "rejected";
         };
+        /** AnalysisEffortOut */
+        AnalysisEffortOut: {
+            /** Value */
+            value: string;
+            /** Label */
+            label: string;
+        };
         /** AnalysisFollowupIn */
         AnalysisFollowupIn: {
             /** Text */
@@ -1590,6 +1614,9 @@ export interface components {
              * @enum {string}
              */
             confirmation_mode?: "auto" | "always";
+            model?: components["schemas"]["AnalysisModelIn"] | null;
+            /** Reasoning Effort */
+            reasoning_effort?: string | null;
         };
         /** AnalysisMessageIn */
         AnalysisMessageIn: {
@@ -1608,6 +1635,41 @@ export interface components {
             consumed_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** AnalysisModelChoice */
+        AnalysisModelChoice: {
+            /** Provider Id */
+            provider_id: string;
+            /** Model Id */
+            model_id: string;
+            /** Reasoning Effort */
+            reasoning_effort: string;
+        };
+        /** AnalysisModelIn */
+        AnalysisModelIn: {
+            /** Provider Id */
+            provider_id: string;
+            /** Model Id */
+            model_id: string;
+        };
+        /** AnalysisModelOut */
+        AnalysisModelOut: {
+            /** Provider Id */
+            provider_id: string;
+            /** Model Id */
+            model_id: string;
+            /** Provider Name */
+            provider_name: string;
+            /** Efforts */
+            efforts: components["schemas"]["AnalysisEffortOut"][];
+            /** Context Window */
+            context_window?: number | null;
+        };
+        /** AnalysisModelsOut */
+        AnalysisModelsOut: {
+            /** Models */
+            models: components["schemas"]["AnalysisModelOut"][];
+            default?: components["schemas"]["AnalysisModelChoice"] | null;
         };
         /** AnalysisProposalItem */
         AnalysisProposalItem: {
@@ -1682,6 +1744,9 @@ export interface components {
             };
             /** Model Adapter */
             model_adapter?: string | null;
+            model_choice?: components["schemas"]["AnalysisModelChoice"] | null;
+            /** Reasoning Effort */
+            reasoning_effort?: string | null;
             /** Error */
             error?: string | null;
             /** Created At */
@@ -3311,6 +3376,8 @@ export interface components {
             enabled?: boolean;
             /** Tool Calling */
             tool_calling?: boolean | null;
+            /** Context Window */
+            context_window?: number | null;
         };
         /** ModelOut */
         ModelOut: {
@@ -3320,6 +3387,8 @@ export interface components {
             enabled: boolean;
             /** Tool Calling */
             tool_calling?: boolean | null;
+            /** Context Window */
+            context_window?: number | null;
             /**
              * Efforts
              * @description 该模型支持的思考档位；为空时不支持设置
@@ -3557,6 +3626,9 @@ export interface components {
              * @enum {string}
              */
             confirmation_mode?: "auto" | "always";
+            model?: components["schemas"]["AnalysisModelIn"] | null;
+            /** Reasoning Effort */
+            reasoning_effort?: string | null;
         };
         /** RunOut */
         RunOut: {
@@ -5819,6 +5891,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_models_api_analysis_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisModelsOut"];
                 };
             };
         };
