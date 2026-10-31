@@ -62,6 +62,26 @@ def _ask(client, headers: dict[str, str], question: dict) -> dict | None:
     return resp.json()
 
 
+def _confirm_all(client, headers: dict[str, str], run: dict | None) -> dict | None:
+    """人机协作（ADR 0013）：模拟一个只会全部确认、不补充任何业务知识的用户。
+    追问没有知识可答，按待澄清计；这样各业务域的结果可比，衡量的是系统自身。"""
+    deadline = time.monotonic() + WAIT_SECONDS
+    while run and run.get("status") == "waiting" and (run.get("pending") or {}).get("kind") == "assumptions":
+        items = (run.get("proposal") or {}).get("items") or []
+        resp = client.post(f"/api/analysis/runs/{run['id']}/resume", headers=headers,
+                           json={"decisions": [{"item_id": i["id"], "decision": "confirmed"} for i in items]})
+        if resp.status_code >= 400:
+            return {**run, "status": "failed", "error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
+        while time.monotonic() < deadline:
+            time.sleep(3)
+            run = client.get(f"/api/analysis/runs/{run['id']}", headers=headers).json()
+            if run["status"] not in ("queued", "running"):
+                break
+    if run and run.get("status") == "waiting":
+        run = {**run, "status": "clarify"}
+    return run
+
+
 def reusable(saved: dict) -> dict[tuple[str, int], tuple[dict, dict]]:
     """上次结果里可以沿用的运行：系统里确有这次分析（有运行编号，即调用过模型），状态是 succeeded / failed / paused。
     登录失效（401）、接口报错没建出运行的，以及没跑到的，都不在这里（续跑时重跑）。"""
@@ -92,6 +112,7 @@ def run_questions(client, questions: list[dict], repeat: int, password: str,
             retried = transport_error(run)
             if retried:
                 run = _ask(client, headers, q)
+            run = _confirm_all(client, headers, run)
             result = {**score(q, run), "holdout": bool(q.get("holdout")), "repeat": attempt, "retried": retried,
                       "seconds": round(time.monotonic() - began, 1),
                       "run_id": (run or {}).get("id"), "error": (run or {}).get("error"),
