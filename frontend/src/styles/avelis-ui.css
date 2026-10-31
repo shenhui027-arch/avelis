@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
 
 /* Avelis UI components. Every value comes from tokens.css; class prefix av-. */
 
@@ -112,7 +112,7 @@ select option, select optgroup { background-color: var(--bg-base); color: var(--
 .av-sb__brand > a { display: inline-flex; color: inherit; text-decoration: none; border-radius: var(--radius-sm); }
 .av-sb.is-collapsed .av-sb__brand { flex-direction: column; height: auto; gap: 10px; padding: 0; }
 .av-logo { display: inline-flex; align-items: center; gap: 10px; }
-.av-logo b { font: 600 19px/1 var(--font-sans); letter-spacing: -0.035em; color: var(--text-primary); }
+.av-logo b { font: 700 20px/1 var(--font-sans); letter-spacing: -0.03em; color: var(--text-primary); }
 .av-sb__icon { position: relative; display: grid; place-items: center; width: 32px; height: 32px; flex: none; padding: 0; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-tertiary); cursor: pointer; }
 .av-sb__icon:hover { background: var(--bg-raised); color: var(--text-primary); }
 .av-sb__ws { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 10px; margin-bottom: 10px; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-raised); color: var(--text-primary); font: 500 13px/18px var(--font-sans); text-decoration: none; }

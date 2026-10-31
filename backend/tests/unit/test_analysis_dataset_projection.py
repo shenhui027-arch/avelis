@@ -127,6 +127,36 @@ def test_verification_projection_only_removes_errors_for_restricted_records():
     assert verification == original
 
 
+def test_offsetting_conclusion_problems_are_withheld_for_restricted_dependencies():
+    values = ("-1234567", "2345678", "-7654321", "8765432")
+    data = {"D1": {"kind": "governed", "columns": ["member", "value"],
+                   "rows": [{"member": member, "value": value}
+                            for member, value in zip(("减少项", "增加项", "最大减少项", "最大增加项"), values)],
+                   "units": {"value": {"kind": "delta"}}}}
+    report, verification = ground_report({
+        "conclusion": "offsetting",
+        "causes": [
+            {"type": "member", "entity": {"evidence_id": f"D1#{i}"}, "direction": direction,
+             "contribution": {"dataset": "D1", "column": "value", "match": {"member": member}},
+             "evidence": ["D1"]}
+            for i, (direction, member) in enumerate((("down", "减少项"), ("up", "增加项")), 1)
+        ],
+    }, data, {})
+    original = deepcopy(verification)
+    problems = json.dumps(verification["conclusion"]["problems"], ensure_ascii=False)
+    assert all(value in problems for value in values)
+    assert len(verification["conclusion"]["problems"]) == 2
+
+    projected = restrict_verification(verification, restrict_report(report, {"D1"}))
+    expected = deepcopy(verification)
+    expected["conclusion"]["problems"] = [RESTRICTED_TEXT, RESTRICTED_TEXT]
+    assert projected == expected  # 核验状态、计数与其他问题保留原值。
+    assert all(value not in json.dumps(projected["conclusion"]) for value in values)
+    assert restrict_verification(verification, restrict_report(report, set())) == original
+    assert restrict_verification(verification, restrict_report(report, {"D2"})) == original
+    assert verification == original
+
+
 def test_run_view_projection_is_consumed_by_csv_and_markdown_exports(monkeypatch):
     engine = create_engine("sqlite://")
     metadata = MetaData()

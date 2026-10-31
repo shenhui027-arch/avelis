@@ -229,6 +229,10 @@ export function ExperienceList() {
   const [error, setError] = useState<string | null>(null);
   const revoke = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/revoke", {
     params: { path: { experience_id: id } }, body: {} as never })), ["analysis-experiences"]);
+  // 表关联由治理维护：旧的“关联”经验可以转成待审核的关联路径，转完后经验自动撤销
+  const [proposed, setProposed] = useState<{ name: string; status: string } | null>(null);
+  const toJoin = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/to-join-path", {
+    params: { path: { experience_id: id } } })), ["analysis-experiences", "join-paths"]);
   const rows = (list.data ?? []).filter((e) => all || e.status === "active");
   return (
     <section className="av-analysis__experiences">
@@ -237,6 +241,9 @@ export function ExperienceList() {
           options={[{ value: "active", label: "有效" }, { value: "all", label: "全部" }]} />
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {proposed ? <div className="av-banner av-banner--info">
+        {proposed.status === "approved" ? "已有相同的关联路径" : "已提议为关联路径，等待负责人审核"}：{proposed.name}
+        <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">查看</Link></div> : null}
       {list.isSuccess && !rows.length ? <Empty text="还没有个人经验：在分析中确认或补充后保存" compact /> : null}
       <div className="av-analysis__list">
         {rows.map((e) => (
@@ -248,6 +255,11 @@ export function ExperienceList() {
                 {e.status !== "active" ? ` · ${e.status === "revoked" ? "已撤销" : "已替代"}` : ""}</span></span>
             <span className="av-actions">
               {e.status === "active" ? <>
+                {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
+                  title="表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用"
+                  onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
+                    onSuccess: (out) => setProposed(out as { name: string; status: string }),
+                    onError: (err) => setError(errorText(err)) }); }}>转为关联路径</button> : null}
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>编辑</button>
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
                   onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>撤销</button>

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
@@ -31,8 +32,8 @@ from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
-from avelis.governance import access, experiences
-from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
+from avelis.governance import access, experiences, joins
+from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
 from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
@@ -316,6 +317,8 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         checkpoint.update(confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
                           confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
                           proposal=state.get("proposal") or checkpoint.get("proposal") or {})
+        if "inherited" in state:
+            checkpoint["inherited"] = state["inherited"]
         if status != "waiting":
             checkpoint.pop("pending", None)
             checkpoint["resume_pending"] = False
@@ -514,6 +517,38 @@ def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
     return refs
 
 
+def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, checkpoint: dict,
+                             feedback: dict) -> None:
+    confirmed = {d["item_id"] for d in feedback["decisions"] if d["decision"] == "confirmed"}
+    proposal = dict(checkpoint.get("proposal") or {})
+    proposal["items"] = [dict(item) for item in proposal.get("items") or []]
+    candidates = list(checkpoint.get("join_candidates") or [])
+    warnings = list(checkpoint.get("warnings") or [])
+    for item in proposal["items"]:
+        if item["id"] not in confirmed or item.get("kind") != "join" or item.get("source") != "inferred":
+            continue
+        assets = analysis_agent.validate_proposal_join(session, user, item)
+        if assets is None:
+            warning = "这条关联缺少结构，无法提议为关联路径"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        spec = item["join"]
+        try:
+            path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
+                                 right_asset_id=assets[1].id, right_columns=spec["right_columns"],
+                                 source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+        except GovernanceError as exc:
+            warning = f"这条关联没能提议为关联路径：{exc}"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        candidate = {"item_id": item["id"], "id": path.id, "status": path.status}
+        if candidate not in candidates:
+            candidates.append(candidate)
+    checkpoint.update(proposal=proposal, join_candidates=candidates, warnings=warnings)
+
+
 def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> AnalysisRun:
     """只领取一次暂停；新 Job、反馈、状态转换与审计由 API 在同一事务提交。"""
     from avelis import jobs
@@ -535,6 +570,7 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
             refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
     else:
         feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+        _propose_confirmed_joins(session, user, run, checkpoint, feedback)
         candidates = experiences.candidates_from_feedback(
             run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
             refs=_scope_metric_refs(session, checkpoint))
@@ -793,17 +829,42 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     readable = {d.id for d in datasets} - restricted
     report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
                              lookup_restricted=lookup_restricted)
+    has_restricted = bool(restricted or lookup_restricted)
+
+    def is_metric_code(value) -> bool:
+        return isinstance(value, str) and re.fullmatch(r"[a-z0-9_]{1,64}", value) is not None
+
+    def is_window_date(value) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
 
     def step_args(step) -> dict:
         args = dict(step.args)
-        if step.dataset_id in restricted and "sql" in args:
-            args["sql"] = None
-        if (restricted or lookup_restricted) and step.tool == "submit_report" and "title" in args:
-            args["title"] = report.get("title")
-        return args
+        if not has_restricted or step.kind == "user":
+            return args
+        # 后续步骤可能复述任意来源的数据，只保留明确的结构字段。
+        projected = {key: value for key, value in args.items()
+                     if key in {"code", "metric_code"} and is_metric_code(value)}
+        codes = args.get("metric_codes")
+        if isinstance(codes, list) and all(is_metric_code(code) for code in codes):
+            projected["metric_codes"] = codes
+        projected.update({key: value for key, value in args.items()
+                          if key in {"start_date", "end_date", "compare_start", "compare_end"}
+                          and is_window_date(value)})
+        projected.update({key: args[key] for key in ("dataset", "ref")
+                          if isinstance(args.get(key), str) and args[key] in known})
+        if isinstance(args.get("window"), dict):
+            projected["window"] = {key: value for key, value in args["window"].items()
+                                   if key in {"start", "end", "compare_start", "compare_end"}
+                                   and is_window_date(value)}
+        return projected
 
     def step_output(step) -> dict:
-        if not (restricted or lookup_restricted) or step.kind == "user":
+        if not has_restricted or step.kind == "user":
             return step.output
         if step.kind == "tool" and step.dataset_id in readable:
             return step.output
@@ -816,11 +877,13 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 verification=restrict_verification(run.verification or {}, report),
                 messages=[message_view(message) for message in messages],
                 proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
+                join_candidates=checkpoint.get("join_candidates") or [],
+                checkpoint_warnings=checkpoint.get("warnings") or [],
                 confirmed_scope=checkpoint.get("confirmed_scope") or {},
                 confirmed_items=checkpoint.get("confirmed_items") or [],
                 steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,
                         "args": step_args(s),
-                        "reason": s.reason,
+                        "reason": None if has_restricted and s.kind != "user" else s.reason,
                         "status": s.status,
                         "output": step_output(s),
                         "dataset": _ref(session, s.dataset_id),
