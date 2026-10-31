@@ -14,7 +14,7 @@ from avelis.connectors.base import QueryResult
 from avelis.db import utcnow
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.lineage.sql import SqlDialect
-from avelis.models import AnalysisDataset, AnalysisRun, AnalysisStep, AnalysisTask, Answer, Datasource, User
+from avelis.models import AnalysisDataset, AnalysisRun, AnalysisStep, AnalysisTask, Answer, AuditEvent, Datasource, User
 
 REAL_FULFIL = ask.fulfil
 
@@ -23,7 +23,7 @@ REAL_FULFIL = ask.fulfil
 def state(monkeypatch):
     engine = create_engine("sqlite://")
     metadata = MetaData()
-    for model in (User, AnalysisTask, AnalysisRun, AnalysisDataset, AnalysisStep, Answer):
+    for model in (User, AnalysisTask, AnalysisRun, AnalysisDataset, AnalysisStep, Answer, AuditEvent):
         table = model.__table__.to_metadata(metadata)
         for column in table.columns:
             if isinstance(column.type, JSONB):
@@ -65,7 +65,6 @@ def state(monkeypatch):
 
         monkeypatch.setattr(ask, "visible_catalog", visible_catalog)
         monkeypatch.setattr(ask, "fulfil", fulfil)
-        monkeypatch.setattr(ask.audit, "record", lambda *args, **kwargs: None)
         event.listen(session, "after_commit", lambda s: commits.append(True))
         yield SimpleNamespace(session=session, user=user, run=run, source=source, calls=calls,
                               catalog=catalog, commits=commits)
@@ -200,15 +199,29 @@ def test_metric_missing_from_current_catalog_is_forbidden(state):
     assert state.session.scalar(select(Answer)) is None
 
 
-def test_permission_denial_in_query_pipeline_is_forbidden(state, monkeypatch):
-    def deny(s, user, intent, answer, catalog):
-        answer.status, answer.error_code = "denied", "permission"
-        answer.message = "来源权限已撤销"
+@pytest.mark.parametrize("status,error_code,error", [("denied", "permission", Forbidden),
+                                                     ("error", "db_unavailable", Conflict)])
+def test_failed_query_keeps_answer_and_audit_after_caller_rollback(state, monkeypatch, status, error_code, error):
+    def fail(s, user, intent, answer, catalog):
+        answer.status, answer.error_code = status, error_code
+        answer.message = "来源权限已撤销" if status == "denied" else "来源执行失败"
 
-    monkeypatch.setattr(ask, "fulfil", deny)
-    with pytest.raises(Forbidden, match="你已没有该数据的访问权限"):
+    monkeypatch.setattr(ask, "fulfil", fail)
+    with pytest.raises(error, match="你已没有该数据的访问权限" if status == "denied" else "来源执行失败"):
         execute(state)
-    assert len(list(state.session.scalars(select(AnalysisDataset)))) == 1
+    assert state.commits == [True]
+    state.session.rollback()
+    with Session(state.session.get_bind()) as session:
+        answer = session.scalar(select(Answer))
+        assert answer.status == status and answer.error_code == error_code
+        assert answer.asked_by == "actor" and answer.duration_ms is not None
+        audit = session.scalar(select(AuditEvent))
+        assert audit.actor_id == "actor" and audit.action == "ask" and audit.object_type == "answer"
+        assert audit.object_id == answer.id
+        assert audit.detail["status"] == status and audit.detail["error_code"] == error_code
+        assert [dataset.id for dataset in session.scalars(select(AnalysisDataset))] == ["source"]
+        steps = list(session.scalars(select(AnalysisStep)))
+        assert len(steps) == 1 and steps[0].tool == "query_metric"
 
 
 def test_partial_subquery_cache_hit_is_recorded(state, monkeypatch):

@@ -1,5 +1,7 @@
 """历史数据集撤权：真实 SQLite、来源闭包与 HTTP 读取，不连接外部服务。"""
 
+from copy import deepcopy
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -11,6 +13,8 @@ from sqlalchemy.pool import StaticPool
 
 from avelis.analysis import service
 from avelis.analysis.dataset_access import can_read_dataset, require_dataset_access
+from avelis.analysis.dataset_projection import RESTRICTED_TEXT
+from avelis.analysis.verify import ground_report
 from avelis.api import analysis
 from avelis.api.deps import current_user, get_session
 from avelis.db import Base
@@ -82,6 +86,69 @@ def test_revocation_restricts_governed_calc_run_and_step_rows(dataset_db, revoke
     assert view["steps"][0]["output"] == {"rows": [], "restricted": True}
     assert view["steps"][0]["args"]["sql"] is None
     assert service.run_view(session, run)["datasets"][0]["rows"] == [[7], [9]]
+
+
+@pytest.mark.parametrize("stored", ["parts", "segments", "both"])
+def test_legacy_title_dependencies_restrict_list_and_full_views(dataset_db, stored):
+    session, user, run, _, asset, _, _ = dataset_db
+    report, verification = ground_report({
+        "title": ["成员：", {"dataset": "D1", "label": "member"},
+                  "；数值：", {"dataset": "D1", "column": "value"}],
+    }, {"D1": {"columns": ["member", "value"], "rows": [{"member": "受限成员甲", "value": 7654321}]}}, {})
+    title = report["fields"]["title"]
+    assert "refs" not in title  # 已保存的旧字段只有 parts / segments。
+    if stored != "both":
+        title.pop("segments" if stored == "parts" else "parts")
+    original = deepcopy(report)
+    run.report, run.verification = report, verification
+    session.commit()
+    for full in (False, True):
+        assert service.run_view(session, run, full=full, user=user)["title"] == report["title"]
+
+    asset.domain_id = "hidden"
+    session.commit()
+    for full in (False, True):
+        projected = service.run_view(session, run, full=full, user=user)["title"]
+        assert RESTRICTED_TEXT in projected
+        assert "受限成员甲" not in projected
+        assert "7654321" not in projected and "7,654,321" not in projected
+    assert run.report == original
+
+
+def test_revocation_hides_model_and_unattributed_outputs_but_keeps_interjections(dataset_db):
+    session, user, run, dataset, asset, _, _ = dataset_db
+    visible = AnalysisDataset(id="visible-dataset", run_id=run.id, seq=2, kind="context", title="可见数据",
+                              columns=["value"], rows=[[4321]], meta={"asset_ids": ["visible-asset"]})
+    visible_asset = Asset(id="visible-asset", datasource_id="source", kind="table", catalog_name="local",
+                          db_name="data", name="visible_facts", domain_id="visible")
+    model_output = {"text": "模型复述 7654321", "thinking": "推理包含受限成员甲", "input_tokens": 100}
+    interjection = {"text": "用户自己写的 7654321", "messages": [{"id": "message", "text": "受限成员甲"}]}
+    specs = [
+        ("model", "model", None, model_output),
+        ("plan", "understand", None, {"text": "范围 7654321"}),
+        ("note", "submit_report", None, {"thinking": "结论 7654321"}),
+        ("tool", "query_metric", dataset.id, {"rows": [[7654321]], "summary": {"total": 7654321}}),
+        ("tool", "query_sql", None, {"preview": [[7654321]]}),
+        ("tool", "query_sql", "missing-dataset", {"rows": [[7654321]]}),
+        ("tool", "query_sql", visible.id, {"rows": [[4321]]}),
+        ("user", "message", None, interjection),
+    ]
+    steps = [AnalysisStep(run_id=run.id, seq=i, kind=kind, tool=tool, dataset_id=dataset_id,
+                          status="ok", args={}, output=output)
+             for i, (kind, tool, dataset_id, output) in enumerate(specs, 1)]
+    session.add_all([visible_asset, visible, *steps])
+    session.commit()
+    assert [s["output"] for s in service.run_view(session, run, user=user)["steps"]] == [s.output for s in steps]
+
+    asset.domain_id = "hidden"
+    session.commit()
+    outputs = [s["output"] for s in service.run_view(session, run, user=user)["steps"]]
+    assert outputs[:3] == [{"restricted": True}] * 3
+    assert outputs[3:6] == [{"rows": [], "restricted": True}] * 3
+    assert outputs[6] == {"rows": [[4321]]}
+    assert outputs[7] == interjection
+    assert steps[0].output == model_output  # 读取投影不改写保存的模型原文。
+    assert service.run_view(session, run)["steps"][0]["output"] == model_output
 
 
 def test_derived_components_and_historical_versions_are_checked(dataset_db):

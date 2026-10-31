@@ -743,7 +743,7 @@ def schedule_due() -> list[str]:
 
 def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
     from avelis.analysis.dataset_access import can_read_dataset
-    from avelis.analysis.dataset_projection import restrict_report, restrict_verification
+    from avelis.analysis.dataset_projection import record_refs, restrict_report, restrict_verification
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
@@ -757,11 +757,12 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
             "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
-        title_refs = set((((run.report or {}).get("fields") or {}).get("title") or {}).get("refs") or [])
+        title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
         if user is not None and title_refs:
             datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
+            known = {f"D{d.seq}": d for d in datasets}
             restricted_refs = {f"D{d.seq}" for d in datasets if f"D{d.seq}" in title_refs
-                               and not can_read_dataset(session, user, d)}
+                               and not can_read_dataset(session, user, d, known)}
             data["title"] = restrict_report(run.report or {}, restricted_refs).get("title")
         return data
     lookup_restricted = False
@@ -781,6 +782,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                                     .order_by(AnalysisDataset.seq)))
     known = {f"D{d.seq}": d for d in datasets}
     restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
+    readable = {d.id for d in datasets} - restricted
     report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
                              lookup_restricted=lookup_restricted)
 
@@ -791,6 +793,14 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         if (restricted or lookup_restricted) and step.tool == "submit_report" and "title" in args:
             args["title"] = report.get("title")
         return args
+
+    def step_output(step) -> dict:
+        if not (restricted or lookup_restricted) or step.kind == "user":
+            return step.output
+        if step.kind == "tool" and step.dataset_id in readable:
+            return step.output
+        # 模型与其他步骤可能复述任意来源；工具只有明确关联可读数据集时才保留输出。
+        return {"rows": [], "restricted": True} if step.kind == "tool" else {"restricted": True}
 
     messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
                                .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
@@ -804,7 +814,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                         "args": step_args(s),
                         "reason": s.reason,
                         "status": s.status,
-                        "output": {"rows": [], "restricted": True} if s.dataset_id in restricted else s.output,
+                        "output": step_output(s),
                         "dataset": _ref(session, s.dataset_id),
                         "duration_ms": s.duration_ms, "at": s.created_at.isoformat()} for s in steps],
                 datasets=[{"ref": f"D{d.seq}", "seq": d.seq, "kind": d.kind, "title": d.title, "answer_id": d.answer_id,
