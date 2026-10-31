@@ -17,7 +17,7 @@ from tests.unit.test_analysis_toolbox import make_box
 
 BASE_TOOLS = [
     "search_metrics", "describe_metric", "search_assets", "describe_asset", "lineage", "changes", "data_health",
-    "query_metric", "explain_change", "contribution", "factor_decompose", "calendar_adjust", "correlate", "coverage",
+    "query_metric", "view_dataset", "explain_change", "contribution", "factor_decompose", "calendar_adjust", "correlate", "coverage",
     "derive", "describe", "segment_compare", "outliers", "submit_report",
 ]
 CLUE_NOTE = "只是发现线索，不是批准的关联，跨表比较走探索查询校验或分别查询后合并"

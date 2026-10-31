@@ -448,6 +448,7 @@ class JoinPath(Base):
     cardinality_basis: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # pending | approved | rejected | affected
     dependency: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    source: Mapped[dict | None] = mapped_column(JsonType)
     created_by: Mapped[str] = fk("app_user.id", index=False)
     created_at: Mapped[datetime] = created()
 
@@ -802,6 +803,7 @@ class AnalysisRun(Base):
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | waiting | succeeded | failed | stopped | clarify
     stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
+    compact_requested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confirmation_mode: Mapped[str] = mapped_column(String(8), default="auto", server_default="auto", nullable=False)
     # 假设检查点：提议、预算与工具快照、用户反馈；JSON 整体赋值，避免遗漏原地修改
     checkpoint: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)

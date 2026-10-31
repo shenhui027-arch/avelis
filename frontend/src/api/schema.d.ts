@@ -42,6 +42,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh
+         * @description 轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。
+         */
+        post: operations["refresh_api_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/password": {
         parameters: {
             query?: never;
@@ -508,7 +528,7 @@ export interface paths {
         };
         /**
          * Lineage Graph
-         * @description 资产级节点 + 列级边（按关系类型汇总）+ 外部表身份映射。只返回用户可见的资产。
+         * @description 资产级节点、列级边、外部表身份映射与关联路径。只返回用户可见的资产。
          */
         get: operations["lineage_graph_api_lineage_graph_get"];
         put?: never;
@@ -1068,6 +1088,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/runs/{run_id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compact Run
+         * @description 请求在下一次模型调用前压缩上下文；等待确认期间保留请求。
+         */
+        post: operations["compact_run_api_analysis_runs__run_id__compact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}/followup": {
         parameters: {
             query?: never;
@@ -1143,17 +1183,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/analysis/runs/{run_id}/datasets/{seq}": {
+    "/api/analysis/experiences/{experience_id}/to-join-path": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset */
-        get: operations["get_dataset_api_analysis_runs__run_id__datasets__seq__get"];
+        get?: never;
+        put?: never;
+        /** Experience To Join Path */
+        post: operations["experience_to_join_path_api_analysis_experiences__experience_id__to_join_path_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/datasets/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dataset
+         * @description D 编号返回分页详情；数字序号保留原有全行结构。
+         */
+        get: operations["get_dataset_api_analysis_runs__run_id__datasets__ref__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/runs/{run_id}/datasets/{ref}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rerun */
+        post: operations["rerun_api_analysis_runs__run_id__datasets__ref__rerun_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1553,6 +1630,103 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisDatasetDetailOut */
+        AnalysisDatasetDetailOut: {
+            /** Ref */
+            ref: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Columns */
+            columns: string[];
+            /** Row Count */
+            row_count: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Inputs */
+            inputs: string[];
+            /** Sql */
+            sql: string | null;
+            /** Metric Version Ids */
+            metric_version_ids: string[];
+            /** Metric Codes */
+            metric_codes: string[];
+            /** Window */
+            window: {
+                [key: string]: unknown;
+            };
+            /** Time Column */
+            time_column: string | null;
+            /** Units */
+            units: {
+                [key: string]: unknown;
+            };
+            /** Summary Units */
+            summary_units: {
+                [key: string]: unknown;
+            };
+            /** Purpose */
+            purpose: string | null;
+            /** Answer Id */
+            answer_id: string | null;
+            /** Created At */
+            created_at: string;
+            /** Explore */
+            explore: boolean;
+            /** Assumption */
+            assumption: boolean;
+            /** Partial */
+            partial: boolean;
+            /** Rerunnable */
+            rerunnable: boolean;
+            source: components["schemas"]["AnalysisDatasetSource"] | null;
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            };
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Rows */
+            rows: unknown[][];
+            /**
+             * Total
+             * @description 已保存的行数；truncated=true 时不代表来源数据全集
+             */
+            total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AnalysisDatasetLegacyOut
+         * @description 数字序号 GET 的原有完整数据集结构。
+         */
+        AnalysisDatasetLegacyOut: {
+            /** Ref */
+            ref: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: unknown[][];
+            /** Truncated */
+            truncated: boolean;
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            };
+            /** Inputs */
+            inputs: string[];
+            /** Answer Id */
+            answer_id: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AnalysisDatasetOut */
         AnalysisDatasetOut: {
             /** Ref */
@@ -1574,6 +1748,11 @@ export interface components {
              * @default false
              */
             truncated?: boolean;
+            /**
+             * Restricted
+             * @default false
+             */
+            restricted?: boolean;
             /** Inputs */
             inputs?: string[];
             /** Sql */
@@ -1584,6 +1763,36 @@ export interface components {
             metric_version_ids?: string[];
             /** Time Column */
             time_column?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisDatasetRerunIn */
+        AnalysisDatasetRerunIn: {
+            window: components["schemas"]["AnalysisDatasetRerunWindow"];
+        };
+        /** AnalysisDatasetRerunWindow */
+        AnalysisDatasetRerunWindow: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Compare Start */
+            compare_start?: string | null;
+            /** Compare End */
+            compare_end?: string | null;
+        };
+        /** AnalysisDatasetSource */
+        AnalysisDatasetSource: {
+            /** Run Id */
+            run_id: string;
+            /** Ref */
+            ref: string;
         } & {
             [key: string]: unknown;
         };
@@ -1664,6 +1873,8 @@ export interface components {
             efforts: components["schemas"]["AnalysisEffortOut"][];
             /** Context Window */
             context_window?: number | null;
+            /** Context Window Source */
+            context_window_source?: ("configured" | "default") | null;
         };
         /** AnalysisModelsOut */
         AnalysisModelsOut: {
@@ -1695,6 +1906,10 @@ export interface components {
             experience_id?: string | null;
             /** Experience Version */
             experience_version?: number | null;
+            /** Join */
+            join?: {
+                [key: string]: unknown;
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -1792,6 +2007,12 @@ export interface components {
             } | null;
             /** Experience Candidates */
             experience_candidates?: components["schemas"]["ExperienceCandidate"][];
+            /** Join Candidates */
+            join_candidates?: {
+                [key: string]: unknown;
+            }[];
+            /** Checkpoint Warnings */
+            checkpoint_warnings?: string[];
             /** Confirmed Scope */
             confirmed_scope?: {
                 [key: string]: unknown;
@@ -2895,6 +3116,30 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** GraphJoinOut */
+        GraphJoinOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Left Asset Id */
+            left_asset_id: string;
+            /** Left Columns */
+            left_columns: string[];
+            /** Right Asset Id */
+            right_asset_id: string;
+            /** Right Columns */
+            right_columns: string[];
+            /** Cardinality */
+            cardinality: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "pending";
+        } & {
+            [key: string]: unknown;
+        };
         /** GraphNodeOut */
         GraphNodeOut: {
             /** Id */
@@ -2925,6 +3170,8 @@ export interface components {
             edges: components["schemas"]["GraphEdgeOut"][];
             /** Identity Links */
             identity_links: components["schemas"]["LinkOut"][];
+            /** Joins */
+            joins?: components["schemas"]["GraphJoinOut"][];
         } & {
             [key: string]: unknown;
         };
@@ -3138,6 +3385,12 @@ export interface components {
             approvals: {
                 [key: string]: unknown;
             }[];
+            /** Source */
+            source?: {
+                [key: string]: unknown;
+            } | null;
+            /** Created By */
+            created_by?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -3847,6 +4100,8 @@ export interface components {
             token_type: string;
             /** Expires At */
             expires_at: string;
+            /** Expires In */
+            expires_in: number;
             /**
              * Must Change Password
              * @default false
@@ -4102,6 +4357,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenOut"];
                 };
             };
         };
@@ -6102,6 +6377,37 @@ export interface operations {
             };
         };
     };
+    compact_run_api_analysis_runs__run_id__compact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     followup_run_api_analysis_runs__run_id__followup_post: {
         parameters: {
             query?: never;
@@ -6260,13 +6566,12 @@ export interface operations {
             };
         };
     };
-    get_dataset_api_analysis_runs__run_id__datasets__seq__get: {
+    experience_to_join_path_api_analysis_experiences__experience_id__to_join_path_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
-                seq: number;
+                experience_id: string;
             };
             cookie?: never;
         };
@@ -6278,9 +6583,78 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JoinPathOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_api_analysis_runs__run_id__datasets__ref__get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisDatasetDetailOut"] | components["schemas"]["AnalysisDatasetLegacyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rerun_api_analysis_runs__run_id__datasets__ref__rerun_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisDatasetRerunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisDatasetDetailOut"];
                 };
             };
             /** @description Validation Error */

@@ -31,8 +31,8 @@ from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
-from avelis.governance import access, experiences
-from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
+from avelis.governance import access, experiences, joins
+from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
 from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
 
 log = logging.getLogger("avelis.analysis")
@@ -316,6 +316,8 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         checkpoint.update(confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
                           confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
                           proposal=state.get("proposal") or checkpoint.get("proposal") or {})
+        if "inherited" in state:
+            checkpoint["inherited"] = state["inherited"]
         if status != "waiting":
             checkpoint.pop("pending", None)
             checkpoint["resume_pending"] = False
@@ -422,12 +424,12 @@ def visible_run(session: Session, user: User, run_id: str) -> AnalysisRun:
 
 
 def _live_run(session: Session, user: User, run_id: str) -> AnalysisRun:
-    """插话和停止只属于发起人；管理员读取权限不包含代为交互。"""
+    """运行交互只属于发起人；管理员读取权限不包含代为交互。"""
     run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)
     if run is None or run.user_id != user.id:
         raise NotFound("分析不存在或不属于当前用户")
     if run.status not in ("queued", "running", "waiting"):
-        raise Conflict("分析已经结束，不能插话或停止")
+        raise Conflict("分析已经结束，不能插话、停止或压缩上下文")
     return run
 
 
@@ -477,6 +479,14 @@ def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
     return run
 
 
+def compact_run(session: Session, user: User, run_id: str) -> AnalysisRun:
+    run = _live_run(session, user, run_id)
+    run.compact_requested = True
+    audit.record(session, user, "analysis.compact", "analysis_run", run.id, status=run.status)
+    session.flush()
+    return run
+
+
 def message_view(message: AnalysisMessage) -> dict[str, Any]:
     return {"id": message.id, "text": message.text, "created_at": message.created_at.isoformat(),
             "consumed_at": message.consumed_at.isoformat() if message.consumed_at else None}
@@ -506,6 +516,38 @@ def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
     return refs
 
 
+def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, checkpoint: dict,
+                             feedback: dict) -> None:
+    confirmed = {d["item_id"] for d in feedback["decisions"] if d["decision"] == "confirmed"}
+    proposal = dict(checkpoint.get("proposal") or {})
+    proposal["items"] = [dict(item) for item in proposal.get("items") or []]
+    candidates = list(checkpoint.get("join_candidates") or [])
+    warnings = list(checkpoint.get("warnings") or [])
+    for item in proposal["items"]:
+        if item["id"] not in confirmed or item.get("kind") != "join" or item.get("source") != "inferred":
+            continue
+        assets = analysis_agent.validate_proposal_join(session, user, item)
+        if assets is None:
+            warning = "这条关联缺少结构，无法提议为关联路径"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        spec = item["join"]
+        try:
+            path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
+                                 right_asset_id=assets[1].id, right_columns=spec["right_columns"],
+                                 source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+        except GovernanceError as exc:
+            warning = f"这条关联没能提议为关联路径：{exc}"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        candidate = {"item_id": item["id"], "id": path.id, "status": path.status}
+        if candidate not in candidates:
+            candidates.append(candidate)
+    checkpoint.update(proposal=proposal, join_candidates=candidates, warnings=warnings)
+
+
 def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> AnalysisRun:
     """只领取一次暂停；新 Job、反馈、状态转换与审计由 API 在同一事务提交。"""
     from avelis import jobs
@@ -527,6 +569,7 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
             refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
     else:
         feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+        _propose_confirmed_joins(session, user, run, checkpoint, feedback)
         candidates = experiences.candidates_from_feedback(
             run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
             refs=_scope_metric_refs(session, checkpoint))
@@ -742,6 +785,8 @@ def schedule_due() -> list[str]:
 
 
 def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
+    from avelis.analysis.dataset_access import can_read_dataset
+    from avelis.analysis.dataset_projection import record_refs, restrict_report, restrict_verification
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
@@ -755,30 +800,74 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
             "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
+        title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
+        if user is not None and title_refs:
+            datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
+            known = {f"D{d.seq}": d for d in datasets}
+            restricted_refs = {f"D{d.seq}" for d in datasets if f"D{d.seq}" in title_refs
+                               and not can_read_dataset(session, user, d, known)}
+            data["title"] = restrict_report(run.report or {}, restricted_refs).get("title")
         return data
+    lookup_restricted = False
     if user is not None and (run.report or {}).get("kind") == "lookup":
         from avelis.api.ask import answer_view
 
-        answer = session.scalar(select(Answer).where(
-            Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
-        if answer is not None:
-            data["answer"] = answer_view(answer)
+        source = session.get(Answer, run.report.get("answer_id"))
+        lookup_restricted = source is None or not can_read_dataset(session, user, AnalysisDataset(
+            kind="governed", answer_id=source.id, meta={"metric_version_ids": source.metric_version_ids}))
+        if not lookup_restricted:
+            answer = session.scalar(select(Answer).where(
+                Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
+            if answer is not None:
+                data["answer"] = answer_view(answer)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
-    datasets = session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
-                               .order_by(AnalysisDataset.seq))
+    datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
+                                    .order_by(AnalysisDataset.seq)))
+    known = {f"D{d.seq}": d for d in datasets}
+    restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
+    readable = {d.id for d in datasets} - restricted
+    report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
+                             lookup_restricted=lookup_restricted)
+
+    def step_args(step) -> dict:
+        args = dict(step.args)
+        if step.dataset_id in restricted and "sql" in args:
+            args["sql"] = None
+        if (restricted or lookup_restricted) and step.tool == "submit_report" and "title" in args:
+            args["title"] = report.get("title")
+        return args
+
+    def step_output(step) -> dict:
+        if not (restricted or lookup_restricted) or step.kind == "user":
+            return step.output
+        if step.kind == "tool" and step.dataset_id in readable:
+            return step.output
+        # 模型与其他步骤可能复述任意来源；工具只有明确关联可读数据集时才保留输出。
+        return {"rows": [], "restricted": True} if step.kind == "tool" else {"restricted": True}
+
     messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
                                .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
-    data.update(plan=run.plan, report=run.report, verification=run.verification,
+    data.update(plan=run.plan, report=report, title=report.get("title"),
+                verification=restrict_verification(run.verification or {}, report),
                 messages=[message_view(message) for message in messages],
                 proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
+                join_candidates=checkpoint.get("join_candidates") or [],
+                checkpoint_warnings=checkpoint.get("warnings") or [],
                 confirmed_scope=checkpoint.get("confirmed_scope") or {},
                 confirmed_items=checkpoint.get("confirmed_items") or [],
-                steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool, "args": s.args, "reason": s.reason,
-                        "status": s.status, "output": s.output, "dataset": _ref(session, s.dataset_id),
+                steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,
+                        "args": step_args(s),
+                        "reason": s.reason,
+                        "status": s.status,
+                        "output": step_output(s),
+                        "dataset": _ref(session, s.dataset_id),
                         "duration_ms": s.duration_ms, "at": s.created_at.isoformat()} for s in steps],
                 datasets=[{"ref": f"D{d.seq}", "seq": d.seq, "kind": d.kind, "title": d.title, "answer_id": d.answer_id,
-                           "inputs": d.inputs, "columns": d.columns, "rows": d.rows[:50], "row_count": len(d.rows),
-                           "truncated": d.truncated, "summary": d.meta.get("summary"), "sql": d.meta.get("sql"),
+                           "inputs": d.inputs, "columns": d.columns,
+                           "rows": [] if d.id in restricted else d.rows[:50], "row_count": len(d.rows),
+                           **({"restricted": True} if d.id in restricted else {}),
+                           "truncated": d.truncated, "summary": None if d.id in restricted else d.meta.get("summary"),
+                           "sql": None if d.id in restricted else d.meta.get("sql"),
                            "metric_version_ids": d.meta.get("metric_version_ids", []),
                            "time_column": d.meta.get("time_column")} for d in datasets])
     return data

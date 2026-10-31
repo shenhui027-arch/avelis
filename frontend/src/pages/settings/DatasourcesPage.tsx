@@ -368,7 +368,7 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
               setForm({ ...form, kind, port: String(engineList.find((item) => item.kind === kind)?.default_port ?? "") });
               setConfiguration({}); setMessage(null);
             }}>
-              {engineList.map((item) => <option key={item.kind} value={item.kind}>{item.label}{item.capabilities.includes("query") ? "" : "（只采集元数据）"}</option>)}
+              {engineList.map((item) => <option key={item.kind} value={item.kind}>{item.label}</option>)}
             </Select>
           </label>
           <label className="av-field"><span className="av-label">名称</span><input className="av-input" required maxLength={128} value={form.name} onChange={set("name")} /></label>
