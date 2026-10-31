@@ -327,6 +327,7 @@ function RunDetail({ id }: { id: string }) {
   const budget = (r.budget ?? {}) as { limits?: Record<string, number>; used?: Record<string, number> };
   const running = r.status === "queued" || r.status === "running";
   const done = r.status === "succeeded";
+  const stopped = r.status === "stopped";
   const win = r.window as { start?: string; end?: string; compare_start?: string; compare_end?: string } | null;
   return (
     <article className="av-doc">
@@ -355,11 +356,12 @@ function RunDetail({ id }: { id: string }) {
       {running || r.status === "waiting" ? <RunTranscript run={r} live={running || r.status === "waiting"} /> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
+      {stopped ? <div className="av-banner av-banner--info">已停止，下面是停止前已经得到的部分结果</div> : null}
       {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
-      {done && !lookup ? <>
+      {(done || stopped) && !lookup ? <>
         <section className="av-doc__summary" aria-label="摘要">
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
           <div className="av-doc__verdict">
