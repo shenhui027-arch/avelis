@@ -656,6 +656,24 @@ def test_factor_decompose_exposes_subunit_residual_for_integer_totals(total, fac
     assert abs(parts["指标甲"]) == pytest.approx(Decimal("0.75"), abs=Decimal("1e-10"))
 
 
+@pytest.mark.parametrize("total,factors,unexplained", [
+    # 总量量级远大于变化、输入完全一致：浮点误差不能报成未解释差额（PR #26 评审）
+    (("1000000000000", "1000000000000.001"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)}, 0),
+    (("5000", "4400"), {"指标甲": (100, 80), "指标乙": (50, 55)}, 0),
+    (("100", "100"), {"指标甲": (10, 20), "指标乙": (10, 5)}, 0),
+    # 输入不一致：差额只来自总量与因子之积之差，照常单列
+    (("1000000000000", "1000000000000.003"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)},
+     Decimal("0.002")),
+])
+def test_factor_decompose_separates_input_mismatch_from_float_error(total, factors, unexplained):
+    out = calc.factor_decompose(total, factors)
+    parts = {row["factor"]: row["contribution"] for row in out["factors"]}
+    assert out["unexplained"] == unexplained
+    assert ("未解释差额" in parts) == bool(unexplained)
+    assert sum(parts.values()) == out["total"]["change"]  # 贡献 + 未解释差额精确等于总变化
+    assert all("E" not in str(v) for v in parts.values())
+
+
 def _batch1_additive_derived_box(monkeypatch, formula, second_expression='COUNT(*)'):
     components = [{"metric_code": "a", "version_id": "组成版本甲"},
                   {"metric_code": "b", "version_id": "组成版本乙"}]

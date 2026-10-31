@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation  # noqa: F401 - Decimal 也供工具层使用
+from decimal import Decimal, InvalidOperation, localcontext  # noqa: F401 - Decimal 也供工具层使用
 from typing import Any
 
 from avelis.governance.derived import significant12 as _significant12
@@ -78,10 +78,6 @@ def contribution(rows: list[Row], keys: list[str], current: str, previous: str) 
 
 # --- 乘法关系的因子拆解（LMDI）------------------------------------------------------------
 
-def _log_mean(a: float, b: float) -> float:
-    return a if math.isclose(a, b, rel_tol=1e-12) else (a - b) / (math.log(a) - math.log(b))
-
-
 def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]) -> dict[str, Any]:
     """总量 = 各因子之积（如 总量 = 数量 × 单价）。用对数平均分解（LMDI-I），各因子贡献相加等于总差额。
     total、factors 的值均为（上期, 本期）。要求全部为正数，且各因子之积与总量一致（误差 0.5% 以内）。
@@ -101,25 +97,33 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         if abs(product - target) > 0.005 * target:
             raise CalcError(f"{label}各因子之积 {product:.4f} 与总量 {target:.4f} 不一致")
     change = t1 - t0
-    # 按因子自身的乘积计算总量的对数平均，贡献才只反映因子的变化：输入与总量的不一致不会被摊到某个因子上
-    p0 = math.prod(float(v[0]) for v in vals.values())
-    p1 = math.prod(float(v[1]) for v in vals.values())
-    weight = _log_mean(p1, p0)
-    raw = {name: weight * math.log(float(b) / float(a)) for name, (a, b) in vals.items()}
-    names = list(raw)
-    contributions = {n: Decimal(str(raw[n])) for n in names}
-    residual = change - sum(contributions.values(), Decimal(0))
+    # 因子之积与对数平均都用高精度 Decimal 计算：未解释差额 = 总变化 − 因子之积的变化，只来自输入不一致；
+    # 各因子贡献之和在 Decimal 精度内等于因子之积的变化，浮点转换与对数的误差（随总量量级放大）不会进入残差
+    with localcontext() as context:
+        context.prec = 50
+        p0 = math.prod((v[0] for v in vals.values()), start=Decimal(1))
+        p1 = math.prod((v[1] for v in vals.values()), start=Decimal(1))
+        weight = p1 if p1 == p0 else (p1 - p0) / (p1.ln() - p0.ln())
+        exact = {name: weight * (b / a).ln() for name, (a, b) in vals.items()}
+        unexplained = change - (p1 - p0)
+        # 所有贡献按同一绝对精度（最大量级的 15 位有效数字）舍入；剩下的几个末位单位只是表示尾差，
+        # 并入绝对值最大的贡献，使贡献之和精确等于因子之积的变化
+        scale = max([abs(p1 - p0), *map(abs, exact.values())])
+        step = Decimal(1).scaleb(scale.adjusted() - 14) if scale else Decimal(1)
+        contributions = {n: c.quantize(step) for n, c in exact.items()}
+        if contributions:
+            largest = max(contributions, key=lambda n: abs(contributions[n]))
+            contributions[largest] += (p1 - p0).quantize(step) - sum(contributions.values(), Decimal(0))
+        contributions = {n: c if c else Decimal(0) for n, c in contributions.items()}  # 零写成 0，不写 0E-17
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
-             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in names]
-    # 只忽略浮点运算尾差；超出总变化十亿分之一或绝对 1e-12 的残差整体单列，不摊给因子。
-    tolerance = max(abs(change) * Decimal("1e-9"), Decimal("1e-12"))
-    if abs(residual) > tolerance:
+             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in exact]
+    if unexplained:
         rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,
-                     "contribution": residual})
+                     "contribution": unexplained})
     for r in rows:
         r["share"] = _q(r["contribution"] / change) if change else None
     return {"total": {"previous": t0, "current": t1, "change": change}, "factors": rows,
-            "unexplained": residual if rows[-1]["factor"] == "未解释差额" else Decimal(0)}
+            "unexplained": unexplained}
 
 
 # --- 日历折算 -----------------------------------------------------------------------
