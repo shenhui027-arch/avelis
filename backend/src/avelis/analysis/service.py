@@ -356,12 +356,12 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         checkpoint["snapshot"] = toolbox.snapshot()
     run.status, run.error, run.plan, run.report, run.verification = status, error, plan, report, verification
     if candidates:
-        # 等理解阶段结束后补引用，避免连续追问时丢掉前一轮回答；仍无引用的理解候选不提供保存。
+        # 等理解阶段结束后补引用，避免连续追问时丢掉前一轮回答；仍无引用的理解和插话候选不提供保存。
         if status != "waiting" or checkpoint["pending"]["kind"] != "clarify":
             for candidate in candidates:
-                if candidate["source"]["checkpoint"] == "understand" and not candidate["refs"]:
+                if candidate["source"]["checkpoint"] in ("understand", "interject") and not candidate["refs"]:
                     candidate["refs"] = _scope_metric_refs(session, checkpoint)
-            candidates = [c for c in candidates if c["refs"] or c["source"]["checkpoint"] != "understand"]
+            candidates = [c for c in candidates if c["refs"] or c["source"]["checkpoint"] not in ("understand", "interject")]
         checkpoint["candidates"] = candidates
     run.checkpoint = checkpoint
     run.model_adapter = adapter
