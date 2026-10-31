@@ -162,7 +162,7 @@ function Interject({ run }: { run: Run }) {
         <textarea id={`int-${run.id}`} rows={2} maxLength={2000} value={text}
           placeholder="发现方向不对？直接说，下一步就按你说的调整，例如：不要用名称关联，改用编码"
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
         <div className="av-compose__bar">
           <span className="av-caption">Enter 发送 · Shift+Enter 换行</span>
           <span className="av-compose__spacer" />

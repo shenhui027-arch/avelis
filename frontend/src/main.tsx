@@ -17,6 +17,7 @@ import { DatasourcesPage } from "./pages/settings/DatasourcesPage";
 import { ModelSettings } from "./pages/settings/ModelSettings";
 import { UsersPage } from "./pages/settings/UsersPage";
 import { Workbench } from "./pages/Workbench";
+import "./theme";
 import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";

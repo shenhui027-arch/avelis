@@ -141,27 +141,26 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
 }
 
 /** 对已完成的报告质疑或补充规则：带着已确认的范围与依据重新分析一次。 */
-export function FollowupForm({ runId, onClose }: { runId: string; onClose: () => void }) {
+/** 回答下方常驻的输入框：继续追问、指出哪里不对或补充规则，都会基于这次分析开一轮新的。 */
+export function FollowupForm({ runId }: { runId: string }) {
   const navigate = useNavigate();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const followup = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
     params: { path: { run_id: runId } }, body: { text } as never })), ["analysis-runs"]);
   return (
-    <form className="av-analysis__followup" onSubmit={(e) => {
+    <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();
       setError(null);
       followup.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
     }}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <label htmlFor={`fu-${runId}`} className="av-sr">质疑或补充</label>
-      <textarea id={`fu-${runId}`} className="av-input" rows={2} maxLength={4000} value={text} autoFocus
-        placeholder="指出哪里不对，或补充规则" onChange={(e) => setText(e.target.value)} />
-      <div className="av-actions">
-        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>取消</button>
-        <button className="av-btn av-btn--primary av-btn--sm" type="submit" disabled={followup.isPending || !text.trim()}>
-          <Icon name="refresh" />{followup.isPending ? "提交中…" : "重新分析"}</button>
-      </div>
+      <textarea id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
+        placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
+      <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
+        disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
     </form>
   );
 }
