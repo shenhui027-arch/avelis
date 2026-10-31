@@ -14,14 +14,14 @@ def test_contribution_ranks_members_by_change_and_shares_sum_to_one():
     rows = [{"region": "华东", "cur": "500", "prev": "400"}, {"region": "华南", "cur": "200", "prev": "350"},
             {"region": "华北", "cur": "300", "prev": "300"}, {"region": "西南", "cur": "120", "prev": None}]
     out = calc.contribution(rows, ["region"], "cur", "prev")
-    assert out["total"] == {"previous": Decimal(1050), "current": Decimal(1120), "change": Decimal(70),
-                            "change_rate": Decimal("0.0667")}
-    assert [r["region"] for r in out["rows"]] == ["华南", "西南", "华东", "华北"]
+    assert out["total"] == {"previous": Decimal(1050), "current": Decimal(1120), "change": None,
+                            "change_rate": None}
+    assert [r["region"] for r in out["rows"]] == ["华南", "华东", "华北", "西南"]
     south = out["rows"][0]
     assert south["change"] == Decimal(-150) and south["change_rate"] == Decimal("-0.4286")
-    assert south["share_of_change"] == Decimal("-2.1429")  # 华南单独拉低的幅度超过总变化
-    assert out["rows"][1]["change_rate"] is None  # 上期为 0（缺失）：变化率无意义，不给
-    assert sum(r["change"] for r in out["rows"]) == out["total"]["change"]
+    assert south["share_of_change"] is None  # 存在真实空值时总变化未知，不能计算贡献占比。
+    assert out["rows"][-1]["change_rate"] is None and out["rows"][-1]["change"] is None
+    assert sum(r["change"] for r in out["rows"] if r["change"] is not None) == Decimal(-50)
     with pytest.raises(calc.CalcError, match="缺少列"):
         calc.contribution(rows, ["city"], "cur", "prev")
 
@@ -31,8 +31,8 @@ def test_factor_decompose_lmdi_contributions_add_up_exactly():
     out = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
     parts = {f["factor"]: f for f in out["factors"]}
     assert out["total"]["change"] == Decimal(-600)
-    assert parts["订单数"]["contribution"] == Decimal("-1047.35")  # L(4400, 5000) × ln(0.8) = 4693.64 × -0.22314
-    assert sum(f["contribution"] for f in out["factors"]) == Decimal(-600)  # 正好等于总差额
+    assert float(parts["订单数"]["contribution"]) == pytest.approx(-1047.348819851574)
+    assert abs(sum(f["contribution"] for f in out["factors"]) - Decimal(-600)) < Decimal("1e-10")
     assert parts["客单价"]["change_rate"] == Decimal("0.1000")
     with pytest.raises(calc.CalcError, match="不一致"):
         calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 60)})

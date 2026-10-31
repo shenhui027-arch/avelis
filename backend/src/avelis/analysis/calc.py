@@ -1,6 +1,6 @@
 """分析用的确定性计算（ADR 0007 第 3 点）：模型不心算，所有数字都由这里从数据集算出。
 
-输入输出都是“行”（dict 列表），数值用 Decimal（金额）或 float（统计量），不依赖 numpy / scipy。
+输入输出都是“行”（dict 列表），数值用 Decimal（精确小数）或 float（统计量），不依赖 numpy / scipy。
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import statistics
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation  # noqa: F401 - Decimal 也供工具层使用
 from typing import Any
+
+from avelis.governance.derived import significant12 as _significant12
 
 Row = dict[str, Any]
 
@@ -36,29 +38,42 @@ def _q(value: Decimal | None, places: int = 4) -> Decimal | None:
 # --- 两期差额按维度拆解 ---------------------------------------------------------------
 
 def contribution(rows: list[Row], keys: list[str], current: str, previous: str) -> dict[str, Any]:
-    """每个维度成员的两期值、变化与占总变化的比例，按变化绝对值排序。缺失按 0（该成员当期没有发生）。"""
+    """每个维度成员的两期值与变化。某期没有行按 0，有行但值为空则保留未知。"""
     for col in (*keys, current, previous):
-        if rows and col not in rows[0]:
+        if rows and not any(col in r for r in rows):
             raise CalcError(f"缺少列 {col}")
     merged: dict[tuple, list[Decimal]] = {}
+    missing: dict[tuple, set[int]] = {}
+    missing_values = 0
     for r in rows:
         k = tuple(r[c] for c in keys)
-        cur, prev = number(r[current]) or Decimal(0), number(r[previous]) or Decimal(0)
         acc = merged.setdefault(k, [Decimal(0), Decimal(0)])
-        acc[0] += cur
-        acc[1] += prev
+        for i, column in enumerate((current, previous)):
+            value = number(r.get(column, 0))
+            if value is None:
+                missing.setdefault(k, set()).add(i)
+                missing_values += 1
+            else:
+                acc[i] += value
     total_cur = sum((v[0] for v in merged.values()), Decimal(0))
     total_prev = sum((v[1] for v in merged.values()), Decimal(0))
-    total_change = total_cur - total_prev
+    total_change = None if missing_values else total_cur - total_prev
     out = []
     for k, (cur, prev) in merged.items():
-        change = cur - prev
+        cur = None if 0 in missing.get(k, set()) else cur
+        prev = None if 1 in missing.get(k, set()) else prev
+        change = cur - prev if cur is not None and prev is not None else None
         out.append({**dict(zip(keys, k)), "previous": prev, "current": cur, "change": change,
-                    "change_rate": _q(change / prev) if prev else None,
-                    "share_of_change": _q(change / total_change) if total_change else None})
-    out.sort(key=lambda r: (-abs(r["change"]), str([r[c] for c in keys])))
+                    "change_rate": _q(change / prev) if change is not None and prev else None,
+                    "share_of_change": _q(change / total_change) if change is not None and total_change else None})
+    out.sort(key=lambda r: (r["change"] is None, -abs(r["change"]) if r["change"] is not None else 0,
+                            str([r[c] for c in keys])))
     return {"rows": out, "total": {"previous": total_prev, "current": total_cur, "change": total_change,
-                                   "change_rate": _q(total_change / total_prev) if total_prev else None}}
+                                   "change_rate": _q(total_change / total_prev)
+                                   if total_change is not None and total_prev else None},
+            "summary": {"missing_values": missing_values,
+                        "totals_note": "总量仅合计有值部分；两期值为已知部分合计，存在缺失值时总变化、变化率及成员贡献占比未知"
+                        if missing_values else "总量包含全部已知值"}}
 
 
 # --- 乘法关系的因子拆解（LMDI）------------------------------------------------------------
@@ -92,17 +107,13 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
     weight = _log_mean(p1, p0)
     raw = {name: weight * math.log(float(b) / float(a)) for name, (a, b) in vals.items()}
     names = list(raw)
-    rounded = {n: Decimal(str(raw[n])).quantize(Decimal("0.01")) for n in names}
-    residual = change - sum(rounded.values(), Decimal(0))
+    contributions = {n: Decimal(str(raw[n])) for n in names}
+    residual = change - sum(contributions.values(), Decimal(0))
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
-             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": rounded[n]} for n in names]
-    # 未舍入的贡献之和与总差额的差不超过总量最小单位的一半（按总量输入的小数位数）时，
-    # 视为计算尾差，舍入尾差并入最后一个因子；否则差额来自输入（口径、显示精度）不一致，整体单列为“未解释差额”
-    places = max(0, *(-v.as_tuple().exponent for v in (t0, t1) if isinstance(v.as_tuple().exponent, int)))
-    tolerance = Decimal("0.5").scaleb(-places)
-    if abs(change - Decimal(str(sum(raw.values())))) <= tolerance:
-        rows[-1]["contribution"] += residual
-    else:
+             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in names]
+    # 只忽略浮点运算尾差；超出总变化十亿分之一或绝对 1e-12 的残差整体单列，不摊给因子。
+    tolerance = max(abs(change) * Decimal("1e-9"), Decimal("1e-12"))
+    if abs(residual) > tolerance:
         rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,
                      "contribution": residual})
     for r in rows:
@@ -113,16 +124,15 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
 
 # --- 日历折算 -----------------------------------------------------------------------
 
-def period_days(start: date, end: date, holidays: set[date] | None = None) -> dict[str, int]:
+def period_days(start: date, end: date, holidays: set[date] | None = None) -> dict[str, int | None]:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    holidays = holidays or set()
     return {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() >= 5),
-            "holidays": sum(1 for d in days if d in holidays)}
+            "holidays": sum(1 for d in days if d in holidays) if holidays is not None else None}
 
 
 def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, date],
                     previous_period: tuple[date, date], holidays: set[date] | None = None) -> dict[str, Any]:
-    """按天数折算：日均值的变化，以及天数差异本身带来的变化（两期天数、周末、节假日数一并给出）。"""
+    """只按自然日天数折算；周六日天数供参考，未配置业务日历时节假日未知。"""
     cur, prev = number(current), number(previous)
     if cur is None or prev is None:
         raise CalcError("两期值都需要")
@@ -130,10 +140,10 @@ def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, dat
     daily_cur, daily_prev = cur / dc["days"], prev / dp["days"]
     # 本期天数按上期日均值折算出的“天数效应”；其余为日均水平的变化
     day_effect = daily_prev * (dc["days"] - dp["days"])
-    return {"current": {**dc, "value": cur, "daily": _q(daily_cur, 2)},
-            "previous": {**dp, "value": prev, "daily": _q(daily_prev, 2)},
-            "change": cur - prev, "day_count_effect": _q(day_effect, 2),
-            "daily_level_effect": _q(cur - prev - day_effect, 2),
+    return {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
+            "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
+            "change": cur - prev, "day_count_effect": _significant12(day_effect),
+            "daily_level_effect": _significant12(cur - prev - day_effect),
             "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
 
 
@@ -235,7 +245,17 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
              end: date | None = None) -> dict[str, Any]:
     """各成员的行数与覆盖的日期；给定起止日期时列出缺失的日期（period 为 YYYY-MM-DD）。"""
     expected = None
-    if period and start and end:
+    daily = bool(period and rows)
+    if daily:
+        for row in rows:
+            value = row.get(period)
+            try:
+                daily = isinstance(value, str) and date.fromisoformat(value).isoformat() == value
+            except ValueError:
+                daily = False
+            if not daily:
+                break
+    if daily and start and end:
         expected = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
     groups: dict[tuple, list[Row]] = {}
     for r in rows:

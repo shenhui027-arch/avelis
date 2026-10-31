@@ -518,8 +518,7 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
     if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
         left, right = _analyze(node.this, scope), _analyze(node.expression, scope)
         bad = left.bad_constant or right.bad_constant or not (left.numeric and right.numeric)
-        aggs = ("agg_level", "count", "ratio")
-        if isinstance(node, exp.Div) and left.kind in aggs and right.kind in aggs:
+        if isinstance(node, exp.Div) and left.kind == right.kind == "count":
             kind = "ratio"
         elif isinstance(node, exp.Sub) and left.kind == right.kind and left.kind in ("agg_level", "count"):
             kind = "delta"  # 两期的条件聚合相减：差额
