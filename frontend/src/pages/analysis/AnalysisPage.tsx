@@ -5,10 +5,12 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useExampleQuestions, useTimeZone } from "../../api/hooks";
+import { errorText, useAction, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
+import { Evidence, ResultTable } from "../ask/AskPage";
+import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { BarChart, LineChart } from "./charts";
 import { RunTranscript } from "./RunTranscript";
 
@@ -107,11 +109,12 @@ function AnalysisNav({ runId }: { runId?: string }) {
   const tz = useTimeZone();
   return (
     <nav className="av-analysis__nav" aria-label="分析导航">
-      <Link to="/analysis" className="av-btn av-btn--primary av-analysis__new"><Icon name="plus" />新建分析</Link>
+      <Link to="/analysis" className="av-btn av-btn--primary av-analysis__new"><Icon name="plus" />新问题</Link>
       <div className="av-analysis__navgroup">
         <NavLink to="/analysis/tasks" className="av-analysis__navitem"><Icon name="refresh" />定时任务
           {tasks.data?.length ? <span className="av-count">{tasks.data.length}</span> : null}</NavLink>
         <NavLink to="/analysis/experiences" className="av-analysis__navitem"><Icon name="chip" />个人经验</NavLink>
+        <Link to="/ask" className="av-analysis__navitem"><Icon name="ask" />旧版问数记录</Link>
       </div>
       <div className="av-analysis__navlabel">最近</div>
       <div className="av-analysis__runs">
@@ -131,7 +134,10 @@ function AnalysisNav({ runId }: { runId?: string }) {
 function Composer() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  const examples = (useExampleQuestions("analysis").data?.questions ?? []).map((q) => q.text);
+  // 问数与分析合并为一个入口：两类示例都给，系统按问题自己判断走取数还是多步分析
+  const askExamples = useExampleQuestions("ask").data?.questions ?? [];
+  const analysisExamples = useExampleQuestions("analysis").data?.questions ?? [];
+  const examples = [...new Set([...askExamples.slice(0, 2), ...analysisExamples.slice(0, 3)].map((q) => q.text))];
   const [kind, setKind] = useState<WindowKind>("none");
   const [fixed, setFixed] = useState({ start: "2026-09-01", end: "2026-09-30", cs: "2026-08-01", ce: "2026-08-31" });
   const [mode, setMode] = useState<"auto" | "always">("auto");
@@ -141,7 +147,7 @@ function Composer() {
     body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode } as never })), ["analysis-runs"]);
   return (
     <section className="av-analysis__compose">
-      <h1>要分析什么？</h1>
+      <h1>想知道什么？</h1>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <form className="av-compose" onSubmit={(e) => {
         e.preventDefault();
@@ -149,7 +155,7 @@ function Composer() {
         start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
       }}>
         <label htmlFor="aq" className="av-sr">分析问题</label>
-        <textarea id="aq" rows={3} value={text} placeholder="为什么变了、什么关系、该怎么做"
+        <textarea id="aq" rows={3} value={text} placeholder="问一个数，或者问为什么变了、有什么关系"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }} />
         <div className="av-compose__bar">
@@ -275,6 +281,22 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
   </section>;
 }
 
+/** 取数类问题（ADR 0013 合并入口）：由问数引擎直接给出受治理查询结果，不展开多步分析。 */
+function LookupAnswer({ a }: { a: Answer }) {
+  const result = (a.result ?? {}) as AskResult;
+  const intent = (a.intent ?? {}) as AskIntent;
+  const single = result.rows?.length === 1 && result.columns?.length === 1;
+  return (
+    <section className="av-doc__section" aria-label="结果">
+      {single ? <div className="av-lookup__value"><span>{resultCell(result.rows![0][0], result.columns![0])}</span>
+        <span className="av-caption">{a.message}</span></div>
+        : <p className="av-doc__lead">{a.message}</p>}
+      {!single && result.rows?.length ? <ResultTable result={result} dimensions={intent.group_by ?? []} /> : null}
+      <details className="av-doc__more"><summary>口径、来源与 SQL</summary><Evidence a={a} /></details>
+    </section>
+  );
+}
+
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
   const tz = useTimeZone();
@@ -285,6 +307,8 @@ function RunDetail({ id }: { id: string }) {
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[];
     sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[] };
+  const answer = (r as Run & { answer?: Answer | null }).answer;
+  const lookup = (report as { kind?: string }).kind === "lookup";
   const hitl = r as Run & { parent_run_id?: string | null; proposal?: { items: ProposalItem[] } | null;
     pending?: { kind?: string; question?: string } | null;
     experience_candidates?: Parameters<typeof CandidatesPanel>[0]["candidates"] };
@@ -321,7 +345,7 @@ function RunDetail({ id }: { id: string }) {
           {done ? <>
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-expanded={challenging}
               onClick={() => setChallenging(!challenging)}>质疑 / 补充</button>
-            <ExportMenu run={r} onError={setError} />
+            {!lookup ? <ExportMenu run={r} onError={setError} /> : null}
           </> : null}
         </div>
       </header>
@@ -334,7 +358,8 @@ function RunDetail({ id }: { id: string }) {
       {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
-      {done ? <>
+      {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
+      {done && !lookup ? <>
         <section className="av-doc__summary" aria-label="摘要">
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
           <div className="av-doc__verdict">

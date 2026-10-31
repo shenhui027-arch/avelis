@@ -471,8 +471,8 @@ class OutlierArgs(BaseModel):
 
 class Scope(BaseModel):
     """理解阶段的结构化输出（ADR 0012）：问题类型、指标、筛选、窗口；确定不了时写追问。"""
-    question_type: Literal["change", "relation", "other"] = Field(
-        description="change：为什么变化 / 是否变化；relation：什么关系、怎么分布；other：其他")
+    question_type: Literal["lookup", "change", "relation", "other"] = Field(
+        description="lookup：只取数值、排名、明细或对比；change：为什么变化 / 是否变化；relation：什么关系、怎么分布；other：其他")
     metric_codes: list[str] = Field(default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）")
     filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选：维度名与取值（如某个区域）")
     dimensions: list[str] = Field(default_factory=list, max_length=3, description="关系类问题要对比的维度名")

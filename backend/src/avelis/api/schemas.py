@@ -776,6 +776,7 @@ class AnalysisRunOut(Out):
     task_id: str | None = None
     plan: Json | None = None
     report: Json | None = None
+    answer: Json | None = None
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
     datasets: list[AnalysisDatasetOut] | None = None

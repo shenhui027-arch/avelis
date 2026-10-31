@@ -5498,6 +5498,18 @@
       ],
       "title": "Report"
      },
+     "answer": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Answer"
+     },
      "verification": {
       "anyOf": [
        {

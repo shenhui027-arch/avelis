@@ -1,10 +1,11 @@
 """分析流程（LangGraph，ADR 0012）：系统组装上下文，模型少轮推理。
 
-    理解 understand ──▶ 系统预检 precheck ──▶ 推理 reason（工具循环 → 核验 → 修订一轮 → 核验）──▶ 结束
+    理解 understand ──▶ lookup 问数快路径 / 系统预检 precheck ──▶ 推理 reason（工具循环 → 核验 → 修订一轮 → 核验）──▶ 结束
 
 - 理解：系统按问题文字检索候选口径（前 10 个），模型做结构化输出（submit_scope）：问题类型、指标、筛选、窗口，
   确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。有追问时暂停，用户回答后继续理解，
   每次运行最多追问两次；仍未澄清或无人值守时结束为 clarify，不带着未澄清的范围继续预检与推理。
+- lookup：只取数的问题复用问数引擎，已回答则直接结束；其他状态回到完整分析流程，由原有检查点处理。
 - 系统预检：确定性代码按 scope 一次执行固定的排查（变化类：口径详情、变更、数据健康、explain_change、日历折算；
   关系类：按维度取数、分组对比、相关），产出数据集与一份紧凑的上下文包。查询计入额度、检查权限、记录步骤。
 - 推理：上下文包放在用户消息里；模型可以直接提交报告，也可以下钻，一轮可以发出多个工具调用。思考强度按页面配置。
@@ -39,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from avelis.analysis import investigation
 from avelis.analysis.tools import AnalysisToolbox, Scope
 from avelis.analysis.verify import ground_report
-from avelis.ask import service
+from avelis.ask import agent as ask_agent, service
 from avelis.config import get_settings
 from avelis.engines import dialect_of, get_engine
 from avelis.llm_protocol import ModelProtocolError, protocol_problem
@@ -165,7 +166,8 @@ INVESTIGATION_EXAMPLES = """
 
 
 UNDERSTAND_PROMPT = """你是 Avelis 分析的问题理解器：读用户问题与候选口径，调用一次 submit_scope，写出问题的范围。
-- question_type：为什么变化 / 是否变化写 change；什么关系、怎么分布、哪些更好写 relation；其余写 other；
+- question_type：只问一个或一组数值、排名、明细或对比，不问原因、关系、建议时写 lookup；
+  为什么变化 / 是否变化写 change；什么关系、怎么分布、哪些更好写 relation；其余写 other；
 - metric_codes：所问的指标编码，只能取自候选口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
 - filters：问题限定的范围，写成指标维度名与取值（取值照问题里的写法，例如某个地区名）；不要把问题没提到的范围写进来；
 - dimensions：关系类问题要对比的维度名（取自该指标的维度）；
@@ -470,6 +472,31 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "precheck", "rounds": 1,
             "clarification": None, "clarifications": clarifications,
             "notes": [problem] if problem else []}
+
+
+def lookup(state: AnalysisState, config) -> dict[str, Any]:
+    """问数已回答时直接结束；未回答时交回完整分析，不另建澄清流程。"""
+    toolbox, _ = _ctx(config)
+    toolbox.check_executor()
+    if toolbox.stopped:
+        return {"phase": "precheck"}
+    args = {"question": state["question"]}
+    toolbox.budget.used_calls += 1
+    if over := toolbox.budget.exhausted():
+        toolbox._step("tool", "ask", args, "denied", {"error": over})
+        return {"phase": "precheck"}
+    toolbox.budget.used_tools += 1
+
+    def run():
+        answer = ask_agent.run_turn(toolbox.session, toolbox.user, state["question"], None)
+        if answer.status == "answered":
+            toolbox.report = {"kind": "lookup", "answer_id": answer.id, "title": state["question"],
+                              "summary": answer.explanation or answer.message}
+            toolbox.verification = {"ok": True, "status": "lookup"}
+        return {"answer_id": answer.id, "status": answer.status}, None, "ok" if answer.status == "answered" else "error"
+
+    toolbox._guard("ask", args, run)
+    return {"phase": "done" if toolbox.report is not None else "precheck"}
 
 
 def precheck(state: AnalysisState, config) -> dict[str, Any]:
@@ -790,14 +817,18 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
 def build_graph(checkpointer) -> Any:
     graph = StateGraph(AnalysisState)
     graph.add_node("understand", understand)
+    graph.add_node("lookup", lookup)
     graph.add_node("precheck", precheck)
     graph.add_node("propose", propose)
     graph.add_node("checkpoint", checkpoint)
     graph.add_node("reason", reason)
     graph.add_edge(START, "understand")
     graph.add_conditional_edges("understand", lambda s: (
-        "understand" if s.get("clarification") else END) if s.get("phase") == "clarify" else "precheck",
-        {"understand": "understand", END: END, "precheck": "precheck"})
+        ("understand" if s.get("clarification") else END) if s.get("phase") == "clarify" else
+        ("lookup" if (s.get("scope") or {}).get("question_type") == "lookup" else "precheck")),
+        {"understand": "understand", END: END, "lookup": "lookup", "precheck": "precheck"})
+    graph.add_conditional_edges("lookup", lambda s: END if s.get("phase") == "done" else "precheck",
+                                {END: END, "precheck": "precheck"})
     graph.add_conditional_edges("precheck", lambda s: "understand" if s.get("phase") == "understand" else "propose",
                                 {"understand": "understand", "propose": "propose"})
     graph.add_edge("propose", "checkpoint")

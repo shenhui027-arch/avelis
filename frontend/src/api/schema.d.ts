@@ -1698,6 +1698,10 @@ export interface components {
             report?: {
                 [key: string]: unknown;
             } | null;
+            /** Answer */
+            answer?: {
+                [key: string]: unknown;
+            } | null;
             /** Verification */
             verification?: {
                 [key: string]: unknown;
