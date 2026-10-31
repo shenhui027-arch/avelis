@@ -134,9 +134,13 @@ class Toolbox:
         if card.status != "published":
             return json.dumps({"matched": [], "note": f"该指标当前状态为 {card.status}，不提供取值；"
                                "请照常用原话中的取值提交意图，后端会说明能否查询"}, ensure_ascii=False)
-        matched = [v for v in self._dimension_values(metric_code, dimension) if v and v in text]
+        values = self._dimension_values(metric_code, dimension)
+        matched = [v for v in values if v and v in text]
+        note = "只返回出现在原话中的取值" if matched else "原话中没有该维度的已知取值"
+        if len(values) >= service.DIMENSION_VALUES_LIMIT:
+            note += "；样本不完整时，原话中的取值会在提交时精确核验"
         return json.dumps({"matched": sorted(set(matched)),
-                           "note": "只返回出现在原话中的取值" if matched else "原话中没有该维度的已知取值"},
+                           "note": note},
                           ensure_ascii=False)
 
     def submit_intent(self, metric_codes: list[str], start_date: date, end_date: date, filters: list | None = None,
@@ -154,9 +158,15 @@ class Toolbox:
             if f["dimension"] not in dims:
                 problems.append(f"维度 {f['dimension']} 不在允许范围")
                 continue
-            known = set(self._dimension_values(metric_code, f["dimension"]))
+            sample = self._dimension_values(metric_code, f["dimension"])
+            known = set(sample)
             # 受影响 / 失效的指标不查取值：交给治理步骤给出拦截原因
             unknown = [v for v in f["values"] if v not in known] if card.status == "published" else []
+            if unknown and len(sample) >= service.DIMENSION_VALUES_LIMIT:
+                _, version = self.catalog.versions[metric_code]
+                existing = service._existing_dimension_values(self.session, self.user, version, f["dimension"],
+                                                               unknown, get_settings())
+                unknown = [v for v in unknown if existing is not None and v not in existing]
             if unknown:
                 problems.append(f"维度 {f['dimension']} 没有取值 {unknown}；请先用 match_dimension_values 核对")
             parsed.append(DimensionFilter(dimension=f["dimension"], values=f["values"]))
@@ -181,7 +191,8 @@ class Toolbox:
                                          description="检索当前用户有权使用的已治理指标（名称、别名、说明、允许的维度）"),
             StructuredTool.from_function(self.match_dimension_values, name="match_dimension_values",
                                          args_schema=MatchArgs,
-                                         description="在指定维度的已知取值中，找出出现在用户原话里的值"),
+                                         description="在指定维度的已知取值中，找出出现在用户原话里的值；"
+                                         "样本不完整时，原话中的取值会在提交时精确核验"),
             StructuredTool.from_function(self.submit_intent, name="submit_intent", args_schema=SubmitArgs,
                                          description="提交结构化查询意图；后端校验口径、权限后生成 SQL 执行"),
             StructuredTool.from_function(self.ask_user, name="ask_user", args_schema=AskUserArgs,

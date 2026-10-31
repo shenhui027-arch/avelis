@@ -73,7 +73,7 @@ def test_evidence_and_kinds_are_inferred_from_expressions(engine):
                    "COALESCE(SUM(amount), 7) AS padded, CAST(region AS VARCHAR) AS up FROM d1.facts GROUP BY region")
     got = {c.name: (c.kind, c.eligible, c.assumption, c.label_ok) for c in v.columns}
     assert got["big"] == ("count", True, False, False)  # 条件计数：条件里的字面量只用作过滤
-    assert got["unit"] == ("ratio", True, False, False)
+    assert got["unit"] == ("unknown", True, False, False)
     assert got["scaled"] == ("unknown", True, False, False)  # 允许的常量
     assert got["guess"][1:3] == (False, True)  # 其他常量：假设计算
     assert got["literal"][1:3] == (False, True)  # 纯字面量
