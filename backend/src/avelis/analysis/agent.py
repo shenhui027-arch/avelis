@@ -43,6 +43,8 @@ from avelis.analysis.verify import ground_report
 from avelis.ask import service
 from avelis.config import get_settings
 from avelis.engines import dialect_of, get_engine
+from avelis.governance import experiences
+from avelis.governance.errors import GovernanceError
 from avelis.llm_protocol import ModelProtocolError, protocol_problem, response_finish_reason
 from avelis.models import Datasource, MetricVersion
 
@@ -645,8 +647,17 @@ def checkpoint(state: AnalysisState, config) -> dict[str, Any]:
         feedback = interrupt({"kind": "assumptions"})
         toolbox.check_resume_permissions()
         visible = {(e["id"], e["version"]) for e in toolbox.experiences}
-        items = [i for i in items if i["source"] != "experience"
-                 or (i["experience_id"], i["experience_version"]) in visible]
+        visible_items = []
+        for item in items:
+            if (item["source"] == "experience"
+                    and (item["experience_id"], item["experience_version"]) not in visible):
+                continue
+            try:
+                experiences._resolve_refs(toolbox.session, toolbox.user, item.get("refs") or [], allowed=toolbox._allowed)
+            except GovernanceError:
+                continue
+            visible_items.append(item)
+        items = visible_items
         proposal = {**proposal, "items": items}
         item_ids = {i["id"] for i in items}
         feedback = {**feedback, "decisions": [d for d in feedback.get("decisions") or []

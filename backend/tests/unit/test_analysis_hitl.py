@@ -992,23 +992,35 @@ def test_experience_content_and_refs_come_from_recalled_version(monkeypatch):
 
 @pytest.mark.parametrize("decision", ["confirmed", "rejected"])
 @pytest.mark.parametrize("revoked", [False, True])
-def test_resume_excludes_revoked_experience_proposals_from_every_model_request(monkeypatch, decision, revoked):
+@pytest.mark.parametrize("source", ["experience", "inferred"])
+@pytest.mark.parametrize("object_type", ["asset", "metric_version"])
+def test_resume_excludes_revoked_proposal_refs_from_every_model_request(
+    monkeypatch, decision, revoked, source, object_type,
+):
     cat = pipeline_catalog()
     metric, version = cat.versions["m_a"]
     metric.code = "m_a"
     version.id, version.metric_id, version.version_no = "metric-v1", metric.id, 1
     asset = Asset(id="asset-b", domain_id="dB", catalog_name="catalog", db_name="schema", name="asset_b")
     asset_version = AssetVersion(id="asset-b-v1", asset_id=asset.id, version_no=1)
+    extra_metric = Metric(id="extra-metric", code="extra", domain_id="dB")
+    extra_version = MetricVersion(id="extra-v1", metric_id=extra_metric.id, version_no=1)
+    cat.versions[extra_metric.code] = (extra_metric, extra_version)
     exp = {"id": "exp-e", "version": 2, "content": "经验E的保密关联规则", "refs": [
         {"object_type": "metric_version", "object_id": version.id, "version": 1},
-        {"object_type": "asset", "object_id": asset.id, "version": 1}]}
+        {"object_type": object_type, "object_id": asset.id if object_type == "asset" else extra_version.id,
+         "version": 1}]}
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
+    args = (proposal(experience_id=exp["id"], experience_version=exp["version"]) if source == "experience" else
+            proposal(content="推断项借用了经验E的保密引用", refs=exp["refs"]))
+    content = exp["content"] if source == "experience" else args["items"][0]["content"]
     scope = reply("submit_scope", {"question_type": "other", "metric_codes": ["m_a"]}, "scope")
     box, model, config, state, calls = configured(monkeypatch, [scope, reply("submit_proposal",
-        proposal(experience_id=exp["id"], experience_version=exp["version"]), "p"),
+        args, "p"),
         AIMessage(content="继续核对已有数据"), report_reply()], mode="always", catalog=cat)
     box.session.store.update({(Metric, metric.id): metric, (MetricVersion, version.id): version,
-                              (Asset, asset.id): asset})
+                              (Asset, asset.id): asset, (Metric, extra_metric.id): extra_metric,
+                              (MetricVersion, extra_version.id): extra_version})
     monkeypatch.setattr(box.session, "scalar", lambda statement: asset_version)
     monkeypatch.setattr(agent.service, "version_sources", lambda s, v: {})
     allowed = {"dA", "dB"}
@@ -1016,7 +1028,8 @@ def test_resume_excludes_revoked_experience_proposals_from_every_model_request(m
     graph = agent.build_graph(MemorySaver())
     first = graph.invoke(state, config)
     assert first["__interrupt__"] and calls == ["precheck"]
-    assert first["proposal"]["items"][0]["content"] == exp["content"]
+    item = first["proposal"]["items"][0]
+    assert item["source"] == source and item["content"] == content and item["refs"] == exp["refs"]
     assert box.scope.metric_codes == ["m_a"] and not getattr(box, "precheck_meta", None)
     request_count = len(model.seen)
 
@@ -1026,8 +1039,9 @@ def test_resume_excludes_revoked_experience_proposals_from_every_model_request(m
     resumed_requests = [json.dumps([m.model_dump(mode="json") for m in messages], ensure_ascii=False)
                         for messages in model.seen[request_count:]]
     assert len(resumed_requests) == 2 and final["phase"] == "done" and box.verification["ok"]
-    assert all((exp["content"] in request) is (not revoked) for request in resumed_requests)
+    assert all((content in request) is (not revoked) for request in resumed_requests)
     assert box.snapshot()["state"]["proposal"] == final["proposal"]
+    assert box.snapshot()["state"]["confirmed_items"] == final["confirmed_items"]
     if revoked:
         assert final["proposal"]["items"] == box.proposal["items"] == box.experiences == []
         assert final["confirmed_items"] == box.confirmed_items == []
