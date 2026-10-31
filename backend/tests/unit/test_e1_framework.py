@@ -108,6 +108,28 @@ def test_d3_adds_raw_query_evidence_without_spending_the_analysis_budget(monkeyp
     assert evidence.output["budget_used_by_injection"]["used_queries"] == 1
     meta = [s for s in injected(box) if s.tool == "metadata"][0]
     assert meta.output["evidence_chars"] > 0 and stats["injected_chars"] == meta.output["chars"] + meta.output["evidence_chars"]
+    assert meta.output["evidence_omitted"] == stats["evidence_omitted"] == []
+
+
+def test_d3_counts_only_evidence_blocks_that_fit_in_the_context_pack(monkeypatch):
+    box = make_box(monkeypatch=monkeypatch)
+    kept = governed(box, ["指标乙"], [["42"]])
+    omitted = governed(box, ["指标乙"], [["省略的证据" * 100]])
+    kept_ref, omitted_ref = f"D{kept.seq}", f"D{omitted.seq}"
+    kept_block = box._pack_block(kept_ref, kept)
+    omitted_block = box._pack_block(omitted_ref, omitted)
+    box.injected_refs = [kept_ref, omitted_ref]
+    monkeypatch.setattr(box, "PACK_CHARS", len(kept_block) + 400)  # 正好只够第一块与省略标记
+
+    with e1.install("D3", {"assets": []}, rebuild=lambda: None) as stats:
+        pack = box.context_pack()
+
+    assert kept_block in pack and omitted_block not in pack
+    assert "其余 1 项放不下" in pack and omitted_ref in pack
+    meta = [s for s in injected(box) if s.tool == "metadata"][0]
+    assert meta.output["evidence_chars"] == len(kept_block)
+    assert stats["injected_chars"] == len(kept_block)
+    assert meta.output["evidence_omitted"] == stats["evidence_omitted"] == [omitted_ref]
 
 
 def test_install_restores_the_product_functions(monkeypatch):
@@ -175,6 +197,26 @@ def test_run_cost_includes_error_usage_and_counts_missing_usage():
     json.dumps(result)
 
 
+@pytest.mark.parametrize(("usage", "input_tokens", "output_tokens", "expected_cost"), [
+    ({"input_tokens": 300_000}, 300_000, 0, "0.6"),
+    ({"input_tokens": None, "output_tokens": 100_000}, 0, 100_000, "0.8"),
+])
+def test_run_cost_counts_partial_usage_as_missing_and_keeps_known_cost(usage, input_tokens, output_tokens, expected_cost):
+    result = cost.run_cost({"steps": [{"kind": "model", "status": "ok", "at": "2026-10-30T10:00:00+08:00",
+                                      "output": usage}]})
+    assert result["missing_usage"] == 1
+    assert result["input_tokens"] == result["cache_miss_tokens"] == input_tokens
+    assert result["output_tokens"] == output_tokens
+    assert Decimal(result["total_cny"]) == Decimal(expected_cost)
+
+
+@pytest.mark.parametrize("error_code", ["budget_tokens", "budget_output_tokens"])
+def test_run_cost_does_not_charge_or_reserve_for_skipped_budget_requests(error_code):
+    result = cost.run_cost({"steps": [{"kind": "model", "status": "skipped", "output": {"error_code": error_code}}]})
+    assert result == {"input_tokens": 0, "cache_hit_tokens": 0, "cache_miss_tokens": 0, "output_tokens": 0,
+                      "missing_usage": 0, "peak_cny": "0", "off_peak_cny": "0", "total_cny": "0"}
+
+
 def test_ledger_refuses_to_start_when_the_next_reserve_does_not_fit():
     ledger = cost.Ledger("30", "28.5", per_run_reserve_cny="1.5")
     assert ledger.can_start()  # 刚好留够一次运行的预留时可以开始
@@ -213,6 +255,16 @@ COSTED_RUN = {"id": "unit-test-run", "status": "succeeded", "steps": [COSTED_STE
                  id="empty-steps"),
     pytest.param("0", {**COSTED_RUN, "steps": [COSTED_STEP, MISSING_USAGE_STEP]}, 1, "0.6", "2.1",
                  "1 个模型步骤缺少用量", id="partial-usage"),
+    pytest.param("0", {**COSTED_RUN, "steps": [{**COSTED_STEP, "output": {"input_tokens": 300_000}}]},
+                 1, "0.6", "2.1", "1 个模型步骤缺少用量", id="missing-output-usage"),
+    pytest.param("0", {**COSTED_RUN, "steps": [{**COSTED_STEP, "output": {"output_tokens": 100_000}}]},
+                 1, "0.8", "2.3", "1 个模型步骤缺少用量", id="missing-input-usage"),
+    pytest.param("0", {**COSTED_RUN, "steps": [COSTED_STEP,
+                 {"kind": "model", "status": "skipped", "output": {"error_code": "budget_tokens"}}]},
+                 1, "0.6", "0.6", None, id="skipped-input-budget"),
+    pytest.param("0", {**COSTED_RUN, "steps": [COSTED_STEP,
+                 {"kind": "model", "status": "skipped", "output": {"error_code": "budget_output_tokens"}}]},
+                 1, "0.6", "0.6", None, id="skipped-output-budget"),
     pytest.param("0", {"steps": [COSTED_STEP, MISSING_USAGE_STEP]}, 1, "0.6", "2.1",
                  "运行详情缺少 id；1 个模型步骤缺少用量", id="reserve-added-once"),
 ])

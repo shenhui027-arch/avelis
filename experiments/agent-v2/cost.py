@@ -39,7 +39,7 @@ def request_cost(usage: dict, at: datetime) -> Decimal:
 
 
 def run_cost(run: dict) -> dict:
-    """汇总所有 model 步骤（含失败步骤）；没有用量的步骤按零计并单独计数。"""
+    """汇总已发出的 model 步骤（含失败步骤）；用量不完整时累计已知部分并单独计数。"""
     tokens = dict.fromkeys(("input_tokens", "cache_hit_tokens", "cache_miss_tokens", "output_tokens"), 0)
     costs = {"peak": Decimal("0"), "off_peak": Decimal("0")}
     missing_usage = 0
@@ -47,9 +47,12 @@ def run_cost(run: dict) -> dict:
         if step.get("kind") != "model":
             continue
         usage = step.get("output") or {}
-        if usage.get("input_tokens") is None and usage.get("output_tokens") is None:
+        if step.get("status") == "skipped" and usage.get("error_code") in ("budget_tokens", "budget_output_tokens"):
+            continue  # 预算拦截时没有发出请求，不计费，也不算缺失用量
+        if usage.get("input_tokens") is None or usage.get("output_tokens") is None:
             missing_usage += 1
-            continue
+            if usage.get("input_tokens") is None and usage.get("output_tokens") is None:
+                continue
         input_tokens = usage.get("input_tokens") or 0
         cache_hit_tokens = usage.get("cache_hit_tokens") or 0
         tokens["input_tokens"] += input_tokens
