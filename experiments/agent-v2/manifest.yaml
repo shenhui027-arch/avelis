@@ -176,3 +176,23 @@ e1:
     extra_model_requests: bootstrap demo 与 E1 运行器各做 1 次模型连通性检测（不在账本内，按 0.005 元起算 --spent 兜底）
   material_check: 运行前以 wang 身份 describe_asset 核对全部资产与列，全部 query_sql 通过探索校验（未执行）；e01 调价查询按题目范围加类目关联
   cache: 提供方前缀缓存无法关闭；四个条件同样受益，按条件记录 cache_hit_tokens
+
+# --- 评分器 v2.1（协调会话 2026-10-31 批准的两条规则）：先冻结，再对 E1 全部 48 次与历史结果重判 ------------------
+scorer_v2_1:
+  version: v2.1
+  rules:
+    - 首要原因按机制匹配：题目规格写资产（限定名）+ 成员；证据数据集来自该资产或其视图血缘上游含该资产，且证据行的成员对得上
+      （编码 ↔ 显示名用生成器字典 REGIONS / CITIES / PAID_CHANNELS，派生值展开到被聚合的全部输入行，每一行都要属于这些成员）；
+      禁止关键字与原因必含用同一字典展开
+    - 口径类关键数值可以绑定到带探索标记的数据：原值在容差内等于某期真值、实体齐全、数值列的日期窗口等于该期（单日行不算整个期间）
+  frozen_before_rescore: true  # 下列 blob 在重判前提交；重判结果文件记录同一 sha256
+  sha256:
+    backend/tests/eval/scoring_v2_1.py: 96431c0d796543e827a23214ae038a252ab51ca3053dc4e81c1f0d025eed7fb1
+    backend/tests/eval/analysis_questions_v2_1.yaml: 0bc382bf63bcd7bcc0d28230de940a8f9f38e4b9c5df2bc467cc77c47481a9cb
+  git_blobs:  # git hash-object
+    backend/tests/eval/scoring_v2_1.py: 2e249cc9b1becf2ce09a8bba79e171aa6bad7d97
+    backend/tests/eval/analysis_questions_v2_1.yaml: 99e4f3db3f28a15e378ae4497320861f9853edbe
+    experiments/agent-v2/rescore_v2_1.py: b95f8f3888ea2bfadd9b4ebaad65a300bc0dca36
+    scripts/ec_data.py: ce20338de0d26bc2825eb11a54b07f824fdbef5e  # 字典与视图血缘的来源，未改
+    experiments/agent-v2/e1/human_audit.yaml: 4600c96bb08d1770944fc23569750b95fda92652  # 人工审定在评分器冻结前写定
+  unchanged: v1（scoring.py）、v2.0（scoring_v2.py 与 analysis_questions_v2.yaml）的 blob 同 b0.scorer_git_blobs，并列重判
