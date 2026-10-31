@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import json
 import operator
+import ssl
 import time
 from typing import Annotated, Any, TypedDict
 
+import httpx
+import openai
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langgraph.graph import END, START, StateGraph
@@ -175,22 +178,48 @@ def _model_for(model, budget, **phase):
     return factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, budget.remaining())), max_retries=0, **phase)
 
 
-TRANSIENT_ERRORS = {"APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError"}
+TRANSIENT_ERRORS = (openai.APIConnectionError, openai.InternalServerError, openai.RateLimitError,
+                    httpx.TimeoutException, httpx.TransportError, ssl.SSLError, TimeoutError, ConnectionError)
 
 
-def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMessage:
+def _is_transient_error(exc: Exception) -> bool:
+    """按类型识别包装后的传输异常；同时检查 cause / context，最多八层并按身份防环。"""
+    pending = [(exc, 0)]
+    seen: set[int] = set()
+    while pending:
+        current, depth = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, TRANSIENT_ERRORS):
+            return True
+        if isinstance(current, (ModelProtocolError, openai.APIStatusError)):
+            continue  # 协议、参数与鉴权错误不因上下文中恰有传输异常而重试。
+        if depth < 8:
+            pending += [(cause, depth + 1) for cause in (current.__cause__, current.__context__) if cause is not None]
+    return False
+
+
+def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMessage | None:
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
     回复不符合接入协议（截断等）时记下错误码并抛出 ModelProtocolError。reasoning_content 不写进步骤记录。"""
     budget = toolbox.budget
     retried = False
     while True:
+        estimate = budget.estimate_input_tokens(messages) if budget.input_tokens is not None else None
+        if estimate is not None and budget.used_input_tokens + estimate > budget.input_tokens:
+            budget._blocked_input_estimate = estimate
+            toolbox._step("model", "model", {}, "skipped",
+                          {"error_code": "budget_tokens", "estimated_input_tokens": estimate,
+                           "used_input_tokens": budget.used_input_tokens, "input_tokens": budget.input_tokens})
+            return None  # 与请求次数用完一致：停止请求，交给核验生成未完成报告。
         budget.used_model_requests += 1
         started = time.monotonic()
         try:
             reply: AIMessage = bound.invoke(messages)
         except Exception as exc:
-            transient = type(exc).__name__ in TRANSIENT_ERRORS
+            transient = _is_transient_error(exc)
             retry = (transient and not retried and budget.remaining() > 2 * MODEL_TIMEOUT_SECONDS
                      and not budget.model_blocked() and not toolbox.stopped)
             toolbox._step("model", "model", {}, "error", {"error": f"{type(exc).__name__}: {str(exc)[:300]}",
@@ -203,6 +232,7 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMe
         usage = model_usage(reply)
         budget.used_input_tokens += usage["input_tokens"] or 0
         budget.used_output_tokens += usage["output_tokens"] or 0
+        budget.remember_model_input(messages, usage["input_tokens"])
         problem = protocol_problem(reply)
         names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
         finish = (getattr(reply, "response_metadata", None) or {}).get("finish_reason")
@@ -240,6 +270,8 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
     if not _can_call_model(toolbox):
         return []
     reply = _invoke(_model_for(model, toolbox.budget).bind_tools(toolbox.tools()), state["messages"], toolbox)
+    if reply is None:
+        return []
     out: list[AnyMessage] = [reply]
     for call in reply.tool_calls or []:
         result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
@@ -283,10 +315,12 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             [tool], tool_choice="submit_scope")
         try:
             reply = _invoke(bound, messages, toolbox)
-            call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None)
+            call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None) if reply else None
             raw = call["args"] if call else None
             scope = Scope.model_validate(raw) if raw is not None else None
-            if scope is None:
+            if reply is None:
+                problem = toolbox.budget.model_blocked()
+            elif scope is None:
                 problem = "模型没有提交范围"
             elif any(c not in codes for c in scope.metric_codes):
                 # 候选外的指标不静默删除（删掉会让范围变窄而不自知）：停下来请用户确认
@@ -360,8 +394,10 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
     while toolbox.report is None and _can_call_model(toolbox) and not budget.spent():
         closing = budget.remaining() < REPORT_RESERVE_SECONDS
         last_request = budget.used_model_requests >= budget.model_requests - 1
+        estimate = budget.estimate_input_tokens([*state["messages"], *messages]) if budget.input_tokens is not None else None
+        last_tokens = estimate is not None and budget.used_input_tokens + 2 * estimate > budget.input_tokens
         over = budget.exhausted() or ("分析时长即将用完" if closing else None) or (
-            "模型请求次数即将用完" if last_request else None)
+            "模型请求次数即将用完" if last_request else None) or ("token 即将用完" if last_tokens else None)
         notices = {"report_only": f"{over}。请立即基于已有数据集调用 submit_report 提交报告。" if over else None,
                    "queries": (f"{budget.queries_exhausted()}：查询类工具（query_metric、query_sql、sample_values、"
                                "explain_change）已停用；计算工具与 submit_report 仍可用，请基于已有数据集继续并提交报告。"

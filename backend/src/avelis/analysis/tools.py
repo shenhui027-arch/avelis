@@ -85,6 +85,34 @@ class Budget:
     used_queries: int = 0
     used_explore: int = 0
     started: float = field(default_factory=time.monotonic)
+    _last_input_tokens: int | None = field(default=None, init=False, repr=False)
+    _last_input_messages: tuple[Any, ...] = field(default=(), init=False, repr=False)
+    _blocked_input_estimate: int | None = field(default=None, init=False, repr=False)
+
+    # 与 E1 注入字符的口径一致：按 1 字符 ≤ 1 token 预留输入，作为保守上界，避免下一次请求越过累计上限。
+    _INPUT_TOKENS_PER_CHAR = 1
+
+    def estimate_input_tokens(self, messages: list[Any]) -> int | None:
+        """前缀相同时沿用上次实际输入量，只估新增消息；切换对话或恢复预算后按全部字符估算。"""
+        if self.input_tokens is None:
+            return None
+        prefix = self._last_input_messages
+        same_prefix = (self._last_input_tokens is not None and len(messages) >= len(prefix)
+                       and all(old is new for old, new in zip(prefix, messages)))
+        added = messages[len(prefix):] if same_prefix else messages
+        chars = 0
+        for message in added:
+            # 正文、工具调用参数和 reasoning_content 都会回传；其他 additional_kwargs 也一并保守计入。
+            for value in (message.content, getattr(message, "tool_calls", None), message.additional_kwargs):
+                if value:
+                    chars += len(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str))
+        return (self._last_input_tokens if same_prefix else 0) + chars * self._INPUT_TOKENS_PER_CHAR
+
+    def remember_model_input(self, messages: list[Any], input_tokens: int | None) -> None:
+        """只缓存成功请求的实际输入量；不写进 view，恢复后的首次请求重新估算全部消息。"""
+        if self.input_tokens is not None:
+            self._last_input_tokens = input_tokens
+            self._last_input_messages = tuple(messages) if input_tokens is not None else ()
 
     def view(self) -> dict[str, Any]:
         return {"limits": {"tool_calls": self.tool_calls, "queries": self.queries, "seconds": self.seconds,
@@ -101,7 +129,8 @@ class Budget:
         """不能再请求模型的原因：请求次数（含重试）或累计 token 到上限。"""
         if self.used_model_requests >= self.model_requests:
             return f"模型请求已达上限 {self.model_requests} 次（含重试）"
-        if (self.input_tokens is not None and self.used_input_tokens >= self.input_tokens) or (
+        if (self.input_tokens is not None and (self._blocked_input_estimate is not None
+                                              or self.used_input_tokens >= self.input_tokens)) or (
                 self.output_tokens is not None and self.used_output_tokens >= self.output_tokens):
             return f"模型 token 已达累计上限（输入 {self.input_tokens}、输出 {self.output_tokens}）"
         return None
