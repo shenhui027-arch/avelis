@@ -844,3 +844,18 @@
 .av-lineage__qualified { overflow-wrap: anywhere; }
 @media (max-width: 760px) { .av-lineage__resize { display: none; } }
 .av-lineage__inspector .av-kv dd { min-width: 0; } .av-lineage__inspector .av-lineage__grain-tag { height: auto; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+/* 数据集主视图：完整表格分页、图表、SQL；可换时间重跑 */
+.av-dsview { display: flex; flex-direction: column; gap: var(--space-4); max-width: 1080px; margin: 0 auto; padding: var(--space-5) var(--space-6) var(--space-8); }
+.av-dsview__hd { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) 0; background: var(--bg-base); border-bottom: 1px solid var(--line-subtle); }
+.av-dsview__title { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; }
+.av-dsview__title h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font: 600 16px/24px var(--font-sans); }
+.av-dsview__meta { margin: 0; }
+.av-dsview__purpose { margin: 0; color: var(--text-secondary); font: var(--type-body); }
+.av-dsview__chart:empty { display: none; }
+.av-dsview__chart { padding: var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-raised); }
+.av-dsview__table { max-height: 60vh; overflow: auto; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); }
+.av-dsview__table thead th { position: sticky; top: 0; background: var(--bg-overlay); }
+.av-dsview__pager { display: flex; align-items: center; justify-content: center; gap: var(--space-3); }
+.av-dsview__dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.av-dsview__link { padding: 0; border: none; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+@media (max-width: 760px) { .av-dsview { padding: var(--space-3); } }

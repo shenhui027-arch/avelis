@@ -385,6 +385,12 @@ class SampleArgs(BaseModel):
     keyword: str | None = Field(None, max_length=50, description="可选：只看包含该关键字的取值")
 
 
+class ViewDatasetArgs(BaseModel):
+    ref: str = Field(description="本次运行已有的数据集编号，如 D2")
+    offset: int = Field(0, ge=0, description="从第几行开始（从 0 计）")
+    limit: int = Field(MODEL_ROWS, ge=1, le=MODEL_ROWS, description="本页最多返回的行数")
+
+
 class ExplainArgs(BaseModel):
     metric_code: str = Field(description="指标编码")
     filters: list[DimensionFilter] = Field(default_factory=list, description=(
@@ -744,6 +750,8 @@ class AnalysisToolbox:
     def context_summary(self) -> str:
         """只从工具箱结构化记录拼摘要；模型正文与 thinking 不参与。数据集和引用照常保留。"""
         datasets = [{"dataset": ref, "title": ds.title, "row_count": len(ds.rows), "columns": ds.columns[:12],
+                     "rows": [row[:12] for row in ds.rows[:5]],
+                     **({"summary": ds.meta["summary"]} if ds.meta.get("summary") else {}),
                      "truncated": ds.truncated,
                      **{key: ds.meta.get(key) for key in ("partial", "assumption", "explore") if ds.meta.get(key)}}
                     for ref, ds in self._datasets.items()]
@@ -764,7 +772,7 @@ class AnalysisToolbox:
             "confirmed_items": self.confirmed_items,
             "interjections": self.interjections,
         }) + "\n逐项确认仅表示分析输入已确认，不代表假设已证实。引用数字仍须引用 D 编号；"
-             "需要细节可以重新查看对应数据集，已有数据集未丢失，核验规则不变。")
+             "需要细节用 view_dataset 重新查看对应数据集，已有数据集未丢失，核验规则不变。")
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
                  inputs: list[str] | None = None, meta: dict | None = None, truncated: bool = False) -> AnalysisDataset:
@@ -806,23 +814,39 @@ class AnalysisToolbox:
             raise calc.CalcError(f"数据集 {ref} 不存在（可用：{'、'.join(self._datasets) or '无'}）")
         return ds, [dict(zip(ds.columns, r)) for r in ds.rows]
 
-    def _view(self, ref: str, ds: AnalysisDataset) -> dict:
+    def _view(self, ref: str, ds: AnalysisDataset, *, offset: int = 0, limit: int = MODEL_ROWS) -> dict:
+        rows = ds.rows[offset:offset + limit]
         out = {"dataset": ref, "title": ds.title, "kind": ds.kind, "columns": ds.columns, "row_count": len(ds.rows),
-               "rows": ds.rows[:MODEL_ROWS], "rows_shown": min(len(ds.rows), MODEL_ROWS),
+               "rows": rows, "rows_shown": len(rows),
                **({"summary": ds.meta.get("summary")} if ds.meta.get("summary") else {})}
         if ds.truncated:  # 结果截断（result_truncated）：数据集本身不是全集
             out["truncated"] = True
             out["note"] = ("数据集被截断：只含前若干行，不是全集。合计、覆盖度、相关性等需要全集的计算会被拒绝；"
                            "不要据此写总数、行数或全体结论，请缩小范围或减少分组后重新查询")
-        if len(ds.rows) > MODEL_ROWS:  # 预览截断（context_truncated）：数据集完整，只是给模型看的行数有限
+        if len(rows) < len(ds.rows):  # 预览截断（context_truncated）：数据集完整，只是给模型看的行数有限
             out["context_truncated"] = True
-            out["context_note"] = (f"这里只预览前 {MODEL_ROWS} 行（共 {len(ds.rows)} 行），数据集本身是完整的；"
+            out["context_note"] = (f"这里只预览 offset={offset} 起的 {len(rows)} 行（共 {len(ds.rows)} 行），"
+                                   "需要其他行用 view_dataset 翻页查看；"
                                    "需要全集统计时调用计算工具，不要从预览里数或加总")
         for flag, text in (("explore", "来源含探索查询（未经口径审核）"), ("assumption", "来源含假设计算"),
                            ("partial", "来源含部分结果")):
             if (ds.meta or {}).get(flag):
                 out.setdefault("marks", []).append(text)
         return out
+
+    def view_dataset(self, ref: str, offset: int = 0, limit: int = MODEL_ROWS) -> str:
+        def run():
+            ds = self._datasets.get(ref)
+            if ds is None:
+                raise calc.CalcError(f"数据集 {ref} 不在本次运行中（可用：{'、'.join(self._datasets) or '无'}）")
+            out = self._view(ref, ds, offset=offset, limit=limit)
+            end = offset + len(out["rows"])
+            out.update(offset=offset, next_offset=end if end < len(ds.rows) else None,
+                       units={column: self._unit(ref, column) for column in ds.columns},
+                       summary_units=ds.meta.get("summary_units") or {}, inputs=ds.inputs,
+                       root_kinds=ds.meta.get("root_kinds") or [ds.kind])
+            return out, None, "ok"
+        return self._guard("view_dataset", {"ref": ref, "offset": offset, "limit": limit}, run)
 
     # -- 授权 --
     def _expire_governed(self) -> None:
@@ -921,7 +945,8 @@ class AnalysisToolbox:
             self.budget.used_reports += 1
             self.budget.reports_total += 1
         else:
-            over = self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
+            # 重看已有数据集不查库：只能交报告时也允许（压缩后靠它找回证据），仍计入工具调用次数
+            over = None if name == "view_dataset" else self.budget.exhausted() or ("分析时长即将用完" if only_report else None)
             if over:
                 self._step("tool", name, args if isinstance(args, dict) else {"raw": str(args)[:500]}, "denied",
                            {"error": over})
@@ -1410,6 +1435,7 @@ class AnalysisToolbox:
                 scope_assets = set(closure)
                 scope_objects = scope_assets | {version.id, *(v.id for v in versions)}
             sets = []
+            asset_ids, metric_version_ids = set(), set()
             for cs in self.session.scalars(select(ChangeSet).where(ChangeSet.created_at >= lo,
                                                                    ChangeSet.created_at < hi)
                                            .order_by(ChangeSet.created_at)):
@@ -1417,6 +1443,7 @@ class AnalysisToolbox:
                 events = [e for e in v["events"] if scope_assets is None or e["asset_id"] in scope_assets]
                 impacts = [i for i in v["impacts"] if scope_assets is None or i["object_id"] in scope_objects]
                 if events:
+                    asset_ids.update(e["asset_id"] for e in events[:30] if e.get("asset_id"))
                     sets.append({"at": v["created_at"], "events": [
                         {"kind": e["kind"], "asset": e["asset"], "column": e["column"]} for e in events][:30],
                         "impacts": len(impacts)})
@@ -1432,6 +1459,7 @@ class AnalysisToolbox:
                             MetricVersion, MetricVersion.id == MetricVersionTransition.metric_version_id)
                         .where(MetricVersion.metric_id == metric.id, MetricVersionTransition.at >= lo,
                                MetricVersionTransition.at < hi)):
+                    metric_version_ids.add(mv.id)
                     transitions.append({"metric": metric.name, "version_no": mv.version_no, "from": t.from_status,
                                         "to": t.to_status, "reason": t.reason, "at": t.at})
             note = ("元数据变更按采集时间记录（只能确定发生在两次采集之间）；口径版本流转为治理操作时间。"
@@ -1445,6 +1473,7 @@ class AnalysisToolbox:
             ds = self._dataset("context", f"变更记录 {start_date}~{end_date}" + (f"（{metric_code}）" if metric_code else ""),
                                ["type", "at", "object", "item", "change", "impacts", "note"], rows,
                                meta={"units": {"impacts": col("count")}, "window": {"start": str(start_date), "end": str(end_date)},
+                                      "asset_ids": sorted(asset_ids), "metric_version_ids": sorted(metric_version_ids),
                                      "scope": "每个变更集最多 30 个事件；只含当前用户可见的资产与口径；不是完整历史"})
             return ({"dataset": f"D{ds.seq}", "change_sets": sets, "metric_transitions": transitions, "note": note},
                     ds, "ok")
@@ -1454,7 +1483,7 @@ class AnalysisToolbox:
     def data_health(self, metric_code: str, start_date: date, end_date: date) -> str:
         def run():
             # 组成指标的业务域与来源闭包逐项核对；采集只给状态与时间，不返回数据源的原始错误
-            _, _, versions, _ = self._metric_sources(metric_code)
+            _, version, versions, closure = self._metric_sources(metric_code)
             out = []
             for v in versions:
                 base = self.session.get(Asset, v.base_asset_id) if v.base_asset_id else None
@@ -1477,6 +1506,8 @@ class AnalysisToolbox:
                                ["base_asset", "metric_status", "drift", "last_collected_at", "collection_status",
                                 "collection_started_at"], rows,
                                meta={"window": {"start": str(start_date), "end": str(end_date)},
+                                      "asset_ids": sorted(closure),
+                                      "metric_version_ids": sorted({version.id, *(v.id for v in versions)}),
                                      "scope": "每个来源只列最近 5 次采集；采集只给状态与时间，不含数据源的原始错误"})
             return {"dataset": f"D{ds.seq}", "sources": out, "note": note}, ds, "ok"
         return self._guard("data_health", {"metric_code": metric_code, "start_date": start_date,
@@ -1674,6 +1705,8 @@ class AnalysisToolbox:
                                  "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
                                  "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
                                              "qualified": t.qualified} for t in validated.tables],
+                                 "upstream_asset_ids": sorted({asset_id for t in validated.tables
+                                                               for asset_id, _ in t.upstream}),
                                  "units": exploration.units(validated.columns),
                                  "column_evidence": exploration.evidence(validated.columns), "preview": preview})
         view = self._view(f"D{ds.seq}", ds)
@@ -2188,6 +2221,8 @@ class AnalysisToolbox:
             t(self.changes, Window, "时间窗口内的元数据变更与口径版本流转（排查“是不是口径或数据本身变了”）"),
             t(self.data_health, Health, "指标来源的数据源采集情况与新鲜度"),
             t(self.query_metric, QueryArgs, "受治理查询：按已发布口径取数，产生数据集 Dn（权限与执行前核对照常生效）"),
+            t(self.view_dataset, ViewDatasetArgs, "只读回看本次运行已有的数据集：列、分页行、量纲、来源标记与摘要；"
+              "不重新查询数据，不计查询额度，每页最多 60 行"),
             *([t(self.query_sql, QuerySqlArgs, "探索查询：口径覆盖不到的数据，按血缘与字段注释写一条 SELECT；只能用当前用户可见的"
                  "已采集表，先用 describe_asset、lineage 读注释与关联键；系统校验后重新生成 SQL 执行，结果带“探索查询”标记"),
                t(self.sample_values, SampleArgs, "列的常见取值（最多 20 个，有范围的预览），用于写过滤条件；计入探索预算")]

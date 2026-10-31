@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -26,6 +26,7 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str
     expires_at: str
+    expires_in: int
     must_change_password: bool = False
 
 
@@ -48,9 +49,10 @@ class UserOut(BaseModel):
     created_at: str | None = None
 
 
-def _issue(user: User) -> dict:
-    token, expires, _ = create_access_token(user.id, user.username)
+def _issue(user: User, *, auth_time: int | None = None) -> dict:
+    token, expires, _ = create_access_token(user.id, user.username, auth_time=auth_time)
     return {"access_token": token, "token_type": "bearer", "expires_at": expires.isoformat(),
+            "expires_in": math.ceil(expires.timestamp() - datetime.now(timezone.utc).timestamp()),
             "must_change_password": user.must_change_password}
 
 
@@ -87,6 +89,22 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
     return _issue(user)
 
 
+@router.post("/auth/refresh", response_model=TokenOut)
+def refresh(claims: dict = Depends(current_claims), user: User = Depends(current_user),
+            session: Session = Depends(get_session)) -> dict:
+    """轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。"""
+    auth_time = claims["auth_time"] if "auth_time" in claims else claims["iat"]  # 旧凭证沿用原签发时间
+    session_expires = datetime.fromtimestamp(auth_time, timezone.utc) + timedelta(hours=get_settings().session_max_hours)
+    if datetime.now(timezone.utc) >= session_expires:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"},
+                            detail="登录已超过最长时长，请重新登录")
+    result = _issue(user, auth_time=auth_time)
+    ttl = math.ceil(claims["exp"] - datetime.now(timezone.utc).timestamp())  # 与退出一致，保留到旧凭证过期
+    cache.revoke_token(claims["jti"], ttl)
+    audit.record(session, user, "auth.refresh", "user", user.id)
+    return result
+
+
 class PasswordChange(BaseModel):
     current_password: str = Field(min_length=1, max_length=128, repr=False)
     new_password: str = Field(min_length=8, max_length=128, repr=False)
@@ -103,6 +121,7 @@ def _check_password_policy(user: User, password: str) -> None:
 
 @router.post("/me/password", response_model=TokenOut)
 def change_password(body: PasswordChange, user: User = Depends(current_user),
+                    claims: dict = Depends(current_claims),
                     session: Session = Depends(get_session)) -> dict:
     """修改自己的密码：其他会话全部失效，返回当前会话的新令牌。"""
     if not verify_password(body.current_password, user.password_hash):
@@ -115,7 +134,8 @@ def change_password(body: PasswordChange, user: User = Depends(current_user),
     user.must_change_password = False
     _end_other_sessions(user)
     audit.record(session, user, "auth.password_changed", "user", user.id)
-    return _issue(user)
+    auth_time = claims["auth_time"] if "auth_time" in claims else claims["iat"]
+    return _issue(user, auth_time=auth_time)
 
 
 @router.post("/auth/logout")
