@@ -213,6 +213,40 @@ scorer_v2_1_1:
     backend/tests/eval/analysis_questions_v2_1.yaml: 99e4f3db3f28a15e378ae4497320861f9853edbe  # 同 v2.1，未改
   depends_on_frozen: scoring_v2_1.py、scoring_v2.py、scoring.py 的 blob 同 scorer_v2_1 与 b0.scorer_git_blobs
 
+# --- 评分器 v2.1.2（协调会话 2026-10-31：评分器有严重错误就升版；E2 的运行与判分照旧用 v2.1.1）------------------
+scorer_v2_1_2:
+  version: v2.1.2
+  reason: "PR #11 评审确认 contribution 的实体并集会造成假阳性（跨实体合计被当成单个实体的证据，线程 4430232921）"
+  changes:  # 相对 v2.1.1 只修已确认的 6 处，题目规格沿用 analysis_questions_v2_1.yaml
+    - contribution 的每个输入行都要单独满足实体（假阳性，4430232921）
+    - explain_change 的 summary.total.* 按整次归因绑定（假阴性，4426619623）
+    - ·上一期 / ·去年同期 映射为对比期（假阴性，4426775415）
+    - factor_decompose 的 match 计入实体（假阴性，4426775439）
+    - 覆盖整个题目期间的日 / 月时间桶可以绑定（假阴性，4426832504）
+    - explain 的复合成员（×、 / ）拆成各自维度后比较关键数值（假阴性，4427578578）
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_2.py: dd13b443875331b73ee09d24eee520874f7d2efe759dc72beec064f0c7a0db6b
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_2.py: c87d057416341db4fc4d2188130e527655670444
+    experiments/agent-v2/rescore_v2_1_2.py: 6d5e2884435c7d50469ea8371838157c0ae61641
+  rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一重判，与 v2.1.1 并列，逐条列出判定变化
+
+# --- 评分器 v2.1.3（协调会话 2026-10-31；E2 的运行与判分照旧用 v2.1.1）-----------------------------------------
+scorer_v2_1_3:
+  version: v2.1.3
+  reason: "PR #11 评审线程 4430639097——运行详情只保存每个数据集的前 50 行，评分器按保存的行选行、展开、核对实体时看不到被截掉的行。
+    contribution 这一处已修补过两次，按“同一处补丁达到 3 次就回头查架构”的规则，改成一条通用规则，不再单独补 contribution"
+  rule: 任何一条绑定路径（关键数值的各分支、首要原因机制匹配中读取行的部分）上，只要用到的数据集保存的行数少于 row_count，
+    就判为不确定、不予绑定；只读 SQL（来源表）的判断不受影响。结果里分别记 uncertain_truncated 与 uncertain_details
+  v2_1_2_note: v2.1.2（66f1d7e）冻结后没有给任何运行判过分、没有产生任何结果；v2.1.3 在它的基础上只加这一条规则
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_3.py: e45f1cbefc3046994899da8d7b88a201b8bb0d005302cbee8ace36e87a40bab4
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_3.py: 312bec6cf41b6857ed195b080c8d456269aa6807
+    experiments/agent-v2/rescore_v2_1_3.py: a652124f811a0aadbffb0aaf3ef722381055d3d5
+  rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一用 v2.1.3 重判，与 v2.1.1 并列；统计因截断判为不确定的运行数及其中判定变化的次数
 # --- E2：2×2 对照（任务书第 12 节；用户经协调会话批准，费用上限 20 元，2026-10-31）-------------------------------
 e2:
   status: 已冻结，待运行（自动权限分类器拦截了真实模型调用，等用户放行）
@@ -236,3 +270,58 @@ e2:
   cost: {cap_cny: 20, per_run_reserve_cny: 1.5, spent_cny: 0}
   smoke_before_run: h10 × R / H / RH 各 1 次（不计入 128 次，费用计入 20 元上限），确认开关在真实环境中不崩溃
   command: AVELIS_DEMO_USER_PASSWORD 由本地启动器从主检出 .env 传入（不打印）；e2.py --run --truth <主检出>/.demo/ec-truth.json --cap 20 --spent <冒烟费用>
+
+# --- E2b：思考强度对照（用户 2026-10-31：“模型就不换了，你可以用更强的思考来做”；费用从 E2 的 20 元授权里出）-----------
+e2b:
+  status: 已作废（2026-10-31 15:2x 暂停）：max 档单次请求经常超过冻结的 60 秒超时，运行失败；跑了 4 次（第 5 次中途终止）；用户决定放宽超时重跑，见 e2b_2
+  code_sha_frozen: 233b092e29f2c538df05051374bec35969c09b42
+  purpose: 区分问题在模型能力还是系统设计；模型不变（DeepSeek Flash），只把分析阶段的思考强度调到 max（理解阶段固定关闭思考，不变）
+  arms:
+    - {condition: B0, effort: max, runs: 32}  # 优先
+    - {condition: RH, effort: max, runs: 32}  # E2 中通过最多的组合（与 B0 的差在噪声内，按预先定的规则选）；预算够才跑
+  baseline: E2 同一条件的“低”档结果（.demo/experiments/e2/20261031-123611.json）
+  scenarios: 同 e2（16 个，每个 2 次，种子 20261101）
+  scorer: v2.1.3
+  budget:  # 只调高累计输出 token 上限，运行前冻结，运行中不改
+    output_tokens: 54976  # = 30716 × 1.79；ADR 0012 实测推理 token：低 3942–7946、最高 9149–12128，按两档区间中点之比 10638.5 / 5944 ≈ 1.79
+    unchanged: [model_requests 16, tool_calls 30, queries 20, explore 8, seconds 300, input_tokens 552321]
+  cost:
+    cap_cny: 20  # 与 E2 合计
+    spent_before_cny: 6.74219368  # E2 128 次 + 冒烟 3 次
+    estimate_cny: {B0_max: "≈3.0（E2 B0 每次 0.048 元 × 2 的保守放大）", RH_max: "≈3.7"}
+  command: e2.py --run --truth <主检出>/.demo/ec-truth.json --conditions B0 --effort max --output-token-cap 54976 --tag e2b --cap 20 --spent <已花>
+
+# --- E2b-2：思考强度 max 重跑（用户 2026-10-31：“放宽超时重跑”）；前提已改变，与 E2b 第一版分开 -------------------------
+e2b_2:
+  status: 已完成（2026-10-31 17:26），32 次全部跑完，见 docs/agent-v2/results-e2b.md
+  code_sha_frozen: d2e87647cc7904fa586475c18626e978ffccfa8a
+  premise_changed: 相对 E2 / E2b 第一版，放宽了单次请求超时与单次运行时长。这两项是“最高”档这个条件本身的参数——最高档单次请求实测最长 108 秒，
+    超过了冻结的 60 秒，按原上限运行会因超时失败而测不出模型能力；不是为了把结果调好看而加预算
+  arm: {condition: B0, effort: max, runs: 32}  # 只跑这一组
+  discarded: E2b 第一版的 5 次（.demo/experiments/e2b/20261031-150348.json 的 4 次，加上被终止的 1 次）作废，不并入结果，保留在记录里
+  budget:
+    model_timeout_seconds: 162  # 最高档 4 次里成功请求的最长耗时 108 秒 × 1.5（另有 3 次在 60 秒时超时）
+    run_seconds: 488  # 4 次运行时长 157 / 230 / 258 / 335 秒，中位 243.9 秒 × 2
+    output_tokens: 54976  # 沿用 e2b 第一版按实测比例调高的值
+    unchanged: [model_requests 16, tool_calls 30, queries 20, explore 8, input_tokens 552321, report_reserve_seconds 30]
+  scenarios: 同 e2（16 个，每个 2 次，种子 20261101）
+  scorer: v2.1.3
+  baseline: E2 的 B0 @ low（.demo/experiments/e2/20261031-123611.json）
+  cost:
+    cap_cny: 20  # 与 E2、E2b 第一版合计
+    spent_before_cny: 7.65121642  # E2 6.74219368 + E2b 第一版实测 0.60902274 + 被终止那次估计 0.3
+    estimate: 第一版每次实测 0.09–0.26 元；32 次约 3–8 元；按每次 1.5 元的保守预留，到上限就停
+  restore: 结束或被强行终止时，把私有库 avelis_e1 里分析用途的 reasoning_effort 恢复为原值（null）
+  command: e2.py --run --truth <主检出>/.demo/ec-truth.json --conditions B0 --effort max --output-token-cap 54976 --model-timeout 162 --run-seconds 488 --tag e2b2 --cap 20 --spent 7.65121642
+  result:
+    file: .demo/experiments/e2b2/20261031-153430.json  # 本 worktree；摘要在同名 .summary.json
+    run_sha: 071eb5c00116bf1e4250c940eaa37bdbf022d02d
+    passed: 12  # B0 @ low 也是 12
+    primary_hit: 11  # low 10
+    budget_fallback_reports: 5  # low 0；输入或输出 token 用尽，没有模型报告
+    seconds_completed: {median: 278.0, p90: 348.7}  # low 77.4 / 111.0
+    cost_cny: 4.99457794
+    cost_per_pass_cny: 0.416  # low 0.127
+    max_model_request_seconds: 160.5
+    ledger_after_cny: 12.64579436
+    effort_restored: true  # 结束后核对私有库 analysis.reasoning_effort = null

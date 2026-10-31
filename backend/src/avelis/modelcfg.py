@@ -327,7 +327,8 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature,
-                             timeout=timeout, max_retries=max_retries, max_tokens=4096)
+                             timeout=timeout, max_retries=max_retries,
+                             max_tokens=max_tokens if max_tokens is not None else 4096)
     from langchain_openai import ChatOpenAI
 
     from avelis.llm_protocol import ReasoningRoundTripChatOpenAI

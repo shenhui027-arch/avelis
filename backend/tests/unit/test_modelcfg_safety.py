@@ -245,6 +245,21 @@ def deepseek():
                          last_check={"models": {"deepseek-flash": successful_check("deepseek-flash")}})
 
 
+@pytest.mark.parametrize("max_tokens,expected", [(100, 100), (None, 4096)])
+def test_anthropic_uses_requested_token_limit_or_default(provider, max_tokens, expected):
+    provider.kind = "anthropic"
+    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
+    model = modelcfg.build_chat_model(provider, MODEL_ID, **kwargs)
+    assert model.max_tokens == expected
+
+
+@pytest.mark.parametrize("max_tokens,expected", [(100, 100), (None, None)])
+def test_openai_compatible_token_limit_is_unchanged(provider, max_tokens, expected):
+    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
+    model = modelcfg.build_chat_model(provider, MODEL_ID, **kwargs)
+    assert model.max_tokens == expected
+
+
 def test_reasoning_effort_request_parameters_are_adapted_per_provider(provider):
     """ADR 0012：思考强度的请求参数集中在 build_chat_model。DeepSeek 关闭思考用 thinking.type=disabled，
     其余档位传 reasoning_effort；API 只有 low / high / max，页面不列“中”，以前存的 medium 按映射表发送 high；
