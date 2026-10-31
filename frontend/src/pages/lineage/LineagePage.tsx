@@ -159,11 +159,36 @@ function Canvas() {
     return map;
   }, [domains.data]);
 
-  // 列级路径：从选中的列向上游、下游各走一遍（只走取值关系）
+  // 选中路径：选了列时走列级取值关系；只选了表时走表级上下游（含“同一张表”）。都向上游、下游各走一遍
   const path = useMemo(() => {
     const cols = new Set<ColKey>();
     const edgeKeys = new Set<string>();
-    if (!column || !graph.data) return { cols, edgeKeys };
+    if (!graph.data) return { cols, edgeKeys };
+    if (!column) {
+      if (!selected) return { cols, edgeKeys };
+      const up = new Map<string, { node: string; edge: string }[]>();
+      const down = new Map<string, { node: string; edge: string }[]>();
+      const link = (from: string, to: string, edge: string) => {
+        down.set(from, [...(down.get(from) ?? []), { node: to, edge }]);
+        up.set(to, [...(up.get(to) ?? []), { node: from, edge }]);
+      };
+      for (const e of graph.data.edges) link(e.source, e.target, `${e.source}->${e.target}`);
+      for (const l of graph.data.identity_links) {
+        const src = graph.data.nodes.find((n) => n.qualified === l.source);
+        if (src && l.target) link(l.target.id, src.id, `id:${l.id}`);
+      }
+      for (const next of [up, down]) {
+        const stack = [selected];
+        const visited = new Set<string>();
+        while (stack.length) {
+          const n = stack.pop()!;
+          if (visited.has(n)) continue;
+          visited.add(n);
+          for (const step of next.get(n) ?? []) { edgeKeys.add(step.edge); stack.push(step.node); }
+        }
+      }
+      return { cols, edgeKeys };
+    }
     const up = new Map<ColKey, { from: ColKey; edge: string }[]>();
     const down = new Map<ColKey, { to: ColKey; edge: string }[]>();
     for (const e of graph.data.edges) {
@@ -204,7 +229,7 @@ function Canvas() {
     walk(column, up);
     walk(column, down as unknown as Map<ColKey, { from?: ColKey; edge: string }[]>);
     return { cols, edgeKeys };
-  }, [column, graph.data]);
+  }, [column, selected, graph.data]);
 
   const { nodes, edges } = useMemo(() => {
     if (!graph.data) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
