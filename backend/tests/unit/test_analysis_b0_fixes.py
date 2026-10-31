@@ -614,6 +614,52 @@ def test_input_cutoff_during_understanding_finishes_the_graph_normally(monkeypat
     assert not any("理解阶段失败" in note for note in state["notes"])
 
 
+@pytest.mark.parametrize("exhausted", ["requests", "input_tokens", "output_tokens"])
+def test_last_request_report_and_verification_survive_exhausted_model_budget(monkeypatch, exhausted):
+    """修订前已无模型额度时，保留最后一次请求提交的报告及其核验问题（PR #11，4426619628）。"""
+    budget = Budget(model_requests=1 if exhausted == "requests" else 2,
+                    input_tokens=100_000 if exhausted == "input_tokens" else None,
+                    output_tokens=100 if exhausted == "output_tokens" else None)
+    box = make_box(budget=budget, monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    report = {"title": "已提交报告", "summary": "已取得 42 条数据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    used_input = 100_000 if exhausted == "input_tokens" else 1
+    used_output = 100 if exhausted == "output_tokens" else 1
+    reply = AIMessage(content="", tool_calls=[{"name": "submit_report", "args": report, "id": "c1"}],
+                      usage_metadata={"input_tokens": used_input, "output_tokens": used_output,
+                                      "total_tokens": used_input + used_output})
+    model = Replies(reply)
+    config = {"configurable": {"toolbox": box, "model": model}}
+    state = agent.reason({"question": "原问题", "context": CONTEXT}, config)
+    assert state["phase"] == "done" and state["revised"] is False
+    assert model.calls == budget.used_model_requests == 1 and budget.model_blocked()
+    assert box.report["title"] == report["title"] and box.report["summary"] == report["summary"]
+    assert box.report["claims"] == [] and not box.report.get("incomplete")
+    assert box.verification["ok"] is False and box.verification["status"] == "failed"
+    assert box.verification["revised"] is False
+    summary = next(field for field in box.verification["fields"] if field["field"] == "summary")
+    assert summary["status"] == "unverified" and any("42" in problem for problem in summary["problems"])
+    assert budget.tool_calls == Budget().tool_calls and budget.reports_total == 1
+
+
+def test_report_with_verification_problems_is_revised_when_model_budget_remains(monkeypatch):
+    box = make_box(budget=Budget(model_requests=2, input_tokens=None, output_tokens=None), monkeypatch=monkeypatch)
+    box.run.window = dict(WINDOW)
+    report = {"title": "已提交报告", "summary": "已取得 42 条数据", "claims": [],
+              "conclusion": "insufficient_evidence"}
+    corrected = {**report, "summary": "已有数据不足"}
+    model = Replies(*[AIMessage(content="", tool_calls=[{"name": "submit_report", "args": args, "id": call_id}])
+                      for args, call_id in ((report, "c1"), (corrected, "c2"))])
+    state = agent.reason({"question": "原问题", "context": CONTEXT},
+                         {"configurable": {"toolbox": box, "model": model}})
+    assert state["phase"] == "done" and state["revised"] is True
+    assert model.calls == box.budget.used_model_requests == 2 and box.budget.reports_total == 2
+    assert box.report["summary"] == corrected["summary"] and not box.report.get("incomplete")
+    assert box.verification["ok"] is True and box.verification["revised"] is True
+    assert any("核验发现以下问题" in message.content for message in model.seen[1] if isinstance(message, HumanMessage))
+
+
 def test_input_cutoff_during_revision_uses_the_same_incomplete_report_path(monkeypatch):
     box = make_box(budget=Budget(input_tokens=10), monkeypatch=monkeypatch)
     box.run.window = dict(WINDOW)

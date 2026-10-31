@@ -458,7 +458,8 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
     toolbox.report = report
     toolbox.verification = {**result, "revised": bool(state.get("revised"))}
     if (not result["ok"] and not state.get("revised") and not report.get("incomplete")
-            and not toolbox.stopped and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS):
+            and not toolbox.stopped and not toolbox.budget.model_blocked()
+            and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS):
         return {"phase": "revise"}
     return {"phase": "done"}
 
