@@ -44,6 +44,9 @@ export function LineChart({ series, label }: { series: { name: string; points: {
   const x = (v: string) => left + (xs.length > 1 ? (xs.indexOf(v) / (xs.length - 1)) * (width - left - right) : 0);
   const y = (v: number) => top + (1 - (v - lo) / (hi - lo || 1)) * (height - top - bottom);
   const ticks = xs.filter((_, i) => i % Math.max(1, Math.ceil(xs.length / 5)) === 0);
+  // 同一年内省略年份；跨年或非“年-…”形式的期间（如周、季编码）原样显示
+  const sameYear = xs.every((v) => /^\d{4}-/.test(v)) && new Set(xs.map((v) => v.slice(0, 4))).size === 1;
+  const tick = (v: string) => (sameYear ? v.slice(5) : v);
   return (
     <svg className="av-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${label}趋势图`}>
       <text x={left} y={11} className="av-chart__label">{label}</text>
@@ -51,7 +54,7 @@ export function LineChart({ series, label }: { series: { name: string; points: {
       <line x1={left} x2={width - right} y1={height - bottom} y2={height - bottom} className="av-chart__axis" />
       <text x={left - 4} y={y(hi) + 4} textAnchor="end" className="av-chart__tick">{fmt(hi)}</text>
       <text x={left - 4} y={y(lo) + 4} textAnchor="end" className="av-chart__tick">{fmt(lo)}</text>
-      {ticks.map((t) => <text key={t} x={x(t)} y={height - 6} textAnchor="middle" className="av-chart__tick">{t.slice(5)}</text>)}
+      {ticks.map((t) => <text key={t} x={x(t)} y={height - 6} textAnchor="middle" className="av-chart__tick">{tick(t)}</text>)}
       {series.map((s, i) => (
         <polyline key={s.name} fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth={1.6}
           points={[...s.points].sort((a, b) => a.x.localeCompare(b.x)).map((p) => `${x(p.x)},${y(p.y)}`).join(" ")} />

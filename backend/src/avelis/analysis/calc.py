@@ -245,9 +245,47 @@ def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
 
 # --- 覆盖度 -------------------------------------------------------------------------
 
+def period_labels(start: date, end: date, grain: str) -> list[str]:
+    """与问数的期间列一致：周用周一，季用季初日期，月与年保留相应精度。"""
+    if grain not in {"day", "week", "month", "quarter", "year"}:
+        raise CalcError("时间粒度未知，无法判断期间覆盖度")
+    if start > end:
+        raise CalcError("覆盖度的开始日期不能晚于结束日期")
+    if grain == "week":
+        cursor = start - timedelta(days=start.weekday())
+    elif grain == "quarter":
+        cursor = date(start.year, (start.month - 1) // 3 * 3 + 1, 1)
+    elif grain == "year":
+        cursor = date(start.year, 1, 1)
+    elif grain == "month":
+        cursor = start.replace(day=1)
+    else:
+        cursor = start
+    labels = []
+    while cursor <= end:
+        labels.append(cursor.strftime("%Y-%m") if grain == "month" else (
+            str(cursor.year) if grain == "year" else cursor.isoformat()))
+        if grain in {"day", "week"}:
+            step = 1 if grain == "day" else 7
+            if (end - cursor).days < step:
+                break
+            cursor += timedelta(days=step)
+        elif grain == "year":
+            if cursor.year == 9999:
+                break
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            month = cursor.month + (1 if grain == "month" else 3)
+            year = cursor.year + (month - 1) // 12
+            if year > 9999:
+                break
+            cursor = date(year, (month - 1) % 12 + 1, 1)
+    return labels
+
+
 def coverage(rows: list[Row], keys: list[str], period: str | None, start: date | None = None,
-             end: date | None = None) -> dict[str, Any]:
-    """各成员的行数与覆盖的日期；给定起止日期时列出缺失的日期（period 为 YYYY-MM-DD）。"""
+             end: date | None = None, *, grain: str | None = None) -> dict[str, Any]:
+    """各成员的行数与期间覆盖度；只有粒度明确，或原有日日期证据完整时判断缺口。"""
     expected = None
     daily = bool(period and rows)
     if daily:
@@ -259,11 +297,25 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
                 daily = False
             if not daily:
                 break
-    if daily and start and end:
-        expected = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
+    if period and grain and start and end:
+        expected = period_labels(start, end, grain)
+        for row in rows:
+            value = row.get(period)
+            try:
+                parsed = date.fromisoformat(f"{value}-01" if grain == "month" else (
+                    f"{value}-01-01" if grain == "year" else value))
+                valid = period_labels(parsed, parsed, grain) == [value]
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise CalcError("期间列与已声明的时间粒度不一致，无法判断覆盖度")
+    elif daily and start and end:
+        expected = period_labels(start, end, "day")
     groups: dict[tuple, list[Row]] = {}
     for r in rows:
         groups.setdefault(tuple(r.get(k) for k in keys), []).append(r)
+    if not groups and grain and not keys:
+        groups[()] = []
     out = []
     for key in sorted(groups, key=str):
         members = groups[key]

@@ -385,6 +385,11 @@ class MetricVersionOut(Out):
     base_asset: Json | None = None
     time_column: str
     timezone: str
+    time_format: Literal["yyyymmdd", "yyyy-mm-dd", "yyyymm"] | None = None
+    data_grain: Literal["day", "week", "month", "quarter", "year"] = "day"
+    time_aggregation: Literal["sum", "last", "avg"] = "sum"
+    value_kind: Literal["level", "ratio", "count"] | None = None
+    polarity: Literal["up_good", "down_good"] | None = None
     filters: str | None = None
     dimensions: list[Json]
     joins: list[Json]

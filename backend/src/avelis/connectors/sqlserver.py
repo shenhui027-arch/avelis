@@ -197,8 +197,9 @@ class SqlServerConnector:
     # --- 只读执行 ------------------------------------------------------------------
 
     def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
-                       max_rows: int) -> QueryResult:
+                       max_rows: int, timezone: str | None = None) -> QueryResult:
         """只读账号在事务内执行后回滚；SQL Server 没有单查询内存上限，靠超时与行数上限约束。"""
+        # SQL Server 无会话时区；datetimeoffset 的边界偏移由编译器写入 SQL。
         try:
             conn = self._connect(timeout=int(timeout_seconds))
         except pymssql.Error as exc:

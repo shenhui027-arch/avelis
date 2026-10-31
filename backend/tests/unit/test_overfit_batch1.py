@@ -189,7 +189,7 @@ def test_coverage_daily_values_still_identifies_missing_date():
 def test_governed_coverage_refuses_nonday_grain(monkeypatch, grain):
     box = _batch1_box(monkeypatch)
     _batch1_governed(box, grain=grain)
-    assert "非日粒度，不能按天判断缺失" in json.loads(box.coverage("D1"))["error"]
+    assert ("没有时间分组" if grain is None else "缺少时间期间列") in json.loads(box.coverage("D1"))["error"]
 
 
 def test_derived_evaluate_rounds_significant_digits():
@@ -409,7 +409,7 @@ def test_batch1_exact_dimension_query_uses_literals_and_datasource_dialect(monke
     assert [literal.this for literal in tree.find(exp.Where).find(exp.In).expressions] == [member]
     assert len(list(tree.find_all(exp.Max))) == 1
     assert limits == {"timeout_seconds": 10, "mem_limit_bytes": 512 * 1024**2,
-                      "max_rows": _batch1_ask_service.DIMENSION_VALUES_LIMIT}
+                      "max_rows": _batch1_ask_service.DIMENSION_VALUES_LIMIT, "timezone": None}
     assert state["events"] == ["validate", "live", "execute"]
     if dialect.national_strings:
         assert "N'" in sql

@@ -188,7 +188,7 @@ function Composer() {
 
 function ScheduleDrawer({ body, onClose }: { body: Record<string, unknown>; onClose: () => void }) {
   const navigate = useNavigate();
-  const [cron, setCron] = useState("0 9 1 * *");
+  const [cron, setCron] = useState(""); // 不预设节奏：留空只保存、不定时
   const [error, setError] = useState<string | null>(null);
   const save = useAction(() => unwrap(api.POST("/api/analysis/tasks", {
     body: { ...body, title: "", schedule_cron: cron || null } as never })), ["analysis-tasks"]);

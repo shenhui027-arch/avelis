@@ -53,11 +53,49 @@ TRANSITIONS = {
     ("affected", "pending_review"),  # 待批准时受影响：恢复后回到待批准，仍须正式复核
     ("affected", "retired"),
 }
-EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
-                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale", "material_change_ratio")
+EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "time_format",
+                   "data_grain", "time_aggregation", "filters", "dimensions", "joins", "grain", "dedupe_basis",
+                   "unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
 # 只影响显示与分析判断的元数据：不计入依赖指纹，修改不算口径漂移
-DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio")
+DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
 TIME_TYPES = ("date", "datetime", "timestamp")
+TIME_DEFAULTS = {"time_format": None, "data_grain": "day", "time_aggregation": "sum"}
+
+
+def encoded_time_type(data_type: str) -> str | None:
+    """编码日期键只接受明确的整数或字符串类型，不把浮点数、定点数推断为日期键。"""
+    normalized = data_type.lower().strip()
+    # ClickHouse 的可空、低基数包装不改变底层类型
+    for wrapper in ("nullable(", "lowcardinality("):
+        if normalized.startswith(wrapper) and normalized.endswith(")"):
+            return encoded_time_type(normalized[len(wrapper):-1])
+    name = normalized.split("(", 1)[0].split()
+    name = name[0] if name else ""
+    if name in ("tinyint", "smallint", "mediumint", "int", "integer", "bigint", "int2", "int4", "int8",
+                "int16", "int32", "int64", "int128", "int256", "uint8", "uint16", "uint32", "uint64",
+                "uint128", "uint256"):
+        return "integer"
+    if name in ("char", "character", "varchar", "varchar2", "nvarchar", "nvarchar2", "nchar", "text",
+                "tinytext", "mediumtext", "longtext", "string", "fixedstring", "clob", "nclob", "bpchar"):
+        return "string"
+    return None
+
+
+def _validate_time_semantics(version: MetricVersion) -> None:
+    allowed = {"time_format": (None, "yyyymmdd", "yyyy-mm-dd", "yyyymm"),
+               "data_grain": ("day", "week", "month", "quarter", "year"),
+               "time_aggregation": ("sum", "last", "avg"), "value_kind": (None, "level", "ratio", "count"),
+               "polarity": (None, "up_good", "down_good")}
+    for key, values in allowed.items():
+        value = getattr(version, key, None)
+        # SQLAlchemy 的 Python 默认值在未 flush 的新对象上尚未生效
+        if value is None and key in ("data_grain", "time_aggregation"):
+            value = TIME_DEFAULTS[key]
+        if value not in values:
+            raise Invalid(f"{key} 取值无效：{value}")
+    if (getattr(version, "time_format", None) == "yyyymm"
+            and (getattr(version, "data_grain", None) or "day") not in ("month", "quarter", "year")):
+        raise Invalid("yyyymm 时间格式要求 data_grain 为 month、quarter 或 year")
 
 
 def transition(session: Session, version: MetricVersion, to_status: str, actor: User | None, reason: str) -> None:
@@ -221,6 +259,7 @@ def _shared_dimensions(components: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
+    _validate_time_semantics(version)
     if version.kind == "derived":
         components = derived_components(session, version)
         return {"aliases": {}, "steps": [], "dependency": [], "expression": None, "components": components,
@@ -254,8 +293,14 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
             check(alias, column, "过滤条件", "filter")
     time_alias, time_col = column_ref(version.time_column or "", dialect=dialect, label="时间字段", aliases=names)
     check(time_alias, time_col, "时间字段", "time")
-    if not columns[time_alias][time_col].data_type.lower().startswith(TIME_TYPES):
-        raise Invalid(f"时间字段必须是日期或时间类型：{time_col}（{columns[time_alias][time_col].data_type}）")
+    time_type = columns[time_alias][time_col].data_type
+    if getattr(version, "time_format", None) is None:
+        if not time_type.lower().startswith(TIME_TYPES):
+            raise Invalid(f"时间字段必须是日期或时间类型：{time_col}（{time_type}）")
+    elif encoded_time_type(time_type) is None:
+        raise Invalid(f"编码时间字段必须是整数或字符串类型：{time_col}（{time_type}）")
+    elif version.time_format == "yyyy-mm-dd" and encoded_time_type(time_type) != "string":
+        raise Invalid("yyyy-mm-dd 时间格式要求时间字段为字符串类型")
     try:
         ZoneInfo(version.timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -288,10 +333,18 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
 
 
 def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, Any]]) -> str:
-    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
+    spec = {k: getattr(version, k, None) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
+    # 默认语义与迁移前相同，保留已有待审、已发布版本的指纹；非默认值纳入取数依赖
+    time_spec = {k: spec[k] for k, default in TIME_DEFAULTS.items() if spec[k] is not None and spec[k] != default}
+    for key in TIME_DEFAULTS:
+        spec.pop(key)
+    spec.update(time_spec)
     if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
-        return sha256_json({"formula": version.expression, "components": [
-            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]})
+        payload = {"formula": version.expression, "components": [
+            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]}
+        if time_spec:
+            payload["time_semantics"] = time_spec
+        return sha256_json(payload)
     return sha256_json({"spec": spec, "deps": [[d["asset_id"], d["column"], d["fingerprint"]] for d in dependency]})
 
 
@@ -556,6 +609,9 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "description": version.description, "expression": version.expression,
         "base_asset": {"id": base.id, "qualified": f"{base.catalog_name}.{base.db_name}.{base.name}"} if base else None,
         "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
+        "time_format": getattr(version, "time_format", None), "data_grain": getattr(version, "data_grain", None) or "day",
+        "time_aggregation": getattr(version, "time_aggregation", None) or "sum",
+        "value_kind": getattr(version, "value_kind", None), "polarity": getattr(version, "polarity", None),
         "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
         "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
         "material_change_ratio": float(version.material_change_ratio) if version.material_change_ratio is not None

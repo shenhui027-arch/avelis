@@ -321,7 +321,7 @@ def test_offsetting_selects_the_matching_direction_among_first_two_causes(change
 
 
 def test_disabled_system_prompt_and_nonempty_context_pack_match_original_bytes(monkeypatch):
-    assert hashlib.sha256(agent.SYSTEM_PROMPT.encode()).hexdigest() == "579be844b37971a66e6651b70435493cf8c90951fc38d9bdeb2fdc0c5fac3cd1"
+    assert hashlib.sha256(agent.SYSTEM_PROMPT.encode()).hexdigest() == "640242b33fdb41a3ad7d17d987af9275f6c6b045f83b49d361026408b89497cf"
     assert agent.system_message().content.encode() == agent.SYSTEM_PROMPT.format(**agent.PLACEHOLDER_EXAMPLE).encode()
     box = make_box(monkeypatch=monkeypatch)
     box.precheck_metric = {"code": "metric_a", "name": "指标 X", "kind": "base"}

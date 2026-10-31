@@ -364,9 +364,10 @@ class QueryArgs(BaseModel):
     end_date: date
     filters: list[DimensionFilter] = Field(default_factory=list)
     group_by: list[str] = Field(default_factory=list, description="维度名")
-    time_grain: Literal["day", "month"] | None = Field(None, description="按日或按月分组（结果首列 period）")
-    compare: Literal["previous_period", "previous_year", "custom"] | None = Field(
-        None, description="对比：上一期（紧邻的同长度区间）/ 去年同期 / custom（用 compare_start、compare_end 指定，"
+    time_grain: Literal["day", "week", "month", "quarter", "year"] | None = Field(
+        None, description="按日、周、月、季或年分组；周从周一开始，季用季初日期 YYYY-MM-DD（结果首列 period）")
+    compare: Literal["previous_period", "previous_calendar", "previous_year", "custom"] | None = Field(
+        None, description="对比：上一期（紧邻的同长度区间）/ 上一自然期（本期须为整月、整季或整年）/ 去年同期 / custom（用 compare_start、compare_end 指定，"
                           "如 9 月对比自然月 8 月）；不能与 time_grain 同用")
     compare_start: date | None = None
     compare_end: date | None = None
@@ -449,8 +450,8 @@ class CorrelateArgs(BaseModel):
 class CoverageArgs(BaseModel):
     dataset: str
     keys: list[str] = Field(default_factory=list, description="按哪些列统计（如 <维度>）；为空表示整个数据集")
-    period: str | None = Field(None, description="日期列；为空时用数据集的时间段列（按日分组时），没有则只计行数")
-    start_date: date | None = Field(None, description="应覆盖的起始日期（用于找缺失的日期）")
+    period: str | None = Field(None, description="期间列；为空时用数据集的时间段列，没有则只计行数；受治理数据按声明粒度判断缺口")
+    start_date: date | None = Field(None, description="应覆盖的起始日期（用于找缺失的期间）")
     end_date: date | None = None
 
 
@@ -493,7 +494,8 @@ class Scope(BaseModel):
     metric_codes: list[str] = Field(default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）")
     filters: list[DimensionFilter] = Field(default_factory=list, description="题目范围的筛选：维度名与取值（如某个区域）")
     dimensions: list[str] = Field(default_factory=list, max_length=3, description="取数时的分组或关系类问题要对比的维度名")
-    time_grain: Literal["day", "month"] | None = Field(None, description="只在问题要求按日、按月列出时填写")
+    time_grain: Literal["day", "week", "month", "quarter", "year"] | None = Field(
+        None, description="只在问题要求按日、周、月、季或年列出时填写；周用周一日期，季用季初日期 YYYY-MM-DD")
     order: Literal["asc", "desc"] | None = Field(None, description="只在取数问排名时填写：升序 / 降序")
     limit: int | None = Field(None, ge=1, le=MAX_LIMIT, description="只在取数问前 N 时填写，最多 100")
     start_date: date | None = Field(None, description="本期开始；问题没有另说时不写（取本次分析的窗口）")
@@ -882,11 +884,60 @@ class AnalysisToolbox:
                 reason = (rule.get("reason") or "派生比率不能按成员相加") if rule else "无法确认该列对应的可加指标"
                 raise calc.CalcError(f"列 {column} 不能按成员相加：{reason}")
 
+    def _time_versions(self, version: MetricVersion, seen: set[str] | None = None) -> list[MetricVersion]:
+        """递归读取锁定的组成版本；元数据缺失或成环时不推测时间语义。"""
+        seen = set(seen or ())
+        identity = str(getattr(version, "id", None) or id(version))
+        if identity in seen:
+            raise calc.CalcError("指标组成成环，无法确认时间语义")
+        seen.add(identity)
+        versions = [version]
+        if version.kind == "derived":
+            for component in version.components or []:
+                child = self.session.get(MetricVersion, component.get("version_id"))
+                if child is None:
+                    raise calc.CalcError("指标的组成版本缺失，无法确认时间语义")
+                versions.extend(self._time_versions(child, seen))
+        return versions
+
+    def _data_grain(self, version: MetricVersion) -> str:
+        grains = [getattr(v, "data_grain", None) or "day" for v in self._time_versions(version)]
+        order = {grain: i for i, grain in enumerate(("day", "week", "month", "quarter", "year"))}
+        if any(grain not in order for grain in grains):
+            raise calc.CalcError("数据粒度未知，无法判断期间覆盖度")
+        return max(grains, key=order.get)
+
+    def _require_time_additive(self, dataset: str, columns: list[str]) -> None:
+        """日历折算还要求跨时间可累加，派生组成也逐项确认。"""
+        ds = self._datasets[dataset]
+        intent = ds.meta.get("intent") or {}
+        codes = intent.get("metric_codes") or ([intent["metric_code"]] if intent.get("metric_code") else [])
+        checked = set()
+        for code in codes:
+            metric, _ = self._metric(code)
+            names = {metric.name, f"{metric.name}·变化"}
+            if intent.get("compare"):
+                names.add(f"{metric.name}·{service.PERIOD_LABEL[intent['compare']]}")
+            selected = names.intersection(columns)
+            if not selected:
+                continue
+            version_id = (ds.meta.get("versions") or {}).get(code)
+            version = self.session.get(MetricVersion, version_id) if version_id else None
+            if version is None:
+                raise calc.CalcError("查询版本缺失，无法确认跨时间合成方式")
+            if any((getattr(v, "time_aggregation", None) or "sum") != "sum" for v in self._time_versions(version)):
+                raise calc.CalcError("该指标跨时间不能累加，不能按天数折算")
+            checked.update(selected)
+        if checked != set(columns):
+            raise calc.CalcError("无法确认列对应的指标时间语义，不能按天数折算")
+
     def _view(self, ref: str, ds: AnalysisDataset, *, offset: int = 0, limit: int = MODEL_ROWS) -> dict:
         rows = ds.rows[offset:offset + limit]
         out = {"dataset": ref, "title": ds.title, "kind": ds.kind, "columns": ds.columns, "row_count": len(ds.rows),
                "rows": rows, "rows_shown": len(rows),
                **({"summary": ds.meta.get("summary")} if ds.meta.get("summary") else {})}
+        if ds.meta.get("query_warnings"):
+            out["warnings"] = ds.meta["query_warnings"]
         if ds.truncated:  # 结果截断（result_truncated）：数据集本身不是全集
             out["truncated"] = True
             out["note"] = ("数据集被截断：只含前若干行，不是全集。合计、覆盖度、相关性等需要全集的计算会被拒绝；"
@@ -1158,9 +1209,16 @@ class AnalysisToolbox:
                                                             previous=f"{name.name}·对比期"))
             if factor := (summary.get("factor_decomposition") or {}).get("dataset"):
                 self.precheck_groups["attribution"].append(factor)
-            daily = run("日趋势", lambda: self.query_metric(
-                metric_codes=[code], start_date=window["compare_start"], end_date=window["end"], filters=filters,
-                time_grain="day", purpose="系统预检：两期的日趋势"), "trend")
+            def trend():
+                # 详情已包含锁定组成推导出的粒度；旧详情缺字段时沿用迁移定义的日默认值。
+                trend_grain = self.precheck_metric.get("data_grain", "day")
+                grain_name = {"day": "日", "week": "周", "month": "月", "quarter": "季", "year": "年"}.get(trend_grain)
+                if grain_name is None:
+                    raise calc.CalcError("数据粒度未知，无法执行趋势预检")
+                return self.query_metric(metric_codes=[code], start_date=window["compare_start"],
+                    end_date=window["end"], filters=filters, time_grain=trend_grain,
+                    purpose=f"系统预检：两期的{grain_name}趋势")
+            daily = run("趋势", trend, "trend")
             if daily.get("dataset"):
                 run("覆盖度", lambda: self.coverage(dataset=daily["dataset"], start_date=date.fromisoformat(
                     window["compare_start"]), end_date=date.fromisoformat(window["end"])), "trend")
@@ -1263,7 +1321,8 @@ class AnalysisToolbox:
         omitted: list[str] = []
         metric = getattr(self, "precheck_metric", None) or {}
         if metric and not metric.get("error"):
-            keep = {k: metric.get(k) for k in ("code", "name", "kind", "unit", "expression", "time_column", "dimensions",
+            keep = {k: metric.get(k) for k in ("code", "name", "kind", "unit", "expression", "time_column", "time_format",
+                                                "data_grain", "time_aggregation", "dimensions",
                                                 "components") if metric.get(k) is not None}
             add("口径：" + _json(keep)[:1200], cap - reserve)
         groups = getattr(self, "precheck_groups", None) or {}
@@ -1400,6 +1459,8 @@ class AnalysisToolbox:
                     "kind": version.kind, "description": version.description, "expression": version.expression,
                     "base_asset": f"{base.catalog_name}.{base.db_name}.{base.name}" if base else None,
                     "time_column": version.time_column, "filters": version.filters,
+                    "time_format": getattr(version, "time_format", None), "data_grain": self._data_grain(version),
+                    "time_aggregation": getattr(version, "time_aggregation", None) or "sum",
                     "dimensions": version.dimensions, "components": version.components,
                     "dependency": v.get("dependency"), "drift": v.get("drift"),
                     "transitions": v.get("transitions"), "versions": history}, None, "ok"
@@ -1568,8 +1629,8 @@ class AnalysisToolbox:
             rows = [[o["base_asset"], o["metric_status"], "是" if o["drift"] else "否", _iso(o["last_collected_at"]),
                      c["status"], _iso(c["started_at"])] for o in out for c in o["recent_collections"] or [{}]]
             rows.sort(key=lambda r: (r[0], "" if r[5] is None else r[5]), reverse=False)
-            note = ("数据完整性需要看数据本身：用 query_metric 按 time_grain=day 并按成员维度分组，"
-                    "找出某天某些成员缺失或骤降；再用 lineage 查看口径的主表（缺失可能来自上游）。")
+            note = ("数据完整性需要看数据本身：用 query_metric 按口径的 data_grain 并按成员维度分组，"
+                    "找出某期间某些成员缺失或骤降；再用 lineage 查看口径的主表（缺失可能来自上游）。")
             ds = self._dataset("context", f"数据健康 {metric_code}",
                                ["base_asset", "metric_status", "drift", "last_collected_at", "collection_status",
                                 "collection_started_at"], rows,
@@ -1642,8 +1703,8 @@ class AnalysisToolbox:
             raise calc.CalcError(f"查询结果的列名重复（{'、'.join(columns)}），无法作为数据集使用")
         title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
             f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
-            f" 按{'日' if args.time_grain == 'day' else '月'}" if args.time_grain else "") + (
-            f" 对比{ {'previous_period': '上一期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
+            f" 按{ {'day': '日', 'week': '周', 'month': '月', 'quarter': '季', 'year': '年'}[args.time_grain]}" if args.time_grain else "") + (
+            f" 对比{ {'previous_period': '上一期', 'previous_calendar': '上一自然期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
             if args.compare else "")
         versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
         units = measures.governed_units(columns, versions,
@@ -1652,6 +1713,7 @@ class AnalysisToolbox:
                            truncated=bool(result.get("truncated")),
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
                                  "metric_codes": list(args.metric_codes), "versions": version_ids,
+                                 "data_grains": {code: self._data_grain(scoped.versions[code][1]) for code in args.metric_codes},
                                  "intent": answer.intent, "freshness": answer.freshness,
                                  "missing_member_rows": (getattr(answer, "evidence", None) or {}).get("missing_member_rows", []),
                                  "purpose": args.purpose,
@@ -1746,7 +1808,8 @@ class AnalysisToolbox:
                 raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
             sent = True
             result = connector.execute_explore(validated.sql, timeout_seconds=timeout, max_rows=max_rows,
-                                               mem_limit_bytes=self.EXPLORE_MEM_LIMIT)
+                                               mem_limit_bytes=self.EXPLORE_MEM_LIMIT,
+                                               timezone=get_settings().business_timezone)
             self._authorize()  # 交付前再核对：撤权后不再交付结果
             exploration.recheck_access(self.session, self.user, validated)
             if list(result.columns) != [c.name for c in validated.columns]:
@@ -1770,6 +1833,7 @@ class AnalysisToolbox:
                            identity=exploration.execution_identity(self.session, source.datasource))
         ds = self._dataset("explore", title, list(result.columns), result.rows, truncated=result.truncated,
                            meta={"sql": validated.sql, "datasource_id": source.datasource.id,
+                                 "query_warnings": list(getattr(result, "warnings", None) or []),
                                  "datasource": source.datasource.name, "engine": source.datasource.kind,
                                  "profile": validated.profile, "sqlglot": validated.sqlglot, "purpose": purpose,
                                  "tables": [{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
@@ -2156,6 +2220,7 @@ class AnalysisToolbox:
         def fn():
             ds, rows = self._rows(dataset)
             current_period, previous_period = _periods(ds, current, previous)
+            self._require_time_additive(dataset, [current, previous])
             self._require_additive(dataset, [current, previous])
             row = self._pick(rows, match or {})
             out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period)
@@ -2188,18 +2253,40 @@ class AnalysisToolbox:
                  start_date: date | None = None, end_date: date | None = None) -> str:
         def fn():
             ds, rows = self._rows(dataset)
-            if ds.kind == "governed" and (ds.meta.get("intent") or {}).get("time_grain") != "day":
-                raise calc.CalcError("非日粒度，不能按天判断缺失")
+            grain = None
+            if ds.kind == "governed":
+                intent = ds.meta.get("intent") or {}
+                grain = intent.get("time_grain")
+                if grain not in {"day", "week", "month", "quarter", "year"}:
+                    raise calc.CalcError("受治理数据集没有时间分组，无法判断期间覆盖度")
+                order = {g: i for i, g in enumerate(("day", "week", "month", "quarter", "year"))}
+                codes = intent.get("metric_codes") or ([intent["metric_code"]] if intent.get("metric_code") else [])
+                if not codes:
+                    raise calc.CalcError("受治理数据集缺少指标意图，无法确认数据粒度")
+                data_grains = {}
+                for code in codes:
+                    version_id = (ds.meta.get("versions") or {}).get(code)
+                    version = self.session.get(MetricVersion, version_id) if version_id else None
+                    if version is None:
+                        raise calc.CalcError(f"指标 {code} 缺少锁定的查询版本，无法确认数据粒度")
+                    data_grains[code] = self._data_grain(version)
+                saved_grains = ds.meta.get("data_grains")
+                if saved_grains is not None and saved_grains != data_grains:
+                    raise calc.CalcError("保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度")
+                if any(order[grain] < order[g] for g in data_grains.values()):
+                    raise calc.CalcError("查询粒度比数据粒度更细，无法判断期间覆盖度")
             period_col = period or ds.meta.get("time_column")
             if period and period not in ds.columns:
                 raise calc.CalcError(f"{dataset} 没有日期列 {period}")
             period_col = period_col if period_col in ds.columns else None
+            if ds.kind == "governed" and period_col is None:
+                raise calc.CalcError("受治理数据集缺少时间期间列，无法判断期间覆盖度")
             expression = self._column_expression(dataset, period_col) if period_col else None
-            if expression is not None and any(
+            if ds.kind != "governed" and expression is not None and any(
                     isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and explore._unit(node) != "DAY"
                     for node in expression.walk()):
                 raise calc.CalcError("非日粒度，不能按天判断缺失")
-            out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date))
+            out = calc.coverage(rows, keys or [], period_col, _date(start_date), _date(end_date), grain=grain)
             cols = [*(keys or []), "rows", "periods", "missing_count", "missing_periods"]
             counts = {c: col("count") for c in ("rows", "periods", "missing_count")}
             return (f"{dataset} 的覆盖度", cols, [[r.get(c) for c in cols] for r in out["rows"]], out["summary"],
@@ -2321,7 +2408,7 @@ class AnalysisToolbox:
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
             t(self.calendar_adjust, CalendarArgs, "只按自然日天数折算两期差异，周六日天数仅供参考，节假日未知（两期日期取自数据集的查询窗口）"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
-            t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖日期数、缺失的日期（行数与缺口要用它取，不要自己数）"),
+            t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖期间数、缺失期间；受治理数据按声明粒度判断（行数与缺口要用它取，不要自己数）"),
             t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某个成员后的合计、两期差额），结果可引用"),
             t(self.describe, DescribeArgs, "一列的个数、合计、均值、中位数、最小值、最大值（可按条件选行）"),
             t(self.segment_compare, SegmentArgs, "按某列分组对比各度量"),
