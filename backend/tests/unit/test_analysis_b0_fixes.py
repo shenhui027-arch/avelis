@@ -9,7 +9,9 @@ F. 查询复用不改变请求语义：排序、行数、列顺序、对比期�
 
 from __future__ import annotations
 
+import builtins
 import json
+import runpy
 import ssl
 from types import SimpleNamespace
 
@@ -22,7 +24,7 @@ from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import OpenAITimeoutError
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 
 from avelis.analysis import agent, service
 from avelis.analysis.tools import Budget
@@ -282,6 +284,53 @@ def test_real_transport_errors_retry_once(monkeypatch, error):
     assert model_steps(box)[0].output["error_code"] == "model_transport"
 
 
+@pytest.mark.parametrize("error_name, status", [
+    ("RateLimitError", 429), ("InternalServerError", 500),
+    ("APIConnectionError", None), ("APITimeoutError", None),
+])
+def test_anthropic_transient_errors_retry_once(monkeypatch, error_name, status):
+    anthropic = pytest.importorskip("anthropic")
+    request = httpx.Request("POST", "https://x")
+    cls = getattr(anthropic, error_name)
+    error = (cls("临时错误", response=httpx.Response(status, request=request), body={})
+             if status else cls(request=request))
+    box = make_box(monkeypatch=monkeypatch)
+    model = Replies(error, AIMessage(content="完成"))
+    agent._round({"messages": []}, box, model)
+    assert model.calls == box.budget.used_model_requests == 2
+    assert [s.status for s in model_steps(box)] == ["error", "ok"]
+    assert model_steps(box)[0].output["retry"] is True
+    assert model_steps(box)[0].output["error_code"] == "model_transport"
+
+
+def test_anthropic_bad_request_is_not_retried(monkeypatch):
+    anthropic = pytest.importorskip("anthropic")
+    error = anthropic.BadRequestError("参数错误", response=httpx.Response(
+        400, request=httpx.Request("POST", "https://x")), body={})
+    box = make_box(monkeypatch=monkeypatch)
+    model = Replies(error, AIMessage(content="不应请求"))
+    with pytest.raises(anthropic.BadRequestError) as caught:
+        agent._round({"messages": []}, box, model)
+    assert caught.value is error
+    assert model.calls == box.budget.used_model_requests == 1
+    assert len(model_steps(box)) == 1 and model_steps(box)[0].output["retry"] is False
+    assert "error_code" not in model_steps(box)[0].output
+
+
+def test_agent_can_import_without_anthropic(monkeypatch):
+    original_import = builtins.__import__
+
+    def without_anthropic(name, *args, **kwargs):
+        if name == "anthropic":
+            raise ImportError("未安装可选依赖 anthropic")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_anthropic)
+    module = runpy.run_path(agent.__file__)
+    assert openai.APIConnectionError in module["TRANSIENT_ERRORS"]
+    assert all(not cls.__module__.startswith("anthropic") for cls in module["TRANSIENT_ERRORS"])
+
+
 @pytest.mark.parametrize("error", [
     pytest.param(openai.BadRequestError("参数错误", response=httpx.Response(
         400, request=httpx.Request("POST", "https://x")), body={}), id="bad-request"),
@@ -482,6 +531,7 @@ def test_token_totals_are_recorded_and_the_cap_applies_only_when_set(monkeypatch
     used = box.budget.view()["used"]
     assert (used["input_tokens"], used["output_tokens"]) == (900, 50) and box.budget.model_blocked() is None
     capped = make_box(budget=Budget(input_tokens=900), monkeypatch=monkeypatch)
+    monkeypatch.setattr(capped, "tools", lambda: [])  # 只检查实际用量到上限，不让工具定义先触发预估截止。
     agent._round({"messages": []}, capped, Replies(reply))
     assert "token" in capped.budget.model_blocked() and not agent._can_call_model(capped)
 
@@ -570,19 +620,63 @@ def test_nearly_exhausted_input_tokens_prompt_for_a_report_and_block_other_tools
     assert box.budget.used_tools == 0 and box.budget.used_reports == 1
 
 
-def test_different_conversations_and_restored_budgets_estimate_all_message_characters():
+@pytest.mark.parametrize("field", ["name", "description", "schema"])
+def test_tool_definitions_without_a_reusable_prefix_block_requests_before_the_cap(monkeypatch, field):
+    args = create_model("LongArgs", value=(str, Field(description="x" * 2000 if field == "schema" else "值")))
+    tool = StructuredTool.from_function(lambda value: value, args_schema=args,
+                                        name="x" * 2000 if field == "name" else "echo",
+                                        description="x" * 2000 if field == "description" else "回声")
+    box = make_box(budget=Budget(input_tokens=10_000), monkeypatch=monkeypatch)
+    box.budget.used_input_tokens = 9000
+    monkeypatch.setattr(box, "tools", lambda: [tool])
+    messages = [HumanMessage("短问题")]
+    assert box.budget.estimate_input_tokens(messages) == len(messages[0].content)
+    estimate = box.budget.estimate_input_tokens(messages, [tool])
+    assert estimate >= (len(messages[0].content) + len(tool.name) + len(tool.description)
+                        + len(json.dumps(args.model_json_schema(), ensure_ascii=False)))
+    model = Replies()
+    assert agent._round({"messages": messages}, box, model) == []
+    assert model.calls == box.budget.used_model_requests == 0 and box.budget.used_input_tokens == 9000
+    step = model_steps(box)[0]
+    assert step.status == "skipped" and step.output == {
+        "error_code": "budget_tokens", "estimated_input_tokens": estimate,
+        "used_input_tokens": 9000, "input_tokens": 10_000,
+    }
+
+
+def test_tool_definitions_are_not_counted_again_with_a_reusable_prefix(monkeypatch):
+    tool = StructuredTool.from_function(lambda value: value, name="echo", args_schema=_Args, description="x" * 2000)
+    box = make_box(budget=Budget(input_tokens=1000), monkeypatch=monkeypatch)
+    monkeypatch.setattr(box, "tools", lambda: [tool])
+    prefix = [HumanMessage("旧问题")]
+    box.budget.used_input_tokens = 900
+    box.budget.remember_model_input(prefix, 40)
+    added = AIMessage(content="新回复")
+    estimate = 40 + len(added.content)
+    assert box.budget.estimate_input_tokens([*prefix, added], [tool]) == estimate
+    reply = AIMessage(content="完成", usage_metadata={"input_tokens": estimate, "output_tokens": 1,
+                                                   "total_tokens": estimate + 1})
+    model = Replies(reply)
+    assert agent._round({"messages": [*prefix, added]}, box, model)[0] is reply
+    assert model.calls == box.budget.used_model_requests == 1
+    assert box.budget.used_input_tokens == 900 + estimate and model_steps(box)[0].status == "ok"
+
+
+def test_different_conversations_and_restored_budgets_estimate_all_messages_and_tools():
     budget = Budget(input_tokens=1000)
+    tool = StructuredTool.from_function(lambda value: value, name="echo", args_schema=_Args, description="工具定义" * 10)
     prefix = [HumanMessage("旧问题" * 10)]
+    added = AIMessage(content="新回复")
+    expected = budget.estimate_input_tokens([*prefix, added], [tool])
+    assert expected > len(prefix[0].content) + len(added.content) + len(tool.description)
     budget.used_input_tokens = 7
     budget.remember_model_input(prefix, 7)
-    added = AIMessage(content="新回复")
-    assert budget.estimate_input_tokens([*prefix, added]) == 7 + len(added.content)
+    assert budget.estimate_input_tokens([*prefix, added], [tool]) == 7 + len(added.content)
     different = [HumanMessage(prefix[0].content), added]  # 内容相同但不是原消息，也不能沿用旧对话的实际用量
-    expected = len(prefix[0].content) + len(added.content)
-    assert budget.estimate_input_tokens(different) == expected
+    assert budget.estimate_input_tokens(different, [tool]) == expected
     restored = Budget.restore(budget.view())
     assert restored.used_input_tokens == 7
-    assert restored.estimate_input_tokens([*prefix, added]) == expected
+    assert restored.estimate_input_tokens([*prefix, added], [tool]) == expected
 
 
 def test_unlimited_input_tokens_neither_estimate_nor_block_requests(monkeypatch):
@@ -604,10 +698,14 @@ def test_unlimited_input_tokens_neither_estimate_nor_block_requests(monkeypatch)
 
 
 def test_input_cutoff_during_understanding_finishes_the_graph_normally(monkeypatch):
-    box = make_box(budget=Budget(input_tokens=1), catalog=catalog(), monkeypatch=monkeypatch)
+    box = make_box(budget=Budget(input_tokens=1000), catalog=catalog(), monkeypatch=monkeypatch)
+    box.budget.used_input_tokens = 900
     box.run.window = dict(WINDOW)
+    # 缩短正文，剩余额度足够放消息，只有 submit_scope 的工具定义会触发输入截止。
+    monkeypatch.setattr(agent, "UNDERSTAND_PROMPT", "")
+    monkeypatch.setattr(box, "candidate_metrics", lambda question: [])
     model = Replies()
-    state = run_graph(box, model)
+    state = run_graph(box, model, question="q")
     assert state["phase"] == "done" and model.calls == box.budget.used_model_requests == 0
     assert box.report["incomplete"] is True and box.verification["status"] == "no_facts"
     assert len(model_steps(box)) == 1 and model_steps(box)[0].output["error_code"] == "budget_tokens"
