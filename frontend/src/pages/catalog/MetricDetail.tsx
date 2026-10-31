@@ -17,6 +17,7 @@ import { useMe, useRoles } from "../../layout/Shell";
 const ROLE_LABEL: Record<string, string> = { measure: "度量", time: "时间", dimension: "维度", filter: "过滤", join_key: "关联键" };
 const METRIC_TABS = [{ id: "definition", label: "口径" }, { id: "dependency", label: "依赖" }, { id: "history", label: "历史" }] as const;
 type MetricTab = typeof METRIC_TABS[number]["id"];
+type Spec = Schemas["VersionSpec"];
 // 口径的时间与量纲语义（ADR 0014）：默认值与原行为一致
 const TIME_FORMATS = [["", "日期 / 时间类型"], ["yyyymmdd", "编码 yyyymmdd"], ["yyyy-mm-dd", "文本 yyyy-mm-dd"], ["yyyymm", "编码 yyyymm（按月）"]] as const;
 const DATA_GRAINS = [["day", "日"], ["week", "周"], ["month", "月"], ["quarter", "季"], ["year", "年"]] as const;
@@ -327,14 +328,14 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
   const [expression, setExpression] = useState(base?.expression ?? "");
   const [unit, setUnit] = useState(base?.unit ?? "");
   const [unitScale, setUnitScale] = useState(String(base?.unit_scale ?? 1));
-  const [measure, setMeasure] = useState({ value_kind: base?.value_kind ?? "", polarity: base?.polarity ?? "" });
+  const [measure, setMeasure] = useState({ value_kind: String(base?.value_kind ?? ""), polarity: String(base?.polarity ?? "") });
   const [message, setMessage] = useMessage();
   // Consume Python numeric literals first, including digit separators and base prefixes.
   const codes = [...new Set((expression.match(/0[xX](?:_?[\da-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+|(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
     .filter((token) => /^[A-Za-z_]/.test(token)))];
   const body = { kind: "derived", description: description.trim(), expression: expression.trim(), unit: unit.trim() || null,
     unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)),
-    value_kind: measure.value_kind || null, polarity: measure.polarity || null } satisfies Schemas["VersionSpec"];
+    value_kind: (measure.value_kind || null) as Spec["value_kind"], polarity: (measure.polarity || null) as Spec["polarity"] } satisfies Spec;
   const save = useAction(() => mode === "edit" && base
     ? unwrap(api.PUT("/api/metric-versions/{version_id}", { params: { path: { version_id: base.id } }, body }))
     : unwrap(api.POST("/api/metrics/{metric_id}/versions", { params: { path: { metric_id: metricId } }, body })), ["metrics", "metric-version"]);
@@ -396,8 +397,8 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
     // 时区留空表示沿用系统业务时区（设置加载前后可能不同，提交时再取）
     time_column: base?.time_column ?? "", timezone: base?.timezone ?? "", filters: base?.filters ?? "",
     grain: (base?.grain ?? []).join(", "), dedupe_basis: base?.dedupe_basis ?? "",
-    time_format: base?.time_format ?? "", data_grain: base?.data_grain ?? "day", time_aggregation: base?.time_aggregation ?? "sum",
-    value_kind: base?.value_kind ?? "", polarity: base?.polarity ?? "",
+    time_format: String(base?.time_format ?? ""), data_grain: String(base?.data_grain ?? "day"), time_aggregation: String(base?.time_aggregation ?? "sum"),
+    value_kind: String(base?.value_kind ?? ""), polarity: String(base?.polarity ?? ""),
   });
   const businessTz = useTimeZone();
   const [unit, setUnit] = useState(base?.unit ?? "");
@@ -418,8 +419,9 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const valid = canEdit && baseValid && !!form.description.trim() && !!form.expression.trim() && !!form.time_column.trim() && dimsValid && joinsValid;
   const body = {
     ...form, description: form.description.trim(), expression: form.expression.trim(), time_column: form.time_column.trim(),
-    timezone: form.timezone.trim() || businessTz, time_format: form.time_format || null,
-    value_kind: form.value_kind || null, polarity: form.polarity || null,
+    timezone: form.timezone.trim() || businessTz, time_format: (form.time_format || null) as Spec["time_format"],
+    data_grain: form.data_grain as Spec["data_grain"], time_aggregation: form.time_aggregation as Spec["time_aggregation"],
+    value_kind: (form.value_kind || null) as Spec["value_kind"], polarity: (form.polarity || null) as Spec["polarity"],
     filters: form.filters.trim() || null, dedupe_basis: form.dedupe_basis.trim() || null,
     unit: unit.trim() || null, unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)),
     grain: form.grain.split(/[,，×]/).map((s) => s.trim()).filter(Boolean),
