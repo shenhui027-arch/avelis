@@ -39,6 +39,10 @@ from avelis.llm_protocol import ModelProtocolError, protocol_problem
 
 REVISION_TOOL_CALLS = 6
 UNDERSTAND_MAX_TOKENS = 1000  # 理解阶段只输出 scope：关闭思考、限制输出长度（ADR 0012，系统固定）
+# E0 只验证过 max_tokens=8、200；起始剩余额度约 30,716 未经真实模型验证，直接发送有被提供方以 400 拒绝的风险。
+# E1 的 362 次请求中有 5 次输出超过 8,192，最大 14,165，不能统一限制为 8,192。
+# 仅在剩余额度确实偏紧时由预算设置输出上限，不发送未验证的大值；提供方默认上限造成的 length 仍属接入错误。
+BUDGET_OUTPUT_CEILING = 8192
 REPORT_RESERVE_SECONDS = 30  # 剩余时间少于此值时只接受 submit_report
 MODEL_TIMEOUT_SECONDS = 60
 
@@ -170,12 +174,20 @@ def _ctx(config) -> tuple[AnalysisToolbox, Any]:
 
 
 def _model_for(model, budget, **phase):
-    """按统一截止时间构造本次请求的模型：超时不超过剩余时间。客户端不自行重试（重试在 _invoke 里做并计入预算）。
+    """返回本次请求的模型及是否实际使用预算输出上限；仅在剩余额度低于阶段上限或预算阈值时收紧输出。
+    超时不超过剩余时间，客户端不自行重试（_invoke 负责并计入预算）。
     phase：阶段固定的参数（理解阶段 effort="off"、max_tokens）；不写时用页面配置的思考强度。"""
     factory = getattr(model, "factory", None)
     if factory is None:  # 测试替身或未带工厂的模型
-        return getattr(model, "model", model)
-    return factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, budget.remaining())), max_retries=0, **phase)
+        return getattr(model, "model", model), False
+    remaining = budget.remaining_output_tokens()
+    phase_limit = phase.get("max_tokens")
+    output_budget_limited = remaining is not None and remaining < (
+        phase_limit if phase_limit is not None else BUDGET_OUTPUT_CEILING)
+    if output_budget_limited:
+        phase["max_tokens"] = remaining
+    return (factory(timeout=max(1.0, min(MODEL_TIMEOUT_SECONDS, budget.remaining())), max_retries=0, **phase),
+            output_budget_limited)
 
 
 TRANSIENT_ERRORS = (openai.APIConnectionError, openai.InternalServerError, openai.RateLimitError,
@@ -200,10 +212,12 @@ def _is_transient_error(exc: Exception) -> bool:
     return False
 
 
-def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMessage | None:
+def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox, *,
+            output_budget_limited: bool = False) -> AIMessage | None:
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
     传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
-    回复不符合接入协议（截断等）时记下错误码并抛出 ModelProtocolError。reasoning_content 不写进步骤记录。"""
+    预算上限造成的截断记为预算截止；其他接入协议错误记下错误码并抛出 ModelProtocolError。
+    reasoning_content 不写进步骤记录。"""
     budget = toolbox.budget
     retried = False
     while True:
@@ -236,9 +250,17 @@ def _invoke(bound, messages: list[AnyMessage], toolbox: AnalysisToolbox) -> AIMe
         problem = protocol_problem(reply)
         names = [c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]]
         finish = (getattr(reply, "response_metadata", None) or {}).get("finish_reason")
+        budget_cutoff = finish == "length" and output_budget_limited
+        if budget_cutoff:
+            budget._blocked_output_tokens = True  # usage 缺失时也停止请求，不伪造已用 token 数。
+            error = {"error_code": "budget_output_tokens", "error": "模型回复因剩余输出 token 额度而截断"}
+        else:
+            error = {"error_code": problem.code, "error": problem.message} if problem else {}
         toolbox._step("model", "model", {}, "error" if problem else "ok",
                       {**usage, "tool_calls": len(names), "tools": names, **({"finish_reason": finish} if finish else {}),
-                       **({"error_code": problem.code, "error": problem.message} if problem else {})}, started=started)
+                       **error}, started=started)
+        if budget_cutoff:
+            return None  # 截断内容和工具调用不执行，由现有预算截止路径生成未完成报告。
         if problem:
             raise problem
         return reply
@@ -269,7 +291,9 @@ def _round(state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report
     每次模型调用记一个 model 步骤：耗时、token 数与本轮发出的工具调用数（ADR 0012 度量）。"""
     if not _can_call_model(toolbox):
         return []
-    reply = _invoke(_model_for(model, toolbox.budget).bind_tools(toolbox.tools()), state["messages"], toolbox)
+    request_model, output_budget_limited = _model_for(model, toolbox.budget)
+    reply = _invoke(request_model.bind_tools(toolbox.tools()), state["messages"], toolbox,
+                    output_budget_limited=output_budget_limited)
     if reply is None:
         return []
     out: list[AnyMessage] = [reply]
@@ -311,10 +335,11 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
             f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{state['question']}"
             + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else ""))]
-        bound = _model_for(model, toolbox.budget, effort="off", max_tokens=UNDERSTAND_MAX_TOKENS).bind_tools(
-            [tool], tool_choice="submit_scope")
+        request_model, output_budget_limited = _model_for(
+            model, toolbox.budget, effort="off", max_tokens=UNDERSTAND_MAX_TOKENS)
+        bound = request_model.bind_tools([tool], tool_choice="submit_scope")
         try:
-            reply = _invoke(bound, messages, toolbox)
+            reply = _invoke(bound, messages, toolbox, output_budget_limited=output_budget_limited)
             call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None) if reply else None
             raw = call["args"] if call else None
             scope = Scope.model_validate(raw) if raw is not None else None

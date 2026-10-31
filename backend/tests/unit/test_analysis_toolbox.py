@@ -273,7 +273,7 @@ def test_model_request_timeout_follows_remaining_time(monkeypatch):
     class Resolved:
         model = None
 
-        def factory(self, timeout, max_retries):
+        def factory(self, timeout, max_retries, max_tokens=None):
             seen.append((timeout, max_retries))
             return CountingModel("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"})
 

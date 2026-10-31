@@ -88,6 +88,7 @@ class Budget:
     _last_input_tokens: int | None = field(default=None, init=False, repr=False)
     _last_input_messages: tuple[Any, ...] = field(default=(), init=False, repr=False)
     _blocked_input_estimate: int | None = field(default=None, init=False, repr=False)
+    _blocked_output_tokens: bool = field(default=False, init=False, repr=False)
 
     # 与 E1 注入字符的口径一致：按 1 字符 ≤ 1 token 预留输入，作为保守上界，避免下一次请求越过累计上限。
     _INPUT_TOKENS_PER_CHAR = 1
@@ -125,13 +126,18 @@ class Budget:
                          "output_tokens": self.used_output_tokens,
                          "seconds": round(time.monotonic() - self.started, 1)}}
 
+    def remaining_output_tokens(self) -> int | None:
+        """本次模型请求可用的输出额度；None 表示只记录、不限制。"""
+        return max(0, self.output_tokens - self.used_output_tokens) if self.output_tokens is not None else None
+
     def model_blocked(self) -> str | None:
         """不能再请求模型的原因：请求次数（含重试）或累计 token 到上限。"""
         if self.used_model_requests >= self.model_requests:
             return f"模型请求已达上限 {self.model_requests} 次（含重试）"
         if (self.input_tokens is not None and (self._blocked_input_estimate is not None
                                               or self.used_input_tokens >= self.input_tokens)) or (
-                self.output_tokens is not None and self.used_output_tokens >= self.output_tokens):
+                self.output_tokens is not None and (self._blocked_output_tokens
+                                                    or self.used_output_tokens >= self.output_tokens)):
             return f"模型 token 已达累计上限（输入 {self.input_tokens}、输出 {self.output_tokens}）"
         return None
 
