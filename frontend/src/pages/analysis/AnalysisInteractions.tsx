@@ -90,6 +90,32 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
   );
 }
 
+/** 理解阶段的追问：用户回答后在同一次分析里继续（回答也会整理成可保存的经验候选）。 */
+export function ClarifyPanel({ runId, question }: { runId: string; question: string }) {
+  const [answer, setAnswer] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const resume = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/resume", {
+    params: { path: { run_id: runId } }, body: { answer } as never })), ["analysis-run", "analysis-runs"]);
+  return (
+    <section className="av-analysis__confirm" aria-label="回答追问">
+      <header className="av-analysis__confirm-hd"><h3>需要你确认范围</h3></header>
+      <p className="av-analysis__question">{question}</p>
+      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      <form className="av-analysis__confirm-ft" onSubmit={(e) => {
+        e.preventDefault();
+        setError(null);
+        resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
+      }}>
+        <label htmlFor={`ans-${runId}`} className="av-sr">回答</label>
+        <textarea id={`ans-${runId}`} className="av-input" rows={2} maxLength={2000} value={answer} autoFocus
+          placeholder="例如：指的是哪个口径、哪个范围" onChange={(e) => setAnswer(e.target.value)} />
+        <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || !answer.trim()}>
+          <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
+      </form>
+    </section>
+  );
+}
+
 /** 报告的依据：每项标明来源与本次的确认结果；沿用上次的项单独标出。 */
 export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; experiences?: { id: string; version: number }[] }) {
   if (!items?.length && !experiences?.length) return null;

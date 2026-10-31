@@ -1,4 +1,4 @@
-"""假设检查点与恢复：真实内存图、假模型和元数据会话，不连接数据库或外部模型。"""
+"""理解、假设检查点与恢复：真实内存图、假模型和元数据会话，不连接数据库或外部模型。"""
 
 from __future__ import annotations
 
@@ -9,13 +9,15 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
+from pydantic import ValidationError
 
 from avelis.analysis import agent, service, tools
 from avelis.analysis.tools import Budget, PermissionDenied, PermissionLost
+from avelis.api.schemas import AnalysisResumeIn, AnalysisRunOut
 from avelis.governance import experiences
-from avelis.governance.errors import Conflict, NotFound
+from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.models import AnalysisRun, AnalysisTask, Job, Notification
-from tests.unit.test_analysis_pipeline import Phased, WINDOW
+from tests.unit.test_analysis_pipeline import Phased, WINDOW, catalog as pipeline_catalog
 from tests.unit.test_analysis_toolbox import governed, make_box
 
 
@@ -31,14 +33,18 @@ def scope_reply():
     return reply("submit_scope", {"question_type": "other", "metric_codes": []}, "scope")
 
 
+def clarify_reply(question="请确认要分析哪个地区？"):
+    return reply("submit_scope", {"question_type": "other", "metric_codes": [], "clarification": question}, "scope")
+
+
 def report_reply(dataset="D1"):
     return reply("submit_report", {"title": ["分析结果"], "summary": ["已完成检查"],
         "claims": [{"type": "fact", "parts": ["结果为 ", {"dataset": dataset, "column": "值"}],
                     "refs": [dataset]}], "conclusion": "insufficient_evidence"}, "report")
 
 
-def configured(monkeypatch, responses, *, mode="auto", unattended=False):
-    box = make_box(monkeypatch=monkeypatch)
+def configured(monkeypatch, responses, *, mode="auto", unattended=False, catalog=None):
+    box = make_box(monkeypatch=monkeypatch, catalog=catalog)
     box.run.window, box.run.question = dict(WINDOW), "检查指标变化"
     box.run.trigger, box.run.confirmation_mode = "schedule" if unattended else "manual", mode
     calls = []
@@ -56,6 +62,128 @@ def configured(monkeypatch, responses, *, mode="auto", unattended=False):
     state = agent.initial_state(box.run.question, "2026-10-31", "UTC", WINDOW,
                                 confirmation_mode=mode, unattended=unattended)
     return box, model, config, state, calls
+
+
+def test_understand_answer_resumes_same_run_before_precheck_and_reaches_reason(monkeypatch):
+    question, answer = "请确认要分析哪个地区？", "华东地区"
+    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(question), scope_reply(),
+        reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    resume_checks = []
+    monkeypatch.setattr(box, "check_resume_permissions", lambda: resume_checks.append(True))
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"][0].value == {"kind": "clarify", "question": question}
+    assert calls == [] and len(model.seen) == box.budget.used_model_requests == 1
+    assert graph.get_state(config).next == ("understand",) and resume_checks == []
+
+    final = graph.invoke(Command(resume={"answer": answer}), config)
+    assert final["phase"] == "done" and not final.get("__interrupt__")
+    assert final["clarifications"] == [{"question": question, "answer": answer}]
+    assert calls == ["precheck"] and box.verification["ok"] and box.clarification is None
+    assert resume_checks == [True]
+    assert model.tool_choice == ["submit_scope", "submit_scope", "submit_proposal", None]
+    assert box.budget.used_model_requests == len(model.seen) == 4
+    assert model.seen[1][:2] == model.seen[0]
+    assert any(isinstance(m, HumanMessage) and m.content == f"用户对追问的回答：{answer}"
+               for m in model.seen[1][2:])
+    assert question in model.seen[-1][1].content and answer in model.seen[-1][1].content
+    assert all(answer not in m.content for messages in model.seen for m in messages if isinstance(m, SystemMessage))
+
+
+def test_understand_resume_checks_permission_once_before_another_model_call(monkeypatch):
+    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(), scope_reply()])
+    graph = agent.build_graph(MemorySaver())
+    graph.invoke(state, config)
+    box.user.is_active = False
+    with pytest.raises(PermissionLost):
+        graph.invoke(Command(resume={"answer": "华东地区"}), config)
+    assert len(model.seen) == 1 and calls == [] and box.report is None
+
+
+def test_unknown_metric_clarification_can_resume_with_a_valid_scope(monkeypatch):
+    invalid_scope = {"question_type": "other", "metric_codes": ["m_missing"]}
+    valid_scope = {"question_type": "other", "metric_codes": ["m_a"]}
+    box, model, config, state, calls = configured(monkeypatch, [reply("submit_scope", invalid_scope, "unknown"),
+        reply("submit_scope", valid_scope, "valid"), reply("submit_proposal", {"items": []}, "proposal"),
+        report_reply()], catalog=pipeline_catalog())
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    question = first["__interrupt__"][0].value["question"]
+    assert first["__interrupt__"][0].value["kind"] == "clarify" and "m_missing" in question
+    assert first["scope"]["metric_codes"] == box.plan["scope"]["metric_codes"] == ["m_missing"]
+    assert "m_missing" in box.plan["problem"] and calls == [] and len(model.seen) == 1
+    step = next(s for s in box.session.added if getattr(s, "tool", None) == "understand")
+    assert step.args == invalid_scope
+    assert box.scope is None and box.snapshot()["scope"] is None
+
+    final = graph.invoke(Command(resume={"answer": "应该分析指标甲 m_a"}), config)
+    assert final["phase"] == "done" and not final.get("__interrupt__")
+    assert final["scope"]["metric_codes"] == box.scope.metric_codes == ["m_a"]
+    assert final["clarifications"] == [{"question": question, "answer": "应该分析指标甲 m_a"}]
+    assert calls == ["precheck"] and box.verification["ok"] and len(model.seen) == 4
+    assert not box.denials and box.clarification is None
+
+
+def test_valid_scope_metric_revocation_still_blocks_understand_resume(monkeypatch):
+    scope = {"question_type": "other", "metric_codes": ["m_a"], "clarification": "请确认地区？"}
+    box, model, config, state, calls = configured(monkeypatch, [reply("submit_scope", scope, "valid")],
+                                                  catalog=pipeline_catalog())
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"] and box.scope.metric_codes == ["m_a"]
+    monkeypatch.setattr(tools.access, "domain_ids", lambda session, user: set())
+    with pytest.raises(PermissionDenied, match="m_a 当前无权访问"):
+        graph.invoke(Command(resume={"answer": "华东"}), config)
+    assert len(model.seen) == 1 and calls == [] and box.report is None
+    assert box.denials[-1]["metric_code"] == "m_a"
+
+
+def test_understand_stops_as_clarify_after_two_answers(monkeypatch):
+    questions = ["请确认地区？", "请确认渠道？", "请确认门店？"]
+    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(q) for q in questions])
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"][0].value["question"] == questions[0]
+    second = graph.invoke(Command(resume={"answer": "华东"}), config)
+    assert second["__interrupt__"][0].value["question"] == questions[1]
+    final = graph.invoke(Command(resume={"answer": "直营"}), config)
+    assert not final.get("__interrupt__") and final["phase"] == "clarify"
+    assert final["clarifications"] == [{"question": questions[0], "answer": "华东"},
+                                        {"question": questions[1], "answer": "直营"}]
+    assert box.clarification["question"] == questions[2]
+    assert len(model.seen) == box.budget.used_model_requests == 3 and calls == []
+    assert graph.get_state(config).next == ()
+
+
+def test_unattended_understand_ends_as_clarify_without_interrupt(monkeypatch):
+    box, model, config, state, calls = configured(monkeypatch, [clarify_reply()], unattended=True)
+    result = agent.build_graph(MemorySaver()).invoke(state, config)
+    assert result["phase"] == "clarify" and not result.get("__interrupt__")
+    assert box.clarification["question"] == "请确认要分析哪个地区？"
+    assert not result.get("clarifications") and calls == [] and len(model.seen) == 1
+
+
+def test_understand_answer_limit_survives_precheck_retry(monkeypatch):
+    questions = ["请确认地区？", "请确认渠道？", "请确认门店？"]
+    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(questions[0]), scope_reply(),
+        clarify_reply(questions[1]), clarify_reply(questions[2])])
+    original_precheck = box.precheck
+
+    def no_data(scope):
+        original_precheck(scope)
+        box.precheck_problem = "这个范围没有数据"
+        return []
+
+    monkeypatch.setattr(box, "precheck", no_data)
+    graph = agent.build_graph(MemorySaver())
+    graph.invoke(state, config)
+    second = graph.invoke(Command(resume={"answer": "华东"}), config)
+    assert second["retried"] and second["__interrupt__"][0].value["question"] == questions[1]
+    final = graph.invoke(Command(resume={"answer": "直营"}), config)
+    assert final["phase"] == "clarify" and not final.get("__interrupt__")
+    assert final["clarifications"] == [{"question": questions[0], "answer": "华东"},
+                                        {"question": questions[1], "answer": "直营"}]
+    assert calls == ["precheck"] and len(model.seen) == 4
 
 
 def test_restart_resume_keeps_query_state_budget_and_dataset_numbers(monkeypatch):
@@ -318,6 +446,7 @@ def waiting_run(monkeypatch):
                       confirmation_mode="auto", window={}, budget=box.budget.view(),
                       checkpoint={"proposal": {"items": [{"id": "P1", "source": "inferred",
                                                            **proposal()["items"][0]}]},
+                                  "pending": {"kind": "assumptions"},
                                   "snapshot": box.snapshot()})
     session = box.session
     session.store[(AnalysisRun, run.id)] = run
@@ -336,6 +465,79 @@ def test_same_waiting_run_can_only_be_resumed_once(monkeypatch):
     with pytest.raises(Conflict):
         service.resume_run(session, user, run.id, feedback)
     assert len(queued) == 1 and len(run.checkpoint["candidates"]) == 2
+
+
+@pytest.mark.parametrize("with_metric", [False, True])
+def test_understand_answer_creates_one_rule_candidate_with_current_scope_refs(monkeypatch, with_metric):
+    from avelis.governance import metrics
+
+    session, user, run, queued = waiting_run(monkeypatch)
+    question, answer = "请确认要分析哪个地区？", "华东地区"
+    run.checkpoint["pending"] = {"kind": "clarify", "question": question}
+    run.checkpoint["snapshot"]["scope"] = {"metric_codes": ["revenue"] if with_metric else []}
+    stale_ref = {"object_type": "asset", "object_id": "asset-old", "version": 1}
+    run.checkpoint["proposal"]["items"][0]["refs"] = [stale_ref]
+    run.checkpoint["inherited"] = {"items": [{"refs": [stale_ref]}]}
+    session.scalar = lambda statement: SimpleNamespace(id="revenue", code="revenue")
+    monkeypatch.setattr(metrics, "latest_governed_version",
+                        lambda session, metric: SimpleNamespace(id="revenue-v3", version_no=3))
+    result = service.resume_run(session, user, run.id, {"answer": f"  {answer}  "})
+    assert result.status == "queued" and result.id == "waiting" and result.checkpoint["resume_pending"]
+    assert result.checkpoint["feedback"] == {"answer": answer} and not result.checkpoint.get("pending")
+    text = f"问题：{question} 回答：{answer}"
+    refs = [{"object_type": "metric_version", "object_id": "revenue-v3", "version": 3}] if with_metric else []
+    assert result.checkpoint["candidates"] == [{"kind": "rule", "content": text, "refs": refs,
+        "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text}}]
+    with pytest.raises(Conflict):
+        service.resume_run(session, user, run.id, {"answer": "另一个回答"})
+    assert len(queued) == len(run.checkpoint["candidates"]) == 1
+
+
+@pytest.mark.parametrize("feedback", [{}, {"answer": ""}, {"answer": "  \n\t"},
+                                      {"decisions": [{"item_id": "P1", "decision": "confirmed"}]}])
+def test_understand_resume_requires_a_nonblank_answer(monkeypatch, feedback):
+    session, user, run, queued = waiting_run(monkeypatch)
+    run.checkpoint["pending"] = {"kind": "clarify", "question": "请确认地区？"}
+    with pytest.raises(Invalid):
+        service.resume_run(session, user, run.id, feedback)
+    assert run.status == "waiting" and not queued and not run.checkpoint.get("candidates")
+
+
+def test_answer_cannot_replace_assumption_decisions(monkeypatch):
+    session, user, run, queued = waiting_run(monkeypatch)
+    with pytest.raises(Invalid):
+        service.resume_run(session, user, run.id, {"answer": "华东地区"})
+    assert run.status == "waiting" and not queued
+
+
+def test_understand_resume_compare_and_swap_failure_does_not_store_answer(monkeypatch):
+    session, user, run, queued = waiting_run(monkeypatch)
+    run.checkpoint["pending"] = {"kind": "clarify", "question": "请确认地区？"}
+    session.execute = lambda statement: SimpleNamespace(rowcount=0)
+    with pytest.raises(Conflict):
+        service.resume_run(session, user, run.id, {"answer": "华东"})
+    assert queued == [] and run.status == "waiting" and not run.checkpoint.get("candidates")
+    assert not run.checkpoint.get("resume_pending")
+
+
+def test_resume_schema_accepts_answer_without_decisions_and_limits_its_length():
+    assert AnalysisResumeIn.model_validate({"answer": "华东"}).model_dump() == {
+        "answer": "华东", "decisions": [], "supplement": ""}
+    assert AnalysisResumeIn().answer == ""
+    assert AnalysisResumeIn(answer="答" * 2000).answer == "答" * 2000
+    with pytest.raises(ValidationError):
+        AnalysisResumeIn(answer="答" * 2001)
+
+
+@pytest.mark.parametrize("pending", [{"kind": "clarify", "question": "请确认地区？"}, {"kind": "assumptions"}, None])
+@pytest.mark.parametrize("full", [False, True])
+def test_run_view_exposes_pending_and_schema_preserves_it(monkeypatch, pending, full):
+    session, _, run, _ = waiting_run(monkeypatch)
+    run.created_at = service.utcnow()
+    run.checkpoint["pending"] = pending
+    view = service.run_view(session, run, full=full)
+    assert view["pending"] == pending
+    assert AnalysisRunOut.model_validate(view).pending == pending
 
 
 @pytest.mark.parametrize("scope_location", ["snapshot", "confirmed_scope"])
@@ -441,7 +643,8 @@ def test_asset_revocation_is_rejected_at_checkpoint_before_model(monkeypatch):
 
 
 @pytest.mark.parametrize("trigger", ["manual", "schedule"])
-def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_pause(monkeypatch, trigger):
+@pytest.mark.parametrize("checkpoint_kind", ["assumptions", "clarify"])
+def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(monkeypatch, trigger, checkpoint_kind):
     """真实 execute/graph/resume/task 收尾，只有模型、外部取数和元数据会话是替身。"""
     box = make_box(monkeypatch=monkeypatch)
     session, user = box.session, box.user
@@ -478,8 +681,13 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_pause(monkeypat
         return SimpleNamespace(one_or_none=lambda: row)
 
     session.execute = execute
-    graph = agent.build_graph(MemorySaver())
-    model = Phased([scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()])
+    saver = MemorySaver()
+    graph = agent.build_graph(saver)
+    question, answer = "请确认要分析哪个地区？", "华东地区"
+    responses = ([clarify_reply(question), scope_reply(), reply("submit_proposal", {"items": []}, "proposal"),
+                  report_reply()] if checkpoint_kind == "clarify" else
+                 [scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()])
+    model = Phased(responses)
     model.adapter = "fake"
     monkeypatch.setattr(service, "warm_up", lambda: None)
     monkeypatch.setattr(service, "_graph", lambda: graph)
@@ -495,6 +703,16 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_pause(monkeypat
     monkeypatch.setattr(tools.AnalysisToolbox, "precheck", precheck)
     outcome = service.execute(session, run.id, first_job.id, 1)
     if trigger == "schedule":
+        if checkpoint_kind == "clarify":
+            assert outcome["status"] == "paused" and outcome["run_status"] == run.status == "clarify"
+            assert first_job.status == "skipped" and task.status == "paused"
+            assert question in task.paused_reason and queries == [] and len(model.seen) == 1
+            assert run.budget["used"]["queries"] == 0 and run.budget["used"]["model_requests"] == 1
+            assert not run.checkpoint.get("pending") and not run.checkpoint["resume_pending"]
+            notices = [o for o in session.added if isinstance(o, Notification)]
+            assert len(notices) == 1 and notices[0].kind == "analysis_paused"
+            assert question in notices[0].body
+            return
         assert outcome["status"] == "succeeded" and run.status == first_job.status == "succeeded"
         assert task.status == "active" and queries == ["query"]
         assert run.budget["used"]["queries"] == 1 and run.budget["used"]["model_requests"] == 3
@@ -504,17 +722,39 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_pause(monkeypat
         return
     assert outcome["run_status"] == "waiting" and run.status == "waiting"
     assert first_job.status == "succeeded" and not any(isinstance(o, Notification) for o in session.added)
-    assert run.checkpoint["snapshot"]["budget"]["used"]["queries"] == 1
+    expected_pending = ({"kind": "clarify", "question": question} if checkpoint_kind == "clarify" else
+                        {"kind": "assumptions"})
+    assert run.checkpoint["pending"] == expected_pending
+    assert run.checkpoint["snapshot"]["budget"]["used"]["queries"] == (0 if checkpoint_kind == "clarify" else 1)
+    if checkpoint_kind == "clarify":
+        assert run.checkpoint["snapshot"]["datasets"] == {} and queries == []
+        assert run.checkpoint["snapshot"]["budget"]["used"]["model_requests"] == 1
+        assert len(model.seen) == 1
+        # 理解暂停前尚未预检；只保留序列化快照和 checkpointer，换一张图恢复。
+        run.checkpoint = json.loads(json.dumps(run.checkpoint))
+        graph = agent.build_graph(saver)
 
     from avelis import jobs
     second_job = Job(id="job-second", status="queued", attempts=1, kind="analysis_run", result={})
     monkeypatch.setattr(jobs, "_enqueue", lambda *a, **kw: second_job.id)
-    service.resume_run(session, user, run.id, {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
+    feedback = ({"answer": answer} if checkpoint_kind == "clarify" else
+                {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
+    service.resume_run(session, user, run.id, feedback)
+    with pytest.raises(Conflict):
+        service.resume_run(session, user, run.id, feedback)
     second_job.status, active_job[0] = "running", second_job
     result = service.execute(session, run.id, second_job.id, 1)
     assert result["status"] == "succeeded" and run.status == "succeeded"
     assert first_job.status == second_job.status == "succeeded" and queries == ["query"]
-    assert run.budget["used"]["queries"] == 1 and run.budget["used"]["model_requests"] == 3
+    assert run.budget["used"]["queries"] == 1
+    assert run.budget["used"]["model_requests"] == (4 if checkpoint_kind == "clarify" else 3)
+    assert not run.checkpoint.get("pending") and not run.checkpoint["resume_pending"]
+    if checkpoint_kind == "clarify":
+        assert answer in model.seen[-1][1].content and question in model.seen[-1][1].content
+        assert len(run.checkpoint["candidates"]) == 1
+        assert run.checkpoint["candidates"][0] == {"kind": "rule", "content": f"问题：{question} 回答：{answer}",
+            "refs": [], "source": {"run_id": run.id, "checkpoint": "understand",
+                                    "user_text": f"问题：{question} 回答：{answer}"}}
     notices = [o for o in session.added if isinstance(o, Notification)]
     assert len(notices) == 1 and notices[0].kind == "analysis_finished"
 

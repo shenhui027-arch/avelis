@@ -1587,6 +1587,11 @@ export interface components {
         };
         /** AnalysisResumeIn */
         AnalysisResumeIn: {
+            /**
+             * Answer
+             * @default
+             */
+            answer?: string;
             /** Decisions */
             decisions?: components["schemas"]["AnalysisDecisionIn"][];
             /**
@@ -1652,6 +1657,10 @@ export interface components {
              */
             confirmation_mode?: "auto" | "always";
             proposal?: components["schemas"]["AnalysisProposalOut"] | null;
+            /** Pending */
+            pending?: {
+                [key: string]: unknown;
+            } | null;
             /** Experience Candidates */
             experience_candidates?: components["schemas"]["ExperienceCandidate"][];
             /** Confirmed Scope */

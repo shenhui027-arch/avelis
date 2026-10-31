@@ -8,7 +8,7 @@ import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useExampleQuestions, useTimeZone } from "../../api/hooks";
 import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime } from "../../format";
-import { CandidatesPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
+import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
 import { BarChart, LineChart } from "./charts";
 
 type Run = Schemas["AnalysisRunOut"];
@@ -51,7 +51,9 @@ const MEASURE_LABEL: Record<string, string> = { level: "水平值", delta: "差�
 const KIND_LABEL: Record<string, [string, "ok" | "warn" | "info"]> = { governed: ["受治理", "ok"], calc: ["计算", "info"],
   context: ["上下文", "info"], explore: ["探索", "warn"], ungoverned: ["未治理", "warn"] };
 
-const useRuns = () => useQuery({ queryKey: ["analysis-runs"], queryFn: () => unwrap(api.GET("/api/analysis/runs")) });
+// 有进行中的运行时定期刷新，左侧列表的状态与运行详情保持一致
+const useRuns = () => useQuery({ queryKey: ["analysis-runs"], queryFn: () => unwrap(api.GET("/api/analysis/runs")),
+  refetchInterval: (q) => (q.state.data?.some((r) => ["queued", "running"].includes(r.status)) ? 4000 : false) });
 const useTasks = () => useQuery({ queryKey: ["analysis-tasks"], queryFn: () => unwrap(api.GET("/api/analysis/tasks")) });
 const useRun = (id?: string) => useQuery({
   queryKey: ["analysis-run", id], enabled: !!id,
@@ -305,6 +307,7 @@ function RunDetail({ id }: { id: string }) {
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[];
     sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[] };
   const hitl = r as Run & { parent_run_id?: string | null; proposal?: { items: ProposalItem[] } | null;
+    pending?: { kind?: string; question?: string } | null;
     experience_candidates?: Parameters<typeof CandidatesPanel>[0]["candidates"] };
   const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
     fields?: FieldCheck[]; sources?: { direct?: Record<string, number>; with_explore?: number; assumption?: number;
@@ -349,7 +352,9 @@ function RunDetail({ id }: { id: string }) {
       {running ? <RunProgress run={r} /> : null}
       {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
-      {r.status === "waiting" && hitl.proposal?.items.length ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal.items} /> : null}
+      {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
+      {r.status === "waiting" && hitl.pending?.kind !== "clarify" && hitl.proposal?.items.length
+        ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal.items} /> : null}
       {done ? <>
         <section className="av-doc__summary" aria-label="摘要">
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
