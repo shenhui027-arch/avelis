@@ -325,7 +325,7 @@ def test_revoked_report_values_and_sql_are_hidden_in_views_and_exports_without_r
     assert secret not in api.client.get("/api/analysis/runs").text
     detail = api.client.get("/api/analysis/runs/run").json()
     assert detail["datasets"][0]["summary"] is None and detail["datasets"][0]["sql"] is None
-    assert detail["steps"][0]["args"]["sql"] is None
+    assert detail["steps"][0]["args"] == detail["steps"][1]["args"] == {}
     assert detail["steps"][0]["output"] == {"rows": [], "restricted": True}
     api.session.refresh(api.run)
     assert api.run.report == original and api.run.verification == {"ok": True}

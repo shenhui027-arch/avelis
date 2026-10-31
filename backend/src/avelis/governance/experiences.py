@@ -158,6 +158,10 @@ def _owned(session: Session, actor: User, experience_id: str, *, lock: bool = Fa
     return experience
 
 
+def _dedup_key(kind: str, content: str, refs: list[dict]) -> tuple:
+    return kind, content.strip(), tuple(sorted({(ref["object_type"], ref["object_id"]) for ref in refs}))
+
+
 def list_experiences(session: Session, actor: User) -> list[dict]:
     _require_user(session, actor)
     rows = session.scalars(select(Experience).where(Experience.owner_id == actor.id, Experience.scope == "personal")
@@ -165,7 +169,7 @@ def list_experiences(session: Session, actor: User) -> list[dict]:
     result, seen = [], set()
     for row in rows:
         version = _current(session, row)
-        key = (version.kind, version.content.strip())
+        key = _dedup_key(version.kind, version.content, version.refs)
         if row.status == "active":
             if key in seen:
                 continue
@@ -174,13 +178,14 @@ def list_experiences(session: Session, actor: User) -> list[dict]:
     return result
 
 
-def _matching_active(session: Session, actor: User, kind: str, content: str) -> dict | None:
+def _matching_active(session: Session, actor: User, kind: str, content: str, refs: list[dict]) -> dict | None:
+    key = _dedup_key(kind, content, refs)
     rows = session.scalars(select(Experience).where(Experience.owner_id == actor.id, Experience.scope == "personal",
                                                     Experience.status == "active")
                            .order_by(Experience.created_at.desc(), Experience.id))
     for row in rows:
         version = _current(session, row)
-        if version.kind == kind and version.content.strip() == content:
+        if _dedup_key(version.kind, version.content, version.refs) == key:
             return _view(row, version)
     return None
 
@@ -193,7 +198,7 @@ def save_experience(session: Session, actor: User, *, kind: str, content: str, r
     pinned, _, _ = _resolve_refs(session, actor, refs)
     origin = _source(session, actor, source)
     content = content.strip()
-    existing = _matching_active(session, actor, kind, content)
+    existing = _matching_active(session, actor, kind, content, pinned)
     if existing is not None:
         return existing
     now = utcnow()

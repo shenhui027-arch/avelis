@@ -423,6 +423,13 @@ function RunDetail({ id }: { id: string }) {
         </details>
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
+      {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
+        <section className="av-analysis__joins" aria-label="关联路径">
+          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />你确认的 {r.join_candidates.length} 条关联已提交为关联路径，
+            负责人审核通过后所有分析都能用。<Link to="/catalog/joins">查看</Link></p> : null}
+          {r.checkpoint_warnings?.map((w) => <div key={w} className="av-banner av-banner--warn" role="status"><Icon name="info" />{w}</div>)}
+        </section>
+      ) : null}
       {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
       </DatasetSql.Provider>
     </article>
