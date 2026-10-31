@@ -7,7 +7,7 @@ import {
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
@@ -150,6 +150,25 @@ function Canvas() {
   const [density, setDensity] = useState<AssetData["density"]>("overview");
   const [showColumns, setShowColumns] = useState(false);
   const [showJoins, setShowJoins] = useState(true);
+  const [inspectorWidth, setInspectorWidth] = useState(readInspectorWidth);
+  const resizing = useRef(false);
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const box = (event.currentTarget.closest(".av-lineage") as HTMLElement).getBoundingClientRect();
+    resizing.current = true;
+    let next = inspectorWidth;
+    const move = (e: PointerEvent) => {
+      next = Math.round(Math.min(Math.max(box.right - e.clientX, INSPECTOR_MIN), Math.max(INSPECTOR_MIN, box.width * 0.6)));
+      setInspectorWidth(next);
+    };
+    const up = () => {
+      resizing.current = false;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try { localStorage.setItem(INSPECTOR_KEY, String(next)); } catch { /* 拿不到存储时只在本次生效 */ }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const [nodeWidth] = useState(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size-node")));
   useEffect(() => { setSelected(focusAsset ?? null); setColumn(null); setShowColumns(false); }, [focusAsset]);
   const flow = useReactFlow();
@@ -342,23 +361,28 @@ function Canvas() {
   const latest = useRef({ edges, path });
   latest.current = { edges, path };
   const width = useStore((st) => st.width);
+  const height = useStore((st) => st.height);
   const zoom = useStore((st) => st.transform[2]);
   const pick = (id: string) => { setSelected(id); setColumn(null); setShowColumns(false); };
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || resizing.current) return;
     const timer = setTimeout(() => {
       const ids = new Set([selected]);
       for (const e of latest.current.edges) {
         if (latest.current.path.edgeKeys.has(e.id)) { ids.add(e.source); ids.add(e.target); }
       }
       const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      void flow.fitView({ nodes: [...ids].map((id) => ({ id })), padding: 0.2, maxZoom: 1.1, duration: still ? 0 : 500 });
+      // 整条路径放得下且看得清就整条显示；路径太长时以选中的表为中心，保持能读出表名
+      const bounds = flow.getNodesBounds([...ids]);
+      const fits = Math.min(width / (bounds.width * 1.4), height / (bounds.height * 1.4)) >= READABLE_ZOOM;
+      void flow.fitView({ nodes: (fits ? [...ids] : [selected]).map((id) => ({ id })), padding: 0.2,
+        maxZoom: fits ? 1.1 : 0.8, duration: still ? 0 : 500 });
     }, 60);
     return () => clearTimeout(timer);
   }, [selected, width, flow]);
 
   return (
-    <div className="av-lineage" data-inspector-open={inspectorOpen}>
+    <div className="av-lineage" data-inspector-open={inspectorOpen} style={{ "--lineage-inspector-w": `${inspectorWidth}px` } as CSSProperties}>
       <div className="av-lineage__workspace">
         <div className="av-lineage__toolbar" aria-label="血缘工具栏">
           <details className="av-lineage__domain-filter">
@@ -411,13 +435,29 @@ function Canvas() {
         </div>
       </div>
       {selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label="检查器">
+        <div className="av-lineage__resize" role="separator" aria-orientation="vertical" aria-label="拖动调整检查器宽度"
+          title="拖动调整宽度，双击恢复默认" onPointerDown={startResize}
+          onDoubleClick={() => { setInspectorWidth(INSPECTOR_DEFAULT); try { localStorage.removeItem(INSPECTOR_KEY); } catch { /* 忽略 */ } }} />
         <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data} column={column?.split("::")[1] ?? null}
           showColumns={showColumns} onShowColumns={() => setShowColumns(true)} onColumn={(name) => setColumn(selectedNode.id + "::" + name)}
-          onPick={pick}
+          onPick={pick} onPickColumn={(id, col) => { setSelected(id); setColumn(`${id}::${col}`); setShowColumns(false); }}
           onClose={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />
       </aside> : null}
     </div>
   );
+}
+
+const INSPECTOR_KEY = "avelis.lineage.inspector";
+const INSPECTOR_MIN = 300;
+const INSPECTOR_DEFAULT = 360;
+
+function readInspectorWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(INSPECTOR_KEY));
+    return Number.isFinite(saved) && saved >= INSPECTOR_MIN ? saved : INSPECTOR_DEFAULT;
+  } catch {
+    return INSPECTOR_DEFAULT;
+  }
 }
 
 /** 按表名找表：输入时列出匹配项，回车或点选后选中并定位到画布上。 */
@@ -458,22 +498,22 @@ function Legend({ tone, label }: { tone: "value" | "influence" | "identity" | "j
   </span>;
 }
 
-function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, onPick, onClose }: {
+function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, onPick, onPickColumn, onClose }: {
   node: GNode; graph: Graph; column: string | null; showColumns: boolean; onShowColumns: () => void;
-  onColumn: (column: string) => void; onPick: (id: string) => void; onClose: () => void;
+  onColumn: (column: string) => void; onPick: (id: string) => void; onPickColumn: (id: string, column: string) => void; onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
   const asset = useAsset(node.kind === "design_time" ? undefined : node.id);
   const incoming = graph.edges.filter((e) => e.target === node.id);
   const outgoing = graph.edges.filter((e) => e.source === node.id);
   const name = (id: string) => graph.nodes.find((n) => n.id === id)?.qualified ?? id.replace(/^ref:/, "");
-  const colIn = column ? incoming.flatMap((e) => e.columns.filter((c) => c.target_column === column).map((c) => ({ ...c, from: name(e.source) }))) : [];
+  const colIn = column ? incoming.flatMap((e) => e.columns.filter((c) => c.target_column === column).map((c) => ({ ...c, from: name(e.source), fromId: e.source }))) : [];
   // 影响条件：过滤、关联键、分组；表级关系已经在“上游”里，没有列名的不重复列出。按上游表分组
   const influences = incoming.flatMap((e) => e.columns.filter((c) => !c.target_column && c.source_column && !VALUE.has(c.relation))
-    .map((c) => ({ ...c, from: name(e.source) })));
+    .map((c) => ({ ...c, from: name(e.source), fromId: e.source })));
   const influenceGroups = [...influences.reduce((map, c) => map.set(c.from, [...(map.get(c.from) ?? []), c]),
     new Map<string, typeof influences>())];
-  const colOut = column ? outgoing.flatMap((e) => e.columns.filter((c) => c.source_column === column).map((c) => ({ ...c, to: name(e.target) }))) : [];
+  const colOut = column ? outgoing.flatMap((e) => e.columns.filter((c) => c.source_column === column).map((c) => ({ ...c, to: name(e.target), toId: e.target }))) : [];
   const col = asset.data?.columns.find((c) => c.name === column);
   const graphColumnNames = useMemo(() => (graphColumns(graph).get(node.id) ?? []).map((item) => item.name), [graph, node.id]);
   const columns = [...new Set([...(asset.data?.columns.map((item) => item.name) ?? []), ...graphColumnNames])];
@@ -507,8 +547,8 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
               <dt>推导</dt><dd><Status value={col.fingerprint_status ?? "unknown"} /> <span className="av-mono av-muted">{col.fingerprint?.slice(0, 10)}</span></dd>
               {col.fingerprint_reason ? <><dt>原因</dt><dd>{col.fingerprint_reason}</dd></> : null}
               <dt>业务含义</dt><dd>{col.confirmations.find((c) => c.valid)?.meaning ?? <span className="av-muted">未确认</span>}</dd></dl> : null}
-            <Flow title="来源" items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
-            <Flow title="下游" items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, left: `${shortName(c.to)}.${c.target_column ?? "（影响）"}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
+            <Flow title="来源" onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
+            <Flow title="下游" onPick={(k) => { const [id, col] = k.split("::"); if (col) onPickColumn(id, col); else onPick(id); }} items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, target: `${c.toId}::${c.target_column ?? ""}`, left: `${shortName(c.to)}.${c.target_column ?? "（影响）"}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
           </>
         ) : (
           <>
@@ -525,7 +565,8 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
             {influenceGroups.map(([from, items]) => (
               <div key={from} className="av-lineage__stack">
                 <span className="av-caption av-mono" title={from}>{shortName(from)}</span>
-                {items.map((c, i) => <span key={i} className="av-chain__item"><span className="av-tag">{RELATION_LABEL[c.relation] ?? c.relation}</span><span title={c.source_column ?? ""}>{c.source_column}</span></span>)}
+                {items.map((c, i) => <button key={i} type="button" className="av-chain__item av-lineage__chain-link" title={`查看 ${shortName(c.from)}.${c.source_column}`}
+                  onClick={() => onPickColumn(c.fromId, c.source_column!)}><span className="av-tag">{RELATION_LABEL[c.relation] ?? c.relation}</span><span>{c.source_column}</span></button>)}
               </div>
             ))}
           </details>
