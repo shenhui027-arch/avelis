@@ -213,6 +213,40 @@ scorer_v2_1_1:
     backend/tests/eval/analysis_questions_v2_1.yaml: 99e4f3db3f28a15e378ae4497320861f9853edbe  # 同 v2.1，未改
   depends_on_frozen: scoring_v2_1.py、scoring_v2.py、scoring.py 的 blob 同 scorer_v2_1 与 b0.scorer_git_blobs
 
+# --- 评分器 v2.1.2（协调会话 2026-10-31：评分器有严重错误就升版；E2 的运行与判分照旧用 v2.1.1）------------------
+scorer_v2_1_2:
+  version: v2.1.2
+  reason: "PR #11 评审确认 contribution 的实体并集会造成假阳性（跨实体合计被当成单个实体的证据，线程 4430232921）"
+  changes:  # 相对 v2.1.1 只修已确认的 6 处，题目规格沿用 analysis_questions_v2_1.yaml
+    - contribution 的每个输入行都要单独满足实体（假阳性，4430232921）
+    - explain_change 的 summary.total.* 按整次归因绑定（假阴性，4426619623）
+    - ·上一期 / ·去年同期 映射为对比期（假阴性，4426775415）
+    - factor_decompose 的 match 计入实体（假阴性，4426775439）
+    - 覆盖整个题目期间的日 / 月时间桶可以绑定（假阴性，4426832504）
+    - explain 的复合成员（×、 / ）拆成各自维度后比较关键数值（假阴性，4427578578）
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_2.py: dd13b443875331b73ee09d24eee520874f7d2efe759dc72beec064f0c7a0db6b
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_2.py: c87d057416341db4fc4d2188130e527655670444
+    experiments/agent-v2/rescore_v2_1_2.py: 6d5e2884435c7d50469ea8371838157c0ae61641
+  rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一重判，与 v2.1.1 并列，逐条列出判定变化
+
+# --- 评分器 v2.1.3（协调会话 2026-10-31；E2 的运行与判分照旧用 v2.1.1）-----------------------------------------
+scorer_v2_1_3:
+  version: v2.1.3
+  reason: "PR #11 评审线程 4430639097——运行详情只保存每个数据集的前 50 行，评分器按保存的行选行、展开、核对实体时看不到被截掉的行。
+    contribution 这一处已修补过两次，按“同一处补丁达到 3 次就回头查架构”的规则，改成一条通用规则，不再单独补 contribution"
+  rule: 任何一条绑定路径（关键数值的各分支、首要原因机制匹配中读取行的部分）上，只要用到的数据集保存的行数少于 row_count，
+    就判为不确定、不予绑定；只读 SQL（来源表）的判断不受影响。结果里分别记 uncertain_truncated 与 uncertain_details
+  v2_1_2_note: v2.1.2（66f1d7e）冻结后没有给任何运行判过分、没有产生任何结果；v2.1.3 在它的基础上只加这一条规则
+  frozen_before_rescore: true
+  sha256:
+    backend/tests/eval/scoring_v2_1_3.py: e45f1cbefc3046994899da8d7b88a201b8bb0d005302cbee8ace36e87a40bab4
+  git_blobs:
+    backend/tests/eval/scoring_v2_1_3.py: 312bec6cf41b6857ed195b080c8d456269aa6807
+    experiments/agent-v2/rescore_v2_1_3.py: a652124f811a0aadbffb0aaf3ef722381055d3d5
+  rescore_plan: E2 跑完后，对历史 210 次与 E2 的 128 次统一用 v2.1.3 重判，与 v2.1.1 并列；统计因截断判为不确定的运行数及其中判定变化的次数
 # --- E2：2×2 对照（任务书第 12 节；用户经协调会话批准，费用上限 20 元，2026-10-31）-------------------------------
 e2:
   status: 已冻结，待运行（自动权限分类器拦截了真实模型调用，等用户放行）
