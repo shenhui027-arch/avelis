@@ -1499,6 +1499,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/business-calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Business Calendar */
+        get: operations["get_business_calendar_api_settings_business_calendar_get"];
+        /** Put Business Calendar */
+        put: operations["put_business_calendar_api_settings_business_calendar_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports": {
         parameters: {
             query?: never;
@@ -2350,6 +2368,26 @@ export interface components {
             file: string;
             /** Default Db */
             default_db?: string | null;
+        };
+        /** BusinessCalendarIn */
+        BusinessCalendarIn: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+        };
+        /** BusinessCalendarOut */
+        BusinessCalendarOut: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+            /** Configured */
+            configured: boolean;
         };
         /** CandidateOut */
         CandidateOut: {
@@ -7298,6 +7336,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_business_calendar_api_settings_business_calendar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
+                };
+            };
+        };
+    };
+    put_business_calendar_api_settings_business_calendar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessCalendarIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
                 };
             };
             /** @description Validation Error */

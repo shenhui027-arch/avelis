@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.ask.intent import business_today
+from avelis.config import get_settings
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.models import Domain, User
@@ -38,18 +41,26 @@ def generated(session: Session, user: User, mode: str) -> list[dict[str, Any]]:
         catalog = visible_catalog(session, user, with_values=False)
     except GovernanceError:  # 没有查询角色：不给示例
         return []
+    month_start = business_today(get_settings().business_timezone).replace(day=1)
+    end = month_start - timedelta(days=1)
+    start = end.replace(day=1)
+    period = f"{start.isoformat()} 至 {end.isoformat()}"
     picks = []
     for code in sorted(catalog.versions):
         metric, version = catalog.versions[code]
-        dims = [d.get("label") or d["name"] for d in (version.dimensions or []) if d.get("name")]
+        dims = {d["name"]: d.get("label") or d["name"] for d in (version.dimensions or []) if d.get("name")}
         if dims:
-            picks.append((metric.name, dims[0]))
+            picks.append((metric.name, dims))
     if mode == "ask":
-        texts = [t for name, dim in picks[:2] for t in (f"{name} 按{dim}的最近一期排名", f"{name} 最近一期 环比")]
+        texts = [t for name, dims in picks[:2] for t in (
+            f"{name} {period} 按{next(iter(dims.values()))}的排名", f"{name} {period} 环比")]
     else:
-        texts = [f"{name} 最近一期为什么比上一期变化？主要来自哪些{dim}？" for name, dim in picks[:2]]
+        texts = [f"{name} {period} 相比上一期为什么变化？主要来自哪些{next(iter(dims.values()))}？"
+                 for name, dims in picks[:2]]
         if len(picks) >= 2:
-            texts.append(f"{picks[0][0]} 和 {picks[1][0]} 按{picks[0][1]}有什么关系？")
+            shared = next((label for name, label in picks[0][1].items() if name in picks[1][1]), None)
+            if shared:
+                texts.append(f"{picks[0][0]} 和 {picks[1][0]} {period} 相比上一期按{shared}有什么关系？")
     return [{"text": t, "domain": None, "source": "generated"} for t in texts[:LIMIT]]
 
 

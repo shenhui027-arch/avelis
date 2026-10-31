@@ -22,6 +22,7 @@ from avelis.api import (
     history,
     imports,
     model_settings,
+    settings as system_settings,
     workbench,
 )
 from avelis.cache import LockBusy, client as cache_client
@@ -98,7 +99,8 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "error", "failed": failed})
         return JSONResponse(content={"status": "ok"})
 
-    for module in (auth, datasources, catalog, governance, history, ask, analysis, model_settings, imports, workbench):
+    for module in (auth, datasources, catalog, governance, history, ask, analysis, model_settings, system_settings,
+                   imports, workbench):
         app.include_router(module.router)
 
     if frontend_dir is not None:

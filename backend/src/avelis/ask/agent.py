@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from avelis import modelcfg
 from avelis.ask import service
-from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today
+from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today, matched_dimension_values
 from avelis.ask.llm import DEMO_ADAPTER
 from avelis.config import get_settings
 from avelis.db import utcnow
@@ -140,7 +140,7 @@ class Toolbox:
             return json.dumps({"matched": [], "note": f"该指标当前状态为 {card.status}，不提供取值；"
                                "请照常用原话中的取值提交意图，后端会说明能否查询"}, ensure_ascii=False)
         values = self._dimension_values(metric_code, dimension)
-        matched = [v for v in values if v and v in text]
+        matched = matched_dimension_values(text, values)
         note = "只返回出现在原话中的取值" if matched else "原话中没有该维度的已知取值"
         if len(values) >= service.DIMENSION_VALUES_LIMIT:
             note += "；样本不完整时，原话中的取值会在提交时精确核验"

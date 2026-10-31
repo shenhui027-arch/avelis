@@ -4,15 +4,55 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Json = dict[str, Any]
 
 
 class Out(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+# --- 系统设置 ---------------------------------------------------------------------
+
+BusinessCalendarWeekday = Annotated[int, Field(strict=True, ge=0, le=6)]
+BusinessCalendarDate = Annotated[str, Field(strict=True, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                          json_schema_extra={"format": "date"})]
+
+
+class BusinessCalendarIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    weekend_days: list[BusinessCalendarWeekday] = Field(default_factory=lambda: [5, 6], max_length=2000)
+    holidays: list[BusinessCalendarDate] = Field(default_factory=list, max_length=2000)
+    workdays: list[BusinessCalendarDate] = Field(default_factory=list, max_length=2000)
+
+    @field_validator("weekend_days")
+    @classmethod
+    def normalize_weekdays(cls, values: list[int]) -> list[int]:
+        return sorted(set(values))
+
+    @field_validator("holidays", "workdays")
+    @classmethod
+    def normalize_dates(cls, values: list[str]) -> list[str]:
+        for value in values:
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                raise ValueError("日期必须是合法的 YYYY-MM-DD") from None
+        return sorted(set(values))
+
+    @model_validator(mode="after")
+    def disjoint_dates(self) -> "BusinessCalendarIn":
+        if set(self.holidays) & set(self.workdays):
+            raise ValueError("同一天不能既是节假日又是调休上班日")
+        return self
+
+
+class BusinessCalendarOut(BusinessCalendarIn):
+    configured: bool
 
 
 # --- 数据源 -----------------------------------------------------------------------

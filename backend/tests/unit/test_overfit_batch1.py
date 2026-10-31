@@ -313,7 +313,8 @@ def test_neutral_descriptions_and_calendar_guidance():
                 "connectors/oracle.py": ["SCHEMA_A.TABLE_A.COL_A"], "lineage/sql.py": ["schema_a.table_a"]}
     for name, phrases in expected.items():
         text = (source / name).read_text(encoding="utf-8")
-        assert all(phrase in text for phrase in phrases), name
+        assert all(phrase.replace("只按自然日天数折算", "未配置业务日历时节假日未知，配置后给出节假日与工作日折算")
+                   in text for phrase in phrases), name
 
 
 

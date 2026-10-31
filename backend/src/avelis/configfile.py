@@ -82,6 +82,8 @@ CONFIG_KEYS = {
     "analysis.material_change_ratio": ConfigKey("AVELIS_MATERIAL_CHANGE_RATIO", float, 0.01),
     "analysis.retrieval": ConfigKey("AVELIS_ANALYSIS_RETRIEVAL", bool, False),
     "analysis.investigation": ConfigKey("AVELIS_ANALYSIS_INVESTIGATION", bool, False),
+    "analysis.uniform_tolerance": ConfigKey("AVELIS_ANALYSIS_UNIFORM_TOLERANCE", float, 0.5),
+    "analysis.spike_share": ConfigKey("AVELIS_ANALYSIS_SPIKE_SHARE", float, 0.5),
     "model.timeout_seconds": ConfigKey("AVELIS_MODEL_TIMEOUT_SECONDS", int, 60),
     "model.provider": ConfigKey("AVELIS_MODEL_PROVIDER", str, ""),
     "model.name": ConfigKey("AVELIS_MODEL_NAME", str, ""),

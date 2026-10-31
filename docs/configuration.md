@@ -161,6 +161,8 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `material_change_ratio` | `AVELIS_MATERIAL_CHANGE_RATIO` | `0.01` | 变化显著性阈值（口径未单独设置时） |
 | `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | 元数据图证据发现（实验特性） |
 | `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | 证据解释（实验特性，本阶段只定义开关） |
+| `uniform_tolerance` | `AVELIS_ANALYSIS_UNIFORM_TOLERANCE` | `0.5` | 均匀容差，有限数值，范围 `(0, 1]`；至少三个正基数成员的变化率都在总体变化率的 ±此比例以内，才判为均匀 |
+| `spike_share` | `AVELIS_ANALYSIS_SPIKE_SHARE` | `0.5` | 时间集中度阈值，有限数值，范围 `(0, 1]`；最大单日绝对偏差占总偏差绝对值达到此比例，判为集中在某个时间点 |
 
 ### 模型 `[model]`
 

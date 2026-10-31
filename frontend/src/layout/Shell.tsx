@@ -281,8 +281,8 @@ export function Shell() {
   );
 }
 
-export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" }) {
-  const items = [["datasources", "数据源"], ["models", "模型配置"], ["users", "用户"]] as const;
+export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" | "calendar" }) {
+  const items = [["datasources", "数据源"], ["models", "模型配置"], ["users", "用户"], ["calendar", "业务日历"]] as const;
   // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (
     <nav className="av-seg" aria-label="设置分区">
