@@ -742,6 +742,8 @@ def schedule_due() -> list[str]:
 
 
 def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: User | None = None) -> dict[str, Any]:
+    from avelis.analysis.dataset_access import can_read_dataset
+    from avelis.analysis.dataset_projection import restrict_report, restrict_verification
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
@@ -755,30 +757,62 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             "finished_at": run.finished_at.isoformat() if run.finished_at else None,
             "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
     if not full:
+        title_refs = set((((run.report or {}).get("fields") or {}).get("title") or {}).get("refs") or [])
+        if user is not None and title_refs:
+            datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
+            restricted_refs = {f"D{d.seq}" for d in datasets if f"D{d.seq}" in title_refs
+                               and not can_read_dataset(session, user, d)}
+            data["title"] = restrict_report(run.report or {}, restricted_refs).get("title")
         return data
+    lookup_restricted = False
     if user is not None and (run.report or {}).get("kind") == "lookup":
         from avelis.api.ask import answer_view
 
-        answer = session.scalar(select(Answer).where(
-            Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
-        if answer is not None:
-            data["answer"] = answer_view(answer)
+        source = session.get(Answer, run.report.get("answer_id"))
+        lookup_restricted = source is None or not can_read_dataset(session, user, AnalysisDataset(
+            kind="governed", answer_id=source.id, meta={"metric_version_ids": source.metric_version_ids}))
+        if not lookup_restricted:
+            answer = session.scalar(select(Answer).where(
+                Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
+            if answer is not None:
+                data["answer"] = answer_view(answer)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
-    datasets = session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
-                               .order_by(AnalysisDataset.seq))
+    datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
+                                    .order_by(AnalysisDataset.seq)))
+    known = {f"D{d.seq}": d for d in datasets}
+    restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
+    report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
+                             lookup_restricted=lookup_restricted)
+
+    def step_args(step) -> dict:
+        args = dict(step.args)
+        if step.dataset_id in restricted and "sql" in args:
+            args["sql"] = None
+        if (restricted or lookup_restricted) and step.tool == "submit_report" and "title" in args:
+            args["title"] = report.get("title")
+        return args
+
     messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
                                .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
-    data.update(plan=run.plan, report=run.report, verification=run.verification,
+    data.update(plan=run.plan, report=report, title=report.get("title"),
+                verification=restrict_verification(run.verification or {}, report),
                 messages=[message_view(message) for message in messages],
                 proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
                 confirmed_scope=checkpoint.get("confirmed_scope") or {},
                 confirmed_items=checkpoint.get("confirmed_items") or [],
-                steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool, "args": s.args, "reason": s.reason,
-                        "status": s.status, "output": s.output, "dataset": _ref(session, s.dataset_id),
+                steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,
+                        "args": step_args(s),
+                        "reason": s.reason,
+                        "status": s.status,
+                        "output": {"rows": [], "restricted": True} if s.dataset_id in restricted else s.output,
+                        "dataset": _ref(session, s.dataset_id),
                         "duration_ms": s.duration_ms, "at": s.created_at.isoformat()} for s in steps],
                 datasets=[{"ref": f"D{d.seq}", "seq": d.seq, "kind": d.kind, "title": d.title, "answer_id": d.answer_id,
-                           "inputs": d.inputs, "columns": d.columns, "rows": d.rows[:50], "row_count": len(d.rows),
-                           "truncated": d.truncated, "summary": d.meta.get("summary"), "sql": d.meta.get("sql"),
+                           "inputs": d.inputs, "columns": d.columns,
+                           "rows": [] if d.id in restricted else d.rows[:50], "row_count": len(d.rows),
+                           **({"restricted": True} if d.id in restricted else {}),
+                           "truncated": d.truncated, "summary": None if d.id in restricted else d.meta.get("summary"),
+                           "sql": None if d.id in restricted else d.meta.get("sql"),
                            "metric_version_ids": d.meta.get("metric_version_ids", []),
                            "time_column": d.meta.get("time_column")} for d in datasets])
     return data
