@@ -204,12 +204,14 @@ def search(call_id, keyword="x"):
     return {"name": "search_metrics", "args": {"keyword": keyword}, "id": call_id}
 
 
-def test_reasoning_is_not_written_to_step_records(monkeypatch):
+def test_reasoning_is_only_displayed_in_model_step_and_keeps_protocol_content(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     reply = AIMessage(content="", additional_kwargs={"reasoning_content": THOUGHT}, tool_calls=[search("c1")])
     out = agent._round({"messages": []}, box, Replies(reply))
     assert out[0].additional_kwargs["reasoning_content"] == THOUGHT  # 留在消息里，供下一轮回传
-    recorded = json.dumps([[s.args, s.output] for s in box.session.added if hasattr(s, "output")], ensure_ascii=False)
+    assert model_steps(box)[0].output["thinking"] == THOUGHT
+    recorded = json.dumps([[s.args, {k: v for k, v in s.output.items() if k != "thinking"}]
+                           for s in box.session.added if hasattr(s, "output")], ensure_ascii=False)
     assert THOUGHT not in recorded
 
 

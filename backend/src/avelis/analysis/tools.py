@@ -32,10 +32,12 @@ from avelis.ask.intent import DimensionFilter, Intent, comparison_range
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
+from avelis.db import utcnow
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
     AnalysisDataset,
+    AnalysisMessage,
     AnalysisRun,
     AnalysisStep,
     Asset,
@@ -534,6 +536,7 @@ class AnalysisToolbox:
         self.executor = executor  # 执行权标记（run.budget.executor）：失去执行权后不再写入、停止
         self.adapter = adapter or getattr(run, "model_adapter", None) or "analysis"
         self.aborted: str | None = None
+        self.user_stopped = False
         self.verification: dict | None = None  # 核验结果：终态时与运行一起写入
         self._allowed: set[str] = set()
         self.plan: dict | None = None  # 理解阶段的 scope（运行记录里的 plan）
@@ -554,10 +557,11 @@ class AnalysisToolbox:
         self.confirmed_scope: dict | None = None
         self.confirmed_items: list[dict] = []
         self.experiences: list[dict] = []
+        self.interjections: list[dict] = []  # 已消费的插话批次，跨阶段和暂停恢复保留，始终追加在消息末尾
 
     _SNAPSHOT_FIELDS = ("plan", "explanations", "denials", "precheck_notes", "precheck_groups", "precheck_meta",
                         "precheck_refs", "precheck_metric", "precheck_problem", "precheck_distribution",
-                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences")
+                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences", "interjections")
 
     def snapshot(self) -> dict:
         """仅保存可序列化的工具状态；恢复不会重做预检、取数或分配已有的 D 编号。"""
@@ -586,12 +590,28 @@ class AnalysisToolbox:
                 setattr(self, key, value)
 
     def check_resume_permissions(self) -> None:
-        """在旧上下文再次交给模型之前核对账号、范围口径和预检表。"""
+        """在旧上下文再次交给模型之前核对账号、范围、来源和引用。"""
+        from avelis.governance import experiences
+
         self._authorize()
         for code in self.scope.metric_codes if self.scope else []:
             self._metric_sources(code)
         for table in getattr(self, "precheck_meta", None) or []:
             self._asset(table["table"])
+        visible = []
+        for experience in self.experiences:
+            try:
+                experiences._resolve_refs(self.session, self.user, experience["refs"], allowed=self._allowed)
+            except GovernanceError:
+                continue
+            visible.append(experience)
+        self.experiences = visible
+        inherited = (getattr(self.run, "checkpoint", None) or {}).get("inherited") or {}
+        for item in [*self.confirmed_items, *(inherited.get("items") or [])]:
+            try:
+                experiences._resolve_refs(self.session, self.user, item.get("refs") or [], allowed=self._allowed)
+            except GovernanceError as exc:
+                self._deny(exc.message)
 
     def recall_experiences(self, question: str, scope: Scope | None) -> None:
         """经验只以有界数据块进入上下文，不新增工具、不改变系统规则。"""
@@ -624,19 +644,73 @@ class AnalysisToolbox:
 
     @property
     def stopped(self) -> str | None:
-        """不能再继续（不再请求模型）的原因：发起人失去权限，或运行已被终结 / 接管。"""
-        return self.permission_lost or self.aborted
+        """不能再继续的原因；用户停止仍保留执行权，以便提交未完成报告。"""
+        return self.permission_lost or self.aborted or ("用户停止" if self.user_stopped else None)
 
     def _owns_run(self, *, lock: bool = False) -> bool:
-        stmt = select(AnalysisRun.status, AnalysisRun.budget).where(AnalysisRun.id == self.run.id)
+        stmt = select(AnalysisRun.status, AnalysisRun.budget, AnalysisRun.stop_requested).where(
+            AnalysisRun.id == self.run.id)
         row = self.session.execute(stmt.with_for_update() if lock else stmt).one_or_none()
+        if row is not None and getattr(row, "stop_requested", False):
+            self.user_stopped = True
         return row is not None and row.status == "running" and (row.budget or {}).get("executor") == self.executor
 
     def check_executor(self) -> None:
-        if not self.executor or self.aborted:
+        if self.aborted or self.user_stopped:
+            return
+        if not self.executor:
+            self.user_stopped = bool(getattr(self.run, "stop_requested", False))
             return
         if not self._owns_run():
             self.aborted = "分析已被终结或由其他执行者接管，本执行者停止"
+
+    def consume_messages(self) -> list[dict]:
+        """模型调用前一次消费全部待生效插话；消费标记、经验候选和步骤在同一事务提交。"""
+        from avelis.governance import experiences
+
+        self.check_executor()
+        if self.stopped:
+            return []
+        # 与发消息、停止接口使用同一运行行锁，避免消费与收尾交错。没有执行权的测试/回放无需锁。
+        if self.executor:
+            if not self._owns_run(lock=True):
+                self.aborted = "分析已被终结或由其他执行者接管，本执行者停止"
+                return []
+            if self.stopped:
+                return []
+            self.run = self.session.get(AnalysisRun, self.run.id, populate_existing=True)
+        pending = list(self.session.scalars(select(AnalysisMessage).where(
+            AnalysisMessage.run_id == self.run.id, AnalysisMessage.consumed_at.is_(None))
+            .order_by(AnalysisMessage.created_at, AnalysisMessage.id).with_for_update()))
+        if not pending:
+            if self.executor:
+                self.session.commit()  # 模型请求可能很慢，不能持有运行行锁阻塞插话与停止接口。
+            return []
+        try:
+            self._authorize()
+        except PermissionLost as exc:
+            self.permission_lost = exc.message
+            raise
+        refs = []
+        for code in self.scope.metric_codes if self.scope else []:
+            _, version = self._metric(code)  # 恢复时 catalog 为空，按当前可见口径逐个解析，不依赖旧目录快照。
+            refs.append({"object_type": "metric_version", "object_id": version.id,
+                         "version": version.version_no})
+        consumed_at, seq = utcnow(), self._seq + 1
+        checkpoint = dict(getattr(self.run, "checkpoint", None) or {})
+        candidates = list(checkpoint.get("candidates") or [])
+        messages = []
+        for message in pending:
+            message.consumed_at, message.consumed_seq = consumed_at, seq
+            messages.append({"id": message.id, "text": message.text})
+            candidates.extend(experiences.candidates_from_feedback(
+                run_id=self.run.id, proposal={}, feedback={"supplement": message.text},
+                refs=refs, checkpoint="interject"))
+        self.run.checkpoint = {**checkpoint, "candidates": candidates}
+        text = "\n\n".join(message["text"] for message in messages)
+        self.interjections.append({"id": f"analysis:interject:{seq}", "text": text})
+        self._step("user", "message", {}, "ok", {"messages": messages, "text": text})
+        return messages
 
     def _dataset(self, kind: str, title: str, columns: list[str], rows: list[list], *, answer_id: str | None = None,
                  inputs: list[str] | None = None, meta: dict | None = None, truncated: bool = False) -> AnalysisDataset:
@@ -750,6 +824,9 @@ class AnalysisToolbox:
 
     def _guard(self, tool: str, args: dict, run) -> str:
         """统一的授权核对、异常与步骤记录（预算在 dispatch 中计数与检查）。"""
+        self.check_executor()
+        if self.user_stopped or self.aborted:
+            return _json({"error": f"{self.stopped}：不再执行工具"})
         started = time.monotonic()
         try:
             if self.permission_lost:
@@ -777,11 +854,11 @@ class AnalysisToolbox:
     def dispatch(self, name: str, args: Any, *, only_report: bool = False) -> str:
         """模型的每一次工具调用都从这里进入：参数校验之前就计数（未知工具、参数无效、重复提交计划都算）。
         其他工具的次数用完后只能调用 submit_report（被拒绝的调用不占用它的预留次数）。only_report：时间将尽，只接受 submit_report。"""
-        if self._tools is None:
-            self._tools = {t.name: t for t in self.tools()}
         self.check_executor()
         if self.stopped:
             return _json({"error": f"{self.stopped}：不再执行工具"})
+        if self._tools is None:
+            self._tools = {t.name: t for t in self.tools()}
         self.budget.used_calls += 1
         if name == "submit_report":
             if self.budget.used_reports >= self.budget.report_reserve:
@@ -1559,8 +1636,8 @@ class AnalysisToolbox:
         """每个子查询前的核对：执行权、账号与角色、口径与来源闭包的权限（失败即抛出，按 ADR 0007 处理）；
         查询额度与统一截止时间不够时返回原因（停止扫描，结果标为 partial）。"""
         self.check_executor()
-        if self.aborted:
-            raise calc.CalcError(self.aborted)
+        if self.stopped:
+            raise calc.CalcError(self.stopped)
         self._authorize()
         self._metric_sources(metric_code)
         exhausted = self.budget.queries_exhausted()
