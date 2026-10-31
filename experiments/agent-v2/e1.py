@@ -92,7 +92,8 @@ def install(condition: str, material: dict[str, Any], *, rebuild=None) -> Iterat
     if condition not in CONDITIONS:
         raise ValueError(f"未知条件 {condition}")
     rebuild = rebuild or service.reset_graph_cache
-    stats: dict[str, Any] = {"condition": condition, "injected_chars": 0, "evidence": [], "failed": []}
+    stats: dict[str, Any] = {"condition": condition, "injected_chars": 0, "evidence": [],
+                             "evidence_omitted": [], "failed": []}
     original = (agent.understand, agent.precheck, AnalysisToolbox.context_pack)
     level = CONDITIONS.index(condition)
 
@@ -136,11 +137,19 @@ def install(condition: str, material: dict[str, Any], *, rebuild=None) -> Iterat
             return pack
         text, failed = _metadata_block(self, material.get("assets") or [])
         stats["failed"] += failed
-        evidence_chars = sum(len(self._pack_block(r, self._datasets[r])) for r in getattr(self, "injected_refs", [])
-                             if r in self._datasets)
+        evidence_chars, evidence_omitted = 0, []
+        for ref in getattr(self, "injected_refs", []):
+            if ref not in self._datasets:
+                continue
+            block = self._pack_block(ref, self._datasets[ref])
+            if block in pack:  # 省略标记里的编号不代表完整证据已进入上下文包
+                evidence_chars += len(block)
+            else:
+                evidence_omitted.append(ref)
+        stats["evidence_omitted"] = evidence_omitted
         stats["injected_chars"] = len(text) + evidence_chars
         _record(self, condition, "metadata", chars=len(text), evidence_chars=evidence_chars,
-                tokens_upper_bound=stats["injected_chars"], failed=failed)
+                evidence_omitted=evidence_omitted, tokens_upper_bound=stats["injected_chars"], failed=failed)
         return pack + ("\n\n" + text if text else "")
 
     try:
