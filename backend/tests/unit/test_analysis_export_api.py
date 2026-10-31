@@ -3,21 +3,25 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import JSON, MetaData, create_engine
+from sqlalchemy import JSON, MetaData, create_engine, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from avelis.api import analysis
 from avelis.api.deps import current_user, get_session
-from avelis.models import AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, User
+from avelis.models import (AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, Asset,
+                           AssetColumn, AssetVersion, CollectionRun, ColumnVersion, Datasource, Domain,
+                           DomainMember, Metric, MetricVersion, User, UserRole)
 
 
 @pytest.fixture
 def api():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     metadata = MetaData()
-    for model in (User, AnalysisTask, AnalysisRun, AnalysisStep, AnalysisDataset, AnalysisMessage):
+    for model in (User, UserRole, Domain, DomainMember, Datasource, Asset, AssetColumn, CollectionRun,
+                  AssetVersion, ColumnVersion, Metric, MetricVersion, AnalysisTask, AnalysisRun,
+                  AnalysisStep, AnalysisDataset, AnalysisMessage):
         table = model.__table__.to_metadata(metadata)
         for column in table.columns:
             if isinstance(column.type, JSONB):
@@ -66,14 +70,14 @@ def test_export_defaults_use_all_saved_rows_and_metadata(api, monkeypatch):
     response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": "md"})
     assert response.status_code == 200, response.text
     assert response.text == "export"
-    assert captured["kwargs"] == {"appendix": True, "datasets": None}
+    assert captured["kwargs"] == {"audience": "brief", "datasets": None}
     dataset = captured["view"]["datasets"][0]
     assert len(dataset["rows"]) == dataset["row_count"] == 60
     assert dataset["rows"][-1] == ["类别 59", 59000]
     assert dataset["meta"]["units"]["指标"] == {"kind": "level", "unit": "元"}
 
 
-def test_export_pdf_passes_requested_appendix_and_dataset_order(api, monkeypatch):
+def test_export_pdf_passes_requested_audience_and_dataset_order(api, monkeypatch):
     client, _, run = api
     captured = {}
 
@@ -83,11 +87,113 @@ def test_export_pdf_passes_requested_appendix_and_dataset_order(api, monkeypatch
 
     monkeypatch.setattr(analysis.export, "to_pdf", pdf)
     response = client.get(f"/api/analysis/runs/{run.id}/export", params={
-        "appendix": "false", "datasets": "D2, D1,D2"})
+        "audience": "full", "datasets": "D2, D1,D2"})
     assert response.status_code == 200, response.text
     assert response.content == b"%PDF-offline"
-    assert captured["kwargs"] == {"appendix": False, "datasets": ["D2", "D1"]}
+    assert captured["kwargs"] == {"audience": "full", "datasets": ["D2", "D1"]}
     assert len(captured["view"]["datasets"][0]["rows"]) == 60
+
+
+@pytest.mark.parametrize("version_meta", [
+    {"metric_version_ids": ["metric-old"], "metric_codes": ["amount"]},
+    {"versions": {"amount": "metric-old"}},
+])
+def test_export_uses_pinned_metric_dimension_labels_without_mutating_saved_meta(api, monkeypatch, version_meta):
+    client, session, run = api
+    metric = Metric(id="metric", code="amount", name="指标名称", domain_id="domain",
+                    owner_id="actor", created_by="actor")
+    session.add(metric)
+    for version_id, version_no, label in [("metric-old", 1, "历史分组名称"), ("metric-new", 2, "最新分组名称")]:
+        session.add(MetricVersion(id=version_id, metric_id=metric.id, version_no=version_no,
+                                  status="published", description="测试口径", expression="SUM(b.value)",
+                                  time_column="b.day", timezone="Asia/Shanghai", created_by="actor",
+                                  dimensions=[{"name": "segment", "column": "b.segment", "label": label}]))
+    dataset = session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1))
+    original = {**dataset.meta, **version_meta, "column_docs": {"segment": {"comment": "已有列注释"}}}
+    dataset.meta = original
+    session.commit()
+    captured = {}
+
+    def markdown(view, **kwargs):
+        captured.update(view=view)
+        return "export"
+
+    monkeypatch.setattr(analysis.export, "to_markdown", markdown)
+    response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": "md"})
+    assert response.status_code == 200, response.text
+    labels = captured["view"]["datasets"][0]["meta"]["export_labels"]
+    assert labels == {"metric_names": ["指标名称"],
+                      "dimensions": [{"name": "segment", "column": "b.segment", "label": "历史分组名称"}],
+                      "column_docs": {"segment": {"comment": "已有列注释"}}}
+    session.refresh(dataset)
+    assert dataset.meta == original
+    assert "export_labels" not in dataset.meta
+
+
+@pytest.mark.parametrize("visible", [True, False])
+def test_export_column_comment_uses_pinned_asset_snapshot_and_current_visibility(api, monkeypatch, visible):
+    client, session, run = api
+    session.add(Metric(id="metric", code="amount", name="指标名称", domain_id="domain",
+                       owner_id="actor", created_by="actor"))
+    session.add(Asset(id="asset", datasource_id="source", kind="table", catalog_name="c", db_name="d",
+                      name="facts", domain_id="domain", current_version_id="asset-new"))
+    if visible:
+        session.add(DomainMember(domain_id="domain", user_id="actor", role="viewer"))
+    session.add(MetricVersion(id="metric-old", metric_id="metric", version_no=1, status="published",
+                              description="测试口径", expression="SUM(b.value)", time_column="b.day",
+                              timezone="Asia/Shanghai", created_by="actor",
+                              dimensions=[{"name": "segment", "column": "b.segment"}],
+                              dependency=[{"alias": "b", "asset_id": "asset", "column": "segment",
+                                           "role": "dimension"}],
+                              asset_versions={"asset": {"version_id": "asset-old"}}))
+    for snapshot, comment in [("asset-old", "历史列注释"), ("asset-new", "最新列注释")]:
+        session.add(ColumnVersion(asset_version_id=snapshot, column_id="column", ordinal=1,
+                                  name="segment", data_type="VARCHAR", comment=comment))
+    dataset = session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1))
+    dataset.meta = {**dataset.meta, "versions": {"amount": "metric-old"}}
+    session.commit()
+    captured = {}
+
+    def markdown(view, **kwargs):
+        captured.update(view=view)
+        return "export"
+
+    monkeypatch.setattr(analysis.export, "to_markdown", markdown)
+    response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": "md"})
+    assert response.status_code == 200, response.text
+    docs = captured["view"]["datasets"][0]["meta"]["export_labels"]["column_docs"]
+    assert docs == ({"segment": {"comment": "历史列注释"}} if visible else {})
+
+
+@pytest.mark.parametrize("format", ["md", "pdf"])
+@pytest.mark.parametrize(("params", "audience"), [
+    ({}, "brief"),
+    ({"audience": "brief"}, "brief"),
+    ({"audience": "full"}, "full"),
+    ({"appendix": "false"}, "brief"),
+    ({"appendix": "true"}, "full"),
+    ({"audience": "brief", "appendix": "true"}, "brief"),
+    ({"audience": "full", "appendix": "false"}, "full"),
+])
+def test_export_resolves_audience_and_legacy_appendix(api, monkeypatch, format, params, audience):
+    client, _, run = api
+    captured = {}
+
+    def render(view, **kwargs):
+        captured.update(kwargs)
+        return "export" if format == "md" else b"%PDF-offline"
+
+    monkeypatch.setattr(analysis.export, "to_markdown" if format == "md" else "to_pdf", render)
+    response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": format, **params})
+    assert response.status_code == 200, response.text
+    assert captured == {"audience": audience, "datasets": None}
+
+
+@pytest.mark.parametrize("audience", ["", "Brief", "FULL", "analyst", "brief,full"])
+def test_export_rejects_invalid_audience(api, audience):
+    client, _, run = api
+    response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": "md", "audience": audience})
+    assert response.status_code == 422, response.text
 
 
 @pytest.mark.parametrize("datasets", ["", "D0", "D01", "d1", "D-1", "D1,D3", "D99", "D1,", "D1,,D2", "D1 D2"])
@@ -102,11 +208,12 @@ def test_export_markdown_selection_and_optional_appendix(api):
     path = f"/api/analysis/runs/{run.id}/export"
     response = client.get(path, params={"format": "md", "datasets": "D2", "appendix": "false"})
     assert response.status_code == 200, response.text
-    assert "对照明细" in response.text
-    assert "分组明细" not in response.text
+    assert "| 甲 |" in response.text
+    assert "类别 0" not in response.text
+    assert "D2" not in response.text
     assert "## 附录" not in response.text
     assert "## 步骤" not in response.text
-    response = client.get(path, params={"format": "md", "datasets": "D1"})
+    response = client.get(path, params={"format": "md", "datasets": "D1", "audience": "full"})
     assert response.status_code == 200, response.text
     assert "## 附录" in response.text
     assert "共 60 行，显示前 10 行" in response.text

@@ -1,7 +1,7 @@
 """分析报告导出（ADR 0007 第 11 点）：Markdown、PDF（含图表与证据附录）、数据集 CSV。
 
-导出内容与报告页读同一份保存结果：结论标明类型与引用的数据集，未通过的结论与字段同样标出原因，推断 / 建议标为未核实；
-附录给出每个数据集的来源（受治理查询的 SQL 与口径版本，或计算工具的输入）与报告里每个数字的来源。
+导出内容与报告页读同一份保存结果。默认 brief 只给出正文、可读标签与白话风险提示；full 保留引用编号、
+原始检查原因和依据附录。appendix 为旧参数，只有未指定 audience 时才决定受众。
 PDF、Markdown 使用渲染后的正文（text）；每个数字的来源（数据集、取值路径、量纲、单位、格式、原值）另有一张
 引用来源表（sources_csv，ADR 0009）。来源含探索数据的数字标“探索查询（未经口径审核）”。
 PDF 嵌入中文 TrueType 字体（子集）：AVELIS_PDF_FONT 指定的字体文件，否则在常见位置找系统字体（Windows 等线 / 微软雅黑 /
@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from avelis.analysis.grounding import _unit, display, number
@@ -30,6 +30,114 @@ MEASURE_LABEL = {"level": "水平值", "delta": "差额", "ratio": "比率", "ra
                  "count": "计数", "unknown": "未知"}
 SOURCE_LABEL = {"governed": "口径", "explore": "探索", "calc": "计算", "context": "上下文"}
 EXPLORE_MARK = "探索查询（未经口径审核）"
+
+Audience = Literal["brief", "full"]
+BRIEF_SOURCE_NOTE = "报告中的数字均来自系统内已审核的指标口径，可在 Avelis 中查看计算依据。"
+BRIEF_EXPLORE_NOTE = "部分数字来自临时查询，尚未经过指标口径审核。"
+
+# 产品计算工具的固定输出列；业务指标、维度的名称始终从元数据读取。
+CALC_COLUMN_LABELS = {
+    "period": "期间", "days": "天数", "weekend_days": "周末天数", "holidays": "节假日",
+    "holiday_days": "节假日天数", "workdays": "工作日天数", "working_days": "工作日天数",
+    "value": "合计", "daily": "日均", "current": "本期", "previous": "对比期",
+    "baseline": "对比期", "change": "变化", "delta": "差额", "change_rate": "变化率",
+    "rate_change": "变化率", "dimension": "维度", "member": "成员", "contribution": "变化贡献",
+    "share": "占比", "rank": "排名", "rows": "行数", "count": "数量", "factor": "因素",
+    "effect": "影响", "weight": "权重", "ratio": "比率", "residual": "剩余变化",
+    "share_of_change": "变化占比", "factor_metric_code": "指标标识", "x": "变量一", "y": "变量二",
+    "n": "样本数", "pearson": "线性相关系数", "spearman": "秩相关系数", "p_value": "显著性概率",
+    "significant": "是否显著", "note": "说明", "periods": "期间数", "missing_count": "缺失数",
+    "missing_periods": "缺失期间", "name": "名称", "dataset": "来源", "column": "字段",
+    "sum": "合计", "mean": "均值", "median": "中位数", "min": "最小值", "max": "最大值",
+    "stdev": "标准差", "segment": "分组", "side": "偏离方向", "member_change": "成员变化",
+    "ep": "影响幅度", "structure_effect": "结构影响", "rate_effect": "比率影响",
+    "change_type": "变化类型", "role": "作用",
+}
+CALC_PERIOD_LABELS = {"current": "本期", "previous": "对比期", "baseline": "对比期",
+                      "previous_period": "上一期", "previous_year": "去年同期", "custom": "对比期"}
+
+
+def resolve_audience(audience: Audience | None = None, appendix: bool | None = None) -> Audience:
+    if audience is not None:
+        if audience not in ("brief", "full"):
+            raise ValueError("audience 只能是 brief 或 full")
+        return audience
+    return "full" if appendix else "brief"
+
+
+def _brief_text(value: str) -> str:
+    """旧报告的自由文字也可能带引用和术语；只调整展示，不改保存结果。"""
+    value = re.sub(r"```.*?```", "", value, flags=re.S)
+    value = re.sub(r"(?im)^.*\bSELECT\b.*$", "", value)
+    ref_list = r"D[1-9]\d*(?:\s*[、,，·]\s*D[1-9]\d*)*"
+    value = re.sub(rf"[（(\[]\s*{ref_list}\s*[）)\]]", "", value)
+    value = re.sub(r"(?<![A-Za-z0-9_])D[1-9]\d*(?![A-Za-z0-9_])", "", value)
+    for old, new in (("推断，未核实", "待验证"), ("受治理查询", "已审核指标"), ("受治理", "已审核"),
+                     ("探索查询", "临时查询"), ("上下文", "相关信息"), ("口径版本", "指标定义"),
+                     ("来源已校验", "来源已确认"), ("核验", "检查"), ("计算", "分析"),
+                     ("验证方式", "建议这样验证"), ("前提", "依据"), ("SQL", "查询依据")):
+        value = value.replace(old, new)
+    return value
+
+
+def _brief_view(view: dict) -> dict:
+    text_keys = {"title", "summary", "unexplained", "method", "text", "premise", "validation", "label", "member"}
+    version_ids = sorted({str(version) for d in view.get("datasets") or []
+                          for version in [*(d.get("metric_version_ids") or []),
+                                          *(_meta(d).get("metric_version_ids") or []),
+                                          *(_meta(d).get("versions") or {}).values()]}, key=len, reverse=True)
+
+    def clean(value, key=""):
+        if isinstance(value, dict):
+            return {k: clean(v, k) for k, v in value.items()}
+        if isinstance(value, list):
+            return [clean(v, key) for v in value]
+        if isinstance(value, str) and key in text_keys:
+            for version_id in version_ids:
+                if version_id:
+                    value = value.replace(version_id, "")
+            return _brief_text(value)
+        return value
+
+    return {**view, "report": clean(view.get("report") or {})}
+
+
+def _brief_footer(view: dict, datasets: list[str] | None = None) -> list[str]:
+    report, verification = view.get("report") or {}, view.get("verification") or {}
+    sources = verification.get("sources") or {}
+    explore = bool(sources.get("with_explore") or (sources.get("direct") or {}).get("explore")
+                   or any(s.get("explore") or s.get("source") == "explore"
+                          for _, _, s in _segments(report) if s.get("kind") in ("value", "count")))
+    saved = {d["ref"]: d for d in view.get("datasets") or []}
+    pending = [*_reference_counts(report), *(d["ref"] for d in _key_datasets(view, datasets))]
+    seen = set()
+    while pending:
+        ref = pending.pop()
+        if ref in seen or ref not in saved:
+            continue
+        seen.add(ref)
+        d, meta = saved[ref], _meta(saved[ref])
+        explore |= d.get("kind") == "explore" or "explore" in (meta.get("root_kinds") or [])
+        pending.extend([*(d.get("inputs") or []), *(meta.get("closure") or [])])
+    notes = [BRIEF_EXPLORE_NOTE if explore else BRIEF_SOURCE_NOTE]
+    failed = 0
+    for group, counter in (("claims", "unverified"), ("fields", "unverified_fields"), ("causes", "unverified_causes")):
+        key = "field" if group == "fields" else "index"
+        bad = {c.get(key, i) for i, c in enumerate(verification.get(group) or [])
+               if c.get("status") == "unverified" or c.get("problems")}
+        records = report.get(group) or ([] if group != "fields" else {})
+        records = records.items() if isinstance(records, dict) else enumerate(records)
+        for index, record in records:
+            if (record.get("status") == "unverified" or record.get("errors")
+                    or any(d.get("errors") for d in (record.get("details") or {}).values())):
+                bad.add(index)
+        failed += max(verification.get(counter) or 0, len(bad))
+    failed += bool((verification.get("conclusion") or {}).get("problems"))
+    if not failed and verification.get("status") == "failed":
+        failed = 1
+    if failed:
+        notes.append(f"有 {failed} 处数字未通过系统校验，请谨慎使用。")
+    return notes
 
 
 REF = re.compile(r"^D[1-9]\d*$")
@@ -110,6 +218,60 @@ def _meta(d: dict) -> dict:
 
 def _units(d: dict) -> dict:
     return _meta(d).get("units") or d.get("units") or {}
+
+
+def _export_labels(d: dict, view: dict) -> dict:
+    """计算结果沿输入继承显示元数据，固定列名另由产品映射；不改原始结果列。"""
+    saved = {item["ref"]: item for item in view.get("datasets") or []}
+    pending, seen = [d], set()
+    names, dimensions, docs = [], {}, {}
+    while pending:
+        item = pending.pop(0)
+        if item.get("ref") in seen:
+            continue
+        seen.add(item.get("ref"))
+        meta = _meta(item)
+        labels = meta.get("export_labels") or meta
+        names.extend(n for n in labels.get("metric_names") or [] if n not in names)
+        for dim in labels.get("dimensions") or []:
+            if dim.get("name"):
+                dimensions.setdefault(dim["name"], dim)
+        for name, doc in (labels.get("column_docs") or {}).items():
+            docs.setdefault(name, doc)
+        pending.extend(saved[ref] for ref in item.get("inputs") or [] if ref in saved and ref not in seen)
+    return {"metric_names": names, "dimensions": list(dimensions.values()), "column_docs": docs}
+
+
+def _column_label(d: dict, column: str) -> str:
+    meta = _meta(d)
+    labels = meta.get("export_labels") or meta
+    dim = next((dim for dim in labels.get("dimensions") or [] if dim.get("name") == column), {})
+    doc = (labels.get("column_docs") or {}).get(column) or {}
+    label = (dim.get("label") or dim.get("中文名") or dim.get("comment")
+             or (doc if isinstance(doc, str) else doc.get("comment")))
+    if not label and d.get("kind") == "calc":
+        label = CALC_COLUMN_LABELS.get(column)
+        if not label and (match := re.fullmatch(r"(.+)_(sum|mean|median)", column)):
+            label = _column_label(d, match[1]) + "·" + CALC_COLUMN_LABELS[match[2]]
+    return _brief_text(str(label or column))
+
+
+def _dataset_title(d: dict) -> str:
+    meta = _meta(d)
+    names = (meta.get("export_labels") or meta).get("metric_names") or []
+    if not names:
+        names = list(dict.fromkeys(re.sub(r"·(?:本期|对比期|上一期|去年同期|差额|变化率|变化)$", "", c)
+                                   for c in d.get("columns") or [] if c in _units(d)
+                                   and (_units(d)[c] or {}).get("kind") in ("level", "ratio")))[:2]
+    names = [_column_label(d, name) for name in names]
+    args = meta.get("args") or {}
+    keys = (meta.get("intent") or {}).get("group_by") or args.get("keys") or (
+        [args["segment"]] if args.get("segment") else [])
+    return ("、".join(names) or "指标明细") + (" · 按" + "、".join(_column_label(d, k) for k in keys) if keys else "")
+
+
+def _brief_dataset(d: dict, view: dict) -> dict:
+    return {**d, "meta": {**_meta(d), "export_labels": _export_labels(d, view)}}
 
 
 def _reference_counts(report: dict) -> Counter:
@@ -301,9 +463,17 @@ def _cause_text(cause: dict) -> str:
     return _cause_label(cause) + (f" · {direction} {text}".rstrip() if text else f" · {direction}" if direction else "")
 
 
-def _table_data(d: dict) -> list[list[str]]:
+def _table_data(d: dict, *, brief: bool = False) -> list[list[str]]:
     cols, units = (d.get("columns") or [])[:6], _units(d)
-    return [cols] + [[_table_value(v, units.get(c)) for c, v in zip(cols, row[:6])] for row in d["rows"][:10]]
+    headers = [_column_label(d, c) for c in cols] if brief else cols
+
+    def cell(c, v):
+        if brief and d.get("kind") == "calc" and c == "period":
+            v = CALC_PERIOD_LABELS.get(v, v)
+        text = _table_value(v, units.get(c))
+        return _brief_text(text) if brief else text
+
+    return [headers] + [[cell(c, v) for c, v in zip(cols, row[:6])] for row in d["rows"][:10]]
 
 
 def _row_note(d: dict) -> str:
@@ -385,43 +555,50 @@ def _markdown_table(rows: list[list[str]]) -> list[str]:
             *["| " + " | ".join(map(cell, row)) + " |" for row in rows[1:]]]
 
 
-def _markdown_claim(claim: dict, check: dict) -> list[str]:
+def _markdown_claim(claim: dict, check: dict, *, brief: bool = False) -> list[str]:
     text = claim.get("text") or _rendered(claim)
-    if bad := _claim_errors(claim, check):
+    if not brief and (bad := _claim_errors(claim, check)):
         text += " ⚠ " + "；".join(bad)
     if claim.get("type") in ("inference", "recommendation"):
-        text += " <small>推断，未核实</small>"
+        text += " <small>" + ("待验证" if brief else "推断，未核实") + "</small>"
     refs = _refs(claim).replace("、", "、\u00a0")
-    lines = [f'- {text}\u00a0<sup style="color: {GRAY}; white-space: nowrap">{refs}</sup>']
-    for key, label in (("premise", "前提"), ("validation", "验证方式")):
+    lines = [f"- {text}" + ("" if brief else f'\u00a0<sup style="color: {GRAY}; white-space: nowrap">{refs}</sup>')]
+    for key, label in (("premise", "依据" if brief else "前提"), ("validation", "建议这样验证" if brief else "验证方式")):
         if detail := _detail(claim, key):
             lines.append(f"  - {label}：{detail}")
     return lines
 
 
-def to_markdown(view: dict, *, appendix: bool = True, datasets: list[str] | None = None) -> str:
+def to_markdown(view: dict, *, audience: Audience | None = None, appendix: bool | None = None,
+                datasets: list[str] | None = None) -> str:
+    brief = resolve_audience(audience, appendix) == "brief"
+    notes = _brief_footer(view, datasets) if brief else []
+    if brief:
+        view = _brief_view(view)
     report, verification = view.get("report") or {}, view.get("verification") or {}
     lines = [f"# {_field(report, 'title') or '分析报告'}", "", _header(view), ""]
     metrics = _core_metrics(view)
     if metrics:
         lines += ["## 核心指标", "", *_markdown_table([[m["label"] for m in metrics], [m["text"] for m in metrics]]), ""]
     lines += ["## 结论", "", "> " + (_field(report, "summary") or "（无）"), ""]
-    lines += [f"- ⚠ 未通过（{x}）" for x in _bad_fields(verification)]
-    lines += [f"- ⚠ 结论未通过：{x}" for x in (verification.get("conclusion") or {}).get("problems") or []]
+    if not brief:
+        lines += [f"- ⚠ 未通过（{x}）" for x in _bad_fields(verification)]
+        lines += [f"- ⚠ 结论未通过：{x}" for x in (verification.get("conclusion") or {}).get("problems") or []]
     if report.get("causes"):
         tag = CONCLUSION.get(report.get("conclusion"), report.get("conclusion") or "")
         lines += ["", "## 主要原因" + (f" · {tag}" if tag else ""), ""]
         for i, c in enumerate(report["causes"], 1):
             refs = _refs({"refs": c.get("evidence")})
-            bad = "；".join(c.get("errors") or [])
-            lines.append(f"{i}. {_cause_text(c)}" + (f" ⚠ {bad}" if bad else "") + f" <sup>{refs}</sup>")
+            bad = "；".join(c.get("errors") or []) if not brief else ""
+            lines.append(f"{i}. {_cause_text(c)}" + (f" ⚠ {bad}" if bad else "")
+                         + ("" if brief else f" <sup>{refs}</sup>"))
     for title, types in (("关键发现", ("fact", "calc")), ("判断与建议", ("inference", "recommendation"))):
         claims = [(c, check) for c, check in _claims(view) if c.get("type") in types and not _context_claim(c, view)]
         if not claims:
             continue
         lines += ["", "## " + title, ""]
         for c, check in claims:
-            lines += _markdown_claim(c, check)
+            lines += _markdown_claim(c, check, brief=brief)
     if unexplained := _field(report, "unexplained"):
         lines += ["", "## 还没查清", ""]
         lines += ["> - " + item.strip() for item in unexplained.split("；") if item.strip()]
@@ -429,9 +606,14 @@ def to_markdown(view: dict, *, appendix: bool = True, datasets: list[str] | None
     if selected:
         lines += ["", "## 关键数据", ""]
         for d in selected:
-            lines += [f"### {d['ref']} {d['title']}", "", *_markdown_table(_table_data(d)), "", _row_note(d), ""]
-    lines += ["", "- 核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", ""]
-    if appendix:
+            d = _brief_dataset(d, view) if brief else d
+            title = _dataset_title(d) if brief else f"{d['ref']} {d['title']}"
+            lines += [f"### {title}", "", *_markdown_table(_table_data(d, brief=brief)), "", _row_note(d), ""]
+    if brief:
+        lines += ["", *[f'<small style="color: {GRAY}">{note}</small>' for note in notes], ""]
+    else:
+        lines += ["", "- 核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", ""]
+    if not brief:
         lines += ["## 附录", "", "### 数据检查", ""]
         contexts = [d for d in view.get("datasets") or [] if d.get("kind") == "context"]
         lines += [f"- {d['ref']} {d['title']}：{_context_note(d)}" for d in contexts] or ["无已保存的上下文检查。"]
@@ -457,7 +639,7 @@ def to_markdown(view: dict, *, appendix: bool = True, datasets: list[str] | None
             lines += [f"#### {d['ref']} {d['title']}", "",
                       "口径版本：" + ("、".join(versions) or "未登记"), "",
                       "```sql", d.get("sql") or _meta(d).get("sql") or "（未保存 SQL）", "```", ""]
-    lines += ["> 可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", ""]
+        lines += ["> 可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", ""]
     return "\n".join(lines)
 
 
@@ -599,7 +781,7 @@ def _bar_chart(data: list[tuple[str, float, str]], font: str, width: float = 468
     return drawing
 
 
-def _chart(d: dict, font: str):
+def _chart(d: dict, font: str, *, brief: bool = False):
     """只画已登记指标；旧调用没有 meta 时兼容数值列，空值始终跳过。"""
     from reportlab.graphics.charts.lineplots import LinePlot
     from reportlab.graphics.shapes import Drawing, String
@@ -632,7 +814,9 @@ def _chart(d: dict, font: str):
             n = _num(r[value])
             if n is None:
                 continue
-            key = " / ".join(str(r[i]) for i in dimensions if r[i] is not None) or cols[value]
+            key = " / ".join(str(r[i]) for i in dimensions if r[i] is not None) or (
+                _column_label(d, cols[value]) if brief else cols[value])
+            key = _brief_text(key) if brief else key
             series.setdefault(key, []).append((index[str(r[ti])], n))
         if not series:
             return None
@@ -660,13 +844,18 @@ def _chart(d: dict, font: str):
         if raw is None:
             continue
         label = " / ".join(str(r[i]) for i in labels if r[i] is not None) or str(n + 1)
+        if brief:
+            if d.get("kind") == "calc" and [cols[i] for i in labels] == ["period"]:
+                label = CALC_PERIOD_LABELS.get(label, label)
+            label = _brief_text(label)
         data.append((label, raw * float(_unit(units.get(cols[value]))["scale"]), _formatted(r[value], units.get(cols[value]))))
         if len(data) == 10:
             break
     return _bar_chart(data, font)
 
 
-def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = None) -> bytes:
+def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | None = None,
+           datasets: list[str] | None = None) -> bytes:
     from html import escape
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -675,6 +864,10 @@ def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = No
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    brief = resolve_audience(audience, appendix) == "brief"
+    notes = _brief_footer(view, datasets) if brief else []
+    if brief:
+        view = _brief_view(view)
     font, embedded = pdf_font()
     base = ParagraphStyle("base", fontName=font, fontSize=10, leading=14, wordWrap="CJK", spaceAfter=3,
                           textColor=colors.HexColor(DARK))
@@ -706,30 +899,34 @@ def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = No
         return f'<nobr><super><font size="7" color="{GRAY}">{esc(value)}</font></super></nobr>'
 
     def claim_block(claim, check, *, context=False):
-        bad = _claim_errors(claim, check)
-        tag = (f' <font size="7" color="{GRAY}">推断，未核实</font>'
+        bad = [] if brief else _claim_errors(claim, check)
+        tag = (f' <font size="7" color="{GRAY}">{"待验证" if brief else "推断，未核实"}</font>'
                if claim.get("type") in ("inference", "recommendation") else "")
         text = (claim.get("text") or _rendered(claim)) + (" 未通过：" + "；".join(bad) if bad else "")
         style = claim_warn if bad else context_style if context else claim_style
         body = Paragraph(esc(text) + tag, style, bulletText="•")
-        reference = _refs(claim).replace("、", "、\u00a0")
-        ref_width = stringWidth(reference, font, reference_style.fontSize) + 2
-        body.wrap(width - ref_width, 10000)
-        last = body.blPara.lines[-1] if body.blPara.lines else None
-        remaining = ((last.extraSpace if hasattr(last, "extraSpace") else last[0]) if last is not None
-                     else width - ref_width - style.leftIndent)
-        citation = Paragraph(esc(reference), reference_style)
-        item = Table([[body, citation]], colWidths=[width - ref_width, ref_width], hAlign="LEFT",
-                     spaceAfter=3, splitInRow=1)
-        item.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-                                  ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                  ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                                  ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                                  # 固定宽度引用格不拆行，并贴到正文末行后面。
-                                  ("LEFTPADDING", (1, 0), (1, 0), 2 - remaining)]))
-        block = [item]
-        for key, label in (("premise", "前提"), ("validation", "验证方式")):
+        if brief:
+            block = [body, Spacer(1, 3)]
+        else:
+            reference = _refs(claim).replace("、", "、\u00a0")
+            ref_width = stringWidth(reference, font, reference_style.fontSize) + 2
+            body.wrap(width - ref_width, 10000)
+            last = body.blPara.lines[-1] if body.blPara.lines else None
+            remaining = ((last.extraSpace if hasattr(last, "extraSpace") else last[0]) if last is not None
+                         else width - ref_width - style.leftIndent)
+            citation = Paragraph(esc(reference), reference_style)
+            item = Table([[body, citation]], colWidths=[width - ref_width, ref_width], hAlign="LEFT",
+                         spaceAfter=3, splitInRow=1)
+            item.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                                      ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                      ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                                      # 固定宽度引用格不拆行，并贴到正文末行后面。
+                                      ("LEFTPADDING", (1, 0), (1, 0), 2 - remaining)]))
+            block = [item]
+        for key, label in (("premise", "依据" if brief else "前提"),
+                           ("validation", "建议这样验证" if brief else "验证方式")):
             if value := _detail(claim, key):
                 block.append(p(f"{label}：{value}", detail))
         return block
@@ -776,20 +973,23 @@ def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = No
                              ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                              ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10)]))
     story.append(box)
-    story += [p("未通过（" + x + "）", warn) for x in _bad_fields(verification)]
-    story += [p("结论未通过：" + x, warn) for x in (verification.get("conclusion") or {}).get("problems") or []]
+    if not brief:
+        story += [p("未通过（" + x + "）", warn) for x in _bad_fields(verification)]
+        story += [p("结论未通过：" + x, warn) for x in (verification.get("conclusion") or {}).get("problems") or []]
     if report.get("causes"):
         story.append(heading("主要原因", CONCLUSION.get(report.get("conclusion"), "")))
         numeric = [c for c in report["causes"] if _cause_value(c)[0] is not None]
         data = [(_cause_label(c), float(raw), text) for c in numeric for raw, text in [_cause_value(c)]]
-        chart = _bar_chart(data, font, references=[_refs({"refs": c.get("evidence")}) for c in numeric])
+        chart = _bar_chart(data, font, references=None if brief else [
+            _refs({"refs": c.get("evidence")}) for c in numeric])
         if chart is not None:
             story.append(chart)
         for c in report["causes"]:
-            bad = c.get("errors") or []
+            bad = (c.get("errors") or []) if not brief else []
             if _cause_value(c)[0] is None:
                 text = _cause_text(c) + (" 未通过：" + "；".join(bad) if bad else "")
-                story.append(Paragraph(esc(text) + "\u00a0" + refs(_refs({"refs": c.get("evidence")})),
+                citation = "" if brief else "\u00a0" + refs(_refs({"refs": c.get("evidence")}))
+                story.append(Paragraph(esc(text) + citation,
                                        claim_warn if bad else claim_style, bulletText="•"))
             elif bad:
                 story.append(p(_cause_label(c) + " 未通过：" + "；".join(bad), warn))
@@ -810,14 +1010,19 @@ def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = No
     selected = _key_datasets(view, datasets)
     if selected:
         for i, d in enumerate(selected):
-            chart = _chart(d, font)
-            block = ([heading("关键数据")] if i == 0 else []) + [p(f"{d['ref']} {d['title']}")]
+            d = _brief_dataset(d, view) if brief else d
+            chart = _chart(d, font, brief=brief)
+            block = ([heading("关键数据")] if i == 0 else []) + [p(_dataset_title(d) if brief else f"{d['ref']} {d['title']}")]
             if chart is not None:
                 block.append(chart)
-            block += [table(_table_data(d)), p(_row_note(d), small), Spacer(1, 3)]
+            block += [table(_table_data(d, brief=brief)), p(_row_note(d), small), Spacer(1, 3)]
             story.append(KeepTogether(block))
-    story += [Spacer(1, 7), p("核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", small)]
-    if appendix:
+    story += [Spacer(1, 7)]
+    if brief:
+        story += [p(note, small) for note in notes]
+    else:
+        story.append(p("核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", small))
+    if not brief:
         story += [PageBreak(), heading("附录"), heading("数据检查")]
         contexts = [d for d in view.get("datasets") or [] if d.get("kind") == "context"]
         story += [p(f"{d['ref']} {d['title']}：{_context_note(d)}", small) for d in contexts] or [p("无已保存的上下文检查。", small)]
@@ -847,7 +1052,7 @@ def to_pdf(view: dict, *, appendix: bool = True, datasets: list[str] | None = No
             text = esc(sql)
             text = re.sub(r"[^\x00-\x7f]+", lambda m: f'<font name="{font}">{m[0]}</font>', text)
             story.append(Paragraph(text.replace("\n", "<br/>"), code))
-    story += [Spacer(1, 7), p("可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", small)]
+        story += [Spacer(1, 7), p("可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", small)]
     if not embedded:
         story.append(p("未找到可嵌入的中文字体（AVELIS_PDF_FONT）：中文需阅读器安装亚洲字体包才能显示。", small))
 
