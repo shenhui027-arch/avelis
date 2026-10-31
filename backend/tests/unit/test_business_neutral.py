@@ -16,7 +16,8 @@ SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql
 # 演示数据集特有的词：库名、表名前缀、口径编码，以及演示用的业务词
 DEMO_TERMS = [r"\bec_", r"\bdws_", r"ec_dw", r"paid_sales", r"orders_cnt", "成交额", "门店", "客单价", "华东", "华南",
               "华北", "西南", "客流", "抖音", "福田", "广州", "深圳", "商圈", "楼层", "投放", "实付", "daily_sales", "shop_dim",
-              r"shop\.orders"]
+              r"shop\.orders", r"\bmfg_", "production_report", "material_receipt", "maintenance_order",
+              "恒达材料", "HD-20260820-A"]
 PATTERN = re.compile("|".join(DEMO_TERMS))
 
 
@@ -42,7 +43,7 @@ def test_product_code_has_no_demo_business_terms():
 def test_product_code_does_not_import_demo_modules():
     importers = [str(p.relative_to(ROOT)) for p in _files() if p.suffix == ".py" and p.name != "demo_setup.py"
                  and re.search(r"^\s*(from\s+avelis\s+import\s+.*\bdemo_setup\b|from\s+avelis\.demo_setup|"
-                               r"import\s+avelis\.demo_setup|import\s+ec_data|from\s+ec_data)",
+                               r"import\s+avelis\.demo_setup|import\s+(?:ec_data|mfg_data)|from\s+(?:ec_data|mfg_data))",
                                p.read_text(encoding="utf-8"), re.M)]
     allowed = {str(Path("backend/src/avelis/bootstrap.py"))}  # bootstrap demo 命令是演示的唯一入口
     assert set(importers) <= allowed, importers

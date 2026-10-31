@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +32,9 @@ def load_questions(path: Path = QUESTIONS, truth: dict | None = None) -> dict[st
     import yaml
 
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if isinstance(data["questions"], dict):
+        # 独立业务域可在 v2.1 的题号映射中同时保存完整题干与绑定规格。
+        data["questions"] = [{"id": key, **question} for key, question in data["questions"].items()]
     for q in data["questions"]:
         q.setdefault("user", data["defaults"]["user"])
         q.setdefault("window", data["defaults"]["window"])
@@ -51,6 +56,8 @@ def load_truth() -> dict[str, Any]:
     import sys
 
     root = Path(__file__).resolve().parents[3]
+    if os.environ.get("AVELIS_EVAL_OFFLINE") == "1":
+        return _offline_truth()
     path = root / ".demo" / "ec-truth.json"
     truth = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     needed = {"store_month", "logistics_region_month", "ticket_region_month", "ticket_region_category_month",
@@ -64,6 +71,18 @@ def load_truth() -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(truth, ensure_ascii=False, indent=2), encoding="utf-8")
     return truth
+
+
+@lru_cache(maxsize=1)
+def _offline_truth() -> dict[str, Any]:
+    """离线单测只从确定性生成器取真值，不访问演示目录。"""
+    import sys
+
+    root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(root / "scripts"))
+    import ec_data
+
+    return ec_data.generate().truth
 
 
 def truth_values(truth: dict, ref: dict, window: dict) -> list[str]:
@@ -94,14 +113,16 @@ def truth_values(truth: dict, ref: dict, window: dict) -> list[str]:
 
 def _metric_specs() -> dict[str, dict]:
     """评测数据集的口径：视图、度量列、维度（名称 → 视图列）；派生比率取组成指标共有的维度（与口径服务相同）。"""
-    from avelis.demo_setup import EC_DERIVED, EC_METRICS
+    from avelis import demo_setup
 
     specs: dict[str, dict] = {}
-    for code, _, view, expression, *_rest in EC_METRICS:
+    metrics = (*demo_setup.EC_METRICS, *getattr(demo_setup, "MFG_METRICS", ()))
+    derived = (*demo_setup.EC_DERIVED, *getattr(demo_setup, "MFG_DERIVED", ()))
+    for code, _, view, expression, *_rest in metrics:
         dims = _rest[1]
         specs[code] = {"view": view, "measures": [re.fullmatch(r"SUM\((\w+)\)", expression).group(1)],
                        "dims": {d["name"]: d["column"] for d in dims}}
-    for code, _, formula, _ in EC_DERIVED:
+    for code, _, formula, _ in derived:
         num, den = (specs[c.strip()] for c in formula.split("/"))
         assert num["view"] == den["view"]
         specs[code] = {"view": num["view"], "measures": num["measures"] + den["measures"],
