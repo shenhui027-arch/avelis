@@ -167,8 +167,8 @@ export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; se
         placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="av-compose__bar">
-        <ModelPicker state={picker} />
         <span className="av-compose__spacer" />
+        <ModelPicker state={picker} />
         <ContextMeter run={run} />
         <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
           disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>

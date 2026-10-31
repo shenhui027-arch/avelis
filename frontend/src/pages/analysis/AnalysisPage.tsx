@@ -151,8 +151,8 @@ function Composer() {
             <select value={mode} onChange={(e) => setMode(e.target.value as "auto" | "always")}>
               <option value="auto">自动</option><option value="always">每次</option>
             </select></label>
-          <ModelPicker state={picker} />
           <span className="av-compose__spacer" />
+          <ModelPicker state={picker} />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!text.trim()} onClick={() => setScheduling(true)}>
             <Icon name="refresh" />定时</button>
           <button className="av-btn av-btn--primary av-btn--sm" type="submit" disabled={start.isPending || !text.trim()}>
