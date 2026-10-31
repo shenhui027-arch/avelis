@@ -67,6 +67,33 @@
     }
    }
   },
+  "/api/auth/refresh": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Refresh",
+    "description": "轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。",
+    "operationId": "refresh_api_auth_refresh_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/me/password": {
    "post": {
     "tags": [
@@ -11858,6 +11885,10 @@
       "type": "string",
       "title": "Expires At"
      },
+     "expires_in": {
+      "type": "integer",
+      "title": "Expires In"
+     },
      "must_change_password": {
       "type": "boolean",
       "title": "Must Change Password",
@@ -11868,7 +11899,8 @@
     "required": [
      "access_token",
      "token_type",
-     "expires_at"
+     "expires_at",
+     "expires_in"
     ],
     "title": "TokenOut"
    },
