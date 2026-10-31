@@ -60,7 +60,8 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
           a.supplement ? `补充：${a.supplement}` : "") };
     }
     case "message": return { icon: "send", title: "你的插话", user: String(o.text ?? a.text ?? "") };
-    case "submit_report": return { icon: "check", title: "提交报告", detail: a.title as string };
+    case "submit_report": return { icon: "check", title: "提交报告",
+      detail: typeof a.title === "string" ? a.title : undefined };
     case "model": {
       const tools = (o.tools as string[]) ?? [];
       return { icon: "chip", title: "推理",
