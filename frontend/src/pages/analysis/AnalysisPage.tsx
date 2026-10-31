@@ -240,7 +240,8 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen(!open)}><Icon name="download" />导出<Icon name="chevron" small /></button>
       {open ? <div className="av-menu" role="menu">
-        {item("PDF 报告", "pdf", ".pdf")}{item("Markdown", "md", ".md")}{item("数字引用来源（CSV）", "csv", "-sources.csv")}
+        {item("PDF 报告（含附录）", "pdf", ".pdf")}{item("PDF 报告（只要正文）", "pdf&appendix=false", "-brief.pdf")}
+        {item("Markdown", "md", ".md")}{item("数字引用来源（CSV）", "csv", "-sources.csv")}
       </div> : null}
     </span>
   );

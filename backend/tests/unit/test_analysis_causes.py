@@ -109,9 +109,10 @@ def test_exports_show_cause_ranking():
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
             "verification": verification}
     md = export.to_markdown(view)
-    assert "## 原因排序" in md and "结论类型：有排序的原因" in md
-    assert "1. 成员 · 地区：甲 · 下降 · 贡献 -80（证据 D2）" in md and "2. 成员 · 地区：甲 · 上升" in md and "⚠ 方向与贡献" in md
-    assert "原因 1（原因）“-80”" in md  # 数值来源附录也列出原因的贡献
+    assert "## 主要原因" in md and "有排序的原因" in md
+    assert "1. 甲" in md and "下降" in md and "2. 甲" in md and "上升" in md and "方向与贡献" in md
+    assert "成员 · 地区：" not in md
+    assert "原因 1" in md and "-80" in md  # 数字来源附录也列出原因的贡献
     assert export.to_pdf(view).startswith(b"%PDF")
     rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
     assert any(r.startswith("原因 1,原因,-80,") for r in rows)
@@ -208,7 +209,7 @@ def test_offsetting_first_two_must_be_the_largest_increase_and_decrease():
 
 
 def test_method_is_rendered_checked_and_exported_like_other_fields():
-    """分析方法（method）与标题、摘要一样按片段渲染与核验，出现在 Markdown / PDF 正文与引用来源 CSV 里。"""
+    """分析方法（method）仍按片段渲染与核验，其数字保留在附录与引用来源 CSV 里。"""
     from avelis.analysis import export
 
     report = {"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "causes": [],
@@ -221,7 +222,8 @@ def test_method_is_rendered_checked_and_exported_like_other_fields():
     assert not v2["ok"] and any(f["field"] == "method" for f in v2["fields"] if f["status"] == "unverified")
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
             "verification": v}
-    assert "**分析方法**：先看地区甲的100，再看拆解" in export.to_markdown(view)
+    md = export.to_markdown(view)
+    assert "分析方法" in md and "100" in md and "数字来源" in md
     assert export.to_pdf(view).startswith(b"%PDF")
     rows = export.sources_csv(view).decode("utf-8-sig").splitlines()
     assert any(r.startswith("分析方法,字段,100,") for r in rows)

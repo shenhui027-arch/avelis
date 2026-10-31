@@ -6330,6 +6330,8 @@ export interface operations {
         parameters: {
             query?: {
                 format?: string;
+                appendix?: boolean;
+                datasets?: string | null;
             };
             header?: never;
             path: {

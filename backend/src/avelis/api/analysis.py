@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -190,17 +191,30 @@ def dataset_csv(run_id: str, seq: int, user: User = Depends(current_user),
 
 
 @router.get("/analysis/runs/{run_id}/export")
-def export_run(run_id: str, format: str = "pdf", user: User = Depends(current_user),
+def export_run(run_id: str, format: str = "pdf", appendix: bool = True, datasets: str | None = None,
+               user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> Response:
     run = analysis.visible_run(session, user, run_id)
     if run.status != "succeeded":
         raise HTTPException(409, "分析尚未完成，不能导出")
     view = analysis.run_view(session, run, user=user)
+    saved = {f"D{d.seq}": d for d in session.scalars(
+        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
+    selected = None
+    if datasets is not None:
+        selected = list(dict.fromkeys(ref.strip() for ref in datasets.split(",")))
+        if any(not re.fullmatch(r"D[1-9][0-9]*", ref) or ref not in saved for ref in selected):
+            raise HTTPException(422, "datasets 只能包含本次运行已有的 D 编号，以逗号分隔")
+    if format in ("md", "pdf"):
+        for dataset in view["datasets"]:
+            d = saved[dataset["ref"]]
+            dataset.update(rows=d.rows, meta=d.meta)
     if format == "md":
-        return Response(export.to_markdown(view).encode("utf-8"), media_type="text/markdown; charset=utf-8",
+        return Response(export.to_markdown(view, appendix=appendix, datasets=selected).encode("utf-8"),
+                        media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'})
     if format == "pdf":
-        return Response(export.to_pdf(view), media_type="application/pdf",
+        return Response(export.to_pdf(view, appendix=appendix, datasets=selected), media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'})
     if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
         return Response(export.sources_csv(view), media_type="text/csv; charset=utf-8",

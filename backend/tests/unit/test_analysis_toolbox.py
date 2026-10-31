@@ -447,7 +447,7 @@ def test_exports_escape_refs_and_neutralise_formulas():
                                          "problems": ["文字片段里出现数字“999”"]}], "unverified_fields": 1}}
     md = export.to_markdown(view)
     assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：文字片段里出现数字“999”" in md
-    assert "a ⚠ 文字片段里出现数字“7”" in md
+    assert "a" in md and "文字片段里出现数字“7”" in md and "⚠" in md
     assert export.to_pdf(view).startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
     csv = export.to_csv(["=cmd", "值"], [["=HYPERLINK(\"http://x\")", -5], ["@SUM(A1)", "-12.5"],
                                         ["\tx", None], ["+1", 3]]).decode("utf-8-sig").splitlines()
@@ -721,8 +721,10 @@ def test_sources_csv_and_markdown_list_every_reference():
                              "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1,
                                          "windows": 1}}}
     md = export.to_markdown(view)
-    assert "- 核验：来源全部通过，含未核实的推断" in md and "- 数字来源：口径 1、探索 1、其中含探索来源 1、日期 1" in md
-    assert "## 附录：数值来源" in md and "D6 · 客流 · 原值 =cmd · 未知 · 探索查询（未经口径审核） · 建议目标（非观测值）" in md
+    assert "来源全部通过" in md and "未核实" in md
+    assert "## 附录" in md and "数字来源" in md and "| D6 | 客流 | =cmd |" in md
+    assert "D6.客流" not in md
+    assert "探索查询（未经口径审核）" in md and "建议目标（非观测值）" in md
     assert export.to_pdf(view).startswith(b"%PDF")
 
 

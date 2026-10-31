@@ -3942,6 +3942,32 @@
        "default": "pdf",
        "title": "Format"
       }
+     },
+     {
+      "name": "appendix",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": true,
+       "title": "Appendix"
+      }
+     },
+     {
+      "name": "datasets",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Datasets"
+      }
      }
     ],
     "responses": {
