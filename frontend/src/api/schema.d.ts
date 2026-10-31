@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready */
+        get: operations["ready_api_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/token": {
         parameters: {
             query?: never;
@@ -3554,6 +3571,24 @@ export interface components {
             time_column: string;
             /** Timezone */
             timezone: string;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -4227,6 +4262,24 @@ export interface components {
             time_column?: string;
             /** Timezone */
             timezone?: string | null;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -4324,6 +4377,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    ready_api_health_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

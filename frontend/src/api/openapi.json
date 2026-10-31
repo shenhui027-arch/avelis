@@ -25,6 +25,22 @@
     }
    }
   },
+  "/api/health/ready": {
+   "get": {
+    "summary": "Ready",
+    "operationId": "ready_api_health_ready_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/auth/token": {
    "post": {
     "tags": [
@@ -10101,7 +10117,6 @@
      },
      "content": {
       "type": "string",
-      "maxLength": 2097152,
       "minLength": 1,
       "title": "Content"
      },
@@ -10894,6 +10909,75 @@
      "timezone": {
       "type": "string",
       "title": "Timezone"
+     },
+     "time_format": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "yyyymmdd",
+         "yyyy-mm-dd",
+         "yyyymm"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Format"
+     },
+     "data_grain": {
+      "type": "string",
+      "enum": [
+       "day",
+       "week",
+       "month",
+       "quarter",
+       "year"
+      ],
+      "title": "Data Grain",
+      "default": "day"
+     },
+     "time_aggregation": {
+      "type": "string",
+      "enum": [
+       "sum",
+       "last",
+       "avg"
+      ],
+      "title": "Time Aggregation",
+      "default": "sum"
+     },
+     "value_kind": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "level",
+         "ratio",
+         "count"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value Kind"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
      },
      "filters": {
       "anyOf": [
@@ -12918,6 +13002,75 @@
        }
       ],
       "title": "Timezone"
+     },
+     "time_format": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "yyyymmdd",
+         "yyyy-mm-dd",
+         "yyyymm"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Format"
+     },
+     "data_grain": {
+      "type": "string",
+      "enum": [
+       "day",
+       "week",
+       "month",
+       "quarter",
+       "year"
+      ],
+      "title": "Data Grain",
+      "default": "day"
+     },
+     "time_aggregation": {
+      "type": "string",
+      "enum": [
+       "sum",
+       "last",
+       "avg"
+      ],
+      "title": "Time Aggregation",
+      "default": "sum"
+     },
+     "value_kind": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "level",
+         "ratio",
+         "count"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value Kind"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
      },
      "filters": {
       "anyOf": [
