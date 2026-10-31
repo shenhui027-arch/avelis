@@ -4,10 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { api, unwrap } from "../../api/client";
+import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import { Drawer, Empty, Icon, Pill, Seg, Select, shortName } from "../../components/ui";
 import { formatTime } from "../../format";
+import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 
 type Ref = { object_type: string; object_id: string; version?: number | null };
 export type ProposalItem = { id: string; kind: string; content: string; source: string; refs?: Ref[];
@@ -142,12 +143,14 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
 
 /** 对已完成的报告质疑或补充规则：带着已确认的范围与依据重新分析一次。 */
 /** 回答下方常驻的输入框：继续追问、指出哪里不对或补充规则，都会基于这次分析开一轮新的。 */
-export function FollowupForm({ runId }: { runId: string }) {
+export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
+  const runId = run.id;
   const navigate = useNavigate();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const picker = useModelChoice((run as { model_choice?: ModelChoice | null }).model_choice);
   const followup = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
-    params: { path: { run_id: runId } }, body: { text } as never })), ["analysis-runs"]);
+    params: { path: { run_id: runId } }, body: { text, ...picker.body } as never })), ["analysis-runs"]);
   return (
     <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();
@@ -160,8 +163,13 @@ export function FollowupForm({ runId }: { runId: string }) {
       <textarea id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
         placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
-      <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
-        disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
+      <div className="av-compose__bar">
+        <ModelPicker state={picker} />
+        <span className="av-compose__spacer" />
+        <ContextMeter run={run} />
+        <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
+          disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
+      </div>
     </form>
   );
 }

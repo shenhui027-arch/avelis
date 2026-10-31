@@ -12,6 +12,7 @@ import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupFo
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { BarChart, LineChart } from "./charts";
+import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
 
 type Run = Schemas["AnalysisRunOut"];
@@ -115,8 +116,9 @@ function Composer() {
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tasks = useTasks();
+  const picker = useModelChoice();
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", {
-    body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode } as never })), ["analysis-runs"]);
+    body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode, ...picker.body } as never })), ["analysis-runs"]);
   return (
     <section className="av-analysis__compose">
       <div className="av-hero">
@@ -149,6 +151,7 @@ function Composer() {
             <select value={mode} onChange={(e) => setMode(e.target.value as "auto" | "always")}>
               <option value="auto">自动</option><option value="always">每次</option>
             </select></label>
+          <ModelPicker state={picker} />
           <span className="av-compose__spacer" />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!text.trim()} onClick={() => setScheduling(true)}>
             <Icon name="refresh" />定时</button>
@@ -395,7 +398,7 @@ function RunDetail({ id }: { id: string }) {
       </DatasetSql.Provider>
     </article>
     </div>
-    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm runId={r.id} />}</div> : null}
+    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
     </>
   );
 }

@@ -697,8 +697,14 @@
 .av-proposal--edit textarea { min-height: 48px; resize: vertical; }
 .av-proposal--edit > .av-btn, .av-proposal--edit > .av-pill { justify-self: end; }
 .av-analysis__sources > summary .av-caption + a { margin-left: auto; color: var(--accent-text); text-decoration: none; }
-.av-analysis__followup { position: relative; flex-direction: row; align-items: flex-end; gap: var(--space-2); padding: 8px 8px 8px 4px; }
-.av-analysis__followup textarea { flex: 1; min-height: 40px; max-height: 160px; padding: 8px 12px; resize: none; font-size: 14px; }
+.av-analysis__followup { position: relative; }
+.av-analysis__followup textarea { min-height: 48px; max-height: 160px; padding: 12px 14px 4px; resize: none; font-size: 14px; }
+.av-analysis__followup .av-compose__bar { border-top: none; padding: 4px 8px 8px 12px; }
+/* 上下文用量：最近一次请求的输入 token / 上下文窗口 */
+.av-context { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); font: 400 12px/1 var(--font-sans); white-space: nowrap; }
+.av-context svg { color: var(--accent-text); }
+.av-context.is-warn svg { color: var(--warn); }
+.av-context.is-danger svg { color: var(--danger); }
 .av-analysis__followup .av-banner { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); }
 .av-compose__send { width: 36px; height: 36px; border-radius: 12px; }
 .av-analysis__parent { display: inline-block; margin-top: 2px; }
@@ -769,3 +775,4 @@
   .av-analysis__evidence { max-height: none; border-left: none; border-top: 1px solid var(--line-subtle); }
   .av-hero::after { opacity: .35; }
 }
+.av-models__ctx { width: 120px; height: var(--size-control-sm); }
