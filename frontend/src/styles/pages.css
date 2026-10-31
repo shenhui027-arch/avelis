@@ -586,8 +586,9 @@
 .av-compose__example:hover { background: var(--bg-raised); color: var(--text-primary); }
 
 /* 报告文档 */
-.av-doc { display: flex; flex-direction: column; gap: var(--space-4); max-width: 800px; margin: 0 auto; padding: var(--space-5) var(--space-8) var(--space-6); }
-.av-doc__hd { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line-subtle); }
+.av-doc { --doc-pad: var(--space-8); display: flex; flex-direction: column; gap: var(--space-4); max-width: 800px; margin: 0 auto; padding: 0 var(--doc-pad) var(--space-6); }
+/* 标题栏固定在对话区顶部，对话从它下面滑过 */
+.av-doc__hd { position: sticky; top: 0; z-index: 3; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin: 0 calc(var(--doc-pad) * -1); padding: var(--space-5) var(--doc-pad) var(--space-3); border-bottom: 1px solid var(--line-subtle); background: var(--bg-overlay); -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%); }
 .av-doc__titles { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .av-doc__titles h1 { margin: 0; font: 600 16px/24px var(--font-sans); color: var(--text-primary); }
 .av-doc__sub { display: flex; flex-wrap: wrap; gap: 4px var(--space-3); margin: 0; color: var(--text-tertiary); font: var(--type-caption); }
@@ -757,7 +758,7 @@
 /* 问数窄屏：证据栏先变窄，再移到对话下方 */
 @media (max-width: 1279px) {
   .av-analysis.has-evidence { grid-template-columns: minmax(0, 1fr) 320px; }
-  .av-doc { padding-inline: var(--space-5); }
+  .av-doc { --doc-pad: var(--space-5); }
   .av-dock { padding-inline: var(--space-5); }
   .av-analysis__compose { padding-inline: var(--space-5); }
 }
