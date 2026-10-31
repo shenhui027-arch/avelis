@@ -1,0 +1,14 @@
+# 使用外部 PostgreSQL 与 Redis 时叠加本文件：内置的 postgres、redis 服务不再启动。
+#   docker compose -f compose.yaml -f compose.external.yaml up -d
+# 或在 .env 写 COMPOSE_FILE=compose.yaml:compose.external.yaml（Windows 用分号分隔），之后照常 docker compose up -d。
+# 在 avelis.toml 的 [database] / [redis] 填外部服务的地址、账号与口令。
+# 只有其中一个用外部服务时：删掉本文件里另一个服务的配置，并把 --services 改为仍内置的那个（postgres 或 redis）。
+
+services:
+  # 内置服务不启动，config 只校验配置、不导出口令
+  config:
+    command: ["python", "-m", "avelis.config", "export-service-secrets", "/run/avelis-secrets", "--services", ""]
+  postgres:
+    profiles: ["bundled"]
+  redis:
+    profiles: ["bundled"]

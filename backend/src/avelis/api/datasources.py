@@ -14,6 +14,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
 from avelis.collect.service import CollectionFailed
+from avelis.config import get_settings
 from avelis.engines import engine_of, engines, get_engine
 from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
@@ -121,8 +122,10 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     missing = [o.label for o in engine.options if o.required and not (body.options or {}).get(o.key)]
     if missing:
         raise HTTPException(422, f"{engine.label} 数据源缺少配置：{'、'.join(missing)}")
+    interval = (body.collect_interval_minutes if "collect_interval_minutes" in body.model_fields_set
+                else get_settings().collect_interval_minutes)
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,
-                    is_test_adapter=engine.is_test_adapter, collect_interval_minutes=body.collect_interval_minutes,
+                    is_test_adapter=engine.is_test_adapter, collect_interval_minutes=interval,
                     created_by=user.id)
     session.add(ds)
     session.flush()
