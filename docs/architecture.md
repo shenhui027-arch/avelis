@@ -54,7 +54,7 @@ flowchart LR
 | 层 | 表 | 含义 |
 |---|---|---|
 | 身份 | `datasource`、`endpoint_alias`、`asset`、`asset_column` | “是哪个东西”。资产按物理 ID（StarRocks `TABLE_ID`）识别：改名仍是同一资产；删后同名重建是新资产。列删除后同名重建也是新列 |
-| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL。只追加，在哈希链上（3.5） |
+| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL。只追加，在哈希链上（3.6） |
 | 推导 | `parse_result`、`lineage_edge`、`identity_link`、`column_fingerprint`、`grain` | “由观察推出的结论”。每条边记录来源：`parsed`、`manual`、`import`、`model_confirmed` 等。外部表经端点别名与实例身份追到他库真实表 |
 | 治理 | `metric`、`metric_version`、`join_path`、`confirmation`、`change_set` / `change_event`、`impact`、`review_task`、`audit_event` | “业务上认可了什么、谁认可的”。这一层只由人或确定性规则改变，模型不能直接改 |
 
@@ -156,7 +156,7 @@ flowchart LR
 - 报告可导出为 PDF（嵌入中文字体，含图表与证据附录）、Markdown、数据集 CSV。
 - 需要模型支持工具调用，并允许向模型发送查询结果（默认允许；需保密请接入本地模型）。设计见 [ADR 0007](decisions/0007-analysis-agent.md)。
 
-### 3.5 观察层与留底
+### 3.6 观察层与留底
 
 变更历史只在元数据与血缘治理层留底；问数层只看当前结构，不按旧口径查询（[ADR 0008](decisions/0008-history-integrity.md)）。
 
@@ -198,6 +198,7 @@ flowchart LR
 
 ## 5. 运行
 
+- **进程**：API（`python -m avelis.server`，生产模式下同一端口托管前端）与 worker（`python -m avelis.jobs`）是两个独立进程，共用元数据库与 Redis。部署方式见 [deployment.md](deployment.md)，配置见 [configuration.md](configuration.md)。
 - **采集**：worker 按数据源的采集间隔（默认 15 分钟）轮询入队。也可以在界面或接口里手动采集。
   - 同一数据源的采集用 Redis 锁互斥。
   - 未发现变更不代表没有变更：采集发现的延迟最长为一个采集间隔。问数时的执行前核对会补上这个窗口：被问到的来源若已变化，会立即拦截并触发采集。
