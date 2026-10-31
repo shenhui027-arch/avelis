@@ -76,13 +76,16 @@ def issued_before(claims: dict, cutoff: datetime) -> bool:
     return int(claims.get("iat", 0)) * 1_000_000 < cutoff_us - cutoff_us % 1_000_000 + 1_000_000
 
 
-def create_access_token(user_id: str, username: str) -> tuple[str, datetime, str]:
+def create_access_token(user_id: str, username: str, *, auth_time: int | None = None) -> tuple[str, datetime, str]:
     settings = get_settings()
     now = datetime.now(timezone.utc)
-    expires = now + timedelta(minutes=settings.access_token_minutes)
+    if auth_time is None:
+        auth_time = int(now.timestamp())
+    session_expires = datetime.fromtimestamp(auth_time, timezone.utc) + timedelta(hours=settings.session_max_hours)
+    expires = min(now + timedelta(minutes=settings.access_token_minutes), session_expires).replace(microsecond=0)
     jti = uuid.uuid4().hex
     token = jwt.encode(
-        {"sub": user_id, "name": username, "iat": now, "iat_us": epoch_us(now),
+        {"sub": user_id, "name": username, "iat": now, "iat_us": epoch_us(now), "auth_time": auth_time,
          "exp": expires, "jti": jti, "aud": JWT_AUDIENCE},
         _jwt_key(settings.secret),
         algorithm=JWT_ALGORITHM,
