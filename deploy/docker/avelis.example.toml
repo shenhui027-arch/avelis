@@ -1,0 +1,164 @@
+# Avelis 部署配置
+#
+# 用法：复制为同目录下的 avelis.toml，按注释填写后启动。
+#   cp avelis.example.toml avelis.toml
+#   docker compose up -d
+#
+# 必填项标为【必填】，其余都有默认值，删掉或注释掉某一项即使用默认值。
+# 本文件列出部署时常改的项；全部配置项（含跨域白名单、实验特性开关）见 docs/configuration.md。
+# 优先级：环境变量（AVELIS_*） > .env 文件 > 本文件 > 内置默认值。每项后面的 AVELIS_* 是对应的环境变量名。
+# 检查配置：docker compose run --rm app python -m avelis.config check（敏感值脱敏显示）
+#
+# 本文件含口令与密钥，请限制读取权限（容器内以 UID 10001 运行，需能读到本文件），
+# 不要提交到代码仓库。口令也可以改用文件引用：把 password 换成 password_file = "/run/secrets/xxx"，
+# 或用环境变量 AVELIS_XXX / AVELIS_XXX_FILE 覆盖（见 docs/configuration.md）。
+# 生成随机值：openssl rand -hex 32（PowerShell：-join ((1..32) | % { '{0:x2}' -f (Get-Random -Max 256) })）
+
+# ============================================================
+# 安全
+# ============================================================
+[security]
+# 【必填】主密钥，至少 16 个字符：加密数据源口令与模型密钥、签发登录令牌。AVELIS_SECRET
+# 上线后不要更换：更换后已保存的数据源口令与模型密钥无法解密，所有登录会话失效。务必与元数据库一起备份。
+secret = ""
+# 单个登录凭证有效期（闲置超时），分钟。AVELIS_ACCESS_TOKEN_MINUTES
+access_token_minutes = 120
+# 一次登录最长可续期时长，小时；到期后必须重新登录。AVELIS_SESSION_MAX_HOURS
+session_max_hours = 168
+# 登录失败限流：同一账号 + 来源地址连续失败达到次数后锁定若干分钟。AVELIS_LOGIN_MAX_FAILURES / AVELIS_LOGIN_LOCK_MINUTES
+login_max_failures = 5
+login_lock_minutes = 15
+# 是否允许提交人复核自己的变更。AVELIS_ALLOW_SELF_REVIEW
+allow_self_review = false
+
+# ============================================================
+# 元数据库（PostgreSQL）：Avelis 的资产、血缘、口径、审计与智能体会话都存在这里
+# ============================================================
+[database]
+# 使用 Compose 内置的 postgres 服务时保持 host = "postgres"，只需填 password。
+# 使用外部 PostgreSQL 时改为它的地址与账号（账号需能在该库建表与模式），并按 docs/deployment.md 停用内置服务。
+host = "postgres"                 # AVELIS_DB_HOST
+port = 5432                       # AVELIS_DB_PORT
+name = "avelis"                   # AVELIS_DB_NAME
+user = "avelis"                   # AVELIS_DB_USER
+# 【必填】口令。内置 postgres 首次启动时用它初始化；之后修改这里不会改数据库里的口令（需先在库里 ALTER USER）。
+password = ""                     # AVELIS_DB_PASSWORD
+# SSL：disable / allow / prefer / require / verify-ca / verify-full；留空 = 驱动默认（prefer）
+sslmode = ""                      # AVELIS_DB_SSLMODE
+# 连接池（每个进程）
+pool_size = 5                     # AVELIS_DB_POOL_SIZE
+max_overflow = 10                 # AVELIS_DB_MAX_OVERFLOW
+pool_recycle_seconds = 1800       # AVELIS_DB_POOL_RECYCLE_SECONDS
+# 也可以直接写完整连接串（填写后忽略上面的分项）：postgresql+psycopg://用户:口令@主机:端口/库名
+# url = ""                        # AVELIS_DATABASE_URL
+
+# ============================================================
+# Redis（任务唤醒、缓存、锁、令牌吊销；Compose 内置服务为 Valkey）
+# ============================================================
+[redis]
+host = "redis"                    # AVELIS_REDIS_HOST
+port = 6379                       # AVELIS_REDIS_PORT
+db = 0                            # AVELIS_REDIS_DB
+# 【必填】口令（使用内置 redis 服务时，它也用这个口令启动）
+password = ""                     # AVELIS_REDIS_PASSWORD
+# 是否使用 TLS（rediss://）
+ssl = false                       # AVELIS_REDIS_SSL
+# url = ""                        # AVELIS_REDIS_URL，格式 redis://:口令@主机:端口/0（填写后忽略上面的分项）
+
+# ============================================================
+# 服务
+# ============================================================
+[server]
+# 对外访问地址（浏览器里输入的地址），用于启动日志与跨域白名单，例如 "http://10.0.0.5:8080"。可选
+public_url = ""                   # AVELIS_PUBLIC_URL
+# 进程数（uvicorn workers）
+workers = 1                       # AVELIS_WORKERS
+# 信任哪些反向代理传来的 X-Forwarded-For（逗号分隔，"*" 表示全部信任），用于登录限流识别真实来源地址
+forwarded_allow_ips = "127.0.0.1" # AVELIS_FORWARDED_ALLOW_IPS
+# 日志级别：critical / error / warning / info / debug
+log_level = "info"                # AVELIS_LOG_LEVEL
+# 以下三项只在不用 Docker 部署时需要修改：Docker 镜像固定监听 0.0.0.0:8000 并托管内置前端，
+# 对外端口在 Compose 里设置（deploy/docker/.env 的 AVELIS_HTTP_PORT，默认 8080）。
+# host = "0.0.0.0"                # AVELIS_HOST
+# port = 8000                     # AVELIS_PORT
+# frontend_dir = "frontend/dist"  # AVELIS_FRONTEND_DIR
+
+# ============================================================
+# 初始化
+# ============================================================
+[bootstrap]
+# 启动时自动迁移元数据库（多副本时用数据库锁串行执行）
+auto_migrate = true               # AVELIS_AUTO_MIGRATE
+# 启动时创建首个管理员：只在库里还没有任何管理员时创建，首次登录必须修改密码
+auto_init_admin = true            # AVELIS_AUTO_INIT_ADMIN
+initial_admin_username = "admin"  # AVELIS_INITIAL_ADMIN_USERNAME
+# 【首次启动必填】初始密码：12–128 个字符、不包含用户名、至少 4 种不同字符。管理员创建后不再使用，可以清空
+initial_admin_password = ""       # AVELIS_INITIAL_ADMIN_PASSWORD
+
+# ============================================================
+# 业务
+# ============================================================
+[business]
+# 业务时区：日期类问题（“昨天”“上月”）按它计算
+timezone = "Asia/Shanghai"        # AVELIS_BUSINESS_TIMEZONE
+# 未归属业务域的资产：deny（只有管理员与维护者可见）| allow（所有人可见）
+unassigned_asset_policy = "deny"  # AVELIS_UNASSIGNED_ASSET_POLICY
+# 口径依赖的列缺数据库注释时：false 只提示 | true 阻断发布
+require_column_comments = false   # AVELIS_REQUIRE_COLUMN_COMMENTS
+
+# ============================================================
+# 问数与查询（对所有数据源生效）
+# ============================================================
+[query]
+timeout_seconds = 30              # 单条查询超时，秒。AVELIS_QUERY_TIMEOUT_SECONDS
+mem_limit_bytes = 2147483648      # 单条查询内存上限（支持的引擎），字节。AVELIS_QUERY_MEM_LIMIT_BYTES
+max_rows = 1000                   # 单条查询返回行数上限。AVELIS_QUERY_MAX_ROWS
+answer_cache_seconds = 300        # 相同问题的答案缓存，秒。AVELIS_ANSWER_CACHE_SECONDS
+live_check = true                 # 执行前核对来源结构与上次采集一致。AVELIS_ASK_LIVE_CHECK
+max_tool_rounds = 8               # 问数智能体每轮最多调用工具的次数。AVELIS_ASK_MAX_TOOL_ROUNDS
+
+# ============================================================
+# 采集与后台任务
+# ============================================================
+[collect]
+interval_minutes = 15             # 新建数据源的默认采集间隔，分钟（每个数据源可单独修改）。AVELIS_COLLECT_INTERVAL_MINUTES
+ddl_audit_slack_seconds = 5       # DDL 审计归因的时钟容差，秒。AVELIS_DDL_AUDIT_SLACK_SECONDS
+
+[worker]
+schedule_seconds = 60             # 定时扫描间隔，秒。AVELIS_WORKER_SCHEDULE_SECONDS
+stale_seconds = 30                # 排队超过多久未执行的任务由扫描补执行，秒。AVELIS_WORKER_STALE_SECONDS
+running_timeout_seconds = 3600    # 运行超时记为失败，秒。AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS
+
+[history]
+retention_days = 1095             # 变更留底保留天数，0 = 不清理。AVELIS_HISTORY_RETENTION_DAYS
+purge_interval_hours = 24         # 清理间隔，小时。AVELIS_HISTORY_PURGE_INTERVAL_HOURS
+export_max_rows = 50000           # 变更记录一次导出的行数上限。AVELIS_HISTORY_EXPORT_MAX_ROWS
+
+[import]
+max_bytes = 2097152               # 导入血缘时单个文件或粘贴内容的上限，字节。AVELIS_IMPORT_MAX_BYTES
+
+# ============================================================
+# 分析智能体预算（每次分析）
+# ============================================================
+[analysis]
+seconds = 300                     # 时长上限，秒。AVELIS_ANALYSIS_SECONDS
+tool_calls = 30                   # 工具调用次数上限。AVELIS_ANALYSIS_TOOL_CALLS
+query_limit = 20                  # 查询类工具共用的次数额度。AVELIS_ANALYSIS_QUERY_LIMIT
+explore_limit = 8                 # 探索查询次数上限。AVELIS_ANALYSIS_EXPLORE_LIMIT
+model_requests = 16               # 模型请求次数上限。AVELIS_ANALYSIS_MODEL_REQUESTS
+input_tokens = 552321             # 累计输入 token 上限，0 = 不限。AVELIS_ANALYSIS_INPUT_TOKENS
+output_tokens = 30716             # 累计输出 token 上限（含推理），0 = 不限。AVELIS_ANALYSIS_OUTPUT_TOKENS
+material_change_ratio = 0.01      # 变化显著性阈值（口径未单独设置时）。AVELIS_MATERIAL_CHANGE_RATIO
+
+# ============================================================
+# 模型
+# ============================================================
+[model]
+# 单次模型请求超时，秒。AVELIS_MODEL_TIMEOUT_SECONDS
+timeout_seconds = 60
+# 模型提供方与密钥建议进系统后在“设置 → 模型配置”页面填写（密钥加密存进元数据库）。
+# 也可以在这里预置，再执行 docker compose exec app python -m avelis.bootstrap model 登记：
+# provider = "openai"             # openai（含任何 OpenAI 兼容接口）| anthropic。AVELIS_MODEL_PROVIDER
+# name = ""                       # 模型名。AVELIS_MODEL_NAME
+# base_url = ""                   # 接口地址。AVELIS_MODEL_BASE_URL
+# api_key = ""                    # 密钥。AVELIS_MODEL_API_KEY

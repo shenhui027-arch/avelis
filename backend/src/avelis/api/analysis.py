@@ -17,6 +17,7 @@ from avelis.analysis.dataset_access import require_dataset_access
 from avelis.analysis.rerun import rerun_dataset
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
+from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import NotFound
@@ -61,7 +62,11 @@ def _window(w: Window | None) -> dict | None:
     return w.model_dump(exclude_none=True) if w else None
 
 
-SYNC_WAIT_SECONDS = 420  # 同步入口最长等待：分析预算 300 秒，另留模型请求与收尾的余量
+SYNC_WAIT_SECONDS: int | None = None  # 同步入口最长等待；None = 分析时长预算（默认 300 秒）+ 120 秒余量
+
+
+def _sync_wait_seconds() -> int:
+    return SYNC_WAIT_SECONDS if SYNC_WAIT_SECONDS is not None else get_settings().analysis_seconds + 120
 
 
 @router.get("/analysis/models", response_model=S.AnalysisModelsOut)
@@ -83,7 +88,7 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
     if wait:  # 在本进程内领取并执行同一个 Job（被 worker 抢先领取时等它结束）；进程中断时由恢复器按 Job 回收
-        jobs.run_and_wait(job_id, SYNC_WAIT_SECONDS)
+        jobs.run_and_wait(job_id, _sync_wait_seconds())
         session.expire_all()
     else:
         jobs._wake(job_id)
@@ -374,7 +379,7 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
     task = _task(session, user, task_id)
     job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
     session.commit()
-    status = jobs.run_and_wait(job_id, SYNC_WAIT_SECONDS)  # 与定时同一路径，在本进程内领取并执行
+    status = jobs.run_and_wait(job_id, _sync_wait_seconds())  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
     job = session.get(Job, job_id)
     result = job.result or {}

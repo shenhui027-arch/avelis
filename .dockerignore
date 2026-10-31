@@ -1,0 +1,24 @@
+# 构建上下文只需要 backend/ 与 frontend/；凭证、演示状态、本地环境一律不进镜像
+**/.env
+**/.env.*
+!**/.env.example
+.demo/
+.demo-up.log
+.git/
+.worktrees/
+.claude/
+.brand-qa-chrome/
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/node_modules/
+frontend/dist/
+**/*.tsbuildinfo
+backend/tests/
+deploy/
+docs/
+design/
+experiments/
+scripts/

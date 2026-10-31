@@ -11,17 +11,17 @@ from sqlalchemy.orm import Session
 
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
+from avelis.config import get_settings
 from avelis.importer import service
 from avelis.models import CandidateEdge, ImportJob, User
 
 router = APIRouter(prefix="/api", tags=["导入血缘"])
-MAX_BYTES = 2 * 1024 * 1024
 
 
 class ImportBody(BaseModel):
     datasource_id: str
     filename: str = Field(default="粘贴的 SQL.sql", max_length=255)
-    content: str = Field(min_length=1, max_length=MAX_BYTES)
+    content: str = Field(min_length=1)
     source_type: Literal["sql", "python", "shell"] | None = None
     default_db: str | None = Field(default=None, max_length=128)
     params: dict[str, str] = Field(default_factory=dict)
@@ -58,15 +58,22 @@ def _created(session: Session, user: User, **kwargs) -> dict:
 
 @router.post("/imports", response_model=S.ImportJobOut)
 def create_import(body: ImportBody, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    max_bytes = get_settings().import_max_bytes
+    if len(body.content) > max_bytes:
+        # 保留原 Field(max_length=...) 的 422 响应格式与按字符计数的语义。
+        raise HTTPException(422, [{"type": "string_too_long", "loc": ["body", "content"],
+                                   "msg": f"String should have at most {max_bytes} characters",
+                                   "input": body.content, "ctx": {"max_length": max_bytes}}])
     return _created(session, user, **body.model_dump())
 
 
 @router.post("/imports/upload", response_model=S.ImportJobOut)
 async def upload(datasource_id: str = Form(...), file: UploadFile = File(...), default_db: str | None = Form(None),
                  user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    raw = await file.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES:
-        raise HTTPException(413, "文件超过 2 MB")
+    max_bytes = get_settings().import_max_bytes
+    raw = await file.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise HTTPException(413, f"文件超过 {max_bytes / 1024**2:g} MB")
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError as exc:

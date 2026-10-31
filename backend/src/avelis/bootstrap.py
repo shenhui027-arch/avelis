@@ -1,6 +1,8 @@
 """初始化命令。
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
+  uv run python -m avelis.bootstrap init-admin     创建首个启用的管理员（AVELIS_INITIAL_ADMIN_USERNAME 默认 admin，
+                                                   密码取自 AVELIS_INITIAL_ADMIN_PASSWORD，首次登录必须改密）
   uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
@@ -19,10 +21,12 @@ from __future__ import annotations
 import sys
 
 from alembic import command
-from sqlalchemy import select
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.pool import NullPool
 
+from avelis import audit
 from avelis.config import get_settings
-from avelis.db import session_scope, utcnow
+from avelis.db import get_engine, session_scope, utcnow
 from avelis.devtools import alembic_config
 from avelis.governance.access import ROLES
 from avelis.models import User, UserRole
@@ -31,6 +35,74 @@ from avelis.security import hash_password, session_cutoff_now, verify_password
 # 演示准备与验收脚本经 API 操作时使用的管理员；不占用给人登录的 admin
 AUTOMATION_ADMIN = "ops_admin"
 SUPERADMIN = "admin"
+MIGRATION_LOCK_KEY = "avelis:bootstrap:migrate"
+
+
+class InitialAdminError(ValueError):
+    """可直接向操作者展示的初始管理员校验错误，不含口令。"""
+
+
+def migrate() -> None:
+    """串行执行元数据库迁移与智能体状态建表，多个副本同时启动时等待同一把锁。"""
+    # 锁用连接池之外的独立连接：迁移本身还要从池里取连接，池只有一个连接时也不会互相等待
+    lock_engine = create_engine(get_engine().url, poolclass=NullPool)
+    with lock_engine.connect() as connection:
+        connection = connection.execution_options(isolation_level="AUTOCOMMIT")
+        try:
+            connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                               {"key": MIGRATION_LOCK_KEY})
+            try:
+                command.upgrade(alembic_config(), "head")
+                from avelis.ask.agent import graph
+
+                graph()  # 在请求事务之外建好智能体会话状态表，见 devtools.reset_metadata_db
+            finally:
+                connection.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                                   {"key": MIGRATION_LOCK_KEY})
+        except BaseException:
+            connection.invalidate()
+            raise
+
+
+def validate_initial_admin_password(username: str, password: str) -> None:
+    """首个管理员的口令策略；报错中不包含口令。"""
+    if not username.strip():
+        raise InitialAdminError("AVELIS_INITIAL_ADMIN_USERNAME 不能为空")
+    if not 12 <= len(password) <= 128:  # 上限与改密接口一致，否则首次登录后无法完成改密
+        raise InitialAdminError("AVELIS_INITIAL_ADMIN_PASSWORD 长度须为 12–128 个字符")
+    if username.casefold() in password.casefold():
+        raise InitialAdminError("AVELIS_INITIAL_ADMIN_PASSWORD 不能包含用户名（不区分大小写）")
+    if len(set(password)) < 4:
+        raise InitialAdminError("AVELIS_INITIAL_ADMIN_PASSWORD 至少包含 4 种不同字符")
+
+
+def init_admin() -> str | None:
+    """仅在没有启用的管理员时创建首个管理员，不修改已有账号。"""
+    env = get_settings().env
+    username = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "admin")
+    password = env.get("AVELIS_INITIAL_ADMIN_PASSWORD", "")
+    if not password:
+        raise InitialAdminError("未配置 AVELIS_INITIAL_ADMIN_PASSWORD，未创建初始管理员")
+    validate_initial_admin_password(username, password)
+    with session_scope() as session:
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                        {"key": "avelis:bootstrap:init-admin"})
+        existing = session.scalar(select(User.id).join(UserRole, UserRole.user_id == User.id)
+                                  .where(User.is_active.is_(True), UserRole.role == "admin").limit(1))
+        if existing is not None:
+            print("已存在管理员，跳过")
+            return None
+        if session.scalar(select(User.id).where(User.username == username)) is not None:
+            raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
+        user = User(username=username, display_name="管理员", password_hash=hash_password(password),
+                    is_active=True, must_change_password=True)
+        session.add(user)
+        session.flush()
+        session.add(UserRole(user_id=user.id, role="admin"))
+        audit.record(session, None, "user.create", "user", user.id, username=username, roles=["admin"], via="cli")
+        user_id = user.id
+    print("初始管理员已创建，首次登录必须修改密码")
+    return user_id
 
 
 def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员", *,
@@ -147,80 +219,88 @@ def model_from_env() -> str:
 
 
 def main(argv: list[str]) -> None:
+    from avelis.config import ConfigError, report_config_error
+
     sys.stdout.reconfigure(encoding="utf-8")
     cmd = argv[0] if argv else ""
-    if cmd == "migrate":
-        command.upgrade(alembic_config(), "head")
-        from avelis.ask.agent import graph
+    try:
+        if cmd == "migrate":
+            migrate()
+            print("元数据库已迁移到最新版本")
+        elif cmd == "init-admin":
+            try:
+                init_admin()
+            except InitialAdminError as exc:
+                raise SystemExit(str(exc)) from None
+        elif cmd == "demo":
+            from avelis.demo_setup import setup
 
-        graph()  # 建好智能体会话状态表（不在任何请求的事务中建，见 devtools.reset_metadata_db）
-        print("元数据库已迁移到最新版本")
-    elif cmd == "demo":
-        from avelis.demo_setup import setup
+            setup(reset="--reset" in argv, metrics="--metrics" in argv, ec=False if "--no-ec" in argv else None)
+            if get_settings().env.get("AVELIS_MODEL_API_KEY"):
+                model_from_env()
+                print("已按 .env 登记模型提供方（密钥加密存储，未打印）")
+        elif cmd == "openapi":
+            import json
+            from pathlib import Path
 
-        setup(reset="--reset" in argv, metrics="--metrics" in argv, ec=False if "--no-ec" in argv else None)
-        if get_settings().env.get("AVELIS_MODEL_API_KEY"):
+            from avelis.api.app import create_app
+
+            target = Path(argv[1])
+            spec = json.dumps(create_app().openapi(), ensure_ascii=False, indent=1)
+            target.write_text(spec + chr(10), encoding="utf-8")
+            print(f"已导出 {target}")
+        elif cmd == "model":
             model_from_env()
-            print("已按 .env 登记模型提供方（密钥加密存储，未打印）")
-    elif cmd == "openapi":
-        import json
-        from pathlib import Path
+            print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
+        elif cmd == "verify-history":
+            import json
 
-        from avelis.api.app import create_app
+            from avelis import audit
+            from avelis.db import session_factory
+            from avelis.history import integrity
 
-        target = Path(argv[1])
-        spec = json.dumps(create_app().openapi(), ensure_ascii=False, indent=1)
-        target.write_text(spec + chr(10), encoding="utf-8")
-        print(f"已导出 {target}")
-    elif cmd == "model":
-        model_from_env()
-        print("已按 .env 登记模型提供方并设为问数理解、导入推断模型（密钥已加密存储，未打印）")
-    elif cmd == "verify-history":
-        import json
-
-        from avelis import audit
-        from avelis.db import session_factory
-        from avelis.history import integrity
-
-        session = session_factory()()
-        try:
-            session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-            report = integrity.verify(session)
-        finally:
-            session.rollback()
-            session.close()
-        with session_scope() as session:
-            audit.record(session, None, "history.verify", "history", None, ok=report["ok"], via="cli",
-                         issue_count=report["issue_count"], head=report["head"], first_break=report["first_break"])
-        print(json.dumps(report, ensure_ascii=False, indent=1))
-        raise SystemExit(0 if report["ok"] else 1)
-    elif cmd == "purge-history":
-        import json
-
-        from avelis.history import retention
-
-        days = int(argv[argv.index("--days") + 1]) if "--days" in argv else None
-        try:
-            result = retention.purge(retention_days=days, dry_run="--dry-run" in argv)
-        except retention.PurgeRefused as exc:
-            print(json.dumps(exc.report, ensure_ascii=False, indent=1))
-            raise SystemExit("历史哈希链核验未通过，未执行清理") from exc
-        print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
-    elif cmd == "admin":
-        if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
-            # 先检查：连到的元数据库不在本机就直接拒绝，不写入任何账号。随后每个写入步骤用的是各自的连接，
-            # 写 admin 时还会在那条连接上再检查一次
+            session = session_factory()()
+            try:
+                session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+                report = integrity.verify(session)
+            finally:
+                session.rollback()
+                session.close()
             with session_scope() as session:
-                if not _connection_is_local(session):
-                    raise SystemExit(LOCAL_ONLY)
-        ensure_admin()
-        ready = ensure_superadmin(reset_password=True)
-        print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
-        print(f"超级管理员 {SUPERADMIN} 已就绪，拥有全部角色（密码见 .env 的 AVELIS_ADMIN_PASSWORD，未打印）" if ready
-              else "未配置 AVELIS_ADMIN_PASSWORD，未创建超级管理员 admin")
-    else:
-        print(__doc__)
-        raise SystemExit(2)
+                audit.record(session, None, "history.verify", "history", None, ok=report["ok"], via="cli",
+                             issue_count=report["issue_count"], head=report["head"], first_break=report["first_break"])
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+            raise SystemExit(0 if report["ok"] else 1)
+        elif cmd == "purge-history":
+            import json
+
+            from avelis.history import retention
+
+            days = int(argv[argv.index("--days") + 1]) if "--days" in argv else None
+            try:
+                result = retention.purge(retention_days=days, dry_run="--dry-run" in argv)
+            except retention.PurgeRefused as exc:
+                print(json.dumps(exc.report, ensure_ascii=False, indent=1))
+                raise SystemExit("历史哈希链核验未通过，未执行清理") from exc
+            print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
+        elif cmd == "admin":
+            if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
+                # 先检查：连到的元数据库不在本机就直接拒绝，不写入任何账号。随后每个写入步骤用的是各自的连接，
+                # 写 admin 时还会在那条连接上再检查一次
+                with session_scope() as session:
+                    if not _connection_is_local(session):
+                        raise SystemExit(LOCAL_ONLY)
+            ensure_admin()
+            ready = ensure_superadmin(reset_password=True)
+            print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
+            print(f"超级管理员 {SUPERADMIN} 已就绪，拥有全部角色（密码见 .env 的 AVELIS_ADMIN_PASSWORD，未打印）" if ready
+                  else "未配置 AVELIS_ADMIN_PASSWORD，未创建超级管理员 admin")
+        else:
+            print(__doc__)
+            raise SystemExit(2)
+    except ConfigError as exc:
+        report_config_error(exc)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":
