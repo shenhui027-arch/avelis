@@ -171,6 +171,7 @@ UNDERSTAND_PROMPT = """你是 Avelis 分析的问题理解器：读用户问题�
 - metric_codes：所问的指标编码，只能取自候选口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
 - filters：问题限定的范围，写成指标维度名与取值（取值照问题里的写法，例如某个地区名）；不要把问题没提到的范围写进来；
 - dimensions：取数时的分组或关系类问题要对比的维度名（取自该指标的维度）；
+- time_grain：只在问题要求按日、按月列出时填写 day、month；
 - order / limit：只在取数问排名、前 N 时填写，order 为 asc / desc，limit 为前 N 的正整数（最多 100）；
 - 窗口：问题没有另说时不写，系统用本次分析的窗口（续问需写出沿用的上一轮窗口）；
   问题写了别的日期区间（如某一周、前一周）时写明本期与对比期的起止；
@@ -503,7 +504,7 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
         scope = Scope.model_validate(state["scope"])
         window = toolbox._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
         intent = service.Intent(metric_codes=scope.metric_codes, filters=scope.filters, group_by=scope.dimensions,
-                                start_date=window["start"], end_date=window["end"],
+                                time_grain=scope.time_grain, start_date=window["start"], end_date=window["end"],
                                 compare="custom" if window["compare_start"] or window["compare_end"] else None,
                                 compare_start=window["compare_start"], compare_end=window["compare_end"],
                                 order=scope.order, limit=scope.limit)

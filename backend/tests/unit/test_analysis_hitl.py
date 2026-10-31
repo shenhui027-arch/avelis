@@ -731,10 +731,16 @@ def test_asset_revocation_is_rejected_at_checkpoint_before_model(monkeypatch):
 
 
 @pytest.mark.parametrize("trigger", ["manual", "schedule"])
-@pytest.mark.parametrize("checkpoint_kind", ["assumptions", "clarify"])
-def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(monkeypatch, trigger, checkpoint_kind):
+@pytest.mark.parametrize(("checkpoint_kind", "resolved_metric", "clarification_rounds"), [
+    ("assumptions", None, 0), ("clarify", None, 1), ("clarify", "m_a", 1), ("clarify", "m_a", 2)])
+def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
+        monkeypatch, trigger, checkpoint_kind, resolved_metric, clarification_rounds):
     """真实 execute/graph/resume/task 收尾，只有模型、外部取数和元数据会话是替身。"""
-    box = make_box(monkeypatch=monkeypatch)
+    catalog = pipeline_catalog()
+    metric = Metric(id="m_a", code="m_a", domain_id="dA")
+    version = MetricVersion(id="m_a-v1", metric_id=metric.id, version_no=1, status="published", kind="base")
+    catalog.versions[metric.code] = (metric, version)
+    box = make_box(monkeypatch=monkeypatch, catalog=catalog)
     session, user = box.session, box.user
     user.username = "user-a"
     task = AnalysisTask(id="task-a", title="检查变化", question="检查指标变化", owner_id=user.id, status="active")
@@ -755,7 +761,16 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(monke
             session.store[(type(obj), obj.id)] = obj
 
     session.flush = flush
-    session.scalar = lambda statement: active_job[0] if active_job[0].status == "running" else None
+
+    def scalar(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        if entity is Metric:
+            return metric
+        if entity is MetricVersion:
+            return version
+        return active_job[0] if active_job[0].status == "running" else None
+
+    session.scalar = scalar
 
     def execute(statement):
         if getattr(statement, "is_update", False):
@@ -772,7 +787,11 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(monke
     saver = MemorySaver()
     graph = agent.build_graph(saver)
     question, answer = "请确认要分析哪个地区？", "华东地区"
-    responses = ([clarify_reply(question), scope_reply(), reply("submit_proposal", {"items": []}, "proposal"),
+    exchanges = [(question, answer), ("请确认要分析哪个指标？", "指标甲 m_a")][:clarification_rounds]
+    final_scope = reply("submit_scope", {"question_type": "other",
+                                        "metric_codes": [resolved_metric] if resolved_metric else []}, "scope")
+    responses = ([clarify_reply(q) for q, _ in exchanges] +
+                 [final_scope, reply("submit_proposal", {"items": []}, "proposal"),
                   report_reply()] if checkpoint_kind == "clarify" else
                  [scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()])
     model = Phased(responses)
@@ -823,26 +842,56 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(monke
         graph = agent.build_graph(saver)
 
     from avelis import jobs
-    second_job = Job(id="job-second", status="queued", attempts=1, kind="analysis_run", result={})
-    monkeypatch.setattr(jobs, "_enqueue", lambda *a, **kw: second_job.id)
-    feedback = ({"answer": answer} if checkpoint_kind == "clarify" else
-                {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
-    service.resume_run(session, user, run.id, feedback)
-    with pytest.raises(Conflict):
+    expected_candidates, resumed_jobs = [], []
+    if resolved_metric:
+        existing = {"kind": "rule", "content": "已有指标引用", "refs": [
+            {"object_type": "metric_version", "object_id": "old-v2", "version": 2}],
+            "source": {"run_id": run.id, "checkpoint": "understand", "user_text": "已有指标引用"}}
+    for index in range(max(1, clarification_rounds)):
+        job = Job(id=f"job-resume-{index}", status="queued", attempts=1, kind="analysis_run", result={})
+        resumed_jobs.append(job)
+        monkeypatch.setattr(jobs, "_enqueue", lambda *a, **kw: job.id)
+        feedback = ({"answer": exchanges[index][1]} if checkpoint_kind == "clarify" else
+                    {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
         service.resume_run(session, user, run.id, feedback)
-    second_job.status, active_job[0] = "running", second_job
-    result = service.execute(session, run.id, second_job.id, 1)
+        if checkpoint_kind == "clarify":
+            text = f"问题：{exchanges[index][0]} 回答：{exchanges[index][1]}"
+            expected_candidates.append({"kind": "rule", "content": text, "refs": [],
+                "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text}})
+            assert run.checkpoint["candidates"] == expected_candidates
+        if resolved_metric and index == clarification_rounds - 1:
+            run.checkpoint["candidates"].append(json.loads(json.dumps(existing)))
+        with pytest.raises(Conflict):
+            service.resume_run(session, user, run.id, feedback)
+        job.status, active_job[0] = "running", job
+        result = service.execute(session, run.id, job.id, 1)
+        if index < clarification_rounds - 1:
+            assert result["run_status"] == run.status == "waiting" and queries == []
+            assert run.checkpoint["pending"] == {"kind": "clarify", "question": exchanges[index + 1][0]}
+            assert run.checkpoint["snapshot"]["scope"]["metric_codes"] == []
+            assert run.checkpoint["candidates"] == expected_candidates
     assert result["status"] == "succeeded" and run.status == "succeeded"
-    assert first_job.status == second_job.status == "succeeded" and queries == ["query"]
+    assert all(job.status == "succeeded" for job in [first_job, *resumed_jobs]) and queries == ["query"]
     assert run.budget["used"]["queries"] == 1
-    assert run.budget["used"]["model_requests"] == (4 if checkpoint_kind == "clarify" else 3)
+    assert run.budget["used"]["model_requests"] == clarification_rounds + 3
     assert not run.checkpoint.get("pending") and not run.checkpoint["resume_pending"]
     if checkpoint_kind == "clarify":
-        assert answer in model.seen[-1][1].content and question in model.seen[-1][1].content
-        assert len(run.checkpoint["candidates"]) == 1
-        assert run.checkpoint["candidates"][0] == {"kind": "rule", "content": f"问题：{question} 回答：{answer}",
-            "refs": [], "source": {"run_id": run.id, "checkpoint": "understand",
-                                    "user_text": f"问题：{question} 回答：{answer}"}}
+        assert all(q in model.seen[-1][1].content and a in model.seen[-1][1].content for q, a in exchanges)
+        if resolved_metric:
+            refs = [{"object_type": "metric_version", "object_id": version.id, "version": 1}]
+            for candidate in expected_candidates:
+                candidate["refs"] = refs
+            assert run.checkpoint["candidates"] == [*expected_candidates, existing]
+            from tests.unit.test_experiences import MemorySession
+
+            saved_session = MemorySession([run, metric, version])
+            saved = [experiences.save_experience(saved_session, user, **candidate)
+                     for candidate in expected_candidates]
+            recalled = experiences.recall(saved_session, user, metric_codes=[resolved_metric])
+            assert {item["id"] for item in recalled} == {item["id"] for item in saved}
+            assert all(item["refs"] == refs for item in recalled)
+        else:
+            assert run.checkpoint["candidates"] == []
     notices = [o for o in session.added if isinstance(o, Notification)]
     assert len(notices) == 1 and notices[0].kind == "analysis_finished"
 
