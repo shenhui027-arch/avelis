@@ -151,6 +151,8 @@ model_requests = 16               # 模型请求次数上限。AVELIS_ANALYSIS_M
 input_tokens = 552321             # 累计输入 token 上限，0 = 不限。AVELIS_ANALYSIS_INPUT_TOKENS
 output_tokens = 30716             # 累计输出 token 上限（含推理），0 = 不限。AVELIS_ANALYSIS_OUTPUT_TOKENS
 material_change_ratio = 0.01      # 变化显著性阈值（口径未单独设置时）。AVELIS_MATERIAL_CHANGE_RATIO
+uniform_tolerance = 0.5          # 均匀容差，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_UNIFORM_TOLERANCE
+spike_share = 0.5                # 时间集中度阈值，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_SPIKE_SHARE
 
 # ============================================================
 # 模型

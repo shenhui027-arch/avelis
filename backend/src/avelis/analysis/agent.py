@@ -79,7 +79,7 @@ SYSTEM_PROMPT = """你是 Avelis 的分析智能体，帮助业务人员回答�
    (2) 维度贡献：explain_change（按 scope 的筛选扫描候选维度，给出成员贡献 EP、分布变化强度与排名，所问指标是已发布
        比率口径的分子时同时给出因子拆解）；summary 里的 verdict 为 no_material_change 时不要编造原因，如实写变化不明显；
        为 offsetting 时写明成员变化相互抵消，分别列出最大的减少项与增加项；partial 时说明未扫描的维度；
-   (3) 日历：calendar_adjust 只对 time_aggregation=sum 的口径按自然日天数折算，last / avg 不能折算；周六日天数仅供参考，节假日未知；
+   (3) 日历：calendar_adjust 只对 time_aggregation=sum 的口径按自然日天数折算，last / avg 不能折算；未配置业务日历时节假日未知；配置后给出节假日与工作日折算；
    需要更细的证据时再下钻：query_metric 带 compare 按维度分组后用 contribution 逐层拆，有乘法关系时（如 总量 = 数量 ×
    单价）用 factor_decompose，按口径的 data_grain 看趋势找某期间某些成员缺失或骤降；time_grain 可用 day、week、month、quarter、year，
    不能比 data_grain 更细，周从周一开始，季用季初日期。再用 lineage 查看口径的主表定位原因。
@@ -948,9 +948,9 @@ def _investigation_feedback(toolbox: AnalysisToolbox) -> str | None:
                 source = toolbox.session.get(Datasource, meta["datasource_id"]) if meta.get("datasource_id") else None
                 meta["dialect"] = (dialect_of(source).name if source else
                                    get_engine(meta["engine"]).sql.name if meta.get("engine") else
-                                   meta.get("dialect") or "starrocks")
-            except Exception:  # noqa: BLE001 - 数据源或引擎信息不可得时使用固定回退方言。
-                meta["dialect"] = "starrocks"
+                                   meta.get("dialect"))
+            except Exception:  # noqa: BLE001 - 方言无法确定时跳过依赖 SQL 解析的修订判断。
+                meta["dialect"] = None
         views[ref] = SimpleNamespace(kind=dataset.kind, columns=dataset.columns, rows=dataset.rows,
                                      inputs=dataset.inputs, meta=meta, truncated=dataset.truncated)
     return investigation.needs_revision(report, views, closure, value)

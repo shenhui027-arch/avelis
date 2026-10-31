@@ -140,6 +140,19 @@ DATE_PATTERNS = [
 ]
 
 
+def matched_dimension_values(text: str, values: list[str]) -> list[str]:
+    """按原文各起点取最长成员值；短值另有独立出现时仍然保留。"""
+    longest: dict[int, tuple[int, str]] = {}
+    for value in values:
+        start = text.find(value) if value else -1
+        while start >= 0:
+            end = start + len(value)
+            if start not in longest or end > longest[start][0]:
+                longest[start] = (end, value)
+            start = text.find(value, start + 1)
+    return sorted({value for _, value in longest.values()})
+
+
 class DemoIntentModel:
     """演示适配器：确定性规则，不调用任何外部模型。界面与答案中标记为“演示模型”。"""
 
@@ -187,7 +200,7 @@ class DemoIntentModel:
         # 多个指标时，过滤与分组只能用它们共有的维度
         shared = [d for d in card.dimensions if all(any(x["name"] == d["name"] for x in c.dimensions) for c in ordered)]
         for dim in shared:
-            hit = [v for v in card.dimension_values.get(dim["name"], []) if v and v in text]
+            hit = matched_dimension_values(text, card.dimension_values.get(dim["name"], []))
             if hit:
                 filters.append(DimensionFilter(dimension=dim["name"], values=sorted(set(hit))))
             label = dim.get("label") or dim["name"]

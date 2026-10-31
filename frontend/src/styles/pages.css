@@ -861,3 +861,12 @@
 @media (max-width: 760px) { .av-dsview { padding: var(--space-3); } }
 .av-analysis__export-full { gap: var(--space-2); border-top: 1px solid var(--line-subtle); color: var(--text-secondary); cursor: pointer; }
 .av-analysis__joins { display: flex; flex-direction: column; gap: var(--space-2); } .av-analysis__joins .av-caption { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+
+/* 业务日历（设置）：周末勾选 + 两列日期清单 */
+.av-calendar { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4); }
+.av-calendar__group { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
+.av-calendar__days { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.av-calendar__day { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-subtle); border-radius: 999px; color: var(--text-secondary); font: var(--type-caption); cursor: pointer; }
+.av-calendar__day:has(input:checked) { border-color: var(--accent); color: var(--text-primary); background: var(--accent-subtle, var(--bg-raised)); }
+.av-calendar__day input { margin: 0; accent-color: var(--accent); }
+.av-calendar__lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }

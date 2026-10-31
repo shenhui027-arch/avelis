@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -85,6 +86,8 @@ class Settings:
     analysis_query_limit: int = 20  # 一次分析里查询类工具共用的额度（ADR 0009 第 7 点第 7 条）
     analysis_retrieval: bool = False  # 元数据图证据发现（P1 R）
     analysis_investigation: bool = False  # 证据解释（P1 H），本阶段只定义开关
+    analysis_uniform_tolerance: float = 0.5  # 成员变化率相对总体变化率的均匀容差
+    analysis_spike_share: float = 0.5  # 最大单日偏差占总偏差的时间集中度阈值
     worker_schedule_seconds: int = 60
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
@@ -172,6 +175,16 @@ def _nonnegative_int(env: dict[str, str], key: str, default: int) -> int:
     return value
 
 
+def _unit_interval(env: dict[str, str], key: str, default: float) -> float:
+    try:
+        value = float(env.get(key, str(default)))
+    except ValueError:
+        raise ValueError(f"{key} 必须为 (0, 1] 范围内的有限数值") from None
+    if not math.isfinite(value) or not 0 < value <= 1:
+        raise ValueError(f"{key} 必须为 (0, 1] 范围内的有限数值")
+    return value
+
+
 def _bounded_int(env: dict[str, str], key: str, default: int, maximum: int) -> int:
     value = _positive_int(env, key, default)
     if value > maximum:
@@ -248,6 +261,9 @@ def _build_settings(env: dict[str, str]) -> Settings:
         analysis_retrieval=env.get("AVELIS_ANALYSIS_RETRIEVAL", "false").strip().lower() in ("1", "true", "yes"),
         analysis_investigation=env.get("AVELIS_ANALYSIS_INVESTIGATION", "false").strip().lower()
         in ("1", "true", "yes"),
+        analysis_uniform_tolerance=_unit_interval(env, "AVELIS_ANALYSIS_UNIFORM_TOLERANCE",
+                                                 Settings.analysis_uniform_tolerance),
+        analysis_spike_share=_unit_interval(env, "AVELIS_ANALYSIS_SPIKE_SHARE", Settings.analysis_spike_share),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
         worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),
@@ -326,10 +342,13 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                     except ValueError:
                         raise ValueError(f"{key} 必须为整数") from None
             elif spec.kind is float:
-                try:
-                    float(values.get(key, str(default)))
-                except ValueError:
-                    raise ValueError(f"{key} 必须为数值") from None
+                if key in ("AVELIS_ANALYSIS_UNIFORM_TOLERANCE", "AVELIS_ANALYSIS_SPIKE_SHARE"):
+                    _unit_interval(values, key, default)
+                else:
+                    try:
+                        float(values.get(key, str(default)))
+                    except ValueError:
+                        raise ValueError(f"{key} 必须为数值") from None
             elif spec.kind is bool and key in (
                 "AVELIS_AUTO_MIGRATE", "AVELIS_AUTO_INIT_ADMIN", "AVELIS_REDIS_SSL",
             ):

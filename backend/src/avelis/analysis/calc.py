@@ -128,27 +128,51 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
 
 # --- 日历折算 -----------------------------------------------------------------------
 
-def period_days(start: date, end: date, holidays: set[date] | None = None) -> dict[str, int | None]:
+def period_days(start: date, end: date, holidays: set[date] | None = None, *,
+                weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, int | None]:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    return {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() >= 5),
-            "holidays": sum(1 for d in days if d in holidays) if holidays is not None else None}
+    weekends = {5, 6} if weekend_days is None else weekend_days
+    workdays = workdays or set()
+    out = {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() in weekends),
+           "holidays": sum(1 for d in days if d in holidays and d not in workdays) if holidays is not None else None}
+    if holidays is not None:
+        # 周末与节假日取并集扣除，避免同一天扣两次；调休上班日优先恢复为工作日。
+        out["business_days"] = sum(1 for d in days if d in workdays or (d.weekday() not in weekends and d not in holidays))
+    return out
 
 
 def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, date],
-                    previous_period: tuple[date, date], holidays: set[date] | None = None) -> dict[str, Any]:
-    """只按自然日天数折算；周六日天数供参考，未配置业务日历时节假日未知。"""
+                    previous_period: tuple[date, date], holidays: set[date] | None = None, *,
+                    weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, Any]:
+    """保留自然日折算；配置业务日历后，另给出节假日、工作日数与工作日折算。"""
     cur, prev = number(current), number(previous)
     if cur is None or prev is None:
         raise CalcError("两期值都需要")
-    dc, dp = period_days(*current_period, holidays), period_days(*previous_period, holidays)
+    dc = period_days(*current_period, holidays, weekend_days=weekend_days, workdays=workdays)
+    dp = period_days(*previous_period, holidays, weekend_days=weekend_days, workdays=workdays)
     daily_cur, daily_prev = cur / dc["days"], prev / dp["days"]
     # 本期天数按上期日均值折算出的“天数效应”；其余为日均水平的变化
     day_effect = daily_prev * (dc["days"] - dp["days"])
-    return {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
-            "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
-            "change": cur - prev, "day_count_effect": _significant12(day_effect),
-            "daily_level_effect": _significant12(cur - prev - day_effect),
-            "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
+    out = {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
+           "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
+           "change": cur - prev, "day_count_effect": _significant12(day_effect),
+           "daily_level_effect": _significant12(cur - prev - day_effect),
+           "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
+    if holidays is not None:
+        business_cur = cur / dc["business_days"] if dc["business_days"] else None
+        business_prev = prev / dp["business_days"] if dp["business_days"] else None
+        business_effect = business_prev * (dc["business_days"] - dp["business_days"]) if business_prev is not None else None
+        out.update(business_daily={"current": _significant12(business_cur) if business_cur is not None else None,
+                                   "previous": _significant12(business_prev) if business_prev is not None else None},
+                   business_day_effect=_significant12(business_effect) if business_effect is not None else None,
+                   business_level_effect=_significant12(cur - prev - business_effect) if business_effect is not None else None)
+        notes = [f"{label}工作日数为 0，工作日均值无法计算" for label, days in (("本期", dc), ("上期", dp))
+                 if not days["business_days"]]
+        if business_prev is None:
+            notes.append("上期工作日均值不可得，工作日数效应与工作日水平效应无法计算")
+        if notes:
+            out["business_days_note"] = "；".join(notes)
+    return out
 
 
 # --- 相关性 -------------------------------------------------------------------------

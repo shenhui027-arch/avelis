@@ -38,6 +38,7 @@ from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
 from avelis.governance import access
+from avelis.governance.business_calendar import get_business_calendar
 from avelis.governance.derived import parse_formula
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
@@ -2247,18 +2248,33 @@ class AnalysisToolbox:
             self._require_time_additive(dataset, [current, previous])
             self._require_additive(dataset, [current, previous])
             row = self._pick(rows, match or {})
-            out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period)
+            calendar = get_business_calendar(self.session)
+            calendar_args = ({"holidays": {date.fromisoformat(d) for d in calendar["holidays"]},
+                              "weekend_days": set(calendar["weekend_days"]),
+                              "workdays": {date.fromisoformat(d) for d in calendar["workdays"]}}
+                             if calendar is not None else {})
+            out = calc.calendar_adjust(row[current], row[previous], current_period, previous_period, **calendar_args)
             cols = ["period", "days", "weekend_days", "holidays", "value", "daily"]
+            if calendar is not None:
+                cols.append("business_days")
             rows_out = [["本期", *[out["current"][c] for c in cols[1:]]], ["上期", *[out["previous"][c] for c in cols[1:]]]]
             base = self._unit(dataset, current)
             delta, days = like(base, "delta"), col("count", "天")
             units = {"days": days, "weekend_days": days, "holidays": days, "value": base, "daily": base}
+            summary = {k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")}
+            summary_units = {"change": delta, "day_count_effect": delta, "daily_level_effect": delta,
+                             "daily_change_rate": col("rate_change")}
+            if calendar is None:
+                summary["holidays_note"] = "未配置业务日历，节假日未知"
+            else:
+                units["business_days"] = days
+                summary.update({k: out[k] for k in ("business_daily", "business_day_effect", "business_level_effect")})
+                summary_units.update({"business_daily.current": base, "business_daily.previous": base,
+                                      "business_day_effect": delta, "business_level_effect": delta})
+                if out.get("business_days_note"):
+                    summary["business_days_note"] = out["business_days_note"]
             return (f"{dataset} {current}的日历折算", cols, rows_out,
-                    {**{k: out[k] for k in ("change", "day_count_effect", "daily_level_effect", "daily_change_rate")},
-                     "holidays_note": "未配置业务日历，节假日未知"},
-                    {"time_column": "period", "units": units, "summary_units": {"change": delta, "day_count_effect": delta,
-                                                       "daily_level_effect": delta,
-                                                       "daily_change_rate": col("rate_change")}})
+                    summary, {"time_column": "period", "units": units, "summary_units": summary_units})
         return self._calc("calendar_adjust", {"dataset": dataset, "current": current, "previous": previous,
                                               "match": match}, [dataset], fn, full_set=False)
 
@@ -2431,7 +2447,7 @@ class AnalysisToolbox:
               "可加指标与 a / b 比率指标适用，不可加指标会说明不支持"),
             t(self.contribution, ContributionArgs, "两期差额按维度拆解（贡献、变化率、占总变化比例）"),
             t(self.factor_decompose, FactorArgs, "乘法关系的因子拆解（LMDI，各因子贡献相加等于总差额）"),
-            t(self.calendar_adjust, CalendarArgs, "只按自然日天数折算两期差异，周六日天数仅供参考，节假日未知（两期日期取自数据集的查询窗口）"),
+            t(self.calendar_adjust, CalendarArgs, "按自然日天数折算两期差异；未配置业务日历时节假日未知，配置后给出节假日与工作日折算（两期日期取自数据集的查询窗口）"),
             t(self.correlate, CorrelateArgs, "两列的相关系数、样本量与显著性"),
             t(self.coverage, CoverageArgs, "数据覆盖度：各成员的行数、覆盖期间数、缺失期间；受治理数据按声明粒度判断（行数与缺口要用它取，不要自己数）"),
             t(self.derive, DeriveArgs, "派生数字：用数据集中的值按公式算差、和、比（如排除某个成员后的合计、两期差额），结果可引用"),
