@@ -749,7 +749,7 @@
   .av-analysis__compose { padding-inline: var(--space-5); }
 }
 @media (max-width: 860px) {
-  .av-analysis, .av-analysis.has-evidence { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .av-analysis, .av-analysis.has-evidence { display: block; height: 100vh; overflow-y: auto; }
   .av-analysis__center { overflow: visible; }
   .av-analysis__evidence { max-height: none; border-left: none; border-top: 1px solid var(--line-subtle); }
   .av-hero::after { opacity: .35; }

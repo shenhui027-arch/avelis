@@ -7,7 +7,7 @@ import {
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
@@ -105,7 +105,7 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   labelBgStyle }: EdgeProps<Edge<FlowData>>) {
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const d = data!;
-  const gid = `flow-${id}`;
+  const gid = `flow${useId().replace(/[^\w-]/g, "")}`;
   const dots = d.onPath ? [0, 0.8] : d.ambient && !d.dim && d.tone !== "identity" ? [0] : [];
   return (
     <>

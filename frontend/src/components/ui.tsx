@@ -1,6 +1,7 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { Icon } from "./Icon";
 
@@ -205,8 +206,9 @@ export function Drawer({ title, onClose, children, footer, width }: {
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
   }, [onClose]);
-  return (
-    <>
+  // 挂到 body：玻璃面板的 backdrop-filter 会成为 fixed 子元素的包含块，抽屉不能留在面板里
+  return createPortal(
+    <div className="av-root">
       <div className="av-backdrop" onClick={onClose} />
       <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
         <PaneHeader title={title}>
@@ -217,7 +219,8 @@ export function Drawer({ title, onClose, children, footer, width }: {
         <div className="av-drawer__bd">{children}</div>
         {footer ? <div className="av-drawer__ft">{footer}</div> : null}
       </aside>
-    </>
+    </div>,
+    document.body,
   );
 }
 

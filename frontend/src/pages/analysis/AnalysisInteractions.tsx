@@ -151,6 +151,7 @@ export function FollowupForm({ runId }: { runId: string }) {
   return (
     <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();
+      if (followup.isPending || !text.trim()) return;
       setError(null);
       followup.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
     }}>
