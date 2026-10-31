@@ -231,7 +231,7 @@ function Statements({ j, onFocus, onLocate }: SourceActions) {
     {placeholders.length ? <div className="av-stack av-import-params">
       <span className="av-section-label">动态 SQL 需要参数 <Hint text="补齐后重新解析这些语句" /></span>
       {placeholders.map((p) => <label key={p} className="av-field"><span className="av-label av-mono">{p}</span>
-        <input className="av-input av-mono" value={params[p] ?? ""} placeholder="例如 2026-09-15" onChange={(e) => setParams({ ...params, [p]: e.target.value })} /></label>)}
+        <input className="av-input av-mono" value={params[p] ?? ""} placeholder="参数值" onChange={(e) => setParams({ ...params, [p]: e.target.value })} /></label>)}
       <Banner message={message} />
       <div className="av-actions av-import-actions" aria-busy={save.isPending}>
         <button type="button" className="av-btn av-btn--primary" disabled={save.isPending || placeholders.some((p) => !params[p]?.trim())}

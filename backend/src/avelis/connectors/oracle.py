@@ -1,7 +1,7 @@
 """Oracle 连接器（真实数据库，python-oracledb thin 模式，不需要 Oracle 客户端）。
 
 - 资产名三段：服务名（catalog 段，如 FREEPDB1）. 模式（用户）. 表。Oracle 的查询不认服务名这一段，生成的 SQL 只写 模式.表。
-- 未加引号的标识符按大写保存（STORE.SALES.AMOUNT），资产名与列名保持数据库目录中的写法。
+- 未加引号的标识符按大写保存（SCHEMA_A.TABLE_A.COL_A），资产名与列名保持数据库目录中的写法。
 - 采集账号只需 CREATE SESSION + SELECT_CATALOG_ROLE：读 DBA_OBJECTS / DBA_TAB_COLUMNS / DBA_VIEWS / DBA_CONSTRAINTS
   与 DBA_TAB_COMMENTS / DBA_COL_COMMENTS，读不到业务数据（对无权限的表报 ORA-00942“不存在”）。
 - 物理身份用 OBJECT_ID：RENAME 与 CREATE OR REPLACE VIEW 都不变，删除后重建会变。

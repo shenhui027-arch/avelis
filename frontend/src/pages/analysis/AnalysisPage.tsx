@@ -7,7 +7,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
-import { formatTime } from "../../format";
+import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
@@ -116,7 +116,10 @@ function Composer() {
   const analysisExamples = useExampleQuestions("analysis").data?.questions ?? [];
   const examples = [...new Set([...askExamples.slice(0, 2), ...analysisExamples.slice(0, 3)].map((q) => q.text))];
   const [kind, setKind] = useState<WindowKind>("none");
-  const [fixed, setFixed] = useState({ start: "2026-09-01", end: "2026-09-30", cs: "2026-08-01", ce: "2026-08-31" });
+  const tz = useTimeZone();
+  // 用户改过日期之前，默认值随业务时区重算（设置加载前后时区可能不同）
+  const [edited, setFixed] = useState<ReturnType<typeof lastMonths> | null>(null);
+  const fixed = edited ?? lastMonths(tz);
   const [mode, setMode] = useState<"auto" | "always">("auto");
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
