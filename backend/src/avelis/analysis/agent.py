@@ -429,6 +429,7 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         previous_codes = (inherited.get("previous_scope") or {}).get("metric_codes") or []
         candidate_question = (f"{previous_question}\n{' '.join(previous_codes)}\n{state['question']}"
                               if previous_question else state["question"])
+        candidate_question = "\n".join([candidate_question, *(item["answer"] for item in clarifications)])
         candidates = toolbox.candidate_metrics(candidate_question)
         codes = {c["code"] for c in candidates}
         tool = StructuredTool.from_function(lambda **kw: "", name="submit_scope", args_schema=Scope,
@@ -519,6 +520,9 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
         answer.intent = intent.model_dump(mode="json")
         service.fulfil(toolbox.session, toolbox.user, intent, answer, catalog)
         service.finish_answer(toolbox.session, toolbox.user, answer, started)
+        if answer.status == "denied" and answer.error_code == "permission":
+            toolbox.denials.append({"message": answer.message, "metric_codes": intent.metric_codes,
+                                   "answer_id": answer.id})
         if answer.status == "answered":
             toolbox.report = {"kind": "lookup", "answer_id": answer.id, "title": state["question"],
                               "summary": answer.explanation or answer.message}

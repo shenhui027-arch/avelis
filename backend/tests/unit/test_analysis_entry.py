@@ -224,6 +224,46 @@ def test_lookup_clarification_uses_the_existing_checkpoint_before_ask(monkeypatc
         assert prechecks == [] and box.report["kind"] == "lookup"
 
 
+def test_lookup_clarification_answers_refresh_and_keep_metric_candidates(monkeypatch):
+    catalog = big_catalog(40)
+    next(card for card in catalog.cards if card.code == "m_sales").name = "营业收入"
+    catalog.versions["m_sales"][0].name = "营业收入"
+    questions = ["要分析哪个指标？", "请确认查询地区？"]
+    filters = [{"dimension": "地区", "values": ["华东"]}]
+    box, model, config, state, prechecks = configured(monkeypatch, [
+        scope_reply(metric_codes=[], clarification=questions[0]),
+        scope_reply(metric_codes=["m_sales"], clarification=questions[1]),
+        scope_reply(metric_codes=["m_sales"], filters=filters)], catalog=catalog)
+    box.run.question = state["question"] = "为什么下降？"
+    assert len(catalog.cards) > box.ALL_CANDIDATES
+    bare_candidates = box.candidate_metrics(box.run.question)
+    assert len(bare_candidates) == box.CANDIDATES
+    assert "m_sales" not in {candidate["code"] for candidate in bare_candidates}
+    monkeypatch.setattr(ask_service, "version_sources", lambda session, version: {})
+    _, calls = fake_ask(monkeypatch, box)
+    graph = agent.build_graph(MemorySaver())
+
+    first = graph.invoke(state, config)
+    assert first["__interrupt__"][0].value == {"kind": "clarify", "question": questions[0]}
+    second = graph.invoke(Command(resume={"answer": "营业收入"}), config)
+    assert second["__interrupt__"][0].value == {"kind": "clarify", "question": questions[1]}
+    final = graph.invoke(Command(resume={"answer": "华东"}), config)
+
+    assert final["phase"] == "done" and not final.get("__interrupt__")
+    assert final["clarifications"] == [{"question": questions[0], "answer": "营业收入"},
+                                       {"question": questions[1], "answer": "华东"}]
+    assert box.scope.metric_codes == ["m_sales"] and box.clarification is None
+    assert box.report["kind"] == "lookup" and prechecks == [] and len(calls) == 1
+    assert calls[0].metric_codes == ["m_sales"]
+    assert [f.model_dump() for f in calls[0].filters] == filters
+    assert len(model.seen) == box.budget.used_model_requests == 3
+    for messages in model.seen[1:]:
+        prompt = next(message.content for message in messages if isinstance(message, HumanMessage))
+        candidates = json.loads(next(line.removeprefix("候选口径：") for line in prompt.splitlines()
+                                     if line.startswith("候选口径：")))
+        assert "m_sales" in {candidate["code"] for candidate in candidates}
+
+
 @pytest.mark.parametrize("order", ["asc", "desc"])
 @pytest.mark.parametrize("scope_window", [False, True])
 def test_lookup_maps_understood_window_and_ranking_to_intent(monkeypatch, order, scope_window):

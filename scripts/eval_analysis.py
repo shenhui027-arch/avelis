@@ -65,6 +65,8 @@ def _ask(client, headers: dict[str, str], question: dict) -> dict | None:
 def _confirm_all(client, headers: dict[str, str], run: dict | None) -> dict | None:
     """人机协作（ADR 0013）：模拟一个只会全部确认、不补充任何业务知识的用户。
     追问没有知识可答，按待澄清计；这样各业务域的结果可比，衡量的是系统自身。"""
+    from avelis import jobs
+
     deadline = time.monotonic() + WAIT_SECONDS
     while run and run.get("status") == "waiting" and (run.get("pending") or {}).get("kind") == "assumptions":
         items = (run.get("proposal") or {}).get("items") or []
@@ -72,11 +74,8 @@ def _confirm_all(client, headers: dict[str, str], run: dict | None) -> dict | No
                            json={"decisions": [{"item_id": i["id"], "decision": "confirmed"} for i in items]})
         if resp.status_code >= 400:
             return {**run, "status": "failed", "error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
-        while time.monotonic() < deadline:
-            time.sleep(3)
-            run = client.get(f"/api/analysis/runs/{run['id']}", headers=headers).json()
-            if run["status"] not in ("queued", "running"):
-                break
+        jobs.run_and_wait(resp.json()["budget"]["job_id"], deadline - time.monotonic())
+        run = client.get(f"/api/analysis/runs/{run['id']}", headers=headers).json()
     if run and run.get("status") == "waiting":
         run = {**run, "status": "clarify"}
     return run
