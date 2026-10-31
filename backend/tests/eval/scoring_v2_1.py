@@ -38,7 +38,12 @@ def load_questions(truth: dict, spec_path: Path = SPEC) -> dict[str, Any]:
     """调用者显式提供真值，避免默认加载器隐式访问演示数据。"""
     if not truth:
         raise ValueError("必须显式提供非空真值，不能回退到演示数据")
-    data = v2.load_questions(truth=truth, spec_path=spec_path)
+    import yaml
+
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    complete = "defaults" in spec and all("question" in item for item in spec["questions"].values())
+    data = v2.load_questions(truth=truth, spec_path=spec_path,
+                             questions_path=spec_path if complete else None)
     for question in data["questions"]:
         question["v2_1"] = question["v2"]
     return data
@@ -49,9 +54,34 @@ def generator_constants() -> dict:
     """只读取字面常量，不导入带灌数依赖的生成器模块。"""
     names = {"REGIONS", "CITIES", "PAID_CHANNELS", "VIEWS"}
     tree = ast.parse(GENERATOR.read_text(encoding="utf-8"))
-    return {target.id: ast.literal_eval(node.value)
-            for node in tree.body if isinstance(node, ast.Assign)
-            for target in node.targets if isinstance(target, ast.Name) and target.id in names}
+    constants = {target.id: ast.literal_eval(node.value)
+                 for node in tree.body if isinstance(node, ast.Assign)
+                 for target in node.targets if isinstance(target, ast.Name) and target.id in names}
+    mfg_path = GENERATOR.with_name("mfg_data.py")
+    if mfg_path.exists():
+        mfg_names = {"FACTORIES", "EQUIPMENT_MODELS", "SHIFTS", "PRODUCT_FAMILIES", "SUPPLIERS", "MATERIALS", "LINES", "VIEWS"}
+        mfg_tree = ast.parse(mfg_path.read_text(encoding="utf-8"))
+        mfg = {}
+        for node in mfg_tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if not isinstance(target, ast.Name) or target.id not in mfg_names:
+                    continue
+                try:
+                    if target.id == "LINES" and isinstance(node.value, (ast.List, ast.Tuple)):
+                        # 只读编码和名称，后续字段的 date(...) 不必执行或求值。
+                        mfg[target.id] = [tuple(ast.literal_eval(cell) for cell in row.elts[:2])
+                                          for row in node.value.elts if isinstance(row, (ast.List, ast.Tuple))]
+                    else:
+                        mfg[target.id] = ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    continue  # 带日期构造等运行表达式的维度不参与别名展开。
+        constants["DOMAIN_ALIASES"] = [row for name, rows in mfg.items() if name != "VIEWS"
+                                       for row in rows if isinstance(row, (tuple, list)) and len(row) >= 2
+                                       and all(isinstance(cell, str) for cell in row[:2])]
+        constants["VIEWS"] = [*constants["VIEWS"], *mfg.get("VIEWS", ())]
+    return constants
 
 
 def aliases(value: Any) -> set[str]:
@@ -59,8 +89,8 @@ def aliases(value: Any) -> set[str]:
     word = str(value)
     result = {word}
     constants = generator_constants()
-    for name in ("REGIONS", "CITIES", "PAID_CHANNELS"):
-        for code, label, *_ in constants[name]:
+    for name in ("REGIONS", "CITIES", "PAID_CHANNELS", "DOMAIN_ALIASES"):
+        for code, label, *_ in constants.get(name, ()):
             if word in (code, label):
                 result.update((code, label))
     return result
