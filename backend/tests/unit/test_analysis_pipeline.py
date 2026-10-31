@@ -55,7 +55,8 @@ def test_understand_is_one_structured_call_without_thinking(monkeypatch):
     box.run.window = dict(WINDOW)
     scope = {"question_type": "change", "metric_codes": ["m_a", "m_x"], "filters": [{"dimension": "地区", "values": ["甲"]}]}
     model = Phased([AIMessage(content="", tool_calls=[{"name": "submit_scope", "args": scope, "id": "s1"}])])
-    out = agent.understand({"question": "地区甲的甲量为什么下降？", "context": {"today": "2026-10-30", "tz": "UTC",
+    out = agent.understand({"question": "地区甲的甲量为什么下降？", "unattended": True,
+                           "context": {"today": "2026-10-30", "tz": "UTC",
                                                                          "window": WINDOW}},
                            {"configurable": {"toolbox": box, "model": model}})
     assert model.phases == [{"effort": "off", "max_tokens": agent.UNDERSTAND_MAX_TOKENS}]

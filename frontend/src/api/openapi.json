@@ -5195,6 +5195,12 @@
    },
    "AnalysisResumeIn": {
     "properties": {
+     "answer": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Answer",
+      "default": ""
+     },
      "decisions": {
       "items": {
        "$ref": "#/components/schemas/AnalysisDecisionIn"
@@ -5404,6 +5410,18 @@
         "type": "null"
        }
       ]
+     },
+     "pending": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pending"
      },
      "experience_candidates": {
       "items": {

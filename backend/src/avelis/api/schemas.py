@@ -671,6 +671,7 @@ class AnalysisDecisionIn(BaseModel):
 
 
 class AnalysisResumeIn(BaseModel):
+    answer: str = Field(default="", max_length=2000)
     decisions: list[AnalysisDecisionIn] = Field(default_factory=list, max_length=100)
     supplement: str = Field(default="", max_length=4000)
 
@@ -770,6 +771,7 @@ class AnalysisRunOut(Out):
     parent_run_id: str | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
     proposal: AnalysisProposalOut | None = None
+    pending: Json | None = None
     experience_candidates: list[ExperienceCandidate] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)

@@ -2,9 +2,9 @@
 
     理解 understand ──▶ 系统预检 precheck ──▶ 推理 reason（工具循环 → 核验 → 修订一轮 → 核验）──▶ 结束
 
-- 理解：系统按问题文字检索候选口径（前 10 个），模型做一次结构化输出（submit_scope）：问题类型、指标、筛选、窗口，
-  确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。写了追问、或选了候选以外的指标时，
-  运行停在“待澄清”（clarify），保存问题、范围与已用预算，不带着未澄清的范围继续预检与推理。
+- 理解：系统按问题文字检索候选口径（前 10 个），模型做结构化输出（submit_scope）：问题类型、指标、筛选、窗口，
+  确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。有追问时暂停，用户回答后继续理解，
+  每次运行最多追问两次；仍未澄清或无人值守时结束为 clarify，不带着未澄清的范围继续预检与推理。
 - 系统预检：确定性代码按 scope 一次执行固定的排查（变化类：口径详情、变更、数据健康、explain_change、日历折算；
   关系类：按维度取数、分组对比、相关），产出数据集与一份紧凑的上下文包。查询计入额度、检查权限、记录步骤。
 - 推理：上下文包放在用户消息里；模型可以直接提交报告，也可以下钻，一轮可以发出多个工具调用。思考强度按页面配置。
@@ -222,6 +222,9 @@ class AnalysisState(TypedDict, total=False):
     inherited: dict | None
     confirmation_mode: str
     unattended: bool
+    clarification: str | None
+    clarifications: list[dict]
+    understand_messages: list[AnyMessage]
 
 
 def _ctx(config) -> tuple[AnalysisToolbox, Any]:
@@ -375,10 +378,16 @@ def _window_text(window: dict | None) -> str:
 
 
 def understand(state: AnalysisState, config) -> dict[str, Any]:
-    """理解（ADR 0012 第 1 段）：候选口径 + 一次结构化输出（submit_scope），关闭思考、限制输出长度。
-    没有得到合法的 scope 时记下原因，推理阶段照常进行（模型可以自己检索口径）。scope 带追问、或指标不在候选口径中时
-    停在待澄清：不静默删除指标、不带着未澄清的范围继续。"""
+    """理解范围；追问先保存再回到本节点暂停，恢复不会重做已完成的模型调用。"""
     toolbox, model = _ctx(config)
+    previous_scope = toolbox.scope
+    clarifications = list(state.get("clarifications") or [])
+    messages = None
+    if state.get("phase") == "clarify" and (question := state.get("clarification")):
+        feedback = interrupt({"kind": "clarify", "question": question})
+        toolbox.check_resume_permissions()
+        clarifications.append({"question": question, "answer": feedback["answer"]})
+        messages = [*state["understand_messages"], HumanMessage("用户对追问的回答：" + feedback["answer"])]
     inherited = state.get("inherited") or {}
     if inherited.get("scope"):
         scope = Scope.model_validate({**inherited["scope"], "clarification": None})
@@ -392,10 +401,13 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         tool = StructuredTool.from_function(lambda **kw: "", name="submit_scope", args_schema=Scope,
                                             description="提交问题的范围（只调用一次）")
         feedback = state.get("feedback")
-        messages = [SystemMessage(UNDERSTAND_PROMPT), HumanMessage(
-            f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
-            f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{state['question']}"
-            + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else ""))]
+        if messages is None:
+            messages = [SystemMessage(UNDERSTAND_PROMPT), HumanMessage(
+                f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
+                f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{state['question']}"
+                + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else ""))]
+            for item in clarifications:
+                messages.append(HumanMessage(f"追问：{item['question']}\n用户对追问的回答：{item['answer']}"))
         request_model, output_budget_limited = _model_for(
             model, toolbox.budget, effort="off", max_tokens=UNDERSTAND_MAX_TOKENS)
         bound = request_model.bind_tools([tool], tool_choice="submit_scope")
@@ -422,11 +434,20 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             if toolbox.stopped:
                 raise
     toolbox.record_scope(scope, raw, problem)
-    if question:  # 需要澄清（任务书 P0-A）：停在可见的“待澄清”状态，不带着未澄清的范围继续预检与推理
+    if question and not state.get("unattended") and len(clarifications) < 2:
+        if problem:  # 候选外的范围保留在 plan 和图状态中，恢复授权仍以此前有效的范围为准。
+            toolbox.scope = previous_scope
+        return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "clarify", "rounds": 1,
+                "clarification": question, "clarifications": clarifications,
+                "understand_messages": [*messages, reply, ToolMessage(
+                    content="需要澄清：" + question, tool_call_id=call["id"])]}
+    if question:  # 无人值守或已回答两次：沿原路径结束，不带着未澄清的范围继续。
         toolbox.request_clarification(question, scope, raw)
         return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "clarify", "rounds": 1,
+                "clarification": None, "clarifications": clarifications, "understand_messages": [],
                 "notes": [f"需要澄清：{question}"]}
     return {"scope": scope.model_dump(mode="json") if scope else None, "phase": "precheck", "rounds": 1,
+            "clarification": None, "clarifications": clarifications, "understand_messages": [],
             "notes": [problem] if problem else []}
 
 
@@ -531,7 +552,7 @@ def checkpoint(state: AnalysisState, config) -> dict[str, Any]:
              and (mode == "always" or any(i["source"] == "inferred" for i in items)))
     feedback = None
     if pause:
-        feedback = interrupt({"proposal": proposal})
+        feedback = interrupt({"kind": "assumptions"})
         toolbox.check_resume_permissions()
     statuses = {d["item_id"]: d["decision"] for d in (feedback or {}).get("decisions") or []}
     confirmed = [*inherited.get("items", []),
@@ -566,6 +587,9 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
     lines.append("假设提议与来源（未确认的推断不能写成已证实结论）：" + json.dumps(
         {"proposal": state.get("proposal"), "confirmed_items": state.get("confirmed_items") or [],
          "user_feedback": state.get("feedback"), "inherited": state.get("inherited")}, ensure_ascii=False))
+    if state.get("clarifications"):
+        lines.append("理解阶段的追问与用户回答（作为本次分析输入）：" + json.dumps(
+            state["clarifications"], ensure_ascii=False))
     if state.get("feedback"):
         lines.append("本次用户的逐项确认、否决和补充是本次分析输入；被否决的假设不得当成前提。")
     if user_text := (state.get("inherited") or {}).get("user_text"):
@@ -750,8 +774,9 @@ def build_graph(checkpointer) -> Any:
     graph.add_node("checkpoint", checkpoint)
     graph.add_node("reason", reason)
     graph.add_edge(START, "understand")
-    graph.add_conditional_edges("understand", lambda s: END if s.get("phase") == "clarify" else "precheck",
-                                {END: END, "precheck": "precheck"})
+    graph.add_conditional_edges("understand", lambda s: (
+        "understand" if s.get("clarification") else END) if s.get("phase") == "clarify" else "precheck",
+        {"understand": "understand", END: END, "precheck": "precheck"})
     graph.add_conditional_edges("precheck", lambda s: "understand" if s.get("phase") == "understand" else "propose",
                                 {"understand": "understand", "propose": "propose"})
     graph.add_edge("propose", "checkpoint")

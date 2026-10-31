@@ -255,9 +255,10 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     status, error, plan, report, verification, adapter, toolbox = "failed", None, {}, {}, {}, None, None
     effective = None  # 实际生效的思考强度（ADR 0012）
     try:
-        problem = identity_problem(session, user)
-        if problem:
-            raise PermissionLost(problem)
+        if not checkpoint.get("resume_pending"):
+            problem = identity_problem(session, user)
+            if problem:
+                raise PermissionLost(problem)
         resolved = require_analysis_model(session)
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
@@ -288,8 +289,8 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
             error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
         elif result.get("__interrupt__"):
             status = "waiting"
-            checkpoint.update(proposal=state.get("proposal") or {}, snapshot=toolbox.snapshot(),
-                              resume_pending=False)
+            checkpoint.update(pending=result["__interrupt__"][0].value,
+                              proposal=state.get("proposal") or {}, snapshot=toolbox.snapshot(), resume_pending=False)
             report = {"title": "等待确认", "incomplete": True, "notes": state.get("notes", [])}
         elif toolbox.clarification:  # 待澄清：用户可见的短问题与可恢复的上下文（问题、范围、已用预算）
             status = "clarify"
@@ -301,6 +302,7 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
                           confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
                           proposal=state.get("proposal") or checkpoint.get("proposal") or {})
         if status != "waiting":
+            checkpoint.pop("pending", None)
             checkpoint["resume_pending"] = False
             checkpoint["snapshot"] = toolbox.snapshot()
     except PermissionLost as exc:
@@ -413,11 +415,23 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
     if run.status != "waiting":
         raise Conflict("这次确认已提交，或分析当前不在等待确认")
     checkpoint = dict(run.checkpoint or {})
-    feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+    pending = checkpoint["pending"]
+    if pending["kind"] == "clarify":
+        answer = (feedback.get("answer") or "").strip()
+        if not answer:
+            raise Invalid("请回答追问后继续分析")
+        feedback = {"answer": answer}
+        candidates = experiences.candidates_from_feedback(
+            run_id=run.id, proposal={}, feedback={"supplement": f"问题：{pending['question']} 回答：{answer}"},
+            refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
+    else:
+        feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
+        candidates = experiences.candidates_from_feedback(
+            run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
+            refs=_scope_metric_refs(session, checkpoint))
+    checkpoint.pop("pending")
     checkpoint.update(feedback=feedback, resume_pending=True)
-    checkpoint["candidates"] = [*(checkpoint.get("candidates") or []), *experiences.candidates_from_feedback(
-        run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
-        refs=_scope_metric_refs(session, checkpoint))]
+    checkpoint["candidates"] = [*(checkpoint.get("candidates") or []), *candidates]
     claimed = session.execute(update(AnalysisRun).where(AnalysisRun.id == run.id, AnalysisRun.status == "waiting")
                               .values(status="queued", checkpoint=checkpoint, finished_at=None)).rowcount
     if not claimed:
@@ -616,7 +630,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True) -> dict[s
     checkpoint = run.checkpoint or {}
     data = {"id": run.id, "task_id": run.task_id, "parent_run_id": run.parent_run_id,
             "confirmation_mode": run.confirmation_mode, "question": run.question, "trigger": run.trigger,
-            "status": run.status, "window": run.window,
+            "status": run.status, "window": run.window, "pending": checkpoint.get("pending"),
             "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
             "reasoning_effort": run.reasoning_effort,
             "error": run.error, "created_at": run.created_at.isoformat(),

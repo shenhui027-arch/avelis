@@ -38,10 +38,10 @@ def scope_reply(**scope):
                                               "id": "s1"}])
 
 
-def run_graph(box, model, question="地区甲的甲量为什么下降？"):
+def run_graph(box, model, question="地区甲的甲量为什么下降？", *, unattended=False):
     graph = agent.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "t1", "toolbox": box, "model": model}}
-    graph.invoke(agent.initial_state(question, "2026-10-30", "UTC", WINDOW), config)
+    graph.invoke(agent.initial_state(question, "2026-10-30", "UTC", WINDOW, unattended=unattended), config)
     return graph.get_state(config).values
 
 
@@ -53,7 +53,7 @@ def test_clarification_stops_the_run_before_precheck_and_reasoning(monkeypatch):
     monkeypatch.setattr(box, "precheck", lambda scope: pytest.fail("待澄清时不应执行预检"))
     model = Phased([scope_reply(metric_codes=["m_a"], filters=[{"dimension": "地区", "values": ["甲"]}],
                                 clarification="“甲量”是指件数还是金额？")])
-    state = run_graph(box, model)
+    state = run_graph(box, model, unattended=True)
     assert state["phase"] == "clarify" and len(model.seen) == 1  # 只有理解一次模型请求，没有进入推理
     assert box.report is None and box.verification is None
     c = box.clarification
@@ -69,7 +69,7 @@ def test_clarification_stops_the_run_before_precheck_and_reasoning(monkeypatch):
 def test_metric_codes_outside_the_candidates_are_not_dropped_silently(monkeypatch):
     box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
     monkeypatch.setattr(box, "precheck", lambda scope: pytest.fail("待澄清时不应执行预检"))
-    state = run_graph(box, Phased([scope_reply(metric_codes=["m_a", "m_zz"])]))
+    state = run_graph(box, Phased([scope_reply(metric_codes=["m_a", "m_zz"])]), unattended=True)
     assert state["phase"] == "clarify"
     assert box.plan["scope"]["metric_codes"] == ["m_a", "m_zz"]  # 原样保存，不删
     assert "m_zz" in box.clarification["question"] and "不在候选口径中：m_zz" in box.plan["problem"]
