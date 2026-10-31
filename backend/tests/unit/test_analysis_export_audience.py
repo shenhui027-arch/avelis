@@ -47,7 +47,7 @@ def _assert_brief(text):
     without_footer = text.replace(APPROVED_FOOTER, "")
     assert not TECHNICAL.search(without_footer)
     assert not REFERENCE.search(text)
-    for phrase in ("附录", "数据集清单", "数字来源", "查询明细", "version-", "推断，未核实"):
+    for phrase in ("附录", "用到的数据", "数字来源", "查询明细", "version-", "推断，未核实"):
         assert phrase not in text
 
 
@@ -80,14 +80,64 @@ def test_audience_builds_actual_pdf_bytes(audience):
 
 @pytest.mark.parametrize("kwargs", [{"audience": "full"}, {"appendix": True},
                                    {"audience": "full", "appendix": False}])
-def test_full_and_appendix_compatibility_keep_current_evidence(render, kwargs):
+def test_full_and_appendix_compatibility_keep_used_evidence(render, kwargs):
     text = render(sample_view(), **kwargs)
-    assert all(phrase in text for phrase in ("附录", "数据检查", "数据集清单", "数字来源", "查询明细"))
+    assert all(phrase in text for phrase in ("附录", "数据检查", "用到的数据", "查询明细"))
+    assert "数字来源" not in text and "可追溯 ≠ 可复现" not in text
     assert "SELECT 1253000 AS metric_a, 1400000 AS metric_b" in text
     assert "口径版本" in text and "version-1" in text
     assert REFERENCE.search(text)
     assert "推断，未核实" in text and "前提：" in text and "验证方式：" in text
     assert APPROVED_FOOTER not in text
+
+
+def test_full_appendix_only_lists_body_references_and_selected_data(render):
+    def dataset(seq, kind="governed"):
+        return {"ref": f"D{seq}", "kind": kind, "title": f"技术标题{seq}",
+                "columns": ["member", "value"], "rows": [["甲", 10], ["乙", 30]],
+                "row_count": 200 if seq == 4 else 2, "truncated": seq == 4,
+                "sql": f"SELECT {seq} AS query_marker", "metric_version_ids": [f"version-{seq}"],
+                "meta": {"units": {"value": {"kind": "delta", "unit": "元"}},
+                         "metric_names": [f"显示指标{seq}"], "summary": "检查记录正常"}}
+
+    def segment(seq):
+        return {"kind": "value", "ref": f"D{seq}", "path": f"D{seq}.value[#1]",
+                "text": "10元", "raw": "10"}
+
+    saved = [dataset(i, "calc" if i == 2 else "explore" if i == 4 else "context" if i == 8 else "governed")
+             for i in range(1, 10)]
+    saved[1]["inputs"] = ["D6"]
+    view = {"datasets": saved, "verification": {"ok": True}, "report": {
+        "title": "中立报告", "fields": {
+            "summary": {"segments": [segment(9)]}, "unexplained": {"segments": [segment(4)]},
+            "method": {"segments": [{"kind": "text", "text": "采用已保存的分析方法"}, segment(5)]}},
+        "claims": [
+            {"type": "fact", "text": "正文结论", "refs": ["D1"]},
+            {"type": "recommendation", "text": "建议", "details": {
+                "premise": {"segments": [segment(3)]}}},
+            {"type": "fact", "text": "不重复检查原文", "refs": ["D8"]}],
+        "causes": [{"type": "factor", "label": "原因甲", "evidence": ["D2"],
+                    "contribution": {"segments": [segment(2)]}}]}}
+    original = deepcopy(view)
+    text = render(view, audience="full", datasets=["D7"])
+    appendix = text.split("附录", 1)[1]
+    assert appendix.index("分析方法") < appendix.index("数据检查") < appendix.index("用到的数据")
+    listing, queries = appendix.split("查询明细", 1)
+    assert set(REFERENCE.findall(appendix)) == {"D1", "D2", "D3", "D4", "D7", "D9"}
+    for seq in (1, 2, 3, 4, 7, 9):
+        assert f"显示指标{seq}" in listing
+    for seq in (1, 3, 4, 7, 9):
+        assert f"SELECT {seq} AS query_marker" in queries and f"version-{seq}" in queries
+    for seq in (2, 5, 6, 8):
+        assert f"SELECT {seq} AS query_marker" not in queries
+    assert "技术标题" not in appendix
+    assert all(source in listing for source in ("指标口径", "临时查询，未经口径审核", "计算"))
+    assert "200" in listing and "是" in listing and "否" in listing
+    assert "检查记录正常" in listing and "不重复检查原文" not in text
+    assert "数字来源" not in text and "可追溯 ≠ 可复现" not in text
+    assert view == original
+    brief = render(view, audience="brief", datasets=["D7"])
+    assert "附录" not in brief and "SELECT" not in brief
 
 
 @pytest.mark.parametrize("source", ["segment", "direct", "dependency", "summary", "summary_direct"])

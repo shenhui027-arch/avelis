@@ -23,12 +23,11 @@ from zoneinfo import ZoneInfo
 from avelis.analysis.grounding import _unit, display, number
 
 TYPE_LABEL = {"fact": "事实", "calc": "计算", "inference": "推断", "recommendation": "建议"}
-KIND_LABEL = {"governed": "受治理查询", "calc": "计算", "context": "上下文", "explore": "探索查询", "ungoverned": "未治理"}
+DATA_SOURCE_LABEL = {"governed": "指标口径", "explore": "临时查询，未经口径审核", "calc": "计算"}
 REPORT_STATUS = {"all_passed": "来源全部通过", "with_inference": "来源全部通过，含未核实的推断",
                  "no_facts": "没有可核实的事实", "failed": "有未通过的事实或字段"}
 MEASURE_LABEL = {"level": "水平值", "delta": "差额", "ratio": "比率", "rate_change": "变化率", "share": "占比",
                  "count": "计数", "unknown": "未知"}
-SOURCE_LABEL = {"governed": "口径", "explore": "探索", "calc": "计算", "context": "上下文"}
 EXPLORE_MARK = "探索查询（未经口径审核）"
 
 Audience = Literal["brief", "full"]
@@ -160,18 +159,6 @@ def _verdict(verification: dict) -> str:
     if verification.get("unverified_fields"):
         parts.append(f"{verification['unverified_fields']} 处标题 / 摘要 / 未解释未通过")
     return "，".join(parts)
-
-
-def _composition(verification: dict) -> str:
-    """数字来源构成（两个维度）：直接来源（口径 / 探索 / 计算 / 上下文），其中含探索来源、假设的数量；日期、标签、
-    渲染失败另列。"""
-    sources = verification.get("sources") or {}
-    direct = sources.get("direct") or {}
-    parts = [f"{SOURCE_LABEL[k]} {direct[k]}" for k in SOURCE_LABEL if direct.get(k)]
-    extra = [f"{label} {sources[k]}" for k, label in (("with_explore", "其中含探索来源"), ("assumption", "其中假设"),
-                                                     ("windows", "日期"), ("labels", "标签"), ("failed", "渲染失败"))
-             if sources.get(k)]
-    return "、".join(parts + extra) or "无"
 
 
 def _segments(report: dict) -> list[tuple[str, str, dict]]:
@@ -373,6 +360,8 @@ def _core_metrics(view: dict) -> list[dict]:
             continue
         codes = _meta(d).get("metric_codes") or []
         code = (view.get("report") or {}).get("metric_code")
+        if code and codes and code not in codes:
+            continue
         offsets = [codes.index(code) * 4] if code in codes else range(0, len(cols), 4)
         for start in offsets:
             group = cols[start:start + 4]
@@ -448,10 +437,24 @@ def _cause_label(cause: dict) -> str:
     return label or entity.get("member") or "未命名原因"
 
 
-def _cause_value(cause: dict) -> tuple[Decimal | None, str]:
+def _cause_value(cause: dict, datasets: dict[str, dict] | None = None) -> tuple[Decimal | None, str]:
     record = cause.get("contribution") or {}
     seg = next((s for s in record.get("segments") or [] if s.get("kind") == "value"), {})
     raw = number(seg.get("raw"))
+    if raw is not None and datasets is not None:
+        d = datasets.get(seg.get("ref")) or {}
+        path = str(seg.get("path") or "").removeprefix(str(seg.get("ref")) + ".")
+        units = _units(d)
+        column = next((c for c in sorted(units, key=len, reverse=True)
+                       if path == c or path.startswith(c + "[")), None)
+        if column is not None:
+            meta = units[column]
+        elif path.startswith("summary."):
+            units = _meta(d).get("summary_units") or d.get("summary_units") or {}
+            meta = units.get(path.removeprefix("summary."))
+        else:
+            meta = None
+        raw *= _unit(meta)["scale"]
     return raw, _rendered(record)
 
 
@@ -470,7 +473,9 @@ def _table_data(d: dict, *, brief: bool = False) -> list[list[str]]:
     def cell(c, v):
         if brief and d.get("kind") == "calc" and c == "period":
             v = CALC_PERIOD_LABELS.get(v, v)
-        text = _table_value(v, units.get(c))
+        if c not in units:
+            return "—" if v is None else str(v)
+        text = _table_value(v, units[c])
         return _brief_text(text) if brief else text
 
     return [headers] + [[cell(c, v) for c, v in zip(cols, row[:6])] for row in d["rows"][:10]]
@@ -512,12 +517,6 @@ def _source_marks(seg: dict) -> list[str]:
                                   ("假设计算", seg.get("assumption"))) if on]
 
 
-def _source_notes(report: dict) -> list[str]:
-    """标记另列说明，取值列只保留列名与成员。"""
-    return list(dict.fromkeys(f"{where} · {seg.get('ref') or '—'}：" + " · ".join(marks)
-                             for where, _, seg in _segments(report) if (marks := _source_marks(seg))))
-
-
 def _bad_fields(verification: dict) -> list[str]:
     return [f"{FIELD_LABEL.get(f['field'], f['field'])}：{'；'.join(f.get('problems') or [])}"
             for f in verification.get("fields", []) if f.get("status") == "unverified"]
@@ -546,6 +545,35 @@ def _claim_errors(claim: dict, check: dict) -> list[str]:
     for key, label in (("premise", "前提"), ("validation", "验证方式")):
         errors += [label + "：" + e for e in ((claim.get("details") or {}).get(key) or {}).get("errors") or []]
     return list(dict.fromkeys(errors))
+
+
+def _data_check_note(view: dict) -> str:
+    notes = dict.fromkeys([_verdict(view.get("verification") or {}),
+                           *(_context_note(d).rstrip("。") for d in view.get("datasets") or []
+                             if d.get("kind") == "context")])
+    return "；".join(notes) + "。"
+
+
+def _appendix_datasets(view: dict, selected: list[dict]) -> list[dict]:
+    """附录只列正文实际使用的数据，不展开计算输入或仅用于分析方法的引用。"""
+    report = view.get("report") or {}
+    body = {**report, "fields": {k: v for k, v in (report.get("fields") or {}).items() if k != "method"},
+            "claims": [{**c, "details": {k: v for k, v in (c.get("details") or {}).items()
+                                        if k in ("premise", "validation")}}
+                       for c in report.get("claims") or []
+                       if c.get("type") in TYPE_LABEL and not _context_claim(c, view)]}
+    refs = set(_reference_counts(body))
+    refs.update(d["ref"] for d in selected)
+    refs.update(m["ref"] for m in _core_metrics(view))
+    return [_brief_dataset(d, view) for d in view.get("datasets") or []
+            if d["ref"] in refs and d.get("kind") in DATA_SOURCE_LABEL]
+
+
+def _dataset_listing(datasets: list[dict]) -> list[list[str]]:
+    return [["编号", "名称", "来源", "行数", "是否截断"]] + [
+        [d["ref"], _dataset_title(d), DATA_SOURCE_LABEL[d["kind"]],
+         str(d.get("row_count", len(d.get("rows") or []))), "是" if d.get("truncated") else "否"]
+        for d in datasets]
 
 
 def _markdown_table(rows: list[list[str]]) -> list[str]:
@@ -611,35 +639,21 @@ def to_markdown(view: dict, *, audience: Audience | None = None, appendix: bool 
             lines += [f"### {title}", "", *_markdown_table(_table_data(d, brief=brief)), "", _row_note(d), ""]
     if brief:
         lines += ["", *[f'<small style="color: {GRAY}">{note}</small>' for note in notes], ""]
-    else:
-        lines += ["", "- 核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", ""]
     if not brief:
-        lines += ["## 附录", "", "### 数据检查", ""]
-        contexts = [d for d in view.get("datasets") or [] if d.get("kind") == "context"]
-        lines += [f"- {d['ref']} {d['title']}：{_context_note(d)}" for d in contexts] or ["无已保存的上下文检查。"]
-        for c, check in _claims(view):
-            if _context_claim(c, view):
-                lines += _markdown_claim(c, check)
+        used = _appendix_datasets(view, selected)
+        lines += ["", "## 附录", ""]
         if method := _field(report, "method"):
-            lines += ["", f"**分析方法**：{method}"]
-        lines += ["", "### 数据集清单", ""]
-        listing = [["编号", "名称", "来源类型", "行数", "是否截断"]] + [
-            [d["ref"], d["title"], EXPLORE_MARK if d["kind"] == "explore" else KIND_LABEL.get(d["kind"], d["kind"]),
-             str(d.get("row_count", len(d.get("rows") or []))), "是" if d.get("truncated") else "否"]
-            for d in view.get("datasets") or []]
-        lines += _markdown_table(listing)
-        lines += ["", "### 数字来源", "", "- 数字来源：" + _composition(verification), ""]
-        lines += _markdown_table([["位置", "显示值", "数据集", "取值", "原值"], *_source_rows(report)])
-        lines += ["- " + note for note in _source_notes(report)]
+            lines += [f"**分析方法**：{method}", ""]
+        lines += ["### 数据检查", "", _data_check_note(view), "", "### 用到的数据", ""]
+        lines += _markdown_table(_dataset_listing(used))
         lines += ["", "### 查询明细", ""]
-        for d in view.get("datasets") or []:
+        for d in used:
             if d.get("kind") not in ("governed", "explore"):
                 continue
             versions = d.get("metric_version_ids") or _meta(d).get("metric_version_ids") or []
-            lines += [f"#### {d['ref']} {d['title']}", "",
+            lines += [f"#### {d['ref']} {_dataset_title(d)}", "",
                       "口径版本：" + ("、".join(versions) or "未登记"), "",
                       "```sql", d.get("sql") or _meta(d).get("sql") or "（未保存 SQL）", "```", ""]
-        lines += ["> 可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", ""]
     return "\n".join(lines)
 
 
@@ -824,8 +838,9 @@ def _chart(d: dict, font: str, *, brief: bool = False):
         lp = LinePlot()
         lp.x, lp.y, lp.width, lp.height = 48, 22, 404, 70
         lp.data = [sorted(points) for points in list(series.values())[:6]]
-        for i, points in enumerate(lp.data):
-            lp.lines[i].strokeColor = HexColor(NEGATIVE if sum(v for _, v in points) < 0 else POSITIVE)
+        palette = ("#2F6BEA", "#E5484D", "#30A46C", "#F5A524", "#8E4EC6", "#12A594")
+        for i in range(len(lp.data)):
+            lp.lines[i].strokeColor = HexColor(palette[i % len(palette)])
         lp.xValueAxis.valueSteps = list(range(0, len(periods), max(1, len(periods) // 6)))
         lp.xValueAxis.labelTextFormat = lambda x: periods[int(x)][-5:] if 0 <= int(x) < len(periods) else ""
         lp.yValueAxis.labelTextFormat = lambda x: _axis(x * float(_unit(units.get(cols[value]))["scale"]))
@@ -880,8 +895,6 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
     claim_style = ParagraphStyle("claim", parent=base, leading=13, leftIndent=10,
                                 bulletIndent=0, bulletFontName=font, spaceAfter=0)
     claim_warn = ParagraphStyle("claim_warn", parent=claim_style, textColor=colors.HexColor(NEGATIVE))
-    context_style = ParagraphStyle("context_claim", parent=claim_style, fontSize=7.5, leading=10,
-                                  textColor=colors.HexColor(GRAY))
     reference_style = ParagraphStyle("reference", parent=small, wordWrap=None, splitLongWords=False,
                                     fontSize=7, leading=13, spaceAfter=0)
     summary = ParagraphStyle("summary", parent=base, fontSize=11, leading=16)
@@ -898,12 +911,12 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
         value = value.replace("、", "、\u00a0")
         return f'<nobr><super><font size="7" color="{GRAY}">{esc(value)}</font></super></nobr>'
 
-    def claim_block(claim, check, *, context=False):
+    def claim_block(claim, check):
         bad = [] if brief else _claim_errors(claim, check)
         tag = (f' <font size="7" color="{GRAY}">{"待验证" if brief else "推断，未核实"}</font>'
                if claim.get("type") in ("inference", "recommendation") else "")
         text = (claim.get("text") or _rendered(claim)) + (" 未通过：" + "；".join(bad) if bad else "")
-        style = claim_warn if bad else context_style if context else claim_style
+        style = claim_warn if bad else claim_style
         body = Paragraph(esc(text) + tag, style, bulletText="•")
         if brief:
             block = [body, Spacer(1, 3)]
@@ -979,7 +992,8 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
     if report.get("causes"):
         story.append(heading("主要原因", CONCLUSION.get(report.get("conclusion"), "")))
         numeric = [c for c in report["causes"] if _cause_value(c)[0] is not None]
-        data = [(_cause_label(c), float(raw), text) for c in numeric for raw, text in [_cause_value(c)]]
+        saved = {d["ref"]: d for d in view.get("datasets") or []}
+        data = [(_cause_label(c), float(raw), text) for c in numeric for raw, text in [_cause_value(c, saved)]]
         chart = _bar_chart(data, font, references=None if brief else [
             _refs({"refs": c.get("evidence")}) for c in numeric])
         if chart is not None:
@@ -1020,39 +1034,24 @@ def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | Non
     story += [Spacer(1, 7)]
     if brief:
         story += [p(note, small) for note in notes]
-    else:
-        story.append(p("核验：" + _verdict(verification) + " · 数字来源与查询明细见附录", small))
     if not brief:
-        story += [PageBreak(), heading("附录"), heading("数据检查")]
-        contexts = [d for d in view.get("datasets") or [] if d.get("kind") == "context"]
-        story += [p(f"{d['ref']} {d['title']}：{_context_note(d)}", small) for d in contexts] or [p("无已保存的上下文检查。", small)]
-        for c, check in _claims(view):
-            if _context_claim(c, view):
-                story += claim_block(c, check, context=True)
+        used = _appendix_datasets(view, selected)
+        story += [PageBreak(), heading("附录")]
         if method := _field(report, "method"):
             story.append(p("分析方法：" + method, small))
-        story.append(heading("数据集清单"))
-        listing = [["编号", "名称", "来源类型", "行数", "是否截断"]] + [
-            [d["ref"], d["title"], EXPLORE_MARK if d["kind"] == "explore" else KIND_LABEL.get(d["kind"], d["kind"]),
-             str(d.get("row_count", len(d.get("rows") or []))), "是" if d.get("truncated") else "否"]
-            for d in view.get("datasets") or []]
-        story.append(table(listing, [28, 227, 140, 38, width - 433]))
-        story += [heading("数字来源"), p("数字来源：" + _composition(verification), small)]
-        story.append(table([["位置", "显示值", "数据集", "取值", "原值"], *_source_rows(report)],
-                           [60, 75, 35, 225, width - 395]))
-        story += [p(note, small) for note in _source_notes(report)]
+        story += [heading("数据检查"), p(_data_check_note(view), small), heading("用到的数据")]
+        story.append(table(_dataset_listing(used), [28, 227, 140, 38, width - 433]))
         story.append(heading("查询明细"))
-        for d in view.get("datasets") or []:
+        for d in used:
             if d.get("kind") not in ("governed", "explore"):
                 continue
             versions = d.get("metric_version_ids") or _meta(d).get("metric_version_ids") or []
-            story.append(p(f"{d['ref']} {d['title']} · 口径版本：" + ("、".join(versions) or "未登记"), small))
+            story.append(p(f"{d['ref']} {_dataset_title(d)} · 口径版本：" + ("、".join(versions) or "未登记"), small))
             sql = d.get("sql") or _meta(d).get("sql") or "（未保存 SQL）"
             # 布局负责折行，保存的 SQL 文本和字符串字面量保持原样。
             text = esc(sql)
             text = re.sub(r"[^\x00-\x7f]+", lambda m: f'<font name="{font}">{m[0]}</font>', text)
             story.append(Paragraph(text.replace("\n", "<br/>"), code))
-        story += [Spacer(1, 7), p("可追溯 ≠ 可复现：保存了 SQL、口径版本与结果，不保证能按当时的数据重算。", small)]
     if not embedded:
         story.append(p("未找到可嵌入的中文字体（AVELIS_PDF_FONT）：中文需阅读器安装亚洲字体包才能显示。", small))
 
