@@ -36,7 +36,7 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
     case "search_metrics": case "search_assets": {
       const hits = ((o.metrics ?? o.assets) as unknown[] | undefined)?.length;
       return { icon: "search", title: s.tool === "search_assets" ? t("检索表") : t("检索口径"),
-        detail: join(a.keyword ? `“${a.keyword}”` : "", hits !== undefined ? t("{{hits}} 个结果", { hits }) : "") };
+        detail: join(a.keyword ? `“${a.keyword}”` : "", hits !== undefined ? t("{{count}} 个结果", { count: hits }) : "") };
     }
     case "describe_asset": return { icon: "table", title: t("查看表结构"), detail: shortName(a.qualified as string) };
     case "lineage": return { icon: "lineage", title: t("查看血缘"), detail: shortName(a.qualified as string) };
@@ -51,14 +51,14 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
     case "query_sql": return { icon: "db", title: t("探索查询"), code: a.sql as string };
     case "submit_proposal": {
       const items = ((o.items as { source: string }[]) ?? []);
-      return { icon: "check", title: t("提出 {{length}} 项分析依据", { length: items.length }),
-        detail: t("{{length}} 项是推断，需要确认", { length: items.filter((i) => i.source === "inferred").length }) };
+      return { icon: "check", title: t("提出 {{count}} 项分析依据", { count: items.length }),
+        detail: t("{{count}} 项是推断，需要确认", { count: items.filter((i) => i.source === "inferred").length }) };
     }
     case "assumptions": {
       const d = ((a.decisions as { decision: string }[]) ?? []);
       return { icon: "check", title: t("你确认了分析依据"),
-        detail: join(t("确认 {{length}} 项", { length: d.filter((x) => x.decision === "confirmed").length }),
-          d.some((x) => x.decision === "rejected") ? t("否决 {{length}} 项", { length: d.filter((x) => x.decision === "rejected").length }) : "",
+        detail: join(t("确认 {{count}} 项", { count: d.filter((x) => x.decision === "confirmed").length }),
+          d.some((x) => x.decision === "rejected") ? t("否决 {{count}} 项", { count: d.filter((x) => x.decision === "rejected").length }) : "",
           a.supplement ? t("补充：{{supplement}}", { supplement: a.supplement }) : "") };
     }
     case "message": return { icon: "send", title: t("你的插话"), user: String(o.text ?? a.text ?? "") };

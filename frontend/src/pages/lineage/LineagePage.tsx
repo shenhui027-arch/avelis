@@ -471,7 +471,7 @@ function NodeSearch({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
   return (
     <div className="av-lineage__search" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
       <Icon name="search" small />
-      <input type="search" value={text} placeholder={t("搜索表（共 {{length}} 张）", { length: nodes.length })} aria-label={t("搜索表")}
+      <input type="search" value={text} placeholder={t("搜索表（共 {{count}} 张）", { count: nodes.length })} aria-label={t("搜索表")}
         onChange={(e) => { setText(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && hits[0]) choose(hits[0]);
@@ -554,8 +554,8 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
         ) : (
           <>
             {node.grains.length ? <dl className="av-kv"><dt>{t("粒度")}</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
-            <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
-            <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
+            <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
+            <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
           </>
         )}
         <NodeJoins node={node} graph={graph} name={name} onPick={onPick} />
@@ -602,7 +602,7 @@ function NodeJoins({ node, graph, name, onPick }: { node: GNode; graph: Graph; n
   );
 }
 
-const ORIGIN: Record<string, string> = { parsed: t("解析"), manual: t("人工"), import: t("导入解析"), import_manual: t("导入·人工"), model_confirmed: t("模型·已确认") };
+const ORIGIN: Record<string, string> = { parsed: t("解析", { context: "origin" }), manual: t("人工"), import: t("导入解析"), import_manual: t("导入·人工"), model_confirmed: t("模型·已确认") };
 
 function Flow({ title, items, onPick }: {
   title: string; onPick?: (id: string) => void;

@@ -168,7 +168,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
   });
   const fetchModels = useMutation({
     mutationFn: () => unwrap(api.POST("/api/model-providers/{provider_id}/fetch-models", { params: { path: { provider_id: provider.id } } })),
-    onSuccess: (r) => { setFetched(r.models); setMessage({ ok: true, text: t("获取到 {{length}} 个模型", { length: r.models.length }) }); },
+    onSuccess: (r) => { setFetched(r.models); setMessage({ ok: true, text: t("获取到 {{count}} 个模型", { count: r.models.length }) }); },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
   const busy = patch.isPending || remove.isPending || fetchModels.isPending || checking !== null;

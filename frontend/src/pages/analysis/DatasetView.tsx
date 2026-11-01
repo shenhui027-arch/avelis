@@ -119,7 +119,7 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           <span className="av-caption">{t("第 {{page}} / {{pages}} 页", { page: offset / PAGE + 1, pages })}</span>
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset + PAGE >= d.total} onClick={() => setOffset(offset + PAGE)}>{t("下一页")}</button>
         </div> : null}
-        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{length}} 个口径版本", { length: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
+        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
           {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}
           <Code sql={d.sql} /></details> : null}
       </div> : null}

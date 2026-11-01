@@ -76,7 +76,7 @@ function ChangeRow({ c, active, onClick }: { c: ChangeSet; active: boolean; onCl
       style={{ "--row-cols": "8px minmax(0, 1fr) auto", minHeight: 58, width: "100%", border: "none", borderBottom: "1px solid var(--line-subtle)", background: active ? "var(--bg-active)" : "transparent", textAlign: "left", cursor: "pointer" } as React.CSSProperties}>
       <Dot tone={c.status === "resolved" ? (impacts ? "ok" : "") : impacts ? "danger" : "warn"} />
       <span className="av-row__main">
-        <span className="av-row__title">{impacts ? t("{{impacts}} 项影响", { impacts }) : t("无影响口径")}</span>
+        <span className="av-row__title">{impacts ? t("{{count}} 项影响", { count: impacts }) : t("无影响口径")}</span>
         <span className="av-row__meta">{kinds.slice(0, 3).join(" · ")}</span>
       </span>
       <span className="av-row__meta av-mono">{formatClock(c.created_at, tz)}</span>

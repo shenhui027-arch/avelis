@@ -183,7 +183,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       <div className="av-trace">
         {steps.map((s, i) => (
           <span key={i} className={stepClass(s, a)}>
-            {STEP_LABEL[String(s.node)] ?? String(s.node)}{s.node === "understand" && Array.isArray(s.tool_calls) && s.tool_calls.length ? t(" · {{length}} 次工具调用", { length: s.tool_calls.length }) : ""}
+            {STEP_LABEL[String(s.node)] ?? String(s.node)}{s.node === "understand" && Array.isArray(s.tool_calls) && s.tool_calls.length ? t(" · {{count}} 次工具调用", { count: s.tool_calls.length }) : ""}
           </span>
         ))}
         {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>{t("只读执行")}</span> : null}

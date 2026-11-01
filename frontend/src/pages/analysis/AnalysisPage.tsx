@@ -184,7 +184,7 @@ function Composer() {
         <Link className="av-entry" to="/analysis/experiences">
           <span className="av-entry__icon is-experience" aria-hidden /><b>{t("个人经验")}</b><span>{t("分析时按口径与资产自动召回")}</span></Link>
         <Link className="av-entry" to="/analysis/tasks">
-          <span className="av-entry__icon is-schedule" aria-hidden /><b>{t("定时任务")}</b><span>{tasks.data?.length ? t("{{length}} 个", { length: tasks.data.length }) : t("按时自动分析")}</span></Link>
+          <span className="av-entry__icon is-schedule" aria-hidden /><b>{t("定时任务")}</b><span>{tasks.data?.length ? t("{{count}} 个", { count: tasks.data.length }) : t("按时自动分析")}</span></Link>
       </div>
       {examples.length ? <div className="av-compose__examples" aria-label={t("问题示例")}>
         <span className="av-compose__examples-hd">{t("试试这些")}</span>
@@ -271,7 +271,7 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
  *  点“继续查”把它放进底部输入框，用户可以改了再发。 */
 function NextSteps({ text, unverified, onPick }: { text?: string; unverified: number; onPick: (text: string) => void }) {
   const items = (text ?? "").split(/[；;]\s*/).map((s) => s.trim().replace(/[。.]$/, "")).filter(Boolean);
-  if (unverified) items.push(t("有 {{unverified}} 条事实或计算未通过来源校验，需要重新核对", { unverified }));
+  if (unverified) items.push(t("有 {{count}} 条事实或计算未通过来源校验，需要重新核对", { count: unverified }));
   if (!items.length) return null;
   return (
     <section className="av-next" aria-label={t("还没查清")}>
