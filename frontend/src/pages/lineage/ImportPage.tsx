@@ -405,10 +405,12 @@ function ParamsForm({ b, version }: { b: Batch; version: string }) {
   </div>;
 }
 
-type EdgeView = "pending" | "folded" | "parsed" | "model" | "intermediate";
+type EdgeView = "pending" | "folded" | "parsed" | "model" | "model_sql" | "intermediate";
+// 模型候选分两种来源：模型直接给出的边（model），和模型还原 SQL 后由语法树算出的边（model_sql）
 const EDGE_VIEWS: Record<EdgeView, { status?: string; origin?: string; label: string }> = {
   pending: { status: "pending", label: "待确认" }, folded: { origin: "folded", label: "折叠" },
-  parsed: { origin: "parsed", label: "解析" }, model: { origin: "model", label: "模型" }, intermediate: { status: "intermediate", label: "中间段" },
+  parsed: { origin: "parsed", label: "解析" }, model: { origin: "model", label: "模型" },
+  model_sql: { origin: "model_sql", label: "模型还原" }, intermediate: { status: "intermediate", label: "中间段" },
 };
 const ORIGIN_LABEL: Record<string, string> = { model: "模型", model_sql: "模型还原", folded: "折叠", parsed: "解析", manual: "人工" };
 type Hop = { source_ref: string; source_column?: string | null; target_ref: string; target_column?: string | null; relation: string };
