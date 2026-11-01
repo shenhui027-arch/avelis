@@ -341,16 +341,13 @@ const GROUPS: { value: string; label: string }[] = [
   { value: "pending_review", label: "待确认" }, { value: "needs_params", label: "需要参数" }, { value: "failed", label: "失败" },
   { value: "unsupported", label: "不支持" }, { value: "skipped", label: "跳过" },
 ];
-const PAGE = 100;
-
 function Statements({ b, version, query, onQuery, onLocate }: {
   b: Batch; version: string; query: string; onQuery: (q: string) => void; onLocate: (s: ImportStatement) => void;
 }) {
   const [group, setGroup] = useState("");
-  const [limit, setLimit] = useState(PAGE);
   const q = useDeferredValue(query.trim());
-  const page = useImportStatements(b.id, { status: group || null, q: q || null, limit }, version);
-  const counts = page.data?.counts ?? {};
+  const page = useImportStatements(b.id, { status: group || null, q: q || null }, version);
+  const counts = page.data?.pages[0]?.counts ?? {};
   const total = Object.entries(counts).filter(([k]) => k !== "pending_review").reduce((n, [, v]) => n + v, 0);
   const names = useMemo(() => new Map(b.files.map((f) => [f.id, f.source_key])), [b.files]);
   return <>
@@ -358,14 +355,14 @@ function Statements({ b, version, query, onQuery, onLocate }: {
     <div className="av-import-filters">
       <div className="av-import-chips" role="group" aria-label="按状态">
         {GROUPS.filter((g) => !g.value || counts[g.value]).map((g) => <button key={g.value} type="button" className="av-import-chip"
-          aria-pressed={group === g.value} onClick={() => { setGroup(g.value); setLimit(PAGE); }}>
+          aria-pressed={group === g.value} onClick={() => setGroup(g.value)}>
           {g.label}<span className="av-import-chip__n">{g.value ? counts[g.value] : total}</span></button>)}
       </div>
       <input className="av-input av-input--sm" type="search" aria-label="搜索语句" placeholder="搜索表名或 SQL" value={query}
-        onChange={(e) => { onQuery(e.target.value); setLimit(PAGE); }} />
+        onChange={(e) => onQuery(e.target.value)} />
     </div>
-    <QueryState query={page} isEmpty={(d) => !d.items.length} emptyText={q ? "没有匹配的语句" : "没有语句"} compact>
-      {(d) => <><div className="av-list">{d.items.map((s) => <button type="button" key={s.id} className="av-row av-import-statement" onClick={() => onLocate(s)}>
+    <QueryState query={page} isEmpty={(d) => !d.pages[0]?.items.length} emptyText={q ? "没有匹配的语句" : "没有语句"} compact>
+      {(d) => <><div className="av-list">{d.pages.flatMap((p) => p.items).map((s) => <button type="button" key={s.id} className="av-row av-import-statement" onClick={() => onLocate(s)}>
         <span className="av-mono av-caption">{s.lines[0]}–{s.lines[1]}</span>
         <span className="av-row__main">
           <span className="av-row__title">{s.statement_type ?? METHOD[s.method] ?? s.method}{s.target ? <span className="av-mono"> → {shortName(s.target)}</span> : null}</span>
@@ -374,12 +371,14 @@ function Statements({ b, version, query, onQuery, onLocate }: {
         </span>
         <Status value={s.status} />
       </button>)}</div>
-        <More shown={d.items.length} total={d.total} onMore={() => setLimit(limit + PAGE)} loading={page.isFetching} /></>}
+        <More pages={d.pages} onMore={() => page.fetchNextPage()} loading={page.isFetchingNextPage} /></>}
     </QueryState>
   </>;
 }
 
-function More({ shown, total, onMore, loading }: { shown: number; total: number; onMore: () => void; loading: boolean }) {
+function More({ pages, onMore, loading }: { pages: { items: unknown[]; total: number }[]; onMore: () => void; loading: boolean }) {
+  const shown = pages.reduce((n, p) => n + p.items.length, 0);
+  const total = pages[0]?.total ?? 0;
   if (shown >= total) return null;
   return <div className="av-import-more"><span className="av-caption">{shown} / {total}</span>
     <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={loading} onClick={onMore}>{loading ? "加载中…" : "加载更多"}</button></div>;
@@ -387,8 +386,8 @@ function More({ shown, total, onMore, loading }: { shown: number; total: number;
 
 function ParamsForm({ b, version }: { b: Batch; version: string }) {
   const navigate = useNavigate();
-  const waiting = useImportStatements(b.id, { status: "needs_params", limit: 500 }, version);
-  const placeholders = [...new Set((waiting.data?.items ?? []).flatMap((s) => s.placeholders))];
+  const waiting = useImportStatements(b.id, { status: "needs_params" }, version, 500);
+  const placeholders = [...new Set((waiting.data?.pages ?? []).flatMap((p) => p.items).flatMap((s) => s.placeholders))];
   const [params, setParams] = useState<Record<string, string>>({ ...(b.params as Record<string, string>) });
   const [message, setMessage] = useMessage();
   const save = useAction(() => unwrap(api.PUT("/api/imports/{batch_id}/params", { params: { path: { batch_id: b.id } }, body: { params } })), ["imports"]);
@@ -420,9 +419,8 @@ const edgeText = (ref: string, column?: string | null) => `${shortName(ref)}${co
 function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLocate: (c: { file_id?: string | null; lines?: number[] | null }) => void }) {
   const pendingTotal = ((b.stats ?? {}) as Stats).pending_candidates ?? 0;
   const [view, setView] = useState<EdgeView>(pendingTotal ? "pending" : "folded");
-  const [limit, setLimit] = useState(PAGE);
   const filter = EDGE_VIEWS[view];
-  const page = useImportCandidates(b.id, { status: filter.status ?? null, origin: filter.origin ?? null, limit }, version);
+  const page = useImportCandidates(b.id, { status: filter.status ?? null, origin: filter.origin ?? null }, version);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -436,7 +434,7 @@ function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLoc
   const single = useAction((v: { id: string; decision: "accept" | "reject" | "modify"; reason: string; relation?: string; target_column?: string }) =>
     unwrap(api.POST("/api/candidates/{candidate_id}/decision", { params: { path: { candidate_id: v.id } },
       body: { decision: v.decision, reason: v.reason.trim(), relation: v.relation || null, target_column: v.target_column || null } })), ["import", "imports", "graph"]);
-  const items = page.data?.items ?? [];
+  const items = useMemo(() => (page.data?.pages ?? []).flatMap((p) => p.items), [page.data]);
   const selectable = items.filter((c) => c.status === "pending");
   const allSelected = selectable.length > 0 && selectable.every((c) => selected.has(c.id));
   useEffect(() => { setSelected(new Set()); }, [view]);
@@ -469,7 +467,7 @@ function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLoc
 
   return <>
     <div className="av-stack av-import-candidate-tools">
-      <Seg value={view} onChange={(v) => { setView(v); setLimit(PAGE); }} label="边" options={(Object.keys(EDGE_VIEWS) as EdgeView[]).map((k) => ({
+      <Seg value={view} onChange={setView} label="边" options={(Object.keys(EDGE_VIEWS) as EdgeView[]).map((k) => ({
         value: k, label: k === "pending" && pendingTotal ? <>{EDGE_VIEWS[k].label} <Count n={pendingTotal} /></> : EDGE_VIEWS[k].label }))} />
       {view === "pending" && selectable.length ? <div className="av-import-bulk">
         <label className="av-import-check"><input type="checkbox" checked={allSelected} aria-label="全选本页"
@@ -481,8 +479,8 @@ function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLoc
       {view === "intermediate" ? <span className="av-caption">中间表上的原始段，只用于查证，不进血缘图</span> : null}
       <Banner message={message} />
     </div>
-    <QueryState query={page} isEmpty={(d) => !d.items.length} emptyText={view === "pending" ? "没有待确认的边" : "没有这类边"} compact>
-      {(d) => <>{d.items.map((c) => {
+    <QueryState query={page} isEmpty={(d) => !d.pages[0]?.items.length} emptyText={view === "pending" ? "没有待确认的边" : "没有这类边"} compact>
+      {(d) => <>{items.map((c) => {
         const evidence = c.evidence as Evidence;
         const hops = (c.hops ?? []) as Hop[];
         const lines = evidence.lines ?? null;
@@ -517,7 +515,7 @@ function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLoc
             onSave={() => decideOne({ id: c.id, decision: "modify", reason: edit.reason, relation: edit.relation, target_column: edit.target_column })} /> : null}
         </div>;
       })}
-      <More shown={d.items.length} total={d.total} onMore={() => setLimit(limit + PAGE)} loading={page.isFetching} /></>}
+      <More pages={d.pages} onMore={() => page.fetchNextPage()} loading={page.isFetchingNextPage} /></>}
     </QueryState>
   </>;
 }
