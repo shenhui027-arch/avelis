@@ -16,7 +16,7 @@ import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
-import { t } from "../../i18n";
+import { currentLanguage, t } from "../../i18n";
 
 type Run = Schemas["AnalysisRunOut"];
 type Task = Schemas["AnalysisTaskOut"];
@@ -58,7 +58,7 @@ const useRun = (id?: string) => useQuery({
 });
 
 async function download(path: string, filename: string) {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${token.get()}` } });
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${token.get()}`, "Accept-Language": currentLanguage() } });
   if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: t("导出失败") }))).detail ?? t("导出失败"));
   const url = URL.createObjectURL(await res.blob());
   const link = document.createElement("a");

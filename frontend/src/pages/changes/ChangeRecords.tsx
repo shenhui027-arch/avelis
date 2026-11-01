@@ -9,7 +9,7 @@ import { Banner, Count, Empty, Hint, Icon, Pill, Select, Skeleton, Status, short
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { assetsOfDatasource, recordQuery, type RecordFilters } from "./recordFilters";
-import { t } from "../../i18n";
+import { currentLanguage, t } from "../../i18n";
 
 type Record = Schemas["ChangeRecordOut"];
 type Verify = Schemas["HistoryVerifyOut"];
@@ -70,7 +70,7 @@ export function ChangeRecords() {
     setBusy(true);
     try {
       const params = new URLSearchParams({ ...query, format } as { [k: string]: string });
-      const resp = await fetch(`/api/change-events/export?${params}`, { headers: { Authorization: `Bearer ${token.get() ?? ""}` } });
+      const resp = await fetch(`/api/change-events/export?${params}`, { headers: { Authorization: `Bearer ${token.get() ?? ""}`, "Accept-Language": currentLanguage() } });
       if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail ?? t("导出失败（{{status}}）", { status: resp.status }));
       const url = URL.createObjectURL(await resp.blob());
       const link = document.createElement("a");
