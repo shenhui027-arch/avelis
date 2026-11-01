@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 
-Grouped by reader. The project README is available in [English](../README.md), [简体中文](../README.zh-CN.md) and [繁體中文](../README.zh-TW.md). Before writing documentation, read the [documentation guide](documentation-guide.en.md).
+Grouped by reader. The project README is available in [English](../README.en.md), [简体中文](../README.md) and [繁體中文](../README.zh-TW.md). Before writing documentation, read the [documentation guide](documentation-guide.en.md).
 
 ## Using and operating
 
