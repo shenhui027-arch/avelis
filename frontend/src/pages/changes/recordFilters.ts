@@ -14,28 +14,28 @@ export function zonedDayStart(day: string, timeZone: string): string {
     timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
     second: "2-digit",
   });
-  const local = (t: number) => {
-    const parts = format.formatToParts(new Date(t));
+  const local = (ms: number) => {
+    const parts = format.formatToParts(new Date(ms));
     const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
     return { date: `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`,
       wall: Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) };
   };
   const target = Date.UTC(y, m - 1, d);
-  let t = target;
-  for (let i = 0; i < 3; i++) t -= local(t).wall - target; // 按偏移反推当地零点
+  let ms = target;
+  for (let i = 0; i < 3; i++) ms -= local(ms).wall - target; // 按偏移反推当地零点
   // 零点不存在或反推落在前后一天时：在 ±1 天内二分，找“当地日期 ≥ 所选日期”的第一个毫秒
-  if (local(t).date !== day || local(t - 1).date === day) {
+  if (local(ms).date !== day || local(ms - 1).date === day) {
     let lo = target - 36 * 3600_000, hi = target + 36 * 3600_000;
     while (hi - lo > 1) {
       const mid = Math.floor((lo + hi) / 2);
       if (local(mid).date >= day) hi = mid; else lo = mid;
     }
-    t = hi;
+    ms = hi;
   }
-  if (local(t).date !== day || local(t - 1).date === day) {
+  if (local(ms).date !== day || local(ms - 1).date === day) {
     throw new Error(`无法确定 ${timeZone} 中 ${day} 的起始时刻`);
   }
-  return new Date(t).toISOString();
+  return new Date(ms).toISOString();
 }
 
 /** 请求参数：空值不带；起止日期换成业务时区当天第一个时刻的 UTC 时刻（截止日不含）。

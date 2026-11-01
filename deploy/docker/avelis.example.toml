@@ -101,6 +101,8 @@ initial_admin_password = ""       # AVELIS_INITIAL_ADMIN_PASSWORD
 [business]
 # 业务时区：日期类问题（“昨天”“上月”）按它计算
 timezone = "Asia/Shanghai"        # AVELIS_BUSINESS_TIMEZONE
+# 数字显示：cn 万/亿 | intl K/M/B；两者从绝对值 1e4 起缩写，intl 的 K 除以 1e3。AVELIS_NUMBER_STYLE
+number_style = "cn"
 # 未归属业务域的资产：deny（只有管理员与维护者可见）| allow（所有人可见）
 unassigned_asset_policy = "deny"  # AVELIS_UNASSIGNED_ASSET_POLICY
 # 口径依赖的列缺数据库注释时：false 只提示 | true 阻断发布
@@ -116,6 +118,10 @@ max_rows = 1000                   # 单条查询返回行数上限。AVELIS_QUER
 answer_cache_seconds = 300        # 相同问题的答案缓存，秒。AVELIS_ANSWER_CACHE_SECONDS
 live_check = true                 # 执行前核对来源结构与上次采集一致。AVELIS_ASK_LIVE_CHECK
 max_tool_rounds = 8               # 问数智能体每轮最多调用工具的次数。AVELIS_ASK_MAX_TOOL_ROUNDS
+
+[agent]
+# auto 跟随请求的界面语言；也可固定为 zh-CN、zh-TW 或 en。
+reply_language = "auto"           # 分析与问数的回答语言。AVELIS_REPLY_LANGUAGE
 
 # ============================================================
 # 采集与后台任务
@@ -150,6 +156,8 @@ model_requests = 16               # 模型请求次数上限。AVELIS_ANALYSIS_M
 input_tokens = 552321             # 累计输入 token 上限，0 = 不限。AVELIS_ANALYSIS_INPUT_TOKENS
 output_tokens = 30716             # 累计输出 token 上限（含推理），0 = 不限。AVELIS_ANALYSIS_OUTPUT_TOKENS
 material_change_ratio = 0.01      # 变化显著性阈值（口径未单独设置时）。AVELIS_MATERIAL_CHANGE_RATIO
+uniform_tolerance = 0.5          # 均匀容差，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_UNIFORM_TOLERANCE
+spike_share = 0.5                # 时间集中度阈值，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_SPIKE_SHARE
 
 # ============================================================
 # 模型

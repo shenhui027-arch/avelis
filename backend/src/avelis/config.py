@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -23,6 +24,7 @@ from avelis.configfile import (
     report_config_error,
     resolve_files,
 )
+from avelis.i18n import gettext
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -70,6 +72,7 @@ class Settings:
     login_max_failures: int = 5
     login_lock_minutes: int = 15
     business_timezone: str = "Asia/Shanghai"
+    number_style: str = "cn"
     allow_self_review: bool = False
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
     query_timeout_seconds: int = 30
@@ -84,6 +87,8 @@ class Settings:
     analysis_query_limit: int = 20  # 一次分析里查询类工具共用的额度（ADR 0009 第 7 点第 7 条）
     analysis_retrieval: bool = False  # 元数据图证据发现（P1 R）
     analysis_investigation: bool = False  # 证据解释（P1 H），本阶段只定义开关
+    analysis_uniform_tolerance: float = 0.5  # 成员变化率相对总体变化率的均匀容差
+    analysis_spike_share: float = 0.5  # 最大单日偏差占总偏差的时间集中度阈值
     worker_schedule_seconds: int = 60
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
@@ -106,6 +111,7 @@ class Settings:
     import_max_bytes: int = 20 * 1024**2
     import_max_batch_bytes: int = 100 * 1024**2
     ask_max_tool_rounds: int = 8
+    reply_language: str = "auto"
     analysis_tool_calls: int = 30
     analysis_seconds: int = 300
     analysis_explore_limit: int = 8
@@ -172,6 +178,16 @@ def _nonnegative_int(env: dict[str, str], key: str, default: int) -> int:
     return value
 
 
+def _unit_interval(env: dict[str, str], key: str, default: float) -> float:
+    try:
+        value = float(env.get(key, str(default)))
+    except ValueError:
+        raise ValueError(gettext("{key} 必须为 (0, 1] 范围内的有限数值", key=key)) from None
+    if not math.isfinite(value) or not 0 < value <= 1:
+        raise ValueError(gettext("{key} 必须为 (0, 1] 范围内的有限数值", key=key))
+    return value
+
+
 def _bounded_int(env: dict[str, str], key: str, default: int, maximum: int) -> int:
     value = _positive_int(env, key, default)
     if value > maximum:
@@ -202,6 +218,11 @@ def _enum(env: dict[str, str], key: str, default: str, choices: tuple[str, ...])
     return value
 
 
+def _reply_language(env: dict[str, str]) -> str:
+    value = _enum(env, "AVELIS_REPLY_LANGUAGE", Settings.reply_language, ("auto", "zh-cn", "zh-tw", "en"))
+    return {"zh-cn": "zh-CN", "zh-tw": "zh-TW"}.get(value, value)
+
+
 def _frontend_directory(env: dict[str, str]) -> Path | None:
     value = env.get("AVELIS_FRONTEND_DIR", "").strip()
     if not value:
@@ -228,6 +249,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
         access_token_minutes=_positive_int(env, "AVELIS_ACCESS_TOKEN_MINUTES", Settings.access_token_minutes),
         session_max_hours=_positive_int(env, "AVELIS_SESSION_MAX_HOURS", Settings.session_max_hours),
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),
+        number_style=_enum(env, "AVELIS_NUMBER_STYLE", Settings.number_style, ("cn", "intl")),
         allow_self_review=env.get("AVELIS_ALLOW_SELF_REVIEW", "false").lower() == "true",
         cors_origins=cors_origins,
         query_timeout_seconds=_positive_int(env, "AVELIS_QUERY_TIMEOUT_SECONDS", Settings.query_timeout_seconds),
@@ -247,6 +269,9 @@ def _build_settings(env: dict[str, str]) -> Settings:
         analysis_retrieval=env.get("AVELIS_ANALYSIS_RETRIEVAL", "false").strip().lower() in ("1", "true", "yes"),
         analysis_investigation=env.get("AVELIS_ANALYSIS_INVESTIGATION", "false").strip().lower()
         in ("1", "true", "yes"),
+        analysis_uniform_tolerance=_unit_interval(env, "AVELIS_ANALYSIS_UNIFORM_TOLERANCE",
+                                                 Settings.analysis_uniform_tolerance),
+        analysis_spike_share=_unit_interval(env, "AVELIS_ANALYSIS_SPIKE_SHARE", Settings.analysis_spike_share),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
         worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),
@@ -271,6 +296,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
         import_max_batch_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BATCH_BYTES", Settings.import_max_batch_bytes),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
+        reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
         analysis_seconds=_positive_int(env, "AVELIS_ANALYSIS_SECONDS", Settings.analysis_seconds),
         analysis_explore_limit=_positive_int(env, "AVELIS_ANALYSIS_EXPLORE_LIMIT", Settings.analysis_explore_limit),
@@ -327,10 +353,13 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                     except ValueError:
                         raise ValueError(f"{key} 必须为整数") from None
             elif spec.kind is float:
-                try:
-                    float(values.get(key, str(default)))
-                except ValueError:
-                    raise ValueError(f"{key} 必须为数值") from None
+                if key in ("AVELIS_ANALYSIS_UNIFORM_TOLERANCE", "AVELIS_ANALYSIS_SPIKE_SHARE"):
+                    _unit_interval(values, key, default)
+                else:
+                    try:
+                        float(values.get(key, str(default)))
+                    except ValueError:
+                        raise ValueError(f"{key} 必须为数值") from None
             elif spec.kind is bool and key in (
                 "AVELIS_AUTO_MIGRATE", "AVELIS_AUTO_INIT_ADMIN", "AVELIS_REDIS_SSL",
             ):
@@ -344,10 +373,18 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         except ValueError as exc:
             values.problem(key, str(exc))
     try:
+        _enum(values, "AVELIS_NUMBER_STYLE", Settings.number_style, ("cn", "intl"))
+    except ValueError as exc:
+        values.problem("AVELIS_NUMBER_STYLE", str(exc))
+    try:
         _enum(values, "AVELIS_LOG_LEVEL", Settings.log_level,
               ("critical", "error", "warning", "info", "debug", "trace"))
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
+    try:
+        _reply_language(values)
+    except ValueError as exc:
+        values.problem("AVELIS_REPLY_LANGUAGE", str(exc))
     if values.get("AVELIS_DB_SSLMODE", "").strip():
         try:
             _enum(values, "AVELIS_DB_SSLMODE", "", ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"))

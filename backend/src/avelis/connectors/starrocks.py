@@ -16,7 +16,16 @@ from urllib.parse import urlsplit
 
 import pymysql
 
-from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.base import (
+    ObservedAsset,
+    ObservedColumn,
+    QueryError,
+    QueryResult,
+    Snapshot,
+    checked_timezone,
+    current_timezone_offset,
+)
+from avelis.i18n import gettext
 
 IDENT = re.compile(r"^[A-Za-z0-9_\-]+$")
 PROP = re.compile(r'"([A-Za-z0-9_.]+)"\s*=\s*"((?:[^"\\]|\\.)*)"')
@@ -49,6 +58,21 @@ def parse_jdbc_uri(uri: str) -> dict[str, Any]:
     parts = urlsplit(uri[len("jdbc:"):])
     return {"scheme": parts.scheme, "host": parts.hostname, "port": parts.port or 3306,
             "database": parts.path.strip("/") or None}
+
+
+def _set_timezone(cur, name: str | None) -> list[str]:
+    """MySQL 协议共享设置；命名时区失败时仅重试一次，并保留精度限制。"""
+    if name is None:
+        return []
+    checked_timezone(name)
+    try:
+        cur.execute(f"SET time_zone = '{name}'")
+    except pymysql.MySQLError:
+        offset = current_timezone_offset(name)
+        cur.execute(f"SET time_zone = '{offset}'")
+        return [gettext("数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差",
+                        name=name, offset=offset)]
+    return []
 
 
 class StarRocksConnector:
@@ -220,17 +244,20 @@ class StarRocksConnector:
 
     # --- 只读执行 ------------------------------------------------------------------
 
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int) -> QueryResult:
+    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
+                       timezone: str | None = None) -> QueryResult:
         conn = self._connect(read_timeout=timeout_seconds + 15)
         try:
             cur = conn.cursor(pymysql.cursors.Cursor)
+            warnings = _set_timezone(cur, timezone)
             cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
             cur.execute(f"SET query_mem_limit = {int(mem_limit_bytes)}")
             cur.execute(sql)
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
             truncated = len(rows) > max_rows
-            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=truncated)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=truncated,
+                               warnings=warnings)
         except pymysql.MySQLError as exc:
             errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
             message = str(exc.args[-1]) if exc.args else str(exc)
@@ -239,7 +266,7 @@ class StarRocksConnector:
             conn.close()
 
     def execute_explore(self, sql: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int,
-                        pipeline_dop: int = 1) -> QueryResult:
+                        pipeline_dop: int = 1, timezone: str | None = None) -> QueryResult:
         """执行校验后重新生成的探索查询：只读账号，服务端 query_timeout / query_mem_limit / pipeline_dop；
         客户端等待超过截止时间时向服务端发 KILL QUERY 并确认已停止，然后按超时报错（不返回部分结果）。"""
         if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
@@ -249,6 +276,7 @@ class StarRocksConnector:
         connection_id = None
         try:
             cur = conn.cursor(pymysql.cursors.Cursor)
+            warnings = _set_timezone(cur, timezone)
             cur.execute("SELECT CONNECTION_ID()")
             connection_id = int(cur.fetchone()[0])
             cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
@@ -257,7 +285,8 @@ class StarRocksConnector:
             cur.execute(sql)
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
-            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows,
+                               warnings=warnings)
         except pymysql.err.OperationalError as exc:
             errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
             if errno in (2013, 2006) and connection_id is not None:  # 客户端等待超时或断连：另发一次取消

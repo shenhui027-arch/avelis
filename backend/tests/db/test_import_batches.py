@@ -39,7 +39,7 @@ EXTRA_SQL = "INSERT INTO dw.daily_aux (k, v) SELECT k, v + 1 FROM src.events;"
 
 @pytest.fixture
 def legacy_schema(meta_db):
-    """完整迁移到 0015；外层事务结束时连同随机 schema 一并回滚，不降级共享 schema。"""
+    """完整迁移到 0017_metric_time；外层事务结束时连同随机 schema 一并回滚，不降级共享 schema。"""
     from alembic import command
 
     from avelis.devtools import alembic_config
@@ -52,7 +52,7 @@ def legacy_schema(meta_db):
             connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             cfg = alembic_config()
             cfg.attributes["connection"] = connection
-            command.upgrade(cfg, "0015")
+            command.upgrade(cfg, "0017_metric_time")
             yield connection, cfg, schema
         finally:
             transaction.rollback()
@@ -60,7 +60,7 @@ def legacy_schema(meta_db):
 
 def _legacy_import(connection, *, filename="pipeline.sql", content=SQL, status="done", actor=None,
                    datasource=None, method="sql", created_at=None):
-    """按 0015 的真实表结构写旧文件，避免用当前 ORM 的新增列。"""
+    """按 0017_metric_time 的真实表结构写旧文件，避免用当前 ORM 的新增列。"""
     now = created_at or utcnow()
     if actor is None:
         actor = new_id()

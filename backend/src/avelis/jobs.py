@@ -17,8 +17,9 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+import threading
 import time
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select, text, update
@@ -225,24 +226,43 @@ def main() -> None:
     signal.signal(signal.SIGINT, _stop)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _stop)
+    heartbeat_stop = threading.Event()
+    heartbeat_ready = threading.Event()
+
+    def _heartbeat():
+        while True:
+            _guarded("写入 worker 心跳", lambda: cache.client().set(
+                cache.WORKER_HEARTBEAT, utcnow().replace(tzinfo=timezone.utc).isoformat(), ex=60))
+            heartbeat_ready.set()
+            if heartbeat_stop.wait(20):
+                break
+
+    heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+    heartbeat_thread.start()
     last_schedule = 0.0
     log.info("worker 已启动")
-    while not stop:
-        if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
-            last_schedule = time.monotonic()
-            scan_once()
-        try:
-            item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
-        except Exception:
-            item = None
-            time.sleep(5)
-        if item:
+    try:
+        heartbeat_ready.wait()  # 首次心跳写入尝试完成后，才开始可能耗时的扫描。
+        while not stop:
+            if time.monotonic() - last_schedule > get_settings().worker_schedule_seconds:
+                last_schedule = time.monotonic()
+                scan_once()
             try:
-                run_job(item[1])
-            except CollectionFailed:
-                pass
-            except Exception:  # noqa: BLE001 - 单个任务的意外错误不能让 worker 退出
-                log.exception("任务 %s 执行异常", item[1])
+                item = cache.client().brpop([cache.JOB_QUEUE], timeout=min(5, get_settings().worker_schedule_seconds))
+            except Exception:
+                item = None
+                time.sleep(5)
+            if item:
+                try:
+                    run_job(item[1])
+                except CollectionFailed:
+                    pass
+                except Exception:  # noqa: BLE001 - 单个任务的意外错误不能让 worker 退出
+                    log.exception("任务 %s 执行异常", item[1])
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=1)
+        _guarded("删除 worker 心跳", lambda: cache.client().delete(cache.WORKER_HEARTBEAT))
     log.info("worker 已停止")
 
 

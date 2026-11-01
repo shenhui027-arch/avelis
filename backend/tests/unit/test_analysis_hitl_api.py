@@ -27,10 +27,21 @@ def api(monkeypatch):
                 obj.id = new_id()
             if isinstance(obj, AnalysisRun):
                 obj.created_at = obj.created_at or utcnow()
+                obj.conversation_id = obj.conversation_id or obj.id
                 obj.plan, obj.report, obj.verification = obj.plan or {}, obj.report or {}, obj.verification or {}
             session.store[(type(obj), obj.id)] = obj
 
+    def scalar(statement):
+        params = statement.compile().params
+        if statement.column_descriptions[0].get("name") != "count":
+            return None
+        return sum(isinstance(obj, AnalysisRun) and obj.parent_run_id is not None
+                   and obj.conversation_id == params["conversation_id_1"]
+                   and (obj.created_at, obj.id) <= (params["created_at_1"], params["id_1"])
+                   for obj in session.store.values())
+
     session.flush = flush
+    session.scalar = scalar
     monkeypatch.setattr(service, "warm_up", lambda: None)
     monkeypatch.setattr(service, "require_analysis_model", lambda s: SimpleNamespace(adapter="fake"))
     monkeypatch.setattr(service.access, "require_role", lambda *args: None)
@@ -81,6 +92,7 @@ def test_http_followup_inherits_user_text_and_accepts_the_documented_limit(api):
     assert response.status_code == 201, response.text
     child = response.json()
     assert child["parent_run_id"] == parent.id and child["status"] == "queued"
+    assert child["conversation_id"] == parent.id and child["turn"] == 2
     assert child["experience_candidates"][0]["content"] == text
     assert child["experience_candidates"][0]["source"]["checkpoint"] == "conclusion"
     assert client.post(f"/api/analysis/runs/{parent.id}/followup", json={"text": text + "补"}).status_code == 422

@@ -22,7 +22,9 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlglot import exp
 
 from avelis import audit, cache
-from avelis.ask.compiler import ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
+from avelis.analysis import measures
+from avelis.analysis.dataset_projection import build_column_roles
+from avelis.ask.compiler import TIME_GRAINS, ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
 from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
@@ -31,7 +33,8 @@ from avelis.db import utcnow
 from avelis.engines import dialect_of, engine_of, query_connector
 from avelis.engines.base import LIVE_CHECK, QUERY
 from avelis.governance import access
-from avelis.governance.errors import GovernanceError
+from avelis.governance.errors import GovernanceError, Invalid
+from avelis.governance.metric_sql import column_ref
 from avelis.governance.metrics import (
     dependency_drift,
     describe_version,
@@ -41,6 +44,7 @@ from avelis.governance.metrics import (
     validate_spec,
     visible_metrics,
 )
+from avelis.i18n import Msg, current_locale, gettext, locale_context, translate
 from avelis.lineage.sql import canonical_hash_of
 from avelis.models import (
     Answer,
@@ -128,13 +132,19 @@ def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog
     单指标、无对比：整条下推为一条 SQL。多个指标、对比期、派生指标：展开为执行计划（见 _fulfil_plan）。"""
     try:
         version = catalog.versions.get(intent.metric_code or "", (None, None))[1]
-        if intent.is_simple and (version is None or version.kind != "derived"):
+        simple = intent.is_simple and (version is None or version.kind != "derived")
+        if simple:
             _fulfil(session, user, intent, answer, catalog.versions, get_settings())
         else:
             _fulfil_plan(session, user, intent, answer, catalog, get_settings())
+        if answer.status == "answered":
+            requested = ([catalog.versions[intent.metric_code]] if simple
+                         else [catalog.versions[code] for code in intent.metric_codes])
+            answer.result = _result_contract(answer.result, intent, requested,
+                                             value_column="value" if simple else None)
     except GovernanceError as exc:
         answer.status = "error"
-        answer.message = exc.message
+        answer.message = translate(exc.message)
         answer.error_code = "governance"
 
 
@@ -209,18 +219,29 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
             f"{a.catalog_name}.{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied))
         return
 
-    time_alias, time_col = version.time_column.split(".", 1) if "." in version.time_column else ("b",
-                                                                                                 version.time_column)
-    time_type = _column_type(session, aliases[time_alias], time_col)
     base = aliases["b"]
     ds = session.get(Datasource, base.datasource_id)
     dialect = dialect_of(ds)
-    compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=intent,
+    time_alias, time_col = column_ref(version.time_column, dialect=dialect.name, label="时间字段",
+                                      aliases=set(aliases))
+    time_type = _column_type(session, aliases[time_alias], time_col)
+    time_aggregation = getattr(version, "time_aggregation", None) or "sum"
+    data_grain = getattr(version, "data_grain", None) or "day"
+    # 存量先取完整的时间桶，排名和用户限行必须在跨时间合成后执行。
+    query_intent = intent.model_copy(update={"order": None, "limit": None}) if time_aggregation != "sum" else intent
+    compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=query_intent,
                                     max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect,
-                                    reserved_names=(metric.name, "value"))
+                                    reserved_names=(metric.name, "value"),
+                                    **({"bucket_grain": data_grain}
+                                       if time_aggregation != "sum" else {}))
     answer.sql = compiled.sql
     answer.plan = {**compiled.plan, "metric_version_id": version.id,
                    "dependency_fingerprint": version.dependency_fingerprint}
+    answer.evidence["time_aggregation"] = {
+        "method": time_aggregation, "data_grain": data_grain, "output_grain": intent.time_grain,
+        "note": {"sum": gettext("沿用口径表达式跨时间汇总"),
+                 "last": gettext("每个输出期间取全局最后一个有数据的桶，成员缺失为未知"),
+                 "avg": gettext("每个成员按有数据的桶计算均值，空桶不补零")}[time_aggregation]}
     schema = {f"{a.catalog_name}.{a.db_name}.{a.name}": set(_columns(session, a)) for a in aliases.values()}
     try:
         validate_sql(compiled.sql, dialect=dialect, allowed_tables=set(compiled.tables), schema=schema,
@@ -254,14 +275,17 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
                    "query_mem_limit_bytes": settings.query_mem_limit_bytes,
                    "max_rows": settings.query_max_rows, "account": "只读账号（query 凭据）"},
         "traceability": TRACEABLE_NOTE,
-        "version_detail": {k: version_info[k] for k in ("expression", "time_column", "timezone", "filters",
-                                                         "dimensions", "grain", "joins")},
+        "version_detail": {k: version_info.get(k) for k in ("expression", "time_column", "timezone", "filters",
+                           "dimensions", "grain", "joins", "time_format", "data_grain", "time_aggregation",
+                           "value_kind", "polarity")},
     })
 
     key = cache.answer_cache_key({
         "sql": compiled.sql, "version": version.id, "deps": version.dependency_fingerprint,
         "assets": sorted((a.id, a.current_version_id) for a in closure.values()),
-        "scope": sorted(allowed), "freshness": freshness.get("tables"),
+        "scope": sorted(allowed), "freshness": freshness.get("tables"), "locale": current_locale(),
+        **({"time_aggregation": time_aggregation, "order": intent.order, "limit": intent.limit}
+           if time_aggregation != "sum" else {}),
     })
     cached = _cache_get(key)
     if cached is not None:
@@ -271,6 +295,8 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.cache_hit = True
         answer.evidence["cache"] = {"hit": True, "original_answer_id": cached.get("answer_id"),
                                     "original_executed_at": cached.get("executed_at")}
+        if cached.get("query_warnings"):
+            answer.evidence["query_warnings"] = cached["query_warnings"]
         answer.message = _explain(metric, version, intent, answer.result)
         return
 
@@ -284,7 +310,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     try:
         result = connector.execute_select(compiled.sql, timeout_seconds=settings.query_timeout_seconds,
                                           mem_limit_bytes=settings.query_mem_limit_bytes,
-                                          max_rows=settings.query_max_rows)
+                                          max_rows=settings.query_max_rows, timezone=version.timezone)
     except QueryError as exc:
         answer.status = "error"
         answer.error_code = f"db_{exc.code}"
@@ -294,13 +320,23 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.executed_at = utcnow()
         return
     answer.executed_at = utcnow()
-    answer.result = {"columns": result.columns, "rows": [[_jsonable(v) for v in row] for row in result.rows],
-                     "row_count": len(result.rows), "truncated": result.truncated,
+    columns, rows = result.columns, result.rows
+    truncated = result.truncated
+    if time_aggregation != "sum":
+        columns, rows = _aggregate_time_rows(columns, rows, bucket_column=compiled.plan["bucket_column"],
+                                             method=time_aggregation, time_grain=intent.time_grain)
+        rows = _sort_time_rows(rows, intent)
+        truncated = truncated or len(result.rows) >= settings.query_max_rows
+    if getattr(result, "warnings", None):
+        answer.evidence["query_warnings"] = result.warnings
+    answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in row] for row in rows],
+                     "row_count": len(rows), "truncated": truncated,
                      "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by)}
     answer.status = "answered"
     answer.evidence["cache"] = {"hit": False}
     answer.message = _explain(metric, version, intent, answer.result)
-    _cache_put(key, {"result": answer.result, "answer_id": answer.id, "executed_at": answer.executed_at.isoformat()},
+    _cache_put(key, {"result": answer.result, "answer_id": answer.id, "executed_at": answer.executed_at.isoformat(),
+                     "query_warnings": answer.evidence.get("query_warnings", [])},
                settings.answer_cache_seconds, [f"metric_version:{version.id}"])
 
 
@@ -414,7 +450,39 @@ def _dimension_docs(session: Session, user: User, version: MetricVersion, aliase
     return out
 
 
-PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期", "custom": "对比期"}
+PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期",
+                "previous_calendar": "上一自然期", "custom": "对比期"}
+
+
+def _result_contract(result: dict, intent: Intent, requested: list[tuple[Metric, MetricVersion]], *,
+                     value_column: str | None = None) -> dict:
+    """用执行时锁定的口径补齐展示契约；返回副本，避免修改缓存保存的结果。"""
+    columns = result.get("columns") or []
+    period_label = PERIOD_LABEL.get(intent.compare)
+    metrics = {metric.name: version for metric, version in requested}
+    if value_column is not None:
+        metric, version = requested[0]
+        # 单指标 SQL 的结果别名固定为 value，按编译契约映射，不从列名或值推断。
+        units = {value_column: measures.metric_unit(version)} if value_column in columns else {}
+        directions = measures.governed_polarity([metric.name], {metric.name: version}, period_label)
+        polarity = ({value_column: directions[metric.name]}
+                    if value_column in columns and metric.name in directions else {})
+        labels = {value_column: metric.name}
+    else:
+        units = measures.governed_units(columns, metrics, period_label)
+        polarity = measures.governed_polarity(columns, metrics, period_label)
+        labels = {column: metric.name for metric, version in requested
+                  for column in measures.governed_units(columns, {metric.name: version}, period_label)}
+    dimension_labels = {}
+    for _, version in requested:
+        for dimension in version.dimensions or []:
+            dimension_labels.setdefault(dimension["name"], dimension.get("label") or dimension["name"])
+    # 编译器与计划组装都将显式时间分组列放在首列，其名称可能因重名而改变。
+    meta = {"units": units, "intent": intent.model_dump(mode="json"),
+            "time_column": columns[0] if intent.time_grain and columns else None,
+            "dimension_labels": dimension_labels, "measure_labels": labels}
+    return {**result, "units": units, "polarity": polarity,
+            "column_roles": build_column_roles(columns, meta)}
 
 
 def _scratch(answer: Answer, user: User) -> Answer:
@@ -431,6 +499,43 @@ def _decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except InvalidOperation:
         return None
+
+
+def _aggregate_time_rows(columns: list[str], rows: list[list[Any]], *, bucket_column: str,
+                         method: str, time_grain: str | None) -> tuple[list[str], list[list[Any]]]:
+    """每个输出期间独立合成；期末桶由该期间所有成员共同确定，不用成员自己的最后一期补齐。"""
+    bucket_index = columns.index(bucket_column)
+    keys: dict[tuple, dict[Any, Decimal | None]] = {}
+    last_buckets: dict[Any, Any] = {}
+    for row in rows:
+        bucket = row[bucket_index]
+        key = tuple(row[:bucket_index] + row[bucket_index + 1:-1])
+        output_period = key[0] if time_grain else None
+        keys.setdefault(key, {})[bucket] = _decimal(row[-1])
+        if output_period not in last_buckets or bucket > last_buckets[output_period]:
+            last_buckets[output_period] = bucket
+    out = []
+    for key, buckets in keys.items():
+        if method == "last":
+            value = buckets.get(last_buckets[key[0] if time_grain else None])
+        else:
+            values = [v for v in buckets.values() if v is not None]
+            value = sum(values, Decimal(0)) / len(values) if values else None
+        out.append([*key, value])
+    output_columns = columns[:bucket_index] + columns[bucket_index + 1:]
+    if not rows and len(output_columns) == 1:
+        out = [[None]]
+    return output_columns, out
+
+
+def _sort_time_rows(rows: list[list[Any]], intent: Intent) -> list[list[Any]]:
+    if intent.order:
+        present = [row for row in rows if row[-1] is not None]
+        present.sort(key=lambda row: row[-1], reverse=intent.order == "desc")
+        rows = present + [row for row in rows if row[-1] is None]
+    if intent.limit:
+        rows = rows[:intent.limit]
+    return rows
 
 
 def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog, settings) -> None:
@@ -455,6 +560,11 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     allowed = access.domain_ids(session, user)
     for code, metric, version in requested:
         answer.metric_version_ids = [*answer.metric_version_ids, version.id]
+        data_grain = getattr(version, "data_grain", None) or "day"
+        if intent.time_grain and (data_grain not in TIME_GRAINS
+                                  or TIME_GRAINS.index(intent.time_grain) < TIME_GRAINS.index(data_grain)):
+            raise Invalid(Msg("时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细",
+                              grain=intent.time_grain, metric=metric.name, data_grain=data_grain))
         if version.kind != "derived":
             runs[code] = (metric, version)
             continue
@@ -497,7 +607,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
             _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
             plan.append({"metric_code": code, "metric_version_id": version.id, "period": label,
                          "range": [str(start), str(end)], "status": sub.status, "error_code": sub.error_code,
-                         "cache_hit": sub.cache_hit})
+                         "cache_hit": sub.cache_hit, "time_aggregation": sub.evidence.get("time_aggregation"),
+                         "query_warnings": sub.evidence.get("query_warnings", [])})
             if sub.sql:
                 head = f"-- {metric.name} V{version.version_no} · {PERIOD_LABEL[label]} {start} ~ {end}"
                 sqls.append(head + chr(10) + sub.sql)
@@ -597,19 +708,29 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     answer.message = _explain_plan(requested, intent, answer.result)
 
 
+def _answer_text(template: str, **params) -> str:
+    language = getattr(get_settings(), "reply_language", "auto")
+    with locale_context(current_locale() if language == "auto" else language):
+        return gettext(template, **params)
+
+
 def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else f"{intent.start_date} 至 {intent.end_date}"
+    period = str(intent.start_date) if same_day else _answer_text(
+        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     names = "、".join(f"{m.name}（V{v.version_no}）" for _, m, v in requested)
     head = f"{period}{('（' + scope + '）') if scope else ''} {names}"
     if not result["rows"]:
-        return f"{head}：没有符合条件的数据"
+        return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         cells = dict(zip(result["columns"], result["rows"][0]))
-        return f"{head}：" + "；".join(f"{k} {'无数据' if v is None else v}" for k, v in cells.items())
-    rank = f"，按{requested[0][1].name}{'从高到低' if intent.order == 'desc' else '从低到高'}" if intent.order else ""
-    return f"{head}：共 {result['row_count']} 行{rank}{'（已截断）' if result['truncated'] else ''}"
+        return _answer_text("{head}：{value}", head=head, value="；".join(
+            f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()))
+    rank = _answer_text("，按{metric}{direction}", metric=requested[0][1].name,
+                        direction=_answer_text("从高到低" if intent.order == "desc" else "从低到高")) if intent.order else ""
+    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
+                        rank=rank, truncated=_answer_text("（已截断）") if result["truncated"] else "")
 
 
 def _jsonable(value: Any) -> Any:
@@ -624,15 +745,17 @@ def _iso(value) -> str | None:
 
 def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else f"{intent.start_date} 至 {intent.end_date}"
+    period = str(intent.start_date) if same_day else _answer_text(
+        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     head = f"{period}{('（' + scope + '）') if scope else ''} {metric.name}（V{version.version_no}）"
     if not result["rows"]:
-        return f"{head}：没有符合条件的数据"
+        return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         value = result["rows"][0][-1]
-        return f"{head}：{value if value is not None else '无数据'}"
-    return f"{head}：共 {result['row_count']} 行{'（已截断）' if result['truncated'] else ''}"
+        return _answer_text("{head}：{value}", head=head, value=value if value is not None else _answer_text("无数据"))
+    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
+                        rank="", truncated=_answer_text("（已截断）") if result["truncated"] else "")
 
 
 def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -> str:
@@ -774,6 +897,7 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         return out
     aliases = resolved["aliases"]
     allowed = access.domain_ids(session, user)
+    timezone = getattr(version, "timezone", None) or getattr(settings, "business_timezone", None)
     for dim in version.dimensions or []:
         if exact_values is not None and dim["name"] not in exact_values:
             continue
@@ -784,7 +908,7 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         closure = upstream_closure(session, [asset.id])
         if not all(access.can_read_asset(session, user, a, allowed) for a in closure.values()):
             continue
-        key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}"
+        key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}:{timezone}"
         cached = None
         if exact_values is None:
             try:
@@ -819,7 +943,7 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
             if _live_check(session, ds, connector, closure.values(), dep, settings):
                 continue  # 库侧已变、尚未采集：不读取（已排队采集）
             result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
-                                              max_rows=DIMENSION_VALUES_LIMIT)
+                                              max_rows=DIMENSION_VALUES_LIMIT, timezone=timezone)
         except (QueryError, ValidationFailed):
             continue
         if exact_values is not None and result.truncated:
