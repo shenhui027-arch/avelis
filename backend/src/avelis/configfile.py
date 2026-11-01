@@ -63,6 +63,7 @@ CONFIG_KEYS = {
     "query.answer_cache_seconds": ConfigKey("AVELIS_ANSWER_CACHE_SECONDS", int, 300),
     "query.live_check": ConfigKey("AVELIS_ASK_LIVE_CHECK", bool, True),
     "query.max_tool_rounds": ConfigKey("AVELIS_ASK_MAX_TOOL_ROUNDS", int, 8),
+    "agent.reply_language": ConfigKey("AVELIS_REPLY_LANGUAGE", str, "auto"),
     "collect.interval_minutes": ConfigKey("AVELIS_COLLECT_INTERVAL_MINUTES", int, 15),
     "collect.ddl_audit_slack_seconds": ConfigKey("AVELIS_DDL_AUDIT_SLACK_SECONDS", int, 5),
     "worker.schedule_seconds": ConfigKey("AVELIS_WORKER_SCHEDULE_SECONDS", int, 60),

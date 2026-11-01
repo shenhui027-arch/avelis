@@ -14,6 +14,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from avelis.governance.errors import Invalid
+from avelis.i18n import Msg
 
 BASE_ALIAS = "b"
 ADDITIVE = (exp.Sum, exp.Count, exp.Avg)
@@ -32,46 +33,48 @@ class ParsedSnippet:
 
 def parse_snippet(text: str, *, dialect: str, label: str, aliases: set[str],
                   require_aggregate: bool | None) -> ParsedSnippet:
+    label = label if isinstance(label, Msg) else Msg(label)
     try:
         wrapper = sqlglot.parse_one(f"SELECT {text}", read=dialect)
     except ParseError as exc:
-        raise Invalid(f"{label}无法解析：{text}", error=str(exc)[:300]) from exc
+        raise Invalid(Msg("{label}无法解析：{text}", label=label, text=text), error=str(exc)[:300]) from exc
     extra = [k for k, v in wrapper.args.items() if v and k != "expressions"]
     if not isinstance(wrapper, exp.Select) or len(wrapper.selects) != 1 or extra:
-        raise Invalid(f"{label}只能是单个表达式：{text}")
+        raise Invalid(Msg("{label}只能是单个表达式：{text}", label=label, text=text))
     node = wrapper.selects[0]
     if isinstance(node, exp.Alias):
-        raise Invalid(f"{label}不能带别名：{text}")
+        raise Invalid(Msg("{label}不能带别名：{text}", label=label, text=text))
     for sub in node.walk():
         if isinstance(sub, (exp.Subquery, exp.Select, exp.Window)):
-            raise Invalid(f"{label}不允许子查询或窗口函数：{text}")
+            raise Invalid(Msg("{label}不允许子查询或窗口函数：{text}", label=label, text=text))
         if isinstance(sub, exp.Func) and not isinstance(sub, ALLOWED_FUNCS):
-            raise Invalid(f"{label}使用了不允许的函数 {sub.sql_name()}：{text}")
+            raise Invalid(Msg("{label}使用了不允许的函数 {function}：{text}", label=label, function=sub.sql_name(), text=text))
         if not isinstance(sub, ALLOWED_FUNCS + ALLOWED_NODES) and not isinstance(sub, exp.Func):
-            raise Invalid(f"{label}包含不支持的语法 {type(sub).__name__}：{text}")
+            raise Invalid(Msg("{label}包含不支持的语法 {syntax}：{text}", label=label, syntax=type(sub).__name__, text=text))
         if isinstance(sub, exp.Star) and not isinstance(sub.parent, exp.Count):
-            raise Invalid(f"{label}只允许在 COUNT(*) 中使用星号：{text}")
+            raise Invalid(Msg("{label}只允许在 COUNT(*) 中使用星号：{text}", label=label, text=text))
     has_agg = node.find(exp.AggFunc) is not None
     if require_aggregate is True and not has_agg:
-        raise Invalid(f"{label}必须是聚合表达式（SUM / COUNT / AVG / MIN / MAX）：{text}")
+        raise Invalid(Msg("{label}必须是聚合表达式（SUM / COUNT / AVG / MIN / MAX）：{text}", label=label, text=text))
     if require_aggregate is False and has_agg:
-        raise Invalid(f"{label}不能包含聚合：{text}")
+        raise Invalid(Msg("{label}不能包含聚合：{text}", label=label, text=text))
     columns = []
     for column in node.find_all(exp.Column):
         alias = column.table or BASE_ALIAS
         if alias not in aliases:
-            raise Invalid(f"{label}引用了未定义的别名 {alias}：{text}")
+            raise Invalid(Msg("{label}引用了未定义的别名 {alias}：{text}", label=label, alias=alias, text=text))
         if column.args.get("db") or column.args.get("catalog"):
-            raise Invalid(f"{label}只能用“别名.列”引用：{text}")
+            raise Invalid(Msg("{label}只能用“别名.列”引用：{text}", label=label, text=text))
         column.set("table", exp.to_identifier(alias))
         columns.append((alias, column.name))
     return ParsedSnippet(node, columns)
 
 
 def column_ref(text: str, *, dialect: str, label: str, aliases: set[str]) -> tuple[str, str]:
+    label = label if isinstance(label, Msg) else Msg(label)
     snippet = parse_snippet(text, dialect=dialect, label=label, aliases=aliases, require_aggregate=False)
     if not isinstance(snippet.expression, exp.Column):
-        raise Invalid(f"{label}必须是单个列：{text}")
+        raise Invalid(Msg("{label}必须是单个列：{text}", label=label, text=text))
     return snippet.columns[0]
 
 

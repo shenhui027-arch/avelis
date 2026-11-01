@@ -13,6 +13,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.importer import service
+from avelis.i18n import Msg
 from avelis.models import CandidateEdge, ImportJob, User
 
 router = APIRouter(prefix="/api", tags=["导入血缘"])
@@ -73,7 +74,7 @@ async def upload(datasource_id: str = Form(...), file: UploadFile = File(...), d
     max_bytes = get_settings().import_max_bytes
     raw = await file.read(max_bytes + 1)
     if len(raw) > max_bytes:
-        raise HTTPException(413, f"文件超过 {max_bytes / 1024**2:g} MB")
+        raise HTTPException(413, Msg("文件超过 {size:g} MB", size=max_bytes / 1024**2))
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError as exc:

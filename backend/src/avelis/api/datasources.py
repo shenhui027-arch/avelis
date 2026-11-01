@@ -18,6 +18,7 @@ from avelis.config import get_settings
 from avelis.engines import engine_of, engines, get_engine
 from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
+from avelis.i18n import Msg, gettext
 from avelis.models import CollectionRun, Datasource, DatasourceCredential, EndpointAlias, Job, User
 from avelis.security import encrypt_secret
 
@@ -56,7 +57,7 @@ def datasource_view(session: Session, ds: Datasource) -> dict:
     return {
         "id": ds.id, "name": ds.name, "kind": ds.kind, "host": ds.host, "port": ds.port, "options": ds.options,
         "is_test_adapter": ds.is_test_adapter,
-        "source_label": "测试适配器" if ds.is_test_adapter else "真实数据库",
+        "source_label": gettext("测试适配器" if ds.is_test_adapter else "真实数据库"),
         "status": ds.status, "server_identity": ds.server_identity,
         "collect_interval_minutes": ds.collect_interval_minutes,
         "allow_exploration": ds.allow_exploration, "exploration_supported": _exploration_supported(ds),
@@ -115,13 +116,13 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
                       session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "steward")
     if session.scalar(select(Datasource.id).where(Datasource.name == body.name)):
-        raise HTTPException(409, f"数据源 {body.name} 已存在")
+        raise HTTPException(409, Msg("数据源 {name} 已存在", name=body.name))
     engine = get_engine(body.kind)
     if body.query is not None and not engine.supports(QUERY):
-        raise HTTPException(422, f"{engine.label} 适配器不支持问数执行，不需要只读查询账号")
+        raise HTTPException(422, Msg("{engine} 适配器不支持问数执行，不需要只读查询账号", engine=engine.label))
     missing = [o.label for o in engine.options if o.required and not (body.options or {}).get(o.key)]
     if missing:
-        raise HTTPException(422, f"{engine.label} 数据源缺少配置：{'、'.join(missing)}")
+        raise HTTPException(422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label, options="、".join(missing)))
     interval = (body.collect_interval_minutes if "collect_interval_minutes" in body.model_fields_set
                 else get_settings().collect_interval_minutes)
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,
@@ -177,7 +178,7 @@ def create_alias(body: AliasCreate, user: User = Depends(current_user),
     if session.get(Datasource, body.datasource_id) is None:
         _404("数据源不存在")
     if session.scalar(select(EndpointAlias.id).where(EndpointAlias.host == body.host, EndpointAlias.port == body.port)):
-        raise HTTPException(409, f"端点 {body.host}:{body.port} 已登记")
+        raise HTTPException(409, Msg("端点 {host}:{port} 已登记", host=body.host, port=body.port))
     alias = EndpointAlias(datasource_id=body.datasource_id, host=body.host, port=body.port, note=body.note,
                           created_by=user.id)
     session.add(alias)
@@ -202,7 +203,7 @@ def collect(datasource_id: str, wait: bool = False, user: User = Depends(current
     except LockBusy as exc:
         raise HTTPException(409, "该数据源正在采集中") from exc
     except CollectionFailed as exc:
-        raise HTTPException(502, f"采集失败：{exc}") from exc
+        raise HTTPException(502, Msg("采集失败：{error}", error=exc)) from exc
     session.expire_all()
     return run_view(session.get(CollectionRun, run_id))
 

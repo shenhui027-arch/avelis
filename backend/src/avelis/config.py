@@ -105,6 +105,7 @@ class Settings:
     db_pool_recycle_seconds: int = 1800
     import_max_bytes: int = 2 * 1024**2
     ask_max_tool_rounds: int = 8
+    reply_language: str = "auto"
     analysis_tool_calls: int = 30
     analysis_seconds: int = 300
     analysis_explore_limit: int = 8
@@ -201,6 +202,11 @@ def _enum(env: dict[str, str], key: str, default: str, choices: tuple[str, ...])
     return value
 
 
+def _reply_language(env: dict[str, str]) -> str:
+    value = _enum(env, "AVELIS_REPLY_LANGUAGE", Settings.reply_language, ("auto", "zh-cn", "zh-tw", "en"))
+    return {"zh-cn": "zh-CN", "zh-tw": "zh-TW"}.get(value, value)
+
+
 def _frontend_directory(env: dict[str, str]) -> Path | None:
     value = env.get("AVELIS_FRONTEND_DIR", "").strip()
     if not value:
@@ -269,6 +275,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
                                                 Settings.db_pool_recycle_seconds),
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
+        reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
         analysis_seconds=_positive_int(env, "AVELIS_ANALYSIS_SECONDS", Settings.analysis_seconds),
         analysis_explore_limit=_positive_int(env, "AVELIS_ANALYSIS_EXPLORE_LIMIT", Settings.analysis_explore_limit),
@@ -345,6 +352,10 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
               ("critical", "error", "warning", "info", "debug", "trace"))
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
+    try:
+        _reply_language(values)
+    except ValueError as exc:
+        values.problem("AVELIS_REPLY_LANGUAGE", str(exc))
     if values.get("AVELIS_DB_SSLMODE", "").strip():
         try:
             _enum(values, "AVELIS_DB_SSLMODE", "", ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"))

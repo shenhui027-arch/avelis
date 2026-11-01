@@ -159,6 +159,12 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | 元数据图证据发现（实验特性） |
 | `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | 证据解释（实验特性，本阶段只定义开关） |
 
+### 智能体 `[agent]`
+
+`reply_language`（环境变量 `AVELIS_REPLY_LANGUAGE`）默认是 `"auto"`，分析与问数的回答跟随请求的 `Accept-Language`；也可固定为 `"zh-CN"`、`"zh-TW"` 或 `"en"`。固定回答语言只影响智能体生成给用户看的文字，接口提示与导出标签仍按请求语言返回。
+
+分析运行把请求语言保存在已有的检查点 JSON 中；手动“立即运行”任务时，语言还会写入 Job，独立 worker 领取后仍使用本次请求的语言。问数会话把本轮语言保存在 LangGraph 会话上下文中，后续请求切换界面语言时会更新。无请求上下文的新定时运行默认使用 `zh-CN`，也可用固定回答语言配置控制。指标名、维度成员、字段名、数据取值及引用的元数据保留原文，核验与引用规则不变；语言指令放在运行的用户消息中，系统提示保持稳定。
+
 ### 模型 `[model]`
 
 模型提供方与密钥建议在系统的“设置 → 模型配置”页面维护（密钥加密存入元数据库，按用途指定模型）。下面的 `provider` 等几项只用于 `python -m avelis.bootstrap model` 预置一个提供方。

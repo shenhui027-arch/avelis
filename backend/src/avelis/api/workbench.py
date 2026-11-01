@@ -15,6 +15,7 @@ from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access
+from avelis.i18n import gettext
 from avelis.models import (
     Answer,
     Asset,
@@ -104,20 +105,20 @@ def workbench(user: User = Depends(current_user), session: Session = Depends(get
         Answer.asked_at >= today_start, Answer.status.in_(("blocked", "denied")))) or 0
     last_run = max((d["last_run_at"] or "" for d in datasources), default="")
     stages = [
-        {"key": "collect", "label": "采集", "value": str(sum(d["run_no"] for d in datasources)), "unit": "批次",
+        {"key": "collect", "label": gettext("采集"), "value": str(sum(d["run_no"] for d in datasources)), "unit": gettext("批次"),
          "status": "ok" if healthy == len(datasources) and datasources else "warn",
-         "note": f"{healthy} / {len(datasources)} 数据源正常", "at": last_run},
-        {"key": "lineage", "label": "血缘", "value": str(edges), "unit": "列级边",
+         "note": gettext("{healthy} / {total} 数据源正常", healthy=healthy, total=len(datasources)), "at": last_run},
+        {"key": "lineage", "label": gettext("血缘"), "value": str(edges), "unit": gettext("列级边"),
          "status": "warn" if pending_candidates else "ok",
-         "note": f"{pending_candidates} 条候选待确认" if pending_candidates else "无待确认候选"},
-        {"key": "change", "label": "变更", "value": str(len(open_sets)), "unit": "待处理",
+         "note": gettext("{count} 条候选待确认", count=pending_candidates) if pending_candidates else gettext("无待确认候选")},
+        {"key": "change", "label": gettext("变更"), "value": str(len(open_sets)), "unit": gettext("待处理"),
          "status": "danger" if semantic else "ok",
-         "note": f"{semantic} 项影响口径" if semantic else "无影响口径的变更"},
-        {"key": "metric", "label": "口径", "value": f"{published} / {len(metrics)}", "unit": "已发布",
-         "status": "warn" if affected else "ok", "note": f"{affected} 个受影响" if affected else "全部可用"},
-        {"key": "ask", "label": "问数", "value": str(answers_today), "unit": "今日",
+         "note": gettext("{count} 项影响口径", count=semantic) if semantic else gettext("无影响口径的变更")},
+        {"key": "metric", "label": gettext("口径"), "value": f"{published} / {len(metrics)}", "unit": gettext("已发布"),
+         "status": "warn" if affected else "ok", "note": gettext("{count} 个受影响", count=affected) if affected else gettext("全部可用")},
+        {"key": "ask", "label": gettext("问数"), "value": str(answers_today), "unit": gettext("今日"),
          "status": "danger" if blocked_today else "ok",
-         "note": f"{blocked_today} 次拦截" if blocked_today else "无拦截"},
+         "note": gettext("{count} 次拦截", count=blocked_today) if blocked_today else gettext("无拦截")},
     ]
 
     # --- 待办 ---
