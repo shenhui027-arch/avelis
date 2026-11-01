@@ -389,8 +389,12 @@ def build_schema(session: Session, datasource_id: str) -> dict:
 
 
 def _sqlglot_type(data_type: str) -> str:
-    base = re.sub(r"\(.*", "", data_type).strip().upper()
-    return base or "VARCHAR"
+    """解析用 schema 的列类型：逐层去掉长度 / 精度参数，保留嵌套结构与后缀（如 struct<a:decimal(10,2),b:int> →
+    STRUCT<A:DECIMAL,B:INT>，timestamp(6) with time zone → TIMESTAMP WITH TIME ZONE）。"""
+    base = data_type
+    while (stripped := re.sub(r"\([^()]*\)", "", base)) != base:
+        base = stripped
+    return base.strip().upper() or "VARCHAR"
 
 
 def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> None:
