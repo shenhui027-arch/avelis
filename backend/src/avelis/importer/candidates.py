@@ -14,11 +14,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
-# CLI 前缀属于完整字段；只有 CLI 参数允许用空格分隔值，普通赋值仍要求 = 或 :。
+# CLI 空格分隔只允许水平空白及反斜杠续行，不能吞掉下一行的密钥赋值。
 SECRET_PATTERN = re.compile(
     r"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"]?)(?:[^\W\d][\w-]*?)?"
     r"(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key)"
-    r"(?P=key_quote)(?(cli)(?:\s*[=:]\s*|\s+)|\s*[=:]\s*))"
+    r"(?P=key_quote)(?(cli)(?:\s*[=:]\s*|(?:[ \t]|\\\r?\n)+)|\s*[=:]\s*))"
     r"(?P<value>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|\"(?:\\[\s\S]|[^\"\\])*\"|"
     r"'(?:\\[\s\S]|[^'\\])*'|[^\s,;)\]}#]+)"
     r"|(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-]+:)(?P<password>[^@\s'\"]+)(?=@[\w.\[-])"

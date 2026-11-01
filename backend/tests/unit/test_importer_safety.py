@@ -31,11 +31,21 @@ def test_redact_common_secret_forms_once(source, secrets, count):
 
 
 @pytest.mark.parametrize("key", ["password", "api-key", "service-api-key"])
-@pytest.mark.parametrize("separator", ["=", " "])
+@pytest.mark.parametrize("separator", ["=", ":", " ", "\t", " \t ", " \\\n  ", " \\\r\n\t"])
 @pytest.mark.parametrize("quote", ["", "'", '\"'])
 def test_redact_cli_secret_values_and_preserve_flags(key, separator, quote):
     source = f'client --{key}{separator}{quote}synthetic-only-secret{quote} --mode=public'
     expected = f'client --{key}{separator}{quote}<redacted>{quote} --mode=public'
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("trailing_space", ["", " \t"])
+@pytest.mark.parametrize("assignment", ['password = "actual secret"', '"password": "actual secret"'])
+def test_redact_cli_flag_does_not_consume_next_line_assignment(newline, trailing_space, assignment):
+    source = f"# run with --password{trailing_space}{newline}{assignment}{newline}"
+    expected = source.replace("actual secret", "<redacted>")
     assert redact(source) == (expected, 1)
     assert redact(expected) == (expected, 0)
 
