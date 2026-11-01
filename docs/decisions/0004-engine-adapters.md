@@ -45,7 +45,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
      - 视图解析记为 `unsupported`，原因写明；
      - 执行类操作返回 409 `CapabilityMissing`。
    - 不降级猜测。
-   - MySQL 当前只有 `metadata` 和 `identity_target`；它的视图解析和问数执行没有在真实环境验证，所以不声明。
+   - MySQL 声明 `metadata`、`identity_target`、`view_lineage`、`query`、`live_check`、`ddl_audit`；其中 DDL 归因需要显式绑定可读的审计表，离线验证与真实实例验收分开说明。
 4. **统一的资产名**：仍是 `catalog.db.name` 三段。
    - 只有 库.表 两级的引擎（MySQL、Hive、ClickHouse）用适配器给的固定 Catalog 补齐。
      这些引擎的查询不认 Catalog 段：生成 SQL 时省略，执行前校验再按方言的固定 Catalog 补回后比对（M7）。
@@ -67,13 +67,26 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | 引擎 | 版本（演示实例） | 能力 | 要点 |
 |---|---|---|---|
 | StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对、可选 DDL 审计归因（`DDL_AUDIT`） | M0–M4；审计需安装 AuditLoader、授权采集账号 SELECT，并通过 `options.ddl_audit_table` 绑定审计表；见 [StarRocks 实机核验与审计说明](../engines/starrocks.md) |
-| MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
+| MySQL | 8.4 | 元数据、视图血缘、问数、执行前核对、DDL 归因、作为外部表的追溯目标 | DDL 审计表可选绑定；来源与证据边界见下 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 | SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增默认跟踪归因仅离线单元测试验证，见下 |
 | Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增统一审计归因仅离线单元测试验证，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 | Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
+
+### MySQL
+
+MySQL 8.4 适配器补齐视图血缘、问数、执行前核对与可选 DDL 归因；新增能力由离线单元测试覆盖，真实实例中的账号权限、超时和审计配置仍需部署方验收。
+
+- 资产名为 `def.库.表`；查询 SQL 只写 `库.表`，执行前核对按固定 Catalog 补回后比较。
+- 视图定义取 `information_schema.VIEWS.VIEW_DEFINITION`。MySQL 会改写定义并补充库名与反引号，直接交给 SQLGlot 的 `mysql` 方言解析列级血缘，保留采集到的定义用于执行前核对。
+- 问数通过 `pymysql` 使用独立的只读账号，设置 `MAX_EXECUTION_TIME`、驱动超时与返回行数上限，并在只读事务内执行。查询账号需要 `SELECT` 与 `SHOW VIEW`，供执行前核对读取涉及对象的结构和视图定义。`information_schema.tables.UPDATE_TIME` 不能可靠代表最近写入时间，因此不报告数据新鲜度。
+- DDL 审计来源通过数据源选项 `ddl_audit_table` 显式绑定，填写 `库.表`，提示值为 `mysql.general_log`；未绑定时没有审计来源，不会自动读取该表。绑定通用查询日志表时，要求 `general_log=ON`、`log_output` 包含 `TABLE` 且不含 `NONE`，采集账号有该表的 `SELECT` 权限（`NONE` 优先于 `TABLE`）。审计插件表需提供兼容的 `event_time`、`user_host`、`command_type`、`argument` 字段；`event_time` 只接受 `TIMESTAMP`（可带精度），不接受没有时区契约的 `DATETIME`，否则报告 `incompatible`。
+- 审计查询粗筛 `CREATE`、`ALTER`、`DROP`、`RENAME`、`TRUNCATE` 请求，再解析涉及的对象、列以及 `user_host` 中的用户名。候选读取上限为 10000 条；超限时报告 `unavailable` / `error`，明确说明无法完整归因，不截断后继续给出 `matched`。
+- 通用查询日志记录的是服务器**收到**的语句，既不证明执行成功，也不保证与执行顺序一致；记录只作为候选证据，与采集到的结构变化、时间窗口、对象名及可解析的列名、重定义等语法证据共同判断。日志没有可靠的当前库上下文；遇到未带库名的目标、含可能影响采集范围 DDL 的真正多语句请求，或 MySQL 可执行注释时，报告 `unavailable` / `incompatible`，明确提示无法可靠确定候选，避免遗漏候选后错误归因。显式 `TEMPORARY` 对象排除；`CREATE INDEX` / `DROP INDEX` 以 `ON` 后的表作为候选，但保守记为 `ambiguous`。其他能确认目标但无法解析动作的请求也保留候选，保守记为 `ambiguous`。归因状态沿用 ADR 0008。[MySQL 官方文档：通用查询日志](https://dev.mysql.com/doc/refman/8.4/en/query-log.html)
+- `mysql.general_log.event_time` 为 `TIMESTAMP`，存储时转换为 UTC，读取时按会话 `time_zone` 转换。审计读取会话设为 `+00:00`，统一以 UTC 与结构变更时间比较；`log_timestamps` 只影响文件日志的时间戳，不影响日志表。[MySQL 官方文档：日期时间类型](https://dev.mysql.com/doc/refman/8.4/en/datetime.html)、[通用查询日志时间戳](https://dev.mysql.com/doc/refman/8.4/en/query-log.html)
+- 审计来源不可用时如实区分：未绑定审计表；`not_enabled`（`general_log=OFF`、`log_output` 不含 `TABLE` 或包含 `NONE`）；`no_permission`（采集账号不能读取审计表）；`incompatible`（来源结构不符合要求，或无法可靠确定候选）；`error`（其他读取失败，保留错误摘要）。这些情况不猜测变更人。
 
 **ClickHouse**（M7，真实实例联调）：
 

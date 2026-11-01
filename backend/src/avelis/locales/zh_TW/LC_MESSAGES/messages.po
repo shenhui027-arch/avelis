@@ -42,9 +42,6 @@ msgstr "format 只能是 pdf、html、md 或 csv"
 msgid "kind 只能是 openai_compatible 或 anthropic"
 msgstr "kind 只能是 openai_compatible 或 anthropic"
 
-msgid "目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
-msgstr "目前只採中繼資料，作為外部資料表 / Catalog 表的追溯目標；檢視表解析與問數執行尚未整合測試"
-
 msgid "{count} 个受影响"
 msgstr "{count} 個受影響"
 
@@ -1871,3 +1868,60 @@ msgstr "Oracle 統一稽核來源結構與連接器要求不符（{error}）"
 
 msgid "读取 Oracle 统一审计失败（{error}）"
 msgstr "讀取 Oracle 統一稽核失敗（{error}）"
+
+msgid "DDL 审计记录包含 MySQL 可执行注释，无法可靠确定候选"
+msgstr "DDL 稽核紀錄包含 MySQL 可執行註解，無法可靠確認候選"
+
+msgid "DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"
+msgstr "DDL 稽核語句缺少目前資料庫的上下文：存在未限定資料庫名稱的物件，無法可靠確認候選"
+
+msgid "DDL 审计记录包含多条语句，无法可靠确定候选"
+msgstr "DDL 稽核紀錄包含多條語句，無法可靠確認候選"
+
+msgid "超时值必须为正数，未执行"
+msgstr "逾時值必須為正數，未執行"
+
+msgid "DDL 审计候选超过读取上限（{limit} 条），无法完整归因"
+msgstr "DDL 稽核候選超過讀取上限（{limit} 筆），無法完整歸因"
+
+msgid "未绑定 DDL 审计表（options.ddl_audit_table），没有审计来源"
+msgstr "未綁定 DDL 稽核表（options.ddl_audit_table），沒有稽核來源"
+
+msgid "DDL 审计表名称无效：请填写库.表"
+msgstr "DDL 稽核表名稱無效：請填寫資料庫.資料表"
+
+msgid "DDL 审计表 {table} 结构不符：缺少列 {columns}"
+msgstr "DDL 稽核表 {table} 結構不符：缺少欄位 {columns}"
+
+msgid "DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区"
+msgstr "DDL 稽核表 {table} 的 event_time 必須為 TIMESTAMP；不能推測 DATETIME 的時區"
+
+msgid "DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列"
+msgstr "DDL 稽核表 {table} 的 user_host、command_type、argument 必須為文字或二進位欄位"
+
+msgid "DDL 审计表的 {column} 不是有效的 UTF-8 文本"
+msgstr "DDL 稽核表的 {column} 不是有效的 UTF-8 文字"
+
+msgid "MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"
+msgstr "MySQL 通用查詢日誌未寫入資料表：需要 general_log=ON 且 log_output 包含 TABLE"
+
+msgid "读取 DDL 审计表 {table} 失败：{error}"
+msgstr "讀取 DDL 稽核表 {table} 失敗：{error}"
+
+msgid "DDL 审计表的 user_host 无法解析数据库用户名，不能归因"
+msgstr "DDL 稽核表的 user_host 無法解析資料庫使用者名稱，無法歸因"
+
+msgid "DDL 审计表的 event_time 不是有效的时间值"
+msgstr "DDL 稽核表的 event_time 不是有效的時間值"
+
+msgid "查询行数上限不能为负数，未执行"
+msgstr "查詢列數上限不能為負數，未執行"
+
+msgid "MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用"
+msgstr "MySQL 檢視表 {name} 未讀取到定義（需要 SHOW VIEW 權限）；欄位級血緣無法使用"
+
+msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+msgstr "可選擇綁定資料庫.資料表，例如 mysql.general_log；通用日誌需 general_log=ON 且 log_output 包含 TABLE，採集帳號需 SELECT；相容稽核表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；DDL 归因需绑定审计表，日志只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用唯讀帳號（SELECT 與 SHOW VIEW）；server_uuid 確認執行個體身分；不回報資料新鮮度；DDL 歸因需綁定稽核表，日誌只作候選證據，與結構變化交叉核對；稽核時間統一以 UTC 讀取"
