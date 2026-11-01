@@ -69,9 +69,9 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓（需啟用統一稽核原則） |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
-| MySQL | 8.4 | ✓ | | | | |
+| MySQL | 8.4 | ✓ | ✓ | ✓ | ✓ | ✓（需綁定稽核表） |
 
-StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表；MySQL 目前作為這些外部表的追溯目標採集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，見 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
+StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表。MySQL 支援檢視表欄位級血緣、唯讀問數與執行前核對；變更歸因需綁定 DDL 稽核表，例如已開啟表輸出的 `mysql.general_log`，紀錄僅作候選證據，需與採集到的結構變化相互印證。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，見 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
 
 ## 快速開始
 
