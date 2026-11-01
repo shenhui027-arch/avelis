@@ -487,3 +487,12 @@ def test_export_does_not_write_files_when_validation_fails(monkeypatch, tmp_path
 def test_redis_host_without_port_uses_standard_port():
     url = urlsplit(settings(AVELIS_REDIS_HOST="redis", AVELIS_REDIS_PASSWORD="pw").redis_url)
     assert (url.hostname, url.port) == ("redis", 6379)
+
+
+def test_export_service_secrets_keeps_literal_plus_in_url_passwords(monkeypatch, tmp_path):
+    # URL 口令是百分号编码：字面量 + 不能变成空格，否则导出的口令与客户端实际使用的不一致
+    monkeypatch.setenv("AVELIS_DATABASE_URL", "postgresql+psycopg://avelis:a+b%2Bc@postgres:5432/avelis")
+    monkeypatch.setenv("AVELIS_REDIS_URL", "redis://:c+d@redis:6379/0")
+    config.main(["export-service-secrets", str(tmp_path)])
+    assert (tmp_path / "postgres_password").read_text(encoding="utf-8") == "a+b+c"
+    assert (tmp_path / "redis_password").read_text(encoding="utf-8") == "c+d"

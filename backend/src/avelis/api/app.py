@@ -24,7 +24,8 @@ from avelis.api import (
     model_settings,
     workbench,
 )
-from avelis.cache import LockBusy, client as cache_client
+from avelis.cache import LockBusy
+from avelis.cache import client as cache_client
 from avelis.config import get_settings
 from avelis.db import get_engine
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine

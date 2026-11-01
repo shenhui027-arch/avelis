@@ -9,7 +9,7 @@
 | B_raw / B0 / E1 manifest | `experiments/agent-v2/manifest.yaml`；可重算字段：`fingerprint.py` | `b999dd5` 起 |
 | 评分器 v2（旧 `scoring.py` 与题目文件未改） | `backend/tests/eval/scoring_v2.py`、`analysis_questions_v2.yaml` | `7f6f8e4`、`2f55cca` |
 | 全部已保存评测的旧 / 新重评 | `experiments/agent-v2/rescore/`（`rescore_v2.py` 生成） | 同上 |
-| 轨迹诊断 | `docs/agent-v2/diagnosis.md` | 本文所在提交 |
+| 轨迹诊断 | `docs/archive/agent-v2/diagnosis.md` | 本文所在提交 |
 | 修复 A 澄清 | `agent.py`、`tools.py`、`service.py`、分析详情页横幅 | `0378526` |
 | 修复 E 模型接入协议 | `backend/src/avelis/llm_protocol.py`、`modelcfg.py`、`agent.py`、`tools.Budget` | `156a2dd`、`0c7506c` |
 | 修复 F 复用语义 | `tools.py` | `711ed85` |
@@ -91,7 +91,7 @@ AVELIS_ENV_FILE=<主检出>/.env uv run --project backend python experiments/age
 | 项 | 状态 | 需要 |
 |---|---|---|
 | E0 协议冒烟 | 已运行（8 次请求，0.0028 元）；发现并修复 max_tokens 字段不兼容 | — |
-| E1 | 已完成 48 次，实际 3.52 元（结果见 `docs/agent-v2/results-e1.md`）；已用评分器 v2.1 重判（`docs/agent-v2/scorer-v2_1.md`） | 是否出 v2.1.1 修正跨维度成员拆分（3 次历史假阴性） |
+| E1 | 已完成 48 次，实际 3.52 元（结果见 `docs/archive/agent-v2/results-e1.md`）；已用评分器 v2.1 重判（`docs/archive/agent-v2/scorer-v2_1.md`） | 是否出 v2.1.1 修正跨维度成员拆分（3 次历史假阴性） |
 | B0 缺陷（传输错误重试、token 上限预估） | 已修复并有回归测试（`57896ef`），未用真实模型复测 | 下次授权运行时观察 |
 | 与真实数据库的集成测试（澄清状态写库、版本变更后的复用） | 未运行 | 私有元数据库；本会话只有单元测试 |
 | 前端待澄清横幅 | 只改代码，未在浏览器里看过 | 演示环境 |

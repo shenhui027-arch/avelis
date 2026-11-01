@@ -1,5 +1,6 @@
 """演示走查（uv run scripts/demo_view.py v1|v2）：用 root 修改 shop.daily_sales 视图（v1 = 实付，v2 = 净额）。口令从 .env 读取，不打印。"""
 import sys
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 import demo  # noqa: E402
 

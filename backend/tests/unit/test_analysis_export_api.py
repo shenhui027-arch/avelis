@@ -11,9 +11,27 @@ from sqlalchemy.pool import StaticPool
 
 from avelis.api import analysis
 from avelis.api.deps import current_user, get_session
-from avelis.models import (AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, Asset,
-                           AssetColumn, AssetVersion, CollectionRun, ColumnVersion, Datasource, Domain,
-                           DomainMember, IdentityLink, LineageEdge, Metric, MetricVersion, User, UserRole)
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisMessage,
+    AnalysisRun,
+    AnalysisStep,
+    AnalysisTask,
+    Asset,
+    AssetColumn,
+    AssetVersion,
+    CollectionRun,
+    ColumnVersion,
+    Datasource,
+    Domain,
+    DomainMember,
+    IdentityLink,
+    LineageEdge,
+    Metric,
+    MetricVersion,
+    User,
+    UserRole,
+)
 from tests.unit.test_analysis_export_audience import _pdf_text
 
 

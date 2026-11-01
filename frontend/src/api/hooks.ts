@@ -1,6 +1,7 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { t } from "../i18n";
 import { api, ApiError, unwrap, type Schemas } from "./client";
 
 export type Asset = Schemas["AssetOut"];
@@ -22,9 +23,9 @@ export type Graph = Schemas["GraphOut"];
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     const body = e.body as { blockers?: string[] } | undefined;
-    return body?.blockers?.length ? `${e.message}：${body.blockers.join("；")}` : e.message;
+    return body?.blockers?.length ? t("{{message}}：{{reasons}}", { message: e.message, reasons: body.blockers.join(t("；")) }) : e.message;
   }
-  return e instanceof Error ? e.message : "操作失败";
+  return e instanceof Error ? e.message : t("操作失败");
 }
 
 export const useAppSettings = () => useQuery({
@@ -119,7 +120,7 @@ export const useAudit = (objectType?: string, objectId?: string) => useQuery({
     params: { query: { object_type: objectType ?? null, object_id: objectId ?? null, limit: 50 } } })),
 });
 
-/** 操作：成功后刷新相关查询；失败抛出后端的中文原因。 */
+/** 操作：成功后刷新相关查询；失败抛出后端给出的原因。 */
 export function useAction<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>, invalidate: string[] = []) {
   const qc = useQueryClient();
   return useMutation({
