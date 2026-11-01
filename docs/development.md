@@ -24,6 +24,7 @@ uv run python -m avelis.jobs                   # 后台 worker：采集任务、
 uv run python -m avelis.config check           # 查看生效配置与来源（口令脱敏）
 AVELIS_FRONTEND_DIR=frontend/dist uv run python -m avelis.server  # 按生产方式单端口运行（需先 pnpm build）
 uv run pytest                                  # 单元测试
+uvx ruff@0.17.3 check .                        # 代码检查（规则在 pyproject.toml；仓库根目录再跑一次检查脚本与实验代码）
 uv run pytest -m acceptance                    # 验收（会重置演示库与元数据库）
 uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API 建好用户、业务域、数据源，完成首次采集
 ```

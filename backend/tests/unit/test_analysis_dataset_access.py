@@ -20,8 +20,20 @@ from avelis.api.deps import current_user, get_session
 from avelis.db import Base
 from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.models import (
-    AnalysisDataset, AnalysisRun, AnalysisStep, Answer, Asset, Datasource, Domain, DomainMember,
-    IdentityLink, LineageEdge, Metric, MetricVersion, User, UserRole,
+    AnalysisDataset,
+    AnalysisRun,
+    AnalysisStep,
+    Answer,
+    Asset,
+    Datasource,
+    Domain,
+    DomainMember,
+    IdentityLink,
+    LineageEdge,
+    Metric,
+    MetricVersion,
+    User,
+    UserRole,
 )
 
 

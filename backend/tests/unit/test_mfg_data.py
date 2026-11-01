@@ -10,12 +10,12 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import mfg_data
 import pytest
 import sqlglot
 import yaml
 from sqlglot import exp
 
-import mfg_data
 from avelis import demo_setup
 from tests.eval import scoring, scoring_v2, scoring_v2_1, scoring_v2_1_1
 

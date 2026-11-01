@@ -9,8 +9,6 @@ import json
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
-
 from avelis.analysis import attribution, tools
 from avelis.analysis.grounding import scope_key
 from avelis.analysis.tools import Budget
