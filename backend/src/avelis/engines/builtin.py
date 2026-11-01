@@ -87,11 +87,14 @@ SQLSERVER = Engine(
     script_separators=("GO",),
     sql=SqlDialect(name="tsql", default_catalog="master", national_strings=True),
     name_levels=("database", "schema", "table"), catalog_option="database",
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
     collector=SqlServerConnector, querier=SqlServerConnector, default_port=1433,
     options=(OptionField("database", "库", type="text", required=True),
              OptionField("schemas", "采集的模式", required=True)),
-    note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度",
+    note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；"
+         "DDL 归因需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；"
+         "只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；"
+         "StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移，跨夏令时可能不准确",
 )
 
 ORACLE = Engine(
@@ -101,11 +104,13 @@ ORACLE = Engine(
     sql=SqlDialect(name="oracle", default_catalog="FREEPDB1", normalize=fold_identifiers("oracle"),
                    catalog_in_sql=False, date_has_time=True),
     name_levels=("service", "schema", "table"), catalog_option="service",
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
     collector=OracleConnector, querier=OracleConnector, default_port=1521,
     options=(OptionField("service", "服务名", type="text", required=True, hint="如 FREEPDB1"),
              OptionField("schemas", "采集的模式", required=True, hint="模式名按大写保存")),
-    note="采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度",
+    note="采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；"
+         "DDL 归因需启用覆盖 TABLE、VIEW 等 CREATE / ALTER / DROP 的统一审计策略，并授予 AUDIT_VIEWER 或等效读取权限；"
+         "只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取",
 )
 
 DORIS = Engine(

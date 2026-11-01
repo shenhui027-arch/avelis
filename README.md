@@ -65,8 +65,8 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 | StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | [✓（需绑定 AuditLoader 审计表）](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
-| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
+| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | ✓（需启用默认跟踪） |
+| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓（需启用统一审计策略） |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
@@ -166,7 +166,6 @@ pnpm dev
 计划中的方向，不承诺日期：
 
 - 更多引擎的外部 Catalog 与物化视图。
-- SQL Server、Oracle 的变更归因。
 - 问数表达能力：派生指标嵌套、按周 / 月的时间粒度、占比。
 
 版本变化见[更新日志](CHANGELOG.md)。
