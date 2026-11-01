@@ -361,11 +361,15 @@ def test_render_decodes_json_array_strings_once(parts):
     assert render(encoded, DATA, WINDOW) == render(parts, DATA, WINDOW)
 
 
-@pytest.mark.parametrize("words", [
-    pytest.param("[" + "9" * 5000 + "]", id="integer-limit"),
-    pytest.param("[" * 5000 + '"nested"' + "]" * 5000, id="nesting-limit"),
-])
-def test_render_preserves_json_when_decoding_exceeds_parser_limits(words):
+@pytest.mark.parametrize("error", [ValueError, RecursionError], ids=["value-error", "recursion-error"])
+def test_render_preserves_json_when_decoding_exceeds_parser_limits(error, monkeypatch):
+    words = '["解析失败时保留原文"]'
+
+    def fail_decode(value):
+        assert value == words
+        raise error("parser limit")
+
+    monkeypatch.setattr(grounding.json, "loads", fail_decode)
     rendered = render(words, DATA, WINDOW)
     assert rendered["text"] == words and rendered["errors"] == []
     assert rendered["segments"] == [{"kind": "text", "part": 1, "text": words}]

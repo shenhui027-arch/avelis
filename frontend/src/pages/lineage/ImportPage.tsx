@@ -573,15 +573,18 @@ function Files({ b, stats }: { b: Batch; stats: Stats }) {
   const saved = useSqlFunctions(b.datasource_id);
   const [message, setMessage] = useMessage();
   const suggested = (stats.suggested_sql_functions ?? []).filter((n) => !saved.data?.sql_functions.includes(n));
-  const add = useAction((names: string[]) => unwrap(api.PUT("/api/imports/sql-functions/{datasource_id}", {
-    params: { path: { datasource_id: b.datasource_id } }, body: { sql_functions: [...(saved.data?.sql_functions ?? []), ...names] } })), ["import-sql-functions"]);
+  // 逐个原子追加：已保存规则未加载或读取失败时也不会被覆盖。
+  const add = useAction(async (names: string[]) => {
+    for (const name of names) await unwrap(api.POST("/api/imports/sql-functions/{datasource_id}", {
+      params: { path: { datasource_id: b.datasource_id } }, body: { sql_function: name } }));
+  }, ["import-sql-functions"]);
   const tz = useTimeZone();
   return <div className="av-stack">
     {suggested.length ? <div className="av-import-suggest">
       <span>{t("模型发现这些函数在执行 SQL：")}<span className="av-mono">{suggested.join(", ")}</span></span>
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={add.isPending}
         onClick={() => add.mutate(suggested, { onSuccess: () => { setMessage({ ok: true, text: t("已加入规则，下次导入按规则抽取") }); qc.invalidateQueries({ queryKey: ["import-sql-functions"] }); },
-          onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>{t("加入规则")}</button>
+          onError: (e) => { setMessage({ ok: false, text: errorText(e) }); qc.invalidateQueries({ queryKey: ["import-sql-functions"] }); } })}>{t("加入规则")}</button>
     </div> : null}
     <Banner message={message} />
     <div className="av-list">{b.files.map((f) => {

@@ -303,12 +303,17 @@ def test_upload_multiple_files_and_json_options(allowed, monkeypatch, field):
 class SettingSession:
     def __init__(self):
         self.setting = None
+        self.queries = []
 
-    def get(self, entity, object_id):
+    def get(self, entity, object_id, **kwargs):
         if entity is Datasource:
             return Datasource(id=object_id)
         assert entity is AppSetting
         return self.setting
+
+    def scalar(self, query):
+        self.queries.append(query)
+        return "ds-1"
 
     def add(self, item):
         self.setting = item

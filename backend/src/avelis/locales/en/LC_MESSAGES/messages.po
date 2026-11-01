@@ -1929,3 +1929,7 @@ msgstr "The collection account needs metadata visibility and SHOW VIEW; queries 
 
 msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
 msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditLoader 4.2.2; DDL attribution requires a bound audit table and SELECT permission, and is unsupported without a binding. The FE time zone was UTC; conversion from non-UTC time zones has not been validated on real instances. Statements issued within the first tens of seconds after plugin installation may not be recorded and are then unmatched."
+
+#: src/avelis/api/imports.py
+msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
+msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
