@@ -8,17 +8,19 @@ import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
 import { Plat } from "../components/ui";
 import { formatTime } from "../format";
+import { t } from "../i18n";
+import { LanguageMenuGroup } from "../i18n/LanguageMenu";
 import { setThemePref, useThemePref, type ThemePref } from "../theme";
 
 // 侧边栏：品牌、数据源、新问题、主导航、我的（经验与定时任务）、最近对话，底部是设置、通知与用户菜单。
 // 收起后只留图标（72px），偏好存在本机浏览器。
 
-const NAV = [
-  { to: "/", label: "工作台", icon: "home", end: true },
-  { to: "/analysis", label: "问数", icon: "ask" },
-  { to: "/lineage", label: "血缘", icon: "lineage" },
-  { to: "/catalog", label: "目录", icon: "catalog" },
-  { to: "/changes", label: "变更", icon: "change" },
+const NAV: { to: string; label: string; icon: string; end?: boolean }[] = [
+  { to: "/", label: t("工作台"), icon: "home", end: true },
+  { to: "/analysis", label: t("问数"), icon: "ask" },
+  { to: "/lineage", label: t("血缘"), icon: "lineage" },
+  { to: "/catalog", label: t("目录"), icon: "catalog" },
+  { to: "/changes", label: t("变更"), icon: "change" },
 ];
 
 export function useMe() {
@@ -36,8 +38,8 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-const ROLE_LABEL: Record<string, string> = { admin: "管理员", steward: "维护者", reviewer: "复核者", analyst: "查询者" };
-const THEMES: [ThemePref, string][] = [["system", "跟随系统"], ["dark", "深色"], ["light", "浅色"]];
+const ROLE_LABEL: Record<string, string> = { admin: t("管理员"), steward: t("维护者"), reviewer: t("复核者"), analyst: t("查询者") };
+const THEMES: [ThemePref, string][] = [["system", t("跟随系统")], ["dark", t("深色")], ["light", t("浅色")]];
 
 /** 点外部或按 Esc 关闭的弹出菜单。 */
 function usePopover() {
@@ -77,9 +79,9 @@ function UserMenu() {
           <div className="av-menu__head">
             <b>{u.display_name}</b>
             <span className="av-mono">{u.username}</span>
-            {tz ? <span>业务时区 {tz}</span> : null}
+            {tz ? <span>{t("业务时区 {{tz}}", { tz })}</span> : null}
           </div>
-          <div className="av-menu__group" role="group" aria-label="主题">
+          <div className="av-menu__group" role="group" aria-label={t("主题")}>
             {THEMES.map(([value, label]) => (
               <button key={value} type="button" role="menuitemradio" aria-checked={theme === value}
                 className="av-menu__item" onClick={() => setThemePref(value)}>
@@ -87,9 +89,10 @@ function UserMenu() {
               </button>
             ))}
           </div>
+          <LanguageMenuGroup />
           <button type="button" role="menuitem" className="av-menu__item"
             onClick={() => { setOpen(false); navigate("/account/password"); }}>
-            <Icon name="lock" />修改密码
+            <Icon name="lock" />{t("修改密码")}
           </button>
           <button type="button" role="menuitem" className="av-menu__item"
             onClick={async () => {
@@ -99,7 +102,7 @@ function UserMenu() {
               queryClient.clear();
               navigate("/login", { replace: true });
             }}>
-            <Icon name="logout" />退出登录
+            <Icon name="logout" />{t("退出登录")}
           </button>
         </div>
       ) : null}
@@ -119,13 +122,13 @@ function NotificationBell() {
   return (
     <div className="av-usermenu av-notices" ref={ref}>
       <button type="button" className="av-sb__icon" aria-haspopup="menu" aria-expanded={open}
-        aria-label={unread ? `通知（${unread} 条未读）` : "通知"} onClick={() => setOpen(!open)}>
+        aria-label={unread ? t("通知（{{count}} 条未读）", { count: unread }) : t("通知")} onClick={() => setOpen(!open)}>
         <Icon name="bell" />
         {unread ? <span className="av-notices__count">{unread > 99 ? "99+" : unread}</span> : null}
       </button>
       {open ? (
         <div className="av-menu av-menu--up" role="menu">
-          {items.length === 0 ? <div className="av-menu__head">没有通知</div> : null}
+          {items.length === 0 ? <div className="av-menu__head">{t("没有通知")}</div> : null}
           {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
             <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
               data-unread={!n.read_at} onClick={async () => {
@@ -157,7 +160,7 @@ function RecentRuns() {
   if (!items.length) return null;
   return (
     <>
-      <div className="av-sb__sec av-sb__label">最近对话</div>
+      <div className="av-sb__sec av-sb__label">{t("最近对话")}</div>
       <div className="av-sb__recent">
         {items.map((r) => {
           const tone = r.status === "succeeded" ? (r.verified ? "ok" : "warn") : RUN_TONE[r.status] ?? "";
@@ -214,24 +217,24 @@ function Sidebar() {
     }
   };
   return (
-    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}`} aria-label="主导航">
+    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}`} aria-label={t("主导航")}>
       <div className="av-sb__brand">
-        <Link to="/" aria-label="Avelis 工作台">{collapsed ? <LogoMark size={28} /> : <Logo size={28} />}</Link>
+        <Link to="/" aria-label={t("Avelis 工作台")}>{collapsed ? <LogoMark size={28} /> : <Logo size={28} />}</Link>
         <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
-          aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!collapsed}>
+          aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")} aria-expanded={!collapsed}>
           <Icon name="sidebar" />
         </button>
       </div>
       {primary ? (
-        <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title="数据源与最近一次采集">
+        <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title={t("数据源与最近一次采集")}>
           <Plat kind={primary.kind} />
           <span className="av-sb__label">{primary.name}
             <small><span className={`av-dot${ok === null ? "" : ok ? " av-dot--ok" : " av-dot--danger"}`} />
-              {ok === null ? "尚未采集" : ok ? "采集正常" : "采集失败"}</small></span>
+              {ok === null ? t("尚未采集") : ok ? t("采集正常") : t("采集失败")}</small></span>
         </Link>
       ) : null}
-      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title="新问题">
-        <Icon name="plus" /><span className="av-sb__label">新问题</span>
+      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新问题")}>
+        <Icon name="plus" /><span className="av-sb__label">{t("新问题")}</span>
       </button>
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
@@ -244,18 +247,18 @@ function Sidebar() {
           <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
         </NavLink>
       ))}
-      <div className="av-sb__sec av-sb__label">我的</div>
-      <NavLink to="/analysis/experiences" className="av-sb__nv" title="个人经验">
-        <Icon name="chip" /><span className="av-sb__label">个人经验</span>
+      <div className="av-sb__sec av-sb__label">{t("我的")}</div>
+      <NavLink to="/analysis/experiences" className="av-sb__nv" title={t("个人经验")}>
+        <Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span>
       </NavLink>
-      <NavLink to="/analysis/tasks" className="av-sb__nv" title="定时任务">
-        <Icon name="refresh" /><span className="av-sb__label">定时任务</span>
+      <NavLink to="/analysis/tasks" className="av-sb__nv" title={t("定时任务")}>
+        <Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>
         {tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}
       </NavLink>
       {collapsed ? null : <RecentRuns />}
       <span className="av-sb__spacer" />
-      <NavLink to="/settings" className="av-sb__nv" title="设置">
-        <Icon name="settings" /><span className="av-sb__label">设置</span>
+      <NavLink to="/settings" className="av-sb__nv" title={t("设置")}>
+        <Icon name="settings" /><span className="av-sb__label">{t("设置")}</span>
       </NavLink>
       <div className="av-sb__foot">
         <UserMenu />
@@ -282,10 +285,10 @@ export function Shell() {
 }
 
 export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" }) {
-  const items = [["datasources", "数据源"], ["models", "模型配置"], ["users", "用户"]] as const;
+  const items = [["datasources", t("数据源")], ["models", t("模型配置")], ["users", t("用户")]] as const;
   // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (
-    <nav className="av-seg" aria-label="设置分区">
+    <nav className="av-seg" aria-label={t("设置分区")}>
       {items.map(([key, label]) => (
         <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}
           >{label}</Link>
