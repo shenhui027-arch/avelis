@@ -29,7 +29,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 
 from avelis.analysis import attribution, calc, explore, investigation, measures, retrieval
-from avelis.analysis.grounding import Cause, Part, decode_parts, describe_scope, scope_key
+from avelis.analysis.grounding import Cause, NumberRef, Part, decode_parts, describe_scope, resolve, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import MAX_LIMIT, DimensionFilter, Intent, comparison_range
@@ -461,7 +461,8 @@ class CoverageArgs(BaseModel):
 class ValueRef(BaseModel):
     name: str = Field(description="公式中的变量名（字母、数字、下划线）")
     dataset: str = Field(description="数据集编号")
-    column: str = Field(description="列名")
+    column: str | None = Field(None, description="列名；与 summary 二选一")
+    summary: str | None = Field(None, description="计算类数据集登记的汇总路径，如 value、total.change；不能带选行条件")
     match: dict[str, str] = Field(default_factory=dict, description="选行条件；选出多行时对该列求和")
     exclude: dict[str, str] = Field(default_factory=dict, description="排除的行（如排除某个成员后求其余合计）")
 
@@ -2416,9 +2417,22 @@ class AnalysisToolbox:
             missing = [n for n in names if n not in given]
             if missing:
                 raise calc.CalcError(f"公式中的 {'、'.join(missing)} 没有对应的取值")
-            env, rows_out = {}, []
+            env, units, rows_out = {}, {}, []
             for v in values:
+                if (v.column is None) == (v.summary is None):
+                    raise calc.CalcError(Msg("column 与 summary 必须且只能写一个"))
+                if v.summary is not None and (v.match or v.exclude):
+                    raise calc.CalcError(Msg("汇总值不能带 match 或 exclude"))
                 ds, rows = self._rows(v.dataset)
+                if v.summary is not None:
+                    raw, meta = resolve(NumberRef(dataset=v.dataset, summary=v.summary), {
+                        v.dataset: {"summary": ds.meta.get("summary"),
+                                    "summary_units": ds.meta.get("summary_units")}}, None)
+                    units[v.name] = col(meta["kind"], meta["unit"], meta["scale"], meta["of_ratio"])
+                    total = calc.number(raw) * meta["scale"]
+                    env[v.name] = total
+                    rows_out.append([v.name, v.dataset, f"summary.{v.summary}", None, total])
+                    continue
                 picked = [r for r in rows if all(str(r.get(k)) == str(x) for k, x in v.match.items())
                           and not (v.exclude and all(str(r.get(k)) == str(x) for k, x in v.exclude.items()))]
                 if not picked:
@@ -2432,7 +2446,8 @@ class AnalysisToolbox:
                 numbers = [calc.number(r[v.column]) for r in picked]
                 if any(n is None for n in numbers):
                     raise calc.CalcError(f"{v.dataset}.{v.column} 取值为空，不能当 0 参与计算")
-                scale = calc.number(self._unit(v.dataset, v.column).get("scale", 1))
+                units[v.name] = self._unit(v.dataset, v.column)
+                scale = calc.number(units[v.name].get("scale", 1))
                 total = sum(numbers, calc.Decimal(0)) * scale
                 env[v.name] = total
                 rows_out.append([v.name, v.dataset, v.column, len(picked), total])
@@ -2444,7 +2459,7 @@ class AnalysisToolbox:
             if dead:
                 raise calc.CalcError(f"输入 {'、'.join(dead)} 不影响结果：每个取值都必须参与计算")
             assumption = bool(measures.constants(formula))
-            unit = measures.formula_unit(formula, {v.name: self._unit(v.dataset, v.column) for v in values})
+            unit = measures.formula_unit(formula, units)
             rows_out.append([label, None, formula, None, result])
             summary = {"label": label, "formula": formula, "value": result,
                        **({"assumption": gettext("公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用")}

@@ -185,7 +185,7 @@ def _verdict(verification: dict) -> str:
     if verification.get("unverified"):
         parts.append(gettext("{count} 条事实 / 计算类结论未通过", count=verification["unverified"]))
     if verification.get("unverified_fields"):
-        parts.append(gettext("{count} 处标题 / 摘要 / 未解释未通过", count=verification["unverified_fields"]))
+        parts.append(gettext("{count} 处报告字段未通过", count=verification["unverified_fields"]))
     return "，".join(parts)
 
 
@@ -451,10 +451,7 @@ def _formatted(value: Any, meta: dict | None = None) -> str:
 
 
 def _table_value(value: Any, meta: dict | None = None) -> str:
-    text = _formatted(value, meta)
-    if number(value) is not None:
-        text = re.sub(r"^([+-]?)(\d{4,})(?=\D|$)", lambda m: m[1] + f"{int(m[2]):,}", text)
-    return text
+    return _formatted(value, meta)
 
 
 def _core_scope_matches(d: dict, scope: dict) -> bool:
@@ -902,7 +899,7 @@ def _ellipsis(text: str, font: str, size: float, width: float) -> str:
 
 
 def _axis(value: float) -> str:
-    return compact(number(value), strip=True, group=True)
+    return compact(number(value), strip=True)
 
 
 def _bar_chart(data: list[tuple[str, float, str]], font: str, width: float = 468,

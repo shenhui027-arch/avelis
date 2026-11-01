@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib.colors import HexColor
 
-from avelis.analysis import export
+from avelis.analysis import export, grounding
 from tests.unit.test_analysis_export import _pdf_story, _value, sample_view
 
 
@@ -96,7 +97,18 @@ def test_key_table_preserves_numeric_looking_dimensions_and_formats_registered_v
                "meta": {"units": {"amount": {"kind": "level"}, "rows": {"kind": "count"},
                                   "rate": {"kind": "rate_change"}}}}
 
-    assert export._table_data(dataset, brief=brief)[1] == ["000123", "1e3", "000045", "1,234.5", "1,200", "-12.5%"]
+    assert export._table_data(dataset, brief=brief)[1] == ["000123", "1e3", "000045", "1234.5", "1200", "-12.5%"]
+
+
+@pytest.mark.parametrize("style,value,expected", [
+    ("cn", 1899, "1899"), ("intl", 1899, "1899"),
+    ("cn", -1899.1256, "-1899.13"), ("intl", -1899.1256, "-1899.13"),
+    ("cn", 12500, "1.25万"), ("intl", 12500, "12.5K"),
+    ("cn", 100000000, "1亿"), ("intl", 1000000000, "1B"),
+])
+def test_chart_axes_share_number_style_without_adding_grouping(style, value, expected, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    assert export._axis(value) == expected
 
 
 @pytest.mark.parametrize("column", ["指标[调整]", "summary.change"])
