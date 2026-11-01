@@ -92,6 +92,7 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
     tables: list[_Table] = []
     incoming: dict[_Table, list[_Segment]] = {}
     written_columns: dict[_Table, list[tuple[int, set[str] | None]]] = {}
+    replaced_columns: dict[_Table, dict[str, list[int]]] = {}
     segments: list[_Segment] = []
 
     def table(ref: str, *, created: bool = False, temporary: bool = False, fresh: bool = False) -> _Table:
@@ -150,6 +151,8 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
                                            fresh=write.created or op in ("rename", "swap"))
                 columns = None if any(raw.relation == "table" for raw in raw_edges) else set(write.target_columns)
                 written_columns.setdefault(write_targets[ref], []).append((position, columns))
+                for column in (write.attributes or {}).get("replace_columns", []):
+                    replaced_columns.setdefault(write_targets[ref], {}).setdefault(column, []).append(position)
             targets.append(write_targets)
         for (_, raw_edges), write_targets in zip(raw_writes, targets):
             for raw in raw_edges:
@@ -190,7 +193,16 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
             if (raw.source_column is not None and previous.target_column is not None
                     and raw.source_column != previous.target_column):
                 continue
+            # 每次无条件赋值开启该列的新版本；SET 自读仍取赋值前的版本。
+            # 影响边和表级边描述行集，列赋值不会清除这些依赖。
+            column = raw.source_column or previous.target_column
+            replaced = column is not None and any(
+                prior.position < version < segment.position
+                for version in replaced_columns.get(segment.source, {}).get(column, [])
+            )
             for source in expanded_by_id[previous.id]:
+                if replaced and source.relation in _VALUES:
+                    continue
                 relation, source_column, target_column = _compose(source, raw)
                 hops = [*source.attributes["hops"], raw.id]
                 via = [*source.attributes["via"], segment.source.ref]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from types import SimpleNamespace
 
 import pytest
@@ -289,6 +290,82 @@ def test_reconstructed_source_must_be_collected_or_created_in_batch():
     schema = {"default_catalog": {"dw": {"daily_summary": {"id": "INT"}}}}
     result = run(source, FakeImportModel({"operations": [operation()]}), schema=schema)
     assert not result.candidates and "未采集" in " ".join(result.notes)
+
+
+@pytest.mark.parametrize("first_sql,source_column", [
+    ("CREATE TABLE dw.stage AS SELECT id AS recovered FROM src.events", "recovered"),
+    ("CREATE TABLE dw.stage AS SELECT 1 AS recovered", "recovered"),
+    ("CREATE TABLE dw.stage (recovered INT)", "recovered"),
+    ("INSERT INTO dw.stage (recovered) SELECT id FROM src.events", "recovered"),
+])
+def test_reconstructed_operations_share_inferred_structure_without_mutating_rule_schema(first_sql, source_column):
+    second_sql = "INSERT INTO dw.daily_summary (id) SELECT * FROM dw.stage"
+    source = f'def load():\n    run_sql("{first_sql}")\n    run_sql("{second_sql}")'
+    schema = copy.deepcopy(SCHEMA)
+    fake = FakeImportModel({"operations": [operation(first_sql), operation(second_sql, start=3, end=3)]})
+
+    result = run(source, fake, schema=schema)
+
+    assert not result.notes
+    assert [statement["status"] for statement in result.statements] == ["parsed", "parsed"]
+    downstream = [candidate for candidate in result.candidates
+                  if candidate["target_ref"] == "default_catalog.dw.daily_summary"]
+    assert len(downstream) == 1
+    assert downstream[0]["source_ref"] == "default_catalog.dw.stage"
+    assert downstream[0]["source_column"] == source_column
+    assert downstream[0]["target_column"] == "id"
+    assert all(candidate["origin"] == "model_sql" and candidate["status"] == "pending"
+               for candidate in result.candidates)
+    assert schema == SCHEMA
+
+
+def test_reconstructed_structure_reaches_later_blocks_and_is_rebuilt_from_cache():
+    first_sql = "CREATE TABLE dw.stage AS SELECT id AS recovered FROM src.events"
+    second_sql = "INSERT INTO dw.daily_summary (id) SELECT * FROM dw.stage"
+    source = (f'def prepare():\n    run_sql("{first_sql}")\n'
+              f'def publish():\n    run_sql("{second_sql}")')
+    fake = FakeImportModel({"operations": [operation(first_sql)]},
+                           {"operations": [operation(second_sql, start=4, end=4)]})
+    first = run(source, fake)
+    replay_model = FakeImportModel()
+
+    replay = run(source, replay_model, cached=first.cache)
+
+    assert not first.notes and not replay.notes
+    assert len(first.candidates) == 2
+    assert replay.candidates == first.candidates
+    assert not replay_model.prompts and all(payload["reused"] for payload in replay.payloads)
+    assert "stage" not in SCHEMA["default_catalog"]["dw"]
+
+
+@pytest.mark.parametrize("first_sql,status", [
+    ("CREATE TABLE dw.stage AS SELECT id FROM src.events WHERE id > ${threshold}", "needs_params"),
+    ("CREATE TABLE dw.stage AS SELECT ( FROM src.events", "failed"),
+])
+def test_unparsed_reconstructed_operation_does_not_register_a_table(first_sql, status):
+    second_sql = "INSERT INTO dw.daily_summary (id) SELECT id FROM dw.stage"
+    source = f'def load():\n    run_sql("{first_sql}")\n    run_sql("{second_sql}")'
+    fake = FakeImportModel({"operations": [operation(first_sql), operation(second_sql, start=3, end=3)]})
+
+    result = run(source, fake)
+
+    assert not result.candidates
+    assert [statement["status"] for statement in result.statements] == [status]
+    assert "来源表 dw.stage 未采集" in " ".join(result.notes)
+
+
+def test_reconstructed_operation_before_table_creation_cannot_use_future_structure():
+    first_sql = "INSERT INTO dw.daily_summary (id) SELECT id FROM dw.stage"
+    second_sql = "CREATE TABLE dw.stage AS SELECT id FROM src.events"
+    source = f'def load():\n    run_sql("{first_sql}")\n    run_sql("{second_sql}")'
+    # 模型返回的列表顺序不能把原文后建的表提前登记。
+    fake = FakeImportModel({"operations": [operation(second_sql, start=3, end=3), operation(first_sql)]})
+
+    result = run(source, fake)
+
+    assert [candidate["target_ref"] for candidate in result.candidates] == ["default_catalog.dw.stage"]
+    assert len(result.statements) == 1 and result.statements[0]["line_start"] == 3
+    assert "来源表 dw.stage 未采集" in " ".join(result.notes)
 
 
 def test_unknown_sql_parts_keep_placeholders_for_whole_batch_reparse():
