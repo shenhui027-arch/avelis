@@ -203,5 +203,5 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | 对外端口 |
 | `AVELIS_BIND_ADDRESS` | `0.0.0.0` | 绑定地址；前面有反向代理时改为 `127.0.0.1` |
-| `AVELIS_IMAGE` | `avelis:0.1.0` | 镜像名 |
+| `AVELIS_IMAGE` | `avelis:1.0.0` | 镜像名 |
 | `COMPOSE_FILE` | — | 使用外部 PostgreSQL / Redis 时设为 `compose.yaml:compose.external.yaml` |

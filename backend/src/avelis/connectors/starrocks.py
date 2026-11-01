@@ -214,7 +214,7 @@ class StarRocksConnector:
         info = {"name": catalog, "type": props.get("type"), "endpoint": endpoint,
                 "driver_class": props.get("driver_class"), "driver_checksum": props.get("checksum")}
         if props.get("type") != "jdbc" or endpoint.get("scheme") != "mysql":
-            warnings.append(f"Catalog {catalog} 类型 {props.get('type')} 未接入（v0.1 只接 JDBC MySQL）")
+            warnings.append(f"Catalog {catalog} 类型 {props.get('type')} 未接入（目前只接 JDBC MySQL）")
             return info, []
         wanted = _checked(list(self.options.get("catalog_databases", {}).get(catalog, [])), "Catalog 库")
         q = quote_ident(catalog)

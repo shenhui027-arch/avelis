@@ -1,4 +1,4 @@
-# Avelis 架构与治理说明（v0.1）
+# Avelis 架构与治理说明
 
 [English](architecture.en.md) | 简体中文 | [繁體中文](architecture.zh-TW.md)
 

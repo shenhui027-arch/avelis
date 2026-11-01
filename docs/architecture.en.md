@@ -1,4 +1,4 @@
-# Avelis Architecture and Governance (v0.1)
+# Avelis Architecture and Governance
 
 English | [简体中文](architecture.md) | [繁體中文](architecture.zh-TW.md)
 
