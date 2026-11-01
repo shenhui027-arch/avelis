@@ -1,0 +1,57 @@
+# 更新日志
+
+本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [未发布]
+
+尚未发布任何版本。以下是 v0.1.0 首个公开版本计划包含的内容，按功能归类；每条后面是对应的 PR。
+
+### 采集与血缘
+
+- 只读采集数据库元数据，按物理 ID 识别同一对象；解析视图、外部表，得到表级与字段级血缘（[#7](https://github.com/shenhui027-arch/avelis/pull/7)）。
+- 导入 SQL 文件、粘贴 SQL、上传 Python / Shell 代码生成血缘；解析不了的片段由模型提出候选，人工确认。
+- 引擎适配层：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris 支持采集、视图血缘、问数与执行前核对；MySQL 支持采集，作为外部表的追溯目标（[#7](https://github.com/shenhui027-arch/avelis/pull/7)）。
+- 表关联统一由治理维护；血缘页支持搜索、首屏可读、检查器可拖宽、字段可点（[#20](https://github.com/shenhui027-arch/avelis/pull/20)）。
+
+### 口径治理与变更管理
+
+- 指标与版本状态机、发布检查、复核与跨域批准；关联路径与粒度校验。
+- 上游结构变化 → 影响分析 → 复核；受影响的口径由后端阻止继续使用。
+- 变更留底：变更归因到数据库用户、检索与导出、历史只追加并封入哈希链、保留期可配置（[#9](https://github.com/shenhui027-arch/avelis/pull/9)，ADR 0008）。
+
+### 智能问数
+
+- LangGraph 问数智能体：多轮追问、会话持久化；模型只提交结构化意图，SQL 由已发布口径确定性生成并只读执行。
+- 多指标、排名与前 N、环比 / 同比、派生指标（ADR 0005）。
+- 问数对话按时间顺序展示，推理完整可见；可切换模型与思考强度（[#15](https://github.com/shenhui027-arch/avelis/pull/15)、[#16](https://github.com/shenhui027-arch/avelis/pull/16)）。
+
+### 分析智能体
+
+- 多步分析“为什么变了、什么关系、该怎么做”；取数只走受治理查询，报告中的数字逐个核验，结论分事实、计算、推断、建议（[#10](https://github.com/shenhui027-arch/avelis/pull/10)，ADR 0007、0009）。
+- 证据发现、实时过程流与插话；对话确认与经验学习（[#12](https://github.com/shenhui027-arch/avelis/pull/12)，ADR 0013）。
+- 数据集在主区域打开、换时间重跑、导出 CSV；历史读取按当前权限复查来源（[#19](https://github.com/shenhui027-arch/avelis/pull/19)）。
+- 报告导出 PDF / HTML / Markdown，分简报与附带依据的完整版（[#21](https://github.com/shenhui027-arch/avelis/pull/21)）。
+- 分析可保存为定时任务，定时设置可视化选择（[#32](https://github.com/shenhui027-arch/avelis/pull/32)）。
+
+### 界面
+
+- 工作台、血缘、目录、口径、变更、问数、分析、设置等页面。
+- 前端视觉 v2：玻璃质感、深浅主题、侧边栏（[#13](https://github.com/shenhui027-arch/avelis/pull/13)）；登录页与品牌标记（[#24](https://github.com/shenhui027-arch/avelis/pull/24)）；问数输入框底栏（[#31](https://github.com/shenhui027-arch/avelis/pull/31)）。
+
+### 安全与权限
+
+- 资产与口径按业务域授权；登录限流、首次登录改密、会话可吊销；登录时长可配置并在使用中自动续期（[#18](https://github.com/shenhui027-arch/avelis/pull/18)）。
+- 数据源口令与模型密钥加密存储；数据外发给模型默认关闭；治理动作写审计。
+
+### 部署
+
+- 后端同时托管前端，单端口访问；自包含 Docker 镜像（运行期不联网下载）与 Docker Compose 编排（[#27](https://github.com/shenhui027-arch/avelis/pull/27)）。
+- 部署配置文件 `deploy/docker/avelis.toml`（TOML，带中文注释），启动时校验并用中文指出问题（[#27](https://github.com/shenhui027-arch/avelis/pull/27)）。
+
+### 其他
+
+- 产品代码去掉对演示数据的结构性假设（[#26](https://github.com/shenhui027-arch/avelis/pull/26)，ADR 0010）。
+- 界面导览与真实截图（[#30](https://github.com/shenhui027-arch/avelis/pull/30)）。
+- 采用 Apache License 2.0。
+
+[未发布]: https://github.com/shenhui027-arch/avelis/commits/main
