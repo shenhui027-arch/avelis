@@ -28,6 +28,14 @@ Avelis answers business questions about your databases and shows where every num
 > [!NOTE]
 > Avelis v1.0.0 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
+## A note from the author
+
+Avelis is open source under the [Apache License 2.0](LICENSE). You are welcome to use it in commercial products, modify it and build on it. There is no need to ask me and nothing to pay; just keep the copyright and license notices the license requires.
+
+If it helps you, I don't want anything in return. If you would still like to say thanks, please consider donating a nutritious school lunch to children in rural or low-income areas, for example through Alipay's charity platform.
+
+AI has let developers like us be among the first to taste the rewards of this wave of progress. I hope some of that good fortune can find another way to reach ordinary children who don't yet have access to AI.
+
 ## Highlights
 
 - **Lineage from the database itself.** Collect metadata with a read-only account, identify objects by physical ID, and parse views, external tables and imported SQL / Python / Shell into table- and column-level lineage. Fragments the parser cannot handle become model-suggested candidates that a person confirms.
