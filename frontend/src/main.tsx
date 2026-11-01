@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
 import { keepSessionAlive } from "./api/client";
+import "./i18n";
+import { LanguageRoot } from "./i18n/LanguageRoot";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
 import { AskPage } from "./pages/ask/AskPage";
@@ -66,7 +68,9 @@ keepSessionAlive();
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <LanguageRoot>
+        <RouterProvider router={router} />
+      </LanguageRoot>
     </QueryClientProvider>
   </StrictMode>,
 );

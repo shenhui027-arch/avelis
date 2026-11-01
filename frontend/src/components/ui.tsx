@@ -3,39 +3,34 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { labelTable, t, tx } from "../i18n";
 import { Icon } from "./Icon";
 
 export { Hint, Icon } from "./Icon";
 
-// --- 状态：状态点 + 两三个字 ---------------------------------------------------------
+// --- 状态：状态点 + 两三个字（文字取自语言包 status.*） ----------------------------------
 
 type Tone = "ok" | "warn" | "danger" | "info" | "";
 
-const STATUS: Record<string, [Tone, string]> = {
+const TONE: Record<string, Tone> = {
   // 指标版本
-  draft: ["", "草稿"], pending_review: ["info", "待复核"], published: ["ok", "已发布"], affected: ["warn", "受影响"],
-  retired: ["danger", "失效"], archived: ["", "归档"], rejected: ["danger", "已驳回"],
+  draft: "", pending_review: "info", published: "ok", affected: "warn", retired: "danger", archived: "", rejected: "danger",
   // 回答
-  answered: ["ok", "已回答"], blocked: ["danger", "已拦截"], clarify: ["info", "待澄清"], denied: ["danger", "已拒绝"],
-  error: ["danger", "出错"],
+  answered: "ok", blocked: "danger", clarify: "info", denied: "danger", error: "danger",
   // 变更、复核、任务
-  open: ["warn", "待处理"], resolved: ["ok", "已处理"], queued: ["info", "排队中"], running: ["info", "进行中"],
-  succeeded: ["ok", "成功"], failed: ["danger", "失败"],
+  open: "warn", resolved: "ok", queued: "info", running: "info", succeeded: "ok", failed: "danger",
   // 同一张表、粒度、指纹
-  confirmed: ["ok", "同一张表"], candidate: ["warn", "待确认"], mismatch: ["danger", "列不一致"],
-  unresolved: ["", "未匹配"], verified: ["ok", "已核验"], unverified: ["warn", "未核验"], violated: ["danger", "不唯一"],
-  stale: ["warn", "需重新声明"], timeout: ["warn", "核验超时"], ok: ["ok", "正常"], broken: ["danger", "上游缺失"],
-  unknown: ["warn", "证据不全"],
+  confirmed: "ok", candidate: "warn", mismatch: "danger", unresolved: "", verified: "ok", unverified: "warn", violated: "danger",
+  stale: "warn", timeout: "warn", ok: "ok", broken: "danger", unknown: "warn",
   // 关联路径、导入
-  pending: ["info", "待批准"], approved: ["ok", "已批准"], needs_params: ["warn", "待补参数"],
-  needs_review: ["warn", "待确认"], done: ["ok", "完成"], parsed: ["ok", "已解析"], partial: ["warn", "部分解析"],
-  unsupported: ["", "不支持"], skipped: ["", "跳过"], model: ["warn", "模型候选"], written: ["ok", "已写入"],
-  accepted: ["ok", "已接受"], modified: ["info", "已修改"], active: ["ok", "有效"], deleted: ["danger", "已删除"],
-  waiting: ["info", "待回答"], never: ["", "未采集"],
+  pending: "info", approved: "ok", needs_params: "warn", needs_review: "warn", done: "ok", parsed: "ok", partial: "warn",
+  unsupported: "", skipped: "", model: "warn", written: "ok", accepted: "ok", modified: "info", active: "ok", deleted: "danger",
+  waiting: "info", never: "",
 };
 
 export function statusOf(status: string | null | undefined): [Tone, string] {
-  return STATUS[status ?? ""] ?? ["", status ?? "—"];
+  const s = status ?? "";
+  return s in TONE ? [TONE[s], tx(`status.${s}`, s)] : ["", status ?? "—"];
 }
 
 export function Status({ value, label }: { value: string | null | undefined; label?: string }) {
@@ -64,17 +59,14 @@ export function Plat({ kind }: { kind: string }) {
   return <span className="av-plat">{PLAT[kind] ?? kind.slice(0, 2).toUpperCase()}</span>;
 }
 
-export const KIND_LABEL: Record<string, string> = {
-  table: "表", view: "视图", materialized_view: "物化视图", external_table: "外部表", catalog_table: "Catalog 表",
-  design_time: "设计时",
-};
+export const KIND_LABEL = labelTable("kind", ["table", "view", "materialized_view", "external_table", "catalog_table", "design_time"]);
 
-export const RELATION_LABEL: Record<string, string> = {
-  value_direct: "直接", value_computed: "计算", value_aggregated: "聚合", filter: "过滤", join_key: "关联键",
-  group_by: "分组", table: "表级",
-};
+export const RELATION_LABEL = labelTable("relation",
+  ["value_direct", "value_computed", "value_aggregated", "filter", "join_key", "group_by", "table"]);
 
-export const CARD_LABEL: Record<string, string> = { n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", unknown: "未知" };
+export const CARD_LABEL: Record<string, string> = {
+  n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", get unknown() { return t("cardinality.unknown"); },
+};
 
 // --- 控件 -------------------------------------------------------------------------
 
@@ -149,7 +141,7 @@ export function Empty({ text, action, compact, icon }: { text: string; action?: 
 /** 列表加载时的占位行：保持布局，不先显示 0 或空态。 */
 export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: number }) {
   return (
-    <div className="av-skeleton" aria-busy="true" aria-label="加载中">
+    <div className="av-skeleton" aria-busy="true" aria-label={t("common.loading")}>
       {Array.from({ length: rows }, (_, i) => <span key={i} style={{ height }} />)}
     </div>
   );
@@ -159,7 +151,7 @@ export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: nu
  * 一次查询的四种状态：加载（骨架）、失败（原因 + 重试）、成功但为空（空态，可带下一步动作）、有数据。
  * 只有成功后才显示“0 条”或业务空态，避免加载中、失败被误读为“没有数据”。
  */
-export function QueryState<T>({ query, isEmpty, emptyText = "暂无数据", emptyAction, rows, compact, children }: {
+export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, compact, children }: {
   query: UseQueryResult<T>; isEmpty?: (data: T) => boolean; emptyText?: string; emptyAction?: ReactNode;
   rows?: number; compact?: boolean; children: (data: T) => ReactNode;
 }) {
@@ -167,15 +159,15 @@ export function QueryState<T>({ query, isEmpty, emptyText = "暂无数据", empt
   if (query.isError) {
     return (
       <div className="av-query-error" role="alert">
-        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : "加载失败"}</span>
+        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("common.loadFailed")}</span>
         <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => query.refetch()}>
-          <Icon name="refresh" />重试
+          <Icon name="refresh" />{t("common.retry")}
         </button>
       </div>
     );
   }
   const data = query.data as T;
-  if (isEmpty?.(data)) return <Empty text={emptyText} action={emptyAction} compact={compact} />;
+  if (isEmpty?.(data)) return <Empty text={emptyText ?? t("common.noData")} action={emptyAction} compact={compact} />;
   return <>{children(data)}</>;
 }
 
@@ -212,7 +204,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
       <div className="av-backdrop" onClick={onClose} />
       <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
         <PaneHeader title={title}>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("common.close")} onClick={onClose}>
             <Icon name="close" />
           </button>
         </PaneHeader>
@@ -299,14 +291,14 @@ export function CommentDoc({ doc }: { doc: ColumnDoc | null | undefined }) {
   if (!doc) return null;
   if (doc.status === "ok") return <span className="av-coldoc">{doc.comment}</span>;
   if (doc.status === "linked") {
-    return <span className="av-coldoc" title={`取自源表 ${doc.source}`}>{doc.comment}</span>;
+    return <span className="av-coldoc" title={t("coldoc.fromSource", { source: doc.source })}>{doc.comment}</span>;
   }
   if (doc.status === "inherited") {
     return (
-      <span className="av-coldoc av-coldoc--gap" title={`本列没有数据库注释；上游 ${doc.source} 的注释可沿用`}>
-        <Pill tone="warn">缺注释</Pill><span>上游：{doc.comment}</span>
+      <span className="av-coldoc av-coldoc--gap" title={t("coldoc.inheritedTitle", { source: doc.source })}>
+        <Pill tone="warn">{t("coldoc.missingComment")}</Pill><span>{t("coldoc.upstream", { comment: doc.comment })}</span>
       </span>
     );
   }
-  return <span className="av-coldoc av-coldoc--gap" title="本列与上游都没有数据库注释"><Pill tone="warn">注释缺失</Pill></span>;
+  return <span className="av-coldoc av-coldoc--gap" title={t("coldoc.noneTitle")}><Pill tone="warn">{t("coldoc.none")}</Pill></span>;
 }

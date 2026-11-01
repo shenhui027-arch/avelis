@@ -7,13 +7,15 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError, login } from "../api/client";
 import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
+import { currentLanguage, t } from "../i18n";
+import { LanguageSelect } from "../i18n/LanguageMenu";
 import "../styles/login.css";
 
 const VALUES = [
-  { icon: "lineage", title: "列级血缘", text: "从源表到指标，每一列的来龙去脉自动采集、随时可查" },
-  { icon: "shield", title: "口径治理", text: "指标口径有版本、有审核，上游一变，受影响的口径立即拦截" },
-  { icon: "analysis", title: "有依据的分析", text: "问一句话，得到能追溯到数据和口径的结论，而不是一段猜测" },
-];
+  { icon: "lineage", title: "login.values.lineageTitle", text: "login.values.lineageText" },
+  { icon: "shield", title: "login.values.governTitle", text: "login.values.governText" },
+  { icon: "analysis", title: "login.values.groundedTitle", text: "login.values.groundedText" },
+] as const;
 
 // 背景星图：几列节点，曲线从左向右汇流，光点沿线流动。纯装饰。
 const STARS = [
@@ -51,25 +53,33 @@ function Constellation() {
   );
 }
 
+/** 示意数字的缩写写法跟随语言：中文 1284.6 万，英文 12.8 M；数值与单位分开排版。 */
+function compactParts(n: number): { value: string; unit: string } {
+  const parts = new Intl.NumberFormat(currentLanguage(), { notation: "compact", maximumFractionDigits: 1 }).formatToParts(n);
+  return { value: parts.filter((p) => p.type !== "compact" && p.type !== "literal").map((p) => p.value).join(""),
+    unit: parts.filter((p) => p.type === "compact").map((p) => p.value).join("") };
+}
+
 /** 产品预览：一条带依据的答案卡片。数字与名称是中性的示意。 */
 function AnswerPreview() {
   const bars = [42, 55, 48, 61, 58, 72, 66, 80, 76, 88, 84, 96];
+  const kpi = compactParts(12_846_000);
   return (
     <div className="av-login__preview" aria-hidden="true">
-      <div className="av-login__q"><span className="av-login__avatar" />本季度核心指标为什么上升？</div>
+      <div className="av-login__q"><span className="av-login__avatar" />{t("login.preview.question")}</div>
       <div className="av-login__answer">
         <div className="av-login__answer-hd">
           <LogoMark size={18} />
-          <span>分析完成</span>
-          <span className="av-login__ok"><Icon name="check" small />来源已校验</span>
+          <span>{t("login.preview.done")}</span>
+          <span className="av-login__ok"><Icon name="check" small />{t("login.preview.sourcesChecked")}</span>
         </div>
         <div className="av-login__kpi">
-          <div><small>本期</small><b>1,284.6<em>万</em></b></div>
-          <div><small>环比</small><b className="is-up">+12.4%</b></div>
+          <div><small>{t("login.preview.current")}</small><b>{kpi.value}<em>{kpi.unit}</em></b></div>
+          <div><small>{t("login.preview.mom")}</small><b className="is-up">+12.4%</b></div>
           <div className="av-login__spark-bars">{bars.map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}</div>
         </div>
-        <p>变化主要来自 <mark>两个成员</mark> 的增长，合计贡献 83%<sup>D3</sup><sup>D7</sup>，口径与数据均可追溯</p>
-        <div className="av-login__chips"><span>口径 V3 · 已审核</span><span>列级血缘 12 条</span><span>2 个仍待验证</span><span className="av-login__demo">产品示意</span></div>
+        <p>{t("login.preview.summaryBefore")}<mark>{t("login.preview.summaryMark")}</mark>{t("login.preview.summaryAfter")}<sup>D3</sup><sup>D7</sup>{t("login.preview.summaryTail")}</p>
+        <div className="av-login__chips"><span>{t("login.preview.chipVersion")}</span><span>{t("login.preview.chipLineage")}</span><span>{t("login.preview.chipPending")}</span><span className="av-login__demo">{t("login.preview.chipDemo")}</span></div>
       </div>
     </div>
   );
@@ -99,7 +109,7 @@ export function Login() {
       navigate(result.mustChangePassword ? "/account/password" : target,
         { replace: true, state: result.mustChangePassword ? { from: target } : undefined });
     } catch (e) {
-      setError(e instanceof ApiError ? { text: e.message, locked: e.status === 429 } : { text: "无法连接后端", locked: false });
+      setError(e instanceof ApiError ? { text: e.message, locked: e.status === 429 } : { text: t("login.unreachable"), locked: false });
     } finally {
       setBusy(false);
     }
@@ -112,17 +122,20 @@ export function Login() {
       <Constellation />
       <header className="av-login__top">
         <Logo size={34} />
-        <span className="av-login__tag"><i />企业数据治理与智能分析平台</span>
+        <span className="av-login__top-end">
+          <span className="av-login__tag"><i />{t("login.tag")}</span>
+          <LanguageSelect className="av-login__lang" />
+        </span>
       </header>
       <main className="av-login__main">
         <section className="av-login__hero" aria-label="Avelis">
-          <span className="av-login__eyebrow">血缘 · 口径 · 有依据的智能分析</span>
-          <h1>让每一个数字<br /><span>都有出处</span></h1>
-          <p>Avelis 把元数据、列级血缘和指标口径治理成一张可信的数据底座，再让智能分析在这张底座上回答问题——每个结论都能追溯到数据、口径与权限。</p>
+          <span className="av-login__eyebrow">{t("login.eyebrow")}</span>
+          <h1>{t("login.titleLine1")}<br /><span>{t("login.titleLine2")}</span></h1>
+          <p>{t("login.intro")}</p>
           <ul className="av-login__values">
             {VALUES.map((v) => (
               <li key={v.title}><span className="av-login__icon"><Icon name={v.icon} /></span>
-                <div><b>{v.title}</b><small>{v.text}</small></div></li>
+                <div><b>{t(v.title)}</b><small>{t(v.text)}</small></div></li>
             ))}
           </ul>
           <AnswerPreview />
@@ -131,38 +144,38 @@ export function Login() {
           <form className="av-login__card" onSubmit={submit} noValidate>
             <div className="av-login__card-hd">
               <LogoMark size={44} />
-              <h2>欢迎回来</h2>
-              <p>使用管理员分配的账号登录 Avelis</p>
+              <h2>{t("login.welcome")}</h2>
+              <p>{t("login.subtitle")}</p>
             </div>
             {expired && !error ? (
-              <div className="av-banner av-banner--info" role="status"><Icon name="info" />会话已过期或已在其他位置失效，请重新登录</div>
+              <div className="av-banner av-banner--info" role="status"><Icon name="info" />{t("login.expired")}</div>
             ) : null}
             <label className="av-field">
-              <span className="av-label">账号</span>
+              <span className="av-label">{t("login.username")}</span>
               <span className="av-login__input"><Icon name="users" small />
-                <input autoComplete="username" autoFocus value={username} placeholder="输入账号"
+                <input autoComplete="username" autoFocus value={username} placeholder={t("login.usernamePlaceholder")}
                   onChange={(e) => setUsername(e.target.value)} required /></span>
             </label>
             <label className="av-field">
-              <span className="av-label">密码</span>
+              <span className="av-label">{t("login.password")}</span>
               <span className="av-login__input"><Icon name="lock" small />
-                <input type={reveal ? "text" : "password"} autoComplete="current-password" value={password} placeholder="输入密码"
+                <input type={reveal ? "text" : "password"} autoComplete="current-password" value={password} placeholder={t("login.passwordPlaceholder")}
                   onChange={(e) => setPassword(e.target.value)} required />
                 <button type="button" className="av-login__reveal" aria-pressed={reveal}
-                  onClick={() => setReveal(!reveal)}>{reveal ? "隐藏" : "显示"}</button></span>
+                  onClick={() => setReveal(!reveal)}>{reveal ? t("login.hide") : t("login.show")}</button></span>
             </label>
             {error ? (
               <div className={`av-banner ${error.locked ? "av-banner--warn" : "av-banner--danger"}`} role="alert">{error.text}</div>
             ) : null}
             <button className="av-login__submit" type="submit" disabled={busy || !username || !password}>
-              {busy ? "登录中…" : <>登录<Icon name="arrow" small /></>}
+              {busy ? t("login.submitting") : <>{t("login.submit")}<Icon name="arrow" small /></>}
             </button>
-            <p className="av-login__foot">忘记密码请联系管理员重置</p>
+            <p className="av-login__foot">{t("login.forgot")}</p>
           </form>
           <ul className="av-login__trust">
-            <li><Icon name="shield" small />权限与审计全程留痕</li>
-            <li><Icon name="db" small />支持私有化部署</li>
-            <li><Icon name="key" small />可接入本地模型</li>
+            <li><Icon name="shield" small />{t("login.trustAudit")}</li>
+            <li><Icon name="db" small />{t("login.trustPrivate")}</li>
+            <li><Icon name="key" small />{t("login.trustLocalModel")}</li>
           </ul>
         </section>
       </main>
