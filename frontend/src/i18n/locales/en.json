@@ -1299,5 +1299,17 @@
   "最近 {{count}} 次无成功记录_other": "No successes in the last {{count}} runs",
   "获取到 {{count}} 个模型_one": "Fetched {{count}} model",
   "获取到 {{count}} 个模型_other": "Fetched {{count}} models",
-  "解析_origin": "Parsed"
+  "解析_origin": "Parsed",
+  "元数据采集": "Metadata collection",
+  "视图血缘": "View lineage",
+  "问数执行": "Ask execution",
+  "执行前核对": "Pre-run check",
+  "外部表追溯": "External table tracing",
+  "外部表追溯目标": "External table trace target",
+  "DDL 审计归因": "DDL audit attribution",
+  "适配器未声明该能力": "The adapter doesn't declare this capability",
+  "{{capability}}：不支持": "{{capability}}: unsupported",
+  "能力": "Capabilities",
+  "未设置（当前认证方式可不填）": "Not set (optional for the current authentication method)",
+  "采集凭据（可不填）": "Collection credentials (optional)"
 }
