@@ -32,6 +32,7 @@ QuerierFactory = Callable[[str, int, str, str, dict[str, Any]], QueryConnector]
 @dataclass(frozen=True)
 class OptionField:
     """数据源连接配置中的一项（前端按它渲染表单，不按数据库类型写死）。"""
+
     key: str
     label: str
     type: str = "list"  # list：逗号分隔的名称列表；text：单个名称；choice：从 choices 中选一个
@@ -89,15 +90,34 @@ class Engine:
         return self.sql
 
     def describe(self) -> dict[str, Any]:
-        return {"kind": self.kind, "label": self.label, "dialect": self.sql.name,
-                "default_catalog": self.sql.default_catalog, "name_levels": [gettext(level) for level in self.name_levels],
-                "capabilities": sorted(self.capabilities), "default_port": self.default_port,
-                "is_test_adapter": self.is_test_adapter, "note": gettext(self.note),
-                "options": [{"key": o.key, "label": gettext(o.label), "type": o.type, "required": o.required,
-                             "hint": gettext(o.hint), "choices": list(o.choices), "default": o.default}
-                            for o in self.options],
-                "credential_free": ({"option": self.credential_free[0], "values": list(self.credential_free[1])}
-                                    if self.credential_free else None)}
+        return {
+            "kind": self.kind,
+            "label": self.label,
+            "dialect": self.sql.name,
+            "default_catalog": self.sql.default_catalog,
+            "name_levels": [gettext(level) for level in self.name_levels],
+            "capabilities": sorted(self.capabilities),
+            "default_port": self.default_port,
+            "is_test_adapter": self.is_test_adapter,
+            "note": gettext(self.note),
+            "options": [
+                {
+                    "key": o.key,
+                    "label": gettext(o.label),
+                    "type": o.type,
+                    "required": o.required,
+                    "hint": gettext(o.hint),
+                    "choices": list(o.choices),
+                    "default": o.default,
+                }
+                for o in self.options
+            ],
+            "credential_free": (
+                {"option": self.credential_free[0], "values": list(self.credential_free[1])}
+                if self.credential_free
+                else None
+            ),
+        }
 
 
 class UnsupportedEngine(Exception):
@@ -109,14 +129,27 @@ class CapabilityMissing(Exception):
 
     def __init__(self, engine: Engine, capability: str, datasource: str | None = None):
         label = Msg(CAPABILITY_LABEL[capability]) if capability in CAPABILITY_LABEL else capability
-        message = (Msg("数据源 {datasource}（{engine}）不支持{capability}", datasource=datasource,
-                       engine=engine.label, capability=label) if datasource
-                   else Msg("{engine}不支持{capability}", engine=engine.label, capability=label))
+        message = (
+            Msg(
+                "数据源 {datasource}（{engine}）不支持{capability}",
+                datasource=datasource,
+                engine=engine.label,
+                capability=label,
+            )
+            if datasource
+            else Msg("{engine}不支持{capability}", engine=engine.label, capability=label)
+        )
         super().__init__(message)
         self.engine = engine
         self.capability = capability
 
 
-CAPABILITY_LABEL = {METADATA: "元数据采集", VIEW_LINEAGE: "视图血缘解析", QUERY: "问数执行",
-                    EXTERNAL_TABLES: "外部表追溯", IDENTITY_TARGET: "作为外部表的追溯目标",
-                    LIVE_CHECK: "执行前核对来源结构", DDL_AUDIT: "DDL 审计归因"}
+CAPABILITY_LABEL = {
+    METADATA: "元数据采集",
+    VIEW_LINEAGE: "视图血缘解析",
+    QUERY: "问数执行",
+    EXTERNAL_TABLES: "外部表追溯",
+    IDENTITY_TARGET: "作为外部表的追溯目标",
+    LIVE_CHECK: "执行前核对来源结构",
+    DDL_AUDIT: "DDL 审计归因",
+}

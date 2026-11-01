@@ -1,4 +1,5 @@
-"""模型提供方协议适配（任务书 P0-E）：按提供方官方协议处理 LangChain 通用实现覆盖不到的字段与终止原因。
+(
+    """模型提供方协议适配（任务书 P0-E）：按提供方官方协议处理 LangChain 通用实现覆盖不到的字段与终止原因。
 
 - DeepSeek 思考模式的 reasoning_content（https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/）：官方要求
   “携带了 tools 参数的请求，在后续所有请求中，必须完整回传 reasoning_content 给 API”，否则返回 400。
@@ -7,10 +8,12 @@
   之后的请求把同一条助手消息的 reasoning_content 原样带回。消息对象可以按 LangChain 的序列化保存与恢复，字段随之保留。
 - DeepSeek 官方 Chat Completions 的输出上限字段是 max_tokens；langchain_openai 1.7.1 改发的 max_completion_tokens
   经实测被忽略（上限 8，实际输出 141 token），因此请求时改回 max_tokens。
-- finish_reason=length / stop_reason=max_tokens（输出被截断）与 content_filter 不是模型的正常回答，按基础设施错误处理（ModelProtocolError），
+- finish_reason=length / stop_reason=max_tokens（输出被截断）与 content_filter 不是模型的正常回答，"""
+    """按基础设施错误处理（ModelProtocolError），
   不把截断的工具参数当作模型写错的内容去修复或重交。
 - 工具调用编号：同一条回复里的工具调用必须各有编号且互不重复，否则无法逐个回复（下一次请求会被拒），也按协议错误处理。
 """
+)
 
 from __future__ import annotations
 
@@ -20,8 +23,11 @@ from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 REASONING_FIELD = "reasoning_content"
-ABNORMAL_FINISH = {"length": "model_truncated", "max_tokens": "model_truncated",
-                   "content_filter": "model_content_filter"}
+ABNORMAL_FINISH = {
+    "length": "model_truncated",
+    "max_tokens": "model_truncated",
+    "content_filter": "model_content_filter",
+}
 
 
 class ModelProtocolError(RuntimeError):

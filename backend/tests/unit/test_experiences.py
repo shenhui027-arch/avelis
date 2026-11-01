@@ -79,7 +79,7 @@ class MemorySession:
         rows = [row for (cls, _), row in self.store.items() if cls is entity]
         rows = [row for row in rows if all(self._matches(row, c) for c in statement._where_criteria)]
         limit = statement._limit_clause
-        return rows[:limit.value] if limit is not None else rows
+        return rows[: limit.value] if limit is not None else rows
 
     def scalar(self, statement):
         return next(iter(self.scalars(statement)), None)
@@ -92,25 +92,62 @@ class MemorySession:
 def state():
     actor = User(id="u1", username="user-a", is_active=True)
     other = User(id="u2", username="user-b", is_active=True)
-    asset = Asset(id="a1", status="active", datasource_id="ds", domain_id="domain-a",
-                  catalog_name="catalog", db_name="space", name="records", current_version_id="av1")
-    hidden = Asset(id="a2", status="active", datasource_id="ds", domain_id="domain-b",
-                   catalog_name="catalog", db_name="space", name="detail", current_version_id="av2")
+    asset = Asset(
+        id="a1",
+        status="active",
+        datasource_id="ds",
+        domain_id="domain-a",
+        catalog_name="catalog",
+        db_name="space",
+        name="records",
+        current_version_id="av1",
+    )
+    hidden = Asset(
+        id="a2",
+        status="active",
+        datasource_id="ds",
+        domain_id="domain-b",
+        catalog_name="catalog",
+        db_name="space",
+        name="detail",
+        current_version_id="av2",
+    )
     metric = Metric(id="m1", code="metric_a", domain_id="domain-a")
-    version = MetricVersion(id="mv1", metric_id="m1", version_no=1, status="published", kind="base",
-                            base_asset_id="a1", joins=[], components=[])
-    session = MemorySession([actor, other, asset, hidden, metric, version,
-                             AssetVersion(id="av1", asset_id="a1", version_no=1),
-                             AssetVersion(id="av2", asset_id="a2", version_no=1),
-                             AnalysisRun(id="r1", user_id="u1"), AnalysisRun(id="r2", user_id="u2")])
+    version = MetricVersion(
+        id="mv1",
+        metric_id="m1",
+        version_no=1,
+        status="published",
+        kind="base",
+        base_asset_id="a1",
+        joins=[],
+        components=[],
+    )
+    session = MemorySession(
+        [
+            actor,
+            other,
+            asset,
+            hidden,
+            metric,
+            version,
+            AssetVersion(id="av1", asset_id="a1", version_no=1),
+            AssetVersion(id="av2", asset_id="a2", version_no=1),
+            AnalysisRun(id="r1", user_id="u1"),
+            AnalysisRun(id="r2", user_id="u2"),
+        ]
+    )
     return session, actor, other
 
 
 def save(state, **kwargs):
     session, actor, _ = state
-    spec = {"kind": "rule", "content": "metric_a 按 key_a 对齐", "refs": [
-        {"object_type": "metric_version", "object_id": "mv1", "version": 1}],
-        "source": {"run_id": "r1", "checkpoint": "assumptions", "user_text": "按 key_a 对齐"}}
+    spec = {
+        "kind": "rule",
+        "content": "metric_a 按 key_a 对齐",
+        "refs": [{"object_type": "metric_version", "object_id": "mv1", "version": 1}],
+        "source": {"run_id": "r1", "checkpoint": "assumptions", "user_text": "按 key_a 对齐"},
+    }
     return experiences.save_experience(session, actor, **(spec | kwargs))
 
 
@@ -123,17 +160,22 @@ def test_candidates_are_editable_deterministic_and_do_not_persist(state):
     session, _, _ = state
     refs = [{"object_type": "metric_version", "object_id": "mv1", "version": 1}]
     item_refs = [{"object_type": "asset", "object_id": "a1", "version": 1}]
-    proposal = {"items": [{"id": "p1", "kind": "join", "source": "inferred",
-                           "content": "key_a = key_b", "refs": item_refs},
-                          {"id": "p2", "kind": "asset", "source": "inferred",
-                           "content": "关联记录", "refs": []}]}
-    feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"},
-                              {"item_id": "p2", "decision": "rejected"}],
-                "supplement": "保持相同窗口", "challenge": "检查缺失记录"}
+    proposal = {
+        "items": [
+            {"id": "p1", "kind": "join", "source": "inferred", "content": "key_a = key_b", "refs": item_refs},
+            {"id": "p2", "kind": "asset", "source": "inferred", "content": "关联记录", "refs": []},
+        ]
+    }
+    feedback = {
+        "decisions": [{"item_id": "p1", "decision": "confirmed"}, {"item_id": "p2", "decision": "rejected"}],
+        "supplement": "保持相同窗口",
+        "challenge": "检查缺失记录",
+    }
     before = len(session.store)
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=refs)
-    assert candidates == experiences.candidates_from_feedback(run_id="r1", proposal=proposal,
-                                                             feedback=feedback, refs=refs)
+    assert candidates == experiences.candidates_from_feedback(
+        run_id="r1", proposal=proposal, feedback=feedback, refs=refs
+    )
     assert [c["kind"] for c in candidates] == ["rule", "rule", "negative"]
     assert [c["content"] for c in candidates] == ["保持相同窗口", "检查缺失记录", "否决：关联记录"]
     assert [c["source"]["user_text"] for c in candidates] == [c["content"] for c in candidates]
@@ -147,12 +189,19 @@ def test_candidates_are_editable_deterministic_and_do_not_persist(state):
 @pytest.mark.parametrize("decision", ["confirmed", "rejected"])
 def test_candidates_ignore_decisions_without_new_inferred_information(source, decision):
     proposal = {"items": [{"id": "p1", "kind": "join", "source": source, "content": "已知关联"}]}
-    feedback = {"decisions": [{"item_id": "p1", "decision": decision}],
-                "supplement": "用户补充", "challenge": "用户质疑"}
+    feedback = {
+        "decisions": [{"item_id": "p1", "decision": decision}],
+        "supplement": "用户补充",
+        "challenge": "用户质疑",
+    }
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[])
     assert [c["content"] for c in candidates] == ["用户补充", "用户质疑"]
-    assert experiences.candidates_from_feedback(run_id="r1", proposal=proposal,
-                                               feedback={"decisions": feedback["decisions"]}, refs=[]) == []
+    assert (
+        experiences.candidates_from_feedback(
+            run_id="r1", proposal=proposal, feedback={"decisions": feedback["decisions"]}, refs=[]
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("kind", ["hypothesis", "asset", "join"])
@@ -169,23 +218,33 @@ def test_candidates_keep_rejected_hypothesis_as_negative():
     assert [(c["kind"], c["content"]) for c in candidates] == [("negative", "否决：未确认：原因假设")]
 
 
-@pytest.mark.parametrize(("field", "text"), [("supplement", "用户补充"), ("challenge", "用户质疑"),
-                                          ("supplement", "分析中的用户插话")])
+@pytest.mark.parametrize(
+    ("field", "text"), [("supplement", "用户补充"), ("challenge", "用户质疑"), ("supplement", "分析中的用户插话")]
+)
 def test_candidates_keep_user_text(field, text):
-    candidates = experiences.candidates_from_feedback(run_id="r1", proposal={"items": []},
-                                                     feedback={field: text}, refs=[])
+    candidates = experiences.candidates_from_feedback(
+        run_id="r1", proposal={"items": []}, feedback={field: text}, refs=[]
+    )
     assert [(c["kind"], c["content"]) for c in candidates] == [("rule", text)]
     assert candidates[0]["source"]["user_text"] == text
 
 
 def test_candidates_keep_decision_order_within_rejections():
-    proposal = {"items": [{"id": f"p{number}", "kind": "join", "source": "inferred",
-                           "content": f"推断 {number}"} for number in range(1, 5)]}
-    feedback = {"decisions": [{"item_id": "p1", "decision": "confirmed"},
-                              {"item_id": "p2", "decision": "rejected"},
-                              {"item_id": "p3", "decision": "confirmed"},
-                              {"item_id": "p4", "decision": "rejected"},
-                              {"item_id": "p2", "decision": "rejected"}]}
+    proposal = {
+        "items": [
+            {"id": f"p{number}", "kind": "join", "source": "inferred", "content": f"推断 {number}"}
+            for number in range(1, 5)
+        ]
+    }
+    feedback = {
+        "decisions": [
+            {"item_id": "p1", "decision": "confirmed"},
+            {"item_id": "p2", "decision": "rejected"},
+            {"item_id": "p3", "decision": "confirmed"},
+            {"item_id": "p4", "decision": "rejected"},
+            {"item_id": "p2", "decision": "rejected"},
+        ]
+    }
     candidates = experiences.candidates_from_feedback(run_id="r1", proposal=proposal, feedback=feedback, refs=[])
     assert [c["content"] for c in candidates] == ["否决：推断 2", "否决：推断 4"]
 
@@ -226,8 +285,9 @@ def test_personal_experience_visibility_is_owner_only_even_for_admin(state):
     with pytest.raises(NotFound):
         experiences.revoke_experience(session, other, saved["id"])
     with pytest.raises(NotFound):
-        experiences.replace_experience(session, other, saved["id"], kind="rule", content="替代内容",
-                                       refs=saved["refs"], source=saved["source"])
+        experiences.replace_experience(
+            session, other, saved["id"], kind="rule", content="替代内容", refs=saved["refs"], source=saved["source"]
+        )
     session.get(Experience, saved["id"]).scope = "team"
     assert not access.can_see_object(session, actor, "experience", saved["id"])
 
@@ -247,15 +307,23 @@ def test_revoke_preserves_version_and_blocks_recall(state):
 def test_replace_retains_old_content_and_links_exact_new_version(state):
     session, actor, _ = state
     old = save(state)
-    replacement = experiences.replace_experience(session, actor, old["id"], kind="join",
-                                                 content="metric_a 改按 key_b 对齐", refs=old["refs"],
-                                                 source=old["source"])
+    replacement = experiences.replace_experience(
+        session,
+        actor,
+        old["id"],
+        kind="join",
+        content="metric_a 改按 key_b 对齐",
+        refs=old["refs"],
+        source=old["source"],
+    )
     old_version = session.get(ExperienceVersion, old["version_id"])
     assert session.get(Experience, old["id"]).status == "superseded"
     assert old_version.content == old["content"] and old_version.superseded_by == replacement["version_id"]
     assert [item["id"] for item in recall(state)] == [replacement["id"]]
     assert {row.action for row in session.added if isinstance(row, AuditEvent)} >= {
-        "experience.save", "experience.replace"}
+        "experience.save",
+        "experience.replace",
+    }
 
 
 def test_save_deduplicates_active_content_and_kind_after_trimming(state):
@@ -270,30 +338,47 @@ def test_save_deduplicates_active_content_and_kind_after_trimming(state):
     assert save(state)["id"] != first["id"]
 
 
-@pytest.mark.parametrize(("object_type", "object_ids", "scope_key", "scope_ids"), [
-    ("metric_version", ["mv1", "mv2"], "metric_codes", ["metric_a", "metric_b"]),
-    ("asset", ["a1", "a2"], "asset_keys", ["a1", "a2"]),
-])
+@pytest.mark.parametrize(
+    ("object_type", "object_ids", "scope_key", "scope_ids"),
+    [
+        ("metric_version", ["mv1", "mv2"], "metric_codes", ["metric_a", "metric_b"]),
+        ("asset", ["a1", "a2"], "asset_keys", ["a1", "a2"]),
+    ],
+)
 def test_same_content_is_saved_and_recalled_for_each_reference_scope(
-        state, object_type, object_ids, scope_key, scope_ids):
+    state, object_type, object_ids, scope_key, scope_ids
+):
     session, actor, _ = state
     session.domains[actor.id].add("domain-b")
     session.add(Metric(id="m2", code="metric_b", domain_id="domain-b"))
-    session.add(MetricVersion(id="mv2", metric_id="m2", version_no=1, status="published", kind="base",
-                              base_asset_id="a2", joins=[], components=[]))
-    saved = [save(state, content="按 key_a 对齐", refs=[{
-        "object_type": object_type, "object_id": object_id, "version": 1}]) for object_id in object_ids]
+    session.add(
+        MetricVersion(
+            id="mv2",
+            metric_id="m2",
+            version_no=1,
+            status="published",
+            kind="base",
+            base_asset_id="a2",
+            joins=[],
+            components=[],
+        )
+    )
+    saved = [
+        save(state, content="按 key_a 对齐", refs=[{"object_type": object_type, "object_id": object_id, "version": 1}])
+        for object_id in object_ids
+    ]
     assert saved[0]["id"] != saved[1]["id"]
-    assert {item["id"] for item in experiences.list_experiences(session, actor)} == {
-        item["id"] for item in saved}
+    assert {item["id"] for item in experiences.list_experiences(session, actor)} == {item["id"] for item in saved}
     for item, scope_id in zip(saved, scope_ids):
         recalled = experiences.recall(session, actor, question="key_a", **{scope_key: [scope_id]})
         assert [result["id"] for result in recalled] == [item["id"]]
 
 
 def test_save_deduplicates_reference_order_and_repeated_refs(state):
-    refs = [{"object_type": "metric_version", "object_id": "mv1", "version": 1},
-            {"object_type": "asset", "object_id": "a1", "version": 1}]
+    refs = [
+        {"object_type": "metric_version", "object_id": "mv1", "version": 1},
+        {"object_type": "asset", "object_id": "a1", "version": 1},
+    ]
     saved = save(state, refs=refs)
     duplicate = save(state, content=f" {saved['content']} ", refs=[refs[1], refs[0], refs[1]])
     assert duplicate["id"] == saved["id"]
@@ -302,16 +387,38 @@ def test_save_deduplicates_reference_order_and_repeated_refs(state):
 
 def test_list_deduplicates_legacy_active_experiences_but_keeps_history(state):
     session, actor, _ = state
-    saved = save(state, refs=[{"object_type": "metric_version", "object_id": "mv1", "version": 1},
-                              {"object_type": "asset", "object_id": "a1", "version": 1}])
+    saved = save(
+        state,
+        refs=[
+            {"object_type": "metric_version", "object_id": "mv1", "version": 1},
+            {"object_type": "asset", "object_id": "a1", "version": 1},
+        ],
+    )
     original = session.get(Experience, saved["id"])
     version = session.get(ExperienceVersion, saved["version_id"])
-    session.add(Experience(id="duplicate", owner_id=actor.id, scope="personal", status="active",
-                           current_version=1, created_at=original.created_at))
-    session.add(ExperienceVersion(id="duplicate-version", experience_id="duplicate", version=1,
-                                  kind=version.kind, content=f" {version.content} ",
-                                  refs=[version.refs[1], version.refs[0], version.refs[1]],
-                                  source=version.source, confirmed_by=actor.id, confirmed_at=version.confirmed_at))
+    session.add(
+        Experience(
+            id="duplicate",
+            owner_id=actor.id,
+            scope="personal",
+            status="active",
+            current_version=1,
+            created_at=original.created_at,
+        )
+    )
+    session.add(
+        ExperienceVersion(
+            id="duplicate-version",
+            experience_id="duplicate",
+            version=1,
+            kind=version.kind,
+            content=f" {version.content} ",
+            refs=[version.refs[1], version.refs[0], version.refs[1]],
+            source=version.source,
+            confirmed_by=actor.id,
+            confirmed_at=version.confirmed_at,
+        )
+    )
     assert len(experiences.list_experiences(session, actor)) == 1
     session.get(Experience, "duplicate").status = "revoked"
     assert len(experiences.list_experiences(session, actor)) == 2
@@ -320,9 +427,15 @@ def test_list_deduplicates_legacy_active_experiences_but_keeps_history(state):
 def test_replace_same_content_returns_current_without_superseding_itself(state):
     session, actor, _ = state
     saved = save(state)
-    replacement = experiences.replace_experience(session, actor, saved["id"], kind=saved["kind"],
-                                                 content=f" {saved['content']} ", refs=saved["refs"],
-                                                 source=saved["source"])
+    replacement = experiences.replace_experience(
+        session,
+        actor,
+        saved["id"],
+        kind=saved["kind"],
+        content=f" {saved['content']} ",
+        refs=saved["refs"],
+        source=saved["source"],
+    )
     assert replacement["id"] == saved["id"] and replacement["status"] == "active"
     assert session.get(ExperienceVersion, saved["version_id"]).superseded_by is None
 
@@ -331,26 +444,38 @@ def test_replace_only_refs_creates_new_version_and_moves_recall_scope(state):
     session, actor, _ = state
     session.domains[actor.id].add("domain-b")
     saved = save(state, refs=[{"object_type": "asset", "object_id": "a1", "version": 1}])
-    replacement = experiences.replace_experience(session, actor, saved["id"], kind=saved["kind"],
-                                                 content=saved["content"], refs=[{
-                                                     "object_type": "asset", "object_id": "a2", "version": 1}],
-                                                 source=saved["source"])
+    replacement = experiences.replace_experience(
+        session,
+        actor,
+        saved["id"],
+        kind=saved["kind"],
+        content=saved["content"],
+        refs=[{"object_type": "asset", "object_id": "a2", "version": 1}],
+        source=saved["source"],
+    )
     assert replacement["id"] != saved["id"] and replacement["version_id"] != saved["version_id"]
     assert session.get(Experience, saved["id"]).status == "superseded"
     old_version = session.get(ExperienceVersion, saved["version_id"])
     assert old_version.refs == saved["refs"] and old_version.superseded_by == replacement["version_id"]
     assert experiences.recall(session, actor, asset_keys=["a1"], question="key_a") == []
     assert [item["id"] for item in experiences.recall(session, actor, asset_keys=["a2"], question="key_a")] == [
-        replacement["id"]]
+        replacement["id"]
+    ]
 
 
 def test_replace_reuses_another_active_experience(state):
     session, actor, _ = state
     original = save(state)
     existing = save(state, content="另一条规则")
-    replacement = experiences.replace_experience(session, actor, original["id"], kind=existing["kind"],
-                                                 content=existing["content"], refs=existing["refs"],
-                                                 source=existing["source"])
+    replacement = experiences.replace_experience(
+        session,
+        actor,
+        original["id"],
+        kind=existing["kind"],
+        content=existing["content"],
+        refs=existing["refs"],
+        source=existing["source"],
+    )
     assert replacement["id"] == existing["id"]
     assert session.get(Experience, original["id"]).status == "superseded"
     assert session.get(ExperienceVersion, original["version_id"]).superseded_by == existing["version_id"]
@@ -359,14 +484,32 @@ def test_replace_reuses_another_active_experience(state):
 @pytest.fixture
 def join_proposals(state, monkeypatch):
     session, _, _ = state
-    session.add(Asset(id="a3", status="active", datasource_id="ds", domain_id="domain-a",
-                      catalog_name="catalog", db_name="space", name="attributes", current_version_id="av3"))
+    session.add(
+        Asset(
+            id="a3",
+            status="active",
+            datasource_id="ds",
+            domain_id="domain-a",
+            catalog_name="catalog",
+            db_name="space",
+            name="attributes",
+            current_version_id="av3",
+        )
+    )
     proposed = []
 
     def propose(session, actor, **spec):
         proposed.append(spec)
-        return JoinPath(id="jp1", code="proposed_path", name="记录与属性按键关联", status="pending",
-                        cardinality="unknown", cardinality_basis={}, created_by=actor.id, **spec)
+        return JoinPath(
+            id="jp1",
+            code="proposed_path",
+            name="记录与属性按键关联",
+            status="pending",
+            cardinality="unknown",
+            cardinality_basis={},
+            created_by=actor.id,
+            **spec,
+        )
 
     monkeypatch.setattr(experiences.joins, "propose", propose)
     return proposed
@@ -379,9 +522,15 @@ def test_to_join_path_resolves_names_proposes_and_revokes(state, join_proposals,
     saved = save(state, kind="join", content=content)
     result = experiences.to_join_path(session, actor, saved["id"])
     assert result.id == "jp1" and result.status == "pending"
-    assert join_proposals == [{"left_asset_id": "a1", "left_columns": ["key_a"], "right_asset_id": "a3",
-                               "right_columns": ["key_b"], "source": {
-                                   "run_id": "r1", "checkpoint": "assumptions", "user_text": content}}]
+    assert join_proposals == [
+        {
+            "left_asset_id": "a1",
+            "left_columns": ["key_a"],
+            "right_asset_id": "a3",
+            "right_columns": ["key_b"],
+            "source": {"run_id": "r1", "checkpoint": "assumptions", "user_text": content},
+        }
+    ]
     assert session.get(Experience, saved["id"]).status == "revoked"
     assert session.get(ExperienceVersion, saved["version_id"]).content == content
     assert any(row.action == "experience.revoke" for row in session.added if isinstance(row, AuditEvent))
@@ -389,17 +538,21 @@ def test_to_join_path_resolves_names_proposes_and_revokes(state, join_proposals,
 
 def test_to_join_path_parses_multiple_keys_and_reversed_pair(state, join_proposals):
     session, actor, _ = state
-    saved = save(state, kind="join", content="`space`.`records`.`key_a` = attributes.key_b AND "
-                                             "attributes.key_d = records.key_c")
+    saved = save(
+        state, kind="join", content="`space`.`records`.`key_a` = attributes.key_b AND attributes.key_d = records.key_c"
+    )
     experiences.to_join_path(session, actor, saved["id"])
     assert join_proposals[0]["left_columns"] == ["key_a", "key_c"]
     assert join_proposals[0]["right_columns"] == ["key_b", "key_d"]
 
 
-@pytest.mark.parametrize(("content", "side"), [
-    ("missing.key_a = attributes.key_b", "左侧"),
-    ("records.key_a = detail.key_b", "右侧"),
-])
+@pytest.mark.parametrize(
+    ("content", "side"),
+    [
+        ("missing.key_a = attributes.key_b", "左侧"),
+        ("records.key_a = detail.key_b", "右侧"),
+    ],
+)
 def test_to_join_path_requires_visible_unique_asset_on_each_side(state, join_proposals, content, side):
     session, actor, _ = state
     saved = save(state, kind="join", content=content)
@@ -411,8 +564,17 @@ def test_to_join_path_requires_visible_unique_asset_on_each_side(state, join_pro
 @pytest.mark.parametrize(("name", "side"), [("records", "左侧"), ("attributes", "右侧")])
 def test_to_join_path_rejects_ambiguous_short_name(state, join_proposals, name, side):
     session, actor, _ = state
-    session.add(Asset(id="ambiguous", status="active", datasource_id="ds", domain_id="domain-a",
-                      catalog_name="catalog", db_name="other_space", name=name))
+    session.add(
+        Asset(
+            id="ambiguous",
+            status="active",
+            datasource_id="ds",
+            domain_id="domain-a",
+            catalog_name="catalog",
+            db_name="other_space",
+            name=name,
+        )
+    )
     saved = save(state, kind="join", content="records.key_a = attributes.key_b")
     with pytest.raises(Invalid, match=f"{side}.*多个") as exc:
         experiences.to_join_path(session, actor, saved["id"])
@@ -420,16 +582,19 @@ def test_to_join_path_rejects_ambiguous_short_name(state, join_proposals, name, 
     assert join_proposals == [] and session.get(Experience, saved["id"]).status == "active"
 
 
-@pytest.mark.parametrize("content", [
-    "缺少结构的关联",
-    "records.key_a = attributes.key_b OR records.key_c = attributes.key_d",
-    "records.key_a = attributes.key_b + 1",
-    "NOT records.key_a = attributes.key_b",
-    "否决：records.key_a = attributes.key_b",
-    "关联说明：records.key_a = attributes.key_b",
-    "records.key_a = attributes.key_b 不成立",
-    "records.key_a = attributes.key_b AND NOT records.key_c = attributes.key_d",
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "缺少结构的关联",
+        "records.key_a = attributes.key_b OR records.key_c = attributes.key_d",
+        "records.key_a = attributes.key_b + 1",
+        "NOT records.key_a = attributes.key_b",
+        "否决：records.key_a = attributes.key_b",
+        "关联说明：records.key_a = attributes.key_b",
+        "records.key_a = attributes.key_b 不成立",
+        "records.key_a = attributes.key_b AND NOT records.key_c = attributes.key_d",
+    ],
+)
 def test_to_join_path_requires_equalities_connected_by_and(state, join_proposals, content):
     session, actor, _ = state
     saved = save(state, kind="join", content=content)
@@ -504,8 +669,17 @@ def test_to_join_path_api_serializes_governance_view_and_errors(state, join_prop
         assert result["id"] == "jp1" and result["status"] == "pending"
         assert result["left"]["asset_id"] == "a1" and result["right"]["asset_id"] == "a3"
         assert result["source"]["user_text"] == saved["content"] and result["created_by"] == "用户甲"
-        session.add(Asset(id="ambiguous", status="active", datasource_id="ds", domain_id="domain-a",
-                          catalog_name="catalog", db_name="other_space", name="records"))
+        session.add(
+            Asset(
+                id="ambiguous",
+                status="active",
+                datasource_id="ds",
+                domain_id="domain-a",
+                catalog_name="catalog",
+                db_name="other_space",
+                name="records",
+            )
+        )
         ambiguous = save(state, kind="join", content="records.key_a = attributes.key_b")
         rejected = client.post(f"/api/analysis/experiences/{ambiguous['id']}/to-join-path")
         assert rejected.status_code == 422 and "左侧" in rejected.json()["detail"]
@@ -514,8 +688,13 @@ def test_to_join_path_api_serializes_governance_view_and_errors(state, join_prop
 def test_all_referenced_assets_must_be_visible_and_versions_must_exist(state):
     session, actor, _ = state
     session.domains[actor.id].add("domain-b")
-    saved = save(state, refs=[{"object_type": "asset", "object_id": "a1", "version": 1},
-                              {"object_type": "asset", "object_id": "a2", "version": 1}])
+    saved = save(
+        state,
+        refs=[
+            {"object_type": "asset", "object_id": "a1", "version": 1},
+            {"object_type": "asset", "object_id": "a2", "version": 1},
+        ],
+    )
     assert experiences.recall(session, actor, asset_keys=["a1"], question="key_a")
     session.domains[actor.id].remove("domain-b")
     assert experiences.recall(session, actor, asset_keys=["a1"], question="key_a") == []
@@ -595,9 +774,12 @@ def test_experience_api_serializes_save_list_replace_and_revoke(state):
     app.include_router(analysis.router)
     app.dependency_overrides[current_user] = lambda: actor
     app.dependency_overrides[get_session] = lambda: session
-    body = {"kind": "rule", "content": "metric_a 按 key_a 对齐",
-            "refs": [{"object_type": "asset", "object_id": "a1", "version": 1}],
-            "source": {"run_id": "r1", "checkpoint": "assumptions", "user_text": "按 key_a 对齐"}}
+    body = {
+        "kind": "rule",
+        "content": "metric_a 按 key_a 对齐",
+        "refs": [{"object_type": "asset", "object_id": "a1", "version": 1}],
+        "source": {"run_id": "r1", "checkpoint": "assumptions", "user_text": "按 key_a 对齐"},
+    }
     with TestClient(app) as client:
         saved = client.post("/api/analysis/experiences", json=body)
         assert saved.status_code == 201, saved.text
@@ -605,8 +787,9 @@ def test_experience_api_serializes_save_list_replace_and_revoke(state):
         assert isinstance(payload["created_at"], str) and isinstance(payload["confirmed_at"], str)
         listed = client.get("/api/analysis/experiences")
         assert listed.status_code == 200 and listed.json()[0]["id"] == payload["id"]
-        replacement = client.post(f"/api/analysis/experiences/{payload['id']}/replace",
-                                  json=body | {"content": "metric_a 改按 key_b 对齐"})
+        replacement = client.post(
+            f"/api/analysis/experiences/{payload['id']}/replace", json=body | {"content": "metric_a 改按 key_b 对齐"}
+        )
         assert replacement.status_code == 200, replacement.text
         revoked = client.post(f"/api/analysis/experiences/{replacement.json()['id']}/revoke", json={})
         assert revoked.status_code == 200 and revoked.json()["status"] == "revoked"
@@ -627,8 +810,9 @@ def test_migration_0011_compiles_postgresql_upgrade_and_downgrade_offline():
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     ddl = io.StringIO()
-    context = MigrationContext.configure(dialect_name="postgresql", opts={
-        "as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata})
+    context = MigrationContext.configure(
+        dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata}
+    )
     with Operations.context(context):
         migration.upgrade()
         migration.downgrade()

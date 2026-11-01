@@ -54,9 +54,26 @@ TRANSITIONS = {
     ("affected", "pending_review"),  # 待批准时受影响：恢复后回到待批准，仍须正式复核
     ("affected", "retired"),
 }
-EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "time_format",
-                   "data_grain", "time_aggregation", "filters", "dimensions", "joins", "grain", "dedupe_basis",
-                   "unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
+EDITABLE_FIELDS = (
+    "description",
+    "base_asset_id",
+    "expression",
+    "time_column",
+    "timezone",
+    "time_format",
+    "data_grain",
+    "time_aggregation",
+    "filters",
+    "dimensions",
+    "joins",
+    "grain",
+    "dedupe_basis",
+    "unit",
+    "unit_scale",
+    "material_change_ratio",
+    "value_kind",
+    "polarity",
+)
 # 只影响显示与分析判断的元数据：不计入依赖指纹，修改不算口径漂移
 DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
 TIME_TYPES = ("date", "datetime", "timestamp")
@@ -69,24 +86,62 @@ def encoded_time_type(data_type: str) -> str | None:
     # ClickHouse 的可空、低基数包装不改变底层类型
     for wrapper in ("nullable(", "lowcardinality("):
         if normalized.startswith(wrapper) and normalized.endswith(")"):
-            return encoded_time_type(normalized[len(wrapper):-1])
+            return encoded_time_type(normalized[len(wrapper) : -1])
     name = normalized.split("(", 1)[0].split()
     name = name[0] if name else ""
-    if name in ("tinyint", "smallint", "mediumint", "int", "integer", "bigint", "int2", "int4", "int8",
-                "int16", "int32", "int64", "int128", "int256", "uint8", "uint16", "uint32", "uint64",
-                "uint128", "uint256"):
+    if name in (
+        "tinyint",
+        "smallint",
+        "mediumint",
+        "int",
+        "integer",
+        "bigint",
+        "int2",
+        "int4",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "int128",
+        "int256",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "uint128",
+        "uint256",
+    ):
         return "integer"
-    if name in ("char", "character", "varchar", "varchar2", "nvarchar", "nvarchar2", "nchar", "text",
-                "tinytext", "mediumtext", "longtext", "string", "fixedstring", "clob", "nclob", "bpchar"):
+    if name in (
+        "char",
+        "character",
+        "varchar",
+        "varchar2",
+        "nvarchar",
+        "nvarchar2",
+        "nchar",
+        "text",
+        "tinytext",
+        "mediumtext",
+        "longtext",
+        "string",
+        "fixedstring",
+        "clob",
+        "nclob",
+        "bpchar",
+    ):
         return "string"
     return None
 
 
 def _validate_time_semantics(version: MetricVersion) -> None:
-    allowed = {"time_format": (None, "yyyymmdd", "yyyy-mm-dd", "yyyymm"),
-               "data_grain": ("day", "week", "month", "quarter", "year"),
-               "time_aggregation": ("sum", "last", "avg"), "value_kind": (None, "level", "ratio", "count"),
-               "polarity": (None, "up_good", "down_good")}
+    allowed = {
+        "time_format": (None, "yyyymmdd", "yyyy-mm-dd", "yyyymm"),
+        "data_grain": ("day", "week", "month", "quarter", "year"),
+        "time_aggregation": ("sum", "last", "avg"),
+        "value_kind": (None, "level", "ratio", "count"),
+        "polarity": (None, "up_good", "down_good"),
+    }
     for key, values in allowed.items():
         value = getattr(version, key, None)
         # SQLAlchemy 的 Python 默认值在未 flush 的新对象上尚未生效
@@ -94,17 +149,30 @@ def _validate_time_semantics(version: MetricVersion) -> None:
             value = TIME_DEFAULTS[key]
         if value not in values:
             raise Invalid(Msg("{key} 取值无效：{value}", key=key, value=value))
-    if (getattr(version, "time_format", None) == "yyyymm"
-            and (getattr(version, "data_grain", None) or "day") not in ("month", "quarter", "year")):
+    if getattr(version, "time_format", None) == "yyyymm" and (getattr(version, "data_grain", None) or "day") not in (
+        "month",
+        "quarter",
+        "year",
+    ):
         raise Invalid(Msg("yyyymm 时间格式要求 data_grain 为 month、quarter 或 year"))
 
 
 def transition(session: Session, version: MetricVersion, to_status: str, actor: User | None, reason: str) -> None:
     if (version.status, to_status) not in TRANSITIONS:
-        raise Conflict(Msg("不允许从 {from_status} 转为 {to_status}", from_status=version.status, to_status=to_status),
-                       from_status=version.status, to_status=to_status)
-    session.add(MetricVersionTransition(metric_version_id=version.id, from_status=version.status, to_status=to_status,
-                                        actor_id=actor.id if actor else None, reason=reason))
+        raise Conflict(
+            Msg("不允许从 {from_status} 转为 {to_status}", from_status=version.status, to_status=to_status),
+            from_status=version.status,
+            to_status=to_status,
+        )
+    session.add(
+        MetricVersionTransition(
+            metric_version_id=version.id,
+            from_status=version.status,
+            to_status=to_status,
+            actor_id=actor.id if actor else None,
+            reason=reason,
+        )
+    )
     version.status = to_status
     version.status_reason = reason
     if to_status in ("affected", "retired", "archived"):
@@ -113,8 +181,10 @@ def transition(session: Session, version: MetricVersion, to_status: str, actor: 
 
 # --- 指标 -------------------------------------------------------------------------
 
-def create_metric(session: Session, actor: User, *, code: str, name: str, domain_id: str, owner_id: str | None,
-                  aliases: list[str]) -> Metric:
+
+def create_metric(
+    session: Session, actor: User, *, code: str, name: str, domain_id: str, owner_id: str | None, aliases: list[str]
+) -> Metric:
     access.require_role(session, actor, "steward")
     if session.get(Domain, domain_id) is None:
         raise NotFound("业务域不存在")
@@ -122,8 +192,7 @@ def create_metric(session: Session, actor: User, *, code: str, name: str, domain
     if session.scalar(select(Metric.id).where(Metric.code == code)):
         raise Conflict(Msg("指标编码 {code} 已存在", code=code))
     owner_id = owner_id or session.get(Domain, domain_id).owner_id
-    metric = Metric(code=code, name=name, domain_id=domain_id, owner_id=owner_id, aliases=aliases,
-                    created_by=actor.id)
+    metric = Metric(code=code, name=name, domain_id=domain_id, owner_id=owner_id, aliases=aliases, created_by=actor.id)
     session.add(metric)
     session.flush()
     audit.record(session, actor, "metric.create", "metric", metric.id, code=code, name=name, owner_id=owner_id)
@@ -132,14 +201,21 @@ def create_metric(session: Session, actor: User, *, code: str, name: str, domain
 
 def create_version(session: Session, actor: User, metric: Metric, spec: dict[str, Any]) -> MetricVersion:
     access.require_domain_maintainer(session, actor, metric.domain_id)
-    number = (session.scalar(select(func.max(MetricVersion.version_no))
-                             .where(MetricVersion.metric_id == metric.id)) or 0) + 1
+    number = (
+        session.scalar(select(func.max(MetricVersion.version_no)).where(MetricVersion.metric_id == metric.id)) or 0
+    ) + 1
     kind = spec.get("kind") or "base"
     if kind not in ("base", "derived"):
         raise Invalid("指标类型只能是 base（基础）或 derived（派生）")
-    version = MetricVersion(metric_id=metric.id, version_no=number, status="draft", created_by=actor.id, kind=kind,
-                            timezone=spec.get("timezone") or get_settings().business_timezone,
-                            **{k: spec[k] for k in EDITABLE_FIELDS if k in spec and k != "timezone"})
+    version = MetricVersion(
+        metric_id=metric.id,
+        version_no=number,
+        status="draft",
+        created_by=actor.id,
+        kind=kind,
+        timezone=spec.get("timezone") or get_settings().business_timezone,
+        **{k: spec[k] for k in EDITABLE_FIELDS if k in spec and k != "timezone"},
+    )
     if kind == "derived":
         version.time_column = ""
         version.base_asset_id = None
@@ -149,10 +225,14 @@ def create_version(session: Session, actor: User, metric: Metric, spec: dict[str
     version.dependency = resolved["dependency"]
     session.add(version)
     session.flush()
-    session.add(MetricVersionTransition(metric_version_id=version.id, from_status=None, to_status="draft",
-                                        actor_id=actor.id, reason="创建草稿"))
-    audit.record(session, actor, "metric_version.create", "metric_version", version.id, metric=metric.code,
-                 version_no=number)
+    session.add(
+        MetricVersionTransition(
+            metric_version_id=version.id, from_status=None, to_status="draft", actor_id=actor.id, reason="创建草稿"
+        )
+    )
+    audit.record(
+        session, actor, "metric_version.create", "metric_version", version.id, metric=metric.code, version_no=number
+    )
     return version
 
 
@@ -178,8 +258,15 @@ def update_draft(session: Session, actor: User, version: MetricVersion, spec: di
 
 
 def transition_rejected_to_draft(session: Session, version: MetricVersion, actor: User) -> None:
-    session.add(MetricVersionTransition(metric_version_id=version.id, from_status="rejected", to_status="draft",
-                                        actor_id=actor.id, reason="修改被驳回的版本"))
+    session.add(
+        MetricVersionTransition(
+            metric_version_id=version.id,
+            from_status="rejected",
+            to_status="draft",
+            actor_id=actor.id,
+            reason="修改被驳回的版本",
+        )
+    )
     version.status = "draft"
     # 被驳回期间不受保留期保护：引用的资产版本可能已被清理。不留悬空引用，提交时按当前版本重新绑定（ADR 0008）
     if _purged_refs(session, version.asset_versions):
@@ -187,11 +274,15 @@ def transition_rejected_to_draft(session: Session, version: MetricVersion, actor
         version.status_reason = "引用的资产版本已按保留期清理：草稿不再绑定旧版本，重新提交时按当前版本绑定"
     # 派生口径经 components 固定的组成版本，间接引用它们的资产版本：组成版本不在了或其资产版本被清理，同样不留悬空引用
     components = [c for c in (version.components or []) if isinstance(c, dict)]
-    if any((cv := session.get(MetricVersion, c.get("version_id"))) is None or _purged_refs(session, cv.asset_versions)
-           for c in components if c.get("version_id")):
+    if any(
+        (cv := session.get(MetricVersion, c.get("version_id"))) is None or _purged_refs(session, cv.asset_versions)
+        for c in components
+        if c.get("version_id")
+    ):
         version.components = []
-        version.status_reason = ("组成口径版本引用的资产版本已按保留期清理：草稿不再固定旧的组成版本，"
-                                 "需要重新提交以重新固定")
+        version.status_reason = (
+            "组成口径版本引用的资产版本已按保留期清理：草稿不再固定旧的组成版本，需要重新提交以重新固定"
+        )
 
 
 def _purged_refs(session: Session, asset_versions: dict[str, Any] | None) -> bool:
@@ -201,9 +292,14 @@ def _purged_refs(session: Session, asset_versions: dict[str, Any] | None) -> boo
 
 # --- 定义校验与依赖 -----------------------------------------------------------------
 
+
 def _asset_columns(session: Session, asset: Asset) -> dict[str, ColumnVersion]:
-    return {c.name: c for c in session.scalars(select(ColumnVersion).where(
-        ColumnVersion.asset_version_id == asset.current_version_id))}
+    return {
+        c.name: c
+        for c in session.scalars(
+            select(ColumnVersion).where(ColumnVersion.asset_version_id == asset.current_version_id)
+        )
+    }
 
 
 def resolve_joins(session: Session, version: MetricVersion) -> tuple[dict[str, Asset], list[dict[str, Any]]]:
@@ -229,8 +325,15 @@ def resolve_joins(session: Session, version: MetricVersion) -> tuple[dict[str, A
         if right is None or right.status != "active":
             raise Invalid(Msg("关联路径 {code} 的右侧资产已删除", code=path.code))
         aliases[alias] = right
-        steps.append({"alias": alias, "from": left_alias, "path": path, "right": right,
-                      "pre_aggregate": bool(join.get("pre_aggregate"))})
+        steps.append(
+            {
+                "alias": alias,
+                "from": left_alias,
+                "path": path,
+                "right": right,
+                "pre_aggregate": bool(join.get("pre_aggregate")),
+            }
+        )
     return aliases, steps
 
 
@@ -265,12 +368,22 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
     if version.kind == "derived":
         time_aggregation = getattr(version, "time_aggregation", None) or "sum"
         if time_aggregation != "sum":
-            raise Invalid(Msg("派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，"
-                              "尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义",
-                              time_aggregation=time_aggregation))
+            raise Invalid(
+                Msg(
+                    "派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，"
+                    "尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义",
+                    time_aggregation=time_aggregation,
+                )
+            )
         components = derived_components(session, version)
-        return {"aliases": {}, "steps": [], "dependency": [], "expression": None, "components": components,
-                "dimensions": _shared_dimensions(components)}
+        return {
+            "aliases": {},
+            "steps": [],
+            "dependency": [],
+            "expression": None,
+            "components": components,
+            "dimensions": _shared_dimensions(components),
+        }
     aliases, steps = resolve_joins(session, version)
     names = set(aliases)
     dialect = engine_of(session.get(Datasource, aliases[BASE_ALIAS].datasource_id)).sql.name
@@ -287,31 +400,47 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
             return
         if column not in columns[alias]:
             asset = aliases[alias]
-            raise Invalid(Msg("{label}引用的列不存在：{database}.{asset}.{column}", label=label if isinstance(label, Msg) else Msg(label),
-                              database=asset.db_name, asset=asset.name, column=column))
+            raise Invalid(
+                Msg(
+                    "{label}引用的列不存在：{database}.{asset}.{column}",
+                    label=label if isinstance(label, Msg) else Msg(label),
+                    database=asset.db_name,
+                    asset=asset.name,
+                    column=column,
+                )
+            )
         refs.append((alias, column, role))
 
-    expression = parse_snippet(version.expression or "", dialect=dialect, label="表达式", aliases=names,
-                               require_aggregate=True)
+    expression = parse_snippet(
+        version.expression or "", dialect=dialect, label="表达式", aliases=names, require_aggregate=True
+    )
     for alias, column in expression.columns:
         check(alias, column, "表达式", "measure")
     if version.filters:
-        for alias, column in parse_snippet(version.filters, dialect=dialect, label="过滤条件", aliases=names,
-                                           require_aggregate=False).columns:
+        for alias, column in parse_snippet(
+            version.filters, dialect=dialect, label="过滤条件", aliases=names, require_aggregate=False
+        ).columns:
             check(alias, column, "过滤条件", "filter")
     time_alias, time_col = column_ref(version.time_column or "", dialect=dialect, label="时间字段", aliases=names)
     check(time_alias, time_col, "时间字段", "time")
     time_type = columns[time_alias][time_col].data_type
     if getattr(version, "time_format", None) is None:
         if not time_type.lower().startswith(TIME_TYPES):
-            raise Invalid(Msg("时间字段必须是日期或时间类型：{column}（{data_type}）", column=time_col,
-                              data_type=time_type))
+            raise Invalid(
+                Msg("时间字段必须是日期或时间类型：{column}（{data_type}）", column=time_col, data_type=time_type)
+            )
     elif encoded_time_type(time_type) is None:
-        raise Invalid(Msg("编码时间字段必须是整数或字符串类型：{column}（{data_type}）", column=time_col,
-                          data_type=time_type))
+        raise Invalid(
+            Msg("编码时间字段必须是整数或字符串类型：{column}（{data_type}）", column=time_col, data_type=time_type)
+        )
     elif version.time_format == "yyyy-mm-dd" and encoded_time_type(time_type) != "string":
-        raise Invalid(Msg("yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）", column=time_col,
-                          data_type=time_type))
+        raise Invalid(
+            Msg(
+                "yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）",
+                column=time_col,
+                data_type=time_type,
+            )
+        )
     try:
         ZoneInfo(version.timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -321,8 +450,9 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
         if not dim.get("name") or dim["name"] in seen_dims:
             raise Invalid(Msg("维度名称缺失或重复：{dimension}", dimension=dim))
         seen_dims.add(dim["name"])
-        alias, column = column_ref(dim.get("column", ""), dialect=dialect, label=Msg("维度 {name} ", name=dim["name"]),
-                                   aliases=names)
+        alias, column = column_ref(
+            dim.get("column", ""), dialect=dialect, label=Msg("维度 {name} ", name=dim["name"]), aliases=names
+        )
         check(alias, column, Msg("维度 {name} ", name=dim["name"]), "dimension")
     for step in steps:
         for c in step["path"].left_columns:
@@ -335,11 +465,18 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
     for alias, column, role in sorted(set(refs)):
         asset = aliases[alias]
         fp = fps.get((asset.id, column))
-        dependency.append({"alias": alias, "asset_id": asset.id, "column": column, "role": role,
-                           "qualified": f"{asset.catalog_name}.{asset.db_name}.{asset.name}",
-                           "fingerprint": fp.fingerprint if fp else None,
-                           "status": fp.status if fp else "unknown",
-                           "reason": fp.reason if fp else "尚未计算推导指纹"})
+        dependency.append(
+            {
+                "alias": alias,
+                "asset_id": asset.id,
+                "column": column,
+                "role": role,
+                "qualified": f"{asset.catalog_name}.{asset.db_name}.{asset.name}",
+                "fingerprint": fp.fingerprint if fp else None,
+                "status": fp.status if fp else "unknown",
+                "reason": fp.reason if fp else "尚未计算推导指纹",
+            }
+        )
     return {"aliases": aliases, "steps": steps, "dependency": dependency, "expression": expression}
 
 
@@ -351,8 +488,10 @@ def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, An
         spec.pop(key)
     spec.update(time_spec)
     if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
-        payload = {"formula": version.expression, "components": [
-            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]}
+        payload = {
+            "formula": version.expression,
+            "components": [[c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency],
+        }
         if time_spec:
             payload["time_semantics"] = time_spec
         return sha256_json(payload)
@@ -368,10 +507,17 @@ def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str,
             cv = session.get(MetricVersion, c["version_id"])
             inner = dependency_drift(session, cv) if cv is not None and cv.status == "published" else []
             if cv is None or cv.status != "published" or inner:
-                drift.append({"asset_id": None, "column": c["metric_code"], "qualified": f"指标 {c['metric_name']}",
-                              "fingerprint": c["dependency_fingerprint"], "current_fingerprint": None,
-                              "current_status": cv.status if cv else "missing",
-                              "current_reason": f"组成指标 V{c['version_no']} 当前为 {cv.status if cv else '不存在'}"})
+                drift.append(
+                    {
+                        "asset_id": None,
+                        "column": c["metric_code"],
+                        "qualified": f"指标 {c['metric_name']}",
+                        "fingerprint": c["dependency_fingerprint"],
+                        "current_fingerprint": None,
+                        "current_status": cv.status if cv else "missing",
+                        "current_reason": f"组成指标 V{c['version_no']} 当前为 {cv.status if cv else '不存在'}",
+                    }
+                )
         return drift
     fps = current_fingerprints(session)
     drift = []
@@ -379,8 +525,14 @@ def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str,
         fp = fps.get((dep["asset_id"], dep["column"]))
         current, status = (fp.fingerprint, fp.status) if fp else (None, "broken")
         if current != dep["fingerprint"] or status != "ok":
-            drift.append({**dep, "current_fingerprint": current, "current_status": status,
-                          "current_reason": fp.reason if fp else "字段或资产已不存在"})
+            drift.append(
+                {
+                    **dep,
+                    "current_fingerprint": current,
+                    "current_status": status,
+                    "current_reason": fp.reason if fp else "字段或资产已不存在",
+                }
+            )
     return drift
 
 
@@ -394,8 +546,9 @@ def publish_check(session: Session, version: MetricVersion, viewer: User) -> dic
     warnings: list[str] = []
     for dep in resolved["dependency"]:
         if dep["status"] != "ok":
-            blockers.append(f"依赖 {dep['qualified']}.{dep['column']} 证据不全（{dep['status']}）："
-                            f"{dep['reason'] or '原因未知'}")
+            blockers.append(
+                f"依赖 {dep['qualified']}.{dep['column']} 证据不全（{dep['status']}）：{dep['reason'] or '原因未知'}"
+            )
     fps = {(d["asset_id"], d["column"]): d["fingerprint"] for d in resolved["dependency"]}
     joins_report = []
     fan_out: list[str] = []  # 会放大可加度量的问题：发布时阻断，问数时按当前粒度重新判定
@@ -403,8 +556,10 @@ def publish_check(session: Session, version: MetricVersion, viewer: User) -> dic
     if additive and resolved["steps"]:
         outside = sorted({alias for alias, _ in resolved["expression"].columns if alias != BASE_ALIAS})
         if outside:
-            fan_out.append(f"可加度量 {version.expression} 引用了关联侧 {'、'.join(outside)} 的列："
-                           "关联后按基础表的行重复计数。请把该表作为基础表，或改为在关联侧先聚合后再关联")
+            fan_out.append(
+                f"可加度量 {version.expression} 引用了关联侧 {'、'.join(outside)} 的列："
+                "关联后按基础表的行重复计数。请把该表作为基础表，或改为在关联侧先聚合后再关联"
+            )
     for step in resolved["steps"]:
         path: JoinPath = step["path"]
         from avelis.governance.joins import effectively_approved
@@ -414,19 +569,31 @@ def publish_check(session: Session, version: MetricVersion, viewer: User) -> dic
         if step["pre_aggregate"]:
             card_value, basis = "n1", {"basis": f"右侧先按 {', '.join(path.right_columns)} 聚合，粒度即关联键"}
         else:
-            card = cardinality(session, path.left_asset_id, path.left_columns, path.right_asset_id,
-                               path.right_columns, fingerprints=current_fingerprint_map(session))
+            card = cardinality(
+                session,
+                path.left_asset_id,
+                path.left_columns,
+                path.right_asset_id,
+                path.right_columns,
+                fingerprints=current_fingerprint_map(session),
+            )
             card_value, basis = card.value, card.basis
             if card.basis.get("warning"):
                 warnings.append(f"{path.code}：{card.basis['warning']}")
-        report = {"alias": step["alias"], "path": path.code, "cardinality": card_value, "basis": basis,
-                  "pre_aggregate": step["pre_aggregate"]}
+        report = {
+            "alias": step["alias"],
+            "path": path.code,
+            "cardinality": card_value,
+            "basis": basis,
+            "pre_aggregate": step["pre_aggregate"],
+        }
         joins_report.append(report)
         if card_value in ("1n", "nn", "unknown") and additive:
             fan_out.append(
                 f"关联 {path.code}（{step['from']} → {step['alias']}）基数为 {_card_label(card_value)}，"
                 f"会放大可加度量 {version.expression}，导致重复计数。请先把右侧按关联键聚合（pre_aggregate），"
-                f"或改用不放大的关联路径")
+                f"或改用不放大的关联路径"
+            )
     blockers.extend(fan_out)
     # 字段含义以数据库列注释为准：依赖的列缺注释时提示（AVELIS_REQUIRE_COLUMN_COMMENTS=true 时阻断发布）
     from avelis.governance.column_docs import GAPS, column_doc, visible_to
@@ -439,16 +606,24 @@ def publish_check(session: Session, version: MetricVersion, viewer: User) -> dic
             hint = f"（上游 {doc['source']} 有注释，可沿用）" if doc["status"] == "inherited" else ""
             gaps.append(f"字段 {doc['asset'].split('.', 1)[1]}.{column} 缺少数据库注释{hint}")
     (blockers if get_settings().require_column_comments else warnings).extend(gaps)
-    base_grains = [g.to_dict() for g in effective_grains(session, version.base_asset_id,
-                                                         current_fingerprint_map(session))]
+    base_grains = [
+        g.to_dict() for g in effective_grains(session, version.base_asset_id, current_fingerprint_map(session))
+    ]
     if not version.grain:
         warnings.append("未填写统计粒度")
     if version.joins and not version.dedupe_basis:
         warnings.append("涉及关联但未说明避免重复计数的依据")
-    return {"ok": not blockers, "blockers": blockers, "fan_out": fan_out, "warnings": warnings, "joins": joins_report,
-            "base_grains": base_grains, "dependency": resolved["dependency"],
-            "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
-            "fingerprints": len(fps)}
+    return {
+        "ok": not blockers,
+        "blockers": blockers,
+        "fan_out": fan_out,
+        "warnings": warnings,
+        "joins": joins_report,
+        "base_grains": base_grains,
+        "dependency": resolved["dependency"],
+        "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "fingerprints": len(fps),
+    }
 
 
 def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
@@ -457,20 +632,39 @@ def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
     for c in resolved["components"]:
         metric, cv = c["metric"], c["version"]
         if cv is None or cv.status != "published":
-            blockers.append(f"组成指标 {metric.name}（{metric.code}）当前没有已发布版本"
-                            + (f"（V{cv.version_no} 为 {cv.status}）" if cv else ""))
+            blockers.append(
+                f"组成指标 {metric.name}（{metric.code}）当前没有已发布版本"
+                + (f"（V{cv.version_no} 为 {cv.status}）" if cv else "")
+            )
             continue
         if cv.kind == "derived":
             blockers.append(f"组成指标 {metric.name} 本身是派生指标；暂不支持派生嵌套")
             continue
-        pinned.append({"metric_code": metric.code, "metric_id": metric.id, "metric_name": metric.name,
-                       "version_id": cv.id, "version_no": cv.version_no,
-                       "dependency_fingerprint": cv.dependency_fingerprint})
+        pinned.append(
+            {
+                "metric_code": metric.code,
+                "metric_id": metric.id,
+                "metric_name": metric.name,
+                "version_id": cv.id,
+                "version_no": cv.version_no,
+                "dependency_fingerprint": cv.dependency_fingerprint,
+            }
+        )
     if not resolved["dimensions"]:
         warnings.append("组成指标没有共有维度：只能按时间范围汇总，不能按维度过滤或分组")
-    return {"ok": not blockers, "blockers": blockers, "fan_out": [], "warnings": warnings, "joins": [],
-            "base_grains": [], "dependency": pinned, "components": pinned, "dimensions": resolved["dimensions"],
-            "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(), "fingerprints": 0}
+    return {
+        "ok": not blockers,
+        "blockers": blockers,
+        "fan_out": [],
+        "warnings": warnings,
+        "joins": [],
+        "base_grains": [],
+        "dependency": pinned,
+        "components": pinned,
+        "dimensions": resolved["dimensions"],
+        "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "fingerprints": 0,
+    }
 
 
 def current_fingerprint_map(session: Session) -> dict[tuple[str, str], str]:
@@ -483,6 +677,7 @@ def _card_label(value: str) -> str:
 
 # --- 状态转换 ---------------------------------------------------------------------
 
+
 def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersion:
     metric = session.get(Metric, version.metric_id)
     access.require_domain_maintainer(session, actor, metric.domain_id)
@@ -492,8 +687,9 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
     version.publish_check = check
     version.dependency = check["dependency"]
     if not check["ok"]:
-        audit.record(session, actor, "metric_version.submit_blocked", "metric_version", version.id,
-                     blockers=check["blockers"])
+        audit.record(
+            session, actor, "metric_version.submit_blocked", "metric_version", version.id, blockers=check["blockers"]
+        )
         raise Conflict("发布前检查未通过", blockers=check["blockers"], check=check)
     version.dependency_fingerprint = dependency_fingerprint(version, check["dependency"])
     if version.kind == "derived":
@@ -506,8 +702,14 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
     version.submitted_by = actor.id
     version.submitted_at = utcnow()
     transition(session, version, "pending_review", actor, "提交复核")
-    audit.record(session, actor, "metric_version.submit", "metric_version", version.id,
-                 dependency_fingerprint=version.dependency_fingerprint)
+    audit.record(
+        session,
+        actor,
+        "metric_version.submit",
+        "metric_version",
+        version.id,
+        dependency_fingerprint=version.dependency_fingerprint,
+    )
     return version
 
 
@@ -516,8 +718,11 @@ def _asset_versions(session: Session, dependency: list[dict[str, Any]]) -> dict[
     for dep in dependency:
         asset = session.get(Asset, dep["asset_id"])
         v = session.get(AssetVersion, asset.current_version_id) if asset.current_version_id else None
-        out[asset.id] = {"qualified": dep["qualified"], "version_id": v.id if v else None,
-                         "version_no": v.version_no if v else None}
+        out[asset.id] = {
+            "qualified": dep["qualified"],
+            "version_id": v.id if v else None,
+            "version_no": v.version_no if v else None,
+        }
     return out
 
 
@@ -533,9 +738,11 @@ def approve(session: Session, actor: User, version: MetricVersion, note: str | N
     if dependency_fingerprint(version, check["dependency"]) != version.dependency_fingerprint:
         raise Conflict("提交后依赖已变化，请退回维护者重新提交", drift=dependency_drift(session, version))
     metric = session.get(Metric, version.metric_id)
-    for previous in session.scalars(select(MetricVersion).where(
-            MetricVersion.metric_id == metric.id, MetricVersion.status == "published",
-            MetricVersion.id != version.id)):
+    for previous in session.scalars(
+        select(MetricVersion).where(
+            MetricVersion.metric_id == metric.id, MetricVersion.status == "published", MetricVersion.id != version.id
+        )
+    ):
         transition(session, previous, "archived", actor, f"被 V{version.version_no} 取代")
     version.reviewed_by = actor.id
     version.reviewed_at = utcnow()
@@ -569,9 +776,12 @@ def archive(session: Session, actor: User, version: MetricVersion, reason: str) 
 
 def status_before_affected(session: Session, version: MetricVersion) -> str | None:
     """最近一次进入“受影响”之前的状态（published 或 pending_review）。"""
-    return session.scalar(select(MetricVersionTransition.from_status).where(
-        MetricVersionTransition.metric_version_id == version.id, MetricVersionTransition.to_status == "affected")
-        .order_by(MetricVersionTransition.at.desc()).limit(1))
+    return session.scalar(
+        select(MetricVersionTransition.from_status)
+        .where(MetricVersionTransition.metric_version_id == version.id, MetricVersionTransition.to_status == "affected")
+        .order_by(MetricVersionTransition.at.desc())
+        .limit(1)
+    )
 
 
 def mark_affected(session: Session, version: MetricVersion, reason: str) -> bool:
@@ -590,10 +800,15 @@ def visible_metrics(session: Session, user: User) -> list[Metric]:
 
 def latest_governed_version(session: Session, metric: Metric) -> MetricVersion | None:
     """问数使用的版本：最近一个进入过发布流程的版本（已发布 / 受影响 / 失效）。"""
-    return session.scalar(select(MetricVersion).where(
-        MetricVersion.metric_id == metric.id,
-        MetricVersion.status.in_(("published", "affected", "retired")),
-    ).order_by(MetricVersion.version_no.desc()).limit(1))
+    return session.scalar(
+        select(MetricVersion)
+        .where(
+            MetricVersion.metric_id == metric.id,
+            MetricVersion.status.in_(("published", "affected", "retired")),
+        )
+        .order_by(MetricVersion.version_no.desc())
+        .limit(1)
+    )
 
 
 def metric_or_404(session: Session, metric_id: str) -> Metric:
@@ -614,25 +829,47 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
     metric = session.get(Metric, version.metric_id)
     base = session.get(Asset, version.base_asset_id) if version.base_asset_id else None
     return {
-        "kind": version.kind, "components": version.components,
-        "id": version.id, "metric_id": metric.id, "metric_code": metric.code, "metric_name": metric.name,
-        "version_no": version.version_no, "status": version.status, "status_reason": version.status_reason,
-        "description": version.description, "expression": version.expression,
+        "kind": version.kind,
+        "components": version.components,
+        "id": version.id,
+        "metric_id": metric.id,
+        "metric_code": metric.code,
+        "metric_name": metric.name,
+        "version_no": version.version_no,
+        "status": version.status,
+        "status_reason": version.status_reason,
+        "description": version.description,
+        "expression": version.expression,
         "base_asset": {"id": base.id, "qualified": f"{base.catalog_name}.{base.db_name}.{base.name}"} if base else None,
-        "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
-        "time_format": getattr(version, "time_format", None), "data_grain": getattr(version, "data_grain", None) or "day",
+        "time_column": version.time_column,
+        "timezone": version.timezone,
+        "filters": version.filters,
+        "time_format": getattr(version, "time_format", None),
+        "data_grain": getattr(version, "data_grain", None) or "day",
         "time_aggregation": getattr(version, "time_aggregation", None) or "sum",
-        "value_kind": getattr(version, "value_kind", None), "polarity": getattr(version, "polarity", None),
-        "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
-        "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
-        "material_change_ratio": float(version.material_change_ratio) if version.material_change_ratio is not None
+        "value_kind": getattr(version, "value_kind", None),
+        "polarity": getattr(version, "polarity", None),
+        "dimensions": version.dimensions,
+        "joins": version.joins,
+        "grain": version.grain,
+        "dedupe_basis": version.dedupe_basis,
+        "unit": version.unit,
+        "unit_scale": version.unit_scale,
+        "material_change_ratio": float(version.material_change_ratio)
+        if version.material_change_ratio is not None
         else None,
         "dependency": version.dependency,
-        "dependency_fingerprint": version.dependency_fingerprint, "asset_versions": version.asset_versions,
-        "publish_check": version.publish_check, "created_by": version.created_by,
-        "submitted_by": version.submitted_by, "reviewed_by": version.reviewed_by,
-        "review_note": version.review_note, "published_at": _iso(version.published_at),
-        "created_at": _iso(version.created_at), "owner_id": metric.owner_id, "domain_id": metric.domain_id,
+        "dependency_fingerprint": version.dependency_fingerprint,
+        "asset_versions": version.asset_versions,
+        "publish_check": version.publish_check,
+        "created_by": version.created_by,
+        "submitted_by": version.submitted_by,
+        "reviewed_by": version.reviewed_by,
+        "review_note": version.review_note,
+        "published_at": _iso(version.published_at),
+        "created_at": _iso(version.created_at),
+        "owner_id": metric.owner_id,
+        "domain_id": metric.domain_id,
     }
 
 

@@ -51,14 +51,24 @@ class ChainedTable:
 _VERSION_TIME = "(SELECT v.observed_at FROM asset_version v WHERE v.id = x.asset_version_id)"
 
 TABLES: tuple[ChainedTable, ...] = (
-    ChainedTable("asset_version", "x.observed_at", live={"last_seen_at": "forward", "last_seen_run_id": "any"},
-                 marks={"superseded_at": {"from": None}}),
+    ChainedTable(
+        "asset_version",
+        "x.observed_at",
+        live={"last_seen_at": "forward", "last_seen_run_id": "any"},
+        marks={"superseded_at": {"from": None}},
+    ),
     ChainedTable("column_version", _VERSION_TIME),
     ChainedTable("definition", _VERSION_TIME),
-    ChainedTable("lineage_edge", "x.created_at",
-                 marks={"status": {"from": "active", "to": "superseded"}, "superseded_at": {"from": None}}),
-    ChainedTable("change_set", "x.created_at",
-                 marks={"status": {"from": "open", "to": "resolved"}, "resolved_at": {"from": None}}),
+    ChainedTable(
+        "lineage_edge",
+        "x.created_at",
+        marks={"status": {"from": "active", "to": "superseded"}, "superseded_at": {"from": None}},
+    ),
+    ChainedTable(
+        "change_set",
+        "x.created_at",
+        marks={"status": {"from": "open", "to": "resolved"}, "resolved_at": {"from": None}},
+    ),
     ChainedTable("change_event", "x.created_at"),
     ChainedTable("audit_event", "x.at"),
     ChainedTable("metric_version_transition", "x.at"),
@@ -229,8 +239,10 @@ CREATE CONSTRAINT TRIGGER avelis_chain_seal AFTER INSERT ON {t} DEFERRABLE INITI
 
 
 def drop_sql(table: ChainedTable) -> str:
-    return "".join(f"DROP TRIGGER IF EXISTS {name} ON {table.name};\n"
-                   for name in ("avelis_chain_insert", "avelis_append_only", "avelis_no_truncate", "avelis_chain_seal"))
+    return "".join(
+        f"DROP TRIGGER IF EXISTS {name} ON {table.name};\n"
+        for name in ("avelis_chain_insert", "avelis_append_only", "avelis_no_truncate", "avelis_chain_seal")
+    )
 
 
 def run_raw(conn, sql: str) -> None:
@@ -246,8 +258,10 @@ def install(conn) -> None:
 def backfill(conn) -> int:
     """为已有数据按自然时间顺序补算哈希（迁移在安装触发器之前调用）。返回补算行数。"""
     conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
-    parts = [f"SELECT '{t.name}' AS tbl, {i} AS rank, x.id, {t.order_by} AS ts, {digest_sql(t)} AS digest "
-             f"FROM {t.name} x" for i, t in enumerate(TABLES)]
+    parts = [
+        f"SELECT '{t.name}' AS tbl, {i} AS rank, x.id, {t.order_by} AS ts, {digest_sql(t)} AS digest FROM {t.name} x"
+        for i, t in enumerate(TABLES)
+    ]
     rows = conn.execute(text(" UNION ALL ".join(parts) + " ORDER BY ts NULLS FIRST, rank, id")).all()
     prev, seq = GENESIS, 0
     updates: dict[str, list[dict[str, Any]]] = {}
@@ -257,14 +271,15 @@ def backfill(conn) -> int:
         updates.setdefault(tbl, []).append({"id": row_id, "seq": seq, "prev": prev, "h": h})
         prev = h
     for tbl, items in updates.items():
-        conn.execute(text(f"UPDATE {tbl} SET chain_seq = :seq, prev_hash = :prev, row_hash = :h WHERE id = :id"),
-                     items)
-    conn.execute(text("INSERT INTO history_chain_head (id, last_seq, last_hash) VALUES (1, :seq, :h)"),
-                 {"seq": seq, "h": prev})
+        conn.execute(text(f"UPDATE {tbl} SET chain_seq = :seq, prev_hash = :prev, row_hash = :h WHERE id = :id"), items)
+    conn.execute(
+        text("INSERT INTO history_chain_head (id, last_seq, last_hash) VALUES (1, :seq, :h)"), {"seq": seq, "h": prev}
+    )
     return seq
 
 
 # --- 核验 -------------------------------------------------------------------------
+
 
 @dataclass
 class ChainRow:
@@ -286,7 +301,7 @@ class Chain:
 
 def _row_query(table: ChainedTable) -> str:
     return f"""
-SELECT x.id, x.chain_seq, x.prev_hash, x.row_hash, {digest_sql(table, override='m.sealed')} AS digest,
+SELECT x.id, x.chain_seq, x.prev_hash, x.row_hash, {digest_sql(table, override="m.sealed")} AS digest,
        coalesce(m.n, 0) AS marks, coalesce(m.cols, 0) AS mark_cols,
        NOT EXISTS (SELECT 1 FROM jsonb_each(coalesce(m.latest, '{{}}'::jsonb)) e
                    WHERE to_jsonb(x) -> e.key IS DISTINCT FROM e.value) AS marks_ok
@@ -308,20 +323,48 @@ def load_chain(session: Session) -> Chain:
         for row_id, seq, prev, row_hash, digest, marks, mark_cols, marks_ok in session.execute(text(_row_query(table))):
             n += 1
             if seq is None:
-                issues.append({"kind": "unsealed", "seq": None, "table": table.name, "row_id": row_id,
-                               "detail": "已提交但未封链（可能绕过了触发器插入）"})
+                issues.append(
+                    {
+                        "kind": "unsealed",
+                        "seq": None,
+                        "table": table.name,
+                        "row_id": row_id,
+                        "detail": "已提交但未封链（可能绕过了触发器插入）",
+                    }
+                )
                 continue
             if seq in rows:
-                issues.append({"kind": "duplicate_seq", "seq": seq, "table": table.name, "row_id": row_id,
-                               "detail": f"序号与 {rows[seq].table}/{rows[seq].row_id} 重复"})
+                issues.append(
+                    {
+                        "kind": "duplicate_seq",
+                        "seq": seq,
+                        "table": table.name,
+                        "row_id": row_id,
+                        "detail": f"序号与 {rows[seq].table}/{rows[seq].row_id} 重复",
+                    }
+                )
                 continue
             rows[seq] = ChainRow(seq, table.name, row_id, prev or "", row_hash or "", digest)
             if marks != mark_cols:
-                issues.append({"kind": "duplicate_marks", "seq": seq, "table": table.name, "row_id": row_id,
-                               "detail": "同一状态列有多条标记"})
+                issues.append(
+                    {
+                        "kind": "duplicate_marks",
+                        "seq": seq,
+                        "table": table.name,
+                        "row_id": row_id,
+                        "detail": "同一状态列有多条标记",
+                    }
+                )
             elif not marks_ok:
-                issues.append({"kind": "mark_mismatch", "seq": seq, "table": table.name, "row_id": row_id,
-                               "detail": "状态列的当前值与最后一条标记不一致（绕过触发器改过）"})
+                issues.append(
+                    {
+                        "kind": "mark_mismatch",
+                        "seq": seq,
+                        "table": table.name,
+                        "row_id": row_id,
+                        "detail": "状态列的当前值与最后一条标记不一致（绕过触发器改过）",
+                    }
+                )
         counts[table.name] = n
     head = session.execute(text("SELECT last_seq, last_hash FROM history_chain_head WHERE id = 1")).first()
     return Chain(rows, issues, counts, {"seq": head[0], "hash": head[1]} if head else None)
@@ -343,30 +386,54 @@ def check(chain: Chain, gaps: dict[tuple[int, int], dict[str, Any]]) -> list[dic
         where = {"seq": seq, "table": r.table, "row_id": r.row_id}
         if seq == prev_seq + 1:
             if r.prev_hash != prev_hash:
-                issues.append({"kind": "link_broken", **where,
-                               "detail": f"prev_hash 与序号 {prev_seq} 的行哈希不相接"})
+                issues.append({"kind": "link_broken", **where, "detail": f"prev_hash 与序号 {prev_seq} 的行哈希不相接"})
         else:
             gap = gaps.get((prev_seq + 1, seq - 1))
             if gap is None:
-                issues.append({"kind": "gap_unregistered", **where,
-                               "detail": f"序号 {prev_seq + 1}–{seq - 1} 缺失，且没有清理锚点登记"})
+                issues.append(
+                    {
+                        "kind": "gap_unregistered",
+                        **where,
+                        "detail": f"序号 {prev_seq + 1}–{seq - 1} 缺失，且没有清理锚点登记",
+                    }
+                )
             elif gap["before_hash"] != prev_hash or gap["last_hash"] != r.prev_hash:
-                issues.append({"kind": "gap_mismatch", **where,
-                               "detail": f"序号 {prev_seq + 1}–{seq - 1} 的清理锚点 {gap['anchor_id']} 与两侧哈希不符"})
+                issues.append(
+                    {
+                        "kind": "gap_mismatch",
+                        **where,
+                        "detail": f"序号 {prev_seq + 1}–{seq - 1} 的清理锚点 {gap['anchor_id']} 与两侧哈希不符",
+                    }
+                )
         if chain_hash(r.prev_hash, seq, r.table, r.digest) != r.row_hash:
             issues.append({"kind": "content_mismatch", **where, "detail": "内容与封链时不一致（行被改过）"})
         prev_seq, prev_hash = seq, r.row_hash
     head = chain.head
     if head is None:
-        issues.append({"kind": "head_missing", "seq": None, "table": "history_chain_head", "row_id": None,
-                       "detail": "链头不存在"})
+        issues.append(
+            {"kind": "head_missing", "seq": None, "table": "history_chain_head", "row_id": None, "detail": "链头不存在"}
+        )
     elif not chain.rows and (head["seq"] != 0 or head["hash"] != GENESIS):
         # 空链只有一种合法状态：链头还在起点。链头已前进而行全不见了，说明链上记录被整体删除
-        issues.append({"kind": "head_mismatch", "seq": head["seq"], "table": "history_chain_head", "row_id": None,
-                       "detail": f"链头已到序号 {head['seq']}，但链上没有任何记录（记录被整体删除）"})
+        issues.append(
+            {
+                "kind": "head_mismatch",
+                "seq": head["seq"],
+                "table": "history_chain_head",
+                "row_id": None,
+                "detail": f"链头已到序号 {head['seq']}，但链上没有任何记录（记录被整体删除）",
+            }
+        )
     elif chain.rows and (head["seq"] != prev_seq or head["hash"] != prev_hash):
-        issues.append({"kind": "head_mismatch", "seq": head["seq"], "table": "history_chain_head", "row_id": None,
-                       "detail": f"链头（{head['seq']}）与最后一行（{prev_seq}）不一致"})
+        issues.append(
+            {
+                "kind": "head_mismatch",
+                "seq": head["seq"],
+                "table": "history_chain_head",
+                "row_id": None,
+                "detail": f"链头（{head['seq']}）与最后一行（{prev_seq}）不一致",
+            }
+        )
     return sorted(issues, key=lambda i: (i["seq"] is None, i["seq"] or 0))
 
 

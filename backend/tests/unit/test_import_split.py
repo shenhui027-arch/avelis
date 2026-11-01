@@ -48,10 +48,13 @@ def test_custom_delimiter_text_is_not_confused_with_comments(delimiter):
     assert [segment.text for segment in split_sql(source, "mysql", ("DELIMITER",))] == ["SELECT 1", "SELECT 2"]
 
 
-@pytest.mark.parametrize("marker,separators,dialect", [
-    ("GO", SQLSERVER.script_separators, SQLSERVER.sql.name),
-    ("/", ORACLE.script_separators, ORACLE.sql.name),
-])
+@pytest.mark.parametrize(
+    "marker,separators,dialect",
+    [
+        ("GO", SQLSERVER.script_separators, SQLSERVER.sql.name),
+        ("/", ORACLE.script_separators, ORACLE.sql.name),
+    ],
+)
 def test_standalone_client_separator_with_or_without_semicolon(marker, separators, dialect):
     segments = split_sql(f"SELECT 1\n{marker}\nSELECT 2;\n{marker}\n", dialect, separators)
     assert [segment.text for segment in segments] == ["SELECT 1", "SELECT 2"]
@@ -81,14 +84,16 @@ def test_client_batch_keeps_a_procedure_without_begin_whole():
     source = "CREATE PROCEDURE refresh_rows AS\nSELECT 1;\nSELECT 2;\nGO\nSELECT 3;"
     segments = split_sql(source, "tsql", ("GO",))
     assert [segment.text for segment in segments] == [
-        "CREATE PROCEDURE refresh_rows AS\nSELECT 1;\nSELECT 2", "SELECT 3",
+        "CREATE PROCEDURE refresh_rows AS\nSELECT 1;\nSELECT 2",
+        "SELECT 3",
     ]
 
 
 @pytest.mark.parametrize("quote", ["$$", "$body$"])
 def test_postgres_dollar_quoted_body_does_not_split(quote):
-    source = (f"CREATE FUNCTION f() RETURNS void AS {quote}\nBEGIN\n SELECT 1;\nEND;\n"
-              f"{quote} LANGUAGE plpgsql;\nSELECT 2;")
+    source = (
+        f"CREATE FUNCTION f() RETURNS void AS {quote}\nBEGIN\n SELECT 1;\nEND;\n{quote} LANGUAGE plpgsql;\nSELECT 2;"
+    )
     segments = split_sql(source, "postgres")
     assert len(segments) == 2
     assert segments[0].line_start == 1 and segments[0].line_end == 5
@@ -102,8 +107,9 @@ def test_transaction_begin_does_not_open_procedure_depth(begin):
 
 
 def test_nested_begin_case_and_end_if_remain_one_code_block():
-    source = ("BEGIN\nIF flag THEN\nSELECT CASE WHEN flag THEN 1 ELSE 2 END;\nEND IF;\n"
-              "BEGIN SELECT 3; END;\nEND;\nSELECT 4;")
+    source = (
+        "BEGIN\nIF flag THEN\nSELECT CASE WHEN flag THEN 1 ELSE 2 END;\nEND IF;\nBEGIN SELECT 3; END;\nEND;\nSELECT 4;"
+    )
     segments = split_sql(source, "oracle")
     assert len(segments) == 2
     assert segments[0].line_start == 1 and segments[0].line_end == 6
@@ -151,15 +157,20 @@ def test_original_multiline_text_and_placeholders_are_retained():
 
 
 def test_python_name_and_attribute_custom_functions_share_the_new_splitter():
-    source = dedent('''\
+    source = dedent("""\
         run_sql("SELECT $$first;second$$; SELECT 2;")
         client.run_sql("BEGIN; SELECT 3; COMMIT;")
         text("SELECT 4;")
-    ''')
+    """)
     segments, notes = extract_python(source, "postgres", sql_functions=["run_sql"])
     assert not notes
     assert [segment.text for segment in segments] == [
-        "SELECT $$first;second$$", "SELECT 2", "BEGIN", "SELECT 3", "COMMIT", "SELECT 4",
+        "SELECT $$first;second$$",
+        "SELECT 2",
+        "BEGIN",
+        "SELECT 3",
+        "COMMIT",
+        "SELECT 4",
     ]
     assert [segment.line_start for segment in segments] == [1, 1, 2, 2, 2, 3]
     assert all(segment.method == "python_ast" for segment in segments)
@@ -191,7 +202,8 @@ def test_shell_heredoc_uses_client_separators_and_preserves_source_lines():
     assert not notes
     assert [segment.text for segment in segments] == ["SELECT $$first;second$$", "SELECT 2"]
     assert [(segment.line_start, segment.line_end, segment.method) for segment in segments] == [
-        (2, 2, "shell"), (3, 3, "shell"),
+        (2, 2, "shell"),
+        (3, 3, "shell"),
     ]
 
 

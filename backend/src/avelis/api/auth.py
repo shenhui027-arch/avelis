@@ -52,9 +52,13 @@ class UserOut(BaseModel):
 
 def _issue(user: User, *, auth_time: int | None = None) -> dict:
     token, expires, _ = create_access_token(user.id, user.username, auth_time=auth_time)
-    return {"access_token": token, "token_type": "bearer", "expires_at": expires.isoformat(),
-            "expires_in": math.ceil(expires.timestamp() - datetime.now(timezone.utc).timestamp()),
-            "must_change_password": user.must_change_password}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_at": expires.isoformat(),
+        "expires_in": math.ceil(expires.timestamp() - datetime.now(timezone.utc).timestamp()),
+        "must_change_password": user.must_change_password,
+    }
 
 
 def _end_other_sessions(user: User) -> None:
@@ -63,8 +67,9 @@ def _end_other_sessions(user: User) -> None:
 
 
 @router.post("/auth/token", response_model=TokenOut)
-def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
-          session: Session = Depends(get_session)) -> dict:
+def login(
+    request: Request, form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)
+) -> dict:
     """失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。
     锁定期间即使密码正确也拒绝，且不透露账号是否存在。"""
     settings = get_settings()
@@ -73,18 +78,34 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
     if locked:
         audit.record(session, None, "auth.login_locked", "user", None, username=form.username)
         session.commit()
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": str(locked)},
-                            detail=Msg("连续登录失败次数过多，请 {minutes} 分钟后再试", minutes=max(locked // 60, 1)))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(locked)},
+            detail=Msg("连续登录失败次数过多，请 {minutes} 分钟后再试", minutes=max(locked // 60, 1)),
+        )
     user = session.scalar(select(User).where(User.username == form.username))
     if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
         failures = cache.record_login_failure(key, settings.login_lock_minutes * 60)
-        audit.record(session, None, "auth.login_failed", "user", user.id if user else None, username=form.username,
-                     failures=failures)
+        audit.record(
+            session,
+            None,
+            "auth.login_failed",
+            "user",
+            user.id if user else None,
+            username=form.username,
+            failures=failures,
+        )
         session.commit()
         left = settings.login_max_failures - failures
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"},
-                            detail=(Msg("用户名或密码错误，再失败 {attempts} 次将暂时锁定", attempts=left)
-                                    if 0 < left <= 2 else "用户名或密码错误"))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Bearer"},
+            detail=(
+                Msg("用户名或密码错误，再失败 {attempts} 次将暂时锁定", attempts=left)
+                if 0 < left <= 2
+                else "用户名或密码错误"
+            ),
+        )
     cache.clear_login_failures(key)
     user.last_login_at = utcnow()
     audit.record(session, user, "auth.login", "user", user.id)
@@ -92,14 +113,20 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
 
 
 @router.post("/auth/refresh", response_model=TokenOut)
-def refresh(claims: dict = Depends(current_claims), user: User = Depends(current_user),
-            session: Session = Depends(get_session)) -> dict:
+def refresh(
+    claims: dict = Depends(current_claims), user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。"""
     auth_time = claims["auth_time"] if "auth_time" in claims else claims["iat"]  # 旧凭证沿用原签发时间
-    session_expires = datetime.fromtimestamp(auth_time, timezone.utc) + timedelta(hours=get_settings().session_max_hours)
+    session_expires = datetime.fromtimestamp(auth_time, timezone.utc) + timedelta(
+        hours=get_settings().session_max_hours
+    )
     if datetime.now(timezone.utc) >= session_expires:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"},
-                            detail="登录已超过最长时长，请重新登录")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Bearer"},
+            detail="登录已超过最长时长，请重新登录",
+        )
     result = _issue(user, auth_time=auth_time)
     ttl = math.ceil(claims["exp"] - datetime.now(timezone.utc).timestamp())  # 与退出一致，保留到旧凭证过期
     cache.revoke_token(claims["jti"], ttl)
@@ -122,9 +149,12 @@ def _check_password_policy(user: User, password: str) -> None:
 
 
 @router.post("/me/password", response_model=TokenOut)
-def change_password(body: PasswordChange, user: User = Depends(current_user),
-                    claims: dict = Depends(current_claims),
-                    session: Session = Depends(get_session)) -> dict:
+def change_password(
+    body: PasswordChange,
+    user: User = Depends(current_user),
+    claims: dict = Depends(current_claims),
+    session: Session = Depends(get_session),
+) -> dict:
     """修改自己的密码：其他会话全部失效，返回当前会话的新令牌。"""
     if not verify_password(body.current_password, user.password_hash):
         audit.record(session, user, "auth.password_change_failed", "user", user.id)
@@ -141,8 +171,9 @@ def change_password(body: PasswordChange, user: User = Depends(current_user),
 
 
 @router.post("/auth/logout")
-def logout(claims: dict = Depends(current_claims), user: User = Depends(current_user),
-           session: Session = Depends(get_session)) -> dict:
+def logout(
+    claims: dict = Depends(current_claims), user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     ttl = math.ceil(claims["exp"] - datetime.now(timezone.utc).timestamp())  # 向上取整：吊销记录不早于令牌过期
     cache.revoke_token(claims["jti"], ttl)
     audit.record(session, user, "auth.logout", "user", user.id)
@@ -150,15 +181,22 @@ def logout(claims: dict = Depends(current_claims), user: User = Depends(current_
 
 
 def user_view(session: Session, user: User) -> dict:
-    memberships = session.execute(select(DomainMember.domain_id, DomainMember.role, Domain.name, Domain.code)
-                                  .join(Domain, Domain.id == DomainMember.domain_id)
-                                  .where(DomainMember.user_id == user.id))
-    return {"id": user.id, "username": user.username, "display_name": user.display_name,
-            "is_active": user.is_active, "roles": sorted(access.roles_of(session, user)),
-            "domains": [{"id": d, "role": r, "name": n, "code": c} for d, r, n, c in memberships],
-            "must_change_password": user.must_change_password,
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-            "created_at": user.created_at.isoformat() if user.created_at else None}
+    memberships = session.execute(
+        select(DomainMember.domain_id, DomainMember.role, Domain.name, Domain.code)
+        .join(Domain, Domain.id == DomainMember.domain_id)
+        .where(DomainMember.user_id == user.id)
+    )
+    return {
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "is_active": user.is_active,
+        "roles": sorted(access.roles_of(session, user)),
+        "domains": [{"id": d, "role": r, "name": n, "code": c} for d, r, n, c in memberships],
+        "must_change_password": user.must_change_password,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
 
 
 @router.get("/me", response_model=UserOut)
@@ -198,8 +236,12 @@ def create_user(body: UserCreate, user: User = Depends(current_user), session: S
     unknown = set(body.roles) - set(access.ROLES)
     if unknown:
         raise HTTPException(422, Msg("未知角色：{roles}", roles=", ".join(sorted(unknown))))
-    new = User(username=body.username, display_name=body.display_name, password_hash=hash_password(body.password),
-               must_change_password=body.must_change_password)
+    new = User(
+        username=body.username,
+        display_name=body.display_name,
+        password_hash=hash_password(body.password),
+        must_change_password=body.must_change_password,
+    )
     session.add(new)
     session.flush()
     for role in sorted(set(body.roles)):
@@ -217,8 +259,9 @@ def _user_or_404(session: Session, user_id: str) -> User:
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
-def update_user(user_id: str, body: UserUpdate, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict:
+def update_user(
+    user_id: str, body: UserUpdate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """管理员修改显示名、角色、启用状态。不能停用自己，也不能去掉自己的管理员角色（避免没有管理员）。"""
     access.require_role(session, user, "admin")
     target = _user_or_404(session, user_id)
@@ -254,8 +297,9 @@ def update_user(user_id: str, body: UserUpdate, user: User = Depends(current_use
 
 
 @router.post("/users/{user_id}/password", response_model=UserOut)
-def reset_password(user_id: str, body: PasswordReset, user: User = Depends(current_user),
-                   session: Session = Depends(get_session)) -> dict:
+def reset_password(
+    user_id: str, body: PasswordReset, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """管理员重置密码：该用户的会话全部失效，下次登录必须修改密码。"""
     access.require_role(session, user, "admin")
     target = _user_or_404(session, user_id)
@@ -276,8 +320,11 @@ def settings_view(user: User = Depends(current_user), session: Session = Depends
         "allow_self_review": s.allow_self_review,
         "self_review_policy": "允许自审" if s.allow_self_review else "禁止自审：提交人、创建人不能批准同一版本",
         "unassigned_asset_policy": s.unassigned_asset_policy,
-        "query_limits": {"timeout_seconds": s.query_timeout_seconds, "mem_limit_bytes": s.query_mem_limit_bytes,
-                         "max_rows": s.query_max_rows},
+        "query_limits": {
+            "timeout_seconds": s.query_timeout_seconds,
+            "mem_limit_bytes": s.query_mem_limit_bytes,
+            "max_rows": s.query_max_rows,
+        },
         "answer_cache_seconds": s.answer_cache_seconds,
         "collect_interval_minutes": s.collect_interval_minutes,
         "model": {**modelcfg.settings_view(session), "orchestrator": "langgraph"},

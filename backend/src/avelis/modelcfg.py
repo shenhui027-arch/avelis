@@ -35,22 +35,29 @@ from avelis.models import AppSetting, ModelAssignment, ModelProvider, User
 from avelis.security import decrypt_secret, encrypt_secret
 
 PURPOSES = {
-    "ask": {"label": "问数理解", "needs_tools": True,
-            "hint": "理解问题、检索口径、追问；必须支持工具调用"},
-    "explain": {"label": "结果解释", "needs_tools": False,
-                "hint": "用自然语言解释查询结果；仅在允许发送查询结果时使用"},
-    "import": {"label": "导入血缘推断", "needs_tools": False,
-               "hint": "对确定性解析覆盖不到的代码片段提出候选血缘"},
-    "analysis": {"label": "分析", "needs_tools": True,
-                 "hint": "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型"},
+    "ask": {"label": "问数理解", "needs_tools": True, "hint": "理解问题、检索口径、追问；必须支持工具调用"},
+    "explain": {
+        "label": "结果解释",
+        "needs_tools": False,
+        "hint": "用自然语言解释查询结果；仅在允许发送查询结果时使用",
+    },
+    "import": {"label": "导入血缘推断", "needs_tools": False, "hint": "对确定性解析覆盖不到的代码片段提出候选血缘"},
+    "analysis": {
+        "label": "分析",
+        "needs_tools": True,
+        "hint": "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型",
+    },
 }
 
 PRESETS = {
     "deepseek": {"name": "DeepSeek", "kind": "openai_compatible", "base_url": "https://api.deepseek.com"},
     "openai": {"name": "OpenAI", "kind": "openai_compatible", "base_url": "https://api.openai.com/v1"},
     "anthropic": {"name": "Anthropic", "kind": "anthropic", "base_url": "https://api.anthropic.com"},
-    "dashscope": {"name": "通义千问（兼容模式）", "kind": "openai_compatible",
-                  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+    "dashscope": {
+        "name": "通义千问（兼容模式）",
+        "kind": "openai_compatible",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
     "custom": {"name": "自定义（OpenAI 兼容）", "kind": "openai_compatible", "base_url": ""},
 }
 
@@ -80,11 +87,12 @@ def redact_error(text: str, api_key: str | None = None, *, limit: int = 300) -> 
     if api_key:
         text = text.replace(api_key, "[REDACTED]")
     text = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^\s/]+@", r"\1[REDACTED]@", text)
-    text = re.sub(r'''(?i)\bbearer\s+[^\s"',;}\]]+''', "Bearer [REDACTED]", text)
+    text = re.sub(r"""(?i)\bbearer\s+[^\s"',;}\]]+""", "Bearer [REDACTED]", text)
     text = re.sub(
-        r'''(?ix)(["']?(?:authorization|proxy-authorization|x-api-key)["']?\s*[:=]\s*)
-        (?:"[^"]*"|'[^']*'|Basic\s+[^\s"',;}\]]+|[^\r\n,;}]+)''',
-        r"\1[REDACTED]", text,
+        r"""(?ix)(["']?(?:authorization|proxy-authorization|x-api-key)["']?\s*[:=]\s*)
+        (?:"[^"]*"|'[^']*'|Basic\s+[^\s"',;}\]]+|[^\r\n,;}]+)""",
+        r"\1[REDACTED]",
+        text,
     )
     return text[:limit]
 
@@ -118,15 +126,28 @@ def _context_window(p: ModelProvider, model: dict) -> tuple[int | None, str | No
 def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str]]:
     """页面上的档位选项：值、名称、实际生效的档位（与所选不同时页面注明）。"""
     mapping = effort_map(p, model_id) or {}
-    return [{"value": e, "label": gettext(EFFORT_LABELS[e]), "effective": mapping[e],
-             "effective_label": gettext(EFFORT_LABELS[mapping[e]])}
-            for e in EFFORTS if e in mapping]
+    return [
+        {
+            "value": e,
+            "label": gettext(EFFORT_LABELS[e]),
+            "effective": mapping[e],
+            "effective_label": gettext(EFFORT_LABELS[mapping[e]]),
+        }
+        for e in EFFORTS
+        if e in mapping
+    ]
 
 
 def _validate_effort(p: ModelProvider, model_id: str, effort: str | None) -> None:
     if effort is not None and effort not in (effort_map(p, model_id) or {}):
-        raise Invalid(Msg("{provider} · {model} 不支持思考强度“{effort}”", provider=p.name,
-                          model=model_id, effort=Msg(EFFORT_LABELS[effort]) if effort in EFFORT_LABELS else effort))
+        raise Invalid(
+            Msg(
+                "{provider} · {model} 不支持思考强度“{effort}”",
+                provider=p.name,
+                model=model_id,
+                effort=Msg(EFFORT_LABELS[effort]) if effort in EFFORT_LABELS else effort,
+            )
+        )
 
 
 def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None) -> str | None:
@@ -161,6 +182,7 @@ def _enabled_model(p: ModelProvider | None, model_id: str, *, needs_tools: bool 
 
 # --- 视图 -------------------------------------------------------------------------
 
+
 def mask(hint: str | None) -> str | None:
     return f"••••••••{hint}" if hint else None
 
@@ -171,12 +193,23 @@ def endpoint_preview(provider: ModelProvider) -> str:
 
 
 def provider_view(p: ModelProvider) -> dict[str, Any]:
-    return {"id": p.id, "code": p.code, "name": p.name, "kind": p.kind, "preset": p.preset, "base_url": p.base_url,
-            "endpoint": endpoint_preview(p), "api_key": mask(p.api_key_hint), "has_api_key": bool(p.api_key_enc),
-            "enabled": p.enabled, "models": [{**m, "context_window": m.get("context_window"),
-                                               "efforts": effort_options(p, m["id"])} for m in p.models],
-            "last_check": p.last_check,
-            "updated_at": p.updated_at.isoformat()}  # UTCDateTime 读出时带 UTC 时区
+    return {
+        "id": p.id,
+        "code": p.code,
+        "name": p.name,
+        "kind": p.kind,
+        "preset": p.preset,
+        "base_url": p.base_url,
+        "endpoint": endpoint_preview(p),
+        "api_key": mask(p.api_key_hint),
+        "has_api_key": bool(p.api_key_enc),
+        "enabled": p.enabled,
+        "models": [
+            {**m, "context_window": m.get("context_window"), "efforts": effort_options(p, m["id"])} for m in p.models
+        ],
+        "last_check": p.last_check,
+        "updated_at": p.updated_at.isoformat(),
+    }  # UTCDateTime 读出时带 UTC 时区
 
 
 def policy(session: Session) -> dict[str, bool]:
@@ -192,17 +225,26 @@ def settings_view(session: Session) -> dict[str, Any]:
         p = session.get(ModelProvider, a.provider_id) if a else None
         effort = (a.reasoning_effort if a else None) or DEFAULT_EFFORT[purpose]
         effective = effective_effort(p, a.model_id, effort) if a else None
-        out[purpose] = {**meta, "label": gettext(meta["label"]), "hint": gettext(meta["hint"]),
-                        "provider_id": a.provider_id if a else None, "model_id": a.model_id if a else None,
-                        "updated_at": a.updated_at.isoformat() if a else None,
-                        "reasoning_effort": effort, "default_effort": DEFAULT_EFFORT[purpose],
-                        "effective_effort": effective}
+        out[purpose] = {
+            **meta,
+            "label": gettext(meta["label"]),
+            "hint": gettext(meta["hint"]),
+            "provider_id": a.provider_id if a else None,
+            "model_id": a.model_id if a else None,
+            "updated_at": a.updated_at.isoformat() if a else None,
+            "reasoning_effort": effort,
+            "default_effort": DEFAULT_EFFORT[purpose],
+            "effective_effort": effective,
+        }
     ask = assignments.get("ask")
     provider = session.get(ModelProvider, ask.provider_id) if ask else None
     configured = ask is not None and _enabled_model(provider, ask.model_id, needs_tools=True) is not None
-    return {"assignments": out, "policy": policy(session),
-            "mode": "configured" if configured else "demo",
-            "note": None if configured else gettext("未配置有效的问数理解模型：使用演示模型（规则匹配）")}
+    return {
+        "assignments": out,
+        "policy": policy(session),
+        "mode": "configured" if configured else "demo",
+        "note": None if configured else gettext("未配置有效的问数理解模型：使用演示模型（规则匹配）"),
+    }
 
 
 def get_assignment(session: Session, purpose: str) -> ModelAssignment | None:
@@ -218,10 +260,19 @@ def analysis_models_view(session: Session) -> dict[str, Any]:
         for model in p.models:
             if _enabled_model(p, model["id"], needs_tools=True) is not None:
                 context_window, context_window_source = _context_window(p, model)
-                models.append({"provider_id": p.id, "provider_name": p.name, "model_id": model["id"],
-                               "efforts": [{"value": option["value"], "label": option["label"]}
-                                           for option in effort_options(p, model["id"])],
-                               "context_window": context_window, "context_window_source": context_window_source})
+                models.append(
+                    {
+                        "provider_id": p.id,
+                        "provider_name": p.name,
+                        "model_id": model["id"],
+                        "efforts": [
+                            {"value": option["value"], "label": option["label"]}
+                            for option in effort_options(p, model["id"])
+                        ],
+                        "context_window": context_window,
+                        "context_window_source": context_window_source,
+                    }
+                )
     assignment = get_assignment(session, "analysis")
     provider = session.get(ModelProvider, assignment.provider_id) if assignment else None
     default = None
@@ -230,13 +281,17 @@ def analysis_models_view(session: Session) -> dict[str, Any]:
         effort = assignment.reasoning_effort or DEFAULT_EFFORT["analysis"]
         if effort not in efforts:
             effort = DEEPSEEK_ALIASES.get(effort)
-        default = {"provider_id": assignment.provider_id, "model_id": assignment.model_id,
-                   "reasoning_effort": effort if effort in efforts else None}
+        default = {
+            "provider_id": assignment.provider_id,
+            "model_id": assignment.model_id,
+            "reasoning_effort": effort if effort in efforts else None,
+        }
     return {"models": models, "default": default}
 
 
-def analysis_model_choice(session: Session, model: dict | None = None,
-                          reasoning_effort: str | None = None) -> dict | None:
+def analysis_model_choice(
+    session: Session, model: dict | None = None, reasoning_effort: str | None = None
+) -> dict | None:
     if model is None and reasoning_effort is None:
         return None
     if model is None:
@@ -251,11 +306,15 @@ def analysis_model_choice(session: Session, model: dict | None = None,
         _validate_effort(provider, model["model_id"], reasoning_effort)
     except Invalid as exc:
         raise GovernanceError(exc.message) from None
-    return {"provider_id": provider.id, "model_id": model["model_id"],
-            "reasoning_effort": reasoning_effort if reasoning_effort is not None else DEFAULT_EFFORT["analysis"]}
+    return {
+        "provider_id": provider.id,
+        "model_id": model["model_id"],
+        "reasoning_effort": reasoning_effort if reasoning_effort is not None else DEFAULT_EFFORT["analysis"],
+    }
 
 
 # --- 维护 -------------------------------------------------------------------------
+
 
 def _get(session: Session, provider_id: str) -> ModelProvider:
     p = session.get(ModelProvider, provider_id)
@@ -280,14 +339,29 @@ def _normalise_models(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
         context_window = m.get("context_window")
         if context_window is not None and (type(context_window) is not int or not 1024 <= context_window <= 10_000_000):
             raise Invalid("context_window 必须是 1024 到 10000000 之间的整数")
-        out.append({"id": mid, "enabled": bool(m.get("enabled", True)), "tool_calling": m.get("tool_calling"),
-                    "context_window": context_window})
+        out.append(
+            {
+                "id": mid,
+                "enabled": bool(m.get("enabled", True)),
+                "tool_calling": m.get("tool_calling"),
+                "context_window": context_window,
+            }
+        )
     return out
 
 
-def create_provider(session: Session, actor: User, *, code: str, preset: str | None, name: str | None,
-                    kind: str | None, base_url: str | None, api_key: str | None,
-                    models: list[dict[str, Any]]) -> ModelProvider:
+def create_provider(
+    session: Session,
+    actor: User,
+    *,
+    code: str,
+    preset: str | None,
+    name: str | None,
+    kind: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    models: list[dict[str, Any]],
+) -> ModelProvider:
     base = PRESETS.get(preset or "custom")
     if base is None:
         raise Invalid(Msg("未知预设：{preset}", preset=preset))
@@ -299,13 +373,30 @@ def create_provider(session: Session, actor: User, *, code: str, preset: str | N
         raise Invalid("接口地址必须以 http:// 或 https:// 开头")
     if session.scalar(select(ModelProvider.id).where(ModelProvider.code == code)):
         raise Conflict(Msg("提供方编码 {code} 已存在", code=code))
-    p = ModelProvider(code=code, name=name or base["name"], kind=kind, preset=preset, base_url=url,
-                      models=_normalise_models(models), created_by=actor.id, enabled=True)
+    p = ModelProvider(
+        code=code,
+        name=name or base["name"],
+        kind=kind,
+        preset=preset,
+        base_url=url,
+        models=_normalise_models(models),
+        created_by=actor.id,
+        enabled=True,
+    )
     _set_key(p, api_key)
     session.add(p)
     session.flush()
-    audit.record(session, actor, "model_provider.create", "model_provider", p.id, code=code, kind=kind,
-                 base_url=url, api_key_set=bool(api_key))
+    audit.record(
+        session,
+        actor,
+        "model_provider.create",
+        "model_provider",
+        p.id,
+        code=code,
+        kind=kind,
+        base_url=url,
+        api_key_set=bool(api_key),
+    )
     return p
 
 
@@ -332,8 +423,9 @@ def update_provider(session: Session, actor: User, provider_id: str, changes: di
         p.last_check = {}
         p.models = [{**m, "tool_calling": None} for m in p.models]
     p.updated_at = utcnow()
-    if p.enabled is False and session.scalar(select(ModelAssignment.purpose).where(
-            ModelAssignment.provider_id == p.id).limit(1)):
+    if p.enabled is False and session.scalar(
+        select(ModelAssignment.purpose).where(ModelAssignment.provider_id == p.id).limit(1)
+    ):
         raise Conflict("该提供方正被用途使用，先在“默认模型”中改用其他模型再停用")
     audit.record(session, actor, "model_provider.update", "model_provider", p.id, fields=fields)
     return p
@@ -347,8 +439,9 @@ def delete_provider(session: Session, actor: User, provider_id: str) -> None:
     session.delete(p)
 
 
-def save_settings(session: Session, actor: User, assignments: dict[str, dict | None],
-                  new_policy: dict[str, bool] | None) -> dict[str, Any]:
+def save_settings(
+    session: Session, actor: User, assignments: dict[str, dict | None], new_policy: dict[str, bool] | None
+) -> dict[str, Any]:
     for purpose, target in assignments.items():
         if purpose not in PURPOSES:
             raise Invalid(Msg("未知用途：{purpose}", purpose=purpose))
@@ -364,7 +457,9 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
         if model is None:
             raise Conflict(Msg("模型 {model} 不在 {provider} 的启用列表中", model=target["model_id"], provider=p.name))
         if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
-            raise Conflict(Msg("{purpose}需要该模型最近一次服务器检测成功且支持工具调用", purpose=Msg(PURPOSES[purpose]["label"])))
+            raise Conflict(
+                Msg("{purpose}需要该模型最近一次服务器检测成功且支持工具调用", purpose=Msg(PURPOSES[purpose]["label"]))
+            )
         effort = target.get("reasoning_effort")
         _validate_effort(p, model["id"], effort)
         if current is None:
@@ -382,15 +477,31 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
         else:
             row.value, row.updated_by, row.updated_at = value, actor.id, utcnow()
     session.flush()
-    audit.record(session, actor, "model_settings.update", "model_settings", None,
-                 assignments={k: (v or {}).get("model_id") for k, v in assignments.items()}, policy=new_policy)
+    audit.record(
+        session,
+        actor,
+        "model_settings.update",
+        "model_settings",
+        None,
+        assignments={k: (v or {}).get("model_id") for k, v in assignments.items()},
+        policy=new_policy,
+    )
     return settings_view(session)
 
 
 # --- 调用 -------------------------------------------------------------------------
 
-def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.0, timeout: float = 60,
-                     max_retries: int = 2, effort: str | None = None, max_tokens: int | None = None) -> BaseChatModel:
+
+def build_chat_model(
+    p: ModelProvider,
+    model_id: str,
+    *,
+    temperature: float = 0.0,
+    timeout: float = 60,
+    max_retries: int = 2,
+    effort: str | None = None,
+    max_tokens: int | None = None,
+) -> BaseChatModel:
     """effort：思考强度（按提供方适配，见 _effort_kwargs；思考开启时 temperature 不生效，不依赖它）；
     max_tokens：输出上限，阶段需要时由系统设定（如理解阶段）。"""
     if not p.api_key_enc:
@@ -399,9 +510,15 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
     if p.kind == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature,
-                             timeout=timeout, max_retries=max_retries,
-                             max_tokens=max_tokens if max_tokens is not None else 4096)
+        return ChatAnthropic(
+            model=model_id,
+            api_key=key,
+            base_url=p.base_url,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            max_tokens=max_tokens if max_tokens is not None else 4096,
+        )
     from langchain_openai import ChatOpenAI
 
     from avelis.llm_protocol import ReasoningRoundTripChatOpenAI
@@ -409,8 +526,16 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
     extra = {"max_tokens": max_tokens} if max_tokens else {}
     # 核实过思考协议的提供方（目前只有 DeepSeek）用带 reasoning_content 往返的实现；其余按 OpenAI 规范
     cls = ReasoningRoundTripChatOpenAI if effort_map(p, model_id) else ChatOpenAI
-    return cls(model=model_id, api_key=key, base_url=p.base_url, temperature=temperature, timeout=timeout,
-               max_retries=max_retries, **extra, **_effort_kwargs(p, model_id, effort))
+    return cls(
+        model=model_id,
+        api_key=key,
+        base_url=p.base_url,
+        temperature=temperature,
+        timeout=timeout,
+        max_retries=max_retries,
+        **extra,
+        **_effort_kwargs(p, model_id, effort),
+    )
 
 
 @dataclass
@@ -440,8 +565,9 @@ def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Reso
     return _resolve_model(p, a.model_id, effort, temperature=temperature)
 
 
-def resolve_choice(session: Session, provider_id: str, model_id: str, reasoning_effort: str | None = None,
-                   *, temperature: float = 0.0) -> Resolved | None:
+def resolve_choice(
+    session: Session, provider_id: str, model_id: str, reasoning_effort: str | None = None, *, temperature: float = 0.0
+) -> Resolved | None:
     p = session.get(ModelProvider, provider_id)
     if _enabled_model(p, model_id, needs_tools=True) is None:
         return None
@@ -449,14 +575,30 @@ def resolve_choice(session: Session, provider_id: str, model_id: str, reasoning_
 
 
 def _resolve_model(p: ModelProvider, model_id: str, effort: str, *, temperature: float) -> Resolved:
-    def factory(timeout: float, max_retries: int, *, effort: str = effort, max_tokens: int | None = None) -> BaseChatModel:
+    def factory(
+        timeout: float, max_retries: int, *, effort: str = effort, max_tokens: int | None = None
+    ) -> BaseChatModel:
         """按剩余时间重建模型；阶段可以另定思考强度与输出上限（如理解阶段关闭思考）。"""
-        return build_chat_model(p, model_id, temperature=temperature, timeout=timeout, max_retries=max_retries,
-                                effort=effort, max_tokens=max_tokens)
+        return build_chat_model(
+            p,
+            model_id,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            effort=effort,
+            max_tokens=max_tokens,
+        )
+
     model = next(m for m in p.models if m["id"] == model_id)
-    return Resolved(build_chat_model(p, model_id, temperature=temperature, effort=effort), f"{p.code}:{model_id}",
-                    decrypt_secret(p.api_key_enc), factory, effort, effective_effort(p, model_id, effort),
-                    _context_window(p, model)[0])
+    return Resolved(
+        build_chat_model(p, model_id, temperature=temperature, effort=effort),
+        f"{p.code}:{model_id}",
+        decrypt_secret(p.api_key_enc),
+        factory,
+        effort,
+        effective_effort(p, model_id, effort),
+        _context_window(p, model)[0],
+    )
 
 
 def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:
@@ -479,7 +621,9 @@ def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:
             message = Msg("无法连接 {error}", error=message.removeprefix("无法连接 "))
         raise Conflict(message) from None
     if resp.status_code != 200:
-        raise Conflict(Msg("获取模型列表失败：HTTP {status}", status=resp.status_code), body=redact_error(resp.text, key))
+        raise Conflict(
+            Msg("获取模型列表失败：HTTP {status}", status=resp.status_code), body=redact_error(resp.text, key)
+        )
     try:
         ids = sorted({m.get("id") for m in resp.json().get("data", []) if m.get("id")})
     except (ValueError, TypeError, AttributeError) as exc:
@@ -499,16 +643,15 @@ def check(session: Session, actor: User, provider_id: str, model_id: str) -> dic
     """检测：发起一次带工具定义的极小对话，记录延迟与是否发生工具调用。不发送任何业务数据。"""
     p = _get(session, provider_id)
     started = time.monotonic()
-    result: dict[str, Any] = {"model_id": model_id,
-                              "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat()}
+    result: dict[str, Any] = {"model_id": model_id, "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat()}
     key = None
     try:
         key = decrypt_secret(p.api_key_enc) if p.api_key_enc else None
         model = build_chat_model(p, model_id)
-        tool = StructuredTool.from_function(lambda value: value, name="echo", args_schema=_PingArgs,
-                                            description="原样返回 value")
-        reply = model.bind_tools([tool]).invoke(
-            [HumanMessage("这是连通性检测。请调用 echo 工具，参数 value 为 ok。")])
+        tool = StructuredTool.from_function(
+            lambda value: value, name="echo", args_schema=_PingArgs, description="原样返回 value"
+        )
+        reply = model.bind_tools([tool]).invoke([HumanMessage("这是连通性检测。请调用 echo 工具，参数 value 为 ok。")])
         result.update(ok=True, tool_calling=bool(reply.tool_calls))
     except Exception as exc:  # 上游可能回显请求头或地址，只保存脱敏后的错误
         result.update(ok=False, tool_calling=None, error=redact_error(f"{type(exc).__name__}: {exc}", key))
@@ -520,8 +663,15 @@ def check(session: Session, actor: User, provider_id: str, model_id: str) -> dic
     checks[model_id] = dict(result)
     p.last_check = {**result, "models": checks}
     # 复制后整体赋值：原地修改 JSONB 中的字典不会被识别为变更
-    p.models = [{**m, "tool_calling": result["tool_calling"]} if m["id"] == model_id else dict(m)
-                for m in p.models]
-    audit.record(session, actor, "model_provider.check", "model_provider", p.id, model_id=model_id,
-                 ok=result["ok"], tool_calling=result.get("tool_calling"))
+    p.models = [{**m, "tool_calling": result["tool_calling"]} if m["id"] == model_id else dict(m) for m in p.models]
+    audit.record(
+        session,
+        actor,
+        "model_provider.check",
+        "model_provider",
+        p.id,
+        model_id=model_id,
+        ok=result["ok"],
+        tool_calling=result.get("tool_calling"),
+    )
     return result

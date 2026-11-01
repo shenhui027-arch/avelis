@@ -15,8 +15,9 @@ def test_import_size_defaults_and_environment_override():
     settings = build_settings({"AVELIS_SECRET": SECRET})
     assert settings.import_max_bytes == 20 * 1024**2
     assert settings.import_max_batch_bytes == 100 * 1024**2
-    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_IMPORT_MAX_BYTES": "17",
-                               "AVELIS_IMPORT_MAX_BATCH_BYTES": "29"})
+    settings = build_settings(
+        {"AVELIS_SECRET": SECRET, "AVELIS_IMPORT_MAX_BYTES": "17", "AVELIS_IMPORT_MAX_BATCH_BYTES": "29"}
+    )
     assert (settings.import_max_bytes, settings.import_max_batch_bytes) == (17, 29)
 
 
@@ -29,8 +30,10 @@ def test_batch_limit_must_be_positive(value):
 @pytest.mark.parametrize(("max_bytes", "max_batch_bytes"), [(17, 29), (0, 29), (17, -1)])
 def test_import_toml_limits_share_positive_integer_validation(tmp_path, max_bytes, max_batch_bytes):
     path = tmp_path / "avelis.toml"
-    path.write_text(f'[security]\nsecret = "{SECRET}"\n[import]\n'
-                    f"max_bytes = {max_bytes}\nmax_batch_bytes = {max_batch_bytes}\n", encoding="utf-8")
+    path.write_text(
+        f'[security]\nsecret = "{SECRET}"\n[import]\nmax_bytes = {max_bytes}\nmax_batch_bytes = {max_batch_bytes}\n',
+        encoding="utf-8",
+    )
     values = read_config({"AVELIS_CONFIG": str(path)})
     if min(max_bytes, max_batch_bytes) <= 0:
         key = "AVELIS_IMPORT_MAX_BYTES" if max_bytes <= 0 else "AVELIS_IMPORT_MAX_BATCH_BYTES"

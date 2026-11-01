@@ -19,12 +19,16 @@ def archive(entries, *, compression=zipfile.ZIP_DEFLATED):
 
 
 def test_plain_and_zip_files_keep_relative_source_keys_and_skip_unknown_extensions():
-    files, notes = read_uploads([
-        ("first.sql", b"SELECT 1"),
-        ("scripts.zip", archive([("nested/second.py", "cursor.execute('SELECT 2')"),
-                                 ("nested/readme.txt", "instructions")])),
-        ("last.sh", b"psql -c 'SELECT 3'"),
-    ])
+    files, notes = read_uploads(
+        [
+            ("first.sql", b"SELECT 1"),
+            (
+                "scripts.zip",
+                archive([("nested/second.py", "cursor.execute('SELECT 2')"), ("nested/readme.txt", "instructions")]),
+            ),
+            ("last.sh", b"psql -c 'SELECT 3'"),
+        ]
+    )
     assert [file.source_key for file in files] == ["first.sql", "nested/second.py", "last.sh"]
     assert [file.filename for file in files] == ["first.sql", "second.py", "last.sh"]
     assert [file.language for file in files] == ["sql", "python", "shell"]
@@ -82,15 +86,21 @@ def test_compression_bomb_is_rejected_by_declared_expanded_size_before_reading(m
 
 def test_batch_limit_counts_unknown_entries_and_all_uploaded_archives():
     with pytest.raises(Invalid, match="批次大小上限"):
-        read_uploads([("first.zip", archive([("first.sql", "SELECT 1")])),
-                      ("second.zip", archive([("readme.txt", "x" * 8)]))], max_batch_bytes=15)
+        read_uploads(
+            [("first.zip", archive([("first.sql", "SELECT 1")])), ("second.zip", archive([("readme.txt", "x" * 8)]))],
+            max_batch_bytes=15,
+        )
 
 
 def test_zip_entry_limit_includes_directories_and_multiple_archives(monkeypatch):
     monkeypatch.setattr("avelis.importer.archive.MAX_ARCHIVE_ENTRIES", 2)
     with pytest.raises(Invalid, match="zip 条目数"):
-        read_uploads([("first.zip", archive([("nested/", ""), ("first.sql", "SELECT 1")])),
-                      ("second.zip", archive([("second.sql", "SELECT 2")]))])
+        read_uploads(
+            [
+                ("first.zip", archive([("nested/", ""), ("first.sql", "SELECT 1")])),
+                ("second.zip", archive([("second.sql", "SELECT 2")])),
+            ]
+        )
 
 
 def test_unknown_only_files_report_skips_when_no_import_remains():
@@ -106,10 +116,13 @@ def test_zip_long_relative_path_keeps_basename_separate_from_source_key():
     assert files[0].source_key == name
 
 
-@pytest.mark.parametrize("name,reason", [
-    ("x" * 252 + ".sql", "文件名不能超过 255"),
-    ("/".join(["nested"] * 80 + ["first.sql"]), "来源键不能超过 512"),
-])
+@pytest.mark.parametrize(
+    "name,reason",
+    [
+        ("x" * 252 + ".sql", "文件名不能超过 255"),
+        ("/".join(["nested"] * 80 + ["first.sql"]), "来源键不能超过 512"),
+    ],
+)
 def test_names_exceeding_database_field_limits_are_rejected_before_persistence(name, reason):
     with pytest.raises(Invalid, match=reason):
         read_uploads([("scripts.zip", archive([(name, "SELECT 1")]))])
@@ -129,8 +142,12 @@ def test_dependency_topology_orders_producers_before_consumers_stably():
 
 
 def test_dependency_cycle_keeps_upload_order_inside_component_and_reports_names():
-    files = [ImportFile("final.sql", "", "sql"), ImportFile("second.sql", "", "sql"),
-             ImportFile("first.sql", "", "sql"), ImportFile("initial.sql", "", "sql")]
+    files = [
+        ImportFile("final.sql", "", "sql"),
+        ImportFile("second.sql", "", "sql"),
+        ImportFile("first.sql", "", "sql"),
+        ImportFile("initial.sql", "", "sql"),
+    ]
     dependencies = [
         FileDependencies({"cat.stage.second"}, {"cat.dw.daily_summary"}),
         FileDependencies({"cat.stage.first"}, {"cat.stage.second"}),

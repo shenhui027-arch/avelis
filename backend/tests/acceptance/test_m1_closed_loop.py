@@ -15,10 +15,11 @@ from tests.conftest import Api
 
 pytestmark = pytest.mark.acceptance
 
-V1_SQL = ("SELECT order_date, region, SUM(paid_amount) AS sales_amount "
-          "FROM shop.orders GROUP BY order_date, region")
-V2_SQL = ("SELECT order_date, region, SUM(paid_amount - refund_amount) AS sales_amount "
-          "FROM shop.orders GROUP BY order_date, region")
+V1_SQL = "SELECT order_date, region, SUM(paid_amount) AS sales_amount FROM shop.orders GROUP BY order_date, region"
+V2_SQL = (
+    "SELECT order_date, region, SUM(paid_amount - refund_amount) AS sales_amount "
+    "FROM shop.orders GROUP BY order_date, region"
+)
 DAY = "2026-09-15"
 
 ctx: dict = {}
@@ -57,6 +58,7 @@ def latest_change_set(api: Api) -> dict:
 
 # --- 准备：用户、业务域、数据源、端点别名（全部经 API，由管理员完成） ----------------------
 
+
 def test_00_setup(stack, admin: Api):
     client, env, _ = stack
     pw = env["AVELIS_DEMO_USER_PASSWORD"]
@@ -70,8 +72,9 @@ def test_00_setup(stack, admin: Api):
     }
     ids = {}
     for username, (name, roles) in users.items():
-        ids[username] = admin.post("/api/users", {"username": username, "display_name": name, "password": pw,
-                                                  "roles": roles}, expect=201)["id"]
+        ids[username] = admin.post(
+            "/api/users", {"username": username, "display_name": name, "password": pw, "roles": roles}, expect=201
+        )["id"]
     trade = admin.post("/api/domains", {"code": "trade", "name": "交易域", "owner_id": ids["zhang"]}, expect=201)
     product = admin.post("/api/domains", {"code": "product", "name": "商品域", "owner_id": ids["zhao"]}, expect=201)
     apis = {u: Api(client, u, pw) for u in users}
@@ -80,37 +83,68 @@ def test_00_setup(stack, admin: Api):
     for member, role in (("wang", "viewer"), ("li", "viewer"), ("zhang", "viewer")):
         apis["zhao"].put(f"/api/domains/{product['id']}/members", {"user_id": ids[member], "role": role})
 
-    mysql = admin.post("/api/datasources", {
-        "name": "电商维表库（MySQL）", "kind": "mysql", "host": "127.0.0.1", "port": int(env["SHOP_MYSQL_PORT"]),
-        "options": {"databases": ["shop_dim"]},
-        "collect": {"username": "avelis_collector", "password": env["SHOP_MYSQL_COLLECTOR_PASSWORD"]},
-    }, expect=201)
-    sr = admin.post("/api/datasources", {
-        "name": "演示 StarRocks", "kind": "starrocks", "host": "127.0.0.1", "port": int(env["SR_QUERY_PORT"]),
-        "options": {"databases": ["shop", "ads", "dim"], "catalogs": ["shop_mysql"],
-                    "catalog_databases": {"shop_mysql": ["shop_dim"]}},
-        "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
-        "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]},
-    }, expect=201)
+    mysql = admin.post(
+        "/api/datasources",
+        {
+            "name": "电商维表库（MySQL）",
+            "kind": "mysql",
+            "host": "127.0.0.1",
+            "port": int(env["SHOP_MYSQL_PORT"]),
+            "options": {"databases": ["shop_dim"]},
+            "collect": {"username": "avelis_collector", "password": env["SHOP_MYSQL_COLLECTOR_PASSWORD"]},
+        },
+        expect=201,
+    )
+    sr = admin.post(
+        "/api/datasources",
+        {
+            "name": "演示 StarRocks",
+            "kind": "starrocks",
+            "host": "127.0.0.1",
+            "port": int(env["SR_QUERY_PORT"]),
+            "options": {
+                "databases": ["shop", "ads", "dim"],
+                "catalogs": ["shop_mysql"],
+                "catalog_databases": {"shop_mysql": ["shop_dim"]},
+            },
+            "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
+            "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]},
+        },
+        expect=201,
+    )
     # 口令只写不读
     assert all(c["password"] == "已设置（不回传）" for c in sr["credentials"])
     assert env["SR_READER_PASSWORD"] not in str(admin.get("/api/datasources"))
-    admin.post("/api/endpoint-aliases", {"datasource_id": mysql["id"], "host": "shop-mysql", "port": 3306,
-                                         "note": "StarRocks 容器网络内的地址"}, expect=201)
+    admin.post(
+        "/api/endpoint-aliases",
+        {"datasource_id": mysql["id"], "host": "shop-mysql", "port": 3306, "note": "StarRocks 容器网络内的地址"},
+        expect=201,
+    )
     ctx.update(users=ids, apis=apis, trade=trade["id"], product=product["id"], mysql=mysql["id"], sr=sr["id"])
 
 
 # --- 故事 1：采集真实表结构与视图 SQL，展示可追溯的列级依赖 --------------------------------
 
+
 def test_01_collect_and_lineage(admin: Api):
     collect(admin, ctx["mysql"])
     run = collect(admin, ctx["sr"])
     assert run["stats"]["assets_observed"] == 12
-    ids = {q: asset_id(admin, q) for q in (
-        "default_catalog.shop.orders", "default_catalog.shop.daily_sales", "default_catalog.shop.order_items",
-        "default_catalog.shop.refund_raw", "default_catalog.ads.region_board", "default_catalog.dim.ext_region",
-        "shop_mysql.shop_dim.dim_product", "shop_mysql.shop_dim.dim_category", "def.shop_dim.dim_product",
-        "def.shop_dim.dim_region")}
+    ids = {
+        q: asset_id(admin, q)
+        for q in (
+            "default_catalog.shop.orders",
+            "default_catalog.shop.daily_sales",
+            "default_catalog.shop.order_items",
+            "default_catalog.shop.refund_raw",
+            "default_catalog.ads.region_board",
+            "default_catalog.dim.ext_region",
+            "shop_mysql.shop_dim.dim_product",
+            "shop_mysql.shop_dim.dim_category",
+            "def.shop_dim.dim_product",
+            "def.shop_dim.dim_region",
+        )
+    }
     ctx["assets"] = ids
 
     daily = admin.get(f"/api/assets/{ids['default_catalog.shop.daily_sales']}")
@@ -121,8 +155,11 @@ def test_01_collect_and_lineage(admin: Api):
     ctx["fp_v1"] = sales["fingerprint"]
 
     graph = admin.get("/api/lineage/graph", params={"asset_id": ids["default_catalog.shop.daily_sales"]})
-    edge = next(e for e in graph["edges"] if e["source"] == ids["default_catalog.shop.orders"]
-                and e["target"] == ids["default_catalog.shop.daily_sales"])
+    edge = next(
+        e
+        for e in graph["edges"]
+        if e["source"] == ids["default_catalog.shop.orders"] and e["target"] == ids["default_catalog.shop.daily_sales"]
+    )
     by_target = {(c["target_column"], c["source_column"]): c["relation"] for c in edge["columns"]}
     # 取值与影响分开：sales_amount 的值来自 paid_amount（聚合）；order_date、region 既是取值也是分组键
     assert by_target[("sales_amount", "paid_amount")] == "value_aggregated"
@@ -165,7 +202,9 @@ def test_01_collect_and_lineage(admin: Api):
 
 PAID_SPEC = {
     "description": "订单实付金额按下单日期、区域汇总（不扣退款）",
-    "expression": "SUM(sales_amount)", "time_column": "order_date", "timezone": "Asia/Shanghai",
+    "expression": "SUM(sales_amount)",
+    "time_column": "order_date",
+    "timezone": "Asia/Shanghai",
     "dimensions": [{"name": "region", "column": "region", "label": "区域"}],
     "grain": ["order_date", "region"],
 }
@@ -174,11 +213,16 @@ PAID_SPEC = {
 def test_02_publish_paid_sales(admin: Api):
     zhang, li = ctx["apis"]["zhang"], ctx["apis"]["li"]
     admin.patch(f"/api/users/{ctx['users']['zhang']}", {"roles": ["steward", "reviewer"]})
-    metric = zhang.post("/api/metrics", {"code": "paid_sales", "name": "实付销售额", "domain_id": ctx["trade"],
-                                         "owner_id": ctx["users"]["zhang"]}, expect=201)
-    version = zhang.post(f"/api/metrics/{metric['id']}/versions",
-                         {**PAID_SPEC, "base_asset_id": ctx["assets"]["default_catalog.shop.daily_sales"]},
-                         expect=201)
+    metric = zhang.post(
+        "/api/metrics",
+        {"code": "paid_sales", "name": "实付销售额", "domain_id": ctx["trade"], "owner_id": ctx["users"]["zhang"]},
+        expect=201,
+    )
+    version = zhang.post(
+        f"/api/metrics/{metric['id']}/versions",
+        {**PAID_SPEC, "base_asset_id": ctx["assets"]["default_catalog.shop.daily_sales"]},
+        expect=201,
+    )
     assert version["status"] == "draft"
     version = zhang.post(f"/api/metric-versions/{version['id']}/submit")
     assert version["status"] == "pending_review"
@@ -195,6 +239,7 @@ def test_02_publish_paid_sales(admin: Api):
 
 # --- 故事 3：真实执行，得到 300，并展示 SQL、口径版本与来源证据 ---------------------------------
 
+
 def test_03_ask_paid_sales(admin: Api):
     wang = ctx["apis"]["wang"]
     answer = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额是多少？"})
@@ -205,8 +250,9 @@ def test_03_ask_paid_sales(admin: Api):
     assert answer["evidence"]["model"]["is_demo"] is True
     lineage = next(x for x in answer["evidence"]["lineage"] if x["column"].endswith("daily_sales.sales_amount"))
     assert lineage["role"] == "measure"
-    assert any(s["source"].endswith("orders.paid_amount") and s["relation"] == "value_aggregated"
-               for s in lineage["sources"])
+    assert any(
+        s["source"].endswith("orders.paid_amount") and s["relation"] == "value_aggregated" for s in lineage["sources"]
+    )
     assert answer["executed_at"] and not answer["cache_hit"]
     assert answer["freshness"]["tables"]["shop.orders"]
     ctx["answer_300"] = answer["id"]
@@ -220,6 +266,7 @@ def test_03_ask_paid_sales(admin: Api):
 
 
 # --- 故事 4–5：视图改为净额后，发现变化、标记受影响、拦截旧口径 ---------------------------------
+
 
 def _change_to_v2_and_collect(stack, admin: Api) -> dict:
     alter_daily_sales(stack, V2_SQL)
@@ -267,11 +314,11 @@ def test_04_05_definition_change_blocks_old_metric(stack, admin: Api):
 
 # --- 故事 6（甲）：负责人选择恢复原定义 ---------------------------------------------------------
 
+
 def test_06a_restore_original_definition(stack, admin: Api):
     zhang, wang = ctx["apis"]["zhang"], ctx["apis"]["wang"]
     # 定义仍是净额时不能按“已恢复”结案
-    zhang.post(f"/api/review-tasks/{ctx['task_1']}/resolve",
-               {"resolution": "restored", "note": "准备恢复"}, expect=409)
+    zhang.post(f"/api/review-tasks/{ctx['task_1']}/resolve", {"resolution": "restored", "note": "准备恢复"}, expect=409)
     alter_daily_sales(stack, V1_SQL)
     collect(admin, ctx["sr"])
     daily = admin.get(f"/api/assets/{ctx['assets']['default_catalog.shop.daily_sales']}")
@@ -280,10 +327,13 @@ def test_06a_restore_original_definition(stack, admin: Api):
     still = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额是多少？"})
     assert still["status"] == "blocked" and still["sql"] is None
     # 只有任务负责人能处理
-    ctx["apis"]["li"].post(f"/api/review-tasks/{ctx['task_1']}/resolve",
-                           {"resolution": "restored", "note": "代处理"}, expect=403)
-    task = zhang.post(f"/api/review-tasks/{ctx['task_1']}/resolve",
-                      {"resolution": "restored", "note": "已在数据库恢复 v1 定义并重新采集核对"})
+    ctx["apis"]["li"].post(
+        f"/api/review-tasks/{ctx['task_1']}/resolve", {"resolution": "restored", "note": "代处理"}, expect=403
+    )
+    task = zhang.post(
+        f"/api/review-tasks/{ctx['task_1']}/resolve",
+        {"resolution": "restored", "note": "已在数据库恢复 v1 定义并重新采集核对"},
+    )
     assert task["status"] == "resolved" and task["resolved_by"] == ctx["users"]["zhang"]
     assert admin.get(f"/api/metric-versions/{ctx['paid_v1']}")["status"] == "published"
     answer = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额是多少？"})
@@ -292,6 +342,7 @@ def test_06a_restore_original_definition(stack, admin: Api):
 
 # --- 故事 6（乙）：再次改为净额，负责人按流程发布“退款后净销售额” ---------------------------------
 
+
 def test_06b_publish_net_sales(stack, admin: Api):
     zhang, li, wang = ctx["apis"]["zhang"], ctx["apis"]["li"], ctx["apis"]["wang"]
     cs = _change_to_v2_and_collect(stack, admin)
@@ -299,23 +350,38 @@ def test_06b_publish_net_sales(stack, admin: Api):
     assert task["assignee_id"] == ctx["users"]["zhang"]
     assert zhang.get("/api/review-tasks")[0]["id"] == task["id"]
 
-    net = zhang.post("/api/metrics", {"code": "net_sales", "name": "退款后净销售额", "domain_id": ctx["trade"],
-                                      "aliases": ["净销售额"]}, expect=201)
+    net = zhang.post(
+        "/api/metrics",
+        {"code": "net_sales", "name": "退款后净销售额", "domain_id": ctx["trade"], "aliases": ["净销售额"]},
+        expect=201,
+    )
     before = wang.post("/api/ask", {"question": f"{DAY} 华东区退款后净销售额"})
     assert before["status"] == "clarify"  # 未发布前不可用
-    v = zhang.post(f"/api/metrics/{net['id']}/versions", {
-        **PAID_SPEC, "description": "实付金额扣除退款后按日期、区域汇总",
-        "base_asset_id": ctx["assets"]["default_catalog.shop.daily_sales"]}, expect=201)
+    v = zhang.post(
+        f"/api/metrics/{net['id']}/versions",
+        {
+            **PAID_SPEC,
+            "description": "实付金额扣除退款后按日期、区域汇总",
+            "base_asset_id": ctx["assets"]["default_catalog.shop.daily_sales"],
+        },
+        expect=201,
+    )
     zhang.post(f"/api/metric-versions/{v['id']}/submit")
     v = li.post(f"/api/metric-versions/{v['id']}/approve", {"note": "确认为退款后净额"})
     assert v["status"] == "published"
 
     # 用另一个指标的版本承接时，必须是已发布版本
-    zhang.post(f"/api/review-tasks/{task['id']}/resolve",
-               {"resolution": "new_version", "note": "缺少新口径"}, expect=422)
-    done = zhang.post(f"/api/review-tasks/{task['id']}/resolve", {
-        "resolution": "new_version", "note": "视图已改为净额，原实付口径停用，改由退款后净销售额承接",
-        "linked_metric_version_id": v["id"]})
+    zhang.post(
+        f"/api/review-tasks/{task['id']}/resolve", {"resolution": "new_version", "note": "缺少新口径"}, expect=422
+    )
+    done = zhang.post(
+        f"/api/review-tasks/{task['id']}/resolve",
+        {
+            "resolution": "new_version",
+            "note": "视图已改为净额，原实付口径停用，改由退款后净销售额承接",
+            "linked_metric_version_id": v["id"],
+        },
+    )
     assert done["status"] == "resolved"
 
     answer = wang.post("/api/ask", {"question": f"{DAY} 华东区退款后净销售额是多少"})
@@ -325,8 +391,15 @@ def test_06b_publish_net_sales(stack, admin: Api):
 
     paid = admin.get(f"/api/metric-versions/{ctx['paid_v1']}")
     assert paid["status"] == "retired"
-    assert [t["to"] for t in paid["transitions"]] == ["draft", "pending_review", "published", "affected",
-                                                      "published", "affected", "retired"]
+    assert [t["to"] for t in paid["transitions"]] == [
+        "draft",
+        "pending_review",
+        "published",
+        "affected",
+        "published",
+        "affected",
+        "retired",
+    ]
     old = wang.post("/api/ask", {"question": f"{DAY} 华东区实付销售额是多少？"})
     assert old["status"] == "blocked" and old["error_code"] == "metric_retired" and "退款后净销售额" in old["message"]
     history = wang.get(f"/api/answers/{ctx['answer_300']}")
@@ -336,28 +409,69 @@ def test_06b_publish_net_sales(stack, admin: Api):
 
 # --- 故事 9：粒度与放大 -------------------------------------------------------------------
 
+
 def test_09_grain_fan_out(admin: Api):
     zhang, zhao, li, wang = (ctx["apis"][u] for u in ("zhang", "zhao", "li", "wang"))
     a = ctx["assets"]
 
     def path(code, name, left, lcols, right, rcols):
-        return zhang.post("/api/join-paths", {"code": code, "name": name, "left_asset_id": a[left],
-                                              "left_columns": lcols, "right_asset_id": a[right],
-                                              "right_columns": rcols}, expect=201)
+        return zhang.post(
+            "/api/join-paths",
+            {
+                "code": code,
+                "name": name,
+                "left_asset_id": a[left],
+                "left_columns": lcols,
+                "right_asset_id": a[right],
+                "right_columns": rcols,
+            },
+            expect=201,
+        )
 
-    o_i = path("orders_items", "订单 → 订单明细", "default_catalog.shop.orders", ["order_id"],
-               "default_catalog.shop.order_items", ["order_id"])
-    o_r = path("orders_refunds", "订单 → 退款明细", "default_catalog.shop.orders", ["order_id"],
-               "default_catalog.shop.refund_raw", ["order_id"])
-    i_o = path("items_orders", "订单明细 → 订单", "default_catalog.shop.order_items", ["order_id"],
-               "default_catalog.shop.orders", ["order_id"])
-    i_p = path("items_product", "订单明细 → 商品（MySQL）", "default_catalog.shop.order_items", ["product_id"],
-               "shop_mysql.shop_dim.dim_product", ["product_id"])
-    p_c = zhao.post("/api/join-paths", {"code": "product_category", "name": "商品 → 类目",
-                                        "left_asset_id": a["shop_mysql.shop_dim.dim_product"],
-                                        "left_columns": ["category_id"],
-                                        "right_asset_id": a["shop_mysql.shop_dim.dim_category"],
-                                        "right_columns": ["category_id"]}, expect=201)
+    o_i = path(
+        "orders_items",
+        "订单 → 订单明细",
+        "default_catalog.shop.orders",
+        ["order_id"],
+        "default_catalog.shop.order_items",
+        ["order_id"],
+    )
+    o_r = path(
+        "orders_refunds",
+        "订单 → 退款明细",
+        "default_catalog.shop.orders",
+        ["order_id"],
+        "default_catalog.shop.refund_raw",
+        ["order_id"],
+    )
+    i_o = path(
+        "items_orders",
+        "订单明细 → 订单",
+        "default_catalog.shop.order_items",
+        ["order_id"],
+        "default_catalog.shop.orders",
+        ["order_id"],
+    )
+    i_p = path(
+        "items_product",
+        "订单明细 → 商品（MySQL）",
+        "default_catalog.shop.order_items",
+        ["product_id"],
+        "shop_mysql.shop_dim.dim_product",
+        ["product_id"],
+    )
+    p_c = zhao.post(
+        "/api/join-paths",
+        {
+            "code": "product_category",
+            "name": "商品 → 类目",
+            "left_asset_id": a["shop_mysql.shop_dim.dim_product"],
+            "left_columns": ["category_id"],
+            "right_asset_id": a["shop_mysql.shop_dim.dim_category"],
+            "right_columns": ["category_id"],
+        },
+        expect=201,
+    )
     assert (o_i["cardinality"], o_r["cardinality"], i_o["cardinality"]) == ("1n", "1n", "n1")
     assert i_p["cardinality"] == "n1" and p_c["cardinality"] == "n1"
     assert i_p["cardinality_basis"]["right_grain"]["origin"] == "linked"  # 来自 MySQL 主键
@@ -368,27 +482,40 @@ def test_09_grain_fan_out(admin: Api):
     zhao.post(f"/api/join-paths/{p_c['id']}/decisions", {"domain_id": ctx["product"], "decision": "approved"})
     # 跨域：只有一方批准时仍是 pending；非负责人不能代表该域
     zhang.post(f"/api/join-paths/{i_p['id']}/decisions", {"domain_id": ctx["trade"], "decision": "approved"})
-    zhang.post(f"/api/join-paths/{i_p['id']}/decisions", {"domain_id": ctx["product"], "decision": "approved"},
-               expect=403)
+    zhang.post(
+        f"/api/join-paths/{i_p['id']}/decisions", {"domain_id": ctx["product"], "decision": "approved"}, expect=403
+    )
     assert next(p for p in admin.get("/api/join-paths") if p["id"] == i_p["id"])["status"] == "pending"
 
     # 明细模型表的粒度：人工声明并用只读查询核验
-    grain = zhang.post(f"/api/assets/{a['default_catalog.shop.refund_raw']}/grains",
-                       {"columns": ["refund_id"], "reason": "退款单号唯一"}, expect=201)
+    grain = zhang.post(
+        f"/api/assets/{a['default_catalog.shop.refund_raw']}/grains",
+        {"columns": ["refund_id"], "reason": "退款单号唯一"},
+        expect=201,
+    )
     assert zhang.post(f"/api/grains/{grain['id']}/verify")["status"] == "verified"
-    bad = zhang.post(f"/api/assets/{a['default_catalog.shop.refund_raw']}/grains",
-                     {"columns": ["order_id"], "reason": "错误声明"}, expect=201)
+    bad = zhang.post(
+        f"/api/assets/{a['default_catalog.shop.refund_raw']}/grains",
+        {"columns": ["order_id"], "reason": "错误声明"},
+        expect=201,
+    )
     checked = zhang.post(f"/api/grains/{bad['id']}/verify")
     assert checked["status"] == "violated" and checked["verify_detail"]["duplicate_example"][0] == "1001"
 
     # 订单金额经 1:N 关联后求和：StarRocks 实际返回 400，系统阻止发布并给出原因
-    m = zhang.post("/api/metrics", {"code": "paid_with_items", "name": "有明细订单实付额",
-                                    "domain_id": ctx["trade"]}, expect=201)
-    spec = {"description": "有订单明细的订单实付金额", "base_asset_id": a["default_catalog.shop.orders"],
-            "expression": "SUM(paid_amount)", "time_column": "order_date",
-            "dimensions": [{"name": "region", "column": "region", "label": "区域"}],
-            "joins": [{"alias": "i", "join_path_id": o_i["id"]}], "grain": ["order_date", "region"],
-            "dedupe_basis": "订单粒度为 order_id"}
+    m = zhang.post(
+        "/api/metrics", {"code": "paid_with_items", "name": "有明细订单实付额", "domain_id": ctx["trade"]}, expect=201
+    )
+    spec = {
+        "description": "有订单明细的订单实付金额",
+        "base_asset_id": a["default_catalog.shop.orders"],
+        "expression": "SUM(paid_amount)",
+        "time_column": "order_date",
+        "dimensions": [{"name": "region", "column": "region", "label": "区域"}],
+        "joins": [{"alias": "i", "join_path_id": o_i["id"]}],
+        "grain": ["order_date", "region"],
+        "dedupe_basis": "订单粒度为 order_id",
+    }
     draft = zhang.post(f"/api/metrics/{m['id']}/versions", spec, expect=201)
     refused = zhang.post(f"/api/metric-versions/{draft['id']}/submit", expect=409)
     assert any("1:N" in b and "重复计数" in b for b in refused["blockers"])
@@ -405,16 +532,26 @@ def test_09_grain_fan_out(admin: Api):
     assert "GROUP BY" in answer["sql"] and "row_count" in answer["sql"]
 
     # 跨域：明细 → 商品（MySQL，经 Catalog）N:1，可通过；类目销售按明细金额求和
-    cat = zhang.post("/api/metrics", {"code": "category_sales", "name": "类目销售额", "domain_id": ctx["trade"]},
-                     expect=201)
-    cspec = {"description": "订单明细实付金额按类目汇总", "base_asset_id": a["default_catalog.shop.order_items"],
-             "expression": "SUM(item_amount)", "time_column": "o.order_date",
-             "dimensions": [{"name": "category", "column": "c.category_name", "label": "类目"},
-                            {"name": "region", "column": "o.region", "label": "区域"}],
-             "joins": [{"alias": "o", "join_path_id": i_o["id"]},
-                       {"alias": "p", "join_path_id": i_p["id"]},
-                       {"alias": "c", "from": "p", "join_path_id": p_c["id"]}],
-             "grain": ["order_date", "category"], "dedupe_basis": "明细 → 订单、商品、类目均为 N:1"}
+    cat = zhang.post(
+        "/api/metrics", {"code": "category_sales", "name": "类目销售额", "domain_id": ctx["trade"]}, expect=201
+    )
+    cspec = {
+        "description": "订单明细实付金额按类目汇总",
+        "base_asset_id": a["default_catalog.shop.order_items"],
+        "expression": "SUM(item_amount)",
+        "time_column": "o.order_date",
+        "dimensions": [
+            {"name": "category", "column": "c.category_name", "label": "类目"},
+            {"name": "region", "column": "o.region", "label": "区域"},
+        ],
+        "joins": [
+            {"alias": "o", "join_path_id": i_o["id"]},
+            {"alias": "p", "join_path_id": i_p["id"]},
+            {"alias": "c", "from": "p", "join_path_id": p_c["id"]},
+        ],
+        "grain": ["order_date", "category"],
+        "dedupe_basis": "明细 → 订单、商品、类目均为 N:1",
+    }
     cv = zhang.post(f"/api/metrics/{cat['id']}/versions", cspec, expect=201)
     pending = zhang.post(f"/api/metric-versions/{cv['id']}/submit", expect=409)
     assert any("items_product" in b and "尚未批准" in b for b in pending["blockers"])
@@ -435,6 +572,7 @@ def test_09_grain_fan_out(admin: Api):
 
 
 # --- 后台任务：经 Redis 唤醒、以 job 表为准的采集 ---------------------------------------------
+
 
 def test_10_collect_via_job_queue(admin: Api):
     from avelis import cache, jobs
@@ -457,6 +595,7 @@ def test_10_collect_via_job_queue(admin: Api):
 
 # --- M2：问数智能体（LangGraph）-----------------------------------------------------------
 
+
 def test_11_agent_multi_turn_clarification_survives_restart(stack, admin: Api):
     from sqlalchemy import text
 
@@ -471,8 +610,12 @@ def test_11_agent_multi_turn_clarification_survives_restart(stack, admin: Api):
     # 模拟服务重启：丢弃进程内的图与连接池，会话状态从 PostgreSQL 恢复
     agent.reset_state_cache()
     with get_engine().connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM avelis_agent.checkpoints WHERE thread_id = :t"),
-                            {"t": thread}).scalar() > 0
+        assert (
+            conn.execute(
+                text("SELECT COUNT(*) FROM avelis_agent.checkpoints WHERE thread_id = :t"), {"t": thread}
+            ).scalar()
+            > 0
+        )
     # 别人不能续接这个会话
     ctx["apis"]["sun"].post("/api/ask", {"question": DAY, "thread_id": thread}, expect=404)
     second = wang.post("/api/ask", {"question": DAY, "thread_id": thread})
@@ -517,21 +660,47 @@ def test_13_agent_tool_loop_with_scripted_model(admin: Api, monkeypatch):
         _call("search_metrics", {"keyword": "净销售额"}, 1),
         _call("match_dimension_values", {"metric_code": "net_sales", "dimension": "region", "text": "华东区"}, 2),
         # 编造的取值会被工具拒绝，模型必须更正
-        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
-                                "filters": [{"dimension": "region", "values": ["火星区"]}]}, 3),
-        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
-                                "filters": [{"dimension": "region", "values": ["华东"]}]}, 4),
+        _call(
+            "submit_intent",
+            {
+                "metric_codes": ["net_sales"],
+                "start_date": DAY,
+                "end_date": DAY,
+                "filters": [{"dimension": "region", "values": ["火星区"]}],
+            },
+            3,
+        ),
+        _call(
+            "submit_intent",
+            {
+                "metric_codes": ["net_sales"],
+                "start_date": DAY,
+                "end_date": DAY,
+                "filters": [{"dimension": "region", "values": ["华东"]}],
+            },
+            4,
+        ),
         # 同一会话的追问：“那华北呢？”
-        _call("submit_intent", {"metric_codes": ["net_sales"], "start_date": DAY, "end_date": DAY,
-                                "filters": [{"dimension": "region", "values": ["华北"]}]}, 5),
+        _call(
+            "submit_intent",
+            {
+                "metric_codes": ["net_sales"],
+                "start_date": DAY,
+                "end_date": DAY,
+                "filters": [{"dimension": "region", "values": ["华北"]}],
+            },
+            5,
+        ),
         # 试图越权使用不可见的指标
         _call("submit_intent", {"metric_codes": ["secret_metric"], "start_date": DAY, "end_date": DAY}, 6),
         _call("ask_user", {"question": "没有找到该指标，请确认", "options": []}, 7),
     ]
     scripted = _Scripted(replies)
-    monkeypatch.setattr(modelcfg, "resolve",
-                        lambda session, purpose, **kw: modelcfg.Resolved(scripted.model, "scripted:test")
-                        if purpose == "ask" else None)
+    monkeypatch.setattr(
+        modelcfg,
+        "resolve",
+        lambda session, purpose, **kw: modelcfg.Resolved(scripted.model, "scripted:test") if purpose == "ask" else None,
+    )
     wang = ctx["apis"]["wang"]
     answer = wang.post("/api/ask", {"question": "9月15日华东区的净销售额"})
     assert value_of(answer) == Decimal("270.00")
@@ -552,21 +721,30 @@ def test_14_model_settings_and_real_model(stack, admin: Api):
     if not key or not name:
         pytest.skip("未配置 AVELIS_MODEL_API_KEY / AVELIS_MODEL_NAME")
     ctx["apis"]["zhang"].post("/api/model-providers", {"code": "x", "preset": "deepseek"}, expect=403)
-    provider = admin.post("/api/model-providers", {
-        "code": "deepseek", "preset": "deepseek", "base_url": env.get("AVELIS_MODEL_BASE_URL") or None,
-        "api_key": key}, expect=201)
+    provider = admin.post(
+        "/api/model-providers",
+        {
+            "code": "deepseek",
+            "preset": "deepseek",
+            "base_url": env.get("AVELIS_MODEL_BASE_URL") or None,
+            "api_key": key,
+        },
+        expect=201,
+    )
     assert provider["api_key"].endswith(key[-4:]) and key not in str(admin.get("/api/model-providers"))
     assert provider["endpoint"].endswith("/chat/completions")
     fetched = admin.post(f"/api/model-providers/{provider['id']}/fetch-models")["models"]
     assert name in fetched
     # 未启用的模型不能被指定
-    admin.put("/api/model-settings", {"assignments": {"ask": {"provider_id": provider["id"], "model_id": name}}},
-              expect=409)
+    admin.put(
+        "/api/model-settings", {"assignments": {"ask": {"provider_id": provider["id"], "model_id": name}}}, expect=409
+    )
     admin.patch(f"/api/model-providers/{provider['id']}", {"models": [{"id": name, "enabled": True}]})
     checked = admin.post(f"/api/model-providers/{provider['id']}/check", {"model_id": name})
     assert checked["ok"] is True and checked["tool_calling"] is True, checked
-    settings = admin.put("/api/model-settings", {"assignments": {
-        "ask": {"provider_id": provider["id"], "model_id": name}}})
+    settings = admin.put(
+        "/api/model-settings", {"assignments": {"ask": {"provider_id": provider["id"], "model_id": name}}}
+    )
     assert settings["mode"] == "configured" and settings["policy"]["send_results"] is True  # 默认允许（ADR 0007）
 
     wang = ctx["apis"]["wang"]
@@ -590,6 +768,7 @@ def test_14_model_settings_and_real_model(stack, admin: Api):
 
 # --- M3：工作台汇总 ---------------------------------------------------------------------
 
+
 def test_15_workbench_summary(admin: Api):
     zhang, li = ctx["apis"]["zhang"], ctx["apis"]["li"]
     wb = admin.get("/api/workbench")
@@ -605,11 +784,18 @@ def test_15_workbench_summary(admin: Api):
     mine = zhang.get("/api/workbench")["my_metrics"]
     assert {m["name"] for m in mine} >= {"实付销售额", "退款后净销售额"}
     m = zhang.post("/api/metrics", {"code": "orders_cnt", "name": "订单数", "domain_id": ctx["trade"]}, expect=201)
-    v = zhang.post(f"/api/metrics/{m['id']}/versions", {
-        "description": "订单笔数", "base_asset_id": ctx["assets"]["default_catalog.shop.orders"],
-        "expression": "COUNT(DISTINCT order_id)", "time_column": "order_date",
-        "dimensions": [{"name": "region", "column": "region", "label": "区域"}], "grain": ["order_date", "region"]},
-        expect=201)
+    v = zhang.post(
+        f"/api/metrics/{m['id']}/versions",
+        {
+            "description": "订单笔数",
+            "base_asset_id": ctx["assets"]["default_catalog.shop.orders"],
+            "expression": "COUNT(DISTINCT order_id)",
+            "time_column": "order_date",
+            "dimensions": [{"name": "region", "column": "region", "label": "区域"}],
+            "grain": ["order_date", "region"],
+        },
+        expect=201,
+    )
     zhang.post(f"/api/metric-versions/{v['id']}/submit")
     todos = li.get("/api/workbench")["todos"]
     assert any(t["kind"] == "approve" and t["title"] == "订单数 V1" for t in todos)

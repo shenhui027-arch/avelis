@@ -42,8 +42,7 @@ def load_questions(truth: dict, spec_path: Path = SPEC) -> dict[str, Any]:
 
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     complete = "defaults" in spec and all("question" in item for item in spec["questions"].values())
-    data = v2.load_questions(truth=truth, spec_path=spec_path,
-                             questions_path=spec_path if complete else None)
+    data = v2.load_questions(truth=truth, spec_path=spec_path, questions_path=spec_path if complete else None)
     for question in data["questions"]:
         question["v2_1"] = question["v2"]
     return data
@@ -54,12 +53,25 @@ def generator_constants() -> dict:
     """只读取字面常量，不导入带灌数依赖的生成器模块。"""
     names = {"REGIONS", "CITIES", "PAID_CHANNELS", "VIEWS"}
     tree = ast.parse(GENERATOR.read_text(encoding="utf-8"))
-    constants = {target.id: ast.literal_eval(node.value)
-                 for node in tree.body if isinstance(node, ast.Assign)
-                 for target in node.targets if isinstance(target, ast.Name) and target.id in names}
+    constants = {
+        target.id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id in names
+    }
     mfg_path = GENERATOR.with_name("mfg_data.py")
     if mfg_path.exists():
-        mfg_names = {"FACTORIES", "EQUIPMENT_MODELS", "SHIFTS", "PRODUCT_FAMILIES", "SUPPLIERS", "MATERIALS", "LINES", "VIEWS"}
+        mfg_names = {
+            "FACTORIES",
+            "EQUIPMENT_MODELS",
+            "SHIFTS",
+            "PRODUCT_FAMILIES",
+            "SUPPLIERS",
+            "MATERIALS",
+            "LINES",
+            "VIEWS",
+        }
         mfg_tree = ast.parse(mfg_path.read_text(encoding="utf-8"))
         mfg = {}
         for node in mfg_tree.body:
@@ -71,15 +83,22 @@ def generator_constants() -> dict:
                 try:
                     if target.id == "LINES" and isinstance(node.value, (ast.List, ast.Tuple)):
                         # 只读编码和名称，后续字段的 date(...) 不必执行或求值。
-                        mfg[target.id] = [tuple(ast.literal_eval(cell) for cell in row.elts[:2])
-                                          for row in node.value.elts if isinstance(row, (ast.List, ast.Tuple))]
+                        mfg[target.id] = [
+                            tuple(ast.literal_eval(cell) for cell in row.elts[:2])
+                            for row in node.value.elts
+                            if isinstance(row, (ast.List, ast.Tuple))
+                        ]
                     else:
                         mfg[target.id] = ast.literal_eval(node.value)
                 except (ValueError, TypeError):
                     continue  # 带日期构造等运行表达式的维度不参与别名展开。
-        constants["DOMAIN_ALIASES"] = [row for name, rows in mfg.items() if name != "VIEWS"
-                                       for row in rows if isinstance(row, (tuple, list)) and len(row) >= 2
-                                       and all(isinstance(cell, str) for cell in row[:2])]
+        constants["DOMAIN_ALIASES"] = [
+            row
+            for name, rows in mfg.items()
+            if name != "VIEWS"
+            for row in rows
+            if isinstance(row, (tuple, list)) and len(row) >= 2 and all(isinstance(cell, str) for cell in row[:2])
+        ]
         constants["VIEWS"] = [*constants["VIEWS"], *mfg.get("VIEWS", ())]
     return constants
 
@@ -122,8 +141,10 @@ def table_names(tree: exp.Expression) -> set[str]:
 @lru_cache(maxsize=1)
 def view_lineage() -> dict[str, set[str]]:
     """视图依赖的传递闭包；环路只访问一次。"""
-    direct = {name.lower(): set().union(*(table_names(t) for t in sql_trees(sql)))
-              for name, _comment, sql in generator_constants()["VIEWS"]}
+    direct = {
+        name.lower(): set().union(*(table_names(t) for t in sql_trees(sql)))
+        for name, _comment, sql in generator_constants()["VIEWS"]
+    }
     closure = {}
     for name in direct:
         seen, pending = set(), list(direct[name])
@@ -157,8 +178,7 @@ def _rows(ds: dict) -> list[dict]:
 
 
 def _select_rows(ds: dict, match: dict, exclude: bool = False) -> list[dict]:
-    return [row for row in _rows(ds)
-            if all(str(row.get(k)) == str(v) for k, v in match.items()) != bool(exclude)]
+    return [row for row in _rows(ds) if all(str(row.get(k)) == str(v) for k, v in match.items()) != bool(exclude)]
 
 
 def evidence_rows(cause: dict, run: dict) -> tuple[list[dict], list[str], str | None]:
@@ -221,8 +241,14 @@ def match_mechanism(cause: dict, run: dict, alternatives: list[dict]) -> dict:
             hit = not why and asset_ok and member_ok
             reason = why or ("来源资产及其上游不匹配" if not asset_ok else "证据行的成员不匹配")
         if hit:
-            return {"hit": True, "alternative": i, "option": option, "sources": refs,
-                    "tables": sorted(tables or []), "rows": rows}
+            return {
+                "hit": True,
+                "alternative": i,
+                "option": option,
+                "sources": refs,
+                "tables": sorted(tables or []),
+                "rows": rows,
+            }
         misses.append({"alternative": i, "reason": reason})
     return {"hit": False, "reason": "；".join(dict.fromkeys(m["reason"] for m in misses)), "misses": misses}
 
@@ -353,11 +379,13 @@ def _expression_window(tree: exp.Select, expression: exp.Expression, row: dict) 
     # CASE 外的度量或非零 ELSE 仍会读取其他日期，不能用 WHEN 缩窄整列表达式。
     outside = any(column.find_ancestor(exp.Case) is None for column in expression.find_all(exp.Column))
     defaults = [case.args.get("default") for case in cases]
-    closed = all(value is None or isinstance(value, exp.Null)
-                 or (isinstance(value, exp.Literal) and not value.is_string and v1._number(value.this) == 0)
-                 for value in defaults)
-    branches = ([item.this for case in cases for item in case.args.get("ifs") or []]
-                if closed and not outside else [])
+    closed = all(
+        value is None
+        or isinstance(value, exp.Null)
+        or (isinstance(value, exp.Literal) and not value.is_string and v1._number(value.this) == 0)
+        for value in defaults
+    )
+    branches = [item.this for case in cases for item in case.args.get("ifs") or []] if closed and not outside else []
     # 多个日期分支只有窗口一致时才可合并；不能把相互排斥的月份取交集。
     contexts = []
     for condition in branches or [None]:
@@ -395,8 +423,9 @@ def _union_spans(spans: list[tuple]) -> tuple[tuple | None, str | None]:
     return (first, last), None
 
 
-def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict,
-                     depth: int = 0) -> tuple[dict | None, str | None]:
+def _explore_context(
+    index: v2.RunIndex, ref: str, column: str, row: dict, depth: int = 0
+) -> tuple[dict | None, str | None]:
     if depth > 6:
         return None, "探索来源追溯超过深度上限 6"
     ds = index.datasets.get(ref) or {}
@@ -435,8 +464,14 @@ def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict,
                 return None, why
             spans.append(combined)
         values.update(str(v) for v in match.values())
-        return {"source": "explore", "period": period, "span": tuple(spans), "values": values,
-                "filters": filters, "calc": "delta" if period == "change" else "level"}, None
+        return {
+            "source": "explore",
+            "period": period,
+            "span": tuple(spans),
+            "values": values,
+            "filters": filters,
+            "calc": "delta" if period == "change" else "level",
+        }, None
     trees = sql_trees(ds.get("sql") or "", ds.get("kind") == "governed")
     selects = [tree for tree in trees if isinstance(tree, exp.Select) and _projection(tree, column) is not None]
     if len(selects) != 1:
@@ -445,7 +480,8 @@ def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict,
     expression = _unwrap(_projection(tree, column))
     # 明确的两期差额分别保留左右窗口；其他多窗口表达式仍不猜计算语义。
     delta = isinstance(expression, exp.Sub) and all(
-        list(part.find_all(exp.Case)) for part in (expression.this, expression.expression))
+        list(part.find_all(exp.Case)) for part in (expression.this, expression.expression)
+    )
     spans = []
     for part in (expression.this, expression.expression) if delta else (expression,):
         span, why = _expression_window(tree, part, row)
@@ -454,8 +490,14 @@ def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict,
         spans.append(span)
     where = tree.args.get("where")
     filters = _where_values(where.this if where else None)
-    return {"source": "explore", "span": tuple(spans), "values": filters | {str(v) for v in row.values()},
-            "filters": filters, "calc": "delta" if delta else "level", **({"period": "change"} if delta else {})}, None
+    return {
+        "source": "explore",
+        "span": tuple(spans),
+        "values": filters | {str(v) for v in row.values()},
+        "filters": filters,
+        "calc": "delta" if delta else "level",
+        **({"period": "change"} if delta else {}),
+    }, None
 
 
 def _is_explore(index: v2.RunIndex, ref: str, depth: int = 0) -> bool:
@@ -468,8 +510,9 @@ def _is_explore(index: v2.RunIndex, ref: str, depth: int = 0) -> bool:
     return step.get("tool") == "contribution" and _is_explore(index, (step.get("args") or {}).get("dataset"), depth + 1)
 
 
-def explore_binding(q: dict, run: dict, segment: dict, spec: dict,
-                    periods: list[str]) -> tuple[dict | None, str | None]:
+def explore_binding(
+    q: dict, run: dict, segment: dict, spec: dict, periods: list[str]
+) -> tuple[dict | None, str | None]:
     """数值已匹配真值后，检查探索语境的实体与精确期间。"""
     index = v2.RunIndex(run)
     path = v2.PATH.match(segment.get("path") or "")
@@ -503,11 +546,19 @@ def explore_binding(q: dict, run: dict, segment: dict, spec: dict,
     expected = {"current": (current,), "compare": (compare,), "change": (current, compare)}
     for period in periods:
         if period in expected and context.get("period", period) == period and context["span"] == expected[period]:
-            return {"source": "explore", "metric": spec["metric"], "period": period, "span": context["span"],
-                    "entity": spec.get("entity", {}), "calc": context["calc"], "unit": segment.get("unit"),
-                    "extra_filters": sorted(context["filters"] - used)}, None
+            return {
+                "source": "explore",
+                "metric": spec["metric"],
+                "period": period,
+                "span": context["span"],
+                "entity": spec.get("entity", {}),
+                "calc": context["calc"],
+                "unit": segment.get("unit"),
+                "extra_filters": sorted(context["filters"] - used),
+            }, None
     if any(start == end for start, end in context["span"]) and any(
-            start != end for period in periods for start, end in expected.get(period, ())):
+        start != end for period in periods for start, end in expected.get(period, ())
+    ):
         return None, "只绑定到单日的行，题目问的是整个期间"
     return None, f"探索列窗口 {context['span']} 与数值对应的题目期间不一致"
 
@@ -530,9 +581,15 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         for spec in (q.get("v2") or {}).get("key_bindings") or []:
             if not spec.get("metric") or not spec.get("truth"):
                 continue
-            periods = [period for period, value in spec["truth"].items()
-                       if v1._within(abs(raw) if key.get("abs") else raw,
-                                     abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)), tolerance)]
+            periods = [
+                period
+                for period, value in spec["truth"].items()
+                if v1._within(
+                    abs(raw) if key.get("abs") else raw,
+                    abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)),
+                    tolerance,
+                )
+            ]
             if not periods:
                 continue
             binding, why = explore_binding(q, run, segment, spec, periods)
@@ -554,17 +611,24 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     expect["forbidden"] = sorted(set().union(*(aliases(word) for word in original_forbidden)))
     verified = [v1._entity_text(cause) for cause in causes if cause.get("status") == "verified"]
     if expect.get("required_in_causes"):
-        expect["required_in_causes"] = [next((alias for alias in sorted(aliases(word))
-                                               if any(alias in text for text in verified)), word)
-                                        for word in expect["required_in_causes"]]
+        expect["required_in_causes"] = [
+            next((alias for alias in sorted(aliases(word)) if any(alias in text for text in verified)), word)
+            for word in expect["required_in_causes"]
+        ]
     primary = expect.get("primary")
     options = (question.get("v2_1") or question.get("v2") or {}).get("mechanism") or question.get("mechanism")
     detail = {"hit": None, "reason": "题目没有机制定义，沿用 v1"}
     if primary and primary.get("entity") and options:
-        heads = ([c for c in causes[:2] if c.get("direction") == primary["direction"]]
-                 if report.get("conclusion") == "offsetting" else causes[:1])
-        detail = (match_mechanism(heads[0], run or {}, options) if heads else
-                  {"hit": False, "reason": "没有方向相同的首要原因"})
+        heads = (
+            [c for c in causes[:2] if c.get("direction") == primary["direction"]]
+            if report.get("conclusion") == "offsetting"
+            else causes[:1]
+        )
+        detail = (
+            match_mechanism(heads[0], run or {}, options)
+            if heads
+            else {"hit": False, "reason": "没有方向相同的首要原因"}
+        )
         primary["entity"] = []
         if not detail["hit"]:
             primary["types"] = []
@@ -572,16 +636,24 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     expect.pop("key_value", None)
     result = v2.score(adapted, run)
     result["scorer"] = VERSION
-    result["forbidden"] = sorted({word for word in original_forbidden if any(
-        alias in v1._entity_text(cause) for cause in causes for alias in aliases(word))})
+    result["forbidden"] = sorted(
+        {
+            word
+            for word in original_forbidden
+            if any(alias in v1._entity_text(cause) for cause in causes for alias in aliases(word))
+        }
+    )
     if options and primary and detail["hit"] and not result["primary_hit"]:
         detail = {**detail, "hit": False, "reason": "机制匹配，但运行完成、类型、方向或核验条件不满足"}
     if detail["hit"] is None:
         detail = {**detail, "hit": result["primary_hit"]}
     result["primary_detail"] = result["mechanism"] = detail
     key = (question.get("expect") or {}).get("key_value")
-    kv = key_value(question, report, run or {}) if result["completed"] else {
-        "hit": False if key else None, "reason": "运行没有完成"}
+    kv = (
+        key_value(question, report, run or {})
+        if result["completed"]
+        else {"hit": False if key else None, "reason": "运行没有完成"}
+    )
     result["key_value_hit"], result["key_value_detail"] = kv["hit"], kv
     if question["category"] in v1.POSITIVE or (question["category"] == "adversarial" and primary):
         result["passed"] = bool(result["passed"] and kv["hit"] is not False)

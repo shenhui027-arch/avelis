@@ -83,10 +83,17 @@ def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catal
         if version is None:
             continue
         versions[metric.code] = (metric, version)
-        cards.append(MetricCard(
-            code=metric.code, name=metric.name, aliases=metric.aliases or [], dimensions=version.dimensions or [],
-            dimension_values=_dimension_values(session, user, version, settings) if with_values else {},
-            description=version.description, status=version.status))
+        cards.append(
+            MetricCard(
+                code=metric.code,
+                name=metric.name,
+                aliases=metric.aliases or [],
+                dimensions=version.dimensions or [],
+                dimension_values=_dimension_values(session, user, version, settings) if with_values else {},
+                description=version.description,
+                status=version.status,
+            )
+        )
     return Catalog(cards, versions)
 
 
@@ -121,9 +128,18 @@ def finish_answer(session: Session, user: User, answer: Answer, started: float) 
     for name in ("intent", "plan", "metric_version_ids", "evidence", "result", "freshness", "steps"):
         flag_modified(answer, name)
     session.flush()
-    audit.record(session, user, "ask", "answer", answer.id, status=answer.status, error_code=answer.error_code,
-                 metric_version_ids=answer.metric_version_ids, cache_hit=answer.cache_hit,
-                 thread_id=answer.thread_id)
+    audit.record(
+        session,
+        user,
+        "ask",
+        "answer",
+        answer.id,
+        status=answer.status,
+        error_code=answer.error_code,
+        metric_version_ids=answer.metric_version_ids,
+        cache_hit=answer.cache_hit,
+        thread_id=answer.thread_id,
+    )
     return answer
 
 
@@ -138,18 +154,26 @@ def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog
         else:
             _fulfil_plan(session, user, intent, answer, catalog, get_settings())
         if answer.status == "answered":
-            requested = ([catalog.versions[intent.metric_code]] if simple
-                         else [catalog.versions[code] for code in intent.metric_codes])
-            answer.result = _result_contract(answer.result, intent, requested,
-                                             value_column="value" if simple else None)
+            requested = (
+                [catalog.versions[intent.metric_code]]
+                if simple
+                else [catalog.versions[code] for code in intent.metric_codes]
+            )
+            answer.result = _result_contract(answer.result, intent, requested, value_column="value" if simple else None)
     except GovernanceError as exc:
         answer.status = "error"
         answer.message = translate(exc.message)
         answer.error_code = "governance"
 
 
-def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
-            versions: dict[str, tuple[Metric, MetricVersion]], settings) -> None:
+def _fulfil(
+    session: Session,
+    user: User,
+    intent: Intent,
+    answer: Answer,
+    versions: dict[str, tuple[Metric, MetricVersion]],
+    settings,
+) -> None:
     answer.intent = intent.model_dump(mode="json")
     if intent.metric_code not in versions:
         answer.status = "denied"
@@ -183,8 +207,10 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.status = "blocked"
         answer.error_code = "dependency_drift"
         cols = "、".join(f"{d['qualified']}.{d['column']}" for d in drift)
-        answer.message = (f"指标“{metric.name}”V{version.version_no} 的依赖 {cols} 与发布时不一致，"
-                          f"已停止使用该口径，等待重新采集与复核")
+        answer.message = (
+            f"指标“{metric.name}”V{version.version_no} 的依赖 {cols} 与发布时不一致，"
+            f"已停止使用该口径，等待重新采集与复核"
+        )
         answer.evidence["drift"] = drift
         return
 
@@ -215,37 +241,58 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.status = "denied"
         answer.error_code = "permission"
         unassigned = [a for a in denied if a.domain_id is None]
-        answer.message = "没有权限读取查询涉及的来源：" + "、".join(sorted(
-            f"{a.catalog_name}.{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied))
+        answer.message = "没有权限读取查询涉及的来源：" + "、".join(
+            sorted(
+                f"{a.catalog_name}.{a.db_name}.{a.name}{'（未归属业务域）' if a in unassigned else ''}" for a in denied
+            )
+        )
         return
 
     base = aliases["b"]
     ds = session.get(Datasource, base.datasource_id)
     dialect = dialect_of(ds)
-    time_alias, time_col = column_ref(version.time_column, dialect=dialect.name, label="时间字段",
-                                      aliases=set(aliases))
+    time_alias, time_col = column_ref(version.time_column, dialect=dialect.name, label="时间字段", aliases=set(aliases))
     time_type = _column_type(session, aliases[time_alias], time_col)
     time_aggregation = getattr(version, "time_aggregation", None) or "sum"
     data_grain = getattr(version, "data_grain", None) or "day"
     # 存量先取完整的时间桶，排名和用户限行必须在跨时间合成后执行。
     query_intent = intent.model_copy(update={"order": None, "limit": None}) if time_aggregation != "sum" else intent
-    compiled = compile_metric_query(version=version, aliases=aliases, steps=steps, intent=query_intent,
-                                    max_rows=settings.query_max_rows, time_type=time_type, dialect=dialect,
-                                    reserved_names=(metric.name, "value"),
-                                    **({"bucket_grain": data_grain}
-                                       if time_aggregation != "sum" else {}))
+    compiled = compile_metric_query(
+        version=version,
+        aliases=aliases,
+        steps=steps,
+        intent=query_intent,
+        max_rows=settings.query_max_rows,
+        time_type=time_type,
+        dialect=dialect,
+        reserved_names=(metric.name, "value"),
+        **({"bucket_grain": data_grain} if time_aggregation != "sum" else {}),
+    )
     answer.sql = compiled.sql
-    answer.plan = {**compiled.plan, "metric_version_id": version.id,
-                   "dependency_fingerprint": version.dependency_fingerprint}
+    answer.plan = {
+        **compiled.plan,
+        "metric_version_id": version.id,
+        "dependency_fingerprint": version.dependency_fingerprint,
+    }
     answer.evidence["time_aggregation"] = {
-        "method": time_aggregation, "data_grain": data_grain, "output_grain": intent.time_grain,
-        "note": {"sum": gettext("沿用口径表达式跨时间汇总"),
-                 "last": gettext("每个输出期间取全局最后一个有数据的桶，成员缺失为未知"),
-                 "avg": gettext("每个成员按有数据的桶计算均值，空桶不补零")}[time_aggregation]}
+        "method": time_aggregation,
+        "data_grain": data_grain,
+        "output_grain": intent.time_grain,
+        "note": {
+            "sum": gettext("沿用口径表达式跨时间汇总"),
+            "last": gettext("每个输出期间取全局最后一个有数据的桶，成员缺失为未知"),
+            "avg": gettext("每个成员按有数据的桶计算均值，空桶不补零"),
+        }[time_aggregation],
+    }
     schema = {f"{a.catalog_name}.{a.db_name}.{a.name}": set(_columns(session, a)) for a in aliases.values()}
     try:
-        validate_sql(compiled.sql, dialect=dialect, allowed_tables=set(compiled.tables), schema=schema,
-                     max_rows=settings.query_max_rows)
+        validate_sql(
+            compiled.sql,
+            dialect=dialect,
+            allowed_tables=set(compiled.tables),
+            schema=schema,
+            max_rows=settings.query_max_rows,
+        )
     except ValidationFailed as exc:
         answer.status = "denied"
         answer.error_code = "validation"
@@ -258,43 +305,76 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     if stale:
         answer.status = "blocked"
         answer.error_code = "metadata_stale"
-        answer.message = ("来源结构在上次采集之后已变化，未执行；已为该数据源排队重新采集，采集完成后再问：" +
-                          "；".join(s["summary"] for s in stale))
+        answer.message = "来源结构在上次采集之后已变化，未执行；已为该数据源排队重新采集，采集完成后再问：" + "；".join(
+            s["summary"] for s in stale
+        )
         answer.evidence["live_check"] = stale
         return
-    internal = [(a.db_name, a.name) for a in closure.values()
-                if a.datasource_id == ds.id and a.kind == "table"]
-    freshness = {"tables": connector.freshness(internal), **{k: _iso(v) for k, v in
-                                                            freshness_boundary(session, ds.id).items()},
-                 "note": DISCOVERY_NOTE}
+    internal = [(a.db_name, a.name) for a in closure.values() if a.datasource_id == ds.id and a.kind == "table"]
+    freshness = {
+        "tables": connector.freshness(internal),
+        **{k: _iso(v) for k, v in freshness_boundary(session, ds.id).items()},
+        "note": DISCOVERY_NOTE,
+    }
     answer.freshness = freshness
-    answer.evidence.update({
-        "sources": [_asset_evidence(session, a) for a in closure.values()],
-        "lineage": _lineage_evidence(session, version),
-        "limits": {"query_timeout_seconds": settings.query_timeout_seconds,
-                   "query_mem_limit_bytes": settings.query_mem_limit_bytes,
-                   "max_rows": settings.query_max_rows, "account": "只读账号（query 凭据）"},
-        "traceability": TRACEABLE_NOTE,
-        "version_detail": {k: version_info.get(k) for k in ("expression", "time_column", "timezone", "filters",
-                           "dimensions", "grain", "joins", "time_format", "data_grain", "time_aggregation",
-                           "value_kind", "polarity")},
-    })
+    answer.evidence.update(
+        {
+            "sources": [_asset_evidence(session, a) for a in closure.values()],
+            "lineage": _lineage_evidence(session, version),
+            "limits": {
+                "query_timeout_seconds": settings.query_timeout_seconds,
+                "query_mem_limit_bytes": settings.query_mem_limit_bytes,
+                "max_rows": settings.query_max_rows,
+                "account": "只读账号（query 凭据）",
+            },
+            "traceability": TRACEABLE_NOTE,
+            "version_detail": {
+                k: version_info.get(k)
+                for k in (
+                    "expression",
+                    "time_column",
+                    "timezone",
+                    "filters",
+                    "dimensions",
+                    "grain",
+                    "joins",
+                    "time_format",
+                    "data_grain",
+                    "time_aggregation",
+                    "value_kind",
+                    "polarity",
+                )
+            },
+        }
+    )
 
-    key = cache.answer_cache_key({
-        "sql": compiled.sql, "version": version.id, "deps": version.dependency_fingerprint,
-        "assets": sorted((a.id, a.current_version_id) for a in closure.values()),
-        "scope": sorted(allowed), "freshness": freshness.get("tables"), "locale": current_locale(),
-        **({"time_aggregation": time_aggregation, "order": intent.order, "limit": intent.limit}
-           if time_aggregation != "sum" else {}),
-    })
+    key = cache.answer_cache_key(
+        {
+            "sql": compiled.sql,
+            "version": version.id,
+            "deps": version.dependency_fingerprint,
+            "assets": sorted((a.id, a.current_version_id) for a in closure.values()),
+            "scope": sorted(allowed),
+            "freshness": freshness.get("tables"),
+            "locale": current_locale(),
+            **(
+                {"time_aggregation": time_aggregation, "order": intent.order, "limit": intent.limit}
+                if time_aggregation != "sum"
+                else {}
+            ),
+        }
+    )
     cached = _cache_get(key)
     if cached is not None:
         answer.status = "answered"
         answer.result = cached["result"]
         answer.executed_at = utcnow()
         answer.cache_hit = True
-        answer.evidence["cache"] = {"hit": True, "original_answer_id": cached.get("answer_id"),
-                                    "original_executed_at": cached.get("executed_at")}
+        answer.evidence["cache"] = {
+            "hit": True,
+            "original_answer_id": cached.get("answer_id"),
+            "original_executed_at": cached.get("executed_at"),
+        }
         if cached.get("query_warnings"):
             answer.evidence["query_warnings"] = cached["query_warnings"]
         answer.message = _explain(metric, version, intent, answer.result)
@@ -308,14 +388,19 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
         answer.message = "生成计划后指标版本或其依赖发生变化，已停止执行，请重试"
         return
     try:
-        result = connector.execute_select(compiled.sql, timeout_seconds=settings.query_timeout_seconds,
-                                          mem_limit_bytes=settings.query_mem_limit_bytes,
-                                          max_rows=settings.query_max_rows, timezone=version.timezone)
+        result = connector.execute_select(
+            compiled.sql,
+            timeout_seconds=settings.query_timeout_seconds,
+            mem_limit_bytes=settings.query_mem_limit_bytes,
+            max_rows=settings.query_max_rows,
+            timezone=version.timezone,
+        )
     except QueryError as exc:
         answer.status = "error"
         answer.error_code = f"db_{exc.code}"
         label = {"timeout": "查询超时", "permission": "数据库拒绝访问", "invalid_object": "对象或列无法解析"}.get(
-            exc.code, "数据库执行错误")
+            exc.code, "数据库执行错误"
+        )
         answer.message = f"{label}（数据库错误 {exc.db_errno}）：{exc.message}"
         answer.executed_at = utcnow()
         return
@@ -323,21 +408,38 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     columns, rows = result.columns, result.rows
     truncated = result.truncated
     if time_aggregation != "sum":
-        columns, rows = _aggregate_time_rows(columns, rows, bucket_column=compiled.plan["bucket_column"],
-                                             method=time_aggregation, time_grain=intent.time_grain)
+        columns, rows = _aggregate_time_rows(
+            columns,
+            rows,
+            bucket_column=compiled.plan["bucket_column"],
+            method=time_aggregation,
+            time_grain=intent.time_grain,
+        )
         rows = _sort_time_rows(rows, intent)
         truncated = truncated or len(result.rows) >= settings.query_max_rows
     if getattr(result, "warnings", None):
         answer.evidence["query_warnings"] = result.warnings
-    answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in row] for row in rows],
-                     "row_count": len(rows), "truncated": truncated,
-                     "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by)}
+    answer.result = {
+        "columns": columns,
+        "rows": [[_jsonable(v) for v in row] for row in rows],
+        "row_count": len(rows),
+        "truncated": truncated,
+        "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by),
+    }
     answer.status = "answered"
     answer.evidence["cache"] = {"hit": False}
     answer.message = _explain(metric, version, intent, answer.result)
-    _cache_put(key, {"result": answer.result, "answer_id": answer.id, "executed_at": answer.executed_at.isoformat(),
-                     "query_warnings": answer.evidence.get("query_warnings", [])},
-               settings.answer_cache_seconds, [f"metric_version:{version.id}"])
+    _cache_put(
+        key,
+        {
+            "result": answer.result,
+            "answer_id": answer.id,
+            "executed_at": answer.executed_at.isoformat(),
+            "query_warnings": answer.evidence.get("query_warnings", []),
+        },
+        settings.answer_cache_seconds,
+        [f"metric_version:{version.id}"],
+    )
 
 
 def _upstream_columns(session: Session, dependency: list[dict[str, Any]]) -> dict[str, set[str]]:
@@ -352,18 +454,23 @@ def _upstream_columns(session: Session, dependency: list[dict[str, Any]]) -> dic
         asset = session.get(Asset, asset_id)
         if asset is None or not asset.current_version_id:
             continue
-        for edge in session.scalars(select(LineageEdge).where(
-                LineageEdge.target_asset_id == asset_id, LineageEdge.status == "active",
+        for edge in session.scalars(
+            select(LineageEdge).where(
+                LineageEdge.target_asset_id == asset_id,
+                LineageEdge.status == "active",
                 LineageEdge.origin.in_(("parsed", "manual")),
                 LineageEdge.target_asset_version_id == asset.current_version_id,
-                or_(LineageEdge.target_column == column, LineageEdge.target_column.is_(None)))):
+                or_(LineageEdge.target_column == column, LineageEdge.target_column.is_(None)),
+            )
+        ):
             if edge.source_asset_id and edge.source_column:
                 stack.append((edge.source_asset_id, edge.source_column))
     return out
 
 
-def _live_check(session: Session, ds: Datasource, connector, assets, dependency: list[dict[str, Any]],
-                settings) -> list[dict[str, Any]]:
+def _live_check(
+    session: Session, ds: Datasource, connector, assets, dependency: list[dict[str, Any]], settings
+) -> list[dict[str, Any]]:
     """用只读账号读取来源对象当前的列与视图定义，与当前资产版本比较，返回不一致的对象。
     - 只看口径实际依赖的列（沿血缘展开）：无关列的增删不拦截；视图定义变化总是拦截。
     - 只核对本数据源内部 Catalog 的表与视图；他库经外部表的变化由那个数据源的采集发现。
@@ -372,8 +479,14 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
     if not settings.ask_live_check or not engine.supports(LIVE_CHECK):
         return []
     dialect = dialect_of(ds)
-    targets = [a for a in assets if a.datasource_id == ds.id and a.catalog_name == dialect.default_catalog
-               and a.kind in ("table", "view") and a.current_version_id]
+    targets = [
+        a
+        for a in assets
+        if a.datasource_id == ds.id
+        and a.catalog_name == dialect.default_catalog
+        and a.kind in ("table", "view")
+        and a.current_version_id
+    ]
     if not targets:
         return []
     relevant = _upstream_columns(session, dependency)
@@ -386,8 +499,14 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
         now = live.get((a.db_name, a.name))
         if now is None:
             continue
-        cols = [[c.name, c.data_type] for c in session.scalars(select(ColumnVersion).where(
-            ColumnVersion.asset_version_id == a.current_version_id).order_by(ColumnVersion.ordinal))]
+        cols = [
+            [c.name, c.data_type]
+            for c in session.scalars(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == a.current_version_id)
+                .order_by(ColumnVersion.ordinal)
+            )
+        ]
         problems = []
         if not now["columns"]:
             problems.append("对象已不存在")
@@ -397,22 +516,39 @@ def _live_check(session: Session, ds: Datasource, connector, assets, dependency:
             before, after = {c[0]: c[1] for c in cols}, {c[0]: c[1] for c in now["columns"]}
             used = relevant.get(a.id) or set(before)
             problems += [f"列 {n} 已删除" for n in before if n in used and n not in after]
-            problems += [f"列 {n} 类型 {before[n]} → {after[n]}" for n in before
-                         if n in used and n in after and before[n] != after[n]]
+            problems += [
+                f"列 {n} 类型 {before[n]} → {after[n]}"
+                for n in before
+                if n in used and n in after and before[n] != after[n]
+            ]
         if a.kind == "view" and now["columns"]:
-            stored = session.scalar(select(Definition.canonical_hash).where(
-                Definition.asset_version_id == a.current_version_id))
+            stored = session.scalar(
+                select(Definition.canonical_hash).where(Definition.asset_version_id == a.current_version_id)
+            )
             current = canonical_hash_of(now["definition"], dialect)[1] if now["definition"] else None
             if current != stored:
                 problems.append("视图定义已变化")
         if problems:
-            stale.append({"asset_id": a.id, "qualified": f"{a.catalog_name}.{a.db_name}.{a.name}",
-                          "problems": problems, "summary": f"{a.db_name}.{a.name}（{'、'.join(problems)}）"})
+            stale.append(
+                {
+                    "asset_id": a.id,
+                    "qualified": f"{a.catalog_name}.{a.db_name}.{a.name}",
+                    "problems": problems,
+                    "summary": f"{a.db_name}.{a.name}（{'、'.join(problems)}）",
+                }
+            )
     if stale:
         from avelis import jobs  # 避免循环导入
 
-        pending = session.scalar(select(Job.id).where(Job.kind == "collect", Job.status.in_(("queued", "running")),
-                                                      Job.payload["datasource_id"].as_string() == ds.id).limit(1))
+        pending = session.scalar(
+            select(Job.id)
+            .where(
+                Job.kind == "collect",
+                Job.status.in_(("queued", "running")),
+                Job.payload["datasource_id"].as_string() == ds.id,
+            )
+            .limit(1)
+        )
         if pending is None:
             jobs.enqueue("collect", {"datasource_id": ds.id, "trigger": "live_check"}, None)
     return stale
@@ -432,8 +568,9 @@ def _cache_put(key: str, value: dict, ttl: int, tags: list[str]) -> None:
         pass
 
 
-def _dimension_docs(session: Session, user: User, version: MetricVersion, aliases: dict[str, Asset],
-                    names: list[str]) -> dict[str, dict[str, Any]]:
+def _dimension_docs(
+    session: Session, user: User, version: MetricVersion, aliases: dict[str, Asset], names: list[str]
+) -> dict[str, dict[str, Any]]:
     """结果中各维度列的数据库注释（原样列名 + 注释状态）。Avelis 不另起显示名：注释缺失就如实标出，
     推动数据库侧补齐（见 governance/column_docs.py）。"""
     from avelis.governance.column_docs import column_doc, visible_to
@@ -450,12 +587,18 @@ def _dimension_docs(session: Session, user: User, version: MetricVersion, aliase
     return out
 
 
-PERIOD_LABEL = {"current": "本期", "previous_period": "上一期", "previous_year": "去年同期",
-                "previous_calendar": "上一自然期", "custom": "对比期"}
+PERIOD_LABEL = {
+    "current": "本期",
+    "previous_period": "上一期",
+    "previous_year": "去年同期",
+    "previous_calendar": "上一自然期",
+    "custom": "对比期",
+}
 
 
-def _result_contract(result: dict, intent: Intent, requested: list[tuple[Metric, MetricVersion]], *,
-                     value_column: str | None = None) -> dict:
+def _result_contract(
+    result: dict, intent: Intent, requested: list[tuple[Metric, MetricVersion]], *, value_column: str | None = None
+) -> dict:
     """用执行时锁定的口径补齐展示契约；返回副本，避免修改缓存保存的结果。"""
     columns = result.get("columns") or []
     period_label = PERIOD_LABEL.get(intent.compare)
@@ -465,31 +608,49 @@ def _result_contract(result: dict, intent: Intent, requested: list[tuple[Metric,
         # 单指标 SQL 的结果别名固定为 value，按编译契约映射，不从列名或值推断。
         units = {value_column: measures.metric_unit(version)} if value_column in columns else {}
         directions = measures.governed_polarity([metric.name], {metric.name: version}, period_label)
-        polarity = ({value_column: directions[metric.name]}
-                    if value_column in columns and metric.name in directions else {})
+        polarity = (
+            {value_column: directions[metric.name]} if value_column in columns and metric.name in directions else {}
+        )
         labels = {value_column: metric.name}
     else:
         units = measures.governed_units(columns, metrics, period_label)
         polarity = measures.governed_polarity(columns, metrics, period_label)
-        labels = {column: metric.name for metric, version in requested
-                  for column in measures.governed_units(columns, {metric.name: version}, period_label)}
+        labels = {
+            column: metric.name
+            for metric, version in requested
+            for column in measures.governed_units(columns, {metric.name: version}, period_label)
+        }
     dimension_labels = {}
     for _, version in requested:
         for dimension in version.dimensions or []:
             dimension_labels.setdefault(dimension["name"], dimension.get("label") or dimension["name"])
     # 编译器与计划组装都将显式时间分组列放在首列，其名称可能因重名而改变。
-    meta = {"units": units, "intent": intent.model_dump(mode="json"),
-            "time_column": columns[0] if intent.time_grain and columns else None,
-            "dimension_labels": dimension_labels, "measure_labels": labels}
-    return {**result, "units": units, "polarity": polarity,
-            "column_roles": build_column_roles(columns, meta)}
+    meta = {
+        "units": units,
+        "intent": intent.model_dump(mode="json"),
+        "time_column": columns[0] if intent.time_grain and columns else None,
+        "dimension_labels": dimension_labels,
+        "measure_labels": labels,
+    }
+    return {**result, "units": units, "polarity": polarity, "column_roles": build_column_roles(columns, meta)}
 
 
 def _scratch(answer: Answer, user: User) -> Answer:
     """子查询用的临时答案对象（不入库）：沿用完整的单指标治理管线，只取它的结论与结果。"""
-    return Answer(question=answer.question, asked_by=user.id, status="error", model_adapter=answer.model_adapter,
-                  intent={}, plan={}, evidence={}, result={}, metric_version_ids=[], freshness={}, steps=[],
-                  cache_hit=False)
+    return Answer(
+        question=answer.question,
+        asked_by=user.id,
+        status="error",
+        model_adapter=answer.model_adapter,
+        intent={},
+        plan={},
+        evidence={},
+        result={},
+        metric_version_ids=[],
+        freshness={},
+        steps=[],
+        cache_hit=False,
+    )
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -501,15 +662,16 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _aggregate_time_rows(columns: list[str], rows: list[list[Any]], *, bucket_column: str,
-                         method: str, time_grain: str | None) -> tuple[list[str], list[list[Any]]]:
+def _aggregate_time_rows(
+    columns: list[str], rows: list[list[Any]], *, bucket_column: str, method: str, time_grain: str | None
+) -> tuple[list[str], list[list[Any]]]:
     """每个输出期间独立合成；期末桶由该期间所有成员共同确定，不用成员自己的最后一期补齐。"""
     bucket_index = columns.index(bucket_column)
     keys: dict[tuple, dict[Any, Decimal | None]] = {}
     last_buckets: dict[Any, Any] = {}
     for row in rows:
         bucket = row[bucket_index]
-        key = tuple(row[:bucket_index] + row[bucket_index + 1:-1])
+        key = tuple(row[:bucket_index] + row[bucket_index + 1 : -1])
         output_period = key[0] if time_grain else None
         keys.setdefault(key, {})[bucket] = _decimal(row[-1])
         if output_period not in last_buckets or bucket > last_buckets[output_period]:
@@ -522,7 +684,7 @@ def _aggregate_time_rows(columns: list[str], rows: list[list[Any]], *, bucket_co
             values = [v for v in buckets.values() if v is not None]
             value = sum(values, Decimal(0)) / len(values) if values else None
         out.append([*key, value])
-    output_columns = columns[:bucket_index] + columns[bucket_index + 1:]
+    output_columns = columns[:bucket_index] + columns[bucket_index + 1 :]
     if not rows and len(output_columns) == 1:
         out = [[None]]
     return output_columns, out
@@ -534,7 +696,7 @@ def _sort_time_rows(rows: list[list[Any]], intent: Intent) -> list[list[Any]]:
         present.sort(key=lambda row: row[-1], reverse=intent.order == "desc")
         rows = present + [row for row in rows if row[-1] is None]
     if intent.limit:
-        rows = rows[:intent.limit]
+        rows = rows[: intent.limit]
     return rows
 
 
@@ -561,10 +723,17 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     for code, metric, version in requested:
         answer.metric_version_ids = [*answer.metric_version_ids, version.id]
         data_grain = getattr(version, "data_grain", None) or "day"
-        if intent.time_grain and (data_grain not in TIME_GRAINS
-                                  or TIME_GRAINS.index(intent.time_grain) < TIME_GRAINS.index(data_grain)):
-            raise Invalid(Msg("时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细",
-                              grain=intent.time_grain, metric=metric.name, data_grain=data_grain))
+        if intent.time_grain and (
+            data_grain not in TIME_GRAINS or TIME_GRAINS.index(intent.time_grain) < TIME_GRAINS.index(data_grain)
+        ):
+            raise Invalid(
+                Msg(
+                    "时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细",
+                    grain=intent.time_grain,
+                    metric=metric.name,
+                    data_grain=data_grain,
+                )
+            )
         if version.kind != "derived":
             runs[code] = (metric, version)
             continue
@@ -592,8 +761,16 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
 
     periods = [("current", intent.start_date, intent.end_date)]
     if intent.compare:
-        periods.append((intent.compare, *((intent.compare_start, intent.compare_end) if intent.compare == "custom"
-                                          else comparison_range(intent.start_date, intent.end_date, intent.compare))))
+        periods.append(
+            (
+                intent.compare,
+                *(
+                    (intent.compare_start, intent.compare_end)
+                    if intent.compare == "custom"
+                    else comparison_range(intent.start_date, intent.end_date, intent.compare)
+                ),
+            )
+        )
     values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
     keys: list[tuple] = []
     comparison_keys: list[tuple] = []
@@ -602,13 +779,28 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     for code, (metric, version) in runs.items():
         for label, start, end in periods:
             sub = _scratch(answer, user)
-            sub_intent = Intent(metric_code=code, start_date=start, end_date=end, filters=intent.filters,
-                                group_by=intent.group_by, time_grain=intent.time_grain)
+            sub_intent = Intent(
+                metric_code=code,
+                start_date=start,
+                end_date=end,
+                filters=intent.filters,
+                group_by=intent.group_by,
+                time_grain=intent.time_grain,
+            )
             _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
-            plan.append({"metric_code": code, "metric_version_id": version.id, "period": label,
-                         "range": [str(start), str(end)], "status": sub.status, "error_code": sub.error_code,
-                         "cache_hit": sub.cache_hit, "time_aggregation": sub.evidence.get("time_aggregation"),
-                         "query_warnings": sub.evidence.get("query_warnings", [])})
+            plan.append(
+                {
+                    "metric_code": code,
+                    "metric_version_id": version.id,
+                    "period": label,
+                    "range": [str(start), str(end)],
+                    "status": sub.status,
+                    "error_code": sub.error_code,
+                    "cache_hit": sub.cache_hit,
+                    "time_aggregation": sub.evidence.get("time_aggregation"),
+                    "query_warnings": sub.evidence.get("query_warnings", []),
+                }
+            )
             if sub.sql:
                 head = f"-- {metric.name} V{version.version_no} · {PERIOD_LABEL[label]} {start} ~ {end}"
                 sqls.append(head + chr(10) + sub.sql)
@@ -638,8 +830,10 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     def value(code: str, label: str, key: tuple) -> Decimal | None:
         metric, version = catalog.versions[code]
         if version.kind == "derived":
-            return evaluate(version.expression, {c["metric_code"]: values[(c["metric_code"], label)].get(key)
-                                                 for c in version.components})
+            return evaluate(
+                version.expression,
+                {c["metric_code"]: values[(c["metric_code"], label)].get(key) for c in version.components},
+            )
         return values[(code, label)].get(key)
 
     def missing_row(code: str, label: str, key: tuple) -> bool:
@@ -651,7 +845,11 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     for _, metric, _ in requested:
         metric_columns.append(metric.name)
         if intent.compare:
-            metric_columns += [f"{metric.name}·{PERIOD_LABEL[intent.compare]}", f"{metric.name}·变化", f"{metric.name}·变化率"]
+            metric_columns += [
+                f"{metric.name}·{PERIOD_LABEL[intent.compare]}",
+                f"{metric.name}·变化",
+                f"{metric.name}·变化率",
+            ]
     columns = ([period_column(intent.group_by, metric_columns)] if intent.time_grain else []) + list(intent.group_by)
     for _, metric, _ in requested:
         columns.append(metric.name)
@@ -683,7 +881,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         present.sort(key=lambda r: r[first], reverse=intent.order == "desc")
         rows_out = present + [r for r in rows_out if r[first] is None]
     if intent.limit:
-        rows_out = rows_out[:intent.limit]
+        rows_out = rows_out[: intent.limit]
     key_width = len(intent.group_by) + (1 if intent.time_grain else 0)
     answer.evidence["missing_member_rows"] = [missing_members[tuple(r[:key_width])] for r in rows_out]
 
@@ -691,16 +889,35 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     answer.status = "answered"
     first_run = next(iter(runs.values()))[1]
     docs = _dimension_docs(session, user, first_run, validate_spec(session, first_run)["aliases"], intent.group_by)
-    answer.result = {"columns": columns, "rows": [[_jsonable(v) for v in r] for r in rows_out],
-                     "row_count": len(rows_out), "truncated": truncated, "column_docs": docs}
+    answer.result = {
+        "columns": columns,
+        "rows": [[_jsonable(v) for v in r] for r in rows_out],
+        "row_count": len(rows_out),
+        "truncated": truncated,
+        "column_docs": docs,
+    }
     answer.sql = (chr(10) * 2).join(sqls)
-    answer.plan = {"kind": "plan", "subqueries": plan, "order": intent.order, "limit": intent.limit,
-                   "compare": intent.compare}
-    answer.evidence.update({"metric_version": _version_evidence(session, first_metric, first_version),
-                            "plan": plan, "sources": list(sources.values()), "lineage": lineage,
-                            "derived": [{"metric_code": c, "formula": v.expression, "components": v.components}
-                                        for c, _, v in requested if v.kind == "derived"],
-                            "cache": {"hit": all(cache_hits)}})
+    answer.plan = {
+        "kind": "plan",
+        "subqueries": plan,
+        "order": intent.order,
+        "limit": intent.limit,
+        "compare": intent.compare,
+    }
+    answer.evidence.update(
+        {
+            "metric_version": _version_evidence(session, first_metric, first_version),
+            "plan": plan,
+            "sources": list(sources.values()),
+            "lineage": lineage,
+            "derived": [
+                {"metric_code": c, "formula": v.expression, "components": v.components}
+                for c, _, v in requested
+                if v.kind == "derived"
+            ],
+            "cache": {"hit": all(cache_hits)},
+        }
+    )
     answer.executed_at = utcnow()
     answer.cache_hit = bool(cache_hits) and all(cache_hits)
     if truncated and (intent.order or intent.limit):
@@ -716,8 +933,11 @@ def _answer_text(template: str, **params) -> str:
 
 def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else _answer_text(
-        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
+    period = (
+        str(intent.start_date)
+        if same_day
+        else _answer_text("{start} 至 {end}", start=intent.start_date, end=intent.end_date)
+    )
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     names = "、".join(f"{m.name}（V{v.version_no}）" for _, m, v in requested)
     head = f"{period}{('（' + scope + '）') if scope else ''} {names}"
@@ -725,12 +945,27 @@ def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
         return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         cells = dict(zip(result["columns"], result["rows"][0]))
-        return _answer_text("{head}：{value}", head=head, value="；".join(
-            f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()))
-    rank = _answer_text("，按{metric}{direction}", metric=requested[0][1].name,
-                        direction=_answer_text("从高到低" if intent.order == "desc" else "从低到高")) if intent.order else ""
-    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
-                        rank=rank, truncated=_answer_text("（已截断）") if result["truncated"] else "")
+        return _answer_text(
+            "{head}：{value}",
+            head=head,
+            value="；".join(f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()),
+        )
+    rank = (
+        _answer_text(
+            "，按{metric}{direction}",
+            metric=requested[0][1].name,
+            direction=_answer_text("从高到低" if intent.order == "desc" else "从低到高"),
+        )
+        if intent.order
+        else ""
+    )
+    return _answer_text(
+        "{head}：共 {row_count} 行{rank}{truncated}",
+        head=head,
+        row_count=result["row_count"],
+        rank=rank,
+        truncated=_answer_text("（已截断）") if result["truncated"] else "",
+    )
 
 
 def _jsonable(value: Any) -> Any:
@@ -745,8 +980,11 @@ def _iso(value) -> str | None:
 
 def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else _answer_text(
-        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
+    period = (
+        str(intent.start_date)
+        if same_day
+        else _answer_text("{start} 至 {end}", start=intent.start_date, end=intent.end_date)
+    )
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     head = f"{period}{('（' + scope + '）') if scope else ''} {metric.name}（V{version.version_no}）"
     if not result["rows"]:
@@ -754,22 +992,37 @@ def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dic
     if not intent.group_by and len(result["rows"]) == 1:
         value = result["rows"][0][-1]
         return _answer_text("{head}：{value}", head=head, value=value if value is not None else _answer_text("无数据"))
-    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
-                        rank="", truncated=_answer_text("（已截断）") if result["truncated"] else "")
+    return _answer_text(
+        "{head}：共 {row_count} 行{rank}{truncated}",
+        head=head,
+        row_count=result["row_count"],
+        rank="",
+        truncated=_answer_text("（已截断）") if result["truncated"] else "",
+    )
 
 
 def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -> str:
     if version.status == "affected":
-        task = session.scalar(select(ReviewTask).where(ReviewTask.object_type == "metric_version",
-                                                       ReviewTask.object_id == version.id,
-                                                       ReviewTask.status == "open"))
-        return (f"指标“{metric.name}”V{version.version_no} 已受影响：{version.status_reason}。"
-                f"在负责人复核前，不会把当前数据当作已确认的“{metric.name}”返回，也不会自动改用其他口径"
-                + (f"（复核任务 {task.id}）" if task else ""))
+        task = session.scalar(
+            select(ReviewTask).where(
+                ReviewTask.object_type == "metric_version",
+                ReviewTask.object_id == version.id,
+                ReviewTask.status == "open",
+            )
+        )
+        return (
+            f"指标“{metric.name}”V{version.version_no} 已受影响：{version.status_reason}。"
+            f"在负责人复核前，不会把当前数据当作已确认的“{metric.name}”返回，也不会自动改用其他口径"
+            + (f"（复核任务 {task.id}）" if task else "")
+        )
     if version.status == "retired":
-        task = session.scalar(select(ReviewTask).where(ReviewTask.object_type == "metric_version",
-                                                       ReviewTask.object_id == version.id,
-                                                       ReviewTask.status == "resolved"))
+        task = session.scalar(
+            select(ReviewTask).where(
+                ReviewTask.object_type == "metric_version",
+                ReviewTask.object_id == version.id,
+                ReviewTask.status == "resolved",
+            )
+        )
         hint = ""
         if task and task.linked_metric_version_id:
             linked = session.get(MetricVersion, task.linked_metric_version_id)
@@ -782,12 +1035,19 @@ def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -
 def _version_evidence(session: Session, metric: Metric, version: MetricVersion) -> dict[str, Any]:
     owner = session.get(User, metric.owner_id)
     reviewer = session.get(User, version.reviewed_by) if version.reviewed_by else None
-    return {"id": version.id, "metric_code": metric.code, "metric_name": metric.name,
-            "version_no": version.version_no, "status": version.status, "description": version.description,
-            "expression": version.expression, "owner": owner.display_name if owner else None,
-            "reviewed_by": reviewer.display_name if reviewer else None,
-            "published_at": _iso(version.published_at),
-            "dependency_fingerprint": version.dependency_fingerprint}
+    return {
+        "id": version.id,
+        "metric_code": metric.code,
+        "metric_name": metric.name,
+        "version_no": version.version_no,
+        "status": version.status,
+        "description": version.description,
+        "expression": version.expression,
+        "owner": owner.display_name if owner else None,
+        "reviewed_by": reviewer.display_name if reviewer else None,
+        "published_at": _iso(version.published_at),
+        "dependency_fingerprint": version.dependency_fingerprint,
+    }
 
 
 def upstream_closure(session: Session, asset_ids: list[str]) -> dict[str, Asset]:
@@ -804,12 +1064,20 @@ def upstream_closure(session: Session, asset_ids: list[str]) -> dict[str, Asset]
         if asset is None:
             continue
         out[asset_id] = asset
-        for (source_id,) in session.execute(select(LineageEdge.source_asset_id).where(
-                LineageEdge.target_asset_id == asset_id, LineageEdge.status == "active",
-                LineageEdge.origin.in_(("parsed", "manual")), LineageEdge.source_asset_id.is_not(None)).distinct()):
+        for (source_id,) in session.execute(
+            select(LineageEdge.source_asset_id)
+            .where(
+                LineageEdge.target_asset_id == asset_id,
+                LineageEdge.status == "active",
+                LineageEdge.origin.in_(("parsed", "manual")),
+                LineageEdge.source_asset_id.is_not(None),
+            )
+            .distinct()
+        ):
             queue.append(source_id)
-        link = session.scalar(select(IdentityLink).where(IdentityLink.source_asset_id == asset_id,
-                                                         IdentityLink.superseded_at.is_(None)))
+        link = session.scalar(
+            select(IdentityLink).where(IdentityLink.source_asset_id == asset_id, IdentityLink.superseded_at.is_(None))
+        )
         if link and link.target_asset_id and link.status in ("confirmed", "candidate"):
             queue.append(link.target_asset_id)
     return out
@@ -820,38 +1088,68 @@ def _asset_evidence(session: Session, asset: Asset) -> dict[str, Any]:
 
     version = session.get(AssetVersion, asset.current_version_id) if asset.current_version_id else None
     ds = session.get(Datasource, asset.datasource_id)
-    return {"asset_id": asset.id, "qualified": f"{asset.catalog_name}.{asset.db_name}.{asset.name}",
-            "kind": asset.kind, "datasource": ds.name, "is_test_adapter": ds.is_test_adapter,
-            "version_id": version.id if version else None, "version_no": version.version_no if version else None,
-            "observed_at": _iso(version.observed_at) if version else None,
-            "last_seen_at": _iso(version.last_seen_at) if version else None}
+    return {
+        "asset_id": asset.id,
+        "qualified": f"{asset.catalog_name}.{asset.db_name}.{asset.name}",
+        "kind": asset.kind,
+        "datasource": ds.name,
+        "is_test_adapter": ds.is_test_adapter,
+        "version_id": version.id if version else None,
+        "version_no": version.version_no if version else None,
+        "observed_at": _iso(version.observed_at) if version else None,
+        "last_seen_at": _iso(version.last_seen_at) if version else None,
+    }
 
 
 def _lineage_evidence(session: Session, version: MetricVersion) -> list[dict[str, Any]]:
     out = []
     for dep in version.dependency or []:
-        edges = session.scalars(select(LineageEdge).where(
-            LineageEdge.target_asset_id == dep["asset_id"], LineageEdge.target_column == dep["column"],
-            LineageEdge.status == "active"))
-        out.append({"column": f"{dep['qualified']}.{dep['column']}", "role": dep["role"],
-                    "fingerprint": dep["fingerprint"],
-                    "sources": [{"source": f"{e.source_ref}.{e.source_column}", "relation": e.relation,
-                                 "expression": e.expression, "origin": e.origin} for e in edges]})
+        edges = session.scalars(
+            select(LineageEdge).where(
+                LineageEdge.target_asset_id == dep["asset_id"],
+                LineageEdge.target_column == dep["column"],
+                LineageEdge.status == "active",
+            )
+        )
+        out.append(
+            {
+                "column": f"{dep['qualified']}.{dep['column']}",
+                "role": dep["role"],
+                "fingerprint": dep["fingerprint"],
+                "sources": [
+                    {
+                        "source": f"{e.source_ref}.{e.source_column}",
+                        "relation": e.relation,
+                        "expression": e.expression,
+                        "origin": e.origin,
+                    }
+                    for e in edges
+                ],
+            }
+        )
     return out
 
 
 def _columns(session: Session, asset: Asset) -> list[str]:
-    return list(session.scalars(select(ColumnVersion.name).where(
-        ColumnVersion.asset_version_id == asset.current_version_id)))
+    return list(
+        session.scalars(select(ColumnVersion.name).where(ColumnVersion.asset_version_id == asset.current_version_id))
+    )
 
 
 def _column_type(session: Session, asset: Asset, column: str) -> str:
-    return (session.scalar(select(ColumnVersion.data_type).where(
-        ColumnVersion.asset_version_id == asset.current_version_id, ColumnVersion.name == column)) or "").lower()
+    return (
+        session.scalar(
+            select(ColumnVersion.data_type).where(
+                ColumnVersion.asset_version_id == asset.current_version_id, ColumnVersion.name == column
+            )
+        )
+        or ""
+    ).lower()
 
 
-def _existing_dimension_values(session: Session, user: User, version: MetricVersion, dimension: str,
-                               values: list[str], settings) -> set[str] | None:
+def _existing_dimension_values(
+    session: Session, user: User, version: MetricVersion, dimension: str, values: list[str], settings
+) -> set[str] | None:
     """精确核验样本之外的取值；守卫或查询失败时返回未知，不据此宣称取值不存在。"""
     requested = list(dict.fromkeys(values))
     if not requested:
@@ -859,23 +1157,31 @@ def _existing_dimension_values(session: Session, user: User, version: MetricVers
     if len(requested) > DIMENSION_VALUES_LIMIT:
         return None
     if version.kind == "derived":
-        if (version.status != "published" or dependency_drift(session, version)
-                or dimension not in {d["name"] for d in version.dimensions or []}):
+        if (
+            version.status != "published"
+            or dependency_drift(session, version)
+            or dimension not in {d["name"] for d in version.dimensions or []}
+        ):
             return None
         checked = []
         for component in version.components or []:
             source = session.get(MetricVersion, component["version_id"])
-            checked.append(_existing_dimension_values(session, user, source, dimension, requested, settings)
-                           if source else None)
+            checked.append(
+                _existing_dimension_values(session, user, source, dimension, requested, settings) if source else None
+            )
         existing = set().union(*(values or set() for values in checked))
-        return existing if checked and (all(values is not None for values in checked)
-                                        or set(requested) <= existing) else None
+        return (
+            existing
+            if checked and (all(values is not None for values in checked) or set(requested) <= existing)
+            else None
+        )
     result = _dimension_values(session, user, version, settings, exact_values={dimension: requested})
     return set(result[dimension]) if dimension in result else None
 
 
-def _dimension_values(session: Session, user: User, version: MetricVersion, settings, *,
-                      exact_values: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
+def _dimension_values(
+    session: Session, user: User, version: MetricVersion, settings, *, exact_values: dict[str, list[str]] | None = None
+) -> dict[str, list[str]]:
     """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。
 
     与正式问数同一套守卫，且在读缓存之前执行：口径已发布且依赖未漂移；维度所在资产的完整来源闭包对当前用户都可见；
@@ -886,8 +1192,9 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
     if version.kind == "derived":  # 派生：取值来自锁定的组成指标（各自按完整来源权限过滤）
         for c in version.components or []:
             component = session.get(MetricVersion, c["version_id"])
-            for name, vals in (_dimension_values(session, user, component, settings, exact_values=exact_values)
-                               if component else {}).items():
+            for name, vals in (
+                _dimension_values(session, user, component, settings, exact_values=exact_values) if component else {}
+            ).items():
                 out.setdefault(name, vals)
         shared = {d["name"] for d in version.dimensions or []}
         return {k: v for k, v in out.items() if k in shared}
@@ -926,24 +1233,44 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
         dialect = dialect_of(ds)
         sql = distinct_values_sql(qualified, column, limit=DIMENSION_VALUES_LIMIT, dialect=dialect)
         if exact_values is not None:
-            literals = [exp.National(this=v) if dialect.national_strings else exp.Literal.string(v)
-                        for v in exact_values[dim["name"]]]
-            matches = [exp.Max(this=exp.Case().when(
-                exp.In(this=exp.column(column, table="t"), expressions=[value.copy()]), exp.Literal.number(1))
-                .else_(exp.Literal.number(0))) for value in literals]
-            sql = (sqlglot.parse_one(sql, read=dialect.name)
-                   .select(*matches, append=False).distinct(distinct=False)
-                   .where(exp.In(this=exp.column(column, table="t"), expressions=literals))
-                   .sql(dialect=dialect.name, identify=True))
+            literals = [
+                exp.National(this=v) if dialect.national_strings else exp.Literal.string(v)
+                for v in exact_values[dim["name"]]
+            ]
+            matches = [
+                exp.Max(
+                    this=exp.Case()
+                    .when(exp.In(this=exp.column(column, table="t"), expressions=[value.copy()]), exp.Literal.number(1))
+                    .else_(exp.Literal.number(0))
+                )
+                for value in literals
+            ]
+            sql = (
+                sqlglot.parse_one(sql, read=dialect.name)
+                .select(*matches, append=False)
+                .distinct(distinct=False)
+                .where(exp.In(this=exp.column(column, table="t"), expressions=literals))
+                .sql(dialect=dialect.name, identify=True)
+            )
         try:
-            validate_sql(sql, dialect=dialect, allowed_tables={qualified}, schema={qualified: {column}},
-                         max_rows=DIMENSION_VALUES_LIMIT)
+            validate_sql(
+                sql,
+                dialect=dialect,
+                allowed_tables={qualified},
+                schema={qualified: {column}},
+                max_rows=DIMENSION_VALUES_LIMIT,
+            )
             connector = query_connector(session, ds)
             dep = [{"asset_id": asset.id, "column": column}]
             if _live_check(session, ds, connector, closure.values(), dep, settings):
                 continue  # 库侧已变、尚未采集：不读取（已排队采集）
-            result = connector.execute_select(sql, timeout_seconds=10, mem_limit_bytes=512 * 1024**2,
-                                              max_rows=DIMENSION_VALUES_LIMIT, timezone=timezone)
+            result = connector.execute_select(
+                sql,
+                timeout_seconds=10,
+                mem_limit_bytes=512 * 1024**2,
+                max_rows=DIMENSION_VALUES_LIMIT,
+                timezone=timezone,
+            )
         except (QueryError, ValidationFailed):
             continue
         if exact_values is not None and result.truncated:
@@ -952,8 +1279,11 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
             requested = exact_values[dim["name"]]
             if result.rows and (len(result.rows) != 1 or len(result.rows[0]) != len(requested)):
                 continue
-            flags = [_decimal(value) if value is not None else Decimal(0)
-                     for value in result.rows[0]] if result.rows else [Decimal(0)] * len(requested)
+            flags = (
+                [_decimal(value) if value is not None else Decimal(0) for value in result.rows[0]]
+                if result.rows
+                else [Decimal(0)] * len(requested)
+            )
             if any(flag not in (Decimal(0), Decimal(1)) for flag in flags):
                 continue
             values = [value for value, flag in zip(requested, flags) if flag == 1]
@@ -969,5 +1299,10 @@ def _dimension_values(session: Session, user: User, version: MetricVersion, sett
 
 
 def impacts_for(session: Session, object_type: str, object_id: str) -> list[Impact]:
-    return list(session.scalars(select(Impact).where(Impact.object_type == object_type, Impact.object_id == object_id)
-                                .order_by(Impact.created_at.desc())))
+    return list(
+        session.scalars(
+            select(Impact)
+            .where(Impact.object_type == object_type, Impact.object_id == object_id)
+            .order_by(Impact.created_at.desc())
+        )
+    )

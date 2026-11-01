@@ -45,6 +45,7 @@ router = APIRouter(prefix="/api", tags=["目录与血缘"])
 
 # --- 业务域 -----------------------------------------------------------------------
 
+
 class DomainCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1, max_length=128)
@@ -72,12 +73,22 @@ def _grain_view(grain) -> dict:
 
 
 def domain_view(session: Session, d: Domain) -> dict:
-    members = session.execute(select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
-                              .join(User, User.id == DomainMember.user_id).where(DomainMember.domain_id == d.id))
-    return {"id": d.id, "code": d.code, "name": d.name, "description": d.description, "owner_id": d.owner_id,
-            "members": [{"user_id": u, "role": r, "username": n, "display_name": dn} for u, r, n, dn in members],
-            "example_questions": [q if isinstance(q, dict) else {"text": str(q), "mode": "both"}
-                                  for q in d.example_questions or []]}
+    members = session.execute(
+        select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
+        .join(User, User.id == DomainMember.user_id)
+        .where(DomainMember.domain_id == d.id)
+    )
+    return {
+        "id": d.id,
+        "code": d.code,
+        "name": d.name,
+        "description": d.description,
+        "owner_id": d.owner_id,
+        "members": [{"user_id": u, "role": r, "username": n, "display_name": dn} for u, r, n, dn in members],
+        "example_questions": [
+            q if isinstance(q, dict) else {"text": str(q), "mode": "both"} for q in d.example_questions or []
+        ],
+    }
 
 
 @router.get("/domains", response_model=list[S.DomainOut])
@@ -102,14 +113,16 @@ def create_domain(body: DomainCreate, user: User = Depends(current_user), sessio
 
 
 @router.put("/domains/{domain_id}/members", response_model=S.DomainOut)
-def set_member(domain_id: str, body: MemberSet, user: User = Depends(current_user),
-               session: Session = Depends(get_session)) -> dict:
+def set_member(
+    domain_id: str, body: MemberSet, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     d = session.get(Domain, domain_id) or _404("业务域不存在")
     access.require_domain_owner(session, user, domain_id)
     if session.get(User, body.user_id) is None:
         raise HTTPException(422, "用户不存在")
-    row = session.scalar(select(DomainMember).where(DomainMember.domain_id == domain_id,
-                                                    DomainMember.user_id == body.user_id))
+    row = session.scalar(
+        select(DomainMember).where(DomainMember.domain_id == domain_id, DomainMember.user_id == body.user_id)
+    )
     if row is None:
         session.add(DomainMember(domain_id=domain_id, user_id=body.user_id, role=body.role))
     else:
@@ -120,8 +133,12 @@ def set_member(domain_id: str, body: MemberSet, user: User = Depends(current_use
 
 
 @router.put("/domains/{domain_id}/example-questions", response_model=S.DomainOut)
-def set_example_questions(domain_id: str, body: ExampleQuestionsSet, user: User = Depends(current_user),
-                          session: Session = Depends(get_session)) -> dict:
+def set_example_questions(
+    domain_id: str,
+    body: ExampleQuestionsSet,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     """业务域的示例问题（ADR 0010）：由负责人、维护者维护，问数页与分析页从 /example-questions 读取。"""
     d = session.get(Domain, domain_id) or _404("业务域不存在")
     access.require_domain_maintainer(session, user, domain_id)
@@ -132,8 +149,11 @@ def set_example_questions(domain_id: str, body: ExampleQuestionsSet, user: User 
 
 
 @router.get("/example-questions", response_model=S.ExampleQuestionsOut)
-def get_example_questions(mode: str = Query("ask", pattern=r"^(ask|analysis)$"), user: User = Depends(current_user),
-                          session: Session = Depends(get_session)) -> dict:
+def get_example_questions(
+    mode: str = Query("ask", pattern=r"^(ask|analysis)$"),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     """当前用户可见业务域配置的示例问题；都没有配置时按模板从可见口径生成（ADR 0010 第 3 点）。"""
     from avelis.ask.examples import example_questions
 
@@ -142,23 +162,36 @@ def get_example_questions(mode: str = Query("ask", pattern=r"^(ask|analysis)$"),
 
 # --- 资产 -------------------------------------------------------------------------
 
+
 def qualified(a: Asset) -> str:
     return f"{a.catalog_name}.{a.db_name}.{a.name}"
 
 
 def asset_summary(session: Session, a: Asset) -> dict:
     ds = session.get(Datasource, a.datasource_id)
-    return {"id": a.id, "qualified": qualified(a), "kind": a.kind, "status": a.status, "domain_id": a.domain_id,
-            "datasource": {"id": ds.id, "name": ds.name, "kind": ds.kind, "is_test_adapter": ds.is_test_adapter},
-            "physical_id": a.physical_id, "current_version_id": a.current_version_id,
-            "last_seen_at": a.last_seen_at.isoformat(),
-            "deleted_at": a.deleted_at.isoformat() if a.deleted_at else None}
+    return {
+        "id": a.id,
+        "qualified": qualified(a),
+        "kind": a.kind,
+        "status": a.status,
+        "domain_id": a.domain_id,
+        "datasource": {"id": ds.id, "name": ds.name, "kind": ds.kind, "is_test_adapter": ds.is_test_adapter},
+        "physical_id": a.physical_id,
+        "current_version_id": a.current_version_id,
+        "last_seen_at": a.last_seen_at.isoformat(),
+        "deleted_at": a.deleted_at.isoformat() if a.deleted_at else None,
+    }
 
 
 @router.get("/assets", response_model=list[S.AssetOut])
-def list_assets(datasource_id: str | None = None, domain_id: str | None = None, q: str | None = None,
-                include_deleted: bool = False, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> list[dict]:
+def list_assets(
+    datasource_id: str | None = None,
+    domain_id: str | None = None,
+    q: str | None = None,
+    include_deleted: bool = False,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
     stmt = select(Asset)
     if datasource_id:
         stmt = stmt.where(Asset.datasource_id == datasource_id)
@@ -194,40 +227,84 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
 
     can_see = visible_to(session, user)
     if version:
-        for c in session.scalars(select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id)
-                                 .order_by(ColumnVersion.ordinal)):
+        for c in session.scalars(
+            select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id).order_by(ColumnVersion.ordinal)
+        ):
             fp = fps.get((a.id, c.name))
-            confirmations = session.scalars(select(Confirmation).where(
-                Confirmation.asset_id == a.id, Confirmation.column_name == c.name, Confirmation.revoked_at.is_(None)))
-            columns.append({
-                "name": c.name, "data_type": c.data_type, "nullable": c.nullable, "comment": c.comment,
-                "is_key": c.is_key, "column_id": c.column_id, "doc": column_doc(session, a, c.name, can_see=can_see),
-                "fingerprint": fp.fingerprint if fp else None, "fingerprint_status": fp.status if fp else None,
-                "fingerprint_reason": fp.reason if fp else None,
-                "confirmations": [{"id": x.id, "meaning": x.meaning, "confirmed_by": x.confirmed_by,
-                                   "created_at": x.created_at.isoformat(),
-                                   "valid": fp is not None and x.fingerprint == fp.fingerprint,
-                                   "note": None if fp is not None and x.fingerprint == fp.fingerprint
-                                   else "字段推导已变化，此确认不再生效"} for x in confirmations]})
-    definition = session.scalar(select(Definition).where(Definition.asset_version_id == a.current_version_id)) \
-        if version else None
-    parse = session.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id,
-                                                     ParseResult.parser_version == PARSER_VERSION)) \
-        if definition else None
-    link = session.scalar(select(IdentityLink).where(IdentityLink.source_asset_id == a.id,
-                                                     IdentityLink.superseded_at.is_(None)))
-    linked_from = session.scalars(select(IdentityLink).where(IdentityLink.target_asset_id == a.id,
-                                                             IdentityLink.superseded_at.is_(None)))
-    versions = session.scalars(select(AssetVersion).where(AssetVersion.asset_id == a.id)
-                               .order_by(AssetVersion.version_no.desc()))
+            confirmations = session.scalars(
+                select(Confirmation).where(
+                    Confirmation.asset_id == a.id, Confirmation.column_name == c.name, Confirmation.revoked_at.is_(None)
+                )
+            )
+            columns.append(
+                {
+                    "name": c.name,
+                    "data_type": c.data_type,
+                    "nullable": c.nullable,
+                    "comment": c.comment,
+                    "is_key": c.is_key,
+                    "column_id": c.column_id,
+                    "doc": column_doc(session, a, c.name, can_see=can_see),
+                    "fingerprint": fp.fingerprint if fp else None,
+                    "fingerprint_status": fp.status if fp else None,
+                    "fingerprint_reason": fp.reason if fp else None,
+                    "confirmations": [
+                        {
+                            "id": x.id,
+                            "meaning": x.meaning,
+                            "confirmed_by": x.confirmed_by,
+                            "created_at": x.created_at.isoformat(),
+                            "valid": fp is not None and x.fingerprint == fp.fingerprint,
+                            "note": None
+                            if fp is not None and x.fingerprint == fp.fingerprint
+                            else "字段推导已变化，此确认不再生效",
+                        }
+                        for x in confirmations
+                    ],
+                }
+            )
+    definition = (
+        session.scalar(select(Definition).where(Definition.asset_version_id == a.current_version_id))
+        if version
+        else None
+    )
+    parse = (
+        session.scalar(
+            select(ParseResult).where(
+                ParseResult.definition_id == definition.id, ParseResult.parser_version == PARSER_VERSION
+            )
+        )
+        if definition
+        else None
+    )
+    link = session.scalar(
+        select(IdentityLink).where(IdentityLink.source_asset_id == a.id, IdentityLink.superseded_at.is_(None))
+    )
+    linked_from = session.scalars(
+        select(IdentityLink).where(IdentityLink.target_asset_id == a.id, IdentityLink.superseded_at.is_(None))
+    )
+    versions = session.scalars(
+        select(AssetVersion).where(AssetVersion.asset_id == a.id).order_by(AssetVersion.version_no.desc())
+    )
     return {
         **asset_summary(session, a),
         "version": _version_view(version) if version else None,
         "columns": columns,
-        "definition": {"raw_sql": definition.raw_sql, "canonical_sql": definition.canonical_sql,
-                       "canonical_hash": definition.canonical_hash} if definition else None,
-        "parse": {"status": parse.status, "reason": parse.reason, "parser_version": parse.parser_version,
-                  "details": parse.details} if parse else None,
+        "definition": {
+            "raw_sql": definition.raw_sql,
+            "canonical_sql": definition.canonical_sql,
+            "canonical_hash": definition.canonical_hash,
+        }
+        if definition
+        else None,
+        "parse": {
+            "status": parse.status,
+            "reason": parse.reason,
+            "parser_version": parse.parser_version,
+            "details": parse.details,
+        }
+        if parse
+        else None,
         "grains": [_grain_view(g) for g in effective_grains(session, a.id, current_fingerprint_map(session))],
         "identity_link": _link_view(session, link) if link else None,
         "linked_from": [_link_view(session, x) for x in linked_from],
@@ -236,22 +313,40 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
 
 
 def _version_view(v: AssetVersion) -> dict:
-    return {"id": v.id, "version_no": v.version_no, "observed_at": v.observed_at.isoformat(),
-            "last_seen_at": v.last_seen_at.isoformat(),
-            "superseded_at": v.superseded_at.isoformat() if v.superseded_at else None,
-            "name": f"{v.catalog_name}.{v.db_name}.{v.name}", "kind": v.kind, "table_model": v.table_model,
-            "key_columns": v.key_columns, "unique_keys": v.unique_keys, "comment": v.comment,
-            "properties": v.properties, "content_hash": v.content_hash}
+    return {
+        "id": v.id,
+        "version_no": v.version_no,
+        "observed_at": v.observed_at.isoformat(),
+        "last_seen_at": v.last_seen_at.isoformat(),
+        "superseded_at": v.superseded_at.isoformat() if v.superseded_at else None,
+        "name": f"{v.catalog_name}.{v.db_name}.{v.name}",
+        "kind": v.kind,
+        "table_model": v.table_model,
+        "key_columns": v.key_columns,
+        "unique_keys": v.unique_keys,
+        "comment": v.comment,
+        "properties": v.properties,
+        "content_hash": v.content_hash,
+    }
 
 
 def _link_view(session: Session, link: IdentityLink) -> dict:
-    source, target = session.get(Asset, link.source_asset_id), session.get(Asset, link.target_asset_id) \
-        if link.target_asset_id else None
-    return {"id": link.id, "status": link.status, "method": link.method, "evidence": link.evidence,
-            "column_match": link.column_match, "source": qualified(source),
-            "target": {"id": target.id, "qualified": qualified(target),
-                       "datasource_id": target.datasource_id} if target else None,
-            "created_at": link.created_at.isoformat()}
+    source, target = (
+        session.get(Asset, link.source_asset_id),
+        session.get(Asset, link.target_asset_id) if link.target_asset_id else None,
+    )
+    return {
+        "id": link.id,
+        "status": link.status,
+        "method": link.method,
+        "evidence": link.evidence,
+        "column_match": link.column_match,
+        "source": qualified(source),
+        "target": {"id": target.id, "qualified": qualified(target), "datasource_id": target.datasource_id}
+        if target
+        else None,
+        "created_at": link.created_at.isoformat(),
+    }
 
 
 class AssetPatch(BaseModel):
@@ -259,8 +354,9 @@ class AssetPatch(BaseModel):
 
 
 @router.patch("/assets/{asset_id}", response_model=S.AssetOut)
-def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict:
+def patch_asset(
+    asset_id: str, body: AssetPatch, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "steward")
     a = session.get(Asset, asset_id) or _404("资产不存在")
     if body.domain_id:
@@ -279,37 +375,47 @@ def patch_asset(asset_id: str, body: AssetPatch, user: User = Depends(current_us
 
 # --- 粒度 -------------------------------------------------------------------------
 
+
 class GrainDeclare(BaseModel):
     columns: list[str] = Field(min_length=1)
     reason: str = Field(min_length=1)
 
 
 @router.post("/assets/{asset_id}/grains", status_code=201)
-def declare_grain(asset_id: str, body: GrainDeclare, user: User = Depends(current_user),
-                  session: Session = Depends(get_session)) -> dict:
+def declare_grain(
+    asset_id: str, body: GrainDeclare, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     a = readable_asset(session, user, asset_id)
     access.require_role(session, user, "steward")
     if a.domain_id:
         access.require_domain_maintainer(session, user, a.domain_id)
-    names = set(session.scalars(select(ColumnVersion.name).where(
-        ColumnVersion.asset_version_id == a.current_version_id)))
+    names = set(
+        session.scalars(select(ColumnVersion.name).where(ColumnVersion.asset_version_id == a.current_version_id))
+    )
     missing = set(body.columns) - names
     if missing:
         raise HTTPException(422, Msg("列不存在：{columns}", columns=", ".join(sorted(missing))))
     fps = current_fingerprint_map(session)
-    g = Grain(asset_id=a.id, asset_version_id=a.current_version_id, columns=body.columns, origin="declared",
-              status="unverified", column_fingerprints={c: fps.get((a.id, c)) for c in body.columns},
-              declared_by=user.id, reason=body.reason)
+    g = Grain(
+        asset_id=a.id,
+        asset_version_id=a.current_version_id,
+        columns=body.columns,
+        origin="declared",
+        status="unverified",
+        column_fingerprints={c: fps.get((a.id, c)) for c in body.columns},
+        declared_by=user.id,
+        reason=body.reason,
+    )
     session.add(g)
     session.flush()
-    audit.record(session, user, "grain.declare", "asset", a.id, grain_id=g.id, columns=body.columns,
-                 reason=body.reason)
+    audit.record(session, user, "grain.declare", "asset", a.id, grain_id=g.id, columns=body.columns, reason=body.reason)
     return {"id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status}
 
 
 @router.get("/metadata/comment-gaps", response_model=S.CommentGapsOut)
-def comment_gaps(datasource_id: str | None = None, user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> dict:
+def comment_gaps(
+    datasource_id: str | None = None, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """注释缺失清单：字段含义以数据库列注释为准。按数据源汇总完整度，列出缺注释的列（含可沿用的上游注释），
     交给数据库负责人补齐。只包含当前用户可见的资产。"""
     from avelis.governance.column_docs import GAPS, asset_docs, summarize
@@ -325,12 +431,21 @@ def comment_gaps(datasource_id: str | None = None, user: User = Depends(current_
             continue
         docs = asset_docs(session, asset, can_see=lambda a: access.can_read_asset(session, user, a, allowed))
         by_ds.setdefault(asset.datasource_id, []).extend(docs)
-        items += [{**d, "kind": asset.kind, "datasource_id": asset.datasource_id,
-                   "suggestion": d["comment"] if d["status"] == "inherited" else None}
-                  for d in docs if d["status"] in GAPS]
+        items += [
+            {
+                **d,
+                "kind": asset.kind,
+                "datasource_id": asset.datasource_id,
+                "suggestion": d["comment"] if d["status"] == "inherited" else None,
+            }
+            for d in docs
+            if d["status"] in GAPS
+        ]
     names = {ds.id: ds.name for ds in session.scalars(select(Datasource))}
-    return {"datasources": [{"datasource_id": k, "name": names.get(k), **summarize(v)} for k, v in by_ds.items()],
-            "items": items}
+    return {
+        "datasources": [{"datasource_id": k, "name": names.get(k), **summarize(v)} for k, v in by_ds.items()],
+        "items": items,
+    }
 
 
 @router.post("/grains/{grain_id}/verify", response_model=S.GrainOut)
@@ -346,23 +461,39 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     closure = upstream_closure(session, [a.id])
     hidden = [x for x in closure.values() if not access.can_read_asset(session, user, x, allowed)]
     if hidden:
-        raise HTTPException(403, Msg("没有权限读取该对象背后的来源：{sources}", sources="、".join(
-            sorted(f"{x.catalog_name}.{x.db_name}.{x.name}" for x in hidden))))
+        raise HTTPException(
+            403,
+            Msg(
+                "没有权限读取该对象背后的来源：{sources}",
+                sources="、".join(sorted(f"{x.catalog_name}.{x.db_name}.{x.name}" for x in hidden)),
+            ),
+        )
     ds = session.get(Datasource, a.datasource_id)
     try:
-        stale = _live_check(session, ds, query_connector(session, ds), closure.values(),
-                            [{"asset_id": a.id, "column": c} for c in g.columns], get_settings())
+        stale = _live_check(
+            session,
+            ds,
+            query_connector(session, ds),
+            closure.values(),
+            [{"asset_id": a.id, "column": c} for c in g.columns],
+            get_settings(),
+        )
     except CapabilityMissing:
         stale = []
     if stale:
-        raise HTTPException(409, Msg("来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}",
-                                     changes="；".join(x["summary"] for x in stale)))
-    sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns),
-                            dialect=dialect_of(ds))
+        raise HTTPException(
+            409,
+            Msg(
+                "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}",
+                changes="；".join(x["summary"] for x in stale),
+            ),
+        )
+    sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns), dialect=dialect_of(ds))
     detail: dict[str, Any] = {"sql": sql}
     try:
-        result = query_connector(session, ds).execute_select(sql, timeout_seconds=30, mem_limit_bytes=1024**3,
-                                                             max_rows=1)
+        result = query_connector(session, ds).execute_select(
+            sql, timeout_seconds=30, mem_limit_bytes=1024**3, max_rows=1
+        )
         if result.rows:
             g.status = "violated"
             detail["duplicate_example"] = [str(v) for v in result.rows[0]]
@@ -377,12 +508,20 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     g.verified_at = utcnow()
     g.verify_detail = detail
     audit.record(session, user, "grain.verify", "asset", a.id, grain_id=g.id, status=g.status)
-    return {"id": g.id, "grain_id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status,
-            "verify_detail": {**detail, "error": translate(exc_message)} if (
-                exc_message := detail.get("error")) is not None else detail}
+    return {
+        "id": g.id,
+        "grain_id": g.id,
+        "columns": g.columns,
+        "origin": g.origin,
+        "status": g.status,
+        "verify_detail": {**detail, "error": translate(exc_message)}
+        if (exc_message := detail.get("error")) is not None
+        else detail,
+    }
 
 
 # --- 人工确认 ---------------------------------------------------------------------
+
 
 class ConfirmBody(BaseModel):
     meaning: str = Field(min_length=1)
@@ -390,8 +529,13 @@ class ConfirmBody(BaseModel):
 
 
 @router.post("/assets/{asset_id}/columns/{column}/confirmations", status_code=201)
-def confirm_column(asset_id: str, column: str, body: ConfirmBody, user: User = Depends(current_user),
-                   session: Session = Depends(get_session)) -> dict:
+def confirm_column(
+    asset_id: str,
+    column: str,
+    body: ConfirmBody,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     a = readable_asset(session, user, asset_id)
     if a.domain_id:
         access.require_domain_maintainer(session, user, a.domain_id)
@@ -400,8 +544,14 @@ def confirm_column(asset_id: str, column: str, body: ConfirmBody, user: User = D
     fp = current_fingerprints(session).get((a.id, column))
     if fp is None:
         raise HTTPException(404, "字段不存在或尚未计算推导指纹")
-    c = Confirmation(asset_id=a.id, column_name=column, fingerprint=fp.fingerprint, meaning=body.meaning,
-                     reason=body.reason, confirmed_by=user.id)
+    c = Confirmation(
+        asset_id=a.id,
+        column_name=column,
+        fingerprint=fp.fingerprint,
+        meaning=body.meaning,
+        reason=body.reason,
+        confirmed_by=user.id,
+    )
     session.add(c)
     session.flush()
     audit.record(session, user, "column.confirm", "asset", a.id, column=column, fingerprint=fp.fingerprint)
@@ -410,14 +560,21 @@ def confirm_column(asset_id: str, column: str, body: ConfirmBody, user: User = D
 
 # --- 血缘 -------------------------------------------------------------------------
 
+
 @router.get("/lineage/graph", response_model=S.GraphOut)
-def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔；多个域会串联显示"),
-                  asset_id: str | None = None, user: User = Depends(current_user),
-                  session: Session = Depends(get_session)) -> dict:
+def lineage_graph(
+    domain_ids: str | None = Query(None, description="逗号分隔；多个域会串联显示"),
+    asset_id: str | None = None,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     """资产级节点、列级边、外部表身份映射与关联路径。只返回用户可见的资产。"""
     allowed = access.domain_ids(session, user)
-    assets = {a.id: a for a in session.scalars(select(Asset).where(Asset.status == "active"))
-              if access.can_read_asset(session, user, a, allowed)}
+    assets = {
+        a.id: a
+        for a in session.scalars(select(Asset).where(Asset.status == "active"))
+        if access.can_read_asset(session, user, a, allowed)
+    }
     if domain_ids:
         wanted = set(domain_ids.split(","))
         seeds = {i for i, a in assets.items() if a.domain_id in wanted}
@@ -425,6 +582,7 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         seeds = {asset_id} if asset_id in assets else set()
     else:
         seeds = set(assets)
+
     # 端点：已采集资产用资产 ID；导入的设计时血缘中未采集的表用 "ref:库表"
     def endpoint(asset_id: str | None, ref: str | None) -> str | None:
         if asset_id:
@@ -436,8 +594,11 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         src, dst = endpoint(e.source_asset_id, e.source_ref), endpoint(e.target_asset_id, e.target_ref)
         if src and dst:
             edges.append((src, dst, e))
-    links = [x for x in session.scalars(select(IdentityLink).where(IdentityLink.superseded_at.is_(None)))
-             if x.source_asset_id in assets and (x.target_asset_id is None or x.target_asset_id in assets)]
+    links = [
+        x
+        for x in session.scalars(select(IdentityLink).where(IdentityLink.superseded_at.is_(None)))
+        if x.source_asset_id in assets and (x.target_asset_id is None or x.target_asset_id in assets)
+    ]
     # 从种子出发向上下游扩展（含身份映射），多个域时自然串联
     neighbours: dict[str, set[str]] = {}
     for src, dst, _ in edges:
@@ -458,33 +619,75 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
     nodes = []
     for i in included:
         if i.startswith("ref:"):
-            nodes.append({"id": i, "qualified": i[4:], "kind": "design_time", "status": "not_collected",
-                          "grains": [], "in_scope": False,
-                          "note": gettext("导入代码中出现、尚未在数据源中采集到的表（设计时血缘）")})
+            nodes.append(
+                {
+                    "id": i,
+                    "qualified": i[4:],
+                    "kind": "design_time",
+                    "status": "not_collected",
+                    "grains": [],
+                    "in_scope": False,
+                    "note": gettext("导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"),
+                }
+            )
         else:
-            nodes.append({**asset_summary(session, assets[i]),
-                          "grains": [_grain_view(g) for g in effective_grains(session, i, fpmap)],
-                          "in_scope": i in seeds})
+            nodes.append(
+                {
+                    **asset_summary(session, assets[i]),
+                    "grains": [_grain_view(g) for g in effective_grains(session, i, fpmap)],
+                    "in_scope": i in seeds,
+                }
+            )
     grouped: dict[tuple, dict] = {}
     for src, dst, e in edges:
         if dst not in included:
             continue
-        g = grouped.setdefault((src, dst), {"source": src, "source_ref": e.source_ref, "target": dst,
-                                            "columns": [], "relations": set(), "origins": set()})
-        g["columns"].append({"source_column": e.source_column, "target_column": e.target_column,
-                             "relation": e.relation, "expression": e.expression, "origin": e.origin,
-                             "attributes": e.attributes})
+        g = grouped.setdefault(
+            (src, dst),
+            {
+                "source": src,
+                "source_ref": e.source_ref,
+                "target": dst,
+                "columns": [],
+                "relations": set(),
+                "origins": set(),
+            },
+        )
+        g["columns"].append(
+            {
+                "source_column": e.source_column,
+                "target_column": e.target_column,
+                "relation": e.relation,
+                "expression": e.expression,
+                "origin": e.origin,
+                "attributes": e.attributes,
+            }
+        )
         g["relations"].add(e.relation)
         g["origins"].add(e.origin)
     edge_list = [{**g, "relations": sorted(g["relations"]), "origins": sorted(g["origins"])} for g in grouped.values()]
-    joins = [{"id": j.id, "code": j.code, "left_asset_id": j.left_asset_id, "left_columns": j.left_columns,
-              "right_asset_id": j.right_asset_id, "right_columns": j.right_columns,
-              "cardinality": j.cardinality, "status": j.status}
-             for j in session.scalars(select(JoinPath).where(JoinPath.status.in_(["approved", "pending"]))
-                                      .order_by(JoinPath.code))
-             if j.left_asset_id in included and j.right_asset_id in included]
-    return {"nodes": nodes, "edges": edge_list,
-            "identity_links": [_link_view(session, x) for x in links if x.source_asset_id in included], "joins": joins}
+    joins = [
+        {
+            "id": j.id,
+            "code": j.code,
+            "left_asset_id": j.left_asset_id,
+            "left_columns": j.left_columns,
+            "right_asset_id": j.right_asset_id,
+            "right_columns": j.right_columns,
+            "cardinality": j.cardinality,
+            "status": j.status,
+        }
+        for j in session.scalars(
+            select(JoinPath).where(JoinPath.status.in_(["approved", "pending"])).order_by(JoinPath.code)
+        )
+        if j.left_asset_id in included and j.right_asset_id in included
+    ]
+    return {
+        "nodes": nodes,
+        "edges": edge_list,
+        "identity_links": [_link_view(session, x) for x in links if x.source_asset_id in included],
+        "joins": joins,
+    }
 
 
 def _404(message: str):

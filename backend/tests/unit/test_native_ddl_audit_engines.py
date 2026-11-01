@@ -8,10 +8,13 @@ from avelis.engines.base import DDL_AUDIT
 from avelis.i18n import locale_context
 
 
-@pytest.mark.parametrize("kind,source", [
-    ("sqlserver", "default_trace"),
-    ("oracle", "UNIFIED_AUDIT_TRAIL"),
-])
+@pytest.mark.parametrize(
+    "kind,source",
+    [
+        ("sqlserver", "default_trace"),
+        ("oracle", "UNIFIED_AUDIT_TRAIL"),
+    ],
+)
 def test_native_audit_requires_no_table_binding(kind, source):
     engine = get_engine(kind)
     assert engine.supports(DDL_AUDIT)
@@ -20,10 +23,13 @@ def test_native_audit_requires_no_table_binding(kind, source):
     assert "ddl_audit_table" not in {option.key for option in engine.options}
 
 
-@pytest.mark.parametrize("kind,requirements", [
-    ("sqlserver", ("ALTER TRACE", "VIEW SERVER STATE", "StartTime", "UTC")),
-    ("oracle", ("AUDIT_VIEWER", "RETURN_CODE", "EVENT_TIMESTAMP_UTC", "EVENT_TIMESTAMP")),
-])
+@pytest.mark.parametrize(
+    "kind,requirements",
+    [
+        ("sqlserver", ("ALTER TRACE", "VIEW SERVER STATE", "StartTime", "UTC")),
+        ("oracle", ("AUDIT_VIEWER", "RETURN_CODE", "EVENT_TIMESTAMP_UTC", "EVENT_TIMESTAMP")),
+    ],
+)
 @pytest.mark.parametrize("locale", ["zh-CN", "zh-TW", "en"])
 def test_native_audit_requirements_are_translated(kind, requirements, locale):
     engine = get_engine(kind)

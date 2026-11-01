@@ -6,11 +6,20 @@ import pytest
 
 from avelis.analysis.verify import ground_report
 
-DATA = {"D5": {"kind": "governed", "columns": ["value"], "rows": [{"value": "1412"}],
-               "units": {"value": {"kind": "level", "unit": "单"}}}}
-REPORT = {"title": ["分析结果"], "summary": ["数值为 ", {"dataset": "D5", "column": "value"}],
-          "conclusion": "insufficient_evidence",
-          "claims": [{"type": "fact", "parts": [{"dataset": "D5", "column": "value"}]}]}
+DATA = {
+    "D5": {
+        "kind": "governed",
+        "columns": ["value"],
+        "rows": [{"value": "1412"}],
+        "units": {"value": {"kind": "level", "unit": "单"}},
+    }
+}
+REPORT = {
+    "title": ["分析结果"],
+    "summary": ["数值为 ", {"dataset": "D5", "column": "value"}],
+    "conclusion": "insufficient_evidence",
+    "claims": [{"type": "fact", "parts": [{"dataset": "D5", "column": "value"}]}],
+}
 
 
 @pytest.mark.parametrize("identifier", ["V1", "P12", "D5", "D99", "v1", "AD9", "(V1)", "V1/P12"])
@@ -21,8 +30,25 @@ def test_ascii_identifiers_are_not_bare_numbers(identifier):
     assert verification["status"] == "all_passed" and verification["ok"]
 
 
-@pytest.mark.parametrize("text", ["9 月", "下降 9 单", "3 家", "V1 下降 9 单", "1e3", "1e+3",
-                                 "1e-3", "1V1", "V1x", "V1.5", "V1,899", "V１", "V1２", "V 1"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "9 月",
+        "下降 9 单",
+        "3 家",
+        "V1 下降 9 单",
+        "1e3",
+        "1e+3",
+        "1e-3",
+        "1V1",
+        "V1x",
+        "V1.5",
+        "V1,899",
+        "V１",
+        "V1２",
+        "V 1",
+    ],
+)
 def test_identifiers_do_not_hide_quantities_or_parts_of_numbers(text):
     rendered, verification = ground_report({**REPORT, "summary": [text]}, DATA, None)
     assert rendered["fields"]["summary"]["status"] == "unverified"
@@ -32,18 +58,24 @@ def test_identifiers_do_not_hide_quantities_or_parts_of_numbers(text):
 
 @pytest.mark.parametrize("reference", [{"dataset": "D99", "column": "value"}, "explicit"])
 def test_identifier_exception_does_not_allow_missing_dataset_references(reference):
-    claim = ({"type": "fact", "parts": ["见 D99"], "refs": ["D99"]} if reference == "explicit"
-             else {"type": "fact", "parts": [reference]})
+    claim = (
+        {"type": "fact", "parts": ["见 D99"], "refs": ["D99"]}
+        if reference == "explicit"
+        else {"type": "fact", "parts": [reference]}
+    )
     _, verification = ground_report({**REPORT, "claims": [claim]}, DATA, None)
     assert verification["status"] == "failed" and not verification["ok"]
     assert verification["claims"][0]["status"] == "unverified"
 
 
-@pytest.mark.parametrize("claims, status", [
-    (REPORT["claims"], "all_passed"),
-    ([*REPORT["claims"], {"type": "inference", "parts": ["可能另有原因"]}], "with_inference"),
-    ([], "no_facts"),
-])
+@pytest.mark.parametrize(
+    "claims, status",
+    [
+        (REPORT["claims"], "all_passed"),
+        ([*REPORT["claims"], {"type": "inference", "parts": ["可能另有原因"]}], "with_inference"),
+        ([], "no_facts"),
+    ],
+)
 def test_method_problems_are_visible_without_failing_overall_verification(claims, status):
     method = ["核对 V1、P12 与 D5，检查 9 月"]
     rendered, verification = ground_report({**REPORT, "method": method, "claims": claims}, DATA, None)

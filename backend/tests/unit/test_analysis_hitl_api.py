@@ -35,10 +35,13 @@ def api(monkeypatch):
         params = statement.compile().params
         if statement.column_descriptions[0].get("name") != "count":
             return None
-        return sum(isinstance(obj, AnalysisRun) and obj.parent_run_id is not None
-                   and obj.conversation_id == params["conversation_id_1"]
-                   and (obj.created_at, obj.id) <= (params["created_at_1"], params["id_1"])
-                   for obj in session.store.values())
+        return sum(
+            isinstance(obj, AnalysisRun)
+            and obj.parent_run_id is not None
+            and obj.conversation_id == params["conversation_id_1"]
+            and (obj.created_at, obj.id) <= (params["created_at_1"], params["id_1"])
+            for obj in session.store.values()
+        )
 
     session.flush = flush
     session.scalar = scalar
@@ -68,8 +71,11 @@ def test_http_run_detail_and_resume_are_atomic_and_validate_all_decisions(api):
     assert pending.json()["proposal"]["items"][0]["id"] == "P1"
     assert pending.json()["proposal"]["items"][0]["source"] == "inferred"
     assert client.get(path + "/proposal").status_code == 404
-    for decisions in ([], [{"item_id": "unknown", "decision": "confirmed"}],
-                      [{"item_id": "P1", "decision": "confirmed"}] * 2):
+    for decisions in (
+        [],
+        [{"item_id": "unknown", "decision": "confirmed"}],
+        [{"item_id": "P1", "decision": "confirmed"}] * 2,
+    ):
         assert client.post(path + "/resume", json={"decisions": decisions}).status_code == 422
     assert queued == [] and wakes == [] and run.status == "waiting"
     body = {"decisions": [{"item_id": "P1", "decision": "rejected"}], "supplement": "按本次范围核对"}
@@ -99,30 +105,45 @@ def test_http_followup_inherits_user_text_and_accepts_the_documented_limit(api):
     assert client.post(f"/api/analysis/runs/{parent.id}/followup", json={"text": "  "}).status_code == 422
 
 
-@pytest.mark.parametrize("invalid", [
-    {"kind": "instruction"},
-    {"content": " "},
-    {"content": "x" * 4001},
-    {"refs": [{"object_type": "asset", "object_id": "a1", "version": True}]},
-    {"refs": [{"object_type": "asset", "object_id": "x" * 65}]},
-    {"source": {"run_id": "run", "checkpoint": " "}},
-])
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"kind": "instruction"},
+        {"content": " "},
+        {"content": "x" * 4001},
+        {"refs": [{"object_type": "asset", "object_id": "a1", "version": True}]},
+        {"refs": [{"object_type": "asset", "object_id": "x" * 65}]},
+        {"source": {"run_id": "run", "checkpoint": " "}},
+    ],
+)
 def test_http_experience_validates_input_at_schema_boundary(api, invalid):
     client, _, _, run, _, _ = api
-    body = {"kind": "rule", "content": "本次范围规则", "refs": [],
-            "source": {"run_id": run.id, "checkpoint": "assumptions"}, **invalid}
+    body = {
+        "kind": "rule",
+        "content": "本次范围规则",
+        "refs": [],
+        "source": {"run_id": run.id, "checkpoint": "assumptions"},
+        **invalid,
+    }
     assert client.post("/api/analysis/experiences", json=body).status_code == 422
 
 
 def test_http_detail_serializes_confirmed_user_input_and_rejects_another_owner(api):
     client, _, user, run, _, _ = api
     run.status = "succeeded"
-    run.checkpoint["confirmed_items"] = [{"id": "U:input", "kind": "hypothesis", "source": "user",
-                                           "content": "用户补充", "status": "confirmed", "refs": []}]
+    run.checkpoint["confirmed_items"] = [
+        {
+            "id": "U:input",
+            "kind": "hypothesis",
+            "source": "user",
+            "content": "用户补充",
+            "status": "confirmed",
+            "refs": [],
+        }
+    ]
     response = client.get(f"/api/analysis/runs/{run.id}")
     assert response.status_code == 200, response.text
     item = response.json()["confirmed_items"][0]
     assert item["source"] == "user" and item["status"] == "confirmed"
     user.id = "other-user"
     assert client.get(f"/api/analysis/runs/{run.id}").status_code == 404
-

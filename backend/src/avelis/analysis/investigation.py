@@ -60,9 +60,14 @@ def _input_members(dataset: Any, datasets: Any, summary: dict) -> tuple[dict, De
     codes = (total.meta or {}).get("intent", {}).get("metric_codes")
     result = {}
     for label in labels:
-        candidates = [d for d in inputs[1:] if d is not None and d.kind == "governed"
-                      and "×".join((d.meta or {}).get("intent", {}).get("group_by") or []) == label
-                      and (d.meta or {}).get("intent", {}).get("metric_codes") == codes]
+        candidates = [
+            d
+            for d in inputs[1:]
+            if d is not None
+            and d.kind == "governed"
+            and "×".join((d.meta or {}).get("intent", {}).get("group_by") or []) == label
+            and (d.meta or {}).get("intent", {}).get("metric_codes") == codes
+        ]
         compared = next((d for d in candidates if (d.meta or {}).get("intent", {}).get("compare")), None)
         if compared is None or compared.truncated:
             result[label] = "成员输入缺失或被截断，不能判断完整分布"
@@ -77,8 +82,10 @@ def _input_members(dataset: Any, datasets: Any, summary: dict) -> tuple[dict, De
             cells = [row.get(c) for n in names for c in (f"{n}·对比期", n)]
             invalid |= any(v is not None and _number(v) is None for v in cells)
             members[key] = [_number(v) for v in cells]
-        if not all(attribution.reconciles([v[i] for v in members.values() if v[i] is not None], totals[i])
-                   for i in ([0, 2] if ratio else [0])):
+        if not all(
+            attribution.reconciles([v[i] for v in members.values() if v[i] is not None], totals[i])
+            for i in ([0, 2] if ratio else [0])
+        ):
             before = next((d for d in candidates if not (d.meta or {}).get("intent", {}).get("compare")), None)
             if before is None or before.truncated:
                 result[label] = "缺少完整的对比期成员，不能判断分布"
@@ -92,8 +99,10 @@ def _input_members(dataset: Any, datasets: Any, summary: dict) -> tuple[dict, De
                     values = [row.get(n) for n in names]
                     invalid |= any(v is not None and _number(v) is None for v in values)
                     members[key] = [cell for v in values for cell in (_number(v), None)]
-        if invalid or not all(attribution.reconciles([v[i] for v in members.values() if v[i] is not None], t)
-                              for i, t in enumerate(totals)):
+        if invalid or not all(
+            attribution.reconciles([v[i] for v in members.values() if v[i] is not None], t)
+            for i, t in enumerate(totals)
+        ):
             result[label] = "成员合计与总量对不上或数值无效，不能判断分布"
             continue
         if ratio:
@@ -113,8 +122,9 @@ def _input_members(dataset: Any, datasets: Any, summary: dict) -> tuple[dict, De
 def _dimension(rows: list[dict], previous: Decimal | None, change: Decimal | None, additive: bool) -> dict:
     result = _empty_dimension("")
     result["members"] = len(rows)
-    contributions = [_number(r.get("contribution") if r.get("contribution") is not None else r.get("member_change"))
-                     for r in rows]
+    contributions = [
+        _number(r.get("contribution") if r.get("contribution") is not None else r.get("member_change")) for r in rows
+    ]
     if not rows:
         result["reason"] = "成员贡献缺失或无效"
         return result
@@ -129,9 +139,14 @@ def _dimension(rows: list[dict], previous: Decimal | None, change: Decimal | Non
     if additive and any(p is None or c is None for p, c in pairs):
         result["reason"] = "成员两期数值缺失或无效，不能判断均匀"
         return result
-    if additive and previous is not None and change is not None and (
-        not attribution.reconciles([p for p, _ in pairs], previous)
-        or not attribution.reconciles([c for _, c in pairs], previous + change)
+    if (
+        additive
+        and previous is not None
+        and change is not None
+        and (
+            not attribution.reconciles([p for p, _ in pairs], previous)
+            or not attribution.reconciles([c for _, c in pairs], previous + change)
+        )
     ):
         result["reason"] = "成员合计与总量对不上，不能判断均匀"
         return result
@@ -166,8 +181,7 @@ def _time_distribution(dataset: Any, scope: dict) -> dict:
         return result
     meta = dataset.meta or {}
     intent = meta.get("intent") or {}
-    if intent.get("time_grain") != "day" or any(
-            grain != "day" for grain in (meta.get("data_grains") or {}).values()):
+    if intent.get("time_grain") != "day" or any(grain != "day" for grain in (meta.get("data_grains") or {}).values()):
         result["reason"] = "时间集中度只适用于日粒度；当前数据或查询不是日粒度，无法计算单日偏差"
         return result
     if intent.get("group_by") or len(intent.get("metric_codes") or []) > 1:
@@ -208,8 +222,9 @@ def _time_distribution(dataset: Any, scope: dict) -> dict:
     return {"max_day_share": float(share), "date": day.isoformat(), "concentrated": share >= threshold, "reason": ""}
 
 
-def distribution(attribution_dataset: Any, trend_dataset: Any, datasets: Any = None,
-                 window: dict | None = None) -> dict:
+def distribution(
+    attribution_dataset: Any, trend_dataset: Any, datasets: Any = None, window: dict | None = None
+) -> dict:
     """仅使用已有预检数据计算分布；缺失、截断和对账失败都保留为未知。"""
     summary = ((attribution_dataset.meta or {}).get("summary") or {}) if attribution_dataset is not None else {}
     total = summary.get("total") or {}
@@ -223,14 +238,23 @@ def distribution(attribution_dataset: Any, trend_dataset: Any, datasets: Any = N
                 grouped.setdefault(str(row.get("dimension", "")), []).append(row)
         if attribution_dataset.truncated:
             grouped = {label: "归因数据被截断，不能判断完整分布" for label in grouped}
-    dimensions = {label: _empty_dimension(rows) if isinstance(rows, str) else _dimension(
-        rows, previous, change, summary.get("algorithm") != "ratio")
-                  for label, rows in grouped.items()}
+    dimensions = {
+        label: _empty_dimension(rows)
+        if isinstance(rows, str)
+        else _dimension(rows, previous, change, summary.get("algorithm") != "ratio")
+        for label, rows in grouped.items()
+    }
     scope = summary.get("scope") or window or {}
-    scope = {**scope, "start": scope.get("start") or scope.get("start_date"),
-             "end": scope.get("end") or scope.get("end_date")}
-    return {"total_change": float(change) if change is not None else None, "dimensions": dimensions,
-            "time": _time_distribution(trend_dataset, scope)}
+    scope = {
+        **scope,
+        "start": scope.get("start") or scope.get("start_date"),
+        "end": scope.get("end") or scope.get("end_date"),
+    }
+    return {
+        "total_change": float(change) if change is not None else None,
+        "dimensions": dimensions,
+        "time": _time_distribution(trend_dataset, scope),
+    }
 
 
 def distribution_block(value: dict, limit: int = 600) -> str:
@@ -242,17 +266,21 @@ def distribution_block(value: dict, limit: int = 600) -> str:
     for label, dim in value.get("dimensions", {}).items():
         shares = [f"{dim[k]:.1%}" if dim.get(k) is not None else "未知" for k in ("top1_share", "top3_share")]
         uniform = {True: "均匀", False: "不判为均匀", None: "均匀程度未知"}[dim.get("uniform")]
-        lines.append(f"{label}：成员数 {dim.get('members')}，前 1 / 前 3 占总变化 {shares[0]} / {shares[1]}；{uniform}"
-                     + (f"；{dim['reason']}" if dim.get("reason") else ""))
+        lines.append(
+            f"{label}：成员数 {dim.get('members')}，前 1 / 前 3 占总变化 {shares[0]} / {shares[1]}；{uniform}"
+            + (f"；{dim['reason']}" if dim.get("reason") else "")
+        )
     time = value.get("time") or {}
     if time.get("max_day_share") is not None:
-        lines.append(f"时间：{time['date']} 的偏差占总偏差 {time['max_day_share']:.1%}；"
-                     + ("集中在某个时间点" if time["concentrated"] else "未集中在某个时间点"))
+        lines.append(
+            f"时间：{time['date']} 的偏差占总偏差 {time['max_day_share']:.1%}；"
+            + ("集中在某个时间点" if time["concentrated"] else "未集中在某个时间点")
+        )
     else:
         lines.append(f"时间：{time.get('reason') or '不可计算'}")
     text = "\n".join(lines)
     suffix = "…（已省略）"
-    return text if len(text) <= limit else text[:max(0, limit - len(suffix))] + suffix[:max(0, limit)]
+    return text if len(text) <= limit else text[: max(0, limit - len(suffix))] + suffix[: max(0, limit)]
 
 
 def _has_dates(dataset: Any) -> bool:
@@ -265,8 +293,11 @@ def _has_dates(dataset: Any) -> bool:
         for value in row.values():
             if isinstance(value, date):
                 return True
-            if (isinstance(value, str) and re.match(r"^\d{4}[-/]\d{2}[-/]\d{2}(?:$|[ T])", value)
-                    and _date(value[:10].replace("/", "-")) is not None):
+            if (
+                isinstance(value, str)
+                and re.match(r"^\d{4}[-/]\d{2}[-/]\d{2}(?:$|[ T])", value)
+                and _date(value[:10].replace("/", "-")) is not None
+            ):
                 return True
     return False
 
@@ -285,13 +316,17 @@ def event_datasets(datasets: dict[str, Any], closure_tables: set[str]) -> list[s
             if len(trees) != 1 or not isinstance(trees[0], exp.Query):
                 continue
             # 作用域中的物理表不包含 CTE 名称，避免把内部别名误作外部表。
-            tables = {tuple(p.name.casefold() for p in source.parts)
-                      for scope in traverse_scope(trees[0]) for source in scope.sources.values()
-                      if isinstance(source, exp.Table)}
+            tables = {
+                tuple(p.name.casefold() for p in source.parts)
+                for scope in traverse_scope(trees[0])
+                for source in scope.sources.values()
+                if isinstance(source, exp.Table)
+            }
         except (SqlglotError, ValueError, TypeError):
             continue  # 无法确定表源时不触发修订，SQL 校验仍由既有管线负责。
-        if tables and all(not any(t[-min(len(t), len(c)):] == c[-min(len(t), len(c)):]
-                                  for c in closure) for t in tables):
+        if tables and all(
+            not any(t[-min(len(t), len(c)) :] == c[-min(len(t), len(c)) :] for c in closure) for t in tables
+        ):
             found.append(ref)
     return sorted(found, key=lambda ref: (int(ref[1:]) if ref[1:].isdigit() else float("inf"), ref))
 
@@ -351,5 +386,8 @@ def needs_revision(report: dict, datasets: dict[str, Any], closure_tables: set[s
     unused = [ref for ref in events if ref not in _used_datasets(report, datasets)]
     if not unused:
         return None
-    return ("变化在成员之间分布均匀，首要原因写成成员 / 因子只是贡献定位；请用已有的记录类数据集（"
-            + "、".join(unused) + "）检验驱动因素；检验不了的，结论类型仍按系统判定，在 unexplained 里写明未能检验的驱动因素与理由。")
+    return (
+        "变化在成员之间分布均匀，首要原因写成成员 / 因子只是贡献定位；请用已有的记录类数据集（"
+        + "、".join(unused)
+        + "）检验驱动因素；检验不了的，结论类型仍按系统判定，在 unexplained 里写明未能检验的驱动因素与理由。"
+    )

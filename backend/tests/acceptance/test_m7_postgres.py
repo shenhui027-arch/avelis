@@ -57,9 +57,14 @@ def test_00_create_and_collect(stack, admin: Api):
     engines = {e["kind"]: e for e in admin.get("/api/engines")}
     assert engines["postgres"]["name_levels"] == ["database", "schema", "table"]
     assert {o["key"] for o in engines["postgres"]["options"]} == {"database", "schemas"}
-    base = {"name": "门店库（PG 验收）", "kind": "postgres", "host": "127.0.0.1", "port": int(env["SHOP_PG_PORT"]),
-            "collect": {"username": "avelis_collector", "password": env["SHOP_PG_COLLECTOR_PASSWORD"]},
-            "query": {"username": "avelis_reader", "password": env["SHOP_PG_READER_PASSWORD"]}}
+    base = {
+        "name": "门店库（PG 验收）",
+        "kind": "postgres",
+        "host": "127.0.0.1",
+        "port": int(env["SHOP_PG_PORT"]),
+        "collect": {"username": "avelis_collector", "password": env["SHOP_PG_COLLECTOR_PASSWORD"]},
+        "query": {"username": "avelis_reader", "password": env["SHOP_PG_READER_PASSWORD"]},
+    }
     refused = admin.post("/api/datasources", {**base, "options": {"database": "storedb"}}, expect=422)
     assert "采集的模式" in refused["detail"]
     ds = admin.post("/api/datasources", {**base, "options": {"database": "storedb", "schemas": ["store"]}}, expect=201)
@@ -68,8 +73,12 @@ def test_00_create_and_collect(stack, admin: Api):
     run = collect(admin)
     assert run["stats"]["assets_observed"] == 4
     found = assets(admin)
-    assert set(found) == {"storedb.store.shops", "storedb.store.sales", "storedb.store.returns",
-                          "storedb.store.city_daily_sales"}
+    assert set(found) == {
+        "storedb.store.shops",
+        "storedb.store.sales",
+        "storedb.store.returns",
+        "storedb.store.city_daily_sales",
+    }
     ctx["ids"] = {q.rsplit(".", 1)[1]: a["id"] for q, a in found.items()}
     zhang = ctx["apis"]["zhang"]
     trade = next(d["id"] for d in admin.get("/api/domains") if d["code"] == "trade")
@@ -96,13 +105,19 @@ def test_01_view_lineage_and_grains(admin: Api):
 
 def test_02_publish_and_ask_in_postgres_dialect(admin: Api):
     zhang, li, wang = (ctx["apis"][u] for u in ("zhang", "li", "wang"))
-    m = zhang.post("/api/metrics", {"code": "store_sales", "name": "门店销售额", "domain_id": ctx["trade"]},
-                   expect=201)
-    v = zhang.post(f"/api/metrics/{m['id']}/versions", {
-        "description": "门店成交金额按日期、城市汇总（不含作废单）", "base_asset_id": ctx["ids"]["city_daily_sales"],
-        "expression": "SUM(sales_amount)", "time_column": "sale_date",
-        "dimensions": [{"name": "city", "column": "city", "label": "城市"}], "grain": ["sale_date", "city"]},
-        expect=201)
+    m = zhang.post("/api/metrics", {"code": "store_sales", "name": "门店销售额", "domain_id": ctx["trade"]}, expect=201)
+    v = zhang.post(
+        f"/api/metrics/{m['id']}/versions",
+        {
+            "description": "门店成交金额按日期、城市汇总（不含作废单）",
+            "base_asset_id": ctx["ids"]["city_daily_sales"],
+            "expression": "SUM(sales_amount)",
+            "time_column": "sale_date",
+            "dimensions": [{"name": "city", "column": "city", "label": "城市"}],
+            "grain": ["sale_date", "city"],
+        },
+        expect=201,
+    )
     zhang.post(f"/api/metric-versions/{v['id']}/submit")
     assert li.post(f"/api/metric-versions/{v['id']}/approve", {"note": "PG 验收"})["status"] == "published"
     ctx["store_v1"] = v["id"]
@@ -115,8 +130,9 @@ def test_02_publish_and_ask_in_postgres_dialect(admin: Api):
 
 def test_03_grain_verify_on_postgres(admin: Api):
     zhang = ctx["apis"]["zhang"]
-    bad = zhang.post(f"/api/assets/{ctx['ids']['returns']}/grains", {"columns": ["sale_id"], "reason": "错误声明"},
-                     expect=201)
+    bad = zhang.post(
+        f"/api/assets/{ctx['ids']['returns']}/grains", {"columns": ["sale_id"], "reason": "错误声明"}, expect=201
+    )
     checked = zhang.post(f"/api/grains/{bad['id']}/verify")
     assert checked["status"] == "violated" and checked["verify_detail"]["duplicate_example"][0] == "9002"
     assert '"storedb"."store"."returns"' in checked["verify_detail"]["sql"]
@@ -129,9 +145,12 @@ def test_04_identity_rename_and_recreate(stack, admin: Api):
     found = assets(admin)
     assert found["storedb.store.refunds"]["id"] == returns_id  # oid 不变：同一资产
     assert ("renamed", returns_id, None) in latest_events(admin)
-    pg(stack, "DROP TABLE store.refunds",
-       "CREATE TABLE store.refunds (return_id bigint PRIMARY KEY, sale_id bigint NOT NULL, "
-       "return_date date NOT NULL, amount numeric(18, 2) NOT NULL)")
+    pg(
+        stack,
+        "DROP TABLE store.refunds",
+        "CREATE TABLE store.refunds (return_id bigint PRIMARY KEY, sale_id bigint NOT NULL, "
+        "return_date date NOT NULL, amount numeric(18, 2) NOT NULL)",
+    )
     collect(admin)
     recreated = assets(admin)["storedb.store.refunds"]["id"]
     assert recreated != returns_id and admin.get(f"/api/assets/{returns_id}")["status"] == "deleted"
@@ -139,10 +158,13 @@ def test_04_identity_rename_and_recreate(stack, admin: Api):
 
 def test_05_definition_change_live_check_then_affected(stack, admin: Api):
     wang = ctx["apis"]["wang"]
-    pg(stack, "CREATE OR REPLACE VIEW store.city_daily_sales AS "
-              "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
-              "FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
-              "GROUP BY s.sale_date, h.city")  # 去掉作废单过滤：上海变为 310
+    pg(
+        stack,
+        "CREATE OR REPLACE VIEW store.city_daily_sales AS "
+        "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
+        "FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
+        "GROUP BY s.sale_date, h.city",
+    )  # 去掉作废单过滤：上海变为 310
     stale = wang.post("/api/ask", {"question": f"{DAY} 上海门店销售额"})
     assert stale["status"] == "blocked" and stale["error_code"] == "metadata_stale", stale
     assert "视图定义已变化" in stale["message"] and stale["result"] == {} and stale["executed_at"] is None
@@ -163,8 +185,9 @@ def test_06_timeout_and_errors_are_reported_honestly(stack):
     from avelis.connectors.postgres import PostgresConnector
 
     _, env, _ = stack
-    reader = PostgresConnector("127.0.0.1", int(env["SHOP_PG_PORT"]), "avelis_reader",
-                               env["SHOP_PG_READER_PASSWORD"], {"database": "storedb"})
+    reader = PostgresConnector(
+        "127.0.0.1", int(env["SHOP_PG_PORT"]), "avelis_reader", env["SHOP_PG_READER_PASSWORD"], {"database": "storedb"}
+    )
     started = time.monotonic()
     with pytest.raises(QueryError) as timeout:
         reader.execute_select("SELECT pg_sleep(5)", timeout_seconds=1, mem_limit_bytes=0, max_rows=1)

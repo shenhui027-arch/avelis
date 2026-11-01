@@ -14,32 +14,83 @@ from avelis.analysis.verify import ground_report
 
 LEVEL = {"kind": "level", "unit": "元"}
 DATA = {
-    "D1": {"kind": "governed", "columns": ["区域", "门店", "成交额", "成交额·对比期", "成交额·变化", "成交额·变化率"],
-           "rows": [{"区域": "华东", "门店": "广州10号店", "成交额": "1969398.05", "成交额·对比期": "2000000",
-                     "成交额·变化": "-30601.95", "成交额·变化率": "-0.0153"},
-                    {"区域": "华南", "门店": "深圳福田中心店", "成交额": "300071.87", "成交额·对比期": "250000",
-                     "成交额·变化": "50071.87", "成交额·变化率": "0.2003"},
-                    {"区域": "西南", "门店": "", "成交额": "10", "成交额·对比期": None, "成交额·变化": None,
-                     "成交额·变化率": None}],
-           "units": {"成交额": LEVEL, "成交额·对比期": LEVEL, "成交额·变化": {"kind": "delta", "unit": "元"},
-                     "成交额·变化率": {"kind": "rate_change"}},
-           "window": {"start": "2026-09-01", "end": "2026-09-30"}},
-    "D2": {"kind": "calc", "columns": ["name", "value"], "rows": [{"name": "客单价", "value": "1.0587"}],
-           "summary": {"value": "1.0587", "total": {"change": "-1675.0000", "share": "0.8820"}},
-           "summary_units": {"value": {"kind": "ratio"}, "total.change": {"kind": "delta", "unit": "单"},
-                             "total.share": {"kind": "share"}}},
+    "D1": {
+        "kind": "governed",
+        "columns": ["区域", "门店", "成交额", "成交额·对比期", "成交额·变化", "成交额·变化率"],
+        "rows": [
+            {
+                "区域": "华东",
+                "门店": "广州10号店",
+                "成交额": "1969398.05",
+                "成交额·对比期": "2000000",
+                "成交额·变化": "-30601.95",
+                "成交额·变化率": "-0.0153",
+            },
+            {
+                "区域": "华南",
+                "门店": "深圳福田中心店",
+                "成交额": "300071.87",
+                "成交额·对比期": "250000",
+                "成交额·变化": "50071.87",
+                "成交额·变化率": "0.2003",
+            },
+            {
+                "区域": "西南",
+                "门店": "",
+                "成交额": "10",
+                "成交额·对比期": None,
+                "成交额·变化": None,
+                "成交额·变化率": None,
+            },
+        ],
+        "units": {
+            "成交额": LEVEL,
+            "成交额·对比期": LEVEL,
+            "成交额·变化": {"kind": "delta", "unit": "元"},
+            "成交额·变化率": {"kind": "rate_change"},
+        },
+        "window": {"start": "2026-09-01", "end": "2026-09-30"},
+    },
+    "D2": {
+        "kind": "calc",
+        "columns": ["name", "value"],
+        "rows": [{"name": "客单价", "value": "1.0587"}],
+        "summary": {"value": "1.0587", "total": {"change": "-1675.0000", "share": "0.8820"}},
+        "summary_units": {
+            "value": {"kind": "ratio"},
+            "total.change": {"kind": "delta", "unit": "单"},
+            "total.share": {"kind": "share"},
+        },
+    },
     "D3": {"kind": "governed", "columns": ["门店"], "rows": [{"门店": "A"}, {"门店": "B"}], "truncated": True},
-    "D4": {"kind": "governed", "columns": ["成交额", "日期", "转化率·变化"],
-           "rows": [{"成交额": "1.25", "日期": "2026-09-10", "转化率·变化": "-0.012"}],
-           "units": {"成交额": {"kind": "level", "unit": "元", "scale": "10000"},
-                     "转化率·变化": {"kind": "delta", "of_ratio": True}}},
-    "D5": {"kind": "calc", "columns": ["value"], "rows": [{"value": "0.5"}], "summary": {"value": "0.5"},
-           "summary_units": {"value": {"kind": "unknown"}}, "assumption": True},
+    "D4": {
+        "kind": "governed",
+        "columns": ["成交额", "日期", "转化率·变化"],
+        "rows": [{"成交额": "1.25", "日期": "2026-09-10", "转化率·变化": "-0.012"}],
+        "units": {
+            "成交额": {"kind": "level", "unit": "元", "scale": "10000"},
+            "转化率·变化": {"kind": "delta", "of_ratio": True},
+        },
+    },
+    "D5": {
+        "kind": "calc",
+        "columns": ["value"],
+        "rows": [{"value": "0.5"}],
+        "summary": {"value": "0.5"},
+        "summary_units": {"value": {"kind": "unknown"}},
+        "assumption": True,
+    },
     "D6": {"kind": "explore", "columns": ["客流"], "rows": [{"客流": "1200"}], "explore": True},
-    "D7": {"kind": "governed", "columns": ["客单价", "转化率", "订单数"], "rows": [{"客单价": "596.42514", "转化率": "0.3125",
-                                                                         "订单数": "12897"}],
-           "units": {"客单价": {"kind": "ratio", "unit": "元"}, "转化率": {"kind": "ratio"},
-                     "订单数": {"kind": "level", "unit": "单"}}},
+    "D7": {
+        "kind": "governed",
+        "columns": ["客单价", "转化率", "订单数"],
+        "rows": [{"客单价": "596.42514", "转化率": "0.3125", "订单数": "12897"}],
+        "units": {
+            "客单价": {"kind": "ratio", "unit": "元"},
+            "转化率": {"kind": "ratio"},
+            "订单数": {"kind": "level", "unit": "单"},
+        },
+    },
 }
 WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-02", "compare_end": "2026-08-31"}
 
@@ -72,7 +123,12 @@ def test_display_is_decided_by_kind_not_by_the_model():
     assert text({"dataset": "D7", "column": "客单价"}) == "596.43元"  # 有单位的比率：原值加单位
     assert text({"dataset": "D4", "column": "转化率·变化"}) == "-1.2个百分点"  # 比率之差
     assert text({"dataset": "D6", "column": "客流"}) == "1200"  # unknown 也沿用数字体系，不到 1 万不分组
-    assert text({"dataset": "D5", "summary": "value"}, ) == "0.5"
+    assert (
+        text(
+            {"dataset": "D5", "summary": "value"},
+        )
+        == "0.5"
+    )
     assert "结构不合法" in errors({**huadong, "format": "wan1"})[0]  # 模型不再选格式
     assert "结构不合法" in errors({**huadong, "precision": 5})[0]
 
@@ -84,8 +140,7 @@ def test_display_is_decided_by_kind_not_by_the_model():
 def test_same_kind_with_and_without_units_shares_format(style, kind, value, precision, monkeypatch):
     monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
     data = {
-        "D1": {"columns": ["value"], "rows": [{"value": value}],
-               "units": {"value": {"kind": kind, "unit": "单位甲"}}},
+        "D1": {"columns": ["value"], "rows": [{"value": value}], "units": {"value": {"kind": kind, "unit": "单位甲"}}},
         "D2": {"summary": {"value": value}, "summary_units": {"value": {"kind": kind}}},
     }
     with_unit = text({"dataset": "D1", "column": "value", "precision": precision}, data=data)
@@ -93,15 +148,25 @@ def test_same_kind_with_and_without_units_shares_format(style, kind, value, prec
     assert with_unit == without_unit + "单位甲"
 
 
-@pytest.mark.parametrize("style,value,expected", [
-    ("cn", "1000", "1000"), ("intl", "1000", "1000"),
-    ("cn", "1899", "1899"), ("intl", "1899", "1899"),
-    ("cn", "9999.994", "9999.99"), ("intl", "9999.994", "9999.99"),
-    ("cn", "10000", "1.00万"), ("intl", "10000", "10.00K"),
-    ("cn", "1000000", "100.00万"), ("intl", "1000000", "1.00M"),
-    ("cn", "100000000", "1.00亿"), ("intl", "100000000", "100.00M"),
-    ("cn", "1000000000", "10.00亿"), ("intl", "1000000000", "1.00B"),
-])
+@pytest.mark.parametrize(
+    "style,value,expected",
+    [
+        ("cn", "1000", "1000"),
+        ("intl", "1000", "1000"),
+        ("cn", "1899", "1899"),
+        ("intl", "1899", "1899"),
+        ("cn", "9999.994", "9999.99"),
+        ("intl", "9999.994", "9999.99"),
+        ("cn", "10000", "1.00万"),
+        ("intl", "10000", "10.00K"),
+        ("cn", "1000000", "100.00万"),
+        ("intl", "1000000", "1.00M"),
+        ("cn", "100000000", "1.00亿"),
+        ("intl", "100000000", "100.00M"),
+        ("cn", "1000000000", "10.00亿"),
+        ("intl", "1000000000", "1.00B"),
+    ],
+)
 def test_number_styles_share_thresholds_rounding_and_grouping(style, value, expected, monkeypatch):
     monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
     for unit in ("", "单位甲"):
@@ -145,7 +210,8 @@ def test_direction_is_checked_and_shown_as_absolute_value():
     assert text("下降 ", down) == "下降 3.06万元"
     assert text(cell("成交额·变化", match={"区域": "华东"})) == "-3.06万元"  # 没写方向：带符号
     assert errors(cell("成交额·变化", match={"区域": "华东"}, direction="up")) == [
-        "第 1 个片段（D1.成交额·变化[区域=华东]）：方向与正负不一致：direction=up，原值 -30601.95"]
+        "第 1 个片段（D1.成交额·变化[区域=华东]）：方向与正负不一致：direction=up，原值 -30601.95"
+    ]
     assert "水平值不能标方向" in errors(cell(match={"区域": "华东"}, direction="down"))[0]  # level
     assert "水平值不能标方向" in errors({"dataset": "D7", "column": "转化率", "direction": "up"})[0]  # ratio
     assert text({"dataset": "D2", "summary": "total.change", "direction": "down"}) == "1675单"
@@ -158,7 +224,8 @@ def test_row_selection_and_summary_paths():
     assert text(cell(row=2, precision=0)) == "30万元"
     assert errors(cell()) == ["第 1 个片段（D1.成交额）：D1 有 3 行，请用 match 或 row 选定一行"]
     assert errors(cell(match={"区域": "西北"})) == [
-        "第 1 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]
+        "第 1 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"
+    ]
     assert "没有列 地区" in errors(cell(match={"地区": "华东"}))[0]
     assert "只有 3 行" in errors(cell(row=4))[0]
     assert "match 与 row 只能写一个" in errors(cell(row=1, match={"区域": "华东"}))[0]
@@ -196,8 +263,13 @@ def test_malformed_parts_are_reported_by_position():
 
 
 def check(parts, kind="fact", refs=None, **extra):
-    report = {"title": "标题", "summary": "摘要", "unexplained": None, "conclusion": "insufficient_evidence",
-              "claims": [{"type": kind, "parts": parts, "refs": refs or [], **extra}]}
+    report = {
+        "title": "标题",
+        "summary": "摘要",
+        "unexplained": None,
+        "conclusion": "insufficient_evidence",
+        "claims": [{"type": kind, "parts": parts, "refs": refs or [], **extra}],
+    }
     rendered, verification = ground_report(report, DATA, WINDOW)
     return rendered["claims"][0], verification["claims"][0], verification
 
@@ -218,72 +290,118 @@ def test_rule2_value_segments_cannot_be_concatenated_or_followed_by_units():
     assert check([HUADONG, "，较上期下降"])[1]["status"] == "verified"
 
 
-@pytest.mark.parametrize("words, digit", [("共 3 家", "3"), ("同比 ３％", "３"), ("2026-09-15 当天", "2026-09-15"),
-                                          ("9 月", "9"), ("下降 9 单", "9")])
+@pytest.mark.parametrize(
+    "words, digit",
+    [("共 3 家", "3"), ("同比 ３％", "３"), ("2026-09-15 当天", "2026-09-15"), ("9 月", "9"), ("下降 9 单", "9")],
+)
 def test_rule3_no_arabic_digits_in_text_parts(words, digit):
     _, result, _ = check([words, "，", HUADONG])
-    assert result["problems"] == [f"第 1 个片段（文字）出现数字“{digit}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"]
+    assert result["problems"] == [
+        f"第 1 个片段（文字）出现数字“{digit}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
+    ]
 
 
 @pytest.mark.parametrize("target", ["title", "summary", "unexplained", "method", "fact", "calc"])
-@pytest.mark.parametrize("words, digits", [
-    ("查询明细宽表（D9、D13），并用状态分布（D10）核对口径", []),
-    ("查询D9核验", []),
-    ("见（D99）", []),
-    ("AD9", []),
-    ("口径 V1，方案 P12", []),
-    ("Top3", []),
-    ("D9x", ["9"]),
-    ("9 月", ["9"]),
-    ("下降 9 单", ["9"]),
-    ("核对（D9、D13），D10）后下降 9 单", ["9"]),
-])
+@pytest.mark.parametrize(
+    "words, digits",
+    [
+        ("查询明细宽表（D9、D13），并用状态分布（D10）核对口径", []),
+        ("查询D9核验", []),
+        ("见（D99）", []),
+        ("AD9", []),
+        ("口径 V1，方案 P12", []),
+        ("Top3", []),
+        ("D9x", ["9"]),
+        ("9 月", ["9"]),
+        ("下降 9 单", ["9"]),
+        ("核对（D9、D13），D10）后下降 9 单", ["9"]),
+    ],
+)
 def test_rule3_standalone_identifiers_are_allowed_in_checked_text(target, words, digits):
     data = {**DATA, "D9": DATA["D1"], "D10": DATA["D1"], "D13": DATA["D1"]}
     claim = {"type": target if target in ("fact", "calc") else "fact", "parts": ["核对口径"], "refs": ["D1"]}
-    report = {"title": "标题", "summary": "摘要", "unexplained": "无", "method": "核对口径",
-              "conclusion": "insufficient_evidence", "claims": [claim]}
+    report = {
+        "title": "标题",
+        "summary": "摘要",
+        "unexplained": "无",
+        "method": "核对口径",
+        "conclusion": "insufficient_evidence",
+        "claims": [claim],
+    }
     if target in ("fact", "calc"):
         claim["parts"] = [words]
     else:
         report[target] = [words]
     rendered, verification = ground_report(report, data, WINDOW)
     record = rendered["claims"][0] if target in ("fact", "calc") else rendered["fields"][target]
-    assert record["errors"] == [f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
-                                for d in digits]
+    assert record["errors"] == [
+        f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）" for d in digits
+    ]
     assert verification["ok"] == (not digits or target == "method")
 
 
 @pytest.mark.parametrize("dataset_ids", [["D9"], ["D99"], []])
 def test_rule3_text_identifiers_do_not_require_a_dataset(dataset_ids):
     data = {**DATA, **{ref: DATA["D1"] for ref in dataset_ids}}
-    report = {"method": "核对 D9、D99", "conclusion": "insufficient_evidence",
-              "claims": [{"type": "fact", "parts": [HUADONG]}]}
+    report = {
+        "method": "核对 D9、D99",
+        "conclusion": "insufficient_evidence",
+        "claims": [{"type": "fact", "parts": [HUADONG]}],
+    }
     rendered, _ = ground_report(report, data, WINDOW)
     assert rendered["fields"]["method"]["errors"] == []
 
 
-@pytest.mark.parametrize("words, found", [("D1 共三家门店", ["三家"]), ("D1 约三分之一", ["三分之"]),
-                                         ("D1 壹佰万", ["壹", "佰"])])
+@pytest.mark.parametrize(
+    "words, found", [("D1 共三家门店", ["三家"]), ("D1 约三分之一", ["三分之"]), ("D1 壹佰万", ["壹", "佰"])]
+)
 def test_rule4_dataset_ids_do_not_hide_chinese_quantities(words, found):
     _, result, _ = check([words, "，", HUADONG])
-    assert result["problems"] == [f"第 1 个片段（文字）出现中文数量“{q}”：数量请写成引用对象（个数用 CountRef），或改写为不含数量的说法"
-                                  for q in found]
+    assert result["problems"] == [
+        f"第 1 个片段（文字）出现中文数量“{q}”：数量请写成引用对象（个数用 CountRef），或改写为不含数量的说法"
+        for q in found
+    ]
 
 
 def test_rule4_only_chinese_quantity_expressions_are_rejected():
     """第 7 点第 2 条：只拦数量表达（数字后接量词或单位、几分之几、财务大写），不维护白名单与数量词表。"""
-    for words, found in (("共三家门店", "三家"), ("两家门店", "两家"), ("前五家门店", "五家"), ("两个地区", "两个"),
-                         ("营收两万元", "两万元"), ("十一个品类", "十一个"), ("打八折", "八折"), ("约五成", "五成"),
-                         ("占百分之十", "百分之"), ("约三分之一", "三分之"), ("壹佰万", "壹")):
+    for words, found in (
+        ("共三家门店", "三家"),
+        ("两家门店", "两家"),
+        ("前五家门店", "五家"),
+        ("两个地区", "两个"),
+        ("营收两万元", "两万元"),
+        ("十一个品类", "十一个"),
+        ("打八折", "八折"),
+        ("约五成", "五成"),
+        ("占百分之十", "百分之"),
+        ("约三分之一", "三分之"),
+        ("壹佰万", "壹"),
+    ):
         _, result, _ = check([words, "，", HUADONG])
         assert result["status"] == "unverified", words
         assert f"出现中文数量“{found}”" in result["problems"][0], (words, result["problems"])
     assert check([HUADONG, "折"])[1]["status"] == "unverified"  # 数值段后面紧跟“折”仍拒绝（第 2 条）
     # 第 5 步评测里被误伤的说法：没有量词、序数、时间词、“一”
-    for words in ("两期天数差，", "两渠道方向相反，", "九月下旬节假日，", "下一级类目与，", "只返回一条月度记录，",
-                  "两期相比，", "两期合计，", "两者之差，", "口径统一、结果一致，是原因之一，", "十分明显，", "第二位，",
-                  "促销折扣带动销量，", "出现转折，", "增长一倍，", "翻番，", "接近半数，", "不支持减半的说法，"):
+    for words in (
+        "两期天数差，",
+        "两渠道方向相反，",
+        "九月下旬节假日，",
+        "下一级类目与，",
+        "只返回一条月度记录，",
+        "两期相比，",
+        "两期合计，",
+        "两者之差，",
+        "口径统一、结果一致，是原因之一，",
+        "十分明显，",
+        "第二位，",
+        "促销折扣带动销量，",
+        "出现转折，",
+        "增长一倍，",
+        "翻番，",
+        "接近半数，",
+        "不支持减半的说法，",
+    ):
         assert check([words, HUADONG])[1]["status"] == "verified", words
 
 
@@ -304,7 +422,8 @@ def test_rule5_plain_dataset_ids_do_not_replace_explicit_or_rendered_refs(kind):
 def test_proposal_and_assumption_only_in_inference_or_recommendation():
     target = cell(match={"区域": "华东"}, role="proposal")
     assert check(["目标 ", target])[1]["problems"] == [
-        "第 2 个片段（D1.成交额[区域=华东]）标为建议目标值（proposal），只能用在推断、建议类结论中"]
+        "第 2 个片段（D1.成交额[区域=华东]）标为建议目标值（proposal），只能用在推断、建议类结论中"
+    ]
     claim, rec, v = check(["把目标定为 ", target], kind="recommendation", validation="下月复盘 3 次")
     assert rec["status"] == "unchecked" and v["ok"] and claim["segments"][1]["role"] == "proposal"
     guess = {"dataset": "D5", "summary": "value"}
@@ -317,29 +436,52 @@ def test_explore_sources_are_marked_and_counted():
     seg = claim["segments"][1]
     assert result["status"] == "verified" and seg["explore"] is True and seg["source"] == "explore"
     assert seg["label"] == "D6 · 客流" and claim["segments"][3]["label"] == "D1 · 成交额 · 区域=华东"
-    assert v["sources"] == {"direct": {"governed": 1, "explore": 1, "calc": 0, "context": 0}, "with_explore": 1,
-                            "assumption": 0, "windows": 0, "labels": 0, "failed": 0}
+    assert v["sources"] == {
+        "direct": {"governed": 1, "explore": 1, "calc": 0, "context": 0},
+        "with_explore": 1,
+        "assumption": 0,
+        "windows": 0,
+        "labels": 0,
+        "failed": 0,
+    }
 
 
 def test_inference_and_details_allow_numbers_and_still_render():
-    claim, result, v = check(["可能约 3 成来自促销，", {"dataset": "D1", "label": "门店", "row": 2}], kind="inference",
-                             premise=["促销力度与上期相近（约 ", cell("成交额·变化率", row=2), "）"])
+    claim, result, v = check(
+        ["可能约 3 成来自促销，", {"dataset": "D1", "label": "门店", "row": 2}],
+        kind="inference",
+        premise=["促销力度与上期相近（约 ", cell("成交额·变化率", row=2), "）"],
+    )
     assert result["status"] == "unchecked" and result["problems"] == [] and v["ok"]
-    assert claim["text"] == "可能约 3 成来自促销，深圳福田中心店" and claim["premise"] == "促销力度与上期相近（约 +20.0%）"
-    assert claim["details"]["premise"]["status"] == "unchecked" and claim["details"]["premise"]["segments"][1]["kind"] == "value"
+    assert (
+        claim["text"] == "可能约 3 成来自促销，深圳福田中心店" and claim["premise"] == "促销力度与上期相近（约 +20.0%）"
+    )
+    assert (
+        claim["details"]["premise"]["status"] == "unchecked"
+        and claim["details"]["premise"]["segments"][1]["kind"] == "value"
+    )
     assert "没有列 不存在" in check(["可能 ", cell("不存在", row=1)], kind="inference")[1]["problems"][0]
 
 
 def test_fields_records_and_overall_status():
-    report = {"title": [{"window": "run_current", "format": "month"}, "华东成交额下降"], "conclusion": "insufficient_evidence",
-              "summary": ["华东成交额 ", HUADONG, "，约 9 成来自线上"], "unexplained": "无",
-              "claims": [{"type": "fact", "parts": ["华东 ", HUADONG]}]}
+    report = {
+        "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"],
+        "conclusion": "insufficient_evidence",
+        "summary": ["华东成交额 ", HUADONG, "，约 9 成来自线上"],
+        "unexplained": "无",
+        "claims": [{"type": "fact", "parts": ["华东 ", HUADONG]}],
+    }
     rendered, v = ground_report(report, DATA, WINDOW)
-    assert rendered["title"] == "2026 年 9 月华东成交额下降" and rendered["summary"] == "华东成交额 196.94万元，约 9 成来自线上"
+    assert (
+        rendered["title"] == "2026 年 9 月华东成交额下降"
+        and rendered["summary"] == "华东成交额 196.94万元，约 9 成来自线上"
+    )
     title = rendered["fields"]["title"]
     assert title["parts"] == report["title"] and title["status"] == "verified" and title["errors"] == []
     assert rendered["fields"]["summary"]["status"] == "unverified"
-    assert v["fields"][1]["problems"] == ["第 3 个片段（文字）出现数字“9”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"]
+    assert v["fields"][1]["problems"] == [
+        "第 3 个片段（文字）出现数字“9”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
+    ]
     assert v["status"] == "failed" and not v["ok"] and v["unverified_fields"] == 1
     report["summary"] = ["华东成交额 ", HUADONG]
     assert ground_report(report, DATA, WINDOW)[1]["status"] == "all_passed"
@@ -350,12 +492,15 @@ def test_fields_records_and_overall_status():
     assert status["status"] == "no_facts" and status["ok"]  # 只有推断：不显示“全部通过”
 
 
-@pytest.mark.parametrize("parts", [
-    [],
-    ["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
-    ["华东成交额 ", HUADONG],
-    ['["保留片段中的数组字符串"]'],
-])
+@pytest.mark.parametrize(
+    "parts",
+    [
+        [],
+        ["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
+        ["华东成交额 ", HUADONG],
+        ['["保留片段中的数组字符串"]'],
+    ],
+)
 def test_render_decodes_json_array_strings_once(parts):
     encoded = " \n" + json.dumps(parts, ensure_ascii=False) + "\t "
     assert render(encoded, DATA, WINDOW) == render(parts, DATA, WINDOW)
@@ -383,22 +528,28 @@ def test_report_fields_decode_json_array_strings_into_text_and_parts(field):
     rendered, verification = ground_report(report, DATA, WINDOW)
     assert rendered[field] == words
     assert rendered["fields"][field] == {
-        "parts": [words], "text": words, "segments": [{"kind": "text", "part": 1, "text": words}],
-        "status": "verified", "errors": [],
+        "parts": [words],
+        "text": words,
+        "segments": [{"kind": "text", "part": 1, "text": words}],
+        "status": "verified",
+        "errors": [],
     }
     assert verification["ok"]
     assert report[field] == encoded
 
 
 @pytest.mark.parametrize("target", ["title", "summary", "unexplained", "method", "fact", "calc"])
-@pytest.mark.parametrize("parts, valid", [
-    (["华东成交额 ", HUADONG], True),
-    (["成交额 ", {"dataset": "D99", "column": "成交额"}], False),
-    (["华东成交额 ", cell("不存在", row=1)], False),
-    (["华东成交额 ", {**HUADONG, "precision": 5}], False),
-    (["下降 9 单"], False),
-    ([["不能递归展开"]], False),
-])
+@pytest.mark.parametrize(
+    "parts, valid",
+    [
+        (["华东成交额 ", HUADONG], True),
+        (["成交额 ", {"dataset": "D99", "column": "成交额"}], False),
+        (["华东成交额 ", cell("不存在", row=1)], False),
+        (["华东成交额 ", {**HUADONG, "precision": 5}], False),
+        (["下降 9 单"], False),
+        ([["不能递归展开"]], False),
+    ],
+)
 def test_json_array_strings_follow_existing_report_verification(target, parts, valid):
     report = {"conclusion": "insufficient_evidence", "claims": []}
     if target in ("fact", "calc"):
@@ -422,16 +573,19 @@ def test_json_array_strings_follow_existing_report_verification(target, parts, v
 
 
 @pytest.mark.parametrize("field", ["title", "summary", "unexplained", "method"])
-@pytest.mark.parametrize("words", [
-    "  华东[线上]订单下降  ",
-    " [线上]订单下降 ",
-    ' ["标题"]后续正文 ',
-    ' ["标题",] ',
-    ' ["未闭合" ',
-    '{"title": ["标题"]}',
-    json.dumps('["多编码两层"]', ensure_ascii=False),
-    "",
-])
+@pytest.mark.parametrize(
+    "words",
+    [
+        "  华东[线上]订单下降  ",
+        " [线上]订单下降 ",
+        ' ["标题"]后续正文 ',
+        ' ["标题",] ',
+        ' ["未闭合" ',
+        '{"title": ["标题"]}',
+        json.dumps('["多编码两层"]', ensure_ascii=False),
+        "",
+    ],
+)
 def test_report_fields_keep_non_array_strings_unchanged(field, words):
     rendered, verification = ground_report({field: words, "conclusion": "insufficient_evidence"}, DATA, WINDOW)
     assert rendered[field] == words
@@ -442,7 +596,12 @@ def test_report_fields_keep_non_array_strings_unchanged(field, words):
 
 
 def test_incomplete_report_is_kept_as_is():
-    report = {"title": "分析未完成", "summary": "分析停止（预算 3 次已用完）", "claims": [], "unexplained": "全部",
-              "incomplete": True}
+    report = {
+        "title": "分析未完成",
+        "summary": "分析停止（预算 3 次已用完）",
+        "claims": [],
+        "unexplained": "全部",
+        "incomplete": True,
+    }
     rendered, v = ground_report(report, DATA, WINDOW)
     assert rendered == report and v["status"] == "no_facts" and v["claims"] == []

@@ -16,6 +16,7 @@ def head(cfg) -> str:
 
     return ScriptDirectory.from_config(cfg).get_current_head()
 
+
 TABLES = {"analysis_task", "analysis_run", "analysis_step", "analysis_dataset", "notification"}
 
 
@@ -28,8 +29,12 @@ def _history(engine) -> tuple[list[dict], dict]:
     with engine.connect() as conn:
         conn = conn.execution_options(isolation_level="REPEATABLE READ")
         with Session(bind=conn) as session:
-            rows = [dict(r) for r in session.execute(text(
-                "SELECT * FROM audit_event WHERE action LIKE 'test.migration.%' ORDER BY action")).mappings()]
+            rows = [
+                dict(r)
+                for r in session.execute(
+                    text("SELECT * FROM audit_event WHERE action LIKE 'test.migration.%' ORDER BY action")
+                ).mappings()
+            ]
             return rows, integrity.verify(session)
 
 
@@ -46,16 +51,29 @@ def test_0008_upgrade_downgrade_upgrade_with_data(meta_db, factory):
         task = AnalysisTask(title="t", question="q", owner_id=uid, window={}, status="active")
         s.add(task)
         s.flush()
-        run = AnalysisRun(user_id=uid, task_id=task.id, question="q", trigger="manual", status="succeeded",
-                          report={"title": "r"})
+        run = AnalysisRun(
+            user_id=uid, task_id=task.id, question="q", trigger="manual", status="succeeded", report={"title": "r"}
+        )
         s.add(run)
         s.flush()
-        ds = AnalysisDataset(run_id=run.id, seq=1, kind="calc", title="D1", inputs=[], columns=["a"], rows=[[1]],
-                             truncated=False, meta={})
+        ds = AnalysisDataset(
+            run_id=run.id,
+            seq=1,
+            kind="calc",
+            title="D1",
+            inputs=[],
+            columns=["a"],
+            rows=[[1]],
+            truncated=False,
+            meta={},
+        )
         s.add(ds)
         s.flush()
-        s.add(AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="derive", args={}, status="ok", output={},
-                           dataset_id=ds.id))
+        s.add(
+            AnalysisStep(
+                run_id=run.id, seq=1, kind="tool", tool="derive", args={}, status="ok", output={}, dataset_id=ds.id
+            )
+        )
         s.add(Notification(user_id=uid, kind="analysis_finished", title="完成", link="/analysis/tasks"))
         for i in range(3):  # 历史审计行：降级、再升级前后内容与哈希链都不能变
             audit.record(s, s.get(User, uid), f"test.migration.{i}", "analysis_run", run.id, step=i)

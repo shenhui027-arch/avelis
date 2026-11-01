@@ -25,19 +25,22 @@ def _settings(admin_password: str):
     return dataclasses.replace(base, env={**base.env, "AVELIS_ADMIN_PASSWORD": admin_password})
 
 
-@pytest.mark.parametrize("host, hostaddr, local", [
-    # 连接实际使用的目标（libpq 解析连接串、服务文件、环境变量、多主机之后）：TCP 看实际 IP
-    ("127.0.0.1", "127.0.0.1", True),
-    ("localhost", "::1", True),
-    ("localhost", "0:0:0:0:0:0:0:1", True),
-    ("127.0.0.2", "127.0.0.2", True),
-    ("localhost", "10.0.0.8", False),  # 名字是 localhost，实际连到了远端（例如被 hostaddr / 服务文件覆盖）
-    ("meta.prod.internal", "10.0.0.8", False),
-    ("/var/run/postgresql", None, True),  # Unix socket
-    ("/var/run/postgresql", "", True),
-    ("meta.prod.internal", None, False),
-    (None, None, False),
-])
+@pytest.mark.parametrize(
+    "host, hostaddr, local",
+    [
+        # 连接实际使用的目标（libpq 解析连接串、服务文件、环境变量、多主机之后）：TCP 看实际 IP
+        ("127.0.0.1", "127.0.0.1", True),
+        ("localhost", "::1", True),
+        ("localhost", "0:0:0:0:0:0:0:1", True),
+        ("127.0.0.2", "127.0.0.2", True),
+        ("localhost", "10.0.0.8", False),  # 名字是 localhost，实际连到了远端（例如被 hostaddr / 服务文件覆盖）
+        ("meta.prod.internal", "10.0.0.8", False),
+        ("/var/run/postgresql", None, True),  # Unix socket
+        ("/var/run/postgresql", "", True),
+        ("meta.prod.internal", None, False),
+        (None, None, False),
+    ],
+)
 def test_local_target_uses_actual_connection_address(host, hostaddr, local):
     assert bootstrap.is_local_target(host, hostaddr) is local
 

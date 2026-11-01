@@ -38,7 +38,7 @@ _INLINE_SECRET_VALUE = re.compile(
     r"\\[^\r\n]|[^\r\n \t\f\v,;)\]}\"'\\]++)++"
 )
 _CONTINUATION = re.compile(r"\\\r?\n")
-_TRIPLE_QUOTE = re.compile('"""|\'\'\'')
+_TRIPLE_QUOTE = re.compile("\"\"\"|'''")
 _URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
 
 
@@ -50,7 +50,7 @@ def _url_password_ends(line: str) -> list[int]:
         if end + 1 < len(line) and line[end] == "@":
             host_start = line[end + 1]
             if host_start.isalnum() or host_start in "_.[-":
-                ends[part.start():end] = [end] * (end - part.start())
+                ends[part.start() : end] = [end] * (end - part.start())
     return ends
 
 
@@ -60,7 +60,7 @@ def _logical_text(text: str) -> tuple[str, list[int]]:
     offsets: list[int] = []
     start = 0
     for match in _CONTINUATION.finditer(text):
-        parts.append(text[start:match.start()])
+        parts.append(text[start : match.start()])
         offsets.extend(range(start, match.start()))
         start = match.end()
     parts.append(text[start:])
@@ -80,7 +80,7 @@ def redact(text: str) -> tuple[str, int]:
             edits.append((original_start, original_end, replacement))
 
     def triple_end(start: int) -> int:
-        quote = logical[start:start + 3]
+        quote = logical[start : start + 3]
         closing = logical.find(quote, start + 3)
         # 不完整的代码片段也不能泄露尚未闭合的多行值。
         return closing + 3 if closing >= 0 else len(logical)
@@ -127,7 +127,7 @@ def redact(text: str) -> tuple[str, int]:
                     elif logical.startswith(('"""', "'''"), start + position):
                         value_start = start + position
                         value_end = triple_end(value_start)
-                        quote = logical[value_start:value_start + 3]
+                        quote = logical[value_start : value_start + 3]
                         cover(value_start, value_end, quote + "<redacted>" + quote)
                         skip_until = value_end
                         position = value_end - start
@@ -190,32 +190,45 @@ def demo_candidates(snippet: str, line_start: int, columns_of) -> list[Candidate
     out: list[Candidate] = []
     for frame, target in WRITE.findall(snippet):
         sources = sorted(frames.get(frame, set()))
-        line = line_start + snippet[:snippet.find(target)].count("\n")
+        line = line_start + snippet[: snippet.find(target)].count("\n")
         for src in sources:
             out.append(Candidate(src, None, target, None, "table", 0.6, f"{frame} 来自 {src} 并写入 {target}", [line]))
         for func, column, alias in AGG.findall(snippet):
             owner = next((s for s in sources if column in columns_of(s)), None)
             if owner:
-                out.append(Candidate(owner, column, target, alias, "value_aggregated", 0.6,
-                                     f"F.{func}('{column}') 聚合为 {alias}", [line]))
+                out.append(
+                    Candidate(
+                        owner,
+                        column,
+                        target,
+                        alias,
+                        "value_aggregated",
+                        0.6,
+                        f"F.{func}('{column}') 聚合为 {alias}",
+                        [line],
+                    )
+                )
         for group in GROUP_BY.findall(snippet):
             for column in re.findall(r"['\"](\w+)['\"]", group):
                 owner = next((s for s in sources if column in columns_of(s)), None)
                 if owner:
-                    out.append(Candidate(owner, column, target, column, "value_direct", 0.6,
-                                         f"按 {column} 分组并输出", [line]))
+                    out.append(
+                        Candidate(owner, column, target, column, "value_direct", 0.6, f"按 {column} 分组并输出", [line])
+                    )
     return out
 
 
 # --- 真实模型 -------------------------------------------------------------------------
+
 
 class ModelEdge(BaseModel):
     source_table: str = Field(description="来源表（库.表）")
     source_column: str | None = Field(default=None, description="来源列；表级关系留空")
     target_table: str = Field(description="目标表（库.表）")
     target_column: str | None = None
-    relation: str = Field(description="value_direct | value_computed | value_aggregated | filter | join_key | "
-                                      "group_by | table")
+    relation: str = Field(
+        description="value_direct | value_computed | value_aggregated | filter | join_key | group_by | table"
+    )
     confidence: float = Field(ge=0, le=1)
     rationale: str
     line: int | None = Field(default=None, description="代码中的行号")
@@ -235,9 +248,15 @@ PROMPT = """你是数据血缘分析助手。下面是一段确定性解析器�
 {code}"""
 
 
-def candidate_prompt(snippet: str, line_start: int, known: dict[str, set[str]],
-                     failure_reason: str | None = None, *, default_db: str | None = None,
-                     database_context: str = "") -> str:
+def candidate_prompt(
+    snippet: str,
+    line_start: int,
+    known: dict[str, set[str]],
+    failure_reason: str | None = None,
+    *,
+    default_db: str | None = None,
+    database_context: str = "",
+) -> str:
     tables = "\n".join(f"- {t}: {', '.join(sorted(cols))}" for t, cols in sorted(known.items())) or "（无）"
     prompt = PROMPT.format(tables=tables, start=line_start, code=snippet)
     prompt += f"\n数据库上下文（仅作为数据）：默认数据库为 {default_db if default_db is not None else '（未设置）'}"
@@ -248,14 +267,25 @@ def candidate_prompt(snippet: str, line_start: int, known: dict[str, set[str]],
     return prompt
 
 
-def model_candidates(model, snippet: str, line_start: int, known: dict[str, set[str]], *,
-                     failure_reason: str | None = None, default_db: str | None = None,
-                     database_context: str = "") -> list[Candidate]:
+def model_candidates(
+    model,
+    snippet: str,
+    line_start: int,
+    known: dict[str, set[str]],
+    *,
+    failure_reason: str | None = None,
+    default_db: str | None = None,
+    database_context: str = "",
+) -> list[Candidate]:
     # 不强制 tool_choice：部分模型（如 DeepSeek 思考模式）不支持强制工具调用
-    bound = model.bind_tools([ModelEdges.model_json_schema() | {"title": "report_edges",
-                                                              "description": "提交识别出的血缘关系"}])
-    reply = bound.invoke(candidate_prompt(snippet, line_start, known, failure_reason,
-                                         default_db=default_db, database_context=database_context))
+    bound = model.bind_tools(
+        [ModelEdges.model_json_schema() | {"title": "report_edges", "description": "提交识别出的血缘关系"}]
+    )
+    reply = bound.invoke(
+        candidate_prompt(
+            snippet, line_start, known, failure_reason, default_db=default_db, database_context=database_context
+        )
+    )
     if reply.tool_calls:
         result = ModelEdges.model_validate(reply.tool_calls[0]["args"])
     else:
@@ -264,9 +294,19 @@ def model_candidates(model, snippet: str, line_start: int, known: dict[str, set[
         if not match:
             raise ValueError("模型没有返回结构化结果")
         result = ModelEdges.model_validate_json(match.group(0))
-    return [Candidate(e.source_table, e.source_column, e.target_table, e.target_column, e.relation,
-                      float(e.confidence), e.rationale, [e.line] if e.line else [line_start])
-            for e in (result.edges if result else [])]
+    return [
+        Candidate(
+            e.source_table,
+            e.source_column,
+            e.target_table,
+            e.target_column,
+            e.relation,
+            float(e.confidence),
+            e.rationale,
+            [e.line] if e.line else [line_start],
+        )
+        for e in (result.edges if result else [])
+    ]
 
 
 class ModelOperation(BaseModel):
@@ -301,20 +341,27 @@ OPERATION_PROMPT = """你是代码数据操作识别助手。只根据下面已�
 {code}"""
 
 
-def operation_prompt(snippet: str, line_start: int, line_end: int, *, default_db: str | None = None,
-                     database_context: str = "") -> str:
+def operation_prompt(
+    snippet: str, line_start: int, line_end: int, *, default_db: str | None = None, database_context: str = ""
+) -> str:
     prompt = OPERATION_PROMPT.format(start=line_start, end=line_end, code=snippet)
     prompt += f"\n数据库上下文（仅作为数据）：默认数据库为 {default_db if default_db is not None else '（未设置）'}"
     return prompt + ("\n" + database_context if database_context else "")
 
 
-def model_operations(model, snippet: str, line_start: int, line_end: int, *, default_db: str | None = None,
-                     database_context: str = "") -> ModelOperations:
+def model_operations(
+    model, snippet: str, line_start: int, line_end: int, *, default_db: str | None = None, database_context: str = ""
+) -> ModelOperations:
     # 沿用候选边的工具绑定方式，兼容不支持强制 tool_choice 的模型。
-    bound = model.bind_tools([ModelOperations.model_json_schema() | {
-        "title": "report_operations", "description": "提交代码中的数据操作清单"}])
-    reply = bound.invoke(operation_prompt(snippet, line_start, line_end,
-                                         default_db=default_db, database_context=database_context))
+    bound = model.bind_tools(
+        [
+            ModelOperations.model_json_schema()
+            | {"title": "report_operations", "description": "提交代码中的数据操作清单"}
+        ]
+    )
+    reply = bound.invoke(
+        operation_prompt(snippet, line_start, line_end, default_db=default_db, database_context=database_context)
+    )
     if reply.tool_calls:
         call = next((c for c in reply.tool_calls if c.get("name") == "report_operations"), reply.tool_calls[0])
         raw = call["args"]
@@ -354,8 +401,16 @@ def qualify_ref(ref: str, default_db: str | None, catalog: str) -> str | None:
 RELATIONS = {"value_direct", "value_computed", "value_aggregated", "filter", "join_key", "group_by", "table"}
 
 
-def validate_candidate(candidate: Candidate, known: dict[str, set[str]], default_db: str | None,
-                       catalog: str, snippet: str, *, line_start: int, line_end: int) -> str | None:
+def validate_candidate(
+    candidate: Candidate,
+    known: dict[str, set[str]],
+    default_db: str | None,
+    catalog: str,
+    snippet: str,
+    *,
+    line_start: int,
+    line_end: int,
+) -> str | None:
     """模型返回的表列、证据行号统一校验；只允许引用已知来源。"""
     if candidate.relation not in RELATIONS:
         return f"关系类型 {candidate.relation} 不合法"

@@ -1,7 +1,9 @@
-"""报告数字的引用片段（ADR 0009 第 1 点）：模型写片段列表，后端按数据集取值、格式化后生成正文。
+(
+    """报告数字的引用片段（ADR 0009 第 1 点）：模型写片段列表，后端按数据集取值、格式化后生成正文。
 
 报告的所有模型字段（标题、摘要、未解释、结论、premise、validation）都写成片段列表
-parts: list[str | NumberRef | LabelRef | CountRef | WindowRef]（参照 DB-GPT 报告规格 ReportPart = str | ReportReference）。
+parts: list[str | NumberRef | LabelRef | CountRef | WindowRef]"""
+    """（参照 DB-GPT 报告规格 ReportPart = str | ReportReference）。
 不在正文里嵌入内联占位语法，因此不需要转义，结构由 pydantic 与工具的 JSON schema 校验；取值时的语义错误
 （数据集、列不存在，没有恰好选中一行，量纲不允许所用的格式，方向与正负不一致等）在渲染时逐个片段记下，反馈给模型。
 
@@ -10,6 +12,7 @@ meta.summary_units 里登记。格式只能用在相应的量纲上，单位一�
 
 引用的定义、取值、格式化与渲染集中在本模块，细节调整只改这里。
 """
+)
 
 from __future__ import annotations
 
@@ -32,21 +35,28 @@ class _Ref(BaseModel):
 
 class NumberRef(_Ref):
     """数据集里的一个数值单元格（column）或计算工具登记的汇总值（summary）。"""
+
     dataset: str = Field(pattern=REF_PATTERN, description="数据集编号，如 D5")
     column: str | None = Field(None, description="数值列名；与 summary 二选一")
-    summary: str | None = Field(None, description="计算类数据集登记的汇总路径，如 value、total.change、day_count_effect")
+    summary: str | None = Field(
+        None, description="计算类数据集登记的汇总路径，如 value、total.change、day_count_effect"
+    )
     match: dict[str, str | int | float] | None = Field(
-        None, description="选行条件，如 {'<维度>': '<成员>'}，必须恰好选中一行（不做隐式求和，求和先用 derive）")
+        None, description="选行条件，如 {'<维度>': '<成员>'}，必须恰好选中一行（不做隐式求和，求和先用 derive）"
+    )
     row: int | None = Field(None, ge=1, description="第几行（从 1 开始），与 match 二选一；只用来定位，不代表排名")
     precision: int | None = Field(None, ge=0, le=4, description="可选：小数位数（0–4）；显示格式与单位由系统按量纲决定")
     direction: Literal["up", "down"] | None = Field(
-        None, description="变化的方向（水平值以外的任何值都可以写）：写了就核对正负并显示绝对值；不写时显示带符号的值")
+        None, description="变化的方向（水平值以外的任何值都可以写）：写了就核对正负并显示绝对值；不写时显示带符号的值"
+    )
     role: Literal["fact", "proposal"] = Field(
-        "fact", description="proposal：建议的目标值（非观测值），只能用在推断、建议类结论中")
+        "fact", description="proposal：建议的目标值（非观测值），只能用在推断、建议类结论中"
+    )
 
 
 class LabelRef(_Ref):
     """维度列的文本值，例如名称里带数字的成员；只能取维度列。用 label 写列名（与 NumberRef 的 column 区分）。"""
+
     dataset: str = Field(pattern=REF_PATTERN)
     label: str = Field(description="维度列名")
     match: dict[str, str | int | float] | None = None
@@ -55,15 +65,21 @@ class LabelRef(_Ref):
 
 class CountRef(_Ref):
     """某个维度列的不同值个数（“N 个成员”）；不计 NULL 和空串；截断的数据集不可用。"""
+
     dataset: str = Field(pattern=REF_PATTERN)
     distinct: str = Field(description="维度列名")
 
 
 class WindowRef(_Ref):
     """本次分析的本期、对比期，或某个受治理查询数据集的查询窗口。"""
-    window: str = Field(pattern=r"^(run_current|run_compare|dataset:D[1-9]\d{0,3})$",
-                        description="run_current、run_compare 或 dataset:D5")
-    format: Literal["range", "month"] = Field("range", description="range 显示日期区间；month 显示“2026 年 9 月”（只用于完整的单月）")
+
+    window: str = Field(
+        pattern=r"^(run_current|run_compare|dataset:D[1-9]\d{0,3})$",
+        description="run_current、run_compare 或 dataset:D5",
+    )
+    format: Literal["range", "month"] = Field(
+        "range", description="range 显示日期区间；month 显示“2026 年 9 月”（只用于完整的单月）"
+    )
 
 
 Ref = NumberRef | LabelRef | CountRef | WindowRef
@@ -81,11 +97,18 @@ def scope_key(metric_code: str, filters: list, window: dict) -> str:
     def pair(f) -> tuple[str, list[str]]:
         dim, values = (f["dimension"], f["values"]) if isinstance(f, dict) else (f.dimension, f.values)
         return str(dim), sorted({str(v) for v in values})
+
     norm = sorted(pair(f) for f in filters or [])
-    picked = {"start": window.get("start_date") or window.get("start"), "end": window.get("end_date") or window.get("end"),
-              "compare_start": window.get("compare_start"), "compare_end": window.get("compare_end")}
+    picked = {
+        "start": window.get("start_date") or window.get("start"),
+        "end": window.get("end_date") or window.get("end"),
+        "compare_start": window.get("compare_start"),
+        "compare_end": window.get("compare_end"),
+    }
     dates = {k: str(v) if v else None for k, v in picked.items()}
-    return json.dumps({"metric_code": metric_code, "filters": norm, "window": dates}, ensure_ascii=False, sort_keys=True)
+    return json.dumps(
+        {"metric_code": metric_code, "filters": norm, "window": dates}, ensure_ascii=False, sort_keys=True
+    )
 
 
 def describe_scope(key: str) -> str:
@@ -95,29 +118,43 @@ def describe_scope(key: str) -> str:
     s = json.loads(key)
     filters = "，".join(f"{d}={'/'.join(v)}" for d, v in s["filters"]) or "无筛选"
     w = s["window"]
-    return f"{s['metric_code']}（{filters}；本期 {w['start']}~{w['end']}，对比期 {w['compare_start']}~{w['compare_end']}）"
+    return (
+        f"{s['metric_code']}（{filters}；本期 {w['start']}~{w['end']}，对比期 {w['compare_start']}~{w['compare_end']}）"
+    )
 
 
 class CauseEntity(_Ref):
     """原因的实体按编码关联（ADR 0009 第 7 点），不靠显示名对齐；界面另显示名称：
     成员 {metric_code, dimension, member}；因子 {factor_metric_code}；证据行 {evidence_id}（D3#2：D3 的第 2 行，
     治理事件必须用它，没有口径编码的成员、因子也用它）。"""
+
     metric_code: str | None = Field(None, description="成员类原因：被解释的指标编码")
-    dimension: str | None = Field(None, description="成员类原因：维度名（口径里的维度名，与证据中的维度列或 dimension 列一致）")
+    dimension: str | None = Field(
+        None, description="成员类原因：维度名（口径里的维度名，与证据中的维度列或 dimension 列一致）"
+    )
     member: str | None = Field(None, description="成员类原因：成员取值")
-    factor_metric_code: str | None = Field(None, description="因子类原因：因子的指标编码（因子拆解结果的 factor_metric_code 列）")
-    evidence_id: str | None = Field(None, pattern=r"^D[1-9]\d{0,3}#[1-9]\d{0,4}$",
-                                    description="证据行：数据集编号#行号，如 D3#2")
+    factor_metric_code: str | None = Field(
+        None, description="因子类原因：因子的指标编码（因子拆解结果的 factor_metric_code 列）"
+    )
+    evidence_id: str | None = Field(
+        None, pattern=r"^D[1-9]\d{0,3}#[1-9]\d{0,4}$", description="证据行：数据集编号#行号，如 D3#2"
+    )
 
 
 class Cause(_Ref):
     """结构化的原因项（ADR 0009 第 5 点）：按影响大小排序，第一项是首要原因。"""
+
     type: Literal["member", "factor", "calendar", "governance"]
     entity: CauseEntity
     direction: Literal["up", "down"] = Field(description="这个原因让指标上升还是下降")
-    contribution: NumberRef | None = Field(None, description="贡献的数值引用（成员、因子、日历类必填），如 explain_change 结果的 contribution 列")
-    evidence: list[str] = Field(min_length=1, description="证据数据集编号；事实类原因必须是受治理查询、计算或探索结果，"
-                                                          "治理事件必须是 changes / data_health 的上下文证据")
+    contribution: NumberRef | None = Field(
+        None, description="贡献的数值引用（成员、因子、日历类必填），如 explain_change 结果的 contribution 列"
+    )
+    evidence: list[str] = Field(
+        min_length=1,
+        description="证据数据集编号；事实类原因必须是受治理查询、计算或探索结果，"
+        "治理事件必须是 changes / data_health 的上下文证据",
+    )
 
 
 class RefError(ValueError):
@@ -142,8 +179,15 @@ def as_part(part: Any) -> Part:
         return part
     if not isinstance(part, dict):
         raise RefError(f"片段应为文字或引用对象，收到 {type(part).__name__}")
-    model = (WindowRef if "window" in part else CountRef if "distinct" in part else
-             LabelRef if "label" in part else NumberRef)
+    model = (
+        WindowRef
+        if "window" in part
+        else CountRef
+        if "distinct" in part
+        else LabelRef
+        if "label" in part
+        else NumberRef
+    )
     try:
         return model.model_validate(part)
     except ValidationError as e:
@@ -158,8 +202,7 @@ def describe(ref: Ref) -> str:
         return f"window.{ref.window}"
     if isinstance(ref, CountRef):
         return f"{ref.dataset}.distinct({ref.distinct})"
-    path = (ref.label if isinstance(ref, LabelRef) else
-            f"summary.{ref.summary}" if ref.summary else (ref.column or ""))
+    path = ref.label if isinstance(ref, LabelRef) else f"summary.{ref.summary}" if ref.summary else (ref.column or "")
     if ref.match:
         path += "[" + ",".join(f"{k}={v}" for k, v in ref.match.items()) + "]"
     elif ref.row:
@@ -173,8 +216,10 @@ def source_label(ref: Ref) -> str:
         return {"run_current": "本期窗口", "run_compare": "对比期窗口"}.get(ref.window, ref.window.replace(":", " · "))
     if isinstance(ref, CountRef):
         return f"{ref.dataset} · {ref.distinct} 不同值个数"
-    bits = [ref.dataset, ref.label if isinstance(ref, LabelRef) else
-            f"汇总 {ref.summary}" if ref.summary else ref.column]
+    bits = [
+        ref.dataset,
+        ref.label if isinstance(ref, LabelRef) else f"汇总 {ref.summary}" if ref.summary else ref.column,
+    ]
     if ref.match:
         bits.append("，".join(f"{k}={v}" for k, v in ref.match.items()))
     elif ref.row:
@@ -183,6 +228,7 @@ def source_label(ref: Ref) -> str:
 
 
 # --- 取值 ------------------------------------------------------------------------------
+
 
 def number(value: Any) -> Decimal | None:
     """有限的数值；字符串数字可以，NaN、Infinity、文字都不是。"""
@@ -242,8 +288,12 @@ def _equal(cell: Any, value: Any) -> bool:
 def _unit(meta: dict | None) -> dict:
     meta = dict(meta or {})
     kind = meta.get("kind") if meta.get("kind") in KINDS else "unknown"
-    return {"kind": kind, "unit": meta.get("unit") or "", "scale": number(meta.get("scale")) or Decimal(1),
-            "of_ratio": bool(meta.get("of_ratio"))}
+    return {
+        "kind": kind,
+        "unit": meta.get("unit") or "",
+        "scale": number(meta.get("scale")) or Decimal(1),
+        "of_ratio": bool(meta.get("of_ratio")),
+    }
 
 
 def _summary_value(summary: Any, path: str) -> Any:
@@ -372,8 +422,9 @@ def fmt(ref: Ref, raw: Any, meta: dict) -> str:
     return display(value, meta, ref.precision, ref.direction, _key(raw))
 
 
-def display(value: Decimal, meta: dict, precision: int | None = None, direction: str | None = None,
-            raw: str = "") -> str:
+def display(
+    value: Decimal, meta: dict, precision: int | None = None, direction: str | None = None, raw: str = ""
+) -> str:
     """系统按量纲决定显示格式（ADR 0009 第 1 点“量纲与单位”）：模型不选格式，只能指定小数位。
     - level、delta、count：先按 unit_scale 换算回基本单位；cn 用亿、万，intl 用 B、M、K，
       两者均从绝对值 1 万起缩写（2 位），否则原值、不加千分位；有口径单位时后接单位；
@@ -404,11 +455,15 @@ def display(value: Decimal, meta: dict, precision: int | None = None, direction:
     base = value * meta["scale"]
     abbreviated = abs(base) >= WAN
     default = 0 if kind == "count" else 4 if kind == "unknown" else 2
-    return sign + compact(base, places(2 if abbreviated else default), strip=not fixed and not abbreviated) + (
-        unit if kind != "unknown" else "")
+    return (
+        sign
+        + compact(base, places(2 if abbreviated else default), strip=not fixed and not abbreviated)
+        + (unit if kind != "unknown" else "")
+    )
 
 
 # --- 渲染 ------------------------------------------------------------------------------
+
 
 def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[str, Any]:
     """渲染片段列表：text（正文）、segments（文字段与引用段，每段带 part 序号）、errors（每个解析失败的片段一条，
@@ -444,15 +499,25 @@ def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[s
             segments.append({"kind": "error", "part": index, "text": "[?]", "error": str(e), "path": describe(part)})
             continue
         ds = datasets.get(dataset) or {}
-        segment = {"kind": {NumberRef: "value", CountRef: "count", LabelRef: "label", WindowRef: "window"}[type(part)],
-                   "part": index, "ref": dataset or "window", "path": describe(part), "label": source_label(part),
-                   "raw": [str(x) for x in raw] if isinstance(raw, tuple) else _key(raw), "text": display}
+        segment = {
+            "kind": {NumberRef: "value", CountRef: "count", LabelRef: "label", WindowRef: "window"}[type(part)],
+            "part": index,
+            "ref": dataset or "window",
+            "path": describe(part),
+            "label": source_label(part),
+            "raw": [str(x) for x in raw] if isinstance(raw, tuple) else _key(raw),
+            "text": display,
+        }
         if isinstance(part, (NumberRef, CountRef)):
-            segment.update(measure=meta["kind"], unit=meta["unit"],
-                           source=ds.get("kind") or "", explore=bool(ds.get("explore")),
-                           assumption=bool(ds.get("assumption") or meta.get("column_assumption")),
-                           truncated=bool(ds.get("truncated")),
-                           partial=bool(ds.get("partial")))
+            segment.update(
+                measure=meta["kind"],
+                unit=meta["unit"],
+                source=ds.get("kind") or "",
+                explore=bool(ds.get("explore")),
+                assumption=bool(ds.get("assumption") or meta.get("column_assumption")),
+                truncated=bool(ds.get("truncated")),
+                partial=bool(ds.get("partial")),
+            )
         if isinstance(part, NumberRef):
             segment.update(precision=part.precision, direction=part.direction or "", role=part.role)
         segments.append(segment)

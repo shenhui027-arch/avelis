@@ -45,23 +45,30 @@ def toolbox(username: str, budget=None):
     run = AnalysisRun(user_id=user.id, question="验收：工具箱", trigger="manual", status="running")
     session.add(run)
     session.flush()
-    box = AnalysisToolbox(session, user, run, service.visible_catalog(session, user, with_values=False),
-                          budget or Budget())
+    box = AnalysisToolbox(
+        session, user, run, service.visible_catalog(session, user, with_values=False), budget or Budget()
+    )
     original_exit = scope.__exit__
 
     def close(*exc):  # 不经过模型的验收运行：结束时标为已停止，不在分析记录里一直显示“进行中”
         if run.status == "running":
             run.status = "stopped"
         return original_exit(*exc)
+
     scope.__exit__ = close
     return scope, session, run, box
 
 
 def grounding_view(ds) -> dict:
     """数据集交给 ground_report 的结构（与 agent.verify 相同）。"""
-    return {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
-            "summary": ds.meta.get("summary"), "truncated": ds.truncated,
-            **{k: ds.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption", "partial")}}
+    return {
+        "kind": ds.kind,
+        "columns": ds.columns,
+        "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
+        "summary": ds.meta.get("summary"),
+        "truncated": ds.truncated,
+        **{k: ds.meta.get(k) for k in ("units", "summary_units", "window", "explore", "assumption", "partial")},
+    }
 
 
 def rows(ds_json: str) -> list[dict]:
@@ -86,8 +93,19 @@ def test_00_setup_ec_domain_and_metrics(stack, admin: Api):
     pw = env["AVELIS_DEMO_USER_PASSWORD"]
     ctx["apis"] = {u: Api(client, u, pw) for u in ("zhang", "li", "wang", "sun")}
     metrics = {m["code"]: m for m in admin.get("/api/metrics")}
-    for code in ("ec_gmv", "ec_orders", "ec_aov", "ec_store_sales", "ec_visitors", "ec_conversion", "ec_roi",
-                 "ec_delivery_hours", "ec_satisfaction", "ec_category_sales", "ec_refund"):
+    for code in (
+        "ec_gmv",
+        "ec_orders",
+        "ec_aov",
+        "ec_store_sales",
+        "ec_visitors",
+        "ec_conversion",
+        "ec_roi",
+        "ec_delivery_hours",
+        "ec_satisfaction",
+        "ec_category_sales",
+        "ec_refund",
+    ):
         assert metrics[code]["versions"][0]["status"] == "published", (code, metrics[code])
     ds = next(d for d in admin.get("/api/datasources") if d["name"] == demo_setup.EC_SOURCE)
     assets = admin.get("/api/assets", params={"datasource_id": ds["id"]})
@@ -100,23 +118,45 @@ def test_00_setup_ec_domain_and_metrics(stack, admin: Api):
 def test_01_governed_query_matches_generated_truth_and_contribution(admin: Api):
     scope, session, run, box = toolbox("wang")
     try:
-        d1 = rows(box.query_metric(metric_codes=["ec_gmv"], start_date=SEP[0], end_date=SEP[1], group_by=["region"],
-                                   filters=[{"dimension": "channel", "values": ["门店"]}], compare="custom",
-                                   compare_start=AUG[0], compare_end=AUG[1], purpose="各区域门店成交额 9 月对比自然月 8 月"))
+        d1 = rows(
+            box.query_metric(
+                metric_codes=["ec_gmv"],
+                start_date=SEP[0],
+                end_date=SEP[1],
+                group_by=["region"],
+                filters=[{"dimension": "channel", "values": ["门店"]}],
+                compare="custom",
+                compare_start=AUG[0],
+                compare_end=AUG[1],
+                purpose="各区域门店成交额 9 月对比自然月 8 月",
+            )
+        )
         by_region = {r["region"]: r for r in d1}
         expected = ctx["truth"]["region_channel_month"]
-        assert Decimal(str(by_region["华南"]["成交额"])) == Decimal(expected[str(("SC", "门店", "2026-09"))]["paid_amount"])
+        assert Decimal(str(by_region["华南"]["成交额"])) == Decimal(
+            expected[str(("SC", "门店", "2026-09"))]["paid_amount"]
+        )
         assert Decimal(str(by_region["华南"]["成交额·对比期"])) == Decimal(
-            expected[str(("SC", "门店", "2026-08"))]["paid_amount"])  # 自定义对比期：自然月 8 月
+            expected[str(("SC", "门店", "2026-08"))]["paid_amount"]
+        )  # 自定义对比期：自然月 8 月
         # 差额拆解的各区域变化相加等于总变化
-        contribution = json.loads(box.contribution(dataset="D1", keys=["region"], current="成交额",
-                                                   previous="成交额·对比期"))
+        contribution = json.loads(
+            box.contribution(dataset="D1", keys=["region"], current="成交额", previous="成交额·对比期")
+        )
         changes = [Decimal(str(r[contribution["columns"].index("change")])) for r in contribution["rows"]]
         assert len(changes) == 4 and sum(changes) == Decimal(str(contribution["summary"]["total"]["change"]))
         # 门店维度下钻：深圳福田中心店 9 月 10 日关店，是华南门店成交额下降最多的门店
-        rows(box.query_metric(metric_codes=["ec_store_sales"], start_date=SEP[0], end_date=SEP[1],
-                                   group_by=["store"], filters=[{"dimension": "region", "values": ["华南"]}],
-                                   compare="previous_period", purpose="华南各门店 9 月对比上一期"))
+        rows(
+            box.query_metric(
+                metric_codes=["ec_store_sales"],
+                start_date=SEP[0],
+                end_date=SEP[1],
+                group_by=["store"],
+                filters=[{"dimension": "region", "values": ["华南"]}],
+                compare="previous_period",
+                purpose="华南各门店 9 月对比上一期",
+            )
+        )
         drill = rows(box.contribution(dataset="D3", keys=["store"], current="门店成交额", previous="门店成交额·上一期"))
         assert drill[0]["store"] == "深圳福田中心店" and Decimal(str(drill[0]["change"])) < 0
         ctx["contribution_ds"] = {"rows": drill}
@@ -127,16 +167,26 @@ def test_01_governed_query_matches_generated_truth_and_contribution(admin: Api):
 def test_02_factor_decomposition_and_daily_gap(admin: Api):
     scope, session, run, box = toolbox("wang")
     try:
-        rows(box.query_metric(metric_codes=["ec_gmv", "ec_orders", "ec_aov"], start_date=SEP[0], end_date=SEP[1],
-                              filters=[{"dimension": "region", "values": ["华东"]}, {"dimension": "channel",
-                                                                                   "values": ["线上"]}],
-                              compare="previous_period", purpose="华东线上成交额 = 订单数 × 客单价"))
-        out = json.loads(box.factor_decompose(dataset="D1", total={"name": "成交额", "current": "成交额",
-                                                                   "previous": "成交额·上一期"},
-                                              factors=[{"name": "订单数", "current": "订单数", "previous": "订单数·上一期",
-                                                        "metric_code": "ec_orders"},
-                                                       {"name": "客单价", "current": "客单价", "previous": "客单价·上一期",
-                                                        "metric_code": "ec_aov"}]))
+        rows(
+            box.query_metric(
+                metric_codes=["ec_gmv", "ec_orders", "ec_aov"],
+                start_date=SEP[0],
+                end_date=SEP[1],
+                filters=[{"dimension": "region", "values": ["华东"]}, {"dimension": "channel", "values": ["线上"]}],
+                compare="previous_period",
+                purpose="华东线上成交额 = 订单数 × 客单价",
+            )
+        )
+        out = json.loads(
+            box.factor_decompose(
+                dataset="D1",
+                total={"name": "成交额", "current": "成交额", "previous": "成交额·上一期"},
+                factors=[
+                    {"name": "订单数", "current": "订单数", "previous": "订单数·上一期", "metric_code": "ec_orders"},
+                    {"name": "客单价", "current": "客单价", "previous": "客单价·上一期", "metric_code": "ec_aov"},
+                ],
+            )
+        )
         assert "error" not in out, out
         factor_rows = [dict(zip(out["columns"], r)) for r in out["rows"]]
         parts = {r["factor"]: r for r in factor_rows}
@@ -147,23 +197,46 @@ def test_02_factor_decomposition_and_daily_gap(admin: Api):
         assert Decimal(str(parts["订单数"]["contribution"])) < 0  # 抖音投放削减：订单数下降是主因
         assert parts["订单数"]["factor_metric_code"] == "ec_orders"  # 原因按编码关联
         # 按日看门店订单：北京 3 家店 9 月 28 日客流计数器故障，门店日视图当天缺这 3 家店
-        daily = rows(box.query_metric(metric_codes=["ec_store_orders"], start_date="2026-09-27", end_date="2026-09-28",
-                                      group_by=["store"], filters=[{"dimension": "city", "values": ["北京"]}],
-                                      time_grain="day", purpose="北京门店按日"))
+        daily = rows(
+            box.query_metric(
+                metric_codes=["ec_store_orders"],
+                start_date="2026-09-27",
+                end_date="2026-09-28",
+                group_by=["store"],
+                filters=[{"dimension": "city", "values": ["北京"]}],
+                time_grain="day",
+                purpose="北京门店按日",
+            )
+        )
         per_day = {d: len([r for r in daily if r["period"] == d]) for d in ("2026-09-27", "2026-09-28")}
         assert per_day == {"2026-09-27": 5, "2026-09-28": 2}
         cover = json.loads(box.coverage(dataset="D3", keys=["store"], start_date="2026-09-27", end_date="2026-09-28"))
         assert cover["summary"]["members_with_gaps"] == 3 and cover["summary"]["missing_total"] == 3
         # 派生数字：排除某家店后的合计由工具从数据集中算出，可被引用、可核验
-        derived = json.loads(box.derive(label="9-27 其余门店订单", formula="total - one", values=[
-            {"name": "total", "dataset": "D3", "column": "门店订单数", "match": {"period": "2026-09-27"}},
-            {"name": "one", "dataset": "D3", "column": "门店订单数",
-             "match": {"period": "2026-09-27", "store": daily[0]["store"]}}]))
+        derived = json.loads(
+            box.derive(
+                label="9-27 其余门店订单",
+                formula="total - one",
+                values=[
+                    {"name": "total", "dataset": "D3", "column": "门店订单数", "match": {"period": "2026-09-27"}},
+                    {
+                        "name": "one",
+                        "dataset": "D3",
+                        "column": "门店订单数",
+                        "match": {"period": "2026-09-27", "store": daily[0]["store"]},
+                    },
+                ],
+            )
+        )
         day = [r for r in daily if r["period"] == "2026-09-27"]
         assert Decimal(str(derived["summary"]["value"])) == sum(Decimal(str(r["门店订单数"])) for r in day) - Decimal(
-            str(next(r for r in day if r["store"] == daily[0]["store"])["门店订单数"]))
-        assert "error" in json.loads(box.derive(label="x", formula="__import__('os')", values=[
-            {"name": "a", "dataset": "D3", "column": "门店订单数"}]))
+            str(next(r for r in day if r["store"] == daily[0]["store"])["门店订单数"])
+        )
+        assert "error" in json.loads(
+            box.derive(
+                label="x", formula="__import__('os')", values=[{"name": "a", "dataset": "D3", "column": "门店订单数"}]
+            )
+        )
         # 同一天按订单为主表的口径不缺：数据缺口来自客流表（靠血缘定位）
         lineage = json.loads(box.lineage(qualified="default_catalog.ec_dw.dws_store_daily"))
         sources = {e["source"] for e in lineage["edges"]}
@@ -179,9 +252,19 @@ def test_02b_explain_change_verdict_and_automatic_factor_decomposition(admin: Ap
     month_total = lambda m: sum(Decimal(v["paid_amount"]) for k, v in t["region_month"].items() if m in k)  # noqa: E731
     scope, session, run, box = toolbox("wang")
     try:
-        out = json.loads(box.dispatch("explain_change", {"metric_code": "ec_gmv", "start_date": SEP[0],
-                                                         "end_date": SEP[1], "compare_start": AUG[0],
-                                                         "compare_end": AUG[1], "dimensions": ["region"]}))
+        out = json.loads(
+            box.dispatch(
+                "explain_change",
+                {
+                    "metric_code": "ec_gmv",
+                    "start_date": SEP[0],
+                    "end_date": SEP[1],
+                    "compare_start": AUG[0],
+                    "compare_end": AUG[1],
+                    "dimensions": ["region"],
+                },
+            )
+        )
         assert "error" not in out, out
         summary = box.datasets()[out["dataset"]].meta["summary"]
         change = month_total("2026-09") - month_total("2026-08")
@@ -197,8 +280,19 @@ def test_02b_explain_change_verdict_and_automatic_factor_decomposition(admin: Ap
         assert Decimal(str(parts["ec_orders"]["contribution"])) < 0  # 订单数下降是负贡献
         # 第 7 点第 9 条：带筛选（华东）时总量、各维度与因子拆解的分母都只取华东，判定按这个范围单独登记
         east = [{"dimension": "region", "values": ["华东"]}]
-        out = json.loads(box.dispatch("explain_change", {"metric_code": "ec_gmv", "start_date": SEP[0], "end_date": SEP[1],
-                                                         "compare_start": AUG[0], "compare_end": AUG[1], "filters": east}))
+        out = json.loads(
+            box.dispatch(
+                "explain_change",
+                {
+                    "metric_code": "ec_gmv",
+                    "start_date": SEP[0],
+                    "end_date": SEP[1],
+                    "compare_start": AUG[0],
+                    "compare_end": AUG[1],
+                    "filters": east,
+                },
+            )
+        )
         assert "error" not in out, out
         summary = box.datasets()[out["dataset"]].meta["summary"]
         ec = lambda m: Decimal(t["region_month"][str(("EC", m))]["paid_amount"])  # noqa: E731
@@ -206,7 +300,9 @@ def test_02b_explain_change_verdict_and_automatic_factor_decomposition(admin: Ap
         assert summary["scanned"] == ["channel"] and summary["scope"]["filters"] == east  # 区域被筛选：不再扫描
         factor = summary["factor_decomposition"]
         ds = box.datasets()[factor["dataset"]]
-        assert sum(Decimal(str(dict(zip(ds.columns, row))["contribution"])) for row in ds.rows) == ec("2026-09") - ec("2026-08")
+        assert sum(Decimal(str(dict(zip(ds.columns, row))["contribution"])) for row in ds.rows) == ec("2026-09") - ec(
+            "2026-08"
+        )
         assert box.explanations[scope_key("ec_gmv", east, summary["scope"])] == summary["conclusion"]
     finally:
         scope.__exit__(None, None, None)
@@ -218,8 +314,9 @@ def test_03_permission_budget_and_verification(admin: Api):
 
     scope, session, run, box = toolbox("sun")  # 孙悦不在电商经营域
     try:
-        denied = json.loads(box.query_metric(metric_codes=["ec_gmv"], start_date=SEP[0], end_date=SEP[1],
-                                             purpose="越权"))
+        denied = json.loads(
+            box.query_metric(metric_codes=["ec_gmv"], start_date=SEP[0], end_date=SEP[1], purpose="越权")
+        )
         assert denied["status"] == "denied" and not box.datasets()
         assert "ec_gmv" not in {m["code"] for m in json.loads(box.search_metrics())["metrics"]}
         assert "error" in json.loads(box.describe_asset(qualified="default_catalog.ec_dw.dws_region_daily"))
@@ -227,22 +324,53 @@ def test_03_permission_budget_and_verification(admin: Api):
         scope.__exit__(None, None, None)
     scope, session, run, box = toolbox("wang", Budget(tool_calls=5, queries=1))  # 其余工具 3 次，2 次留给报告
     try:  # 经统一分发层调用（与模型调用同一路径）：每次尝试都计数
-        rows(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": SEP[0], "end_date": SEP[1],
-                                           "group_by": ["region"], "purpose": "退款"}))
-        again = json.loads(box.dispatch("query_metric", {"metric_codes": ["ec_refund"], "start_date": AUG[0],
-                                                         "end_date": AUG[1], "purpose": "超出查询预算"}))
+        rows(
+            box.dispatch(
+                "query_metric",
+                {
+                    "metric_codes": ["ec_refund"],
+                    "start_date": SEP[0],
+                    "end_date": SEP[1],
+                    "group_by": ["region"],
+                    "purpose": "退款",
+                },
+            )
+        )
+        again = json.loads(
+            box.dispatch(
+                "query_metric",
+                {"metric_codes": ["ec_refund"], "start_date": AUG[0], "end_date": AUG[1], "purpose": "超出查询预算"},
+            )
+        )
         assert "查询额度已用完" in again["error"] and "计算工具与 submit_report 仍可用" in again["error"]
         box.dispatch("search_metrics", {})
         over = json.loads(box.dispatch("search_metrics", {}))
         assert "上限" in over["error"] and box.budget.used_tools == 3  # 工具次数用完
         ds = box.datasets()["D1"]
-        rendered, verification = ground_report({"title": "退款", "summary": "退款", "claims": [
-            {"type": "fact", "parts": ["华南退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "华南"}}]},
-            {"type": "fact", "parts": ["华南退款 1.00"], "refs": ["D1"]},
-            {"type": "fact", "parts": ["西藏退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "西藏"}}]}]},
-            {"D1": grounding_view(ds)}, None)
+        rendered, verification = ground_report(
+            {
+                "title": "退款",
+                "summary": "退款",
+                "claims": [
+                    {
+                        "type": "fact",
+                        "parts": ["华南退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "华南"}}],
+                    },
+                    {"type": "fact", "parts": ["华南退款 1.00"], "refs": ["D1"]},
+                    {
+                        "type": "fact",
+                        "parts": ["西藏退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "西藏"}}],
+                    },
+                ],
+            },
+            {"D1": grounding_view(ds)},
+            None,
+        )
         assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified"]
-        assert rendered["claims"][0]["text"].startswith("华南退款 ") and rendered["claims"][0]["segments"][1]["measure"] == "level"
+        assert (
+            rendered["claims"][0]["text"].startswith("华南退款 ")
+            and rendered["claims"][0]["segments"][1]["measure"] == "level"
+        )
     finally:
         scope.__exit__(None, None, None)
 
@@ -263,16 +391,36 @@ def test_05_export_and_dataset_csv(admin: Api):
 
     scope, session, run, box = toolbox("wang")
     try:
-        d = rows(box.query_metric(metric_codes=["ec_visitors"], start_date=SEP[0], end_date=SEP[1],
-                                  group_by=["district"], purpose="各商圈等级客流"))
+        d = rows(
+            box.query_metric(
+                metric_codes=["ec_visitors"],
+                start_date=SEP[0],
+                end_date=SEP[1],
+                group_by=["district"],
+                purpose="各商圈等级客流",
+            )
+        )
         top = max(d, key=lambda r: Decimal(str(r["进店客流"])))
         ds = box.datasets()["D1"]
-        run.report, run.verification = ground_report({"title": "商圈等级与客流", "summary": "核心商圈客流最高。", "claims": [
-            {"type": "fact", "parts": [{"dataset": "D1", "label": "district", "match": {"district": top["district"]}},
-                                       "客流 ", {"dataset": "D1", "column": "进店客流",
-                                                "match": {"district": top["district"]}}]},
-            {"type": "fact", "parts": ["社区店客流 1"], "refs": ["D1"]}]},
-            {"D1": grounding_view(ds)}, None)
+        run.report, run.verification = ground_report(
+            {
+                "title": "商圈等级与客流",
+                "summary": "核心商圈客流最高。",
+                "claims": [
+                    {
+                        "type": "fact",
+                        "parts": [
+                            {"dataset": "D1", "label": "district", "match": {"district": top["district"]}},
+                            "客流 ",
+                            {"dataset": "D1", "column": "进店客流", "match": {"district": top["district"]}},
+                        ],
+                    },
+                    {"type": "fact", "parts": ["社区店客流 1"], "refs": ["D1"]},
+                ],
+            },
+            {"D1": grounding_view(ds)},
+            None,
+        )
         run.status = "succeeded"
         run_id = run.id
     finally:
@@ -286,7 +434,8 @@ def test_05_export_and_dataset_csv(admin: Api):
     sources = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "csv"}, headers=wang.headers)
     lines = sources.content.decode("utf-8-sig").splitlines()
     assert lines[0].startswith("位置,类型,显示值,来源标签,数据集,取值路径") and any(
-        ",D1,D1.进店客流[district=" in x and ",水平值," in x for x in lines)
+        ",D1,D1.进店客流[district=" in x and ",水平值," in x for x in lines
+    )
     pdf = wang.client.get(f"/api/analysis/runs/{run_id}/export", params={"format": "pdf"}, headers=wang.headers)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and len(pdf.content) > 5000
     csv = wang.client.get(f"/api/analysis/runs/{run_id}/datasets/1/csv", headers=wang.headers)
@@ -300,15 +449,24 @@ def test_06_tasks_pause_and_schedule(admin: Api):
     from avelis.models import AnalysisTask, Job
 
     wang = ctx["apis"]["wang"]
-    task = wang.post("/api/analysis/tasks", {"title": "月度门店成交额归因", "question": "上个月门店成交额为什么变化？",
-                                             "window": {"kind": "last_month"}, "schedule_cron": "0 9 1 * *"},
-                     expect=201)
+    task = wang.post(
+        "/api/analysis/tasks",
+        {
+            "title": "月度门店成交额归因",
+            "question": "上个月门店成交额为什么变化？",
+            "window": {"kind": "last_month"},
+            "schedule_cron": "0 9 1 * *",
+        },
+        expect=201,
+    )
     assert task["status"] == "active" and task["next_run_at"]
-    bad = wang.post("/api/analysis/tasks", {"question": "上个月门店成交额为什么变化？", "schedule_cron": "61 9 * * *"},
-                    expect=422)
+    bad = wang.post(
+        "/api/analysis/tasks", {"question": "上个月门店成交额为什么变化？", "schedule_cron": "61 9 * * *"}, expect=422
+    )
     assert "cron" in json.dumps(bad, ensure_ascii=False)  # 问题合法，拒绝来自 cron 校验
-    leap = wang.post("/api/analysis/tasks", {"question": "闰日复盘：成交额为什么变化？", "schedule_cron": "0 9 29 2 *"},
-                     expect=201)
+    leap = wang.post(
+        "/api/analysis/tasks", {"question": "闰日复盘：成交额为什么变化？", "schedule_cron": "0 9 29 2 *"}, expect=201
+    )
     assert leap["next_run_at"].startswith("2028-02-29")
     wang.patch(f"/api/analysis/tasks/{leap['id']}", {"status": "paused"})
     # 未配置分析模型：手动运行时任务暂停并通知（不静默跳过）
@@ -358,17 +516,23 @@ def assert_grounded(run: dict) -> None:
         if c["status"] == "verified":
             continue
         claim = report["claims"][c["index"]]
-        problems.append(f"结论 #{c['index']}（{c['type']}，引用 {claim.get('refs')}）\n  原文：{claim.get('text')}\n"
-                        f"  片段：{json.dumps(claim.get('parts'), ensure_ascii=False)}\n"
-                        f"  原因：{'；'.join(c.get('problems') or []) or '未知'}")
+        problems.append(
+            f"结论 #{c['index']}（{c['type']}，引用 {claim.get('refs')}）\n  原文：{claim.get('text')}\n"
+            f"  片段：{json.dumps(claim.get('parts'), ensure_ascii=False)}\n"
+            f"  原因：{'；'.join(c.get('problems') or []) or '未知'}"
+        )
     for f in verification.get("fields", []):
         if f["status"] != "verified":
-            problems.append(f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(f.get('problems') or [])}")
+            problems.append(
+                f"字段 {f['field']}\n  原文：{report.get(f['field'])}\n  原因：{'；'.join(f.get('problems') or [])}"
+            )
     for c in verification.get("causes", []):
         if c["status"] != "verified":
             cause = (report.get("causes") or [])[c["index"]]
-            problems.append(f"原因 #{c['index']}：{json.dumps(cause.get('entity') or cause.get('raw'), ensure_ascii=False)}\n"
-                            f"  原因：{'；'.join(c.get('problems') or [])}")
+            problems.append(
+                f"原因 #{c['index']}：{json.dumps(cause.get('entity') or cause.get('raw'), ensure_ascii=False)}\n"
+                f"  原因：{'；'.join(c.get('problems') or [])}"
+            )
     problems += [f"结论类型：{p}" for p in (verification.get("conclusion") or {}).get("problems", [])]
     full = "\n".join(f"{k}: {report.get(k)}" for k in ("title", "summary", "unexplained", "conclusion"))
     message = f"运行 {run['id']} 未全部核实（完整 JSON：{out}）\n" + "\n".join(problems) + f"\n--- 报告字段 ---\n{full}"
@@ -385,8 +549,10 @@ def real_model_question(api: Api, question_id: str) -> tuple[dict, dict]:
     question = {q["id"]: q for q in load_questions()["questions"]}[question_id]
 
     def ask() -> dict:
-        return api.post("/api/analysis/runs?wait=true", {"question": question["question"], "window": question["window"]},
-                        expect=201)
+        return api.post(
+            "/api/analysis/runs?wait=true", {"question": question["question"], "window": question["window"]}, expect=201
+        )
+
     run = ask()
     if transport_error(run):
         run = ask()
@@ -401,12 +567,18 @@ def assert_primary_cause(question: dict, run: dict) -> None:
     assert_grounded(run)  # 来源未通过数为 0；失败时输出完整的未通过项并留存运行 JSON
     result = score(question, run)
     assert result["sources_failed"] == 0 and result["primary_hit"], (
-        result, (run["report"].get("causes") or [])[:3], run["report"].get("conclusion"))
+        result,
+        (run["report"].get("causes") or [])[:3],
+        run["report"].get("conclusion"),
+    )
 
 
 @pytest.mark.llm
 def test_07_real_model_finds_planted_cause(stack, admin: Api):
-    """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？预埋原因：深圳福田中心店 9 月 10 日关店（评测题 d01）。"""
+    (
+        """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？"""
+        """预埋原因：深圳福田中心店 9 月 10 日关店（评测题 d01）。"""
+    )
     from avelis.bootstrap import model_from_env
 
     model_from_env()
@@ -428,6 +600,7 @@ def test_08_real_model_online_orders_cause(admin: Api):
     """华东 9 月线上订单为什么下降？预埋原因：抖音投放 9 月起削减 60%（评测题 d02）。"""
     question, run = real_model_question(ctx["apis"]["wang"], "d02")
     assert_primary_cause(question, run)
-    pdf = ctx["apis"]["wang"].client.get(f"/api/analysis/runs/{run['id']}/export", params={"format": "pdf"},
-                                         headers=ctx["apis"]["wang"].headers)
+    pdf = ctx["apis"]["wang"].client.get(
+        f"/api/analysis/runs/{run['id']}/export", params={"format": "pdf"}, headers=ctx["apis"]["wang"].headers
+    )
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")

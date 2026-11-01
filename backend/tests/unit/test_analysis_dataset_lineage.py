@@ -21,6 +21,7 @@ def test_explore_saves_bound_upstream_asset_ids(monkeypatch):
 
         def bound(catalog, db, name):
             return replace(resolve(catalog, db, name), upstream=(("root-z", "vz"), ("root-a", "va")))
+
         return bound
 
     monkeypatch.setattr(exploration, "resolver", resolver)
@@ -31,15 +32,34 @@ def test_explore_saves_bound_upstream_asset_ids(monkeypatch):
 @pytest.mark.parametrize("revoked", ["historical", "current"])
 def test_changed_view_checks_historical_and_current_upstream(dataset_db, revoked):
     session, user, run, dataset, view, _, _ = dataset_db
-    historical = Asset(id="historical", datasource_id="source", kind="table", catalog_name="local",
-                       db_name="data", name="historical", domain_id="visible")
-    current = Asset(id="current", datasource_id="source", kind="table", catalog_name="local",
-                    db_name="data", name="current", domain_id="visible")
+    historical = Asset(
+        id="historical",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="historical",
+        domain_id="visible",
+    )
+    current = Asset(
+        id="current",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="current",
+        domain_id="visible",
+    )
     view.kind = "view"
     dataset.kind = "explore"
     dataset.meta = {"tables": [{"asset_id": view.id}], "upstream_asset_ids": [historical.id]}
-    edge = LineageEdge(origin="manual", target_asset_id=view.id, source_asset_id=historical.id,
-                       source_ref="local.data.historical", relation="value")
+    edge = LineageEdge(
+        origin="manual",
+        target_asset_id=view.id,
+        source_asset_id=historical.id,
+        source_ref="local.data.historical",
+        relation="value",
+    )
     session.add_all([historical, current, edge])
     session.commit()
     assert can_read_dataset(session, user, dataset)
@@ -57,13 +77,30 @@ def test_changed_view_checks_historical_and_current_upstream(dataset_db, revoked
 
 def test_legacy_explore_checks_current_upstream_without_snapshot(dataset_db):
     session, user, _, dataset, view, _, _ = dataset_db
-    current = Asset(id="current", datasource_id="source", kind="table", catalog_name="local",
-                    db_name="data", name="current", domain_id="visible")
+    current = Asset(
+        id="current",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="current",
+        domain_id="visible",
+    )
     view.kind = "view"
     dataset.kind = "explore"
     dataset.meta = {"tables": [{"asset_id": view.id}]}
-    session.add_all([current, LineageEdge(origin="manual", target_asset_id=view.id, source_asset_id=current.id,
-                                         source_ref="local.data.current", relation="value")])
+    session.add_all(
+        [
+            current,
+            LineageEdge(
+                origin="manual",
+                target_asset_id=view.id,
+                source_asset_id=current.id,
+                source_ref="local.data.current",
+                relation="value",
+            ),
+        ]
+    )
     session.commit()
     assert can_read_dataset(session, user, dataset)
     current.domain_id = "hidden"

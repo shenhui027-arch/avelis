@@ -49,16 +49,16 @@ def migrate() -> None:
     with lock_engine.connect() as connection:
         connection = connection.execution_options(isolation_level="AUTOCOMMIT")
         try:
-            connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
-                               {"key": MIGRATION_LOCK_KEY})
+            connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), {"key": MIGRATION_LOCK_KEY})
             try:
                 command.upgrade(alembic_config(), "head")
                 from avelis.ask.agent import graph
 
                 graph()  # 在请求事务之外建好智能体会话状态表，见 devtools.reset_metadata_db
             finally:
-                connection.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
-                                   {"key": MIGRATION_LOCK_KEY})
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), {"key": MIGRATION_LOCK_KEY}
+                )
         except BaseException:
             connection.invalidate()
             raise
@@ -85,17 +85,27 @@ def init_admin() -> str | None:
         raise InitialAdminError("未配置 AVELIS_INITIAL_ADMIN_PASSWORD，未创建初始管理员")
     validate_initial_admin_password(username, password)
     with session_scope() as session:
-        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                        {"key": "avelis:bootstrap:init-admin"})
-        existing = session.scalar(select(User.id).join(UserRole, UserRole.user_id == User.id)
-                                  .where(User.is_active.is_(True), UserRole.role == "admin").limit(1))
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "avelis:bootstrap:init-admin"}
+        )
+        existing = session.scalar(
+            select(User.id)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(User.is_active.is_(True), UserRole.role == "admin")
+            .limit(1)
+        )
         if existing is not None:
             print("已存在管理员，跳过")
             return None
         if session.scalar(select(User.id).where(User.username == username)) is not None:
             raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
-        user = User(username=username, display_name="管理员", password_hash=hash_password(password),
-                    is_active=True, must_change_password=True)
+        user = User(
+            username=username,
+            display_name="管理员",
+            password_hash=hash_password(password),
+            is_active=True,
+            must_change_password=True,
+        )
         session.add(user)
         session.flush()
         session.add(UserRole(user_id=user.id, role="admin"))
@@ -105,8 +115,9 @@ def init_admin() -> str | None:
     return user_id
 
 
-def ensure_admin(username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员", *,
-                 superadmin: bool = True) -> str:
+def ensure_admin(
+    username: str = AUTOMATION_ADMIN, display_name: str = "自动化管理员", *, superadmin: bool = True
+) -> str:
     """自动化管理员（演示准备、验收脚本用）；superadmin=True 时同时补齐本地超级管理员。"""
     password = get_settings().env.get("AVELIS_DEMO_USER_PASSWORD", "")
     if len(password) < 8:
@@ -201,10 +212,14 @@ def model_operator() -> str:
         return ensure_admin(superadmin=False)  # 登记模型不需要本地超级管理员
     preferred = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "").strip() or "admin"
     with session_scope() as session:
-        admins = (select(User).join(UserRole, UserRole.user_id == User.id)
-                  .where(UserRole.role == "admin", User.is_active.is_(True)))
-        admin = (session.scalar(admins.where(User.username == preferred))
-                 or session.scalar(admins.order_by(User.created_at, User.id).limit(1)))
+        admins = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(UserRole.role == "admin", User.is_active.is_(True))
+        )
+        admin = session.scalar(admins.where(User.username == preferred)) or session.scalar(
+            admins.order_by(User.created_at, User.id).limit(1)
+        )
         if admin is None:
             raise SystemExit("没有可用的管理员：先执行 python -m avelis.bootstrap init-admin 创建首个管理员")
         return admin.id
@@ -216,8 +231,9 @@ def model_from_env() -> str:
     from avelis.models import ModelProvider
 
     env = get_settings().env
-    provider, name, key = (env.get(k, "").strip() for k in ("AVELIS_MODEL_PROVIDER", "AVELIS_MODEL_NAME",
-                                                            "AVELIS_MODEL_API_KEY"))
+    provider, name, key = (
+        env.get(k, "").strip() for k in ("AVELIS_MODEL_PROVIDER", "AVELIS_MODEL_NAME", "AVELIS_MODEL_API_KEY")
+    )
     if not (provider and name and key):
         raise SystemExit("缺少 AVELIS_MODEL_PROVIDER / AVELIS_MODEL_NAME / AVELIS_MODEL_API_KEY")
     admin_id = model_operator()
@@ -226,14 +242,28 @@ def model_from_env() -> str:
         p = session.scalar(select(ModelProvider).where(ModelProvider.code == "env-default"))
         kind = "anthropic" if provider == "anthropic" else "openai_compatible"
         if p is None:
-            p = modelcfg.create_provider(session, admin, code="env-default", preset="custom",
-                                         name=f"{provider}（来自配置）", kind=kind,
-                                         base_url=env.get("AVELIS_MODEL_BASE_URL") or None, api_key=key,
-                                         models=[{"id": name, "enabled": True}])
+            p = modelcfg.create_provider(
+                session,
+                admin,
+                code="env-default",
+                preset="custom",
+                name=f"{provider}（来自配置）",
+                kind=kind,
+                base_url=env.get("AVELIS_MODEL_BASE_URL") or None,
+                api_key=key,
+                models=[{"id": name, "enabled": True}],
+            )
         modelcfg.check(session, admin, p.id, name)
-        modelcfg.save_settings(session, admin, {"ask": {"provider_id": p.id, "model_id": name},
-                                                "import": {"provider_id": p.id, "model_id": name},
-                                                "analysis": {"provider_id": p.id, "model_id": name}}, None)
+        modelcfg.save_settings(
+            session,
+            admin,
+            {
+                "ask": {"provider_id": p.id, "model_id": name},
+                "import": {"provider_id": p.id, "model_id": name},
+                "analysis": {"provider_id": p.id, "model_id": name},
+            },
+            None,
+        )
         return p.id
 
 
@@ -286,8 +316,18 @@ def main(argv: list[str]) -> None:
                 session.rollback()
                 session.close()
             with session_scope() as session:
-                audit.record(session, None, "history.verify", "history", None, ok=report["ok"], via="cli",
-                             issue_count=report["issue_count"], head=report["head"], first_break=report["first_break"])
+                audit.record(
+                    session,
+                    None,
+                    "history.verify",
+                    "history",
+                    None,
+                    ok=report["ok"],
+                    via="cli",
+                    issue_count=report["issue_count"],
+                    head=report["head"],
+                    first_break=report["first_break"],
+                )
             print(json.dumps(report, ensure_ascii=False, indent=1))
             raise SystemExit(0 if report["ok"] else 1)
         elif cmd == "purge-history":
@@ -312,8 +352,11 @@ def main(argv: list[str]) -> None:
             ensure_admin()
             ready = ensure_superadmin(reset_password=True)
             print(f"自动化管理员 {AUTOMATION_ADMIN} 已就绪（密码见 .env 的 AVELIS_DEMO_USER_PASSWORD，未打印）")
-            print(f"超级管理员 {SUPERADMIN} 已就绪，拥有全部角色（密码见 .env 的 AVELIS_ADMIN_PASSWORD，未打印）" if ready
-                  else "未配置 AVELIS_ADMIN_PASSWORD，未创建超级管理员 admin")
+            print(
+                f"超级管理员 {SUPERADMIN} 已就绪，拥有全部角色（密码见 .env 的 AVELIS_ADMIN_PASSWORD，未打印）"
+                if ready
+                else "未配置 AVELIS_ADMIN_PASSWORD，未创建超级管理员 admin"
+            )
         else:
             print(__doc__)
             raise SystemExit(2)

@@ -42,9 +42,14 @@ def rendered_result(box, ref, *, claim_type="calc", direction=None):
         for key, ds in box.datasets().items()
     }
     return ground_report(
-        {"title": "派生计算", "summary": "结果见计算结论", "conclusion": "insufficient_evidence",
-         "claims": [{"type": claim_type, "parts": [
-             "结果为", {"dataset": ref, "summary": "value", "direction": direction}]}]},
+        {
+            "title": "派生计算",
+            "summary": "结果见计算结论",
+            "conclusion": "insufficient_evidence",
+            "claims": [
+                {"type": claim_type, "parts": ["结果为", {"dataset": ref, "summary": "value", "direction": direction}]}
+            ],
+        },
         datasets,
         None,
     )
@@ -52,12 +57,17 @@ def rendered_result(box, ref, *, claim_type="calc", direction=None):
 
 def test_period_difference_retains_registered_unit_and_renders_as_delta(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, ["本期", "前期"], ["10412", "9000"],
-                 {name: {"kind": "level", "unit": "单"} for name in ("本期", "前期")})
-    result, unit = derive(box, "sep - aug", [
-        {"name": "sep", "dataset": ref, "column": "本期"},
-        {"name": "aug", "dataset": ref, "column": "前期"},
-    ])
+    ref = source(
+        box, ["本期", "前期"], ["10412", "9000"], {name: {"kind": "level", "unit": "单"} for name in ("本期", "前期")}
+    )
+    result, unit = derive(
+        box,
+        "sep - aug",
+        [
+            {"name": "sep", "dataset": ref, "column": "本期"},
+            {"name": "aug", "dataset": ref, "column": "前期"},
+        ],
+    )
     assert Decimal(result["summary"]["value"]) == Decimal("1412")
     assert unit == {"kind": "delta", "unit": "单"}
     report, verification = rendered_result(box, result["dataset"], direction="up")
@@ -67,11 +77,10 @@ def test_period_difference_retains_registered_unit_and_renders_as_delta(monkeypa
 
 def test_ratio_of_nested_same_unit_differences_renders_as_percentage(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, list("abcd"), ["1843", "1000", "3000", "2000"],
-                 dict.fromkeys("abcd", {"kind": "level", "unit": "单"}))
-    result, unit = derive(box, "(a - b) / (c - d)", [
-        {"name": name, "dataset": ref, "column": name} for name in "abcd"
-    ])
+    ref = source(
+        box, list("abcd"), ["1843", "1000", "3000", "2000"], dict.fromkeys("abcd", {"kind": "level", "unit": "单"})
+    )
+    result, unit = derive(box, "(a - b) / (c - d)", [{"name": name, "dataset": ref, "column": name} for name in "abcd"])
     assert Decimal(result["summary"]["value"]) == Decimal("0.843")
     assert unit == {"kind": "ratio"}
     report, verification = rendered_result(box, result["dataset"])
@@ -81,16 +90,25 @@ def test_ratio_of_nested_same_unit_differences_renders_as_percentage(monkeypatch
 
 def test_ratio_with_zero_minus_registered_delta_matches_observed_formula(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, ["前期水平", "本期水平", "线上变化"], ["10000", "9157", "-1000"], {
-        "前期水平": {"kind": "level", "unit": "单"},
-        "本期水平": {"kind": "level", "unit": "单"},
-        "线上变化": {"kind": "delta", "unit": "单"},
-    })
-    result, unit = derive(box, "(aug - sep) / (0 - online_change)", [
-        {"name": "aug", "dataset": ref, "column": "前期水平"},
-        {"name": "sep", "dataset": ref, "column": "本期水平"},
-        {"name": "online_change", "dataset": ref, "column": "线上变化"},
-    ])
+    ref = source(
+        box,
+        ["前期水平", "本期水平", "线上变化"],
+        ["10000", "9157", "-1000"],
+        {
+            "前期水平": {"kind": "level", "unit": "单"},
+            "本期水平": {"kind": "level", "unit": "单"},
+            "线上变化": {"kind": "delta", "unit": "单"},
+        },
+    )
+    result, unit = derive(
+        box,
+        "(aug - sep) / (0 - online_change)",
+        [
+            {"name": "aug", "dataset": ref, "column": "前期水平"},
+            {"name": "sep", "dataset": ref, "column": "本期水平"},
+            {"name": "online_change", "dataset": ref, "column": "线上变化"},
+        ],
+    )
     assert unit == {"kind": "ratio"}
     assert not box.datasets()[result["dataset"]].meta["assumption"]
     report, verification = rendered_result(box, result["dataset"])
@@ -101,12 +119,22 @@ def test_ratio_with_zero_minus_registered_delta_matches_observed_formula(monkeyp
 @pytest.mark.parametrize("formula", ["r * x", "x * r"])
 def test_registered_nested_summary_ratio_times_level_preserves_unit(kind, formula, monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, ["水平"], ["2000"], {"水平": {"kind": "level", "unit": "单"}},
-                 summary={"nested": {"ratio": "0.843"}}, summary_units={"nested.ratio": {"kind": kind}})
-    result, unit = derive(box, formula, [
-        {"name": "r", "dataset": ref, "summary": "nested.ratio"},
-        {"name": "x", "dataset": ref, "column": "水平"},
-    ])
+    ref = source(
+        box,
+        ["水平"],
+        ["2000"],
+        {"水平": {"kind": "level", "unit": "单"}},
+        summary={"nested": {"ratio": "0.843"}},
+        summary_units={"nested.ratio": {"kind": kind}},
+    )
+    result, unit = derive(
+        box,
+        formula,
+        [
+            {"name": "r", "dataset": ref, "summary": "nested.ratio"},
+            {"name": "x", "dataset": ref, "column": "水平"},
+        ],
+    )
     assert unit == {"kind": "level", "unit": "单"}
     report, verification = rendered_result(box, result["dataset"])
     assert report["claims"][0]["text"] == "结果为1686单" and verification["ok"]
@@ -116,19 +144,32 @@ def test_registered_nested_summary_ratio_times_level_preserves_unit(kind, formul
 def test_input_scale_is_applied_once_and_not_reapplied_to_chained_summary(selection, monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     scaled = {"kind": "level", "unit": "单", "scale": "1000"}
-    ref = source(box, ["本期", "前期"], ["1.899", "487"],
-                 {"本期": scaled, "前期": {"kind": "level", "unit": "单"}},
-                 summary={"period": {"current": "1.899"}}, summary_units={"period.current": scaled})
+    ref = source(
+        box,
+        ["本期", "前期"],
+        ["1.899", "487"],
+        {"本期": scaled, "前期": {"kind": "level", "unit": "单"}},
+        summary={"period": {"current": "1.899"}},
+        summary_units={"period.current": scaled},
+    )
     current = {"column": "本期"} if selection == "column" else {"summary": "period.current"}
-    result, unit = derive(box, "sep - aug", [
-        {"name": "sep", "dataset": ref, **current},
-        {"name": "aug", "dataset": ref, "column": "前期"},
-    ])
+    result, unit = derive(
+        box,
+        "sep - aug",
+        [
+            {"name": "sep", "dataset": ref, **current},
+            {"name": "aug", "dataset": ref, "column": "前期"},
+        ],
+    )
     assert Decimal(result["summary"]["value"]) == Decimal("1412")
     assert unit == {"kind": "delta", "unit": "单"}
-    chained, chained_unit = derive(box, "x + 0", [
-        {"name": "x", "dataset": result["dataset"], "summary": "value"},
-    ])
+    chained, chained_unit = derive(
+        box,
+        "x + 0",
+        [
+            {"name": "x", "dataset": result["dataset"], "summary": "value"},
+        ],
+    )
     assert Decimal(chained["summary"]["value"]) == Decimal("1412")
     assert chained_unit == unit
     report, verification = rendered_result(box, chained["dataset"])
@@ -138,34 +179,52 @@ def test_input_scale_is_applied_once_and_not_reapplied_to_chained_summary(select
 def test_unregistered_column_units_are_not_guessed_from_labels(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     ref = source(box, ["订单数", "订单数·对比期"], ["2000", "1000"], {})
-    result, unit = derive(box, "sep - aug", [
-        {"name": "sep", "dataset": ref, "column": "订单数"},
-        {"name": "aug", "dataset": ref, "column": "订单数·对比期"},
-    ])
+    result, unit = derive(
+        box,
+        "sep - aug",
+        [
+            {"name": "sep", "dataset": ref, "column": "订单数"},
+            {"name": "aug", "dataset": ref, "column": "订单数·对比期"},
+        ],
+    )
     assert unit == {"kind": "unknown"}
     report, verification = rendered_result(box, result["dataset"])
     assert report["claims"][0]["text"] == "结果为1000" and verification["ok"]
 
 
-@pytest.mark.parametrize("selection, problem", [
-    ({"summary": "hidden"}, "没有登记汇总路径"),
-    ({"summary": "missing"}, "汇总里没有"),
-    ({"summary": "nested.value", "match": {"分类": "甲"}}, "汇总值不能带 match 或 exclude"),
-    ({"summary": "nested.value", "exclude": {"分类": "甲"}}, "汇总值不能带 match 或 exclude"),
-    ({"column": "数值", "summary": "nested.value"}, "column 与 summary 必须且只能写一个"),
-    ({}, "column 与 summary 必须且只能写一个"),
-    ({"column": "缺失列"}, "没有列"),
-    ({"column": "数值", "match": {"分类": "乙"}}, "没有选出行"),
-])
+@pytest.mark.parametrize(
+    "selection, problem",
+    [
+        ({"summary": "hidden"}, "没有登记汇总路径"),
+        ({"summary": "missing"}, "汇总里没有"),
+        ({"summary": "nested.value", "match": {"分类": "甲"}}, "汇总值不能带 match 或 exclude"),
+        ({"summary": "nested.value", "exclude": {"分类": "甲"}}, "汇总值不能带 match 或 exclude"),
+        ({"column": "数值", "summary": "nested.value"}, "column 与 summary 必须且只能写一个"),
+        ({}, "column 与 summary 必须且只能写一个"),
+        ({"column": "缺失列"}, "没有列"),
+        ({"column": "数值", "match": {"分类": "乙"}}, "没有选出行"),
+    ],
+)
 def test_invalid_input_selection_is_rejected_without_creating_dataset(selection, problem, monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, ["数值", "分类"], ["1899", "甲"], {"数值": {"kind": "level", "unit": "单"}},
-                 summary={"nested": {"value": "1899"}, "hidden": "1899"},
-                 summary_units={"nested.value": {"kind": "level", "unit": "单"},
-                                "missing": {"kind": "level", "unit": "单"}})
-    result = json.loads(box.dispatch("derive", {
-        "label": "无效输入", "formula": "x", "values": [{"name": "x", "dataset": ref, **selection}],
-    }))
+    ref = source(
+        box,
+        ["数值", "分类"],
+        ["1899", "甲"],
+        {"数值": {"kind": "level", "unit": "单"}},
+        summary={"nested": {"value": "1899"}, "hidden": "1899"},
+        summary_units={"nested.value": {"kind": "level", "unit": "单"}, "missing": {"kind": "level", "unit": "单"}},
+    )
+    result = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "无效输入",
+                "formula": "x",
+                "values": [{"name": "x", "dataset": ref, **selection}],
+            },
+        )
+    )
     assert problem in result["error"]
     assert list(box.datasets()) == [ref]
 
@@ -173,11 +232,19 @@ def test_invalid_input_selection_is_rejected_without_creating_dataset(selection,
 @pytest.mark.parametrize("value", [None, "NaN", "Infinity", "不是数字"])
 def test_registered_summary_must_still_be_a_finite_number(value, monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    ref = source(box, ["数值"], ["1"], {}, summary={"value": value},
-                 summary_units={"value": {"kind": "level", "unit": "单"}})
-    result = json.loads(box.dispatch("derive", {
-        "label": "无效汇总", "formula": "x", "values": [{"name": "x", "dataset": ref, "summary": "value"}],
-    }))
+    ref = source(
+        box, ["数值"], ["1"], {}, summary={"value": value}, summary_units={"value": {"kind": "level", "unit": "单"}}
+    )
+    result = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "无效汇总",
+                "formula": "x",
+                "values": [{"name": "x", "dataset": ref, "summary": "value"}],
+            },
+        )
+    )
     assert "不是有限数值" in result["error"]
     assert list(box.datasets()) == [ref]
 

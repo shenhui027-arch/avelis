@@ -35,8 +35,13 @@ class EffectiveGrain:
     note: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"columns": self.columns, "origin": self.origin, "status": self.status,
-                "grain_id": self.grain_id, "note": self.note}
+        return {
+            "columns": self.columns,
+            "origin": self.origin,
+            "status": self.status,
+            "grain_id": self.grain_id,
+            "note": self.note,
+        }
 
 
 @dataclass
@@ -49,8 +54,9 @@ class Cardinality:
         return self.value in ("1n", "nn", "unknown")
 
 
-def effective_grains(session: Session, asset_id: str, fingerprints: dict[tuple[str, str], str] | None = None,
-                     _depth: int = 0) -> list[EffectiveGrain]:
+def effective_grains(
+    session: Session, asset_id: str, fingerprints: dict[tuple[str, str], str] | None = None, _depth: int = 0
+) -> list[EffectiveGrain]:
     asset = session.get(Asset, asset_id)
     if asset is None or asset.status != "active" or _depth > 8:
         return []
@@ -62,19 +68,28 @@ def effective_grains(session: Session, asset_id: str, fingerprints: dict[tuple[s
         if g.origin == "declared" and fingerprints is not None:
             stale = [c for c in g.columns if fingerprints.get((asset_id, c)) != g.column_fingerprints.get(c)]
             if stale:
-                grains.append(EffectiveGrain(g.columns, g.origin, "stale", g.id,
-                                             Msg("键列推导已变化：{columns}，需重新声明", columns=", ".join(stale))))
+                grains.append(
+                    EffectiveGrain(
+                        g.columns,
+                        g.origin,
+                        "stale",
+                        g.id,
+                        Msg("键列推导已变化：{columns}，需重新声明", columns=", ".join(stale)),
+                    )
+                )
                 continue
         grains.append(EffectiveGrain(list(g.columns), g.origin, g.status, g.id, g.reason))
 
     if asset.kind in ("external_table", "catalog_table"):
-        link = session.scalar(select(IdentityLink).where(IdentityLink.source_asset_id == asset_id,
-                                                         IdentityLink.superseded_at.is_(None)))
+        link = session.scalar(
+            select(IdentityLink).where(IdentityLink.source_asset_id == asset_id, IdentityLink.superseded_at.is_(None))
+        )
         if link and link.status == "confirmed" and link.target_asset_id:
             for g in effective_grains(session, link.target_asset_id, fingerprints, _depth + 1):
                 if g.status in USABLE:
-                    grains.append(EffectiveGrain(g.columns, "linked", g.status, g.grain_id,
-                                                 Msg("经身份映射继承他库表的键")))
+                    grains.append(
+                        EffectiveGrain(g.columns, "linked", g.status, g.grain_id, Msg("经身份映射继承他库表的键"))
+                    )
 
     if asset.kind == "view" and asset.current_version_id:
         grains.extend(_passthrough(session, asset, fingerprints, _depth))
@@ -85,8 +100,11 @@ def _passthrough(session: Session, asset: Asset, fingerprints, depth: int) -> li
     definition = session.scalar(select(Definition).where(Definition.asset_version_id == asset.current_version_id))
     if definition is None:
         return []
-    parse = session.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id,
-                                                     ParseResult.parser_version == PARSER_VERSION))
+    parse = session.scalar(
+        select(ParseResult).where(
+            ParseResult.definition_id == definition.id, ParseResult.parser_version == PARSER_VERSION
+        )
+    )
     passthrough = (parse.details or {}).get("passthrough") if parse else None
     if not passthrough:
         return []
@@ -104,8 +122,15 @@ def _passthrough(session: Session, asset: Asset, fingerprints, depth: int) -> li
     out = []
     for g in effective_grains(session, base.id, fingerprints, depth + 1):
         if g.status in USABLE and all(c in mapping for c in g.columns):
-            out.append(EffectiveGrain([mapping[c] for c in g.columns], "passthrough", g.status, g.grain_id,
-                                      Msg("透传自 {table}", table=f"{base.db_name}.{base.name}")))
+            out.append(
+                EffectiveGrain(
+                    [mapping[c] for c in g.columns],
+                    "passthrough",
+                    g.status,
+                    g.grain_id,
+                    Msg("透传自 {table}", table=f"{base.db_name}.{base.name}"),
+                )
+            )
     return out
 
 
@@ -127,9 +152,15 @@ def covers(columns: list[str], grains: list[EffectiveGrain]) -> EffectiveGrain |
     return None
 
 
-def cardinality(session: Session, left_asset_id: str, left_columns: list[str], right_asset_id: str,
-                right_columns: list[str], fingerprints=None, right_grains: list[EffectiveGrain] | None = None
-                ) -> Cardinality:
+def cardinality(
+    session: Session,
+    left_asset_id: str,
+    left_columns: list[str],
+    right_asset_id: str,
+    right_columns: list[str],
+    fingerprints=None,
+    right_grains: list[EffectiveGrain] | None = None,
+) -> Cardinality:
     rg = right_grains if right_grains is not None else effective_grains(session, right_asset_id, fingerprints)
     lg = effective_grains(session, left_asset_id, fingerprints)
     right_unique = covers(right_columns, rg)
@@ -159,6 +190,12 @@ def resolve_qualified(session: Session, datasource_id: str, qualified: str) -> A
     parts = qualified.split(".")
     if len(parts) != 3:
         return None
-    return session.scalar(select(Asset).where(
-        Asset.datasource_id == datasource_id, Asset.catalog_name == parts[0], Asset.db_name == parts[1],
-        Asset.name == parts[2], Asset.status == "active"))
+    return session.scalar(
+        select(Asset).where(
+            Asset.datasource_id == datasource_id,
+            Asset.catalog_name == parts[0],
+            Asset.db_name == parts[1],
+            Asset.name == parts[2],
+            Asset.status == "active",
+        )
+    )
