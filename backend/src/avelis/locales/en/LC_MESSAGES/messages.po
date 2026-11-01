@@ -1470,3 +1470,15 @@ msgstr ", "
 
 msgid "；"
 msgstr "; "
+
+msgid "只有发起人可以修改对话"
+msgstr "Only the person who started the conversation can change it"
+
+msgid "对话不存在"
+msgstr "The conversation does not exist"
+
+msgid "对话中有正在运行或等待确认的分析，请先停止再操作"
+msgstr "A turn in this conversation is running or awaiting confirmation. Stop it first"
+
+msgid "对话显示名最多 80 字"
+msgstr "The conversation name can be at most 80 characters"

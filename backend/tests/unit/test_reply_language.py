@@ -14,6 +14,7 @@ from langgraph.types import Command
 
 from avelis import config, configfile
 from avelis.analysis import agent as analysis_agent
+from avelis.analysis import conversation_context
 from avelis.analysis import service as analysis_service
 from avelis.api import analysis as analysis_api
 from avelis.ask import agent as ask_agent
@@ -21,7 +22,7 @@ from avelis.ask import service as ask_service
 from avelis.ask.intent import Intent
 from avelis.i18n import current_locale, locale_context, reply_language_instruction
 from avelis.models import AnalysisRun
-from tests.unit.test_analysis_hitl import configured, report_reply, reply, scope_reply
+from tests.unit.test_analysis_hitl import configured, reply, report_reply, scope_reply
 from tests.unit.test_analysis_pipeline import Phased
 from tests.unit.test_analysis_toolbox import MemorySession
 
@@ -77,8 +78,11 @@ def test_followup_preserves_new_requests_locale(monkeypatch, settings):
     monkeypatch.setattr(analysis_service.experiences, "candidates_from_feedback", lambda **_: [])
     parent = SimpleNamespace(id="parent", user_id="user", status="succeeded", question="原始问题",
                              checkpoint={"request_locale": "zh-CN"}, report={"kind": "lookup"},
-                             plan={}, window={}, model_choice=None)
+                             plan={}, window={}, model_choice=None, conversation_id="parent")
     monkeypatch.setattr(analysis_service, "visible_run", lambda *_: parent)
+    # 对话归属与历史轮次要查数据库，这里只关心请求语言
+    monkeypatch.setattr(analysis_service, "_owned_conversation", lambda *_: parent)
+    monkeypatch.setattr(conversation_context, "build_followup_context", lambda *_: {})
     with locale_context("en"):
         run = analysis_service.followup_run(MemorySession(), SimpleNamespace(id="user"), parent.id, "原始续问")
     assert run.checkpoint["request_locale"] == "en"

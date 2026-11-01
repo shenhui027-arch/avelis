@@ -1,10 +1,12 @@
 // 分析过程流（ADR 0013）：像对话一样实时展开模型每一步在做什么——理解、查了哪个口径或哪张表、写了什么 SQL、
 // 每轮的思路；运行中可以随时插话纠偏（下一次调用模型前生效）或停止。完成后折叠在报告下方作为“分析过程”。
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { EvidenceLink } from "./DatasetView";
 import { ContextMeter } from "./ModelPicker";
 import { t } from "../../i18n";
 
@@ -87,7 +89,7 @@ const TOOL_NAME: Record<string, string> = { query_metric: t("受治理查询"), 
   describe_asset: t("查看表结构"), search_assets: t("检索表"), search_metrics: t("检索口径"), lineage: t("查看血缘"), submit_report: t("提交报告"),
   submit_proposal: t("提出依据"), submit_scope: t("理解问题"), ...CALC };
 
-function StepRow({ s }: { s: Step }) {
+function StepRow({ s, runId }: { s: Step; runId: string }) {
   const d = describe(s);
   const bad = s.status !== "ok" && s.status !== "skipped";
   const err = (s.output as { error?: string; message?: string } | null);
@@ -100,7 +102,7 @@ function StepRow({ s }: { s: Step }) {
         <div className="av-runlog__line">
           <span className="av-runlog__title">{d.title}</span>
           {s.reason && s.kind !== "model" ? <span className="av-runlog__reason">{s.reason}</span> : null}
-          {s.dataset ? <a className="av-tag av-mono" href={`#dataset-${s.dataset}`}>{s.dataset}</a> : null}
+          {s.dataset ? <EvidenceLink runId={runId} refId={s.dataset} /> : null}
           {s.duration_ms ? <span className="av-runlog__time">{(Number(s.duration_ms) / 1000).toFixed(1)}s</span> : null}
         </div>
         {d.detail ? <div className={`av-runlog__detail${s.kind === "model" ? " is-thought" : ""}`}>{d.detail}</div> : null}
@@ -126,13 +128,14 @@ function Thought({ text }: { text: string }) {
 
 /** 思考与过程：运行中展开并跟到最新一步（用户往上翻时不打扰）；完成后标题是“已深度思考（用时）”，可折叠。
  *  插话与停止在页面底部的固定输入框里。 */
-export function RunTranscript({ run, live, footer }: { run: Run; live?: boolean; footer?: ReactNode }) {
+export function RunTranscript({ run, live, footer, autoFollow = true }: { run: Run; live?: boolean; footer?: ReactNode; autoFollow?: boolean }) {
   const [open, setOpen] = useState(!!live);
   useEffect(() => { setOpen(!!live); }, [live]);
   const steps = run.steps ?? [];
   const messages = ((run as Run & { messages?: Message[] }).messages ?? []).filter((m) => !m.consumed_at);
   const end = useRef<HTMLDivElement>(null);
-  const [follow, setFollow] = useState(true);
+  // 打开的是对话里较早的一轮时不抢滚动位置，用户滚到底部后再跟
+  const [follow, setFollow] = useState(autoFollow);
   useEffect(() => {
     if (!live) return;
     const scroller = end.current?.closest(".av-analysis__scroll");
@@ -159,12 +162,12 @@ export function RunTranscript({ run, live, footer }: { run: Run; live?: boolean;
       </button>
       {open ? <>
       <ol className="av-runlog__steps">
-        {steps.map((s) => <StepRow key={s.seq} s={s} />)}
+        {steps.map((s) => <StepRow key={s.seq} s={s} runId={run.id} />)}
         {messages.map((m) => (
           <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">{t("待生效")}</Pill></li>))}
         {live && run.status !== "waiting" ? <li className="av-runlog__step is-pending"><span className="av-spinner" aria-hidden />
-          <span className="av-caption">{run.status === "queued" ? t("排队中") : t("正在进行下一步…")}</span></li> : null}
+          {run.status === "queued" ? <Queued /> : <span className="av-caption">{t("正在进行下一步…")}</span>}</li> : null}
       </ol>
       {footer && !live ? <div className="av-think__ft">{footer}</div> : null}
       </> : null}
@@ -207,4 +210,17 @@ export function Interject({ run }: { run: Run }) {
       </div>
     </div>
   );
+}
+
+/** 排队中：后台执行器（worker）在跑就等它领取；没在跑时说清楚原因，不让人对着“排队中”干等。 */
+function Queued() {
+  const worker = useQuery({
+    queryKey: ["worker-health"], refetchInterval: 10_000,
+    queryFn: () => unwrap(api.GET("/api/health/worker")),
+  });
+  if (worker.data && !worker.data.alive) {
+    return <span className="av-runlog__queued"><span className="av-caption">{t("排队中")}</span>
+      <span className="av-banner av-banner--warn"><Icon name="info" small />{t("后台执行器没有在运行，任务会在它启动后自动开始。请联系管理员检查 worker 服务。")}</span></span>;
+  }
+  return <span className="av-caption">{t("排队中，等待后台执行器领取")}</span>;
 }

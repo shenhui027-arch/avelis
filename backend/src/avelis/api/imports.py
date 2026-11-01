@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
-from avelis.importer import service
 from avelis.i18n import Msg
+from avelis.importer import service
 from avelis.models import CandidateEdge, ImportJob, User
 
 router = APIRouter(prefix="/api", tags=["导入血缘"])

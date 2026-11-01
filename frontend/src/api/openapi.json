@@ -25,6 +25,24 @@
     }
    }
   },
+  "/api/health/worker": {
+   "get": {
+    "summary": "Worker Health",
+    "operationId": "worker_health_api_health_worker_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WorkerHealthOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/health/ready": {
    "get": {
     "summary": "Ready",
@@ -3384,6 +3402,292 @@
     }
    }
   },
+  "/api/analysis/conversations": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "List Conversations",
+    "operationId": "list_conversations_api_analysis_conversations_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "archived",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Archived"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AnalysisConversationOut"
+         },
+         "title": "Response List Conversations Api Analysis Conversations Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/conversations/{conversation_id}": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Get Conversation",
+    "operationId": "get_conversation_api_analysis_conversations__conversation_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "conversation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Conversation Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisConversationDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Rename Conversation",
+    "operationId": "rename_conversation_api_analysis_conversations__conversation_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "conversation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Conversation Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ConversationPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisConversationDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Delete Conversation",
+    "operationId": "delete_conversation_api_analysis_conversations__conversation_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "conversation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Conversation Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/conversations/{conversation_id}/archive": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Archive Conversation",
+    "operationId": "archive_conversation_api_analysis_conversations__conversation_id__archive_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "conversation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Conversation Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisConversationDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/conversations/{conversation_id}/restore": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Restore Conversation",
+    "operationId": "restore_conversation_api_analysis_conversations__conversation_id__restore_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "conversation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Conversation Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalysisConversationDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}": {
    "get": {
     "tags": [
@@ -5443,6 +5747,200 @@
     ],
     "title": "AliasOut"
    },
+   "AnalysisConversationDetailOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "display_title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Display Title"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "latest_run_id": {
+      "type": "string",
+      "title": "Latest Run Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "turn_count": {
+      "type": "integer",
+      "title": "Turn Count"
+     },
+     "archived_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Archived At"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "runs": {
+      "items": {
+       "$ref": "#/components/schemas/AnalysisRunOut"
+      },
+      "type": "array",
+      "title": "Runs"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "question",
+     "latest_run_id",
+     "status",
+     "turn_count",
+     "created_at",
+     "updated_at",
+     "runs"
+    ],
+    "title": "AnalysisConversationDetailOut"
+   },
+   "AnalysisConversationOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "display_title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Display Title"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "latest_run_id": {
+      "type": "string",
+      "title": "Latest Run Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "turn_count": {
+      "type": "integer",
+      "title": "Turn Count"
+     },
+     "archived_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Archived At"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "title",
+     "question",
+     "latest_run_id",
+     "status",
+     "turn_count",
+     "created_at",
+     "updated_at"
+    ],
+    "title": "AnalysisConversationOut"
+   },
    "AnalysisDatasetDetailOut": {
     "properties": {
      "ref": {
@@ -6281,6 +6779,14 @@
       "type": "string",
       "title": "Id"
      },
+     "conversation_id": {
+      "type": "string",
+      "title": "Conversation Id"
+     },
+     "turn": {
+      "type": "integer",
+      "title": "Turn"
+     },
      "question": {
       "type": "string",
       "title": "Question"
@@ -6558,6 +7064,8 @@
     "type": "object",
     "required": [
      "id",
+     "conversation_id",
+     "turn",
      "question",
      "status",
      "trigger",
@@ -8638,6 +9146,19 @@
      "valid"
     ],
     "title": "ConfirmationOut"
+   },
+   "ConversationPatch": {
+    "properties": {
+     "display_title": {
+      "type": "string",
+      "title": "Display Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "display_title"
+    ],
+    "title": "ConversationPatch"
    },
    "Credential": {
     "properties": {
@@ -13289,6 +13810,31 @@
      "recent_changes"
     ],
     "title": "WorkbenchOut"
+   },
+   "WorkerHealthOut": {
+    "properties": {
+     "alive": {
+      "type": "boolean",
+      "title": "Alive"
+     },
+     "last_seen": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Seen"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "alive"
+    ],
+    "title": "WorkerHealthOut"
    }
   },
   "securitySchemes": {
