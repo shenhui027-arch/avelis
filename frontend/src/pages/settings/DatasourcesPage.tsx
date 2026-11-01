@@ -346,7 +346,6 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
     body: {
       name: form.name.trim(), kind: engine!.kind, host: form.host.trim(), port: Number(port),
       options: Object.fromEntries((options ?? []).map((option) => [option.key, optionValue(option, configuration[option.key] ?? "")])),
-      collect_interval_minutes: 15,
       collect: form.collectUser.trim() ? { username: form.collectUser.trim(), password: form.collectPassword } : null,
       query: canQuery && form.queryUser.trim() ? { username: form.queryUser.trim(), password: form.queryPassword } : null,
     },
