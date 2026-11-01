@@ -1,30 +1,42 @@
-# Local secrets and generated state
+# 本地口令、密钥与生成的状态
 .env
 .demo/
+# 部署配置（含口令与密钥）
+deploy/docker/avelis.toml
 
 # Python
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .pytest_cache/
-.pytest-tmp-*/
+.pytest-tmp*/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
 
 # Node
 node_modules/
 dist/
-
-# Demo environment downloads (verified against deploy/demo/drivers.lock)
-deploy/demo/drivers/*.jar
-.demo-up.log
-
-# Local tool settings (machine-specific paths)
-.claude/
+coverage/
 *.tsbuildinfo
 
-# Browser profiles left by design previews
+# 演示环境下载的驱动（按 deploy/demo/drivers.lock 校验）与日志
+deploy/demo/drivers/*.jar
+.demo-up.log
+*.log
+
+# 本机工具与编辑器设置
+.claude/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 临时目录：设计预览的浏览器配置、工作树、本地缓存
 .brand-qa-chrome/
 .worktrees/
-
-# 部署配置（含口令与密钥）
-deploy/docker/avelis.toml
+.tmp/

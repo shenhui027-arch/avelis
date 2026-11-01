@@ -13,6 +13,7 @@ from avelis.collect.service import current_fingerprints
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.governance.metrics import current_fingerprint_map
+from avelis.i18n import Msg
 from avelis.lineage.grain import cardinality
 from avelis.models import Asset, ColumnVersion, Domain, JoinPath, JoinPathApproval, User
 
@@ -27,7 +28,8 @@ def required_domains(session: Session, path: JoinPath) -> list[str]:
     for asset_id in (path.left_asset_id, path.right_asset_id):
         asset = session.get(Asset, asset_id)
         if asset.domain_id is None:
-            raise Conflict(f"资产 {asset.db_name}.{asset.name} 未归属业务域，无法确定由谁批准关联路径")
+            raise Conflict(Msg("资产 {database}.{asset} 未归属业务域，无法确定由谁批准关联路径",
+                               database=asset.db_name, asset=asset.name))
         if asset.domain_id not in ids:
             ids.append(asset.domain_id)
     return ids
@@ -37,7 +39,7 @@ def create(session: Session, actor: User, *, code: str, name: str, left_asset_id
            right_asset_id: str, right_columns: list[str]) -> JoinPath:
     access.require_role(session, actor, "steward")
     if session.scalar(select(JoinPath.id).where(JoinPath.code == code)):
-        raise Conflict(f"关联路径编码 {code} 已存在")
+        raise Conflict(Msg("关联路径编码 {code} 已存在", code=code))
     left, right = _validate_sides(session, left_asset_id, left_columns, right_asset_id, right_columns)
     path = _create(session, actor, code, name, left, left_columns, right, right_columns)
     audit.record(session, actor, "join_path.create", "join_path", path.id, code=code, cardinality=path.cardinality)
@@ -54,7 +56,8 @@ def _validate_sides(session: Session, left_asset_id: str, left_columns: list[str
     for asset, cols in ((left, left_columns), (right, right_columns)):
         missing = set(cols) - _columns(session, asset)
         if missing:
-            raise Invalid(f"{asset.db_name}.{asset.name} 没有列：{', '.join(sorted(missing))}")
+            raise Invalid(Msg("{database}.{asset} 没有列：{columns}", database=asset.db_name,
+                              asset=asset.name, columns=", ".join(sorted(missing))))
     return left, right
 
 
@@ -143,10 +146,11 @@ def decide(session: Session, actor: User, path: JoinPath, domain_id: str, decisi
         raise Invalid("该业务域不涉及这条关联路径")
     domain = session.get(Domain, domain_id)
     if domain.owner_id != actor.id:
-        raise Forbidden(f"只有业务域“{domain.name}”的负责人可以代表该域批准")
+        raise Forbidden(Msg("只有业务域“{domain}”的负责人可以代表该域批准", domain=domain.name))
     if path.status not in ("pending",):
-        raise Conflict(f"关联路径当前状态为 {path.status}，不能审批" +
-                       ("：依据已变化，请先在变更中处理复核任务" if path.status == "affected" else ""))
+        message = (Msg("关联路径当前状态为 {status}，不能审批：依据已变化，请先在变更中处理复核任务", status=path.status)
+                   if path.status == "affected" else Msg("关联路径当前状态为 {status}，不能审批", status=path.status))
+        raise Conflict(message)
     existing = session.scalar(select(JoinPathApproval).where(JoinPathApproval.join_path_id == path.id,
                                                              JoinPathApproval.domain_id == domain_id))
     if existing is None:

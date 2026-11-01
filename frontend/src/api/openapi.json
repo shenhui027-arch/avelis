@@ -9182,6 +9182,28 @@
     ],
     "title": "Credential"
    },
+   "CredentialFreeOut": {
+    "properties": {
+     "option": {
+      "type": "string",
+      "title": "Option"
+     },
+     "values": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Values"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "option",
+     "values"
+    ],
+    "title": "CredentialFreeOut"
+   },
    "CredentialOut": {
     "properties": {
      "purpose": {
@@ -9796,6 +9818,19 @@
      "hint": {
       "type": "string",
       "title": "Hint"
+     },
+     "choices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Choices",
+      "default": []
+     },
+     "default": {
+      "type": "string",
+      "title": "Default",
+      "default": ""
      }
     },
     "additionalProperties": true,
@@ -9867,6 +9902,16 @@
       "type": "array",
       "title": "Options",
       "default": []
+     },
+     "credential_free": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CredentialFreeOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": true,

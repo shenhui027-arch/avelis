@@ -39,7 +39,7 @@
     }
   },
   "files": {
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261030-164829.json": {
+    "eval:.demo\\eval\\20261030-164829.json": {
       "runs": 40,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -73,7 +73,7 @@
         }
       }
     },
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261030-172230.json": {
+    "eval:.demo\\eval\\20261030-172230.json": {
       "runs": 40,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -107,7 +107,7 @@
         }
       }
     },
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261030-192729.json": {
+    "eval:.demo\\eval\\20261030-192729.json": {
       "runs": 52,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -141,7 +141,7 @@
         }
       }
     },
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261030-232512.json": {
+    "eval:.demo\\eval\\20261030-232512.json": {
       "runs": 26,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -175,7 +175,7 @@
         }
       }
     },
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-001339.json": {
+    "eval:.demo\\eval\\20261031-001339.json": {
       "runs": 3,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -209,7 +209,7 @@
         }
       }
     },
-    "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-002333.json": {
+    "eval:.demo\\eval\\20261031-002333.json": {
       "runs": 1,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -243,7 +243,7 @@
         }
       }
     },
-    "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json": {
+    "e1:.demo\\experiments\\e1\\20261031-015646.json": {
       "runs": 48,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -277,7 +277,7 @@
         }
       }
     },
-    "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json": {
+    "runs:.demo\\experiments\\e2\\20261031-123611.json": {
       "runs": 128,
       "changed": 0,
       "uncertain_truncated_runs": 0,
@@ -357,7 +357,7 @@
           "key": "d02:D1:1",
           "primary_hit": true,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "D11 第 10 行 2026-09-01 · douyin：DATE_TRUNC MONTH 分组，是 9 月整月",
           "human": false,
@@ -367,7 +367,7 @@
           "key": "h07:D1:2",
           "primary_hit": true,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "D12 第 7 行 2026-07-01 · douyin：DATE_TRUNC MONTH 分组，是 7 月整月",
           "human": false,
@@ -377,7 +377,7 @@
           "key": "h07:D0:2",
           "primary_hit": true,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "D17 第 2 行 douyin · 2026-07-01：DATE_TRUNC MONTH 分组，是 7 月整月的付费渠道订单",
           "human": false,
@@ -390,7 +390,7 @@
           "key": "h10:D2:1",
           "primary_hit": false,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "礼盒销量增加：生成器提高的是整个食品类目，礼盒只是贡献最大的二级类目，不是机制",
           "human": true,
@@ -400,7 +400,7 @@
           "key": "f02:D2:2",
           "primary_hit": false,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "件数变化的贡献（D21 派生，输入是家电两期件数）：销量因子，与题目定义的 ec_units 因子一致",
           "human": true,
@@ -419,7 +419,7 @@
           "key": "f02:D2:2",
           "primary_hit": false,
           "sources": [
-            "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json"
+            "e1:.demo\\experiments\\e1\\20261031-015646.json"
           ],
           "note": "件数变化的贡献（D21 派生，输入是家电两期件数）：销量因子，与题目定义的 ec_units 因子一致",
           "human": true,

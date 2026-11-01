@@ -14,13 +14,25 @@ from avelis.api.deps import current_user
 from avelis.ask import agent as ask_agent
 from avelis.db import utcnow
 from avelis.models import (
-    AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, AuditEvent,
-    Experience, ExperienceVersion, HistoryAnchor, HistoryChainHead, HistoryMark,
-    JoinPath, JoinPathApproval, Notification, User, UserRole,
+    AnalysisDataset,
+    AnalysisMessage,
+    AnalysisRun,
+    AnalysisStep,
+    AnalysisTask,
+    AuditEvent,
+    Experience,
+    ExperienceVersion,
+    HistoryAnchor,
+    HistoryChainHead,
+    HistoryMark,
+    JoinPath,
+    JoinPathApproval,
+    Notification,
+    User,
+    UserRole,
 )
-from tests.unit.test_analysis_conversations import followup, model
-from tests.unit.test_analysis_dataset_api import api
-
+from tests.unit.test_analysis_conversations import followup, model  # noqa: F401  pytest 夹具按参数名注入
+from tests.unit.test_analysis_dataset_api import api  # noqa: F401  pytest 夹具按参数名注入
 
 PATH = "/api/analysis/conversations"
 

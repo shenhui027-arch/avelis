@@ -15,7 +15,6 @@ from tests.unit.test_analysis_hitl import reply
 from tests.unit.test_analysis_live import interject, live_box, model_steps
 from tests.unit.test_analysis_toolbox import governed
 
-
 SUMMARY_ID = "analysis:context-summary"
 THINKING = "PRIVATE_MODEL_REASONING_MUST_NOT_BE_SUMMARIZED"
 

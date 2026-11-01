@@ -14,10 +14,18 @@ from avelis.ask import agent as ask_agent
 from avelis.ask.service import Catalog
 from avelis.db import Base
 from avelis.models import (
-    AnalysisDataset, AnalysisRun, Asset, Datasource, Domain, DomainMember, Job, User, UserRole,
+    AnalysisDataset,
+    AnalysisRun,
+    Asset,
+    Datasource,
+    Domain,
+    DomainMember,
+    Job,
+    User,
+    UserRole,
 )
-from tests.unit.test_analysis_conversations import model
-from tests.unit.test_analysis_dataset_api import api
+from tests.unit.test_analysis_conversations import model  # noqa: F401  pytest 夹具按参数名注入
+from tests.unit.test_analysis_dataset_api import api  # noqa: F401  pytest 夹具按参数名注入
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from avelis.analysis import service
 from avelis.api.deps import current_user
 from avelis.models import AnalysisRun, AnalysisTask, AuditEvent, User, UserRole
-from tests.unit.test_analysis_dataset_api import api
+from tests.unit.test_analysis_dataset_api import api  # noqa: F401  pytest 夹具按参数名注入
 
 
 @pytest.fixture

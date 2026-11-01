@@ -10,6 +10,7 @@ import { errorText, useTimeZone } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Empty } from "../components/ui";
 import { formatTime } from "../format";
+import { t } from "../i18n";
 
 type Conversation = Schemas["AnalysisConversationOut"] & { archived_at?: string | null };
 
@@ -62,10 +63,10 @@ function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCancel }: {
         <p>{body}</p>
         {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
         <div className="av-actions">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onCancel} disabled={busy}>取消</button>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onCancel} disabled={busy}>{t("取消")}</button>
           <button type="button" className={`av-btn av-btn--sm ${danger ? "av-btn--danger" : "av-btn--primary"}`} autoFocus disabled={busy}
             onClick={async () => { setBusy(true); try { await onConfirm(); } catch (e) { setError(errorText(e)); setBusy(false); } }}>
-            {busy ? "处理中…" : confirm}</button>
+            {busy ? t("处理中…") : confirm}</button>
         </div>
       </div>
     </div>, document.body);
@@ -136,7 +137,7 @@ export function RecentConversations() {
   if (!items.length && !archived.data?.length) return null;
   return (
     <>
-      <div className="av-sb__sec av-sb__label">最近对话</div>
+      <div className="av-sb__sec av-sb__label">{t("最近对话")}</div>
       <div className="av-sb__recent">
         {items.map((c) => {
           const tone = c.status === "succeeded" ? "ok" : RUN_TONE[c.status] ?? "";
@@ -150,30 +151,30 @@ export function RecentConversations() {
                 <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}${LIVE.has(c.status) ? " is-live" : ""}`} />
                 <span>{titleOf(c)}</span>
               </Link>
-              <button type="button" className="av-sb__rc-more" aria-label={`${titleOf(c)} 的更多操作`} onClick={(e) => open(e, c)}>
+              <button type="button" className="av-sb__rc-more" aria-label={t("{{title}} 的更多操作", { title: titleOf(c) })} onClick={(e) => open(e, c)}>
                 <Icon name="more" small /></button>
             </div>
           );
         })}
         {archived.data?.length ? <Link to="/analysis/archived" className="av-sb__rc av-sb__archived"
           aria-current={location.pathname === "/analysis/archived" ? "page" : undefined}>
-          <Icon name="archive" small /><span>已归档 · {archived.data.length}</span></Link> : null}
+          <Icon name="archive" small /><span>{t("已归档 · {{count}}", { count: archived.data.length })}</span></Link> : null}
       </div>
       {menu ? <ContextMenu menu={menu} onClose={() => setMenu(null)} items={[
-        { label: "重命名", icon: "edit", run: () => setRenaming(menu.c.id) },
-        { label: "归档", icon: "archive", disabled: LIVE.has(menu.c.status) ? "正在分析或等待确认，先停止再归档" : undefined,
+        { label: t("重命名"), icon: "edit", run: () => setRenaming(menu.c.id) },
+        { label: t("归档"), icon: "archive", disabled: LIVE.has(menu.c.status) ? t("正在分析或等待确认，先停止再归档") : undefined,
           run: () => {
             const c = menu.c;
             void actions.archive(c.id).then(() => {
               leaveIfCurrent(c);
-              setToast({ text: `已归档“${titleOf(c)}”`, action: { label: "撤销", run: () => void actions.restore(c.id) } });
+              setToast({ text: t("已归档“{{title}}”", { title: titleOf(c) }), action: { label: t("撤销"), run: () => void actions.restore(c.id) } });
             }).catch((e) => setToast({ text: errorText(e) }));
           } },
-        { label: "删除", icon: "trash", danger: true, disabled: LIVE.has(menu.c.status) ? "正在分析或等待确认，先停止再删除" : undefined,
+        { label: t("删除"), icon: "trash", danger: true, disabled: LIVE.has(menu.c.status) ? t("正在分析或等待确认，先停止再删除") : undefined,
           run: () => setDeleting(menu.c) },
       ]} /> : null}
       {deleting ? <DeleteDialog c={deleting} onCancel={() => setDeleting(null)} onDone={() => {
-        leaveIfCurrent(deleting); setToast({ text: `已删除“${titleOf(deleting)}”` }); setDeleting(null);
+        leaveIfCurrent(deleting); setToast({ text: t("已删除“{{title}}”", { title: titleOf(deleting) }) }); setDeleting(null);
       }} remove={actions.remove} /> : null}
       {toast ? <Toast text={toast.text} action={toast.action} onDone={() => setToast(null)} /> : null}
     </>
@@ -183,8 +184,8 @@ export function RecentConversations() {
 function DeleteDialog({ c, onCancel, onDone, remove }: {
   c: Conversation; onCancel: () => void; onDone: () => void; remove: (id: string) => Promise<void>;
 }) {
-  return <ConfirmDialog title="删除这段对话？" danger confirm="删除"
-    body={`“${titleOf(c)}”的 ${c.turn_count} 轮分析、过程记录和数据集会被永久删除，不能恢复。已保存的个人经验和提交的关联路径不受影响。`}
+  return <ConfirmDialog title={t("删除这段对话？")} danger confirm={t("删除")}
+    body={t("“{{title}}”的 {{count}} 轮分析、过程记录和数据集会被永久删除，不能恢复。已保存的个人经验和提交的关联路径不受影响。", { title: titleOf(c), count: c.turn_count })}
     onCancel={onCancel} onConfirm={async () => { await remove(c.id); onDone(); }} />;
 }
 
@@ -199,7 +200,7 @@ function RenameField({ initial, onSave, onCancel }: { initial: string; onSave: (
       setBusy(true);
       try { await onSave(text.trim()); } catch { setBusy(false); }
     }}>
-      <input autoFocus value={text} maxLength={80} aria-label="对话名称" disabled={busy}
+      <input autoFocus value={text} maxLength={80} aria-label={t("对话名称")} disabled={busy}
         onFocus={(e) => e.currentTarget.select()} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }} onBlur={() => { if (!busy) onCancel(); }} />
     </form>
@@ -219,24 +220,24 @@ export function ArchivedConversations() {
     <section className="av-archived">
       <div className="av-archived__bar">
         <span className="av-archived__search"><Icon name="search" small />
-          <input type="search" value={q} placeholder="搜索已归档的对话" aria-label="搜索已归档的对话" onChange={(e) => setQ(e.target.value)} /></span>
+          <input type="search" value={q} placeholder={t("搜索已归档的对话")} aria-label={t("搜索已归档的对话")} onChange={(e) => setQ(e.target.value)} /></span>
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {list.isSuccess && !list.data.length ? <Empty text="没有已归档的对话。在左侧对话上右键可以归档。" /> : null}
-      {list.isSuccess && list.data.length && !items.length ? <Empty text="没有匹配的对话" compact /> : null}
+      {list.isSuccess && !list.data.length ? <Empty text={t("没有已归档的对话。在左侧对话上右键可以归档。")} /> : null}
+      {list.isSuccess && list.data.length && !items.length ? <Empty text={t("没有匹配的对话")} compact /> : null}
       <div className="av-analysis__list">
         {items.map((c) => (
           <div key={c.id} className="av-row av-archived__row">
             <Link to={`/analysis/runs/${c.latest_run_id}`} className="av-row__main">
               <span className="av-row__title">{titleOf(c)}</span>
-              <span className="av-row__meta">{c.turn_count} 轮 · 最近 {formatTime(c.updated_at, tz)}
-                {c.archived_at ? ` · 归档于 ${formatTime(c.archived_at, tz)}` : ""}</span>
+              <span className="av-row__meta">{t("{{count}} 轮 · 最近 {{time}}", { count: c.turn_count, time: formatTime(c.updated_at, tz) })}
+                {c.archived_at ? t(" · 归档于 {{time}}", { time: formatTime(c.archived_at, tz) }) : ""}</span>
             </Link>
             <span className="av-actions">
               <button type="button" className="av-btn av-btn--secondary av-btn--sm"
-                onClick={() => actions.restore(c.id).catch((e) => setError(errorText(e)))}><Icon name="refresh" small />恢复</button>
+                onClick={() => actions.restore(c.id).catch((e) => setError(errorText(e)))}><Icon name="refresh" small />{t("恢复")}</button>
               <button type="button" className="av-btn av-btn--ghost av-btn--sm av-archived__delete" onClick={() => setDeleting(c)}>
-                <Icon name="trash" small />删除</button>
+                <Icon name="trash" small />{t("删除")}</button>
             </span>
           </div>
         ))}

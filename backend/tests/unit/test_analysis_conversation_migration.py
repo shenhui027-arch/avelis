@@ -4,9 +4,9 @@ import importlib.util
 import io
 from pathlib import Path
 
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-import pytest
 from sqlalchemy import JSON, Column, MetaData, String, Table, create_engine, inspect, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError

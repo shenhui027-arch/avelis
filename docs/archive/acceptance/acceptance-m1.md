@@ -1,7 +1,7 @@
 # M1 验收说明：后端闭环
 
 - 日期：2026-10-29
-- 环境：本机 Docker 演示环境（[ADR 0001](decisions/0001-demo-environment.md)），包括：
+- 环境：本机 Docker 演示环境（[ADR 0001](../../decisions/0001-demo-environment.md)），包括：
   - StarRocks 3.5.14 单节点；
   - 电商维表库 MySQL 8.4.10；
   - 元数据库 PostgreSQL 18 与 MySQL 8.4.10；

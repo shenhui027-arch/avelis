@@ -34,8 +34,17 @@ from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
 from avelis.governance import access, experiences, joins
 from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
-from avelis.models import (AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask,
-                           Metric, Notification, User)
+from avelis.i18n import Msg, current_locale, gettext, locale_context
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisMessage,
+    AnalysisRun,
+    AnalysisStep,
+    AnalysisTask,
+    Metric,
+    Notification,
+    User,
+)
 
 log = logging.getLogger("avelis.analysis")
 _GRAPH: dict[str, Any] = {}
@@ -80,11 +89,11 @@ def resolve_window(window: dict | None, today: date) -> dict[str, str]:
             cs = date.fromisoformat(window["compare_start"]) if window.get("compare_start") else None
             ce = date.fromisoformat(window["compare_end"]) if window.get("compare_end") else None
         except (KeyError, ValueError) as exc:
-            raise Invalid(f"时间窗口不完整或日期格式错误：{exc}") from None
+            raise Invalid(Msg("时间窗口不完整或日期格式错误：{error}", error=exc)) from None
         if s > e or (cs and ce and cs > ce):
             raise Invalid("时间窗口的开始日期晚于结束日期")
     else:
-        raise Invalid(f"不支持的时间窗口类型：{kind}")
+        raise Invalid(Msg("不支持的时间窗口类型：{kind}", kind=kind))
     out = {"kind": kind, "start": s.isoformat(), "end": e.isoformat()}
     if cs and ce:
         out.update(compare_start=cs.isoformat(), compare_end=ce.isoformat())
@@ -120,7 +129,7 @@ def parse_cron(expr: str) -> tuple[set[int], ...]:
         minute, hour, dom, month, dow = (_field(p, lo, hi) for p, (lo, hi) in
                                          zip(parts, ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))))
     except ValueError:
-        raise Invalid(f"cron 表达式无效：{expr}") from None
+        raise Invalid(Msg("cron 表达式无效：{expr}", expr=expr)) from None
     if 7 in dow:
         dow = (dow - {7}) | {0}
     return minute, hour, dom, month, dow
@@ -149,7 +158,7 @@ def next_run(expr: str, after: datetime) -> datetime:
                 if candidate >= start:
                     return candidate.replace(tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         day += timedelta(days=1)
-    raise Invalid(f"cron 表达式不会触发（日期不存在，如 2 月 30 日）：{expr}")
+    raise Invalid(Msg("cron 表达式不会触发（日期不存在，如 2 月 30 日）：{expr}", expr=expr))
 
 
 # --- 运行 ---------------------------------------------------------------------------
@@ -184,7 +193,8 @@ def create_run(session: Session, user: User, question: str, window: dict | None,
     tz = get_settings().business_timezone
     run = AnalysisRun(task_id=task.id if task else None, user_id=user.id, question=question.strip(), trigger=trigger,
                       status="queued", window=resolve_window(window, business_today(tz)),
-                      budget=Budget().view(), confirmation_mode=confirmation_mode, checkpoint={}, model_choice=choice)
+                      budget=Budget().view(), confirmation_mode=confirmation_mode,
+                      checkpoint={"request_locale": current_locale()}, model_choice=choice)
     session.add(run)
     session.flush()
     audit.record(session, user, "analysis.create", "analysis_run", run.id, trigger=trigger,
@@ -245,6 +255,15 @@ def _claim_run(session: Session, run_id: str, job, attempt: int) -> str | None:
 
 def execute(session: Session, run_id: str, job_id: str, attempt: int,
             finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None) -> dict[str, Any]:
+    """恢复运行保存的请求语言，再执行 Job 管线。"""
+    run = session.get(AnalysisRun, run_id)
+    locale = (run.checkpoint or {}).get("request_locale", "zh-CN") if run is not None else "zh-CN"
+    with locale_context(locale):
+        return _execute(session, run_id, job_id, attempt, finish)
+
+
+def _execute(session: Session, run_id: str, job_id: str, attempt: int,
+             finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None) -> dict[str, Any]:
     """执行一次分析（worker 与同步入口都经过 Job，见 jobs.run_job）。
     - 领取：Job 与运行都满足条件才写 running；
     - 中间写入：每一步提交前核对执行权（toolbox._step），失去执行权即停止、不再写入；
@@ -294,7 +313,7 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
             result = graph.invoke(analysis_agent.initial_state(
                 run.question, business_today(settings.business_timezone), settings.business_timezone, run.window,
                 example, inherited=checkpoint.get("inherited"), confirmation_mode=run.confirmation_mode,
-                unattended=run.trigger == "schedule"), config)
+                unattended=run.trigger == "schedule", request_locale=checkpoint.get("request_locale", "zh-CN")), config)
         state = graph.get_state(config).values
         plan, verification = toolbox.plan or {}, dict(toolbox.verification or {})
         report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
@@ -308,10 +327,10 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
             status = "waiting"
             checkpoint.update(pending=result["__interrupt__"][0].value,
                               proposal=state.get("proposal") or {}, snapshot=toolbox.snapshot(), resume_pending=False)
-            report = {"title": "等待确认", "incomplete": True, "notes": state.get("notes", [])}
+            report = {"title": gettext("等待确认"), "incomplete": True, "notes": state.get("notes", [])}
         elif toolbox.clarification:  # 待澄清：用户可见的短问题与可恢复的上下文（问题、范围、已用预算）
             status = "clarify"
-            report = {"title": "需要澄清", "summary": toolbox.clarification["question"],
+            report = {"title": gettext("需要澄清"), "summary": toolbox.clarification["question"],
                       "clarification": toolbox.clarification, "incomplete": True, "notes": state.get("notes", [])}
         else:
             status = "succeeded"
@@ -394,7 +413,8 @@ def run_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> di
     if kind == "analysis_run":
         with session_scope() as session:
             return execute(session, payload["run_id"], job_id, attempt)
-    return run_task(payload["task_id"], payload.get("trigger", "schedule"), job_id, attempt)
+    with locale_context(payload.get("request_locale", "zh-CN")):
+        return run_task(payload["task_id"], payload.get("trigger", "schedule"), job_id, attempt)
 
 
 def reconcile_abandoned(session: Session, job, reason: str) -> None:
@@ -631,7 +651,7 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     from avelis.analysis.conversation_context import build_followup_context
 
     inherited["conversation"] = build_followup_context(session, user, parent, run)
-    run.checkpoint = {"inherited": inherited,
+    run.checkpoint = {**(run.checkpoint or {}), "inherited": inherited,
                       "candidates": experiences.candidates_from_feedback(
                           run_id=run.id, proposal={}, feedback={"challenge": text},
                           refs=_scope_metric_refs(session, saved), checkpoint="conclusion")}
