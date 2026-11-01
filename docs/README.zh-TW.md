@@ -2,7 +2,7 @@
 
 [English](README.en.md) | [简体中文](README.md) | 繁體中文
 
-按讀者分組。README 見 [English](../README.md) / [简体中文](../README.zh-CN.md) / [繁體中文](../README.zh-TW.md)；寫文件前請先看[文件規範](documentation-guide.zh-TW.md)。
+按讀者分組。README 見 [English](../README.en.md) / [简体中文](../README.md) / [繁體中文](../README.zh-TW.md)；寫文件前請先看[文件規範](documentation-guide.zh-TW.md)。
 
 ## 使用與維運
 

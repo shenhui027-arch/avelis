@@ -4,55 +4,55 @@
 
 # Avelis
 
-**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+[English](README.en.md) · **简体中文** · [繁體中文](README.zh-TW.md)
 
-**Grounded data Q&A and analysis, built on lineage, governed metrics and change management.**
+**有依据的智能问数与分析，建立在血缘、口径治理与变更管理之上。**
 
 [![CI](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml/badge.svg)](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-0A7BBB?style=flat)](LICENSE)
 [![backend](https://img.shields.io/badge/backend-Python%203.12%20%C2%B7%20FastAPI-3776AB?style=flat&logo=python&logoColor=white)](backend/pyproject.toml)
 [![frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20TypeScript-2F74C0?style=flat&logo=react&logoColor=white)](frontend/package.json)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
-[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
+[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8C%81%E7%9A%84%E6%95%B0%E6%8D%AE%E5%BA%93)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
 [![version](https://img.shields.io/badge/version-v0.1%20%C2%B7%20pre--release-E05D44?style=flat)](CHANGELOG.md)
 
-[Highlights](#highlights) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[功能亮点](#功能亮点) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
 
 </div>
 
-Avelis answers business questions about your databases and shows where every number comes from. Each answer carries its source tables, metric definition, version and the permission it was checked against. When an upstream table or view changes, Avelis knows which metrics and answers are affected and blocks the affected metrics in the backend until someone reviews them.
+Avelis 用自然语言回答关于业务数据的问题，并说清每个数从哪来：每个答案都带来源表、口径、版本和权限依据。上游表或视图变化后，Avelis 知道哪些口径和答案受影响，并由后端阻止受影响的口径继续被使用，直到有人复核。
 
-![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
+![分析会话：结论优先的报告、原因排序、证据栏与模型栏](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis is at v0.1 and has not published a release yet. The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis 处于 v0.1，尚未发布正式版本。界面与文档都提供简体中文、繁体中文与英文。
 
-## Highlights
+## 功能亮点
 
-- **Lineage from the database itself.** Collect metadata with a read-only account, identify objects by physical ID, and parse views, external tables and imported SQL / Python / Shell into table- and column-level lineage. Fragments the parser cannot handle become model-suggested candidates that a person confirms.
-- **Governed metrics.** Metrics have versions, a publishing state machine, pre-publish checks, review and cross-domain approval. Join paths and grain are checked so joins cannot silently inflate totals.
-- **Change management.** Upstream schema change → impact analysis → review. Changes are attributed to the database user who made them, and history is append-only, sealed in a hash chain, searchable and exportable.
-- **Grounded Q&A.** A LangGraph agent understands the question and asks follow-ups. The model only submits a structured intent; SQL is generated deterministically from published metrics, validated, and run with a read-only account after checking that the source schema still matches.
-- **Analysis agent.** Multi-step analysis of "why did this change, what is related, what should we do". Data is fetched only through governed queries, every number in the report is verified, and conclusions are labelled as fact, calculation, inference or recommendation. Reports export to PDF, HTML or Markdown; analyses can be scheduled.
-- **Learns from confirmation.** Questions the model raises are confirmed with the user and stored as governed experience that later questions and analyses reuse.
-- **Pluggable models.** Configure DeepSeek, OpenAI, Anthropic, Qwen or any OpenAI-compatible endpoint in the UI and assign models per purpose. Without a model, a rule-based demo model is used and labelled as such.
+- **血缘来自数据库本身**：用只读账号采集元数据，按物理 ID 识别同一对象；解析视图、外部表与导入的 SQL / Python / Shell 代码，得到表级与字段级血缘；解析不了的片段由模型提出候选，人工确认。
+- **口径治理**：指标与版本状态机、发布检查、复核与跨域批准；关联路径与粒度校验，防止关联放大。
+- **变更管理**：上游结构变化 → 影响分析 → 复核；变更归因到执行它的数据库用户；历史只追加并封入哈希链，可检索、可导出。
+- **有依据的问数**：LangGraph 智能体理解问题并多轮追问；模型只提交结构化意图，SQL 由已发布口径确定性生成、校验，执行前核对来源结构，再用只读账号执行。
+- **分析智能体**：多步分析“为什么变了、什么关系、该怎么做”；取数只走受治理查询，报告中的数字逐个核验，结论分事实、计算、推断、建议；报告可导出 PDF / HTML / Markdown，分析可保存为定时任务。
+- **对话确认与经验学习**：模型发现的疑问与用户确认，沉淀为受治理的经验，供后续问数与分析使用。
+- **模型可替换**：在页面配置 DeepSeek、OpenAI、Anthropic、通义千问或任意 OpenAI 兼容接口，按用途指定模型；未配置时使用规则匹配的演示模型，并在答案中标明。
 
-## Screenshots
+## 截图
 
-| Dataset view | Workbench |
+| 数据集主视图 | 工作台 |
 |---|---|
-| ![Dataset opened in the main area: chart, rows, rerun with a different time window](docs/images/en/analysis-dataset.png) | ![Workbench: collection, lineage, changes, metrics and Q&A at a glance](docs/images/en/workbench.png) |
-| **Lineage** | **Catalog** |
-| ![Lineage graph with a selected table and the inspector](docs/images/en/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/en/catalog.png) |
+| ![数据集在主区域打开：图表、明细、换时间重跑](docs/images/analysis-dataset.png) | ![工作台：采集、血缘、变更、口径、问数概况](docs/images/workbench.png) |
+| **血缘** | **目录** |
+| ![血缘：选中表与检查器](docs/images/lineage.png) | ![指标详情：版本、表达式、维度与发布检查](docs/images/catalog.png) |
 
-More pages (Q&A home, report follow-ups, export, personal experience, settings, light theme) are in the [product tour](docs/product-tour.en.md).
+更多页面（问数首页、报告的“还没查清”、导出、个人经验、设置、浅色主题）见[界面导览](docs/product-tour.md)。
 
-## Supported databases
+## 支持的数据库
 
-Each database is an engine adapter. Versions are the ones Avelis has been tested against in the local demo environment.
+每种数据库是一个引擎适配器。版本是本地演示环境中实际测试过的版本。
 
-| Database | Tested version | Metadata | View lineage | Q&A queries | Pre-query schema check | DDL attribution |
+| 数据库 | 测试版本 | 采集元数据 | 视图血缘 | 问数查询 | 执行前核对 | 变更归因到用户 |
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -63,11 +63,11 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
 
-StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
+StarRocks 还能把外部表与 JDBC Catalog 追溯到背后的 MySQL 表；MySQL 目前作为这些外部表的追溯目标采集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支持的引擎，见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
 
-## Quick start
+## 快速开始
 
-Requirements: Docker Engine 24+ with Compose v2.24+ (or Docker Desktop).
+前置条件：Docker Engine 24+ 与 Compose v2.24+（或 Docker Desktop）。
 
 ```bash
 git clone https://github.com/shenhui027-arch/avelis.git
@@ -75,98 +75,98 @@ cd avelis/deploy/docker
 cp avelis.example.toml avelis.toml
 ```
 
-Edit `avelis.toml` and fill in the four required values: `[security] secret`, `[database] password`, `[redis] password` and `[bootstrap] initial_admin_password`. Then start the stack:
+编辑 `avelis.toml`，填写四个必填项：`[security] secret`、`[database] password`、`[redis] password`、`[bootstrap] initial_admin_password`。然后启动：
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-When `app` shows `healthy`, open `http://<server-ip>:8080` and sign in as `admin` with the initial password. You will be asked to change it on first sign-in.
+等 `app` 显示 `healthy` 后，浏览器打开 `http://<服务器 IP>:8080`，用 `admin` 和初始密码登录；首次登录需要修改密码。
 
-The stack runs the app (API + web UI), a worker, PostgreSQL and Redis (Valkey), with data in Docker volumes. Next steps: add a data source under **设置 → 数据源** (Settings → Data sources) and configure a model under **设置 → 模型配置** (Settings → Models). For external databases, reverse proxy and HTTPS, running without Docker, upgrades and backups, see the [deployment guide](docs/deployment.en.md).
+这套编排包含应用（接口 + 前端）、worker、PostgreSQL 与 Redis（Valkey），数据保存在 Docker 数据卷。接下来在 **设置 → 数据源** 添加数据源，在 **设置 → 模型配置** 配置模型。使用外部数据库、反向代理与 HTTPS、不用 Docker 部署、升级与备份，见[部署指南](docs/deployment.md)。
 
-## Architecture
+## 架构
 
 ```mermaid
 flowchart LR
-  UI[Browser] -->|one port| APP
+  UI[浏览器] -->|同一端口| APP
   subgraph Avelis
-    APP[app: FastAPI /api<br/>+ React SPA]
-    W[worker: collection, schedules]
+    APP[app：FastAPI 接口 /api<br/>+ 前端 React SPA]
+    W[worker：采集、定时任务]
   end
-  APP --> PG[(PostgreSQL metadata DB)]
+  APP --> PG[(PostgreSQL 元数据库)]
   W --> PG
   APP --> RD[(Redis / Valkey)]
   W --> RD
-  APP -->|read-only account| DB[(Governed databases)]
-  W -->|collector account| DB
-  APP -->|questions, metadata, results (can be turned off)| LLM[[Model provider]]
+  APP -->|只读账号| DB[(被治理的数据库)]
+  W -->|采集账号| DB
+  APP -->|问题、元数据与查询结果（可关闭）| LLM[[模型服务]]
 ```
 
-- **Backend** (`backend/`): Python 3.12, FastAPI, SQLAlchemy + Alembic, SQLGlot, LangGraph.
-- **Frontend** (`frontend/`): React, Vite and TypeScript. It talks to the backend only through `/api`, with types generated from OpenAPI.
-- **Storage**: PostgreSQL is the only supported metadata database. Redis is used for job wake-ups, caching, locks and token revocation.
-- **Deployment**: in production the backend also serves the built frontend, so a single port is enough. The worker is a separate process from the same image.
+- **后端** `backend/`：Python 3.12、FastAPI、SQLAlchemy + Alembic、SQLGlot、LangGraph。
+- **前端** `frontend/`：React、Vite、TypeScript，只通过 `/api` 访问后端，类型由 OpenAPI 生成。
+- **存储**：元数据库只支持 PostgreSQL；Redis 用于任务唤醒、缓存、锁与令牌吊销。
+- **部署**：生产模式下后端同时托管构建好的前端，一个端口即可访问；worker 用同一镜像的独立进程运行。
 
-See the [architecture overview](docs/architecture.en.md) and the [architecture decision records](docs/decisions/) (Simplified Chinese).
+详见[架构与治理说明](docs/architecture.md)与[架构决策记录](docs/decisions/)。
 
-## Configuration
+## 配置
 
-A deployment is configured by one commented TOML file, [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml), copied to `avelis.toml`. Required values:
+部署只需要一份带中文注释的 TOML 配置文件 [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml)（复制为 `avelis.toml`）。必填项：
 
-| Setting | Description |
+| 配置 | 说明 |
 |---|---|
-| `[security] secret` | Master key (at least 16 characters). Encrypts data source passwords and model keys and signs sign-in tokens. Do not change it after going live. |
-| `[database] password` | Password of the PostgreSQL metadata database. For an external database, also set host, port, name and user. |
-| `[redis] password` | Redis password. |
-| `[bootstrap] initial_admin_password` | Initial password of the first administrator. |
+| `[security] secret` | 主密钥（至少 16 个字符），加密数据源口令与模型密钥、签发登录令牌；上线后不要更换 |
+| `[database] password` | PostgreSQL 元数据库口令；使用外部库时同时填 host、port、name、user |
+| `[redis] password` | Redis 口令 |
+| `[bootstrap] initial_admin_password` | 首个管理员的初始密码 |
 
-Precedence: `AVELIS_*` environment variables > `.env` file > configuration file > built-in defaults. Passwords can also be read from files (`password_file` / `AVELIS_*_FILE`). The configuration is validated at startup and errors name the setting to fix. All settings are listed in the [configuration reference](docs/configuration.en.md).
+优先级：环境变量 `AVELIS_*` > `.env` 文件 > 配置文件 > 内置默认值；口令也可以从文件读取（`password_file` / `AVELIS_*_FILE`）。启动时校验配置，出错会指出哪一项、怎么改。全部配置项见[配置参考](docs/configuration.md)。
 
-## Development
+## 开发
 
 ```bash
-# Backend: http://127.0.0.1:8000, API docs at /api/docs
+# 后端：http://127.0.0.1:8000，接口文档 /api/docs
 cd backend
 uv sync
 uv run python -m avelis.bootstrap migrate
 uv run uvicorn avelis.api.app:app --port 8000
-uv run python -m avelis.jobs          # worker, in another terminal
+uv run python -m avelis.jobs          # worker，另开一个终端
 
-# Frontend: http://127.0.0.1:5173, proxies /api to port 8000
+# 前端：http://127.0.0.1:5173，/api 代理到 8000
 cd frontend
 pnpm install
 pnpm dev
 ```
 
-The [development guide](docs/development.en.md) covers the local demo environment (StarRocks, MySQL, PostgreSQL, Valkey and synthetic data), demo accounts, unit tests and the one-command acceptance run.
+本地演示环境（StarRocks、MySQL、PostgreSQL、Valkey 与合成数据）、演示账号、单元测试与一条命令复现验收，见[开发指南](docs/development.md)。
 
-## Documentation
+## 文档
 
-| For | Documents |
+| 读者 | 文档 |
 |---|---|
-| Users | [Product tour](docs/product-tour.en.md) |
-| Operators | [Deployment guide](docs/deployment.en.md) · [Configuration reference](docs/configuration.en.md) |
-| Developers | [Development guide](docs/development.en.md) · [Architecture overview](docs/architecture.en.md) · [Documentation guide](docs/documentation-guide.en.md) |
-| Design decisions | [Architecture decision records](docs/decisions/) |
+| 用户 | [界面导览](docs/product-tour.md) |
+| 运维 | [部署指南](docs/deployment.md) · [配置参考](docs/configuration.md) |
+| 开发者 | [开发指南](docs/development.md) · [架构与治理说明](docs/architecture.md) · [文档规范](docs/documentation-guide.md) |
+| 设计决策 | [架构决策记录](docs/decisions/) |
 
-The full index is in [docs/README.en.md](docs/README.en.md). Design decision records (ADRs) are in Simplified Chinese only.
+完整索引见 [docs/README.md](docs/README.md)。
 
-## Roadmap
+## 路线图
 
-Planned directions, without dates:
+计划中的方向，不承诺日期：
 
-- External catalogs and materialized views for more engines.
-- DDL attribution for StarRocks, SQL Server and Oracle.
-- Richer Q&A: nested derived metrics, week and month grains, share of total.
+- 更多引擎的外部 Catalog 与物化视图。
+- StarRocks、SQL Server、Oracle 的变更归因。
+- 问数表达能力：派生指标嵌套、按周 / 月的时间粒度、占比。
 
-Changes are recorded in the [changelog](CHANGELOG.md).
+版本变化见[更新日志](CHANGELOG.md)。
 
-## Contributing
+## 参与贡献
 
-Contributions are welcome. Please read the [contributing guide](CONTRIBUTING.md) and follow the [code of conduct](CODE_OF_CONDUCT.md). To report a security vulnerability, see the [security policy](SECURITY.md) instead of opening a public issue.
+欢迎参与。请先阅读[贡献指南](CONTRIBUTING.md)并遵守[行为准则](CODE_OF_CONDUCT.md)。安全漏洞请按[安全策略](SECURITY.md)私下报告，不要开公开 issue。
 
-## License
+## 许可
 
-Avelis is licensed under the [Apache License 2.0](LICENSE).
+Avelis 采用 [Apache License 2.0](LICENSE) 开源许可。
