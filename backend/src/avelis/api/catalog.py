@@ -66,6 +66,11 @@ class MemberSet(BaseModel):
     role: str = Field(pattern=r"^(owner|maintainer|viewer)$")
 
 
+def _grain_view(grain) -> dict:
+    """粒度说明按请求语言输出；只在接口出口翻译，写进发布检查留底的仍是简体原文。"""
+    return {**grain.to_dict(), "note": translate(grain.note)}
+
+
 def domain_view(session: Session, d: Domain) -> dict:
     members = session.execute(select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
                               .join(User, User.id == DomainMember.user_id).where(DomainMember.domain_id == d.id))
@@ -223,7 +228,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                        "canonical_hash": definition.canonical_hash} if definition else None,
         "parse": {"status": parse.status, "reason": parse.reason, "parser_version": parse.parser_version,
                   "details": parse.details} if parse else None,
-        "grains": [g.to_dict() for g in effective_grains(session, a.id, current_fingerprint_map(session))],
+        "grains": [_grain_view(g) for g in effective_grains(session, a.id, current_fingerprint_map(session))],
         "identity_link": _link_view(session, link) if link else None,
         "linked_from": [_link_view(session, x) for x in linked_from],
         "versions": [_version_view(v) for v in versions],
@@ -458,7 +463,7 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
                           "note": gettext("导入代码中出现、尚未在数据源中采集到的表（设计时血缘）")})
         else:
             nodes.append({**asset_summary(session, assets[i]),
-                          "grains": [g.to_dict() for g in effective_grains(session, i, fpmap)],
+                          "grains": [_grain_view(g) for g in effective_grains(session, i, fpmap)],
                           "in_scope": i in seeds})
     grouped: dict[tuple, dict] = {}
     for src, dst, e in edges:

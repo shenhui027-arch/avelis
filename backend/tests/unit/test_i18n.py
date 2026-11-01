@@ -260,3 +260,17 @@ def test_catalogs_are_packaged_explicitly():
     project = tomllib.loads((SOURCE.parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
     includes = project["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert includes["src/avelis/locales"] == "avelis/locales"
+
+
+def test_generated_grain_notes_and_event_labels_translate_at_api_exit():
+    """粒度说明与工作台事件类型是请求时生成的：留底仍是简体原文，接口出口按请求语言翻译，参数原样。"""
+    from avelis.i18n import Msg, gettext, locale_context, translate
+
+    note = Msg("透传自 {table}", table="db_a.table_a")
+    assert note == "透传自 db_a.table_a"
+    with locale_context("en"):
+        assert translate(note) == "Passed through from db_a.table_a"
+        assert translate(Msg("经身份映射继承他库表的键")).startswith("Key inherited")
+        assert gettext("新增列") == "Column added"
+    with locale_context("zh-TW"):
+        assert translate(note) == "透傳自 db_a.table_a"
