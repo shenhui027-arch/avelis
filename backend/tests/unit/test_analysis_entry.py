@@ -18,8 +18,10 @@ from avelis.ask import agent as ask_agent
 from avelis.ask import service as ask_service
 from avelis.db import utcnow
 from avelis.models import AnalysisRun, Answer, Asset, Job, Metric, MetricVersion
-from tests.unit.test_analysis_hitl import configured as hitl_configured, reply, report_reply, waiting_run
-from tests.unit.test_analysis_pipeline import WINDOW, big_catalog, catalog as pipeline_catalog
+from tests.unit.test_analysis_hitl import configured as hitl_configured
+from tests.unit.test_analysis_hitl import reply, report_reply, waiting_run
+from tests.unit.test_analysis_pipeline import WINDOW, big_catalog
+from tests.unit.test_analysis_pipeline import catalog as pipeline_catalog
 
 
 def scope_reply(question_type="lookup", **extra):

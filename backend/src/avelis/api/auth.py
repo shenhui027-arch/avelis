@@ -16,6 +16,7 @@ from avelis.api.deps import current_claims, current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access
+from avelis.i18n import Msg, gettext
 from avelis.models import Domain, DomainMember, User, UserRole
 from avelis.security import create_access_token, hash_password, session_cutoff_now, verify_password
 
@@ -73,7 +74,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
         audit.record(session, None, "auth.login_locked", "user", None, username=form.username)
         session.commit()
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": str(locked)},
-                            detail=f"连续登录失败次数过多，请 {max(locked // 60, 1)} 分钟后再试")
+                            detail=Msg("连续登录失败次数过多，请 {minutes} 分钟后再试", minutes=max(locked // 60, 1)))
     user = session.scalar(select(User).where(User.username == form.username))
     if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
         failures = cache.record_login_failure(key, settings.login_lock_minutes * 60)
@@ -82,7 +83,8 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
         session.commit()
         left = settings.login_max_failures - failures
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"},
-                            detail="用户名或密码错误" + (f"，再失败 {left} 次将暂时锁定" if 0 < left <= 2 else ""))
+                            detail=(Msg("用户名或密码错误，再失败 {attempts} 次将暂时锁定", attempts=left)
+                                    if 0 < left <= 2 else "用户名或密码错误"))
     cache.clear_login_failures(key)
     user.last_login_at = utcnow()
     audit.record(session, user, "auth.login", "user", user.id)
@@ -192,10 +194,10 @@ def list_users(user: User = Depends(current_user), session: Session = Depends(ge
 def create_user(body: UserCreate, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     access.require_role(session, user, "admin")
     if session.scalar(select(User.id).where(User.username == body.username)):
-        raise HTTPException(409, f"用户名 {body.username} 已存在")
+        raise HTTPException(409, Msg("用户名 {username} 已存在", username=body.username))
     unknown = set(body.roles) - set(access.ROLES)
     if unknown:
-        raise HTTPException(422, f"未知角色：{', '.join(sorted(unknown))}")
+        raise HTTPException(422, Msg("未知角色：{roles}", roles=", ".join(sorted(unknown))))
     new = User(username=body.username, display_name=body.display_name, password_hash=hash_password(body.password),
                must_change_password=body.must_change_password)
     session.add(new)
@@ -234,7 +236,7 @@ def update_user(user_id: str, body: UserUpdate, user: User = Depends(current_use
     if body.roles is not None:
         unknown = set(body.roles) - set(access.ROLES)
         if unknown:
-            raise HTTPException(422, f"未知角色：{', '.join(sorted(unknown))}")
+            raise HTTPException(422, Msg("未知角色：{roles}", roles=", ".join(sorted(unknown))))
         current = access.roles_of(session, target)
         if target.id == user.id and "admin" in current and "admin" not in body.roles:
             raise HTTPException(409, "不能去掉自己的管理员角色")
@@ -279,5 +281,5 @@ def settings_view(user: User = Depends(current_user), session: Session = Depends
         "collect_interval_minutes": s.collect_interval_minutes,
         "model": {**modelcfg.settings_view(session), "orchestrator": "langgraph"},
         "roles": {"admin": "管理员", "steward": "维护者", "reviewer": "复核者", "analyst": "查询者"},
-        "discovery_note": "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。",
+        "discovery_note": gettext("元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"),
     }

@@ -17,7 +17,8 @@ from avelis.api.schemas import AnalysisResumeIn, AnalysisRunOut
 from avelis.governance import experiences
 from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.models import AnalysisRun, AnalysisTask, Asset, AssetVersion, Job, Metric, MetricVersion, Notification
-from tests.unit.test_analysis_pipeline import Phased, WINDOW, catalog as pipeline_catalog
+from tests.unit.test_analysis_pipeline import WINDOW, Phased
+from tests.unit.test_analysis_pipeline import catalog as pipeline_catalog
 from tests.unit.test_analysis_toolbox import governed, make_box
 
 
@@ -901,7 +902,9 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
 
 
 def test_lookup_source_permission_denial_is_recorded_and_pauses_scheduled_task(monkeypatch):
-    from tests.unit.test_analysis_entry import configured as entry_configured, fake_ask, scope_reply as lookup_scope
+    from tests.unit.test_analysis_entry import configured as entry_configured
+    from tests.unit.test_analysis_entry import fake_ask
+    from tests.unit.test_analysis_entry import scope_reply as lookup_scope
 
     box, model, _, _, _ = entry_configured(monkeypatch, [lookup_scope(),
         reply("submit_proposal", {"items": []}, "proposal"), report_reply()], unattended=True)

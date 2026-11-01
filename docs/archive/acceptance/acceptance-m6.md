@@ -1,15 +1,15 @@
 # M6 验收说明：问数表达能力
 
 - 日期：2026-10-29
-- 设计：[ADR 0005](decisions/0005-ask-expressiveness.md)
+- 设计：[ADR 0005](../../decisions/0005-ask-expressiveness.md)
 - 完成标准：在真实 StarRocks 上验证以下能力，以及它们与治理的结合（受影响拦截、权限）：
   - 排名与前 N；
   - 多个指标；
   - 环比 / 同比；
   - 派生指标。
 - 测试：
-  - 验收 [backend/tests/acceptance/test_m9_ask_v2.py](../backend/tests/acceptance/test_m9_ask_v2.py)，8 项，含真实 DeepSeek 1 项；
-  - 单元测试 [backend/tests/unit/test_ask_v2.py](../backend/tests/unit/test_ask_v2.py)，4 项。
+  - 验收 [backend/tests/acceptance/test_m9_ask_v2.py](../../../backend/tests/acceptance/test_m9_ask_v2.py)，8 项，含真实 DeepSeek 1 项；
+  - 单元测试 [backend/tests/unit/test_ask_v2.py](../../../backend/tests/unit/test_ask_v2.py)，4 项。
 
 ## 演示数据
 
@@ -46,7 +46,7 @@
   - 派生指标排名：客单价按区域排名；依据面板给出公式和锁定的组成版本。
 - 16：派生指标详情。显示公式、锁定的组成版本、共有维度；基础资产、关联、粒度等区块不显示。
 
-走查中发现：维度列表头显示的是内部名 `region`。最初由后端附上显示名，之后改为以数据库列注释为准（[ADR 0006](decisions/0006-column-meaning-from-db-comments.md)）：表头保留 `region`，下方显示注释状态；注释缺失如实标出，推动数据库侧补齐。
+走查中发现：维度列表头显示的是内部名 `region`。最初由后端附上显示名，之后改为以数据库列注释为准（[ADR 0006](../../decisions/0006-column-meaning-from-db-comments.md)）：表头保留 `region`，下方显示注释状态；注释缺失如实标出，推动数据库侧补齐。
 
 演示准备（`bootstrap demo --metrics`）新增派生指标“客单价”。
 

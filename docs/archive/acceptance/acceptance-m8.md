@@ -1,17 +1,17 @@
 # M8a 验收说明：分析智能体
 
 - 日期：2026-10-30
-- 设计：[ADR 0007](decisions/0007-analysis-agent.md)；流程按 [ADR 0012](decisions/0012-analysis-pipeline-system-assembled-context.md)
-  改为“理解 → 系统预检 → 推理”；报告数字、自动归因、探索查询与评测见 [ADR 0009](decisions/0009-grounded-numbers-and-evaluation.md)
+- 设计：[ADR 0007](../../decisions/0007-analysis-agent.md)；流程按 [ADR 0012](../../decisions/0012-analysis-pipeline-system-assembled-context.md)
+  改为“理解 → 系统预检 → 推理”；报告数字、自动归因、探索查询与评测见 [ADR 0009](../../decisions/0009-grounded-numbers-and-evaluation.md)
 - 完成标准：
   - 模型能多步分析“为什么变了”这类问题，并找到合成数据中预埋的原因；
   - 每一次取数都经过治理，每一个数字都能追溯到数据集；
   - 越权与超出预算被拒绝；
   - 报告可导出、可定时运行。
 - 测试：
-  - 验收 [backend/tests/acceptance/test_m11_analysis.py](../backend/tests/acceptance/test_m11_analysis.py)，共 9 项：确定性 7 项，真实 DeepSeek 2 项；
-  - 单元测试 [backend/tests/unit/test_analysis_calc.py](../backend/tests/unit/test_analysis_calc.py)（计算工具、覆盖度）、[test_analysis_grounding.py](../backend/tests/unit/test_analysis_grounding.py)（引用片段的取值、格式、渲染与五条结构检查，ADR 0009）与 [test_analysis_toolbox.py](../backend/tests/unit/test_analysis_toolbox.py)（统一分发计数与截止时间、截断、日历期间、data_health / changes 授权与范围、引用编号、导出转义、cron）；
-  - 数据库测试 [backend/tests/db](../backend/tests/db)：在独立的 `avelis_m8_test` 库上运行，不触碰共用元数据库。覆盖执行中撤权、收尾与恢复器的加锁顺序（两个连接交错）、同步执行中断后按 Job 回收、同步入口等待被抢先领取的 Job、旧 worker 迟到（不能写入、不能复活）、运行已是终态时按运行修正 Job 并补发通知、暂停任务的定时 Job、执行中权限拒绝（含随后异常）暂停任务、通知未读优先、模型外发策略部分更新，以及迁移 0008（原 0006，现接在变更留底的 0007 之后）在有数据的库上升级 → 降级到 0007 → 再升级（核对历史审计行内容与哈希链不变）。
+  - 验收 [backend/tests/acceptance/test_m11_analysis.py](../../../backend/tests/acceptance/test_m11_analysis.py)，共 9 项：确定性 7 项，真实 DeepSeek 2 项；
+  - 单元测试 [backend/tests/unit/test_analysis_calc.py](../../../backend/tests/unit/test_analysis_calc.py)（计算工具、覆盖度）、[test_analysis_grounding.py](../../../backend/tests/unit/test_analysis_grounding.py)（引用片段的取值、格式、渲染与五条结构检查，ADR 0009）与 [test_analysis_toolbox.py](../../../backend/tests/unit/test_analysis_toolbox.py)（统一分发计数与截止时间、截断、日历期间、data_health / changes 授权与范围、引用编号、导出转义、cron）；
+  - 数据库测试 [backend/tests/db](../../../backend/tests/db)：在独立的 `avelis_m8_test` 库上运行，不触碰共用元数据库。覆盖执行中撤权、收尾与恢复器的加锁顺序（两个连接交错）、同步执行中断后按 Job 回收、同步入口等待被抢先领取的 Job、旧 worker 迟到（不能写入、不能复活）、运行已是终态时按运行修正 Job 并补发通知、暂停任务的定时 Job、执行中权限拒绝（含随后异常）暂停任务、通知未读优先、模型外发策略部分更新，以及迁移 0008（原 0006，现接在变更留底的 0007 之后）在有数据的库上升级 → 降级到 0007 → 再升级（核对历史审计行内容与哈希链不变）。
 
 ## 合成电商数据集
 

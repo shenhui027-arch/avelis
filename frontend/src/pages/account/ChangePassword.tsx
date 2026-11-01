@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router";
 import { api, token, unwrap } from "../../api/client";
 import { errorText } from "../../api/hooks";
 import { LogoMark } from "../../components/Logo";
+import { t } from "../../i18n";
 import { useMe } from "../../layout/Shell";
 
 export function ChangePassword() {
@@ -42,25 +43,25 @@ export function ChangePassword() {
       <form className="av-auth__card" onSubmit={submit}>
         <div className="av-auth__brand"><LogoMark size={28} /><span>Avelis</span></div>
         <div className="av-auth__head">
-          <h1>{forced ? "设置新密码" : "修改密码"}</h1>
-          <p>{forced ? "首次登录或密码被重置，需先设置新密码" : "修改后，其他设备上的登录将失效"}</p>
+          <h1>{forced ? t("设置新密码") : t("修改密码")}</h1>
+          <p>{forced ? t("首次登录或密码被重置，需先设置新密码") : t("修改后，其他设备上的登录将失效")}</p>
         </div>
-        <label className="av-field"><span className="av-label">当前密码</span>
+        <label className="av-field"><span className="av-label">{t("当前密码")}</span>
           <input className="av-input" type="password" autoComplete="current-password" required autoFocus
             value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} /></label>
-        <label className="av-field"><span className="av-label">新密码</span>
+        <label className="av-field"><span className="av-label">{t("新密码")}</span>
           <input className="av-input" type="password" autoComplete="new-password" required minLength={8}
             value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} />
-          <span className="av-help">至少 8 位，不能包含账号</span></label>
-        <label className="av-field"><span className="av-label">确认新密码</span>
+          <span className="av-help">{t("至少 8 位，不能包含账号")}</span></label>
+        <label className="av-field"><span className="av-label">{t("确认新密码")}</span>
           <input className="av-input" type="password" autoComplete="new-password" required aria-invalid={mismatch}
             value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
-          {mismatch ? <span className="av-help av-help--danger">两次输入不一致</span> : null}</label>
+          {mismatch ? <span className="av-help av-help--danger">{t("两次输入不一致")}</span> : null}</label>
         {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
         <div className="av-auth__actions">
-          {forced ? null : <button type="button" className="av-btn av-btn--secondary av-btn--lg" onClick={() => navigate(-1)}>取消</button>}
+          {forced ? null : <button type="button" className="av-btn av-btn--secondary av-btn--lg" onClick={() => navigate(-1)}>{t("取消")}</button>}
           <button className="av-btn av-btn--primary av-btn--lg" type="submit"
-            disabled={busy || form.next.length < 8 || form.next !== form.confirm}>{busy ? "保存中…" : "保存"}</button>
+            disabled={busy || form.next.length < 8 || form.next !== form.confirm}>{busy ? t("保存中…") : t("保存")}</button>
         </div>
       </form>
     </div>

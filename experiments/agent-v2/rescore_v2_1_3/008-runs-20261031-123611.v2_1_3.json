@@ -1,5 +1,5 @@
 {
-  "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+  "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
   "summary": {
     "runs": 128,
     "changed": 0,
@@ -42,7 +42,7 @@
       "repeat": 1,
       "audit_key": "g01:R:1",
       "run_id": "c7b8bf1edf9b41d7b013c699d5d2d3f4",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -157,7 +157,7 @@
       "repeat": 1,
       "audit_key": "d06:B0:1",
       "run_id": "e4b89aa387b84617914b46712b2cada9",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -398,7 +398,7 @@
       "repeat": 1,
       "audit_key": "e01:B0:1",
       "run_id": "1b6913cef8694212a777dae541f5e98f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -495,7 +495,7 @@
       "repeat": 1,
       "audit_key": "d06:H:1",
       "run_id": "122e758c82084becb948a1d748bc5e27",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -610,7 +610,7 @@
       "repeat": 1,
       "audit_key": "e02:RH:1",
       "run_id": "9a98bb50b970402bb6e44199643f9417",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -707,7 +707,7 @@
       "repeat": 1,
       "audit_key": "a02:B0:1",
       "run_id": "98822ab12d814eaab5c1a6352eddf798",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -804,7 +804,7 @@
       "repeat": 1,
       "audit_key": "f01:R:1",
       "run_id": "1fab71f9c00747339732c06d6d3c8d7e",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -979,7 +979,7 @@
       "repeat": 1,
       "audit_key": "c02:H:1",
       "run_id": "326e47c612304af598638e0dc3eb19ff",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -1134,7 +1134,7 @@
       "repeat": 1,
       "audit_key": "f02:B0:1",
       "run_id": "c579e3930a3e4aecb0f67bdcc179dbca",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -1249,7 +1249,7 @@
       "repeat": 1,
       "audit_key": "h09:H:1",
       "run_id": "df93dadc533741faa543e934593fc6b3",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -1392,7 +1392,7 @@
       "repeat": 1,
       "audit_key": "d06:R:1",
       "run_id": "f7d49d92574b4f01a95dce041e214266",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -1633,7 +1633,7 @@
       "repeat": 1,
       "audit_key": "e02:H:1",
       "run_id": "de56288643f944f4bd261f8bb4ad07ab",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -1730,7 +1730,7 @@
       "repeat": 1,
       "audit_key": "a02:R:1",
       "run_id": "52ca74a7ec424e76a3c2b0899e0a5bfc",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -1827,7 +1827,7 @@
       "repeat": 1,
       "audit_key": "h09:RH:1",
       "run_id": "614482b6049c4015b207327067066517",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -1970,7 +1970,7 @@
       "repeat": 1,
       "audit_key": "d02:B0:1",
       "run_id": "541ad30b98174f29a7fcd74fe69826f5",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -2125,7 +2125,7 @@
       "repeat": 1,
       "audit_key": "n01:R:1",
       "run_id": "c50242123aec46fc9f809a66af17c5c2",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -2240,7 +2240,7 @@
       "repeat": 1,
       "audit_key": "n01:RH:1",
       "run_id": "2e43e4f5369e43559b15045230aea2f0",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -2355,7 +2355,7 @@
       "repeat": 1,
       "audit_key": "h09:B0:1",
       "run_id": "12380b7206694c2da54930813b76ad66",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -2498,7 +2498,7 @@
       "repeat": 1,
       "audit_key": "d02:RH:1",
       "run_id": "f95bbb640c4f4869b70f566827e6ed92",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -2653,7 +2653,7 @@
       "repeat": 1,
       "audit_key": "n01:H:1",
       "run_id": "457ef45e6c75468ab0d78d8ec0aad0ff",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -2768,7 +2768,7 @@
       "repeat": 1,
       "audit_key": "h12:B0:1",
       "run_id": "15115e7732be40339e8cf8623a2e1ce9",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -2949,7 +2949,7 @@
       "repeat": 1,
       "audit_key": "h05:R:1",
       "run_id": "0643548a8c3c45b1bab7ecff28fbf97b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -3128,7 +3128,7 @@
       "repeat": 1,
       "audit_key": "h05:H:1",
       "run_id": "0a051a60ce3642faa68668a61a299dff",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -3299,7 +3299,7 @@
       "repeat": 1,
       "audit_key": "f02:R:1",
       "run_id": "670511dfcac746429a5e5fb001f8942f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -3414,7 +3414,7 @@
       "repeat": 1,
       "audit_key": "h12:H:1",
       "run_id": "540d191d8cdc4acfb1b23a2aadb96abe",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -3587,7 +3587,7 @@
       "repeat": 1,
       "audit_key": "d03:R:1",
       "run_id": "59b261b62fd84921a9ddb386aab0ace6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -3844,7 +3844,7 @@
       "repeat": 1,
       "audit_key": "g01:H:1",
       "run_id": "f81e66bcfe0746348c4bce898c285ea6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -4071,7 +4071,7 @@
       "repeat": 1,
       "audit_key": "f01:B0:1",
       "run_id": "e049ac432af54d8caa19a3f33d6b5626",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -4246,7 +4246,7 @@
       "repeat": 1,
       "audit_key": "a02:H:1",
       "run_id": "68ddd54c2ad5431e8c7cc4830fdeb6f9",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -4343,7 +4343,7 @@
       "repeat": 1,
       "audit_key": "h07:H:1",
       "run_id": "88894854b06141f39ea5ae1eaa4a7558",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -4578,7 +4578,7 @@
       "repeat": 1,
       "audit_key": "d03:H:1",
       "run_id": "55878c2887aa49cbbc477963fded5ffa",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -4835,7 +4835,7 @@
       "repeat": 1,
       "audit_key": "d03:B0:1",
       "run_id": "20fcb634a3814cf8b12db904dc36117f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -5096,7 +5096,7 @@
       "repeat": 1,
       "audit_key": "f02:RH:1",
       "run_id": "b5e08013896a4e8ab6bd970053ade02a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -5211,7 +5211,7 @@
       "repeat": 1,
       "audit_key": "n01:B0:1",
       "run_id": "f6c906da5a994ac69eb6d4a85d520c98",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -5326,7 +5326,7 @@
       "repeat": 1,
       "audit_key": "f01:H:1",
       "run_id": "2309ba71a9174cf08ecc34cbe6973a9c",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -5501,7 +5501,7 @@
       "repeat": 1,
       "audit_key": "h12:RH:1",
       "run_id": "36dcc244b03e49ea9fae5a15ea65c883",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -5674,7 +5674,7 @@
       "repeat": 1,
       "audit_key": "c02:RH:1",
       "run_id": "5572b08b20874b6aa6f3399f1bb945b6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -5829,7 +5829,7 @@
       "repeat": 1,
       "audit_key": "c02:B0:1",
       "run_id": "8f8fe18580ba40a5b67a5761269768e8",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -5984,7 +5984,7 @@
       "repeat": 1,
       "audit_key": "e01:H:1",
       "run_id": "cbbd95f40dd44fe99ce0ceee5461ce66",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -6081,7 +6081,7 @@
       "repeat": 1,
       "audit_key": "e02:B0:1",
       "run_id": "c0cbb8a37dae4bf4bb848649498ba52b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -6178,7 +6178,7 @@
       "repeat": 1,
       "audit_key": "g01:RH:1",
       "run_id": "06e4f2a9f94b4e49ad82f4292b16e7a9",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -6293,7 +6293,7 @@
       "repeat": 1,
       "audit_key": "h10:R:1",
       "run_id": "e627b337f3f54329bc2e2574b7417792",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -6464,7 +6464,7 @@
       "repeat": 1,
       "audit_key": "d02:H:1",
       "run_id": "6d822b89f9d040058f6408a5d35da5a5",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -6619,7 +6619,7 @@
       "repeat": 1,
       "audit_key": "h10:B0:1",
       "run_id": "c964025426c74c0c894239e3325aa0bd",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -6790,7 +6790,7 @@
       "repeat": 1,
       "audit_key": "f01:RH:1",
       "run_id": "67f68168227f47dd9f5edb6bca835d84",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -6973,7 +6973,7 @@
       "repeat": 1,
       "audit_key": "d03:RH:1",
       "run_id": "b8d424a861fc4e5a81320efcadbe52c5",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -7234,7 +7234,7 @@
       "repeat": 1,
       "audit_key": "e01:R:1",
       "run_id": "efae2c212b70420caa2d2793020a1206",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -7331,7 +7331,7 @@
       "repeat": 1,
       "audit_key": "h05:RH:1",
       "run_id": "94410cc1102b41179cacc28a96eb84ae",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -7510,7 +7510,7 @@
       "repeat": 1,
       "audit_key": "d06:RH:1",
       "run_id": "d3a33e66198f41c1af3021a4f35d03db",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -7745,7 +7745,7 @@
       "repeat": 1,
       "audit_key": "h05:B0:1",
       "run_id": "442b1cef982846de9651e7fc56e19afd",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -7916,7 +7916,7 @@
       "repeat": 1,
       "audit_key": "h07:R:1",
       "run_id": "834584d5362b4d7cbd50178e26fe5ef8",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -8159,7 +8159,7 @@
       "repeat": 1,
       "audit_key": "h07:B0:1",
       "run_id": "d3b071c10d0a48e6aa8c87b2b95a4bf8",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -8394,7 +8394,7 @@
       "repeat": 1,
       "audit_key": "d02:R:1",
       "run_id": "f50e961b69ea425cab75ff2616f7edae",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -8509,7 +8509,7 @@
       "repeat": 1,
       "audit_key": "h09:R:1",
       "run_id": "9de82e75e44c400394a1d147a0b1ecaa",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -8652,7 +8652,7 @@
       "repeat": 1,
       "audit_key": "f02:H:1",
       "run_id": "422beb807b854adfb2b86beab38615e6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -8767,7 +8767,7 @@
       "repeat": 1,
       "audit_key": "c02:R:1",
       "run_id": "8107c0361dda4d358311552129c63789",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -8922,7 +8922,7 @@
       "repeat": 1,
       "audit_key": "a02:RH:1",
       "run_id": "d5d1155a455b4643966150dab717d5e6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -9019,7 +9019,7 @@
       "repeat": 1,
       "audit_key": "h10:H:1",
       "run_id": "37299ec60c1e4d828671af7d58509405",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -9198,7 +9198,7 @@
       "repeat": 1,
       "audit_key": "g01:B0:1",
       "run_id": "9771cae00d9f4427b499e5ab28226d82",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -9425,7 +9425,7 @@
       "repeat": 1,
       "audit_key": "h10:RH:1",
       "run_id": "6125943d5b7a446abc5f78f80eaddbd6",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -9596,7 +9596,7 @@
       "repeat": 1,
       "audit_key": "e02:R:1",
       "run_id": "323616d8a6b64a0089e7b488f41c9813",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -9693,7 +9693,7 @@
       "repeat": 1,
       "audit_key": "h12:R:1",
       "run_id": "9cf3083b0c77434f80b65b218dcece25",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -9874,7 +9874,7 @@
       "repeat": 1,
       "audit_key": "e01:RH:1",
       "run_id": "909fd94dfe0b45ddb0537e989b19add7",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -9971,7 +9971,7 @@
       "repeat": 1,
       "audit_key": "h07:RH:1",
       "run_id": "ecbd9d5b39ea4c5a826c960948d95dc5",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -10214,7 +10214,7 @@
       "repeat": 2,
       "audit_key": "h09:R:2",
       "run_id": "4e5a5f27665b45e29c69fbc300226a95",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -10365,7 +10365,7 @@
       "repeat": 2,
       "audit_key": "d06:RH:2",
       "run_id": "f6c25ee9ec4a444faadc338514d4e4bc",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -10600,7 +10600,7 @@
       "repeat": 2,
       "audit_key": "f02:H:2",
       "run_id": "90e536bc050f4036825b8b1186bb8cd1",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -10715,7 +10715,7 @@
       "repeat": 2,
       "audit_key": "d02:RH:2",
       "run_id": "c7a35c69aaa1453eb01c33d5f242c455",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -10966,7 +10966,7 @@
       "repeat": 2,
       "audit_key": "e01:B0:2",
       "run_id": "be43baa6b4d04629a7f3924dedda257c",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -11063,7 +11063,7 @@
       "repeat": 2,
       "audit_key": "d03:RH:2",
       "run_id": "3268e1abb2e744e4baaefc8653a78026",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -11320,7 +11320,7 @@
       "repeat": 2,
       "audit_key": "e02:B0:2",
       "run_id": "d19d11b0346b412f9838b2e69974549b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -11417,7 +11417,7 @@
       "repeat": 2,
       "audit_key": "d06:B0:2",
       "run_id": "cc0d82d0acea4375a0e7e26ca3121c40",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -11666,7 +11666,7 @@
       "repeat": 2,
       "audit_key": "h12:R:2",
       "run_id": "106182fd221d4941a7f76b6f379e74dd",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -11839,7 +11839,7 @@
       "repeat": 2,
       "audit_key": "e01:H:2",
       "run_id": "926385ec820f440dbc3398a0fe9a4479",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -11936,7 +11936,7 @@
       "repeat": 2,
       "audit_key": "d02:B0:2",
       "run_id": "92995a729c894221ab3efc1f461c5c9f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -12131,7 +12131,7 @@
       "repeat": 2,
       "audit_key": "a02:H:2",
       "run_id": "9f643597ef87420fa261c19a543bff13",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -12228,7 +12228,7 @@
       "repeat": 2,
       "audit_key": "h09:RH:2",
       "run_id": "4c2f837c8d044b3f9eff4767c456a3f9",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -12371,7 +12371,7 @@
       "repeat": 2,
       "audit_key": "h09:B0:2",
       "run_id": "4c2e5bb6bb4f447f9c2d1bf30d7590dd",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -12514,7 +12514,7 @@
       "repeat": 2,
       "audit_key": "f01:B0:2",
       "run_id": "5116ec2825de4efab15a92539a454c19",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -12689,7 +12689,7 @@
       "repeat": 2,
       "audit_key": "d03:H:2",
       "run_id": "beef9c5c0b8744efafa3b90ea978537a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -12946,7 +12946,7 @@
       "repeat": 2,
       "audit_key": "f02:B0:2",
       "run_id": "47aac424ddde4be4bdfda5a546e91990",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -13061,7 +13061,7 @@
       "repeat": 2,
       "audit_key": "h10:R:2",
       "run_id": "63404fa199f042b492281006827c0ced",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -13232,7 +13232,7 @@
       "repeat": 2,
       "audit_key": "e01:R:2",
       "run_id": "eb53f8f7f6d447ca824ab340d4d2dd0f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -13329,7 +13329,7 @@
       "repeat": 2,
       "audit_key": "c02:H:2",
       "run_id": "61ab5d8cef3b43a08c8fd31c9188e125",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -13484,7 +13484,7 @@
       "repeat": 2,
       "audit_key": "f02:RH:2",
       "run_id": "337f0389305447f7b446c65e81314dfa",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -13599,7 +13599,7 @@
       "repeat": 2,
       "audit_key": "e02:RH:2",
       "run_id": "f6e4cf528c0146899bdfe8f060239a1a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -13696,7 +13696,7 @@
       "repeat": 2,
       "audit_key": "h05:RH:2",
       "run_id": "6c3b6dd11b0747e1aebb5c253748ba70",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -13867,7 +13867,7 @@
       "repeat": 2,
       "audit_key": "n01:RH:2",
       "run_id": "7b182c3748d64110935a426c90512ed3",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -13982,7 +13982,7 @@
       "repeat": 2,
       "audit_key": "f01:H:2",
       "run_id": "53aef4567a4442eb94b76d549fc02ad5",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -14157,7 +14157,7 @@
       "repeat": 2,
       "audit_key": "a02:RH:2",
       "run_id": "23e0e551bc434fcbbe15d68afa9fbd80",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -14254,7 +14254,7 @@
       "repeat": 2,
       "audit_key": "f01:RH:2",
       "run_id": "b88c821b989a45f5a190d81379f33b4a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -14429,7 +14429,7 @@
       "repeat": 2,
       "audit_key": "d02:H:2",
       "run_id": "b86e50af505345dab0d5fbf1609d63e2",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -14624,7 +14624,7 @@
       "repeat": 2,
       "audit_key": "h05:B0:2",
       "run_id": "e44fade0507840c68e298bcc33cd3130",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -14803,7 +14803,7 @@
       "repeat": 2,
       "audit_key": "d03:R:2",
       "run_id": "522d289680944732a86aacc65823d376",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -14918,7 +14918,7 @@
       "repeat": 2,
       "audit_key": "h07:B0:2",
       "run_id": "2e459cee15b547d78a9734e3e4e85194",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -15161,7 +15161,7 @@
       "repeat": 2,
       "audit_key": "n01:R:2",
       "run_id": "afd2041e436a43c28c8972a1a4246e1e",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -15276,7 +15276,7 @@
       "repeat": 2,
       "audit_key": "a02:R:2",
       "run_id": "8725c9508bf64e2fb2c7def67653d946",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -15373,7 +15373,7 @@
       "repeat": 2,
       "audit_key": "h10:RH:2",
       "run_id": "9f0ecd92609844d1bd483040c2d35c64",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -15544,7 +15544,7 @@
       "repeat": 2,
       "audit_key": "d02:R:2",
       "run_id": "eba59c8fa8564802baf7c9080632e24a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -15741,7 +15741,7 @@
       "repeat": 2,
       "audit_key": "e02:H:2",
       "run_id": "b0d8437947a342998ec25d8bd61acad0",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -15838,7 +15838,7 @@
       "repeat": 2,
       "audit_key": "c02:R:2",
       "run_id": "ac6844452b5743049c672b647c90adcb",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -15993,7 +15993,7 @@
       "repeat": 2,
       "audit_key": "e02:R:2",
       "run_id": "34b54ab83e9647aa943b5ced4a69c37d",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -16090,7 +16090,7 @@
       "repeat": 2,
       "audit_key": "h09:H:2",
       "run_id": "4da3a8c1162c42bb8a8e8cb40fb11b7d",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -16233,7 +16233,7 @@
       "repeat": 2,
       "audit_key": "h07:H:2",
       "run_id": "44fc6d056111449eae3b8ca8878187b8",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -16496,7 +16496,7 @@
       "repeat": 2,
       "audit_key": "h10:H:2",
       "run_id": "c18fb619a3c0405b938d21665cb71cf8",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -16675,7 +16675,7 @@
       "repeat": 2,
       "audit_key": "d06:R:2",
       "run_id": "b3cee00af3af4e89a37c42751e0bcfbc",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -16916,7 +16916,7 @@
       "repeat": 2,
       "audit_key": "h12:B0:2",
       "run_id": "d88b397a64824097b1d41a6c3e25e75f",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -17089,7 +17089,7 @@
       "repeat": 2,
       "audit_key": "h07:RH:2",
       "run_id": "378d66f0ab9a41ac9ba5579458ae9073",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -17324,7 +17324,7 @@
       "repeat": 2,
       "audit_key": "h05:R:2",
       "run_id": "e6a90ee011864531b2427cab2f389586",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -17495,7 +17495,7 @@
       "repeat": 2,
       "audit_key": "g01:RH:2",
       "run_id": "f69ccbad1ba440b4a2de6b860a3c534c",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -17722,7 +17722,7 @@
       "repeat": 2,
       "audit_key": "f02:R:2",
       "run_id": "497added1c0e48b29636561358e7344b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -17837,7 +17837,7 @@
       "repeat": 2,
       "audit_key": "h05:H:2",
       "run_id": "ae33f17a1e4945afbac748c7e187499b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h05",
         "category": "explore",
@@ -18016,7 +18016,7 @@
       "repeat": 2,
       "audit_key": "h12:RH:2",
       "run_id": "1cadbfa0448442869708580407b1d351",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",
@@ -18197,7 +18197,7 @@
       "repeat": 2,
       "audit_key": "n01:B0:2",
       "run_id": "f95abc0b5c0f4865a8422420070cdb56",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -18312,7 +18312,7 @@
       "repeat": 2,
       "audit_key": "d06:H:2",
       "run_id": "c82caf67dd194418b4dc8fecf2d3f384",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d06",
         "category": "dimension",
@@ -18561,7 +18561,7 @@
       "repeat": 2,
       "audit_key": "d03:B0:2",
       "run_id": "39ed3b02e1884f74b16b2bac2e78c670",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "d03",
         "category": "dimension",
@@ -18814,7 +18814,7 @@
       "repeat": 2,
       "audit_key": "h07:R:2",
       "run_id": "29de85d2b4bd4bab8f55da2e098c1755",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -19057,7 +19057,7 @@
       "repeat": 2,
       "audit_key": "c02:RH:2",
       "run_id": "9be2f018f148493199bd87597c4ac19e",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -19212,7 +19212,7 @@
       "repeat": 2,
       "audit_key": "e01:RH:2",
       "run_id": "50f7654fee81499f966d8225d67b114e",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -19309,7 +19309,7 @@
       "repeat": 2,
       "audit_key": "g01:B0:2",
       "run_id": "e5724370c0114caebd5b92f989e88fc2",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -19540,7 +19540,7 @@
       "repeat": 2,
       "audit_key": "h10:B0:2",
       "run_id": "838debd057b44b09ac6f0575f660324d",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -19711,7 +19711,7 @@
       "repeat": 2,
       "audit_key": "n01:H:2",
       "run_id": "047aeba066f040ed9f0ef3426e5c2cf4",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "n01",
         "category": "negative",
@@ -19826,7 +19826,7 @@
       "repeat": 2,
       "audit_key": "g01:R:2",
       "run_id": "f94ba75274974c84a0a075c6fd4ecd3b",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -20053,7 +20053,7 @@
       "repeat": 2,
       "audit_key": "a02:B0:2",
       "run_id": "2547330bd76741a48bb7966d77fc5d52",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "a02",
         "category": "adversarial",
@@ -20150,7 +20150,7 @@
       "repeat": 2,
       "audit_key": "g01:H:2",
       "run_id": "6301a7e9ca77492ebb316e0e661b2cd3",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "g01",
         "category": "governance",
@@ -20377,7 +20377,7 @@
       "repeat": 2,
       "audit_key": "c02:B0:2",
       "run_id": "9509759a71cd429d9b9da3a07299113a",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "c02",
         "category": "calendar",
@@ -20532,7 +20532,7 @@
       "repeat": 2,
       "audit_key": "f01:R:2",
       "run_id": "290291fac3e949ba95a55cb066055a49",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "f01",
         "category": "factor",
@@ -20707,7 +20707,7 @@
       "repeat": 2,
       "audit_key": "h12:H:2",
       "run_id": "bc4dee010f074430b0f7f5db4ff66c39",
-      "source": "runs:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e2\\20261031-123611.json",
+      "source": "runs:.demo\\experiments\\e2\\20261031-123611.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",

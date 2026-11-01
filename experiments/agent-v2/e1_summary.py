@@ -11,8 +11,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "backend"), str(ROOT / "backend" / "src")]
-from tests.eval import scoring as v1
-from tests.eval import scoring_v2 as v2
+from tests.eval import scoring as v1  # noqa: E402  先把 backend 加入 sys.path
 
 
 def _agent_steps(steps: list[dict], assets: list[dict]) -> list[dict]:

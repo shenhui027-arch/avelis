@@ -14,7 +14,6 @@ meta.summary_units 里登记。格式只能用在相应的量纲上，单位一�
 from __future__ import annotations
 
 import json
-import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal

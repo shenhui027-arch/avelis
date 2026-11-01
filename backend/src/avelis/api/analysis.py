@@ -22,8 +22,19 @@ from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import Invalid, NotFound
-from avelis.models import (AnalysisDataset, AnalysisRun, AnalysisTask, Asset, ColumnVersion, Job,
-                           Metric, MetricVersion, Notification, User)
+from avelis.i18n import Msg, current_locale, translate
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisRun,
+    AnalysisTask,
+    Asset,
+    ColumnVersion,
+    Job,
+    Metric,
+    MetricVersion,
+    Notification,
+    User,
+)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -415,7 +426,7 @@ def preview_cron(expr: str, count: int = Query(5, ge=1, le=10), user: User = Dep
             after = analysis.next_run(expr, after)
             runs.append(after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).isoformat())
     except Invalid as exc:
-        runs, error = [], exc.message
+        runs, error = [], translate(exc.message)
     return {"expr": expr, "timezone": timezone, "runs": runs, "error": error}
 
 
@@ -453,7 +464,8 @@ def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user)
 def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
-    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
+    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual",
+                                                "request_locale": current_locale()}, user.id)
     session.commit()
     status = jobs.run_and_wait(job_id, _sync_wait_seconds())  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
@@ -464,9 +476,9 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
         if status not in jobs.TERMINAL:
             raise HTTPException(409, "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看")
         task_now = session.get(AnalysisTask, task.id)
-        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
+        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or Msg("未知原因")
         label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
-        raise HTTPException(409, f"{label}：{reason}")
+        raise HTTPException(409, Msg("{label}：{reason}", label=Msg(label), reason=reason))
     return analysis.run_view(session, session.get(AnalysisRun, run_id), user=user)
 
 

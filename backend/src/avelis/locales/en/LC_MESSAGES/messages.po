@@ -1,0 +1,1484 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "数据源不存在"
+msgstr "Data source not found"
+
+msgid "时间窗口无效：{error}"
+msgstr "Invalid time window: {error}"
+
+msgid "你已没有该数据的访问权限"
+msgstr "You no longer have access to this data"
+
+msgid "分析运行不存在或不属于当前用户"
+msgstr "Analysis run not found or does not belong to you"
+
+msgid "分析正在运行或等待确认，暂不能重跑数据集"
+msgstr "Datasets cannot be rerun while the analysis is running or awaiting confirmation"
+
+msgid "只有保存了查询意图的受治理数据集可以重跑"
+msgstr "Only governed datasets with a saved query intent can be rerun"
+
+msgid "自定义对比需要 compare_start 与 compare_end"
+msgstr "Custom comparisons require compare_start and compare_end"
+
+msgid "请指定有效的时间窗口"
+msgstr "Specify a valid time window"
+
+msgid "查询结果的列名重复，无法作为数据集使用"
+msgstr "The query result has duplicate column names and cannot be used as a dataset"
+
+msgid "时间窗口不完整或日期格式错误：{error}"
+msgstr "Incomplete time window or invalid date format: {error}"
+
+msgid "时间窗口的开始日期晚于结束日期"
+msgstr "The time window starts after it ends"
+
+msgid "不支持的时间窗口类型：{kind}"
+msgstr "Unsupported time window type: {kind}"
+
+msgid "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"
+msgstr "cron requires 5 fields: minute hour day month weekday (for example, 0 9 1 * * runs at 09:00 on the first day of each month)"
+
+msgid "cron 表达式无效：{expr}"
+msgstr "Invalid cron expression: {expr}"
+
+msgid "cron 表达式不会触发（日期不存在，如 2 月 30 日）：{expr}"
+msgstr "The cron expression never runs because the date does not exist (for example, February 30): {expr}"
+
+msgid "分析模式需要允许向模型发送查询结果（模型配置 → 数据外发）。需保密请接入本地模型"
+msgstr "Analysis requires permission to send query results to the model (Model settings → Data sharing). Use a local model for confidential data"
+
+msgid "分析模式需要配置并检测通过一个支持工具调用的模型（模型配置 → 分析，未指定时沿用问数模型）"
+msgstr "Analysis requires a configured model that has passed the tool calling test (Model settings → Analysis; defaults to the question answering model)"
+
+msgid "请输入要分析的问题"
+msgstr "Enter a question to analyze"
+
+msgid "分析检查点不存在或已经恢复"
+msgstr "The analysis checkpoint was not found or has already been resumed"
+
+msgid "等待确认"
+msgstr "Awaiting confirmation"
+
+msgid "需要澄清"
+msgstr "Clarification needed"
+
+msgid "分析不存在或不属于当前用户"
+msgstr "Analysis not found or does not belong to you"
+
+msgid "分析已经结束，不能插话、停止或压缩上下文"
+msgstr "The analysis has ended; messages, stopping, and context compression are no longer available"
+
+msgid "请输入插话内容"
+msgstr "Enter your message"
+
+msgid "请逐项确认或否决，且不要重复提交同一项"
+msgstr "Approve or reject each item without submitting the same item twice"
+
+msgid "这次确认已提交，或分析当前不在等待确认"
+msgstr "This confirmation was already submitted, or the analysis is not awaiting confirmation"
+
+msgid "请回答追问后继续分析"
+msgstr "Answer the follow-up question to continue the analysis"
+
+msgid "这次确认已提交"
+msgstr "This confirmation was already submitted"
+
+msgid "只有发起人可以继续分析"
+msgstr "Only the initiator can continue the analysis"
+
+msgid "只有已完成的分析可以发起续问"
+msgstr "Follow-up questions are available only for completed analyses"
+
+msgid "只有任务发起人或管理员可以修改"
+msgstr "Only the task initiator or an administrator can edit this"
+
+msgid "状态只能是 active 或 paused"
+msgstr "Status must be active or paused"
+
+msgid "数据集不存在"
+msgstr "Dataset not found"
+
+msgid "分析尚未完成，不能导出"
+msgstr "The analysis must finish before it can be exported"
+
+msgid "datasets 只能包含本次运行已有的 D 编号，以逗号分隔"
+msgstr "datasets must contain comma-separated D identifiers from this run"
+
+msgid "format 只能是 pdf、html、md 或 csv"
+msgstr "format must be pdf, html, md, or csv"
+
+msgid "分析任务不存在或不属于当前用户"
+msgstr "Analysis task not found or does not belong to you"
+
+msgid "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看"
+msgstr "The run has not started yet (a background worker has claimed it). Check the task page shortly"
+
+msgid "通知不存在"
+msgstr "Notification not found"
+
+msgid "资源正被其他任务占用"
+msgstr "The resource is in use by another task"
+
+msgid "未找到"
+msgstr "Not found"
+
+msgid "会话不存在"
+msgstr "Conversation not found"
+
+msgid "会话不存在或不属于当前用户"
+msgstr "Conversation not found or does not belong to you"
+
+msgid "答案不存在或无权访问"
+msgstr "Answer not found or access denied"
+
+msgid "只有管理员可以查看全部审计"
+msgstr "Only administrators can view all audit records"
+
+msgid "对象不存在或无权访问"
+msgstr "Object not found or access denied"
+
+msgid "连续登录失败次数过多，请 {minutes} 分钟后再试"
+msgstr "Too many failed sign-in attempts. Try again in {minutes} minutes"
+
+msgid "用户名或密码错误，再失败 {attempts} 次将暂时锁定"
+msgstr "Incorrect username or password. {attempts} more failed attempts will temporarily lock sign-in"
+
+msgid "用户名或密码错误"
+msgstr "Incorrect username or password"
+
+msgid "登录已超过最长时长，请重新登录"
+msgstr "The maximum session duration has been reached. Sign in again"
+
+msgid "密码不能包含账号"
+msgstr "The password cannot contain your username"
+
+msgid "密码过于简单"
+msgstr "The password is too simple"
+
+msgid "新密码不能与当前密码相同"
+msgstr "The new password must differ from your current password"
+
+msgid "当前密码不正确"
+msgstr "The current password is incorrect"
+
+msgid "用户名 {username} 已存在"
+msgstr "Username {username} already exists"
+
+msgid "未知角色：{roles}"
+msgstr "Unknown roles: {roles}"
+
+msgid "用户不存在"
+msgstr "User not found"
+
+msgid "不能停用自己"
+msgstr "You cannot deactivate your own account"
+
+msgid "不能去掉自己的管理员角色"
+msgstr "You cannot remove your own administrator role"
+
+msgid "业务域 {code} 已存在"
+msgstr "Domain {code} already exists"
+
+msgid "负责人不存在"
+msgstr "Owner not found"
+
+msgid "资产不存在或无权访问"
+msgstr "Asset not found or access denied"
+
+msgid "列不存在：{columns}"
+msgstr "Columns not found: {columns}"
+
+msgid "没有权限读取该对象背后的来源：{sources}"
+msgstr "You do not have access to this object's underlying sources: {sources}"
+
+msgid "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}"
+msgstr "The source schema has changed since the last collection. Recollection is queued; verify again when it finishes: {changes}"
+
+msgid "字段不存在或尚未计算推导指纹"
+msgstr "Field not found or its derivation fingerprint has not been calculated"
+
+msgid "数据源 {name} 已存在"
+msgstr "Data source {name} already exists"
+
+msgid "{engine} 适配器不支持问数执行，不需要只读查询账号"
+msgstr "The {engine} adapter does not support question answering execution and does not require a read-only query account"
+
+msgid "{engine} 数据源缺少配置：{options}"
+msgstr "The {engine} data source is missing settings: {options}"
+
+msgid "端点 {host}:{port} 已登记"
+msgstr "Endpoint {host}:{port} is already registered"
+
+msgid "该数据源正在采集中"
+msgstr "This data source is being collected"
+
+msgid "采集失败：{error}"
+msgstr "Collection failed: {error}"
+
+msgid "任务不存在"
+msgstr "Task not found"
+
+msgid "访问令牌无效或已过期"
+msgstr "The access token is invalid or has expired"
+
+msgid "访问令牌已注销"
+msgstr "The access token has been revoked"
+
+msgid "用户不存在或已停用"
+msgstr "The user was not found or is inactive"
+
+msgid "会话已失效，请重新登录"
+msgstr "Your session has expired. Sign in again"
+
+msgid "指标不存在或无权访问"
+msgstr "Metric not found or access denied"
+
+msgid "驳回必须填写理由"
+msgstr "A reason is required for rejection"
+
+msgid "变更集不存在"
+msgstr "Change set not found"
+
+msgid "文件超过 {size:g} MB"
+msgstr "The file exceeds {size:g} MB"
+
+msgid "文件不是 UTF-8 文本"
+msgstr "The file is not UTF-8 text"
+
+msgid "候选不存在"
+msgstr "Candidate not found"
+
+msgid "需要角色：{roles}"
+msgstr "Required roles: {roles}"
+
+msgid "需要该业务域的负责人或维护者身份"
+msgstr "You must be an owner or maintainer of this domain"
+
+msgid "需要该业务域负责人"
+msgstr "You must be an owner of this domain"
+
+msgid "复核任务已处理"
+msgstr "This review task has already been resolved"
+
+msgid "处理方式只能是：{resolutions}"
+msgstr "Resolution must be one of: {resolutions}"
+
+msgid "只有任务负责人可以处理"
+msgstr "Only the task owner can resolve this"
+
+msgid "必须填写处理理由"
+msgstr "A reason is required for this resolution"
+
+msgid "指标版本当前为 {status}，不是受影响状态"
+msgstr "The metric version is currently {status}, rather than affected"
+
+msgid "当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集"
+msgstr "The current definition still differs from this version and cannot be marked as recovered. Restore the original definition in the database and collect it again"
+
+msgid "选择“发布新口径”时必须指定已发布的新指标版本"
+msgstr "Selecting Publish a new definition requires a published replacement metric version"
+
+msgid "指定的新口径必须是已发布的指标版本"
+msgstr "The replacement definition must be a published metric version"
+
+msgid "新口径不能是受影响的版本本身"
+msgstr "The replacement definition cannot be the affected version itself"
+
+msgid "关联键当前推导仍与批准时不一致"
+msgstr "The current join key derivation still differs from the approved version"
+
+msgid "复核任务不存在"
+msgstr "Review task not found"
+
+msgid "派生指标需要公式，例如 metric_a / metric_b"
+msgstr "Derived metrics require a formula, for example metric_a / metric_b"
+
+msgid "公式无法解析：{text}"
+msgstr "Cannot parse the formula: {text}"
+
+msgid "公式只允许加减乘除：{text}"
+msgstr "The formula supports only addition, subtraction, multiplication, and division: {text}"
+
+msgid "公式只允许取负这一种一元运算：{text}"
+msgstr "Negation is the only supported unary operation in the formula: {text}"
+
+msgid "公式中的常量只能是数字：{text}"
+msgstr "Constants in the formula must be numbers: {text}"
+
+msgid "公式包含不支持的语法 {syntax}：{text}"
+msgstr "The formula contains unsupported syntax {syntax}: {text}"
+
+msgid "公式至少要引用一个指标"
+msgstr "The formula must reference at least one metric"
+
+msgid "一个派生指标最多引用 {limit} 个指标"
+msgstr "A derived metric can reference up to {limit} metrics"
+
+msgid "公式包含不支持的语法 {syntax}"
+msgstr "The formula contains unsupported syntax {syntax}"
+
+msgid "经验引用的资产不存在"
+msgstr "An asset referenced by this experience was not found"
+
+msgid "经验引用的资产版本不存在"
+msgstr "An asset version referenced by this experience was not found"
+
+msgid "无权访问经验引用的资产"
+msgstr "You do not have access to an asset referenced by this experience"
+
+msgid "经验引用的口径版本不存在"
+msgstr "A definition version referenced by this experience was not found"
+
+msgid "经验引用的口径不存在"
+msgstr "A definition referenced by this experience was not found"
+
+msgid "无权访问经验引用的口径"
+msgstr "You do not have access to a definition referenced by this experience"
+
+msgid "分析运行不存在"
+msgstr "Analysis run not found"
+
+msgid "经验当前版本缺失"
+msgstr "The current experience version is missing"
+
+msgid "个人经验不存在"
+msgstr "Personal experience not found"
+
+msgid "经验引用最多 {limit} 项"
+msgstr "An experience can have up to {limit} references"
+
+msgid "只有有效经验可以撤销"
+msgstr "Only active experiences can be revoked"
+
+msgid "只有有效经验可以替代"
+msgstr "Only active experiences can be superseded"
+
+msgid "{side}资产 {name} 无法匹配当前用户可见的资产"
+msgstr "The {side} asset {name} does not match any asset visible to you"
+
+msgid "{side}资产 {name} 匹配到多个可见资产，请使用更完整的名称"
+msgstr "The {side} asset {name} matches multiple visible assets. Use a more complete name"
+
+msgid "只有有效经验可以转为关联路径"
+msgstr "Only active experiences can be converted to join paths"
+
+msgid "否定经验不能转为关联路径"
+msgstr "Negative experiences cannot be converted to join paths"
+
+msgid "经验内容需要是 x.col = y.col，多对关联键用 AND 连接，可在末尾加括号说明"
+msgstr "Experience content must use x.col = y.col. Join multiple key pairs with AND; an explanation in parentheses may follow"
+
+msgid "各对关联键必须属于相同的左侧和右侧资产"
+msgstr "All join key pairs must use the same left and right assets"
+
+msgid "基础资产不存在或已删除"
+msgstr "The base asset was not found or has been deleted"
+
+msgid "指标类型只能是 base（基础）或 derived（派生）"
+msgstr "Metric type must be base or derived"
+
+msgid "指标编码 {code} 已存在"
+msgstr "Metric code {code} already exists"
+
+msgid "指标不存在"
+msgstr "Metric not found"
+
+msgid "指标版本不存在"
+msgstr "Metric version not found"
+
+msgid "只有草稿或被驳回的版本可以修改；已发布版本请新建版本"
+msgstr "Only draft or rejected versions can be edited. Create a new version for a published definition"
+
+msgid "只有草稿可以提交复核（当前 {status}）"
+msgstr "Only drafts can be submitted for review (currently {status})"
+
+msgid "发布前检查未通过"
+msgstr "Pre-publication checks failed"
+
+msgid "只有待复核的版本可以批准（当前 {status}）"
+msgstr "Only versions awaiting review can be approved (currently {status})"
+
+msgid "禁止自审：提交人或创建人不能批准同一版本（AVELIS_ALLOW_SELF_REVIEW=false）"
+msgstr "Self-review is disabled: the submitter or creator cannot approve the same version (AVELIS_ALLOW_SELF_REVIEW=false)"
+
+msgid "禁止自审：提交人或创建人不能驳回同一版本"
+msgstr "Self-review is disabled: the submitter or creator cannot reject the same version"
+
+msgid "提交后依赖已变化，请退回维护者重新提交"
+msgstr "Dependencies have changed since submission. Return this to the maintainer for resubmission"
+
+msgid "不允许从 {from_status} 转为 {to_status}"
+msgstr "Cannot transition from {from_status} to {to_status}"
+
+msgid "维度名称缺失或重复：{dimension}"
+msgstr "Missing or duplicate dimension name: {dimension}"
+
+msgid "时间字段必须是日期或时间类型：{column}（{data_type}）"
+msgstr "The time field must have a date or time type: {column} ({data_type})"
+
+msgid "派生指标不能引用自身"
+msgstr "A derived metric cannot reference itself"
+
+msgid "公式引用了不存在的指标 {code}"
+msgstr "The formula references an unknown metric: {code}"
+
+msgid "{database}.{asset} 没有列：{columns}"
+msgstr "Columns not found in {database}.{asset}: {columns}"
+
+msgid "{label}无法解析：{text}"
+msgstr "Cannot parse {label}: {text}"
+
+msgid "{label}只能是单个表达式：{text}"
+msgstr "{label} must be a single expression: {text}"
+
+msgid "{label}不能带别名：{text}"
+msgstr "{label} cannot have an alias: {text}"
+
+msgid "{label}不允许子查询或窗口函数：{text}"
+msgstr "{label} cannot contain subqueries or window functions: {text}"
+
+msgid "{label}只能用“别名.列”引用：{text}"
+msgstr "{label} must use alias.column references: {text}"
+
+msgid "{label}引用了未定义的别名 {alias}：{text}"
+msgstr "{label} references an undefined alias {alias}: {text}"
+
+msgid "{label}只允许在 COUNT(*) 中使用星号：{text}"
+msgstr "{label} allows an asterisk only in COUNT(*): {text}"
+
+msgid "{label}使用了不允许的函数 {function}：{text}"
+msgstr "{label} uses a disallowed function {function}: {text}"
+
+msgid "{label}包含不支持的语法 {syntax}：{text}"
+msgstr "{label} contains unsupported syntax {syntax}: {text}"
+
+msgid "{label}必须是聚合表达式（SUM / COUNT / AVG / MIN / MAX）：{text}"
+msgstr "{label} must be an aggregate expression (SUM / COUNT / AVG / MIN / MAX): {text}"
+
+msgid "{label}不能包含聚合：{text}"
+msgstr "{label} cannot contain aggregation: {text}"
+
+msgid "{label}必须是单个列：{text}"
+msgstr "{label} must be a single column: {text}"
+
+msgid "{label}引用的列不存在：{database}.{asset}.{column}"
+msgstr "{label} references an unknown column: {database}.{asset}.{column}"
+
+msgid "第 {index} 个关联的别名不合法或重复：{alias}"
+msgstr "Join {index} has an invalid or duplicate alias: {alias}"
+
+msgid "第 {index} 个关联引用了未定义的别名 {alias}"
+msgstr "Join {index} references an undefined alias {alias}"
+
+msgid "关联路径编码 {code} 已存在"
+msgstr "Join path code {code} already exists"
+
+msgid "关联路径编码发生并发冲突，请重试"
+msgstr "A concurrent update caused a join path code conflict. Try again"
+
+msgid "关联路径不存在"
+msgstr "Join path not found"
+
+msgid "关联路径不存在：{path_id}"
+msgstr "Join path not found: {path_id}"
+
+msgid "关联路径当前状态为 {status}，不能审批"
+msgstr "The join path is currently {status} and cannot be reviewed"
+
+msgid "关联路径当前状态为 {status}，不能审批：依据已变化，请先在变更中处理复核任务"
+msgstr "The join path is currently {status} and cannot be reviewed because its evidence has changed. Resolve the review task in Changes first"
+
+msgid "关联两侧的资产不存在或已删除"
+msgstr "An asset on either side of the join was not found or has been deleted"
+
+msgid "关联键两侧数量必须一致且不为空"
+msgstr "Both sides must have the same nonzero number of join keys"
+
+msgid "关系类型不合法"
+msgstr "Invalid relationship type"
+
+msgid "关系类型 {relation} 不合法"
+msgstr "Invalid relationship type: {relation}"
+
+msgid "只能提议当前可见资产之间的关联路径"
+msgstr "Join paths can be proposed only between currently visible assets"
+
+msgid "业务域不存在"
+msgstr "Domain not found"
+
+msgid "该业务域不涉及这条关联路径"
+msgstr "This domain is not involved in this join path"
+
+msgid "只有业务域“{domain}”的负责人可以代表该域批准"
+msgstr "Only an owner of domain {domain} can approve on its behalf"
+
+msgid "资产 {database}.{asset} 未归属业务域，无法确定由谁批准关联路径"
+msgstr "Asset {database}.{asset} has no domain, so a join path approver cannot be determined"
+
+msgid "关联路径 {code} 的右侧资产已删除"
+msgstr "The right asset of join path {code} has been deleted"
+
+msgid "关联路径 {code} 的左侧不是 {alias}"
+msgstr "The left side of join path {code} is not {alias}"
+
+msgid "粒度不存在"
+msgstr "Grain not found"
+
+msgid "资产不存在"
+msgstr "Asset not found"
+
+msgid "导入内容为空"
+msgstr "Import content is empty"
+
+msgid "导入任务不存在"
+msgstr "Import task not found"
+
+msgid "候选当前状态为 {status}，不能再处理"
+msgstr "The candidate is currently {status} and can no longer be processed"
+
+msgid "decision 只能是 accept、reject 或 modify"
+msgstr "decision must be accept, reject, or modify"
+
+msgid "decision 只能是 approved 或 rejected"
+msgstr "decision must be approved or rejected"
+
+msgid "解析边已写入，无需接受"
+msgstr "Parsed edges have already been saved; acceptance is not required"
+
+msgid "context_window 必须是 1024 到 10000000 之间的整数"
+msgstr "context_window must be an integer between 1024 and 10000000"
+
+msgid "kind 只能是 openai_compatible 或 anthropic"
+msgstr "kind must be openai_compatible or anthropic"
+
+msgid "接口地址必须以 http:// 或 https:// 开头"
+msgstr "The API URL must start with http:// or https://"
+
+msgid "模型提供方不存在"
+msgstr "Model provider not found"
+
+msgid "该提供方正被用途使用，不能删除"
+msgstr "This provider is assigned to a purpose and cannot be deleted"
+
+msgid "该提供方正被用途使用，先在“默认模型”中改用其他模型再停用"
+msgstr "This provider is assigned to a purpose. Choose another model under Default models before disabling it"
+
+msgid "未设置密钥"
+msgstr "API key not set"
+
+msgid "未配置可用的分析模型"
+msgstr "No available analysis model is configured"
+
+msgid "所选模型不可用于分析：请启用提供方和模型、设置密钥并通过工具调用检测"
+msgstr "The selected model is unavailable for analysis. Enable the provider and model, set the API key, and pass the tool calling test"
+
+msgid "业务时区无效：{timezone}"
+msgstr "Invalid business timezone: {timezone}"
+
+msgid "不支持的数据源类型：{kind}（已支持：{supported}）"
+msgstr "Unsupported data source type: {kind} (supported: {supported})"
+
+msgid "数据源 {name} 未配置 {purpose} 账号"
+msgstr "Data source {name} has no account configured for {purpose}"
+
+msgid "数据源 {datasource}（{engine}）不支持{capability}"
+msgstr "Data source {datasource} ({engine}) does not support {capability}"
+
+msgid "{engine}不支持{capability}"
+msgstr "{engine} does not support {capability}"
+
+msgid "事实"
+msgstr "Fact"
+
+msgid "计算"
+msgstr "Calculation"
+
+msgid "推断"
+msgstr "Inference"
+
+msgid "建议"
+msgstr "Recommendation"
+
+msgid "指标口径"
+msgstr "Metric definition"
+
+msgid "临时查询，未经口径审核"
+msgstr "Ad hoc query, definition not reviewed"
+
+msgid "来源全部通过"
+msgstr "All sources verified"
+
+msgid "来源全部通过，含未核实的推断"
+msgstr "All sources verified; includes unverified inferences"
+
+msgid "没有可核实的事实"
+msgstr "No verifiable facts"
+
+msgid "有未通过的事实或字段"
+msgstr "Some facts or fields failed verification"
+
+msgid "水平值"
+msgstr "Value"
+
+msgid "差额"
+msgstr "Difference"
+
+msgid "比率"
+msgstr "Ratio"
+
+msgid "变化率"
+msgstr "Change rate"
+
+msgid "占比"
+msgstr "Share"
+
+msgid "计数"
+msgstr "Count"
+
+msgid "未知"
+msgstr "Unknown"
+
+msgid "探索查询（未经口径审核）"
+msgstr "Exploratory query (definition not reviewed)"
+
+msgid "报告中的数字均来自系统内已审核的指标口径，可在 Avelis 中查看计算依据。"
+msgstr "All figures in this report come from reviewed metric definitions. View the calculation evidence in Avelis."
+
+msgid "部分数字来自临时查询，尚未经过指标口径审核。"
+msgstr "Some figures come from ad hoc queries whose metric definitions have not been reviewed."
+
+msgid "期间"
+msgstr "Period"
+
+msgid "天数"
+msgstr "Days"
+
+msgid "周末天数"
+msgstr "Weekend days"
+
+msgid "节假日"
+msgstr "Holidays"
+
+msgid "节假日天数"
+msgstr "Holiday days"
+
+msgid "工作日天数"
+msgstr "Working days"
+
+msgid "合计"
+msgstr "Total"
+
+msgid "日均"
+msgstr "Daily average"
+
+msgid "本期"
+msgstr "Current period"
+
+msgid "对比期"
+msgstr "Comparison period"
+
+msgid "变化"
+msgstr "Change"
+
+msgid "维度"
+msgstr "Dimension"
+
+msgid "成员"
+msgstr "Member"
+
+msgid "变化贡献"
+msgstr "Contribution to change"
+
+msgid "排名"
+msgstr "Rank"
+
+msgid "行数"
+msgstr "Rows"
+
+msgid "数量"
+msgstr "Count"
+
+msgid "因素"
+msgstr "Factor"
+
+msgid "影响"
+msgstr "Effect"
+
+msgid "权重"
+msgstr "Weight"
+
+msgid "剩余变化"
+msgstr "Remaining change"
+
+msgid "变化占比"
+msgstr "Share of change"
+
+msgid "指标标识"
+msgstr "Metric identifier"
+
+msgid "变量一"
+msgstr "Variable 1"
+
+msgid "变量二"
+msgstr "Variable 2"
+
+msgid "样本数"
+msgstr "Sample size"
+
+msgid "线性相关系数"
+msgstr "Pearson correlation"
+
+msgid "秩相关系数"
+msgstr "Spearman correlation"
+
+msgid "显著性概率"
+msgstr "P-value"
+
+msgid "是否显著"
+msgstr "Statistically significant"
+
+msgid "说明"
+msgstr "Notes"
+
+msgid "期间数"
+msgstr "Period count"
+
+msgid "缺失数"
+msgstr "Missing count"
+
+msgid "缺失期间"
+msgstr "Missing periods"
+
+msgid "名称"
+msgstr "Name"
+
+msgid "来源"
+msgstr "Source"
+
+msgid "字段"
+msgstr "Field"
+
+msgid "均值"
+msgstr "Mean"
+
+msgid "中位数"
+msgstr "Median"
+
+msgid "最小值"
+msgstr "Minimum"
+
+msgid "最大值"
+msgstr "Maximum"
+
+msgid "标准差"
+msgstr "Standard deviation"
+
+msgid "分组"
+msgstr "Group"
+
+msgid "偏离方向"
+msgstr "Deviation direction"
+
+msgid "成员变化"
+msgstr "Member change"
+
+msgid "影响幅度"
+msgstr "Effect size"
+
+msgid "结构影响"
+msgstr "Structural effect"
+
+msgid "比率影响"
+msgstr "Ratio effect"
+
+msgid "变化类型"
+msgstr "Change type"
+
+msgid "作用"
+msgstr "Role"
+
+msgid "上一期"
+msgstr "Previous period"
+
+msgid "去年同期"
+msgstr "Same period last year"
+
+msgid "有 {failed} 处数字未通过系统校验，请谨慎使用。"
+msgstr "{failed} figures failed system verification. Use them with caution."
+
+msgid "标题"
+msgstr "Title"
+
+msgid "摘要"
+msgstr "Summary"
+
+msgid "未解释"
+msgstr "Unexplained"
+
+msgid "分析方法"
+msgstr "Analysis method"
+
+msgid "（另有 {bad} 个无效引用）"
+msgstr " ({bad} additional invalid references)"
+
+msgid "{count} 条事实 / 计算类结论未通过"
+msgstr "{count} factual or calculated findings failed verification"
+
+msgid "{count} 处标题 / 摘要 / 未解释未通过"
+msgstr "{count} title, summary, or unexplained sections failed verification"
+
+msgid "结论 {index}"
+msgstr "Finding {index}"
+
+msgid "结论 {index} {label}"
+msgstr "Finding {index} {label}"
+
+msgid "原因 {index}"
+msgstr "Reason {index}"
+
+msgid "原因"
+msgstr "Reason"
+
+msgid "前提"
+msgstr "Premise"
+
+msgid "验证方式"
+msgstr "How to verify"
+
+msgid "有排序的原因"
+msgstr "Ranked reasons"
+
+msgid "成员变化相互抵消"
+msgstr "Member changes offset each other"
+
+msgid "没有实质变化"
+msgstr "No material change"
+
+msgid "证据不足"
+msgstr "Insufficient evidence"
+
+msgid "指标明细"
+msgstr "Metric details"
+
+msgid " · 按{dimensions}"
+msgstr " · By {dimensions}"
+
+msgid "对比"
+msgstr "Comparison"
+
+msgid "生成日期 {year}年{month}月{day}日"
+msgstr "Generated on {year}-{month}-{day}"
+
+msgid "日历因素（天数）"
+msgstr "Calendar factor (days)"
+
+msgid "日历因素"
+msgstr "Calendar factor"
+
+msgid "治理事件"
+msgstr "Governance event"
+
+msgid "未命名成员"
+msgstr "Unnamed member"
+
+msgid "因子指标"
+msgstr "Factor metric"
+
+msgid "未命名原因"
+msgstr "Unnamed reason"
+
+msgid "上升"
+msgstr "Increase"
+
+msgid "下降"
+msgstr "Decrease"
+
+msgid "是"
+msgstr "Yes"
+
+msgid "否"
+msgstr "No"
+
+msgid "已保存 {count} 条检查记录，未保存汇总结论"
+msgstr "{count} check records saved; no summary conclusion saved"
+
+msgid "已保存的采集记录均成功"
+msgstr "All saved collection records succeeded"
+
+msgid "已保存的采集记录含失败或未知状态"
+msgstr "Saved collection records include failed or unknown statuses"
+
+msgid "已保存范围内记录 {count} 项变更"
+msgstr "{count} changes recorded within the saved scope"
+
+msgid "已保存范围内未发现变更"
+msgstr "No changes found within the saved scope"
+
+msgid "，无口径漂移"
+msgstr "; no definition drift"
+
+msgid "，存在口径漂移或未知状态"
+msgstr "; definition drift or unknown status detected"
+
+msgid "共 {total} 行，显示前 {shown} 行"
+msgstr "Showing the first {shown} of {total} rows"
+
+msgid "结果被截断"
+msgstr "Results truncated"
+
+msgid "分析报告"
+msgstr "Analysis report"
+
+msgid "核心指标"
+msgstr "Core metrics"
+
+msgid "结论"
+msgstr "Findings"
+
+msgid "（无）"
+msgstr "(None)"
+
+msgid "未通过（{error}）"
+msgstr "Failed verification ({error})"
+
+msgid "结论未通过：{error}"
+msgstr "Finding failed verification: {error}"
+
+msgid "主要原因"
+msgstr "Main reasons"
+
+msgid "未通过：{error}"
+msgstr "Failed verification: {error}"
+
+msgid "关键发现"
+msgstr "Key findings"
+
+msgid "判断与建议"
+msgstr "Assessments and recommendations"
+
+msgid "待验证"
+msgstr "Pending verification"
+
+msgid "推断，未核实"
+msgstr "Inference, unverified"
+
+msgid "依据"
+msgstr "Evidence"
+
+msgid "建议这样验证"
+msgstr "Suggested verification"
+
+msgid "{label}：{detail}"
+msgstr "{label}: {detail}"
+
+msgid "还没查清"
+msgstr "Still unresolved"
+
+msgid "关键数据"
+msgstr "Key data"
+
+msgid "附录"
+msgstr "Appendix"
+
+msgid "分析方法：{method}"
+msgstr "Analysis method: {method}"
+
+msgid "数据检查"
+msgstr "Data checks"
+
+msgid "用到的数据"
+msgstr "Data used"
+
+msgid "查询明细"
+msgstr "Query details"
+
+msgid "口径版本：{versions}"
+msgstr "Definition versions: {versions}"
+
+msgid "未登记"
+msgstr "Not registered"
+
+msgid "（未保存 SQL）"
+msgstr "(SQL not saved)"
+
+msgid "未找到可嵌入的中文字体（AVELIS_PDF_FONT）：中文需阅读器安装亚洲字体包才能显示。"
+msgstr "No embeddable Chinese font was found (AVELIS_PDF_FONT). An Asian font pack is required in the reader to display Chinese text."
+
+msgid "已保存数据图表"
+msgstr "Saved data chart"
+
+msgid "位置"
+msgstr "Location"
+
+msgid "类型"
+msgstr "Type"
+
+msgid "编号"
+msgstr "ID"
+
+msgid "中文名"
+msgstr "Chinese name"
+
+msgid "取值路径"
+msgstr "Value path"
+
+msgid "量纲"
+msgstr "Measure"
+
+msgid "单位"
+msgstr "Unit"
+
+msgid "小数位"
+msgstr "Decimal places"
+
+msgid "原值"
+msgstr "Raw value"
+
+msgid "显示值"
+msgstr "Display value"
+
+msgid "来源标签"
+msgstr "Source label"
+
+msgid "标记"
+msgstr "Flag"
+
+msgid "是否截断"
+msgstr "Truncated"
+
+msgid "数据集"
+msgstr "Dataset"
+
+msgid "口径版本"
+msgstr "Definition version"
+
+msgid "建议目标（非观测值）"
+msgstr "Suggested target (not an observed value)"
+
+msgid "假设计算"
+msgstr "Hypothetical calculation"
+
+msgid "方向"
+msgstr "Direction"
+
+msgid "查询依据"
+msgstr "Query evidence"
+
+msgid "分析"
+msgstr "Analysis"
+
+msgid "检查"
+msgstr "Check"
+
+msgid "核验"
+msgstr "Verification"
+
+msgid "临时查询"
+msgstr "Ad hoc query"
+
+msgid "探索查询"
+msgstr "Exploratory query"
+
+msgid "受治理查询"
+msgstr "Governed query"
+
+msgid "受治理"
+msgstr "Governed"
+
+msgid "已审核指标"
+msgstr "Reviewed metric"
+
+msgid "已审核"
+msgstr "Reviewed"
+
+msgid "来源已校验"
+msgstr "Source verified"
+
+msgid "来源已确认"
+msgstr "Source confirmed"
+
+msgid "上下文"
+msgstr "Context"
+
+msgid "相关信息"
+msgstr "Related information"
+
+msgid "指标定义"
+msgstr "Metric definition"
+
+msgid "{provider} · {model} 不支持思考强度“{effort}”"
+msgstr "{provider} · {model} does not support reasoning effort {effort}"
+
+msgid "{purpose}需要该模型最近一次服务器检测成功且支持工具调用"
+msgstr "{purpose} requires the model to have passed its latest server test with tool calling support"
+
+msgid "变化发生在上次成功采集之后、本次采集之前；更精确的时间无法确认"
+msgstr "The change occurred after the last successful collection and before this one; the exact time is unknown"
+
+msgid "测试适配器"
+msgstr "Test adapter"
+
+msgid "真实数据库"
+msgstr "Live database"
+
+msgid "导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"
+msgstr "A table found in imported code but not yet collected from the data source (design-time lineage)"
+
+msgid "分析未完成"
+msgstr "Analysis incomplete"
+
+msgid "符合条件的变更记录超过导出上限 {cap} 条（AVELIS_HISTORY_EXPORT_MAX_ROWS），请缩小时间段或其他筛选条件"
+msgstr "Matching change records exceed the export limit of {cap} rows (AVELIS_HISTORY_EXPORT_MAX_ROWS). Narrow the date range or other filters"
+
+msgid "获取模型列表失败：HTTP {status}"
+msgstr "Failed to fetch the model list: HTTP {status}"
+
+msgid "没能确定要查询的指标与日期，请换个说法或补充信息"
+msgstr "Could not determine the metric and dates. Rephrase the question or provide more details"
+
+msgid "模型 {model} 不在 {provider} 的启用列表中"
+msgstr "Model {model} is not enabled for {provider}"
+
+msgid "请补充问题的指标与日期"
+msgstr "Specify the metric and dates for your question"
+
+msgid "全部"
+msgstr "All"
+
+msgid "提供方 {provider} 未启用或未设置密钥"
+msgstr "Provider {provider} is disabled or has no API key"
+
+msgid "提供方 {provider} 未设置密钥"
+msgstr "Provider {provider} has no API key"
+
+msgid "提供方编码 {code} 已存在"
+msgstr "Provider code {code} already exists"
+
+msgid "维度 {name} "
+msgstr "Dimension {name} "
+
+msgid "未知用途：{purpose}"
+msgstr "Unknown purpose: {purpose}"
+
+msgid "未知预设：{preset}"
+msgstr "Unknown preset: {preset}"
+
+msgid "未知原因"
+msgstr "Unknown reason"
+
+msgid "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
+msgstr "Metadata is collected by polling, with a delay of up to one collection interval. No detected changes does not mean no changes occurred."
+
+msgid "元数据采集"
+msgstr "Metadata collection"
+
+msgid "视图血缘解析"
+msgstr "View lineage parsing"
+
+msgid "问数执行"
+msgstr "Question answering execution"
+
+msgid "外部表追溯"
+msgstr "External table tracing"
+
+msgid "作为外部表的追溯目标"
+msgstr "Use as an external table tracing target"
+
+msgid "执行前核对来源结构"
+msgstr "Pre-execution source schema checks"
+
+msgid "DDL 审计归因"
+msgstr "DDL audit attribution"
+
+msgid "关闭"
+msgstr "Off"
+
+msgid "低"
+msgstr "Low"
+
+msgid "中"
+msgstr "Medium"
+
+msgid "高"
+msgstr "High"
+
+msgid "最高"
+msgstr "Maximum"
+
+msgid "问数理解"
+msgstr "Question understanding"
+
+msgid "结果解释"
+msgstr "Result explanation"
+
+msgid "导入血缘推断"
+msgstr "Imported lineage inference"
+
+msgid "列"
+msgstr "Column"
+
+msgid "表达式"
+msgstr "Expression"
+
+msgid "过滤条件"
+msgstr "Filter"
+
+msgid "时间字段"
+msgstr "Time field"
+
+msgid "关联键"
+msgstr "Join key"
+
+msgid "左侧"
+msgstr "Left"
+
+msgid "右侧"
+msgstr "Right"
+
+msgid "任务已暂停"
+msgstr "Task paused"
+
+msgid "未运行"
+msgstr "Not run"
+
+msgid "{label}：{reason}"
+msgstr "{label}: {reason}"
+
+msgid "采集"
+msgstr "Collection"
+
+msgid "批次"
+msgstr "Batches"
+
+msgid "{healthy} / {total} 数据源正常"
+msgstr "{healthy} / {total} data sources healthy"
+
+msgid "血缘"
+msgstr "Lineage"
+
+msgid "列级边"
+msgstr "Column-level edges"
+
+msgid "{count} 条候选待确认"
+msgstr "{count} candidates awaiting confirmation"
+
+msgid "无待确认候选"
+msgstr "No candidates awaiting confirmation"
+
+msgid "变更"
+msgstr "Changes"
+
+msgid "待处理"
+msgstr "Pending"
+
+msgid "{count} 项影响口径"
+msgstr "{count} changes affect definitions"
+
+msgid "无影响口径的变更"
+msgstr "No changes affecting definitions"
+
+msgid "口径"
+msgstr "Definitions"
+
+msgid "已发布"
+msgstr "Published"
+
+msgid "{count} 个受影响"
+msgstr "{count} affected"
+
+msgid "全部可用"
+msgstr "All available"
+
+msgid "问数"
+msgstr "Questions"
+
+msgid "今日"
+msgstr "Today"
+
+msgid "{count} 次拦截"
+msgstr "{count} blocked"
+
+msgid "无拦截"
+msgstr "None blocked"
+
+msgid "采集的库"
+msgstr "Databases to collect"
+
+msgid "只接 JDBC MySQL Catalog"
+msgstr "Supports JDBC MySQL Catalog only"
+
+msgid "v0.1 只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
+msgstr "v0.1 collects metadata only and serves as a tracing target for external or Catalog tables. View parsing and question answering execution have not been integration tested"
+
+msgid "库"
+msgstr "Database"
+
+msgid "采集的模式"
+msgstr "Schemas to collect"
+
+msgid "采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度；DDL 归因需在库中部署事件触发器（avelis_audit.ddl_event），采集账号可读该表"
+msgstr "The collection account reads system catalogs only. Physical identity uses pg_class.oid. Data freshness is not reported. DDL attribution requires a database event trigger (avelis_audit.ddl_event) and read access to that table for the collection account"
+
+msgid "HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2；DDL 归因读 system.query_log（采集账号需其 SELECT）"
+msgstr "Uses HTTP. Sorting keys are not guaranteed unique and cannot establish grain. The query account requires readonly=2. DDL attribution reads system.query_log (the collection account requires SELECT on it)"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度"
+msgstr "The collection account requires VIEW DEFINITION on schemas. The query account requires SELECT and VIEW DEFINITION. Physical identity uses object_id. Data freshness is not reported"
+
+msgid "服务名"
+msgstr "Service name"
+
+msgid "如 FREEPDB1"
+msgstr "For example, FREEPDB1"
+
+msgid "模式名按大写保存"
+msgstr "Schema names are saved in uppercase"
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度"
+msgstr "The collection account requires SELECT_CATALOG_ROLE. Physical identity uses OBJECT_ID. Identifiers are saved in uppercase. Data freshness is not reported"
+
+msgid "采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）"
+msgstr "The collection account requires SHOW_VIEW_PRIV. The query account requires SELECT_PRIV and SHOW_VIEW_PRIV. Physical identity uses TABLE_ID, including for views. External Catalogs have not been integration tested. DDL attribution reads __internal_schema.audit_log (the collection account requires SELECT_PRIV on it)"
+
+msgid "仅用于单元测试，结果会标记为测试数据"
+msgstr "For unit tests only; results are marked as test data"
+
+msgid "{start} 至 {end}"
+msgstr "{start} to {end}"
+
+msgid "{head}：没有符合条件的数据"
+msgstr "{head}: No matching data"
+
+msgid "{head}：{value}"
+msgstr "{head}: {value}"
+
+msgid "无数据"
+msgstr "No data"
+
+msgid "，按{metric}{direction}"
+msgstr ", sorted by {metric} {direction}"
+
+msgid "从高到低"
+msgstr "high to low"
+
+msgid "从低到高"
+msgstr "low to high"
+
+msgid "{head}：共 {row_count} 行{rank}{truncated}"
+msgstr "{head}: {row_count} rows{rank}{truncated}"
+
+msgid "（已截断）"
+msgstr " (truncated)"
+
+msgid "无法连接 {error}"
+msgstr "Cannot connect {error}"
+
+msgid "获取模型列表失败：{error}"
+msgstr "Failed to fetch model list: {error}"
+
+msgid "理解问题、检索口径、追问；必须支持工具调用"
+msgstr "Understands questions, looks up definitions, and asks follow-up questions; requires tool calling"
+
+msgid "用自然语言解释查询结果；仅在允许发送查询结果时使用"
+msgstr "Explains query results in natural language; used only when sharing query results is allowed"
+
+msgid "对确定性解析覆盖不到的代码片段提出候选血缘"
+msgstr "Suggests lineage candidates for code snippets beyond deterministic parsing"
+
+msgid "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型"
+msgstr "Plans multi-step analyses, uses context and query tools, and writes reports; requires tool calling; defaults to the question answering model"
+
+msgid "未配置有效的问数理解模型：使用演示模型（规则匹配）"
+msgstr "No valid question understanding model is configured; using the demo model (rule matching)"
+
+msgid "新增"
+msgstr "Added"
+
+msgid "删除"
+msgstr "Dropped"
+
+msgid "改名"
+msgstr "Renamed"
+
+msgid "定义变化"
+msgstr "Definition changed"
+
+msgid "字段推导变化"
+msgstr "Column derivation changed"
+
+msgid "上游缺失"
+msgstr "Upstream missing"
+
+msgid "新增列"
+msgstr "Column added"
+
+msgid "删除列"
+msgstr "Column dropped"
+
+msgid "类型变化"
+msgstr "Type changed"
+
+msgid "改名候选"
+msgstr "Rename candidate"
+
+msgid "粒度变化"
+msgstr "Grain changed"
+
+msgid "同一张表匹配变化"
+msgstr "Same-table match changed"
+
+msgid "外部地址变化"
+msgstr "External address changed"
+
+msgid "注释变化"
+msgstr "Comment changed"
+
+msgid "实例变化"
+msgstr "Instance changed"
+
+msgid "键列推导已变化：{columns}，需重新声明"
+msgstr "Key column derivation changed: {columns}; declare again"
+
+msgid "经身份映射继承他库表的键"
+msgstr "Key inherited from a table in another database via identity mapping"
+
+msgid "透传自 {table}"
+msgstr "Passed through from {table}"
+
+msgid "认证方式"
+msgstr "Authentication"
+
+msgid "NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持"
+msgstr "NONE doesn't check passwords, so the account is optional; LDAP requires an account and password; Kerberos is not supported"
+
+msgid "经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据"
+msgstr "Reads metadata only through HiveServer2 (binary transport), never business data. View lineage is parsed from the expanded text Hive stores. Ask execution is not supported. HiveServer2 doesn't expose table IDs, so tables and views are matched by name. Primary key constraints are not enforced and cannot establish grain"
+
+msgid "{label}（可选 {choices}）"
+msgstr "{label} (choose from {choices})"
+
+msgid "{engine} 数据源配置取值不合法：{options}"
+msgstr "The {engine} data source has invalid settings: {options}"
+
+msgid "、"
+msgstr ", "
+
+msgid "；"
+msgstr "; "
+
+msgid "只有发起人可以修改对话"
+msgstr "Only the person who started the conversation can change it"
+
+msgid "对话不存在"
+msgstr "The conversation does not exist"
+
+msgid "对话中有正在运行或等待确认的分析，请先停止再操作"
+msgstr "A turn in this conversation is running or awaiting confirmation. Stop it first"
+
+msgid "对话显示名最多 80 字"
+msgstr "The conversation name can be at most 80 characters"

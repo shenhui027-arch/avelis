@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCANNED = [ROOT / "backend" / "src", ROOT / "frontend" / "src"]
 EXCLUDED = {"demo_setup.py", "openapi.json", "schema.d.ts"}  # 演示种子与自动生成的接口描述
-SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql"}
+SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql", ".po"}
 # 演示数据集特有的词：库名、表名前缀、口径编码，以及演示用的业务词
 DEMO_TERMS = [r"\bec_", r"\bdws_", r"ec_dw", r"paid_sales", r"orders_cnt", "成交额", "门店", "客单价", "华东", "华南",
               "华北", "西南", "客流", "抖音", "福田", "广州", "深圳", "商圈", "楼层", "投放", "实付", "daily_sales", "shop_dim",
@@ -72,7 +72,6 @@ def test_prompt_examples_come_from_visible_metrics():
 
     from avelis.analysis import agent
 
-    budget = SimpleNamespace(tool_calls=10, queries=5)
     empty = agent.system_message(agent.prompt_example(SimpleNamespace(versions={})))
     assert '"column": "<指标>", "match": {"<维度>": "<成员>"}' in empty.content and "暂无可用口径" in empty.content
     catalog = SimpleNamespace(versions={

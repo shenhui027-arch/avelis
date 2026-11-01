@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from avelis.config import get_settings
 from avelis.governance import access
 from avelis.history.integrity import chain_head
+from avelis.i18n import Msg
 from avelis.models import Asset, ChangeEvent, ChangeSet, Datasource, User
 
 
@@ -134,8 +135,8 @@ def export(session: Session, user: User, f: EventFilter, fmt: str) -> tuple[byte
     rows = list(session.execute(stmt.order_by(ChangeEvent.chain_seq.asc().nulls_last(), ChangeEvent.id)
                                 .limit(cap + 1)))
     if len(rows) > cap:
-        raise ExportTooLarge(f"符合条件的变更记录超过导出上限 {cap} 条（AVELIS_HISTORY_EXPORT_MAX_ROWS），"
-                             "请缩小时间段或其他筛选条件")
+        raise ExportTooLarge(Msg("符合条件的变更记录超过导出上限 {cap} 条（AVELIS_HISTORY_EXPORT_MAX_ROWS），"
+                                 "请缩小时间段或其他筛选条件", cap=cap))
     items = [_view(*r) for r in rows]
     manifest: dict[str, Any] = {"format": fmt, "filters": f.describe(), "rows": len(items),
                                 "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),

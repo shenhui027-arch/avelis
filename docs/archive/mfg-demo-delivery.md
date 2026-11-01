@@ -1,8 +1,6 @@
 # 制造 · 生产运营演示交付
 
-目录：`E:\Dev\Repos\Active\Avelis\.worktrees\mfg`。分支：`claude/agent-v2-mfg`；HEAD：`ace4427b2305a704a16a30577977c5df7f979112`，与 `claude/agent-v2-hitl` 的 merge-base 相同。未提交 Git。
-
-消息中没有给出 `-o` 的具体路径，采用事先说明的默认输出 `docs/mfg-demo-delivery.md`。
+分支：`claude/agent-v2-mfg`；HEAD：`ace4427b2305a704a16a30577977c5df7f979112`，与 `claude/agent-v2-hitl` 的 merge-base 相同。未提交 Git。
 
 交付范围为演示数据、演示初始化与离线评测。本次没有运行 Docker、数据库、灌数、采集或模型评测，没有读取 `.env`、`.demo/`，没有删除或重建 `backend/.venv`。真实 StarRocks 建表、授权、采集、口径审批和智能体表现仍待后续实际验证，当前不能据此声称产品已通过跨行业验收。
 
@@ -142,7 +140,7 @@ $env:PYTEST_ADDOPTS = '--basetemp=.pytest-tmp-mfg-final'
 $env:UV_CACHE_DIR = Join-Path (Get-Location) '.pytest-tmp-uv-cache'
 $env:UV_OFFLINE = '1'
 $env:UV_NO_SYNC = '1'
-rtk uv run --frozen pytest tests/unit -q -p no:cacheprovider
+uv run --frozen pytest tests/unit -q -p no:cacheprovider
 ```
 
 ## 用户后续执行命令
@@ -151,37 +149,23 @@ rtk uv run --frozen pytest tests/unit -q -p no:cacheprovider
 
 ```powershell
 # 生成并灌入独立制造库，完成后写 .demo/mfg-truth.json
-rtk uv run scripts/mfg_data.py load
+uv run scripts/mfg_data.py load
 
 # 用只读账号核对所有源表和日汇总视图
-rtk uv run scripts/mfg_data.py check
+uv run scripts/mfg_data.py check
 
 # 自动探测已灌入数据集，采集、归域并发布制造口径；不加 --reset
-rtk uv run --project backend python -m avelis.bootstrap demo --metrics
+uv run --project backend python -m avelis.bootstrap demo --metrics
 
 # 只从生成数据输出标准答案
-rtk uv run scripts/mfg_data.py truth
+uv run scripts/mfg_data.py truth
 
 # 后续真实评测，会读取环境并调用配置的模型
-rtk uv run --project backend python scripts/eval_analysis.py --questions backend/tests/eval/analysis_questions_mfg.yaml --truth .demo/mfg-truth.json --repeat 2
+uv run --project backend python scripts/eval_analysis.py --questions backend/tests/eval/analysis_questions_mfg.yaml --truth .demo/mfg-truth.json --repeat 2
 ```
 
-需要强制重建时用 `rtk uv run scripts/mfg_data.py load --force`，只处理 `mfg_data.DATABASES`。当前 `--no-ec` 会关闭额外数据集的自动探测。需要显式单独接入制造时，可用：
+需要强制重建时用 `uv run scripts/mfg_data.py load --force`，只处理 `mfg_data.DATABASES`。当前 `--no-ec` 会关闭额外数据集的自动探测。需要显式单独接入制造时，可用：
 
 ```powershell
-rtk uv run --project backend python -c "from avelis.demo_setup import setup; setup(reset=False, metrics=True, ec=False, mfg=True)"
-```
-
-## 清理未完成
-
-以下临时目录已经逐一核对：绝对路径位于本工作树内，目标和子项均无重解析点。自动审批仍拒绝了递归 Remove-Item 和仅删除逐个文件及空目录的替代方案，仅返回 blocked by policy，未给出更具体理由。因此清理尚未完成，没有尝试用其他工具绕过限制。
-
-可在本机 PowerShell 中手动清理以下已核对的路径，不涉及虚拟环境：
-
-```powershell
-Remove-Item -LiteralPath 'E:\Dev\Repos\Active\Avelis\.worktrees\mfg\backend\.pytest-tmp-mfg-all' -Recurse -Force
-Remove-Item -LiteralPath 'E:\Dev\Repos\Active\Avelis\.worktrees\mfg\backend\.pytest-tmp-mfg-unit' -Recurse -Force
-Remove-Item -LiteralPath 'E:\Dev\Repos\Active\Avelis\.worktrees\mfg\backend\.pytest-tmp-mfg-final' -Recurse -Force
-Remove-Item -LiteralPath 'E:\Dev\Repos\Active\Avelis\.worktrees\mfg\backend\.pytest-tmp-uv-cache' -Recurse -Force
-Remove-Item -LiteralPath 'E:\Dev\Repos\Active\Avelis\.worktrees\mfg\.tmp\uv-cache-eval' -Recurse -Force
+uv run --project backend python -c "from avelis.demo_setup import setup; setup(reset=False, metrics=True, ec=False, mfg=True)"
 ```

@@ -1,7 +1,9 @@
 """轨迹压缩视图（诊断用，只读）：uv run --project backend python experiments/agent-v2/trace_dump.py <文件名> [题号,…] [评测目录/]
 
 每次运行列出理解出的范围、逐步的工具与状态、模型请求的 token、报告的原因与核验结果、数据集。不打印思考内容（轨迹里本来没有）。"""
-import json, sys
+import json
+import sys
+
 E = sys.argv[3] if len(sys.argv) > 3 else ".demo/eval/"
 f, only = sys.argv[1], set(sys.argv[2].split(",")) if len(sys.argv) > 2 and sys.argv[2] else None
 d = json.load(open(E + f, encoding='utf-8'))

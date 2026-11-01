@@ -8,13 +8,15 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sqlalchemy import select
 
-from avelis.analysis import agent, conversation_context as context
+from avelis.analysis import agent
+from avelis.analysis import conversation_context as context
 from avelis.analysis.dataset_projection import RESTRICTED_TEXT
 from avelis.analysis.tools import AnalysisToolbox, Budget
 from avelis.analysis.verify import ground_report
 from avelis.ask import service as ask
 from avelis.models import AnalysisDataset, AnalysisRun
-from .test_analysis_dataset_access import dataset_db
+
+from .test_analysis_dataset_access import dataset_db  # noqa: F401  pytest 夹具按参数名注入
 
 
 def child(session, parent, id_="child"):
