@@ -1,6 +1,6 @@
 """MySQL 元数据连接器（真实数据库，只读 information_schema）。
 
-v0.1 只做元数据：用于把 StarRocks 外部表 / Catalog 表追到 MySQL 真实表，并提供主键、唯一键作为粒度。
+目前只做元数据：用于把 StarRocks 外部表 / Catalog 表追到 MySQL 真实表，并提供主键、唯一键作为粒度。
 实例身份用 @@server_uuid 确认（同一个库在不同网络位置的地址不同，见 endpoint_alias）。
 """
 

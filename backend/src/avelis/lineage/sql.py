@@ -3,7 +3,7 @@
 本模块与具体数据库无关：只认 SqlDialect（SQLGlot 方言名、默认 Catalog、引擎特有写法的规整函数），
 由引擎适配器（avelis.engines）提供。新增数据库时不改这里。
 
-v0.1 支持的 SQL 子集（视图定义、导入的 SELECT）：
+当前支持的 SQL 子集（视图定义、导入的 SELECT）：
   SELECT 投影与别名、聚合、WHERE / HAVING 过滤、GROUP BY、等值 JOIN（INNER / LEFT / RIGHT）、
   FROM 子查询、CTE、视图套视图（逐层解析）、DISTINCT、窗口函数（记为计算）。
 不支持（明确报出范围与原因）：UNION 等集合运算的列级血缘、多语句、非 SELECT 语句、标量子查询投影、
@@ -213,7 +213,7 @@ def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, di
 
     if isinstance(root, exp.SetOperation):
         result.status = "unsupported"
-        result.reason = f"{root.key.upper()} 的列级血缘不在 v0.1 范围；已记录表级来源"
+        result.reason = f"{root.key.upper()} 的列级血缘暂不支持；已记录表级来源"
         return result
 
     try:

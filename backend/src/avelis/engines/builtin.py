@@ -53,7 +53,7 @@ MYSQL = Engine(
     capabilities=frozenset({METADATA, IDENTITY_TARGET}),
     collector=MySQLMetaConnector, default_port=3306,
     options=(OptionField("databases", "采集的库", required=True),),
-    note="v0.1 只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调",
+    note="目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调",
 )
 
 POSTGRES = Engine(

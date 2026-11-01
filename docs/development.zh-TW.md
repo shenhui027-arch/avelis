@@ -26,7 +26,7 @@ uv run python -m avelis.jobs                   # 後臺 worker：採集任務、
 uv run python -m avelis.config check           # 檢視生效設定與來源（密碼脫敏）
 AVELIS_FRONTEND_DIR=frontend/dist uv run python -m avelis.server  # 按生產方式單埠執行（需先 pnpm build）
 uv run pytest                                  # 單元測試
-uvx ruff@0.17.3 check .                        # 程式碼檢查（規則在 pyproject.toml；儲存庫根目錄再跑一次檢查指令碼與實驗程式碼）
+uvx ruff@0.17.3 check .                        # 程式碼檢查（規則在 pyproject.toml；儲存庫根目錄再跑一次檢查指令碼）
 uv run pytest -m acceptance                    # 驗收（會重置示範庫與中繼資料庫）
 uv run python -m avelis.bootstrap demo --reset # 示範走查：重置並經 API 建好使用者、業務域、資料來源，完成首次採集
 ```
@@ -42,7 +42,7 @@ uv run python -m avelis.bootstrap demo --reset # 示範走查：重置並經 API
   需要支援工具呼叫的真實模型，見 [ADR 0007](decisions/0007-analysis-agent.md)（簡體中文）。示範用的合成電商資料集用 `uv run scripts/ec_data.py load` 灌入，`bootstrap demo` 會自動接入。
 - **模型設定**：在「設定 / 模型設定」頁面維護，支援 DeepSeek、OpenAI、Anthropic、通義千問、自定義 OpenAI 相容介面。金鑰加密儲存，只顯示末四位；檢測會驗證工具呼叫；按用途指定模型；預設向模型傳送查詢結果與脫敏後的程式碼片段（分析需要），可在同一頁面關閉，需保密時接入本地模型。開發時也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登記進去。
 - **匯入血緣**：上傳 SQL 檔案、貼上 SQL、上傳 Python / Shell 程式碼。解析出的邊直接寫入（可修改）；解析不了的片段由模型提出候選，必須人工接受、修改或駁回。
-- **資料庫引擎**：每種資料庫是 `avelis.engines` 中的一個配接器（聯結器、SQL 方言、資產名層級、能力宣告），核心模組不按資料庫型別分支，見 `GET /api/engines`。目前登記：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（採集、檢視表血緣、問數、執行前核對），以及 MySQL（採集，作為外部表的追溯目標）。更多引擎的示範庫用 `uv run scripts/demo.py up --engines` 啟動，各引擎的驗收記錄見[更多引擎驗收（歸檔）](archive/acceptance/acceptance-m7.md)（簡體中文）。新增資料庫的步驟見 [ADR 0004](decisions/0004-engine-adapters.md)（簡體中文）。
+- **資料庫引擎**：每種資料庫是 `avelis.engines` 中的一個配接器（聯結器、SQL 方言、資產名層級、能力宣告），核心模組不按資料庫型別分支，見 `GET /api/engines`。目前登記：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（採集、檢視表血緣、問數、執行前核對），以及 MySQL（採集，作為外部表的追溯目標）。更多引擎的示範庫用 `uv run scripts/demo.py up --engines` 啟動。新增資料庫的步驟見 [ADR 0004](decisions/0004-engine-adapters.md)（簡體中文）。
 - **執行前核對**：每次問數執行前（含命中快取）核對來源的列與檢視表定義是否與上次採集一致；不一致就攔截並排隊採集（`AVELIS_ASK_LIVE_CHECK`，預設開啟）。
 - **欄位含義**：以資料庫列註釋為準，Avelis 不另設顯示名。問數與資產原樣展示列名和註釋，缺註釋如實標出；資料來源詳情給出註釋完整度與缺口清單（可匯出），發布檢查提示缺註釋（`AVELIS_REQUIRE_COLUMN_COMMENTS=true` 時阻斷），見 [ADR 0006](decisions/0006-column-meaning-from-db-comments.md)（簡體中文）。
 - **權限**：資產按業務域可見；未歸屬業務域的資產預設只對管理員與維護者可見（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
@@ -151,10 +151,10 @@ uv run scripts/acceptance.py --no-llm    # 不呼叫真實模型（不向模型�
 6. 前端型別檢查與建置；
 7. 把示範環境恢復到故事 1 的起點。
 
-報告寫入 `.demo/acceptance-report.md`。`.env` 設定了模型金鑰時會執行 2 項真實模型用例，問題與指標中繼資料會傳送到設定的模型服務。各項預期值與歷次結果見[驗收匯總（歸檔）](archive/acceptance/acceptance.md)（簡體中文）。
+報告寫入 `.demo/acceptance-report.md`。`.env` 設定了模型金鑰時會執行 2 項真實模型用例，問題與指標中繼資料會傳送到設定的模型服務。
 
 ## 設計
 
 - 設計權杖：`frontend/design/tokens.json`，`pnpm gen:tokens` 生成 `frontend/src/styles/tokens.css`；元件樣式在 `frontend/src/styles/avelis-ui.css`。
-- 品牌標記：當前使用的標記在 `frontend/public/favicon.svg` 與 `frontend/src/components/Logo.tsx`；`design/brand/` 儲存早期的標記方案與概念圖。
+- 品牌標記：當前使用的標記在 `frontend/public/favicon.svg` 與 `frontend/src/components/Logo.tsx`。
 - 文件寫法見[文件規範](documentation-guide.zh-TW.md)。

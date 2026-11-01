@@ -1,13 +1,10 @@
 """截断规则的离线回归：仅使用手写记录，不运行重评入口或读取演示数据。"""
 
 from copy import deepcopy
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 
 import pytest
 
 from tests.eval import scoring_v2_1 as v21
-from tests.eval import scoring_v2_1_1 as v211
 from tests.eval import scoring_v2_1_2 as v212
 from tests.eval import scoring_v2_1_3 as v213
 from tests.unit.test_eval_scoring_v2_1_2 import (
@@ -276,92 +273,3 @@ def test_incomplete_permission_results_keep_v212_behavior(status, error, lost):
            "report": {"permission": {"lost": lost, "denials": []}}}
     assert without_new_fields(v213.score(question, run)) == without_new_fields(v212.score(question, run))
 
-
-@pytest.fixture(scope="module")
-def rescore_module():
-    path = Path(__file__).resolve().parents[3] / "experiments" / "agent-v2" / "rescore_v2_1_3.py"
-    spec = spec_from_file_location("test_rescore_v2_1_3", path)
-    assert spec is not None and spec.loader is not None
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_rescore_compares_v211_v213_and_counts_truncation_per_file(rescore_module):
-    question, complete = key_case("governed")
-    truncated = deepcopy(complete)
-    truncate(truncated, "D1")
-    saved = {"results": [{"scenario": "handwritten", "condition": "D2", "repeat": i + 1, "run": run}
-                         for i, run in enumerate([complete, truncated])]}
-    original = deepcopy((question, saved))
-    files = [rescore_module.score_file(saved, name, {"handwritten": question}, {"handwritten": deepcopy(question)},
-                                      v211, v213) for name in ("e1:handwritten.json", "runs:second.json")]
-    for result in files:
-        assert result["summary"]["uncertain_truncated_runs"] == 1
-        assert result["summary"]["uncertain_truncated_changed"] == 1
-        assert result["rows"][1]["v2_1_1"]["key_value_hit"] is True
-        assert result["rows"][1]["v2_1_3"]["key_value_hit"] is False
-        assert "v2_1_2" not in result["rows"][1]
-    rows = [row for saved in files for row in saved["rows"]]
-    summary = {"overall": rescore_module.summarize(rows), "sha256": {"scoring_v2_1_3.py": "手写摘要"}, "audit": None}
-    text = rescore_module.markdown(files, summary)
-    assert summary["overall"]["uncertain_truncated_runs"] == 2
-    assert summary["overall"]["uncertain_truncated_changed"] == 2
-    assert text.count("## e1:handwritten.json\n") == text.count("## runs:second.json\n") == 1
-    assert "v2.1.1 通过" in text and "v2.1.3 通过" in text
-    assert (question, saved) == original
-
-
-def test_rescore_truncation_causality_does_not_include_previous_fixes(rescore_module):
-    question, run = key_case("summary")
-    truncate(run, "D2")
-    assert v211.score(question, run)["key_value_hit"] is False
-    assert v212.score(question, run)["key_value_hit"] is True
-    new = v213.score(question, run)
-    assert new["key_value_hit"] is False
-    assert rescore_module._truncation_changed(question, run, new) is True
-    # 两版都因其他绑定问题不命中，只有不确定计数增加，不能算判定改变。
-    question["v2"]["key_bindings"][0]["entity"] = {"region": "华南"}
-    assert rescore_module._truncation_changed(question, run, v213.score(question, run)) is False
-
-
-def test_rescore_counts_one_run_when_both_primary_and_key_are_uncertain(rescore_module):
-    question, run = key_case("contribution")
-    cause = run["report"]["causes"][0]
-    cause.update(entity={"evidence_id": "D2#1"}, evidence=["D2"])
-    question["expect"]["primary"]["entity"] = ["抖音"]
-    question["mechanism"] = [{"asset": "ec_trade.orders", "members": ["抖音"]}]
-    truncate(run, "D1")
-    saved = {"runs": [{"id": "handwritten", "run": run}]}
-    result = rescore_module.score_file(saved, "runs:handwritten.json", {"handwritten": question},
-                                      {"handwritten": deepcopy(question)}, v211, v213)
-    row = result["rows"][0]["v2_1_3"]
-    assert row["primary_detail"]["uncertain_truncated"] == row["key_value_detail"]["uncertain_truncated"] == 1
-    assert result["summary"]["uncertain_truncated_runs"] == result["summary"]["uncertain_truncated_changed"] == 1
-
-
-def test_rescore_audit_uses_only_e1_and_unlisted_defaults_false(rescore_module):
-    def row(key, hit, source="e1:handwritten.json"):
-        return {"audit_key": key, "source": source, "v2_1_3": {"primary_hit": hit}}
-
-    rows = [row("listed:D2:1", False), row("unlisted:D2:1", True), row("weak:D2:1", True),
-            row("listed:D2:1", True, "runs:e2.json"), row("only_e2:D2:1", False, "runs:e2.json")]
-    audit = {"listed:D2:1": {"original": True, "corrected": True},
-             "weak:D2:1": {"original": "weak", "corrected": "weak"},
-             "only_e2:D2:1": {"original": True, "corrected": True}}
-    result = rescore_module.audit_primary(rows, audit)
-    assert result["matched"] == 3
-    assert result["unmatched_audit_keys"] == ["only_e2:D2:1"]
-    for field in ("original", "corrected"):
-        assert result[field]["false_positive_count"] == 2
-        assert result[field]["false_negative_count"] == 1
-        assert all(item["sources"] == ["e1:handwritten.json"] for item in result[field]["false_positives"])
-
-
-@pytest.mark.parametrize("meta,path,expected", [
-    ({"material": "e1_injections.yaml"}, Path("archive/e2/runs.json"), True),
-    ({}, Path("archive/e1/runs.json"), True),
-    ({"material": "e2_schema.yaml"}, Path("archive/e1/runs.json"), False),
-])
-def test_rescore_recognizes_e1_sources(rescore_module, meta, path, expected):
-    assert rescore_module._is_e1({"meta": meta}, path) is expected

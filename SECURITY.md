@@ -6,10 +6,11 @@
 
 ### Supported versions
 
-Avelis has not published a stable release yet. Security fixes are made on the `main` branch only.
+This policy covers Avelis v1.0.0. Security fixes are made on the `main` branch.
 
 | Version | Supported |
 |---|---|
+| v1.0.0 | Yes |
 | `main` | Yes |
 | Anything else | No |
 
@@ -17,7 +18,7 @@ Avelis has not published a stable release yet. Security fixes are made on the `m
 
 Please **do not** report security vulnerabilities through public GitHub issues, discussions or pull requests.
 
-Report them privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability** ([direct link](https://github.com/shenhui027-arch/avelis/security/advisories/new)). Include:
+Report them privately by email to [shenhui027@gmail.com](mailto:shenhui027@gmail.com), or through GitHub: open the repository's **Security** tab and choose **Report a vulnerability** ([direct link](https://github.com/shenhui027-arch/avelis/security/advisories/new)). Include:
 
 - the affected component (API endpoint, page, worker, deployment file) and version or commit;
 - steps to reproduce, with a minimal configuration;
@@ -42,13 +43,13 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 
 ### 支持的版本
 
-Avelis 还没有发布稳定版本，安全修复只在 `main` 分支进行。
+本安全政策适用于 Avelis v1.0.0，安全修复在 `main` 分支进行。
 
 ### 报告漏洞
 
 请**不要**通过公开的 issue、讨论或 PR 报告安全漏洞。
 
-请通过 GitHub 私下报告：打开仓库的 **Security** 页签，选择 **Report a vulnerability**（[直达链接](https://github.com/shenhui027-arch/avelis/security/advisories/new)）。请写明：
+请发邮件至 [shenhui027@gmail.com](mailto:shenhui027@gmail.com)，或通过 GitHub 私下报告：打开仓库的 **Security** 页签，选择 **Report a vulnerability**（[直达链接](https://github.com/shenhui027-arch/avelis/security/advisories/new)）。请写明：
 
 - 受影响的部分（接口、页面、worker、部署文件）与版本或提交；
 - 复现步骤与最小配置；
@@ -73,13 +74,13 @@ Avelis 还没有发布稳定版本，安全修复只在 `main` 分支进行。
 
 ### 支援的版本
 
-Avelis 還沒有發布穩定版本，安全修復只在 `main` 分支進行。
+本安全政策適用於 Avelis v1.0.0，安全修復在 `main` 分支進行。
 
 ### 報告漏洞
 
 請**不要**透過公開的 issue、討論或 PR 報告安全漏洞。
 
-請透過 GitHub 私下報告：開啟儲存庫的 **Security** 頁籤，選擇 **Report a vulnerability**（[直達連結](https://github.com/shenhui027-arch/avelis/security/advisories/new)）。請寫明：
+請寄信至 [shenhui027@gmail.com](mailto:shenhui027@gmail.com)，或透過 GitHub 私下報告：開啟儲存庫的 **Security** 頁籤，選擇 **Report a vulnerability**（[直達連結](https://github.com/shenhui027-arch/avelis/security/advisories/new)）。請寫明：
 
 - 受影響的部分（介面、頁面、worker、部署檔案）與版本或提交；
 - 復現步驟與最小設定；

@@ -4,7 +4,7 @@
 
 Avelis 的配置可以写在**配置文件**（TOML）里，也可以用 **`AVELIS_*` 环境变量**或 **`.env` 文件**设置。生产部署推荐配置文件；本地开发沿用仓库根目录的 `.env`。
 
-## 1. 加载顺序
+## 加载顺序
 
 同一项在多处出现时，按以下优先级取值（高 → 低）：
 
@@ -27,7 +27,7 @@ docker compose run --rm app python -m avelis.config check          # Docker 部�
 
 输出每一项的生效值与来源（环境变量 / .env / 配置文件 / 默认），口令与密钥显示为 `******`。启动时同样会校验：缺必填项或格式错误时打印中文说明（哪一项、当前来自哪里、怎么改）并以退出码 2 退出，不打印堆栈。
 
-## 2. 敏感项
+## 敏感项
 
 口令与密钥允许明文写在配置文件里，但请注意：
 
@@ -42,9 +42,9 @@ docker compose run --rm app python -m avelis.config check          # Docker 部�
 | 环境变量明文 | `AVELIS_DB_PASSWORD=…` |
 | 环境变量文件引用 | `AVELIS_DB_PASSWORD_FILE=/run/secrets/avelis_db_password` |
 
-支持文件引用的项：`AVELIS_SECRET`、`AVELIS_DB_PASSWORD`、`AVELIS_REDIS_PASSWORD`、`AVELIS_INITIAL_ADMIN_PASSWORD`、`AVELIS_MODEL_API_KEY`、`AVELIS_DATABASE_URL`、`AVELIS_REDIS_URL`。同一层里明文与文件引用同时出现会报错；不同层之间按第 1 节的优先级覆盖（例如环境变量 `AVELIS_DB_PASSWORD_FILE` 覆盖配置文件里的明文）。
+支持文件引用的项：`AVELIS_SECRET`、`AVELIS_DB_PASSWORD`、`AVELIS_REDIS_PASSWORD`、`AVELIS_INITIAL_ADMIN_PASSWORD`、`AVELIS_MODEL_API_KEY`、`AVELIS_DATABASE_URL`、`AVELIS_REDIS_URL`。同一层里明文与文件引用同时出现会报错；不同层之间按[加载顺序](#加载顺序)的优先级覆盖（例如环境变量 `AVELIS_DB_PASSWORD_FILE` 覆盖配置文件里的明文）。
 
-## 3. 配置项
+## 配置项
 
 “配置文件”一列是 TOML 中的 `[节] 键`。“必填”指没有可用默认值、必须由部署者填写的项。
 
@@ -195,7 +195,7 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `AVELIS_PG_PORT`、`AVELIS_PG_PASSWORD` | 本地演示元数据库（未配置 `[database]` 时使用） |
 | `AVELIS_DEMO_USER_PASSWORD`、`AVELIS_ADMIN_PASSWORD` | 本地演示账号与本地超级管理员（只用于开发，见 [development.md](development.md)） |
 
-## 4. Docker 部署的编排参数
+## Docker 部署的编排参数
 
 `deploy/docker/.env`（可选，模板 `.env.example`）只放 Compose 自身的参数，不放应用配置：
 
@@ -203,5 +203,5 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | 对外端口 |
 | `AVELIS_BIND_ADDRESS` | `0.0.0.0` | 绑定地址；前面有反向代理时改为 `127.0.0.1` |
-| `AVELIS_IMAGE` | `avelis:0.1.0` | 镜像名 |
+| `AVELIS_IMAGE` | `avelis:1.0.0` | 镜像名 |
 | `COMPOSE_FILE` | — | 使用外部 PostgreSQL / Redis 时设为 `compose.yaml:compose.external.yaml` |
