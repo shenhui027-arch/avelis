@@ -13,6 +13,7 @@ import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
+import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
 
@@ -195,7 +196,7 @@ function Composer() {
 
 function ScheduleDrawer({ body, onClose }: { body: Record<string, unknown>; onClose: () => void }) {
   const navigate = useNavigate();
-  const [cron, setCron] = useState("0 9 1 * *");
+  const [cron, setCron] = useState("0 9 * * *");
   const [error, setError] = useState<string | null>(null);
   const save = useAction(() => unwrap(api.POST("/api/analysis/tasks", {
     body: { ...body, title: "", schedule_cron: cron || null } as never })), ["analysis-tasks"]);
@@ -206,9 +207,8 @@ function ScheduleDrawer({ body, onClose }: { body: Record<string, unknown>; onCl
         onClick={() => save.mutate(undefined, { onSuccess: () => navigate("/analysis/tasks"), onError: (e) => setError(errorText(e)) })}>保存</button>
     </div>}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <label className="av-field"><span className="av-label">执行时间（5 段 cron，业务时区）</span>
-        <input className="av-input av-mono" value={cron} onChange={(e) => setCron(e.target.value)} placeholder="0 9 1 * *" /></label>
-      <span className="av-caption">留空只保存，不定时运行。定时任务不会停下来等待确认。</span>
+      <div className="av-field"><span className="av-label">什么时候运行</span><CronPicker value={cron} onChange={setCron} /></div>
+      <span className="av-caption">定时运行时不会停下来等你确认依据，结果在“定时任务”里查看。</span>
     </Drawer>
   );
 }
@@ -530,7 +530,7 @@ function TaskList() {
         <div key={t.id} className="av-row av-task">
           <span className="av-row__main"><span className="av-row__title">{t.title}</span>
             <span className="av-row__meta">{t.question}</span>
-            <span className="av-caption av-mono">{t.schedule_cron ?? "仅手动"}{t.next_run_at ? ` · 下次 ${formatTime(t.next_run_at, tz)}` : ""}
+            <span className="av-caption" title={t.schedule_cron ?? undefined}>{describeCron(t.schedule_cron)}{t.next_run_at ? ` · 下次 ${formatTime(t.next_run_at, tz)}` : ""}
               {(t.window as { kind?: string }).kind === "last_month" ? " · 上月对比前月" : ""}</span>
             {t.paused_reason ? <span className="av-caption av-claim__bad">已暂停：{t.paused_reason}</span> : null}</span>
           <Status value={t.status === "active" ? "active" : "paused"} label={t.status === "active" ? "启用" : "暂停"} />
