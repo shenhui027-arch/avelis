@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -20,7 +21,7 @@ from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access, experiences
-from avelis.governance.errors import NotFound
+from avelis.governance.errors import Invalid, NotFound
 from avelis.models import (AnalysisDataset, AnalysisRun, AnalysisTask, Asset, ColumnVersion, Job,
                            Metric, MetricVersion, Notification, User)
 
@@ -342,6 +343,25 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
 
 
 # --- 任务 ---------------------------------------------------------------------------
+
+@router.get("/analysis/cron/preview", response_model=S.CronPreviewOut)
+def preview_cron(expr: str, count: int = Query(5, ge=1, le=10), user: User = Depends(current_user),
+                 session: Session = Depends(get_session)) -> dict:
+    """按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。"""
+    access.require_role(session, user, "analyst", "steward", "reviewer")
+    timezone = get_settings().business_timezone
+    tz = ZoneInfo(timezone)
+    runs, error = [], None
+    try:
+        analysis.parse_cron(expr)
+        after = utcnow()
+        for _ in range(count):
+            after = analysis.next_run(expr, after)
+            runs.append(after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).isoformat())
+    except Invalid as exc:
+        runs, error = [], exc.message
+    return {"expr": expr, "timezone": timezone, "runs": runs, "error": error}
+
 
 def _task(session: Session, user: User, task_id: str) -> AnalysisTask:
     from avelis.governance import access
