@@ -73,6 +73,8 @@ function load(file, extra = "") {
     if (name.endsWith("api/hooks")) return load("../../api/hooks.ts");
     if (name.endsWith("components/ui")) return load("../../components/ui.tsx");
     if (name === "./Icon") return { Icon: () => null, Hint: () => null };
+    // 界面语言：测试里按简体原文渲染（键即原文）
+    if (name.endsWith("/i18n")) return { t: (k, o) => k.replace(/\{\{(\w+)\}\}/g, (_, p) => String(o?.[p] ?? "")), currentLanguage: () => "zh-CN" };
     if (name.endsWith("layout/Shell")) return { useRoles: () => new Set(["admin"]), useMe: () => ({ isSuccess: true, data: { id: "admin-1" } }) };
     if (name.endsWith("format")) return { formatTime: String };
     if (name === "react-router") return { Link: ({ to, children, ...props }) => React.createElement("a", { ...props, href: to }, children) };

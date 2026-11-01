@@ -1,4 +1,5 @@
 import type { Answer } from "../../api/hooks";
+import { t } from "../../i18n";
 
 export type AskResult = { columns?: string[]; rows?: unknown[][]; row_count?: number; truncated?: boolean;
   column_docs?: Record<string, import("../../components/ui").ColumnDoc> };
@@ -31,7 +32,7 @@ export type DerivedMetric = {
 };
 
 export const PERIOD_LABEL: Record<string, string> = {
-  current: "本期", previous_period: "上一期", previous_year: "去年同期",
+  current: t("本期"), previous_period: t("上一期"), previous_year: t("去年同期"),
 };
 
 export function planQueries(answer: Answer): PlanQuery[] {
