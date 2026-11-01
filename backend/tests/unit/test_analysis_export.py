@@ -492,7 +492,7 @@ def test_key_tables_format_saved_values_and_limit_rows_and_columns():
     text = export.to_markdown(view, appendix=False, datasets=["D5"])
     assert "| 成员 | 指标丙 | 比率 | 字段甲 | 字段乙 | 字段丙 |" in text
     assert "第七列" not in text and "不应输出" not in text
-    assert "1,234.5" in text and "-12.5%" in text and "—" in text
+    assert "1234.5" in text and "1,234.5" not in text and "-12.5%" in text and "—" in text
     assert "| 成员10 |" in text and "| 成员11 |" not in text
     assert "共 12 行，显示前 10 行" in text
 

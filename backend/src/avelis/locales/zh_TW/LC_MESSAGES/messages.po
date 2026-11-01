@@ -48,8 +48,8 @@ msgstr "目前只採中繼資料，作為外部資料表 / Catalog 表的追溯�
 msgid "{count} 个受影响"
 msgstr "{count} 個受影響"
 
-msgid "{count} 处标题 / 摘要 / 未解释未通过"
-msgstr "{count} 處標題 / 摘要 / 未解釋未通過"
+msgid "{count} 处报告字段未通过"
+msgstr "{count} 處報告欄位未通過"
 
 msgid "{count} 条事实 / 计算类结论未通过"
 msgstr "{count} 條事實 / 計算類結論未通過"
@@ -1784,3 +1784,9 @@ msgstr "解析邊目前不是 active，不能再處理"
 
 msgid "语句状态不合法"
 msgstr "語句狀態不合法"
+
+msgid "column 与 summary 必须且只能写一个"
+msgstr "column 與 summary 必須且只能填寫一個"
+
+msgid "汇总值不能带 match 或 exclude"
+msgstr "彙總值不能帶 match 或 exclude"
