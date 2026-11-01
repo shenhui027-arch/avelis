@@ -30,6 +30,22 @@ def test_redact_common_secret_forms_once(source, secrets, count):
     assert all(secret not in cleaned for secret in secrets)
 
 
+@pytest.mark.parametrize("key", ["password", "api-key", "service-api-key"])
+@pytest.mark.parametrize("separator", ["=", " "])
+@pytest.mark.parametrize("quote", ["", "'", '\"'])
+def test_redact_cli_secret_values_and_preserve_flags(key, separator, quote):
+    source = f'client --{key}{separator}{quote}synthetic-only-secret{quote} --mode=public'
+    expected = f'client --{key}{separator}{quote}<redacted>{quote} --mode=public'
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("key", ["--password-policy", "--auth-token-expiry", "public--password-policy"])
+def test_redact_preserves_cli_names_without_a_sensitive_ending(key):
+    source = f'client {key}=public'
+    assert redact(source) == (source, 0)
+
+
 @pytest.mark.parametrize("source,expected", [
     ('DB_PASSWORD = "x"', 'DB_PASSWORD = "<redacted>"'),
     ("mysql_pwd: 'x'", "mysql_pwd: '<redacted>'"),

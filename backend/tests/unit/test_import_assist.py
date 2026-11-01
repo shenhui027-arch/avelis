@@ -489,6 +489,27 @@ def test_character_budget_counts_attached_header():
     assert not fake.prompts and result.payloads[0]["skipped"]
 
 
+@pytest.mark.parametrize("key", ["password", "api-key"])
+@pytest.mark.parametrize("separator", ["=", " "])
+@pytest.mark.parametrize("quote", ["", "'", '\"'])
+def test_cli_credentials_are_redacted_in_model_prompt_and_persisted_payload(key, separator, quote):
+    secret = "synthetic-only-secret"
+    command = f'client --{key}{separator}{quote}{secret}{quote} -e "{SQL}"'
+    source = command + '\nload() {\n :\n}'
+    fake = FakeImportModel({"operations": []}, {"operations": []})
+    result = run(source, fake, language="shell")
+
+    assert len(fake.prompts) == len(result.payloads) == 2
+    assert not result.notes
+    expected = f'--{key}{separator}{quote}<redacted>{quote}'
+    assert expected in fake.prompts[0]
+    assert result.payloads[0]["prompt"] == fake.prompts[0]
+    assert expected in result.payloads[0]["text"]
+    assert result.payloads[0]["redactions"] == 1
+    assert all(secret not in prompt for prompt in fake.prompts)
+    assert secret not in str(result.payloads)
+
+
 def test_payload_and_errors_remove_credentials_before_persistence():
     source = f'password = "private-code-secret"\ndef load():\n    run_sql("{SQL}")'
     fake = FakeImportModel(RuntimeError("private-api-key Authorization: Bearer private-bearer"))
