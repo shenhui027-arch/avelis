@@ -14,6 +14,7 @@ from avelis import audit
 from avelis.db import new_id, utcnow
 from avelis.governance import access, joins
 from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
+from avelis.i18n import Msg
 from avelis.models import (
     AnalysisRun,
     Asset,
@@ -194,7 +195,7 @@ def save_experience(session: Session, actor: User, *, kind: str, content: str, r
     """只有显式调用此写入操作才会保存；确认反馈本身只生成候选。"""
     _require_user(session, actor)
     if len(refs) > MAX_REFS:
-        raise Invalid(f"经验引用最多 {MAX_REFS} 项")
+        raise Invalid(Msg("经验引用最多 {limit} 项", limit=MAX_REFS))
     pinned, _, _ = _resolve_refs(session, actor, refs)
     origin = _source(session, actor, source)
     content = content.strip()
@@ -267,9 +268,9 @@ def _join_asset(session: Session, actor: User, name: str, side: str, allowed: se
                            f"{asset.catalog_name}.{asset.db_name}.{asset.name}"}
                and access.can_read_asset(session, actor, asset, allowed)]
     if not matches:
-        raise Invalid(f"{side}资产 {name} 无法匹配当前用户可见的资产")
+        raise Invalid(Msg("{side}资产 {name} 无法匹配当前用户可见的资产", side=Msg(side), name=name))
     if len(matches) != 1:
-        raise Invalid(f"{side}资产 {name} 匹配到多个可见资产，请使用更完整的名称")
+        raise Invalid(Msg("{side}资产 {name} 匹配到多个可见资产，请使用更完整的名称", side=Msg(side), name=name))
     return matches[0]
 
 

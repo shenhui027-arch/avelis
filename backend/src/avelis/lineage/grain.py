@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis.i18n import Msg
 from avelis.lineage.sql import PARSER_VERSION
 from avelis.models import Asset, Definition, Grain, IdentityLink, ParseResult
 
@@ -62,7 +63,7 @@ def effective_grains(session: Session, asset_id: str, fingerprints: dict[tuple[s
             stale = [c for c in g.columns if fingerprints.get((asset_id, c)) != g.column_fingerprints.get(c)]
             if stale:
                 grains.append(EffectiveGrain(g.columns, g.origin, "stale", g.id,
-                                             f"键列推导已变化：{', '.join(stale)}，需重新声明"))
+                                             Msg("键列推导已变化：{columns}，需重新声明", columns=", ".join(stale))))
                 continue
         grains.append(EffectiveGrain(list(g.columns), g.origin, g.status, g.id, g.reason))
 
@@ -73,7 +74,7 @@ def effective_grains(session: Session, asset_id: str, fingerprints: dict[tuple[s
             for g in effective_grains(session, link.target_asset_id, fingerprints, _depth + 1):
                 if g.status in USABLE:
                     grains.append(EffectiveGrain(g.columns, "linked", g.status, g.grain_id,
-                                                 "经身份映射继承他库表的键"))
+                                                 Msg("经身份映射继承他库表的键")))
 
     if asset.kind == "view" and asset.current_version_id:
         grains.extend(_passthrough(session, asset, fingerprints, _depth))
@@ -104,7 +105,7 @@ def _passthrough(session: Session, asset: Asset, fingerprints, depth: int) -> li
     for g in effective_grains(session, base.id, fingerprints, depth + 1):
         if g.status in USABLE and all(c in mapping for c in g.columns):
             out.append(EffectiveGrain([mapping[c] for c in g.columns], "passthrough", g.status, g.grain_id,
-                                      f"透传自 {base.db_name}.{base.name}"))
+                                      Msg("透传自 {table}", table=f"{base.db_name}.{base.name}")))
     return out
 
 

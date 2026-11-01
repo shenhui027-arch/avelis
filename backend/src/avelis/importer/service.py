@@ -27,6 +27,7 @@ from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.importer.candidates import Candidate, demo_candidates, model_candidates, redact
 from avelis.importer.extract import Segment, extract_python, extract_shell, split_sql, substitute
 from avelis.importer.statements import parse_statement
+from avelis.i18n import Msg
 from avelis.lineage.grain import resolve_qualified
 from avelis.models import CandidateEdge, Datasource, ExtractedStatement, ImportJob, ImportSource, LineageEdge, User
 
@@ -280,7 +281,7 @@ def decide(session: Session, actor: User, candidate: CandidateEdge, decision: st
     job = session.get(ImportJob, candidate.job_id)
     stmt = session.get(ExtractedStatement, candidate.statement_id) if candidate.statement_id else None
     if candidate.status not in ("pending", "written"):
-        raise Conflict(f"候选当前状态为 {candidate.status}，不能再处理")
+        raise Conflict(Msg("候选当前状态为 {status}，不能再处理", status=candidate.status))
     if candidate.status == "written" and decision == "accept":
         raise Conflict("解析边已写入，无需接受")
     now = utcnow()
@@ -293,7 +294,7 @@ def decide(session: Session, actor: User, candidate: CandidateEdge, decision: st
         values = {k: changes.get(k) or getattr(candidate, k)
                   for k in ("source_ref", "source_column", "target_ref", "target_column", "relation")}
         if values["relation"] not in RELATIONS:
-            raise Invalid(f"关系类型 {values['relation']} 不合法")
+            raise Invalid(Msg("关系类型 {relation} 不合法", relation=values["relation"]))
         origin = "model_confirmed" if candidate.origin == "model" else "import_manual"
         edge = _write_edge(session, actor, job, stmt, origin=origin, expression=candidate.expression,
                            candidate_origin=candidate.origin, confidence=candidate.confidence,
