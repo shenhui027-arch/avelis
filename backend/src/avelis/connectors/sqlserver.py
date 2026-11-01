@@ -1,10 +1,12 @@
-"""SQL Server 连接器（真实数据库，TDS / pymssql）。
+(
+    """SQL Server 连接器（真实数据库，TDS / pymssql）。
 
 - 资产名三段：库（catalog 段）. 模式. 表。只采配置的库与模式（options.database / options.schemas）。
 - 采集账号只需模式上的 VIEW DEFINITION：读 sys.objects / sys.columns / sys.indexes / sys.sql_modules 与
   MS_Description 扩展属性（列注释），读不到业务数据。
 - 物理身份用 object_id：sp_rename 不变，删除后重建会变；CREATE OR ALTER VIEW 不变。
-- 视图定义：sys.sql_modules 存的是整条 CREATE VIEW 语句，用 SQLGlot（tsql）取出其中的查询；取不出时原样保留，解析会如实报错。
+- 视图定义：sys.sql_modules 存的是整条 CREATE VIEW 语句，用 SQLGlot（tsql）取出其中的查询；"""
+    """取不出时原样保留，解析会如实报错。
 - 唯一键：主键、唯一约束、非筛选的唯一索引。
 - 执行前核对用查询账号读视图定义：查询账号除 SELECT 外还需要模式上的 VIEW DEFINITION，否则读到的定义为空，
   会被当作定义已变化而拦截（宁可拦截，不放过）。
@@ -16,6 +18,7 @@
   默认跟踪不含模式；object_id、名称、类型和创建时间吻合当前目录也不能证明历史模式（对象可能转移过模式），
   仅恢复候选模式并强制归因为 ambiguous；删除对象不猜模式，无法恢复候选模式时为 unmatched。
 """
+)
 
 from __future__ import annotations
 
@@ -209,7 +212,8 @@ class SqlServerConnector:
             return out
         cur.execute(
             "SELECT i.object_id, i.index_id, i.is_primary_key, c.name, ic.key_ordinal FROM sys.indexes i "
-            "JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0 "
+            "JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id "
+            "AND ic.key_ordinal > 0 "
             "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id "
             f"WHERE i.object_id IN ({','.join(str(int(i)) for i in ids)}) AND i.is_unique = 1 AND i.has_filter = 0 "
             "AND i.is_disabled = 0 ORDER BY i.object_id, i.index_id, ic.key_ordinal"

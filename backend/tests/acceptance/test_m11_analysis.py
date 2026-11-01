@@ -575,7 +575,10 @@ def assert_primary_cause(question: dict, run: dict) -> None:
 
 @pytest.mark.llm
 def test_07_real_model_finds_planted_cause(stack, admin: Api):
-    """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？预埋原因：深圳福田中心店 9 月 10 日关店（评测题 d01）。"""
+    (
+        """真实模型（.env 中的 DeepSeek）：为什么 9 月华南门店成交额比 8 月低？"""
+        """预埋原因：深圳福田中心店 9 月 10 日关店（评测题 d01）。"""
+    )
     from avelis.bootstrap import model_from_env
 
     model_from_env()

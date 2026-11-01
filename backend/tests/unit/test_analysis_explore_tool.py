@@ -1,8 +1,11 @@
-"""探索查询工具 query_sql / sample_values（ADR 0009 第 6 点）：经统一分发调用，连接器用替身记录每次调用。
+(
+    """探索查询工具 query_sql / sample_values（ADR 0009 第 6 点）：经统一分发调用，连接器用替身记录每次调用。
 
-每个拒绝用例都断言：探索 SQL 没有发到数据库（execute_explore 没被调用）、审计记为 rejected 且 sent_to_database 为 False。
+每个拒绝用例都断言：探索 SQL 没有发到数据库（execute_explore 没被调用）、"""
+    """审计记为 rejected 且 sent_to_database 为 False。
 需要真实引擎的执行与取消测试放在验收（第 5 步）。
 """
+)
 
 from __future__ import annotations
 
@@ -456,7 +459,8 @@ def test_calc_tools_inherit_column_evidence(monkeypatch):
             "query_sql",
             {
                 "purpose": "x",
-                "sql": "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total FROM d1.facts GROUP BY region, qty",
+                "sql": "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total "
+                "FROM d1.facts GROUP BY region, qty",
             },
         )
     )

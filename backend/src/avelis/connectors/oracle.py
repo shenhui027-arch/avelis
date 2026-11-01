@@ -1,6 +1,8 @@
-"""Oracle 连接器（真实数据库，python-oracledb thin 模式，不需要 Oracle 客户端）。
+(
+    """Oracle 连接器（真实数据库，python-oracledb thin 模式，不需要 Oracle 客户端）。
 
-- 资产名三段：服务名（catalog 段，如 FREEPDB1）. 模式（用户）. 表。Oracle 的查询不认服务名这一段，生成的 SQL 只写 模式.表。
+- 资产名三段：服务名（catalog 段，如 FREEPDB1）. 模式（用户）. 表。"""
+    """Oracle 的查询不认服务名这一段，生成的 SQL 只写 模式.表。
 - 未加引号的标识符按大写保存（SCHEMA_A.TABLE_A.COL_A），资产名与列名保持数据库目录中的写法。
 - 采集账号只需 CREATE SESSION + SELECT_CATALOG_ROLE：读 DBA_OBJECTS / DBA_TAB_COLUMNS / DBA_VIEWS / DBA_CONSTRAINTS
   与 DBA_TAB_COMMENTS / DBA_COL_COMMENTS，读不到业务数据（对无权限的表报 ORA-00942“不存在”）。
@@ -10,10 +12,12 @@
 - DATE 类型带时间部分：方言声明 date_has_time，按日期过滤时用 [当日 0 点, 次日 0 点) 区间；
   会话固定 NLS_DATE_FORMAT / NLS_TIMESTAMP_FORMAT，SQL 中的日期字符串不依赖库的默认设置。
 - 问数执行：只读事务（SET TRANSACTION READ ONLY）+ 调用超时（DPY-4024 归为超时）；
-  ORA-00904 / ORA-00942 归为对象无法解析，ORA-01031 / ORA-01456 / ORA-01017 / ORA-41900（23ai 起的“缺少某项权限”）归为权限。
+  ORA-00904 / ORA-00942 归为对象无法解析，ORA-01031 / ORA-01456 / ORA-01017 / ORA-41900"""
+    """（23ai 起的“缺少某项权限”）归为权限。
 - 查询账号的执行前核对读 ALL_* 视图（只看得到有权限的对象），不需要额外授权。
 - 不报告数据新鲜度：DBA_TAB_MODIFICATIONS 依赖统计信息刷新，不以它冒充写入时间。
 """
+)
 
 from __future__ import annotations
 

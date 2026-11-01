@@ -1,4 +1,5 @@
-"""探索查询在真实引擎上的验收（ADR 0009 第 6 点）：演示 StarRocks（合成电商数据集）与 PostgreSQL 门店库。
+(
+    """探索查询在真实引擎上的验收（ADR 0009 第 6 点）：演示 StarRocks（合成电商数据集）与 PostgreSQL 门店库。
 
 经分析工具箱的统一分发层（与模型调用同一路径）发起 query_sql（模型写 Avelis 标准 SQL，不填数据源：系统按 SQL 里的
 资产确定数据源，生成目标方言再执行），断言：
@@ -8,8 +9,10 @@
   执行期间能在 processlist / pg_stat_activity 看到这条查询，返回后不再运行；StarRocks 客户端等待超时时发 KILL QUERY，
   执行中的查询被取消；
 - 拒绝：写语句、注释与 hint、禁用函数、方言写法、非等值 / 不相连的 JOIN、SELECT *、多语句、未采集的表、不可见的表、
-  跨数据源、关闭了探索的数据源、没有探索档案的引擎，一律不发到数据库（连接器的 execute_explore 未被调用），审计记为 rejected。
+  跨数据源、关闭了探索的数据源、没有探索档案的引擎，一律不发到数据库（连接器的 execute_explore 未被调用），"""
+    """审计记为 rejected。
 """
+)
 
 from __future__ import annotations
 

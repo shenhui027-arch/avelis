@@ -414,8 +414,11 @@ def test_unquoted_identifiers_fold_to_lowercase_before_routing_and_binding():
 
 @pytest.mark.parametrize("engine", ["starrocks", "postgres"])
 def test_conditional_aggregates_for_two_periods_are_evidence(engine):
-    """两期对比的常见写法：SUM(CASE WHEN 日期 BETWEEN … THEN 列 ELSE 0 END)。条件里的日期字面量只用来过滤，ELSE 0 是中性值，
+    (
+        """两期对比的常见写法：SUM(CASE WHEN 日期 BETWEEN … THEN 列 ELSE 0 END)。"""
+        """条件里的日期字面量只用来过滤，ELSE 0 是中性值，
     整体是列的登记聚合，有资格作为证据；两个这样的 SUM 相减是差额。分支值是其他常量时仍判为假设。"""
+    )
     cur = (
         "SUM(CASE WHEN f.event_date BETWEEN CAST('2026-09-01' AS DATE) AND CAST('2026-09-30' AS DATE) "
         "THEN f.qty ELSE 0 END)"

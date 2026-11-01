@@ -52,10 +52,12 @@ STARROCKS = Engine(
             "DDL 审计表",
             type="text",
             required=False,
-            hint="库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表",
+            hint="库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；"
+            "需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表",
         ),
     ),
-    note="2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；"
+    note="2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；"
+    "DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；"
     "FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配",
 )
 
@@ -77,7 +79,8 @@ MYSQL = Engine(
             "DDL 审计表",
             type="text",
             required=False,
-            hint="可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument",
+            hint="可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，"
+            "采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument",
         ),
     ),
     note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；"
@@ -133,10 +136,13 @@ SQLSERVER = Engine(
         OptionField("database", "库", type="text", required=True),
         OptionField("schemas", "采集的模式", required=True),
     ),
-    note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；"
-    "2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；"
+    note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；"
+    "object_id 作物理身份；不报告数据新鲜度；"
+    "2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，"
+    "并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；"
     "只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；"
-    "StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确",
+    "StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，"
+    "本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确",
 )
 
 ORACLE = Engine(
@@ -162,7 +168,8 @@ ORACLE = Engine(
         OptionField("schemas", "采集的模式", required=True, hint="模式名按大写保存"),
     ),
     note="采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；"
-    "2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；"
+    "2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略"
+    "（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；"
     "只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取；"
     "无记录且无策略的 not_enabled 分支未实机验证",
 )

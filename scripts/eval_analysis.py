@@ -1,11 +1,14 @@
-"""分析智能体评测运行器（ADR 0009 第 5 点，最小版本）。
+(
+    """分析智能体评测运行器（ADR 0009 第 5 点，最小版本）。
 
-  uv run --project backend python scripts/eval_analysis.py --repeat 2       串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
+  uv run --project backend python scripts/eval_analysis.py --repeat 2       """
+    """串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
   uv run --project backend python scripts/eval_analysis.py --repeat 2 --resume .demo/eval/<时间>.json
                                                续跑：沿用上次已有真实结果的运行，只重跑登录失效（401）与没跑到的
   uv run --project backend python scripts/eval_analysis.py --only d01,n01   只跑部分题
   uv run --project backend python scripts/eval_analysis.py --rescore .demo/eval/<时间>.json
-                                               按当前题目定义对已保存的运行重新判分（不调用模型），写 <时间>-rescored.json / .md
+                                               按当前题目定义对已保存的运行重新判分（不调用模型），"""
+    """写 <时间>-rescored.json / .md
 （用后端的依赖环境运行：判分读 YAML、发起分析都需要后端依赖。）
 
 在演示环境上运行（合成电商数据集已灌入、元数据库已有演示口径），用 .env 中已授权用于验收的模型。
@@ -13,6 +16,7 @@
 超时）时重跑一次。每题开始前重新登录（访问令牌 30 分钟过期，整轮评测超过这个时长）。
 结果写到 .demo/eval/<时间>.json，并生成同名 Markdown 汇总（总体与分类的比例、重复运行的稳定性）。
 """
+)
 
 from __future__ import annotations
 
