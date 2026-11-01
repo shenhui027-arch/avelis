@@ -38,6 +38,7 @@ from avelis.models import Datasource as SvcDatasource
 from avelis.models import Metric as SvcMetric
 from avelis.models import MetricVersion as MetaMetricVersion
 from avelis.models import MetricVersion as SvcVersion
+from tests.pymysql_contract import mogrify
 
 
 def meta_version(**kwargs):
@@ -392,8 +393,10 @@ class conn_Cursor:
     def __exit__(self, *args):
         return False
 
-    def execute(self, statement):
+    def execute(self, statement, params=None):
         statement = statement.as_string() if hasattr(statement, "as_string") else statement
+        if not self.connection.postgres:
+            mogrify(statement, params)
         self.connection.statements.append(statement)
         if statement.startswith("SET time_zone") and self.connection.reject_timezone:
             self.connection.reject_timezone -= 1

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from avelis.config import get_settings
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent, column_refs, redefines, same_identifier
 from avelis.engines.base import DDL_AUDIT, Engine
+from avelis.i18n import gettext
 from avelis.models import Asset
 
 DERIVED = {"derivation_changed", "upstream_broken", "identity_link_changed", "server_identity_changed"}
@@ -88,12 +89,13 @@ def _attribute(session: Session, engine: Engine, connector: Any, events: list[di
         for e in events:
             _set(e, "not_applicable", reason="首次采集：对象在开始观察之前已存在，不对应本窗口内的 DDL")
         return {"status": "not_applicable", "reason": "首次采集"}
-    if not engine.supports(DDL_AUDIT) or not hasattr(connector, "ddl_events"):
+    unbound_reason = getattr(connector, "ddl_audit_unbound_reason", None)
+    if not engine.supports(DDL_AUDIT) or not hasattr(connector, "ddl_events") or unbound_reason:
+        reason = unbound_reason or f"{engine.label} 适配器未接入 DDL 审计来源"
         for e in events:
             _set(e, "not_applicable" if e["kind"] in DERIVED else "unsupported",
-                 reason=f"{engine.label} 适配器未接入 DDL 审计来源" if e["kind"] not in DERIVED
-                 else "推导出的变化，不是对该对象执行的 DDL")
-        return {"status": "unsupported", "reason": f"{engine.label} 适配器未接入 DDL 审计来源"}
+                 reason=reason if e["kind"] not in DERIVED else "推导出的变化，不是对该对象执行的 DDL")
+        return {"status": "unsupported", "reason": reason}
     if window.instance_changed:
         reason = CAUSE_LABEL["instance_changed"]
         for e in events:
@@ -145,6 +147,13 @@ def _attribute(session: Session, engine: Engine, connector: Any, events: list[di
             _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
             continue
         try:
+            # 只声明某个 Catalog 的来源不能给其他 Catalog 的同名对象归因。
+            audit_catalog = getattr(connector, "ddl_audit_catalog", None)
+            asset = session.get(Asset, e["asset_id"]) if audit_catalog and e.get("asset_id") else None
+            if asset is not None and asset.catalog_name != audit_catalog:
+                _set(e, "unsupported", source=source,
+                     reason=gettext("DDL 审计来源不覆盖此 Catalog，无法归因"))
+                continue
             _attribute_one(session, e, by_object, source, basis_window, fold, certain)
         except Exception as exc:  # noqa: BLE001 - 单个事件归因出错：如实记为未知，不影响其他事件与采集
             _set(e, "unavailable", source=source, window=basis_window, cause="error",
