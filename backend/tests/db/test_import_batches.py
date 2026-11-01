@@ -98,9 +98,9 @@ def test_0016_backfills_one_batch_per_legacy_import_and_preserves_sources(legacy
                             status="needs_params", actor=first.actor, datasource=first.datasource,
                             method="unrecognized")
     guard = connection.scalar(text("SELECT pg_get_functiondef('avelis_history_guard()'::regprocedure)"))
-    command.upgrade(cfg, "0016")
+    command.upgrade(cfg, "0018_import_batches")
     assert connection.scalar(text("SELECT pg_get_functiondef('avelis_history_guard()'::regprocedure)")) == guard
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0016"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0018_import_batches"
     assert connection.scalar(text("SELECT count(*) FROM import_batch")) == 2
     for old in (first, second):
         job = connection.execute(text("SELECT * FROM import_job WHERE id = :id"), {"id": old.job}).mappings().one()
@@ -144,7 +144,7 @@ def test_0016_maps_legacy_model_status_and_keeps_pending_candidates_and_payload(
         id=candidate_id, job_id=old.job, statement_id=old.statement, origin="model",
         source_ref="postgres.src.events", target_ref="postgres.dw.daily_summary", relation="table",
         evidence={"lines": [1]}, status="pending", modified={}, created_at=utcnow()))
-    command.upgrade(cfg, "0016")
+    command.upgrade(cfg, "0018_import_batches")
     for table in ("import_job", "import_batch"):
         row = connection.execute(text(f"SELECT status, stats FROM {table} WHERE id = :id"),
                                  {"id": old.job}).mappings().one()
@@ -178,9 +178,9 @@ def test_0016_backfills_duplicate_legacy_source_keys_without_superseding_imports
             relation="table", status="active", created_at=now))
     before_edges = [dict(row) for row in connection.execute(text("SELECT * FROM lineage_edge ORDER BY id")).mappings()]
 
-    command.upgrade(cfg, "0016")
+    command.upgrade(cfg, "0018_import_batches")
 
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0016"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0018_import_batches"
     assert connection.scalar(text("SELECT count(*) FROM import_batch")) == len(old_imports)
     latest_id = max(second.job, third.job)
     for old in old_imports:
