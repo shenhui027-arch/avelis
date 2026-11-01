@@ -1,6 +1,6 @@
 # Contributing to Avelis
 
-[English](#english) | [简体中文](#简体中文)
+[English](#english) | [简体中文](#简体中文) | [繁體中文](#繁體中文)
 
 ## English
 
@@ -9,13 +9,13 @@ Thanks for your interest in Avelis. Bug reports, documentation fixes, new databa
 ### Before you start
 
 - Search [existing issues](https://github.com/shenhui027-arch/avelis/issues) first. For anything larger than a bug fix, open an issue to discuss the design before writing code.
-- Read the [architecture overview](docs/architecture.md) and the [architecture decision records](docs/decisions/). Changes that contradict an accepted ADR need a new ADR.
-- Product code must stay business-neutral ([ADR 0010](docs/decisions/0010-business-neutral-product.md)): no table names, metrics or industry rules from the demo datasets in `backend/src` or `frontend/src`.
+- Read the [architecture overview](docs/architecture.en.md) and the [architecture decision records](docs/decisions/). Changes that contradict an accepted ADR need a new ADR.
+- Product code must stay business-neutral ([ADR 0010](docs/decisions/0010-business-neutral-product.md) (Simplified Chinese)): no table names, metrics or industry rules from the demo datasets in `backend/src` or `frontend/src`.
 - Report security issues privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
 
 ### Development setup
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.12), Node.js 24 with pnpm 11, and Docker with Compose v2 for the demo databases. See the [development guide](docs/development.md) for the full setup.
+Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.12), Node.js 24 with pnpm 11, and Docker with Compose v2 for the demo databases. See the [development guide](docs/development.en.md) for the full setup.
 
 ```bash
 # Backend
@@ -38,14 +38,14 @@ Unit tests run offline and never call a model or a database. Acceptance tests (`
 2. Keep each pull request focused on one change. Separate refactoring from behaviour changes.
 3. Add or update tests. Every bug fix needs a test that fails without the fix.
 4. Make sure `ruff check`, the unit tests and `pnpm build` pass. CI runs the same checks on every pull request.
-5. Update the docs when behaviour, configuration or commands change; follow the [documentation guide](docs/documentation-guide.md).
+5. Update the docs when behaviour, configuration or commands change; follow the [documentation guide](docs/documentation-guide.en.md).
 6. Fill in the pull request template, including what you verified and what you did not.
 
 Fixes must be general. Do not special-case an evaluation question, a demo table or a single customer schema to make a test pass.
 
 ### Adding a database engine
 
-Each database is an adapter in `backend/src/avelis/engines/`. Follow [ADR 0004](docs/decisions/0004-engine-adapters.md): implement the connector, dialect and capability declaration, and add unit tests. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) can be added.
+Each database is an adapter in `backend/src/avelis/engines/`. Follow [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese): implement the connector, dialect and capability declaration, and add unit tests. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) can be added.
 
 ### License
 
@@ -103,3 +103,56 @@ pnpm build
 ### 许可
 
 提交贡献即表示你同意贡献内容按 [Apache License 2.0](LICENSE) 授权。
+
+## 繁體中文
+
+感謝關注 Avelis。歡迎報告缺陷、改進文件、新增資料庫引擎配接器和提出功能建議。Issue 與 PR 可以用中文或英文；維護者一般用簡體中文回覆。
+
+### 開始之前
+
+- 先搜尋[已有 issue](https://github.com/shenhui027-arch/avelis/issues)。比修缺陷更大的改動，請先開 issue 討論設計再寫程式碼。
+- 閱讀[架構與治理說明](docs/architecture.zh-TW.md)與[架構決策記錄](docs/decisions/)。與已接受的 ADR 相悖的改動需要新的 ADR。
+- 產品程式碼保持業務中立（[ADR 0010](docs/decisions/0010-business-neutral-product.md)（簡體中文））：`backend/src` 與 `frontend/src` 裡不寫示範資料集中的表名、指標或行業規則。
+- 安全問題按 [SECURITY.md](SECURITY.md) 私下報告，不要開公開 issue。
+
+### 開發環境
+
+前置條件：[uv](https://docs.astral.sh/uv/)（自動安裝 Python 3.12）、Node.js 24 與 pnpm 11、Docker（Compose v2，用於示範資料庫）。完整步驟見[開發指南](docs/development.zh-TW.md)。
+
+```bash
+# 後端
+cd backend
+uv sync
+uvx ruff@0.17.3 check .
+AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
+
+# 前端
+cd ../frontend
+pnpm install
+pnpm build
+```
+
+單元測試離線執行，不呼叫模型也不連資料庫。驗收測試（`pytest -m acceptance`）會重置本機示範環境，只在自己的機器上執行。
+
+### 提交 PR
+
+1. Fork 儲存庫，從 `main` 建分支。
+2. 一個 PR 只做一件事；重構與行為變化分開提交。
+3. 補充或更新測試。修復缺陷要有一個「不修就失敗」的測試。
+4. 確認 `ruff check`、單元測試與 `pnpm build` 透過；CI 會在每個 PR 上執行同樣的檢查。
+5. 行為、設定或命令變化時同步更新文件，寫法見[文件規範](docs/documentation-guide.zh-TW.md)。
+6. 按 PR 模板填寫，寫清驗證了什麼、沒驗證什麼。
+
+修復必須通用：不為了讓測試透過而針對某道評測題、某張示範表或某個客戶的表結構寫特殊處理。
+
+### 提交說明
+
+維護者的提交說明與 PR 標題、正文用簡體中文：標題一句話寫清改了什麼，正文寫原因與影響。外部貢獻者用英文也可以。
+
+### 新增資料庫引擎
+
+每種資料庫是 `backend/src/avelis/engines/` 中的一個配接器。按 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文） 實現聯結器、方言與能力宣告，並補單元測試。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎。
+
+### 授權
+
+提交貢獻即表示你同意貢獻內容按 [Apache License 2.0](LICENSE) 授權。
