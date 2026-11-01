@@ -141,7 +141,8 @@ purge_interval_hours = 24         # 清理间隔，小时。AVELIS_HISTORY_PURGE
 export_max_rows = 50000           # 变更记录一次导出的行数上限。AVELIS_HISTORY_EXPORT_MAX_ROWS
 
 [import]
-max_bytes = 2097152               # 导入血缘时单个文件或粘贴内容的上限，字节。AVELIS_IMPORT_MAX_BYTES
+max_bytes = 20971520              # 导入血缘时单个文件或粘贴内容的上限，20 MB，字节。AVELIS_IMPORT_MAX_BYTES
+max_batch_bytes = 104857600       # 导入血缘时整个批次的内容上限，100 MB，字节。AVELIS_IMPORT_MAX_BATCH_BYTES
 
 # ============================================================
 # 分析智能体预算（每次分析）

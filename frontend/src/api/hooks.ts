@@ -1,5 +1,7 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey,
+} from "@tanstack/react-query";
 
 import { t } from "../i18n";
 import { api, ApiError, unwrap, type Schemas } from "./client";
@@ -12,7 +14,9 @@ export type Domain = Schemas["DomainOut"];
 export type ChangeSet = Schemas["ChangeSetOut"];
 export type Task = Schemas["TaskOut"];
 export type Answer = Schemas["AnswerOut"];
-export type ImportJob = Schemas["ImportJobOut"];
+export type ImportBatch = Schemas["ImportBatchOut"];
+export type ImportStatement = Schemas["StatementOut"];
+export type ImportCandidate = Schemas["CandidateOut"];
 export type JoinPath = Schemas["JoinPathOut"];
 export type Datasource = Schemas["DatasourceOut"];
 export type User = Schemas["UserOut"];
@@ -73,10 +77,48 @@ export const useThread = (id?: string) => useQuery({
   queryKey: ["thread", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/ask/threads/{thread_id}", { params: { path: { thread_id: id! } } })),
 });
-export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")) });
+// 导入批次在后台执行：排队或进行中时轮询进度，结束后停止
+const importBusy = (status?: string) => status === "queued" || status === "running";
+export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")),
+  refetchInterval: (q) => (q.state.data?.some((b) => importBusy(b.status)) ? 2000 : false) });
 export const useImport = (id?: string) => useQuery({
   queryKey: ["import", id], enabled: !!id,
-  queryFn: () => unwrap(api.GET("/api/imports/{job_id}", { params: { path: { job_id: id! } } })),
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}", { params: { path: { batch_id: id! } } })),
+  refetchInterval: (q) => (importBusy(q.state.data?.status) ? 1000 : false),
+});
+// 语句与候选按固定页大小分页（接口上限 500），“加载更多”递增 offset 并累积各页
+type ImportPage = { offset: number; items: unknown[]; total: number };
+const nextOffset = (last: ImportPage) =>
+  last.offset + last.items.length < last.total && last.items.length ? last.offset + last.items.length : undefined;
+export type ImportStatementQuery = { file_id?: string | null; status?: string | null; q?: string | null };
+export const useImportStatements = (batchId: string, query: ImportStatementQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportStatementPage"], Error, InfiniteData<Schemas["ImportStatementPage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "statements", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/statements", {
+      params: { path: { batch_id: batchId }, query: { ...query, offset: pageParam, limit: pageSize } } })),
+  });
+export type ImportCandidateQuery = { file_id?: string | null; status?: string | null; origin?: string | null };
+export const useImportCandidates = (batchId: string, query: ImportCandidateQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportCandidatePage"], Error, InfiniteData<Schemas["ImportCandidatePage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "candidates", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/candidates", {
+      params: { path: { batch_id: batchId }, query: { ...query, statement_id: null, offset: pageParam, limit: pageSize } } })),
+  });
+export const useImportContent = (batchId: string, fileId?: string) => useQuery({
+  queryKey: ["import", batchId, "content", fileId], enabled: !!fileId, staleTime: Infinity,
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/files/{job_id}/content", {
+    params: { path: { batch_id: batchId, job_id: fileId! } } })),
+});
+export const useImportPayload = (batchId: string, version: string) => useQuery({
+  queryKey: ["import", batchId, "payload", version],
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/model-payload", { params: { path: { batch_id: batchId } } })),
+});
+export const useSqlFunctions = (datasourceId?: string) => useQuery({
+  queryKey: ["import-sql-functions", datasourceId], enabled: !!datasourceId,
+  queryFn: () => unwrap(api.GET("/api/imports/sql-functions/{datasource_id}", {
+    params: { path: { datasource_id: datasourceId! } } })),
 });
 export const useGraph = (domainIds: string[], assetId?: string) => useQuery({
   queryKey: ["graph", domainIds.join(","), assetId],

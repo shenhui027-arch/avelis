@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import false as sa_false
+from sqlalchemy import text as sa_text
 from sqlalchemy import true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -654,12 +655,40 @@ class Answer(Base):
 
 # --- 导入血缘（M2） ---------------------------------------------------------------
 
+class ImportBatch(Base):
+    """一次批量导入；解析进度独立提交，正式替换在同一事务中完成。"""
+
+    __tablename__ = "import_batch"
+    __table_args__ = (Index("ix_import_batch_created", "created_at"),)
+    id: Mapped[str] = pk()
+    datasource_id: Mapped[str] = fk("datasource.id", index=False)
+    default_db: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False)
+    progress: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    stats: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    options: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    notes: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    job_id: Mapped[str | None] = fk("job.id", nullable=True, index=False)
+    created_by: Mapped[str] = fk("app_user.id", index=False)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 class ImportJob(Base):
-    """一次导入。同一数据源下内容相同的导入幂等（返回原任务，不重复写边）。"""
+    """批次内一个文件的版本；来源键只允许一个当前版本，历史原文与决定保留。"""
 
     __tablename__ = "import_job"
-    __table_args__ = (UniqueConstraint("datasource_id", "content_hash"),)
+    __table_args__ = (
+        Index("ix_import_job_current_source", "datasource_id", "source_key", unique=True,
+              postgresql_where=sa_text("status <> 'superseded'")),
+        Index("ix_import_job_content", "datasource_id", "content_hash"),
+    )
     id: Mapped[str] = pk()
+    batch_id: Mapped[str | None] = fk("import_batch.id", nullable=True)
+    source_key: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    superseded_by: Mapped[str | None] = fk("import_job.id", nullable=True, index=False)
     datasource_id: Mapped[str] = fk("datasource.id", index=False)
     source_type: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python | shell | code
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -667,7 +696,7 @@ class ImportJob(Base):
     dialect: Mapped[str] = mapped_column(String(32), nullable=False)
     default_db: Mapped[str | None] = mapped_column(String(128))
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False)  # needs_params | needs_review | done
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # needs_params | needs_review | done | superseded
     params: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     stats: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     model_adapter: Mapped[str | None] = mapped_column(String(64))
@@ -689,6 +718,7 @@ class ExtractedStatement(Base):
     """从导入内容中抽出的一段：SQL 语句、内嵌 SQL，或确定性解析覆盖不到的代码片段。"""
 
     __tablename__ = "extracted_statement"
+    __table_args__ = (Index("ix_statement_job_status", "job_id", "status"),)
     id: Mapped[str] = pk()
     job_id: Mapped[str] = fk("import_job.id")
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -696,6 +726,8 @@ class ExtractedStatement(Base):
     line_end: Mapped[int] = mapped_column(Integer, nullable=False)
     method: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python_ast | shell | unrecognized
     raw_text: Mapped[str] = mapped_column(LongText, nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    writes: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     sql_text: Mapped[str | None] = mapped_column(LongText)
     statement_type: Mapped[str | None] = mapped_column(String(32))
     target_ref: Mapped[str | None] = mapped_column(String(512))
@@ -706,7 +738,8 @@ class ExtractedStatement(Base):
 
 class CandidateEdge(Base):
     """导入产生的边。origin：parsed 确定性解析（直接写入血缘，可修改）、model 模型推断（必须人工处理）。
-    status：written 已写入、pending 待处理、accepted 已接受、modified 修改后接受、rejected 已驳回、superseded。"""
+    status：intermediate 中间段、written 已写入、pending 待处理、accepted 已接受、modified 修改后接受、
+    rejected 已驳回、superseded。"""
 
     __tablename__ = "candidate_edge"
     __table_args__ = (Index("ix_candidate_job_status", "job_id", "status"),)

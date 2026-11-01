@@ -85,7 +85,9 @@ def test_metric_time_migration_and_model_defaults(monkeypatch):
 def test_metric_time_migration_is_the_single_head_after_conversations():
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0017_metric_time"]
+    # 批量导入（ADR 0016）的迁移接在口径时间之后，迁移链仍只有一个 head
+    assert scripts.get_heads() == ["0018_import_batches"]
+    assert scripts.get_revision("0018_import_batches").down_revision == "0017_metric_time"
     assert scripts.get_revision("0017_metric_time").down_revision == "0016_conversation"
     assert scripts.get_revision("0016_conversation").down_revision == "0015"
 

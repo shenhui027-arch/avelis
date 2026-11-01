@@ -169,4 +169,4 @@ def test_import_upload_dynamic_byte_limit_and_utf8_error(monkeypatch, config_val
     limits.import_max_bytes = config_value.import_max_bytes
     with pytest.raises(HTTPException) as default_limit:
         invoke_upload(b"x" * (config_value.import_max_bytes + 1))
-    assert (default_limit.value.status_code, default_limit.value.detail) == (413, "文件超过 2 MB")
+    assert (default_limit.value.status_code, default_limit.value.detail) == (413, "文件超过 20 MB")
