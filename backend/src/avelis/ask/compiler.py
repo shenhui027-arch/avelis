@@ -6,15 +6,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import timedelta
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError, UnsupportedError
 
 from avelis.ask.intent import period_column
+from avelis.engines.time_sql import period_expression, time_conditions
 from avelis.governance.errors import Invalid
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_snippet, table_expr
 from avelis.governance.metrics import encoded_time_type
@@ -130,22 +130,9 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         low, high = (d.strftime(formats[time_format]) for d in (intent.start_date, intent.end_date))
         bounds = [exp.Literal.number(v) if kind == "integer" else exp.Literal.string(v) for v in (low, high)]
         conditions.append(exp.Between(this=time_column, low=bounds[0], high=bounds[1]))
-    elif dialect == "tsql" and time_type.startswith("datetimeoffset"):
-        try:
-            timezone = ZoneInfo(version.timezone)
-        except (AttributeError, TypeError, ZoneInfoNotFoundError) as exc:
-            raise Invalid("datetimeoffset 时间列需要有效的业务时区") from exc
-        # 两个边界分别取当天的偏移，覆盖窗口内发生夏令时切换的情况。
-        low, high = (datetime.combine(d, time.min, timezone).isoformat(sep=" ") for d in (
-            intent.start_date, intent.end_date + timedelta(days=1)))
-        conditions.append(exp.GTE(this=time_column, expression=literal(low)))
-        conditions.append(exp.LT(this=time_column.copy(), expression=literal(high)))
-    elif time_type.startswith("date") and not time_type.startswith("datetime") and not sql_dialect.date_has_time:
-        conditions.append(exp.Between(this=time_column, low=literal(intent.start_date), high=literal(intent.end_date)))
     else:
-        conditions.append(exp.GTE(this=time_column, expression=literal(f"{intent.start_date} 00:00:00")))
-        conditions.append(exp.LT(this=time_column,
-                                 expression=literal(f"{intent.end_date + timedelta(days=1)} 00:00:00")))
+        conditions.extend(time_conditions(time_column, intent.start_date, intent.end_date, data_type=time_type,
+                                           business_timezone=getattr(version, "timezone", None), dialect=sql_dialect))
     if version.filters:
         conditions.append(exp.Paren(this=parse_snippet(version.filters, dialect=dialect, label="过滤条件",
                                                        aliases=names, require_aggregate=False).expression))
@@ -210,21 +197,8 @@ def _period_expression(version, column: exp.Expression, grain: str, time_type: s
         if grain == "day":
             pieces += [exp.Literal.string("-"), part(7, 2)]
         return exp.Concat(expressions=pieces, safe=True, coalesce=False)
-    if dialect == "tsql" and time_type.lower().startswith("datetimeoffset"):
-        raise Invalid("SQL Server 的 datetimeoffset 时间列不支持按时间分组")
-    if grain in ("week", "quarter"):
-        if dialect == "tsql":
-            column = exp.TimestampTrunc(this=column, unit=exp.Var(this="ISO_WEEK" if grain == "week" else "QUARTER"))
-        elif dialect == "oracle":
-            # DateTrunc 会把 Q 规整成 Oracle 不接受的 QUARTER，保留原生 TRUNC 格式符。
-            column = exp.Anonymous(this="TRUNC", expressions=[column, exp.Literal.string("IW" if grain == "week" else "Q")])
-        elif dialect == "mysql" and grain == "week":
-            # WEEKDAY 固定周一为 0，不依赖会话周设置，也不会在跨年时把周归入错误年份。
-            column = exp.DateSub(this=column, expression=exp.Anonymous(this="WEEKDAY", expressions=[column.copy()]),
-                                 unit=exp.Var(this="DAY"))
-        else:
-            column = exp.DateTrunc(this=column, unit=exp.Literal.string(grain))
-    return exp.TimeToStr(this=column, format=exp.Literal.string({"month": "%Y-%m", "year": "%Y"}.get(grain, "%Y-%m-%d")))
+    return period_expression(column, grain, data_type=time_type,
+                             business_timezone=getattr(version, "timezone", None), dialect=dialect)
 
 
 def _national(node: exp.Expression) -> exp.Expression:

@@ -27,11 +27,14 @@ export function CalendarPage() {
   const [holidays, setHolidays] = useState("");
   const [workdays, setWorkdays] = useState("");
   const [message, setMessage] = useMessage();
+  // 读到服务端的日历并填进表单后才能保存：加载中或读取失败时保存，会用默认值覆盖已有的节假日与调休
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (!calendar.data) return;
     setWeekend(calendar.data.weekend_days ?? [5, 6]);
     setHolidays((calendar.data.holidays ?? []).join("\n"));
     setWorkdays((calendar.data.workdays ?? []).join("\n"));
+    setLoaded(true);
   }, [calendar.data]);
   const h = parseDates(holidays), w = parseDates(workdays);
   const both = h.dates.filter((d) => w.dates.includes(d));
@@ -44,7 +47,7 @@ export function CalendarPage() {
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>设置</h1><SettingsTabs current="calendar" /></div>
         <div className="av-actions">
-          <button type="button" className="av-btn av-btn--primary" disabled={!isAdmin || !valid || save.isPending}
+          <button type="button" className="av-btn av-btn--primary" disabled={!isAdmin || !loaded || !valid || save.isPending}
             aria-busy={save.isPending} onClick={() => save.mutate(undefined, {
               onSuccess: () => setMessage({ ok: true, text: "已保存业务日历" }),
               onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>{save.isPending ? "保存中…" : "保存"}</button>

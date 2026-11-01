@@ -318,9 +318,12 @@ def _export_labels(d: dict, view: dict) -> dict:
 
 def _column_label(d: dict, column: str) -> str:
     roles = _column_roles(d)
-    if roles is not None:
-        return str((roles.get(column) or {}).get("label") or column)
     meta = _meta(d)
+    if label := (meta.get("column_labels") or {}).get(column):
+        return str(label)
+    label = (roles.get(column) or {}).get("label") if roles is not None else None
+    if label and (label != column or d.get("kind") != "calc"):
+        return str(label)
     labels = meta.get("export_labels") or meta
     dim = next((dim for dim in labels.get("dimensions") or [] if dim.get("name") == column), {})
     doc = (labels.get("column_docs") or {}).get(column) or {}
@@ -335,12 +338,13 @@ def _column_label(d: dict, column: str) -> str:
 
 def _dataset_title(d: dict) -> str:
     meta = _meta(d)
+    measure_labels = meta.get("measure_labels") or {}
     names = (meta.get("export_labels") or meta).get("metric_names") or []
     if not names:
-        names = list(dict.fromkeys(re.sub(r"·(?:本期|对比期|上一期|去年同期|差额|变化率|变化)$", "", c)
+        names = list(dict.fromkeys(measure_labels.get(c) or re.sub(r"·(?:本期|对比期|上一期|去年同期|差额|变化率|变化)$", "", c)
                                    for c in d.get("columns") or [] if c in _units(d)
                                    and (_units(d)[c] or {}).get("kind") in ("level", "ratio")))[:2]
-    names = [_column_label(d, name) for name in names]
+    names = list(dict.fromkeys(measure_labels.get(name) or _column_label(d, name) for name in names))
     args = meta.get("args") or {}
     keys = (meta.get("intent") or {}).get("group_by") or args.get("keys") or (
         [args["segment"]] if args.get("segment") else [])
