@@ -26,13 +26,17 @@ class Oracle(EngineProfile):
     grain_sql_name = '"STORE"."RETURNS"'
     sales_unique_key = True
     rename = ("ALTER TABLE store.returns RENAME TO refunds",)
-    recreate = ("DROP TABLE store.refunds PURGE",
-                "CREATE TABLE store.refunds (return_id NUMBER(19) PRIMARY KEY, sale_id NUMBER(19) NOT NULL, "
-                "return_date DATE NOT NULL, amount NUMBER(18, 2) NOT NULL)")
-    replace_view = ("CREATE OR REPLACE VIEW store.city_daily_sales AS "
-                    "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
-                    "FROM store.sales s INNER JOIN store.shops h ON h.shop_id = s.shop_id "
-                    "GROUP BY s.sale_date, h.city",)
+    recreate = (
+        "DROP TABLE store.refunds PURGE",
+        "CREATE TABLE store.refunds (return_id NUMBER(19) PRIMARY KEY, sale_id NUMBER(19) NOT NULL, "
+        "return_date DATE NOT NULL, amount NUMBER(18, 2) NOT NULL)",
+    )
+    replace_view = (
+        "CREATE OR REPLACE VIEW store.city_daily_sales AS "
+        "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
+        "FROM store.sales s INNER JOIN store.shops h ON h.shop_id = s.shop_id "
+        "GROUP BY s.sale_date, h.city",
+    )
     sleep_sql = "SELECT COUNT(*) FROM all_objects a, all_objects b, all_objects c"
     write_sql = "INSERT INTO store.sales VALUES (9999, DATE '2026-09-15', 1, 'paid', 1.00)"
     collector_denied = "invalid_object"

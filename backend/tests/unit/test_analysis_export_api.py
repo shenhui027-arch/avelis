@@ -39,9 +39,27 @@ from tests.unit.test_analysis_export_audience import _pdf_text
 def api():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     metadata = MetaData()
-    for model in (User, UserRole, Domain, DomainMember, Datasource, Asset, AssetColumn, CollectionRun,
-                  AssetVersion, ColumnVersion, IdentityLink, LineageEdge, Metric, MetricVersion, AnalysisTask, AnalysisRun,
-                  AnalysisStep, AnalysisDataset, AnalysisMessage):
+    for model in (
+        User,
+        UserRole,
+        Domain,
+        DomainMember,
+        Datasource,
+        Asset,
+        AssetColumn,
+        CollectionRun,
+        AssetVersion,
+        ColumnVersion,
+        IdentityLink,
+        LineageEdge,
+        Metric,
+        MetricVersion,
+        AnalysisTask,
+        AnalysisRun,
+        AnalysisStep,
+        AnalysisDataset,
+        AnalysisMessage,
+    ):
         table = model.__table__.to_metadata(metadata)
         for column in table.columns:
             if isinstance(column.type, JSONB):
@@ -51,40 +69,92 @@ def api():
     app.include_router(analysis.router)
     with Session(engine, expire_on_commit=False) as session:
         user = User(id="actor", username="actor", display_name="分析用户", password_hash="unused")
-        report = {"title": "变化分析", "summary": "本期较对比期下降。", "claims": [
-            {"type": "fact", "text": "指标存在变化。", "refs": ["D1", "D2"]}]}
-        run = AnalysisRun(id="run", user_id=user.id, question="检查指标变化", trigger="manual", status="succeeded",
-                          window={}, report=report, verification={"ok": True, "claims": [
-                              {"index": 0, "status": "verified"}]})
-        other = AnalysisRun(id="other", user_id=user.id, question="其他分析", trigger="manual", status="succeeded",
-                            window={})
-        session.add_all([
-            user, run, other,
-            Domain(id="domain", code="domain", name="可见域", owner_id=user.id),
-            Domain(id="comments", code="comments", name="注释域", owner_id=user.id),
-            DomainMember(domain_id="domain", user_id=user.id, role="viewer"),
-            Datasource(id="source", name="source", kind="fake", host="offline", port=1),
-            Asset(id="export-asset", datasource_id="source", kind="table", catalog_name="local", db_name="data",
-                  name="facts", domain_id="domain"),
-            Metric(id="export-metric", code="export_metric", name="基础指标", domain_id="domain",
-                   owner_id=user.id, created_by=user.id),
-            MetricVersion(id="export-version", metric_id="export-metric", version_no=1, status="published",
-                          base_asset_id="export-asset", description="测试口径", expression="SUM(value)",
-                          time_column="day", timezone="Asia/Shanghai", created_by=user.id),
-        ])
+        report = {
+            "title": "变化分析",
+            "summary": "本期较对比期下降。",
+            "claims": [{"type": "fact", "text": "指标存在变化。", "refs": ["D1", "D2"]}],
+        }
+        run = AnalysisRun(
+            id="run",
+            user_id=user.id,
+            question="检查指标变化",
+            trigger="manual",
+            status="succeeded",
+            window={},
+            report=report,
+            verification={"ok": True, "claims": [{"index": 0, "status": "verified"}]},
+        )
+        other = AnalysisRun(
+            id="other", user_id=user.id, question="其他分析", trigger="manual", status="succeeded", window={}
+        )
+        session.add_all(
+            [
+                user,
+                run,
+                other,
+                Domain(id="domain", code="domain", name="可见域", owner_id=user.id),
+                Domain(id="comments", code="comments", name="注释域", owner_id=user.id),
+                DomainMember(domain_id="domain", user_id=user.id, role="viewer"),
+                Datasource(id="source", name="source", kind="fake", host="offline", port=1),
+                Asset(
+                    id="export-asset",
+                    datasource_id="source",
+                    kind="table",
+                    catalog_name="local",
+                    db_name="data",
+                    name="facts",
+                    domain_id="domain",
+                ),
+                Metric(
+                    id="export-metric",
+                    code="export_metric",
+                    name="基础指标",
+                    domain_id="domain",
+                    owner_id=user.id,
+                    created_by=user.id,
+                ),
+                MetricVersion(
+                    id="export-version",
+                    metric_id="export-metric",
+                    version_no=1,
+                    status="published",
+                    base_asset_id="export-asset",
+                    description="测试口径",
+                    expression="SUM(value)",
+                    time_column="day",
+                    timezone="Asia/Shanghai",
+                    created_by=user.id,
+                ),
+            ]
+        )
         session.flush()
-        session.add_all([
-            AnalysisDataset(run_id=run.id, seq=1, kind="governed", title="分组明细", columns=["分组", "指标"],
-                            rows=[[f"类别 {i}", i * 1000] for i in range(60)],
-                            meta={"metric_version_ids": ["export-version"],
-                                  "units": {"指标": {"kind": "level", "unit": "元"}},
-                                  "intent": {"group_by": ["segment"]}}),
-            AnalysisDataset(run_id=run.id, seq=2, kind="governed", title="对照明细", columns=["分组", "指标"],
-                            rows=[["甲", 2000], ["乙", 1000]],
-                            meta={"metric_version_ids": ["export-version"],
-                                  "units": {"指标": {"kind": "level", "unit": "元"}}}),
-            AnalysisDataset(run_id=other.id, seq=99, kind="context", title="其他运行证据", columns=[], rows=[]),
-        ])
+        session.add_all(
+            [
+                AnalysisDataset(
+                    run_id=run.id,
+                    seq=1,
+                    kind="governed",
+                    title="分组明细",
+                    columns=["分组", "指标"],
+                    rows=[[f"类别 {i}", i * 1000] for i in range(60)],
+                    meta={
+                        "metric_version_ids": ["export-version"],
+                        "units": {"指标": {"kind": "level", "unit": "元"}},
+                        "intent": {"group_by": ["segment"]},
+                    },
+                ),
+                AnalysisDataset(
+                    run_id=run.id,
+                    seq=2,
+                    kind="governed",
+                    title="对照明细",
+                    columns=["分组", "指标"],
+                    rows=[["甲", 2000], ["乙", 1000]],
+                    meta={"metric_version_ids": ["export-version"], "units": {"指标": {"kind": "level", "unit": "元"}}},
+                ),
+                AnalysisDataset(run_id=other.id, seq=99, kind="context", title="其他运行证据", columns=[], rows=[]),
+            ]
+        )
         session.commit()
         app.dependency_overrides[current_user] = lambda: user
         app.dependency_overrides[get_session] = lambda: session
@@ -121,8 +191,7 @@ def test_export_pdf_passes_requested_audience_and_dataset_order(api, monkeypatch
         return b"%PDF-offline"
 
     monkeypatch.setattr(analysis.export, "to_pdf", pdf)
-    response = client.get(f"/api/analysis/runs/{run.id}/export", params={
-        "audience": "full", "datasets": "D2, D1,D2"})
+    response = client.get(f"/api/analysis/runs/{run.id}/export", params={"audience": "full", "datasets": "D2, D1,D2"})
     assert response.status_code == 200, response.text
     assert response.content == b"%PDF-offline"
     assert captured["kwargs"] == {"audience": "full", "datasets": ["D2", "D1"]}
@@ -138,8 +207,9 @@ def test_export_html_is_utf8_attachment_with_requested_dataset_order(api, monkey
         return "<!doctype html><title>分析报告</title>"
 
     monkeypatch.setattr(analysis.export, "to_html", html)
-    response = client.get(f"/api/analysis/runs/{run.id}/export", params={
-        "format": "html", "audience": "full", "datasets": "D2, D1,D2"})
+    response = client.get(
+        f"/api/analysis/runs/{run.id}/export", params={"format": "html", "audience": "full", "datasets": "D2, D1,D2"}
+    )
     assert response.status_code == 200, response.text
     assert response.text == "<!doctype html><title>分析报告</title>"
     assert response.headers["content-type"] == "text/html; charset=utf-8"
@@ -148,21 +218,35 @@ def test_export_html_is_utf8_attachment_with_requested_dataset_order(api, monkey
     assert len(captured["view"]["datasets"][0]["rows"]) == 60
 
 
-@pytest.mark.parametrize("version_meta", [
-    {"metric_version_ids": ["metric-old"], "metric_codes": ["amount"]},
-    {"versions": {"amount": "metric-old"}},
-])
+@pytest.mark.parametrize(
+    "version_meta",
+    [
+        {"metric_version_ids": ["metric-old"], "metric_codes": ["amount"]},
+        {"versions": {"amount": "metric-old"}},
+    ],
+)
 def test_export_uses_pinned_metric_dimension_labels_without_mutating_saved_meta(api, monkeypatch, version_meta):
     client, session, run = api
-    metric = Metric(id="metric", code="amount", name="指标名称", domain_id="domain",
-                    owner_id="actor", created_by="actor")
+    metric = Metric(
+        id="metric", code="amount", name="指标名称", domain_id="domain", owner_id="actor", created_by="actor"
+    )
     session.add(metric)
     for version_id, version_no, label in [("metric-old", 1, "历史分组名称"), ("metric-new", 2, "最新分组名称")]:
-        session.add(MetricVersion(id=version_id, metric_id=metric.id, version_no=version_no,
-                                  base_asset_id="export-asset",
-                                  status="published", description="测试口径", expression="SUM(b.value)",
-                                  time_column="b.day", timezone="Asia/Shanghai", created_by="actor",
-                                  dimensions=[{"name": "segment", "column": "b.segment", "label": label}]))
+        session.add(
+            MetricVersion(
+                id=version_id,
+                metric_id=metric.id,
+                version_no=version_no,
+                base_asset_id="export-asset",
+                status="published",
+                description="测试口径",
+                expression="SUM(b.value)",
+                time_column="b.day",
+                timezone="Asia/Shanghai",
+                created_by="actor",
+                dimensions=[{"name": "segment", "column": "b.segment", "label": label}],
+            )
+        )
     dataset = session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1))
     original = {**dataset.meta, **version_meta, "column_docs": {"segment": {"comment": "已有列注释"}}}
     dataset.meta = original
@@ -177,9 +261,11 @@ def test_export_uses_pinned_metric_dimension_labels_without_mutating_saved_meta(
     response = client.get(f"/api/analysis/runs/{run.id}/export", params={"format": "md"})
     assert response.status_code == 200, response.text
     labels = captured["view"]["datasets"][0]["meta"]["export_labels"]
-    assert labels == {"metric_names": ["指标名称"],
-                      "dimensions": [{"name": "segment", "column": "b.segment", "label": "历史分组名称"}],
-                      "column_docs": {"segment": {"comment": "已有列注释"}}}
+    assert labels == {
+        "metric_names": ["指标名称"],
+        "dimensions": [{"name": "segment", "column": "b.segment", "label": "历史分组名称"}],
+        "column_docs": {"segment": {"comment": "已有列注释"}},
+    }
     session.refresh(dataset)
     assert dataset.meta == original
     assert "export_labels" not in dataset.meta
@@ -188,23 +274,51 @@ def test_export_uses_pinned_metric_dimension_labels_without_mutating_saved_meta(
 @pytest.mark.parametrize("visible", [True, False])
 def test_export_column_comment_uses_pinned_asset_snapshot_and_current_visibility(api, monkeypatch, visible):
     client, session, run = api
-    session.add(Metric(id="metric", code="amount", name="指标名称", domain_id="domain",
-                       owner_id="actor", created_by="actor"))
-    session.add(Asset(id="asset", datasource_id="source", kind="table", catalog_name="c", db_name="d",
-                      name="facts", domain_id="comments", current_version_id="asset-new"))
+    session.add(
+        Metric(id="metric", code="amount", name="指标名称", domain_id="domain", owner_id="actor", created_by="actor")
+    )
+    session.add(
+        Asset(
+            id="asset",
+            datasource_id="source",
+            kind="table",
+            catalog_name="c",
+            db_name="d",
+            name="facts",
+            domain_id="comments",
+            current_version_id="asset-new",
+        )
+    )
     if visible:
         session.add(DomainMember(domain_id="comments", user_id="actor", role="viewer"))
-    session.add(MetricVersion(id="metric-old", metric_id="metric", version_no=1, status="published",
-                              base_asset_id="export-asset",
-                              description="测试口径", expression="SUM(b.value)", time_column="b.day",
-                              timezone="Asia/Shanghai", created_by="actor",
-                              dimensions=[{"name": "segment", "column": "b.segment"}],
-                              dependency=[{"alias": "b", "asset_id": "asset", "column": "segment",
-                                           "role": "dimension"}],
-                              asset_versions={"asset": {"version_id": "asset-old"}}))
+    session.add(
+        MetricVersion(
+            id="metric-old",
+            metric_id="metric",
+            version_no=1,
+            status="published",
+            base_asset_id="export-asset",
+            description="测试口径",
+            expression="SUM(b.value)",
+            time_column="b.day",
+            timezone="Asia/Shanghai",
+            created_by="actor",
+            dimensions=[{"name": "segment", "column": "b.segment"}],
+            dependency=[{"alias": "b", "asset_id": "asset", "column": "segment", "role": "dimension"}],
+            asset_versions={"asset": {"version_id": "asset-old"}},
+        )
+    )
     for snapshot, comment in [("asset-old", "历史列注释"), ("asset-new", "最新列注释")]:
-        session.add(ColumnVersion(asset_version_id=snapshot, column_id="column", ordinal=1,
-                                  name="segment", data_type="VARCHAR", comment=comment))
+        session.add(
+            ColumnVersion(
+                asset_version_id=snapshot,
+                column_id="column",
+                ordinal=1,
+                name="segment",
+                data_type="VARCHAR",
+                comment=comment,
+            )
+        )
     dataset = session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1))
     dataset.meta = {**dataset.meta, "versions": {"amount": "metric-old"}}
     session.commit()
@@ -222,15 +336,18 @@ def test_export_column_comment_uses_pinned_asset_snapshot_and_current_visibility
 
 
 @pytest.mark.parametrize("format", ["md", "pdf", "html"])
-@pytest.mark.parametrize(("params", "audience"), [
-    ({}, "brief"),
-    ({"audience": "brief"}, "brief"),
-    ({"audience": "full"}, "full"),
-    ({"appendix": "false"}, "brief"),
-    ({"appendix": "true"}, "full"),
-    ({"audience": "brief", "appendix": "true"}, "brief"),
-    ({"audience": "full", "appendix": "false"}, "full"),
-])
+@pytest.mark.parametrize(
+    ("params", "audience"),
+    [
+        ({}, "brief"),
+        ({"audience": "brief"}, "brief"),
+        ({"audience": "full"}, "full"),
+        ({"appendix": "false"}, "brief"),
+        ({"appendix": "true"}, "full"),
+        ({"audience": "brief", "appendix": "true"}, "brief"),
+        ({"audience": "full", "appendix": "false"}, "full"),
+    ],
+)
 def test_export_resolves_audience_and_legacy_appendix(api, monkeypatch, format, params, audience):
     client, _, run = api
     captured = {}
@@ -280,26 +397,64 @@ def test_export_markdown_selection_and_optional_appendix(api):
 def test_export_does_not_restore_revoked_dataset_rows_sql_or_metadata(api, monkeypatch, format, audience):
     client, session, run = api
     user = session.get(User, "actor")
-    restricted = session.scalar(select(AnalysisDataset).where(
-        AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1))
-    source = Asset(id="private-asset", datasource_id="source", kind="table", catalog_name="local", db_name="data",
-                   name="private_facts", domain_id="domain")
-    session.add_all([
-        source,
-        Domain(id="revoked", code="revoked", name="其他域", owner_id=user.id),
-        Metric(id="private-metric", code="private_metric", name="受限指标", domain_id="domain",
-               owner_id=user.id, created_by=user.id),
-        MetricVersion(id="private-version", metric_id="private-metric", version_no=1, status="published",
-                      base_asset_id=source.id, description="受限口径", expression="SUM(restricted_value)",
-                      time_column="day", timezone="Asia/Shanghai", created_by=user.id),
-    ])
+    restricted = session.scalar(
+        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id, AnalysisDataset.seq == 1)
+    )
+    source = Asset(
+        id="private-asset",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="private_facts",
+        domain_id="domain",
+    )
+    session.add_all(
+        [
+            source,
+            Domain(id="revoked", code="revoked", name="其他域", owner_id=user.id),
+            Metric(
+                id="private-metric",
+                code="private_metric",
+                name="受限指标",
+                domain_id="domain",
+                owner_id=user.id,
+                created_by=user.id,
+            ),
+            MetricVersion(
+                id="private-version",
+                metric_id="private-metric",
+                version_no=1,
+                status="published",
+                base_asset_id=source.id,
+                description="受限口径",
+                expression="SUM(restricted_value)",
+                time_column="day",
+                timezone="Asia/Shanghai",
+                created_by=user.id,
+            ),
+        ]
+    )
     restricted.rows = [["受限成员甲", 7654321], ["受限成员乙", 8765432]]
     private_sql = "SELECT restricted_value FROM local.data.private_facts"
-    restricted.meta = {**restricted.meta, "metric_version_ids": ["private-version"], "sql": private_sql,
-                       "private_marker": "restricted-metadata-marker"}
-    session.add(AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="ok",
-                             dataset_id=restricted.id, args={"sql": private_sql},
-                             output={"rows": restricted.rows, "sql": private_sql}))
+    restricted.meta = {
+        **restricted.meta,
+        "metric_version_ids": ["private-version"],
+        "sql": private_sql,
+        "private_marker": "restricted-metadata-marker",
+    }
+    session.add(
+        AnalysisStep(
+            run_id=run.id,
+            seq=1,
+            kind="tool",
+            tool="query_metric",
+            status="ok",
+            dataset_id=restricted.id,
+            args={"sql": private_sql},
+            output={"rows": restricted.rows, "sql": private_sql},
+        )
+    )
     session.commit()
     assert analysis.analysis.run_view(session, run, user=user)["datasets"][0]["rows"] == restricted.rows
 
@@ -325,9 +480,12 @@ def test_export_does_not_restore_revoked_dataset_rows_sql_or_metadata(api, monke
     monkeypatch.setattr(analysis, "_export_metadata", enrich)
     monkeypatch.setattr(analysis.export, renderer_name, render)
     if format == "pdf":
-        monkeypatch.setattr(SimpleDocTemplate, "build", lambda self, flowables, *args, **kwargs: story.extend(flowables))
-    response = client.get(f"/api/analysis/runs/{run.id}/export", params={
-        "format": format, "audience": audience, "datasets": "D1,D2"})
+        monkeypatch.setattr(
+            SimpleDocTemplate, "build", lambda self, flowables, *args, **kwargs: story.extend(flowables)
+        )
+    response = client.get(
+        f"/api/analysis/runs/{run.id}/export", params={"format": format, "audience": audience, "datasets": "D1,D2"}
+    )
     assert response.status_code == 200, response.text
     assert len(metadata_calls) == 1
     assert metadata_calls[0]["metric_version_ids"] == ["export-version"]
@@ -336,8 +494,16 @@ def test_export_does_not_restore_revoked_dataset_rows_sql_or_metadata(api, monke
     assert "meta" not in hidden
     assert readable["rows"] == [["甲", 2000], ["乙", 1000]]
     text = _pdf_text(story) if format == "pdf" else response.text
-    for secret in ("受限成员甲", "受限成员乙", "7654321", "7,654,321", "8765432", "8,765,432",
-                   private_sql, "restricted-metadata-marker"):
+    for secret in (
+        "受限成员甲",
+        "受限成员乙",
+        "7654321",
+        "7,654,321",
+        "8765432",
+        "8,765,432",
+        private_sql,
+        "restricted-metadata-marker",
+    ):
         assert secret not in text
     assert "甲" in text
     if audience == "full":

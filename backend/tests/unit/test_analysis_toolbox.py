@@ -87,8 +87,12 @@ def governed_meta(box, name, *, intent=None, version=None):
     if not getattr(version, "id", None):
         version.id = f"fixture-{code}-v1"
     box.session.store[(MetricVersion, version.id)] = version
-    return {"intent": {"metric_codes": [code], "compare": "custom", **(intent or {})},
-            "versions": {code: version.id}, "metric_codes": [code], "time_column": None}
+    return {
+        "intent": {"metric_codes": [code], "compare": "custom", **(intent or {})},
+        "versions": {code: version.id},
+        "metric_codes": [code],
+        "time_column": None,
+    }
 
 
 def governed(box, columns, rows, *, intent=None, truncated=False):
@@ -98,6 +102,7 @@ def governed(box, columns, rows, *, intent=None, truncated=False):
 
 # --- #10 统一分发计数与截止时间 ---------------------------------------------------------
 
+
 def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
     box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)  # 最后 2 次留给 submit_report：其余工具 3 次
     assert "未知工具" in box.dispatch("no_such_tool", {})
@@ -106,7 +111,11 @@ def test_dispatch_counts_every_attempt_before_validation(monkeypatch):
     assert box.budget.used_tools == 3
     over = json.loads(box.dispatch("search_metrics", {}))  # 重复调用也计数
     assert "上限" in over["error"] and "留给 submit_report" in over["error"] and box.budget.used_tools == 3
-    report = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}))
+    report = json.loads(
+        box.dispatch(
+            "submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
+        )
+    )
     assert report == {"ok": True} and box.report is not None  # 预留的次数里仍可提交
 
 
@@ -119,29 +128,47 @@ def test_report_reserve_allows_one_resubmission_after_a_parse_error(monkeypatch)
         assert "上限" in json.loads(box.dispatch("search_metrics", {}))["error"]
     first = json.loads(box.dispatch("submit_report", "报告如下：标题 t"))  # 不是 JSON：修不了
     assert "参数无法解析" in first["error"] and "还可以重交一次" in first["error"]
-    broken = ('{"title": 标题, "summary": "s", "conclusion": "insufficient_evidence", '
-              '"claims": [{"type": "inference", "parts": ["x"] "premise": "p"}]}')  # 字符串没加引号、少了逗号
+    broken = (
+        '{"title": 标题, "summary": "s", "conclusion": "insufficient_evidence", '
+        '"claims": [{"type": "inference", "parts": ["x"] "premise": "p"}]}'
+    )  # 字符串没加引号、少了逗号
     second = json.loads(box.dispatch("submit_report", broken))
     assert second == {"ok": True} and box.report["title"] == "标题"
     step = box.session.added[-1]
     assert step.tool == "submit_report" and step.output["repaired"] is True and step.output["raw_excerpt"] == broken
-    third = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
-                                                      "conclusion": "insufficient_evidence"}))
+    third = json.loads(
+        box.dispatch(
+            "submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
+        )
+    )
     assert "不能再提交" in third["error"]
     # 修订是新的一轮：核验没过进入修订后，submit_report 的预留次数重新计算（最终评测里修订后的报告曾被拒）
     box.verification = {"claims": [], "fields": [], "causes": [], "conclusion": {"problems": ["x"]}}
     box.report = {"claims": []}
     agent.revise({}, {"configurable": {"toolbox": box, "model": None}})
-    revised = json.loads(box.dispatch("submit_report", {"title": "t", "summary": "s", "claims": [],
-                                                        "conclusion": "insufficient_evidence"}))
+    revised = json.loads(
+        box.dispatch(
+            "submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
+        )
+    )
     assert revised == {"ok": True} and box.budget.used_reports == 1
 
 
 def test_invalid_tool_calls_are_counted_and_answered(monkeypatch):
     box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)
-    reply = AIMessage(content="", tool_calls=[], invalid_tool_calls=[
-        {"name": "query_metric", "args": "{bad json", "id": "call_1", "error": "Expecting value",
-         "type": "invalid_tool_call"}])
+    reply = AIMessage(
+        content="",
+        tool_calls=[],
+        invalid_tool_calls=[
+            {
+                "name": "query_metric",
+                "args": "{bad json",
+                "id": "call_1",
+                "error": "Expecting value",
+                "type": "invalid_tool_call",
+            }
+        ],
+    )
 
     class Model:
         def bind_tools(self, tools):
@@ -209,16 +236,28 @@ class ScriptedModel:
         self.calls += 1
         name, args = self.script.pop(0)
         if isinstance(args, str):  # 参数无法解析：LangChain 放在 invalid_tool_calls
-            return AIMessage(content="", tool_calls=[], invalid_tool_calls=[
-                {"name": name, "args": args, "id": f"c{self.calls}", "error": "Expecting value", "type": "invalid_tool_call"}])
+            return AIMessage(
+                content="",
+                tool_calls=[],
+                invalid_tool_calls=[
+                    {
+                        "name": name,
+                        "args": args,
+                        "id": f"c{self.calls}",
+                        "error": "Expecting value",
+                        "type": "invalid_tool_call",
+                    }
+                ],
+            )
         return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": f"c{self.calls}"}])
 
 
 def governed_catalog(monkeypatch):
     """一个已发布口径 m_a 与替身查询管线：记录真正执行的查询次数。"""
     metric = SimpleNamespace(id="m1", code="m_a", name="指标甲", domain_id="dA")
-    version = SimpleNamespace(id="v1", kind="base", expression="SUM(amount)", unit="元", unit_scale=1, dimensions=[],
-                              components=None)
+    version = SimpleNamespace(
+        id="v1", kind="base", expression="SUM(amount)", unit="元", unit_scale=1, dimensions=[], components=None
+    )
     executed = []
 
     def start_answer(session, user, question, adapter, cache):
@@ -236,8 +275,13 @@ def governed_catalog(monkeypatch):
     return ask_service.Catalog([], {"m_a": (metric, version)}), executed
 
 
-QUERY = {"metric_codes": ["m_a"], "start_date": "2026-09-01", "end_date": "2026-09-30", "group_by": ["地区"],
-         "purpose": "按地区"}
+QUERY = {
+    "metric_codes": ["m_a"],
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "group_by": ["地区"],
+    "purpose": "按地区",
+}
 
 
 def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatch):
@@ -259,6 +303,7 @@ def test_identical_governed_query_reuses_the_dataset_without_charging(monkeypatc
 
     def revoked(code):  # 复用前撤权：来源闭包核对失败，不再交付已有数据集
         box._deny("没有权限读取指标的来源", metric_code=code)
+
     monkeypatch.setattr(box, "_metric_sources", revoked)
     denied = json.loads(box.dispatch("query_metric", QUERY))
     assert denied["status"] == "denied" and "dataset" not in denied and len(executed) == 2
@@ -268,10 +313,20 @@ def test_view_dataset_pages_saved_rows_and_records_without_query_budget(monkeypa
     box = make_box(budget=Budget(queries=0), monkeypatch=monkeypatch)
     rows = [[f"成员{i}", i] for i in range(65)]
     summary = {"total": "2080"}
-    box._dataset("explore", "已有数据", ["member", "value"], rows, truncated=True,
-                 meta={"summary": summary, "units": {"value": {"kind": "count", "unit": "个"}},
-                       "summary_units": {"total": {"kind": "count", "unit": "个"}},
-                       "assumption": True, "partial": True})
+    box._dataset(
+        "explore",
+        "已有数据",
+        ["member", "value"],
+        rows,
+        truncated=True,
+        meta={
+            "summary": summary,
+            "units": {"value": {"kind": "count", "unit": "个"}},
+            "summary_units": {"total": {"kind": "count", "unit": "个"}},
+            "assumption": True,
+            "partial": True,
+        },
+    )
 
     def no_query(*args, **kwargs):
         pytest.fail("回看数据集不得重新执行查询")
@@ -302,9 +357,16 @@ def test_view_dataset_pages_saved_rows_and_records_without_query_budget(monkeypa
     assert context["datasets"][0]["summary"] == summary and context["datasets"][0]["rows"] == rows[:5]
 
 
-@pytest.mark.parametrize("args", [{"ref": "D2"}, {"ref": "other-run:D1"},
-                                  {"ref": "D1", "offset": -1}, {"ref": "D1", "limit": 0},
-                                  {"ref": "D1", "limit": 61}])
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"ref": "D2"},
+        {"ref": "other-run:D1"},
+        {"ref": "D1", "offset": -1},
+        {"ref": "D1", "limit": 0},
+        {"ref": "D1", "limit": 61},
+    ],
+)
 def test_view_dataset_rejects_unknown_refs_and_invalid_pages(monkeypatch, args):
     box = make_box(budget=Budget(queries=0), monkeypatch=monkeypatch)
     governed(box, ["value"], [[1]])
@@ -321,17 +383,27 @@ def test_query_quota_only_stops_query_tools(monkeypatch):
     box = make_box(budget=Budget(queries=1), catalog=catalog, monkeypatch=monkeypatch)
     box.budget.used_queries = 1
     rows = [["甲", 10, 8], ["乙", 5, 6]]
-    box._dataset("governed", "测试", ["地区", "指标甲", "指标甲·上一期"], rows,
-                 meta=governed_meta(box, "指标甲", intent={"compare": "previous_period"}))
+    box._dataset(
+        "governed",
+        "测试",
+        ["地区", "指标甲", "指标甲·上一期"],
+        rows,
+        meta=governed_meta(box, "指标甲", intent={"compare": "previous_period"}),
+    )
     broken = '{"title": 标题, "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}'  # 修复后可用
-    model = ScriptedModel([
-        ("query_metric", QUERY),
-        ("contribution", {"dataset": "D1", "keys": ["地区"], "current": "指标甲", "previous": "指标甲·上一期"}),
-        ("submit_report", broken)])
+    model = ScriptedModel(
+        [
+            ("query_metric", QUERY),
+            ("contribution", {"dataset": "D1", "keys": ["地区"], "current": "指标甲", "previous": "指标甲·上一期"}),
+            ("submit_report", broken),
+        ]
+    )
     config = {"configurable": {"toolbox": box, "model": model}}
     out = agent.act({"messages": [HumanMessage("问题")]}, config)
     tool_replies = [json.loads(m.content) for m in out["messages"] if type(m).__name__ == "ToolMessage"]
-    assert "查询额度已用完" in tool_replies[0]["error"] and "计算工具与 submit_report 仍可用" in tool_replies[0]["error"]
+    assert (
+        "查询额度已用完" in tool_replies[0]["error"] and "计算工具与 submit_report 仍可用" in tool_replies[0]["error"]
+    )
     assert tool_replies[1]["dataset"] == "D2"  # 计算工具照常执行
     assert tool_replies[2] == {"ok": True} and box.report is not None and model.calls == 3 and executed == []
     notices = [m.content for m in out["messages"] if isinstance(m, HumanMessage)]
@@ -346,7 +418,9 @@ def test_model_request_timeout_follows_remaining_time(monkeypatch):
 
         def factory(self, timeout, max_retries, max_tokens=None):
             seen.append((timeout, max_retries))
-            return CountingModel("submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"})
+            return CountingModel(
+                "submit_report", {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
+            )
 
     budget = Budget(seconds=300)
     budget.started -= 280  # 只剩约 20 秒
@@ -357,25 +431,41 @@ def test_model_request_timeout_follows_remaining_time(monkeypatch):
 
 # --- #8 截断 ----------------------------------------------------------------------------
 
+
 def test_truncated_input_is_reported_and_rejected_by_full_set_calcs(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     ds = governed(box, ["store", "门店成交额", "门店成交额·上一期"], [["A", 10, 8], ["B", 5, 6]], truncated=True)
     view = box._view("D1", ds)
     assert view["truncated"] and "不是全集" in view["note"]
-    for name, args in (("contribution", {"dataset": "D1", "keys": ["store"], "current": "门店成交额",
-                                         "previous": "门店成交额·上一期"}),
-                       ("coverage", {"dataset": "D1", "keys": ["store"]}),
-                       ("describe", {"dataset": "D1", "column": "门店成交额"}),
-                       ("correlate", {"dataset": "D1", "x": "门店成交额", "y": "门店成交额·上一期"}),
-                       ("segment_compare", {"dataset": "D1", "segment": "store", "measures": ["门店成交额"]}),
-                       ("outliers", {"dataset": "D1", "value": "门店成交额", "keys": ["store"]})):
+    for name, args in (
+        (
+            "contribution",
+            {"dataset": "D1", "keys": ["store"], "current": "门店成交额", "previous": "门店成交额·上一期"},
+        ),
+        ("coverage", {"dataset": "D1", "keys": ["store"]}),
+        ("describe", {"dataset": "D1", "column": "门店成交额"}),
+        ("correlate", {"dataset": "D1", "x": "门店成交额", "y": "门店成交额·上一期"}),
+        ("segment_compare", {"dataset": "D1", "segment": "store", "measures": ["门店成交额"]}),
+        ("outliers", {"dataset": "D1", "value": "门店成交额", "keys": ["store"]}),
+    ):
         assert "截断" in json.loads(box.dispatch(name, args))["error"], name
-    total = box.dispatch("derive", {"label": "合计", "formula": "a", "values": [
-        {"name": "a", "dataset": "D1", "column": "门店成交额"}]})
+    total = box.dispatch(
+        "derive", {"label": "合计", "formula": "a", "values": [{"name": "a", "dataset": "D1", "column": "门店成交额"}]}
+    )
     assert "截断" in json.loads(total)["error"]  # 截断的数据集不能求和
-    one = json.loads(box.dispatch("derive", {"label": "A 的变化", "formula": "a - b", "values": [
-        {"name": "a", "dataset": "D1", "column": "门店成交额", "match": {"store": "A"}},
-        {"name": "b", "dataset": "D1", "column": "门店成交额·上一期", "match": {"store": "A"}}]}))
+    one = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "A 的变化",
+                "formula": "a - b",
+                "values": [
+                    {"name": "a", "dataset": "D1", "column": "门店成交额", "match": {"store": "A"}},
+                    {"name": "b", "dataset": "D1", "column": "门店成交额·上一期", "match": {"store": "A"}},
+                ],
+            },
+        )
+    )
     assert one["summary"]["value"] == "2.0000" and one["truncated"]  # 单行计算可以做，截断标记沿依赖传下去
     assert box.datasets()["D2"].truncated
 
@@ -386,45 +476,83 @@ def test_truncated_dataset_count_ref_is_rejected():
 
     rows = [{"store": s} for s in ("A", "B", "C")]
     claim = {"type": "fact", "parts": ["共 ", {"dataset": "D1", "distinct": "store"}, " 家门店"]}
-    full, ok = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]}, {"D1": {"rows": rows}}, None)
-    cut, bad = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]},
-                             {"D1": {"rows": rows, "truncated": True}}, None)
+    full, ok = ground_report(
+        {"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]},
+        {"D1": {"rows": rows}},
+        None,
+    )
+    cut, bad = ground_report(
+        {"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": [claim]},
+        {"D1": {"rows": rows, "truncated": True}},
+        None,
+    )
     assert ok["ok"] and full["claims"][0]["text"] == "共 3 家门店"
     assert not bad["ok"] and "已截断" in bad["claims"][0]["problems"][0] and cut["claims"][0]["text"] == "共 [?] 家门店"
 
 
 # --- #9 日历折算的期间来自查询 -------------------------------------------------------------
 
+
 def test_calendar_adjust_uses_dataset_query_window(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    governed(box, ["成交额", "成交额·对比期"], [[3000, 3100]],
-             intent={"start_date": "2026-09-01", "end_date": "2026-09-30", "compare": "custom",
-                     "compare_start": "2026-08-01", "compare_end": "2026-08-31"})
+    governed(
+        box,
+        ["成交额", "成交额·对比期"],
+        [[3000, 3100]],
+        intent={
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30",
+            "compare": "custom",
+            "compare_start": "2026-08-01",
+            "compare_end": "2026-08-31",
+        },
+    )
     # 模型额外传入的日期被忽略：本期仍是 9 月 30 天，不会算出“本期 1 天、日均 3000”
-    out = json.loads(box.dispatch("calendar_adjust", {
-        "dataset": "D1", "current": "成交额", "previous": "成交额·对比期",
-        "current_period": ["2026-09-01", "2026-09-01"], "previous_period": ["2026-08-01", "2026-08-31"]}))
+    out = json.loads(
+        box.dispatch(
+            "calendar_adjust",
+            {
+                "dataset": "D1",
+                "current": "成交额",
+                "previous": "成交额·对比期",
+                "current_period": ["2026-09-01", "2026-09-01"],
+                "previous_period": ["2026-08-01", "2026-08-31"],
+            },
+        )
+    )
     rows = {r[0]: dict(zip(out["columns"], r)) for r in out["rows"]}
     assert rows["本期"]["days"] == 30 and rows["本期"]["daily"] == "100.0000" and rows["上期"]["days"] == 31
-    wrong = json.loads(box.dispatch("calendar_adjust", {"dataset": "D1", "current": "成交额·对比期",
-                                                        "previous": "成交额"}))
+    wrong = json.loads(
+        box.dispatch("calendar_adjust", {"dataset": "D1", "current": "成交额·对比期", "previous": "成交额"})
+    )
     assert "不是该数据集的本期值" in wrong["error"]
-    calc_only = json.loads(box.dispatch("calendar_adjust", {"dataset": "D2", "current": "days",
-                                                            "previous": "daily"}))
+    calc_only = json.loads(box.dispatch("calendar_adjust", {"dataset": "D2", "current": "days", "previous": "daily"}))
     assert "只能用于" in calc_only["error"]  # 计算产出的数据集没有可追溯的期间
-    governed(box, ["成交额", "成交额·上一期"], [[3000, 3000]],
-             intent={"start_date": "2026-09-01", "end_date": "2026-09-30", "compare": "previous_period"})
-    prev = json.loads(box.dispatch("calendar_adjust", {"dataset": "D3", "current": "成交额",
-                                                       "previous": "成交额·上一期"}))
+    governed(
+        box,
+        ["成交额", "成交额·上一期"],
+        [[3000, 3000]],
+        intent={"start_date": "2026-09-01", "end_date": "2026-09-30", "compare": "previous_period"},
+    )
+    prev = json.loads(
+        box.dispatch("calendar_adjust", {"dataset": "D3", "current": "成交额", "previous": "成交额·上一期"})
+    )
     assert {r[0]: r[1] for r in prev["rows"]} == {"本期": 30, "上期": 30}  # 上一期：8 月 2 日至 31 日
 
 
 # --- #2 data_health 与 #19 changes 的授权与范围 ---------------------------------------------
 
+
 def _derived_catalog():
     d_metric = SimpleNamespace(id="mD", code="ec_d", name="派生", domain_id="dA")
-    d_version = SimpleNamespace(id="vD", version_no=1, kind="derived", status="published", base_asset_id=None, components=[
-        {"metric_id": "mB", "version_id": "vB", "metric_name": "组成 B"}])
+    d_version = SimpleNamespace(
+        id="vD",
+        version_no=1,
+        kind="derived",
+        status="published",
+        base_asset_id=None,
+        components=[{"metric_id": "mB", "version_id": "vB", "metric_name": "组成 B"}],
+    )
     return ask_service.Catalog([], {"ec_d": (d_metric, d_version)})
 
 
@@ -460,8 +588,14 @@ def test_data_health_checks_component_domain_and_source_closure(monkeypatch):
     assert "secret" not in json.dumps(out, ensure_ascii=False)  # 不返回数据源的原始错误
     # 上下文证据数据集（ADR 0009 第 3 点）：有 D 编号、固定结构，注明截取范围，也不含原始错误
     ds = box.datasets()[out["dataset"]]
-    assert ds.kind == "context" and ds.columns == ["base_asset", "metric_status", "drift", "last_collected_at",
-                                                   "collection_status", "collection_started_at"]
+    assert ds.kind == "context" and ds.columns == [
+        "base_asset",
+        "metric_status",
+        "drift",
+        "last_collected_at",
+        "collection_status",
+        "collection_started_at",
+    ]
     assert ds.rows[0][4:] == ["failed", "2026-09-01T00:00:00"] and "最近 5 次采集" in ds.meta["scope"]
     assert ds.meta["asset_ids"] == ["a1", "a2"] and ds.meta["metric_version_ids"] == ["vB", "vD"]
     assert "secret" not in json.dumps(ds.rows, ensure_ascii=False)
@@ -471,18 +605,28 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     from avelis.api import governance
 
     metric = SimpleNamespace(id="mS", code="sales", name="销售", domain_id="dA")
-    version = SimpleNamespace(id="vS", version_no=1, kind="base", status="published", base_asset_id="a1", components=None)
+    version = SimpleNamespace(
+        id="vS", version_no=1, kind="base", status="published", base_asset_id="a1", components=None
+    )
     catalog = ask_service.Catalog([], {"sales": (metric, version)})
     box = make_box(catalog=catalog, scalars=[SimpleNamespace(id="cs1")], monkeypatch=monkeypatch)
     monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: {"dA"})
-    monkeypatch.setattr(tools.service, "version_sources",
-                        lambda s, v: {"a1": SimpleNamespace(id="a1"), "a0": SimpleNamespace(id="a0")})
+    monkeypatch.setattr(
+        tools.service, "version_sources", lambda s, v: {"a1": SimpleNamespace(id="a1"), "a0": SimpleNamespace(id="a0")}
+    )
     monkeypatch.setattr(tools.access, "can_read_asset", lambda s, u, a, allowed=None: True)
-    monkeypatch.setattr(governance, "change_set_view", lambda s, cs, full, user: {
-        "created_at": "2026-09-02T00:00:00", "events": [
-            {"kind": "column_added", "asset_id": "a0", "asset": "c.d.sales_src", "column": "x"},
-            {"kind": "column_added", "asset_id": "ad", "asset": "c.d.ad_spend", "column": "y"}],
-        "impacts": [{"object_id": "vS"}, {"object_id": "ad"}]})
+    monkeypatch.setattr(
+        governance,
+        "change_set_view",
+        lambda s, cs, full, user: {
+            "created_at": "2026-09-02T00:00:00",
+            "events": [
+                {"kind": "column_added", "asset_id": "a0", "asset": "c.d.sales_src", "column": "x"},
+                {"kind": "column_added", "asset_id": "ad", "asset": "c.d.ad_spend", "column": "y"},
+            ],
+            "impacts": [{"object_id": "vS"}, {"object_id": "ad"}],
+        },
+    )
     args = {"start_date": "2026-09-01", "end_date": "2026-09-30"}
     scoped = json.loads(box.dispatch("changes", {**args, "metric_code": "sales"}))
     assert [e["asset"] for e in scoped["change_sets"][0]["events"]] == ["c.d.sales_src"]
@@ -491,7 +635,15 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
     assert len(everything["change_sets"][0]["events"]) == 2
     # 上下文证据数据集：固定结构的事件行、固定排序（时间、类型、对象、项目），注明截取范围；只含当前范围内的事件
     scoped_ds, all_ds = box.datasets()[scoped["dataset"]], box.datasets()[everything["dataset"]]
-    assert scoped_ds.kind == "context" and scoped_ds.columns == ["type", "at", "object", "item", "change", "impacts", "note"]
+    assert scoped_ds.kind == "context" and scoped_ds.columns == [
+        "type",
+        "at",
+        "object",
+        "item",
+        "change",
+        "impacts",
+        "note",
+    ]
     assert scoped_ds.rows == [["元数据变更", "2026-09-02T00:00:00", "c.d.sales_src", "x", "column_added", 1, None]]
     assert [r[2] for r in all_ds.rows] == ["c.d.ad_spend", "c.d.sales_src"] and "最多 30 个事件" in all_ds.meta["scope"]
     assert scoped_ds.meta["units"] == {"impacts": {"kind": "count"}}
@@ -501,34 +653,65 @@ def test_changes_with_metric_only_returns_its_sources(monkeypatch):
 
 # --- #16 引用编号 ------------------------------------------------------------------------
 
+
 def test_report_refs_must_be_dataset_numbers(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    out = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
-                                         "claims": [{"type": "fact", "parts": ["x"], "refs": ["<b>"]}]})
+    out = box.dispatch(
+        "submit_report",
+        {
+            "title": "t",
+            "summary": "s",
+            "conclusion": "insufficient_evidence",
+            "claims": [{"type": "fact", "parts": ["x"], "refs": ["<b>"]}],
+        },
+    )
     assert "参数结构不对：claims.0.refs.0" in out and box.report is None
-    ok = box.dispatch("submit_report", {"title": "t", "summary": "s", "conclusion": "insufficient_evidence",
-                                        "claims": [{"type": "fact", "parts": ["x"], "refs": ["D12"]}]})
+    ok = box.dispatch(
+        "submit_report",
+        {
+            "title": "t",
+            "summary": "s",
+            "conclusion": "insufficient_evidence",
+            "claims": [{"type": "fact", "parts": ["x"], "refs": ["D12"]}],
+        },
+    )
     assert json.loads(ok) == {"ok": True}
 
 
 def test_exports_escape_refs_and_neutralise_formulas():
-    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [],
-            "report": {"title": "t", "summary": "s", "claims": [
-                {"type": "fact", "text": "a", "refs": ["<link href='x'>", "D1"]}]},
-            "verification": {"ok": False, "unverified": 1, "claims": [{"index": 0, "status": "unverified",
-                                                                         "problems": ["文字片段里出现数字“7”"]}],
-                             "fields": [{"field": "summary", "status": "unverified",
-                                         "problems": ["文字片段里出现数字“999”"]}], "unverified_fields": 1}}
+    view = {
+        "id": "r",
+        "question": "q",
+        "status": "succeeded",
+        "datasets": [],
+        "steps": [],
+        "report": {
+            "title": "t",
+            "summary": "s",
+            "claims": [{"type": "fact", "text": "a", "refs": ["<link href='x'>", "D1"]}],
+        },
+        "verification": {
+            "ok": False,
+            "unverified": 1,
+            "claims": [{"index": 0, "status": "unverified", "problems": ["文字片段里出现数字“7”"]}],
+            "fields": [{"field": "summary", "status": "unverified", "problems": ["文字片段里出现数字“999”"]}],
+            "unverified_fields": 1,
+        },
+    }
     md = export.to_markdown(view, audience="full")
     assert "<link" not in md and "D1（另有 1 个无效引用）" in md and "摘要：文字片段里出现数字“999”" in md
     assert "a" in md and "文字片段里出现数字“7”" in md and "⚠" in md
     assert export.to_pdf(view, audience="full").startswith(b"%PDF")  # 畸形标签不会让 PDF 解析失败
-    csv = export.to_csv(["=cmd", "值"], [["=HYPERLINK(\"http://x\")", -5], ["@SUM(A1)", "-12.5"],
-                                        ["\tx", None], ["+1", 3]]).decode("utf-8-sig").splitlines()
-    assert csv == ["'=cmd,值", "\"'=HYPERLINK(\"\"http://x\"\")\",-5", "'@SUM(A1),-12.5", "'\tx,", "+1,3"]
+    csv = (
+        export.to_csv(["=cmd", "值"], [['=HYPERLINK("http://x")', -5], ["@SUM(A1)", "-12.5"], ["\tx", None], ["+1", 3]])
+        .decode("utf-8-sig")
+        .splitlines()
+    )
+    assert csv == ["'=cmd,值", '"\'=HYPERLINK(""http://x"")",-5', "'@SUM(A1),-12.5", "'\tx,", "+1,3"]
 
 
 # --- #18 cron ----------------------------------------------------------------------------
+
 
 def test_cron_leap_day_is_valid_and_impossible_date_is_rejected():
     from avelis.analysis import service
@@ -544,6 +727,7 @@ def test_cron_leap_day_is_valid_and_impossible_date_is_rejected():
 
 
 # --- 复核补充 --------------------------------------------------------------------------
+
 
 def test_authorization_expires_loaded_objects_and_skips_full_catalog(monkeypatch):
     """纯计算工具只核对账号与角色，不建全量口径目录；授权前让会话里的口径对象过期（复核：N+1 与旧状态）。"""
@@ -577,13 +761,21 @@ def test_lmdi_treats_only_computation_precision_as_rounding():
 
     out = calc.factor_decompose(("1000", "1000.02"), {"订单数": (1000, 1000), "客单价": (1, 1)})
     assert {f["factor"]: f["contribution"] for f in out["factors"]} == {
-        "订单数": Decimal("0.00"), "客单价": Decimal("0.00"), "未解释差额": Decimal("0.02")}
+        "订单数": Decimal("0.00"),
+        "客单价": Decimal("0.00"),
+        "未解释差额": Decimal("0.02"),
+    }
     # 大基数：两个因子都不变，总量多出 100（第三轮 P3：曾因相对 1e-9 的阈值约为 1000 而整体分给最后一个因子）
     big = calc.factor_decompose(("1000000000000", "1000000000100"), {"a": (1000000000000, 1000000000000), "b": (1, 1)})
     assert {f["factor"]: f["contribution"] for f in big["factors"]} == {
-        "a": Decimal("0.00"), "b": Decimal("0.00"), "未解释差额": Decimal("100.00")}
+        "a": Decimal("0.00"),
+        "b": Decimal("0.00"),
+        "未解释差额": Decimal("100.00"),
+    }
     exact = calc.factor_decompose(("5000", "4400"), {"订单数": (100, 80), "客单价": (50, 55)})
-    assert exact["unexplained"] == 0 and abs(sum(f["contribution"] for f in exact["factors"]) - Decimal(-600)) < Decimal("1e-10")
+    assert exact["unexplained"] == 0 and abs(
+        sum(f["contribution"] for f in exact["factors"]) - Decimal(-600)
+    ) < Decimal("1e-10")
 
 
 def test_pdf_chart_uses_saved_time_column():
@@ -597,6 +789,7 @@ def test_pdf_chart_uses_saved_time_column():
 
 
 # --- 第三轮复核 -------------------------------------------------------------------------
+
 
 class DocSession:
     """column_doc 用到的几类查询的内存替身：按查询的实体与条件返回。"""
@@ -620,20 +813,32 @@ class DocSession:
 
     def scalars(self, stmt):
         p = self._params(stmt)
-        return [e for e in self.edges if e.target_asset_id == p["target_asset_id_1"]
-                and e.target_column == p["target_column_1"]]
+        return [
+            e
+            for e in self.edges
+            if e.target_asset_id == p["target_asset_id_1"] and e.target_column == p["target_column_1"]
+        ]
 
 
 def test_inherited_comment_only_from_visible_upstream():
     """A 域的视图继承 B 域表的注释：看不到 B 的人既看不到注释也看不到来源，状态为 missing（第三轮 #2）。"""
     from avelis.governance.column_docs import column_doc
 
-    view = SimpleNamespace(id="v", kind="view", current_version_id="vv", domain_id="dA", catalog_name="c",
-                           db_name="dw", name="v_sales")
-    ext = SimpleNamespace(id="e", kind="external_table", current_version_id="ev", domain_id="dA", catalog_name="c",
-                          db_name="dw", name="e_sales")
-    secret = SimpleNamespace(id="s", kind="table", current_version_id="sv", domain_id="dB", catalog_name="c",
-                             db_name="hr", name="salary")
+    view = SimpleNamespace(
+        id="v", kind="view", current_version_id="vv", domain_id="dA", catalog_name="c", db_name="dw", name="v_sales"
+    )
+    ext = SimpleNamespace(
+        id="e",
+        kind="external_table",
+        current_version_id="ev",
+        domain_id="dA",
+        catalog_name="c",
+        db_name="dw",
+        name="e_sales",
+    )
+    secret = SimpleNamespace(
+        id="s", kind="table", current_version_id="sv", domain_id="dB", catalog_name="c", db_name="hr", name="salary"
+    )
     edge = SimpleNamespace(target_asset_id="v", target_column="amt", source_asset_id="s", source_column="amt")
     link = SimpleNamespace(source_asset_id="e", target_asset_id="s", status="confirmed")
     session = DocSession([view, ext, secret], {("sv", "amt"): "员工实发工资"}, edges=[edge], links=[link])
@@ -643,7 +848,11 @@ def test_inherited_comment_only_from_visible_upstream():
         assert hidden["status"] == "missing" and hidden["comment"] is None and hidden["source"] is None
         assert "salary" not in json.dumps(hidden)
         shown = column_doc(session, asset, "amt", can_see=lambda a: True)
-        assert shown["status"] == visible_status and shown["comment"] == "员工实发工资" and shown["source"] == "c.hr.salary.amt"
+        assert (
+            shown["status"] == visible_status
+            and shown["comment"] == "员工实发工资"
+            and shown["source"] == "c.hr.salary.amt"
+        )
     with pytest.raises(TypeError):  # 调用方必须给出可见性判断
         column_doc(session, view, "amt")
 
@@ -675,12 +884,20 @@ def units_dataset(box):
 
     version = SimpleNamespace(kind="base", expression="SUM(amount)", unit="元", unit_scale=1)
     columns = ["区域", "成交额", "成交额·对比期", "成交额·变化", "成交额·变化率"]
-    return box._dataset("governed", "成交额 按区域 对比期", columns,
-                        [["华东", "1969398.05", "2000000", "-30601.95", "-0.0153"],
-                         ["华南", "300071.87", "250000", "50071.87", "0.2003"]],
-                        meta={**governed_meta(box, "成交额", version=version),
-                              "units": governed_units(columns, {"成交额": version}, "对比期"),
-                              "window": {"start": "2026-09-01", "end": "2026-09-30"}})
+    return box._dataset(
+        "governed",
+        "成交额 按区域 对比期",
+        columns,
+        [
+            ["华东", "1969398.05", "2000000", "-30601.95", "-0.0153"],
+            ["华南", "300071.87", "250000", "50071.87", "0.2003"],
+        ],
+        meta={
+            **governed_meta(box, "成交额", version=version),
+            "units": governed_units(columns, {"成交额": version}, "对比期"),
+            "window": {"start": "2026-09-01", "end": "2026-09-30"},
+        },
+    )
 
 
 def test_tools_register_units_and_summary_paths(monkeypatch):
@@ -688,23 +905,61 @@ def test_tools_register_units_and_summary_paths(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     units_dataset(box)
     assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元"}
-    contribution = json.loads(box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额",
-                                                            "previous": "成交额·对比期"}))
+    contribution = json.loads(
+        box.dispatch(
+            "contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"}
+        )
+    )
     meta = box.datasets()["D2"].meta
     assert contribution["dataset"] == "D2" and meta["units"]["change"] == {"kind": "delta", "unit": "元"}
     assert meta["summary_units"]["total.change_rate"] == {"kind": "rate_change"} and meta["explore"] is False
-    ratio = json.loads(box.dispatch("derive", {"label": "两期之比", "formula": "a / b", "values": [
-        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
-        {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
-    assert ratio["summary"]["value"] == "1.20028748" and box.datasets()["D3"].meta["summary_units"]["value"] == {"kind": "ratio"}
-    growth = json.loads(box.dispatch("derive", {"label": "增长率", "formula": "a / b - 1", "values": [
-        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
-        {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}}]}))
+    ratio = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "两期之比",
+                "formula": "a / b",
+                "values": [
+                    {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+                    {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}},
+                ],
+            },
+        )
+    )
+    assert ratio["summary"]["value"] == "1.20028748" and box.datasets()["D3"].meta["summary_units"]["value"] == {
+        "kind": "ratio"
+    }
+    growth = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "增长率",
+                "formula": "a / b - 1",
+                "values": [
+                    {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+                    {"name": "b", "dataset": "D1", "column": "成交额·对比期", "match": {"区域": "华南"}},
+                ],
+            },
+        )
+    )
     assert growth["dataset"] == "D4" and box.datasets()["D4"].meta["summary_units"]["value"] == {"kind": "rate_change"}
-    diff = json.loads(box.dispatch("derive", {"label": "差额", "formula": "a - b", "values": [
-        {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
-        {"name": "b", "dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}]}))
-    assert box.datasets()["D5"].meta["summary_units"]["value"] == {"kind": "delta", "unit": "元"} and diff["dataset"] == "D5"
+    diff = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "差额",
+                "formula": "a - b",
+                "values": [
+                    {"name": "a", "dataset": "D1", "column": "成交额", "match": {"区域": "华南"}},
+                    {"name": "b", "dataset": "D1", "column": "成交额", "match": {"区域": "华东"}},
+                ],
+            },
+        )
+    )
+    assert (
+        box.datasets()["D5"].meta["summary_units"]["value"] == {"kind": "delta", "unit": "元"}
+        and diff["dataset"] == "D5"
+    )
 
 
 def test_derive_rejects_dead_inputs_and_marks_assumptions(monkeypatch):
@@ -722,19 +977,24 @@ def test_derive_rejects_dead_inputs_and_marks_assumptions(monkeypatch):
     assert "无法计算" in zero["error"]
 
 
-@pytest.mark.parametrize("parts, expected", [
-    (["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
-     "华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"),
-    (["华东成交额 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}],
-     "华东成交额 196.94万元"),
-])
+@pytest.mark.parametrize(
+    "parts, expected",
+    [
+        (
+            ["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
+            "华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源",
+        ),
+        (["华东成交额 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}], "华东成交额 196.94万元"),
+    ],
+)
 def test_report_json_array_string_fields_use_parts_and_reference_verification(monkeypatch, parts, expected):
     box = make_box(monkeypatch=monkeypatch)
     units_dataset(box)
     fields = ("title", "summary", "unexplained", "method")
     encoded = " \n" + json.dumps(parts, ensure_ascii=False) + "\t "
-    reply = box.dispatch("submit_report", {
-        **dict.fromkeys(fields, encoded), "conclusion": "insufficient_evidence", "claims": []})
+    reply = box.dispatch(
+        "submit_report", {**dict.fromkeys(fields, encoded), "conclusion": "insufficient_evidence", "claims": []}
+    )
     assert json.loads(reply) == {"ok": True}
     saved_parts = {field: box.report[field] for field in fields}
     assert all(isinstance(value, list) and value[0] == parts[0] for value in saved_parts.values())
@@ -745,24 +1005,34 @@ def test_report_json_array_string_fields_use_parts_and_reference_verification(mo
         assert record["parts"] == saved_parts[field]
         assert record["status"] == "verified" and record["errors"] == []
         assert [segment["kind"] for segment in record["segments"]] == (
-            ["text"] if len(parts) == 1 else ["text", "value"])
+            ["text"] if len(parts) == 1 else ["text", "value"]
+        )
         if len(parts) > 1:
             assert record["segments"][1]["ref"] == "D1"
     assert box.verification["ok"] and box.verification["unverified_fields"] == 0
     assert box.verification["sources"]["direct"]["governed"] == (0 if len(parts) == 1 else len(fields))
 
 
-@pytest.mark.parametrize("column, expected, status", [
-    ("成交额", "华东成交额 196.94万元", "verified"),
-    ("不存在", "华东成交额 [?]", "unverified"),
-])
+@pytest.mark.parametrize(
+    "column, expected, status",
+    [
+        ("成交额", "华东成交额 196.94万元", "verified"),
+        ("不存在", "华东成交额 [?]", "unverified"),
+    ],
+)
 def test_report_json_array_string_claim_parts_reach_reference_verification(monkeypatch, column, expected, status):
     box = make_box(monkeypatch=monkeypatch)
     units_dataset(box)
     parts = ["华东成交额 ", {"dataset": "D1", "column": column, "match": {"区域": "华东"}}]
-    reply = box.dispatch("submit_report", {
-        "title": "分析结果", "summary": "已完成核对", "conclusion": "insufficient_evidence",
-        "claims": [{"type": "fact", "parts": json.dumps(parts, ensure_ascii=False)}]})
+    reply = box.dispatch(
+        "submit_report",
+        {
+            "title": "分析结果",
+            "summary": "已完成核对",
+            "conclusion": "insufficient_evidence",
+            "claims": [{"type": "fact", "parts": json.dumps(parts, ensure_ascii=False)}],
+        },
+    )
     assert json.loads(reply) == {"ok": True}
     saved_parts = box.report["claims"][0]["parts"]
     assert isinstance(saved_parts, list) and saved_parts[0] == parts[0]
@@ -796,19 +1066,23 @@ def test_report_decoded_parts_keep_pydantic_reference_validation(monkeypatch, fi
     assert "precision" in result["error"] and box.report is None
 
 
-@pytest.mark.parametrize("value, expected_parts, expected", [
-    (" 华东[线上]订单下降 ", " 华东[线上]订单下降 ", " 华东[线上]订单下降 "),
-    ("  [线上]订单下降  ", "  [线上]订单下降  ", "  [线上]订单下降  "),
-    (' ["未闭合" ', ' ["未闭合" ', ' ["未闭合" '),
-    ('["完整数组"] 后续说明', '["完整数组"] 后续说明', '["完整数组"] 后续说明'),
-    ('{"title":"文字"}', '{"title":"文字"}', '{"title":"文字"}'),
-    (json.dumps(['["内层文字"]'], ensure_ascii=False), ['["内层文字"]'], '["内层文字"]'),
-])
+@pytest.mark.parametrize(
+    "value, expected_parts, expected",
+    [
+        (" 华东[线上]订单下降 ", " 华东[线上]订单下降 ", " 华东[线上]订单下降 "),
+        ("  [线上]订单下降  ", "  [线上]订单下降  ", "  [线上]订单下降  "),
+        (' ["未闭合" ', ' ["未闭合" ', ' ["未闭合" '),
+        ('["完整数组"] 后续说明', '["完整数组"] 后续说明', '["完整数组"] 后续说明'),
+        ('{"title":"文字"}', '{"title":"文字"}', '{"title":"文字"}'),
+        (json.dumps(['["内层文字"]'], ensure_ascii=False), ['["内层文字"]'], '["内层文字"]'),
+    ],
+)
 def test_report_string_fields_preserve_plain_invalid_and_nested_json(monkeypatch, value, expected_parts, expected):
     box = make_box(monkeypatch=monkeypatch)
     fields = ("title", "summary", "unexplained", "method")
-    reply = box.dispatch("submit_report", {
-        **dict.fromkeys(fields, value), "conclusion": "insufficient_evidence", "claims": []})
+    reply = box.dispatch(
+        "submit_report", {**dict.fromkeys(fields, value), "conclusion": "insufficient_evidence", "claims": []}
+    )
     assert json.loads(reply) == {"ok": True}
     assert all(box.report[field] == expected_parts for field in fields)
     agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
@@ -825,45 +1099,105 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     """ADR 0009：submit_report 保存片段列表；verify 渲染、做结构检查并保存每个字段的 parts / text / segments / status /
     errors；修订提示逐条写明第几条结论、第几个片段、什么原因。"""
     box = make_box(monkeypatch=monkeypatch)
-    box.run.window = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01",
-                      "compare_end": "2026-08-31"}
+    box.run.window = {
+        "start": "2026-09-01",
+        "end": "2026-09-30",
+        "compare_start": "2026-08-01",
+        "compare_end": "2026-08-31",
+    }
     units_dataset(box)
     box.dispatch("contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"})
     huadong = {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}
-    ok = box.dispatch("submit_report", {
-        "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"], "conclusion": "insufficient_evidence",
-        "summary": ["华东成交额 ", huadong],
-        "claims": [
-            {"type": "fact", "parts": ["华东 ", huadong, "，较上期下降 ",
-                                       {"dataset": "D1", "column": "成交额·变化", "match": {"区域": "华东"},
-                                        "direction": "down"}]},
-            {"type": "calc", "parts": ["合计增长 ", {"dataset": "D2", "summary": "total.change", "direction": "down"},
-                                       " 元（D2）"]},
-            {"type": "fact", "parts": ["西北 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "西北"}}]},
-            {"type": "inference", "parts": ["可能约 3 成来自促销"], "premise": "促销力度与上期相近"}],
-        "unexplained": "无"})
+    ok = box.dispatch(
+        "submit_report",
+        {
+            "title": [{"window": "run_current", "format": "month"}, "华东成交额下降"],
+            "conclusion": "insufficient_evidence",
+            "summary": ["华东成交额 ", huadong],
+            "claims": [
+                {
+                    "type": "fact",
+                    "parts": [
+                        "华东 ",
+                        huadong,
+                        "，较上期下降 ",
+                        {"dataset": "D1", "column": "成交额·变化", "match": {"区域": "华东"}, "direction": "down"},
+                    ],
+                },
+                {
+                    "type": "calc",
+                    "parts": [
+                        "合计增长 ",
+                        {"dataset": "D2", "summary": "total.change", "direction": "down"},
+                        " 元（D2）",
+                    ],
+                },
+                {"type": "fact", "parts": ["西北 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "西北"}}]},
+                {"type": "inference", "parts": ["可能约 3 成来自促销"], "premise": "促销力度与上期相近"},
+            ],
+            "unexplained": "无",
+        },
+    )
     assert json.loads(ok) == {"ok": True}
     state = agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
     report, verification = box.report, box.verification
     assert state == {"phase": "revise"} and verification["status"] == "failed"
     assert report["title"] == "2026 年 9 月华东成交额下降" and report["summary"] == "华东成交额 196.94万元"
-    assert report["fields"]["title"]["status"] == "verified" and report["fields"]["title"]["parts"][1] == "华东成交额下降"
+    assert (
+        report["fields"]["title"]["status"] == "verified" and report["fields"]["title"]["parts"][1] == "华东成交额下降"
+    )
     first = report["claims"][0]
-    assert first["text"] == "华东 196.94万元，较上期下降 3.06万元" and first["refs"] == ["D1"] and first["status"] == "verified"
+    assert (
+        first["text"] == "华东 196.94万元，较上期下降 3.06万元"
+        and first["refs"] == ["D1"]
+        and first["status"] == "verified"
+    )
     value = first["segments"][1]
-    assert {k: value[k] for k in ("kind", "part", "ref", "path", "label", "raw", "text", "measure", "unit", "source",
-                                   "explore", "precision", "direction", "role")} == {
-        "kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东",
-        "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元", "source": "governed",
-        "explore": False, "precision": None, "direction": "", "role": "fact"}
+    assert {
+        k: value[k]
+        for k in (
+            "kind",
+            "part",
+            "ref",
+            "path",
+            "label",
+            "raw",
+            "text",
+            "measure",
+            "unit",
+            "source",
+            "explore",
+            "precision",
+            "direction",
+            "role",
+        )
+    } == {
+        "kind": "value",
+        "part": 2,
+        "ref": "D1",
+        "path": "D1.成交额[区域=华东]",
+        "label": "D1 · 成交额 · 区域=华东",
+        "raw": "1969398.05",
+        "text": "196.94万元",
+        "measure": "level",
+        "unit": "元",
+        "source": "governed",
+        "explore": False,
+        "precision": None,
+        "direction": "",
+        "role": "fact",
+    }
     assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified", "unchecked"]
     calc_problems = verification["claims"][1]["problems"]
     assert calc_problems[0].startswith("第 2 个片段（D2.summary.total.change）：方向与正负不一致")
     assert len(calc_problems) == 1  # D2 已存在，文字里的数据集编号不再误报裸数字
     assert not any("紧跟单位" in p for p in calc_problems)  # 解析失败的引用不是数值段
     assert verification["claims"][2]["problems"] == [
-        "第 2 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]
-    assert report["claims"][2]["text"] == "西北 [?]" and verification["sources"]["direct"]["governed"] == 3  # 摘要 1、第 1 条 2；日期另列
+        "第 2 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"
+    ]
+    assert (
+        report["claims"][2]["text"] == "西北 [?]" and verification["sources"]["direct"]["governed"] == 3
+    )  # 摘要 1、第 1 条 2；日期另列
     assert verification["sources"]["windows"] == 1 and verification["sources"]["failed"] == 2
     message = agent.revise({}, {"configurable": {"toolbox": box, "model": None}})["messages"][0].content
     assert "- 第 2 条（calc）：合计增长 [?] 元（D2）" in message and "方向与正负不一致" in message
@@ -873,38 +1207,116 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
 
 def test_sources_csv_keeps_reference_details_and_markdown_lists_used_datasets():
     """CSV 保留每个引用段及公式注入防护，Markdown 附录只列正文使用的数据与查询。"""
-    value = {"kind": "value", "part": 2, "ref": "D1", "path": "D1.成交额[区域=华东]", "label": "D1 · 成交额 · 区域=华东", "raw": "1969398.05", "text": "196.94万元", "measure": "level", "unit": "元",
-             "source": "governed", "explore": False, "precision": 2, "direction": "", "role": "fact"}
-    window = {"kind": "window", "part": 1, "ref": "window", "path": "window.run_current", "label": "本期窗口",
-              "raw": ["2026-09-01", "2026-09-30"], "text": "2026 年 9 月"}
-    explore = {**value, "ref": "D6", "path": "D6.客流", "label": "D6 · 客流", "raw": "=cmd", "text": "=cmd",
-               "measure": "unknown", "unit": "", "precision": None, "source": "explore", "explore": True,
-               "role": "proposal"}
-    report = {"title": "t", "summary": "s", "fields": {"title": {"segments": [window, {"kind": "text", "text": "下滑"}]}},
-              "claims": [{"type": "fact", "text": "华东 196.94万元", "refs": ["D1"],
-                          "segments": [{"kind": "text", "text": "华东 "}, value]},
-                         {"type": "recommendation", "text": "=cmd", "refs": ["D6"], "segments": [explore]}]}
+    value = {
+        "kind": "value",
+        "part": 2,
+        "ref": "D1",
+        "path": "D1.成交额[区域=华东]",
+        "label": "D1 · 成交额 · 区域=华东",
+        "raw": "1969398.05",
+        "text": "196.94万元",
+        "measure": "level",
+        "unit": "元",
+        "source": "governed",
+        "explore": False,
+        "precision": 2,
+        "direction": "",
+        "role": "fact",
+    }
+    window = {
+        "kind": "window",
+        "part": 1,
+        "ref": "window",
+        "path": "window.run_current",
+        "label": "本期窗口",
+        "raw": ["2026-09-01", "2026-09-30"],
+        "text": "2026 年 9 月",
+    }
+    explore = {
+        **value,
+        "ref": "D6",
+        "path": "D6.客流",
+        "label": "D6 · 客流",
+        "raw": "=cmd",
+        "text": "=cmd",
+        "measure": "unknown",
+        "unit": "",
+        "precision": None,
+        "source": "explore",
+        "explore": True,
+        "role": "proposal",
+    }
+    report = {
+        "title": "t",
+        "summary": "s",
+        "fields": {"title": {"segments": [window, {"kind": "text", "text": "下滑"}]}},
+        "claims": [
+            {
+                "type": "fact",
+                "text": "华东 196.94万元",
+                "refs": ["D1"],
+                "segments": [{"kind": "text", "text": "华东 "}, value],
+            },
+            {"type": "recommendation", "text": "=cmd", "refs": ["D6"], "segments": [explore]},
+        ],
+    }
     rows = export.sources_csv({"report": report}).decode("utf-8-sig").splitlines()
-    assert rows == ["位置,类型,显示值,来源标签,数据集,取值路径,量纲,单位,小数位,方向,标记,原值",
-                    "标题,字段,2026 年 9 月,本期窗口,window,window.run_current,,,,,,2026-09-01 ~ 2026-09-30",
-                    "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,2,,,1969398.05",
-                    "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd"]
-    datasets = [
-        {"ref": "D1", "kind": "governed", "title": "查询：成交额", "columns": ["成交额"],
-         "rows": [["1969398.05"]], "row_count": 1, "truncated": False,
-         "units": {"成交额": {"kind": "level", "unit": "元"}}, "sql": "SELECT 1969398.05 AS amount",
-         "metric_version_ids": ["version-1"]},
-        {"ref": "D2", "kind": "governed", "title": "未引用查询", "columns": ["成交额"],
-         "rows": [["1"]], "units": {"成交额": {"kind": "level", "unit": "元"}},
-         "sql": "SELECT 1 AS unused", "metric_version_ids": ["version-unused"]},
-        {"ref": "D6", "kind": "explore", "title": "探索：客流", "columns": ["客流"],
-         "rows": [["=cmd"]], "row_count": 1, "truncated": True,
-         "units": {"客流": {"kind": "level"}}, "sql": "SELECT '=cmd' AS flow"},
+    assert rows == [
+        "位置,类型,显示值,来源标签,数据集,取值路径,量纲,单位,小数位,方向,标记,原值",
+        "标题,字段,2026 年 9 月,本期窗口,window,window.run_current,,,,,,2026-09-01 ~ 2026-09-30",
+        "结论 1,事实,196.94万元,D1 · 成交额 · 区域=华东,D1,D1.成交额[区域=华东],水平值,元,2,,,1969398.05",
+        "结论 2,建议,'=cmd,D6 · 客流,D6,D6.客流,未知,,,,探索查询（未经口径审核）；建议目标（非观测值）,'=cmd",
     ]
-    view = {"id": "r", "question": "q", "status": "succeeded", "datasets": datasets, "steps": [], "report": report,
-            "verification": {"ok": True, "status": "with_inference", "claims": [], "fields": [],
-                             "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1,
-                                         "windows": 1}}}
+    datasets = [
+        {
+            "ref": "D1",
+            "kind": "governed",
+            "title": "查询：成交额",
+            "columns": ["成交额"],
+            "rows": [["1969398.05"]],
+            "row_count": 1,
+            "truncated": False,
+            "units": {"成交额": {"kind": "level", "unit": "元"}},
+            "sql": "SELECT 1969398.05 AS amount",
+            "metric_version_ids": ["version-1"],
+        },
+        {
+            "ref": "D2",
+            "kind": "governed",
+            "title": "未引用查询",
+            "columns": ["成交额"],
+            "rows": [["1"]],
+            "units": {"成交额": {"kind": "level", "unit": "元"}},
+            "sql": "SELECT 1 AS unused",
+            "metric_version_ids": ["version-unused"],
+        },
+        {
+            "ref": "D6",
+            "kind": "explore",
+            "title": "探索：客流",
+            "columns": ["客流"],
+            "rows": [["=cmd"]],
+            "row_count": 1,
+            "truncated": True,
+            "units": {"客流": {"kind": "level"}},
+            "sql": "SELECT '=cmd' AS flow",
+        },
+    ]
+    view = {
+        "id": "r",
+        "question": "q",
+        "status": "succeeded",
+        "datasets": datasets,
+        "steps": [],
+        "report": report,
+        "verification": {
+            "ok": True,
+            "status": "with_inference",
+            "claims": [],
+            "fields": [],
+            "sources": {"direct": {"governed": 1, "explore": 1}, "with_explore": 1, "windows": 1},
+        },
+    }
     md = export.to_markdown(view, audience="full")
     assert "来源全部通过" in md and "未核实" in md
     assert "## 附录" in md and "### 用到的数据" in md and "数字来源" not in md
@@ -923,16 +1335,28 @@ def test_marks_follow_the_saved_dependency_closure(monkeypatch):
     from avelis.analysis.tools import MODEL_ROWS
 
     box = make_box(monkeypatch=monkeypatch)
-    explore = box._dataset("explore", "探索：客流", ["门店", "客流", "客流·对比期"],
-                           [["A", "120", "100"], ["B", "80", "90"]],
-                           meta={"units": {"客流": {"kind": "level"}, "客流·对比期": {"kind": "level"}}})
+    explore = box._dataset(
+        "explore",
+        "探索：客流",
+        ["门店", "客流", "客流·对比期"],
+        [["A", "120", "100"], ["B", "80", "90"]],
+        meta={"units": {"客流": {"kind": "level"}, "客流·对比期": {"kind": "level"}}},
+    )
     units_dataset(box)  # D2 受治理
     box.dispatch("contribution", {"dataset": "D1", "keys": ["门店"], "current": "客流", "previous": "客流·对比期"})
     pick = {"name": "a", "dataset": "D3", "column": "change", "match": {"门店": "A"}}
     box.dispatch("derive", {"label": "估算", "formula": "a * 0.3", "values": [pick]})  # D4：假设计算
-    box.dispatch("derive", {"label": "再加工", "formula": "a + b", "values": [
-        {"name": "a", "dataset": "D4", "column": "value", "match": {"name": "估算"}},
-        {"name": "b", "dataset": "D2", "column": "成交额", "match": {"区域": "华东"}}]})  # D5：探索 + 口径混合
+    box.dispatch(
+        "derive",
+        {
+            "label": "再加工",
+            "formula": "a + b",
+            "values": [
+                {"name": "a", "dataset": "D4", "column": "value", "match": {"name": "估算"}},
+                {"name": "b", "dataset": "D2", "column": "成交额", "match": {"区域": "华东"}},
+            ],
+        },
+    )  # D5：探索 + 口径混合
     ds = box.datasets()
     assert explore.meta["root_kinds"] == ["explore"] and explore.meta["explore"] is True
     assert ds["D3"].meta["closure"] == ["D1"] and ds["D3"].meta["explore"] is True
@@ -955,12 +1379,25 @@ def test_report_scope_copied_from_explain_change_matches_its_verdict(monkeypatch
     from avelis.analysis.grounding import scope_key
 
     box = make_box(monkeypatch=monkeypatch)
-    box.run.window = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
-    copied = {"metric_code": "m_a", "filters": [{"dimension": "地区", "values": ["甲"]}], "start_date": "2026-09-01",
-              "end_date": "2026-09-30", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}
+    box.run.window = {
+        "start": "2026-09-01",
+        "end": "2026-09-30",
+        "compare_start": "2026-08-01",
+        "compare_end": "2026-08-31",
+    }
+    copied = {
+        "metric_code": "m_a",
+        "filters": [{"dimension": "地区", "values": ["甲"]}],
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30",
+        "compare_start": "2026-08-01",
+        "compare_end": "2026-08-31",
+    }
     report = {"title": "t", "summary": "s", "claims": [], "conclusion": "insufficient_evidence"}
     assert json.loads(box.dispatch("submit_report", {**report, "scope": copied})) == {"ok": True}
-    assert box.report["scope"] == copied and box.report["scope_key"] == scope_key("m_a", copied["filters"], box.run.window)
+    assert box.report["scope"] == copied and box.report["scope_key"] == scope_key(
+        "m_a", copied["filters"], box.run.window
+    )
     box.budget.used_reports = 0
     box.dispatch("submit_report", {**report, "scope": {"metric_code": "m_a", "filters": copied["filters"]}})
     assert box.report["scope"] == copied  # 窗口取本次分析的窗口
@@ -969,11 +1406,17 @@ def test_report_scope_copied_from_explain_change_matches_its_verdict(monkeypatch
 def test_each_model_call_records_latency_tokens_and_tool_calls(monkeypatch):
     """ADR 0012 度量：每次模型调用记一个 model 步骤：耗时、输入 / 输出 / 缓存命中的 token 数、本轮工具调用数。"""
     box = make_box(budget=Budget(tool_calls=5), monkeypatch=monkeypatch)
-    reply = AIMessage(content="", tool_calls=[{"name": "search_metrics", "args": {}, "id": "c1"},
-                                              {"name": "search_metrics", "args": {}, "id": "c2"}],
-                      usage_metadata={"input_tokens": 1200, "output_tokens": 80, "total_tokens": 1280},
-                      response_metadata={"token_usage": {"prompt_cache_hit_tokens": 1024,
-                                                         "completion_tokens_details": {"reasoning_tokens": 30}}})
+    reply = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "search_metrics", "args": {}, "id": "c1"},
+            {"name": "search_metrics", "args": {}, "id": "c2"},
+        ],
+        usage_metadata={"input_tokens": 1200, "output_tokens": 80, "total_tokens": 1280},
+        response_metadata={
+            "token_usage": {"prompt_cache_hit_tokens": 1024, "completion_tokens_details": {"reasoning_tokens": 30}}
+        },
+    )
 
     class Model:
         def bind_tools(self, tools):
@@ -985,20 +1428,45 @@ def test_each_model_call_records_latency_tokens_and_tool_calls(monkeypatch):
     agent._round({"messages": []}, box, Model())
     steps = [s for s in box.session.added if getattr(s, "kind", None) == "model"]
     assert len(steps) == 1 and steps[0].seq == 1 and steps[0].duration_ms is not None  # 在这一轮的工具步骤之前
-    assert steps[0].output == {"input_tokens": 1200, "output_tokens": 80, "cache_hit_tokens": 1024, "reasoning_tokens": 30,
-                               "tool_calls": 2, "tools": ["search_metrics", "search_metrics"], "text": ""}
-    plain = AIMessage(content="", usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12,
-                                                  "input_token_details": {"cache_read": 8}})
-    assert agent.model_usage(plain) == {"input_tokens": 10, "output_tokens": 2, "cache_hit_tokens": 8,
-                                        "reasoning_tokens": None}
-    assert agent.model_usage(AIMessage(content="")) == {"input_tokens": None, "output_tokens": None,
-                                                        "cache_hit_tokens": None, "reasoning_tokens": None}
+    assert steps[0].output == {
+        "input_tokens": 1200,
+        "output_tokens": 80,
+        "cache_hit_tokens": 1024,
+        "reasoning_tokens": 30,
+        "tool_calls": 2,
+        "tools": ["search_metrics", "search_metrics"],
+        "text": "",
+    }
+    plain = AIMessage(
+        content="",
+        usage_metadata={
+            "input_tokens": 10,
+            "output_tokens": 2,
+            "total_tokens": 12,
+            "input_token_details": {"cache_read": 8},
+        },
+    )
+    assert agent.model_usage(plain) == {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "cache_hit_tokens": 8,
+        "reasoning_tokens": None,
+    }
+    assert agent.model_usage(AIMessage(content="")) == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "cache_hit_tokens": None,
+        "reasoning_tokens": None,
+    }
 
 
 def test_json_repair_never_invents_values():
     """修复只改语法：修复结果里的每个键与标量值都要在原文里原样出现，补出来的值（如空字符串）按解析失败处理。"""
-    assert tools.repair_arguments('{"title": 标题, "summary": "s", "claims": []}') == {"title": "标题", "summary": "s",
-                                                                                   "claims": []}
+    assert tools.repair_arguments('{"title": 标题, "summary": "s", "claims": []}') == {
+        "title": "标题",
+        "summary": "s",
+        "claims": [],
+    }
     assert tools.repair_arguments('{"region":}') is None  # 会被补成 ""：原文没有这个值
     assert tools.repair_arguments('{"a": 1, "b": [1, 2,], "c": true}') == {"a": 1, "b": [1, 2], "c": True}
 
@@ -1042,8 +1510,12 @@ def test_amount_per_order_is_a_level_not_a_ratio():
     （评测 e02 的 a/b - c/d 与 dc/oc）。同单位的两个水平值相除仍是比率。"""
     from avelis.analysis import measures
 
-    units = {"a": {"kind": "level", "unit": "元"}, "b": {"kind": "count", "unit": "单"},
-             "c": {"kind": "level", "unit": "元"}, "d": {"kind": "count", "unit": "单"}}
+    units = {
+        "a": {"kind": "level", "unit": "元"},
+        "b": {"kind": "count", "unit": "单"},
+        "c": {"kind": "level", "unit": "元"},
+        "d": {"kind": "count", "unit": "单"},
+    }
     assert measures.formula_unit("a/b - c/d", units) == {"kind": "delta", "unit": "元/单"}
     assert measures.formula_unit("a/b", units) == {"kind": "level", "unit": "元/单"}
     bare = {"a": {"kind": "level"}, "b": {"kind": "count"}}  # 探索查询的列常常没有单位

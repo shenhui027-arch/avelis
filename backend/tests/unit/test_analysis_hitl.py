@@ -39,9 +39,16 @@ def clarify_reply(question="请确认要分析哪个地区？"):
 
 
 def report_reply(dataset="D1"):
-    return reply("submit_report", {"title": ["分析结果"], "summary": ["已完成检查"],
-        "claims": [{"type": "fact", "parts": ["结果为 ", {"dataset": dataset, "column": "值"}],
-                    "refs": [dataset]}], "conclusion": "insufficient_evidence"}, "report")
+    return reply(
+        "submit_report",
+        {
+            "title": ["分析结果"],
+            "summary": ["已完成检查"],
+            "claims": [{"type": "fact", "parts": ["结果为 ", {"dataset": dataset, "column": "值"}], "refs": [dataset]}],
+            "conclusion": "insufficient_evidence",
+        },
+        "report",
+    )
 
 
 def configured(monkeypatch, responses, *, mode="auto", unattended=False, catalog=None):
@@ -60,15 +67,18 @@ def configured(monkeypatch, responses, *, mode="auto", unattended=False, catalog
     monkeypatch.setattr(box, "precheck", precheck)
     model = Phased(responses)
     config = {"configurable": {"thread_id": "analysis:hitl", "toolbox": box, "model": model}}
-    state = agent.initial_state(box.run.question, "2026-10-31", "UTC", WINDOW,
-                                confirmation_mode=mode, unattended=unattended)
+    state = agent.initial_state(
+        box.run.question, "2026-10-31", "UTC", WINDOW, confirmation_mode=mode, unattended=unattended
+    )
     return box, model, config, state, calls
 
 
 def test_understand_answer_resumes_same_run_before_precheck_and_reaches_reason(monkeypatch):
     question, answer = "请确认要分析哪个地区？", "华东地区"
-    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(question), scope_reply(),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    box, model, config, state, calls = configured(
+        monkeypatch,
+        [clarify_reply(question), scope_reply(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()],
+    )
     resume_checks = []
     monkeypatch.setattr(box, "check_resume_permissions", lambda: resume_checks.append(True))
     graph = agent.build_graph(MemorySaver())
@@ -84,8 +94,7 @@ def test_understand_answer_resumes_same_run_before_precheck_and_reaches_reason(m
     assert resume_checks == [True]
     assert model.tool_choice == ["submit_scope", "submit_scope", "submit_proposal", None]
     assert box.budget.used_model_requests == len(model.seen) == 4
-    assert any(isinstance(m, HumanMessage) and question in m.content and answer in m.content
-               for m in model.seen[1][2:])
+    assert any(isinstance(m, HumanMessage) and question in m.content and answer in m.content for m in model.seen[1][2:])
     assert question in model.seen[-1][1].content and answer in model.seen[-1][1].content
     assert all(answer not in m.content for messages in model.seen for m in messages if isinstance(m, SystemMessage))
 
@@ -103,9 +112,16 @@ def test_understand_resume_checks_permission_once_before_another_model_call(monk
 def test_unknown_metric_clarification_can_resume_with_a_valid_scope(monkeypatch):
     invalid_scope = {"question_type": "other", "metric_codes": ["m_missing"]}
     valid_scope = {"question_type": "other", "metric_codes": ["m_a"]}
-    box, model, config, state, calls = configured(monkeypatch, [reply("submit_scope", invalid_scope, "unknown"),
-        reply("submit_scope", valid_scope, "valid"), reply("submit_proposal", {"items": []}, "proposal"),
-        report_reply()], catalog=pipeline_catalog())
+    box, model, config, state, calls = configured(
+        monkeypatch,
+        [
+            reply("submit_scope", invalid_scope, "unknown"),
+            reply("submit_scope", valid_scope, "valid"),
+            reply("submit_proposal", {"items": []}, "proposal"),
+            report_reply(),
+        ],
+        catalog=pipeline_catalog(),
+    )
     graph = agent.build_graph(MemorySaver())
     first = graph.invoke(state, config)
     question = first["__interrupt__"][0].value["question"]
@@ -126,8 +142,9 @@ def test_unknown_metric_clarification_can_resume_with_a_valid_scope(monkeypatch)
 
 def test_valid_scope_metric_revocation_still_blocks_understand_resume(monkeypatch):
     scope = {"question_type": "other", "metric_codes": ["m_a"], "clarification": "请确认地区？"}
-    box, model, config, state, calls = configured(monkeypatch, [reply("submit_scope", scope, "valid")],
-                                                  catalog=pipeline_catalog())
+    box, model, config, state, calls = configured(
+        monkeypatch, [reply("submit_scope", scope, "valid")], catalog=pipeline_catalog()
+    )
     graph = agent.build_graph(MemorySaver())
     first = graph.invoke(state, config)
     assert first["__interrupt__"] and box.scope.metric_codes == ["m_a"]
@@ -152,15 +169,26 @@ def test_understand_resume_excludes_revoked_candidate_metadata(monkeypatch, metr
     catalog.versions["m_b"] = (metric, SimpleNamespace(kind="derived", expression=formula, unit="%"))
     catalog.versions.pop("m_c")
     scope = {"question_type": "other", "metric_codes": metric_codes}
-    box, model, config, state, calls = configured(monkeypatch, [
-        reply("submit_scope", {**scope, "clarification": question}, "first"),
-        reply("submit_scope", scope, "second"),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], catalog=catalog)
+    box, model, config, state, calls = configured(
+        monkeypatch,
+        [
+            reply("submit_scope", {**scope, "clarification": question}, "first"),
+            reply("submit_scope", scope, "second"),
+            reply("submit_proposal", {"items": []}, "proposal"),
+            report_reply(),
+        ],
+        catalog=catalog,
+    )
     allowed = {"dA", "dB"}
     monkeypatch.setattr(tools.access, "domain_ids", lambda s, u: allowed)
-    monkeypatch.setattr(agent.service, "visible_catalog", lambda s, u, with_values: type(catalog)(
-        [card for card in catalog.cards if catalog.versions[card.code][0].domain_id in allowed],
-        {code: pair for code, pair in catalog.versions.items() if pair[0].domain_id in allowed}))
+    monkeypatch.setattr(
+        agent.service,
+        "visible_catalog",
+        lambda s, u, with_values: type(catalog)(
+            [card for card in catalog.cards if catalog.versions[card.code][0].domain_id in allowed],
+            {code: pair for code, pair in catalog.versions.items() if pair[0].domain_id in allowed},
+        ),
+    )
     monkeypatch.setattr(agent.service, "version_sources", lambda s, v: {})
     graph = agent.build_graph(MemorySaver())
     first = graph.invoke(state, config)
@@ -188,8 +216,10 @@ def test_understand_stops_as_clarify_after_two_answers(monkeypatch):
     assert second["__interrupt__"][0].value["question"] == questions[1]
     final = graph.invoke(Command(resume={"answer": "直营"}), config)
     assert not final.get("__interrupt__") and final["phase"] == "clarify"
-    assert final["clarifications"] == [{"question": questions[0], "answer": "华东"},
-                                        {"question": questions[1], "answer": "直营"}]
+    assert final["clarifications"] == [
+        {"question": questions[0], "answer": "华东"},
+        {"question": questions[1], "answer": "直营"},
+    ]
     for item in final["clarifications"]:
         assert any(item["question"] in m.content and item["answer"] in m.content for m in model.seen[2])
     assert box.clarification["question"] == questions[2]
@@ -207,8 +237,10 @@ def test_unattended_understand_ends_as_clarify_without_interrupt(monkeypatch):
 
 def test_understand_answer_limit_survives_precheck_retry(monkeypatch):
     questions = ["请确认地区？", "请确认渠道？", "请确认门店？"]
-    box, model, config, state, calls = configured(monkeypatch, [clarify_reply(questions[0]), scope_reply(),
-        clarify_reply(questions[1]), clarify_reply(questions[2])])
+    box, model, config, state, calls = configured(
+        monkeypatch,
+        [clarify_reply(questions[0]), scope_reply(), clarify_reply(questions[1]), clarify_reply(questions[2])],
+    )
     original_precheck = box.precheck
 
     def no_data(scope):
@@ -223,14 +255,17 @@ def test_understand_answer_limit_survives_precheck_retry(monkeypatch):
     assert second["retried"] and second["__interrupt__"][0].value["question"] == questions[1]
     final = graph.invoke(Command(resume={"answer": "直营"}), config)
     assert final["phase"] == "clarify" and not final.get("__interrupt__")
-    assert final["clarifications"] == [{"question": questions[0], "answer": "华东"},
-                                        {"question": questions[1], "answer": "直营"}]
+    assert final["clarifications"] == [
+        {"question": questions[0], "answer": "华东"},
+        {"question": questions[1], "answer": "直营"},
+    ]
     assert calls == ["precheck"] and len(model.seen) == 4
 
 
 def test_restart_resume_keeps_query_state_budget_and_dataset_numbers(monkeypatch):
-    box, model, config, state, calls = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(), "proposal"), report_reply()])
+    box, model, config, state, calls = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()]
+    )
     saver = MemorySaver()
     graph = agent.build_graph(saver)
     first = graph.invoke(state, config)
@@ -247,8 +282,10 @@ def test_restart_resume_keeps_query_state_budget_and_dataset_numbers(monkeypatch
     restored.restore(json.loads(json.dumps(saved)))
     config["configurable"]["toolbox"] = restored
     rebuilt = agent.build_graph(saver)
-    final = rebuilt.invoke(Command(resume={"decisions": [{"item_id": "P1", "decision": "confirmed"}],
-                                          "supplement": "请同时核对覆盖范围"}), config)
+    final = rebuilt.invoke(
+        Command(resume={"decisions": [{"item_id": "P1", "decision": "confirmed"}], "supplement": "请同时核对覆盖范围"}),
+        config,
+    )
     assert not final.get("__interrupt__") and final["phase"] == "done"
     assert calls == ["precheck"] and len(model.seen) == 3
     assert restored.budget.used_queries == 1 and restored.budget.used_model_requests == 3
@@ -284,18 +321,27 @@ def test_snapshot_restores_query_caches_report_attempts_and_excludes_wait(monkey
         assert fresh._scanned["scan"] is fresh.datasets()["D1"]
 
 
-@pytest.mark.parametrize("mode,unattended,source,waiting", [
-    ("auto", False, "upstream", False), ("auto", False, "inferred", True),
-    ("always", False, "upstream", True), ("auto", True, "inferred", False),
-    ("always", True, "inferred", False),
-])
+@pytest.mark.parametrize(
+    "mode,unattended,source,waiting",
+    [
+        ("auto", False, "upstream", False),
+        ("auto", False, "inferred", True),
+        ("always", False, "upstream", True),
+        ("auto", True, "inferred", False),
+        ("always", True, "inferred", False),
+    ],
+)
 def test_automatic_always_and_unattended_modes(monkeypatch, mode, unattended, source, waiting):
     ref = {"object_type": "asset", "object_id": "asset-a", "version": 1}
     args = proposal()
     if source == "upstream":
         args["items"][0].update(kind="asset", content="catalog.schema.asset_a")
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", args, "proposal"), report_reply()], mode=mode, unattended=unattended)
+    box, model, config, state, _ = configured(
+        monkeypatch,
+        [scope_reply(), reply("submit_proposal", args, "proposal"), report_reply()],
+        mode=mode,
+        unattended=unattended,
+    )
     if source == "upstream":
         box.precheck_meta = [{"table": "catalog.schema.asset_a", "refs": [ref]}]
         monkeypatch.setattr(box, "_asset", lambda qualified: None)
@@ -315,8 +361,9 @@ def test_automatic_always_and_unattended_modes(monkeypatch, mode, unattended, so
 
 
 def test_always_mode_does_not_pause_without_proposal_items(monkeypatch):
-    box, model, config, state, calls = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], mode="always")
+    box, model, config, state, calls = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()], mode="always"
+    )
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     assert result["phase"] == "done" and not result.get("__interrupt__")
     assert result["proposal"]["items"] == [] and box.verification["ok"]
@@ -332,13 +379,28 @@ def test_followup_precheck_keeps_the_original_calendar_dataset(monkeypatch):
         box = make_box(monkeypatch=monkeypatch, catalog=cat)
         box.catalog = agent.service.Catalog([], {})
         box.run.window = dict(WINDOW)
-        total = governed(box, ["指标甲", "指标甲·对比期"], [["3000", "3100"]], intent={
-            "start_date": WINDOW["start"], "end_date": WINDOW["end"], "compare": "custom",
-            "compare_start": WINDOW["compare_start"], "compare_end": WINDOW["compare_end"]})
+        total = governed(
+            box,
+            ["指标甲", "指标甲·对比期"],
+            [["3000", "3100"]],
+            intent={
+                "start_date": WINDOW["start"],
+                "end_date": WINDOW["end"],
+                "compare": "custom",
+                "compare_start": WINDOW["compare_start"],
+                "compare_end": WINDOW["compare_end"],
+            },
+        )
 
         def explain(**kwargs):
-            ds = box._dataset("calc", "自动归因", ["member"], [["甲"]], inputs=[f"D{total.seq}"],
-                              meta={"summary": {"algorithm": "additive"}})
+            ds = box._dataset(
+                "calc",
+                "自动归因",
+                ["member"],
+                [["甲"]],
+                inputs=[f"D{total.seq}"],
+                meta={"summary": {"algorithm": "additive"}},
+            )
             return json.dumps({"dataset": f"D{ds.seq}"})
 
         monkeypatch.setattr(box, "describe_metric", lambda code: json.dumps({"code": code}))
@@ -364,8 +426,9 @@ def test_followup_precheck_keeps_the_original_calendar_dataset(monkeypatch):
 def test_inferred_proposal_keeps_only_system_supplied_refs(monkeypatch):
     known = {"object_type": "asset", "object_id": "asset-a", "version": 1}
     args = proposal(refs=[known, {"object_type": "asset", "object_id": "unknown", "version": 1}])
-    box, _, config, state, _ = configured(monkeypatch, [scope_reply(), reply("submit_proposal", args, "p"),
-                                                     report_reply()])
+    box, _, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", args, "p"), report_reply()]
+    )
     monkeypatch.setattr(agent, "_upstream_refs", lambda *a: [known])
     graph = agent.build_graph(MemorySaver())
     result = graph.invoke(state, config)
@@ -378,39 +441,56 @@ def test_inferred_proposal_keeps_only_system_supplied_refs(monkeypatch):
 def test_proposals_deduplicate_after_system_source_resolution(monkeypatch):
     table = "catalog.schema.asset_a"
     ref = {"object_type": "asset", "object_id": "asset-a", "version": 1}
-    recalled = [{"id": id_, "version": version, "content": "检查 key 对齐", "refs": [ref]}
-                for id_, version in [("exp-a", 1), ("exp-a", 2), ("exp-b", 1)]]
+    recalled = [
+        {"id": id_, "version": version, "content": "检查 key 对齐", "refs": [ref]}
+        for id_, version in [("exp-a", 1), ("exp-a", 2), ("exp-b", 1)]
+    ]
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: recalled)
-    args = {"items": [
-        {"kind": "asset", "content": table}, {"kind": "asset", "content": table},
-        {"kind": "hypothesis", "content": "  CATALOG.schema.asset_a\n"},
-        {"kind": "join", "content": "Orders.key = Details.key"},
-        {"kind": "hypothesis", "content": "\torders.key  =\ndetails.key  "},
-        {"kind": "hypothesis", "content": "模型概括甲", "experience_id": "exp-a", "experience_version": 1},
-        {"kind": "join", "content": "模型概括乙", "experience_id": "exp-a", "experience_version": 1},
-        {"kind": "hypothesis", "content": "模型概括丙", "experience_id": "exp-a", "experience_version": 2},
-        {"kind": "hypothesis", "content": "模型概括丁", "experience_id": "exp-b", "experience_version": 1},
-        {"kind": "hypothesis", "content": "检查 key 对齐"},
-    ]}
+    args = {
+        "items": [
+            {"kind": "asset", "content": table},
+            {"kind": "asset", "content": table},
+            {"kind": "hypothesis", "content": "  CATALOG.schema.asset_a\n"},
+            {"kind": "join", "content": "Orders.key = Details.key"},
+            {"kind": "hypothesis", "content": "\torders.key  =\ndetails.key  "},
+            {"kind": "hypothesis", "content": "模型概括甲", "experience_id": "exp-a", "experience_version": 1},
+            {"kind": "join", "content": "模型概括乙", "experience_id": "exp-a", "experience_version": 1},
+            {"kind": "hypothesis", "content": "模型概括丙", "experience_id": "exp-a", "experience_version": 2},
+            {"kind": "hypothesis", "content": "模型概括丁", "experience_id": "exp-b", "experience_version": 1},
+            {"kind": "hypothesis", "content": "检查 key 对齐"},
+        ]
+    }
     box, _, config, state, _ = configured(monkeypatch, [scope_reply(), reply("submit_proposal", args, "p")])
     box.precheck_meta = [{"table": table, "refs": [ref]}]
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     items = result["proposal"]["items"]
     assert result["__interrupt__"]
     assert [i["id"] for i in items] == [f"P{n}" for n in range(1, 8)]
-    assert [i["source"] for i in items] == ["upstream", "inferred", "inferred",
-                                           "experience", "experience", "experience", "inferred"]
+    assert [i["source"] for i in items] == [
+        "upstream",
+        "inferred",
+        "inferred",
+        "experience",
+        "experience",
+        "experience",
+        "inferred",
+    ]
     assert items[0]["refs"] == [ref] and items[2]["kind"] == "join"
     assert [(i["experience_id"], i["experience_version"]) for i in items[3:6]] == [
-        ("exp-a", 1), ("exp-a", 2), ("exp-b", 1)]
+        ("exp-a", 1),
+        ("exp-a", 2),
+        ("exp-b", 1),
+    ]
     assert all(i["content"] == "检查 key 对齐" for i in items[3:])
     assert box.snapshot()["state"]["proposal"] == result["proposal"]
 
 
 @pytest.mark.parametrize("content,source", [("catalog.schema.asset_a", "upstream"), ("schema.asset_a", "inferred")])
 def test_asset_source_still_requires_full_precheck_table_name(monkeypatch, content, source):
-    box, _, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(kind="asset", content=content), "p"), report_reply()])
+    box, _, config, state, _ = configured(
+        monkeypatch,
+        [scope_reply(), reply("submit_proposal", proposal(kind="asset", content=content), "p"), report_reply()],
+    )
     box.precheck_meta = [{"table": "catalog.schema.asset_a", "refs": []}]
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     assert result["proposal"]["items"][0]["source"] == source
@@ -420,8 +500,9 @@ def test_asset_source_still_requires_full_precheck_table_name(monkeypatch, conte
 @pytest.mark.parametrize("length", [80, 200, 201])
 def test_proposal_content_limit_prompt_and_invalid_output_fallback(monkeypatch, length):
     content = "假" * length
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(content=content), "p")])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(content=content), "p")]
+    )
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     prompt = model.seen[-1][0].content
     assert "每项 content 不超过 80 个字" in prompt and "库.表" in prompt
@@ -437,22 +518,36 @@ def test_proposal_content_limit_prompt_and_invalid_output_fallback(monkeypatch, 
 
 
 def test_rejection_is_user_input_and_is_not_inherited_as_confirmation(monkeypatch):
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(), "p"), report_reply()])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(), "p"), report_reply()]
+    )
     graph = agent.build_graph(MemorySaver())
     graph.invoke(state, config)
-    result = graph.invoke(Command(resume={"decisions": [{"item_id": "P1", "decision": "rejected"}],
-                                         "supplement": "此关联在本次范围不适用"}), config)
-    assert result["confirmed_items"] == [{"id": "U1", "kind": "hypothesis", "content": "此关联在本次范围不适用",
-                                         "source": "user", "refs": [], "status": "confirmed"}]
+    result = graph.invoke(
+        Command(
+            resume={"decisions": [{"item_id": "P1", "decision": "rejected"}], "supplement": "此关联在本次范围不适用"}
+        ),
+        config,
+    )
+    assert result["confirmed_items"] == [
+        {
+            "id": "U1",
+            "kind": "hypothesis",
+            "content": "此关联在本次范围不适用",
+            "source": "user",
+            "refs": [],
+            "status": "confirmed",
+        }
+    ]
     assert box.report["sources"][0]["status"] == "rejected"
     assert '"decision": "rejected"' in model.seen[-1][1].content
     assert "此关联在本次范围不适用" in model.seen[-1][1].content
 
 
 def test_resume_rechecks_identity_before_reasoning(monkeypatch):
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(), "p"), report_reply()])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(), "p"), report_reply()]
+    )
     graph = agent.build_graph(MemorySaver())
     graph.invoke(state, config)
     box.user.is_active = False
@@ -466,8 +561,9 @@ def test_experience_instruction_text_is_bounded_user_data(monkeypatch):
     exp = {"id": "exp-a", "version": 2, "version_id": "exp-v2", "kind": "rule", "content": text, "refs": []}
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
     args = proposal(content=text, experience_id="exp-a", experience_version=2)
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", args, "p"), report_reply()])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", args, "p"), report_reply()]
+    )
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     assert not result.get("__interrupt__") and box.verification["ok"]
     assert all(text not in m.content for messages in model.seen for m in messages if isinstance(m, SystemMessage))
@@ -480,8 +576,9 @@ def test_experience_instruction_text_is_bounded_user_data(monkeypatch):
 def test_followup_graph_keeps_confirmed_scope_items_and_new_user_input(monkeypatch):
     scope = {"question_type": "other", "metric_codes": []}
     confirmed = {"id": "P1", "kind": "hypothesis", "content": "已确认的检验范围", "source": "inferred", "refs": []}
-    box, model, config, state, calls = configured(monkeypatch, [reply("submit_proposal", {"items": []}, "p"),
-                                                               report_reply()])
+    box, model, config, state, calls = configured(
+        monkeypatch, [reply("submit_proposal", {"items": []}, "p"), report_reply()]
+    )
     box.run.parent_run_id = "parent"
     state["inherited"] = {"scope": scope, "items": [confirmed], "user_text": "请检查该前提是否仍然成立"}
     result = agent.build_graph(MemorySaver()).invoke(state, config)
@@ -500,28 +597,55 @@ def test_followup_drops_normalized_inherited_content_before_numbering(monkeypatc
     confirmed = [
         {"id": "old-a", "kind": "asset", "content": "\tCATALOG.schema.asset_a\n", "source": "upstream", "refs": []},
         {"id": "old-b", "kind": "join", "content": " Orders.key  =\nDetails.key ", "source": "inferred", "refs": []},
-        {"id": "old-c", "kind": "hypothesis", "content": "检查 KEY 对齐", "source": "experience", "refs": [],
-         "experience_id": "exp-a", "experience_version": 1},
+        {
+            "id": "old-c",
+            "kind": "hypothesis",
+            "content": "检查 KEY 对齐",
+            "source": "experience",
+            "refs": [],
+            "experience_id": "exp-a",
+            "experience_version": 1,
+        },
         {"id": "U1", "kind": "hypothesis", "content": "已有补充", "source": "user", "refs": []},
     ]
     exp = {"id": "exp-a", "version": 1, "content": " 检查 key  对齐 ", "refs": []}
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
-    items = [{"kind": "asset", "content": "catalog.schema.asset_a"},
-             {"kind": "hypothesis", "content": "orders.key = details.key"},
-             {"kind": "hypothesis", "content": "模型的不同概括", "experience_id": "exp-a", "experience_version": 1},
-             {"kind": "hypothesis", "content": "\n已有补充\t"}]
+    items = [
+        {"kind": "asset", "content": "catalog.schema.asset_a"},
+        {"kind": "hypothesis", "content": "orders.key = details.key"},
+        {"kind": "hypothesis", "content": "模型的不同概括", "experience_id": "exp-a", "experience_version": 1},
+        {"kind": "hypothesis", "content": "\n已有补充\t"},
+    ]
     if with_new_items:
-        items = [proposal(content="新的前提")["items"][0], *items,
-                 proposal(content="新的前提")["items"][0], proposal(content="另一项检验")["items"][0]]
-    box, _, config, state, _ = configured(monkeypatch, [reply("submit_proposal", {"items": items}, "p"), report_reply()])
+        items = [
+            proposal(content="新的前提")["items"][0],
+            *items,
+            proposal(content="新的前提")["items"][0],
+            proposal(content="另一项检验")["items"][0],
+        ]
+    box, _, config, state, _ = configured(
+        monkeypatch, [reply("submit_proposal", {"items": items}, "p"), report_reply()]
+    )
     box.precheck_meta = [{"table": "catalog.schema.asset_a", "refs": []}]
     monkeypatch.setattr(box, "_asset", lambda qualified: None)
     state["inherited"] = {"scope": {"question_type": "other", "metric_codes": []}, "items": confirmed}
     result = agent.build_graph(MemorySaver()).invoke(state, config)
-    assert result["proposal"]["items"] == ([
-        {"id": f"P{n}", "kind": "hypothesis", "content": content, "source": "inferred", "refs": [],
-         "experience_id": None, "experience_version": None}
-        for n, content in enumerate(["新的前提", "另一项检验"], start=1)] if with_new_items else [])
+    assert result["proposal"]["items"] == (
+        [
+            {
+                "id": f"P{n}",
+                "kind": "hypothesis",
+                "content": content,
+                "source": "inferred",
+                "refs": [],
+                "experience_id": None,
+                "experience_version": None,
+            }
+            for n, content in enumerate(["新的前提", "另一项检验"], start=1)
+        ]
+        if with_new_items
+        else []
+    )
     assert bool(result.get("__interrupt__")) is with_new_items
     if not with_new_items:
         assert result["phase"] == "done" and result["confirmed_items"] == confirmed
@@ -531,18 +655,28 @@ def test_followup_drops_normalized_inherited_content_before_numbering(monkeypatc
 def waiting_run(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     box.user.username = "user-a"
-    run = AnalysisRun(id="waiting", conversation_id="waiting", user_id=box.user.id,
-                      question="检查指标变化", status="waiting", trigger="manual",
-                      confirmation_mode="auto", window={}, budget=box.budget.view(),
-                      checkpoint={"proposal": {"items": [{"id": "P1", "source": "inferred",
-                                                           **proposal()["items"][0]}]},
-                                  "pending": {"kind": "assumptions"},
-                                  "snapshot": box.snapshot()})
+    run = AnalysisRun(
+        id="waiting",
+        conversation_id="waiting",
+        user_id=box.user.id,
+        question="检查指标变化",
+        status="waiting",
+        trigger="manual",
+        confirmation_mode="auto",
+        window={},
+        budget=box.budget.view(),
+        checkpoint={
+            "proposal": {"items": [{"id": "P1", "source": "inferred", **proposal()["items"][0]}]},
+            "pending": {"kind": "assumptions"},
+            "snapshot": box.snapshot(),
+        },
+    )
     session = box.session
     session.store[(AnalysisRun, run.id)] = run
     session.execute = lambda statement: SimpleNamespace(rowcount=1)
     queued = []
     from avelis import jobs
+
     monkeypatch.setattr(jobs, "_enqueue", lambda *a, **kw: queued.append(a) or "job-resume")
     return session, box.user, run, queued
 
@@ -570,22 +704,30 @@ def test_understand_answer_creates_one_rule_candidate_with_current_scope_refs(mo
     run.checkpoint["proposal"]["items"][0]["refs"] = [stale_ref]
     run.checkpoint["inherited"] = {"items": [{"refs": [stale_ref]}]}
     session.scalar = lambda statement: SimpleNamespace(id="revenue", code="revenue")
-    monkeypatch.setattr(metrics, "latest_governed_version",
-                        lambda session, metric: SimpleNamespace(id="revenue-v3", version_no=3))
+    monkeypatch.setattr(
+        metrics, "latest_governed_version", lambda session, metric: SimpleNamespace(id="revenue-v3", version_no=3)
+    )
     result = service.resume_run(session, user, run.id, {"answer": f"  {answer}  "})
     assert result.status == "queued" and result.id == "waiting" and result.checkpoint["resume_pending"]
     assert result.checkpoint["feedback"] == {"answer": answer} and not result.checkpoint.get("pending")
     text = f"问题：{question} 回答：{answer}"
     refs = [{"object_type": "metric_version", "object_id": "revenue-v3", "version": 3}] if with_metric else []
-    assert result.checkpoint["candidates"] == [{"kind": "rule", "content": text, "refs": refs,
-        "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text}}]
+    assert result.checkpoint["candidates"] == [
+        {
+            "kind": "rule",
+            "content": text,
+            "refs": refs,
+            "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text},
+        }
+    ]
     with pytest.raises(Conflict):
         service.resume_run(session, user, run.id, {"answer": "另一个回答"})
     assert len(queued) == len(run.checkpoint["candidates"]) == 1
 
 
-@pytest.mark.parametrize("feedback", [{}, {"answer": ""}, {"answer": "  \n\t"},
-                                      {"decisions": [{"item_id": "P1", "decision": "confirmed"}]}])
+@pytest.mark.parametrize(
+    "feedback", [{}, {"answer": ""}, {"answer": "  \n\t"}, {"decisions": [{"item_id": "P1", "decision": "confirmed"}]}]
+)
 def test_understand_resume_requires_a_nonblank_answer(monkeypatch, feedback):
     session, user, run, queued = waiting_run(monkeypatch)
     run.checkpoint["pending"] = {"kind": "clarify", "question": "请确认地区？"}
@@ -613,7 +755,10 @@ def test_understand_resume_compare_and_swap_failure_does_not_store_answer(monkey
 
 def test_resume_schema_accepts_answer_without_decisions_and_limits_its_length():
     assert AnalysisResumeIn.model_validate({"answer": "华东"}).model_dump() == {
-        "answer": "华东", "decisions": [], "supplement": ""}
+        "answer": "华东",
+        "decisions": [],
+        "supplement": "",
+    }
     assert AnalysisResumeIn().answer == ""
     assert AnalysisResumeIn(answer="答" * 2000).answer == "答" * 2000
     with pytest.raises(ValidationError):
@@ -647,8 +792,9 @@ def test_resume_candidates_use_item_refs_and_scope_metric_refs_only(monkeypatch,
     metric_ref = {"object_type": "metric_version", "object_id": "revenue-v3", "version": 3}
     run.checkpoint["proposal"]["items"][0]["kind"] = "join"
     run.checkpoint["proposal"]["items"][0]["refs"] = [first_ref]
-    run.checkpoint["proposal"]["items"].append({"id": "P2", "kind": "join", "content": "待验证关联",
-                                                "source": "inferred", "refs": [other_ref]})
+    run.checkpoint["proposal"]["items"].append(
+        {"id": "P2", "kind": "join", "content": "待验证关联", "source": "inferred", "refs": [other_ref]}
+    )
     run.checkpoint["inherited"] = {"items": [{"id": "old", "refs": [inherited_ref]}]}
     queried = []
 
@@ -657,11 +803,18 @@ def test_resume_candidates_use_item_refs_and_scope_metric_refs_only(monkeypatch,
         return SimpleNamespace(id="revenue", code="revenue")
 
     session.scalar = scalar
-    monkeypatch.setattr(metrics, "latest_governed_version",
-                        lambda session, metric: SimpleNamespace(id="revenue-v3", version_no=3))
-    service.resume_run(session, user, run.id, {
-        "decisions": [{"item_id": "P1", "decision": "confirmed"}, {"item_id": "P2", "decision": "rejected"}],
-        "supplement": "本次补充"})
+    monkeypatch.setattr(
+        metrics, "latest_governed_version", lambda session, metric: SimpleNamespace(id="revenue-v3", version_no=3)
+    )
+    service.resume_run(
+        session,
+        user,
+        run.id,
+        {
+            "decisions": [{"item_id": "P1", "decision": "confirmed"}, {"item_id": "P2", "decision": "rejected"}],
+            "supplement": "本次补充",
+        },
+    )
     candidates = run.checkpoint["candidates"]
     assert queried == [{"code_1": "revenue"}]
     assert [c["refs"] for c in candidates] == [[metric_ref], [other_ref, metric_ref]]
@@ -674,8 +827,9 @@ def test_resume_candidates_use_item_refs_and_scope_metric_refs_only(monkeypatch,
 def test_resume_candidates_use_system_source_and_keep_user_supplement(monkeypatch, source, decision):
     session, user, run, _ = waiting_run(monkeypatch)
     run.checkpoint["proposal"]["items"][0]["source"] = source
-    service.resume_run(session, user, run.id, {
-        "decisions": [{"item_id": "P1", "decision": decision}], "supplement": "本次补充"})
+    service.resume_run(
+        session, user, run.id, {"decisions": [{"item_id": "P1", "decision": decision}], "supplement": "本次补充"}
+    )
     candidates = run.checkpoint["candidates"]
     expected = ["本次补充"]
     if source == "inferred" and decision == "rejected":
@@ -718,8 +872,9 @@ def test_resume_compare_and_swap_failure_does_not_enqueue(monkeypatch):
 
 
 def test_asset_revocation_is_rejected_at_checkpoint_before_model(monkeypatch):
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(), "p"), report_reply()])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(), "p"), report_reply()]
+    )
     box.precheck_meta = [{"table": "catalog.schema.asset_a", "refs": []}]
     graph = agent.build_graph(MemorySaver())
     graph.invoke(state, config)
@@ -736,10 +891,13 @@ def test_asset_revocation_is_rejected_at_checkpoint_before_model(monkeypatch):
 
 
 @pytest.mark.parametrize("trigger", ["manual", "schedule"])
-@pytest.mark.parametrize(("checkpoint_kind", "resolved_metric", "clarification_rounds"), [
-    ("assumptions", None, 0), ("clarify", None, 1), ("clarify", "m_a", 1), ("clarify", "m_a", 2)])
+@pytest.mark.parametrize(
+    ("checkpoint_kind", "resolved_metric", "clarification_rounds"),
+    [("assumptions", None, 0), ("clarify", None, 1), ("clarify", "m_a", 1), ("clarify", "m_a", 2)],
+)
 def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
-        monkeypatch, trigger, checkpoint_kind, resolved_metric, clarification_rounds):
+    monkeypatch, trigger, checkpoint_kind, resolved_metric, clarification_rounds
+):
     """真实 execute/graph/resume/task 收尾，只有模型、外部取数和元数据会话是替身。"""
     catalog = pipeline_catalog()
     metric = Metric(id="m_a", code="m_a", domain_id="dA")
@@ -749,11 +907,23 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
     session, user = box.session, box.user
     user.username = "user-a"
     task = AnalysisTask(id="task-a", title="检查变化", question="检查指标变化", owner_id=user.id, status="active")
-    run = AnalysisRun(id="run-a", task_id=task.id, user_id=user.id, question=task.question, trigger=trigger,
-                      status="queued", confirmation_mode="auto", window=dict(WINDOW), checkpoint={},
-                      budget=Budget().view(), report={}, verification={})
-    first_job = Job(id="job-first", status="running", attempts=1, kind="analysis", result={},
-                    payload={"task_id": task.id})
+    run = AnalysisRun(
+        id="run-a",
+        task_id=task.id,
+        user_id=user.id,
+        question=task.question,
+        trigger=trigger,
+        status="queued",
+        confirmation_mode="auto",
+        window=dict(WINDOW),
+        checkpoint={},
+        budget=Budget().view(),
+        report={},
+        verification={},
+    )
+    first_job = Job(
+        id="job-first", status="running", attempts=1, kind="analysis", result={}, payload={"task_id": task.id}
+    )
     active_job = [first_job]
     session.store[(AnalysisRun, run.id)] = run
     session.store[(AnalysisTask, task.id)] = task
@@ -793,12 +963,17 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
     graph = agent.build_graph(saver)
     question, answer = "请确认要分析哪个地区？", "华东地区"
     exchanges = [(question, answer), ("请确认要分析哪个指标？", "指标甲 m_a")][:clarification_rounds]
-    final_scope = reply("submit_scope", {"question_type": "other",
-                                        "metric_codes": [resolved_metric] if resolved_metric else []}, "scope")
-    responses = ([clarify_reply(q) for q, _ in exchanges] +
-                 [final_scope, reply("submit_proposal", {"items": []}, "proposal"),
-                  report_reply()] if checkpoint_kind == "clarify" else
-                 [scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()])
+    final_scope = reply(
+        "submit_scope",
+        {"question_type": "other", "metric_codes": [resolved_metric] if resolved_metric else []},
+        "scope",
+    )
+    responses = (
+        [clarify_reply(q) for q, _ in exchanges]
+        + [final_scope, reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+        if checkpoint_kind == "clarify"
+        else [scope_reply(), reply("submit_proposal", proposal(), "proposal"), report_reply()]
+    )
     model = Phased(responses)
     model.adapter = "fake"
     monkeypatch.setattr(service, "warm_up", lambda: None)
@@ -834,8 +1009,9 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
         return
     assert outcome["run_status"] == "waiting" and run.status == "waiting"
     assert first_job.status == "succeeded" and not any(isinstance(o, Notification) for o in session.added)
-    expected_pending = ({"kind": "clarify", "question": question} if checkpoint_kind == "clarify" else
-                        {"kind": "assumptions"})
+    expected_pending = (
+        {"kind": "clarify", "question": question} if checkpoint_kind == "clarify" else {"kind": "assumptions"}
+    )
     assert run.checkpoint["pending"] == expected_pending
     assert run.checkpoint["snapshot"]["budget"]["used"]["queries"] == (0 if checkpoint_kind == "clarify" else 1)
     if checkpoint_kind == "clarify":
@@ -847,22 +1023,35 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
         graph = agent.build_graph(saver)
 
     from avelis import jobs
+
     expected_candidates, resumed_jobs = [], []
     if resolved_metric:
-        existing = {"kind": "rule", "content": "已有指标引用", "refs": [
-            {"object_type": "metric_version", "object_id": "old-v2", "version": 2}],
-            "source": {"run_id": run.id, "checkpoint": "understand", "user_text": "已有指标引用"}}
+        existing = {
+            "kind": "rule",
+            "content": "已有指标引用",
+            "refs": [{"object_type": "metric_version", "object_id": "old-v2", "version": 2}],
+            "source": {"run_id": run.id, "checkpoint": "understand", "user_text": "已有指标引用"},
+        }
     for index in range(max(1, clarification_rounds)):
         job = Job(id=f"job-resume-{index}", status="queued", attempts=1, kind="analysis_run", result={})
         resumed_jobs.append(job)
         monkeypatch.setattr(jobs, "_enqueue", lambda *a, **kw: job.id)
-        feedback = ({"answer": exchanges[index][1]} if checkpoint_kind == "clarify" else
-                    {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
+        feedback = (
+            {"answer": exchanges[index][1]}
+            if checkpoint_kind == "clarify"
+            else {"decisions": [{"item_id": "P1", "decision": "confirmed"}]}
+        )
         service.resume_run(session, user, run.id, feedback)
         if checkpoint_kind == "clarify":
             text = f"问题：{exchanges[index][0]} 回答：{exchanges[index][1]}"
-            expected_candidates.append({"kind": "rule", "content": text, "refs": [],
-                "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text}})
+            expected_candidates.append(
+                {
+                    "kind": "rule",
+                    "content": text,
+                    "refs": [],
+                    "source": {"run_id": run.id, "checkpoint": "understand", "user_text": text},
+                }
+            )
             assert run.checkpoint["candidates"] == expected_candidates
         if resolved_metric and index == clarification_rounds - 1:
             run.checkpoint["candidates"].append(json.loads(json.dumps(existing)))
@@ -890,8 +1079,7 @@ def test_task_checkpoint_resumes_once_and_scheduled_tasks_do_not_interrupt(
             from tests.unit.test_experiences import MemorySession
 
             saved_session = MemorySession([run, metric, version])
-            saved = [experiences.save_experience(saved_session, user, **candidate)
-                     for candidate in expected_candidates]
+            saved = [experiences.save_experience(saved_session, user, **candidate) for candidate in expected_candidates]
             recalled = experiences.recall(saved_session, user, metric_codes=[resolved_metric])
             assert {item["id"] for item in recalled} == {item["id"] for item in saved}
             assert all(item["refs"] == refs for item in recalled)
@@ -906,18 +1094,38 @@ def test_lookup_source_permission_denial_is_recorded_and_pauses_scheduled_task(m
     from tests.unit.test_analysis_entry import fake_ask
     from tests.unit.test_analysis_entry import scope_reply as lookup_scope
 
-    box, model, _, _, _ = entry_configured(monkeypatch, [lookup_scope(),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()], unattended=True)
+    box, model, _, _, _ = entry_configured(
+        monkeypatch,
+        [lookup_scope(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()],
+        unattended=True,
+    )
     session, user = box.session, box.user
     user.username = "user-a"
-    task = AnalysisTask(id="task-a", title="定时取数", question="指标甲是多少？", owner_id=user.id,
-                        status="active", next_run_at=service.utcnow())
-    run = AnalysisRun(id="lookup-run", task_id=task.id, user_id=user.id, question=task.question,
-                      trigger="schedule", status="queued", confirmation_mode="auto", window=dict(WINDOW),
-                      checkpoint={}, budget=Budget().view(), plan={}, report={}, verification={})
+    task = AnalysisTask(
+        id="task-a",
+        title="定时取数",
+        question="指标甲是多少？",
+        owner_id=user.id,
+        status="active",
+        next_run_at=service.utcnow(),
+    )
+    run = AnalysisRun(
+        id="lookup-run",
+        task_id=task.id,
+        user_id=user.id,
+        question=task.question,
+        trigger="schedule",
+        status="queued",
+        confirmation_mode="auto",
+        window=dict(WINDOW),
+        checkpoint={},
+        budget=Budget().view(),
+        plan={},
+        report={},
+        verification={},
+    )
     box.run = run
-    job = Job(id="lookup-job", status="running", attempts=1, kind="analysis", result={},
-              payload={"task_id": task.id})
+    job = Job(id="lookup-job", status="running", attempts=1, kind="analysis", result={}, payload={"task_id": task.id})
     session.store.update({(AnalysisRun, run.id): run, (AnalysisTask, task.id): task})
     session.rollback = lambda: None
     session.scalar = lambda statement: job if job.status == "running" else None
@@ -975,8 +1183,9 @@ def test_lookup_source_permission_denial_is_recorded_and_pauses_scheduled_task(m
 
 def test_valid_reference_cannot_ground_an_unrelated_hypothesis(monkeypatch):
     ref = {"object_type": "asset", "object_id": "asset-a", "version": 1}
-    box, _, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", proposal(refs=[ref]), "p")])
+    box, _, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", proposal(refs=[ref]), "p")]
+    )
     box.precheck_meta = [{"table": "catalog.schema.asset_a", "refs": [ref]}]
     monkeypatch.setattr(box, "_asset", lambda qualified: None)
     result = agent.build_graph(MemorySaver()).invoke(state, config)
@@ -987,9 +1196,18 @@ def test_experience_content_and_refs_come_from_recalled_version(monkeypatch):
     ref = {"object_type": "metric_version", "object_id": "metric-v2", "version": 2}
     exp = {"id": "exp-a", "version": 2, "content": "已确认的范围", "refs": [ref]}
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
-    box, _, config, state, _ = configured(monkeypatch, [scope_reply(), reply("submit_proposal",
-        proposal(content="模型概括的另一段文字", experience_id="exp-a", experience_version=2), "p"),
-        report_reply()])
+    box, _, config, state, _ = configured(
+        monkeypatch,
+        [
+            scope_reply(),
+            reply(
+                "submit_proposal",
+                proposal(content="模型概括的另一段文字", experience_id="exp-a", experience_version=2),
+                "p",
+            ),
+            report_reply(),
+        ],
+    )
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     item = result["proposal"]["items"][0]
     assert not result.get("__interrupt__") and item["source"] == "experience"
@@ -1002,7 +1220,11 @@ def test_experience_content_and_refs_come_from_recalled_version(monkeypatch):
 @pytest.mark.parametrize("source", ["experience", "inferred"])
 @pytest.mark.parametrize("object_type", ["asset", "metric_version"])
 def test_resume_excludes_revoked_proposal_refs_from_every_model_request(
-    monkeypatch, decision, revoked, source, object_type,
+    monkeypatch,
+    decision,
+    revoked,
+    source,
+    object_type,
 ):
     cat = pipeline_catalog()
     metric, version = cat.versions["m_a"]
@@ -1013,21 +1235,42 @@ def test_resume_excludes_revoked_proposal_refs_from_every_model_request(
     extra_metric = Metric(id="extra-metric", code="extra", domain_id="dB")
     extra_version = MetricVersion(id="extra-v1", metric_id=extra_metric.id, version_no=1)
     cat.versions[extra_metric.code] = (extra_metric, extra_version)
-    exp = {"id": "exp-e", "version": 2, "content": "经验E的保密关联规则", "refs": [
-        {"object_type": "metric_version", "object_id": version.id, "version": 1},
-        {"object_type": object_type, "object_id": asset.id if object_type == "asset" else extra_version.id,
-         "version": 1}]}
+    exp = {
+        "id": "exp-e",
+        "version": 2,
+        "content": "经验E的保密关联规则",
+        "refs": [
+            {"object_type": "metric_version", "object_id": version.id, "version": 1},
+            {
+                "object_type": object_type,
+                "object_id": asset.id if object_type == "asset" else extra_version.id,
+                "version": 1,
+            },
+        ],
+    }
     monkeypatch.setattr(experiences, "recall", lambda *a, **kw: [exp])
-    args = (proposal(experience_id=exp["id"], experience_version=exp["version"]) if source == "experience" else
-            proposal(content="推断项借用了经验E的保密引用", refs=exp["refs"]))
+    args = (
+        proposal(experience_id=exp["id"], experience_version=exp["version"])
+        if source == "experience"
+        else proposal(content="推断项借用了经验E的保密引用", refs=exp["refs"])
+    )
     content = exp["content"] if source == "experience" else args["items"][0]["content"]
     scope = reply("submit_scope", {"question_type": "other", "metric_codes": ["m_a"]}, "scope")
-    box, model, config, state, calls = configured(monkeypatch, [scope, reply("submit_proposal",
-        args, "p"),
-        AIMessage(content="继续核对已有数据"), report_reply()], mode="always", catalog=cat)
-    box.session.store.update({(Metric, metric.id): metric, (MetricVersion, version.id): version,
-                              (Asset, asset.id): asset, (Metric, extra_metric.id): extra_metric,
-                              (MetricVersion, extra_version.id): extra_version})
+    box, model, config, state, calls = configured(
+        monkeypatch,
+        [scope, reply("submit_proposal", args, "p"), AIMessage(content="继续核对已有数据"), report_reply()],
+        mode="always",
+        catalog=cat,
+    )
+    box.session.store.update(
+        {
+            (Metric, metric.id): metric,
+            (MetricVersion, version.id): version,
+            (Asset, asset.id): asset,
+            (Metric, extra_metric.id): extra_metric,
+            (MetricVersion, extra_version.id): extra_version,
+        }
+    )
     monkeypatch.setattr(box.session, "scalar", lambda statement: asset_version)
     monkeypatch.setattr(agent.service, "version_sources", lambda s, v: {})
     allowed = {"dA", "dB"}
@@ -1043,8 +1286,10 @@ def test_resume_excludes_revoked_proposal_refs_from_every_model_request(
     if revoked:
         allowed.remove("dB")
     final = graph.invoke(Command(resume={"decisions": [{"item_id": "P1", "decision": decision}]}), config)
-    resumed_requests = [json.dumps([m.model_dump(mode="json") for m in messages], ensure_ascii=False)
-                        for messages in model.seen[request_count:]]
+    resumed_requests = [
+        json.dumps([m.model_dump(mode="json") for m in messages], ensure_ascii=False)
+        for messages in model.seen[request_count:]
+    ]
     assert len(resumed_requests) == 2 and final["phase"] == "done" and box.verification["ok"]
     assert all((content in request) is (not revoked) for request in resumed_requests)
     assert box.snapshot()["state"]["proposal"] == final["proposal"]
@@ -1061,14 +1306,21 @@ def test_resume_excludes_revoked_proposal_refs_from_every_model_request(
 
 def test_supplement_uses_current_run_user_id_and_full_api_length(monkeypatch):
     supplement = "补充范围" * 1000  # API 允许的四千字不应受模型提议的两百字限制截断。
-    existing = {"id": "U1", "kind": "hypothesis", "content": "已有补充", "source": "user",
-                "refs": [], "status": "confirmed"}
+    existing = {
+        "id": "U1",
+        "kind": "hypothesis",
+        "content": "已有补充",
+        "source": "user",
+        "refs": [],
+        "status": "confirmed",
+    }
     box, _, config, state, _ = configured(monkeypatch, [reply("submit_proposal", proposal(), "p"), report_reply()])
     state["inherited"] = {"scope": {"question_type": "other", "metric_codes": []}, "items": [existing]}
     graph = agent.build_graph(MemorySaver())
     graph.invoke(state, config)
-    result = graph.invoke(Command(resume={"decisions": [{"item_id": "P1", "decision": "confirmed"}],
-                                          "supplement": supplement}), config)
+    result = graph.invoke(
+        Command(resume={"decisions": [{"item_id": "P1", "decision": "confirmed"}], "supplement": supplement}), config
+    )
     user_items = [i for i in result["confirmed_items"] if i["source"] == "user"]
     assert [i["id"] for i in user_items] == ["U1", "U1"] and user_items[-1]["content"] == supplement
     assert sum(s.get("content") == supplement for s in box.report["sources"]) == 1
@@ -1103,13 +1355,24 @@ def test_followup_rechecks_scope_and_precheck_tables_before_model(monkeypatch, s
 
 
 def test_followup_reports_inherited_experience_without_new_recall(monkeypatch):
-    item = {"id": "P1", "kind": "hypothesis", "content": "已确认前提", "source": "experience", "refs": [],
-            "experience_id": "exp-a", "experience_version": 2}
-    box, model, config, state, _ = configured(monkeypatch, [reply("submit_proposal", {"items": []}, "p"),
-                                                          report_reply()])
+    item = {
+        "id": "P1",
+        "kind": "hypothesis",
+        "content": "已确认前提",
+        "source": "experience",
+        "refs": [],
+        "experience_id": "exp-a",
+        "experience_version": 2,
+    }
+    box, model, config, state, _ = configured(
+        monkeypatch, [reply("submit_proposal", {"items": []}, "p"), report_reply()]
+    )
     box.run.parent_run_id = "parent"
-    state["inherited"] = {"scope": {"question_type": "other", "metric_codes": []},
-                          "items": [item], "user_text": "请再次核对"}
+    state["inherited"] = {
+        "scope": {"question_type": "other", "metric_codes": []},
+        "items": [item],
+        "user_text": "请再次核对",
+    }
     result = agent.build_graph(MemorySaver()).invoke(state, config)
     assert result["phase"] == "done" and box.experiences == []
     assert box.report["experience_versions"] == [{"id": "exp-a", "version": 2}]

@@ -41,8 +41,7 @@ class FileDependencies:
 def _relative_path(filename: str) -> str:
     path = filename.replace("\\", "/")
     parts = PurePosixPath(path).parts
-    if (not path or path.startswith("/") or any(part in ("..", "") for part in parts)
-            or ":" in path or "\x00" in path):
+    if not path or path.startswith("/") or any(part in ("..", "") for part in parts) or ":" in path or "\x00" in path:
         raise Invalid(Msg("文件路径不合法：{name}", name=filename))
     normalized = posixpath.normpath(path)
     if normalized in (".", ".."):
@@ -50,8 +49,12 @@ def _relative_path(filename: str) -> str:
     return normalized
 
 
-def read_uploads(uploads: list[tuple[str, bytes]], *, max_file_bytes: int = 20 * 1024 * 1024,
-                 max_batch_bytes: int = 100 * 1024 * 1024) -> tuple[list[ImportFile], list[str]]:
+def read_uploads(
+    uploads: list[tuple[str, bytes]],
+    *,
+    max_file_bytes: int = 20 * 1024 * 1024,
+    max_batch_bytes: int = 100 * 1024 * 1024,
+) -> tuple[list[ImportFile], list[str]]:
     """只在内存读取，不向文件系统解压；上限包含不支持扩展名的 zip 条目。"""
     files: list[ImportFile] = []
     notes: list[str] = []

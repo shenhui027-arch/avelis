@@ -20,8 +20,11 @@ from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 REASONING_FIELD = "reasoning_content"
-ABNORMAL_FINISH = {"length": "model_truncated", "max_tokens": "model_truncated",
-                   "content_filter": "model_content_filter"}
+ABNORMAL_FINISH = {
+    "length": "model_truncated",
+    "max_tokens": "model_truncated",
+    "content_filter": "model_content_filter",
+}
 
 
 class ModelProtocolError(RuntimeError):

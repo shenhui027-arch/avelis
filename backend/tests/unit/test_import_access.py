@@ -19,13 +19,28 @@ class ImportSession:
     def __init__(self, roles: set[str]):
         self.roles = roles
         self.reads = []
-        self.batch = ImportBatch(id="batch-1", datasource_id="ds-1", status="done", progress={}, stats={}, options={},
-                                 created_at=datetime(2026, 10, 29, tzinfo=UTC))
+        self.batch = ImportBatch(
+            id="batch-1",
+            datasource_id="ds-1",
+            status="done",
+            progress={},
+            stats={},
+            options={},
+            created_at=datetime(2026, 10, 29, tzinfo=UTC),
+        )
         self.job = ImportJob(
-            id="job-1", batch_id="batch-1", datasource_id="ds-1", filename="private.sql", language="sql",
+            id="job-1",
+            batch_id="batch-1",
+            datasource_id="ds-1",
+            filename="private.sql",
+            language="sql",
             source_type="sql",
-            status="done", params={"password": "private-param"}, stats={}, model_adapter="private-model",
-            model_payload=[{"text": "private-model-payload"}], content_hash="digest",
+            status="done",
+            params={"password": "private-param"},
+            stats={},
+            model_adapter="private-model",
+            model_payload=[{"text": "private-model-payload"}],
+            content_hash="digest",
             created_at=datetime(2026, 10, 29, tzinfo=UTC),
         )
 
@@ -69,24 +84,34 @@ def client_for(session: ImportSession) -> TestClient:
 
 
 @pytest.mark.parametrize("roles", [set(), {"analyst"}, {"reviewer"}, {"analyst", "reviewer"}])
-@pytest.mark.parametrize("method,path,body", [
-    ("GET", "/api/imports", None),
-    ("GET", "/api/imports/batch-1", None),
-    ("GET", "/api/imports/batch-1/statements", None),
-    ("GET", "/api/imports/batch-1/candidates", None),
-    ("GET", "/api/imports/batch-1/files/job-1/content", None),
-    ("GET", "/api/imports/batch-1/model-payload", None),
-    ("GET", "/api/imports/sql-functions/ds-1", None),
-    ("PUT", "/api/imports/sql-functions/ds-1", {"sql_functions": ["run_sql"]}),
-    ("POST", "/api/imports", {"datasource_id": "ds-1", "content": "SELECT 1"}),
-    ("PUT", "/api/imports/batch-1/params", {"params": {"table": "events"}}),
-    ("POST", "/api/candidates/pending-candidate/decision", {"decision": "accept", "reason": "确认"}),
-    ("POST", "/api/candidates/decisions", {"ids": ["pending-candidate"], "decision": "reject", "reason": "复核"}),
-    ("POST", "/api/imports/batch-1/edges", {
-        "file_id": "job-1", "source_ref": "src.events", "target_ref": "dw.daily_summary",
-        "relation": "table", "reason": "补充",
-    }),
-])
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("GET", "/api/imports", None),
+        ("GET", "/api/imports/batch-1", None),
+        ("GET", "/api/imports/batch-1/statements", None),
+        ("GET", "/api/imports/batch-1/candidates", None),
+        ("GET", "/api/imports/batch-1/files/job-1/content", None),
+        ("GET", "/api/imports/batch-1/model-payload", None),
+        ("GET", "/api/imports/sql-functions/ds-1", None),
+        ("PUT", "/api/imports/sql-functions/ds-1", {"sql_functions": ["run_sql"]}),
+        ("POST", "/api/imports", {"datasource_id": "ds-1", "content": "SELECT 1"}),
+        ("PUT", "/api/imports/batch-1/params", {"params": {"table": "events"}}),
+        ("POST", "/api/candidates/pending-candidate/decision", {"decision": "accept", "reason": "确认"}),
+        ("POST", "/api/candidates/decisions", {"ids": ["pending-candidate"], "decision": "reject", "reason": "复核"}),
+        (
+            "POST",
+            "/api/imports/batch-1/edges",
+            {
+                "file_id": "job-1",
+                "source_ref": "src.events",
+                "target_ref": "dw.daily_summary",
+                "relation": "table",
+                "reason": "补充",
+            },
+        ),
+    ],
+)
 def test_import_payload_routes_reject_before_reading(roles, method, path, body):
     session = ImportSession(roles)
     with client_for(session) as client:
@@ -101,8 +126,11 @@ def test_import_payload_routes_reject_before_reading(roles, method, path, body):
 def test_upload_requires_import_access(roles):
     session = ImportSession(roles)
     with client_for(session) as client:
-        response = client.post("/api/imports/upload", data={"datasource_id": "ds-1"},
-                               files={"file": ("private.sql", b"SELECT 1", "text/plain")})
+        response = client.post(
+            "/api/imports/upload",
+            data={"datasource_id": "ds-1"},
+            files={"file": ("private.sql", b"SELECT 1", "text/plain")},
+        )
     assert response.status_code == 403
     assert session.reads == []
 

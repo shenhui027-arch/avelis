@@ -40,23 +40,63 @@ def copied_box():
     metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as session:
         user = User(id="reader", username="reader", display_name="阅读者", password_hash="unused")
-        asset = Asset(id="source-asset", datasource_id="source", kind="table", catalog_name="local",
-                      db_name="data", name="facts", domain_id="visible")
-        run = AnalysisRun(id="followup", user_id=user.id, question="继续分析", trigger="followup",
-                          status="running", model_adapter="offline", window={})
-        source = AnalysisDataset(id="copied", run_id=run.id, seq=1, kind="context", title="历史证据",
-                                 columns=["value"], rows=[[17]], meta={"asset_ids": [asset.id],
-                                     "units": {"value": {"kind": "count", "unit": "", "scale": 1}},
-                                     "copied_from": {"run_id": "previous", "ref": "D4"}})
-        calculated = AnalysisDataset(id="calculated", run_id=run.id, seq=2, kind="calc", title="本轮计算",
-                                     inputs=["D1"], columns=["value"], rows=[[34]],
-                                     meta={"closure": ["D1"], "summary": {"total": 34}})
-        session.add_all([user, UserRole(user_id=user.id, role="analyst"),
-                         Domain(id="visible", code="visible", name="可见域", owner_id=user.id),
-                         Domain(id="hidden", code="hidden", name="其他域", owner_id=user.id),
-                         DomainMember(domain_id="visible", user_id=user.id, role="viewer"),
-                         Datasource(id="source", name="source", kind="fake", host="offline", port=1),
-                         asset, run, source, calculated])
+        asset = Asset(
+            id="source-asset",
+            datasource_id="source",
+            kind="table",
+            catalog_name="local",
+            db_name="data",
+            name="facts",
+            domain_id="visible",
+        )
+        run = AnalysisRun(
+            id="followup",
+            user_id=user.id,
+            question="继续分析",
+            trigger="followup",
+            status="running",
+            model_adapter="offline",
+            window={},
+        )
+        source = AnalysisDataset(
+            id="copied",
+            run_id=run.id,
+            seq=1,
+            kind="context",
+            title="历史证据",
+            columns=["value"],
+            rows=[[17]],
+            meta={
+                "asset_ids": [asset.id],
+                "units": {"value": {"kind": "count", "unit": "", "scale": 1}},
+                "copied_from": {"run_id": "previous", "ref": "D4"},
+            },
+        )
+        calculated = AnalysisDataset(
+            id="calculated",
+            run_id=run.id,
+            seq=2,
+            kind="calc",
+            title="本轮计算",
+            inputs=["D1"],
+            columns=["value"],
+            rows=[[34]],
+            meta={"closure": ["D1"], "summary": {"total": 34}},
+        )
+        session.add_all(
+            [
+                user,
+                UserRole(user_id=user.id, role="analyst"),
+                Domain(id="visible", code="visible", name="可见域", owner_id=user.id),
+                Domain(id="hidden", code="hidden", name="其他域", owner_id=user.id),
+                DomainMember(domain_id="visible", user_id=user.id, role="viewer"),
+                Datasource(id="source", name="source", kind="fake", host="offline", port=1),
+                asset,
+                run,
+                source,
+                calculated,
+            ]
+        )
         session.commit()
         box = AnalysisToolbox(session, user, run, Catalog([], {}), Budget())
         box._datasets = {"D1": source, "D2": calculated}
@@ -127,8 +167,7 @@ def test_omitted_copies_keep_their_dataset_numbers_reserved_across_resume(copied
     box._dataset_seq_floor = 2
     restored = AnalysisToolbox(box.session, box.user, box.run, Catalog([], {}), Budget())
     restored.restore(box.snapshot())
-    dataset = restored._dataset("context", "本轮新证据", ["value"], [[29]],
-                                meta={"asset_ids": [asset.id]})
+    dataset = restored._dataset("context", "本轮新证据", ["value"], [[29]], meta={"asset_ids": [asset.id]})
     assert dataset.seq == 3 and set(restored.datasets()) == {"D3"}
 
 
@@ -136,20 +175,34 @@ def test_omitted_copies_keep_their_dataset_numbers_reserved_across_resume(copied
 def waiting_followup(api, model):
     api.dataset.rows = [["copied-private-row", 17]]
     run = service.followup_run(api.session, api.user, api.run.id, "继续核对")
-    derived = AnalysisDataset(run_id=run.id, seq=2, kind="calc", title="本轮计算", inputs=["D1"],
-                              columns=["value"], rows=[["derived-private-row"]], meta={"closure": ["D1"]})
+    derived = AnalysisDataset(
+        run_id=run.id,
+        seq=2,
+        kind="calc",
+        title="本轮计算",
+        inputs=["D1"],
+        columns=["value"],
+        rows=[["derived-private-row"]],
+        meta={"closure": ["D1"]},
+    )
     api.session.add(derived)
     api.session.flush()
     box = AnalysisToolbox(api.session, api.user, run, Catalog([], {}), Budget())
-    box._datasets = {f"D{dataset.seq}": dataset for dataset in api.session.scalars(
-        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
+    box._datasets = {
+        f"D{dataset.seq}": dataset
+        for dataset in api.session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))
+    }
     assert set(box.readable_datasets()) == {"D1", "D2"}
     run.status = "waiting"
-    run.checkpoint = {**run.checkpoint, "snapshot": box.snapshot(),
-                      "pending": {"kind": "clarify", "question": "继续核对哪个范围？"}}
+    run.checkpoint = {
+        **run.checkpoint,
+        "snapshot": box.snapshot(),
+        "pending": {"kind": "clarify", "question": "继续核对哪个范围？"},
+    }
     api.session.commit()
-    membership = api.session.scalar(select(DomainMember).where(
-        DomainMember.domain_id == "asset-domain", DomainMember.user_id == api.user.id))
+    membership = api.session.scalar(
+        select(DomainMember).where(DomainMember.domain_id == "asset-domain", DomainMember.user_id == api.user.id)
+    )
     api.session.delete(membership)
     api.session.commit()
     return api, run

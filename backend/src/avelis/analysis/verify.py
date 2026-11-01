@@ -40,14 +40,20 @@ IDENTIFIER_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]+[0-9]+(?![A-Za-z0-9])")
 # 中文数量表达（第 2 点第 4 条）：数字由二至九、十、百、千、万、亿、两、零〇 组成（“一”只在与它们相连时算进数字，
 # 如“一百”“十一”），从整段数字的开头匹配（前面是“第”的是序数），后面紧跟量词或单位才算数量
 _CN_DIGIT = "零〇一二两三四五六七八九十百千万亿"
-MEASURES = ("个百分点|百分点|分钟|小时|[家个件单笔人次条项元块成倍折%％名位户台张份类种款批天周]")
-CN_QUANTITY = re.compile(rf"(?<![第{_CN_DIGIT}])([{_CN_DIGIT}]*[零〇二两三四五六七八九十百千万亿][{_CN_DIGIT}]*)\s*(?:{MEASURES})")
+MEASURES = "个百分点|百分点|分钟|小时|[家个件单笔人次条项元块成倍折%％名位户台张份类种款批天周]"
+CN_QUANTITY = re.compile(
+    rf"(?<![第{_CN_DIGIT}])([{_CN_DIGIT}]*[零〇二两三四五六七八九十百千万亿][{_CN_DIGIT}]*)\s*(?:{MEASURES})"
+)
 CN_FRACTION = re.compile(rf"百分之|[{_CN_DIGIT}]+\s*分之")
 CN_FINANCIAL = re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟]")
 JOINER = re.compile(r"^[\s.,eE+\-×]*$")
 SUFFIX = re.compile(r"^\s*(?:%|％|倍|成|元|万|亿|个百分点|折)")
-STATUS_LABEL = {"all_passed": "来源全部通过", "with_inference": "含未核实的推断", "no_facts": "没有可核实的事实",
-                "failed": "有未通过的事实或字段"}
+STATUS_LABEL = {
+    "all_passed": "来源全部通过",
+    "with_inference": "含未核实的推断",
+    "no_facts": "没有可核实的事实",
+    "failed": "有未通过的事实或字段",
+}
 
 
 def _concat_problems(segments: list[dict]) -> list[str]:
@@ -55,12 +61,16 @@ def _concat_problems(segments: list[dict]) -> list[str]:
     for s in segments:
         if s["kind"] in NUMERIC:
             if last is not None and JOINER.match(between):
-                problems.append(f"第 {last['part']}、{s['part']} 个片段：两个数值段之间只隔着“{between}”，会拼成新的数字")
+                problems.append(
+                    f"第 {last['part']}、{s['part']} 个片段：两个数值段之间只隔着“{between}”，会拼成新的数字"
+                )
             last, between = s, ""
             continue
         if s["kind"] == "text" and last is not None and between == "" and SUFFIX.match(s["text"]):
-            problems.append(f"第 {s['part']} 个片段：数值段后面紧跟单位或数量后缀“{SUFFIX.match(s['text']).group(0).strip()}”"
-                            "，单位由系统按量纲输出")
+            problems.append(
+                f"第 {s['part']} 个片段：数值段后面紧跟单位或数量后缀“{SUFFIX.match(s['text']).group(0).strip()}”"
+                "，单位由系统按量纲输出"
+            )
         between += s["text"] if s["kind"] == "text" else "\0"  # 维度文本、日期等隔开数值段
     return problems
 
@@ -73,11 +83,15 @@ def _text_problems(segments: list[dict]) -> list[str]:
         text = s["text"]
         numeric_text = IDENTIFIER_TOKEN.sub(" ", text)
         for d in list(dict.fromkeys(DIGITS.findall(numeric_text)))[:3]:
-            problems.append(f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）")
+            problems.append(
+                f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
+            )
         found = [m.group(0) for pattern in (CN_QUANTITY, CN_FRACTION, CN_FINANCIAL) for m in pattern.finditer(text)]
         for q in list(dict.fromkeys(found))[:3]:
-            problems.append(f"第 {s['part']} 个片段（文字）出现中文数量“{q.strip()}”：数量请写成引用对象（个数用 CountRef），"
-                            "或改写为不含数量的说法")
+            problems.append(
+                f"第 {s['part']} 个片段（文字）出现中文数量“{q.strip()}”：数量请写成引用对象（个数用 CountRef），"
+                "或改写为不含数量的说法"
+            )
     return problems
 
 
@@ -85,9 +99,13 @@ def _restricted_problems(segments: list[dict]) -> list[str]:
     problems = []
     for s in segments:
         if s.get("role") == "proposal":
-            problems.append(f"第 {s['part']} 个片段（{s['path']}）标为建议目标值（proposal），只能用在推断、建议类结论中")
+            problems.append(
+                f"第 {s['part']} 个片段（{s['path']}）标为建议目标值（proposal），只能用在推断、建议类结论中"
+            )
         if s.get("assumption"):
-            problems.append(f"第 {s['part']} 个片段（{s['path']}）来自假设计算（公式含非白名单常量），只能被推断、建议类结论引用")
+            problems.append(
+                f"第 {s['part']} 个片段（{s['path']}）来自假设计算（公式含非白名单常量），只能被推断、建议类结论引用"
+            )
     return problems
 
 
@@ -102,20 +120,33 @@ def _record(parts: Any, datasets: dict[str, dict], window: dict | None, *, check
     r = render(parts, datasets, window)
     problems = check(r["segments"], r["errors"]) if checked else list(r["errors"])
     status = ("unverified" if problems else "verified") if checked else "unchecked"
-    return {"parts": parts, "text": r["text"], "segments": r["segments"], "status": status, "errors": problems}, r["refs"]
+    return {"parts": parts, "text": r["text"], "segments": r["segments"], "status": status, "errors": problems}, r[
+        "refs"
+    ]
 
 
-def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dict | None,
-                  explanations: dict[str, str] | None = None,
-                  question_type: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def ground_report(
+    report: dict[str, Any],
+    datasets: dict[str, dict],
+    window: dict | None,
+    explanations: dict[str, str] | None = None,
+    question_type: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
     report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}],
     conclusion, causes, metric_code, scope, scope_key}；datasets：见 grounding.resolve；window：本次运行的窗口；
     explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），结论类型以它为准；
     question_type：理解阶段判出的问题类型，变化类（change）的报告必须写 scope 并有同范围的判定。"""
     if report.get("incomplete"):  # 后端生成的“未完成”报告：没有引用，原样保留，不核验
-        return report, {"ok": False, "status": "no_facts", "unverified": 0, "claims": [], "fields": [],
-                        "unverified_fields": 0, "sources": {}}
+        return report, {
+            "ok": False,
+            "status": "no_facts",
+            "unverified": 0,
+            "claims": [],
+            "fields": [],
+            "unverified_fields": 0,
+            "sources": {},
+        }
     rendered: dict[str, Any] = {k: v for k, v in report.items() if k not in (*FIELDS, "claims")}
     rendered["fields"], field_results = {}, []
     for name in FIELDS:
@@ -130,8 +161,13 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
         checked = claim.get("type") in CHECKED
         record, refs = _record(claim.get("parts") or [], datasets, window, checked=checked)
         explicit = [str(x) for x in claim.get("refs") or []]
-        out = {"type": claim.get("type"), **record, "refs": list(dict.fromkeys(explicit + refs)),
-               "explicit_refs": explicit, "details": {}}
+        out = {
+            "type": claim.get("type"),
+            **record,
+            "refs": list(dict.fromkeys(explicit + refs)),
+            "explicit_refs": explicit,
+            "details": {},
+        }
         for key in DETAILS:  # 引用照常渲染，文字片段里的数字允许
             if claim.get(key):
                 detail, _ = _record(claim[key], datasets, window, checked=False)
@@ -149,8 +185,15 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
             out["errors"] += [e for key in DETAILS for e in out["details"].get(key, {}).get("errors", [])]
         unverified += out["status"] == "unverified"
         claims.append(out)
-        results.append({"index": i, "type": out["type"], "status": out["status"], "problems": out["errors"],
-                        "missing_refs": missing})
+        results.append(
+            {
+                "index": i,
+                "type": out["type"],
+                "status": out["status"],
+                "problems": out["errors"],
+                "missing_refs": missing,
+            }
+        )
     rendered["claims"] = claims
     rendered["conclusion"] = report.get("conclusion")
     rendered["causes"], cause_results, conclusion_problems = _causes(report, datasets, window)
@@ -160,22 +203,39 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
     unverified_causes = sum(c["status"] == "unverified" for c in cause_results)
     ok = unverified == 0 and not failed_fields and unverified_causes == 0 and not conclusion_problems
     facts = [c for c in claims if c["type"] in CHECKED]
-    status = ("failed" if not ok else "no_facts" if not facts else
-              "with_inference" if any(c["type"] not in CHECKED for c in claims) else "all_passed")
+    status = (
+        "failed"
+        if not ok
+        else "no_facts"
+        if not facts
+        else "with_inference"
+        if any(c["type"] not in CHECKED for c in claims)
+        else "all_passed"
+    )
     # method 的过程描述只保留字段级提示；ok 决定是否修订事实、计算与报告结论。“只有推断、没有事实”由 no_facts 表示。
-    verification = {"ok": ok, "status": status, "unverified": unverified, "claims": results,
-                    "fields": field_results, "unverified_fields": unverified_fields,
-                    "causes": cause_results, "unverified_causes": unverified_causes,
-                    "conclusion": {"value": report.get("conclusion"), "problems": conclusion_problems},
-                    "sources": _sources(rendered)}
+    verification = {
+        "ok": ok,
+        "status": status,
+        "unverified": unverified,
+        "claims": results,
+        "fields": field_results,
+        "unverified_fields": unverified_fields,
+        "causes": cause_results,
+        "unverified_causes": unverified_causes,
+        "conclusion": {"value": report.get("conclusion"), "problems": conclusion_problems},
+        "sources": _sources(rendered),
+    }
     return rendered, verification
 
 
 FACT_SOURCES = ("governed", "calc", "explore")
 # 每类原因的实体字段：任一组写全即可（成员、因子没有口径编码时用证据行 evidence_id）
-TYPE_FIELDS = {"member": (("metric_code", "dimension", "member"), ("evidence_id",)),
-               "factor": (("factor_metric_code",), ("evidence_id",)), "calendar": ((),),
-               "governance": (("evidence_id",),)}
+TYPE_FIELDS = {
+    "member": (("metric_code", "dimension", "member"), ("evidence_id",)),
+    "factor": (("factor_metric_code",), ("evidence_id",)),
+    "calendar": ((),),
+    "governance": (("evidence_id",),),
+}
 EXPLAIN_CONCLUSIONS = ("ranked_reasons", "offsetting", "no_material_change")
 WITH_CAUSES = ("ranked_reasons", "offsetting")
 
@@ -190,18 +250,27 @@ def _conclusion_matches(report: dict, explanations: dict[str, str], question_typ
     change = question_type == "change"
     if not key:
         if explained:
-            return [f"本次运行做过自动归因（{'；'.join(describe_scope(k) for k in sorted(explained))}）："
-                    "请在 scope 写明所问的指标、筛选与窗口"]
+            return [
+                f"本次运行做过自动归因（{'；'.join(describe_scope(k) for k in sorted(explained))}）："
+                "请在 scope 写明所问的指标、筛选与窗口"
+            ]
         if change and not explanations:
             return ["这是“为什么变化”类问题：请在 scope 写明所问的指标、筛选与窗口，并用这个 scope 调用 explain_change"]
         return []
     verdict = explanations.get(key)
     if verdict is None:
-        return [f"没有与报告 scope {describe_scope(key)} 相同范围的 explain_change 判定：结论类型由它判定，"
-                "请用这个 scope（同样的 metric_code、filters 与窗口）调用 explain_change"] if (
-            change or conclusion in EXPLAIN_CONCLUSIONS) else []
+        return (
+            [
+                f"没有与报告 scope {describe_scope(key)} 相同范围的 explain_change 判定：结论类型由它判定，"
+                "请用这个 scope（同样的 metric_code、filters 与窗口）调用 explain_change"
+            ]
+            if (change or conclusion in EXPLAIN_CONCLUSIONS)
+            else []
+        )
     if verdict in EXPLAIN_CONCLUSIONS and conclusion != verdict:
-        return [f"explain_change 对 {describe_scope(key)}的判定是 {verdict}，结论类型应为 {verdict}（不是 {conclusion}）"]
+        return [
+            f"explain_change 对 {describe_scope(key)}的判定是 {verdict}，结论类型应为 {verdict}（不是 {conclusion}）"
+        ]
     return []
 
 
@@ -216,8 +285,9 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
         problems.append(f"结论类型应为 {'、'.join(CONCLUSIONS)} 之一")
     elif conclusion == "ranked_reasons" and not raw:
         problems.append("结论为 ranked_reasons 时必须给出至少一个原因")
-    elif conclusion == "offsetting" and {c.get("direction") if isinstance(c, dict) else c.direction
-                                         for c in raw[:2]} != {"up", "down"}:
+    elif conclusion == "offsetting" and {
+        c.get("direction") if isinstance(c, dict) else c.direction for c in raw[:2]
+    } != {"up", "down"}:
         problems.append("结论为 offsetting 时前两项原因应是最大的减少项与增加项（方向一减一增）")
     elif conclusion not in WITH_CAUSES and raw:
         problems.append(f"结论为 {conclusion} 时不能给出原因排序")
@@ -234,8 +304,10 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
             continue
         groups = TYPE_FIELDS[cause.type]
         if not any(all(getattr(cause.entity, f) for f in group) for group in groups):
-            errs.append(f"{cause.type} 类原因的实体需要写 " + " 或 ".join(
-                "、".join(f"entity.{f}" for f in group) for group in groups if group))
+            errs.append(
+                f"{cause.type} 类原因的实体需要写 "
+                + " 或 ".join("、".join(f"entity.{f}" for f in group) for group in groups if group)
+            )
         evidence = list(dict.fromkeys(cause.evidence + ([cause.contribution.dataset] if cause.contribution else [])))
         for ref in evidence:
             ds = datasets.get(ref)
@@ -254,21 +326,35 @@ def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tup
             errs += [e.replace("第 1 个片段", "贡献") for e in r["errors"]]
             seg = r["segments"][0] if r["segments"] else {}
             value = _number(seg.get("raw")) if seg.get("kind") == "value" else None
-            if seg.get("measure") in ("delta", "rate_change") and value is not None and value != 0 and (
-                    (value > 0) != (cause.direction == "up")):
+            if (
+                seg.get("measure") in ("delta", "rate_change")
+                and value is not None
+                and value != 0
+                and ((value > 0) != (cause.direction == "up"))
+            ):
                 errs.append(f"方向与贡献的正负不一致：direction={cause.direction}，原值 {seg.get('raw')}")
             if seg.get("assumption"):
                 errs.append("贡献来自假设计算，不能作为原因的证据")
         label = None
         if not errs:
-            entity_errors, label = _entity_problems(cause, {r: datasets[r] for r in evidence if r in datasets},
-                                                    report.get("metric_code"))
+            entity_errors, label = _entity_problems(
+                cause, {r: datasets[r] for r in evidence if r in datasets}, report.get("metric_code")
+            )
             errs += entity_errors
         status = "unverified" if errs else "verified"
-        rendered.append({"index": i, "type": cause.type, "entity": cause.entity.model_dump(exclude_none=True),
-                         "label": label,
-                         "direction": cause.direction, "contribution": contribution, "evidence": evidence,
-                         "status": status, "errors": errs})
+        rendered.append(
+            {
+                "index": i,
+                "type": cause.type,
+                "entity": cause.entity.model_dump(exclude_none=True),
+                "label": label,
+                "direction": cause.direction,
+                "contribution": contribution,
+                "evidence": evidence,
+                "status": status,
+                "errors": errs,
+            }
+        )
         results.append({"index": i, "status": status, "problems": errs})
     if conclusion == "offsetting" and not problems:
         problems += _offsetting_extremes(raw[:2], rendered[:2], datasets)
@@ -288,15 +374,19 @@ def _offsetting_extremes(raw: list, rendered: list[dict], datasets: dict[str, di
         value = _number(segs[0].get("raw")) if segs else None
         ds = datasets.get(ref.dataset) if ref is not None else None
         if ref is None or ref.column is None or ds is None or value is None:
-            out.append(f"原因第 {shown['index'] + 1} 项：相互抵消时贡献要引用归因证据里的贡献列，才能核对是不是最大的"
-                       f"{'增加' if cause.direction == 'up' else '减少'}项")
+            out.append(
+                f"原因第 {shown['index'] + 1} 项：相互抵消时贡献要引用归因证据里的贡献列，才能核对是不是最大的"
+                f"{'增加' if cause.direction == 'up' else '减少'}项"
+            )
             continue
         values = [v for v in (_number(r.get(ref.column)) for r in ds.get("rows") or []) if v is not None]
         side = [v for v in values if (v > 0 if cause.direction == "up" else v < 0)]
         best = (max(side) if cause.direction == "up" else min(side)) if side else None
         if best is None or value != best:
-            out.append(f"原因第 {shown['index'] + 1} 项：相互抵消时前两项应是最大的增加项与最大的减少项，"
-                       f"{ref.dataset} 里最大的{'增加' if cause.direction == 'up' else '减少'}项贡献是 {best}，不是 {value}")
+            out.append(
+                f"原因第 {shown['index'] + 1} 项：相互抵消时前两项应是最大的增加项与最大的减少项，"
+                f"{ref.dataset} 里最大的{'增加' if cause.direction == 'up' else '减少'}项贡献是 {best}，不是 {value}"
+            )
     return out
 
 
@@ -319,9 +409,11 @@ def _entity_problems(cause: Cause, evidence: dict[str, dict], asked: str | None)
             return [f"指标 {e.metric_code} 不在证据数据集的口径里（证据涉及：{'、'.join(sorted(codes))}）"], None
         if not codes and e.metric_code != asked:
             return [f"证据里没有口径编码：成员类原因的 metric_code 只能是所问指标 {asked or '（未写）'}"], None
-        found = any(str(r.get(e.dimension, "")).strip() == e.member
-                    or (str(r.get("dimension", "")).strip() == e.dimension and str(r.get("member", "")).strip() == e.member)
-                    for r in rows)
+        found = any(
+            str(r.get(e.dimension, "")).strip() == e.member
+            or (str(r.get("dimension", "")).strip() == e.dimension and str(r.get("member", "")).strip() == e.member)
+            for r in rows
+        )
         return ([], e.member) if found else ([f"成员 {e.dimension}={e.member} 不在证据数据集里"], None)
     if cause.type == "factor":
         hit = next((r for r in rows if str(r.get("factor_metric_code") or "").strip() == e.factor_metric_code), None)
@@ -333,6 +425,7 @@ def _entity_problems(cause: Cause, evidence: dict[str, dict], asked: str | None)
 
 def _number(value):
     from avelis.analysis.grounding import number
+
     return number(value)
 
 
@@ -342,8 +435,14 @@ def _sources(rendered: dict) -> dict[str, Any]:
       changes、data_health 的上下文证据另列 context）；
     - with_explore：其中依赖闭包含探索查询的数量；assumption：其中来自假设计算的数量；
     - windows、labels：日期与维度文本另列；failed：渲染失败的引用。"""
-    out: dict[str, Any] = {"direct": {"governed": 0, "explore": 0, "calc": 0, "context": 0}, "with_explore": 0,
-                           "assumption": 0, "windows": 0, "labels": 0, "failed": 0}
+    out: dict[str, Any] = {
+        "direct": {"governed": 0, "explore": 0, "calc": 0, "context": 0},
+        "with_explore": 0,
+        "assumption": 0,
+        "windows": 0,
+        "labels": 0,
+        "failed": 0,
+    }
     records = [*rendered.get("fields", {}).values(), *(c for c in rendered.get("claims", []) if c["type"] in CHECKED)]
     for record in records:
         for s in record.get("segments", []):

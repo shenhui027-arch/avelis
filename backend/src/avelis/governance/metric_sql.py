@@ -18,11 +18,46 @@ from avelis.i18n import Msg
 
 BASE_ALIAS = "b"
 ADDITIVE = (exp.Sum, exp.Count, exp.Avg)
-ALLOWED_FUNCS = (exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.If, exp.Case, exp.Abs,
-                 exp.Round, exp.Cast, exp.Distinct, exp.Nullif)
-ALLOWED_NODES = (exp.Column, exp.Identifier, exp.Literal, exp.Paren, exp.Binary, exp.Neg, exp.Not, exp.Null,
-                 exp.Boolean, exp.DataType, exp.In, exp.Between, exp.Is, exp.Tuple, exp.Star, exp.Unary,
-                 exp.When, exp.Interval, exp.Var, exp.DataTypeParam, exp.Like, exp.ILike, exp.Bracket)
+ALLOWED_FUNCS = (
+    exp.Sum,
+    exp.Count,
+    exp.Avg,
+    exp.Min,
+    exp.Max,
+    exp.Coalesce,
+    exp.If,
+    exp.Case,
+    exp.Abs,
+    exp.Round,
+    exp.Cast,
+    exp.Distinct,
+    exp.Nullif,
+)
+ALLOWED_NODES = (
+    exp.Column,
+    exp.Identifier,
+    exp.Literal,
+    exp.Paren,
+    exp.Binary,
+    exp.Neg,
+    exp.Not,
+    exp.Null,
+    exp.Boolean,
+    exp.DataType,
+    exp.In,
+    exp.Between,
+    exp.Is,
+    exp.Tuple,
+    exp.Star,
+    exp.Unary,
+    exp.When,
+    exp.Interval,
+    exp.Var,
+    exp.DataTypeParam,
+    exp.Like,
+    exp.ILike,
+    exp.Bracket,
+)
 
 
 @dataclass
@@ -31,8 +66,9 @@ class ParsedSnippet:
     columns: list[tuple[str, str]] = field(default_factory=list)  # (alias, column)
 
 
-def parse_snippet(text: str, *, dialect: str, label: str, aliases: set[str],
-                  require_aggregate: bool | None) -> ParsedSnippet:
+def parse_snippet(
+    text: str, *, dialect: str, label: str, aliases: set[str], require_aggregate: bool | None
+) -> ParsedSnippet:
     label = label if isinstance(label, Msg) else Msg(label)
     try:
         wrapper = sqlglot.parse_one(f"SELECT {text}", read=dialect)
@@ -48,9 +84,13 @@ def parse_snippet(text: str, *, dialect: str, label: str, aliases: set[str],
         if isinstance(sub, (exp.Subquery, exp.Select, exp.Window)):
             raise Invalid(Msg("{label}不允许子查询或窗口函数：{text}", label=label, text=text))
         if isinstance(sub, exp.Func) and not isinstance(sub, ALLOWED_FUNCS):
-            raise Invalid(Msg("{label}使用了不允许的函数 {function}：{text}", label=label, function=sub.sql_name(), text=text))
+            raise Invalid(
+                Msg("{label}使用了不允许的函数 {function}：{text}", label=label, function=sub.sql_name(), text=text)
+            )
         if not isinstance(sub, ALLOWED_FUNCS + ALLOWED_NODES) and not isinstance(sub, exp.Func):
-            raise Invalid(Msg("{label}包含不支持的语法 {syntax}：{text}", label=label, syntax=type(sub).__name__, text=text))
+            raise Invalid(
+                Msg("{label}包含不支持的语法 {syntax}：{text}", label=label, syntax=type(sub).__name__, text=text)
+            )
         if isinstance(sub, exp.Star) and not isinstance(sub.parent, exp.Count):
             raise Invalid(Msg("{label}只允许在 COUNT(*) 中使用星号：{text}", label=label, text=text))
     has_agg = node.find(exp.AggFunc) is not None
@@ -90,9 +130,12 @@ def is_additive(expression: exp.Expression) -> bool:
 
 def table_expr(qualified: str, alias: str, *, with_catalog: bool = True) -> exp.Table:
     catalog, db, name = qualified.split(".")
-    return exp.Table(this=exp.to_identifier(name), db=exp.to_identifier(db),
-                     catalog=exp.to_identifier(catalog) if with_catalog else None,
-                     alias=exp.TableAlias(this=exp.to_identifier(alias)))
+    return exp.Table(
+        this=exp.to_identifier(name),
+        db=exp.to_identifier(db),
+        catalog=exp.to_identifier(catalog) if with_catalog else None,
+        alias=exp.TableAlias(this=exp.to_identifier(alias)),
+    )
 
 
 def literal(value) -> exp.Expression:

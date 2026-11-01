@@ -41,8 +41,9 @@ class ExpiringClient:
             return Response(401, {"detail": "令牌已过期"})
         self.used.add(token)
         self.asked.append(json["question"])
-        return Response(200, {"id": f"run{len(self.asked)}", "status": "succeeded", "report": {"causes": []},
-                              "verification": {}})
+        return Response(
+            200, {"id": f"run{len(self.asked)}", "status": "succeeded", "report": {"causes": []}, "verification": {}}
+        )
 
 
 def test_every_question_logs_in_again_so_an_expired_token_is_never_reused(capsys):
@@ -54,16 +55,26 @@ def test_every_question_logs_in_again_so_an_expired_token_is_never_reused(capsys
 
 
 def test_resume_reuses_real_runs_and_reruns_401_and_missing(capsys):
-    first = {"results": [{"id": "d01", "repeat": 1, "passed": True, "status": "succeeded"},
-                         {"id": "n01", "repeat": 1, "passed": False, "status": "failed"}],
-             "runs": [{"id": "d01", "repeat": 1, "run": {"id": "old1", "status": "succeeded"}},
-                      {"id": "n01", "repeat": 1, "run": {"status": "failed", "error": "HTTP 401: 令牌已过期"}}]}
+    first = {
+        "results": [
+            {"id": "d01", "repeat": 1, "passed": True, "status": "succeeded"},
+            {"id": "n01", "repeat": 1, "passed": False, "status": "failed"},
+        ],
+        "runs": [
+            {"id": "d01", "repeat": 1, "run": {"id": "old1", "status": "succeeded"}},
+            {"id": "n01", "repeat": 1, "run": {"status": "failed", "error": "HTTP 401: 令牌已过期"}},
+        ],
+    }
     reuse = eval_analysis.reusable(first)
     assert set(reuse) == {("d01", 1)}  # 401 没建出运行：不沿用
     client = ExpiringClient()
     results, runs = eval_analysis.run_questions(client, QUESTIONS, 2, "pw", reuse)
     assert [(r["id"], r["repeat"], r["resumed"]) for r in results] == [
-        ("d01", 1, False), ("n01", 1, True), ("d01", 2, True), ("n01", 2, True)]
+        ("d01", 1, False),
+        ("n01", 1, True),
+        ("d01", 2, True),
+        ("n01", 2, True),
+    ]
     assert runs[0]["run"]["id"] == "old1" and len(client.asked) == 3 and client.issued == 3
 
 
@@ -111,9 +122,19 @@ def test_confirm_all_executes_resumed_job_without_a_worker(monkeypatch):
     monkeypatch.setattr(eval_analysis.time, "sleep", no_wait)
     with factory.begin() as session:
         user = User(id="eval-user", username="eval", display_name="评测用户", password_hash="unused")
-        run = AnalysisRun(id="eval-run", user_id=user.id, question="检查收入变化", status="waiting", trigger="manual",
-                          checkpoint={"pending": {"kind": "assumptions"}, "proposal": {"items": [
-                              {"id": "P1", "kind": "hypothesis", "content": "检查收入变化", "source": "inferred"}]}})
+        run = AnalysisRun(
+            id="eval-run",
+            user_id=user.id,
+            question="检查收入变化",
+            status="waiting",
+            trigger="manual",
+            checkpoint={
+                "pending": {"kind": "assumptions"},
+                "proposal": {
+                    "items": [{"id": "P1", "kind": "hypothesis", "content": "检查收入变化", "source": "inferred"}]
+                },
+            },
+        )
         session.add_all([user, run])
     app = FastAPI()
     app.include_router(analysis.router)

@@ -26,4 +26,3 @@ src = ["backend/src", "backend", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]

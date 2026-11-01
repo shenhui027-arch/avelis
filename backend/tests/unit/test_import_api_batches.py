@@ -73,14 +73,26 @@ class PageSession:
 
 
 def test_statement_page_filters_before_pagination_and_counts_pending_review(allowed):
-    statement = ExtractedStatement(id="stmt-1", job_id="file-1", seq=9, line_start=21, line_end=22,
-                                   method="sql", status="parsed",
-                                   raw_text="INSERT INTO dw.daily_summary SELECT id FROM src.events",
-                                   sql_text=None, placeholders=[], writes=[], text_hash="digest")
+    statement = ExtractedStatement(
+        id="stmt-1",
+        job_id="file-1",
+        seq=9,
+        line_start=21,
+        line_end=22,
+        method="sql",
+        status="parsed",
+        raw_text="INSERT INTO dw.daily_summary SELECT id FROM src.events",
+        sql_text=None,
+        placeholders=[],
+        writes=[],
+        text_hash="digest",
+    )
     session = PageSession([statement])
     with client_for(session) as client:
-        response = client.get("/api/imports/batch-1/statements", params={
-            "file_id": "file-1", "status": "pending_review", "q": "events%_", "offset": 7, "limit": 2})
+        response = client.get(
+            "/api/imports/batch-1/statements",
+            params={"file_id": "file-1", "status": "pending_review", "q": "events%_", "offset": 7, "limit": 2},
+        )
     assert response.status_code == 200, response.text
     page = response.json()
     assert (page["total"], page["offset"], page["limit"]) == (3, 7, 2)
@@ -101,21 +113,46 @@ def test_statement_page_rejects_invalid_filters(allowed, params):
 
 
 def candidate(candidate_id="candidate-1", *, status="pending", origin="model"):
-    return CandidateEdge(id=candidate_id, job_id="file-1", statement_id="stmt-1", status=status, origin=origin,
-                         source_ref="default_catalog.src.events", source_column="id",
-                         target_ref="default_catalog.dw.daily_summary", target_column="id", relation="value_direct",
-                         evidence={}, modified={}, created_at=NOW,
-                         lineage_edge_id=f"{candidate_id}-edge" if status == "written" else None)
+    return CandidateEdge(
+        id=candidate_id,
+        job_id="file-1",
+        statement_id="stmt-1",
+        status=status,
+        origin=origin,
+        source_ref="default_catalog.src.events",
+        source_column="id",
+        target_ref="default_catalog.dw.daily_summary",
+        target_column="id",
+        relation="value_direct",
+        evidence={},
+        modified={},
+        created_at=NOW,
+        lineage_edge_id=f"{candidate_id}-edge" if status == "written" else None,
+    )
 
 
 def test_candidate_page_filters_and_expands_folded_hops(allowed):
     item = candidate(origin="folded", status="written")
     item.lineage_edge_id = "folded-1"
     edge = LineageEdge(id="folded-1", attributes={"via": ["default_catalog.tmp.stage"], "hops": ["hop-1", "hop-2"]})
-    hops = [LineageEdge(id="hop-1", source_ref="default_catalog.src.events", source_column="id",
-                         target_ref="default_catalog.tmp.stage", target_column="id", relation="value_direct"),
-            LineageEdge(id="hop-2", source_ref="default_catalog.tmp.stage", source_column="id",
-                         target_ref="default_catalog.dw.daily_summary", target_column="id", relation="value_direct")]
+    hops = [
+        LineageEdge(
+            id="hop-1",
+            source_ref="default_catalog.src.events",
+            source_column="id",
+            target_ref="default_catalog.tmp.stage",
+            target_column="id",
+            relation="value_direct",
+        ),
+        LineageEdge(
+            id="hop-2",
+            source_ref="default_catalog.tmp.stage",
+            source_column="id",
+            target_ref="default_catalog.dw.daily_summary",
+            target_column="id",
+            relation="value_direct",
+        ),
+    ]
     session = PageSession(scalars=(1,))
     results = iter([[item], [edge], hops])
 
@@ -125,8 +162,10 @@ def test_candidate_page_filters_and_expands_folded_hops(allowed):
 
     session.scalars = scalars
     with client_for(session) as client:
-        response = client.get("/api/imports/batch-1/candidates", params={
-            "file_id": "file-1", "status": "written", "origin": "folded", "statement_id": "stmt-1", "limit": 1})
+        response = client.get(
+            "/api/imports/batch-1/candidates",
+            params={"file_id": "file-1", "status": "written", "origin": "folded", "statement_id": "stmt-1", "limit": 1},
+        )
     assert response.status_code == 200, response.text
     page = response.json()
     assert page["total"] == 1 and len(page["items"]) == 1
@@ -141,8 +180,9 @@ def test_candidate_page_filters_and_expands_folded_hops(allowed):
 def test_file_from_another_batch_is_rejected_before_loading_content(allowed, endpoint):
     session = PageSession()
     previous_get = session.get
-    session.get = lambda entity, object_id: (ImportJob(id=object_id, batch_id="another-batch")
-                                             if entity is ImportJob else previous_get(entity, object_id))
+    session.get = lambda entity, object_id: (
+        ImportJob(id=object_id, batch_id="another-batch") if entity is ImportJob else previous_get(entity, object_id)
+    )
     with client_for(session) as client:
         response = client.get(f"/api/imports/batch-1/{endpoint}", params={"file_id": "file-1"})
     assert response.status_code == 404
@@ -166,19 +206,27 @@ class DecisionSession(PageSession):
         return super().get(entity, object_id)
 
 
-@pytest.mark.parametrize("status,decision,missing,job_status", [
-    ("accepted", "reject", False, "done"), ("written", "accept", False, "done"),
-    ("pending", "accept", True, "done"), ("pending", "reject", False, "superseded"),
-])
+@pytest.mark.parametrize(
+    "status,decision,missing,job_status",
+    [
+        ("accepted", "reject", False, "done"),
+        ("written", "accept", False, "done"),
+        ("pending", "accept", True, "done"),
+        ("pending", "reject", False, "superseded"),
+    ],
+)
 def test_bulk_decision_prechecks_every_id_without_partial_writes(
-        allowed, monkeypatch, status, decision, missing, job_status):
+    allowed, monkeypatch, status, decision, missing, job_status
+):
     items = [candidate("valid-1"), candidate("invalid-1", status=status)]
     session = DecisionSession(items[:1] if missing else items, job_status=job_status)
     perform = Mock()
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/decisions", json={
-            "ids": ["valid-1", "invalid-1"], "decision": decision, "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/decisions",
+            json={"ids": ["valid-1", "invalid-1"], "decision": decision, "reason": "核对原文"},
+        )
     assert response.status_code == 409, response.text
     problems = response.json()["detail"]["candidates"]
     assert "invalid-1" in [problem["id"] for problem in problems]
@@ -193,8 +241,10 @@ def test_bulk_decision_deduplicates_ids_and_uses_one_transaction(allowed, monkey
     perform = Mock(side_effect=lambda *_: setattr(session.batch, "status", "done"))
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/decisions", json={
-            "ids": ["candidate-2", "candidate-1", "candidate-2"], "decision": "reject", "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/decisions",
+            json={"ids": ["candidate-2", "candidate-1", "candidate-2"], "decision": "reject", "reason": "核对原文"},
+        )
     assert response.status_code == 200, response.text
     assert response.json() == {"ids": ["candidate-2", "candidate-1"], "decision": "reject", "processed": 2}
     assert [call.args[2].id for call in perform.call_args_list] == ["candidate-2", "candidate-1"]
@@ -213,11 +263,11 @@ def test_bulk_decision_rejects_intermediate_without_partial_writes(allowed, monk
     perform = Mock()
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/decisions", json={
-            "ids": ids, "decision": decision, "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/decisions", json={"ids": ids, "decision": decision, "reason": "核对原文"}
+        )
     assert response.status_code == 409, response.text
-    assert response.json()["detail"]["candidates"] == [
-        {"id": "raw", "reason": "中间段只用于查证，请处理折叠后的边"}]
+    assert response.json()["detail"]["candidates"] == [{"id": "raw", "reason": "中间段只用于查证，请处理折叠后的边"}]
     perform.assert_not_called()
     assert [item.status for item in items] == ["pending", "intermediate"]
     session.commit.assert_not_called()
@@ -231,8 +281,9 @@ def test_single_decision_rejects_intermediate_without_writes(allowed, monkeypatc
     perform = Mock()
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/candidate-1/decision", json={
-            "decision": decision, "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/candidate-1/decision", json={"decision": decision, "reason": "核对原文"}
+        )
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == "中间段只用于查证，请处理折叠后的边"
     perform.assert_not_called()
@@ -255,8 +306,9 @@ def test_bulk_decision_prechecks_written_edge_status_without_partial_writes(allo
     perform = Mock()
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/decisions", json={
-            "ids": ["model", "parsed"], "decision": "reject", "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/decisions", json={"ids": ["model", "parsed"], "decision": "reject", "reason": "核对原文"}
+        )
     assert response.status_code == 409, response.text
     problems = response.json()["detail"]["candidates"]
     assert len(problems) == 1 and problems[0]["id"] == "parsed"
@@ -275,8 +327,10 @@ def test_create_and_params_use_batch_response_and_wait_status(allowed, monkeypat
     monkeypatch.setattr(imports.batch, "set_params", Mock(return_value=rewritten))
     monkeypatch.setattr(imports, "_run", lambda *_args, **_kwargs: {**batch_view(), "id": "batch-2"})
     with client_for(PageSession()) as client:
-        response = client.post(f"/api/imports?wait={str(wait).lower()}", json={
-            "datasource_id": "ds-1", "filename": "source.sql", "content": "SELECT id FROM src.events"})
+        response = client.post(
+            f"/api/imports?wait={str(wait).lower()}",
+            json={"datasource_id": "ds-1", "filename": "source.sql", "content": "SELECT id FROM src.events"},
+        )
         params = client.put(f"/api/imports/batch-1/params?wait={str(wait).lower()}", json={"params": {"db": "src"}})
     assert response.status_code == expected, response.text
     assert params.status_code == expected and params.json()["id"] == "batch-2"
@@ -290,10 +344,14 @@ def test_upload_multiple_files_and_json_options(allowed, monkeypatch, field):
     created = Mock(return_value=batch_view())
     monkeypatch.setattr(imports, "_created", created)
     with client_for(object()) as client:
-        response = client.post("/api/imports/upload?wait=true", data={
-            "datasource_id": "ds-1", "model_assist": '{"code":true}', "sql_functions": '["run_sql"]'},
-            files=[(field, ("a.sql", b"SELECT 1", "text/plain")),
-                   (field, ("b.py", b'run_sql("SELECT 2")', "text/plain"))])
+        response = client.post(
+            "/api/imports/upload?wait=true",
+            data={"datasource_id": "ds-1", "model_assist": '{"code":true}', "sql_functions": '["run_sql"]'},
+            files=[
+                (field, ("a.sql", b"SELECT 1", "text/plain")),
+                (field, ("b.py", b'run_sql("SELECT 2")', "text/plain")),
+            ],
+        )
     assert response.status_code == 200, response.text
     options = created.call_args.kwargs
     assert [item.source_key for item in options["files"]] == ["a.sql", "b.py"]
@@ -326,8 +384,9 @@ def test_sql_functions_saved_outside_datasource_options_and_deduplicated(allowed
     monkeypatch.setattr(imports.audit, "record", Mock())
     session = SettingSession()
     with client_for(session) as client:
-        changed = client.put("/api/imports/sql-functions/ds-1",
-                             json={"sql_functions": ["run_sql", "run_sql", "exec_query"]})
+        changed = client.put(
+            "/api/imports/sql-functions/ds-1", json={"sql_functions": ["run_sql", "run_sql", "exec_query"]}
+        )
         loaded = client.get("/api/imports/sql-functions/ds-1")
         invalid = client.put("/api/imports/sql-functions/ds-1", json={"sql_functions": ["a()"]})
     assert changed.status_code == loaded.status_code == 200
@@ -358,9 +417,18 @@ def test_create_merges_saved_execution_functions_before_enqueuing(allowed, monke
     create = Mock(return_value=(ImportBatch(id="batch-1"), True))
     monkeypatch.setattr(imports.batch, "create_batch", create)
     monkeypatch.setattr(imports, "_run", lambda *_args, **_kwargs: batch_view())
-    imports._created(session, User(id="actor-1"), datasource_id="ds-1", filename="source.py", source_type="python",
-                     content='run_sql("SELECT id FROM src.events")', default_db="src", params={},
-                     model_assist={"failed_sql": False, "code": False}, sql_functions=["run_sql"])
+    imports._created(
+        session,
+        User(id="actor-1"),
+        datasource_id="ds-1",
+        filename="source.py",
+        source_type="python",
+        content='run_sql("SELECT id FROM src.events")',
+        default_db="src",
+        params={},
+        model_assist={"failed_sql": False, "code": False},
+        sql_functions=["run_sql"],
+    )
     options = create.call_args.kwargs
     assert options["sql_functions"] == ["saved_sql", "run_sql"]
     assert options["files"][0].language == "python" and options["files"][0].source_key == "source.py"
@@ -369,15 +437,19 @@ def test_create_merges_saved_execution_functions_before_enqueuing(allowed, monke
 @pytest.mark.parametrize("functions", ['"run_sql"', '["a()"]', "not-json"])
 def test_upload_invalid_execution_functions_return_422(allowed, functions):
     with client_for(object()) as client:
-        response = client.post("/api/imports/upload", data={"datasource_id": "ds-1", "sql_functions": functions},
-                               files={"file": ("a.sql", b"SELECT 1", "text/plain")})
+        response = client.post(
+            "/api/imports/upload",
+            data={"datasource_id": "ds-1", "sql_functions": functions},
+            files={"file": ("a.sql", b"SELECT 1", "text/plain")},
+        )
     assert response.status_code == 422
 
 
 def test_json_invalid_execution_function_is_an_input_error(allowed):
     with client_for(object()) as client:
-        response = client.post("/api/imports", json={"datasource_id": "ds-1", "content": "SELECT 1",
-                                                     "sql_functions": ["a()"]})
+        response = client.post(
+            "/api/imports", json={"datasource_id": "ds-1", "content": "SELECT 1", "sql_functions": ["a()"]}
+        )
     assert response.status_code == 422
 
 
@@ -396,8 +468,9 @@ def test_bulk_decision_refreshes_current_revision_after_datasource_lock(allowed,
     perform = Mock()
     monkeypatch.setattr(imports.service, "decide", perform)
     with client_for(session) as client:
-        response = client.post("/api/candidates/decisions", json={
-            "ids": ["candidate-1"], "decision": "reject", "reason": "核对原文"})
+        response = client.post(
+            "/api/candidates/decisions", json={"ids": ["candidate-1"], "decision": "reject", "reason": "核对原文"}
+        )
     assert response.status_code == 409 and refreshed == ["file-1"]
     perform.assert_not_called()
     locks = [query for query in session.queries if "FOR UPDATE" in str(query)]
@@ -407,16 +480,20 @@ def test_bulk_decision_refreshes_current_revision_after_datasource_lock(allowed,
 
 def test_visible_files_follow_upload_order_including_duplicates():
     imported = ImportBatch(options={"file_order": ["new-file", "duplicate-file", "new-file"]})
-    files = [ImportJob(id="duplicate-file", created_at=NOW, stats={"upload_order": 0}),
-             ImportJob(id="reserved-file", created_at=NOW, stats={"duplicate_of": "duplicate-file"}),
-             ImportJob(id="new-file", created_at=NOW, stats={"upload_order": 1}),
-             ImportJob(id="duplicate-file", created_at=NOW, stats={"upload_order": 0})]
+    files = [
+        ImportJob(id="duplicate-file", created_at=NOW, stats={"upload_order": 0}),
+        ImportJob(id="reserved-file", created_at=NOW, stats={"duplicate_of": "duplicate-file"}),
+        ImportJob(id="new-file", created_at=NOW, stats={"upload_order": 1}),
+        ImportJob(id="duplicate-file", created_at=NOW, stats={"upload_order": 0}),
+    ]
     assert [item.id for item in imports._ordered_files(imported, files)] == ["new-file", "duplicate-file"]
 
 
 def test_list_reconciles_each_batch_before_projecting_status(allowed, monkeypatch):
-    imported = [ImportBatch(id="batch-1", status="running", options={}, stats={}, progress={}, created_at=NOW),
-                ImportBatch(id="batch-2", status="done", options={}, stats={}, progress={}, created_at=NOW)]
+    imported = [
+        ImportBatch(id="batch-1", status="running", options={}, stats={}, progress={}, created_at=NOW),
+        ImportBatch(id="batch-2", status="done", options={}, stats={}, progress={}, created_at=NOW),
+    ]
     session = PageSession()
     results = iter([imported, []])
     session.scalars = lambda _query: next(results)
@@ -431,6 +508,5 @@ def test_list_reconciles_each_batch_before_projecting_status(allowed, monkeypatc
     with client_for(session) as client:
         response = client.get("/api/imports")
     assert response.status_code == 200, response.text
-    assert [(item["id"], item["status"]) for item in response.json()] == [
-        ("batch-1", "failed"), ("batch-2", "done")]
+    assert [(item["id"], item["status"]) for item in response.json()] == [("batch-1", "failed"), ("batch-2", "done")]
     assert [call.args[1].id for call in reconciled.call_args_list] == ["batch-1", "batch-2"]

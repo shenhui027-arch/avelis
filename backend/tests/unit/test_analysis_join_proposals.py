@@ -17,8 +17,12 @@ from tests.unit.test_analysis_hitl import reply
 from tests.unit.test_analysis_pipeline import Phased
 from tests.unit.test_join_proposals import state  # noqa: F401
 
-SPEC = {"left_asset": "catalog.space.left_records", "left_columns": ["key_a", "key_b"],
-        "right_asset": "catalog.space.right_records", "right_columns": ["key_a", "key_b"]}
+SPEC = {
+    "left_asset": "catalog.space.left_records",
+    "left_columns": ["key_a", "key_b"],
+    "right_asset": "catalog.space.right_records",
+    "right_columns": ["key_a", "key_b"],
+}
 TEXT = "space.left_records.key_a = space.right_records.key_a AND space.left_records.key_b = space.right_records.key_b"
 
 
@@ -27,9 +31,17 @@ def waiting(state, monkeypatch, *, spec=SPEC, run_id="run_a"):
     item = {"id": "P1", "kind": "join", "source": "inferred", "content": TEXT, "refs": []}
     if spec is not None:
         item["join"] = deepcopy(spec)
-    run = AnalysisRun(id=run_id, user_id=actor.id, question="检查关联", status="waiting", trigger="manual",
-                      confirmation_mode="auto", window={}, budget={},
-                      checkpoint={"pending": {"kind": "assumptions"}, "proposal": {"items": [item]}})
+    run = AnalysisRun(
+        id=run_id,
+        user_id=actor.id,
+        question="检查关联",
+        status="waiting",
+        trigger="manual",
+        confirmation_mode="auto",
+        window={},
+        budget={},
+        checkpoint={"pending": {"kind": "assumptions"}, "proposal": {"items": [item]}},
+    )
     session.add(run)
     session.commit()
     queued = []
@@ -38,14 +50,19 @@ def waiting(state, monkeypatch, *, spec=SPEC, run_id="run_a"):
 
 
 def confirm(session, actor, run):
-    return service.resume_run(session, actor, run.id,
-                              {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
+    return service.resume_run(session, actor, run.id, {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
 
 
-@pytest.mark.parametrize("changes", [{"left_asset": "space.left_records"},
-                                     {"left_columns": ["missing", "key_b"]},
-                                     {"right_columns": ["missing", "key_b"]},
-                                     {"right_columns": ["key_a"]}, {"left_columns": []}])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"left_asset": "space.left_records"},
+        {"left_columns": ["missing", "key_b"]},
+        {"right_columns": ["missing", "key_b"]},
+        {"right_columns": ["key_a"]},
+        {"left_columns": []},
+    ],
+)
 def test_invalid_join_structure_is_removed_without_losing_text(state, changes):
     session, actor, *_ = state
     item = {"kind": "join", "content": TEXT, "join": SPEC | changes}
@@ -55,8 +72,9 @@ def test_invalid_join_structure_is_removed_without_losing_text(state, changes):
 
 def test_invisible_asset_removes_join_structure(state):
     session, actor, *_ = state
-    member = session.scalar(select(DomainMember).where(DomainMember.user_id == actor.id,
-                                                       DomainMember.domain_id == "domain_b"))
+    member = session.scalar(
+        select(DomainMember).where(DomainMember.user_id == actor.id, DomainMember.domain_id == "domain_b")
+    )
     session.delete(member)
     item = {"kind": "join", "content": TEXT, "join": deepcopy(SPEC)}
     assert agent.validate_proposal_join(session, actor, item) is None
@@ -108,8 +126,15 @@ def test_confirmation_persists_pending_path_source_and_reference_without_experie
 def test_confirmations_across_runs_reuse_path_in_either_direction(state, monkeypatch, existing):
     session, actor, *_ = state
     if existing:
-        path = joins.propose(session, actor, left_asset_id="right", left_columns=["key_b", "key_a"],
-                             right_asset_id="left", right_columns=["key_b", "key_a"], source={"user_text": "原提议"})
+        path = joins.propose(
+            session,
+            actor,
+            left_asset_id="right",
+            left_columns=["key_b", "key_a"],
+            right_asset_id="left",
+            right_columns=["key_b", "key_a"],
+            source={"user_text": "原提议"},
+        )
         path.status = "approved"
     run, _ = waiting(state, monkeypatch)
     confirm(session, actor, run)
@@ -142,8 +167,7 @@ def test_unassigned_asset_join_warns_and_confirmation_continues(state, monkeypat
     confirm(session, actor, run)
     session.commit()
     session.expire_all()
-    warning = (f"这条关联没能提议为关联路径：资产 space.{side}_records 未归属业务域，"
-               "无法确定由谁批准关联路径")
+    warning = f"这条关联没能提议为关联路径：资产 space.{side}_records 未归属业务域，无法确定由谁批准关联路径"
     assert run.status == "queued" and len(queued) == 1
     assert run.checkpoint["resume_pending"] and "pending" not in run.checkpoint
     assert run.checkpoint["warnings"] == [warning]
@@ -189,12 +213,28 @@ def test_inherited_join_is_revalidated_before_it_reaches_model(state, monkeypatc
     box = AnalysisToolbox(session, actor, run, Catalog([], {}), Budget())
     monkeypatch.setattr(box, "recall_experiences", lambda *args: None)
     monkeypatch.setattr(box, "check_resume_permissions", lambda: None)
-    inherited = {"items": [{"id": "old", "kind": "join", "source": "inferred", "content": TEXT,
-                             "refs": [], "status": "confirmed", "join": SPEC | {"left_columns": ["missing"]}}]}
+    inherited = {
+        "items": [
+            {
+                "id": "old",
+                "kind": "join",
+                "source": "inferred",
+                "content": TEXT,
+                "refs": [],
+                "status": "confirmed",
+                "join": SPEC | {"left_columns": ["missing"]},
+            }
+        ]
+    }
     model = Phased([reply("submit_proposal", {"items": []}, "p")])
     config = {"configurable": {"toolbox": box, "model": model}}
-    data = {"question": "继续检查", "inherited": inherited, "proposal": {"items": []},
-            "unattended": False, "confirmation_mode": "auto"}
+    data = {
+        "question": "继续检查",
+        "inherited": inherited,
+        "proposal": {"items": []},
+        "unattended": False,
+        "confirmation_mode": "auto",
+    }
     result = getattr(agent, phase)(data, config)
     assert "join" not in result["inherited"]["items"][0]
     assert box.confirmed_items[0]["content"] == TEXT and "join" not in box.confirmed_items[0]
@@ -211,7 +251,9 @@ def test_graph_resume_uses_confirmed_proposal_without_restoring_discarded_struct
     monkeypatch.setattr(agent, "interrupt", lambda value: {"decisions": [{"item_id": "P1", "decision": "confirmed"}]})
     stale = deepcopy(run.checkpoint["proposal"])
     stale["items"][0]["join"] = deepcopy(SPEC)
-    result = agent.checkpoint({"proposal": stale, "unattended": False, "confirmation_mode": "auto"},
-                               {"configurable": {"toolbox": box, "model": None}})
+    result = agent.checkpoint(
+        {"proposal": stale, "unattended": False, "confirmation_mode": "auto"},
+        {"configurable": {"toolbox": box, "model": None}},
+    )
     assert "join" not in result["proposal"]["items"][0]
     assert "join" not in result["confirmed_items"][0]

@@ -28,15 +28,30 @@ def world(factory):
             "sr": Datasource(name=f"数仓{tag}", kind="starrocks", host="h", port=1, options={}),
             "pg": Datasource(name=f"门店{tag}", kind="postgres", host="h", port=1, options={"database": "storedb"}),
             "my": Datasource(name=f"维表{tag}", kind="mysql", host="h", port=1, options={}),
-            "off": Datasource(name=f"关闭{tag}", kind="postgres", host="h", port=1, options={"database": "offdb"},
-                              allow_exploration=False),
+            "off": Datasource(
+                name=f"关闭{tag}",
+                kind="postgres",
+                host="h",
+                port=1,
+                options={"database": "offdb"},
+                allow_exploration=False,
+            ),
         }
         s.add_all(sources.values())
         s.flush()
 
         def asset(src, catalog, db, name, domain=mine):
-            s.add(Asset(datasource_id=sources[src].id, kind="table", catalog_name=catalog, db_name=f"{db}{tag}",
-                        name=name, domain_id=domain.id))
+            s.add(
+                Asset(
+                    datasource_id=sources[src].id,
+                    kind="table",
+                    catalog_name=catalog,
+                    db_name=f"{db}{tag}",
+                    name=name,
+                    domain_id=domain.id,
+                )
+            )
+
         asset("sr", "default_catalog", "trade", "orders")
         asset("sr", "ext", "dim", "product")  # StarRocks 外部 catalog 里的表
         asset("my", "def", "dim", "product")  # 同名表在 MySQL 的默认 catalog

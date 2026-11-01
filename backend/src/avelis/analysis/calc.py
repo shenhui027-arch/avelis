@@ -38,6 +38,7 @@ def _q(value: Decimal | None, places: int = 4) -> Decimal | None:
 
 # --- 两期差额按维度拆解 ---------------------------------------------------------------
 
+
 def contribution(rows: list[Row], keys: list[str], current: str, previous: str) -> dict[str, Any]:
     """每个维度成员的两期值与变化。某期没有行按 0，有行但值为空则保留未知。"""
     for col in (*keys, current, previous):
@@ -64,20 +65,42 @@ def contribution(rows: list[Row], keys: list[str], current: str, previous: str) 
         cur = None if 0 in missing.get(k, set()) else cur
         prev = None if 1 in missing.get(k, set()) else prev
         change = cur - prev if cur is not None and prev is not None else None
-        out.append({**dict(zip(keys, k)), "previous": prev, "current": cur, "change": change,
-                    "change_rate": _q(change / prev) if change is not None and prev else None,
-                    "share_of_change": _q(change / total_change) if change is not None and total_change else None})
-    out.sort(key=lambda r: (r["change"] is None, -abs(r["change"]) if r["change"] is not None else 0,
-                            str([r[c] for c in keys])))
-    return {"rows": out, "total": {"previous": total_prev, "current": total_cur, "change": total_change,
-                                   "change_rate": _q(total_change / total_prev)
-                                   if total_change is not None and total_prev else None},
-            "summary": {"missing_values": missing_values,
-                        "totals_note": "总量仅合计有值部分；两期值为已知部分合计，存在缺失值时总变化、变化率及成员贡献占比未知"
-                        if missing_values else "总量包含全部已知值"}}
+        out.append(
+            {
+                **dict(zip(keys, k)),
+                "previous": prev,
+                "current": cur,
+                "change": change,
+                "change_rate": _q(change / prev) if change is not None and prev else None,
+                "share_of_change": _q(change / total_change) if change is not None and total_change else None,
+            }
+        )
+    out.sort(
+        key=lambda r: (
+            r["change"] is None,
+            -abs(r["change"]) if r["change"] is not None else 0,
+            str([r[c] for c in keys]),
+        )
+    )
+    return {
+        "rows": out,
+        "total": {
+            "previous": total_prev,
+            "current": total_cur,
+            "change": total_change,
+            "change_rate": _q(total_change / total_prev) if total_change is not None and total_prev else None,
+        },
+        "summary": {
+            "missing_values": missing_values,
+            "totals_note": "总量仅合计有值部分；两期值为已知部分合计，存在缺失值时总变化、变化率及成员贡献占比未知"
+            if missing_values
+            else "总量包含全部已知值",
+        },
+    }
 
 
 # --- 乘法关系的因子拆解（LMDI）------------------------------------------------------------
+
 
 def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]) -> dict[str, Any]:
     """总量 = 各因子之积（如 总量 = 数量 × 单价）。用对数平均分解（LMDI-I），各因子贡献相加等于总差额。
@@ -116,35 +139,68 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
             largest = max(contributions, key=lambda n: abs(contributions[n]))
             contributions[largest] += (p1 - p0) - sum(contributions.values(), Decimal(0))  # 以精确净变化为准，不先舍入
         contributions = {n: c if c else Decimal(0) for n, c in contributions.items()}  # 零写成 0，不写 0E-17
-    rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
-             "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in exact]
+    rows = [
+        {
+            "factor": n,
+            "previous": vals[n][0],
+            "current": vals[n][1],
+            "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]),
+            "contribution": contributions[n],
+        }
+        for n in exact
+    ]
     if unexplained:
-        rows.append({"factor": "未解释差额", "previous": None, "current": None, "change_rate": None,
-                     "contribution": unexplained})
+        rows.append(
+            {
+                "factor": "未解释差额",
+                "previous": None,
+                "current": None,
+                "change_rate": None,
+                "contribution": unexplained,
+            }
+        )
     for r in rows:
         r["share"] = _q(r["contribution"] / change) if change else None
-    return {"total": {"previous": t0, "current": t1, "change": change}, "factors": rows,
-            "unexplained": unexplained}
+    return {"total": {"previous": t0, "current": t1, "change": change}, "factors": rows, "unexplained": unexplained}
 
 
 # --- 日历折算 -----------------------------------------------------------------------
 
-def period_days(start: date, end: date, holidays: set[date] | None = None, *,
-                weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, int | None]:
+
+def period_days(
+    start: date,
+    end: date,
+    holidays: set[date] | None = None,
+    *,
+    weekend_days: set[int] | None = None,
+    workdays: set[date] | None = None,
+) -> dict[str, int | None]:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
     weekends = {5, 6} if weekend_days is None else weekend_days
     workdays = workdays or set()
-    out = {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() in weekends),
-           "holidays": sum(1 for d in days if d in holidays and d not in workdays) if holidays is not None else None}
+    out = {
+        "days": len(days),
+        "weekend_days": sum(1 for d in days if d.weekday() in weekends),
+        "holidays": sum(1 for d in days if d in holidays and d not in workdays) if holidays is not None else None,
+    }
     if holidays is not None:
         # 周末与节假日取并集扣除，避免同一天扣两次；调休上班日优先恢复为工作日。
-        out["business_days"] = sum(1 for d in days if d in workdays or (d.weekday() not in weekends and d not in holidays))
+        out["business_days"] = sum(
+            1 for d in days if d in workdays or (d.weekday() not in weekends and d not in holidays)
+        )
     return out
 
 
-def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, date],
-                    previous_period: tuple[date, date], holidays: set[date] | None = None, *,
-                    weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, Any]:
+def calendar_adjust(
+    current: Any,
+    previous: Any,
+    current_period: tuple[date, date],
+    previous_period: tuple[date, date],
+    holidays: set[date] | None = None,
+    *,
+    weekend_days: set[int] | None = None,
+    workdays: set[date] | None = None,
+) -> dict[str, Any]:
     """保留自然日折算；配置业务日历后，另给出节假日、工作日数与工作日折算。"""
     cur, prev = number(current), number(previous)
     if cur is None or prev is None:
@@ -154,22 +210,33 @@ def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, dat
     daily_cur, daily_prev = cur / dc["days"], prev / dp["days"]
     # 本期天数按上期日均值折算出的“天数效应”；其余为日均水平的变化
     day_effect = daily_prev * (dc["days"] - dp["days"])
-    out = {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
-           "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
-           "change": cur - prev, "day_count_effect": _significant12(day_effect),
-           "daily_level_effect": _significant12(cur - prev - day_effect),
-           "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
+    out = {
+        "current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
+        "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
+        "change": cur - prev,
+        "day_count_effect": _significant12(day_effect),
+        "daily_level_effect": _significant12(cur - prev - day_effect),
+        "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None,
+    }
     if holidays is not None:
         business_cur = cur / dc["business_days"] if dc["business_days"] else None
         business_prev = prev / dp["business_days"] if dp["business_days"] else None
-        business_effect = business_prev * (dc["business_days"] - dp["business_days"]) if business_prev is not None else None
-        out.update(business_daily={"current": _significant12(business_cur) if business_cur is not None else None,
-                                   "previous": _significant12(business_prev) if business_prev is not None else None},
-                   business_day_effect=_significant12(business_effect) if business_effect is not None else None,
-                   business_level_effect=_significant12(cur - prev - business_effect) if business_effect is not None else None)
-        notes = [gettext("{period}工作日数为 0，工作日均值无法计算", period=label)
-                 for label, days in ((gettext("本期"), dc), (gettext("上期"), dp))
-                 if not days["business_days"]]
+        business_effect = (
+            business_prev * (dc["business_days"] - dp["business_days"]) if business_prev is not None else None
+        )
+        out.update(
+            business_daily={
+                "current": _significant12(business_cur) if business_cur is not None else None,
+                "previous": _significant12(business_prev) if business_prev is not None else None,
+            },
+            business_day_effect=_significant12(business_effect) if business_effect is not None else None,
+            business_level_effect=_significant12(cur - prev - business_effect) if business_effect is not None else None,
+        )
+        notes = [
+            gettext("{period}工作日数为 0，工作日均值无法计算", period=label)
+            for label, days in ((gettext("本期"), dc), (gettext("上期"), dp))
+            if not days["business_days"]
+        ]
         if business_prev is None:
             notes.append(gettext("上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"))
         if notes:
@@ -178,6 +245,7 @@ def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, dat
 
 
 # --- 相关性 -------------------------------------------------------------------------
+
 
 def _betacf(a: float, b: float, x: float) -> float:
     qab, qap, qam = a + b, a + 1, a - 1
@@ -251,8 +319,7 @@ MIN_SAMPLES = 8
 
 def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
     """皮尔逊与斯皮尔曼相关系数、样本量与双侧 p 值。样本少于 8 个时只给提示，不给系数结论。缺失值成对剔除。"""
-    pairs = [(float(number(r[x])), float(number(r[y]))) for r in rows
-             if r.get(x) is not None and r.get(y) is not None]
+    pairs = [(float(number(r[x])), float(number(r[y]))) for r in rows if r.get(x) is not None and r.get(y) is not None]
     n = len(pairs)
     out: dict[str, Any] = {"x": x, "y": y, "n": n}
     if n < MIN_SAMPLES:
@@ -264,12 +331,18 @@ def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
         return {**out, "note": "其中一列没有变化，相关系数无意义"}
     p = _p_value(pearson, n)
     strength = "强" if abs(pearson) >= 0.7 else ("中等" if abs(pearson) >= 0.4 else "弱")
-    return {**out, "pearson": round(pearson, 4), "spearman": round(spearman, 4), "p_value": round(p, 6),
-            "significant": p < 0.05,
-            "note": f"{strength}{'正' if pearson > 0 else '负'}相关（p={p:.4f}）；相关不等于因果"}
+    return {
+        **out,
+        "pearson": round(pearson, 4),
+        "spearman": round(spearman, 4),
+        "p_value": round(p, 6),
+        "significant": p < 0.05,
+        "note": f"{strength}{'正' if pearson > 0 else '负'}相关（p={p:.4f}）；相关不等于因果",
+    }
 
 
 # --- 覆盖度 -------------------------------------------------------------------------
+
 
 def period_labels(start: date, end: date, grain: str) -> list[str]:
     """与问数的期间列一致：周用周一，季用季初日期，月与年保留相应精度。"""
@@ -289,8 +362,11 @@ def period_labels(start: date, end: date, grain: str) -> list[str]:
         cursor = start
     labels = []
     while cursor <= end:
-        labels.append(cursor.strftime("%Y-%m") if grain == "month" else (
-            str(cursor.year) if grain == "year" else cursor.isoformat()))
+        labels.append(
+            cursor.strftime("%Y-%m")
+            if grain == "month"
+            else (str(cursor.year) if grain == "year" else cursor.isoformat())
+        )
         if grain in {"day", "week"}:
             step = 1 if grain == "day" else 7
             if (end - cursor).days < step:
@@ -309,8 +385,15 @@ def period_labels(start: date, end: date, grain: str) -> list[str]:
     return labels
 
 
-def coverage(rows: list[Row], keys: list[str], period: str | None, start: date | None = None,
-             end: date | None = None, *, grain: str | None = None) -> dict[str, Any]:
+def coverage(
+    rows: list[Row],
+    keys: list[str],
+    period: str | None,
+    start: date | None = None,
+    end: date | None = None,
+    *,
+    grain: str | None = None,
+) -> dict[str, Any]:
     """各成员的行数与期间覆盖度；只有粒度明确，或原有日日期证据完整时判断缺口。"""
     expected = None
     daily = bool(period and rows)
@@ -328,8 +411,9 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
         for row in rows:
             value = row.get(period)
             try:
-                parsed = date.fromisoformat(f"{value}-01" if grain == "month" else (
-                    f"{value}-01-01" if grain == "year" else value))
+                parsed = date.fromisoformat(
+                    f"{value}-01" if grain == "month" else (f"{value}-01-01" if grain == "year" else value)
+                )
                 valid = period_labels(parsed, parsed, grain) == [value]
             except (TypeError, ValueError):
                 valid = False
@@ -347,24 +431,41 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
         members = groups[key]
         seen = sorted({str(r[period]) for r in members}) if period else []
         missing = [d for d in expected if d not in set(seen)] if expected is not None else []
-        out.append({**dict(zip(keys, key)), "rows": len(members), "periods": len(seen) if period else None,
-                    "missing_count": len(missing) if expected is not None else None,
-                    "missing_periods": ",".join(missing) if missing else ""})
-    summary = {"members": len(groups), "rows": len(rows), "expected_periods": len(expected) if expected else None,
-               "members_with_gaps": sum(1 for r in out if r["missing_count"]),
-               "members_complete": sum(1 for r in out if r["missing_count"] == 0) if expected is not None else None,
-               "missing_total": sum(r["missing_count"] or 0 for r in out)}
+        out.append(
+            {
+                **dict(zip(keys, key)),
+                "rows": len(members),
+                "periods": len(seen) if period else None,
+                "missing_count": len(missing) if expected is not None else None,
+                "missing_periods": ",".join(missing) if missing else "",
+            }
+        )
+    summary = {
+        "members": len(groups),
+        "rows": len(rows),
+        "expected_periods": len(expected) if expected else None,
+        "members_with_gaps": sum(1 for r in out if r["missing_count"]),
+        "members_complete": sum(1 for r in out if r["missing_count"] == 0) if expected is not None else None,
+        "missing_total": sum(r["missing_count"] or 0 for r in out),
+    }
     return {"rows": out, "summary": summary}
 
 
 # --- 分组对比、描述统计、异常值 -----------------------------------------------------------
 
+
 def describe(values: list[Any]) -> dict[str, Any]:
     nums = [float(number(v)) for v in values if v is not None]
     if not nums:
         return {"count": 0}
-    out = {"count": len(nums), "sum": round(sum(nums), 4), "mean": round(statistics.fmean(nums), 4),
-           "median": round(statistics.median(nums), 4), "min": min(nums), "max": max(nums)}
+    out = {
+        "count": len(nums),
+        "sum": round(sum(nums), 4),
+        "mean": round(statistics.fmean(nums), 4),
+        "median": round(statistics.median(nums), 4),
+        "min": min(nums),
+        "max": max(nums),
+    }
     if len(nums) > 1:
         out["stdev"] = round(statistics.stdev(nums), 4)
     return out
@@ -392,6 +493,9 @@ def outliers(rows: list[Row], value: str, keys: list[str]) -> dict[str, Any]:
         return {"note": "数据少于 4 个，不判断异常值", "rows": []}
     q1, _, q3 = statistics.quantiles(nums, n=4)
     low, high = q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1)
-    flagged = [{**{k: r.get(k) for k in keys}, value: r[value], "side": "高" if float(number(r[value])) > high else "低"}
-               for r in rows if r.get(value) is not None and not low <= float(number(r[value])) <= high]
+    flagged = [
+        {**{k: r.get(k) for k in keys}, value: r[value], "side": "高" if float(number(r[value])) > high else "低"}
+        for r in rows
+        if r.get(value) is not None and not low <= float(number(r[value])) <= high
+    ]
     return {"q1": round(q1, 4), "q3": round(q3, 4), "low": round(low, 4), "high": round(high, 4), "rows": flagged}

@@ -18,8 +18,7 @@ from avelis.models import Datasource, MetricVersion
 from tests.unit.test_analysis_toolbox import governed, make_box
 from tests.unit.test_business_neutral import PATTERN
 
-WINDOW = {"start": "2026-09-01", "end": "2026-09-03", "compare_start": "2026-08-29",
-          "compare_end": "2026-08-31"}
+WINDOW = {"start": "2026-09-01", "end": "2026-09-03", "compare_start": "2026-08-29", "compare_end": "2026-08-31"}
 PROMPT_SHA256 = "0dc066b43893dc70a9276ce10f6694f318ea1f83df637224cc1b7c5b7baef066"
 CLOSURE = {"cat.db.base_a"}
 FEEDBACK = "变化在成员之间分布均匀；请用已有的记录类数据集 D7 检验驱动因素。"
@@ -36,8 +35,9 @@ def isolated_settings(monkeypatch):
 
 
 def settings(monkeypatch, enabled):
-    value = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only",
-                                   "AVELIS_ANALYSIS_INVESTIGATION": str(enabled).lower()})
+    value = config.build_settings(
+        {"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_INVESTIGATION": str(enabled).lower()}
+    )
     monkeypatch.setattr(config, "get_settings", lambda: value)
     monkeypatch.setattr(tools, "get_settings", lambda: value)
     monkeypatch.setattr(agent, "get_settings", lambda: value)
@@ -45,32 +45,61 @@ def settings(monkeypatch, enabled):
 
 
 def dataset(columns, rows, *, kind="calc", meta=None, inputs=(), truncated=False):
-    return SimpleNamespace(kind=kind, columns=columns, rows=rows, meta=meta or {}, inputs=list(inputs),
-                           truncated=truncated, seq=1, title="中性数据")
+    return SimpleNamespace(
+        kind=kind,
+        columns=columns,
+        rows=rows,
+        meta=meta or {},
+        inputs=list(inputs),
+        truncated=truncated,
+        seq=1,
+        title="中性数据",
+    )
 
 
 def attribution_dataset(values=((300, 330), (200, 220), (100, 110)), *, contributions=True, truncated=False):
     columns = ["dimension", "member", "previous", "current", "member_change"]
     if contributions:
         columns.append("contribution")
-    rows = [["维度甲", f"成员{index}", previous, current, current - previous,
-             *([current - previous] if contributions else [])]
-            for index, (previous, current) in enumerate(values)]
+    rows = [
+        [
+            "维度甲",
+            f"成员{index}",
+            previous,
+            current,
+            current - previous,
+            *([current - previous] if contributions else []),
+        ]
+        for index, (previous, current) in enumerate(values)
+    ]
     previous, current = sum(p for p, _ in values), sum(c for _, c in values)
-    return dataset(columns, rows, truncated=truncated, meta={"summary": {
-        "algorithm": "additive", "total": {"previous": str(previous), "current": str(current),
-                                              "change": str(current - previous)}}})
+    return dataset(
+        columns,
+        rows,
+        truncated=truncated,
+        meta={
+            "summary": {
+                "algorithm": "additive",
+                "total": {"previous": str(previous), "current": str(current), "change": str(current - previous)},
+            }
+        },
+    )
 
 
 def trend_dataset(values=(100, 100, 100, 100, 100, 160), *, truncated=False):
     days = ["2026-08-29", "2026-08-30", "2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03"]
-    return dataset(["period", "指标 X"], [[day, value] for day, value in zip(days, values)], kind="governed",
-                   truncated=truncated, meta={"time_column": "period", "intent": {
-                       "metric_codes": ["metric_a"], "time_grain": "day"}})
+    return dataset(
+        ["period", "指标 X"],
+        [[day, value] for day, value in zip(days, values)],
+        kind="governed",
+        truncated=truncated,
+        meta={"time_column": "period", "intent": {"metric_codes": ["metric_a"], "time_grain": "day"}},
+    )
 
 
-def event_dataset(*, sql="SELECT record_date, value_a FROM cat.db.records_c", kind="explore", value="2026-09-02",
-                  dialect=None):
+def event_dataset(
+    *, sql="SELECT record_date, value_a FROM cat.db.records_c", kind="explore", value="2026-09-02", dialect=None
+):
     meta = {"sql": sql}
     if dialect:
         meta["dialect"] = dialect
@@ -78,20 +107,35 @@ def event_dataset(*, sql="SELECT record_date, value_a FROM cat.db.records_c", ki
 
 
 def report(*, cause_type="member", direction="up"):
-    return {"title": "中性报告", "summary": "已有贡献定位", "conclusion": "ranked_reasons", "claims": [],
-            "causes": [{"type": cause_type, "direction": direction, "entity": {
-                "metric_code": "metric_a", "dimension": "维度甲", "member": "成员甲"}, "evidence": ["D1"]}]}
+    return {
+        "title": "中性报告",
+        "summary": "已有贡献定位",
+        "conclusion": "ranked_reasons",
+        "claims": [],
+        "causes": [
+            {
+                "type": cause_type,
+                "direction": direction,
+                "entity": {"metric_code": "metric_a", "dimension": "维度甲", "member": "成员甲"},
+                "evidence": ["D1"],
+            }
+        ],
+    }
 
 
 def uniform_distribution(*, change=60):
-    return {"total_change": change, "dimensions": {"维度甲": {"members": 3, "top1_share": 0.5,
-            "top3_share": 1.0, "uniform": True, "reason": None}}, "time": {"reason": "没有日趋势"}}
+    return {
+        "total_change": change,
+        "dimensions": {"维度甲": {"members": 3, "top1_share": 0.5, "top3_share": 1.0, "uniform": True, "reason": None}},
+        "time": {"reason": "没有日趋势"},
+    }
 
 
 @pytest.mark.parametrize("contributions", [True, False])
 def test_distribution_ranks_absolute_contribution_or_member_change(contributions):
-    value = investigation.distribution(attribution_dataset(((1000, 910), (1000, 995), (1000, 995)),
-                                                          contributions=contributions), None)
+    value = investigation.distribution(
+        attribution_dataset(((1000, 910), (1000, 995), (1000, 995)), contributions=contributions), None
+    )
     dim = value["dimensions"]["维度甲"]
     assert value["total_change"] == -100
     assert dim["members"] == 3 and dim["top1_share"] == pytest.approx(0.9)
@@ -118,8 +162,9 @@ def test_distribution_detects_single_day_deviation_from_previous_daily_mean():
     value = investigation.distribution(attribution_dataset(), trend_dataset(), window=WINDOW)
     assert value["time"]["max_day_share"] == pytest.approx(1)
     assert value["time"]["date"] == "2026-09-03" and value["time"]["concentrated"] is True
-    spread = investigation.distribution(attribution_dataset(), trend_dataset((100, 100, 100, 120, 120, 120)),
-                                       window=WINDOW)
+    spread = investigation.distribution(
+        attribution_dataset(), trend_dataset((100, 100, 100, 120, 120, 120)), window=WINDOW
+    )
     assert spread["time"]["max_day_share"] == pytest.approx(1 / 3)
     assert spread["time"]["concentrated"] is False
 
@@ -130,19 +175,24 @@ def test_distribution_missing_zero_change_and_truncated_inputs_have_reasons():
     zero = investigation.distribution(attribution_dataset(((100, 100),) * 3), None)
     assert zero["dimensions"]["维度甲"]["top1_share"] is None
     assert zero["dimensions"]["维度甲"]["reason"]
-    partial = investigation.distribution(attribution_dataset(truncated=True), trend_dataset(truncated=True),
-                                         window=WINDOW)
+    partial = investigation.distribution(
+        attribution_dataset(truncated=True), trend_dataset(truncated=True), window=WINDOW
+    )
     assert partial["dimensions"]["维度甲"]["uniform"] is None
     assert partial["dimensions"]["维度甲"]["reason"] and partial["time"]["reason"]
     assert partial["time"]["max_day_share"] is None
 
 
 def test_distribution_reconstructs_all_members_from_complete_governed_inputs():
-    total = dataset(["指标 X", "指标 X·对比期"], [[660, 600]], kind="governed",
-                    meta={"intent": {"metric_codes": ["metric_a"]}})
-    members = dataset(["维度甲", "指标 X", "指标 X·对比期"], [["成员甲", 330, 300], ["成员乙", 220, 200],
-                                                               ["成员丙", 110, 100]], kind="governed",
-                      meta={"intent": {"group_by": ["维度甲"], "metric_codes": ["metric_a"], "compare": "custom"}})
+    total = dataset(
+        ["指标 X", "指标 X·对比期"], [[660, 600]], kind="governed", meta={"intent": {"metric_codes": ["metric_a"]}}
+    )
+    members = dataset(
+        ["维度甲", "指标 X", "指标 X·对比期"],
+        [["成员甲", 330, 300], ["成员乙", 220, 200], ["成员丙", 110, 100]],
+        kind="governed",
+        meta={"intent": {"group_by": ["维度甲"], "metric_codes": ["metric_a"], "compare": "custom"}},
+    )
     selected = attribution_dataset()
     selected.rows = selected.rows[:1]
     selected.inputs = ["D1", "D2"]
@@ -159,12 +209,18 @@ def test_distribution_preserves_small_ratio_member_rates_before_display_rounding
     intent = {"metric_codes": ["metric_a", "metric_b"], "compare": "custom"}
     columns = ["指标 X", "指标 X·对比期", "指标 Y", "指标 Y·对比期"]
     total = dataset(columns, [["3.3", "3", "30000", "30000"]], kind="governed", meta={"intent": intent})
-    members = dataset(["维度甲", *columns], [[name, "1.1", "1", "10000", "10000"]
-                                           for name in ("成员甲", "成员乙", "成员丙")], kind="governed",
-                      meta={"intent": {**intent, "group_by": ["维度甲"]}})
-    selected = dataset(["dimension", "member", "previous", "current", "contribution"],
-                       [["维度甲", "成员甲", "0.0001", "0.0001", "0"]], inputs=["D1", "D2"],
-                       meta={"summary": {"algorithm": "ratio", "scanned": ["维度甲"]}})
+    members = dataset(
+        ["维度甲", *columns],
+        [[name, "1.1", "1", "10000", "10000"] for name in ("成员甲", "成员乙", "成员丙")],
+        kind="governed",
+        meta={"intent": {**intent, "group_by": ["维度甲"]}},
+    )
+    selected = dataset(
+        ["dimension", "member", "previous", "current", "contribution"],
+        [["维度甲", "成员甲", "0.0001", "0.0001", "0"]],
+        inputs=["D1", "D2"],
+        meta={"summary": {"algorithm": "ratio", "scanned": ["维度甲"]}},
+    )
     value = investigation.distribution(selected, None, {"D1": total, "D2": members})
     assert value["total_change"] == pytest.approx(0.00001)
     assert value["dimensions"]["维度甲"]["uniform"] is True
@@ -174,14 +230,15 @@ def test_distribution_preserves_small_ratio_member_rates_before_display_rounding
 def test_ratio_new_or_zero_base_members_do_not_block_uniform_positive_members(new_value, new_base):
     intent = {"metric_codes": ["metric_a", "metric_b"], "compare": "custom"}
     columns = ["指标 X", "指标 X·对比期", "指标 Y", "指标 Y·对比期"]
-    total = dataset(columns, [[330 + new_value, 300, 3000 + new_base, 3000]], kind="governed",
-                    meta={"intent": intent})
-    members = dataset(["维度甲", *columns],
-                      [[name, 110, 100, 1000, 1000] for name in ("成员甲", "成员乙", "成员丙")]
-                      + [["成员丁", new_value, None, new_base, None]], kind="governed",
-                      meta={"intent": {**intent, "group_by": ["维度甲"]}})
-    selected = dataset([], [], inputs=["D1", "D2"],
-                       meta={"summary": {"algorithm": "ratio", "scanned": ["维度甲"]}})
+    total = dataset(columns, [[330 + new_value, 300, 3000 + new_base, 3000]], kind="governed", meta={"intent": intent})
+    members = dataset(
+        ["维度甲", *columns],
+        [[name, 110, 100, 1000, 1000] for name in ("成员甲", "成员乙", "成员丙")]
+        + [["成员丁", new_value, None, new_base, None]],
+        kind="governed",
+        meta={"intent": {**intent, "group_by": ["维度甲"]}},
+    )
+    selected = dataset([], [], inputs=["D1", "D2"], meta={"summary": {"algorithm": "ratio", "scanned": ["维度甲"]}})
     dim = investigation.distribution(selected, None, {"D1": total, "D2": members})["dimensions"]["维度甲"]
     assert dim["members"] == 4 and dim["uniform"] is True
     if not new_base:
@@ -200,8 +257,7 @@ def test_distribution_block_is_short_and_describes_rates_not_causes():
     assert "不可计算" in investigation.distribution_block(missing)
 
 
-@pytest.mark.parametrize("value", ["2026-09-02", "2026-09-02T12:30:00", date(2026, 9, 2),
-                                  datetime(2026, 9, 2, 12, 30)])
+@pytest.mark.parametrize("value", ["2026-09-02", "2026-09-02T12:30:00", date(2026, 9, 2), datetime(2026, 9, 2, 12, 30)])
 def test_event_datasets_accept_date_values_and_exclude_nondates(value):
     assert investigation.event_datasets({"D7": event_dataset(value=value)}, CLOSURE) == []
     assert investigation.event_datasets({"D7": event_dataset(value="成员甲")}, CLOSURE) == []
@@ -219,9 +275,17 @@ def test_event_datasets_include_existing_precheck_or_injected_records(kind):
     assert investigation.event_datasets({"D7": event_dataset(kind=kind)}, CLOSURE) == []
 
 
-@pytest.mark.parametrize("sql", ["SELECT * FROM cat.db.base_a", "SELECT * FROM db.base_a",
-                                "SELECT * FROM cat.db.records_c JOIN cat.db.base_a USING (key_a)",
-                                "SELECT 1", "SELECT (", ""])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM cat.db.base_a",
+        "SELECT * FROM db.base_a",
+        "SELECT * FROM cat.db.records_c JOIN cat.db.base_a USING (key_a)",
+        "SELECT 1",
+        "SELECT (",
+        "",
+    ],
+)
 def test_event_datasets_require_every_sql_table_outside_closure(sql):
     assert investigation.event_datasets({"D7": event_dataset(sql=sql)}, CLOSURE) == []
 
@@ -247,8 +311,9 @@ def test_event_datasets_parse_cte_and_pass_datasource_dialect_explicitly(monkeyp
 
 @pytest.mark.parametrize("cause_type", ["member", "factor"])
 def test_revision_requires_uniform_member_or_factor_and_unused_event_dataset(cause_type):
-    feedback = investigation.needs_revision(report(cause_type=cause_type), {"D7": event_dataset()}, CLOSURE,
-                                            uniform_distribution())
+    feedback = investigation.needs_revision(
+        report(cause_type=cause_type), {"D7": event_dataset()}, CLOSURE, uniform_distribution()
+    )
     assert feedback is None
 
 
@@ -267,21 +332,28 @@ def test_revision_does_not_trigger_when_any_condition_is_missing(missing):
 def test_revision_does_not_trigger_for_primary_event_evidence_row():
     value = report()
     value["causes"][0]["entity"] = {"evidence_id": "D7#1"}
-    assert investigation.needs_revision(value, {"D7": event_dataset(), "D8": event_dataset()}, CLOSURE,
-                                       uniform_distribution()) is None
+    assert (
+        investigation.needs_revision(
+            value, {"D7": event_dataset(), "D8": event_dataset()}, CLOSURE, uniform_distribution()
+        )
+        is None
+    )
     value["causes"][0]["entity"] = {"evidence_id": "D1#1"}
     assert investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE, uniform_distribution()) is None
 
 
-@pytest.mark.parametrize("reference", [
-    {"causes": [{"type": "calendar", "entity": {}, "evidence": ["D7"]}]},
-    {"claims": [{"parts": [{"dataset": "D7", "column": "value_a", "row": 1}]}]},
-    {"claims": [{"refs": ["D7"]}]},
-    {"fields": {"summary": {"parts": [{"dataset": "D7", "label": "value_a"}]}}},
-    {"fields": {"title": {"segments": [{"ref": "D7", "kind": "value"}]}}},
-    {"claims": [{"parts": [{"window": "dataset:D7"}]}]},
-    {"causes": [{"type": "calendar", "entity": {"evidence_id": "D7#1"}, "evidence": ["D1"]}]},
-])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        {"causes": [{"type": "calendar", "entity": {}, "evidence": ["D7"]}]},
+        {"claims": [{"parts": [{"dataset": "D7", "column": "value_a", "row": 1}]}]},
+        {"claims": [{"refs": ["D7"]}]},
+        {"fields": {"summary": {"parts": [{"dataset": "D7", "label": "value_a"}]}}},
+        {"fields": {"title": {"segments": [{"ref": "D7", "kind": "value"}]}}},
+        {"claims": [{"parts": [{"window": "dataset:D7"}]}]},
+        {"causes": [{"type": "calendar", "entity": {"evidence_id": "D7#1"}, "evidence": ["D1"]}]},
+    ],
+)
 def test_revision_treats_any_cause_claim_or_field_reference_as_used(reference):
     value = report()
     for key, addition in reference.items():
@@ -308,28 +380,41 @@ def test_offsetting_selects_the_matching_direction_among_first_two_causes(change
     value = report(cause_type="calendar", direction="down" if direction == "up" else "up")
     value["conclusion"] = "offsetting"
     value["causes"].append(report(direction=direction)["causes"][0])
-    assert investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE,
-                                       uniform_distribution(change=change)) is None
+    assert (
+        investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE, uniform_distribution(change=change))
+        is None
+    )
     value["causes"][1]["type"] = "governance"
-    assert investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE,
-                                       uniform_distribution(change=change)) is None
+    assert (
+        investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE, uniform_distribution(change=change))
+        is None
+    )
     value["causes"].append(report(direction=direction)["causes"][0])
-    assert investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE,
-                                       uniform_distribution(change=change)) is None
+    assert (
+        investigation.needs_revision(value, {"D7": event_dataset()}, CLOSURE, uniform_distribution(change=change))
+        is None
+    )
 
 
 def test_disabled_system_prompt_and_nonempty_context_pack_match_original_bytes(monkeypatch):
-    assert hashlib.sha256(agent.SYSTEM_PROMPT.encode()).hexdigest() == "d0c4e2bdc66105cefb4bc4c21de70f581796a807475f1007c42103b68cb0939c"
+    assert (
+        hashlib.sha256(agent.SYSTEM_PROMPT.encode()).hexdigest()
+        == "d0c4e2bdc66105cefb4bc4c21de70f581796a807475f1007c42103b68cb0939c"
+    )
     assert agent.system_message().content.encode() == agent.SYSTEM_PROMPT.format(**agent.PLACEHOLDER_EXAMPLE).encode()
     box = make_box(monkeypatch=monkeypatch)
     box.precheck_metric = {"code": "metric_a", "name": "指标 X", "kind": "base"}
     box.precheck_meta = [{"table": "cat.db.base_a", "columns": []}]
     box.precheck_notes = ["步骤甲未完成"]
     box.precheck_distribution = uniform_distribution()
-    assert box.context_pack().encode() == (
-        '口径：{"code": "metric_a", "name": "指标 X", "kind": "base"}'
-        '\n\n来源表 {"table": "cat.db.base_a", "columns": []}'
-        '\n\n预检中没有完成的步骤：步骤甲未完成').encode()
+    assert (
+        box.context_pack().encode()
+        == (
+            '口径：{"code": "metric_a", "name": "指标 X", "kind": "base"}'
+            '\n\n来源表 {"table": "cat.db.base_a", "columns": []}'
+            "\n\n预检中没有完成的步骤：步骤甲未完成"
+        ).encode()
+    )
 
 
 def test_enabled_context_pack_adds_distribution_after_attribution_and_respects_cap(monkeypatch):
@@ -391,8 +476,7 @@ def test_disabled_verify_retains_original_phase_and_verification(monkeypatch, ok
         raise AssertionError("关闭开关时不应执行 H 的反馈检查")
 
     monkeypatch.setattr(agent, "_investigation_feedback", unexpected)
-    assert agent.verify({}, {"configurable": {"toolbox": box, "model": None}}) == {
-        "phase": "done" if ok else "revise"}
+    assert agent.verify({}, {"configurable": {"toolbox": box, "model": None}}) == {"phase": "done" if ok else "revise"}
     assert box.verification == {**result, "revised": False}
 
 
@@ -405,7 +489,8 @@ def test_enabled_verify_requests_at_most_one_h_revision_without_changing_groundi
     monkeypatch.setattr(agent, "ground_report", lambda *args: (args[0], deepcopy(result)))
     monkeypatch.setattr(agent, "_investigation_feedback", lambda *args, **kwargs: FEEDBACK)
     assert agent.verify({"revised": revised}, {"configurable": {"toolbox": box, "model": None}}) == {
-        "phase": "done" if revised else "revise"}
+        "phase": "done" if revised else "revise"
+    }
     assert box.verification == {**result, "revised": revised}
     if not revised:
         assert box.investigation_feedback == FEEDBACK
@@ -420,9 +505,13 @@ def test_investigation_feedback_uses_pinned_version_closure_and_actual_source_di
     box = make_box(monkeypatch=monkeypatch, catalog=cat, objects=[pinned, source])
     base = governed(box, ["指标 X"], [[1]])
     base.meta["versions"] = {"metric_a": "v-pinned"}
-    records = box._dataset("explore", "记录占位", ["record_date", "value_a"], [["2026-09-02", "成员甲"]],
-                           meta={"sql": "SELECT * FROM cat.db.records_c", "datasource_id": source.id,
-                                 "dialect": "mysql"})
+    records = box._dataset(
+        "explore",
+        "记录占位",
+        ["record_date", "value_a"],
+        [["2026-09-02", "成员甲"]],
+        meta={"sql": "SELECT * FROM cat.db.records_c", "datasource_id": source.id, "dialect": "mysql"},
+    )
     box.report = report()
     box.report["scope"] = {"metric_code": "metric_a"}
     box.precheck_distribution = uniform_distribution()
@@ -472,13 +561,20 @@ def test_existing_verification_and_h_feedback_share_one_revision_and_one_tool_al
         box.report["claims"] = [{"type": "fact", "text": "中性结论"}]
         return {"messages": [], "notes": []}
 
-    result = {"ok": False, "status": "failed", "claims": [{"index": 0, "status": "unverified",
-               "problems": ["既有引用问题"]}], "fields": [], "causes": []}
+    result = {
+        "ok": False,
+        "status": "failed",
+        "claims": [{"index": 0, "status": "unverified", "problems": ["既有引用问题"]}],
+        "fields": [],
+        "causes": [],
+    }
     monkeypatch.setattr(agent, "act", act)
     monkeypatch.setattr(agent, "ground_report", lambda *args: (args[0], deepcopy(result)))
     monkeypatch.setattr(agent, "_investigation_feedback", lambda *args, **kwargs: FEEDBACK)
-    value = agent.reason({"question": "指标 X 为什么变化", "context": {}, "scope": None}, {
-        "configurable": {"toolbox": box, "model": None}})
+    value = agent.reason(
+        {"question": "指标 X 为什么变化", "context": {}, "scope": None},
+        {"configurable": {"toolbox": box, "model": None}},
+    )
     assert value["revised"] is True and len(seen) == 2
     assert box.budget.tool_calls == initial_limit + agent.REVISION_TOOL_CALLS
     assert agent.REVISION_TOOL_CALLS == 6

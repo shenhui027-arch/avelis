@@ -35,8 +35,9 @@ def _events(api: Api, ds: str, **params) -> list[dict]:
 
 
 def _by(events: list[dict], kind: str, asset_suffix: str, column: str | None) -> dict:
-    hits = [e for e in events if e["kind"] == kind and (e["asset"] or "").endswith(asset_suffix)
-            and e["column"] == column]
+    hits = [
+        e for e in events if e["kind"] == kind and (e["asset"] or "").endswith(asset_suffix) and e["column"] == column
+    ]
     assert len(hits) == 1, (kind, asset_suffix, column, [(e["kind"], e["asset"], e["column"]) for e in events])
     return hits[0]
 
@@ -88,14 +89,32 @@ def ctx(stack, admin: Api):
     demo_setup.setup(reset=False, metrics=True)
     sources = {d["kind"]: d["id"] for d in admin.get("/api/datasources")}
     for kind, port, keys, options in (
-            ("clickhouse", "SHOP_CH_HTTP_PORT", ("SHOP_CH_COLLECTOR_PASSWORD", "SHOP_CH_READER_PASSWORD"),
-             {"databases": ["store"]}),
-            ("doris", "SHOP_DORIS_QUERY_PORT", ("SHOP_DORIS_COLLECTOR_PASSWORD", "SHOP_DORIS_READER_PASSWORD"),
-             {"databases": ["store"]})):
-        ds = admin.post("/api/datasources", {
-            "name": f"门店库（{kind} 留底验收）", "kind": kind, "host": "127.0.0.1", "port": int(env[port]),
-            "collect": {"username": "avelis_collector", "password": env[keys[0]]},
-            "query": {"username": "avelis_reader", "password": env[keys[1]]}, "options": options}, expect=201)
+        (
+            "clickhouse",
+            "SHOP_CH_HTTP_PORT",
+            ("SHOP_CH_COLLECTOR_PASSWORD", "SHOP_CH_READER_PASSWORD"),
+            {"databases": ["store"]},
+        ),
+        (
+            "doris",
+            "SHOP_DORIS_QUERY_PORT",
+            ("SHOP_DORIS_COLLECTOR_PASSWORD", "SHOP_DORIS_READER_PASSWORD"),
+            {"databases": ["store"]},
+        ),
+    ):
+        ds = admin.post(
+            "/api/datasources",
+            {
+                "name": f"门店库（{kind} 留底验收）",
+                "kind": kind,
+                "host": "127.0.0.1",
+                "port": int(env[port]),
+                "collect": {"username": "avelis_collector", "password": env[keys[0]]},
+                "query": {"username": "avelis_reader", "password": env[keys[1]]},
+                "options": options,
+            },
+            expect=201,
+        )
         _collect(admin, ds["id"])
         sources[kind] = ds["id"]
     password = "Dev" + secrets.token_hex(12)
@@ -104,9 +123,11 @@ def ctx(stack, admin: Api):
     lag.undo()
     # 清理临时账号（演示库下一次 seed 也会重建）
     with demo.pg_connect(env) as conn:
-        conn.execute(f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEV_USER}') THEN "
-                     f"EXECUTE 'REASSIGN OWNED BY {DEV_USER} TO postgres'; EXECUTE 'DROP OWNED BY {DEV_USER}'; "
-                     f"EXECUTE 'DROP ROLE {DEV_USER}'; END IF; END $$")
+        conn.execute(
+            f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEV_USER}') THEN "
+            f"EXECUTE 'REASSIGN OWNED BY {DEV_USER} TO postgres'; EXECUTE 'DROP OWNED BY {DEV_USER}'; "
+            f"EXECUTE 'DROP ROLE {DEV_USER}'; END IF; END $$"
+        )
     ch = demo.ch_connect(env)
     try:
         ch.command(f"DROP USER IF EXISTS {DEV_USER}")
@@ -131,8 +152,9 @@ def test_01_postgres_attribution(ctx, admin: Api):
         conn.execute(f"ALTER TABLE store.sales OWNER TO {DEV_USER}")
     import psycopg
 
-    with psycopg.connect(host="127.0.0.1", port=int(env["SHOP_PG_PORT"]), user=DEV_USER, password=pw,
-                         dbname="storedb", autocommit=True) as dev:
+    with psycopg.connect(
+        host="127.0.0.1", port=int(env["SHOP_PG_PORT"]), user=DEV_USER, password=pw, dbname="storedb", autocommit=True
+    ) as dev:
         dev.execute("ALTER TABLE store.sales ADD COLUMN channel varchar(16)")
     with demo.pg_connect(env) as conn:
         conn.execute("COMMENT ON COLUMN store.shops.city IS '门店所在城市'")
@@ -190,14 +212,18 @@ def test_01_postgres_attribution(ctx, admin: Api):
 
     # 视图整体重定义：定义变化与新增列都归因到执行 CREATE OR REPLACE 的用户；旧血缘边被取代并保留
     with demo.pg_connect(env) as conn:
-        conn.execute("CREATE OR REPLACE VIEW store.city_daily_sales AS SELECT s.sale_date, h.city, "
-                     "SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count, "
-                     "MAX(s.amount) AS max_amount FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
-                     "WHERE s.status = 'paid' GROUP BY s.sale_date, h.city")
+        conn.execute(
+            "CREATE OR REPLACE VIEW store.city_daily_sales AS SELECT s.sale_date, h.city, "
+            "SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count, "
+            "MAX(s.amount) AS max_amount FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
+            "WHERE s.status = 'paid' GROUP BY s.sale_date, h.city"
+        )
     _collect(admin, ds)
     events = _events(admin, ds, kind="definition_changed,column_added")
-    for e in (_by(events, "definition_changed", "store.city_daily_sales", None),
-              _by(events, "column_added", "store.city_daily_sales", "max_amount")):
+    for e in (
+        _by(events, "definition_changed", "store.city_daily_sales", None),
+        _by(events, "column_added", "store.city_daily_sales", "max_amount"),
+    ):
         assert (e["attribution_status"], e["actor_db_user"]) == ("matched", "postgres"), e["attribution"]
 
 
@@ -210,11 +236,18 @@ def test_02_clickhouse_attribution(ctx, admin: Api):
     root = demo.ch_connect(env)
     try:
         root.command(f"DROP USER IF EXISTS {DEV_USER}")
-        root.command(f"CREATE USER {DEV_USER} IDENTIFIED WITH sha256_password BY {{p:String}}",
-                     parameters={"p": ctx["dev_password"]})
+        root.command(
+            f"CREATE USER {DEV_USER} IDENTIFIED WITH sha256_password BY {{p:String}}",
+            parameters={"p": ctx["dev_password"]},
+        )
         root.command(f"GRANT ALTER ON store.* TO {DEV_USER}")
-        dev = clickhouse_connect.get_client(host="127.0.0.1", port=int(env["SHOP_CH_HTTP_PORT"]), username=DEV_USER,
-                                            password=ctx["dev_password"], autogenerate_session_id=False)
+        dev = clickhouse_connect.get_client(
+            host="127.0.0.1",
+            port=int(env["SHOP_CH_HTTP_PORT"]),
+            username=DEV_USER,
+            password=ctx["dev_password"],
+            autogenerate_session_id=False,
+        )
         try:
             dev.command("ALTER TABLE store.sales ADD COLUMN channel String")
         finally:
@@ -251,8 +284,15 @@ def test_03_doris_attribution(ctx, admin: Api):
         conn.close()
     import pymysql
 
-    dev = pymysql.connect(host="127.0.0.1", port=int(env["SHOP_DORIS_QUERY_PORT"]), user=DEV_USER, password=pw,
-                          autocommit=True, charset="utf8mb4", connect_timeout=5)
+    dev = pymysql.connect(
+        host="127.0.0.1",
+        port=int(env["SHOP_DORIS_QUERY_PORT"]),
+        user=DEV_USER,
+        password=pw,
+        autocommit=True,
+        charset="utf8mb4",
+        connect_timeout=5,
+    )
     try:
         with dev.cursor() as cur:
             cur.execute("ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16) NULL")
@@ -269,9 +309,12 @@ def test_03_doris_attribution(ctx, admin: Api):
         c = demo.doris_connect(env)
         try:
             with c.cursor() as cur:
-                cur.execute("SELECT count(*) FROM __internal_schema.audit_log WHERE stmt_type = 'ALTER' "
-                            "AND `time` >= FROM_UNIXTIME(%s) AND (stmt LIKE '%%ADD COLUMN channel%%' "
-                            "OR stmt LIKE '%%MODIFY COLUMN city COMMENT%%')", (started,))
+                cur.execute(
+                    "SELECT count(*) FROM __internal_schema.audit_log WHERE stmt_type = 'ALTER' "
+                    "AND `time` >= FROM_UNIXTIME(%s) AND (stmt LIKE '%%ADD COLUMN channel%%' "
+                    "OR stmt LIKE '%%MODIFY COLUMN city COMMENT%%')",
+                    (started,),
+                )
                 return cur.fetchone()[0] >= 2
         finally:
             c.close()
@@ -282,8 +325,10 @@ def test_03_doris_attribution(ctx, admin: Api):
         c = demo.doris_connect(env)
         try:
             with c.cursor() as cur:
-                cur.execute("SELECT count(*) FROM information_schema.columns WHERE TABLE_SCHEMA = 'store' "
-                            "AND TABLE_NAME = 'sales' AND COLUMN_NAME = 'channel'")
+                cur.execute(
+                    "SELECT count(*) FROM information_schema.columns WHERE TABLE_SCHEMA = 'store' "
+                    "AND TABLE_NAME = 'sales' AND COLUMN_NAME = 'channel'"
+                )
                 return cur.fetchone()[0] == 1
         finally:
             c.close()
@@ -397,8 +442,11 @@ def test_06_append_only(ctx):
     _rejected("UPDATE change_event SET chain_seq = chain_seq + 100000 WHERE id = :id", id=event)
     # 合法的状态变化留下标记（标记本身也在链上）
     with get_engine().connect() as conn:
-        marks = conn.execute(text("SELECT count(*) FROM history_mark WHERE table_name = 'asset_version' "
-                                  "AND column_name = 'superseded_at'")).scalar()
+        marks = conn.execute(
+            text(
+                "SELECT count(*) FROM history_mark WHERE table_name = 'asset_version' AND column_name = 'superseded_at'"
+            )
+        ).scalar()
     assert marks >= 1
 
 
@@ -416,28 +464,41 @@ def test_07_tamper_detected(ctx, admin: Api):
 
     assert admin.get("/api/history/verify")["ok"] is True
     with get_engine().connect() as conn:
-        event_id, seq, actor = conn.execute(text(
-            "SELECT id, chain_seq, actor_db_user FROM change_event WHERE actor_db_user = :u"), {"u": DEV_USER}).first()
-        version_id, version_seq, superseded_at = conn.execute(text(
-            "SELECT id, chain_seq, superseded_at FROM asset_version WHERE superseded_at IS NOT NULL "
-            "ORDER BY chain_seq LIMIT 1")).first()
-        audit_row = conn.execute(text("SELECT * FROM audit_event ORDER BY chain_seq LIMIT 1 OFFSET 3")
-                                 ).mappings().first()
+        event_id, seq, actor = conn.execute(
+            text("SELECT id, chain_seq, actor_db_user FROM change_event WHERE actor_db_user = :u"), {"u": DEV_USER}
+        ).first()
+        version_id, version_seq, superseded_at = conn.execute(
+            text(
+                "SELECT id, chain_seq, superseded_at FROM asset_version WHERE superseded_at IS NOT NULL "
+                "ORDER BY chain_seq LIMIT 1"
+            )
+        ).first()
+        audit_row = (
+            conn.execute(text("SELECT * FROM audit_event ORDER BY chain_seq LIMIT 1 OFFSET 3")).mappings().first()
+        )
 
     # 1. 改内容：actor 被改成别人
     _replica("UPDATE change_event SET actor_db_user = 'mallory' WHERE id = :id", id=event_id)
     report = admin.get("/api/history/verify")
     assert report["ok"] is False
-    assert report["first_break"] == {**report["first_break"], "kind": "content_mismatch", "seq": seq,
-                                     "table": "change_event", "row_id": event_id}
+    assert report["first_break"] == {
+        **report["first_break"],
+        "kind": "content_mismatch",
+        "seq": seq,
+        "table": "change_event",
+        "row_id": event_id,
+    }
     _replica("UPDATE change_event SET actor_db_user = :a WHERE id = :id", a=actor, id=event_id)
     assert admin.get("/api/history/verify")["ok"] is True
 
     # 2. 改状态列（绕过触发器，不留标记）
     _replica("UPDATE asset_version SET superseded_at = superseded_at - interval '30 day' WHERE id = :id", id=version_id)
     report = admin.get("/api/history/verify")
-    assert not report["ok"] and {"kind": "mark_mismatch", "seq": version_seq, "table": "asset_version"}.items() \
+    assert (
+        not report["ok"]
+        and {"kind": "mark_mismatch", "seq": version_seq, "table": "asset_version"}.items()
         <= next(i for i in report["issues"] if i["row_id"] == version_id).items()
+    )
     _replica("UPDATE asset_version SET superseded_at = :t WHERE id = :id", t=superseded_at, id=version_id)
     assert admin.get("/api/history/verify")["ok"] is True
 
@@ -457,8 +518,10 @@ def test_07_tamper_detected(ctx, admin: Api):
 
     cols = list(audit_row.keys())
     values = ", ".join(f"CAST(:{c} AS jsonb)" if c == "detail" else f":{c}" for c in cols)
-    _replica(f"INSERT INTO audit_event ({', '.join(cols)}) VALUES ({values})",
-             **{k: (json.dumps(v, ensure_ascii=False) if k == "detail" else v) for k, v in audit_row.items()})
+    _replica(
+        f"INSERT INTO audit_event ({', '.join(cols)}) VALUES ({values})",
+        **{k: (json.dumps(v, ensure_ascii=False) if k == "detail" else v) for k, v in audit_row.items()},
+    )
     assert admin.get("/api/history/verify")["ok"] is True
 
 
@@ -473,14 +536,22 @@ def test_08_retention(ctx, admin: Api):
     from avelis.history import retention
 
     with get_engine().connect() as conn:
-        current = set(conn.execute(text("SELECT current_version_id FROM asset WHERE current_version_id IS NOT NULL"))
-                      .scalars())
-        referenced = set(conn.execute(text(
-            "SELECT e.value->>'version_id' FROM metric_version mv, jsonb_each(mv.asset_versions) e "
-            "WHERE mv.status = 'published'")).scalars())
+        current = set(
+            conn.execute(text("SELECT current_version_id FROM asset WHERE current_version_id IS NOT NULL")).scalars()
+        )
+        referenced = set(
+            conn.execute(
+                text(
+                    "SELECT e.value->>'version_id' FROM metric_version mv, jsonb_each(mv.asset_versions) e "
+                    "WHERE mv.status = 'published'"
+                )
+            ).scalars()
+        )
         open_sets = set(conn.execute(text("SELECT id FROM change_set WHERE status = 'open'")).scalars())
-        before = {t: conn.execute(text(f"SELECT count(*) FROM {t}")).scalar()
-                  for t in ("asset_version", "lineage_edge", "change_set", "audit_event")}
+        before = {
+            t: conn.execute(text(f"SELECT count(*) FROM {t}")).scalar()
+            for t in ("asset_version", "lineage_edge", "change_set", "audit_event")
+        }
     assert referenced, "演示口径应引用资产版本"
     dry = retention.purge(retention_days=1, now=_future(), dry_run=True)
     assert dry["status"] == "dry_run" and dry["counts"].get("asset_version")
@@ -495,22 +566,32 @@ def test_08_retention(ctx, admin: Api):
         left = set(conn.execute(text("SELECT id FROM asset_version")).scalars())
         assert current <= left and referenced <= left
         assert open_sets <= set(conn.execute(text("SELECT id FROM change_set")).scalars())
-        assert conn.execute(text("SELECT count(*) FROM asset_version")).scalar() == \
-            before["asset_version"] - counts["asset_version"]
+        assert (
+            conn.execute(text("SELECT count(*) FROM asset_version")).scalar()
+            == before["asset_version"] - counts["asset_version"]
+        )
         assert conn.execute(text("SELECT count(*) FROM lineage_edge WHERE status = 'superseded'")).scalar() == 0
-        purge_audit = conn.execute(text("SELECT detail FROM audit_event WHERE action = 'history.purge' "
-                                        "AND object_id = :a"), {"a": result["anchor_id"]}).scalar()
+        purge_audit = conn.execute(
+            text("SELECT detail FROM audit_event WHERE action = 'history.purge' AND object_id = :a"),
+            {"a": result["anchor_id"]},
+        ).scalar()
         assert purge_audit["counts"] == counts
     report = admin.get("/api/history/verify")
     assert report["ok"] is True and report["anchors"] == 1, report["first_break"]
     # 清理后再篡改一行，仍能指出位置
     with get_engine().connect() as conn:
-        row_id, seq, data_type = conn.execute(text(
-            "SELECT id, chain_seq, data_type FROM column_version ORDER BY chain_seq LIMIT 1")).first()
+        row_id, seq, data_type = conn.execute(
+            text("SELECT id, chain_seq, data_type FROM column_version ORDER BY chain_seq LIMIT 1")
+        ).first()
     _replica("UPDATE column_version SET data_type = 'text' WHERE id = :id", id=row_id)
     report = admin.get("/api/history/verify")
-    assert report["first_break"] == {**report["first_break"], "seq": seq, "kind": "content_mismatch",
-                                     "table": "column_version", "row_id": row_id}
+    assert report["first_break"] == {
+        **report["first_break"],
+        "seq": seq,
+        "kind": "content_mismatch",
+        "table": "column_version",
+        "row_id": row_id,
+    }
     _replica("UPDATE column_version SET data_type = :t WHERE id = :id", t=data_type, id=row_id)
     assert admin.get("/api/history/verify")["ok"] is True
     status = admin.get("/api/history/status")

@@ -47,8 +47,15 @@ class DorisConnector:
         self.options = options or {}
 
     def _connect(self, read_timeout: int = 60) -> pymysql.Connection:
-        return pymysql.connect(**self._conn_args, autocommit=True, charset="utf8mb4", connect_timeout=5,
-                               read_timeout=read_timeout, write_timeout=30, cursorclass=pymysql.cursors.DictCursor)
+        return pymysql.connect(
+            **self._conn_args,
+            autocommit=True,
+            charset="utf8mb4",
+            connect_timeout=5,
+            read_timeout=read_timeout,
+            write_timeout=30,
+            cursorclass=pymysql.cursors.DictCursor,
+        )
 
     # --- 采集 ---------------------------------------------------------------------
 
@@ -62,8 +69,10 @@ class DorisConnector:
     def _server_identity(self, cur) -> dict[str, Any]:
         cur.execute("SELECT @@version_comment AS comment, version() AS v")
         row = cur.fetchone() or {}
-        identity: dict[str, Any] = {"version": row.get("comment") or row.get("v"),
-                                    "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}"}
+        identity: dict[str, Any] = {
+            "version": row.get("comment") or row.get("v"),
+            "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}",
+        }
         try:
             cur.execute("SHOW FRONTENDS")
             rows = cur.fetchall()
@@ -84,11 +93,15 @@ class DorisConnector:
             cur = conn.cursor()
             identity = self._server_identity(cur)
             in_dbs = _in_list(databases)
-            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, ENGINE, CREATE_TIME, TABLE_COMMENT "
-                        f"FROM information_schema.tables WHERE TABLE_SCHEMA IN ({in_dbs})")
+            cur.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, ENGINE, CREATE_TIME, TABLE_COMMENT "
+                f"FROM information_schema.tables WHERE TABLE_SCHEMA IN ({in_dbs})"
+            )
             tables = cur.fetchall()
-            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_MODEL, TABLE_MODEL_KEY "
-                        f"FROM information_schema.table_options WHERE TABLE_SCHEMA IN ({in_dbs})")
+            cur.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_MODEL, TABLE_MODEL_KEY "
+                f"FROM information_schema.table_options WHERE TABLE_SCHEMA IN ({in_dbs})"
+            )
             models = {(r["TABLE_SCHEMA"], r["TABLE_NAME"]): r for r in cur.fetchall()}
             ids = self._ids(cur, databases)
             columns = self._columns(cur, in_dbs, with_comments=True)
@@ -114,42 +127,71 @@ class DorisConnector:
             table_model = model.get("TABLE_MODEL") or None
             model_key = [c.strip().strip("`") for c in (model.get("TABLE_MODEL_KEY") or "").split(",") if c.strip()]
             unique = model_key if table_model in UNIQUE_MODELS else []
-            assets.append(ObservedAsset(
-                catalog=INTERNAL_CATALOG, db=key[0], name=key[1], kind=kind,
-                columns=[ObservedColumn(name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4],
-                                        is_key=c[5]) for c in columns.get(key, [])],
-                physical_id=ids.get(key), table_model=table_model, key_columns=unique,
-                unique_keys=[unique] if unique else [], comment=t["TABLE_COMMENT"] or None, definition=definition,
-                properties={"engine": t["ENGINE"], "model_key": model_key,
-                            "create_time": str(t["CREATE_TIME"]) if t["CREATE_TIME"] else None},
-            ))
+            assets.append(
+                ObservedAsset(
+                    catalog=INTERNAL_CATALOG,
+                    db=key[0],
+                    name=key[1],
+                    kind=kind,
+                    columns=[
+                        ObservedColumn(
+                            name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4], is_key=c[5]
+                        )
+                        for c in columns.get(key, [])
+                    ],
+                    physical_id=ids.get(key),
+                    table_model=table_model,
+                    key_columns=unique,
+                    unique_keys=[unique] if unique else [],
+                    comment=t["TABLE_COMMENT"] or None,
+                    definition=definition,
+                    properties={
+                        "engine": t["ENGINE"],
+                        "model_key": model_key,
+                        "create_time": str(t["CREATE_TIME"]) if t["CREATE_TIME"] else None,
+                    },
+                )
+            )
         return Snapshot(server_identity=identity, assets=assets, warnings=warnings)
 
     @staticmethod
     def _ids(cur, databases: list[str]) -> dict[tuple[str, str], str]:
-        cur.execute("SELECT DATABASE_NAME, TABLE_NAME, TABLE_ID FROM information_schema.metadata_name_ids "
-                    f"WHERE CATALOG_NAME = 'internal' AND DATABASE_NAME IN ({_in_list(databases)})")
+        cur.execute(
+            "SELECT DATABASE_NAME, TABLE_NAME, TABLE_ID FROM information_schema.metadata_name_ids "
+            f"WHERE CATALOG_NAME = 'internal' AND DATABASE_NAME IN ({_in_list(databases)})"
+        )
         return {(r["DATABASE_NAME"], r["TABLE_NAME"]): str(r["TABLE_ID"]) for r in cur.fetchall() if r["TABLE_ID"]}
 
     @staticmethod
-    def _columns(cur, in_dbs: str, tables: str | None = None,
-                 with_comments: bool = False) -> dict[tuple[str, str], list[tuple]]:
+    def _columns(
+        cur, in_dbs: str, tables: str | None = None, with_comments: bool = False
+    ) -> dict[tuple[str, str], list[tuple]]:
         where = f"TABLE_SCHEMA IN ({in_dbs})" + (f" AND TABLE_NAME IN ({tables})" if tables else "")
-        cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE, IS_NULLABLE, "
-                    f"COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns WHERE {where}")
+        cur.execute(
+            "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE, IS_NULLABLE, "
+            f"COLUMN_COMMENT, COLUMN_KEY FROM information_schema.columns WHERE {where}"
+        )
         out: dict[tuple[str, str], list[tuple]] = {}
         for r in sorted(cur.fetchall(), key=lambda r: int(r["ORDINAL_POSITION"])):
-            out.setdefault((r["TABLE_SCHEMA"], r["TABLE_NAME"]), []).append((
-                r["COLUMN_NAME"], r["COLUMN_TYPE"], int(r["ORDINAL_POSITION"]), r["IS_NULLABLE"] == "YES",
-                (r["COLUMN_COMMENT"] or None) if with_comments else None, r["COLUMN_KEY"] == "UNI"))
+            out.setdefault((r["TABLE_SCHEMA"], r["TABLE_NAME"]), []).append(
+                (
+                    r["COLUMN_NAME"],
+                    r["COLUMN_TYPE"],
+                    int(r["ORDINAL_POSITION"]),
+                    r["IS_NULLABLE"] == "YES",
+                    (r["COLUMN_COMMENT"] or None) if with_comments else None,
+                    r["COLUMN_KEY"] == "UNI",
+                )
+            )
         return out
 
     @staticmethod
     def _views(cur, in_dbs: str, tables: str | None = None) -> dict[tuple[str, str], str]:
         where = f"TABLE_SCHEMA IN ({in_dbs})" + (f" AND TABLE_NAME IN ({tables})" if tables else "")
         cur.execute(f"SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION FROM information_schema.views WHERE {where}")
-        return {(r["TABLE_SCHEMA"], r["TABLE_NAME"]): r["VIEW_DEFINITION"] for r in cur.fetchall()
-                if r["VIEW_DEFINITION"]}
+        return {
+            (r["TABLE_SCHEMA"], r["TABLE_NAME"]): r["VIEW_DEFINITION"] for r in cur.fetchall() if r["VIEW_DEFINITION"]
+        }
 
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         databases = set(self.options.get("databases", []))
@@ -159,10 +201,13 @@ class DorisConnector:
             cur.execute("SELECT @@enable_audit_plugin AS enabled")
             if str((cur.fetchone() or {}).get("enabled")).lower() not in ("1", "true"):
                 raise AuditUnavailable("enable_audit_plugin = false：Doris 未写入内置审计表", "not_enabled")
-            cur.execute("SELECT UNIX_TIMESTAMP(`time`) AS ts, `user`, db, stmt_type, stmt "
-                        "FROM __internal_schema.audit_log WHERE `time` >= FROM_UNIXTIME(%s) "
-                        "AND `time` <= FROM_UNIXTIME(%s) AND state = 'OK' AND stmt_type IN ('CREATE', 'ALTER', 'DROP') "
-                        "ORDER BY `time`", (_epoch(since), _epoch(until)))
+            cur.execute(
+                "SELECT UNIX_TIMESTAMP(`time`) AS ts, `user`, db, stmt_type, stmt "
+                "FROM __internal_schema.audit_log WHERE `time` >= FROM_UNIXTIME(%s) "
+                "AND `time` <= FROM_UNIXTIME(%s) AND state = 'OK' AND stmt_type IN ('CREATE', 'ALTER', 'DROP') "
+                "ORDER BY `time`",
+                (_epoch(since), _epoch(until)),
+            )
             rows = cur.fetchall()
         except pymysql.MySQLError as exc:
             raise AuditUnavailable(_query_error(exc).message, _audit_cause(exc)) from exc
@@ -172,15 +217,23 @@ class DorisConnector:
         for r in rows:
             objects = [o for o in objects_in(r["stmt"] or "", r["db"] or None) if not databases or o[0] in databases]
             if objects:
-                events.append(DdlEvent(at=datetime.fromtimestamp(float(r["ts"]), tz=timezone.utc).replace(tzinfo=None),
-                                       db_user=r["user"], objects=objects, statement_type=r["stmt_type"],
-                                       statement=r["stmt"] or "", may_lag=r["stmt_type"] == "ALTER"))
+                events.append(
+                    DdlEvent(
+                        at=datetime.fromtimestamp(float(r["ts"]), tz=timezone.utc).replace(tzinfo=None),
+                        db_user=r["user"],
+                        objects=objects,
+                        statement_type=r["stmt_type"],
+                        statement=r["stmt"] or "",
+                        may_lag=r["stmt_type"] == "ALTER",
+                    )
+                )
         return events
 
     # --- 只读执行 ------------------------------------------------------------------
 
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
-                       timezone: str | None = None) -> QueryResult:
+    def execute_select(
+        self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult:
         conn = self._connect(read_timeout=timeout_seconds + 15)
         try:
             cur = conn.cursor(pymysql.cursors.Cursor)
@@ -191,8 +244,12 @@ class DorisConnector:
             cur.execute(sql)
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
-            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows,
-                               warnings=warnings)
+            return QueryResult(
+                columns=columns,
+                rows=[list(r) for r in rows[:max_rows]],
+                truncated=len(rows) > max_rows,
+                warnings=warnings,
+            )
         except pymysql.MySQLError as exc:
             raise _query_error(exc) from exc
         finally:
@@ -201,8 +258,9 @@ class DorisConnector:
     def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）、视图定义与 TABLE_ID。"""
         names = {(db, name) for db, name in objects if IDENT.match(db) and IDENT.match(name)}
-        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
-                                                      for k in names}
+        out: dict[tuple[str, str], dict[str, Any]] = {
+            k: {"columns": [], "definition": None, "physical_id": None} for k in names
+        }
         if not names:
             return out
         dbs = sorted({d for d, _ in names})
@@ -233,9 +291,11 @@ class DorisConnector:
         conn = self._connect()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, UPDATE_TIME FROM information_schema.tables "
-                        f"WHERE TABLE_SCHEMA IN ({_in_list(sorted({d for d, _ in names}))}) "
-                        f"AND TABLE_NAME IN ({_in_list(sorted({n for _, n in names}))})")
+            cur.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, UPDATE_TIME FROM information_schema.tables "
+                f"WHERE TABLE_SCHEMA IN ({_in_list(sorted({d for d, _ in names}))}) "
+                f"AND TABLE_NAME IN ({_in_list(sorted({n for _, n in names}))})"
+            )
             found = {f"{r['TABLE_SCHEMA']}.{r['TABLE_NAME']}": r for r in cur.fetchall()}
         except pymysql.MySQLError as exc:
             raise _query_error(exc) from exc
@@ -244,7 +304,9 @@ class DorisConnector:
         out: dict[str, Any] = {}
         for d, n in names:
             r = found.get(f"{d}.{n}")
-            out[f"{d}.{n}"] = str(r["UPDATE_TIME"]) if r and r["TABLE_TYPE"] == "BASE TABLE" and r["UPDATE_TIME"] else None
+            out[f"{d}.{n}"] = (
+                str(r["UPDATE_TIME"]) if r and r["TABLE_TYPE"] == "BASE TABLE" and r["UPDATE_TIME"] else None
+            )
         return out
 
 

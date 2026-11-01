@@ -12,8 +12,9 @@ from avelis.importer import batch
 @pytest.mark.parametrize("failure", [False, True])
 def test_worker_dispatches_import_with_claimed_attempt_and_records_terminal_status(monkeypatch, failure):
     executed, received = [], []
-    task = SimpleNamespace(kind="import", payload={"batch_id": "batch-1"}, created_by="actor-1",
-                           attempts=3, result={"existing": "kept"})
+    task = SimpleNamespace(
+        kind="import", payload={"batch_id": "batch-1"}, created_by="actor-1", attempts=3, result={"existing": "kept"}
+    )
 
     class Session:
         def execute(self, statement):

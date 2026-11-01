@@ -43,19 +43,56 @@ def state():
         actor = User(id="analyst", username="analyst", display_name="提议人", password_hash="unused")
         owner_a = User(id="owner_a", username="owner_a", display_name="负责人甲", password_hash="unused")
         owner_b = User(id="owner_b", username="owner_b", display_name="负责人乙", password_hash="unused")
-        session.add_all([actor, owner_a, owner_b, UserRole(user_id=actor.id, role="analyst"),
-                         Domain(id="domain_a", code="domain_a", name="域甲", owner_id=owner_a.id),
-                         Domain(id="domain_b", code="domain_b", name="域乙", owner_id=owner_b.id)])
-        session.add_all([DomainMember(domain_id=domain_id, user_id=actor.id, role="viewer")
-                         for domain_id in ("domain_a", "domain_b")])
+        session.add_all(
+            [
+                actor,
+                owner_a,
+                owner_b,
+                UserRole(user_id=actor.id, role="analyst"),
+                Domain(id="domain_a", code="domain_a", name="域甲", owner_id=owner_a.id),
+                Domain(id="domain_b", code="domain_b", name="域乙", owner_id=owner_b.id),
+            ]
+        )
+        session.add_all(
+            [
+                DomainMember(domain_id=domain_id, user_id=actor.id, role="viewer")
+                for domain_id in ("domain_a", "domain_b")
+            ]
+        )
         for side, domain in (("left", "domain_a"), ("right", "domain_b")):
-            session.add(Asset(id=side, datasource_id="ds", kind="table", catalog_name="catalog", db_name="space",
-                              name=f"{side}_records", domain_id=domain, current_version_id=f"{side}_v"))
-            session.add_all([ColumnVersion(asset_version_id=f"{side}_v", column_id=f"{side}_{column}",
-                                           ordinal=index, name=column, data_type="VARCHAR")
-                             for index, column in enumerate(("key_a", "key_b"))])
-        session.add(Grain(asset_id="right", asset_version_id="right_v", columns=["key_a", "key_b"],
-                          origin="observed", status="verified"))
+            session.add(
+                Asset(
+                    id=side,
+                    datasource_id="ds",
+                    kind="table",
+                    catalog_name="catalog",
+                    db_name="space",
+                    name=f"{side}_records",
+                    domain_id=domain,
+                    current_version_id=f"{side}_v",
+                )
+            )
+            session.add_all(
+                [
+                    ColumnVersion(
+                        asset_version_id=f"{side}_v",
+                        column_id=f"{side}_{column}",
+                        ordinal=index,
+                        name=column,
+                        data_type="VARCHAR",
+                    )
+                    for index, column in enumerate(("key_a", "key_b"))
+                ]
+            )
+        session.add(
+            Grain(
+                asset_id="right",
+                asset_version_id="right_v",
+                columns=["key_a", "key_b"],
+                origin="observed",
+                status="verified",
+            )
+        )
         session.commit()
         yield session, actor, owner_a, owner_b
     engine.dispose()
@@ -63,10 +100,20 @@ def state():
 
 def propose(state, **changes):
     session, actor, *_ = state
-    return joins.propose(session, actor, **({"left_asset_id": "left", "left_columns": ["key_a", "key_b"],
-                                            "right_asset_id": "right", "right_columns": ["key_a", "key_b"],
-                                            "source": {"run_id": "run_a", "checkpoint": "assumptions",
-                                                       "user_text": "按两个键关联"}} | changes))
+    return joins.propose(
+        session,
+        actor,
+        **(
+            {
+                "left_asset_id": "left",
+                "left_columns": ["key_a", "key_b"],
+                "right_asset_id": "right",
+                "right_columns": ["key_a", "key_b"],
+                "source": {"run_id": "run_a", "checkpoint": "assumptions", "user_text": "按两个键关联"},
+            }
+            | changes
+        ),
+    )
 
 
 @pytest.mark.parametrize("role", ["analyst", "steward", "reviewer"])
@@ -98,8 +145,17 @@ def test_repeat_reverse_and_reordered_pairs_reuse_path_and_keep_original_source(
     path = propose(state)
     assert propose(state).id == path.id
     assert propose(state, left_columns=["key_b", "key_a"], right_columns=["key_b", "key_a"]).id == path.id
-    assert propose(state, left_asset_id="right", right_asset_id="left", left_columns=["key_b", "key_a"],
-                   right_columns=["key_b", "key_a"], source={"run_id": "run_b"}).id == path.id
+    assert (
+        propose(
+            state,
+            left_asset_id="right",
+            right_asset_id="left",
+            left_columns=["key_b", "key_a"],
+            right_columns=["key_b", "key_a"],
+            source={"run_id": "run_b"},
+        ).id
+        == path.id
+    )
     assert session.scalar(select(func.count()).select_from(JoinPath)) == 1
     assert path.source["run_id"] == "run_a"
     session.flush()
@@ -153,8 +209,16 @@ def hide_code_once(session, monkeypatch, code):
 @pytest.mark.parametrize("reverse", [False, True])
 def test_unique_conflict_reuses_concurrent_path_and_preserves_outer_transaction(state, monkeypatch, reverse):
     session, actor, *_ = state
-    changes = {"left_asset_id": "right", "right_asset_id": "left",
-               "left_columns": ["key_b", "key_a"], "right_columns": ["key_b", "key_a"]} if reverse else {}
+    changes = (
+        {
+            "left_asset_id": "right",
+            "right_asset_id": "left",
+            "left_columns": ["key_b", "key_a"],
+            "right_columns": ["key_b", "key_a"],
+        }
+        if reverse
+        else {}
+    )
     existing = propose(state, **changes)
     existing.code = "left_records_key_a_key_b_right_records_key_a_key_b"
     session.commit()
@@ -200,8 +264,9 @@ def test_unique_conflict_with_another_join_retries_next_suffix(state, monkeypatc
 def test_repeated_code_conflicts_stop_after_bounded_retries(state, monkeypatch):
     session, *_ = state
     codes = []
-    error = IntegrityError("insert", {}, SimpleNamespace(
-        sqlstate="23505", diag=SimpleNamespace(constraint_name="uq_join_path_code")))
+    error = IntegrityError(
+        "insert", {}, SimpleNamespace(sqlstate="23505", diag=SimpleNamespace(constraint_name="uq_join_path_code"))
+    )
 
     def conflict(session, actor, code, *args):
         codes.append(code)
@@ -217,11 +282,13 @@ def test_repeated_code_conflicts_stop_after_bounded_retries(state, monkeypatch):
     assert session.scalar(select(func.count()).select_from(JoinPath)) == 0
 
 
-@pytest.mark.parametrize("sqlstate, constraint", [("23503", "fk_join_path_left_asset_id_asset"),
-                                                 ("23505", "pk_join_path")])
+@pytest.mark.parametrize(
+    "sqlstate, constraint", [("23503", "fk_join_path_left_asset_id_asset"), ("23505", "pk_join_path")]
+)
 def test_unrelated_integrity_error_is_not_retried(state, monkeypatch, sqlstate, constraint):
-    error = IntegrityError("insert", {}, SimpleNamespace(
-        sqlstate=sqlstate, diag=SimpleNamespace(constraint_name=constraint)))
+    error = IntegrityError(
+        "insert", {}, SimpleNamespace(sqlstate=sqlstate, diag=SimpleNamespace(constraint_name=constraint))
+    )
     calls = []
 
     def fail(*args):
@@ -238,8 +305,16 @@ def test_unrelated_integrity_error_is_not_retried(state, monkeypatch, sqlstate, 
 def test_analyst_cannot_directly_create_or_approve_and_domains_still_both_approve(state):
     session, actor, owner_a, owner_b = state
     with pytest.raises(Forbidden):
-        joins.create(session, actor, code="manual", name="关联", left_asset_id="left", left_columns=["key_a"],
-                     right_asset_id="right", right_columns=["key_a"])
+        joins.create(
+            session,
+            actor,
+            code="manual",
+            name="关联",
+            left_asset_id="left",
+            left_columns=["key_a"],
+            right_asset_id="right",
+            right_columns=["key_a"],
+        )
     path = propose(state)
     with pytest.raises(Forbidden):
         joins.decide(session, actor, path, "domain_a", "approved", None)
@@ -253,8 +328,9 @@ def test_analyst_cannot_directly_create_or_approve_and_domains_still_both_approv
 def test_proposal_requires_supported_role_and_both_assets_visible_even_when_path_exists(state):
     session, actor, *_ = state
     propose(state)
-    membership = session.scalar(select(DomainMember).where(DomainMember.user_id == actor.id,
-                                                           DomainMember.domain_id == "domain_b"))
+    membership = session.scalar(
+        select(DomainMember).where(DomainMember.user_id == actor.id, DomainMember.domain_id == "domain_b")
+    )
     session.delete(membership)
     with pytest.raises(Forbidden):
         propose(state)
@@ -263,8 +339,9 @@ def test_proposal_requires_supported_role_and_both_assets_visible_even_when_path
         propose(state)
 
 
-@pytest.mark.parametrize("changes", [{"left_columns": []}, {"right_columns": ["key_a"]},
-                                     {"left_columns": ["missing", "key_b"]}])
+@pytest.mark.parametrize(
+    "changes", [{"left_columns": []}, {"right_columns": ["key_a"]}, {"left_columns": ["missing", "key_b"]}]
+)
 def test_proposal_validates_columns_and_matching_key_counts(state, changes):
     with pytest.raises(Invalid):
         propose(state, **changes)
@@ -272,13 +349,18 @@ def test_proposal_validates_columns_and_matching_key_counts(state, changes):
 
 def save_join_experience(state):
     session, actor, *_ = state
-    session.add(AnalysisRun(id="experience_run", user_id=actor.id, question="确认关联", trigger="manual",
-                            status="succeeded"))
-    content = ("space.left_records.key_a = space.right_records.key_a AND "
-               "left_records.key_b = right_records.key_b")
-    saved = experiences.save_experience(session, actor, kind="join", content=content, refs=[],
-                                       source={"run_id": "experience_run", "checkpoint": "assumptions",
-                                               "user_text": "原始提议"})
+    session.add(
+        AnalysisRun(id="experience_run", user_id=actor.id, question="确认关联", trigger="manual", status="succeeded")
+    )
+    content = "space.left_records.key_a = space.right_records.key_a AND left_records.key_b = right_records.key_b"
+    saved = experiences.save_experience(
+        session,
+        actor,
+        kind="join",
+        content=content,
+        refs=[],
+        source={"run_id": "experience_run", "checkpoint": "assumptions", "user_text": "原始提议"},
+    )
     session.commit()
     return saved
 
@@ -293,8 +375,7 @@ def test_experience_conversion_creates_real_pending_path_and_keeps_revoked_versi
     assert (path.left_asset_id, path.right_asset_id) == ("left", "right")
     assert path.left_columns == path.right_columns == ["key_a", "key_b"]
     assert path.cardinality == "n1"
-    assert path.source == {"run_id": "experience_run", "checkpoint": "assumptions",
-                           "user_text": saved["content"]}
+    assert path.source == {"run_id": "experience_run", "checkpoint": "assumptions", "user_text": saved["content"]}
     assert session.scalar(select(func.count()).select_from(JoinPath)) == 1
     experience = session.get(Experience, saved["id"])
     version = session.get(ExperienceVersion, saved["version_id"])
@@ -309,8 +390,13 @@ def test_experience_conversion_creates_real_pending_path_and_keeps_revoked_versi
 
 def test_experience_conversion_reuses_real_reverse_approved_path_without_creating(state):
     session, actor, owner_a, owner_b = state
-    existing = propose(state, left_asset_id="right", right_asset_id="left",
-                       left_columns=["key_b", "key_a"], right_columns=["key_b", "key_a"])
+    existing = propose(
+        state,
+        left_asset_id="right",
+        right_asset_id="left",
+        left_columns=["key_b", "key_a"],
+        right_columns=["key_b", "key_a"],
+    )
     joins.decide(session, owner_a, existing, "domain_a", "approved", None)
     joins.decide(session, owner_b, existing, "domain_b", "approved", None)
     original_source = existing.source.copy()

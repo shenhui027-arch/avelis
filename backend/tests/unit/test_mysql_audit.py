@@ -15,13 +15,24 @@ from avelis.i18n import locale_context
 from tests.pymysql_contract import mogrify
 from tests.unit.test_history import T0, WINDOW, _asset, _attribute, _event
 
-SCHEMA = [{"Field": name, "Type": kind} for name, kind in (
-    ("event_time", "timestamp(6)"), ("user_host", "mediumtext"), ("command_type", "varchar(64)"),
-    ("argument", "mediumblob"))]
+SCHEMA = [
+    {"Field": name, "Type": kind}
+    for name, kind in (
+        ("event_time", "timestamp(6)"),
+        ("user_host", "mediumtext"),
+        ("command_type", "varchar(64)"),
+        ("argument", "mediumblob"),
+    )
+]
 
 
-def _row(statement="ALTER TABLE `store`.`sales` ADD COLUMN `channel` varchar(16)", *, at=T0,
-         user="alice[alice] @ localhost [127.0.0.1]", command="Query"):
+def _row(
+    statement="ALTER TABLE `store`.`sales` ADD COLUMN `channel` varchar(16)",
+    *,
+    at=T0,
+    user="alice[alice] @ localhost [127.0.0.1]",
+    command="Query",
+):
     return {"event_time": at, "user_host": user, "command_type": command, "argument": statement}
 
 
@@ -57,8 +68,15 @@ class _Cursor:
             return self.schema
         assert self.mode == "rows"
         # 模拟 TIMESTAMP：驱动把服务端按会话时区转换后的值作为无时区 datetime 返回。
-        return [{**row, "event_time": row["event_time"] + timedelta(hours=self.offset)
-                 if isinstance(row["event_time"], datetime) else row["event_time"]} for row in self.rows]
+        return [
+            {
+                **row,
+                "event_time": row["event_time"] + timedelta(hours=self.offset)
+                if isinstance(row["event_time"], datetime)
+                else row["event_time"],
+            }
+            for row in self.rows
+        ]
 
 
 class _Connection:
@@ -74,8 +92,9 @@ class _Connection:
 
 
 def _connector(monkeypatch, rows=(), *, source="mysql.general_log", databases=("store",), **kw):
-    connector = MySQLMetaConnector("unused", 3306, "collector", "unused",
-                                  {"databases": list(databases), "ddl_audit_table": source})
+    connector = MySQLMetaConnector(
+        "unused", 3306, "collector", "unused", {"databases": list(databases), "ddl_audit_table": source}
+    )
     cur = _Cursor(list(rows), **kw)
     conn = _Connection(cur)
 
@@ -137,14 +156,21 @@ def test_invalid_binding_is_incompatible(monkeypatch, source):
 
 
 def test_quoted_binding_is_safely_quoted():
-    assert _table({"ddl_audit_table": " `audit``db` . `ddl.log` "}) == (
-        "audit`db", "ddl.log", "`audit``db`.`ddl.log`")
+    assert _table({"ddl_audit_table": " `audit``db` . `ddl.log` "}) == ("audit`db", "ddl.log", "`audit``db`.`ddl.log`")
     assert audit_source({"ddl_audit_table": " audit.events "}) == "mysql:audit.events"
 
 
-@pytest.mark.parametrize(("enabled", "output"), [
-    (0, "TABLE"), ("OFF", "TABLE"), (1, "FILE"), (1, "NONE"), (1, "NONE,TABLE"), (1, "NONE,FILE,TABLE"),
-])
+@pytest.mark.parametrize(
+    ("enabled", "output"),
+    [
+        (0, "TABLE"),
+        ("OFF", "TABLE"),
+        (1, "FILE"),
+        (1, "NONE"),
+        (1, "NONE,TABLE"),
+        (1, "NONE,FILE,TABLE"),
+    ],
+)
 def test_general_log_requires_enabled_and_table_output(monkeypatch, enabled, output):
     connector, conn, cur = _connector(monkeypatch, enabled=enabled, output=output)
     with pytest.raises(AuditUnavailable, match="general_log=ON.*TABLE") as caught:
@@ -176,14 +202,17 @@ def test_plugin_table_has_same_contract_but_independent_enablement(monkeypatch):
     assert conn.closed
 
 
-@pytest.mark.parametrize(("code", "message", "cause"), [
-    (1142, "SELECT command denied to user collector for table general_log", "no_permission"),
-    (1143, "SELECT command denied for column argument", "no_permission"),
-    (1045, "Access denied", "no_permission"),
-    (1146, "Table mysql.general_log doesn't exist", "not_enabled"),
-    (1054, "Unknown column event_time", "incompatible"),
-    (2013, "Lost connection to MySQL server during query", "error"),
-])
+@pytest.mark.parametrize(
+    ("code", "message", "cause"),
+    [
+        (1142, "SELECT command denied to user collector for table general_log", "no_permission"),
+        (1143, "SELECT command denied for column argument", "no_permission"),
+        (1045, "Access denied", "no_permission"),
+        (1146, "Table mysql.general_log doesn't exist", "not_enabled"),
+        (1054, "Unknown column event_time", "incompatible"),
+        (2013, "Lost connection to MySQL server during query", "error"),
+    ],
+)
 def test_native_read_failures_keep_cause_and_summary(monkeypatch, code, message, cause):
     connector, conn, _ = _connector(monkeypatch, fail_on=("SELECT event_time", pymysql.OperationalError(code, message)))
     with pytest.raises(AuditUnavailable, match=message) as caught:
@@ -203,11 +232,14 @@ def test_connection_failures_are_audit_unavailable(monkeypatch):
     assert caught.value.cause == "error"
 
 
-@pytest.mark.parametrize(("schema", "message"), [
-    (SCHEMA[:-1], "缺少列 argument"),
-    ([{**r, "Type": "datetime(6)"} if r["Field"] == "event_time" else r for r in SCHEMA], "必须为 TIMESTAMP"),
-    ([{**r, "Type": "int"} if r["Field"] == "user_host" else r for r in SCHEMA], "必须为文本或二进制列"),
-])
+@pytest.mark.parametrize(
+    ("schema", "message"),
+    [
+        (SCHEMA[:-1], "缺少列 argument"),
+        ([{**r, "Type": "datetime(6)"} if r["Field"] == "event_time" else r for r in SCHEMA], "必须为 TIMESTAMP"),
+        ([{**r, "Type": "int"} if r["Field"] == "user_host" else r for r in SCHEMA], "必须为文本或二进制列"),
+    ],
+)
 def test_incompatible_structure_is_not_reported_as_empty(monkeypatch, schema, message):
     connector, conn, cur = _connector(monkeypatch, schema=schema)
     with pytest.raises(AuditUnavailable, match=message) as caught:
@@ -231,9 +263,13 @@ def test_timestamp_is_read_in_utc_and_aware_window_converted(monkeypatch, offset
 
 
 def test_query_and_execute_are_candidates_but_prepare_and_dml_are_not(monkeypatch):
-    rows = [_row(command="Prepare"), _row(command="Execute", user="bob[bob] @ server [::1]"), _row(),
-            _row("SELECT 'ALTER TABLE store.sales ADD COLUMN channel int'"),
-            _row("ALTER TABLE private.sales ADD COLUMN channel int")]
+    rows = [
+        _row(command="Prepare"),
+        _row(command="Execute", user="bob[bob] @ server [::1]"),
+        _row(),
+        _row("SELECT 'ALTER TABLE store.sales ADD COLUMN channel int'"),
+        _row("ALTER TABLE private.sales ADD COLUMN channel int"),
+    ]
     connector, _, cur = _connector(monkeypatch, rows)
     events = connector.ddl_events(T0, T0)
     assert [e.db_user for e in events] == ["bob", "alice"]
@@ -245,55 +281,79 @@ def test_query_and_execute_are_candidates_but_prepare_and_dml_are_not(monkeypatc
     assert "CONVERT(argument USING utf8mb4)" in cur.calls[-1][0]
 
 
-@pytest.mark.parametrize(("statement", "kind", "objects"), [
-    ("/* comment */ ALTER TABLE `store`.`sales` CHANGE COLUMN `old` `new` bigint", "ALTER", [("store", "sales")]),
-    ("# MySQL comment\nALTER TABLE store.sales ADD COLUMN x int", "ALTER", [("store", "sales")]),
-    ("ALTER TABLE store.sales ADD COLUMN x text COMMENT 'a\\'b'", "ALTER", [("store", "sales")]),
-    ("CREATE TABLE store.copy AS SELECT * FROM private.original", "CREATE", [("store", "copy")]),
-    ("CREATE ALGORITHM=MERGE DEFINER=`u`@`%` SQL SECURITY DEFINER VIEW store.v AS SELECT x FROM store.sales",
-     "CREATE", [("store", "v")]),
-    ("ALTER VIEW store.v AS SELECT x FROM store.sales", "ALTER", [("store", "v")]),
-    ("DROP TABLE IF EXISTS store.sales, store.shops", "DROP", [("store", "sales"), ("store", "shops")]),
-    ("RENAME TABLE store.old TO store.new, store.x TO other.y", "RENAME",
-     [("store", "old"), ("store", "new"), ("store", "x"), ("other", "y")]),
-    ("ALTER TABLE store.old RENAME TO store.new", "ALTER", [("store", "old"), ("store", "new")]),
-    ("ALTER TABLE store.old RENAME AS store.new", "ALTER", [("store", "old"), ("store", "new")]),
-    ("ALTER TABLE store.old RENAME store.new", "ALTER", [("store", "old"), ("store", "new")]),
-    ("ALTER TABLE store.sales RENAME COLUMN old TO new", "ALTER", [("store", "sales")]),
-    ("CREATE INDEX ix ON store.sales(channel)", "CREATE INDEX", [("store", "sales")]),
-    ("CREATE UNIQUE INDEX ix ON store.sales(channel)", "CREATE INDEX", [("store", "sales")]),
-    ("DROP INDEX ix ON store.sales", "DROP INDEX", [("store", "sales")]),
-    ("CREATE TABLE `odd``db`.`odd.name` (id int)", "CREATE", [("odd`db", "odd.name")]),
-    ("TRUNCATE TABLE store.sales", "TRUNCATE", [("store", "sales")]),
-])
+@pytest.mark.parametrize(
+    ("statement", "kind", "objects"),
+    [
+        ("/* comment */ ALTER TABLE `store`.`sales` CHANGE COLUMN `old` `new` bigint", "ALTER", [("store", "sales")]),
+        ("# MySQL comment\nALTER TABLE store.sales ADD COLUMN x int", "ALTER", [("store", "sales")]),
+        ("ALTER TABLE store.sales ADD COLUMN x text COMMENT 'a\\'b'", "ALTER", [("store", "sales")]),
+        ("CREATE TABLE store.copy AS SELECT * FROM private.original", "CREATE", [("store", "copy")]),
+        (
+            "CREATE ALGORITHM=MERGE DEFINER=`u`@`%` SQL SECURITY DEFINER VIEW store.v AS SELECT x FROM store.sales",
+            "CREATE",
+            [("store", "v")],
+        ),
+        ("ALTER VIEW store.v AS SELECT x FROM store.sales", "ALTER", [("store", "v")]),
+        ("DROP TABLE IF EXISTS store.sales, store.shops", "DROP", [("store", "sales"), ("store", "shops")]),
+        (
+            "RENAME TABLE store.old TO store.new, store.x TO other.y",
+            "RENAME",
+            [("store", "old"), ("store", "new"), ("store", "x"), ("other", "y")],
+        ),
+        ("ALTER TABLE store.old RENAME TO store.new", "ALTER", [("store", "old"), ("store", "new")]),
+        ("ALTER TABLE store.old RENAME AS store.new", "ALTER", [("store", "old"), ("store", "new")]),
+        ("ALTER TABLE store.old RENAME store.new", "ALTER", [("store", "old"), ("store", "new")]),
+        ("ALTER TABLE store.sales RENAME COLUMN old TO new", "ALTER", [("store", "sales")]),
+        ("CREATE INDEX ix ON store.sales(channel)", "CREATE INDEX", [("store", "sales")]),
+        ("CREATE UNIQUE INDEX ix ON store.sales(channel)", "CREATE INDEX", [("store", "sales")]),
+        ("DROP INDEX ix ON store.sales", "DROP INDEX", [("store", "sales")]),
+        ("CREATE TABLE `odd``db`.`odd.name` (id int)", "CREATE", [("odd`db", "odd.name")]),
+        ("TRUNCATE TABLE store.sales", "TRUNCATE", [("store", "sales")]),
+    ],
+)
 def test_only_explicit_ddl_targets_are_parsed(statement, kind, objects):
     assert _objects(statement) == (kind, objects)
 
 
-@pytest.mark.parametrize("statement", [
-    "CREATE DATABASE store", "CREATE USER 'u'@'%' IDENTIFIED BY 'unused'",
-    "SELECT * FROM store.sales", "ALTER TABLE",
-    "ALTER TABLE `store.sales ADD COLUMN x int",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "CREATE DATABASE store",
+        "CREATE USER 'u'@'%' IDENTIFIED BY 'unused'",
+        "SELECT * FROM store.sales",
+        "ALTER TABLE",
+        "ALTER TABLE `store.sales ADD COLUMN x int",
+    ],
+)
 def test_unresolved_objects_and_batches_do_not_guess(statement):
     assert _objects(statement)[1] == []
 
 
-@pytest.mark.parametrize("statement", [
-    "ALTER TABLE sales ADD COLUMN x int", "RENAME TABLE store.old TO new", "CREATE TABLE sales (x int)",
-    "DROP TABLE private.a, sales", "RENAME TABLE private.a TO private.b, sales TO other",
-    "CREATE UNIQUE INDEX ix ON sales(x)", "DROP INDEX ix ON sales",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "ALTER TABLE sales ADD COLUMN x int",
+        "RENAME TABLE store.old TO new",
+        "CREATE TABLE sales (x int)",
+        "DROP TABLE private.a, sales",
+        "RENAME TABLE private.a TO private.b, sales TO other",
+        "CREATE UNIQUE INDEX ix ON sales(x)",
+        "DROP INDEX ix ON sales",
+    ],
+)
 def test_any_unqualified_ddl_target_is_incompatible(statement):
     with pytest.raises(AuditUnavailable, match="缺少当前库上下文") as caught:
         _objects(statement, {"store"})
     assert caught.value.cause == "incompatible"
 
 
-@pytest.mark.parametrize("statement", [
-    "ALTER TABLE store.sales ADD x int; DROP TABLE store.shops",
-    "SELECT 1; ALTER TABLE store.sales ADD x int",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "ALTER TABLE store.sales ADD x int; DROP TABLE store.shops",
+        "SELECT 1; ALTER TABLE store.sales ADD x int",
+    ],
+)
 def test_real_multistatement_requests_with_relevant_ddl_are_incompatible(statement):
     with pytest.raises(AuditUnavailable, match="包含多条语句") as caught:
         _objects(statement, {"store"})
@@ -309,31 +369,41 @@ def test_single_ddl_with_trailing_commented_semicolon_keeps_target(tail):
     assert _objects(f"ALTER TABLE store.sales ADD x int; {tail}") == ("ALTER", [("store", "sales")])
 
 
-@pytest.mark.parametrize("statement", [
-    "CREATE TEMPORARY TABLE store.sales (x int)", "DROP TEMPORARY TABLE store.sales",
-    "# MySQL comment\nCREATE TEMPORARY TABLE store.sales (x int)",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "CREATE TEMPORARY TABLE store.sales (x int)",
+        "DROP TEMPORARY TABLE store.sales",
+        "# MySQL comment\nCREATE TEMPORARY TABLE store.sales (x int)",
+    ],
+)
 def test_explicit_temporary_tables_never_explain_persistent_table_changes(statement):
     assert _objects(statement)[1] == []
 
 
-@pytest.mark.parametrize("statement", [
-    "/*!80000 ALTER TABLE store.sales ADD COLUMN channel int */",
-    "ALTER /*!80000 TABLE */ store.sales ADD COLUMN channel int",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "/*!80000 ALTER TABLE store.sales ADD COLUMN channel int */",
+        "ALTER /*!80000 TABLE */ store.sales ADD COLUMN channel int",
+    ],
+)
 def test_executable_mysql_comments_are_incompatible(statement):
     with pytest.raises(AuditUnavailable, match="包含 MySQL 可执行注释") as caught:
         _objects(statement)
     assert caught.value.cause == "incompatible"
 
 
-@pytest.mark.parametrize("statement", [
-    "SELECT '/*!80000 ALTER TABLE store.sales ADD x INT */'",
-    "SELECT 1 /* ALTER TABLE store.sales ADD x INT */",
-    "# ALTER TABLE store.sales ADD x INT\nSELECT 1",
-    "SELECT 1 -- ALTER TABLE store.sales ADD x INT\n",
-    "/* /*!80000 ALTER TABLE store.sales ADD x INT */ SELECT 1",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "SELECT '/*!80000 ALTER TABLE store.sales ADD x INT */'",
+        "SELECT 1 /* ALTER TABLE store.sales ADD x INT */",
+        "# ALTER TABLE store.sales ADD x INT\nSELECT 1",
+        "SELECT 1 -- ALTER TABLE store.sales ADD x INT\n",
+        "/* /*!80000 ALTER TABLE store.sales ADD x INT */ SELECT 1",
+    ],
+)
 def test_strings_and_nonexecutable_comments_are_not_mistaken_for_ddl(statement):
     assert _objects(statement)[1] == []
 
@@ -366,10 +436,17 @@ def test_excess_candidates_are_unavailable_instead_of_partial_attribution(monkey
     assert cur.calls[-1][0].endswith("LIMIT 3")
 
 
-@pytest.mark.parametrize("user_host", [
-    "", "alice", "[root] @ localhost [127.0.0.1]", "alice@localhost",
-    "[someone[spoof] @ localhost [127.0.0.1]", "alice[someone[spoof] @ localhost [127.0.0.1]",
-])
+@pytest.mark.parametrize(
+    "user_host",
+    [
+        "",
+        "alice",
+        "[root] @ localhost [127.0.0.1]",
+        "alice@localhost",
+        "[someone[spoof] @ localhost [127.0.0.1]",
+        "alice[someone[spoof] @ localhost [127.0.0.1]",
+    ],
+)
 def test_unknown_user_is_incompatible_instead_of_empty_user_match(monkeypatch, user_host):
     connector, conn, _ = _connector(monkeypatch, [_row(user=user_host)])
     with pytest.raises(AuditUnavailable, match="无法解析数据库用户名") as caught:
@@ -377,9 +454,14 @@ def test_unknown_user_is_incompatible_instead_of_empty_user_match(monkeypatch, u
     assert caught.value.cause == "incompatible" and conn.closed
 
 
-@pytest.mark.parametrize(("field", "value", "message"), [
-    ("argument", b"\xff", "UTF-8"), ("user_host", None, "UTF-8"), ("event_time", "0000-00-00 00:00:00", "有效的时间值"),
-])
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("argument", b"\xff", "UTF-8"),
+        ("user_host", None, "UTF-8"),
+        ("event_time", "0000-00-00 00:00:00", "有效的时间值"),
+    ],
+)
 def test_invalid_audit_values_fail_explicitly(monkeypatch, field, value, message):
     connector, _, _ = _connector(monkeypatch, [{**_row(), field: value}])
     with pytest.raises(AuditUnavailable, match=message) as caught:
@@ -403,8 +485,11 @@ def test_user_host_preserves_authenticated_account_instead_of_submitted_login(mo
 
 def test_attribution_requires_structural_object_column_and_window_corroboration(monkeypatch):
     connector, _, _ = _connector(monkeypatch, [_row()])
-    added, different_column, different_object = (_event("column_added", "channel"), _event("column_added", "elsewhere"),
-                                                _event("column_added", "channel", asset_id="a2"))
+    added, different_column, different_object = (
+        _event("column_added", "channel"),
+        _event("column_added", "elsewhere"),
+        _event("column_added", "channel", asset_id="a2"),
+    )
     _attribute([added, different_column, different_object], connector, engine="mysql")
     assert (added["attribution_status"], added["actor_db_user"]) == ("matched", "alice")
     assert different_column["attribution_status"] == different_object["attribution_status"] == "unmatched"
@@ -427,21 +512,28 @@ def test_attribution_keeps_boundary_multiuser_and_unknown_column_ambiguous(monke
 
 
 def test_unrecognized_action_from_another_user_prevents_false_single_user_match(monkeypatch):
-    connector, _, _ = _connector(monkeypatch, [
-        _row(), _row("ALTER TABLE store.sales CONVERT TO CHARACTER SET utf8mb4", user="bob[bob] @ host [::1]"),
-    ])
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row(),
+            _row("ALTER TABLE store.sales CONVERT TO CHARACTER SET utf8mb4", user="bob[bob] @ host [::1]"),
+        ],
+    )
     event = _event("column_added", "channel")
     _attribute([event], connector, engine="mysql")
     assert event["attribution_status"] == "ambiguous" and event["actor_db_user"] is None
     assert event["attribution"]["candidates"] == ["alice", "bob"]
 
 
-@pytest.mark.parametrize("statement", [
-    "ALTER TABLE sales ADD COLUMN channel int",
-    "ALTER TABLE store.sales ADD COLUMN channel int; ALTER TABLE store.shops ADD COLUMN x int",
-    "SELECT 1; ALTER TABLE store.sales ADD COLUMN channel int",
-    "/*!80000 ALTER TABLE store.sales ADD COLUMN channel int */",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "ALTER TABLE sales ADD COLUMN channel int",
+        "ALTER TABLE store.sales ADD COLUMN channel int; ALTER TABLE store.shops ADD COLUMN x int",
+        "SELECT 1; ALTER TABLE store.sales ADD COLUMN channel int",
+        "/*!80000 ALTER TABLE store.sales ADD COLUMN channel int */",
+    ],
+)
 def test_uncertain_ddl_request_from_other_user_cannot_leave_a_false_single_user_match(monkeypatch, statement):
     connector, _, _ = _connector(monkeypatch, [_row(), _row(statement, user="bob[bob] @ host [::1]")])
     event = _event("column_added", "channel")
@@ -450,10 +542,14 @@ def test_uncertain_ddl_request_from_other_user_cannot_leave_a_false_single_user_
     assert event["attribution"]["cause"] == "incompatible"
 
 
-@pytest.mark.parametrize("statement", [
-    "CREATE UNIQUE INDEX ix ON store.sales(channel)", "CREATE INDEX ix ON store.sales(channel)",
-    "DROP INDEX ix ON store.sales",
-])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "CREATE UNIQUE INDEX ix ON store.sales(channel)",
+        "CREATE INDEX ix ON store.sales(channel)",
+        "DROP INDEX ix ON store.sales",
+    ],
+)
 def test_index_ddl_targets_table_but_cannot_falsely_match_arbitrary_column_changes(monkeypatch, statement):
     connector, _, _ = _connector(monkeypatch, [_row(statement)])
     event = connector.ddl_events(T0, T0)[0]
@@ -464,24 +560,34 @@ def test_index_ddl_targets_table_but_cannot_falsely_match_arbitrary_column_chang
 
 
 def test_temporary_table_ddl_is_excluded_even_when_persistent_table_name_matches(monkeypatch):
-    connector, _, _ = _connector(monkeypatch, [
-        _row("CREATE TEMPORARY TABLE store.sales (channel int)", user="bob[bob] @ host [::1]"),
-        _row("DROP TEMPORARY TABLE store.sales", user="bob[bob] @ host [::1]"),
-    ])
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row("CREATE TEMPORARY TABLE store.sales (channel int)", user="bob[bob] @ host [::1]"),
+            _row("DROP TEMPORARY TABLE store.sales", user="bob[bob] @ host [::1]"),
+        ],
+    )
     changed = _event("comment_changed")
     _attribute([changed], connector, engine="mysql")
     assert changed["attribution_status"] == "unmatched" and changed["actor_db_user"] is None
 
 
 def test_attribution_rename_and_view_redefinition(monkeypatch):
-    connector, _, _ = _connector(monkeypatch, [
-        _row("RENAME TABLE store.old TO store.new"),
-        _row("CREATE OR REPLACE VIEW store.v AS SELECT channel FROM store.sales"),
-    ])
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row("RENAME TABLE store.old TO store.new"),
+            _row("CREATE OR REPLACE VIEW store.v AS SELECT channel FROM store.sales"),
+        ],
+    )
     renamed = _event("renamed", asset_id="renamed", before={"name": "def.store.old"}, after={"name": "def.store.new"})
     view_column = _event("column_added", "channel", asset_id="view")
-    _attribute([renamed, view_column], connector, engine="mysql",
-               assets={"renamed": _asset(name="new"), "view": _asset(name="v")})
+    _attribute(
+        [renamed, view_column],
+        connector,
+        engine="mysql",
+        assets={"renamed": _asset(name="new"), "view": _asset(name="v")},
+    )
     assert renamed["actor_db_user"] == view_column["actor_db_user"] == "alice"
 
 

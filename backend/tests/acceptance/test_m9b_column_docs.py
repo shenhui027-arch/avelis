@@ -52,8 +52,11 @@ def test_00_setup(stack, admin: Api):
     demo_setup.setup(reset=False, metrics=True)
     pw = env["AVELIS_DEMO_USER_PASSWORD"]
     sources = {x["name"]: x["id"] for x in admin.get("/api/datasources")}
-    ctx.update(apis={u: Api(client, u, pw) for u in ("wang", "sun")}, sr=sources["演示 StarRocks"],
-               pg=sources["门店库（PostgreSQL）"])
+    ctx.update(
+        apis={u: Api(client, u, pw) for u in ("wang", "sun")},
+        sr=sources["演示 StarRocks"],
+        pg=sources["门店库（PostgreSQL）"],
+    )
     for ds in (ctx["sr"], ctx["pg"]):
         collect(admin, ds)
 

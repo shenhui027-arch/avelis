@@ -17,10 +17,16 @@ def test_set_and_read_example_questions(meta_db, factory):
         d = Domain(code="dq_test", name="示例域", owner_id=owner)
         s.add(d)
         s.flush()
-        s.add_all([DomainMember(domain_id=d.id, user_id=owner, role="owner"),
-                   DomainMember(domain_id=d.id, user_id=viewer, role="viewer")])
+        s.add_all(
+            [
+                DomainMember(domain_id=d.id, user_id=owner, role="owner"),
+                DomainMember(domain_id=d.id, user_id=viewer, role="viewer"),
+            ]
+        )
         domain_id = d.id
-    body = catalog.ExampleQuestionsSet(questions=[{"text": "问题一", "mode": "ask"}, {"text": "问题二", "mode": "analysis"}])
+    body = catalog.ExampleQuestionsSet(
+        questions=[{"text": "问题一", "mode": "ask"}, {"text": "问题二", "mode": "analysis"}]
+    )
     with session_scope() as s:
         with pytest.raises(Exception):
             catalog.set_example_questions(domain_id, body, s.get(User, viewer), s)  # 只有负责人、维护者能改
@@ -31,6 +37,9 @@ def test_set_and_read_example_questions(meta_db, factory):
         asked = catalog.get_example_questions("ask", s.get(User, viewer), s)["questions"]
         assert {"text": "问题一", "domain": "示例域", "source": "configured"} in asked
         assert all(q["text"] != "问题二" for q in asked)
-        mine = [q for q in catalog.get_example_questions("ask", s.get(User, outsider), s)["questions"]
-                if q.get("domain") == "示例域"]
+        mine = [
+            q
+            for q in catalog.get_example_questions("ask", s.get(User, outsider), s)["questions"]
+            if q.get("domain") == "示例域"
+        ]
         assert mine == []  # 不可见的业务域不返回

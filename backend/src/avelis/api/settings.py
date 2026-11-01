@@ -19,7 +19,8 @@ def get_business_calendar(user: User = Depends(current_user), session: Session =
 
 
 @router.put("/business-calendar", response_model=S.BusinessCalendarOut)
-def put_business_calendar(body: S.BusinessCalendarIn, user: User = Depends(current_user),
-                          session: Session = Depends(get_session)) -> dict:
+def put_business_calendar(
+    body: S.BusinessCalendarIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "admin")
     return business_calendar.save_business_calendar(session, user, body.model_dump())

@@ -86,10 +86,19 @@ def junit(path: Path) -> dict:
             if node is not None:
                 outcome = {"failure": "failed", "error": "error", "skipped": "skipped"}[tag]
                 message = (node.get("message") or "")[:300]
-        cases.append({"name": f"{case.get('classname', '').split('.')[-1]}::{case.get('name')}", "outcome": outcome,
-                      "seconds": round(float(case.get("time", 0)), 1), "message": message})
-    return {"total": len(cases), **{k: sum(c["outcome"] == k for c in cases)
-                                    for k in ("passed", "failed", "error", "skipped")}, "cases": cases}
+        cases.append(
+            {
+                "name": f"{case.get('classname', '').split('.')[-1]}::{case.get('name')}",
+                "outcome": outcome,
+                "seconds": round(float(case.get("time", 0)), 1),
+                "message": message,
+            }
+        )
+    return {
+        "total": len(cases),
+        **{k: sum(c["outcome"] == k for c in cases) for k in ("passed", "failed", "error", "skipped")},
+        "cases": cases,
+    }
 
 
 def pytest_step(marker: str | None, name: str, extra_env: dict[str, str] | None = None) -> dict:
@@ -110,26 +119,46 @@ def pytest_step(marker: str | None, name: str, extra_env: dict[str, str] | None 
 def write_report(runner: Runner, info: dict) -> Path:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     (demo.STATE / "acceptance-report.json").write_text(
-        json.dumps({**info, "steps": runner.steps}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    lines = ["# Avelis 验收报告", "", f"- 时间：{info['finished_at']}（UTC）", f"- 模式：{info['mode']}",
-             f"- 结论：**{'全部通过' if info['ok'] else '未通过'}**",
-             f"- 更多引擎：{info.get('engines', '—')}；真实模型用例：{info.get('llm', '—')}", "", "## 步骤", "",
-             "| 步骤 | 结果 | 用时（秒） | 说明 |", "|---|---|---|---|"]
+        json.dumps({**info, "steps": runner.steps}, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+    lines = [
+        "# Avelis 验收报告",
+        "",
+        f"- 时间：{info['finished_at']}（UTC）",
+        f"- 模式：{info['mode']}",
+        f"- 结论：**{'全部通过' if info['ok'] else '未通过'}**",
+        f"- 更多引擎：{info.get('engines', '—')}；真实模型用例：{info.get('llm', '—')}",
+        "",
+        "## 步骤",
+        "",
+        "| 步骤 | 结果 | 用时（秒） | 说明 |",
+        "|---|---|---|---|",
+    ]
     for s in runner.steps:
-        lines.append(f"| {s['name']} | {'通过' if s['status'] == 'passed' else '失败'} | {s['seconds']} | "
-                     f"{(s['detail'] or '').replace('|', '/')} |")
+        lines.append(
+            f"| {s['name']} | {'通过' if s['status'] == 'passed' else '失败'} | {s['seconds']} | "
+            f"{(s['detail'] or '').replace('|', '/')} |"
+        )
     if info.get("baseline"):
         lines += ["", "## 演示库基线（只读账号查询）", "", "| 项 | 期望 | 实际 | 结果 |", "|---|---|---|---|"]
-        lines += [f"| {b['label']} | {b['expected']} | {b['actual']} | {'通过' if b['passed'] else '不符'} |"
-                  for b in info["baseline"]]
-    titles = (("unit", "后端单元测试"),
-              ("acceptance", "验收（真实 StarRocks / MySQL / PostgreSQL / ClickHouse / Doris / Valkey）"))
+        lines += [
+            f"| {b['label']} | {b['expected']} | {b['actual']} | {'通过' if b['passed'] else '不符'} |"
+            for b in info["baseline"]
+        ]
+    titles = (
+        ("unit", "后端单元测试"),
+        ("acceptance", "验收（真实 StarRocks / MySQL / PostgreSQL / ClickHouse / Doris / Valkey）"),
+    )
     for key, title in titles:
         summary = info.get(key)
         if not summary:
             continue
-        lines += ["", f"## {title}：{summary['passed']} / {summary['total']} 通过"
-                  + (f"，跳过 {summary['skipped']}" if summary["skipped"] else ""), ""]
+        lines += [
+            "",
+            f"## {title}：{summary['passed']} / {summary['total']} 通过"
+            + (f"，跳过 {summary['skipped']}" if summary["skipped"] else ""),
+            "",
+        ]
         if key == "acceptance":
             lines += ["| 用例 | 结果 | 用时（秒） |", "|---|---|---|"]
             lines += [f"| {c['name']} | {c['outcome']} | {c['seconds']} |" for c in summary["cases"]]
@@ -145,25 +174,34 @@ def main() -> None:
     parser.add_argument("--no-llm", action="store_true", help="跳过调用真实模型的用例")
     parser.add_argument("--skip-frontend", action="store_true", help="不安装依赖、不构建前端")
     parser.add_argument("--no-engines", action="store_true", help="不启动更多引擎的演示库，跳过它们的验收")
-    parser.add_argument("--no-recreate", action="store_true",
-                        help="容器已存在时不重建：从 worktree 等其他检出目录运行时使用（演示容器由多个检出目录共用）")
+    parser.add_argument(
+        "--no-recreate",
+        action="store_true",
+        help="容器已存在时不重建：从 worktree 等其他检出目录运行时使用（演示容器由多个检出目录共用）",
+    )
     args = parser.parse_args()
 
     runner = Runner()
-    info: dict = {"mode": "从零重建" if args.fresh else "复用现有容器",
-                  "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    info: dict = {
+        "mode": "从零重建" if args.fresh else "复用现有容器",
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
     try:
         tools = ["docker", "uv"] + ([] if args.skip_frontend else ["pnpm"])
         runner.step("检查前置工具", lambda: [tool(t) for t in tools])
         if args.fresh:
+
             def teardown() -> None:
                 if demo.ENV_FILE.exists():
                     demo.down(volumes=True)
+
             runner.step("删除演示容器与数据卷", teardown)
         engines = not args.no_engines
         info["engines"] = "运行（ClickHouse、Doris 真实实例）" if engines else "跳过"
-        runner.step("启动演示环境并灌入基线数据",
-                    lambda: demo.up(skip_seed=False, engines=engines, no_recreate=args.no_recreate))
+        runner.step(
+            "启动演示环境并灌入基线数据",
+            lambda: demo.up(skip_seed=False, engines=engines, no_recreate=args.no_recreate),
+        )
 
         def ec_dataset() -> dict:
             import ec_data
@@ -173,6 +211,7 @@ def main() -> None:
             if not ec_data.check(env):
                 raise StepFailed("电商数据集与生成结果不一致")
             return {}
+
         runner.step("合成电商数据集（已是最新时跳过重灌）", ec_dataset)
 
         def baseline() -> list[dict]:
@@ -182,10 +221,12 @@ def main() -> None:
             if not all(v["passed"] for v in values):
                 raise StepFailed("演示库基线不符")
             return values
+
         runner.step("核对演示库基线", baseline)
         runner.step("安装后端依赖（锁文件）", lambda: run([tool("uv"), "sync", "--frozen"], BACKEND))
-        runner.step("迁移元数据库", lambda: run([tool("uv"), "run", "python", "-m", "avelis.bootstrap", "migrate"],
-                                                BACKEND))
+        runner.step(
+            "迁移元数据库", lambda: run([tool("uv"), "run", "python", "-m", "avelis.bootstrap", "migrate"], BACKEND)
+        )
         info["unit"] = runner.step("后端单元测试", lambda: pytest_step(None, "unit"))
         has_key = bool(demo.load_env().get("AVELIS_MODEL_API_KEY"))
         llm = has_key and not args.no_llm
@@ -194,10 +235,14 @@ def main() -> None:
         info["acceptance"] = runner.step("验收：故事 1–9 与异常场景", lambda: pytest_step(marker, "acceptance"))
         if not args.skip_frontend:
             runner.step("安装前端依赖（锁文件）", lambda: run([tool("pnpm"), "install", "--frozen-lockfile"], FRONTEND))
-            runner.step("前端类型检查与构建", lambda: (run([tool("pnpm"), "exec", "tsc", "-b"], FRONTEND),
-                                                   run([tool("pnpm"), "build"], FRONTEND)))
-        runner.step("演示环境回到故事 1 起点", lambda: run(
-            [tool("uv"), "run", "python", "-m", "avelis.bootstrap", "demo", "--reset"], BACKEND))
+            runner.step(
+                "前端类型检查与构建",
+                lambda: (run([tool("pnpm"), "exec", "tsc", "-b"], FRONTEND), run([tool("pnpm"), "build"], FRONTEND)),
+            )
+        runner.step(
+            "演示环境回到故事 1 起点",
+            lambda: run([tool("uv"), "run", "python", "-m", "avelis.bootstrap", "demo", "--reset"], BACKEND),
+        )
         info["ok"] = True
     except StepFailed as exc:
         info["ok"] = False

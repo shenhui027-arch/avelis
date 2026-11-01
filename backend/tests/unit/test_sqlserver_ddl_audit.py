@@ -53,16 +53,26 @@ def _config(**extra):
 
 
 def _row(**extra):
-    return {"at_local": AT + timedelta(hours=8), "db_user": "DOMAIN\\alice", "database_name": "storedb",
-            "object_name": "sales", "event_class": 164, "event_subclass": 1, "object_type": 8277,
-            "schema_name": "store", **extra}
+    return {
+        "at_local": AT + timedelta(hours=8),
+        "db_user": "DOMAIN\\alice",
+        "database_name": "storedb",
+        "object_name": "sales",
+        "event_class": 164,
+        "event_subclass": 1,
+        "object_type": 8277,
+        "schema_name": "store",
+        **extra,
+    }
 
 
 def _connector(monkeypatch, rows=None, *, replies=None, schemas=None):
-    connector = SqlServerConnector("localhost", 1433, "collector", "unused",
-                                   {"database": "storedb", "schemas": schemas or ["store"]})
-    connection = _Connection(replies if replies is not None else [
-        _config(), {"path": r"C:\MSSQL\Log\log_42.trc", "status": 1}, rows or []])
+    connector = SqlServerConnector(
+        "localhost", 1433, "collector", "unused", {"database": "storedb", "schemas": schemas or ["store"]}
+    )
+    connection = _Connection(
+        replies if replies is not None else [_config(), {"path": r"C:\MSSQL\Log\log_42.trc", "status": 1}, rows or []]
+    )
     monkeypatch.setattr(connector, "_connect", lambda **_: connection)
     return connector, connection
 
@@ -77,8 +87,7 @@ def test_default_trace_commits_source_time_and_query_contract(monkeypatch):
         (AT, "DOMAIN\\alice", [("store", "sales")], "CREATE"),
     ]
     assert all(e.statement == "" and e.certain is False for e in events)
-    assert all(not redefines(e.statement) and column_refs(e.statement, "sales", schema="store").unknown
-               for e in events)
+    assert all(not redefines(e.statement) and column_refs(e.statement, "sales", schema="store").unknown for e in events)
     permission_sql, permission_params = conn.cur.calls[0]
     assert "HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER TRACE') AS can_read" in permission_sql
     assert "HAS_PERMS_BY_NAME(NULL, 'SERVER', 'ALTER TRACE')" not in permission_sql
@@ -90,35 +99,49 @@ def test_default_trace_commits_source_time_and_query_contract(monkeypatch):
     assert "t.DatabaseName = %s" in sql and "o.object_id = t.ObjectID" in sql
     assert "o.name = t.ObjectName" in sql and "o.create_date <= t.StartTime" in sql
     assert "t.EventClass <> 47" in sql
-    assert params == (r"C:\MSSQL\Log\log_42.trc", "storedb",
-                      SINCE + timedelta(hours=8), UNTIL + timedelta(hours=8))
+    assert params == (r"C:\MSSQL\Log\log_42.trc", "storedb", SINCE + timedelta(hours=8), UNTIL + timedelta(hours=8))
     assert "is_default = 1" in conn.cur.calls[1][0]
 
 
 @pytest.mark.parametrize("offset_minutes", [-330, 0, 345, 840])
 def test_local_start_time_uses_server_offset_not_application_timezone(monkeypatch, offset_minutes):
     delta = timedelta(minutes=offset_minutes)
-    connector, _ = _connector(monkeypatch, replies=[
-        _config(offset_minutes=offset_minutes), {"path": "trace.trc", "status": 1}, [_row(at_local=AT + delta)]])
+    connector, _ = _connector(
+        monkeypatch,
+        replies=[
+            _config(offset_minutes=offset_minutes),
+            {"path": "trace.trc", "status": 1},
+            [_row(at_local=AT + delta)],
+        ],
+    )
     assert connector.ddl_events(SINCE, UNTIL)[0].at == AT
 
 
-@pytest.mark.parametrize("change", [
-    {"event_subclass": 0}, {"event_subclass": 2}, {"event_class": 999},
-    {"object_type": 22601}, {"database_name": "anotherdb"},
-    {"at_local": SINCE + timedelta(hours=8) - timedelta(milliseconds=1)},
-    {"at_local": UNTIL + timedelta(hours=8) + timedelta(milliseconds=1)},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"event_subclass": 0},
+        {"event_subclass": 2},
+        {"event_class": 999},
+        {"object_type": 22601},
+        {"database_name": "anotherdb"},
+        {"at_local": SINCE + timedelta(hours=8) - timedelta(milliseconds=1)},
+        {"at_local": UNTIL + timedelta(hours=8) + timedelta(milliseconds=1)},
+    ],
+)
 def test_non_commit_other_object_database_or_outside_window_is_not_evidence(monkeypatch, change):
     connector, _ = _connector(monkeypatch, [_row(**change)])
     assert connector.ddl_events(SINCE, UNTIL) == []
 
 
-@pytest.mark.parametrize("changes", [
-    {"schema_name": None},  # 已删除、改名或 object_id 复用后目录查询无法确认
-    {"schema_name": "private"},  # 不在配置的模式内
-    {"event_class": 47},  # 即使同一 object_id 又出现在当前目录，也不能替 DROP 认领模式
-])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"schema_name": None},  # 已删除、改名或 object_id 复用后目录查询无法确认
+        {"schema_name": "private"},  # 不在配置的模式内
+        {"event_class": 47},  # 即使同一 object_id 又出现在当前目录，也不能替 DROP 认领模式
+    ],
+)
 def test_unknown_schema_and_deleted_object_do_not_assume_single_configured_schema(monkeypatch, changes):
     connector, _ = _connector(monkeypatch, [_row(**changes)])
     events = connector.ddl_events(SINCE, UNTIL)
@@ -140,8 +163,13 @@ def test_current_schema_is_only_a_candidate_and_empty_text_cannot_attribute_a_co
     connector, _ = _connector(monkeypatch, [_row(event_class=event_class)])
     table = {"kind": "comment_changed", "asset_id": "a1"}
     column = {"kind": "column_type_changed", "asset_id": "a1", "column_name": "amount"}
-    result = attribute(_Session(), get_engine("sqlserver"), connector, [table, column],
-                       Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL))
+    result = attribute(
+        _Session(),
+        get_engine("sqlserver"),
+        connector,
+        [table, column],
+        Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL),
+    )
     assert result["status"] == "ok"
     assert table["attribution_status"] == "ambiguous" and table["actor_db_user"] is None
     assert table["attribution"]["statements"][0]["certain"] is False
@@ -154,19 +182,27 @@ def test_current_schema_is_only_a_candidate_and_empty_text_cannot_attribute_a_co
 def test_schema_transfer_cannot_reassign_historical_event_to_current_schema(monkeypatch, event_class):
     # store.sales 在事件后经 ALTER SCHEMA other TRANSFER store.sales 转移；
     # object_id、名称、类型、create_date 都没变，当前 sys.objects 仍会恢复出 other。
-    connector, _ = _connector(monkeypatch, [_row(event_class=event_class, schema_name="other")],
-                               schemas=["store", "other"])
+    connector, _ = _connector(
+        monkeypatch, [_row(event_class=event_class, schema_name="other")], schemas=["store", "other"]
+    )
     evidence = connector.ddl_events(SINCE, UNTIL)
     assert evidence[0].at == AT and evidence[0].objects == [("other", "sales")]
     assert evidence[0].certain is False
     monkeypatch.setattr(connector, "ddl_events", lambda *_args, **_kwargs: evidence)
-    assets = {"old": SimpleNamespace(db_name="store", name="sales"),
-              "new": SimpleNamespace(db_name="other", name="sales")}
+    assets = {
+        "old": SimpleNamespace(db_name="store", name="sales"),
+        "new": SimpleNamespace(db_name="other", name="sales"),
+    }
     session = SimpleNamespace(get=lambda _model, key: assets[key])
     old_object = {"kind": "comment_changed", "asset_id": "old"}
     current_object = {"kind": "comment_changed", "asset_id": "new"}
-    attribute(session, get_engine("sqlserver"), connector, [old_object, current_object],
-              Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL))
+    attribute(
+        session,
+        get_engine("sqlserver"),
+        connector,
+        [old_object, current_object],
+        Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL),
+    )
     assert old_object["attribution_status"] == "unmatched" and old_object["actor_db_user"] is None
     assert current_object["attribution_status"] == "ambiguous" and current_object["actor_db_user"] is None
 
@@ -174,22 +210,30 @@ def test_schema_transfer_cannot_reassign_historical_event_to_current_schema(monk
 def test_drop_with_unknown_schema_is_unmatched(monkeypatch):
     connector, _ = _connector(monkeypatch, [_row(event_class=47)])
     event = {"kind": "removed", "asset_id": "a1"}
-    attribute(_Session(), get_engine("sqlserver"), connector, [event],
-              Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL))
+    attribute(
+        _Session(),
+        get_engine("sqlserver"),
+        connector,
+        [event],
+        Window(SINCE, SINCE + timedelta(seconds=1), UNTIL - timedelta(seconds=1), UNTIL),
+    )
     assert event["attribution_status"] == "unmatched" and event["actor_db_user"] is None
 
 
-@pytest.mark.parametrize(("replies", "cause", "message"), [
-    ([_config(enabled=0, can_read=0)], "not_enabled", "default trace enabled = 0"),
-    ([_config(can_read=0)], "no_permission", "ALTER TRACE"),
-    ([_config(can_read=None)], "no_permission", "无法判断"),
-    ([_config(), None], "not_enabled", "未运行"),
-    ([_config(), {"status": 0, "path": "trace.trc"}], "not_enabled", "未运行"),
-    ([_config(), {"status": 1, "path": None}], "not_enabled", "未运行"),
-    ([None], "incompatible", "时区偏移"),
-    ([_config(offset_minutes=None)], "incompatible", "时区偏移"),
-    ([_config(offset_minutes=841)], "incompatible", "时区偏移"),
-])
+@pytest.mark.parametrize(
+    ("replies", "cause", "message"),
+    [
+        ([_config(enabled=0, can_read=0)], "not_enabled", "default trace enabled = 0"),
+        ([_config(can_read=0)], "no_permission", "ALTER TRACE"),
+        ([_config(can_read=None)], "no_permission", "无法判断"),
+        ([_config(), None], "not_enabled", "未运行"),
+        ([_config(), {"status": 0, "path": "trace.trc"}], "not_enabled", "未运行"),
+        ([_config(), {"status": 1, "path": None}], "not_enabled", "未运行"),
+        ([None], "incompatible", "时区偏移"),
+        ([_config(offset_minutes=None)], "incompatible", "时区偏移"),
+        ([_config(offset_minutes=841)], "incompatible", "时区偏移"),
+    ],
+)
 def test_disabled_permission_missing_trace_or_bad_config_are_distinct(monkeypatch, replies, cause, message):
     connector, conn = _connector(monkeypatch, replies=replies)
     with pytest.raises(AuditUnavailable) as error:
@@ -207,11 +251,21 @@ def test_null_permission_result_is_unknown_and_does_not_read_trace(monkeypatch):
     assert len(conn.cur.calls) == 1 and conn.closed
 
 
-@pytest.mark.parametrize(("number", "cause"), [
-    (229, "no_permission"), (297, "no_permission"), (300, "no_permission"),
-    (15151, "no_permission"), (15247, "no_permission"), (207, "incompatible"),
-    (208, "incompatible"), (195, "incompatible"), (50000, "error"), (20003, "error"),
-])
+@pytest.mark.parametrize(
+    ("number", "cause"),
+    [
+        (229, "no_permission"),
+        (297, "no_permission"),
+        (300, "no_permission"),
+        (15151, "no_permission"),
+        (15247, "no_permission"),
+        (207, "incompatible"),
+        (208, "incompatible"),
+        (195, "incompatible"),
+        (50000, "error"),
+        (20003, "error"),
+    ],
+)
 @pytest.mark.parametrize("stage", [0, 1, 2])
 def test_native_errors_are_classified_and_preserve_summary(monkeypatch, number, cause, stage):
     replies = [_config(), {"path": "trace.trc", "status": 1}, []]

@@ -49,6 +49,7 @@ class Chained:
 
 # --- 用户与权限 -------------------------------------------------------------------
 
+
 class User(Base):
     __tablename__ = "app_user"
     id: Mapped[str] = pk()
@@ -57,8 +58,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 管理员创建或重置口令后，首次登录必须修改
-    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(),
-                                                       nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa_false(), nullable=False
+    )
     password_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # 在此之前签发的访问令牌一律失效（改口令、重置口令、停用账号时更新）
@@ -100,6 +102,7 @@ class DomainMember(Base):
 
 
 # --- 数据源（身份层） -------------------------------------------------------------
+
 
 class Datasource(Base):
     __tablename__ = "datasource"
@@ -148,6 +151,7 @@ class EndpointAlias(Base):
 
 # --- 资产身份 ---------------------------------------------------------------------
 
+
 class Asset(Base):
     """资产身份。名称只是当前属性；身份判定见 avelis.collect.identity。"""
 
@@ -183,6 +187,7 @@ class AssetColumn(Base):
 
 
 # --- 观察层（只追加） -------------------------------------------------------------
+
 
 class CollectionRun(Base):
     __tablename__ = "collection_run"
@@ -250,6 +255,7 @@ class Definition(Chained, Base):
 
 
 # --- 推导层（可重算） -------------------------------------------------------------
+
 
 class ParseResult(Base):
     __tablename__ = "parse_result"
@@ -348,6 +354,7 @@ class Grain(Base):
 
 
 # --- 治理层 -----------------------------------------------------------------------
+
 
 class Confirmation(Base):
     """人工确认的字段业务含义，绑定字段推导指纹；指纹变化后不再生效。"""
@@ -499,8 +506,9 @@ class ChangeEvent(Chained, Base):
     # 归因到数据库用户（插入时写定）：actor_db_user 只在 matched 时有值；attribution_status 见
     # avelis.collect.attribution；attribution 记录来源、窗口、匹配依据、候选语句与原因
     actor_db_user: Mapped[str | None] = mapped_column(String(128), index=True)
-    attribution_status: Mapped[str] = mapped_column(String(16), default="unsupported", server_default="unsupported",
-                                                    nullable=False)
+    attribution_status: Mapped[str] = mapped_column(
+        String(16), default="unsupported", server_default="unsupported", nullable=False
+    )
     attribution: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)
     created_at: Mapped[datetime] = created()
 
@@ -537,6 +545,7 @@ class ReviewTask(Base):
 
 
 # --- 运行与审计 -------------------------------------------------------------------
+
 
 class Job(Base):
     """后台任务。事实来源是这张表；Redis 只用于唤醒 worker。"""
@@ -655,6 +664,7 @@ class Answer(Base):
 
 # --- 导入血缘（M2） ---------------------------------------------------------------
 
+
 class ImportBatch(Base):
     """一次批量导入；解析进度独立提交，正式替换在同一事务中完成。"""
 
@@ -680,8 +690,13 @@ class ImportJob(Base):
 
     __tablename__ = "import_job"
     __table_args__ = (
-        Index("ix_import_job_current_source", "datasource_id", "source_key", unique=True,
-              postgresql_where=sa_text("status <> 'superseded'")),
+        Index(
+            "ix_import_job_current_source",
+            "datasource_id",
+            "source_key",
+            unique=True,
+            postgresql_where=sa_text("status <> 'superseded'"),
+        ),
         Index("ix_import_job_content", "datasource_id", "content_hash"),
     )
     id: Mapped[str] = pk()
@@ -766,6 +781,7 @@ class CandidateEdge(Base):
 
 # --- 模型配置 ---------------------------------------------------------------------
 
+
 class ModelProvider(Base):
     """模型提供方。kind：openai_compatible（含 DeepSeek、通义等兼容接口）或 anthropic。
     密钥只以密文存储，接口只返回掩码。models 为启用的模型白名单：[{id, enabled, tool_calling}]。"""
@@ -810,6 +826,7 @@ class AppSetting(Base):
 
 # --- 分析智能体（M8，ADR 0007） ------------------------------------------------------
 
+
 class AnalysisTask(Base):
     """保存下来的分析：问题 + 时间窗口规则，可按 cron 定时重跑。以发起人身份运行，每次重新检查权限。"""
 
@@ -839,7 +856,10 @@ class AnalysisRun(Base):
     parent_run_id: Mapped[str | None] = fk("analysis_run.id", nullable=True)
     # 根运行以自身为对话；续问由创建服务显式沿用根运行 ID。
     conversation_id: Mapped[str] = mapped_column(
-        IdType, ForeignKey("analysis_run.id"), nullable=False, index=True,
+        IdType,
+        ForeignKey("analysis_run.id"),
+        nullable=False,
+        index=True,
         default=lambda context: context.get_current_parameters()["id"],
     )
     display_title: Mapped[str | None] = mapped_column(String(80))
@@ -847,7 +867,9 @@ class AnalysisRun(Base):
     user_id: Mapped[str] = fk("app_user.id", index=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule
-    status: Mapped[str] = mapped_column(String(16), nullable=False)  # queued | running | waiting | succeeded | failed | stopped | clarify
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False
+    )  # queued | running | waiting | succeeded | failed | stopped | clarify
     stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
     compact_requested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confirmation_mode: Mapped[str] = mapped_column(String(8), default="auto", server_default="auto", nullable=False)
@@ -957,7 +979,9 @@ class ExperienceVersion(Base):
     id: Mapped[str] = pk()
     experience_id: Mapped[str] = fk("experience.id")
     version: Mapped[int] = mapped_column(Integer, nullable=False)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # join | driver | alias | rule | preference | negative
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False
+    )  # join | driver | alias | rule | preference | negative
     content: Mapped[str] = mapped_column(Text, nullable=False)
     refs: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     source: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)

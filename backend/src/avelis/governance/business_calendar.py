@@ -36,6 +36,7 @@ def save_business_calendar(session: Session, actor: User, value: dict) -> dict:
         session.add(AppSetting(key=BUSINESS_CALENDAR_KEY, value=calendar, updated_by=actor.id))
     else:
         row.value, row.updated_by, row.updated_at = calendar, actor.id, utcnow()
-    audit.record(session, actor, "business_calendar.update", "app_setting", BUSINESS_CALENDAR_KEY,
-                 before=before, after=calendar)
+    audit.record(
+        session, actor, "business_calendar.update", "app_setting", BUSINESS_CALENDAR_KEY, before=before, after=calendar
+    )
     return {"configured": True, **calendar}

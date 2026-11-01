@@ -39,7 +39,9 @@ def pick(eval_path: Path) -> dict[str, list[str]]:
         v = run.get("verification") or {}
         if run.get("status") != "succeeded" or not run.get("id") or v.get("ok") is None:
             continue
-        kind = ("revised_pass" if v["ok"] else "revised_fail") if v.get("revised") else ("first_pass" if v["ok"] else None)
+        kind = (
+            ("revised_pass" if v["ok"] else "revised_fail") if v.get("revised") else ("first_pass" if v["ok"] else None)
+        )
         if kind:
             chosen.setdefault(kind, []).append(run["id"])
     return chosen
@@ -70,8 +72,13 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
             return f"运行 {run_id} 不存在"
         if run.question not in eval_questions:
             return "不是评测集里的题目：只录合成数据上的评测运行"
-        steps = list(session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run_id, AnalysisStep.kind == "tool")
-                                     .order_by(AnalysisStep.seq)))
+        steps = list(
+            session.scalars(
+                select(AnalysisStep)
+                .where(AnalysisStep.run_id == run_id, AnalysisStep.kind == "tool")
+                .order_by(AnalysisStep.seq)
+            )
+        )
         datasets = {d.id: d for d in session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run_id))}
         by_seq = {d.seq: d for d in datasets.values()}
         if any(s.status == "denied" for s in steps):
@@ -84,7 +91,9 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
             return "模型回复里有参数无法解析的工具调用，假模型无法原样回放"
         messages = []
         for m in replies:
-            message = {"content": m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False)}
+            message = {
+                "content": m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False)
+            }
             if m.tool_calls:
                 message["tool_calls"] = [{"name": c["name"], "args": c["args"]} for c in m.tool_calls]
             messages.append(message)
@@ -103,11 +112,21 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
         v = run.verification or {}
         from avelis.analysis.tools import REPORT_SCHEMA
 
-        trace = {"version": 2, "report_schema": REPORT_SCHEMA, "name": name, "question": run.question,
-                 "window": run.window, "messages": messages,
-                 "fixtures": fixtures,
-                 "expect": {"status": v.get("status"), "ok": v.get("ok"), "revised": v.get("revised"),
-                            "conclusion": (run.report or {}).get("conclusion")}}
+        trace = {
+            "version": 2,
+            "report_schema": REPORT_SCHEMA,
+            "name": name,
+            "question": run.question,
+            "window": run.window,
+            "messages": messages,
+            "fixtures": fixtures,
+            "expect": {
+                "status": v.get("status"),
+                "ok": v.get("ok"),
+                "revised": v.get("revised"),
+                "conclusion": (run.report or {}).get("conclusion"),
+            },
+        }
     text = json.dumps(trace, ensure_ascii=False, indent=2, default=str) + "\n"
     leaked = leaks(text, env)
     if leaked:

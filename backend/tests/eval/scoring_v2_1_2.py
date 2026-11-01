@@ -47,12 +47,21 @@ class RunIndex(v2.RunIndex):
             values = sorted({str(v) for v in f.get("values") or []})
             entity[f["dimension"]] = values[0] if len(values) == 1 else tuple(values)
         unit = segment.get("unit")
-        total_period = {"summary.total.current": "current", "summary.total.previous": "compare",
-                        "summary.total.change": "change"}.get(col)
+        total_period = {
+            "summary.total.current": "current",
+            "summary.total.previous": "compare",
+            "summary.total.change": "change",
+        }.get(col)
         if tool == "explain_change" and total_period:
-            return {"source": "explain", "metric": ctx.get("metric"), "entity": entity,
-                    "calc": "delta" if total_period == "change" else "level", "unit": unit,
-                    "span": self._span(ctx, total_period), "period": total_period}, None
+            return {
+                "source": "explain",
+                "metric": ctx.get("metric"),
+                "entity": entity,
+                "calc": "delta" if total_period == "change" else "level",
+                "unit": unit,
+                "span": self._span(ctx, total_period),
+                "period": total_period,
+            }, None
         if ds["kind"] == "governed":
             row, why = self._row(ds, sel)
             if why and not col.startswith("summary."):
@@ -64,7 +73,7 @@ class RunIndex(v2.RunIndex):
             base, period = col, "current"
             for suffix, candidate in {**v2.SUFFIX, "·上一期": "compare", "·去年同期": "compare"}.items():
                 if col.endswith(suffix):
-                    base, period = col[:-len(suffix)], candidate
+                    base, period = col[: -len(suffix)], candidate
                     break
             spans = self._span(ctx, period)
             if ctx.get("time_grain"):
@@ -80,17 +89,24 @@ class RunIndex(v2.RunIndex):
                     first = stamp.replace(day=1)
                     last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
                 bucket = (str(first), str(last))
-                spans = tuple((max(span[0], bucket[0]), min(span[1], bucket[1])) if span else None
-                              for span in spans)
+                spans = tuple((max(span[0], bucket[0]), min(span[1], bucket[1])) if span else None for span in spans)
                 # 时间分组不能同时 compare，对比期通常独立查询；只按完整交集识别它的期间。
-                if (period == "current" and window
-                        and spans == ((window["compare_start"], window["compare_end"]),)
-                        and spans != ((window["start"], window["end"]),)):
+                if (
+                    period == "current"
+                    and window
+                    and spans == ((window["compare_start"], window["compare_end"]),)
+                    and spans != ((window["start"], window["end"]),)
+                ):
                     period = "compare"
-            return {"source": "governed", "metric": ctx["names"].get(base) or self.names.get(base),
-                    "entity": entity, "calc": {"current": "level", "compare": "level", "change": "delta",
-                                              "rate": "rate"}[period], "unit": unit,
-                    "span": spans, "period": period}, None
+            return {
+                "source": "governed",
+                "metric": ctx["names"].get(base) or self.names.get(base),
+                "entity": entity,
+                "calc": {"current": "level", "compare": "level", "change": "delta", "rate": "rate"}[period],
+                "unit": unit,
+                "span": spans,
+                "period": period,
+            }, None
         got, why = super().bind(segment)
         if got is not None and got.get("source") == "factor" and tool == "factor_decompose":
             got["entity"].update({str(k): str(v) for k, v in ((step.get("args") or {}).get("match") or {}).items()})
@@ -105,8 +121,9 @@ class RunIndex(v2.RunIndex):
         return got, why
 
 
-def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict, entity: dict,
-                     depth: int = 0) -> tuple[dict | None, str | None]:
+def _explore_context(
+    index: v2.RunIndex, ref: str, column: str, row: dict, entity: dict, depth: int = 0
+) -> tuple[dict | None, str | None]:
     """贡献计算逐输入行核对实体；其他探索数据沿用 v2.1 的语境与日期解析。"""
     if depth > 6:
         return None, "探索来源追溯超过深度上限 6"
@@ -147,12 +164,19 @@ def _explore_context(index: v2.RunIndex, ref: str, column: str, row: dict, entit
             return None, why
         spans.append(combined)
     values.update(str(v) for v in match.values())
-    return {"source": "explore", "period": period, "span": tuple(spans), "values": values,
-            "filters": filters, "calc": "delta" if period == "change" else "level"}, None
+    return {
+        "source": "explore",
+        "period": period,
+        "span": tuple(spans),
+        "values": values,
+        "filters": filters,
+        "calc": "delta" if period == "change" else "level",
+    }, None
 
 
-def explore_binding(q: dict, run: dict, segment: dict, spec: dict,
-                    periods: list[str]) -> tuple[dict | None, str | None]:
+def explore_binding(
+    q: dict, run: dict, segment: dict, spec: dict, periods: list[str]
+) -> tuple[dict | None, str | None]:
     """沿用 v2.1 的探索候选门槛，只将 contribution 语境改成逐行实体检查。"""
     index = RunIndex(run)
     path = v2.PATH.match(segment.get("path") or "")
@@ -185,11 +209,19 @@ def explore_binding(q: dict, run: dict, segment: dict, spec: dict,
     expected = {"current": (current,), "compare": (compare,), "change": (current, compare)}
     for period in periods:
         if period in expected and context.get("period", period) == period and context["span"] == expected[period]:
-            return {"source": "explore", "metric": spec["metric"], "period": period, "span": context["span"],
-                    "entity": spec.get("entity", {}), "calc": context["calc"], "unit": segment.get("unit"),
-                    "extra_filters": sorted(context["filters"] - used)}, None
+            return {
+                "source": "explore",
+                "metric": spec["metric"],
+                "period": period,
+                "span": context["span"],
+                "entity": spec.get("entity", {}),
+                "calc": context["calc"],
+                "unit": segment.get("unit"),
+                "extra_filters": sorted(context["filters"] - used),
+            }, None
     if any(start == end for start, end in context["span"]) and any(
-            start != end for period in periods for start, end in expected.get(period, ())):
+        start != end for period in periods for start, end in expected.get(period, ())
+    ):
         return None, "只绑定到单日的行，题目问的是整个期间"
     return None, f"探索列窗口 {context['span']} 与数值对应的题目期间不一致"
 
@@ -213,24 +245,35 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         got, why = index.bind(segment, q["window"])
         for spec in bindings:
             candidates = spec["truth"] if spec.get("truth") else {"value": Decimal(str(spec["value"]))}
-            matched = [p for p, value in candidates.items()
-                       if v1._within(abs(raw) if key.get("abs") else raw,
-                                     abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)), tolerance)]
+            matched = [
+                p
+                for p, value in candidates.items()
+                if v1._within(
+                    abs(raw) if key.get("abs") else raw,
+                    abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)),
+                    tolerance,
+                )
+            ]
             if not matched:
                 continue
             if got is None:
                 misses.append(f"{segment.get('path')}：数值相同但{why}")
             elif spec.get("truth") and got.get("source") != "explore" and got.get("period") not in matched:
-                misses.append(f"{segment.get('path')}：数值等于真值的{'、'.join(matched)}，"
-                              f"但所在列是 {got.get('period')}")
+                misses.append(
+                    f"{segment.get('path')}：数值等于真值的{'、'.join(matched)}，但所在列是 {got.get('period')}"
+                )
             else:
                 problem = v2._binding_ok(spec, got, q)
                 if problem is None:
                     return {"hit": True, "path": segment.get("path"), "binding": v2._plain(got)}
                 misses.append(f"{segment.get('path')}：数值相同但{problem}")
             path = v2.PATH.match(segment.get("path") or "")
-            if (spec.get("metric") and spec.get("truth") and path is not None
-                    and (segment.get("explore") or v21._is_explore(index, path["ds"]))):
+            if (
+                spec.get("metric")
+                and spec.get("truth")
+                and path is not None
+                and (segment.get("explore") or v21._is_explore(index, path["ds"]))
+            ):
                 explore_candidates.append((segment, spec, matched))
     explore_misses = []
     for segment, spec, periods in explore_candidates:
@@ -238,8 +281,10 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         if binding is not None:
             return {"hit": True, "path": segment.get("path"), "binding": v2._plain(binding)}
         explore_misses.append(f"{segment.get('path')}：数值相同但{why}")
-    return {"hit": False, "reason": "；".join(dict.fromkeys(explore_misses or misses))[:1200]
-            or "报告里没有等于真值的数值引用"}
+    return {
+        "hit": False,
+        "reason": "；".join(dict.fromkeys(explore_misses or misses))[:1200] or "报告里没有等于真值的数值引用",
+    }
 
 
 def score(question: dict, run: dict | None) -> dict[str, Any]:
@@ -249,11 +294,15 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     result = v211.score(adapted, run)
     result["scorer"] = VERSION
     key = (question.get("expect") or {}).get("key_value")
-    kv = key_value(question, (run or {}).get("report") or {}, run or {}) if result["completed"] else {
-        "hit": False if key else None, "reason": "运行没有完成"}
+    kv = (
+        key_value(question, (run or {}).get("report") or {}, run or {})
+        if result["completed"]
+        else {"hit": False if key else None, "reason": "运行没有完成"}
+    )
     result["key_value_hit"], result["key_value_detail"] = kv["hit"], kv
     primary = (question.get("expect") or {}).get("primary")
-    if result["completed"] and (question["category"] in v1.POSITIVE
-                                or (question["category"] == "adversarial" and primary)):
+    if result["completed"] and (
+        question["category"] in v1.POSITIVE or (question["category"] == "adversarial" and primary)
+    ):
         result["passed"] = bool(result["passed"] and kv["hit"] is not False)
     return result

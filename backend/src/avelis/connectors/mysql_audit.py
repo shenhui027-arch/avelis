@@ -23,8 +23,22 @@ from avelis.connectors.ddl import AuditUnavailable, DdlEvent, Token, lex
 from avelis.i18n import gettext
 
 _REQUIRED_COLUMNS = {"event_time", "user_host", "command_type", "argument"}
-_TEXT_TYPES = {"char", "varchar", "tinytext", "text", "mediumtext", "longtext", "tinyblob", "blob",
-               "mediumblob", "longblob", "binary", "varbinary", "enum", "set"}
+_TEXT_TYPES = {
+    "char",
+    "varchar",
+    "tinytext",
+    "text",
+    "mediumtext",
+    "longtext",
+    "tinyblob",
+    "blob",
+    "mediumblob",
+    "longblob",
+    "binary",
+    "varbinary",
+    "enum",
+    "set",
+}
 _USER_HOST = re.compile(r"^(?P<user>[^\[\]]+)\[[^\[\]]*\]\s+@\s+.*\[[^\[\]]*\]$")
 _DDL_WORDS = ("CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE")
 _AUDIT_ROW_LIMIT = 10_000
@@ -41,9 +55,13 @@ def _table(options: dict[str, Any]) -> tuple[str, str, str]:
         raise AuditUnavailable(gettext("未绑定 DDL 审计表（options.ddl_audit_table），没有审计来源"), "not_enabled")
     parsed = lex(value) if isinstance(value, str) else None
     tokens = parsed.tokens if parsed else []
-    if (parsed is None or not parsed.certain or len(tokens) != 3
-            or [t.kind for t in tokens] != ["ident", "dot", "ident"]
-            or any(not t.text or "\x00" in t.text for t in (tokens[0], tokens[2]))):
+    if (
+        parsed is None
+        or not parsed.certain
+        or len(tokens) != 3
+        or [t.kind for t in tokens] != ["ident", "dot", "ident"]
+        or any(not t.text or "\x00" in t.text for t in (tokens[0], tokens[2]))
+    ):
         raise AuditUnavailable(gettext("DDL 审计表名称无效：请填写库.表"), "incompatible")
     db, name = tokens[0].text, tokens[2].text
     quoted = ".".join("`" + part.replace("`", "``") + "`" for part in (db, name))
@@ -55,14 +73,20 @@ def _check_structure(cur, quoted: str) -> None:
     columns = {r["Field"].lower(): str(r["Type"]).lower().split("(", 1)[0].strip() for r in cur.fetchall()}
     missing = _REQUIRED_COLUMNS - columns.keys()
     if missing:
-        raise AuditUnavailable(gettext("DDL 审计表 {table} 结构不符：缺少列 {columns}",
-                                       table=quoted, columns=", ".join(sorted(missing))), "incompatible")
+        raise AuditUnavailable(
+            gettext("DDL 审计表 {table} 结构不符：缺少列 {columns}", table=quoted, columns=", ".join(sorted(missing))),
+            "incompatible",
+        )
     if columns["event_time"] != "timestamp":
-        raise AuditUnavailable(gettext("DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区",
-                                       table=quoted), "incompatible")
+        raise AuditUnavailable(
+            gettext("DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区", table=quoted),
+            "incompatible",
+        )
     if any(columns[name] not in _TEXT_TYPES for name in _REQUIRED_COLUMNS - {"event_time"}):
-        raise AuditUnavailable(gettext("DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列",
-                                       table=quoted), "incompatible")
+        raise AuditUnavailable(
+            gettext("DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列", table=quoted),
+            "incompatible",
+        )
 
 
 def _utc(at: datetime) -> datetime:
@@ -82,8 +106,11 @@ def _text(value: Any, column: str) -> str:
 
 def _lexical_objects(tokens: list[Token]) -> tuple[str, list[tuple[str | None, str]]]:
     """只按 DDL 语法位置取目标；不搜索 SELECT / 子查询里的表名。"""
+
     def word(i: int, *values: str) -> bool:
-        return i < len(tokens) and tokens[i].kind == "ident" and not tokens[i].quoted and tokens[i].text.upper() in values
+        return (
+            i < len(tokens) and tokens[i].kind == "ident" and not tokens[i].quoted and tokens[i].text.upper() in values
+        )
 
     def name(i: int) -> tuple[tuple[str | None, str] | None, int]:
         parts = []
@@ -212,14 +239,18 @@ def _objects(statement: str, databases: set[str] | None = None) -> tuple[str, li
 
     def checked(kind: str, objects: list[tuple[str | None, str]]) -> tuple[str, list[tuple[str, str]]]:
         if any(db is None for db, _ in objects):
-            raise AuditUnavailable(gettext("DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"),
-                                   "incompatible")
+            raise AuditUnavailable(
+                gettext("DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"), "incompatible"
+            )
         return kind, list(dict.fromkeys((db, name) for db, name in objects if db is not None))
 
     try:
         # Command 兜底会发出 warning；context=0 避免审计语句原文进入应用日志。
-        trees = [tree for tree in sqlglot.parse(statement, read="mysql", error_message_context=0)
-                 if tree is not None and not isinstance(tree, exp.Semicolon)]
+        trees = [
+            tree
+            for tree in sqlglot.parse(statement, read="mysql", error_message_context=0)
+            if tree is not None and not isinstance(tree, exp.Semicolon)
+        ]
     except SqlglotError:
         if multiple:
             chunks: list[list[Token]] = [[]]
@@ -234,15 +265,21 @@ def _objects(statement: str, databases: set[str] | None = None) -> tuple[str, li
         return checked(head, lexical)
     if len(trees) > 1:
         # 按独立语句识别目标仅用于判断是否影响采集范围，绝不把请求拆成可靠的独立事件。
-        candidates = [obj for tree in trees for obj in _objects(tree.sql(dialect="mysql", comments=False), databases)[1]]
+        candidates = [
+            obj for tree in trees for obj in _objects(tree.sql(dialect="mysql", comments=False), databases)[1]
+        ]
         if candidates and (not databases or any(db in databases for db, _ in candidates)):
             raise AuditUnavailable(gettext("DDL 审计记录包含多条语句，无法可靠确定候选"), "incompatible")
         return "", []
     if not trees:
         return "", []
     tree = trees[0]
-    if isinstance(tree, (exp.Create, exp.Drop)) and (tree.args.get("temporary")
-            or any(isinstance(p, exp.TemporaryProperty) for p in (tree.args.get("properties") or exp.Properties()).expressions)):
+    if isinstance(tree, (exp.Create, exp.Drop)) and (
+        tree.args.get("temporary")
+        or any(
+            isinstance(p, exp.TemporaryProperty) for p in (tree.args.get("properties") or exp.Properties()).expressions
+        )
+    ):
         return "", []
     objects = lexical
     targets: list[exp.Expression] = []
@@ -308,22 +345,29 @@ def ddl_events(connector, since: datetime, until: datetime, cursors=None) -> lis
             enabled = str(settings.get("enabled", "")).upper() in {"1", "ON", "TRUE"}
             outputs = {s.strip().upper() for s in str(settings.get("output", "")).split(",")}
             if not enabled or "TABLE" not in outputs or "NONE" in outputs:
-                raise AuditUnavailable(gettext("MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"),
-                                       "not_enabled")
+                raise AuditUnavailable(
+                    gettext("MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"), "not_enabled"
+                )
         _check_structure(cur, quoted)
         cur.execute("SET SESSION time_zone = '+00:00'")
         # 任意位置的关键词只作粗筛，保留前导注释；字符串中的噪声仍由客户端解析排除。
         ddl_filter = " OR ".join(f"UPPER(CONVERT(argument USING utf8mb4)) LIKE '%%{word}%%'" for word in _DDL_WORDS)
-        cur.execute(f"SELECT event_time, user_host, command_type, argument FROM {quoted} "
-                    "WHERE event_time >= %s AND event_time <= %s AND command_type IN ('Query', 'Execute') "
-                    f"AND ({ddl_filter}) ORDER BY event_time LIMIT {_AUDIT_ROW_LIMIT + 1}", (_utc(since), _utc(until)))
+        cur.execute(
+            f"SELECT event_time, user_host, command_type, argument FROM {quoted} "
+            "WHERE event_time >= %s AND event_time <= %s AND command_type IN ('Query', 'Execute') "
+            f"AND ({ddl_filter}) ORDER BY event_time LIMIT {_AUDIT_ROW_LIMIT + 1}",
+            (_utc(since), _utc(until)),
+        )
         rows = cur.fetchall()
         if len(rows) > _AUDIT_ROW_LIMIT:
-            raise AuditUnavailable(gettext("DDL 审计候选超过读取上限（{limit} 条），无法完整归因", limit=_AUDIT_ROW_LIMIT), "error")
+            raise AuditUnavailable(
+                gettext("DDL 审计候选超过读取上限（{limit} 条），无法完整归因", limit=_AUDIT_ROW_LIMIT), "error"
+            )
     except pymysql.MySQLError as exc:
         message = str(exc.args[-1] if exc.args else exc).strip()[:500]
-        raise AuditUnavailable(gettext("读取 DDL 审计表 {table} 失败：{error}", table=quoted, error=message),
-                               _audit_cause(exc)) from exc
+        raise AuditUnavailable(
+            gettext("读取 DDL 审计表 {table} 失败：{error}", table=quoted, error=message), _audit_cause(exc)
+        ) from exc
     finally:
         if conn is not None:
             conn.close()
@@ -348,6 +392,14 @@ def ddl_events(connector, since: datetime, until: datetime, cursors=None) -> lis
             raise AuditUnavailable(gettext("DDL 审计表的 event_time 不是有效的时间值"), "incompatible")
         at = _utc(at)
         if _utc(since) <= at <= _utc(until):
-            events.append(DdlEvent(at=at, db_user=user, objects=objects, statement_type=kind, statement=statement,
-                                   certain=False if kind in {"CREATE INDEX", "DROP INDEX"} else None))
+            events.append(
+                DdlEvent(
+                    at=at,
+                    db_user=user,
+                    objects=objects,
+                    statement_type=kind,
+                    statement=statement,
+                    certain=False if kind in {"CREATE INDEX", "DROP INDEX"} else None,
+                )
+            )
     return events

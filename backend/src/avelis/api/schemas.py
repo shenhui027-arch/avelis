@@ -20,8 +20,9 @@ class Out(BaseModel):
 # --- 系统设置 ---------------------------------------------------------------------
 
 BusinessCalendarWeekday = Annotated[int, Field(strict=True, ge=0, le=6)]
-BusinessCalendarDate = Annotated[str, Field(strict=True, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-                                          json_schema_extra={"format": "date"})]
+BusinessCalendarDate = Annotated[
+    str, Field(strict=True, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", json_schema_extra={"format": "date"})
+]
 
 
 class BusinessCalendarIn(BaseModel):
@@ -63,6 +64,7 @@ class WorkerHealthOut(Out):
 
 
 # --- 数据源 -----------------------------------------------------------------------
+
 
 class RunOut(Out):
     id: str
@@ -159,6 +161,7 @@ class JobOut(Out):
 
 # --- 目录、血缘 --------------------------------------------------------------------
 
+
 class MemberOut(Out):
     user_id: str
     role: str
@@ -230,6 +233,7 @@ class ConfirmationOut(Out):
 
 class ColumnDocOut(Out):
     """字段含义的数据库注释状态（governance/column_docs.py）。"""
+
     asset_id: str
     asset: str
     column: str
@@ -381,6 +385,7 @@ class GraphOut(Out):
 
 
 # --- 口径、变更 --------------------------------------------------------------------
+
 
 class OwnerRef(Out):
     id: str
@@ -584,6 +589,7 @@ class HistoryStatusOut(Out):
 
 # --- 问数、审计 --------------------------------------------------------------------
 
+
 class AnswerOut(Out):
     id: str
     question: str
@@ -637,6 +643,7 @@ class AuditOut(Out):
 
 
 # --- 导入血缘 ---------------------------------------------------------------------
+
 
 class StatementOut(Out):
     id: str
@@ -776,6 +783,7 @@ class ImportDecisionsOut(Out):
 
 # --- 工作台 -----------------------------------------------------------------------
 
+
 class StageOut(Out):
     key: str
     label: str
@@ -806,6 +814,7 @@ class WorkbenchOut(Out):
 
 
 # --- 分析智能体（M8） ---------------------------------------------------------------
+
 
 class AnalysisProposalItem(Out):
     id: str

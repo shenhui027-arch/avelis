@@ -27,8 +27,9 @@ def key_case(branch):
         source, step = governed(grain="month", columns=["period", "订单数"], rows=[["2026-09", 100]])
         run = run_record([source], [step], "D1.订单数[#1]", 100)
     elif branch == "explain":
-        run = explain_run(path="D2.member_change[#1]", filters=[],
-                          rows=[["region×channel", "华东 / 抖音", 120, 100, -20, -20]])
+        run = explain_run(
+            path="D2.member_change[#1]", filters=[], rows=[["region×channel", "华东 / 抖音", 120, 100, -20, -20]]
+        )
     elif branch == "summary":
         run = explain_run()
     elif branch == "factor":
@@ -37,31 +38,53 @@ def key_case(branch):
     elif branch == "calendar":
         source, step = governed()
         result = dataset("D2", kind="calc", inputs=["D1"], columns=["period", "value"], rows=[])
-        calendar = {"tool": "calendar_adjust", "dataset": "D2", "args": {
-            "dataset": "D1", "current": "订单数", "previous": "订单数·对比期"}}
+        calendar = {
+            "tool": "calendar_adjust",
+            "dataset": "D2",
+            "args": {"dataset": "D1", "current": "订单数", "previous": "订单数·对比期"},
+        }
         question["v2"]["key_bindings"][0].update(truth=None, value=100, calc="calendar.day_count_effect")
         run = run_record([source, result], [step, calendar], "D2.summary.day_count_effect", 100)
     elif branch == "contribution":
         run = contribution_run([["douyin", "EC", "app", 120, 100]])
     elif branch == "governed_contribution":
         source, step = governed(columns=["channel", "订单数", "订单数·对比期"], rows=[["抖音", 100, 120]])
-        result = dataset("D2", kind="calc", inputs=["D1"], columns=["channel", "previous", "current", "change"],
-                         rows=[["抖音", 120, 100, -20]])
-        contribution = {"tool": "contribution", "dataset": "D2", "args": {
-            "dataset": "D1", "keys": ["channel"], "current": "订单数", "previous": "订单数·对比期"}}
+        result = dataset(
+            "D2",
+            kind="calc",
+            inputs=["D1"],
+            columns=["channel", "previous", "current", "change"],
+            rows=[["抖音", 120, 100, -20]],
+        )
+        contribution = {
+            "tool": "contribution",
+            "dataset": "D2",
+            "args": {"dataset": "D1", "keys": ["channel"], "current": "订单数", "previous": "订单数·对比期"},
+        }
         run = run_record([source, result], [step, contribution], "D2.change[#1]", -20)
     else:
         assert branch == "explore"
-        sql = "SELECT SUM(order_cnt) AS orders FROM ec_dw.dwd_order WHERE " \
-              "order_date BETWEEN '2026-09-01' AND '2026-09-30' " \
-              "AND region_code = 'EC' AND source_channel = 'douyin'"
+        sql = (
+            "SELECT SUM(order_cnt) AS orders FROM ec_dw.dwd_order WHERE "
+            "order_date BETWEEN '2026-09-01' AND '2026-09-30' "
+            "AND region_code = 'EC' AND source_channel = 'douyin'"
+        )
         source = dataset(kind="explore", columns=["orders"], rows=[[100]], sql=sql)
         run = run_record([source], [], "D1.orders[#1]", 100)
     return question, run
 
 
-BRANCHES = ["governed", "bucket", "explain", "summary", "factor", "calendar",
-            "contribution", "governed_contribution", "explore"]
+BRANCHES = [
+    "governed",
+    "bucket",
+    "explain",
+    "summary",
+    "factor",
+    "calendar",
+    "contribution",
+    "governed_contribution",
+    "explore",
+]
 
 
 def truncate(run, ref):
@@ -72,8 +95,11 @@ def truncate(run, ref):
 
 def without_new_fields(value):
     if isinstance(value, dict):
-        return {key: without_new_fields(item) for key, item in value.items()
-                if key not in {"scorer", "uncertain_truncated", "uncertain_details"}}
+        return {
+            key: without_new_fields(item)
+            for key, item in value.items()
+            if key not in {"scorer", "uncertain_truncated", "uncertain_details"}
+        }
     if isinstance(value, list):
         return [without_new_fields(item) for item in value]
     return value
@@ -117,11 +143,21 @@ def test_contribution_checks_input_even_when_output_is_complete(branch):
 
 def test_contribution_checks_nested_input_before_expansion():
     question, run = key_case("contribution")
-    result = dataset("D3", kind="calc", inputs=["D2"], columns=["source_channel", "previous", "current", "change"],
-                     rows=[["douyin", 120, 100, -20]])
+    result = dataset(
+        "D3",
+        kind="calc",
+        inputs=["D2"],
+        columns=["source_channel", "previous", "current", "change"],
+        rows=[["douyin", 120, 100, -20]],
+    )
     run["datasets"].append(result)
-    run["steps"].append({"tool": "contribution", "dataset": "D3", "args": {
-        "dataset": "D2", "keys": ["source_channel"], "previous": "previous", "current": "current"}})
+    run["steps"].append(
+        {
+            "tool": "contribution",
+            "dataset": "D3",
+            "args": {"dataset": "D2", "keys": ["source_channel"], "previous": "previous", "current": "current"},
+        }
+    )
     run["report"]["fields"]["summary"]["segments"][0]["path"] = "D3.change[#1]"
     assert v212.score(question, run)["key_value_hit"] is True
     why = truncate(run, "D1")
@@ -139,8 +175,12 @@ def test_metadata_only_inputs_are_not_blocked(branch):
 
 
 def mechanism_case(expansion=None):
-    source = dataset(kind="explore", columns=["source_channel", "orders"], rows=[["douyin", 100]],
-                     sql="SELECT * FROM ec_dw.dwd_order")
+    source = dataset(
+        kind="explore",
+        columns=["source_channel", "orders"],
+        rows=[["douyin", 100]],
+        sql="SELECT * FROM ec_dw.dwd_order",
+    )
     run = run_record([source], [], "D1.orders[#1]", 100)
     cause = run["report"]["causes"][0]
     cause.update(entity={"evidence_id": "D1#1"}, evidence=["D1"])
@@ -149,17 +189,17 @@ def mechanism_case(expansion=None):
     question["expect"]["primary"]["entity"] = ["抖音"]
     question["mechanism"] = [{"asset": "ec_trade.orders", "members": ["抖音"]}]
     if expansion:
-        output = dataset("D2", kind="calc", inputs=["D1"], columns=["source_channel", "value"],
-                         rows=[["douyin", 100]])
+        output = dataset("D2", kind="calc", inputs=["D1"], columns=["source_channel", "value"], rows=[["douyin", 100]])
         run["datasets"].append(output)
-        args = ({"values": [{"dataset": "D1", "match": {}}]} if expansion == "derive" else {"dataset": "D1"})
+        args = {"values": [{"dataset": "D1", "match": {}}]} if expansion == "derive" else {"dataset": "D1"}
         run["steps"].append({"tool": expansion, "dataset": "D2", "args": args})
         cause.update(entity={"evidence_id": "D2#1"}, evidence=["D2"])
     return question, run
 
 
-@pytest.mark.parametrize("expansion,ref", [(None, "D1"), ("derive", "D1"), ("derive", "D2"),
-                                         ("contribution", "D1"), ("contribution", "D2")])
+@pytest.mark.parametrize(
+    "expansion,ref", [(None, "D1"), ("derive", "D1"), ("derive", "D2"), ("contribution", "D1"), ("contribution", "D2")]
+)
 def test_mechanism_blocks_evidence_and_expansion_input_datasets(expansion, ref):
     question, run = mechanism_case(expansion)
     assert v212.score(question, run)["primary_hit"] is True
@@ -192,8 +232,7 @@ def test_complete_mechanism_keeps_all_other_v212_gates(change, expansion):
 def test_sql_only_source_and_key_binding_are_unaffected_by_truncation():
     question, run = key_case("explore")
     truncate(run, "D1")
-    question["v2"]["key_bindings"] = [{"value": 100, "explore": {
-        "table": "ec_dw.dwd_order", "column": "orders"}}]
+    question["v2"]["key_bindings"] = [{"value": 100, "explore": {"table": "ec_dw.dwd_order", "column": "orders"}}]
     assert without_new_fields(v213.score(question, run)) == without_new_fields(v212.score(question, run))
     assert v213.score(question, run)["key_value_hit"] is True
     assert v21.source_tables(run, ["D1"]) == {"ec_dw.dwd_order"}
@@ -261,15 +300,24 @@ def test_nonmatching_numbers_manual_and_unrelated_datasets_do_not_count():
     assert v213.score(question, run)["key_value_detail"]["uncertain_truncated"] == 0
 
 
-@pytest.mark.parametrize("status,error,lost", [("failed", "普通失败", None),
-                                               ("failed", "权限失效", "权限失效"),
-                                               ("failed", "APITimeoutError: timed out", "权限失效")])
+@pytest.mark.parametrize(
+    "status,error,lost",
+    [
+        ("failed", "普通失败", None),
+        ("failed", "权限失效", "权限失效"),
+        ("failed", "APITimeoutError: timed out", "权限失效"),
+    ],
+)
 def test_incomplete_permission_results_keep_v212_behavior(status, error, lost):
     question = metric_question()
     question.update(category="adversarial")
     question["expect"]["denied_ok"] = True
     question["v2"]["unauthorized"] = {"metric_prefix": "ec_", "table_db_prefix": "ec_"}
-    run = {"status": status, "error": error, "datasets": [], "steps": [],
-           "report": {"permission": {"lost": lost, "denials": []}}}
+    run = {
+        "status": status,
+        "error": error,
+        "datasets": [],
+        "steps": [],
+        "report": {"permission": {"lost": lost, "denials": []}},
+    }
     assert without_new_fields(v213.score(question, run)) == without_new_fields(v212.score(question, run))
-

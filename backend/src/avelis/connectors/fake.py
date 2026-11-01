@@ -18,13 +18,17 @@ class FakeConnector:
     def server_identity(self) -> dict[str, Any]:
         return {"adapter": "fake", "endpoint": self.options.get("endpoint", "fake:0")}
 
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
-                       timezone: str | None = None) -> QueryResult:
+    def execute_select(
+        self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult:
         """显式给定的离线查询结果，不模拟数据库对业务时区的解释。"""
         result = self.options.get("query_result", {})
         rows = [list(row) for row in result.get("rows", [])]
-        return QueryResult(columns=list(result.get("columns", [])), rows=rows[:max_rows],
-                           truncated=bool(result.get("truncated")) or len(rows) > max_rows)
+        return QueryResult(
+            columns=list(result.get("columns", [])),
+            rows=rows[:max_rows],
+            truncated=bool(result.get("truncated")) or len(rows) > max_rows,
+        )
 
     def snapshot(self) -> Snapshot:
         assets = []

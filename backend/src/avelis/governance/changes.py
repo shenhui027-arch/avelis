@@ -42,26 +42,42 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
     impacts = 0
 
     # 1. 下游资产：自身没有直接变化、但字段推导因上游而变化的资产，以及沿血缘继续传播到的资产
-    direct = {e.asset_id for e in session.scalars(select(ChangeEvent).where(
-        ChangeEvent.change_set_id == change_set.id,
-        ChangeEvent.kind.not_in(("derivation_changed", "upstream_broken"))))}
+    direct = {
+        e.asset_id
+        for e in session.scalars(
+            select(ChangeEvent).where(
+                ChangeEvent.change_set_id == change_set.id,
+                ChangeEvent.kind.not_in(("derivation_changed", "upstream_broken")),
+            )
+        )
+    }
     affected_assets: dict[str, list[dict[str, Any]]] = {}
     for (asset_id, column), change in changed.items():
         if asset_id not in direct:
-            affected_assets.setdefault(asset_id, [{"asset_id": asset_id, "column": column,
-                                                   "status": change["after"]["status"]}])
+            affected_assets.setdefault(
+                asset_id, [{"asset_id": asset_id, "column": column, "status": change["after"]["status"]}]
+            )
     for asset_id, path in downstream_assets(session, set(changed)).items():
         if asset_id not in direct:
             affected_assets.setdefault(asset_id, path)
     for asset_id, path in affected_assets.items():
-        session.add(Impact(change_set_id=change_set.id, object_type="asset", object_id=asset_id, level="affected",
-                           reason="上游字段推导发生变化", path=path))
+        session.add(
+            Impact(
+                change_set_id=change_set.id,
+                object_type="asset",
+                object_id=asset_id,
+                level="affected",
+                reason="上游字段推导发生变化",
+                path=path,
+            )
+        )
         impacts += 1
 
     # 2. 指标版本：依赖指纹不一致即受影响
     affected_versions: list[MetricVersion] = []
-    versions = session.scalars(select(MetricVersion).where(
-        MetricVersion.status.in_(("published", "pending_review", "affected"))))
+    versions = session.scalars(
+        select(MetricVersion).where(MetricVersion.status.in_(("published", "pending_review", "affected")))
+    )
     for version in versions:
         hits = [d for d in version.dependency or [] if (d["asset_id"], d["column"]) in changed]
         if not hits:
@@ -78,30 +94,66 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         else:
             level, reason = "possibly_affected", f"依赖字段 {cols} 的推导证据不全，按受影响处理"
         newly = mark_affected(session, version, reason)
-        session.add(Impact(change_set_id=change_set.id, object_type="metric_version", object_id=version.id,
-                           level=level, reason=reason, path=[{"asset_id": d["asset_id"], "column": d["column"],
-                                                              "before": d["fingerprint"],
-                                                              "after": d["current_fingerprint"],
-                                                              "status": d["current_status"]} for d in drift]))
+        session.add(
+            Impact(
+                change_set_id=change_set.id,
+                object_type="metric_version",
+                object_id=version.id,
+                level=level,
+                reason=reason,
+                path=[
+                    {
+                        "asset_id": d["asset_id"],
+                        "column": d["column"],
+                        "before": d["fingerprint"],
+                        "after": d["current_fingerprint"],
+                        "status": d["current_status"],
+                    }
+                    for d in drift
+                ],
+            )
+        )
         impacts += 1
-        open_task = session.scalar(select(ReviewTask).where(ReviewTask.object_type == "metric_version",
-                                                            ReviewTask.object_id == version.id,
-                                                            ReviewTask.status == "open"))
+        open_task = session.scalar(
+            select(ReviewTask).where(
+                ReviewTask.object_type == "metric_version",
+                ReviewTask.object_id == version.id,
+                ReviewTask.status == "open",
+            )
+        )
         if newly or open_task is None:
-            session.add(ReviewTask(change_set_id=change_set.id, object_type="metric_version", object_id=version.id,
-                                   assignee_id=metric.owner_id, status="open", note=reason))
+            session.add(
+                ReviewTask(
+                    change_set_id=change_set.id,
+                    object_type="metric_version",
+                    object_id=version.id,
+                    assignee_id=metric.owner_id,
+                    status="open",
+                    note=reason,
+                )
+            )
         cache.invalidate_tag(f"metric_version:{version.id}")
         for answer in session.scalars(select(Answer).where(Answer.status == "answered")):
             if version.id in (answer.metric_version_ids or []) and answer.recheck_status is None:
                 answer.recheck_status = "needs_recheck"
-        audit.record(session, None, "metric_version.affected", "metric_version", version.id, reason=reason,
-                     change_set_id=change_set.id)
+        audit.record(
+            session,
+            None,
+            "metric_version.affected",
+            "metric_version",
+            version.id,
+            reason=reason,
+            change_set_id=change_set.id,
+        )
         affected_versions.append(version)
 
     # 2b. 派生指标：锁定的组成版本受影响，派生版本随之受影响并生成复核任务
     affected_ids = {v.id for v in affected_versions}
-    for derived in session.scalars(select(MetricVersion).where(
-            MetricVersion.kind == "derived", MetricVersion.status.in_(("published", "pending_review")))):
+    for derived in session.scalars(
+        select(MetricVersion).where(
+            MetricVersion.kind == "derived", MetricVersion.status.in_(("published", "pending_review"))
+        )
+    ):
         hit = [c for c in derived.components or [] if c["version_id"] in affected_ids]
         if not hit:
             continue
@@ -109,14 +161,36 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         if not mark_affected(session, derived, reason):
             continue
         metric = session.get(Metric, derived.metric_id)
-        session.add(Impact(change_set_id=change_set.id, object_type="metric_version", object_id=derived.id,
-                           level="affected", reason=reason,
-                           path=[{"component": c["metric_code"], "version_id": c["version_id"]} for c in hit]))
-        session.add(ReviewTask(change_set_id=change_set.id, object_type="metric_version", object_id=derived.id,
-                               assignee_id=metric.owner_id, status="open", note=reason))
+        session.add(
+            Impact(
+                change_set_id=change_set.id,
+                object_type="metric_version",
+                object_id=derived.id,
+                level="affected",
+                reason=reason,
+                path=[{"component": c["metric_code"], "version_id": c["version_id"]} for c in hit],
+            )
+        )
+        session.add(
+            ReviewTask(
+                change_set_id=change_set.id,
+                object_type="metric_version",
+                object_id=derived.id,
+                assignee_id=metric.owner_id,
+                status="open",
+                note=reason,
+            )
+        )
         cache.invalidate_tag(f"metric_version:{derived.id}")
-        audit.record(session, None, "metric_version.affected", "metric_version", derived.id, reason=reason,
-                     change_set_id=change_set.id)
+        audit.record(
+            session,
+            None,
+            "metric_version.affected",
+            "metric_version",
+            derived.id,
+            reason=reason,
+            change_set_id=change_set.id,
+        )
         impacts += 1
 
     # 3. 关联路径
@@ -128,12 +202,28 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
         from avelis.governance.joins import reset_approvals
 
         reset_approvals(session, path, "affected", reason)
-        session.add(Impact(change_set_id=change_set.id, object_type="join_path", object_id=path.id,
-                           level="affected", reason=reason, path=hits))
+        session.add(
+            Impact(
+                change_set_id=change_set.id,
+                object_type="join_path",
+                object_id=path.id,
+                level="affected",
+                reason=reason,
+                path=hits,
+            )
+        )
         left = session.get(Asset, path.left_asset_id)
         owner = session.get(Domain, left.domain_id).owner_id if left.domain_id else path.created_by
-        session.add(ReviewTask(change_set_id=change_set.id, object_type="join_path", object_id=path.id,
-                               assignee_id=owner, status="open", note=reason))
+        session.add(
+            ReviewTask(
+                change_set_id=change_set.id,
+                object_type="join_path",
+                object_id=path.id,
+                assignee_id=owner,
+                status="open",
+                note=reason,
+            )
+        )
         impacts += 1
 
     change_set.summary = {**(change_set.summary or {}), "impacts": impacts}
@@ -144,8 +234,11 @@ def analyze_change_set(session: Session, change_set: ChangeSet, fp_changes: list
 
 def downstream_assets(session: Session, start: set[tuple[str, str]]) -> dict[str, list[dict[str, str]]]:
     """从变化的字段出发，沿已确认血缘（解析、人工）找下游资产，返回每个资产的一条传播路径。"""
-    edges = list(session.scalars(select(LineageEdge).where(LineageEdge.status == "active",
-                                                           LineageEdge.origin.in_(("parsed", "manual")))))
+    edges = list(
+        session.scalars(
+            select(LineageEdge).where(LineageEdge.status == "active", LineageEdge.origin.in_(("parsed", "manual")))
+        )
+    )
     by_source: dict[tuple[str, str], list[LineageEdge]] = {}
     for e in edges:
         if e.source_asset_id:
@@ -176,14 +269,22 @@ def _all_columns(session: Session, asset_id: str) -> list[str]:
     asset = session.get(Asset, asset_id)
     if asset is None or not asset.current_version_id:
         return []
-    return list(session.scalars(select(ColumnVersion.name).where(
-        ColumnVersion.asset_version_id == asset.current_version_id)))
+    return list(
+        session.scalars(select(ColumnVersion.name).where(ColumnVersion.asset_version_id == asset.current_version_id))
+    )
 
 
 # --- 复核 -------------------------------------------------------------------------
 
-def resolve_task(session: Session, actor: User, task: ReviewTask, resolution: str, note: str,
-                 linked_metric_version_id: str | None = None) -> ReviewTask:
+
+def resolve_task(
+    session: Session,
+    actor: User,
+    task: ReviewTask,
+    resolution: str,
+    note: str,
+    linked_metric_version_id: str | None = None,
+) -> ReviewTask:
     if task.status != "open":
         raise Conflict("复核任务已处理")
     if resolution not in RESOLUTIONS:
@@ -203,22 +304,34 @@ def resolve_task(session: Session, actor: User, task: ReviewTask, resolution: st
     task.resolved_at = utcnow()
     task.linked_metric_version_id = linked_metric_version_id
     session.flush()
-    audit.record(session, actor, "review_task.resolve", "review_task", task.id, resolution=resolution, note=note,
-                 target_type=task.object_type, target_id=task.object_id, linked=linked_metric_version_id)
+    audit.record(
+        session,
+        actor,
+        "review_task.resolve",
+        "review_task",
+        task.id,
+        resolution=resolution,
+        note=note,
+        target_type=task.object_type,
+        target_id=task.object_id,
+        linked=linked_metric_version_id,
+    )
     _maybe_close_change_set(session, task.change_set_id)
     return task
 
 
-def _resolve_metric(session: Session, actor: User, task: ReviewTask, resolution: str, note: str,
-                    linked_id: str | None) -> None:
+def _resolve_metric(
+    session: Session, actor: User, task: ReviewTask, resolution: str, note: str, linked_id: str | None
+) -> None:
     version = session.get(MetricVersion, task.object_id)
     if version.status != "affected":
         raise Conflict(Msg("指标版本当前为 {status}，不是受影响状态", status=version.status))
     if resolution == "restored":
         drift = dependency_drift(session, version)
         if drift:
-            raise Conflict("当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集",
-                           drift=drift)
+            raise Conflict(
+                "当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集", drift=drift
+            )
         if status_before_affected(session, version) != "published":
             # 受影响前尚未批准：只能回到待批准，由复核者按正式流程批准（含禁止自审与发布检查）
             transition(session, version, "pending_review", actor, f"复核：依赖已恢复，回到待批准。{note}")
@@ -255,12 +368,17 @@ def _resolve_join_path(session: Session, task: ReviewTask, resolution: str) -> N
 def _maybe_close_change_set(session: Session, change_set_id: str) -> None:
     """关闭没有未决复核的变更集：本组的任务都已处理，且本组影响的指标版本不再处于“受影响”。"""
     for cs in session.scalars(select(ChangeSet).where(ChangeSet.status == "open")):
-        if session.scalar(select(ReviewTask.id).where(ReviewTask.change_set_id == cs.id,
-                                                      ReviewTask.status == "open").limit(1)):
+        if session.scalar(
+            select(ReviewTask.id).where(ReviewTask.change_set_id == cs.id, ReviewTask.status == "open").limit(1)
+        ):
             continue
-        affected = [i for i in session.scalars(select(Impact).where(
-            Impact.change_set_id == cs.id, Impact.object_type == "metric_version"))
-            if (v := session.get(MetricVersion, i.object_id)) is not None and v.status == "affected"]
+        affected = [
+            i
+            for i in session.scalars(
+                select(Impact).where(Impact.change_set_id == cs.id, Impact.object_type == "metric_version")
+            )
+            if (v := session.get(MetricVersion, i.object_id)) is not None and v.status == "affected"
+        ]
         if cs.id == change_set_id or not affected:
             cs.status = "resolved"
             cs.resolved_at = utcnow()

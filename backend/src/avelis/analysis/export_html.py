@@ -91,10 +91,11 @@ def _svg(drawing, identifier: str) -> str:
     if drawing is None:
         return ""
     markup = renderSVG.drawToString(drawing)
-    root = ElementTree.fromstring(markup[markup.index("<svg"):])
+    root = ElementTree.fromstring(markup[markup.index("<svg") :])
     ElementTree.register_namespace("", "http://www.w3.org/2000/svg")
-    identifiers = {item.attrib["id"]: f"{identifier}-{item.attrib['id']}"
-                   for item in root.iter() if "id" in item.attrib}
+    identifiers = {
+        item.attrib["id"]: f"{identifier}-{item.attrib['id']}" for item in root.iter() if "id" in item.attrib
+    }
     for item in root.iter():
         for name, value in list(item.attrib.items()):
             if name == "id":
@@ -107,27 +108,37 @@ def _svg(drawing, identifier: str) -> str:
     root.set("width", "100%")
     root.set("role", "img")
     root.set("aria-label", gettext("已保存数据图表"))
-    return '<figure>' + ElementTree.tostring(root, encoding="unicode") + '</figure>'
+    return "<figure>" + ElementTree.tostring(root, encoding="unicode") + "</figure>"
 
 
 def _claim(claim: dict, check: dict, *, brief: bool) -> str:
     bad = [] if brief else content._claim_errors(claim, check)
     text = (claim.get("text") or content._rendered(claim)) + (
-        " " + gettext("未通过：{error}", error="；".join(bad)) if bad else "")
+        " " + gettext("未通过：{error}", error="；".join(bad)) if bad else ""
+    )
     value = _text(text)
     if claim.get("type") in ("inference", "recommendation"):
-        value += '<small class="note"> ' + gettext("待验证" if brief else "推断，未核实") + '</small>'
+        value += '<small class="note"> ' + gettext("待验证" if brief else "推断，未核实") + "</small>"
     if not brief:
-        value += '<sup class="reference">' + _text(content._refs(claim)) + '</sup>'
-    for key, label in (("premise", "依据" if brief else "前提"),
-                       ("validation", "建议这样验证" if brief else "验证方式")):
+        value += '<sup class="reference">' + _text(content._refs(claim)) + "</sup>"
+    for key, label in (
+        ("premise", "依据" if brief else "前提"),
+        ("validation", "建议这样验证" if brief else "验证方式"),
+    ):
         if detail := content._detail(claim, key):
-            value += '<p class="detail">' + _text(gettext("{label}：{detail}", label=gettext(label), detail=detail)) + '</p>'
-    return ('<li class="warning">' if bad else '<li>') + value + '</li>'
+            value += (
+                '<p class="detail">' + _text(gettext("{label}：{detail}", label=gettext(label), detail=detail)) + "</p>"
+            )
+    return ('<li class="warning">' if bad else "<li>") + value + "</li>"
 
 
-def to_html(view: dict, *, audience: content.Audience | None = None, appendix: bool | None = None,
-            datasets: list[str] | None = None) -> str:
+def to_html(
+    view: dict,
+    *,
+    audience: content.Audience | None = None,
+    appendix: bool | None = None,
+    datasets: list[str] | None = None,
+) -> str:
     view = content._export_view(view)
     brief = content.resolve_audience(audience, appendix) == "brief"
     notes = content._brief_footer(view, datasets) if brief else []
@@ -135,10 +146,13 @@ def to_html(view: dict, *, audience: content.Audience | None = None, appendix: b
         view = content._brief_view(view)
     report, verification = view.get("report") or {}, view.get("verification") or {}
     title = content._field(report, "title") or gettext("分析报告")
-    parts = ["<!doctype html>", f'<html lang="{current_locale()}"><head><meta charset="utf-8">',
-             '<meta name="viewport" content="width=device-width, initial-scale=1">',
-             '<title>' + escape(str(title), quote=True) + '</title><style>' + CSS + '</style></head><body><main>',
-             '<header><h1>' + _text(title) + '</h1><p class="meta">' + _text(content._header(view)) + '</p></header>']
+    parts = [
+        "<!doctype html>",
+        f'<html lang="{current_locale()}"><head><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        "<title>" + escape(str(title), quote=True) + "</title><style>" + CSS + "</style></head><body><main>",
+        "<header><h1>" + _text(title) + '</h1><p class="meta">' + _text(content._header(view)) + "</p></header>",
+    ]
     font, _ = content.pdf_font()
     chart_number = 0
 
@@ -149,88 +163,143 @@ def to_html(view: dict, *, audience: content.Audience | None = None, appendix: b
 
     metrics = content._core_metrics(view)
     if metrics:
-        parts += ['<section><h2>' + _text(gettext("核心指标")) + '</h2><div class="metrics">']
+        parts += ["<section><h2>" + _text(gettext("核心指标")) + '</h2><div class="metrics">']
         for metric in metrics:
             sign = ""
             if metric["measure"] in ("delta", "rate_change"):
                 sign = "negative" if metric["raw"] < 0 else "positive" if metric["raw"] > 0 else "neutral"
-            parts.append('<div class="metric"><span class="metric-label">' + _text(metric["label"])
-                         + f'</span><strong class="metric-value {sign}">' + _text(metric["text"]) + '</strong></div>')
-        parts += ['</div></section>']
-    parts += ['<section><h2>' + _text(gettext("结论")) + '</h2><p class="summary">'
-              + _text(content._field(report, "summary") or gettext("（无）")) + '</p>']
+            parts.append(
+                '<div class="metric"><span class="metric-label">'
+                + _text(metric["label"])
+                + f'</span><strong class="metric-value {sign}">'
+                + _text(metric["text"])
+                + "</strong></div>"
+            )
+        parts += ["</div></section>"]
+    parts += [
+        "<section><h2>"
+        + _text(gettext("结论"))
+        + '</h2><p class="summary">'
+        + _text(content._field(report, "summary") or gettext("（无）"))
+        + "</p>"
+    ]
     if not brief:
-        parts += ['<p class="warning">' + _text(gettext("未通过（{error}）", error=value)) + '</p>'
-                  for value in content._bad_fields(verification)]
-        parts += ['<p class="warning">' + _text(gettext("结论未通过：{error}", error=value)) + '</p>'
-                  for value in (verification.get("conclusion") or {}).get("problems") or []]
-    parts += ['</section>']
+        parts += [
+            '<p class="warning">' + _text(gettext("未通过（{error}）", error=value)) + "</p>"
+            for value in content._bad_fields(verification)
+        ]
+        parts += [
+            '<p class="warning">' + _text(gettext("结论未通过：{error}", error=value)) + "</p>"
+            for value in (verification.get("conclusion") or {}).get("problems") or []
+        ]
+    parts += ["</section>"]
     if report.get("causes"):
         tag = gettext(content.CONCLUSION.get(report.get("conclusion"), ""))
-        tag_html = ' <span class="section-tag">' + _text(tag) + '</span>' if tag else ''
-        parts += ['<section><h2>' + _text(gettext("主要原因")) + tag_html + '</h2>']
+        tag_html = ' <span class="section-tag">' + _text(tag) + "</span>" if tag else ""
+        parts += ["<section><h2>" + _text(gettext("主要原因")) + tag_html + "</h2>"]
         numeric = [cause for cause in report["causes"] if content._cause_value(cause)[0] is not None]
         saved = {dataset["ref"]: dataset for dataset in view.get("datasets") or []}
-        data = [(content._cause_label(cause), float(raw), text) for cause in numeric
-                for raw, text in [content._cause_value(cause, saved)]]
-        parts.append(chart(content._bar_chart(data, font, references=None if brief else [
-            content._refs({"refs": cause.get("evidence")}) for cause in numeric])))
+        data = [
+            (content._cause_label(cause), float(raw), text)
+            for cause in numeric
+            for raw, text in [content._cause_value(cause, saved)]
+        ]
+        parts.append(
+            chart(
+                content._bar_chart(
+                    data,
+                    font,
+                    references=None if brief else [content._refs({"refs": cause.get("evidence")}) for cause in numeric],
+                )
+            )
+        )
         fallback = []
         for cause in report["causes"]:
             bad = (cause.get("errors") or []) if not brief else []
             if content._cause_value(cause)[0] is None:
                 text = content._cause_text(cause) + (
-                    " " + gettext("未通过：{error}", error="；".join(bad)) if bad else "")
-                citation = '' if brief else ('<sup class="reference">'
-                                             + _text(content._refs({"refs": cause.get("evidence")})) + '</sup>')
-                fallback.append(('<li class="warning">' if bad else '<li>') + _text(text) + citation + '</li>')
+                    " " + gettext("未通过：{error}", error="；".join(bad)) if bad else ""
+                )
+                citation = (
+                    ""
+                    if brief
+                    else ('<sup class="reference">' + _text(content._refs({"refs": cause.get("evidence")})) + "</sup>")
+                )
+                fallback.append(('<li class="warning">' if bad else "<li>") + _text(text) + citation + "</li>")
             elif bad:
-                fallback.append('<li class="warning">'
-                                + _text(content._cause_label(cause) + " "
-                                        + gettext("未通过：{error}", error="；".join(bad))) + '</li>')
+                fallback.append(
+                    '<li class="warning">'
+                    + _text(content._cause_label(cause) + " " + gettext("未通过：{error}", error="；".join(bad)))
+                    + "</li>"
+                )
         if fallback:
-            parts += ['<ul>' + ''.join(fallback) + '</ul>']
-        parts += ['</section>']
+            parts += ["<ul>" + "".join(fallback) + "</ul>"]
+        parts += ["</section>"]
     for heading, types in (("关键发现", ("fact", "calc")), ("判断与建议", ("inference", "recommendation"))):
-        claims = [(claim, check) for claim, check in content._claims(view)
-                  if claim.get("type") in types and not content._context_claim(claim, view)]
+        claims = [
+            (claim, check)
+            for claim, check in content._claims(view)
+            if claim.get("type") in types and not content._context_claim(claim, view)
+        ]
         if claims:
-            parts += ['<section><h2>' + _text(gettext(heading)) + '</h2><ul class="findings">',
-                      *[_claim(claim, check, brief=brief) for claim, check in claims], '</ul></section>']
+            parts += [
+                "<section><h2>" + _text(gettext(heading)) + '</h2><ul class="findings">',
+                *[_claim(claim, check, brief=brief) for claim, check in claims],
+                "</ul></section>",
+            ]
     if unexplained := content._field(report, "unexplained"):
-        parts += ['<section><h2>' + _text(gettext("还没查清")) + '</h2><ul class="unresolved">',
-                  *['<li>' + _text(item.strip()) + '</li>' for item in unexplained.split("；") if item.strip()],
-                  '</ul></section>']
+        parts += [
+            "<section><h2>" + _text(gettext("还没查清")) + '</h2><ul class="unresolved">',
+            *["<li>" + _text(item.strip()) + "</li>" for item in unexplained.split("；") if item.strip()],
+            "</ul></section>",
+        ]
     selected = content._key_datasets(view, datasets)
     if selected:
-        parts += ['<section><h2>' + _text(gettext("关键数据")) + '</h2>']
+        parts += ["<section><h2>" + _text(gettext("关键数据")) + "</h2>"]
         for dataset in selected:
             dataset = content._brief_dataset(dataset, view) if brief else dataset
             name = content._dataset_title(dataset) if brief else f"{dataset['ref']} {dataset['title']}"
-            parts += ['<article class="dataset"><h3>' + _text(name) + '</h3>',
-                      chart(content._chart(dataset, font, brief=brief)),
-                      _table(content._table_data(dataset, brief=brief)),
-                      '<p class="note">' + _text(content._row_note(dataset)) + '</p></article>']
-        parts += ['</section>']
+            parts += [
+                '<article class="dataset"><h3>' + _text(name) + "</h3>",
+                chart(content._chart(dataset, font, brief=brief)),
+                _table(content._table_data(dataset, brief=brief)),
+                '<p class="note">' + _text(content._row_note(dataset)) + "</p></article>",
+            ]
+        parts += ["</section>"]
     if brief:
-        parts += ['<footer>' + ''.join('<p class="note">' + _text(note) + '</p>' for note in notes) + '</footer>']
+        parts += ["<footer>" + "".join('<p class="note">' + _text(note) + "</p>" for note in notes) + "</footer>"]
     else:
         used = content._appendix_datasets(view, selected)
-        parts += ['<section class="appendix"><h2>' + _text(gettext("附录")) + '</h2>']
+        parts += ['<section class="appendix"><h2>' + _text(gettext("附录")) + "</h2>"]
         if method := content._field(report, "method"):
-            parts += ['<p class="note">' + _text(gettext("分析方法：{method}", method=method)) + '</p>']
-        parts += ['<h3>' + _text(gettext("数据检查")) + '</h3><p class="note">'
-                  + _text(content._data_check_note(view)) + '</p>',
-                  '<h3>' + _text(gettext("用到的数据")) + '</h3>', _table(content._dataset_listing(used)),
-                  '<h3>' + _text(gettext("查询明细")) + '</h3>']
+            parts += ['<p class="note">' + _text(gettext("分析方法：{method}", method=method)) + "</p>"]
+        parts += [
+            "<h3>"
+            + _text(gettext("数据检查"))
+            + '</h3><p class="note">'
+            + _text(content._data_check_note(view))
+            + "</p>",
+            "<h3>" + _text(gettext("用到的数据")) + "</h3>",
+            _table(content._dataset_listing(used)),
+            "<h3>" + _text(gettext("查询明细")) + "</h3>",
+        ]
         for dataset in used:
             if dataset.get("restricted") or dataset.get("kind") not in ("governed", "explore"):
                 continue
             versions = dataset.get("metric_version_ids") or content._meta(dataset).get("metric_version_ids") or []
-            parts += ['<p class="note">' + _text(f"{dataset['ref']} {content._dataset_title(dataset)} · "
-                                               + gettext("口径版本：{versions}",
-                                                         versions="、".join(versions) or gettext("未登记"))) + '</p>',
-                      '<pre><code>' + escape(str(dataset.get("sql") or content._meta(dataset).get("sql")
-                                                or gettext("（未保存 SQL）")), quote=True) + '</code></pre>']
-        parts += ['</section>']
-    return '\n'.join([*parts, '</main></body></html>'])
+            parts += [
+                '<p class="note">'
+                + _text(
+                    f"{dataset['ref']} {content._dataset_title(dataset)} · "
+                    + gettext("口径版本：{versions}", versions="、".join(versions) or gettext("未登记"))
+                )
+                + "</p>",
+                "<pre><code>"
+                + escape(
+                    str(dataset.get("sql") or content._meta(dataset).get("sql") or gettext("（未保存 SQL）")),
+                    quote=True,
+                )
+                + "</code></pre>",
+            ]
+        parts += ["</section>"]
+    return "\n".join([*parts, "</main></body></html>"])

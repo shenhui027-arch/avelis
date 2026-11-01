@@ -27,7 +27,7 @@ def test_empty_cli_value_masks_next_assignment_regardless_of_key(newline, separa
 @pytest.mark.parametrize("key", ["self.password", "config.api_key", 'obj["password"]', "obj['password']"])
 def test_prefixed_assignments_with_inline_and_next_line_values(newline, separator, key):
     assert_redacted(f'{key} {separator} "s3cret"', f'{key} {separator} "<redacted>"')
-    assert_redacted(f'{key} {separator}{newline}    "s3cret"', f'{key} {separator}{newline}<redacted>')
+    assert_redacted(f'{key} {separator}{newline}    "s3cret"', f"{key} {separator}{newline}<redacted>")
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -67,7 +67,7 @@ def test_pending_line_and_unclosed_triple_are_conservatively_masked(newline, quo
     assert_redacted(source, f"password = {quote}<redacted>{quote}")
     source = prefix + f'{quote}first{newline}last{quote}; public = "also covered"{newline}print(1)'
     assert_redacted(source, prefix + f"<redacted>{newline}print(1)")
-    source = prefix + f'{quote}first{newline}last{quote}; other = {quote}third{newline}last{quote}{newline}print(1)'
+    source = prefix + f"{quote}first{newline}last{quote}; other = {quote}third{newline}last{quote}{newline}print(1)"
     assert_redacted(source, prefix + f"<redacted>{newline}print(1)")
 
 
@@ -78,16 +78,17 @@ def test_ordinary_newlines_are_hard_inline_boundaries(newline):
     # 单引号/双引号值也不能靠否定字符类或转义分支跨普通换行。
     source = f'password = "first{newline}public = 1'
     assert_redacted(source, f'password = "<redacted>"{newline}public = 1')
-    source = f'user:credential{newline}@host'
+    source = f"user:credential{newline}@host"
     assert_redacted(source, source, 0)
     assert r"\s" not in SECRET_PATTERN.pattern
 
 
 def test_url_and_standalone_keys_keep_existing_rules_and_counts():
-    source = ('jdbc:mysql://user:one@host/db /user:two@host "user:three@host" '
-              'AKIA1234567890ABCDEF sk-1234567890abcdefghijklmnop')
-    expected = ('jdbc:<redacted>@host/db /user:<redacted>@host "user:<redacted>@host" '
-                '<redacted> <redacted>')
+    source = (
+        'jdbc:mysql://user:one@host/db /user:two@host "user:three@host" '
+        "AKIA1234567890ABCDEF sk-1234567890abcdefghijklmnop"
+    )
+    expected = 'jdbc:<redacted>@host/db /user:<redacted>@host "user:<redacted>@host" <redacted> <redacted>'
     assert_redacted(source, expected, 5)
 
 
@@ -100,19 +101,37 @@ def test_secret_named_url_user_is_idempotent():
     assert_redacted("password:#credential@host", "password:<redacted>@host")
 
 
-@pytest.mark.parametrize("value", [
-    'foo"bar baz"', "foo'bar baz'", "word'''password:#credential@host'''", "literal#credential",
-])
+@pytest.mark.parametrize(
+    "value",
+    [
+        'foo"bar baz"',
+        "foo'bar baz'",
+        "word'''password:#credential@host'''",
+        "literal#credential",
+    ],
+)
 def test_concatenated_quoted_fragments_are_one_inline_value(value):
     assert_redacted(f"password={value}; public = 1", "password=<redacted>; public = 1")
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("separator", ["=", ":"])
-@pytest.mark.parametrize("kind", [
-    "reported", "spaces", "newlines", "continuations", "quoted", "triple", "identifier", "url-like",
-    "split-key", "empty", "around-separator",
-])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "reported",
+        "spaces",
+        "newlines",
+        "continuations",
+        "quoted",
+        "triple",
+        "identifier",
+        "url-like",
+        "split-key",
+        "empty",
+        "around-separator",
+    ],
+)
 def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
     prefix = f"# run with --password{separator}"
     if kind == "reported":

@@ -28,12 +28,16 @@ ctx: dict = {}
 PG_SOURCE = "门店库（PostgreSQL）"
 MYSQL_SOURCE = "电商维表库（MySQL）"
 LOAD_TABLE = "explore_load"  # 超时用例临时建在门店库里的大表（门店库只有几行，最多 4 个 JOIN 构造不出慢查询）
-SR_SLOW = ("SELECT COUNT(*) AS n FROM default_catalog.ec_member.customer AS m1 "
-           "JOIN default_catalog.ec_member.customer AS m2 ON m1.member_level = m2.member_level "
-           "JOIN default_catalog.ec_member.customer AS m3 ON m2.member_level = m3.member_level")
-PG_SLOW = (f"SELECT COUNT(*) AS n FROM storedb.store.{LOAD_TABLE} AS a "
-           f"JOIN storedb.store.{LOAD_TABLE} AS b ON a.bucket = b.bucket "
-           f"JOIN storedb.store.{LOAD_TABLE} AS c ON b.bucket = c.bucket")
+SR_SLOW = (
+    "SELECT COUNT(*) AS n FROM default_catalog.ec_member.customer AS m1 "
+    "JOIN default_catalog.ec_member.customer AS m2 ON m1.member_level = m2.member_level "
+    "JOIN default_catalog.ec_member.customer AS m3 ON m2.member_level = m3.member_level"
+)
+PG_SLOW = (
+    f"SELECT COUNT(*) AS n FROM storedb.store.{LOAD_TABLE} AS a "
+    f"JOIN storedb.store.{LOAD_TABLE} AS b ON a.bucket = b.bucket "
+    f"JOIN storedb.store.{LOAD_TABLE} AS c ON b.bucket = c.bucket"
+)
 
 
 @pytest.fixture
@@ -49,6 +53,7 @@ def sent(monkeypatch):
         def spy(self, sql, *args, _original=original, _name=cls.__name__, **kwargs):
             calls.append((_name, sql))
             return _original(self, sql, *args, **kwargs)
+
         monkeypatch.setattr(cls, "execute_explore", spy)
     return calls
 
@@ -59,8 +64,14 @@ def explore_audits(session, run_id: str) -> list[dict]:
     from avelis.models import AuditEvent
 
     session.flush()
-    return [e.detail for e in session.scalars(select(AuditEvent).where(
-        AuditEvent.action == "analysis.explore", AuditEvent.object_id == run_id).order_by(AuditEvent.at))]
+    return [
+        e.detail
+        for e in session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.action == "analysis.explore", AuditEvent.object_id == run_id)
+            .order_by(AuditEvent.at)
+        )
+    ]
 
 
 def query(box, sql: str, purpose: str = "验收：探索查询") -> dict:
@@ -77,8 +88,11 @@ def sr_reader_queries(env) -> list[tuple]:
             cur.execute("SHOW FULL PROCESSLIST")  # 列序随版本不同（3.x 前面有 ServerName）：按列名取
             names = [d[0] for d in cur.description]
             rows = [dict(zip(names, r)) for r in cur.fetchall()]
-        return [(int(r["Id"]), r["Command"], r["Info"] or "") for r in rows
-                if r["User"] == "avelis_reader" and r["Command"] == "Query"]
+        return [
+            (int(r["Id"]), r["Command"], r["Info"] or "")
+            for r in rows
+            if r["User"] == "avelis_reader" and r["Command"] == "Query"
+        ]
     finally:
         conn.close()
 
@@ -87,8 +101,12 @@ def pg_reader_queries(env) -> list[str]:
     import demo
 
     with demo.pg_connect(env) as conn:
-        return [r[0] for r in conn.execute(
-            "SELECT query FROM pg_stat_activity WHERE usename = 'avelis_reader' AND state = 'active'").fetchall()]
+        return [
+            r[0]
+            for r in conn.execute(
+                "SELECT query FROM pg_stat_activity WHERE usename = 'avelis_reader' AND state = 'active'"
+            ).fetchall()
+        ]
 
 
 def run_while_watching(call, watch, marker: str) -> tuple[object, list, float]:
@@ -132,15 +150,20 @@ def test_01_normal_execution_on_starrocks_and_postgres(sent):
     env = ctx["env"]
     scope, session, run, box = toolbox("wang")
     try:
-        sr = query(box, "SELECT region_code, COUNT(order_id) AS orders "
-                   "FROM default_catalog.ec_trade.orders WHERE order_date >= '2026-09-01' AND order_date <= '2026-09-30' "
-                   "GROUP BY region_code ORDER BY region_code")
+        sr = query(
+            box,
+            "SELECT region_code, COUNT(order_id) AS orders "
+            "FROM default_catalog.ec_trade.orders WHERE order_date >= '2026-09-01' AND order_date <= '2026-09-30' "
+            "GROUP BY region_code ORDER BY region_code",
+        )
         assert "error" not in sr, sr
         root = demo.sr_root(env)
         try:
             with root.cursor() as cur:
-                cur.execute("SELECT region_code, COUNT(order_id) FROM ec_trade.orders "
-                            "WHERE order_date BETWEEN '2026-09-01' AND '2026-09-30' GROUP BY region_code ORDER BY region_code")
+                cur.execute(
+                    "SELECT region_code, COUNT(order_id) FROM ec_trade.orders "
+                    "WHERE order_date BETWEEN '2026-09-01' AND '2026-09-30' GROUP BY region_code ORDER BY region_code"
+                )
                 expected = [[r[0], int(r[1])] for r in cur.fetchall()]
         finally:
             root.close()
@@ -150,17 +173,28 @@ def test_01_normal_execution_on_starrocks_and_postgres(sent):
         assert ds_sr.kind == "explore" and ds_sr.meta["engine"] == "starrocks"
         assert ds_sr.meta["units"]["orders"]["kind"] == "count"
 
-        pg = query(box, "SELECT h.city, SUM(s.amount) AS amount FROM store.sales AS s "  # 两段名：数据源的默认库
-                   "JOIN store.shops AS h ON h.shop_id = s.shop_id WHERE s.status = 'paid' "
-                   "GROUP BY h.city ORDER BY h.city")
+        pg = query(
+            box,
+            "SELECT h.city, SUM(s.amount) AS amount FROM store.sales AS s "  # 两段名：数据源的默认库
+            "JOIN store.shops AS h ON h.shop_id = s.shop_id WHERE s.status = 'paid' "
+            "GROUP BY h.city ORDER BY h.city",
+        )
         assert "error" not in pg, pg
         assert (sr["datasource"], sr["engine"], pg["datasource"], pg["engine"]) == (
-            demo_setup_ec_source(), "starrocks", PG_SOURCE, "postgres")  # 按资产路由到各自的数据源
+            demo_setup_ec_source(),
+            "starrocks",
+            PG_SOURCE,
+            "postgres",
+        )  # 按资产路由到各自的数据源
         assert "`" in sr["sql"] and '"' in pg["sql"]  # 生成各自的方言
         with demo.pg_connect(env) as conn:
-            expected = [[r[0], r[1]] for r in conn.execute(
-                "SELECT h.city, SUM(s.amount) FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
-                "WHERE s.status = 'paid' GROUP BY h.city ORDER BY h.city").fetchall()]
+            expected = [
+                [r[0], r[1]]
+                for r in conn.execute(
+                    "SELECT h.city, SUM(s.amount) FROM store.sales s JOIN store.shops h ON h.shop_id = s.shop_id "
+                    "WHERE s.status = 'paid' GROUP BY h.city ORDER BY h.city"
+                ).fetchall()
+            ]
         assert [[r[0], Decimal(str(r[1]))] for r in pg["rows"]] == expected
         assert {r[0]: Decimal(str(r[1])) for r in pg["rows"]} == {"上海": Decimal("290.00"), "北京": Decimal("80.00")}
         assert pg["sql"].count("FROM ONLY") + pg["sql"].count("JOIN ONLY") == 2 and "LIMIT" in pg["sql"]
@@ -169,7 +203,9 @@ def test_01_normal_execution_on_starrocks_and_postgres(sent):
         assert [s for _, s in sent] == [sr["sql"], pg["sql"]]  # 发到数据库的是校验后重新生成的 SQL
         audits = explore_audits(session, run.id)
         assert [(a["outcome"], a["sent_to_database"], a["engine"]) for a in audits] == [
-            ("ok", True, "starrocks"), ("ok", True, "postgres")]
+            ("ok", True, "starrocks"),
+            ("ok", True, "postgres"),
+        ]
         assert all(a["execution_identity"] and a["digest"] and a["limits"]["timeout_seconds"] > 0 for a in audits)
         assert audits[1]["rows"] == 2 and audits[1]["sql"] == pg["sql"]
         assert box.budget.used_explore == 2
@@ -188,8 +224,9 @@ def test_02_starrocks_timeout_is_cancelled_on_server(sent):
     scope, session, run, box = toolbox("wang")
     box.EXPLORE_MAX_SECONDS = 2  # 本次运行的探索超时（统一截止时间内的上限）
     try:
-        view, seen, seconds = run_while_watching(lambda: query(box, SR_SLOW, "验收：超时"),
-                                                 lambda: sr_reader_queries(env), "ec_member")
+        view, seen, seconds = run_while_watching(
+            lambda: query(box, SR_SLOW, "验收：超时"), lambda: sr_reader_queries(env), "ec_member"
+        )
         assert view["code"] == "timeout" and "timeout" in view["error"], view
         assert seen, "执行期间应能在 processlist 看到这条查询"
         assert seconds < 8  # 2 秒服务端超时，不等客户端读超时
@@ -225,6 +262,7 @@ def test_03_starrocks_kill_query_cancels_running_statement():
                 cur.execute(SR_SLOW)
             except pymysql.MySQLError as exc:
                 errors.append(exc)
+
         worker = threading.Thread(target=heavy)
         worker.start()
         deadline = time.monotonic() + 10
@@ -246,7 +284,7 @@ def test_03_starrocks_kill_query_cancels_running_statement():
     reader._connect = lambda read_timeout=60: original(read_timeout=3 if read_timeout > 10 else read_timeout)
     started = time.monotonic()
     with pytest.raises(QueryError) as timeout:
-        reader.execute_explore(SR_SLOW, timeout_seconds=30, max_rows=10, mem_limit_bytes=2 * 1024 ** 3)
+        reader.execute_explore(SR_SLOW, timeout_seconds=30, max_rows=10, mem_limit_bytes=2 * 1024**3)
     assert timeout.value.code == "timeout" and timeout.value.db_errno == 2013
     assert timeout.value.cancel == "kill_sent" and time.monotonic() - started < 10
     time.sleep(0.5)
@@ -266,8 +304,11 @@ def load_table(admin: Api):
         conn.execute(f"GRANT SELECT ON store.{LOAD_TABLE} TO avelis_reader")
     try:
         assert admin.post(f"/api/datasources/{ctx['pg']['id']}/collect?wait=true")["status"] == "succeeded"
-        asset = next(a for a in admin.get("/api/assets", params={"datasource_id": ctx["pg"]["id"]})
-                     if a["qualified"] == f"storedb.store.{LOAD_TABLE}")
+        asset = next(
+            a
+            for a in admin.get("/api/assets", params={"datasource_id": ctx["pg"]["id"]})
+            if a["qualified"] == f"storedb.store.{LOAD_TABLE}"
+        )
         trade = next(d for d in admin.get("/api/domains") if d["code"] == "trade")
         admin.patch(f"/api/assets/{asset['id']}", {"domain_id": trade["id"]})
         yield
@@ -282,8 +323,9 @@ def test_04_postgres_timeout_is_cancelled_on_server(load_table, sent):
     scope, session, run, box = toolbox("wang")
     box.EXPLORE_MAX_SECONDS = 2
     try:
-        view, seen, seconds = run_while_watching(lambda: query(box, PG_SLOW, "验收：超时"),
-                                                 lambda: pg_reader_queries(env), LOAD_TABLE)
+        view, seen, seconds = run_while_watching(
+            lambda: query(box, PG_SLOW, "验收：超时"), lambda: pg_reader_queries(env), LOAD_TABLE
+        )
         assert view["code"] == "timeout", view
         assert seen and "ONLY" in seen[0]  # 执行期间 pg_stat_activity 里是重新生成的 SQL
         assert seconds < 8
@@ -303,15 +345,26 @@ REJECTIONS = [  # (引擎, 标准 SQL, 拒绝码)
     ("sr", "SELECT /*+ SET_VAR(query_timeout = 3000) */ order_id FROM default_catalog.ec_trade.orders", None),
     ("pg", "SELECT * FROM storedb.store.sales", "star"),
     ("pg", "SELECT sale_id FROM storedb.store.sales; DROP TABLE storedb.store.sales", "multiple_statements"),
-    ("pg", "SELECT s.sale_id FROM storedb.store.sales AS s JOIN storedb.store.shops AS h ON s.shop_id > h.shop_id",
-     "non_equi_join"),
-    ("sr", "SELECT COUNT(*) AS n FROM default_catalog.ec_trade.orders AS a JOIN default_catalog.ec_trade.orders AS b "
-           "ON a.order_id = a.order_id", None),
+    (
+        "pg",
+        "SELECT s.sale_id FROM storedb.store.sales AS s JOIN storedb.store.shops AS h ON s.shop_id > h.shop_id",
+        "non_equi_join",
+    ),
+    (
+        "sr",
+        "SELECT COUNT(*) AS n FROM default_catalog.ec_trade.orders AS a JOIN default_catalog.ec_trade.orders AS b "
+        "ON a.order_id = a.order_id",
+        None,
+    ),
     ("pg", "SELECT rolname FROM storedb.pg_catalog.pg_authid", None),
     ("sr", "SELECT table_name FROM default_catalog.information_schema.tables", None),
     ("sr", "SELECT `order_id` FROM default_catalog.ec_trade.orders", "parse_error"),  # 方言写法不是标准 SQL
-    ("sr", "SELECT o.order_id FROM default_catalog.ec_trade.orders AS o JOIN storedb.store.sales AS s "
-           "ON o.order_id = s.sale_id", "cross_datasource"),  # 一条查询只能用同一个数据源
+    (
+        "sr",
+        "SELECT o.order_id FROM default_catalog.ec_trade.orders AS o JOIN storedb.store.sales AS s "
+        "ON o.order_id = s.sale_id",
+        "cross_datasource",
+    ),  # 一条查询只能用同一个数据源
 ]
 
 
@@ -329,7 +382,9 @@ def test_05_rejections_never_reach_the_database(admin: Api, sent):
         assert views[3]["code"] in ("comment", "select_clause_not_allowed")  # StarRocks 方言把 hint 解析成子句
         assert views[7]["code"] in ("join_not_linked", "non_equi_join", "cartesian")
         assert views[8]["code"] in ("asset_not_visible", "unbound_table") and views[9]["code"] in (
-            "asset_not_visible", "unbound_table")
+            "asset_not_visible",
+            "unbound_table",
+        )
         disabled = query(box, "SELECT COUNT(*) AS x FROM storedb.store.sales")  # 有效查询，下面关掉数据源后再试
         assert "error" not in disabled, disabled
         sent.clear()

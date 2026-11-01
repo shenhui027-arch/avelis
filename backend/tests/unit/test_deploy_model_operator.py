@@ -72,8 +72,12 @@ def test_demo_environment_keeps_automation_admin(monkeypatch, fake_db):
 
 
 def test_model_from_env_registers_with_initial_admin_and_no_demo_password(monkeypatch, fake_db):
-    use_env(monkeypatch, AVELIS_MODEL_PROVIDER="openai", AVELIS_MODEL_NAME="deploy-model",
-            AVELIS_MODEL_API_KEY="sk-offline-test")
+    use_env(
+        monkeypatch,
+        AVELIS_MODEL_PROVIDER="openai",
+        AVELIS_MODEL_NAME="deploy-model",
+        AVELIS_MODEL_API_KEY="sk-offline-test",
+    )
     admin = SimpleNamespace(id="initial-admin-id")
     fake_db.results = [admin, None]  # 操作人；尚无 env-default 提供方
     fake_db.session.get.side_effect = lambda model, key: admin if key == "initial-admin-id" else None
