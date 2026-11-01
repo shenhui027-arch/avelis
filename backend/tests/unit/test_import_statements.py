@@ -3,9 +3,10 @@
 from copy import deepcopy
 
 import pytest
+import sqlglot
 from sqlglot.errors import ParseError, TokenError
 
-from avelis.importer.statements import parse_statement
+from avelis.importer.statements import _unrestricted_target, parse_statement
 from avelis.lineage.sql import SqlDialect, fold_identifiers
 
 
@@ -376,3 +377,29 @@ def test_parse_error_without_structure_falls_back_to_bounded_first_line(monkeypa
     result = parse("SELECT 1")
     assert result.status == "failed"
     assert result.reason == "SQL 无法解析：" + expected
+
+
+@pytest.mark.parametrize("sql,name,replaces", [
+    ("UPDATE dw.stage SET value = 0", "postgres", True),
+    ("UPDATE dw.stage SET value = 0 WHERE id > 1", "postgres", False),
+    ("UPDATE dw.stage AS t SET value = s.value FROM src.events AS s", "postgres", False),
+    ("UPDATE dw.stage t JOIN src.events s ON s.id = t.id SET t.value = s.value", "mysql", False),
+    ("UPDATE dw.stage SET value = 0 LIMIT 10", "mysql", False),
+])
+def test_only_unrestricted_update_replaces_assigned_columns(sql, name, replaces):
+    result = parse(sql, name)
+    assert result.status == "parsed", result.reason
+    assert ("replace_columns" in result.writes[0].attributes) is replaces
+
+
+@pytest.mark.parametrize("sql,unrestricted", [
+    ("UPDATE dw.stage SET value = 0", True),
+    ("DELETE FROM dw.stage", True),
+    ("UPDATE dw.stage PARTITION (p1) SET value = 0", False),
+    ("DELETE FROM dw.stage PARTITION (p1)", False),
+    ("UPDATE dw.stage t JOIN src.events s ON s.id = t.id SET t.value = s.value", False),
+    ("DELETE FROM dw.stage LIMIT 10", False),
+])
+def test_update_and_delete_share_the_unrestricted_scope_check(sql, unrestricted):
+    tree = sqlglot.parse_one(sql, read="mysql")
+    assert (_unrestricted_target(tree) is not None) is unrestricted
