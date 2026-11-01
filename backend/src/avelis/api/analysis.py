@@ -7,7 +7,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -59,6 +59,18 @@ class TaskPatch(BaseModel):
     reason: str | None = None
 
 
+class ConversationPatch(BaseModel):
+    display_title: str
+
+    @field_validator("display_title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 80:
+            raise ValueError("对话显示名最多 80 字")
+        return value
+
+
 def _window(w: Window | None) -> dict | None:
     return w.model_dump(exclude_none=True) if w else None
 
@@ -101,6 +113,50 @@ def list_runs(user: User = Depends(current_user), session: Session = Depends(get
     runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
                            .order_by(AnalysisRun.created_at.desc()).limit(100))
     return [analysis.run_view(session, r, full=False, user=user) for r in runs]
+
+
+@router.get("/analysis/conversations", response_model=list[S.AnalysisConversationOut])
+def list_conversations(archived: bool = False, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)) -> list[dict]:
+    return analysis.list_conversations(session, user, archived=archived)
+
+
+@router.get("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def get_conversation(conversation_id: str, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)) -> dict:
+    return analysis.get_conversation(session, user, conversation_id)
+
+
+@router.patch("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def rename_conversation(conversation_id: str, body: ConversationPatch, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> dict:
+    data = analysis.rename_conversation(session, user, conversation_id, body.display_title)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/archive", response_model=S.AnalysisConversationDetailOut)
+def archive_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=True)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/restore", response_model=S.AnalysisConversationDetailOut)
+def restore_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=False)
+    session.commit()
+    return data
+
+
+@router.delete("/analysis/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: str, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> Response:
+    analysis.delete_conversation(session, user, conversation_id)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)

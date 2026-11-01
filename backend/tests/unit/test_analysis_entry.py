@@ -432,14 +432,20 @@ def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
     assert child.window == {}
     inherited = child.checkpoint["inherited"]
     expected_scope = understood if scope_location != "missing" else {}
-    assert inherited == {"user_text": text, "previous_question": parent.question,
-                         "previous_scope": expected_scope, "previous_window": parent.window}
+    assert {key: value for key, value in inherited.items() if key != "conversation"} == {
+        "user_text": text, "previous_question": parent.question,
+        "previous_scope": expected_scope, "previous_window": parent.window}
+    assert inherited["conversation"]["id"] == parent.id
 
     filters = [{"dimension": "地区", "values": [region]}]
     box, model, config, _, prechecks = configured(monkeypatch, [scope_reply(
         start_date=start, end_date=end, filters=filters, dimensions=dimensions)])
     box.run.question = child.question
     box.run.window = child.window
+    box.run.parent_run_id = child.parent_run_id
+    box.run.conversation_id = child.conversation_id
+    box.run.created_at = child.created_at
+    box.session.store[(AnalysisRun, parent.id)] = parent
     candidate_questions = []
     candidate_metrics = box.candidate_metrics
 

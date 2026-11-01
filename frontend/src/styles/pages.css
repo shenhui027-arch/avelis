@@ -912,3 +912,48 @@
 .av-cron__summary span { color: var(--text-tertiary); font: 400 12px/18px var(--font-sans); }
 .av-cron__summary ol { display: flex; flex-direction: column; gap: 2px; margin: 0; padding-left: 18px; color: var(--text-secondary); font: 400 13px/20px var(--font-sans); font-variant-numeric: tabular-nums; }
 .av-cron__error { color: var(--danger) !important; }
+/* 侧栏对话：悬停出现“⋯”，右键同一菜单；原地重命名；运行中的圆点会呼吸 */
+.av-sb__rc-row { position: relative; display: flex; align-items: center; }
+.av-sb__rc-row > .av-sb__rc { flex: 1; min-width: 0; padding-right: 28px; }
+.av-sb__rc-more { position: absolute; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-tertiary); opacity: 0; cursor: pointer; }
+.av-sb__rc-row:hover .av-sb__rc-more, .av-sb__rc-more:focus-visible { opacity: 1; }
+.av-sb__rc-more:hover { background: var(--bg-active); color: var(--text-primary); }
+.av-sb__archived { color: var(--text-tertiary); }
+.av-sb__archived .av-icon { flex-shrink: 0; }
+.av-dot.is-live { animation: av-live 1.6s ease-in-out infinite; }
+@keyframes av-live { 50% { opacity: .35; } }
+.av-sb__rename { padding: 2px 4px; }
+.av-sb__rename input { width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--bg-raised);
+  color: var(--text-primary); font: 400 13px/18px var(--font-sans); outline: none; box-shadow: 0 0 0 3px var(--accent-subtle); }
+.av-menu.av-ctxmenu { position: fixed; top: auto; right: auto; z-index: 70; min-width: 168px; }
+.av-ctxmenu .av-menu__item.is-danger { color: var(--danger); }
+.av-ctxmenu .av-menu__item:disabled { opacity: .45; cursor: not-allowed; }
+.av-toast { position: fixed; top: 16px; left: 50%; z-index: 80; display: flex; align-items: center; gap: var(--space-3);
+  max-width: min(480px, calc(100vw - 32px)); padding: 10px 14px; transform: translateX(-50%);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--bg-overlay); color: var(--text-primary);
+  box-shadow: var(--shadow-overlay); font: 400 13px/18px var(--font-sans); }
+.av-toast > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-toast button { flex: none; }
+.av-toast button { border: none; background: none; color: var(--accent); font: 600 13px/18px var(--font-sans); cursor: pointer; }
+.av-dialog__scrim { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; padding: var(--space-4); background: rgba(5, 8, 20, .5); backdrop-filter: blur(2px); }
+.av-dialog { display: flex; flex-direction: column; gap: var(--space-3); width: min(440px, 100%); padding: var(--space-5); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg); background: var(--bg-overlay); box-shadow: var(--shadow-overlay); }
+.av-dialog h2 { margin: 0; color: var(--text-primary); font: 600 16px/24px var(--font-sans); }
+.av-dialog p { margin: 0; color: var(--text-secondary); font: 400 13px/21px var(--font-sans); }
+.av-dialog .av-actions { justify-content: flex-end; }
+.av-btn--danger { border-color: transparent; background: var(--danger); color: #fff; }
+.av-btn--danger:hover:not(:disabled) { filter: brightness(1.08); }
+/* 已归档页 */
+.av-archived { display: flex; flex-direction: column; gap: var(--space-3); }
+.av-archived__search { display: flex; align-items: center; gap: var(--space-2); width: min(360px, 100%); height: 34px; padding: 0 10px;
+  border: 1px solid var(--line-default); border-radius: var(--radius-md); background: var(--bg-raised); color: var(--text-tertiary); }
+.av-archived__search input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--text-primary); font: 400 13px/18px var(--font-sans); outline: none; }
+.av-archived__row { --row-cols: minmax(0, 1fr) auto; }
+.av-archived__row .av-row__main { text-decoration: none; color: inherit; }
+.av-archived__delete:hover { color: var(--danger); }
+/* 对话里的多轮：轮次标签，轮与轮之间留出间隔 */
+.av-turn__no { padding: 0 6px; border-radius: var(--radius-full); background: var(--accent-subtle); color: var(--accent-text, var(--accent)); font: 600 11px/18px var(--font-sans); }
+.av-analysis__scroll > .av-doc + .av-doc, .av-analysis__scroll > div + .av-doc { margin-top: var(--space-6); }
+.av-turn__error { margin: var(--space-3) auto; max-width: 880px; }
+@media (prefers-reduced-motion: reduce) { .av-dot.is-live { animation: none; } }

@@ -566,6 +566,7 @@ class AnalysisToolbox:
         self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
         self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
         self._seq = 0
+        self._dataset_seq_floor = 0  # 续问装载时可能省略撤权数据集，其已分配编号仍须保留。
         self._datasets: dict[str, AnalysisDataset] = {}
         self._governed: dict[str, AnalysisDataset] = {}  # 受治理查询参数（不含 purpose）→ 数据集：相同查询复用
         self._scanned: dict[str, AnalysisDataset] = {}  # explain_change 扫描过的“指标 × 维度 × 窗口 × 筛选” → 数据集
@@ -582,7 +583,8 @@ class AnalysisToolbox:
 
     _SNAPSHOT_FIELDS = ("plan", "explanations", "denials", "precheck_notes", "precheck_groups", "precheck_meta",
                         "precheck_refs", "precheck_metric", "precheck_problem", "precheck_distribution",
-                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences", "interjections")
+                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences", "interjections",
+                        "_dataset_seq_floor")
 
     def snapshot(self) -> dict:
         """仅保存可序列化的工具状态；恢复不会重做预检、取数或分配已有的 D 编号。"""
@@ -609,6 +611,7 @@ class AnalysisToolbox:
         for key, value in (snapshot.get("state") or {}).items():
             if key in self._SNAPSHOT_FIELDS:
                 setattr(self, key, value)
+        self.check_copied_permissions()
 
     def check_resume_permissions(self) -> None:
         """在旧上下文再次交给模型之前核对账号、范围、来源和引用。"""
@@ -798,16 +801,53 @@ class AnalysisToolbox:
         truncated = bool(truncated or any(p.truncated for p in parents))
         if "metric_codes" not in meta:  # 原因按编码关联：计算结果继承输入的口径编码
             meta["metric_codes"] = sorted({c for p in parents for c in (p.meta or {}).get("metric_codes") or []})
-        ds = AnalysisDataset(run_id=self.run.id, seq=len(self._datasets) + 1, kind=kind, title=title[:255],
+        seq = max(self._dataset_seq_floor, max((ds.seq for ds in self._datasets.values()), default=0)) + 1
+        ds = AnalysisDataset(run_id=self.run.id, seq=seq, kind=kind, title=title[:255],
                              answer_id=answer_id, inputs=inputs, columns=columns,
                              rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta)))
         self.session.add(ds)
         self.session.flush()
         self._datasets[f"D{ds.seq}"] = ds
+        self._dataset_seq_floor = ds.seq
         return ds
 
     def datasets(self) -> dict[str, AnalysisDataset]:
         return dict(self._datasets)
+
+    def _has_copied_source(self, dataset: AnalysisDataset) -> bool:
+        pending, visited = [dataset], set()
+        while pending:
+            current = pending.pop()
+            if (current.meta or {}).get("copied_from"):
+                return True
+            refs = set(current.inputs or []) | set((current.meta or {}).get("closure") or [])
+            for ref in refs - visited:
+                visited.add(ref)
+                if ref in self._datasets:
+                    pending.append(self._datasets[ref])
+        return False
+
+    def readable_datasets(self) -> dict[str, AnalysisDataset]:
+        """续问带入的历史证据及其计算结果，按当前来源权限交给模型与核验。"""
+        from avelis.analysis.dataset_access import can_read_dataset
+
+        return {ref: dataset for ref, dataset in self._datasets.items()
+                if not self._has_copied_source(dataset)
+                or can_read_dataset(self.session, self.user, dataset, self._datasets)}
+
+    def check_copied_permissions(self) -> None:
+        """旧模型消息可能复述历史证据；撤权后停止，不能仅删掉数据集后继续旧消息。"""
+        restricted = set(self._datasets) - self.readable_datasets().keys()
+        if restricted:
+            self.permission_lost = "续问继承的数据集已没有访问权限，分析停止"
+            raise PermissionLost(self.permission_lost)
+
+    def _check_copied_dataset(self, dataset: AnalysisDataset) -> None:
+        from avelis.analysis.dataset_access import can_read_dataset
+
+        if self._has_copied_source(dataset) and not can_read_dataset(
+                self.session, self.user, dataset, self._datasets):
+            self._deny("你已没有该数据的访问权限", dataset=f"D{dataset.seq}")
 
     def _unit(self, ref: str, column: str) -> dict:
         """数据集某列登记的量纲与单位；没登记的按 unknown。"""
@@ -818,6 +858,7 @@ class AnalysisToolbox:
         ds = self._datasets.get(ref)
         if ds is None:
             raise calc.CalcError(f"数据集 {ref} 不存在（可用：{'、'.join(self._datasets) or '无'}）")
+        self._check_copied_dataset(ds)
         return ds, [dict(zip(ds.columns, r)) for r in ds.rows]
 
     def _column_expression(self, ref: str, column: str) -> exp.Expression | None:
@@ -908,6 +949,7 @@ class AnalysisToolbox:
             ds = self._datasets.get(ref)
             if ds is None:
                 raise calc.CalcError(f"数据集 {ref} 不在本次运行中（可用：{'、'.join(self._datasets) or '无'}）")
+            self._check_copied_dataset(ds)
             out = self._view(ref, ds, offset=offset, limit=limit)
             end = offset + len(out["rows"])
             out.update(offset=offset, next_offset=end if end < len(ds.rows) else None,
@@ -934,6 +976,7 @@ class AnalysisToolbox:
             raise PermissionLost("发起人已没有查询角色")
         self.user = user
         self._allowed = access.domain_ids(self.session, user)
+        self.check_copied_permissions()
 
     def _deny(self, message: str, **detail) -> None:
         self.denials.append({"message": message, **detail})

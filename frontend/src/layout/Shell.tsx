@@ -3,9 +3,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { api, logout, token, unwrap } from "../api/client";
-import { useAnalysisRuns, useAnalysisTasks, useAppSettings, useDatasources } from "../api/hooks";
+import { useAnalysisTasks, useAppSettings, useDatasources } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
+import { RecentConversations } from "./Conversations";
 import { Plat } from "../components/ui";
 import { formatTime } from "../format";
 import { setThemePref, useThemePref, type ThemePref } from "../theme";
@@ -148,31 +149,6 @@ function NotificationBell() {
   );
 }
 
-const RUN_TONE: Record<string, string> = { queued: "flow", running: "flow", waiting: "warn", failed: "danger", clarify: "warn" };
-
-function RecentRuns() {
-  const runs = useAnalysisRuns();
-  const location = useLocation();
-  const items = runs.data ?? [];
-  if (!items.length) return null;
-  return (
-    <>
-      <div className="av-sb__sec av-sb__label">最近对话</div>
-      <div className="av-sb__recent">
-        {items.map((r) => {
-          const tone = r.status === "succeeded" ? (r.verified ? "ok" : "warn") : RUN_TONE[r.status] ?? "";
-          return (
-            <Link key={r.id} to={`/analysis/runs/${r.id}`} className="av-sb__rc"
-              aria-current={location.pathname === `/analysis/runs/${r.id}` ? "page" : undefined}>
-              <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}`} />
-              <span>{r.status === "succeeded" ? r.title ?? r.question : r.question}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </>
-  );
-}
 
 // 没有保存过偏好时跟随窗口宽度：1100px 及以下收起，拉宽后自动展开
 const NARROW = "(max-width: 1100px)";
@@ -252,7 +228,7 @@ function Sidebar() {
         <Icon name="refresh" /><span className="av-sb__label">定时任务</span>
         {tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}
       </NavLink>
-      {collapsed ? null : <RecentRuns />}
+      {collapsed ? null : <RecentConversations />}
       <span className="av-sb__spacer" />
       <NavLink to="/settings" className="av-sb__nv" title="设置">
         <Icon name="settings" /><span className="av-sb__label">设置</span>
