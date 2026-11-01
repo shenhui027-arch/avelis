@@ -1934,3 +1934,7 @@ msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用�
 
 msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
 msgstr "2026-11-01 已實機驗證 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 歸因需綁定稽核表並授予 SELECT，未綁定時不支援歸因；FE 時區為 UTC，非 UTC 換算未實機驗證；外掛剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配"
+
+#: src/avelis/api/imports.py
+msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
+msgstr "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"

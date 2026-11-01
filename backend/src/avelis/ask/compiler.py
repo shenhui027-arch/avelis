@@ -83,14 +83,16 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         group_cols.append(col(dims[name]["column"]))
     bucket_column = None
     if bucket_grain:
-        taken = {*intent.group_by, *reserved_names, "value", period_column(intent.group_by, reserved_names)}
-        bucket_column = "_time_bucket"
+        taken = {name.casefold() for name in
+                 (*intent.group_by, *reserved_names, "value", period_column(intent.group_by, reserved_names))}
+        bucket_column = "time_bucket"
         i = 1
-        while bucket_column in taken:
-            bucket_column = f"_time_bucket_{i}"
+        while bucket_column.casefold() in taken:
+            bucket_column = f"time_bucket_{i}"
             i += 1
         bucket = _period_expression(version, time_column.copy(), bucket_grain, time_type, dialect)
-        select = select.select(exp.alias_(bucket, bucket_column))
+        # 内部列以字母开头兼容 Oracle；引用后保留名称大小写，供结果合成按计划精确读取。
+        select = select.select(exp.alias_(bucket, bucket_column, quoted=True))
         group_cols.append(bucket.copy())
     measure = parse_snippet(version.expression, dialect=dialect, label="表达式", aliases=names,
                             require_aggregate=True).expression
