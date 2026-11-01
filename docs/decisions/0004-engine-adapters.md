@@ -70,8 +70,8 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
-| SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
-| Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
+| SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增默认跟踪归因仅离线单元测试验证，见下 |
+| Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增统一审计归因仅离线单元测试验证，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 | Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
 
@@ -84,10 +84,10 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 - 查询账号为 `readonly=2`（只读，可以调整查询设置），每次查询设 `max_execution_time` 与 `max_memory_usage`。错误码归类：159 为超时；60、47、81 为对象无法解析；497、164 为权限。
 - 数据新鲜度：取 `system.parts` 中活动分片的最近修改时间。查询账号只授予这张表的 4 列；未授权时不报告新鲜度，不让问数失败。
 
-**SQL Server**（M7，真实实例联调；用户已确认接受 Developer Edition 的许可条款）：
+**SQL Server**（M7 元数据与查询已真实实例联调；新增 DDL 归因仅离线单元测试验证；用户已确认接受 Developer Edition 的许可条款）：
 
 - 资产名 `库.模式.表`，库放在 catalog 段（与 PostgreSQL 相同）；生成的 SQL 用三段名，行数上限写成 `TOP n`。
-- 采集账号只需模式上的 `VIEW DEFINITION`：读 `sys.objects`、`sys.columns`、`sys.indexes`、`sys.sql_modules`，以及 `MS_Description` 扩展属性（列注释）。读不到业务数据。
+- 元数据采集账号只需模式上的 `VIEW DEFINITION`：读 `sys.objects`、`sys.columns`、`sys.indexes`、`sys.sql_modules`，以及 `MS_Description` 扩展属性（列注释）。读不到业务数据。
 - `sys.sql_modules` 存的是整条 `CREATE VIEW` 语句，用 SQLGlot（`tsql`）取出其中的查询再解析。
 - 物理身份用 `object_id`：`sp_rename` 和 `CREATE OR ALTER VIEW` 都不改变它，删除后重建会变。
 - 唯一键：主键、唯一约束、非筛选的唯一索引。
@@ -100,15 +100,20 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
   服务器原始报错原样保留，去掉驱动附加的说明。
 - 不报告数据新鲜度：最近写入时间需要 `VIEW SERVER STATE`，默认不授予。
+- 变更归因（`DDL_AUDIT`）直接读取数据库默认跟踪：从 `sys.traces` 中定位 `is_default = 1` 的跟踪，用 `sys.fn_trace_gettable` 读取 `Object:Created`、`Object:Altered`、`Object:Deleted`，只采用 `EventSubClass` 为 Commit 的已生效事件。Begin 事件及回滚事务不能作为变更证据。
+- 客户需要开启 `default trace enabled`，并给采集账号授予 `ALTER TRACE`；相关诊断读取若还要求 `VIEW SERVER STATE`，也须授权。不需要 `ddl_audit_table` 选项。关闭默认跟踪时归因为 `unavailable`，原因为 `not_enabled`；读取权限不足为 `no_permission`，来源结构不符为 `incompatible`，其他读取失败为 `error` 并保留错误摘要。
+- 跟踪中的 `LoginName`、`DatabaseName`、`ObjectName` 与 `StartTime` 提供对象级证据，没有可用于点名列的语句文本。列级归因沿用 [ADR 0008](0008-history-integrity.md) 的 `redefines` / `column_refs` 规则，证据不足时保留 `unmatched` / `ambiguous`。
+- 默认跟踪没有历史模式名：创建、修改事件仅在当前 `sys.objects` 的对象 ID、名称、类型与创建时间均相符时恢复候选模式。这仍不能排除 `ALTER SCHEMA ... TRANSFER`，所以对象级也只列候选（`ambiguous`），不据此确定执行者；连接器以 `certain=False` 表示无法确认该事件属于目标对象的快照窗口。删除事件或无法恢复候选模式的事件保留空对象列表，归因为 `unmatched`，不猜测模式。
+- `StartTime` 按 SQL Server 服务器本地时间解释，转 UTC 时使用服务器当前时区偏移；跨夏令时切换的历史事件不保证精确换算。
 
-**Oracle**（M7，真实实例联调；用户已确认接受 Oracle Free 的许可条款）：
+**Oracle**（M7 元数据与查询已真实实例联调；新增 DDL 归因仅离线单元测试验证；用户已确认接受 Oracle Free 的许可条款）：
 
 - 资产名 `服务名.模式.表`。查询中不写服务名（`catalog_in_sql = False`），行数上限写成 `FETCH FIRST n ROWS ONLY`，执行前校验同样识别。
 - **标识符大小写**：未加引号的名字在数据字典中存为大写。解析前用 `fold_identifiers("oracle")` 按 Oracle 规则折叠，视图原文的 `store.sales` 才能对上已采集的 `STORE.SALES`。这一规整只挂在 Oracle 方言上，不改变其他引擎的规范化 SQL 与指纹。
 - **`DATE` 带时间部分**（方言项 `date_has_time`）：按日期过滤时，用“当日 0 点 ≤ t < 次日 0 点”的区间，而不是 `BETWEEN` 两个日期。
   - 演示库里北京那笔订单的下单时间是 10:30，用来确认这一点：用 `BETWEEN` 会漏掉它。
   - 会话固定 `NLS_DATE_FORMAT` 与 `NLS_TIMESTAMP_FORMAT`，SQL 中的日期字符串不依赖库的默认设置。
-- 采集账号只需 `CREATE SESSION` 与 `SELECT_CATALOG_ROLE`，读 `DBA_*` 数据字典。
+- 元数据采集账号只需 `CREATE SESSION` 与 `SELECT_CATALOG_ROLE`，读 `DBA_*` 数据字典。
   - 读业务数据会报 ORA-00942：Oracle 对无权限的对象报“不存在”，因此按“对象无法解析”归类，不改写成“权限”。
 - 物理身份用 `OBJECT_ID`：`RENAME` 与 `CREATE OR REPLACE VIEW` 都不改变它。
 - 视图定义取 `DBA_VIEWS.TEXT`（建视图时的原文）。
@@ -117,6 +122,9 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
   - `NUMBER` 取为 `Decimal`，默认的 float 会让金额产生精度误差；
   - 错误归类：DPY-4024 为超时；ORA-00904、00942 为对象无法解析；ORA-01031、01456、41900 为权限（ORA-41900 是 23ai 起的“缺少某项权限”）。
 - 不报告数据新鲜度：`DBA_TAB_MODIFICATIONS` 依赖统计信息刷新，不能代表最近写入时间。
+- 变更归因（`DDL_AUDIT`）读取 `UNIFIED_AUDIT_TRAIL`，仅采用 `RETURN_CODE = 0` 的成功 DDL；使用 `DBUSERNAME`、`ACTION_NAME`、`OBJECT_SCHEMA`、`OBJECT_NAME`，有 `SQL_TEXT` 时沿用现有解析器识别列级变化，无法确定时保留未知。
+- 客户需要启用覆盖表、视图等对象 `CREATE` / `ALTER` / `DROP` 的统一审计策略，并给采集账号授予 `AUDIT_VIEWER` 等读取权限；不需要 `ddl_audit_table` 选项。没有相关记录且可从 `AUDIT_UNIFIED_ENABLED_POLICIES` 判断相关策略未启用时，原因为 `not_enabled`；无读取权限为 `no_permission`，来源结构不符为 `incompatible`，其他读取失败为 `error` 并保留错误摘要。审计查询成功但没有事件，且不能证明策略未启用时，不据此断言审计已关闭。
+- 时间优先取 `EVENT_TIMESTAMP_UTC`；只有旧版明确缺少 UTC 列时，才先将审计会话的 `TIME_ZONE` 设为 `+00:00`，回退到该 UTC 会话中的 `EVENT_TIMESTAMP` 并按 UTC 解释。
 
 **Doris**（M7，真实实例联调；all-in-one 镜像，一个 FE 加一个 BE）：
 

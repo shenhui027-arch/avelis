@@ -167,6 +167,8 @@ def _same(token: Token, name: str, fold: str) -> bool:
         return token.text == name
     if fold == "lower":  # PostgreSQL：不带引号的标识符折成小写
         return token.text.lower() == name
+    if fold == "upper":  # Oracle：不带引号的标识符折成大写，不能匹配带引号的混合大小写名称
+        return token.text.upper() == name
     return token.text.lower() == name.lower()  # 不区分大小写的引擎
 
 
