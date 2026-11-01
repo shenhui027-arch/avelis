@@ -335,14 +335,14 @@ def _plain(d: Decimal) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def _rounded(v: Decimal, places: int, *, strip: bool = False, group: bool = False) -> str:
-    """ROUND_HALF_UP 到 places 位；strip 去掉多余的零；group 加千分位。"""
+def _rounded(v: Decimal, places: int, *, strip: bool = False) -> str:
+    """ROUND_HALF_UP 到 places 位；strip 去掉多余的零。"""
     q = v.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
-    text = f"{q:,.{places}f}" if group else format(q, "f")
+    text = format(q, "f")
     return text.rstrip("0").rstrip(".") if strip and "." in text else text
 
 
-def compact(value: Decimal, precision: int = 2, *, strip: bool = False, group: bool = False) -> str:
+def compact(value: Decimal, precision: int = 2, *, strip: bool = False) -> str:
     """正文与导出图轴共用缩写；两种体系都从绝对值 1 万起缩写，intl 的 K 除以 1 千。"""
     scales = ((YI, "亿"), (WAN, "万"))
     if get_settings().number_style == "intl":
@@ -350,8 +350,8 @@ def compact(value: Decimal, precision: int = 2, *, strip: bool = False, group: b
     if abs(value) >= WAN:
         for scale, suffix in scales:
             if abs(value) >= scale:
-                return _rounded(value / scale, precision, strip=strip, group=group) + suffix
-    return _rounded(value, precision, strip=strip, group=group)
+                return _rounded(value / scale, precision, strip=strip) + suffix
+    return _rounded(value, precision, strip=strip)
 
 
 def fmt(ref: Ref, raw: Any, meta: dict) -> str:
@@ -375,11 +375,11 @@ def fmt(ref: Ref, raw: Any, meta: dict) -> str:
 def display(value: Decimal, meta: dict, precision: int | None = None, direction: str | None = None,
             raw: str = "") -> str:
     """系统按量纲决定显示格式（ADR 0009 第 1 点“量纲与单位”）：模型不选格式，只能指定小数位。
-    - level、delta、count（有口径单位）：先按 unit_scale 换算回基本单位；cn 用亿、万，intl 用 B、M、K，
-      两者均从绝对值 1 万起缩写（2 位），否则原值；后接口径单位；没有单位时按 unknown 显示；
+    - level、delta、count：先按 unit_scale 换算回基本单位；cn 用亿、万，intl 用 B、M、K，
+      两者均从绝对值 1 万起缩写（2 位），否则原值、不加千分位；有口径单位时后接单位；
     - ratio：无单位时 ×100 带 %（如转化率），有单位时原值加单位（如 <单位>/<单位>）；
     - rate_change、share：×100 带 %；ratio 的差（of_ratio，且无单位）：×100 带“个百分点”；
-    - unknown：原值、千分位、不带单位。
+    - unknown：同样按数字体系缩写；不到 1 万时默认最多 4 位小数，不带单位。
     direction：水平值（level、ratio）以外都可以写，核对正负后显示绝对值；不写时差额、变化率带符号。"""
     kind, unit, sign = meta["kind"], meta["unit"], ""
     if direction:
@@ -399,14 +399,13 @@ def display(value: Decimal, meta: dict, precision: int | None = None, direction:
         return sign + _rounded(value * 100, places(1)) + "%"
     if kind == "delta" and meta["of_ratio"] and not unit:
         return sign + _rounded(value * 100, places(1)) + "个百分点"
-    if kind in ("level", "delta", "count") and unit:
-        base = value * meta["scale"]
-        if abs(base) >= WAN:
-            return sign + compact(base, places(2)) + unit
-        return sign + _rounded(base, places(0 if kind == "count" else 2), strip=not fixed) + unit
     if kind == "ratio":
         return sign + _rounded(value, places(2), strip=not fixed) + unit
-    return sign + _rounded(value * meta["scale"], places(0 if kind == "count" else 4), strip=not fixed, group=True)
+    base = value * meta["scale"]
+    abbreviated = abs(base) >= WAN
+    default = 0 if kind == "count" else 4 if kind == "unknown" else 2
+    return sign + compact(base, places(2 if abbreviated else default), strip=not fixed and not abbreviated) + (
+        unit if kind != "unknown" else "")
 
 
 # --- 渲染 ------------------------------------------------------------------------------

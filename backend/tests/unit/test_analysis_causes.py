@@ -219,7 +219,9 @@ def test_method_is_rendered_checked_and_exported_like_other_fields():
     assert rendered["method"] == "先看地区甲的100，再看拆解" and v["ok"]
     assert rendered["fields"]["method"]["segments"][1]["raw"] == "100"
     bad, v2 = ground_report({**report, "method": ["对比了两类数据"]}, DATA, None)
-    assert not v2["ok"] and any(f["field"] == "method" for f in v2["fields"] if f["status"] == "unverified")
+    assert v2["ok"] and v2["status"] == "all_passed" and v2["unverified_fields"] == 1
+    assert bad["fields"]["method"]["status"] == "unverified"
+    assert any(f["field"] == "method" for f in v2["fields"] if f["status"] == "unverified")
     view = {"id": "r", "question": "q", "status": "succeeded", "datasets": [], "steps": [], "report": rendered,
             "verification": v}
     md = export.to_markdown(view, audience="full")
