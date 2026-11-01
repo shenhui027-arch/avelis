@@ -9,7 +9,7 @@ import {
   Banner, Count, Empty, Hint, Icon, PaneHeader, QueryState, RELATION_LABEL, Seg, Select, Status, Tabs, highlight, shortName, useMessage,
 } from "../../components/ui";
 import { formatShortTime } from "../../format";
-import { t } from "../../i18n";
+import { currentLanguage, t } from "../../i18n";
 
 type WorkspaceTab = "source" | "result";
 type CandidateDecision = { id: string; decision: "accept" | "reject" | "modify"; reason: string; relation?: string; target_column?: string };
@@ -93,7 +93,7 @@ function NewImport() {
         const form = new FormData();
         form.append("datasource_id", ds);
         form.append("file", file);
-        const resp = await fetch("/api/imports/upload", { method: "POST", body: form, headers: { Authorization: `Bearer ${token.get()}` } });
+        const resp = await fetch("/api/imports/upload", { method: "POST", body: form, headers: { Authorization: `Bearer ${token.get()}`, "Accept-Language": currentLanguage() } });
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.detail ?? t("上传失败"));
         job = json;
