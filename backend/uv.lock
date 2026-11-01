@@ -165,7 +165,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "reportlab", specifier = ">=4.2" },
     { name = "sqlalchemy", specifier = "==2.1.6" },
-    { name = "sqlglot", specifier = "==30.25.0" },
+    { name = "sqlglot", git = "https://github.com/shenhui027-arch/sqlglot?rev=8c7faa079c7c832f8b281a9e9f6c01cad2ea53c0" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
@@ -1252,12 +1252,8 @@ wheels = [
 
 [[package]]
 name = "sqlglot"
-version = "30.25.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ff/bd/3885516929bfea13c635d5721c468e664defe56a89c073ecf8640f5a5c8a/sqlglot-30.25.0.tar.gz", hash = "sha256:d2d6e4d4865a210b1e33a801b105a6782ef12280cc2b6d0969bdc2634aef427a", size = 6154689, upload-time = "2026-10-26T15:11:29.706Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/44/a510d696c082e245832348bcfca5de9adfefd65829cd96fa5bf39244ca7b/sqlglot-30.25.0-py3-none-any.whl", hash = "sha256:7d5a292d5f61b7fc860e65a8fa41083c726db0e27fb6efb224cca63c3a5980f7", size = 798009, upload-time = "2026-10-26T15:11:27.897Z" },
-]
+version = "30.25.1.dev2"
+source = { git = "https://github.com/shenhui027-arch/sqlglot?rev=8c7faa079c7c832f8b281a9e9f6c01cad2ea53c0#8c7faa079c7c832f8b281a9e9f6c01cad2ea53c0" }
 
 [[package]]
 name = "starlette"

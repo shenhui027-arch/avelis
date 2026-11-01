@@ -12,7 +12,7 @@ dependencies = [
     "psycopg[binary]==3.3.6",
     "pymysql==1.2.3",
     "cryptography==50.0.2",
-    "sqlglot==30.25.0",
+    "sqlglot",
     "redis==8.1.0",
     "pyjwt==2.15.1",
     "httpx==0.28.1",
@@ -37,6 +37,10 @@ dependencies = [
 dev = [
     "pytest==9.2.0",
 ]
+
+[tool.uv.sources]
+# fork 分支 avelis-v30.25.0：v30.25.0 + Hive UNIONTYPE 修复（tobymao/sqlglot 合并发布后切回 PyPI 并删掉这里）
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "8c7faa079c7c832f8b281a9e9f6c01cad2ea53c0" }
 
 [build-system]
 requires = ["hatchling"]
