@@ -50,18 +50,19 @@ def report_data():
 def assert_no_hidden_values(value):
     text = json.dumps(value, ensure_ascii=False)
     assert SECRET_MEMBER not in text
-    assert "7654321" not in text and "7,654,321" not in text
+    assert all(hidden not in text for hidden in ("7654321", "7,654,321", "765.43万", "7.65M"))
 
 
 def test_projection_redacts_all_stored_reference_forms_without_mutating_report():
     report, _ = report_data()
+    assert report["fields"]["summary"]["segments"][1]["text"] == "765.43万"
     original = deepcopy(report)
     projected = restrict_report(report, {"D1"})
 
     assert report == original
     assert_no_hidden_values(projected)
     assert projected["title"] == f"成员：{RESTRICTED_TEXT}"
-    assert projected["summary"] == f"受限值：{RESTRICTED_TEXT}；可见值：4,321"
+    assert projected["summary"] == f"受限值：{RESTRICTED_TEXT}；可见值：4321"
     assert projected["method"] == f"统计：{RESTRICTED_TEXT}"
     assert projected["unexplained"] == report["unexplained"]
     hidden = projected["fields"]["summary"]["segments"][1]
@@ -122,8 +123,8 @@ def test_verification_projection_only_removes_errors_for_restricted_records():
     view = {"id": "run", "question": "检查变化", "status": "succeeded", "report": projected_report,
             "verification": projected, "datasets": [], "steps": []}
     for text in (export.to_markdown(view), export.sources_csv(view).decode("utf-8-sig")):
-        assert "7654321" not in text and "7,654,321" not in text
-        assert "4,321" in text
+        assert_no_hidden_values(text)
+        assert "4321" in text
     assert verification == original
 
 
@@ -182,8 +183,8 @@ def test_run_view_projection_is_consumed_by_csv_and_markdown_exports(monkeypatch
         view = service.run_view(session, run, user=user)
         assert_no_hidden_values(view["report"])
         for text in (export.sources_csv(view).decode("utf-8-sig"), export.to_markdown(view)):
-            assert SECRET_MEMBER not in text and "7654321" not in text and "7,654,321" not in text
-            assert "4,321" in text
+            assert_no_hidden_values(text)
+            assert "4321" in text
         assert run.report == original and run.verification == original_verification
         session.expire_all()
         assert session.get(AnalysisRun, run.id).report == original
