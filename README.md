@@ -94,7 +94,7 @@ flowchart LR
   W --> RD
   APP -->|read-only account| DB[(Governed databases)]
   W -->|collector account| DB
-  APP -->|questions and metadata by default| LLM[[Model provider]]
+  APP -->|questions, metadata, results (can be turned off)| LLM[[Model provider]]
 ```
 
 - **Backend** (`backend/`): Python 3.12, FastAPI, SQLAlchemy + Alembic, SQLGlot, LangGraph.
