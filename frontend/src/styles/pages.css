@@ -573,12 +573,6 @@
 .av-compose textarea:focus { outline: none; }
 .av-compose textarea::placeholder { color: var(--text-disabled); }
 .av-compose__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line-subtle); }
-.av-compose__opt { display: inline-flex; align-items: center; gap: 6px; height: var(--size-control-sm); padding: 0 var(--space-2); border: 1px solid var(--line-default); border-radius: var(--radius-full); color: var(--text-tertiary); font: var(--type-caption); }
-.av-compose__opt > span { display: inline-flex; align-items: center; gap: 4px; }
-.av-compose__opt select { border: none; background: transparent; color: var(--text-primary); font: 500 12px/16px var(--font-sans); cursor: pointer; }
-.av-compose__opt select:focus { outline: none; }
-.av-compose__dates { display: inline-flex; gap: 4px; }
-.av-compose__dates input { height: var(--size-control-sm); padding: 0 6px; border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-primary); font: var(--type-mono); }
 .av-compose__spacer { flex: 1; }
 .av-compose__examples { display: flex; flex-direction: column; gap: 2px; }
 .av-compose__example { display: flex; align-items: center; min-height: 36px; padding: 6px var(--space-3); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: 400 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
@@ -863,3 +857,43 @@
 /* 吸顶标题栏自带 backdrop-filter：嵌在里面的菜单伸出标题栏后模糊不到下面的内容，半透明底会透出正文，垫一层不透明底色 */
 .av-doc__hd .av-menu { background: linear-gradient(var(--bg-overlay), var(--bg-overlay)), var(--bg-base); }
 .av-analysis__joins { display: flex; flex-direction: column; gap: var(--space-2); } .av-analysis__joins .av-caption { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+/* 输入框底栏：时间、确认、模型、定时统一成同一种胶囊，菜单用同一套弹出层；发送是圆形主按钮 */
+.av-compose__bar { gap: 6px; }
+.av-chip__btn, .av-compose__bar .av-mbar__btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line-subtle); border-radius: var(--radius-full); background: transparent; color: var(--text-secondary);
+  font: 500 12px/1 var(--font-sans); white-space: nowrap; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.av-chip__btn:hover:not(:disabled), .av-chip__btn[aria-expanded="true"],
+.av-compose__bar .av-mbar__btn:hover, .av-compose__bar .av-mbar__btn[aria-expanded="true"] { border-color: var(--line-strong); background: var(--bg-raised); color: var(--text-primary); }
+.av-chip__btn:disabled { opacity: .45; cursor: not-allowed; }
+.av-chip__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.av-chip__btn .av-icon:last-child { color: var(--text-tertiary); }
+.av-chip__value { color: var(--text-primary); }
+.av-menu.av-menu--up.av-chip__menu { left: 0; right: auto; min-width: 280px; }
+.av-chip__item { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: var(--space-2); padding-block: 8px; text-align: left; }
+.av-chip__item .av-mbar__check { padding-top: 2px; }
+.av-chip__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-chip__text b { color: var(--text-primary); font: 500 13px/18px var(--font-sans); }
+.av-chip__text small { color: var(--text-tertiary); font: 400 12px/16px var(--font-sans); white-space: normal; }
+.av-chip__extra { margin-top: var(--space-1); padding: var(--space-2) var(--space-2) var(--space-1); border-top: 1px solid var(--line-subtle); }
+.av-chip__dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.av-chip__dates label { display: flex; flex-direction: column; gap: 4px; color: var(--text-tertiary); font: 500 11px/14px var(--font-sans); }
+.av-chip__dates input { height: 30px; padding: 0 8px; border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-primary); font: var(--type-mono); color-scheme: light dark; }
+.av-compose__send { display: inline-grid; place-items: center; width: 34px; height: 34px; margin-left: 2px; border: none; border-radius: 50%;
+  background: var(--brand-gradient, linear-gradient(135deg, #3d6cf0, #6d5cff)); color: #fff; cursor: pointer;
+  box-shadow: 0 6px 16px rgba(79, 124, 255, .35); transition: transform .15s, box-shadow .2s, opacity .2s; }
+.av-compose__send:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(79, 124, 255, .45); }
+.av-compose__send:disabled { opacity: .4; box-shadow: none; cursor: not-allowed; }
+.av-compose__send:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av-compose__spin { width: 14px; height: 14px; border: 2px solid rgba(255, 255, 255, .4); border-top-color: #fff; border-radius: 50%; animation: av-spin .8s linear infinite; }
+@keyframes av-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .av-compose__send, .av-compose__send:hover:not(:disabled) { transform: none; transition: none; } .av-compose__spin { animation: none; } }
+@media (max-width: 640px) { .av-chip__btn .av-chip__value { max-width: 7em; overflow: hidden; text-overflow: ellipsis; } }
+.av-compose__bar .av-mbar__btn.av-mbar__ring { padding: 0 6px; border-color: transparent; }
+/* 选项带一行说明：行高随内容，不用基础菜单项的固定 32px（app.css 后加载，需更高优先级） */
+.av-menu .av-menu__item.av-chip__item { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: var(--space-2);
+  height: auto; min-height: 48px; padding: 8px 10px; line-height: normal; }
+.av-menu.av-chip__menu { gap: 2px; }
+.av-menu .av-menu__item.av-chip__item[aria-checked="true"] { background: var(--accent-subtle); }
+.av-chip__item[aria-checked="true"] .av-mbar__check { color: var(--accent); }
+.av-chip__item[aria-checked="true"] .av-chip__text b { color: var(--accent-text, var(--accent)); }
+.av-menu.av-chip__menu--down.av-chip__menu { top: calc(100% + 6px); bottom: auto; left: 0; right: auto; z-index: 30; }

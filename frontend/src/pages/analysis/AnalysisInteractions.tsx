@@ -170,7 +170,7 @@ export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; se
         <span className="av-compose__spacer" />
         <ModelPicker state={picker} />
         <ContextMeter run={run} />
-        <button className="av-btn av-btn--primary av-btn--icon av-compose__send" type="submit" aria-label="发送"
+        <button className="av-compose__send" type="submit" aria-label="发送"
           disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
       </div>
     </form>
