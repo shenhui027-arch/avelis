@@ -6,7 +6,17 @@ import pytest
 
 from avelis.ask.compiler import distinct_values_sql, duplicate_key_sql, validate_sql
 from avelis.engines import engines, get_engine, query_connector, register
-from avelis.engines.base import LIVE_CHECK, QUERY, VIEW_LINEAGE, CapabilityMissing, Engine, UnsupportedEngine
+from avelis.engines.base import (
+    DDL_AUDIT,
+    IDENTITY_TARGET,
+    LIVE_CHECK,
+    METADATA,
+    QUERY,
+    VIEW_LINEAGE,
+    CapabilityMissing,
+    Engine,
+    UnsupportedEngine,
+)
 from avelis.lineage.sql import SqlDialect, canonical_hash_of, parse_query
 from avelis.models import Datasource
 
@@ -23,17 +33,26 @@ def test_registry_lists_only_integrated_engines():
 def test_capabilities_are_declared_not_guessed():
     sr, my = get_engine("starrocks"), get_engine("mysql")
     assert sr.supports(QUERY) and sr.supports(VIEW_LINEAGE)
-    assert not my.supports(QUERY) and not my.supports(VIEW_LINEAGE)
+    assert my.capabilities == frozenset({METADATA, IDENTITY_TARGET, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT})
+    assert my.querier is my.collector
     pg = get_engine("postgres")
     assert pg.supports(QUERY) and pg.supports(VIEW_LINEAGE) and pg.supports(LIVE_CHECK)
     # catalog 段因数据源而异：PostgreSQL 用配置的库名
     assert pg.dialect_for({"database": "storedb"}).default_catalog == "storedb"
     assert get_engine("starrocks").dialect_for({"database": "x"}).default_catalog == "default_catalog"
     # 执行前核对需要只读执行账号：只有能执行问数的引擎才声明
-    assert sr.supports(LIVE_CHECK) and not my.supports(LIVE_CHECK) and not get_engine("fake").supports(LIVE_CHECK)
-    ds = Datasource(name="维表库", kind="mysql", host="127.0.0.1", port=3306, options={})
-    with pytest.raises(CapabilityMissing, match="维表库（MySQL）不支持问数执行"):
+    assert sr.supports(LIVE_CHECK) and my.supports(LIVE_CHECK) and not get_engine("fake").supports(LIVE_CHECK)
+    ds = Datasource(name="测试库", kind="fake", host="127.0.0.1", port=3306, options={})
+    with pytest.raises(CapabilityMissing, match="测试库（测试适配器）不支持问数执行"):
         query_connector(None, ds)  # 不触达数据库、不读口令
+
+
+def test_mysql_optional_audit_binding_is_described_without_a_default_source():
+    description = get_engine("mysql").describe()
+    option = next(o for o in description["options"] if o["key"] == "ddl_audit_table")
+    assert option["label"] == "DDL 审计表" and option["type"] == "text" and not option["required"]
+    assert option["default"] == "" and "mysql.general_log" in option["hint"]
+    assert get_engine("mysql").option({}, "ddl_audit_table") is None
 
 
 def test_generated_sql_follows_dialect():
@@ -61,6 +80,17 @@ def test_two_level_engine_sql_omits_catalog():
     with pytest.raises(ValidationFailed, match="未批准的表 clickhouse.store.sales"):
         validate_sql('SELECT "t"."sale_id" FROM "store"."sales" AS "t" LIMIT 1', dialect=ch,
                      allowed_tables={"clickhouse.store.returns"}, schema={}, max_rows=1)
+
+
+def test_mysql_sql_uses_database_table_names_and_validates_them():
+    dialect = get_engine("mysql").sql
+    assert dialect.default_catalog == "def" and not dialect.catalog_in_sql
+    sql = duplicate_key_sql("def.inventory.items", ["item_id"], dialect=dialect)
+    assert "FROM `inventory`.`items` AS `t`" in sql and "`def`" not in sql
+    validate_sql(sql, dialect=dialect, allowed_tables={"def.inventory.items"},
+                 schema={"def.inventory.items": {"item_id"}}, max_rows=1)
+    distinct = distinct_values_sql("def.inventory.items", "item_id", limit=20, dialect=dialect)
+    assert "FROM `inventory`.`items` AS `t`" in distinct and "`def`" not in distinct
 
 
 def test_clickhouse_types_and_identity():

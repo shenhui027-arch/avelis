@@ -1,6 +1,6 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力。
 
-已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1、
+已登记：StarRocks 3.5、MySQL 8、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1、
 Hive 4.1（元数据与视图血缘）。只考虑 SQLGlot 支持的方言（ADR 0004）：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
@@ -48,12 +48,16 @@ STARROCKS = Engine(
 MYSQL = Engine(
     kind="mysql", label="MySQL",
     script_separators=("DELIMITER",),
-    sql=SqlDialect(name="mysql", default_catalog="def"),  # information_schema 中 MySQL 的 Catalog 恒为 def
+    # information_schema 中的 Catalog 恒为 def；MySQL 查询只写 库.表
+    sql=SqlDialect(name="mysql", default_catalog="def", catalog_in_sql=False),
     name_levels=("database", "table"),
-    capabilities=frozenset({METADATA, IDENTITY_TARGET}),
-    collector=MySQLMetaConnector, default_port=3306,
-    options=(OptionField("databases", "采集的库", required=True),),
-    note="目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调",
+    capabilities=frozenset({METADATA, IDENTITY_TARGET, VIEW_LINEAGE, QUERY, LIVE_CHECK, DDL_AUDIT}),
+    collector=MySQLMetaConnector, querier=MySQLMetaConnector, default_port=3306,
+    options=(OptionField("databases", "采集的库", required=True),
+             OptionField("ddl_audit_table", "DDL 审计表", type="text", required=False,
+                         hint="可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument")),
+    note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；"
+         "不报告数据新鲜度；DDL 归因需绑定审计表，日志只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取",
 )
 
 POSTGRES = Engine(

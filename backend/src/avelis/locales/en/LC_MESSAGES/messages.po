@@ -1312,9 +1312,6 @@ msgstr "Databases to collect"
 msgid "只接 JDBC MySQL Catalog"
 msgstr "Supports JDBC MySQL Catalog only"
 
-msgid "目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
-msgstr "Currently collects metadata only and serves as a tracing target for external or Catalog tables. View parsing and question answering execution have not been integration tested"
-
 msgid "库"
 msgstr "Database"
 
@@ -1785,3 +1782,63 @@ msgstr "Specify exactly one of column and summary"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "Summary values cannot use match or exclude"
+
+msgid "DDL 审计表"
+msgstr "DDL audit table"
+
+msgid "DDL 审计记录包含 MySQL 可执行注释，无法可靠确定候选"
+msgstr "The DDL audit record contains MySQL executable comments; candidates cannot be determined reliably"
+
+msgid "DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"
+msgstr "The DDL audit statement lacks current database context: an object has no database qualifier, so candidates cannot be determined reliably"
+
+msgid "DDL 审计记录包含多条语句，无法可靠确定候选"
+msgstr "The DDL audit record contains multiple statements; candidates cannot be determined reliably"
+
+msgid "超时值必须为正数，未执行"
+msgstr "The timeout must be positive; nothing was executed"
+
+msgid "DDL 审计候选超过读取上限（{limit} 条），无法完整归因"
+msgstr "DDL audit candidates exceed the read limit ({limit} rows); complete attribution is unavailable"
+
+msgid "未绑定 DDL 审计表（options.ddl_audit_table），没有审计来源"
+msgstr "No DDL audit table is bound (options.ddl_audit_table); there is no audit source"
+
+msgid "DDL 审计表名称无效：请填写库.表"
+msgstr "Invalid DDL audit table name: enter database.table"
+
+msgid "DDL 审计表 {table} 结构不符：缺少列 {columns}"
+msgstr "DDL audit table {table} has an incompatible schema: missing columns {columns}"
+
+msgid "DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区"
+msgstr "event_time in DDL audit table {table} must be TIMESTAMP; the time zone of DATETIME cannot be inferred"
+
+msgid "DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列"
+msgstr "user_host, command_type, and argument in DDL audit table {table} must be text or binary columns"
+
+msgid "DDL 审计表的 {column} 不是有效的 UTF-8 文本"
+msgstr "{column} in the DDL audit table is not valid UTF-8 text"
+
+msgid "MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"
+msgstr "The MySQL general query log is not writing to a table: general_log=ON and TABLE in log_output are required"
+
+msgid "读取 DDL 审计表 {table} 失败：{error}"
+msgstr "Failed to read DDL audit table {table}: {error}"
+
+msgid "DDL 审计表的 user_host 无法解析数据库用户名，不能归因"
+msgstr "The database username cannot be parsed from user_host in the DDL audit table; attribution is unavailable"
+
+msgid "DDL 审计表的 event_time 不是有效的时间值"
+msgstr "event_time in the DDL audit table is not a valid timestamp"
+
+msgid "查询行数上限不能为负数，未执行"
+msgstr "The query row limit must not be negative; nothing was executed"
+
+msgid "MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用"
+msgstr "No definition was read for MySQL view {name} (SHOW VIEW is required); column-level lineage is unavailable"
+
+msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+msgstr "Optionally bind database.table, such as mysql.general_log; the general log requires general_log=ON, TABLE in log_output, and SELECT for the collection account; compatible audit tables require event_time (TIMESTAMP), user_host, command_type, and argument"
+
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；DDL 归因需绑定审计表，日志只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "The collection account needs metadata visibility and SHOW VIEW; queries use a dedicated read-only account (SELECT and SHOW VIEW); server_uuid identifies the instance; data freshness is not reported; DDL attribution requires an audit table binding and cross-checks log candidates against schema changes; audit timestamps are read in UTC"

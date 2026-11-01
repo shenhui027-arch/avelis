@@ -69,9 +69,9 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
-| MySQL | 8.4 | ✓ | | | | |
+| MySQL | 8.4 | ✓ | ✓ | ✓ | ✓ | ✓ (audit table required) |
 
-StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
+StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL supports column-level view lineage, read-only Q&A queries and pre-query schema checks. DDL attribution requires a bound audit table, such as `mysql.general_log` with table output enabled; its records are candidate evidence and must agree with collected schema changes. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
 
 ## Quick start
 
