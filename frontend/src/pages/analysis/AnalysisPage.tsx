@@ -12,6 +12,7 @@ import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupFo
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
+import { ChipMenu } from "./ComposeOptions";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
 
@@ -64,6 +65,9 @@ async function download(path: string, filename: string) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/** 2026-09-01 → 9/1，用在胶囊上，完整日期在菜单里 */
+const shortDate = (iso: string) => iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "…";
 
 function windowBody(kind: WindowKind, fixed: { start: string; end: string; cs: string; ce: string }) {
   if (kind === "none") return undefined;
@@ -146,25 +150,28 @@ function Composer() {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }} />
         <div className="av-compose__bar">
-          <label className="av-compose__opt"><span>时间</span>
-            <select value={kind} onChange={(e) => setKind(e.target.value as WindowKind)}>
-              <option value="none">按问题理解</option><option value="last_month">上月对比前月</option><option value="fixed">指定日期</option>
-            </select></label>
-          {kind === "fixed" ? <span className="av-compose__dates">
-            {(["start", "end", "cs", "ce"] as const).map((k) => (
-              <input key={k} type="date" aria-label={{ start: "本期起", end: "本期止", cs: "对比起", ce: "对比止" }[k]}
-                value={fixed[k]} onChange={(e) => setFixed({ ...fixed, [k]: e.target.value })} />))}
-          </span> : null}
-          <label className="av-compose__opt"><span>确认 <Hint text="自动：只有模型推断的依据需要你确认；每次：预检后总是先确认" /></span>
-            <select value={mode} onChange={(e) => setMode(e.target.value as "auto" | "always")}>
-              <option value="auto">自动</option><option value="always">每次</option>
-            </select></label>
+          <ChipMenu down icon="calendar" title="时间范围" value={kind} onChange={setKind} keepOpenFor="fixed"
+            display={kind === "fixed" ? `${shortDate(fixed.start)}–${shortDate(fixed.end)}` : undefined}
+            options={[{ value: "none", label: "按问题理解", hint: "从问题里识别时间，没写就问你" },
+              { value: "last_month", label: "上月对比前月", hint: "上一个自然月，对比它的前一个月" },
+              { value: "fixed", label: "指定日期", hint: "自己选本期与对比期" }]}>
+            {kind === "fixed" ? <div className="av-chip__dates">
+              {([["start", "本期起"], ["end", "本期止"], ["cs", "对比起"], ["ce", "对比止"]] as const).map(([k, label]) => (
+                <label key={k}><span>{label}</span>
+                  <input type="date" value={fixed[k]} onChange={(e) => setFixed({ ...fixed, [k]: e.target.value })} /></label>))}
+            </div> : null}
+          </ChipMenu>
+          <ChipMenu down icon="shield" title="确认依据" value={mode} onChange={setMode}
+            display={mode === "auto" ? "自动确认" : "每次确认"}
+            options={[{ value: "auto", label: "自动", hint: "只有模型推断的依据才需要你确认" },
+              { value: "always", label: "每次", hint: "预检后总是先给你确认再分析" }]} />
           <span className="av-compose__spacer" />
           <ModelPicker state={picker} />
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!text.trim()} onClick={() => setScheduling(true)}>
-            <Icon name="refresh" />定时</button>
-          <button className="av-btn av-btn--primary av-btn--sm" type="submit" disabled={start.isPending || !text.trim()}>
-            <Icon name="send" />{start.isPending ? "提交中…" : "提问"}</button>
+          <button type="button" className="av-chip__btn" disabled={!text.trim()} onClick={() => setScheduling(true)}
+            title="按时间自动重跑这个问题"><Icon name="clock" small />定时</button>
+          <button className="av-compose__send" type="submit" disabled={start.isPending || !text.trim()}
+            aria-label="提问" title="提问（Ctrl + Enter）">
+            {start.isPending ? <span className="av-compose__spin" aria-hidden /> : <Icon name="send" />}</button>
         </div>
       </form>
       <div className="av-entries">

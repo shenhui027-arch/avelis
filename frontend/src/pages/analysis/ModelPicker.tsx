@@ -52,7 +52,7 @@ export function useModelChoice(initial?: ModelChoice | null) {
 }
 
 /** 点外部或按 Esc 关闭的弹出层。 */
-function usePopover() {
+export function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
