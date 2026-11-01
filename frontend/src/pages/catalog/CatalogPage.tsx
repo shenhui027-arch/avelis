@@ -9,12 +9,13 @@ import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
 import { JoinPaths } from "./JoinPaths";
 import { MetricDetail, NewMetric } from "./MetricDetail";
+import { t } from "../../i18n";
 
 const SECTIONS = [
-  { key: "metrics", label: "指标", icon: "chart" },
-  { key: "assets", label: "资产", icon: "db" },
-  { key: "domains", label: "业务域", icon: "users" },
-  { key: "joins", label: "关联路径", icon: "link" },
+  { key: "metrics", label: t("指标"), icon: "chart" },
+  { key: "assets", label: t("资产"), icon: "db" },
+  { key: "domains", label: t("业务域"), icon: "users" },
+  { key: "joins", label: t("关联路径"), icon: "link" },
 ] as const;
 type Section = typeof SECTIONS[number]["key"];
 
@@ -42,9 +43,9 @@ export function CatalogPage() {
   const filteredIds = section === "assets" ? assetList : section === "domains" ? domainList : metricList;
   const excluded = !!id && !!term && currentQuery.isSuccess && currentQuery.data.some((item) => item.id === id)
     && !filteredIds.some((item) => item.id === id);
-  const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setQueries({ ...queries, [section]: "" })}>清除搜索</button>;
-  const createMetric = canCreateMetric ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreating(true)}><Icon name="plus" />新建指标</button> : null;
-  const createDomain = roles.has("admin") ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreatingDomain(true)}><Icon name="plus" />新建业务域</button> : null;
+  const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setQueries({ ...queries, [section]: "" })}>{t("清除搜索")}</button>;
+  const createMetric = canCreateMetric ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("新建指标")}</button> : null;
+  const createDomain = roles.has("admin") ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreatingDomain(true)}><Icon name="plus" />{t("新建业务域")}</button> : null;
   const closeMetric = () => {
     setCreating(false);
     if (searchParams.has("create")) {
@@ -62,9 +63,9 @@ export function CatalogPage() {
 
   return (
     <div className="av-catalog av-catalog-page" data-section={section}>
-      <section className="av-pane av-pane--rail av-catalog-page__rail" aria-label="目录导航">
-        <header className="av-catalog-page__rail-header"><h1>目录</h1></header>
-        <nav className="av-catalog-nav" aria-label="目录分类">
+      <section className="av-pane av-pane--rail av-catalog-page__rail" aria-label={t("目录导航")}>
+        <header className="av-catalog-page__rail-header"><h1>{t("目录")}</h1></header>
+        <nav className="av-catalog-nav" aria-label={t("目录分类")}>
           {SECTIONS.map((item) => <Link key={item.key} to={`/catalog/${item.key}`} aria-current={section === item.key ? "page" : undefined}>
             <Icon name={item.icon} /><span>{item.label}</span>{counts[item.key] !== undefined ? <Count n={counts[item.key]!} /> : null}
           </Link>)}
@@ -72,54 +73,54 @@ export function CatalogPage() {
         {current && section !== "joins" ? <>
           <div className="av-catalog-page__search">
             <div className="av-search" role="search"><Icon name="search" />
-              <input aria-label={`搜索${current.label}`} placeholder={`搜索${current.label}`} value={query}
+              <input aria-label={t("搜索{{label}}", { label: current.label })} placeholder={t("搜索{{label}}", { label: current.label })} value={query}
                 onChange={(e) => setQueries({ ...queries, [section]: e.target.value })} />
             </div>
           </div>
           <div className="av-pane__body av-catalog-page__objects">
             {section === "metrics" ? <QueryState query={metrics} compact isEmpty={() => metricList.length === 0}
-              emptyText={term ? "没有匹配指标" : "还没有指标"} emptyAction={term ? clearSearch : undefined}>
-              {() => <nav className="av-tree" aria-label="指标对象">{metricList.map((m) => <Link key={m.id} to={`/catalog/metrics/${m.id}`}
+              emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : undefined}>
+              {() => <nav className="av-tree" aria-label={t("指标对象")}>{metricList.map((m) => <Link key={m.id} to={`/catalog/metrics/${m.id}`}
                 className="av-tree__item" aria-current={id === m.id ? "page" : undefined}><Icon name="chart" small /><span>{m.name}</span></Link>)}</nav>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} compact isEmpty={() => assetList.length === 0}
-              emptyText={term ? "没有匹配资产" : "还没有资产"} emptyAction={term ? clearSearch : undefined}>
+              emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : undefined}>
               {() => <CatalogAssetTree key={`${id ?? "list"}:${term}`} assets={assetList} selectedId={id} searching={!!term} />}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} compact isEmpty={() => domainList.length === 0}
-              emptyText={term ? "没有匹配业务域" : "还没有业务域"} emptyAction={term ? clearSearch : undefined}>
-              {() => <nav className="av-tree" aria-label="业务域对象">{domainList.map((d, i) => <Link key={d.id} to={`/catalog/domains/${d.id}`}
+              emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : undefined}>
+              {() => <nav className="av-tree" aria-label={t("业务域对象")}>{domainList.map((d, i) => <Link key={d.id} to={`/catalog/domains/${d.id}`}
                 className="av-tree__item" aria-current={id === d.id ? "page" : undefined}>
                 <span className={`av-swatch av-swatch--${SWATCHES[i % SWATCHES.length]}`} /><span>{d.name}</span></Link>)}</nav>}
             </QueryState> : null}
           </div>
         </> : null}
       </section>
-      <section className="av-pane av-catalog-page__main" aria-label={id ? "对象详情" : "对象列表"}>
-        {excluded ? <div className="av-catalog-page__filter-note" role="status"><Icon name="info" /><span>当前对象不在搜索结果中</span>{clearSearch}</div> : null}
+      <section className="av-pane av-catalog-page__main" aria-label={id ? t("对象详情") : t("对象列表")}>
+        {excluded ? <div className="av-catalog-page__filter-note" role="status"><Icon name="info" /><span>{t("当前对象不在搜索结果中")}</span>{clearSearch}</div> : null}
         {current && section !== "joins" && !id ? <>
-          <header className="av-catalog-page__list-header"><div><h1>{current.label}</h1><span className="av-catalog-page__hint">选择对象查看详情</span></div>
+          <header className="av-catalog-page__list-header"><div><h1>{current.label}</h1><span className="av-catalog-page__hint">{t("选择对象查看详情")}</span></div>
             <div className="av-actions">{section === "metrics" ? createMetric : section === "domains" ? createDomain : null}</div>
           </header>
           <div className="av-pane__body">
             {section === "metrics" ? <QueryState query={metrics} isEmpty={() => metricList.length === 0}
-              emptyText={term ? "没有匹配指标" : "还没有指标"} emptyAction={term ? clearSearch : createMetric}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>指标</th><th>编码</th><th>状态</th><th>负责人</th><th className="end">操作</th></tr></thead>
+              emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : createMetric}>
+              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("指标")}</th><th>{t("编码")}</th><th>{t("状态")}</th><th>{t("负责人")}</th><th className="end">{t("操作")}</th></tr></thead>
                 <tbody>{metricList.map((m) => <tr key={m.id}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
-                  {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title="口径没有单位：报告里的数字不带单位，请在新版本中补上">单位待补</Pill></> : null}</td><td className="av-mono">{m.code}</td>
-                  <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/metrics/${m.id}`}>查看详情</Link></td></tr>)}</tbody></table></div>}
+                  {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title={t("口径没有单位：报告里的数字不带单位，请在新版本中补上")}>{t("单位待补")}</Pill></> : null}</td><td className="av-mono">{m.code}</td>
+                  <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/metrics/${m.id}`}>{t("查看详情")}</Link></td></tr>)}</tbody></table></div>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} isEmpty={() => assetList.length === 0}
-              emptyText={term ? "没有匹配资产" : "还没有资产"} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">查看数据源</Link>}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>资产</th><th>类型</th><th>数据源</th><th>状态</th><th className="end">操作</th></tr></thead>
+              emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>}>
+              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("数据源")}</th><th>{t("状态")}</th><th className="end">{t("操作")}</th></tr></thead>
                 <tbody>{assetList.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{KIND_LABEL[a.kind] ?? a.kind}</td>
-                  <td>{a.datasource.name}</td><td><Status value={a.status} /></td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/assets/${a.id}`}>查看详情</Link></td></tr>)}</tbody></table></div>}
+                  <td>{a.datasource.name}</td><td><Status value={a.status} /></td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/assets/${a.id}`}>{t("查看详情")}</Link></td></tr>)}</tbody></table></div>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} isEmpty={() => domainList.length === 0}
-              emptyText={term ? "没有匹配业务域" : "还没有业务域"} emptyAction={term ? clearSearch : createDomain}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>业务域</th><th>编码</th><th>说明</th><th>成员</th><th className="end">操作</th></tr></thead>
+              emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : createDomain}>
+              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("业务域")}</th><th>{t("编码")}</th><th>{t("说明")}</th><th>{t("成员")}</th><th className="end">{t("操作")}</th></tr></thead>
                 <tbody>{domainList.map((d) => <tr key={d.id}><td><Link to={`/catalog/domains/${d.id}`}>{d.name}</Link></td><td className="av-mono">{d.code}</td><td>{d.description || "—"}</td>
-                  <td className="num">{d.members.length}</td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/domains/${d.id}`}>查看详情</Link></td></tr>)}</tbody></table></div>}
+                  <td className="num">{d.members.length}</td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/domains/${d.id}`}>{t("查看详情")}</Link></td></tr>)}</tbody></table></div>}
             </QueryState> : null}
           </div>
         </> : null}
@@ -127,7 +128,7 @@ export function CatalogPage() {
         {section === "assets" && id ? <AssetDetail key={id} assetId={id} /> : null}
         {section === "domains" && id ? <DomainDetail key={id} domainId={id} /> : null}
         {section === "joins" ? <JoinPaths /> : null}
-        {!current ? <Empty text="目录分类不存在" action={<Link className="av-btn av-btn--secondary" to="/catalog/metrics">返回指标目录</Link>} /> : null}
+        {!current ? <Empty text={t("目录分类不存在")} action={<Link className="av-btn av-btn--secondary" to="/catalog/metrics">{t("返回指标目录")}</Link>} /> : null}
       </section>
       {creatingDomain && roles.has("admin") ? <NewDomain onClose={() => setCreatingDomain(false)} onCreated={(did) => { setCreatingDomain(false); navigate(`/catalog/domains/${did}`); }} /> : null}
       {(creating || (section === "metrics" && searchParams.get("create") === "1")) && canCreateMetric
@@ -140,8 +141,8 @@ function CatalogAssetTree({ assets, selectedId, searching }: { assets: Asset[]; 
   const sources = new Map<string, { name: string; catalogs: Map<string, Map<string, Asset[]>> }>();
   for (const asset of assets) {
     const parts = asset.qualified.split(".");
-    const catalog = parts.length > 2 ? parts.slice(0, -2).join(".") : "默认 Catalog";
-    const schema = parts.length > 1 ? parts.at(-2)! : "默认 Schema";
+    const catalog = parts.length > 2 ? parts.slice(0, -2).join(".") : t("默认 Catalog");
+    const schema = parts.length > 1 ? parts.at(-2)! : t("默认 Schema");
     const source = sources.get(asset.datasource.id) ?? { name: asset.datasource.name, catalogs: new Map<string, Map<string, Asset[]>>() };
     const schemas = source.catalogs.get(catalog) ?? new Map<string, Asset[]>();
     schemas.set(schema, [...(schemas.get(schema) ?? []), asset]);
@@ -149,7 +150,7 @@ function CatalogAssetTree({ assets, selectedId, searching }: { assets: Asset[]; 
     sources.set(asset.datasource.id, source);
   }
   const containsSelected = (items: Asset[]) => searching || items.some((a) => a.id === selectedId);
-  return <nav className="av-catalog-asset-tree" aria-label="资产对象">{[...sources].map(([sourceId, source]) => {
+  return <nav className="av-catalog-asset-tree" aria-label={t("资产对象")}>{[...sources].map(([sourceId, source]) => {
     const sourceAssets = [...source.catalogs.values()].flatMap((schemas) => [...schemas.values()].flat());
     return <details key={sourceId} open={containsSelected(sourceAssets)}><summary><Icon name="db" small /><span>{source.name}</span><Count n={sourceAssets.length} /></summary>
       {[...source.catalogs].map(([catalog, schemas]) => <details key={catalog} open={containsSelected([...schemas.values()].flat())}>

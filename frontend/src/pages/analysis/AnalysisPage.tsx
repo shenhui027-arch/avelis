@@ -16,6 +16,7 @@ import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
+import { t } from "../../i18n";
 
 type Run = Schemas["AnalysisRunOut"];
 type Task = Schemas["AnalysisTaskOut"];
@@ -34,20 +35,20 @@ type CauseView = { index: number; type?: string; label?: string | null;
   errors?: string[] };
 type WindowKind = "none" | "last_month" | "fixed";
 
-const CAUSE_TYPE: Record<string, string> = { member: "成员", factor: "因子", calendar: "日历", governance: "治理事件" };
-const CONCLUSION: Record<string, string> = { ranked_reasons: "有排序的原因", offsetting: "成员变化相互抵消", no_material_change: "没有实质变化",
-  insufficient_evidence: "证据不足" };
-const TYPE_LABEL: Record<string, string> = { fact: "事实", calc: "计算", inference: "推断", recommendation: "建议" };
-const FIELD_LABEL: Record<string, string> = { title: "标题", summary: "摘要", unexplained: "未解释", method: "分析方法" };
+const CAUSE_TYPE: Record<string, string> = { member: t("成员"), factor: t("因子"), calendar: t("日历"), governance: t("治理事件") };
+const CONCLUSION: Record<string, string> = { ranked_reasons: t("有排序的原因"), offsetting: t("成员变化相互抵消"), no_material_change: t("没有实质变化"),
+  insufficient_evidence: t("证据不足") };
+const TYPE_LABEL: Record<string, string> = { fact: t("事实"), calc: t("计算"), inference: t("推断"), recommendation: t("建议") };
+const FIELD_LABEL: Record<string, string> = { title: t("标题"), summary: t("摘要"), unexplained: t("未解释"), method: t("分析方法") };
 const REPORT_STATUS: Record<string, [string, "ok" | "warn" | "danger"]> = {
-  all_passed: ["来源全部通过", "ok"], with_inference: ["来源通过 · 含推断", "warn"],
-  no_facts: ["没有可核实的事实", "warn"], failed: ["有未通过的结论", "danger"],
+  all_passed: [t("来源全部通过"), "ok"], with_inference: [t("来源通过 · 含推断"), "warn"],
+  no_facts: [t("没有可核实的事实"), "warn"], failed: [t("有未通过的结论"), "danger"],
 };
-const SOURCE_LABEL: Record<string, string> = { governed: "口径", explore: "探索", calc: "计算", context: "上下文" };
-const MEASURE_LABEL: Record<string, string> = { level: "水平值", delta: "差额", ratio: "比率", rate_change: "变化率",
-  share: "占比", count: "计数", unknown: "量纲未知" };
-const KIND_LABEL: Record<string, [string, "ok" | "warn" | "info"]> = { governed: ["受治理", "ok"], calc: ["计算", "info"],
-  context: ["上下文", "info"], explore: ["探索", "warn"], ungoverned: ["未治理", "warn"] };
+const SOURCE_LABEL: Record<string, string> = { governed: t("口径"), explore: t("探索"), calc: t("计算"), context: t("上下文") };
+const MEASURE_LABEL: Record<string, string> = { level: t("水平值"), delta: t("差额"), ratio: t("比率"), rate_change: t("变化率"),
+  share: t("占比"), count: t("计数"), unknown: t("量纲未知") };
+const KIND_LABEL: Record<string, [string, "ok" | "warn" | "info"]> = { governed: [t("受治理"), "ok"], calc: [t("计算"), "info"],
+  context: [t("上下文"), "info"], explore: [t("探索"), "warn"], ungoverned: [t("未治理"), "warn"] };
 
 const useTasks = useAnalysisTasks;
 const useRun = (id?: string) => useQuery({
@@ -58,7 +59,7 @@ const useRun = (id?: string) => useQuery({
 
 async function download(path: string, filename: string) {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${token.get()}` } });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: "导出失败" }))).detail ?? "导出失败");
+  if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: t("导出失败") }))).detail ?? t("导出失败"));
   const url = URL.createObjectURL(await res.blob());
   const link = document.createElement("a");
   link.href = url;
@@ -90,13 +91,13 @@ export function AnalysisPage() {
             canRerun={!!run.data && !["queued", "running", "waiting"].includes(run.data.status)}
             onDownload={(seq, ref) => void download(`/api/analysis/runs/${runId}/datasets/${seq}/csv`, `analysis-${runId}-${ref}.csv`)} />
         </div> : runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
-          {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
+          {view === "tasks" ? <div className="av-analysis__page"><PageHead title={t("定时任务")} /><TaskList /></div>
             : view === "experiences" ? <div className="av-analysis__page">
-              <PageHead title="个人经验" hint="在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回" /><ExperienceList /></div>
+              <PageHead title={t("个人经验")} hint={t("在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回")} /><ExperienceList /></div>
             : <Composer />}
         </div>}
       </main>
-      {evidence ? <aside className="av-analysis__evidence" aria-label="证据"><Datasets id={runId!} /></aside> : null}
+      {evidence ? <aside className="av-analysis__evidence" aria-label={t("证据")}><Datasets id={runId!} /></aside> : null}
     </div>
   );
 }
@@ -107,10 +108,10 @@ function PageHead({ title, hint }: { title: string; hint?: string }) {
 
 /** 状态：一个点加两三个字。 */
 function RunState({ run }: { run: Run }) {
-  if (run.status === "waiting") return <Status value="waiting" label="待确认" />;
-  if (run.status === "stopped") return <Status value="stopped" label="已停止" />;
+  if (run.status === "waiting") return <Status value="waiting" label={t("待确认")} />;
+  if (run.status === "stopped") return <Status value="stopped" label={t("已停止")} />;
   if (run.status !== "succeeded") return <Status value={run.status} />;
-  return run.verified ? <Status value="verified" label="核验通过" /> : <Status value="unverified" label="有未核实" />;
+  return run.verified ? <Status value="verified" label={t("核验通过")} /> : <Status value="unverified" label={t("有未核实")} />;
 }
 
 function Composer() {
@@ -136,8 +137,8 @@ function Composer() {
     <section className="av-analysis__compose">
       <div className="av-hero">
         <div className="av-hero__text">
-          <h1>想知道什么？</h1>
-          <p>问一个数，或者问它为什么变了。每一步查了什么都看得见，随时可以插话纠偏。</p>
+          <h1>{t("想知道什么？")}</h1>
+          <p>{t("问一个数，或者问它为什么变了。每一步查了什么都看得见，随时可以插话纠偏。")}</p>
         </div>
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
@@ -146,47 +147,47 @@ function Composer() {
         setError(null);
         start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
       }}>
-        <label htmlFor="aq" className="av-sr">分析问题</label>
-        <textarea id="aq" rows={3} value={text} placeholder="问一个数，或者问为什么变了、有什么关系"
+        <label htmlFor="aq" className="av-sr">{t("分析问题")}</label>
+        <textarea id="aq" rows={3} value={text} placeholder={t("问一个数，或者问为什么变了、有什么关系")}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }} />
         <div className="av-compose__bar">
-          <ChipMenu down icon="calendar" title="时间范围" value={kind} onChange={setKind} keepOpenFor="fixed"
+          <ChipMenu down icon="calendar" title={t("时间范围")} value={kind} onChange={setKind} keepOpenFor="fixed"
             display={kind === "fixed" ? `${shortDate(fixed.start)}–${shortDate(fixed.end)}` : undefined}
-            options={[{ value: "none", label: "按问题理解", hint: "从问题里识别时间，没写就问你" },
-              { value: "last_month", label: "上月对比前月", hint: "上一个自然月，对比它的前一个月" },
-              { value: "fixed", label: "指定日期", hint: "自己选本期与对比期" }]}>
+            options={[{ value: "none", label: t("按问题理解"), hint: t("从问题里识别时间，没写就问你") },
+              { value: "last_month", label: t("上月对比前月"), hint: t("上一个自然月，对比它的前一个月") },
+              { value: "fixed", label: t("指定日期"), hint: t("自己选本期与对比期") }]}>
             {kind === "fixed" ? <div className="av-chip__dates">
-              {([["start", "本期起"], ["end", "本期止"], ["cs", "对比起"], ["ce", "对比止"]] as const).map(([k, label]) => (
+              {([["start", t("本期起")], ["end", t("本期止")], ["cs", t("对比起")], ["ce", t("对比止")]] as const).map(([k, label]) => (
                 <label key={k}><span>{label}</span>
                   <input type="date" value={fixed[k]} onChange={(e) => setFixed({ ...fixed, [k]: e.target.value })} /></label>))}
             </div> : null}
           </ChipMenu>
-          <ChipMenu down icon="shield" title="确认依据" value={mode} onChange={setMode}
-            display={mode === "auto" ? "自动确认" : "每次确认"}
-            options={[{ value: "auto", label: "自动", hint: "只有模型推断的依据才需要你确认" },
-              { value: "always", label: "每次", hint: "预检后总是先给你确认再分析" }]} />
+          <ChipMenu down icon="shield" title={t("确认依据")} value={mode} onChange={setMode}
+            display={mode === "auto" ? t("自动确认") : t("每次确认")}
+            options={[{ value: "auto", label: t("自动"), hint: t("只有模型推断的依据才需要你确认") },
+              { value: "always", label: t("每次"), hint: t("预检后总是先给你确认再分析") }]} />
           <span className="av-compose__spacer" />
           <ModelPicker state={picker} />
           <button type="button" className="av-chip__btn" disabled={!text.trim()} onClick={() => setScheduling(true)}
-            title="按时间自动重跑这个问题"><Icon name="clock" small />定时</button>
+            title={t("按时间自动重跑这个问题")}><Icon name="clock" small />{t("定时")}</button>
           <button className="av-compose__send" type="submit" disabled={start.isPending || !text.trim()}
-            aria-label="提问" title="提问（Ctrl + Enter）">
+            aria-label={t("提问")} title={t("提问（Ctrl + Enter）")}>
             {start.isPending ? <span className="av-compose__spin" aria-hidden /> : <Icon name="send" />}</button>
         </div>
       </form>
       <div className="av-entries">
         <button type="button" className="av-entry" onClick={() => setText(askExamples[0]?.text ?? "")}>
-          <span className="av-entry__icon is-lookup" aria-hidden /><b>取数</b><span>查一个数，带口径和来源</span></button>
+          <span className="av-entry__icon is-lookup" aria-hidden /><b>{t("取数")}</b><span>{t("查一个数，带口径和来源")}</span></button>
         <button type="button" className="av-entry" onClick={() => setText(analysisExamples[0]?.text ?? "")}>
-          <span className="av-entry__icon is-analysis" aria-hidden /><b>归因分析</b><span>为什么变了，逐步给出依据</span></button>
+          <span className="av-entry__icon is-analysis" aria-hidden /><b>{t("归因分析")}</b><span>{t("为什么变了，逐步给出依据")}</span></button>
         <Link className="av-entry" to="/analysis/experiences">
-          <span className="av-entry__icon is-experience" aria-hidden /><b>个人经验</b><span>分析时按口径与资产自动召回</span></Link>
+          <span className="av-entry__icon is-experience" aria-hidden /><b>{t("个人经验")}</b><span>{t("分析时按口径与资产自动召回")}</span></Link>
         <Link className="av-entry" to="/analysis/tasks">
-          <span className="av-entry__icon is-schedule" aria-hidden /><b>定时任务</b><span>{tasks.data?.length ? `${tasks.data.length} 个` : "按时自动分析"}</span></Link>
+          <span className="av-entry__icon is-schedule" aria-hidden /><b>{t("定时任务")}</b><span>{tasks.data?.length ? t("{{length}} 个", { length: tasks.data.length }) : t("按时自动分析")}</span></Link>
       </div>
-      {examples.length ? <div className="av-compose__examples" aria-label="问题示例">
-        <span className="av-compose__examples-hd">试试这些</span>
+      {examples.length ? <div className="av-compose__examples" aria-label={t("问题示例")}>
+        <span className="av-compose__examples-hd">{t("试试这些")}</span>
         {examples.map((e) => <button key={e} type="button" className="av-compose__example" onClick={() => setText(e)}>{e}</button>)}
       </div> : null}
       {scheduling ? <ScheduleDrawer body={{ question: text, window: windowBody(kind, fixed) }} onClose={() => setScheduling(false)} /> : null}
@@ -201,14 +202,14 @@ function ScheduleDrawer({ body, onClose }: { body: Record<string, unknown>; onCl
   const save = useAction(() => unwrap(api.POST("/api/analysis/tasks", {
     body: { ...body, title: "", schedule_cron: cron || null } as never })), ["analysis-tasks"]);
   return (
-    <Drawer title="保存为定时任务" onClose={onClose} footer={<div className="av-actions">
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>取消</button>
+    <Drawer title={t("保存为定时任务")} onClose={onClose} footer={<div className="av-actions">
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("取消")}</button>
       <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={save.isPending}
-        onClick={() => save.mutate(undefined, { onSuccess: () => navigate("/analysis/tasks"), onError: (e) => setError(errorText(e)) })}>保存</button>
+        onClick={() => save.mutate(undefined, { onSuccess: () => navigate("/analysis/tasks"), onError: (e) => setError(errorText(e)) })}>{t("保存")}</button>
     </div>}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <div className="av-field"><span className="av-label">什么时候运行</span><CronPicker value={cron} onChange={setCron} /></div>
-      <span className="av-caption">定时运行时不会停下来等你确认依据，结果在“定时任务”里查看。</span>
+      <div className="av-field"><span className="av-label">{t("什么时候运行")}</span><CronPicker value={cron} onChange={setCron} /></div>
+      <span className="av-caption">{t("定时运行时不会停下来等你确认依据，结果在“定时任务”里查看。")}</span>
     </Drawer>
   );
 }
@@ -223,12 +224,12 @@ function Segments({ segments, text }: { segments?: Segment[]; text?: string | nu
     if (s.kind === "text") return <span key={i}>{s.text}</span>;
     if (s.kind === "error") return <span key={i} className="av-num is-error" title={s.error}>{s.text}</span>;
     const raw = Array.isArray(s.raw) ? s.raw.join(" ~ ") : s.raw;
-    const title = [s.label ?? s.path, `原值 ${raw}`,
+    const title = [s.label ?? s.path, t("原值 {{raw}}", { raw }),
       s.measure ? `${MEASURE_LABEL[s.measure] ?? s.measure}${s.unit ? `（${s.unit}）` : ""}` : "",
-      s.precision != null ? `${s.precision} 位小数` : "", s.direction ? `方向 ${s.direction === "up" ? "上升" : "下降"}` : "",
-      s.explore ? (s.source === "explore" && s.ref && sqlOf[s.ref] ? `探索查询（未经口径审核）\nSQL：${sqlOf[s.ref]}`
-        : "来源含探索查询（未经口径审核）") : "", s.assumption ? "假设计算" : "",
-      s.role === "proposal" ? "建议目标（非观测值）" : ""].filter(Boolean).join(" · ");
+      s.precision != null ? t("{{precision}} 位小数", { precision: s.precision }) : "", s.direction ? t("方向 {{v1}}", { v1: s.direction === "up" ? t("上升") : t("下降") }) : "",
+      s.explore ? (s.source === "explore" && s.ref && sqlOf[s.ref] ? t("探索查询（未经口径审核）\nSQL：{{v1}}", { v1: sqlOf[s.ref] })
+        : t("来源含探索查询（未经口径审核）")) : "", s.assumption ? t("假设计算") : "",
+      s.role === "proposal" ? t("建议目标（非观测值）") : ""].filter(Boolean).join(" · ");
     const cls = ["av-num", s.kind === "label" ? "" : "av-mono", s.role === "proposal" ? "is-proposal" : "",
       s.explore ? "is-explore" : ""].filter(Boolean).join(" ");
     return <span key={i} className={cls} title={title}>{s.text}
@@ -256,10 +257,10 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
   return (
     <span className="av-analysis__menu" ref={ref}>
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-haspopup="menu" aria-expanded={open}
-        onClick={() => setOpen(!open)}><Icon name="download" />导出<Icon name="chevron" small /></button>
+        onClick={() => setOpen(!open)}><Icon name="download" />{t("导出")}<Icon name="chevron" small /></button>
       {open ? <div className="av-menu" role="menu">
         {item("PDF", "pdf", "pdf")}{item("HTML", "html", "html")}{item("Markdown", "md", "md")}
-        <label className="av-menu__item av-analysis__export-full"><input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} />附带依据（数据来源与查询明细）</label>
+        <label className="av-menu__item av-analysis__export-full"><input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} />{t("附带依据（数据来源与查询明细）")}</label>
       </div> : null}
     </span>
   );
@@ -270,17 +271,17 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
  *  点“继续查”把它放进底部输入框，用户可以改了再发。 */
 function NextSteps({ text, unverified, onPick }: { text?: string; unverified: number; onPick: (text: string) => void }) {
   const items = (text ?? "").split(/[；;]\s*/).map((s) => s.trim().replace(/[。.]$/, "")).filter(Boolean);
-  if (unverified) items.push(`有 ${unverified} 条事实或计算未通过来源校验，需要重新核对`);
+  if (unverified) items.push(t("有 {{unverified}} 条事实或计算未通过来源校验，需要重新核对", { unverified }));
   if (!items.length) return null;
   return (
-    <section className="av-next" aria-label="还没查清">
-      <h2><Icon name="search" />还没查清 · 可以让模型继续查</h2>
+    <section className="av-next" aria-label={t("还没查清")}>
+      <h2><Icon name="search" />{t("还没查清 · 可以让模型继续查")}</h2>
       <ul>
         {items.map((item) => (
           <li key={item}>
             <span>{item}</span>
-            <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => onPick(`继续查：${item}`)}>
-              继续查</button>
+            <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => onPick(t("继续查：{{item}}", { item }))}>
+              {t("继续查")}</button>
           </li>
         ))}
       </ul>
@@ -290,18 +291,18 @@ function NextSteps({ text, unverified, onPick }: { text?: string; unverified: nu
 
 function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: string }) {
   if (!conclusion && !causes?.length) return null;
-  return <section className="av-doc__section" aria-label="原因排序">
-    <h2>原因排序 {conclusion && conclusion !== "ranked_reasons" ? <Pill tone="warn">{CONCLUSION[conclusion] ?? conclusion}</Pill> : null}</h2>
+  return <section className="av-doc__section" aria-label={t("原因排序")}>
+    <h2>{t("原因排序")} {conclusion && conclusion !== "ranked_reasons" ? <Pill tone="warn">{CONCLUSION[conclusion] ?? conclusion}</Pill> : null}</h2>
     {causes?.length ? <ol className="av-causes">
       {causes.map((c, n) => {
         const e = c.entity ?? {};
         const entity = e.member ? `${e.dimension ?? ""} · ${c.label ?? e.member}`
-          : c.label ?? e.factor_metric_code ?? e.evidence_id ?? "日历因素";
+          : c.label ?? e.factor_metric_code ?? e.evidence_id ?? t("日历因素");
         return <li key={c.index} className={`av-cause${c.status === "unverified" ? " is-unverified" : ""}${n === 0 ? " is-primary" : ""}`}>
           <span className="av-cause__rank">{n + 1}</span>
           <span className="av-cause__main">
             <span className="av-cause__entity">{entity}</span>
-            <span className="av-cause__type">{CAUSE_TYPE[c.type ?? ""] ?? c.type ?? "原因"}{n === 0 ? " · 首要原因" : ""}</span>
+            <span className="av-cause__type">{CAUSE_TYPE[c.type ?? ""] ?? c.type ?? t("原因")}{n === 0 ? t(" · 首要原因") : ""}</span>
             {(c.errors ?? []).map((p, j) => <span key={j} className="av-claim__bad">{p}</span>)}
           </span>
           <span className={`av-cause__dir is-${c.direction}`}>{c.direction === "up" ? "↑" : c.direction === "down" ? "↓" : ""}</span>
@@ -309,7 +310,7 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
           <span className="av-claim__refs">{(c.evidence ?? []).map((ref) => <a key={ref} className="av-tag av-mono" href={`#dataset-${ref}`}>{ref}</a>)}</span>
         </li>;
       })}
-    </ol> : <p className="av-caption">{conclusion === "no_material_change" ? "两期相比没有实质变化，不给出原因" : "证据不足，不给出原因排序"}</p>}
+    </ol> : <p className="av-caption">{conclusion === "no_material_change" ? t("两期相比没有实质变化，不给出原因") : t("证据不足，不给出原因排序")}</p>}
   </section>;
 }
 
@@ -319,12 +320,12 @@ function LookupAnswer({ a }: { a: Answer }) {
   const intent = (a.intent ?? {}) as AskIntent;
   const single = result.rows?.length === 1 && result.columns?.length === 1;
   return (
-    <section className="av-doc__section" aria-label="结果">
+    <section className="av-doc__section" aria-label={t("结果")}>
       {single ? <div className="av-lookup__value"><span>{resultCell(result.rows![0][0], result.columns![0])}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
       {!single && result.rows?.length ? <ResultTable result={result} dimensions={intent.group_by ?? []} /> : null}
-      <details className="av-doc__more"><summary>口径、来源与 SQL</summary><Evidence a={a} /></details>
+      <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
     </section>
   );
 }
@@ -334,7 +335,7 @@ function RunDetail({ id }: { id: string }) {
   const tz = useTimeZone();
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
-  if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
+  if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text={t("加载中…")} compact />;
   const r = run.data;
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[];
@@ -351,7 +352,7 @@ function RunDetail({ id }: { id: string }) {
   const sources = verification.sources ?? {};
   const composition = [
     ...Object.entries(sources.direct ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `${SOURCE_LABEL[k] ?? k} ${n}`),
-    ...([["with_explore", "含探索"], ["assumption", "假设"], ["failed", "渲染失败"]] as const)
+    ...([["with_explore", t("含探索")], ["assumption", t("假设")], ["failed", t("渲染失败")]] as const)
       .filter(([k]) => sources[k]).map(([k, label]) => `${label} ${sources[k]}`),
   ].join(" · ");
   const badFields = (verification.fields ?? []).filter((f) => f.status === "unverified");
@@ -370,9 +371,9 @@ function RunDetail({ id }: { id: string }) {
         <div className="av-doc__titles">
           <h1>{report.title && done ? <Segments segments={report.fields?.title?.segments} text={report.title} /> : r.question}</h1>
           <p className="av-doc__sub">
-            {win?.start ? <span className="av-mono">{win.start} ~ {win.end}{win.compare_start ? `　对比 ${win.compare_start} ~ ${win.compare_end}` : ""}</span> : null}
+            {win?.start ? <span className="av-mono">{win.start} ~ {win.end}{win.compare_start ? t("　对比 {{compare_start}} ~ {{compare_end}}", { compare_start: win.compare_start, compare_end: win.compare_end }) : ""}</span> : null}
             <span>{formatTime(r.created_at, tz)}</span>
-            {hitl.parent_run_id ? <Link to={`/analysis/runs/${hitl.parent_run_id}`}>续问自上一次分析</Link> : null}
+            {hitl.parent_run_id ? <Link to={`/analysis/runs/${hitl.parent_run_id}`}>{t("续问自上一次分析")}</Link> : null}
           </p>
         </div>
         <div className="av-doc__actions">
@@ -386,32 +387,32 @@ function RunDetail({ id }: { id: string }) {
       {r.steps?.length || live ? <RunTranscript run={r} live={live} footer={<>
         {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
         <p className="av-caption av-doc__meta">
-          <span>模型 {r.model_adapter ?? "—"}</span>
-          {budget.used ? <span>模型请求 {budget.used.model_requests}/{budget.limits?.model_requests} · 工具 {budget.used.tool_calls}/{budget.limits?.tool_calls} · 查询 {budget.used.queries}/{budget.limits?.queries} · {budget.used.seconds}s</span> : null}
+          <span>{t("模型")} {r.model_adapter ?? "—"}</span>
+          {budget.used ? <span>{t("模型请求")} {budget.used.model_requests}/{budget.limits?.model_requests} {t("· 工具")} {budget.used.tool_calls}/{budget.limits?.tool_calls} {t("· 查询")} {budget.used.queries}/{budget.limits?.queries} · {budget.used.seconds}s</span> : null}
         </p></>} /> : null}
-      {r.status === "failed" ? <div className="av-banner av-banner--danger">分析失败：{r.error}</div> : null}
-      {r.status === "clarify" ? <div className="av-banner av-banner--info">需要澄清：{report.summary}</div> : null}
-      {stopped ? <div className="av-banner av-banner--info">已停止，下面是停止前已经得到的部分结果</div> : null}
+      {r.status === "failed" ? <div className="av-banner av-banner--danger">{t("分析失败：")}{r.error}</div> : null}
+      {r.status === "clarify" ? <div className="av-banner av-banner--info">{t("需要澄清：")}{report.summary}</div> : null}
+      {stopped ? <div className="av-banner av-banner--info">{t("已停止，下面是停止前已经得到的部分结果")}</div> : null}
       {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
       {(done || stopped) && !lookup ? <>
-        <section className="av-doc__summary" aria-label="摘要">
+        <section className="av-doc__summary" aria-label={t("摘要")}>
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
           <div className="av-doc__verdict">
             {reportStatus ? <Pill tone={reportStatus[1]}>{reportStatus[0]}</Pill> : null}
-            {composition ? <span className="av-caption">数字来源 {composition}</span> : null}
+            {composition ? <span className="av-caption">{t("数字来源")} {composition}</span> : null}
           </div>
         </section>
-        {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实或计算未通过来源校验，已在“结论依据”里标出</div> : null}
+        {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">{t("有 {{count}} 条事实或计算未通过来源校验，已在“结论依据”里标出", { count: verification.unverified })}</div> : null}
         {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
-          {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
+          {FIELD_LABEL[f.field] ?? f.field}{t("未通过检查：")}{(f.problems ?? []).join(t("；"))}</div>)}
         <Causes causes={report.causes} conclusion={report.conclusion} />
         <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
           onPick={(text) => setSeed({ text, n: (seed?.n ?? 0) + 1 })} />
         <details className="av-fold" open={!!(verification.ok === false && verification.unverified)}>
-          <summary>结论依据 <span className="av-caption">{report.claims?.length ?? 0} 条事实、计算与推断</span></summary>
+          <summary>{t("结论依据")} <span className="av-caption">{report.claims?.length ?? 0} {t("条事实、计算与推断")}</span></summary>
           <ol className="av-claims">
             {(report.claims ?? []).map((c, i) => {
               const check = checks.get(i);
@@ -419,12 +420,12 @@ function RunDetail({ id }: { id: string }) {
               const bad = strict && check?.status === "unverified";
               return (
                 <li key={i} className={`av-claim is-${c.type}${bad ? " is-unverified" : ""}`}>
-                  <span className="av-claim__type" title={strict ? (bad ? "来源未通过" : "来源已校验") : "推断 / 建议，未核实"}>
+                  <span className="av-claim__type" title={strict ? (bad ? t("来源未通过") : t("来源已校验")) : t("推断 / 建议，未核实")}>
                     {TYPE_LABEL[c.type] ?? c.type}</span>
                   <div className="av-claim__body">
                     <span><Segments segments={c.segments} text={c.text} /></span>
-                    {c.premise ? <span className="av-caption">前提：<Segments segments={c.details?.premise?.segments} text={c.premise} /></span> : null}
-                    {c.validation ? <span className="av-caption">验证方式：<Segments segments={c.details?.validation?.segments} text={c.validation} /></span> : null}
+                    {c.premise ? <span className="av-caption">{t("前提：")}<Segments segments={c.details?.premise?.segments} text={c.premise} /></span> : null}
+                    {c.validation ? <span className="av-caption">{t("验证方式：")}<Segments segments={c.details?.validation?.segments} text={c.validation} /></span> : null}
                     {bad ? (check?.problems ?? []).map((p, j) => <span key={j} className="av-claim__bad">{p}</span>) : null}
                   </div>
                   <span className="av-claim__refs">{(c.refs ?? []).map((ref) => (
@@ -433,14 +434,13 @@ function RunDetail({ id }: { id: string }) {
               );
             })}
           </ol>
-          {report.notes?.length ? <p className="av-caption">{report.notes.join("；")}</p> : null}
+          {report.notes?.length ? <p className="av-caption">{report.notes.join(t("；"))}</p> : null}
         </details>
         <SourcesPanel items={report.sources} experiences={report.experience_versions} />
       </> : null}
       {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
-        <section className="av-analysis__joins" aria-label="关联路径">
-          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />你确认的 {r.join_candidates.length} 条关联已提交为关联路径，
-            负责人审核通过后所有分析都能用。<Link to="/catalog/joins">查看</Link></p> : null}
+        <section className="av-analysis__joins" aria-label={t("关联路径")}>
+          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />{t("你确认的 {{count}} 条关联已提交为关联路径， 负责人审核通过后所有分析都能用。", { count: r.join_candidates.length })}<Link to="/catalog/joins">{t("查看")}</Link></p> : null}
           {r.checkpoint_warnings?.map((w) => <div key={w} className="av-banner av-banner--warn" role="status"><Icon name="info" />{w}</div>)}
         </section>
       ) : null}
@@ -471,9 +471,9 @@ function Datasets({ id }: { id: string }) {
   const main = useOpenDataset();
   return (
     <div className="av-evidence">
-      <header className="av-evidence__hd"><h2>证据</h2><span className="av-caption">{datasets.length} 个数据集</span></header>
+      <header className="av-evidence__hd"><h2>{t("证据")}</h2><span className="av-caption">{t("{{count}} 个数据集", { count: datasets.length })}</span></header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {!datasets.length ? <Empty text="分析产生的数据集显示在这里" compact /> : null}
+      {!datasets.length ? <Empty text={t("分析产生的数据集显示在这里")} compact /> : null}
       {datasets.map((d) => {
         const [label, tone] = KIND_LABEL[d.kind] ?? [d.kind, "info"];
         const isOpen = open.has(d.ref);
@@ -489,7 +489,7 @@ function Datasets({ id }: { id: string }) {
               <Pill tone={tone}>{label}</Pill>
               <Icon name="chevron" small />
             </button>
-            {isOpen && d.restricted ? <div className="av-dataset__bd"><span className="av-caption">你已没有该数据的访问权限</span></div>
+            {isOpen && d.restricted ? <div className="av-dataset__bd"><span className="av-caption">{t("你已没有该数据的访问权限")}</span></div>
               : isOpen ? <div className="av-dataset__bd">
               <DatasetChart d={d} />
               <div className="av-table-wrap"><table className="av-table av-dataset__table">
@@ -497,14 +497,14 @@ function Datasets({ id }: { id: string }) {
                 <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className="av-mono">{v == null ? "—" : String(v)}</td>)}</tr>)}</tbody>
               </table></div>
               <div className="av-dataset__ft">
-                <span className="av-caption">{d.row_count} 行{d.inputs?.length ? ` · 输入 ${d.inputs.join("、")}` : ""}</span>
+                <span className="av-caption">{t("{{count}} 行", { count: d.row_count })}{d.inputs?.length ? t(" · 输入 {{v1}}", { v1: d.inputs.join(t("、")) }) : ""}</span>
                 <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-pressed={main.ref === d.ref}
-                  onClick={() => main.open(d.ref)}><Icon name="fit" small />展开</button>
+                  onClick={() => main.open(d.ref)}><Icon name="fit" small />{t("展开")}</button>
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => download(
                   `/api/analysis/runs/${id}/datasets/${d.seq}/csv`, `analysis-${id}-${d.ref}.csv`).catch((e) => setError(errorText(e)))}>
                   <Icon name="download" />CSV</button>
               </div>
-              {d.sql ? <details><summary className="av-caption">SQL 与口径版本</summary><Code sql={d.sql} /></details> : null}
+              {d.sql ? <details><summary className="av-caption">{t("SQL 与口径版本")}</summary><Code sql={d.sql} /></details> : null}
             </div> : null}
           </section>
         );
@@ -525,23 +525,23 @@ function TaskList() {
   return (
     <section className="av-analysis__table">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {tasks.isSuccess && !list.length ? <Empty text="还没有定时任务：新建分析时点“定时”保存" compact /> : null}
-      {list.map((t: Task) => (
-        <div key={t.id} className="av-row av-task">
-          <span className="av-row__main"><span className="av-row__title">{t.title}</span>
-            <span className="av-row__meta">{t.question}</span>
-            <span className="av-caption" title={t.schedule_cron ?? undefined}>{describeCron(t.schedule_cron)}{t.next_run_at ? ` · 下次 ${formatTime(t.next_run_at, tz)}` : ""}
-              {(t.window as { kind?: string }).kind === "last_month" ? " · 上月对比前月" : ""}</span>
-            {t.paused_reason ? <span className="av-caption av-claim__bad">已暂停：{t.paused_reason}</span> : null}</span>
-          <Status value={t.status === "active" ? "active" : "paused"} label={t.status === "active" ? "启用" : "暂停"} />
+      {tasks.isSuccess && !list.length ? <Empty text={t("还没有定时任务：新建分析时点“定时”保存")} compact /> : null}
+      {list.map((task: Task) => (
+        <div key={task.id} className="av-row av-task">
+          <span className="av-row__main"><span className="av-row__title">{task.title}</span>
+            <span className="av-row__meta">{task.question}</span>
+            <span className="av-caption" title={task.schedule_cron ?? undefined}>{describeCron(task.schedule_cron)}{task.next_run_at ? t(" · 下次 {{v1}}", { v1: formatTime(task.next_run_at, tz) }) : ""}
+              {(task.window as { kind?: string }).kind === "last_month" ? t(" · 上月对比前月") : ""}</span>
+            {task.paused_reason ? <span className="av-caption av-claim__bad">{t("已暂停：")}{task.paused_reason}</span> : null}</span>
+          <Status value={task.status === "active" ? "active" : "paused"} label={task.status === "active" ? t("启用") : t("暂停")} />
           <span className="av-actions">
-            {t.last_run_id ? <Link className="av-btn av-btn--ghost av-btn--sm" to={`/analysis/runs/${t.last_run_id}`}>最近一次</Link> : null}
+            {task.last_run_id ? <Link className="av-btn av-btn--ghost av-btn--sm" to={`/analysis/runs/${task.last_run_id}`}>{t("最近一次")}</Link> : null}
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={runNow.isPending}
-              onClick={() => runNow.mutate(t.id, { onError: (e) => setError(errorText(e)), onSuccess: () => setError(null) })}>
-              <Icon name="play" />{runNow.isPending ? "运行中…" : "立即运行"}</button>
+              onClick={() => runNow.mutate(task.id, { onError: (e) => setError(errorText(e)), onSuccess: () => setError(null) })}>
+              <Icon name="play" />{runNow.isPending ? t("运行中…") : t("立即运行")}</button>
             <button type="button" className="av-btn av-btn--ghost av-btn--sm"
-              onClick={() => patch.mutate({ id: t.id, status: t.status === "active" ? "paused" : "active" }, { onError: (e) => setError(errorText(e)) })}>
-              {t.status === "active" ? "暂停" : "启用"}</button>
+              onClick={() => patch.mutate({ id: task.id, status: task.status === "active" ? "paused" : "active" }, { onError: (e) => setError(errorText(e)) })}>
+              {task.status === "active" ? t("暂停") : t("启用")}</button>
           </span>
         </div>
       ))}
