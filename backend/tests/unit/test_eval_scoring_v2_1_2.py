@@ -2,8 +2,6 @@
 
 from copy import deepcopy
 from decimal import Decimal
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 
 import pytest
 
@@ -366,85 +364,6 @@ def test_failed_permission_denial_keeps_v211_rule_even_with_primary_and_key_valu
         assert result["passed"] is result["policy_passed"] is passed
 
 
-@pytest.fixture(scope="module")
-def rescore_module():
-    """只导入纯函数，不运行读取评测文件或写输出的 main。"""
-    path = Path(__file__).resolve().parents[3] / "experiments" / "agent-v2" / "rescore_v2_1_2.py"
-    spec = spec_from_file_location("test_rescore_v2_1_2", path)
-    assert spec is not None and spec.loader is not None
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_rescore_compares_v211_v212_with_handwritten_result(rescore_module):
-    question, run = metric_question(), explain_run()
-    saved = {"results": [{"scenario": "handwritten", "condition": "D2", "repeat": 2, "run": run}]}
-    original = deepcopy((question, saved))
-    result = rescore_module.score_file(saved, "e1:handwritten.json", {"handwritten": question},
-                                      {"handwritten": deepcopy(question)}, v211, v212)
-    row = result["rows"][0]
-    assert row["audit_key"] == "handwritten:D2:2"
-    assert row["v2_1_1"]["key_value_hit"] is False
-    assert row["v2_1_2"]["key_value_hit"] is True
-    assert result["summary"]["v2_1_1"]["passed"]["hits"] == 0
-    assert result["summary"]["v2_1_2"]["passed"]["hits"] == 1
-    assert result["summary"]["changed"] == 1
-    assert any("关键数值" in reason for reason in row["reasons"])
-    assert (question, saved) == original
-
-
-def test_rescore_markdown_gives_each_e1_or_e2_file_its_own_section(rescore_module):
-    question = metric_question()
-    saved = {"results": [{"scenario": "handwritten", "condition": "D2", "repeat": 1, "run": explain_run()}]}
-    sources = ["e1:first.json", "runs:second.json"]
-    files = [rescore_module.score_file(saved, source, {"handwritten": question},
-                                      {"handwritten": deepcopy(question)}, v211, v212)
-             for source in sources]
-    summary = {"overall": rescore_module.summarize([row for saved in files for row in saved["rows"]]),
-               "sha256": {"scoring_v2_1_2.py": "handwritten-digest"}, "audit": None}
-    text = rescore_module.markdown(files, summary)
-    for source in sources:
-        assert text.count(f"## {source}\n") == 1
-    assert text.index("## e1:first.json") < text.index("## runs:second.json")
-    assert "v2.1.1 通过" in text and "v2.1.2 通过" in text
-    assert "运行 2 次" in text
-
-
 def audit_row(key, hit, source="e1:handwritten.json"):
     return {"audit_key": key, "source": source, "v2_1_2": {"primary_hit": hit}}
 
-
-def test_rescore_audit_only_uses_e1_and_defaults_unlisted_e1_to_false(rescore_module):
-    rows = [audit_row("listed:D2:1", False), audit_row("unlisted:D2:1", True),
-            audit_row("weak:D2:1", True),
-            audit_row("listed:D2:1", True, "runs:e2.json"),
-            audit_row("unlisted:D2:1", False, "runs:e2.json"),
-            audit_row("only_e2:D2:1", False, "runs:e2.json")]
-    audit = {"listed:D2:1": {"original": True, "corrected": True},
-             "weak:D2:1": {"original": "weak", "corrected": "weak"},
-             "only_e2:D2:1": {"original": True, "corrected": True}}
-    result = rescore_module.audit_primary(rows, audit)
-    assert result["matched"] == 3
-    assert result["unmatched_audit_keys"] == ["only_e2:D2:1"]
-    assert result["unreviewed_run_keys"] == ["unlisted:D2:1"]
-    for field in ("original", "corrected"):
-        assert result[field]["scored"] == 3
-        assert result[field]["false_positive_count"] == 2
-        assert result[field]["false_negative_count"] == 1
-        positives = {entry["key"]: entry for entry in result[field]["false_positives"]}
-        assert positives["unlisted:D2:1"]["human"] is positives["unlisted:D2:1"]["recorded"] is False
-        assert all(entry["sources"] == ["e1:handwritten.json"] for entry in positives.values())
-        assert result[field]["false_negatives"][0]["key"] == "listed:D2:1"
-
-
-@pytest.mark.parametrize("meta,path,expected", [
-    ({"material": "e1_injections.yaml"}, Path("archive/e2/runs.json"), True),
-    ({"material": "experiments/agent-v2/e1_injections.yaml"}, Path("archive/runs.json"), True),
-    ({}, Path("archive/e1/runs.json"), True),
-    ({"material": "e2_schema.yaml"}, Path("archive/e2/runs.json"), False),
-    ({"material": "e2_schema.yaml"}, Path("archive/e1/runs.json"), False),
-    ({}, Path("archive/other/runs.json"), False),
-])
-def test_rescore_recognizes_e1_material_and_archive_path(rescore_module, meta, path, expected):
-    assert rescore_module._is_e1({"meta": meta}, path) is expected

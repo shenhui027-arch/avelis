@@ -42,10 +42,6 @@ Architecture decision records are kept in their original Simplified Chinese only
 | [0012](decisions/0012-analysis-pipeline-system-assembled-context.md) | Analysis pipeline: the system assembles context, the model reasons in few rounds |
 | [0013](decisions/0013-accuracy-from-governed-metadata.md) | Conversational confirmation and learning from experience |
 
-## Archive
-
-[archive/](archive/) (Simplified Chinese) keeps the v0.1 development plan, milestone acceptance records and analysis-agent experiment records as evidence for design and acceptance. They are no longer maintained.
-
 ## Glossary
 
 The full three-language glossary is in the [documentation guide](documentation-guide.en.md#terminology).

@@ -4,7 +4,7 @@
 
 Avelis 的設定可以寫在**設定檔**（TOML）裡，也可以用 **`AVELIS_*` 環境變數**或 **`.env` 檔案**設定。生產部署推薦設定檔；本地開發沿用儲存庫根目錄的 `.env`。
 
-## 1. 載入順序
+## 載入順序
 
 同一項在多處出現時，按以下優先順序取值（高 → 低）：
 
@@ -27,7 +27,7 @@ docker compose run --rm app python -m avelis.config check          # Docker 部�
 
 輸出每一項的生效值與來源（環境變數 / .env / 設定檔 / 預設），密碼與金鑰顯示為 `******`。啟動時同樣會校驗：缺必填項或格式錯誤時列印中文說明（哪一項、當前來自哪裡、怎麼改）並以退出碼 2 退出，不列印堆疊。
 
-## 2. 敏感項
+## 敏感項
 
 密碼與金鑰允許明文寫在設定檔裡，但請注意：
 
@@ -42,9 +42,9 @@ docker compose run --rm app python -m avelis.config check          # Docker 部�
 | 環境變數明文 | `AVELIS_DB_PASSWORD=…` |
 | 環境變數檔案引用 | `AVELIS_DB_PASSWORD_FILE=/run/secrets/avelis_db_password` |
 
-支援檔案引用的項：`AVELIS_SECRET`、`AVELIS_DB_PASSWORD`、`AVELIS_REDIS_PASSWORD`、`AVELIS_INITIAL_ADMIN_PASSWORD`、`AVELIS_MODEL_API_KEY`、`AVELIS_DATABASE_URL`、`AVELIS_REDIS_URL`。同一層裡明文與檔案引用同時出現會報錯；不同層之間按第 1 節的優先順序覆蓋（例如環境變數 `AVELIS_DB_PASSWORD_FILE` 覆蓋設定檔裡的明文）。
+支援檔案引用的項：`AVELIS_SECRET`、`AVELIS_DB_PASSWORD`、`AVELIS_REDIS_PASSWORD`、`AVELIS_INITIAL_ADMIN_PASSWORD`、`AVELIS_MODEL_API_KEY`、`AVELIS_DATABASE_URL`、`AVELIS_REDIS_URL`。同一層裡明文與檔案引用同時出現會報錯；不同層之間按[載入順序](#載入順序)的優先順序覆蓋（例如環境變數 `AVELIS_DB_PASSWORD_FILE` 覆蓋設定檔裡的明文）。
 
-## 3. 設定項
+## 設定項
 
 「設定檔」一列是 TOML 中的 `[節] 鍵`。「必填」指沒有可用預設值、必須由部署者填寫的項。
 
@@ -184,7 +184,7 @@ Redis 協議服務（Redis、Valkey 均可）。優先順序：`url` → 分項�
 | `AVELIS_PG_PORT`、`AVELIS_PG_PASSWORD` | 本地示範中繼資料庫（未設定 `[database]` 時使用） |
 | `AVELIS_DEMO_USER_PASSWORD`、`AVELIS_ADMIN_PASSWORD` | 本地示範帳號與本地超級管理員（只用於開發，見 [development.md](development.zh-TW.md)） |
 
-## 4. Docker 部署的編排引數
+## Docker 部署的編排引數
 
 `deploy/docker/.env`（可選，模板 `.env.example`）只放 Compose 自身的引數，不放應用設定：
 

@@ -68,7 +68,7 @@
 
 ### 2. 分析图（LangGraph）
 
-```
+```text
 计划 plan ──▶ 执行 act（工具循环，带预算）──▶ 综合 synthesize ──▶ 核验 verify ──▶ 报告
    ▲              │ 需要用户补充（interrupt）
    └──── 修订 ◀───┘ 中间结果推翻假设时回到计划

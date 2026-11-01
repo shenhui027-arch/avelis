@@ -7,9 +7,9 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 - 每个答案都要有来源、口径、版本和权限依据。
 - 上游变化后，系统知道哪些口径和答案需要重新确认，并由**后端**阻止受影响的口径继续被使用。
 
-本文说明系统由哪些部分组成、数据怎么流动、治理规则在哪里生效。开发过程中的范围与里程碑见[开发计划（归档）](archive/PLAN.md)；设计决定见 [decisions/](decisions/)。
+本文说明系统由哪些部分组成、数据怎么流动、治理规则在哪里生效。设计决定见 [decisions/](decisions/)。
 
-## 1. 组成
+## 组成
 
 ```mermaid
 flowchart LR
@@ -51,20 +51,20 @@ flowchart LR
 | 后台任务 | job 表是事实来源，Redis 只负责唤醒；定时采集；积压扫描；运行超时记为失败 | `jobs.py` |
 | 认证与审计 | OAuth2 密码模式 + PyJWT、pwdlib（Argon2）、Fernet 加密数据源口令；所有治理动作写审计 | `security.py`、`audit.py`（[ADR 0002](decisions/0002-backend-foundations.md)） |
 
-## 2. 四层数据模型
+## 四层数据模型
 
 | 层 | 表 | 含义 |
 |---|---|---|
 | 身份 | `datasource`、`endpoint_alias`、`asset`、`asset_column` | “是哪个东西”。资产按物理 ID（StarRocks `TABLE_ID`）识别：改名仍是同一资产；删后同名重建是新资产。列删除后同名重建也是新列 |
-| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL。只追加，在哈希链上（3.6） |
+| 观察 | `collection_run`、`asset_version`、`column_version`、`definition` | “某次采集看到了什么”。内容不变不产生新版本；视图定义保存原文与规范化 SQL。只追加，在哈希链上（见[观察层与留底](#观察层与留底)） |
 | 推导 | `parse_result`、`lineage_edge`、`identity_link`、`column_fingerprint`、`grain` | “由观察推出的结论”。每条边记录来源：`parsed`、`manual`、`import`、`model_confirmed` 等。外部表经端点别名与实例身份追到他库真实表 |
 | 治理 | `metric`、`metric_version`、`join_path`、`confirmation`、`change_set` / `change_event`、`impact`、`review_task`、`audit_event` | “业务上认可了什么、谁认可的”。这一层只由人或确定性规则改变，模型不能直接改 |
 
 问数与导入另有 `ask_thread`、`answer`、`import_job`、`extracted_statement`、`candidate_edge` 等表。留底另有 `history_chain_head`（链头）、`history_mark`（状态列的合法变化）、`history_anchor`（清理锚点）。
 
-## 3. 关键机制
+## 关键机制
 
-### 3.1 字段推导指纹
+### 字段推导指纹
 
 每个字段有一个指纹，概括“这个值是怎么算出来的”：
 
@@ -79,7 +79,7 @@ flowchart LR
 
 指纹状态有三种：`ok`；`broken`（上游缺失）；`unknown`（证据不全，例如 UNION 视图、未采集的来源）。
 
-### 3.2 两条状态线
+### 两条状态线
 
 指标版本发布时，绑定它依赖的每个字段的指纹。问数执行前要同时满足两条：
 
@@ -94,7 +94,7 @@ flowchart LR
 
 在复核完成前，即使问题与之前完全相同、缓存里有旧答案，也会被后端拦截。
 
-### 3.3 粒度与关联基数
+### 粒度与关联基数
 
 粒度有五种来源：
 
@@ -106,7 +106,7 @@ flowchart LR
 
 关联路径的基数（N:1、1:N、N:N）由两侧粒度判定。可加度量经 1:N 或 N:N 关联会放大，这种指标不能发布，除非右侧先按关联键聚合。
 
-### 3.4 问数管线
+### 问数管线
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ flowchart LR
   - 环比 / 同比。
 - 组合问题（多个指标、对比期、派生指标）展开为“指标 × 时间段”的子查询。每个子查询都走下图的完整管线；全部通过后，后端按维度键对齐，计算派生公式与对比列，再排序、取前 N（[ADR 0005](decisions/0005-ask-expressiveness.md)）。
 - 派生指标（如客单价 = 实付销售额 / 订单数）在提交时锁定组成指标的版本；组成指标受影响时，派生指标随之受影响并进入复核。
-- 意图中的指标必须对当前用户可见；维度必须是该指标开放的维度；取值只会成为转义后的常量。伪造或注入的意图被拒绝或无害化，见[异常与加固验收（归档）](archive/acceptance/acceptance-m4.md)的场景 02、03。
+- 意图中的指标必须对当前用户可见；维度必须是该指标开放的维度；取值只会成为转义后的常量。伪造或注入的意图被拒绝或无害化。
 - **执行前核对（元数据过期）**：轮询采集之间，库侧可能已经变了。所以每次执行前（包括命中缓存时），都用只读账号读取来源对象当前的列和视图定义，与上次采集比较：
   - 只看口径实际依赖的列，沿血缘一直展开到实体表；无关列的增删不拦截；
   - 视图定义一变就拦截；
@@ -138,7 +138,7 @@ flowchart LR
 - 答案缓存键包含：SQL、版本、依赖指纹、资产版本、权限范围、表更新时间。
 - 按时间分组：意图可带 `time_grain`（day / month），结果首列为 `period`，日期格式化由 SQLGlot 按方言生成；不能与对比期同用。
 
-### 3.5 分析智能体
+### 分析智能体
 
 ```mermaid
 flowchart LR
@@ -158,9 +158,9 @@ flowchart LR
 - 报告可导出为 PDF（嵌入中文字体，含图表与证据附录）、Markdown、数据集 CSV。
 - 需要模型支持工具调用，并允许向模型发送查询结果（默认允许；需保密请接入本地模型）。设计见 [ADR 0007](decisions/0007-analysis-agent.md)。
 
-### 3.6 观察层与留底
+### 观察层与留底
 
-变更历史只在元数据与血缘治理层留底；问数层只看当前结构，不按旧口径查询（[ADR 0008](decisions/0008-history-integrity.md)）。
+变更只在元数据与血缘治理层留底；问数层只看当前结构，不按旧口径查询（[ADR 0008](decisions/0008-history-integrity.md)）。
 
 ```mermaid
 flowchart LR
@@ -183,7 +183,7 @@ flowchart LR
 - **哈希链**：一条全局链，提交时由约束触发器封链：`row_hash = sha256(prev_hash | chain_seq | 表名 | 内容摘要)`。只有一把链锁，只在提交阶段持有。核验（`GET /api/history/verify`、`bootstrap verify-history`）报告第一处断链与全部问题。
 - **保留期**：`AVELIS_HISTORY_RETENTION_DAYS`（默认 1095 天）。worker 每天清理一次：先核验，链不完整就不清理；不删当前版本、被非终态口径引用的版本、未处理的变更集；删除只走事务内 `avelis.history_purge = on` 的专用路径，链上留下清理锚点（登记序号空洞及两端哈希），剩余的链仍可核验；清理写审计。
 
-## 4. 治理规则
+## 治理规则
 
 | 规则 | 默认 | 在哪里生效 |
 |---|---|---|
@@ -198,7 +198,7 @@ flowchart LR
 | 审计 | 发布、批准、复核、导入处理、采集、问数（含被拒绝的）、变更记录导出、链核验、保留期清理都写审计 | `audit_event` |
 | 留底 | 历史表只追加（触发器）；哈希链可核验；默认保留 3 年；变更归因只取数据库审计里能唯一确定的用户 | `history/`、迁移 `0007` |
 
-## 5. 运行
+## 运行
 
 - **进程**：API（`python -m avelis.server`，生产模式下同一端口托管前端）与 worker（`python -m avelis.jobs`）是两个独立进程，共用元数据库与 Redis。部署方式见 [deployment.md](deployment.md)，配置见 [configuration.md](configuration.md)。
 - **采集**：worker 按数据源的采集间隔（默认 15 分钟）轮询入队。也可以在界面或接口里手动采集。
@@ -209,7 +209,7 @@ flowchart LR
   - worker 在执行中退出时，任务超过 `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS` 会被记为失败，不会让该数据源的定时采集永久停止。
 - **智能体会话**：存在 PostgreSQL 模式 `avelis_agent`，服务重启后能继续追问。该模式被删除时自动重建，但原会话的追问状态不可恢复。
 
-## 6. 已知边界
+## 已知边界
 
 - StarRocks 结论只来自本机 Docker 3.5.14 单节点；不连接任何生产库。
 - 引擎能力只声明真实联调过的部分。MySQL 目前只采元数据，并作为外部表的追溯目标。后续只接入 SQLGlot 支持方言的引擎。

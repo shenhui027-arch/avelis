@@ -26,7 +26,7 @@ uv run python -m avelis.jobs                   # background worker: collection j
 uv run python -m avelis.config check           # show the effective configuration and sources (passwords masked)
 AVELIS_FRONTEND_DIR=frontend/dist uv run python -m avelis.server  # run on one port like production (run pnpm build first)
 uv run pytest                                  # unit tests
-uvx ruff@0.17.3 check .                        # lint (rules in pyproject.toml; run again at the repository root for scripts and experiments)
+uvx ruff@0.17.3 check .                        # lint (rules in pyproject.toml; run again at the repository root for scripts)
 uv run pytest -m acceptance                    # acceptance tests (reset the demo databases and the metadata database)
 uv run python -m avelis.bootstrap demo --reset # demo walkthrough: reset, then create users, business domains and data sources via the API and run the first collection
 ```
@@ -42,7 +42,7 @@ uv run python -m avelis.bootstrap demo --reset # demo walkthrough: reset, then c
   It needs a real model with tool calling; see [ADR 0007](decisions/0007-analysis-agent.md) (Simplified Chinese). Load the synthetic e-commerce demo dataset with `uv run scripts/ec_data.py load`; `bootstrap demo` picks it up automatically.
 - **Model settings**: managed on the **设置 → 模型配置** (Settings → Models) page. Supports DeepSeek, OpenAI, Anthropic, Qwen and custom OpenAI-compatible endpoints. Keys are stored encrypted and only the last four characters are shown; the connection test checks tool calling; models are assigned per purpose. By default, query results and redacted code snippets are sent to the model (analysis needs them); this can be turned off on the same page, and a local model is recommended when data must stay private. During development, `uv run python -m avelis.bootstrap model` registers the `AVELIS_MODEL_*` values from `.env`.
 - **Lineage import**: upload SQL files, paste SQL, or upload Python / Shell code. Parsed edges are written directly (and can be edited); fragments that cannot be parsed become model candidates that a person must accept, edit or reject.
-- **Database engines**: each database is an adapter in `avelis.engines` (connector, SQL dialect, asset name levels, capability declaration), and core modules never branch on database type; see `GET /api/engines`. Registered today: StarRocks, PostgreSQL, ClickHouse, SQL Server, Oracle and Doris (collection, view lineage, Ask, pre-query schema check), and MySQL (collection, as the target of external tables). Start the demo databases for the additional engines with `uv run scripts/demo.py up --engines`; per-engine acceptance records are in the [additional engines acceptance (archived, Simplified Chinese)](archive/acceptance/acceptance-m7.md). How to add a database: [ADR 0004](decisions/0004-engine-adapters.md) (Simplified Chinese).
+- **Database engines**: each database is an adapter in `avelis.engines` (connector, SQL dialect, asset name levels, capability declaration), and core modules never branch on database type; see `GET /api/engines`. Registered today: StarRocks, PostgreSQL, ClickHouse, SQL Server, Oracle and Doris (collection, view lineage, Ask, pre-query schema check), and MySQL (collection, as the target of external tables). Start the demo databases for the additional engines with `uv run scripts/demo.py up --engines`. How to add a database: [ADR 0004](decisions/0004-engine-adapters.md) (Simplified Chinese).
 - **Pre-query schema check**: before every Ask execution (including cache hits), the source columns and view definitions are compared with the last collection; on a mismatch the query is blocked and a collection is queued (`AVELIS_ASK_LIVE_CHECK`, on by default).
 - **Column meaning**: database column comments are the source of truth; Avelis has no separate display names. Ask and the asset pages show column names and comments as they are and flag missing comments; data source details show comment coverage and a list of gaps (exportable), and the pre-publish check warns about missing comments (blocks when `AVELIS_REQUIRE_COLUMN_COMMENTS=true`); see [ADR 0006](decisions/0006-column-meaning-from-db-comments.md) (Simplified Chinese).
 - **Permissions**: assets are visible by business domain; assets without a business domain are visible only to administrators and maintainers by default (`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`).
@@ -151,10 +151,10 @@ Steps, in order:
 6. type-check and build the frontend;
 7. reset the demo environment to the start of story 1.
 
-The report is written to `.demo/acceptance-report.md`. When `.env` has a model key, 2 real-model cases run and the questions and metric metadata are sent to the configured model provider. Expected values and past results are in the [acceptance summary (archived, Simplified Chinese)](archive/acceptance/acceptance.md).
+The report is written to `.demo/acceptance-report.md`. When `.env` has a model key, 2 real-model cases run and the questions and metric metadata are sent to the configured model provider.
 
 ## Design
 
 - Design tokens: `frontend/design/tokens.json`; `pnpm gen:tokens` generates `frontend/src/styles/tokens.css`; component styles are in `frontend/src/styles/avelis-ui.css`.
-- Brand mark: the mark in use is `frontend/public/favicon.svg` and `frontend/src/components/Logo.tsx`; `design/brand/` keeps the earlier mark concepts.
+- Brand mark: the mark in use is `frontend/public/favicon.svg` and `frontend/src/components/Logo.tsx`.
 - For how to write documentation, see the [documentation guide](documentation-guide.en.md).

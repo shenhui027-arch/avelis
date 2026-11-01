@@ -8,7 +8,7 @@
 
 | 文件 | 內容 |
 |---|---|
-| [介面導覽](product-tour.zh-TW.md) | 登入、工作臺、問數與分析會話、匯出、資料集、個人經驗、血緣、目錄、設定的截圖與說明 |
+| [介面導覽](product-tour.zh-TW.md) | 登入、工作台、問數與分析會話、匯出、資料集、個人經驗、血緣、目錄、設定的截圖與說明 |
 | [部署指南](deployment.zh-TW.md) | Docker Compose、外部 PostgreSQL / Redis、不用 Docker 部署、升級、備份、排障 |
 | [設定參考](configuration.zh-TW.md) | 設定檔與全部 `AVELIS_*` 環境變數、預設值與是否必填 |
 
@@ -41,10 +41,6 @@
 | [0011](decisions/0011-production-scale-context.md) | 生產規模下的按需上下文 |
 | [0012](decisions/0012-analysis-pipeline-system-assembled-context.md) | 分析流程改為「系統組裝上下文、模型少輪推理」 |
 | [0013](decisions/0013-accuracy-from-governed-metadata.md) | 對話式確認與經驗學習 |
-
-## 歸檔
-
-[archive/](archive/)（簡體中文）儲存 v0.1 開發過程中的計劃、里程碑驗收記錄與分析代理實驗記錄，作為設計與驗收的依據，不再維護。
 
 ## 術語
 

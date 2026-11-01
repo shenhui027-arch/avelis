@@ -1,8 +1,6 @@
 """评分器 v2.1.1 的三处离线回归：手写最小运行记录，不读取演示数据。"""
 
 from copy import deepcopy
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 
 import pytest
 import yaml
@@ -196,61 +194,6 @@ def test_same_spec_loader_requires_explicit_nonempty_truth():
         v211.load_questions(truth={})
 
 
-@pytest.fixture(scope="module")
-def rescore_module():
-    """只导入纯函数；不执行读取运行记录与写输出的 main。"""
-    path = Path(__file__).resolve().parents[3] / "experiments" / "agent-v2" / "rescore_v2_1_1.py"
-    spec = spec_from_file_location("test_rescore_v2_1_1", path)
-    assert spec is not None and spec.loader is not None
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_rescore_compares_v21_v211_with_handwritten_record(rescore_module):
-    question, run = mechanism_question(), run_record()
-    saved = {"results": [{"scenario": "d06", "condition": "D2", "repeat": 2, "run": run}]}
-    result = rescore_module.score_file(saved, "e1:handwritten.json", {"d06": question},
-                                      {"d06": deepcopy(question)}, v21, v211)
-    row = result["rows"][0]
-    assert row["audit_key"] == "d06:D2:2"
-    assert row["v2_1"]["primary_hit"] is row["v2_1"]["mechanism"]["hit"] is False
-    assert row["v2_1_1"]["primary_hit"] is row["v2_1_1"]["mechanism"]["hit"] is True
-    assert result["summary"]["v2_1_1"]["passed"]["hits"] == 1
-    assert result["summary"]["changed"] == 1
-    assert any("首要原因" in reason for reason in row["reasons"])
-
-
 def audit_row(key, hit, source="e1:handwritten.json"):
     return {"audit_key": key, "source": source, "v2_1_1": {"primary_hit": hit}}
 
-
-def test_rescore_audit_weak_unlisted_e1_and_duplicate_sources(rescore_module):
-    rows = [audit_row("d06:D2:1", True), audit_row("h01:D2:1", False),
-            audit_row("h02:D2:1", True), audit_row("h02:D2:1", True, "eval:handwritten.json"),
-            audit_row("h03:D2:1", False), audit_row("h04:D2:1", None),
-            audit_row("h05:D2:1", True, "eval:handwritten.json")]
-    audit = {"d06:D2:1": {"original": "weak", "corrected": "weak"},
-             "h01:D2:1": {"original": True, "corrected": True},
-             "h06:D2:1": {"original": False, "corrected": False}}
-    result = rescore_module.audit_primary(rows, audit)
-    assert result["matched"] == 5
-    for field in ("original", "corrected"):
-        assert result[field]["scored"] == 4
-        assert result[field]["false_positive_count"] == 2
-        assert result[field]["false_negative_count"] == 1
-        positives = {entry["key"]: entry for entry in result[field]["false_positives"]}
-        assert set(positives) == {"d06:D2:1", "h02:D2:1"}
-        assert positives["h02:D2:1"]["human"] is positives["h02:D2:1"]["recorded"] is False
-        assert len(positives["h02:D2:1"]["sources"]) == 2
-        assert result[field]["unscored"][0]["key"] == "h04:D2:1"
-    assert result["unmatched_audit_keys"] == ["h06:D2:1"]
-    assert result["unreviewed_run_keys"] == ["h02:D2:1", "h03:D2:1", "h04:D2:1", "h05:D2:1"]
-
-
-@pytest.mark.parametrize("listed", [False, True])
-def test_rescore_audit_conflicting_duplicates_raise_even_for_unlisted_e1(rescore_module, listed):
-    rows = [audit_row("d06:D2:1", True), audit_row("d06:D2:1", False, "eval:handwritten.json")]
-    audit = {"d06:D2:1": {"original": True, "corrected": True}} if listed else {}
-    with pytest.raises(ValueError, match="重复运行 primary_hit 不一致"):
-        rescore_module.audit_primary(rows, audit)
