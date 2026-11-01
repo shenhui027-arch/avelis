@@ -6,4 +6,4 @@
 |---|---|
 | StarRocks 3.5.14 | [starrocks.md](starrocks.md) |
 
-PostgreSQL、ClickHouse、SQL Server、Oracle、Doris 的核验结论记录在 [ADR 0004](../decisions/0004-engine-adapters.md) 与[更多引擎验收（归档）](../archive/acceptance/acceptance-m7.md)中。
+PostgreSQL、ClickHouse、SQL Server、Oracle、Doris、Hive 的核验结论记录在 [ADR 0004](../decisions/0004-engine-adapters.md) 与[更多引擎验收（归档）](../archive/acceptance/acceptance-m7.md)中。

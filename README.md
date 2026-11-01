@@ -54,6 +54,7 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
 
 StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md).
@@ -150,7 +151,6 @@ The full index is in [docs/README.md](docs/README.md). Most documents are in Sim
 
 Planned directions, without dates:
 
-- Hive engine (metadata and view lineage), in progress.
 - External catalogs and materialized views for more engines.
 - DDL attribution for StarRocks, SQL Server and Oracle.
 - Richer Q&A: nested derived metrics, week and month grains, share of total.
