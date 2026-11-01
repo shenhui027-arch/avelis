@@ -16,20 +16,20 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 | 环境检查 | 完成 | 见第 3 节 |
 | SQLGlot 方言与列级血缘核验 | 完成（临时脚本） | 见第 3 节；未进入仓库 |
 | 同类项目调研 | 完成 | OpenLineage、DataHub、OpenMetadata、Marquez、Dagster、MetricFlow、WrenAI、SuperSonic、SQLLineage；OA 工作台参考 ruoyi-vue-pro |
-| 设计系统 Avelis UI | 完成 v1 | https://claude.ai/artifact/A64c2HEAdLnzYuRbpe49BB |
-| 交互原型（8 页） | 完成 v3 | https://claude.ai/artifact/REhQcCU22GwMcFGen5prw3；示例数据仍为早期半导体场景，待换成电商数据 |
+| 设计系统 Avelis UI | 完成 v1 | 内部设计稿（未公开） |
+| 交互原型（8 页） | 完成 v3 | 内部设计稿（未公开）；示例数据仍为早期半导体场景，待换成电商数据 |
 | 私有仓库 | 完成 | https://github.com/shenhui027-arch/avelis |
 | M0 演示环境 | 完成，已运行验证 | 6 个容器一条命令起停；8 项验收基线全部通过；StarRocks 重启后自动恢复 |
-| M0 实机核验 | 完成，已运行验证 | 20 项，结论见 [starrocks-notes.md](starrocks-notes.md) |
-| M1 后端闭环 | 完成，已运行验证 | 四层数据模型与双库迁移；StarRocks + MySQL 采集；列级血缘、外部表身份映射、粒度、字段推导指纹；指标状态机、关联路径、变更 → 影响 → 复核；问数管线（演示适配器）+ 只读执行；认证与审计。`pytest -m acceptance` 在 PostgreSQL 与 MySQL 元数据库上各 9 项通过，见 [acceptance-m1.md](acceptance-m1.md)、[ADR 0002](decisions/0002-backend-foundations.md) |
-| M2 问数智能体与导入血缘 | 完成，已运行验证 | 元数据库收敛为 PostgreSQL；LangGraph 问数智能体（多轮追问、会话持久化、工具调用）；模型配置（提供方、检测、按用途指定、数据外发策略）；导入血缘（SQL / Python / Shell、动态 SQL 补参数、模型候选与人工处理）。验收 20 项通过（含真实 DeepSeek 两项），见 [acceptance-m2.md](acceptance-m2.md)、[ADR 0003](decisions/0003-postgres-agent-model-settings.md) |
-| M3 工作台界面 | 完成，已运行验证 | 工作台、血缘画布、导入、目录（指标 / 资产 / 业务域 / 关联路径）、变更、问数、设置（数据源 / 模型 / 用户）全部连真实后端；浏览器中走通故事 1–6、8、9 并截图 27 张，见 [acceptance-m3.md](acceptance-m3.md) |
-| M4 异常与加固 | 完成，已运行验证 | 故事 7 与 11 类异常场景（越权、伪造意图、注入、不支持的 SQL、超时、同名对象、外部表来源变化、worker 进程、会话存储丢失、未归属资产）。修复 worker 中断后任务卡在“运行中”导致定时采集停止的缺陷。引擎适配层为多数据库血缘做准备。验收 12 项、全部验收 33 项通过，见 [acceptance-m4.md](acceptance-m4.md)、[ADR 0004](decisions/0004-engine-adapters.md) |
-| M5 交付 | 完成，已运行验证 | 一条命令从零复现验收（`scripts/acceptance.py --fresh`）；M4 场景界面走查；执行前核对修复元数据过期窗口；worker 60 分钟运行（114 次采集全部成功，内存稳定）；认证产品化（登录页、首次改口令、失败锁定、会话失效、用户管理）；第二种引擎 PostgreSQL（真实实例联调）；与 Codex 协同完成 Logo、前端审计、后端验收评审，并修复 25 项评审发现。见 [acceptance-m5.md](acceptance-m5.md)、[architecture.md](architecture.md)、[acceptance.md](acceptance.md) |
-| M6 问数表达能力 | 完成，已运行验证 | 意图 v2：多指标、排名与前 N、环比 / 同比；派生指标（公式白名单、锁定组成版本、级联受影响）；执行计划中每个子查询都走完整治理管线。验收 8 项（含真实 DeepSeek），见 [acceptance-m6.md](acceptance-m6.md)、[ADR 0005](decisions/0005-ask-expressiveness.md) |
-| 变更留底 | 完成，已运行验证 | 用户决定（2026-10-30）：历史只在元数据与血缘治理层留底，不改问数层。列注释变化事件；变更归因到数据库用户（PostgreSQL 事件触发器、ClickHouse `query_log`、Doris `audit_log` 真实联调；StarRocks、SQL Server、Oracle 未接入，如实标“未知”）；变更记录检索与带哈希的 CSV / JSON 导出；历史表数据库层只追加 + 全局哈希链 + 核验；保留期（默认 3 年）与清理锚点。验收 8 项，见 [acceptance-history.md](acceptance-history.md)、[ADR 0008](decisions/0008-history-integrity.md) |
-| M8a 分析智能体 | 完成，待审计 | 合成电商数据集（9 个业务域、约 77.5 万行、预埋场景）；分析图（计划 → 执行 → 核验）、上下文 / 受治理查询 / 计算工具、数字核验、报告导出（PDF / Markdown / CSV）与定时任务、站内通知、分析页；数据策略默认允许；意图按日 / 月分组；修复血缘把 COUNT(*) 当作 SELECT * 的缺陷。见 [acceptance-m8.md](acceptance-m8.md)、[ADR 0007](decisions/0007-analysis-agent.md) |
-| M7 更多引擎 | 完成，已运行验证 | ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1 接入（采集、视图列级血缘、问数、执行前核对）；方言新增 Catalog 段省略、`N'...'` 字面量、`DATE` 带时间、标识符折叠；通用引擎验收每种 7 项，均在真实实例上通过，见 [acceptance-m7.md](acceptance-m7.md)、[ADR 0004](decisions/0004-engine-adapters.md) |
+| M0 实机核验 | 完成，已运行验证 | 20 项，结论见 [starrocks-notes.md](../engines/starrocks.md) |
+| M1 后端闭环 | 完成，已运行验证 | 四层数据模型与双库迁移；StarRocks + MySQL 采集；列级血缘、外部表身份映射、粒度、字段推导指纹；指标状态机、关联路径、变更 → 影响 → 复核；问数管线（演示适配器）+ 只读执行；认证与审计。`pytest -m acceptance` 在 PostgreSQL 与 MySQL 元数据库上各 9 项通过，见 [acceptance-m1.md](acceptance/acceptance-m1.md)、[ADR 0002](../decisions/0002-backend-foundations.md) |
+| M2 问数智能体与导入血缘 | 完成，已运行验证 | 元数据库收敛为 PostgreSQL；LangGraph 问数智能体（多轮追问、会话持久化、工具调用）；模型配置（提供方、检测、按用途指定、数据外发策略）；导入血缘（SQL / Python / Shell、动态 SQL 补参数、模型候选与人工处理）。验收 20 项通过（含真实 DeepSeek 两项），见 [acceptance-m2.md](acceptance/acceptance-m2.md)、[ADR 0003](../decisions/0003-postgres-agent-model-settings.md) |
+| M3 工作台界面 | 完成，已运行验证 | 工作台、血缘画布、导入、目录（指标 / 资产 / 业务域 / 关联路径）、变更、问数、设置（数据源 / 模型 / 用户）全部连真实后端；浏览器中走通故事 1–6、8、9 并截图 27 张，见 [acceptance-m3.md](acceptance/acceptance-m3.md) |
+| M4 异常与加固 | 完成，已运行验证 | 故事 7 与 11 类异常场景（越权、伪造意图、注入、不支持的 SQL、超时、同名对象、外部表来源变化、worker 进程、会话存储丢失、未归属资产）。修复 worker 中断后任务卡在“运行中”导致定时采集停止的缺陷。引擎适配层为多数据库血缘做准备。验收 12 项、全部验收 33 项通过，见 [acceptance-m4.md](acceptance/acceptance-m4.md)、[ADR 0004](../decisions/0004-engine-adapters.md) |
+| M5 交付 | 完成，已运行验证 | 一条命令从零复现验收（`scripts/acceptance.py --fresh`）；M4 场景界面走查；执行前核对修复元数据过期窗口；worker 60 分钟运行（114 次采集全部成功，内存稳定）；认证产品化（登录页、首次改口令、失败锁定、会话失效、用户管理）；第二种引擎 PostgreSQL（真实实例联调）；与 Codex 协同完成 Logo、前端审计、后端验收评审，并修复 25 项评审发现。见 [acceptance-m5.md](acceptance/acceptance-m5.md)、[architecture.md](../architecture.md)、[acceptance.md](acceptance/acceptance.md) |
+| M6 问数表达能力 | 完成，已运行验证 | 意图 v2：多指标、排名与前 N、环比 / 同比；派生指标（公式白名单、锁定组成版本、级联受影响）；执行计划中每个子查询都走完整治理管线。验收 8 项（含真实 DeepSeek），见 [acceptance-m6.md](acceptance/acceptance-m6.md)、[ADR 0005](../decisions/0005-ask-expressiveness.md) |
+| 变更留底 | 完成，已运行验证 | 用户决定（2026-10-30）：历史只在元数据与血缘治理层留底，不改问数层。列注释变化事件；变更归因到数据库用户（PostgreSQL 事件触发器、ClickHouse `query_log`、Doris `audit_log` 真实联调；StarRocks、SQL Server、Oracle 未接入，如实标“未知”）；变更记录检索与带哈希的 CSV / JSON 导出；历史表数据库层只追加 + 全局哈希链 + 核验；保留期（默认 3 年）与清理锚点。验收 8 项，见 [acceptance-history.md](acceptance/acceptance-history.md)、[ADR 0008](../decisions/0008-history-integrity.md) |
+| M8a 分析智能体 | 完成，待审计 | 合成电商数据集（9 个业务域、约 77.5 万行、预埋场景）；分析图（计划 → 执行 → 核验）、上下文 / 受治理查询 / 计算工具、数字核验、报告导出（PDF / Markdown / CSV）与定时任务、站内通知、分析页；数据策略默认允许；意图按日 / 月分组；修复血缘把 COUNT(*) 当作 SELECT * 的缺陷。见 [acceptance-m8.md](acceptance/acceptance-m8.md)、[ADR 0007](../decisions/0007-analysis-agent.md) |
+| M7 更多引擎 | 完成，已运行验证 | ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1 接入（采集、视图列级血缘、问数、执行前核对）；方言新增 Catalog 段省略、`N'...'` 字面量、`DATE` 带时间、标识符折叠；通用引擎验收每种 7 项，均在真实实例上通过，见 [acceptance-m7.md](acceptance/acceptance-m7.md)、[ADR 0004](../decisions/0004-engine-adapters.md) |
 
 ## 3. 环境与已核验的事实
 
@@ -43,7 +43,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
   - 自写语法树遍历能分出取值、过滤、分组、JOIN 键四类列引用；
   - CTE、FROM 子查询、窗口、JOIN、UNNEST、建表与物化视图 DDL 可解析；
   - `SELECT … INTO OUTFILE` 解析失败 → 守卫必须“解析不了就拒绝”；多语句可识别；未知列 `qualify` 报错。
-- StarRocks 3.5.14 实机核验已在 M0 完成，20 条结论与对设计的影响见 [starrocks-notes.md](starrocks-notes.md)。对 M1 影响最大的几条：视图定义里的别名列带库名前缀，解析前要归一化；视图与外部表在 `tables_config` 中没有 ID；删除被视图引用的列不会被 StarRocks 阻止；视图是 `SECURITY NONE`，授予视图等于暴露其来源；旧式 `ENGINE=mysql` 外部表连不上 MySQL 8.4 默认认证。
+- StarRocks 3.5.14 实机核验已在 M0 完成，20 条结论与对设计的影响见 [starrocks-notes.md](../engines/starrocks.md)。对 M1 影响最大的几条：视图定义里的别名列带库名前缀，解析前要归一化；视图与外部表在 `tables_config` 中没有 ID；删除被视图引用的列不会被 StarRocks 阻止；视图是 `SECURITY NONE`，授予视图等于暴露其来源；旧式 `ENGINE=mysql` 外部表连不上 MySQL 8.4 默认认证。
 
 ## 4. v0.1 范围
 
@@ -153,7 +153,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
 
 | 里程碑 | 内容 | 完成标准 |
 |---|---|---|
-| **M0 基线与实机核验** | 私有仓库与骨架、本文件与进度记录；Compose：元数据库 PostgreSQL 18 与 MySQL 8.4、Valkey 8、StarRocks 3.5.14（低资源，仅 127.0.0.1）、电商维表库 MySQL 8.4；JDBC Catalog（固定版本驱动，校验 SHA-256）与 `ENGINE=mysql` 外部表；电商合成数据（`shop.orders` / `order_items` / `refund_raw` / `daily_sales`，`ads` 分析视图，MySQL `shop_dim` 维表）；完成第 3 节的全部实机核验 | 演示环境一条命令起停；基线数值通过；核验结论写入 `docs/starrocks-notes.md` |
+| **M0 基线与实机核验** | 私有仓库与骨架、本文件与进度记录；Compose：元数据库 PostgreSQL 18 与 MySQL 8.4、Valkey 8、StarRocks 3.5.14（低资源，仅 127.0.0.1）、电商维表库 MySQL 8.4；JDBC Catalog（固定版本驱动，校验 SHA-256）与 `ENGINE=mysql` 外部表；电商合成数据（`shop.orders` / `order_items` / `refund_raw` / `daily_sales`，`ads` 分析视图，MySQL `shop_dim` 维表）；完成第 3 节的全部实机核验 | 演示环境一条命令起停；基线数值通过；核验结论写入 `docs/engines/starrocks.md` |
 | **M1 后端闭环** | 四层数据模型与迁移；登录、角色、审计；StarRocks + MySQL 采集与快照比较；外部表身份映射；SQLGlot 列级血缘；**粒度采集、推导与核验**；指标、状态机、一致性维度、关联路径；变更 → 影响 → 复核；问数管线（演示适配器）+ 只读执行 | `pytest -m acceptance` 在真实 StarRocks 上跑通故事 1–6 和故事 9 |
 | **M2 导入血缘** | SQL 文件与粘贴的多语句解析；Python / Shell 内嵌 SQL 抽取；动态 SQL 补参数；模型候选（接口 + 演示适配器 + Anthropic / OpenAI 兼容适配器）；候选处理与留痕；重复导入幂等 | 故事 8 通过；固定 SQL / 代码样例集的预期边全部命中；模型候选在确认前不计入已确认血缘（有测试） |
 | **M3 工作台界面** | 按设计系统实现组件库与 8 个原型页（工作台、血缘、导入、问数、变更、目录 · 指标 / 资产 / 业务域）；类型从 OpenAPI 生成 | 浏览器中走通故事 1–9 并截图，所有操作连真实后端 |
@@ -220,7 +220,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
    - 占比（在总量中的比例）。
 
    可选：明确标注为“未治理”的临时查询兜底模式，作为独立功能。
-4. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。PostgreSQL（M5），ClickHouse、SQL Server、Oracle、Doris（M7）已接入；剩余 Hive（需要 HiveServer2 与元数据服务，血缘主要来自 ETL 脚本导入），以及各引擎的外部 Catalog、物化视图。原建议顺序：
+4. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。PostgreSQL（M5），ClickHouse、SQL Server、Oracle、Doris（M7），Hive（元数据与视图血缘，经 HiveServer2；不支持问数）已接入；剩余各引擎的外部 Catalog、物化视图血缘、Hive 的 Kerberos 认证与问数执行。原建议顺序：
    1. Doris；
    2. Hive；
    3. SQL Server；

@@ -54,8 +54,9 @@ def sent(monkeypatch):
 
 
 def explore_audits(session, run_id: str) -> list[dict]:
-    from avelis.models import AuditEvent
     from sqlalchemy import select
+
+    from avelis.models import AuditEvent
 
     session.flush()
     return [e.detail for e in session.scalars(select(AuditEvent).where(
@@ -107,6 +108,7 @@ def run_while_watching(call, watch, marker: str) -> tuple[object, list, float]:
 def test_00_setup(request, admin: Api):
     import demo
     import ec_data
+
     from avelis import demo_setup
 
     _, env, _ = request.getfixturevalue("stack")  # 不作为参数接收：失败回溯会打印参数值（含口令）

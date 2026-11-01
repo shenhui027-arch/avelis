@@ -17,7 +17,7 @@ from avelis.collect.service import current_fingerprints
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
-from avelis.engines import CapabilityMissing, dialect_of, engine_of, query_connector
+from avelis.engines import CapabilityMissing, dialect_of, query_connector
 from avelis.governance import access
 from avelis.governance.metrics import current_fingerprint_map
 from avelis.lineage.grain import effective_grains

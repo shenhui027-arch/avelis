@@ -26,7 +26,7 @@ export function parseCron(expr: string | null | undefined): State {
     if (minute !== null && h === "*" && dom === "*" && mon === "*" && dow === "*") return { ...DEFAULT, mode: "hourly", minute, custom: expr };
     if (minute !== null && hour !== null && mon === "*") {
       if (dom === "*" && dow === "*") return { ...DEFAULT, mode: "daily", minute, hour, custom: expr };
-      if (dom === "*" && /^\d(,\d)*$/.test(dow)) return { ...DEFAULT, mode: "weekly", minute, hour, weekdays: dow.split(",").map(Number), custom: expr };
+      if (dom === "*" && /^\d(,\d)*$/.test(dow)) return { ...DEFAULT, mode: "weekly", minute, hour, weekdays: [...new Set(dow.split(",").map((d) => Number(d) % 7))], custom: expr }; // 7 与 0 都是周日（与后端一致）
       if (num(dom) !== null && dow === "*") return { ...DEFAULT, mode: "monthly", minute, hour, day: num(dom)!, custom: expr };
     }
   }
@@ -87,13 +87,13 @@ export function CronPicker({ value, onChange }: { value: string; onChange: (expr
   );
   return (
     <div className="av-cron">
-      <Seg label={t("运行频率")} value={s.mode} onChange={(mode) => set({ mode: mode as Mode })} options={[
+      <Seg label={t("运行频率")} value={s.mode} onChange={(mode) => set(mode === "custom" ? { mode: "custom", custom: buildCron(s) || s.custom } : { mode: mode as Mode })} options={[
         { value: "none", label: t("不定时") }, { value: "hourly", label: t("每小时") }, { value: "daily", label: t("每天") },
         { value: "weekly", label: t("每周") }, { value: "monthly", label: t("每月") }, { value: "custom", label: t("自定义") }]} />
 
       {s.mode === "hourly" ? <label className="av-cron__field"><span>{t("第几分钟")}</span>
         <select className="av-input" value={s.minute} onChange={(e) => set({ minute: Number(e.target.value) })}>
-          {[0, 5, 10, 15, 20, 30, 45].map((m) => <option key={m} value={m}>{t("{{count}} 分", { count: m })}</option>)}</select></label> : null}
+          {Array.from({ length: 60 }, (_, m) => <option key={m} value={m}>{t("{{count}} 分", { count: m })}</option>)}</select></label> : null}
       {s.mode === "daily" ? time : null}
       {s.mode === "weekly" ? <>
         <div className="av-cron__field"><span>{t("星期")}</span>

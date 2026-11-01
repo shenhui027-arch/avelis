@@ -122,6 +122,10 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     missing = [o.label for o in engine.options if o.required and not (body.options or {}).get(o.key)]
     if missing:
         raise HTTPException(422, f"{engine.label} 数据源缺少配置：{'、'.join(missing)}")
+    invalid = [f"{o.label}（可选 {'、'.join(o.choices)}）" for o in engine.options
+               if o.choices and (body.options or {}).get(o.key) not in (None, "", *o.choices)]
+    if invalid:
+        raise HTTPException(422, f"{engine.label} 数据源配置取值不合法：{'；'.join(invalid)}")
     interval = (body.collect_interval_minutes if "collect_interval_minutes" in body.model_fields_set
                 else get_settings().collect_interval_minutes)
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,

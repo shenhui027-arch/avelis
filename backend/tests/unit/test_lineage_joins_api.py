@@ -11,7 +11,15 @@ from sqlalchemy.pool import StaticPool
 from avelis.api import catalog
 from avelis.api.deps import current_user, get_session
 from avelis.models import (
-    Asset, Datasource, Domain, DomainMember, IdentityLink, JoinPath, LineageEdge, User, UserRole,
+    Asset,
+    Datasource,
+    Domain,
+    DomainMember,
+    IdentityLink,
+    JoinPath,
+    LineageEdge,
+    User,
+    UserRole,
 )
 
 

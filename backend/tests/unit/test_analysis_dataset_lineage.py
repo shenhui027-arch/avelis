@@ -8,7 +8,7 @@ import pytest
 from avelis.analysis import exploration, service
 from avelis.analysis.dataset_access import can_read_dataset
 from avelis.models import Asset, LineageEdge
-from tests.unit.test_analysis_dataset_access import dataset_db
+from tests.unit.test_analysis_dataset_access import dataset_db  # noqa: F401  夹具按参数名注入
 from tests.unit.test_analysis_explore import resolver as fake_resolver
 from tests.unit.test_analysis_explore_tool import GOOD, explore_box
 

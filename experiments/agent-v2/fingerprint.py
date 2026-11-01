@@ -50,13 +50,13 @@ def main() -> int:
     parser.add_argument("--env", type=Path, default=ROOT / ".env")
     args = parser.parse_args()
 
-    from langchain_core.utils.function_calling import convert_to_openai_tool
     from langchain_core.tools import StructuredTool
+    from langchain_core.utils.function_calling import convert_to_openai_tool
 
+    import ec_data
     from avelis.analysis import agent
     from avelis.analysis.tools import Budget, Scope
     from avelis.config import Settings
-    import ec_data
 
     scope_tool = StructuredTool.from_function(lambda **kw: "", name="submit_scope", args_schema=Scope,
                                               description="提交问题的范围（只调用一次）")

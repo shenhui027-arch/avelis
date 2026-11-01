@@ -1,0 +1,57 @@
+name: 缺陷报告 / Bug report
+description: 报告一个可复现的问题 / Report a reproducible problem
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全漏洞请不要在这里报告，见 [SECURITY.md](https://github.com/shenhui027-arch/avelis/blob/main/SECURITY.md)。
+        Please do not report security vulnerabilities here; see SECURITY.md.
+        提交前请删除日志与截图中的口令、密钥和业务数据。
+        Remove passwords, keys and business data from logs and screenshots before submitting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么 / What happened
+      description: 实际看到的现象与期望的结果 / Actual and expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交 / Version or commit
+      placeholder: main @ abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 运行方式 / How Avelis runs
+      options:
+        - Docker Compose（deploy/docker）
+        - 不用 Docker（avelis.server）/ Without Docker
+        - 本地开发环境 / Local development
+        - 其他 / Other
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: 涉及的数据库 / Database engine
+      placeholder: StarRocks 3.5 / PostgreSQL 17 / …
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 相关日志片段（已脱敏）/ Relevant log lines (redacted)
+      render: text

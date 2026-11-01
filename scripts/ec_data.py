@@ -36,9 +36,6 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
-
-import pymysql
 
 import demo
 
