@@ -225,13 +225,22 @@ def _insert_reset_refs(tree: exp.Insert, *, dialect: SqlDialect, default_db: str
 
 
 def _unrestricted_target(tree: exp.Update | exp.Delete) -> exp.Table | None:
-    """语句作用于目标表的每一行时返回目标表；WHERE、JOIN、FROM、USING、LIMIT、分区限定都只影响匹配到的行。"""
+    """无行范围限制时返回实体目标；仅绑定目标别名的 FROM 不限制范围。"""
     target = tree.this
     if (not isinstance(target, exp.Table)
-            or any(tree.args.get(key) for key in ("where", "using", "limit", "from_", "joins"))
+            or any(tree.args.get(key) for key in ("where", "using", "limit", "joins"))
             or target.args.get("partition")
             or target.find(exp.Join) is not None):
         return None
+    from_ = tree.args.get("from_")
+    if from_:
+        source = from_.this
+        if (not isinstance(source, exp.Table) or target.db or target.catalog
+                or source.alias_or_name != target.name
+                or source.args.get("partition") or source.args.get("sample")
+                or source.find(exp.Join) is not None):
+            return None
+        target = source
     return target
 
 
@@ -379,7 +388,8 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             target, columns, query = _update_query(tree)
             # 只有每一行都被赋值时才是整列替换；部分行更新时，没匹配到的行仍保留旧来源
             replaces_columns = _unrestricted_target(tree) is not None
-            write = _query_write(target, query, columns, preserve_self=replaces_columns, **kwargs)
+            # SET 自引用始终读取更新前的列，与是否整列替换无关。
+            write = _query_write(target, query, columns, preserve_self=True, **kwargs)
             if replaces_columns:
                 write.attributes["replace_columns"] = list(columns)
             return _result("UPDATE", [write])
