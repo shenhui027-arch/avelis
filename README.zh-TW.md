@@ -4,20 +4,26 @@
 
 # Avelis
 
+[English](README.md) · [简体中文](README.zh-CN.md) · **繁體中文**
+
 **有依據的智慧問數與分析，建立在血緣、口徑治理與變更管理之上。**
 
 [![CI](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml/badge.svg)](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](backend/pyproject.toml)
-[![React](https://img.shields.io/badge/react-19-61DAFB.svg)](frontend/package.json)
+[![license](https://img.shields.io/badge/license-Apache--2.0-0A7BBB?style=flat)](LICENSE)
+[![backend](https://img.shields.io/badge/backend-Python%203.12%20%C2%B7%20FastAPI-3776AB?style=flat&logo=python&logoColor=white)](backend/pyproject.toml)
+[![frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20TypeScript-2F74C0?style=flat&logo=react&logoColor=white)](frontend/package.json)
+[![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
+[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
+[![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
+[![version](https://img.shields.io/badge/version-v0.1%20%C2%B7%20pre--release-E05D44?style=flat)](CHANGELOG.md)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文
+[功能亮點](#功能亮點) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
 </div>
 
 Avelis 用自然語言回答關於業務資料的問題，並說清每個數從哪來：每個答案都帶來源表、口徑、版本和權限依據。上游表或檢視表變化後，Avelis 知道哪些口徑和答案受影響，並由後端阻止受影響的口徑繼續被使用，直到有人複核。
 
-![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/analysis.png)
+![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
 > Avelis 處於 v0.1，尚未發布正式版本。介面與文件都提供簡體中文、繁體中文與英文。
@@ -36,9 +42,9 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 
 | 資料集主檢視表 | 工作臺 |
 |---|---|
-| ![資料集在主區域開啟：圖表、明細、換時間重跑](docs/images/analysis-dataset.png) | ![工作臺：採集、血緣、變更、口徑、問數概況](docs/images/workbench.png) |
+| ![資料集在主區域開啟：圖表、明細、換時間重跑](docs/images/zh-TW/analysis-dataset.png) | ![工作臺：採集、血緣、變更、口徑、問數概況](docs/images/zh-TW/workbench.png) |
 | **血緣** | **目錄** |
-| ![血緣：選中表與檢查器](docs/images/lineage.png) | ![指標詳情：版本、表示式、維度與發布檢查](docs/images/catalog.png) |
+| ![血緣：選中表與檢查器](docs/images/zh-TW/lineage.png) | ![指標詳情：版本、表示式、維度與發布檢查](docs/images/zh-TW/catalog.png) |
 
 更多頁面（問數首頁、報告的「還沒查清」、匯出、個人經驗、設定、淺色主題）見[介面導覽](docs/product-tour.zh-TW.md)。
 
