@@ -1790,3 +1790,45 @@ msgstr "column 與 summary 必須且只能填寫一個"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "彙總值不能帶 match 或 exclude"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；DDL 归因需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移，跨夏令时可能不准确"
+msgstr "採集帳號需模式上的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體身分；不報告資料新鮮度；DDL 歸因需啟用預設追蹤，並授予 ALTER TRACE（相關讀取若需 VIEW SERVER STATE 也須授權）；只採用已提交的物件層級事件；從目前目錄還原的模式僅作候選，無法確證歷史模式或指明欄位時不確定歸因；StartTime 按伺服器本地時間換算 UTC，使用伺服器目前偏移，跨日光節約時間可能不準確"
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；DDL 归因需启用覆盖 TABLE、VIEW 等 CREATE / ALTER / DROP 的统一审计策略，并授予 AUDIT_VIEWER 或等效读取权限；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取"
+msgstr "採集帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體身分；識別字按大寫儲存；不報告資料新鮮度；DDL 歸因需啟用涵蓋 TABLE、VIEW 等 CREATE / ALTER / DROP 的統一稽核策略，並授予 AUDIT_VIEWER 或等效讀取權限；只採用 RETURN_CODE = 0 的成功記錄；優先 EVENT_TIMESTAMP_UTC，舊版 EVENT_TIMESTAMP 在 UTC 稽核工作階段中讀取"
+
+msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
+msgstr "SQL Server 預設追蹤未啟用（default trace enabled = 0）"
+
+msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
+msgstr "採集帳號缺少 SQL Server 預設追蹤讀取權限（需要 ALTER TRACE；相關讀取可能還需要 VIEW SERVER STATE）"
+
+msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
+msgstr "SQL Server 預設追蹤未執行或沒有可讀取的追蹤檔案"
+
+msgid "SQL Server 默认跟踪配置或服务器时区偏移无法读取"
+msgstr "SQL Server 預設追蹤設定或伺服器時區偏移無法讀取"
+
+msgid "SQL Server 默认跟踪记录结构不符：{error}"
+msgstr "SQL Server 預設追蹤記錄結構不符：{error}"
+
+msgid "SQL Server 默认跟踪读取失败：{error}"
+msgstr "SQL Server 預設追蹤讀取失敗：{error}"
+
+msgid "Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"
+msgstr "Oracle 統一稽核記錄缺少有效的時間、資料庫使用者、操作或物件資訊"
+
+msgid "Oracle 统一审计的 SQL_TEXT 不是文本"
+msgstr "Oracle 統一稽核的 SQL_TEXT 不是文字"
+
+msgid "Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"
+msgstr "Oracle 統一稽核中沒有相關的成功 DDL 記錄，且未啟用記錄這些操作成功結果的稽核策略"
+
+msgid "采集账号无权读取 Oracle 统一审计；请授予 AUDIT_VIEWER 或相应读取权限（{error}）"
+msgstr "採集帳號無權讀取 Oracle 統一稽核；請授予 AUDIT_VIEWER 或相應讀取權限（{error}）"
+
+msgid "Oracle 统一审计来源结构与连接器要求不符（{error}）"
+msgstr "Oracle 統一稽核來源結構與連接器要求不符（{error}）"
+
+msgid "读取 Oracle 统一审计失败（{error}）"
+msgstr "讀取 Oracle 統一稽核失敗（{error}）"

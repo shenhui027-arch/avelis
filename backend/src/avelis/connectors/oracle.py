@@ -18,17 +18,24 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 import oracledb
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent
+from avelis.i18n import Msg
 
 IDENT = re.compile(r"^[A-Za-z0-9_$#]+$")
 SESSION = ("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS' "
            "NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF' NLS_NUMERIC_CHARACTERS = '.,'")
 ORA = re.compile(r"\b(ORA|DPY)-(\d+)")
+DDL_ACTIONS = ("CREATE TABLE", "ALTER TABLE", "DROP TABLE", "CREATE VIEW", "ALTER VIEW", "DROP VIEW",
+               "RENAME", "COMMENT", "TRUNCATE TABLE")
+DDL_PRIVILEGES = {"CREATE ANY TABLE", "ALTER ANY TABLE", "DROP ANY TABLE", "CREATE ANY VIEW", "ALTER ANY VIEW",
+                  "DROP ANY VIEW", "COMMENT ANY TABLE"}
 
 
 def _checked(names: list[str], label: str) -> list[str]:
@@ -57,6 +64,8 @@ class OracleConnector:
     kind = "oracle"
     dialect = "oracle"
     is_test_adapter = False
+    ddl_audit_source = "oracle:UNIFIED_AUDIT_TRAIL"
+    ddl_identifier_fold = "upper"
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -207,6 +216,98 @@ class OracleConnector:
         """DBA_TAB_MODIFICATIONS 依赖统计信息刷新，不能代表最近写入时间；不报告新鲜度。"""
         return {}
 
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
+        """只读统一审计中成功的表/视图 DDL；SQL_TEXT（CLOB）只在连接打开时读入内存。
+
+        优先 EVENT_TIMESTAMP_UTC。只有它缺失时才回退 EVENT_TIMESTAMP，并将审计连接的 TIME_ZONE
+        固定为 +00:00：按该视图的“会话本地时间”语义将无时区值视作 UTC，不使用 Avelis 主机时区。
+        空窗口本身不意味着审计停用；只有全历史也没有相关成功记录，且策略未覆盖相关成功操作时才报未开启。
+        策略对部分用户/对象启用只证明存在来源，不保证所有变更路径都被覆盖，缺记录仍由通用归因报未知。
+        """
+        schemas = _checked([s.upper() for s in self.options.get("schemas", [])], "模式")
+        if not schemas:
+            raise ValueError("数据源未配置要采集的模式（options.schemas）")
+        marks, binds = _binds(schemas, "s")
+        amarks, abinds = _binds(list(DDL_ACTIONS), "a")
+        binds.update(abinds)
+        where = (f"AUDIT_TYPE = 'Standard' AND RETURN_CODE = 0 AND ACTION_NAME IN ({amarks}) "
+                 f"AND OBJECT_SCHEMA IN ({marks}) AND OBJECT_NAME IS NOT NULL")
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                def read(timestamp: str):
+                    cur.execute(
+                        f"SELECT {timestamp}, DBUSERNAME, ACTION_NAME, OBJECT_SCHEMA, OBJECT_NAME, SQL_TEXT "
+                        f"FROM UNIFIED_AUDIT_TRAIL WHERE {where} "
+                        f"AND {timestamp} >= :since AND {timestamp} <= :until ORDER BY {timestamp}",
+                        {**binds, "since": _utc(since), "until": _utc(until)})
+                    return cur.fetchall()
+
+                try:
+                    rows = read("EVENT_TIMESTAMP_UTC")
+                except oracledb.Error as exc:
+                    # ORA-00904 也可能指向其他必需列：不能把结构不符一概当旧版时钟列处理。
+                    if _query_error(exc).db_errno != "ORA-00904" or '"EVENT_TIMESTAMP_UTC"' not in str(exc).upper():
+                        raise
+                    cur.execute("ALTER SESSION SET TIME_ZONE = '+00:00'")
+                    rows = read("EVENT_TIMESTAMP")
+                events = []
+                for row in rows:
+                    if not isinstance(row, (tuple, list)) or len(row) != 6:
+                        raise AuditUnavailable(Msg("Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"),
+                                               "incompatible")
+                    at, user, action, schema, name, statement = row
+                    if not isinstance(at, datetime) or not all(isinstance(v, str) and v
+                                                              for v in (user, action, schema, name)):
+                        raise AuditUnavailable(Msg("Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"),
+                                               "incompatible")
+                    if statement is not None and not isinstance(statement, str):
+                        read_clob = getattr(statement, "read", None)
+                        if not callable(read_clob):
+                            raise AuditUnavailable(Msg("Oracle 统一审计的 SQL_TEXT 不是文本"), "incompatible")
+                        statement = read_clob()  # python-oracledb 默认把 CLOB 返回为 LOB，不能等连接关闭后读取
+                    if statement is not None and not isinstance(statement, str):
+                        raise AuditUnavailable(Msg("Oracle 统一审计的 SQL_TEXT 不是文本"), "incompatible")
+                    events.append(DdlEvent(at=_utc(at), db_user=user, objects=[(schema, name)],
+                                           statement_type=action, statement=statement or ""))
+                if not events:
+                    cur.execute(f"SELECT 1 FROM UNIFIED_AUDIT_TRAIL WHERE {where} AND ROWNUM = 1", binds)
+                    if cur.fetchone() is None:
+                        self._check_ddl_policies(cur, schemas)
+                return events
+        except oracledb.Error as exc:
+            raise _audit_error(exc) from exc
+
+    @staticmethod
+    def _check_ddl_policies(cur, schemas: list[str]) -> None:
+        """只在没有历史证据时检查策略：保留按用户、排除用户和授予角色等有效启用方式。
+
+        不拿采集账号去匹配 ENTITY_NAME：做 DDL 的用户可以是其他账号，也可以跨模式操作。
+        未知的审计选项类型不能证明“没有启用”，因此保守保留为可能存在的审计来源。
+        """
+        cur.execute(
+            "SELECT p.AUDIT_OPTION, p.AUDIT_OPTION_TYPE, p.OBJECT_SCHEMA, p.OBJECT_TYPE, "
+            "e.ENABLED_OPTION, e.ENTITY_NAME, e.SUCCESS "
+            "FROM AUDIT_UNIFIED_ENABLED_POLICIES e JOIN AUDIT_UNIFIED_POLICIES p "
+            "ON p.POLICY_NAME = e.POLICY_NAME")
+        for option, kind, schema, object_type, enabled, entity, success in cur.fetchall():
+            if success != "YES" or enabled == "INVALID" or not entity:
+                continue
+            if schema is not None and schema not in schemas:
+                continue
+            if kind == "OBJECT ACTION" and object_type not in ("TABLE", "VIEW"):
+                continue
+            if kind in ("INVALID", "XS ACTION", "OLS_ACTION", "DATAPUMP ACTION", "DIRECT LOAD ACTION", "DV ACTION"):
+                continue
+            if kind not in ("STANDARD ACTION", "SYSTEM ACTION", "SYSTEM PRIVILEGE", "OBJECT ACTION"):
+                return
+            if option in (*DDL_ACTIONS, *DDL_PRIVILEGES, "ALL", "ALL ACTIONS", "ALL PRIVILEGES"):
+                return
+            if kind == "OBJECT ACTION" and object_type in ("TABLE", "VIEW") \
+                    and option in ("ALTER", "COMMENT", "RENAME", "ALL"):
+                return
+        raise AuditUnavailable(Msg("Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"),
+                               "not_enabled")
+
     def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）、视图定义与 OBJECT_ID；对象不存在时列为空。
         用 ALL_* 视图：查询账号只看得到有权限的对象，这正是它执行时能看到的。"""
@@ -243,6 +344,22 @@ def _decimal_numbers(cursor, metadata):
     if metadata.type_code is oracledb.DB_TYPE_NUMBER:
         return cursor.var(Decimal, arraysize=cursor.arraysize)
     return None
+
+
+def _utc(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo is not None else value
+
+
+def _audit_error(exc: oracledb.Error) -> AuditUnavailable:
+    error = _query_error(exc)
+    if error.db_errno in ("ORA-00942", "ORA-01031", "ORA-01017", "ORA-01045", "ORA-28000", "ORA-41900"):
+        # 系统审计视图的 ORA-00942 通常掩盖 SELECT 权限不足，不把它误报成客户没开策略。
+        return AuditUnavailable(Msg("采集账号无权读取 Oracle 统一审计；请授予 AUDIT_VIEWER 或相应读取权限（{error}）",
+                                    error=error.message), "no_permission")
+    if error.db_errno in ("ORA-00904", "ORA-00932", "ORA-00902"):
+        return AuditUnavailable(Msg("Oracle 统一审计来源结构与连接器要求不符（{error}）", error=error.message),
+                                "incompatible")
+    return AuditUnavailable(Msg("读取 Oracle 统一审计失败（{error}）", error=error.message), "error")
 
 
 def _query_error(exc: oracledb.Error) -> QueryError:
