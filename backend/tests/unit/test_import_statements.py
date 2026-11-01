@@ -48,6 +48,37 @@ def test_insert_dialects_and_front_cte(name, sql, kind):
     assert result.edges is result.writes[0].edges
 
 
+@pytest.mark.parametrize("name,partition", [
+    ("hive", ""), ("hive", " PARTITION (day=1)"), ("hive", " PARTITION (day)"),
+    ("spark", ""), ("spark", " PARTITION (day=1)"), ("spark", " PARTITION (day)"),
+    ("starrocks", ""), ("starrocks", " PARTITION (p1,p2)"),
+])
+def test_insert_overwrite_resets_only_unpartitioned_target(name, partition):
+    result = parse(f"INSERT OVERWRITE TABLE dw.stage{partition} SELECT id,value FROM src.events", name)
+    assert result.status == "parsed", result.reason
+    assert result.reset_refs == ([] if partition else ["c.dw.stage"])
+    assert result.writes[0].target_columns == ["id", "value"]
+    assert signatures(result.writes[0]) == {
+        ("c.src.events", "id", "id", "value_direct"), ("c.src.events", "value", "value", "value_direct"),
+    }
+
+
+def test_multitable_insert_resets_only_whole_table_overwrite_branches():
+    result = parse("FROM src.events INSERT OVERWRITE TABLE dw.stage SELECT id,value "
+                   "INSERT OVERWRITE TABLE dw.partitioned PARTITION (day=1) SELECT id,value "
+                   "INSERT INTO dw.daily_summary SELECT id,value", "hive")
+    assert result.status == "parsed", result.reason
+    assert result.reset_refs == ["c.dw.stage"]
+    assert len(result.writes) == 3
+
+
+def test_insert_overwrite_values_resets_even_without_source_edges():
+    result = parse("INSERT OVERWRITE TABLE dw.stage VALUES (1,2)", "hive")
+    assert result.status == "skipped"
+    assert result.reset_refs == ["c.dw.stage"]
+    assert not result.writes
+
+
 @pytest.mark.parametrize("sql,kind", [
     ("CREATE TABLE dw.snapshot AS SELECT id, value FROM src.events", "CREATE TABLE AS"),
     ("CREATE VIEW dw.snapshot AS SELECT id, value FROM src.events", "CREATE VIEW AS"),

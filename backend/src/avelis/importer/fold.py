@@ -91,6 +91,7 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
     current: dict[str, _Table] = {}
     tables: list[_Table] = []
     incoming: dict[_Table, list[_Segment]] = {}
+    written_columns: dict[_Table, list[tuple[int, set[str] | None]]] = {}
     segments: list[_Segment] = []
 
     def table(ref: str, *, created: bool = False, temporary: bool = False, fresh: bool = False) -> _Table:
@@ -129,6 +130,11 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
             for raw in raw_edges:
                 table(raw.source_ref)
         before = dict(current)
+        # 覆盖写入读取旧快照，但本次写入必须落入重置后的数据实例。
+        for ref in statement.reset_refs:
+            previous = table(ref)
+            current[ref] = _Table(ref, previous.created, previous.intermediate, previous.temporary, previous)
+            tables.append(current[ref])
         targets: list[dict[str, _Table]] = []
         for write, raw_edges in raw_writes:
             op = (write.attributes or {}).get("op")
@@ -142,6 +148,8 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
                 temporary = write.temporary or bool(previous and previous.temporary)
                 write_targets[ref] = table(ref, created=created, temporary=temporary,
                                            fresh=write.created or op in ("rename", "swap"))
+                columns = None if any(raw.relation == "table" for raw in raw_edges) else set(write.target_columns)
+                written_columns.setdefault(write_targets[ref], []).append((position, columns))
             targets.append(write_targets)
         for (_, raw_edges), write_targets in zip(raw_writes, targets):
             for raw in raw_edges:
@@ -158,10 +166,6 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
         for ref in statement.dropped_refs:
             previous = current.pop(ref, None)
             mark_intermediate(previous, created_only=True)
-        for ref in statement.reset_refs:
-            previous = table(ref)
-            current[ref] = _Table(ref, previous.created, previous.intermediate, previous.temporary, previous)
-            tables.append(current[ref])
 
     expanded_by_id: dict[str, list[FoldEdge]] = {}
     for segment in segments:
@@ -169,14 +173,16 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
         if not segment.source.intermediate:
             expanded_by_id[raw.id] = [replace(raw, attributes={**raw.attributes, "hops": [raw.id], "via": []})]
             continue
-        if not segment.source.created and not incoming.get(segment.source):
-            # 批次外已有表被改名时没有可继续复合的写入，原表仍是数据来源的终点。
-            expanded_by_id[raw.id] = [replace(
+        expanded: list[FoldEdge] = []
+        if not segment.source.created and segment.source.previous_data is None and not any(
+            position < segment.position and (columns is None or raw.source_column in columns)
+            for position, columns in written_columns.get(segment.source, [])
+        ):
+            # 外部表未被此前写入覆盖的列仍以原表为来源；影响边不会覆盖数据列。
+            expanded.append(replace(
                 raw, id=_id("folded", raw.id),
                 attributes={**raw.attributes, "hops": [raw.id], "via": [segment.source.ref]},
-            )]
-            continue
-        expanded: list[FoldEdge] = []
+            ))
         for prior in incoming.get(segment.source, []):
             if prior.position >= segment.position:
                 continue

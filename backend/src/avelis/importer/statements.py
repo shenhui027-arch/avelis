@@ -97,7 +97,7 @@ def _with(query: exp.Query, owner: exp.Expression) -> exp.Query:
 
 def _query_write(target_node: exp.Expression, query: exp.Query, columns: list[str], *,
                  dialect: SqlDialect, schema: dict, default_db: str | None,
-                 temporary: bool = False, created: bool = False) -> Write:
+                 temporary: bool = False, created: bool = False, preserve_self: bool = False) -> Write:
     if not isinstance(target_node, exp.Table):
         raise ValueError("目标不是表")
     target = _qualify(target_node, dialect.default_catalog, default_db)
@@ -128,7 +128,7 @@ def _query_write(target_node: exp.Expression, query: exp.Query, columns: list[st
     write.target_columns = list(columns)
     for target_column, column in zip(columns, parsed.columns):
         for src in column.sources:
-            if src.ref.table == target and src.ref.column == target_column:
+            if not preserve_self and src.ref.table == target and src.ref.column == target_column:
                 continue
             write.edges.append(StatementEdge(src.ref.table, src.ref.column, target_column, src.relation,
                                               column.expression))
@@ -211,7 +211,17 @@ def _insert_write(tree: exp.Insert, *, dialect: SqlDialect, schema: dict,
         raise ValueError("INSERT 的来源尚不支持")
     if condition is not None and isinstance(query, exp.Select):
         query = query.where(condition.copy())
-    return _query_write(target, _with(query, tree), columns, dialect=dialect, schema=schema, default_db=default_db)
+    return _query_write(target, _with(query, tree), columns, dialect=dialect, schema=schema,
+                        default_db=default_db, preserve_self=bool(tree.args.get("overwrite")))
+
+
+def _insert_reset_refs(tree: exp.Insert, *, dialect: SqlDialect, default_db: str | None) -> list[str]:
+    target, _ = _target(tree.this)
+    if (tree.args.get("overwrite") and isinstance(target, exp.Table)
+            and not target.args.get("partition") and not tree.args.get("partition")):
+        ref = _qualify(target, dialect.default_catalog, default_db)
+        return [ref] if ref else []
+    return []
 
 
 def _merge_writes(tree: exp.Merge, *, dialect: SqlDialect, schema: dict, default_db: str | None) -> list[Write]:
@@ -315,10 +325,12 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
         if isinstance(tree, exp.Insert):
             kind = "INSERT OVERWRITE" if tree.args.get("overwrite") else "INSERT"
             write = _insert_write(tree, **kwargs)
-            return (_result(kind, [write]) if write else
-                    ParsedStatement("skipped", kind, reason="没有来源表"))
+            resets = _insert_reset_refs(tree, dialect=dialect, default_db=default_db)
+            return (_result(kind, [write], reset_refs=resets) if write else
+                    ParsedStatement("skipped", kind, reset_refs=resets, reason="没有来源表"))
         if isinstance(tree, exp.MultitableInserts):
             writes = []
+            resets = []
             conditions: list[exp.Expression] = []
             for branch in tree.expressions:
                 insert = branch.this if isinstance(branch, exp.ConditionalInsert) else branch
@@ -330,10 +342,12 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
                 if not isinstance(insert, exp.Insert):
                     raise ValueError("多路 INSERT 分支尚不支持")
                 write = _insert_write(insert, shared=tree.args.get("source"), condition=condition, **kwargs)
+                resets.extend(_insert_reset_refs(insert, dialect=dialect, default_db=default_db))
                 if write:
                     writes.append(write)
-            return (_result("MULTITABLE INSERT", writes) if writes else
-                    ParsedStatement("skipped", "MULTITABLE INSERT", reason="没有来源表"))
+            resets = list(dict.fromkeys(resets))
+            return (_result("MULTITABLE INSERT", writes, reset_refs=resets) if writes else
+                    ParsedStatement("skipped", "MULTITABLE INSERT", reset_refs=resets, reason="没有来源表"))
         if isinstance(tree, exp.Update):
             target, columns, query = _update_query(tree)
             return _result("UPDATE", [_query_write(target, query, columns, **kwargs)])
