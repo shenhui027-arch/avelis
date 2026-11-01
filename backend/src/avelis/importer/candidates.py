@@ -14,11 +14,23 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
-# CLI 空格分隔只允许水平空白及反斜杠续行，不能吞掉下一行的密钥赋值。
-SECRET_PATTERN = re.compile(
-    r"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"]?)(?:[^\W\d][\w-]*?)?"
+_SECRET_KEY = (
+    r"(?:[^\W\d][\w-]*?)?"
     r"(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key)"
-    r"(?P=key_quote)(?(cli)(?:\s*[=:]\s*|(?:[ \t]|\\\r?\n)+)|\s*[=:]\s*))"
+)
+_SECRET_ASSIGNMENT_KEY = rf"(?:{_SECRET_KEY}|'{_SECRET_KEY}'|\"{_SECRET_KEY}\")"
+# 普通空白只用空格、制表符；跨行取值前排除可独立脱敏的下一条赋值。
+_SECRET_VALUE_SPACE = (
+    rf"[ \t]*(?:\r?\n(?![ \t]*(?:"
+    rf"--{_SECRET_ASSIGNMENT_KEY}(?:[ \t]*[=:]|[ \t]+|\\\r?\n)|"
+    rf"{_SECRET_ASSIGNMENT_KEY}[ \t]*(?:\r?\n[ \t]*)*[=:]))[ \t]*)*"
+)
+SECRET_PATTERN = re.compile(
+    rf"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"]?){_SECRET_KEY}(?P=key_quote)"
+    # CLI 保留分隔符两侧的显式 shell 续行，裸 flag 则不能跨普通换行。
+    rf"(?(cli)(?:(?:[ \t]|\\\r?\n)*[=:](?:[ \t]|\\\r?\n)*{_SECRET_VALUE_SPACE}|"
+    r"(?:[ \t]|\\\r?\n)+(?![ \t=:]))|"
+    rf"[ \t]*(?:\r?\n[ \t]*)*[=:]{_SECRET_VALUE_SPACE}))"
     r"(?P<value>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|\"(?:\\[\s\S]|[^\"\\])*\"|"
     r"'(?:\\[\s\S]|[^'\\])*'|[^\s,;)\]}#]+)"
     r"|(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-]+:)(?P<password>[^@\s'\"]+)(?=@[\w.\[-])"
