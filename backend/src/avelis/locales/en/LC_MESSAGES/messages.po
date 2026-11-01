@@ -1824,3 +1824,45 @@ msgstr "The StarRocks audit record contains an escaped object name that is not y
 
 msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
 msgstr "The DDL audit source does not cover this Catalog; attribution is unavailable"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；DDL 归因需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移，跨夏令时可能不准确"
+msgstr "The collection account needs VIEW DEFINITION on the schemas; the query account needs SELECT and VIEW DEFINITION; object_id provides physical identity; data freshness is not reported. DDL attribution requires default trace to be enabled and ALTER TRACE to be granted (also grant VIEW SERVER STATE if required by related reads). Only committed object-level events are used. Schemas recovered from the current catalog provide candidates only; no definite attribution is made when the historical schema or affected columns cannot be established. StartTime is converted from server local time to UTC using the server's current offset, which may be inaccurate across daylight saving transitions."
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；DDL 归因需启用覆盖 TABLE、VIEW 等 CREATE / ALTER / DROP 的统一审计策略，并授予 AUDIT_VIEWER 或等效读取权限；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取"
+msgstr "The collection account needs SELECT_CATALOG_ROLE; OBJECT_ID provides physical identity; unquoted identifiers are stored in uppercase; data freshness is not reported. DDL attribution requires an enabled unified audit policy covering CREATE / ALTER / DROP for TABLE, VIEW and other relevant objects, plus AUDIT_VIEWER or equivalent read privileges. Only successful records with RETURN_CODE = 0 are used. EVENT_TIMESTAMP_UTC is preferred; on older versions, EVENT_TIMESTAMP is read in a UTC audit session."
+
+msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
+msgstr "SQL Server default trace is disabled (default trace enabled = 0)"
+
+msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
+msgstr "The collection account lacks permission to read SQL Server default trace (ALTER TRACE is required; related reads may also require VIEW SERVER STATE)"
+
+msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
+msgstr "SQL Server default trace is not running or has no readable trace file"
+
+msgid "SQL Server 默认跟踪配置或服务器时区偏移无法读取"
+msgstr "SQL Server default trace configuration or the server's time zone offset could not be read"
+
+msgid "SQL Server 默认跟踪记录结构不符：{error}"
+msgstr "SQL Server default trace records have an incompatible structure: {error}"
+
+msgid "SQL Server 默认跟踪读取失败：{error}"
+msgstr "Failed to read SQL Server default trace: {error}"
+
+msgid "Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"
+msgstr "Oracle unified audit record is missing a valid timestamp, database user, action or object"
+
+msgid "Oracle 统一审计的 SQL_TEXT 不是文本"
+msgstr "SQL_TEXT in Oracle unified audit is not text"
+
+msgid "Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"
+msgstr "Oracle unified audit has no relevant successful DDL records, and no enabled audit policy records successful outcomes of these operations"
+
+msgid "采集账号无权读取 Oracle 统一审计；请授予 AUDIT_VIEWER 或相应读取权限（{error}）"
+msgstr "The collection account cannot read Oracle unified audit; grant AUDIT_VIEWER or the corresponding read privileges ({error})"
+
+msgid "Oracle 统一审计来源结构与连接器要求不符（{error}）"
+msgstr "The Oracle unified audit source structure does not meet the connector's requirements ({error})"
+
+msgid "读取 Oracle 统一审计失败（{error}）"
+msgstr "Failed to read Oracle unified audit ({error})"
