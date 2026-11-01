@@ -1,4 +1,4 @@
-// 批量导入血缘：后台解析，解析边直接写入，中间表折叠，模型候选经人工确认后进入血缘（ADR 0014）。
+// 批量导入血缘：后台解析，解析边直接写入，中间表折叠，模型候选经人工确认后进入血缘（ADR 0016）。
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
