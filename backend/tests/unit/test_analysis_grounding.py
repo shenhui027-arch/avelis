@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from avelis.analysis.grounding import CountRef, LabelRef, NumberRef, WindowRef, render
@@ -157,6 +159,51 @@ def test_rule3_no_arabic_digits_in_text_parts(words, digit):
     assert result["problems"] == [f"第 1 个片段（文字）出现数字“{digit}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"]
 
 
+@pytest.mark.parametrize("target", ["title", "summary", "unexplained", "method", "fact", "calc"])
+@pytest.mark.parametrize("words, digits", [
+    ("查询明细宽表（D9、D13），并用状态分布（D10）核对口径", []),
+    ("查询D9核验", []),
+    ("见（D99）", ["99"]),
+    ("AD9", ["9"]),
+    ("D9x", ["9"]),
+    ("9 月", ["9"]),
+    ("下降 9 单", ["9"]),
+    ("核对（D9、D13），D10）后下降 9 单", ["9"]),
+])
+def test_rule3_only_existing_standalone_dataset_ids_are_allowed_in_checked_text(target, words, digits):
+    data = {**DATA, "D9": DATA["D1"], "D10": DATA["D1"], "D13": DATA["D1"]}
+    claim = {"type": target if target in ("fact", "calc") else "fact", "parts": ["核对口径"], "refs": ["D1"]}
+    report = {"title": "标题", "summary": "摘要", "unexplained": "无", "method": "核对口径",
+              "conclusion": "insufficient_evidence", "claims": [claim]}
+    if target in ("fact", "calc"):
+        claim["parts"] = [words]
+    else:
+        report[target] = [words]
+    rendered, verification = ground_report(report, data, WINDOW)
+    record = rendered["claims"][0] if target in ("fact", "calc") else rendered["fields"][target]
+    assert record["errors"] == [f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
+                                for d in digits]
+    assert verification["ok"] == (not digits)
+
+
+@pytest.mark.parametrize("dataset_ids, digits", [(["D9"], ["99"]), (["D99"], ["9"]), ([], ["9", "99"])])
+def test_rule3_dataset_ids_are_taken_from_each_run(dataset_ids, digits):
+    data = {**DATA, **{ref: DATA["D1"] for ref in dataset_ids}}
+    report = {"method": "核对 D9、D99", "conclusion": "insufficient_evidence",
+              "claims": [{"type": "fact", "parts": [HUADONG]}]}
+    rendered, _ = ground_report(report, data, WINDOW)
+    assert rendered["fields"]["method"]["errors"] == [
+        f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）" for d in digits]
+
+
+@pytest.mark.parametrize("words, found", [("D1 共三家门店", ["三家"]), ("D1 约三分之一", ["三分之"]),
+                                         ("D1 壹佰万", ["壹", "佰"])])
+def test_rule4_dataset_ids_do_not_hide_chinese_quantities(words, found):
+    _, result, _ = check([words, "，", HUADONG])
+    assert result["problems"] == [f"第 1 个片段（文字）出现中文数量“{q}”：数量请写成引用对象（个数用 CountRef），或改写为不含数量的说法"
+                                  for q in found]
+
+
 def test_rule4_only_chinese_quantity_expressions_are_rejected():
     """第 7 点第 2 条：只拦数量表达（数字后接量词或单位、几分之几、财务大写），不维护白名单与数量词表。"""
     for words, found in (("共三家门店", "三家"), ("两家门店", "两家"), ("前五家门店", "五家"), ("两个地区", "两个"),
@@ -179,6 +226,12 @@ def test_rule5_refs_are_union_and_must_exist():
     assert check(["福田店关店"])[1]["problems"] == ["没有引用数据集：事实与计算类结论必须引用（显式 refs 或引用片段）"]
     _, missing, _ = check(["福田店关店"], refs=["D9"])
     assert missing["problems"] == ["引用了不存在的数据集 D9"] and missing["missing_refs"] == ["D9"]
+
+
+@pytest.mark.parametrize("kind", ["fact", "calc"])
+def test_rule5_plain_dataset_ids_do_not_replace_explicit_or_rendered_refs(kind):
+    _, result, _ = check(["核对 D1"], kind=kind)
+    assert result["problems"] == ["没有引用数据集：事实与计算类结论必须引用（显式 refs 或引用片段）"]
 
 
 def test_proposal_and_assumption_only_in_inference_or_recommendation():
@@ -228,6 +281,92 @@ def test_fields_records_and_overall_status():
     only = {**report, "claims": [{"type": "inference", "parts": ["可能来自促销"]}]}
     status = ground_report(only, DATA, WINDOW)[1]
     assert status["status"] == "no_facts" and status["ok"]  # 只有推断：不显示“全部通过”
+
+
+@pytest.mark.parametrize("parts", [
+    [],
+    ["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
+    ["华东成交额 ", HUADONG],
+    ['["保留片段中的数组字符串"]'],
+])
+def test_render_decodes_json_array_strings_once(parts):
+    encoded = " \n" + json.dumps(parts, ensure_ascii=False) + "\t "
+    assert render(encoded, DATA, WINDOW) == render(parts, DATA, WINDOW)
+
+
+@pytest.mark.parametrize("words", [
+    pytest.param("[" + "9" * 5000 + "]", id="integer-limit"),
+    pytest.param("[" * 5000 + '"nested"' + "]" * 5000, id="nesting-limit"),
+])
+def test_render_preserves_json_when_decoding_exceeds_parser_limits(words):
+    rendered = render(words, DATA, WINDOW)
+    assert rendered["text"] == words and rendered["errors"] == []
+    assert rendered["segments"] == [{"kind": "text", "part": 1, "text": words}]
+
+
+@pytest.mark.parametrize("field", ["title", "summary", "unexplained", "method"])
+def test_report_fields_decode_json_array_strings_into_text_and_parts(field):
+    words = "华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"
+    encoded = json.dumps([words], ensure_ascii=False)
+    report = {field: encoded, "conclusion": "insufficient_evidence", "claims": []}
+    rendered, verification = ground_report(report, DATA, WINDOW)
+    assert rendered[field] == words
+    assert rendered["fields"][field] == {
+        "parts": [words], "text": words, "segments": [{"kind": "text", "part": 1, "text": words}],
+        "status": "verified", "errors": [],
+    }
+    assert verification["ok"]
+    assert report[field] == encoded
+
+
+@pytest.mark.parametrize("target", ["title", "summary", "unexplained", "method", "fact", "calc"])
+@pytest.mark.parametrize("parts, valid", [
+    (["华东成交额 ", HUADONG], True),
+    (["成交额 ", {"dataset": "D99", "column": "成交额"}], False),
+    (["华东成交额 ", cell("不存在", row=1)], False),
+    (["华东成交额 ", {**HUADONG, "precision": 5}], False),
+    (["下降 9 单"], False),
+    ([["不能递归展开"]], False),
+])
+def test_json_array_strings_follow_existing_report_verification(target, parts, valid):
+    report = {"conclusion": "insufficient_evidence", "claims": []}
+    if target in ("fact", "calc"):
+        report["claims"] = [{"type": target, "parts": parts, "refs": ["D1"]}]
+        encoded_report = {**report, "claims": [{**report["claims"][0], "parts": json.dumps(parts)}]}
+    else:
+        report[target] = parts
+        encoded_report = {**report, target: json.dumps(parts)}
+    expected = ground_report(report, DATA, WINDOW)
+    rendered, verification = ground_report(encoded_report, DATA, WINDOW)
+    assert (rendered, verification) == expected
+    record = rendered["claims"][0] if target in ("fact", "calc") else rendered["fields"][target]
+    assert record["parts"] == parts
+    assert verification["ok"] == valid
+    if valid:
+        assert record["text"] == "华东成交额 196.94万元"
+        assert record["segments"][1]["kind"] == "value"
+        assert record["segments"][1]["ref"] == "D1"
+        assert verification["sources"]["direct"]["governed"] == 1
+
+
+@pytest.mark.parametrize("field", ["title", "summary", "unexplained", "method"])
+@pytest.mark.parametrize("words", [
+    "  华东[线上]订单下降  ",
+    " [线上]订单下降 ",
+    ' ["标题"]后续正文 ',
+    ' ["标题",] ',
+    ' ["未闭合" ',
+    '{"title": ["标题"]}',
+    json.dumps('["多编码两层"]', ensure_ascii=False),
+    "",
+])
+def test_report_fields_keep_non_array_strings_unchanged(field, words):
+    rendered, verification = ground_report({field: words, "conclusion": "insufficient_evidence"}, DATA, WINDOW)
+    assert rendered[field] == words
+    assert rendered["fields"][field]["parts"] == words
+    assert rendered["fields"][field]["segments"] == [{"kind": "text", "part": 1, "text": words}]
+    assert verification["ok"]
+    assert render(words, DATA, WINDOW)["text"] == words
 
 
 def test_incomplete_report_is_kept_as_is():

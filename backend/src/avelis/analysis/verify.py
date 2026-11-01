@@ -7,7 +7,7 @@
 1. 引用必须能解析：数据集、列或汇总路径存在；恰好选中一行；值是有限数值；方向与正负一致（水平值不写方向）；
 2. 数值段不能拼接：两个数值段直接相邻，或中间只隔着空白与 . , e E + - ×，判错；数值段后面紧跟的文字不能以
    单位或数量后缀开头（%、倍、成、元、万、亿、个百分点、折），单位只由系统输出；
-3. 文字片段里不能有阿拉伯数字（半角、全角）；日期用 WindowRef 或数据集里的日期单元格；
+3. 文字片段里不能有阿拉伯数字（半角、全角），本次已有的数据集编号（如 D5）除外；日期用 WindowRef 或数据集里的日期单元格；
 4. 文字片段里不能有中文数量表达（ADR 0009 第 7 点调整，不维护白名单与数量词表）：二至九、十、百、千、万、亿、两、
    零〇 组成的数字后面紧跟量词或单位；“百分之……”“……分之……”；财务大写一律判定。“一”（冠词、序数）、序数与时间词
    （“第二”“九月下旬”）、没有量词的说法（“两期”“两渠道”）都不判定；剩下的中文数量风险交给评测衡量；
@@ -26,13 +26,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from avelis.analysis.grounding import CONCLUSIONS, Cause, describe_scope, render
+from avelis.analysis.grounding import CONCLUSIONS, Cause, decode_parts, describe_scope, render
 
 CHECKED = ("fact", "calc")
 FIELDS = ("title", "summary", "unexplained", "method")
 DETAILS = ("premise", "validation")
 NUMERIC = ("value", "count")
 DIGITS = re.compile(r"[0-9０-９][0-9０-９.,:/\-]*")
+DATASET_TOKEN = re.compile(r"(?<![A-Za-z0-9])D[0-9]+(?![A-Za-z0-9])")
 # 中文数量表达（第 2 点第 4 条）：数字由二至九、十、百、千、万、亿、两、零〇 组成（“一”只在与它们相连时算进数字，
 # 如“一百”“十一”），从整段数字的开头匹配（前面是“第”的是序数），后面紧跟量词或单位才算数量
 _CN_DIGIT = "零〇一二两三四五六七八九十百千万亿"
@@ -61,14 +62,15 @@ def _concat_problems(segments: list[dict]) -> list[str]:
     return problems
 
 
-def _text_problems(segments: list[dict]) -> list[str]:
+def _text_problems(segments: list[dict], dataset_refs: set[str]) -> list[str]:
     problems = []
     for s in segments:
         if s["kind"] != "text":
             continue
-        for d in list(dict.fromkeys(DIGITS.findall(s["text"])))[:3]:
-            problems.append(f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）")
         text = s["text"]
+        numeric_text = DATASET_TOKEN.sub(lambda m: " " if m.group(0) in dataset_refs else m.group(0), text)
+        for d in list(dict.fromkeys(DIGITS.findall(numeric_text)))[:3]:
+            problems.append(f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）")
         found = [m.group(0) for pattern in (CN_QUANTITY, CN_FRACTION, CN_FINANCIAL) for m in pattern.finditer(text)]
         for q in list(dict.fromkeys(found))[:3]:
             problems.append(f"第 {s['part']} 个片段（文字）出现中文数量“{q.strip()}”：数量请写成引用对象（个数用 CountRef），"
@@ -86,15 +88,16 @@ def _restricted_problems(segments: list[dict]) -> list[str]:
     return problems
 
 
-def check(segments: list[dict], errors: list[str]) -> list[str]:
+def check(segments: list[dict], errors: list[str], dataset_refs: set[str]) -> list[str]:
     """事实、计算类结论与标题等字段的结构检查：返回问题列表，空表示通过。"""
-    return [*errors, *_concat_problems(segments), *_text_problems(segments), *_restricted_problems(segments)]
+    return [*errors, *_concat_problems(segments), *_text_problems(segments, dataset_refs), *_restricted_problems(segments)]
 
 
 def _record(parts: Any, datasets: dict[str, dict], window: dict | None, *, checked: bool) -> tuple[dict, list[str]]:
     """一个字段的保存结果：parts、text、segments、status、errors。"""
+    parts = decode_parts(parts)
     r = render(parts, datasets, window)
-    problems = check(r["segments"], r["errors"]) if checked else list(r["errors"])
+    problems = check(r["segments"], r["errors"], set(datasets)) if checked else list(r["errors"])
     status = ("unverified" if problems else "verified") if checked else "unchecked"
     return {"parts": parts, "text": r["text"], "segments": r["segments"], "status": status, "errors": problems}, r["refs"]
 

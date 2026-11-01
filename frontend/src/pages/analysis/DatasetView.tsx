@@ -2,7 +2,7 @@
 // 地址带 ?dataset=D3，可以直接分享到具体数据集。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
@@ -46,6 +46,11 @@ export function DatasetChart({ d, limit = 12 }: { d: Chartable; limit?: number }
     return v === null ? [] : [{ label: labelCols.map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: v }];
   });
   return bars.length > 1 ? <BarChart bars={bars} label={cols[value]} /> : null;
+}
+
+/** 证据编号：带上它所属的那一轮。续问会复制并重新编号数据集，同一个 D 编号在不同轮次里指向不同的数据。 */
+export function EvidenceLink({ runId, refId }: { runId: string; refId: string }) {
+  return <Link className="av-tag av-mono" to={{ pathname: `/analysis/runs/${runId}`, hash: `dataset-${refId}` }}>{refId}</Link>;
 }
 
 /** 当前打开的数据集（地址里的 ?dataset=）与打开、关闭的方法。 */
