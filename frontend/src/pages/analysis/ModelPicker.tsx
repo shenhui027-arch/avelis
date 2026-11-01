@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Icon } from "../../components/Icon";
+import { t } from "../../i18n";
 
 type Run = Schemas["AnalysisRunOut"];
 type Effort = { value: string; label: string };
@@ -52,7 +53,7 @@ export function useModelChoice(initial?: ModelChoice | null) {
 }
 
 /** 点外部或按 Esc 关闭的弹出层。 */
-function usePopover() {
+export function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -78,13 +79,13 @@ export function ModelPicker({ state }: { state: ReturnType<typeof useModelChoice
   return (
     <div className="av-mbar" ref={ref}>
       <button type="button" className="av-mbar__btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}
-        title="切换模型与思考强度">
+        title={t("切换模型与思考强度")}>
         <span className="av-mbar__model">{model.model_id}</span>
         {effortLabel ? <span className="av-mbar__effort">{effortLabel}</span> : null}
       </button>
       {open ? (
         <div className="av-menu av-menu--up av-mbar__menu" role="menu">
-          <div className="av-mbar__sec">模型</div>
+          <div className="av-mbar__sec">{t("模型")}</div>
           {models.map((m) => {
             const current = m.provider_id === choice.provider_id && m.model_id === choice.model_id;
             return (
@@ -97,8 +98,8 @@ export function ModelPicker({ state }: { state: ReturnType<typeof useModelChoice
             );
           })}
           {model.efforts.length ? <>
-            <div className="av-mbar__sec">思考强度</div>
-            <div className="av-mbar__efforts" role="radiogroup" aria-label="思考强度">
+            <div className="av-mbar__sec">{t("思考强度")}</div>
+            <div className="av-mbar__efforts" role="radiogroup" aria-label={t("思考强度")}>
               {model.efforts.map((e) => (
                 <button key={e.value} type="button" role="radio" aria-checked={e.value === choice.reasoning_effort}
                   onClick={() => set({ ...choice, reasoning_effort: e.value })}>{e.label}</button>
@@ -130,7 +131,7 @@ export function ContextMeter({ run, live }: { run: Run; live?: boolean }) {
     && (!choice || m.provider_id === choice.provider_id))?.context_window ?? null;
   const ratio = window ? Math.min(1, used / window) : null;
   const tone = ratio === null ? "" : ratio > 0.85 ? " is-danger" : ratio > 0.6 ? " is-warn" : "";
-  const label = window ? `上下文 ${k(used)} / ${k(window)}（${Math.max(1, Math.round((ratio ?? 0) * 100))}%）` : `上下文 ${k(used)} tokens`;
+  const label = window ? t("上下文 {{v1}} / {{v2}}（{{pct}}%）", { v1: k(used), v2: k(window), pct: Math.max(1, Math.round((ratio ?? 0) * 100)) }) : t("上下文 {{v1}} tokens", { v1: k(used) });
   return (
     <div className={`av-mbar${tone}`} ref={ref}>
       <button type="button" className="av-mbar__btn av-mbar__ring" aria-haspopup="dialog" aria-expanded={open} aria-label={label}
@@ -142,15 +143,15 @@ export function ContextMeter({ run, live }: { run: Run; live?: boolean }) {
         </svg>
       </button>
       {open ? (
-        <div className="av-menu av-menu--up av-mbar__menu av-mbar__ctx" role="dialog" aria-label="上下文">
-          <div className="av-mbar__sec">上下文</div>
+        <div className="av-menu av-menu--up av-mbar__menu av-mbar__ctx" role="dialog" aria-label={t("上下文")}>
+          <div className="av-mbar__sec">{t("上下文")}</div>
           <div className="av-mbar__usage"><b>{k(used)}</b>{window ? <span> / {k(window)} tokens</span> : <span> tokens</span>}</div>
           {ratio !== null ? <div className="av-mbar__bar"><i style={{ width: `${Math.max(1, ratio * 100)}%` }} /></div> : null}
           {live ? (
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={compact.isPending}
               onClick={() => compact.mutate(undefined, {
-                onSuccess: () => setNote("将在下一步之前压缩"), onError: (e) => setNote(errorText(e)) })}>
-              <Icon name="fit" small />{compact.isPending ? "提交中…" : "压缩上下文"}</button>
+                onSuccess: () => setNote(t("将在下一步之前压缩")), onError: (e) => setNote(errorText(e)) })}>
+              <Icon name="fit" small />{compact.isPending ? t("提交中…") : t("压缩上下文")}</button>
           ) : null}
           {note ? <p className="av-mbar__hint">{note}</p> : null}
         </div>

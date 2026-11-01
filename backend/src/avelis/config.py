@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote, quote_plus, unquote_plus, urlsplit
+from urllib.parse import quote, quote_plus, unquote, urlsplit
 
 from avelis.configfile import (
     CONFIG_KEYS,
@@ -24,6 +24,7 @@ from avelis.configfile import (
     report_config_error,
     resolve_files,
 )
+from avelis.i18n import gettext
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -109,6 +110,7 @@ class Settings:
     db_pool_recycle_seconds: int = 1800
     import_max_bytes: int = 2 * 1024**2
     ask_max_tool_rounds: int = 8
+    reply_language: str = "auto"
     analysis_tool_calls: int = 30
     analysis_seconds: int = 300
     analysis_explore_limit: int = 8
@@ -179,9 +181,9 @@ def _unit_interval(env: dict[str, str], key: str, default: float) -> float:
     try:
         value = float(env.get(key, str(default)))
     except ValueError:
-        raise ValueError(f"{key} 必须为 (0, 1] 范围内的有限数值") from None
+        raise ValueError(gettext("{key} 必须为 (0, 1] 范围内的有限数值", key=key)) from None
     if not math.isfinite(value) or not 0 < value <= 1:
-        raise ValueError(f"{key} 必须为 (0, 1] 范围内的有限数值")
+        raise ValueError(gettext("{key} 必须为 (0, 1] 范围内的有限数值", key=key))
     return value
 
 
@@ -213,6 +215,11 @@ def _enum(env: dict[str, str], key: str, default: str, choices: tuple[str, ...])
     if value not in choices:
         raise ValueError(f"{key} 必须为以下值之一：{', '.join(choices)}")
     return value
+
+
+def _reply_language(env: dict[str, str]) -> str:
+    value = _enum(env, "AVELIS_REPLY_LANGUAGE", Settings.reply_language, ("auto", "zh-cn", "zh-tw", "en"))
+    return {"zh-cn": "zh-CN", "zh-tw": "zh-TW"}.get(value, value)
 
 
 def _frontend_directory(env: dict[str, str]) -> Path | None:
@@ -287,6 +294,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
                                                 Settings.db_pool_recycle_seconds),
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
+        reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
         analysis_seconds=_positive_int(env, "AVELIS_ANALYSIS_SECONDS", Settings.analysis_seconds),
         analysis_explore_limit=_positive_int(env, "AVELIS_ANALYSIS_EXPLORE_LIMIT", Settings.analysis_explore_limit),
@@ -370,6 +378,10 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
               ("critical", "error", "warning", "info", "debug", "trace"))
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
+    try:
+        _reply_language(values)
+    except ValueError as exc:
+        values.problem("AVELIS_REPLY_LANGUAGE", str(exc))
     if values.get("AVELIS_DB_SSLMODE", "").strip():
         try:
             _enum(values, "AVELIS_DB_SSLMODE", "", ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"))
@@ -450,7 +462,8 @@ def main(argv: list[str] | None = None) -> None:
                 for service in sorted(wanted):
                     name, _, url = secrets[service]
                     target = args.directory / name
-                    target.write_text(unquote_plus(urlsplit(url).password), encoding="utf-8")
+                    # URL 里的口令是百分号编码：+ 是字面量，不能按表单编码当成空格
+                    target.write_text(unquote(urlsplit(url).password), encoding="utf-8")
                     # 0644：内置 postgres、redis 以各自的非 root 用户读取；目录只挂在 Compose 的命名卷里
                     target.chmod(0o644)
                     print(f"已写入 {target}")

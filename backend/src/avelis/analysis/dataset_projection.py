@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from avelis.i18n import gettext
+
 RESTRICTED_TEXT = "[无访问权限]"
+
+
+def system_column_label(column: str, metric_name: str, period_label: str | None) -> str:
+    """只翻译系统登记的期间与变化后缀，不改变业务指标名称或稳定列键。"""
+    if period_label and column == metric_name:
+        suffix = gettext("本期")
+    elif period_label and column == f"{metric_name}·{period_label}":
+        suffix = gettext(period_label)
+    elif period_label and column == f"{metric_name}·变化":
+        suffix = gettext("变化")
+    elif period_label and column == f"{metric_name}·变化率":
+        suffix = gettext("变化率")
+    else:
+        return column
+    return gettext("{metric}·{period}", metric=metric_name, period=suffix)
 
 
 def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, str]]:
@@ -71,7 +88,10 @@ def dataset_meta(session, dataset) -> dict:
             else:
                 units.setdefault(column, unit)
             labels.setdefault(column, metric.name)
-            column_labels.setdefault(column, f"{metric.name}·本期" if period and column == metric.name else column)
+            saved_label = column_labels.get(column)
+            generated_label = f"{metric.name}·本期" if period and column == metric.name else column
+            if saved_label is None or saved_label == generated_label:
+                column_labels[column] = system_column_label(column, metric.name, period)
         for column, direction in measures.governed_polarity(dataset.columns, {metric.name: version}, period).items():
             polarity.setdefault(column, direction)
     return {**meta, **({"units": units} if units or "units" in meta else {}), "polarity": polarity,

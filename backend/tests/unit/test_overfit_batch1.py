@@ -261,8 +261,8 @@ def test_formula_unit_uses_normalized_base_scale():
 ])
 @pytest.mark.parametrize("engine", ["postgres", "starrocks"])
 def test_exploration_aggregate_division_units(expression, expected, engine):
-    from avelis.analysis.explore import PROFILES, BoundColumn, BoundTable, validate
     from avelis.analysis.exploration import units
+    from avelis.analysis.explore import PROFILES, BoundColumn, BoundTable, validate
 
     table = BoundTable("资产甲", "版本甲", "物理甲", "catalog_a", "schema_a", "table_a", "table",
                        (BoundColumn("指标甲", "decimal(18,8)"), BoundColumn("维度甲", "varchar(64)")))
@@ -762,8 +762,8 @@ def test_batch1_explore_coverage_keeps_daily_or_no_expression_behavior(monkeypat
 ])
 @pytest.mark.parametrize("engine", ["postgres", "starrocks"])
 def test_batch1_exploration_cte_aggregate_division_uses_inferred_kinds(left, right, expected, engine):
-    from avelis.analysis.explore import PROFILES, BoundColumn, BoundTable, validate
     from avelis.analysis.exploration import units
+    from avelis.analysis.explore import PROFILES, BoundColumn, BoundTable, validate
 
     table = BoundTable("资产甲", "版本甲", "物理甲", "catalog_a", "schema_a", "table_a", "table",
                        (BoundColumn("指标甲", "decimal(18,8)"), BoundColumn("维度甲", "varchar(64)")))

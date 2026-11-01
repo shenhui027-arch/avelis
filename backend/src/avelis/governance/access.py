@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from avelis.config import get_settings
 from avelis.governance.errors import Forbidden
+from avelis.i18n import Msg
 from avelis.models import Asset, Domain, DomainMember, User, UserRole
 
 ROLES = ("admin", "steward", "reviewer", "analyst")
@@ -31,7 +32,7 @@ def require_role(session: Session, user: User, *roles: str) -> None:
     have = roles_of(session, user)
     if "admin" in have or have & set(roles):
         return
-    raise Forbidden(f"需要角色：{' / '.join(roles)}", required=list(roles))
+    raise Forbidden(Msg("需要角色：{roles}", roles=" / ".join(roles)), required=list(roles))
 
 
 def domain_ids(session: Session, user: User) -> set[str]:

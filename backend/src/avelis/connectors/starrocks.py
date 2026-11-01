@@ -1,4 +1,4 @@
-"""StarRocks 连接器（真实数据库）。按 docs/starrocks-notes.md 的实机核验结论实现。
+"""StarRocks 连接器（真实数据库）。按 docs/engines/starrocks.md 的实机核验结论实现。
 
 - 视图定义取 information_schema.views.VIEW_DEFINITION（规范化后全限定）；
 - 内表身份用 tables_config.TABLE_ID；视图与外部表 TABLE_ID 为 0，不作为身份；
@@ -17,8 +17,15 @@ from urllib.parse import urlsplit
 import pymysql
 
 from avelis.connectors.base import (
-    ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone, current_timezone_offset,
+    ObservedAsset,
+    ObservedColumn,
+    QueryError,
+    QueryResult,
+    Snapshot,
+    checked_timezone,
+    current_timezone_offset,
 )
+from avelis.i18n import gettext
 
 IDENT = re.compile(r"^[A-Za-z0-9_\-]+$")
 PROP = re.compile(r'"([A-Za-z0-9_.]+)"\s*=\s*"((?:[^"\\]|\\.)*)"')
@@ -63,7 +70,8 @@ def _set_timezone(cur, name: str | None) -> list[str]:
     except pymysql.MySQLError:
         offset = current_timezone_offset(name)
         cur.execute(f"SET time_zone = '{offset}'")
-        return [f"数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差"]
+        return [gettext("数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差",
+                        name=name, offset=offset)]
     return []
 
 

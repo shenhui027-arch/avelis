@@ -35,7 +35,6 @@ from avelis.governance import access
 from avelis.models import Asset, AssetVersion, ColumnVersion, Datasource, DatasourceCredential, Definition, User
 
 
-
 @dataclass
 class ExploreSource:
     datasource: Datasource

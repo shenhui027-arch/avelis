@@ -8,7 +8,7 @@ import pytest
 from avelis.analysis import dataset_projection, export, tools
 from avelis.ask import service as ask_service
 from tests.unit.test_analysis_toolbox import QUERY, governed_catalog, make_box
-from tests.unit.test_overfit_batch3 import _Session, _dataset
+from tests.unit.test_overfit_batch3 import _dataset, _Session
 
 
 @pytest.mark.parametrize("compare", ["previous_period", "previous_calendar", "previous_year", "custom"])

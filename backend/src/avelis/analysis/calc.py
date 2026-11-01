@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation, localcontext  # noqa: F401 - Deci
 from typing import Any
 
 from avelis.governance.derived import significant12 as _significant12
+from avelis.i18n import Msg, gettext
 
 Row = dict[str, Any]
 
@@ -166,10 +167,11 @@ def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, dat
                                    "previous": _significant12(business_prev) if business_prev is not None else None},
                    business_day_effect=_significant12(business_effect) if business_effect is not None else None,
                    business_level_effect=_significant12(cur - prev - business_effect) if business_effect is not None else None)
-        notes = [f"{label}工作日数为 0，工作日均值无法计算" for label, days in (("本期", dc), ("上期", dp))
+        notes = [gettext("{period}工作日数为 0，工作日均值无法计算", period=label)
+                 for label, days in ((gettext("本期"), dc), (gettext("上期"), dp))
                  if not days["business_days"]]
         if business_prev is None:
-            notes.append("上期工作日均值不可得，工作日数效应与工作日水平效应无法计算")
+            notes.append(gettext("上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"))
         if notes:
             out["business_days_note"] = "；".join(notes)
     return out
@@ -272,9 +274,9 @@ def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
 def period_labels(start: date, end: date, grain: str) -> list[str]:
     """与问数的期间列一致：周用周一，季用季初日期，月与年保留相应精度。"""
     if grain not in {"day", "week", "month", "quarter", "year"}:
-        raise CalcError("时间粒度未知，无法判断期间覆盖度")
+        raise CalcError(Msg("时间粒度未知，无法判断期间覆盖度"))
     if start > end:
-        raise CalcError("覆盖度的开始日期不能晚于结束日期")
+        raise CalcError(Msg("覆盖度的开始日期不能晚于结束日期"))
     if grain == "week":
         cursor = start - timedelta(days=start.weekday())
     elif grain == "quarter":
@@ -332,7 +334,7 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
             except (TypeError, ValueError):
                 valid = False
             if not valid:
-                raise CalcError("期间列与已声明的时间粒度不一致，无法判断覆盖度")
+                raise CalcError(Msg("期间列与已声明的时间粒度不一致，无法判断覆盖度"))
     elif daily and start and end:
         expected = period_labels(start, end, "day")
     groups: dict[tuple, list[Row]] = {}

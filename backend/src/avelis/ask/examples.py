@@ -16,6 +16,7 @@ from avelis.ask.intent import business_today
 from avelis.config import get_settings
 from avelis.governance import access
 from avelis.governance.errors import GovernanceError
+from avelis.i18n import gettext
 from avelis.models import Domain, User
 
 MODES = ("ask", "analysis")
@@ -44,7 +45,7 @@ def generated(session: Session, user: User, mode: str) -> list[dict[str, Any]]:
     month_start = business_today(get_settings().business_timezone).replace(day=1)
     end = month_start - timedelta(days=1)
     start = end.replace(day=1)
-    period = f"{start.isoformat()} 至 {end.isoformat()}"
+    period = gettext("{start} 至 {end}", start=start.isoformat(), end=end.isoformat())
     picks = []
     for code in sorted(catalog.versions):
         metric, version = catalog.versions[code]
@@ -53,14 +54,18 @@ def generated(session: Session, user: User, mode: str) -> list[dict[str, Any]]:
             picks.append((metric.name, dims))
     if mode == "ask":
         texts = [t for name, dims in picks[:2] for t in (
-            f"{name} {period} 按{next(iter(dims.values()))}的排名", f"{name} {period} 环比")]
+            gettext("{name} {period} 按{dimension}的排名", name=name, period=period,
+                    dimension=next(iter(dims.values()))),
+            gettext("{name} {period} 环比", name=name, period=period))]
     else:
-        texts = [f"{name} {period} 相比上一期为什么变化？主要来自哪些{next(iter(dims.values()))}？"
+        texts = [gettext("{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？",
+                         name=name, period=period, dimension=next(iter(dims.values())))
                  for name, dims in picks[:2]]
         if len(picks) >= 2:
             shared = next((label for name, label in picks[0][1].items() if name in picks[1][1]), None)
             if shared:
-                texts.append(f"{picks[0][0]} 和 {picks[1][0]} {period} 相比上一期按{shared}有什么关系？")
+                texts.append(gettext("{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？",
+                                     first=picks[0][0], second=picks[1][0], period=period, dimension=shared))
     return [{"text": t, "domain": None, "source": "generated"} for t in texts[:LIMIT]]
 
 

@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/worker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Worker Health */
+        get: operations["worker_health_api_health_worker_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health/ready": {
         parameters: {
             query?: never;
@@ -1028,6 +1045,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["list_conversations_api_analysis_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation */
+        get: operations["get_conversation_api_analysis_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Conversation */
+        delete: operations["delete_conversation_api_analysis_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Conversation */
+        patch: operations["rename_conversation_api_analysis_conversations__conversation_id__patch"];
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Conversation */
+        post: operations["archive_conversation_api_analysis_conversations__conversation_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Conversation */
+        post: operations["restore_conversation_api_analysis_conversations__conversation_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -1280,6 +1367,26 @@ export interface paths {
         };
         /** Export Run */
         get: operations["export_run_api_analysis_runs__run_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/cron/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Cron
+         * @description 按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。
+         */
+        get: operations["preview_cron_api_analysis_cron_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1665,6 +1772,66 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisConversationDetailOut */
+        AnalysisConversationDetailOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Display Title */
+            display_title?: string | null;
+            /** Question */
+            question: string;
+            /** Latest Run Id */
+            latest_run_id: string;
+            /** Status */
+            status: string;
+            /** Turn Count */
+            turn_count: number;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Runs */
+            runs: components["schemas"]["AnalysisRunOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisConversationOut */
+        AnalysisConversationOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Display Title */
+            display_title?: string | null;
+            /** Question */
+            question: string;
+            /** Latest Run Id */
+            latest_run_id: string;
+            /** Status */
+            status: string;
+            /** Turn Count */
+            turn_count: number;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AnalysisDatasetDetailOut */
         AnalysisDatasetDetailOut: {
             /** Ref */
@@ -1998,6 +2165,10 @@ export interface components {
         AnalysisRunOut: {
             /** Id */
             id: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Turn */
+            turn: number;
             /** Question */
             question: string;
             /** Status */
@@ -2770,12 +2941,26 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ConversationPatch */
+        ConversationPatch: {
+            /** Display Title */
+            display_title: string;
+        };
         /** Credential */
         Credential: {
             /** Username */
             username: string;
             /** Password */
             password: string;
+        };
+        /** CredentialFreeOut */
+        CredentialFreeOut: {
+            /** Option */
+            option: string;
+            /** Values */
+            values: string[];
+        } & {
+            [key: string]: unknown;
         };
         /** CredentialOut */
         CredentialOut: {
@@ -2787,6 +2972,19 @@ export interface components {
             password: string;
             /** Updated At */
             updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CronPreviewOut */
+        CronPreviewOut: {
+            /** Expr */
+            expr: string;
+            /** Timezone */
+            timezone: string;
+            /** Runs */
+            runs: string[];
+            /** Error */
+            error?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -2994,6 +3192,16 @@ export interface components {
             required: boolean;
             /** Hint */
             hint: string;
+            /**
+             * Choices
+             * @default []
+             */
+            choices?: string[];
+            /**
+             * Default
+             * @default
+             */
+            default?: string;
         } & {
             [key: string]: unknown;
         };
@@ -3022,6 +3230,7 @@ export interface components {
              * @default []
              */
             options?: components["schemas"]["EngineOptionOut"][];
+            credential_free?: components["schemas"]["CredentialFreeOut"] | null;
         } & {
             [key: string]: unknown;
         };
@@ -4424,6 +4633,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** WorkerHealthOut */
+        WorkerHealthOut: {
+            /** Alive */
+            alive: boolean;
+            /** Last Seen */
+            last_seen?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
     };
     responses: never;
     parameters: never;
@@ -4451,6 +4669,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    worker_health_api_health_worker_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerHealthOut"];
                 };
             };
         };
@@ -6392,6 +6630,194 @@ export interface operations {
             };
         };
     };
+    list_conversations_api_analysis_conversations_get: {
+        parameters: {
+            query?: {
+                archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_api_analysis_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_conversation_api_analysis_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_conversation_api_analysis_conversations__conversation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_conversation_api_analysis_conversations__conversation_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_conversation_api_analysis_conversations__conversation_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_run_api_analysis_runs__run_id__get: {
         parameters: {
             query?: never;
@@ -6870,6 +7296,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_cron_api_analysis_cron_preview_get: {
+        parameters: {
+            query: {
+                expr: string;
+                count?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronPreviewOut"];
                 };
             };
             /** @description Validation Error */

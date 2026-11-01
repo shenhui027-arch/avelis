@@ -18,6 +18,7 @@ from avelis.engines.time_sql import period_expression, time_conditions
 from avelis.governance.errors import Invalid
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_snippet, table_expr
 from avelis.governance.metrics import encoded_time_type
+from avelis.i18n import Msg
 from avelis.lineage.sql import SqlDialect
 
 FORBIDDEN = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Command, exp.Into,
@@ -66,10 +67,11 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     time_grain = getattr(intent, "time_grain", None)
     data_grain = getattr(version, "data_grain", None) or "day"
     if data_grain not in TIME_GRAINS:
-        raise Invalid(f"未知数据粒度 {data_grain}")
+        raise Invalid(Msg("未知数据粒度 {data_grain}", data_grain=data_grain))
     for grain in (time_grain, bucket_grain):
         if grain and (grain not in TIME_GRAINS or TIME_GRAINS.index(grain) < TIME_GRAINS.index(data_grain)):
-            raise Invalid(f"时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细")
+            raise Invalid(Msg("时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细",
+                              grain=grain, data_grain=data_grain))
     t_alias, t_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
     time_column = exp.column(t_col, table=t_alias)
     if time_grain:  # 时间段列：日期按方言格式化；编码键只做确定性的整数除法或字符串截取
@@ -126,7 +128,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             raise Invalid("数据按月编码，窗口必须是整月")
         formats = {"yyyymmdd": "%Y%m%d", "yyyy-mm-dd": "%Y-%m-%d", "yyyymm": "%Y%m"}
         if time_format not in formats:
-            raise Invalid(f"未知时间编码格式 {time_format}")
+            raise Invalid(Msg("未知时间编码格式 {time_format}", time_format=time_format))
         low, high = (d.strftime(formats[time_format]) for d in (intent.start_date, intent.end_date))
         bounds = [exp.Literal.number(v) if kind == "integer" else exp.Literal.string(v) for v in (low, high)]
         conditions.append(exp.Between(this=time_column, low=bounds[0], high=bounds[1]))
@@ -159,7 +161,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     try:
         sql = select.sql(dialect=dialect, comments=False, unsupported_level=ErrorLevel.RAISE)
     except UnsupportedError as exc:
-        raise Invalid(f"当前方言 {dialect} 不支持该时间分组") from exc
+        raise Invalid(Msg("当前方言 {dialect} 不支持该时间分组", dialect=dialect)) from exc
     tables = sorted({_qualified(a) for a in aliases.values()})
     return CompiledQuery(sql=sql, tables=tables, columns=[*([period_column(intent.group_by, reserved_names)] if time_grain else []), *intent.group_by,
                                                   *([bucket_column] if bucket_column else []), "value"],
@@ -188,7 +190,7 @@ def _period_expression(version, column: exp.Expression, grain: str, time_type: s
             return text if grain == "day" else exp.Substring(this=text, start=exp.Literal.number(1),
                                                               length=exp.Literal.number(7))
         if time_format not in ("yyyymm", "yyyymmdd"):
-            raise Invalid(f"未知时间编码格式 {time_format}")
+            raise Invalid(Msg("未知时间编码格式 {time_format}", time_format=time_format))
 
         def part(start: int, length: int) -> exp.Expression:
             return exp.Substring(this=text.copy(), start=exp.Literal.number(start), length=exp.Literal.number(length))

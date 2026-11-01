@@ -22,7 +22,6 @@ from avelis.models import AnalysisDataset, Metric, MetricVersion
 from tests.unit.test_analysis_explore import ok as validate_explore
 from tests.unit.test_overfit_batch1 import _batch1_additive_derived_box, _batch1_box, _batch1_governed
 
-
 NOW = datetime(2026, 3, 31, tzinfo=timezone.utc)
 SECRET = "offline-unit-test-secret-0123456789"
 
@@ -70,7 +69,8 @@ def _dataset(kind="governed", *, columns=None, meta=None, seq=1):
 
 def _run(report=None):
     return SimpleNamespace(
-        id="run_a", task_id=None, parent_run_id=None, confirmation_mode="auto", question="查看指标甲",
+        id="run_a", task_id=None, parent_run_id=None, conversation_id="run_a",
+        confirmation_mode="auto", question="查看指标甲",
         trigger="manual", status="succeeded", window={}, budget={}, model_adapter="offline",
         reasoning_effort=None, model_choice=None, error=None, created_at=NOW, started_at=None,
         finished_at=None, checkpoint={}, report=report or {"title": "报告甲"}, verification={"ok": True}, plan={},

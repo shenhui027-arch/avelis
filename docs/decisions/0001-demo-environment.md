@@ -22,6 +22,6 @@ v0.1 的验收必须在真实 StarRocks 上执行（视图定义变化、只读�
 ## 后果
 
 - StarRocks 通过 `shop-mysql:3306` 访问维表库，本机采集器通过 `127.0.0.1:13306` 访问同一个库。外部表身份匹配因此必须支持端点别名，并以 `server_uuid` 确认实例。
-- 旧式外部表要求维表库开启 `mysql_native_password`（StarRocks BE 的 MySQL 客户端不支持 `caching_sha2_password`，见 [核验记录](../starrocks-notes.md) 第 12 条）。这是演示环境为模拟存量写法所做的妥协，生产中应优先使用 JDBC Catalog。
+- 旧式外部表要求维表库开启 `mysql_native_password`（StarRocks BE 的 MySQL 客户端不支持 `caching_sha2_password`，见 [核验记录](../engines/starrocks.md) 第 12 条）。这是演示环境为模拟存量写法所做的妥协，生产中应优先使用 JDBC Catalog。
 - 重置会让内表的 `TABLE_ID` 变化；验收以“重置后的基线”为起点，不依赖跨重置的 ID。
 - 结论只代表单节点 Docker 环境，不代表多 FE/BE、存算分离或生产权限体系。

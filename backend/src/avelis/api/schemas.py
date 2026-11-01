@@ -8,6 +8,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from avelis.i18n import gettext
+
 Json = dict[str, Any]
 
 
@@ -41,18 +43,23 @@ class BusinessCalendarIn(BaseModel):
             try:
                 date.fromisoformat(value)
             except ValueError:
-                raise ValueError("日期必须是合法的 YYYY-MM-DD") from None
+                raise ValueError(gettext("日期必须是合法的 YYYY-MM-DD")) from None
         return sorted(set(values))
 
     @model_validator(mode="after")
     def disjoint_dates(self) -> "BusinessCalendarIn":
         if set(self.holidays) & set(self.workdays):
-            raise ValueError("同一天不能既是节假日又是调休上班日")
+            raise ValueError(gettext("同一天不能既是节假日又是调休上班日"))
         return self
 
 
 class BusinessCalendarOut(BusinessCalendarIn):
     configured: bool
+
+
+class WorkerHealthOut(Out):
+    alive: bool
+    last_seen: str | None = None
 
 
 # --- 数据源 -----------------------------------------------------------------------
@@ -96,6 +103,13 @@ class EngineOptionOut(Out):
     type: str
     required: bool
     hint: str
+    choices: list[str] = []
+    default: str = ""
+
+
+class CredentialFreeOut(Out):
+    option: str
+    values: list[str]
 
 
 class EngineOut(Out):
@@ -109,6 +123,7 @@ class EngineOut(Out):
     is_test_adapter: bool
     note: str
     options: list[EngineOptionOut] = []
+    credential_free: CredentialFreeOut | None = None
 
 
 class DatasourceOut(Out):
@@ -919,11 +934,11 @@ class AnalysisDatasetRerunWindow(BaseModel):
     @model_validator(mode="after")
     def valid_range(self) -> "AnalysisDatasetRerunWindow":
         if self.start > self.end:
-            raise ValueError("时间窗口的开始日期晚于结束日期")
+            raise ValueError(gettext("时间窗口的开始日期晚于结束日期"))
         if bool(self.compare_start) != bool(self.compare_end):
-            raise ValueError("对比窗口需要同时提供 compare_start 与 compare_end")
+            raise ValueError(gettext("对比窗口需要同时提供 compare_start 与 compare_end"))
         if self.compare_start and self.compare_end and self.compare_start > self.compare_end:
-            raise ValueError("对比窗口的开始日期晚于结束日期")
+            raise ValueError(gettext("对比窗口的开始日期晚于结束日期"))
         return self
 
 
@@ -933,6 +948,8 @@ class AnalysisDatasetRerunIn(BaseModel):
 
 class AnalysisRunOut(Out):
     id: str
+    conversation_id: str
+    turn: int
     question: str
     status: str
     trigger: str
@@ -963,6 +980,32 @@ class AnalysisRunOut(Out):
     checkpoint_warnings: list[str] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
+
+
+class AnalysisConversationOut(Out):
+    id: str
+    title: str
+    display_title: str | None = None
+    question: str
+    latest_run_id: str
+    status: str
+    turn_count: int
+    archived_at: str | None = None
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class AnalysisConversationDetailOut(AnalysisConversationOut):
+    runs: list[AnalysisRunOut]
+
+
+class CronPreviewOut(Out):
+    expr: str
+    timezone: str
+    runs: list[str]
+    error: str | None = None
 
 
 class AnalysisTaskOut(Out):

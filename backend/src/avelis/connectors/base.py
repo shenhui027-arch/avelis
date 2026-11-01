@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from avelis.i18n import gettext
+
 
 @dataclass
 class ObservedColumn:
@@ -125,7 +127,7 @@ def checked_timezone(name: str) -> str:
     try:
         ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
-        raise QueryError("other", None, f"业务时区无效：{name}") from exc
+        raise QueryError("other", None, gettext("业务时区无效：{name}", name=name)) from exc
     return name
 
 
