@@ -13,7 +13,7 @@ msgid "DDL 审计归因"
 msgstr "DDL 稽核歸因"
 
 msgid "HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2；DDL 归因读 system.query_log（采集账号需其 SELECT）"
-msgstr "HTTP 介面；排序鍵不保證唯一，不作為粒度依據；查詢帳號需 readonly=2；DDL 歸因讀 system.query_log（擷取帳號需其 SELECT）"
+msgstr "HTTP 介面；排序鍵不保證唯一，不作為粒度依據；查詢帳號需 readonly=2；DDL 歸因讀 system.query_log（採集帳號需其 SELECT）"
 
 msgid "context_window 必须是 1024 到 10000000 之间的整数"
 msgstr "context_window 必須是 1024 到 10000000 之間的整數"
@@ -250,10 +250,10 @@ msgid "偏离方向"
 msgstr "偏離方向"
 
 msgid "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
-msgstr "中繼資料按輪詢擷取，最長延遲為一個擷取間隔：未發現變更不代表沒有變更。"
+msgstr "中繼資料按輪詢採集，最長延遲為一個採集間隔：未發現變更不代表沒有變更。"
 
 msgid "元数据采集"
-msgstr "中繼資料擷取"
+msgstr "中繼資料採集"
 
 msgid "全部"
 msgstr "全部"
@@ -436,7 +436,7 @@ msgid "变化占比"
 msgstr "變化佔比"
 
 msgid "变化发生在上次成功采集之后、本次采集之前；更精确的时间无法确认"
-msgstr "變化發生在上次成功擷取之後、本次擷取之前；更精確的時間無法確認"
+msgstr "變化發生在上次成功採集之後、本次採集之前；更精確的時間無法確認"
 
 msgid "变化率"
 msgstr "變化率"
@@ -586,7 +586,7 @@ msgid "对象不存在或无权访问"
 msgstr "物件不存在或無權存取"
 
 msgid "导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"
-msgstr "匯入程式碼中出現、尚未在資料來源中擷取到的表（設計時血緣）"
+msgstr "匯入程式碼中出現、尚未在資料來源中採集到的表（設計時血緣）"
 
 msgid "导入任务不存在"
 msgstr "匯入任務不存在"
@@ -616,10 +616,10 @@ msgid "已保存数据图表"
 msgstr "已儲存資料圖表"
 
 msgid "已保存的采集记录含失败或未知状态"
-msgstr "已儲存的擷取紀錄含失敗或未知狀態"
+msgstr "已儲存的採集紀錄含失敗或未知狀態"
 
 msgid "已保存的采集记录均成功"
-msgstr "已儲存的擷取紀錄均成功"
+msgstr "已儲存的採集紀錄均成功"
 
 msgid "已保存范围内未发现变更"
 msgstr "已儲存範圍內未發現變更"
@@ -643,7 +643,7 @@ msgid "建议这样验证"
 msgstr "建議這樣驗證"
 
 msgid "当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集"
-msgstr "目前定義仍與該版本不一致，不能按「已恢復」處理。請先在資料庫恢復原定義並重新擷取"
+msgstr "目前定義仍與該版本不一致，不能按「已恢復」處理。請先在資料庫恢復原定義並重新採集"
 
 msgid "当前密码不正确"
 msgstr "目前密碼不正確"
@@ -934,7 +934,7 @@ msgid "来源标签"
 msgstr "來源標籤"
 
 msgid "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}"
-msgstr "來源結構在上次擷取之後已變化，已排入佇列重新擷取，擷取完成後再驗證：{changes}"
+msgstr "來源結構在上次採集之後已變化，已排入佇列重新採集，採集完成後再驗證：{changes}"
 
 msgid "查询明细"
 msgstr "查詢明細"
@@ -1174,7 +1174,7 @@ msgid "该提供方正被用途使用，先在“默认模型”中改用其他�
 msgstr "該提供者正被用途使用，先在「預設模型」中改用其他模型再停用"
 
 msgid "该数据源正在采集中"
-msgstr "該資料來源正在擷取中"
+msgstr "該資料來源正在採集中"
 
 msgid "说明"
 msgstr "說明"
@@ -1240,28 +1240,28 @@ msgid "部分数字来自临时查询，尚未经过指标口径审核。"
 msgstr "部分數字來自臨時查詢，尚未經過指標定義審核。"
 
 msgid "采集"
-msgstr "擷取"
+msgstr "採集"
 
 msgid "采集失败：{error}"
-msgstr "擷取失敗：{error}"
+msgstr "採集失敗：{error}"
 
 msgid "采集的库"
-msgstr "擷取的資料庫"
+msgstr "採集的資料庫"
 
 msgid "采集的模式"
-msgstr "擷取的綱要"
+msgstr "採集的綱要"
 
 msgid "采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度；DDL 归因需在库中部署事件触发器（avelis_audit.ddl_event），采集账号可读该表"
-msgstr "擷取帳號唯讀系統目錄；實體識別用 pg_class.oid；不報告資料新鮮度；DDL 歸因需在資料庫中部署事件觸發器（avelis_audit.ddl_event），擷取帳號可讀該資料表"
+msgstr "採集帳號唯讀系統目錄；實體識別用 pg_class.oid；不報告資料新鮮度；DDL 歸因需在資料庫中部署事件觸發器（avelis_audit.ddl_event），採集帳號可讀該資料表"
 
 msgid "采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）"
-msgstr "擷取帳號只需 SHOW_VIEW_PRIV；查詢帳號需 SELECT_PRIV 與 SHOW_VIEW_PRIV；TABLE_ID 作實體識別（檢視表也有）；外部 Catalog 尚未整合測試；DDL 歸因讀 __internal_schema.audit_log（擷取帳號需其 SELECT_PRIV）"
+msgstr "採集帳號只需 SHOW_VIEW_PRIV；查詢帳號需 SELECT_PRIV 與 SHOW_VIEW_PRIV；TABLE_ID 作實體識別（檢視表也有）；外部 Catalog 尚未整合測試；DDL 歸因讀 __internal_schema.audit_log（採集帳號需其 SELECT_PRIV）"
 
 msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度"
-msgstr "擷取帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體識別；識別字按大寫儲存；不報告資料新鮮度"
+msgstr "採集帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體識別；識別字按大寫儲存；不報告資料新鮮度"
 
 msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度"
-msgstr "擷取帳號需綱要的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體識別；不報告資料新鮮度"
+msgstr "採集帳號需綱要的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體識別；不報告資料新鮮度"
 
 msgid "量纲"
 msgstr "量綱"
