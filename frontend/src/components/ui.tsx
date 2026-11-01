@@ -31,7 +31,7 @@ const STATUS: Record<string, [Tone, string]> = {
   needs_review: ["warn", "待确认"], done: ["ok", "完成"], parsed: ["ok", "已解析"], partial: ["warn", "部分解析"],
   unsupported: ["", "不支持"], skipped: ["", "跳过"], model: ["warn", "模型候选"], written: ["ok", "已写入"],
   accepted: ["ok", "已接受"], modified: ["info", "已修改"], active: ["ok", "有效"], deleted: ["danger", "已删除"],
-  waiting: ["info", "待回答"], never: ["", "未采集"],
+  waiting: ["info", "待回答"], never: ["", "未采集"], superseded: ["", "已替换"], intermediate: ["", "中间段"],
 };
 
 export function statusOf(status: string | null | undefined): [Tone, string] {
