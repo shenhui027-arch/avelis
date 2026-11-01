@@ -4,13 +4,13 @@ import { Link } from "react-router";
 import { useTimeZone, useWorkbench } from "../api/hooks";
 import { Empty, Icon, Plat, QueryState, Seg, Status, statusOf } from "../components/ui";
 import { formatClock } from "../format";
-import { labelTable, t } from "../i18n";
+import { t } from "../i18n";
 import { useRoles } from "../layout/Shell";
 import { useState } from "react";
 
 const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
 const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/ask" };
-const TODO_STATUS = labelTable("workbench.todoKind", ["review", "approve", "join_path", "import"]);
+const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
 
 export function Workbench() {
   const wb = useWorkbench();
@@ -21,17 +21,17 @@ export function Workbench() {
   return (
     <div className="av-fill av-workbench">
       <div className="av-pagehd">
-        <div className="av-pagehd__title"><h1>{t("workbench.title")}</h1><span className="av-tag">{tz}</span></div>
+        <div className="av-pagehd__title"><h1>{t("工作台")}</h1><span className="av-tag">{tz}</span></div>
         <div className="av-actions">
-          <Link to="/lineage/import" className="av-btn av-btn--secondary">{t("workbench.importLineage")}</Link>
-          <Link to="/settings/datasources" className="av-btn av-btn--secondary">{t("workbench.datasources")}</Link>
-          {canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary">{t("workbench.newMetric")}</Link>
-            : <Link to="/ask" className="av-btn av-btn--primary">{t("workbench.ask")}</Link>}
+          <Link to="/lineage/import" className="av-btn av-btn--secondary">{t("导入血缘")}</Link>
+          <Link to="/settings/datasources" className="av-btn av-btn--secondary">{t("数据源")}</Link>
+          {canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary">{t("新建指标")}</Link>
+            : <Link to="/ask" className="av-btn av-btn--primary">{t("问数")}</Link>}
         </div>
       </div>
 
       <QueryState query={wb}>{(d) => <>
-      <nav className="av-stages" aria-label={t("workbench.loop")}>
+      <nav className="av-stages" aria-label={t("治理闭环")}>
         {d.stages.map((s) => {
           const [tone] = statusOf(s.status);
           return (
@@ -44,13 +44,13 @@ export function Workbench() {
         })}
       </nav>
 
-      <section aria-label={t("workbench.workspace")} className="av-workspace av-workbench__workspace">
+      <section aria-label={t("工作区")} className="av-workspace av-workbench__workspace">
         <div className="av-pane">
           <div className="av-pane__body">
             <div className="av-section">
               <div className="av-pane-hd">
-                <h2>{scope === "todo" ? t("workbench.todo") : t("workbench.blocked")} <span className="av-count">{scope === "todo" ? d.todos.length : d.blocked_answers.length}</span></h2>
-                <Seg value={scope} onChange={setScope} label={t("workbench.scope")} options={[{ value: "todo", label: t("workbench.mine") }, { value: "blocked", label: t("workbench.blocked") }]} />
+                <h2>{scope === "todo" ? t("待办") : t("被拦截的提问")} <span className="av-count">{scope === "todo" ? d.todos.length : d.blocked_answers.length}</span></h2>
+                <Seg value={scope} onChange={setScope} label={t("范围")} options={[{ value: "todo", label: t("待我处理") }, { value: "blocked", label: t("被拦截的提问") }]} />
               </div>
               {scope === "todo" ? (
                 <div className="av-list">
@@ -60,10 +60,10 @@ export function Workbench() {
                       <span className="av-row__main"><span className="av-row__title">{todo.title}</span><span className="av-row__meta">{todo.meta}</span></span>
                       <span className="av-row__meta av-mono">{todo.ref}</span>
                       <span className="av-row__meta av-mono">{formatClock(todo.at, tz)}</span>
-                      <span className="av-row__end"><span className={`av-btn av-btn--sm ${todo.kind === "review" ? "av-btn--primary" : "av-btn--secondary"}`}>{todo.kind === "review" ? t("common.handle") : t("common.view")}</span></span>
+                      <span className="av-row__end"><span className={`av-btn av-btn--sm ${todo.kind === "review" ? "av-btn--primary" : "av-btn--secondary"}`}>{todo.kind === "review" ? t("处理") : t("查看")}</span></span>
                     </Link>
                   ))}
-                  {!d.todos.length ? <Empty compact icon="check" text={t("workbench.noTodo")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("workbench.viewChanges")}</Link>} /> : null}
+                  {!d.todos.length ? <Empty compact icon="check" text={t("没有待办")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("查看变更")}</Link>} /> : null}
                 </div>
               ) : (
                 <div className="av-list">
@@ -72,19 +72,19 @@ export function Workbench() {
                       <Status value={a.status} />
                       <span className="av-row__main"><span className="av-row__title">{a.question}</span><span className="av-row__meta">{a.message}</span></span>
                       <span className="av-row__meta av-mono">{formatClock(a.asked_at, tz)}</span>
-                      <span className="av-row__end"><span className="av-btn av-btn--secondary av-btn--sm">{t("common.view")}</span></span>
+                      <span className="av-row__end"><span className="av-btn av-btn--secondary av-btn--sm">{t("查看")}</span></span>
                     </Link>
                   ))}
-                  {!d.blocked_answers.length ? <Empty compact text={t("workbench.noBlocked")} action={<Link to="/ask" className="av-btn av-btn--secondary av-btn--sm">{t("workbench.startAsk")}</Link>} /> : null}
+                  {!d.blocked_answers.length ? <Empty compact text={t("没有被拦截的提问")} action={<Link to="/ask" className="av-btn av-btn--secondary av-btn--sm">{t("开始问数")}</Link>} /> : null}
                 </div>
               )}
             </div>
             <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("workbench.myMetrics")} <span className="av-count">{d.my_metrics.length}</span></h2>
-                <Link to="/catalog/metrics" className="av-btn av-btn--ghost av-btn--sm">{t("workbench.catalog")}</Link></div>
+              <div className="av-pane-hd"><h2>{t("我负责的指标")} <span className="av-count">{d.my_metrics.length}</span></h2>
+                <Link to="/catalog/metrics" className="av-btn av-btn--ghost av-btn--sm">{t("目录")}</Link></div>
               <div className="av-table-wrap">
                 <table className="av-table av-workbench__metrics">
-                  <thead><tr><th>{t("workbench.colMetric")}</th><th>{t("workbench.colVersion")}</th><th>{t("workbench.colStatus")}</th><th>{t("workbench.colGrain")}</th><th className="num">{t("workbench.colAsksWeek")}</th><th className="end"><span className="av-workbench__sr-only">{t("workbench.colActions")}</span></th></tr></thead>
+                  <thead><tr><th>{t("指标")}</th><th>{t("版本")}</th><th>{t("状态")}</th><th>{t("粒度")}</th><th className="num">{t("本周问数")}</th><th className="end"><span className="av-workbench__sr-only">{t("操作")}</span></th></tr></thead>
                   <tbody>{d.my_metrics.map((m) => (
                     <tr key={String(m.id)}>
                       <td>{String(m.name)}</td>
@@ -92,10 +92,10 @@ export function Workbench() {
                       <td><Status value={String(m.status)} /></td>
                       <td className="av-mono">{(m.grain as string[]).join(" × ")}</td>
                       <td className="num">{String(m.asks_week)}</td>
-                      <td className="end"><Link to={`/catalog/metrics/${String(m.id)}`} className="av-btn av-btn--secondary av-btn--sm">{t("common.view")}</Link></td>
+                      <td className="end"><Link to={`/catalog/metrics/${String(m.id)}`} className="av-btn av-btn--secondary av-btn--sm">{t("查看")}</Link></td>
                     </tr>))}</tbody>
                 </table>
-                {!d.my_metrics.length ? <Empty compact icon="chart" text={t("workbench.noMetrics")} action={<div className="av-actions"><Link to="/catalog/metrics" className="av-btn av-btn--secondary av-btn--sm">{t("workbench.browseMetrics")}</Link>{canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary av-btn--sm">{t("workbench.newMetric")}</Link> : null}</div>} /> : null}
+                {!d.my_metrics.length ? <Empty compact icon="chart" text={t("你还没有负责的指标")} action={<div className="av-actions"><Link to="/catalog/metrics" className="av-btn av-btn--secondary av-btn--sm">{t("浏览指标")}</Link>{canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary av-btn--sm">{t("新建指标")}</Link> : null}</div>} /> : null}
               </div>
             </div>
           </div>
@@ -104,23 +104,23 @@ export function Workbench() {
         <div className="av-pane av-pane--rail">
           <div className="av-pane__body">
             <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("workbench.datasources")} <span className="av-count">{d.datasources.length}</span></h2></div>
+              <div className="av-pane-hd"><h2>{t("数据源")} <span className="av-count">{d.datasources.length}</span></h2></div>
               <div className="av-list">
                 {d.datasources.map((s) => (
                   <Link key={String(s.id)} to={`/settings/datasources/${String(s.id)}`} className="av-row av-workbench__source">
-                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("workbench.everyMinutes", { n: String(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("workbench.notCollected")}</span></span>
+                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{n}} 分钟", { n: String(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span></span>
                     <span className="av-row__end"><Status value={String(s.status) === "ok" ? "ok" : String(s.status)} /></span>
                   </Link>
                 ))}
-                {!d.datasources.length ? <Empty compact text={t("workbench.noDatasource")} action={<Link to="/settings/datasources" className="av-btn av-btn--secondary av-btn--sm">{t("workbench.viewDatasources")}</Link>} /> : null}
+                {!d.datasources.length ? <Empty compact text={t("尚未配置数据源")} action={<Link to="/settings/datasources" className="av-btn av-btn--secondary av-btn--sm">{t("查看数据源")}</Link>} /> : null}
               </div>
             </div>
             <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("workbench.cadence")}</h2><span className="av-tag">{t("workbench.today")}</span></div>
+              <div className="av-pane-hd"><h2>{t("采集节奏")}</h2><span className="av-tag">{t("今日")}</span></div>
               <div className="av-workbench__cadence">
-                <div className="av-cadence" aria-label={t("workbench.cadenceAria")}>
+                <div className="av-cadence" aria-label={t("今日每小时的采集")}>
                   {d.cadence.map((c) => (
-                    <i key={Number(c.hour)} title={t("workbench.cadenceHour", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("workbench.cadenceChanged") : "")}
+                    <i key={Number(c.hour)} title={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
                       className={c.future ? "is-future" : c.changed ? "is-change" : !c.runs ? "is-idle" : undefined} />
                   ))}
                 </div>
@@ -128,19 +128,19 @@ export function Workbench() {
               </div>
             </div>
             <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("workbench.recentChanges")}</h2><Link to="/changes" className="av-btn av-btn--ghost av-btn--sm">{t("workbench.all")}</Link></div>
+              <div className="av-pane-hd"><h2>{t("最近变更")}</h2><Link to="/changes" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
               <ol className="av-steps av-workbench__changes">
                 {d.recent_changes.map((c) => (
                   <li key={String(c.id)} className={`av-step${Number(c.impacts) ? " is-blocked" : c.status === "resolved" ? " is-ok" : ""}`}>
                     <span className="av-step__dot" />
                     <Link to={`/changes/${String(c.id)}`} className="av-step__body av-workbench__change-link">
                       <span className="av-step__title">{String(c.asset)}</span>
-                      <span className="av-step__meta">{String(c.kind)} · {Number(c.impacts) ? t("workbench.impacts", { count: Number(c.impacts) }) : t("workbench.noImpact")} · {formatClock(c.at as string, tz)}</span>
+                      <span className="av-step__meta">{String(c.kind)} · {Number(c.impacts) ? t("{{count}} 项影响", { count: Number(c.impacts) }) : t("不影响口径")} · {formatClock(c.at as string, tz)}</span>
                     </Link>
                   </li>
                 ))}
               </ol>
-              {!d.recent_changes.length ? <Empty compact text={t("workbench.noRecentChanges")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("workbench.viewChanges")}</Link>} /> : null}
+              {!d.recent_changes.length ? <Empty compact text={t("暂无最近变更")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("查看变更")}</Link>} /> : null}
             </div>
           </div>
         </div>

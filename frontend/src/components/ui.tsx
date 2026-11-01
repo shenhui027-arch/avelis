@@ -3,7 +3,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { labelTable, t, tx } from "../i18n";
+import { t } from "../i18n";
 import { Icon } from "./Icon";
 
 export { Hint, Icon } from "./Icon";
@@ -12,25 +12,31 @@ export { Hint, Icon } from "./Icon";
 
 type Tone = "ok" | "warn" | "danger" | "info" | "";
 
-const TONE: Record<string, Tone> = {
+const STATUS: Record<string, [Tone, string]> = {
   // 指标版本
-  draft: "", pending_review: "info", published: "ok", affected: "warn", retired: "danger", archived: "", rejected: "danger",
+  draft: ["", t("草稿")], pending_review: ["info", t("待复核")], published: ["ok", t("已发布")], affected: ["warn", t("受影响")],
+  retired: ["danger", t("失效")], archived: ["", t("归档")], rejected: ["danger", t("已驳回")],
   // 回答
-  answered: "ok", blocked: "danger", clarify: "info", denied: "danger", error: "danger",
+  answered: ["ok", t("已回答")], blocked: ["danger", t("已拦截")], clarify: ["info", t("待澄清")], denied: ["danger", t("已拒绝")],
+  error: ["danger", t("出错")],
   // 变更、复核、任务
-  open: "warn", resolved: "ok", queued: "info", running: "info", succeeded: "ok", failed: "danger",
+  open: ["warn", t("待处理")], resolved: ["ok", t("已处理")], queued: ["info", t("排队中")], running: ["info", t("进行中")],
+  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")],
   // 同一张表、粒度、指纹
-  confirmed: "ok", candidate: "warn", mismatch: "danger", unresolved: "", verified: "ok", unverified: "warn", violated: "danger",
-  stale: "warn", timeout: "warn", ok: "ok", broken: "danger", unknown: "warn",
+  confirmed: ["ok", t("同一张表")], candidate: ["warn", t("待确认")], mismatch: ["danger", t("列不一致")],
+  unresolved: ["", t("未匹配")], verified: ["ok", t("已核验")], unverified: ["warn", t("未核验")], violated: ["danger", t("不唯一")],
+  stale: ["warn", t("需重新声明")], timeout: ["warn", t("核验超时")], ok: ["ok", t("正常")], broken: ["danger", t("上游缺失")],
+  unknown: ["warn", t("证据不全")],
   // 关联路径、导入
-  pending: "info", approved: "ok", needs_params: "warn", needs_review: "warn", done: "ok", parsed: "ok", partial: "warn",
-  unsupported: "", skipped: "", model: "warn", written: "ok", accepted: "ok", modified: "info", active: "ok", deleted: "danger",
-  waiting: "info", never: "",
+  pending: ["info", t("待批准")], approved: ["ok", t("已批准")], needs_params: ["warn", t("待补参数")],
+  needs_review: ["warn", t("待确认")], done: ["ok", t("完成")], parsed: ["ok", t("已解析")], partial: ["warn", t("部分解析")],
+  unsupported: ["", t("不支持")], skipped: ["", t("跳过")], model: ["warn", t("模型候选")], written: ["ok", t("已写入")],
+  accepted: ["ok", t("已接受")], modified: ["info", t("已修改")], active: ["ok", t("有效")], deleted: ["danger", t("已删除")],
+  waiting: ["info", t("待回答")], never: ["", t("未采集")],
 };
 
 export function statusOf(status: string | null | undefined): [Tone, string] {
-  const s = status ?? "";
-  return s in TONE ? [TONE[s], tx(`status.${s}`, s)] : ["", status ?? "—"];
+  return STATUS[status ?? ""] ?? ["", status ?? "—"];
 }
 
 export function Status({ value, label }: { value: string | null | undefined; label?: string }) {
@@ -59,14 +65,17 @@ export function Plat({ kind }: { kind: string }) {
   return <span className="av-plat">{PLAT[kind] ?? kind.slice(0, 2).toUpperCase()}</span>;
 }
 
-export const KIND_LABEL = labelTable("kind", ["table", "view", "materialized_view", "external_table", "catalog_table", "design_time"]);
-
-export const RELATION_LABEL = labelTable("relation",
-  ["value_direct", "value_computed", "value_aggregated", "filter", "join_key", "group_by", "table"]);
-
-export const CARD_LABEL: Record<string, string> = {
-  n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", get unknown() { return t("cardinality.unknown"); },
+export const KIND_LABEL: Record<string, string> = {
+  table: t("表"), view: t("视图"), materialized_view: t("物化视图"), external_table: t("外部表"), catalog_table: t("Catalog 表"),
+  design_time: t("设计时"),
 };
+
+export const RELATION_LABEL: Record<string, string> = {
+  value_direct: t("直接"), value_computed: t("计算"), value_aggregated: t("聚合"), filter: t("过滤"), join_key: t("关联键"),
+  group_by: t("分组"), table: t("表级"),
+};
+
+export const CARD_LABEL: Record<string, string> = { n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", unknown: t("未知") };
 
 // --- 控件 -------------------------------------------------------------------------
 
@@ -141,7 +150,7 @@ export function Empty({ text, action, compact, icon }: { text: string; action?: 
 /** 列表加载时的占位行：保持布局，不先显示 0 或空态。 */
 export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: number }) {
   return (
-    <div className="av-skeleton" aria-busy="true" aria-label={t("common.loading")}>
+    <div className="av-skeleton" aria-busy="true" aria-label={t("加载中")}>
       {Array.from({ length: rows }, (_, i) => <span key={i} style={{ height }} />)}
     </div>
   );
@@ -159,15 +168,15 @@ export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, co
   if (query.isError) {
     return (
       <div className="av-query-error" role="alert">
-        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("common.loadFailed")}</span>
+        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("加载失败")}</span>
         <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => query.refetch()}>
-          <Icon name="refresh" />{t("common.retry")}
+          <Icon name="refresh" />{t("重试")}
         </button>
       </div>
     );
   }
   const data = query.data as T;
-  if (isEmpty?.(data)) return <Empty text={emptyText ?? t("common.noData")} action={emptyAction} compact={compact} />;
+  if (isEmpty?.(data)) return <Empty text={emptyText ?? t("暂无数据")} action={emptyAction} compact={compact} />;
   return <>{children(data)}</>;
 }
 
@@ -204,7 +213,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
       <div className="av-backdrop" onClick={onClose} />
       <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
         <PaneHeader title={title}>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("common.close")} onClick={onClose}>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭")} onClick={onClose}>
             <Icon name="close" />
           </button>
         </PaneHeader>
@@ -291,14 +300,14 @@ export function CommentDoc({ doc }: { doc: ColumnDoc | null | undefined }) {
   if (!doc) return null;
   if (doc.status === "ok") return <span className="av-coldoc">{doc.comment}</span>;
   if (doc.status === "linked") {
-    return <span className="av-coldoc" title={t("coldoc.fromSource", { source: doc.source })}>{doc.comment}</span>;
+    return <span className="av-coldoc" title={t("取自源表 {{source}}", { source: doc.source })}>{doc.comment}</span>;
   }
   if (doc.status === "inherited") {
     return (
-      <span className="av-coldoc av-coldoc--gap" title={t("coldoc.inheritedTitle", { source: doc.source })}>
-        <Pill tone="warn">{t("coldoc.missingComment")}</Pill><span>{t("coldoc.upstream", { comment: doc.comment })}</span>
+      <span className="av-coldoc av-coldoc--gap" title={t("本列没有数据库注释；上游 {{source}} 的注释可沿用", { source: doc.source })}>
+        <Pill tone="warn">{t("缺注释")}</Pill><span>{t("上游：{{comment}}", { comment: doc.comment })}</span>
       </span>
     );
   }
-  return <span className="av-coldoc av-coldoc--gap" title={t("coldoc.noneTitle")}><Pill tone="warn">{t("coldoc.none")}</Pill></span>;
+  return <span className="av-coldoc av-coldoc--gap" title={t("本列与上游都没有数据库注释")}><Pill tone="warn">{t("注释缺失")}</Pill></span>;
 }

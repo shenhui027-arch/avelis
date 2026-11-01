@@ -5,7 +5,7 @@ import { LANGUAGES, setLanguage, t, useLanguage } from ".";
 export function LanguageMenuGroup() {
   const lang = useLanguage();
   return (
-    <div className="av-menu__group" role="group" aria-label={t("shell.language")}>
+    <div className="av-menu__group" role="group" aria-label={t("语言")}>
       {LANGUAGES.map((l) => (
         <button key={l.code} type="button" role="menuitemradio" aria-checked={lang === l.code} lang={l.code}
           className="av-menu__item" onClick={() => setLanguage(l.code)}>
@@ -22,7 +22,7 @@ export function LanguageSelect({ className }: { className?: string }) {
   return (
     <label className={className}>
       <Icon name="globe" small />
-      <select aria-label={t("shell.language")} value={lang} onChange={(e) => setLanguage(e.target.value as typeof lang)}>
+      <select aria-label={t("语言")} value={lang} onChange={(e) => setLanguage(e.target.value as typeof lang)}>
         {LANGUAGES.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.label}</option>)}
       </select>
     </label>
