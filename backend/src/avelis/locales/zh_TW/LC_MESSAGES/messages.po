@@ -1487,3 +1487,198 @@ msgstr "對話中有正在執行或等待確認的分析，請先停止再操作
 
 msgid "对话显示名最多 80 字"
 msgstr "對話顯示名稱最多 80 字"
+
+msgid "SQL Server 的 datetimeoffset 时间列不支持按时间分组"
+msgstr "SQL Server 的 datetimeoffset 時間欄位不支援依時間分組"
+
+msgid "previous_calendar 需要整月、整季或整年窗口，请用 previous_period 或 custom"
+msgstr "previous_calendar 需要完整月份、季度或年度範圍，請使用 previous_period 或 custom"
+
+msgid "yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）"
+msgstr "yyyy-mm-dd 時間格式要求時間欄位為字串型別：{column}（{data_type}）"
+
+msgid "yyyymm 时间格式要求 data_grain 为 month、quarter 或 year"
+msgstr "yyyymm 時間格式要求 data_grain 為 month、quarter 或 year"
+
+msgid "{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？"
+msgstr "{first} 和 {second} {period} 相較上一期，依{dimension}有什麼關係？"
+
+msgid "{key} 取值无效：{value}"
+msgstr "{key} 的值無效：{value}"
+
+msgid "{name} {period} 按{dimension}的排名"
+msgstr "{name} {period} 依{dimension}的排名"
+
+msgid "{name} {period} 环比"
+msgstr "{name} {period} 與上一期比較"
+
+msgid "{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？"
+msgstr "{name} {period} 相較上一期為什麼變化？主要來自哪些{dimension}？"
+
+msgid "{period}工作日数为 0，工作日均值无法计算"
+msgstr "{period}工作日數為 0，無法計算工作日平均值"
+
+msgid "上一自然期"
+msgstr "上一曆期"
+
+msgid "上期"
+msgstr "上期"
+
+msgid "上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"
+msgstr "無法取得上期工作日平均值，無法計算工作日數效應與工作日水準效應"
+
+msgid "业务时区无效：{name}"
+msgstr "業務時區無效：{name}"
+
+msgid "同一天不能既是节假日又是调休上班日"
+msgstr "同一天不能同時是假日與補班日"
+
+msgid "基础指标需要 base_asset_id 与 time_column"
+msgstr "基礎指標需要 base_asset_id 與 time_column"
+
+msgid "对比窗口的开始日期晚于结束日期"
+msgstr "比較範圍的開始日期晚於結束日期"
+
+msgid "对比窗口需要同时提供 compare_start 与 compare_end"
+msgstr "比較範圍需要同時提供 compare_start 與 compare_end"
+
+msgid "带时区的时间列需要有效的业务时区"
+msgstr "含時區的時間欄位需要有效的業務時區"
+
+msgid "当前方言 {dialect} 不支持该时间分组"
+msgstr "目前的方言 {dialect} 不支援此時間分組"
+
+msgid "数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差"
+msgstr "資料庫不支援業務時區 {name}，已依查詢時刻的固定偏移 {offset} 執行；跨越日光節約時間邊界時可能有誤差"
+
+msgid "数据按月编码，窗口必须是整月"
+msgstr "資料以月份編碼，範圍必須涵蓋完整月份"
+
+msgid "日期必须是合法的 YYYY-MM-DD"
+msgstr "日期必須是有效的 YYYY-MM-DD"
+
+msgid "时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细"
+msgstr "時間分組粒度 {grain} 不能比指標「{metric}」的資料粒度 {data_grain} 更細"
+
+msgid "时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细"
+msgstr "時間分組粒度 {grain} 不能比資料粒度 {data_grain} 更細"
+
+msgid "未标注实体"
+msgstr "未標註實體"
+
+msgid "未知数据粒度 {data_grain}"
+msgstr "未知資料粒度 {data_grain}"
+
+msgid "未知时间编码格式 {time_format}"
+msgstr "未知時間編碼格式 {time_format}"
+
+msgid "每个成员按有数据的桶计算均值，空桶不补零"
+msgstr "每個成員依有資料的時間區間計算平均值，空白區間不補零"
+
+msgid "每个输出期间取全局最后一个有数据的桶，成员缺失为未知"
+msgstr "每個輸出期間採用整體最後一個有資料的時間區間，缺少的成員視為未知"
+
+msgid "沿用口径表达式跨时间汇总"
+msgstr "沿用口徑運算式跨時間彙總"
+
+msgid "派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义"
+msgstr "衍生指標不支援 time_aggregation={time_aggregation}：目前先依整個時間範圍彙總組成指標，再計算公式，尚不支援對各時間區間的公式結果取末值（last）或平均值（avg）；請使用 sum 或調整口徑定義"
+
+msgid "编码日期键只支持 day 与 month 分组，按月编码不能按日分组"
+msgstr "編碼日期鍵僅支援 day 與 month 分組，以月份編碼時不能依日分組"
+
+msgid "编码日期键的列类型与 time_format 不匹配"
+msgstr "編碼日期鍵的欄位型別與 time_format 不符"
+
+msgid "编码时间字段必须是整数或字符串类型：{column}（{data_type}）"
+msgstr "編碼時間欄位必須是整數或字串型別：{column}（{data_type}）"
+
+msgid "{dimension}：{member}"
+msgstr "{dimension}：{member}"
+
+msgid "{metric}·{period}"
+msgstr "{metric}·{period}"
+
+msgid "时间粒度未知，无法判断期间覆盖度"
+msgstr "時間粒度未知，無法判斷期間涵蓋率"
+
+msgid "覆盖度的开始日期不能晚于结束日期"
+msgstr "涵蓋率的開始日期不能晚於結束日期"
+
+msgid "期间列与已声明的时间粒度不一致，无法判断覆盖度"
+msgstr "期間欄位與宣告的時間粒度不一致，無法判斷涵蓋率"
+
+msgid "指标组成成环，无法确认时间语义"
+msgstr "指標組成形成循環，無法確認時間語義"
+
+msgid "指标的组成版本缺失，无法确认时间语义"
+msgstr "缺少指標組成版本，無法確認時間語義"
+
+msgid "数据粒度未知，无法判断期间覆盖度"
+msgstr "資料粒度未知，無法判斷期間涵蓋率"
+
+msgid "查询版本缺失，无法确认跨时间合成方式"
+msgstr "缺少查詢版本，無法確認跨時間彙整方式"
+
+msgid "该指标跨时间不能累加，不能按天数折算"
+msgstr "此指標無法跨時間累加，不能依天數換算"
+
+msgid "无法确认列对应的指标时间语义，不能按天数折算"
+msgstr "無法確認欄位對應的指標時間語義，不能依天數換算"
+
+msgid "数据粒度未知，无法执行趋势预检"
+msgstr "資料粒度未知，無法執行趨勢預檢"
+
+msgid "受治理数据集没有时间分组，无法判断期间覆盖度"
+msgstr "受治理資料集沒有時間分組，無法判斷期間涵蓋率"
+
+msgid "受治理数据集缺少指标意图，无法确认数据粒度"
+msgstr "受治理資料集缺少指標意圖，無法確認資料粒度"
+
+msgid "指标 {code} 缺少锁定的查询版本，无法确认数据粒度"
+msgstr "指標 {code} 缺少鎖定的查詢版本，無法確認資料粒度"
+
+msgid "保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度"
+msgstr "儲存的資料粒度不完整或與鎖定版本不一致，無法判斷期間涵蓋率"
+
+msgid "查询粒度比数据粒度更细，无法判断期间覆盖度"
+msgstr "查詢粒度比資料粒度更細，無法判斷期間涵蓋率"
+
+msgid "受治理数据集缺少时间期间列，无法判断期间覆盖度"
+msgstr "受治理資料集缺少時間期間欄位，無法判斷期間涵蓋率"
+
+msgid "口径声明为比率量纲"
+msgstr "口徑宣告為比率量綱"
+
+msgid "列 {column} 不能按成员相加：{reason}"
+msgstr "欄位 {column} 不能依成員相加：{reason}"
+
+msgid "系统预检：两期的{grain}趋势"
+msgstr "系統預檢：兩期的{grain}趨勢"
+
+msgid " 按{dimension}"
+msgstr " 依{dimension}"
+
+msgid " 对比{period}"
+msgstr " 比較{period}"
+
+msgid "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"
+msgstr "公式包含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常數：假設計算，只能由推論與建議引用"
+
+msgid "日"
+msgstr "日"
+
+msgid "周"
+msgstr "週"
+
+msgid "月"
+msgstr "月"
+
+msgid "季"
+msgstr "季"
+
+msgid "年"
+msgstr "年"
+
+msgid "{key} 必须为 (0, 1] 范围内的有限数值"
+msgstr "{key} 必須是 (0, 1] 範圍內的有限數值"

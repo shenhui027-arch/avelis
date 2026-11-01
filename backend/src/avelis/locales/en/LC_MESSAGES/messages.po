@@ -1482,3 +1482,198 @@ msgstr "A turn in this conversation is running or awaiting confirmation. Stop it
 
 msgid "对话显示名最多 80 字"
 msgstr "The conversation name can be at most 80 characters"
+
+msgid "SQL Server 的 datetimeoffset 时间列不支持按时间分组"
+msgstr "SQL Server datetimeoffset columns do not support grouping by time"
+
+msgid "previous_calendar 需要整月、整季或整年窗口，请用 previous_period 或 custom"
+msgstr "previous_calendar requires complete months, quarters, or years; use previous_period or custom"
+
+msgid "yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）"
+msgstr "The yyyy-mm-dd time format requires a string time column: {column} ({data_type})"
+
+msgid "yyyymm 时间格式要求 data_grain 为 month、quarter 或 year"
+msgstr "The yyyymm time format requires data_grain to be month, quarter, or year"
+
+msgid "{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？"
+msgstr "How are {first} and {second} related by {dimension} in {period} compared with the previous period?"
+
+msgid "{key} 取值无效：{value}"
+msgstr "Invalid value for {key}: {value}"
+
+msgid "{name} {period} 按{dimension}的排名"
+msgstr "{name} ranking by {dimension} for {period}"
+
+msgid "{name} {period} 环比"
+msgstr "{name} period-over-period comparison for {period}"
+
+msgid "{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？"
+msgstr "Why did {name} change in {period} compared with the previous period? Which {dimension} contributed most?"
+
+msgid "{period}工作日数为 0，工作日均值无法计算"
+msgstr "{period} has 0 working days; the working-day average cannot be calculated"
+
+msgid "上一自然期"
+msgstr "Previous calendar period"
+
+msgid "上期"
+msgstr "Previous period"
+
+msgid "上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"
+msgstr "The previous-period working-day average is unavailable; working-day count and level effects cannot be calculated"
+
+msgid "业务时区无效：{name}"
+msgstr "Invalid business time zone: {name}"
+
+msgid "同一天不能既是节假日又是调休上班日"
+msgstr "A date cannot be both a holiday and a compensatory working day"
+
+msgid "基础指标需要 base_asset_id 与 time_column"
+msgstr "Base metrics require base_asset_id and time_column"
+
+msgid "对比窗口的开始日期晚于结束日期"
+msgstr "The comparison window starts after it ends"
+
+msgid "对比窗口需要同时提供 compare_start 与 compare_end"
+msgstr "The comparison window requires both compare_start and compare_end"
+
+msgid "带时区的时间列需要有效的业务时区"
+msgstr "Time columns with a time zone require a valid business time zone"
+
+msgid "当前方言 {dialect} 不支持该时间分组"
+msgstr "Dialect {dialect} does not support this time grouping"
+
+msgid "数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差"
+msgstr "The database does not support business time zone {name}; the query used the fixed offset {offset} at execution time and may be inaccurate across daylight saving time boundaries"
+
+msgid "数据按月编码，窗口必须是整月"
+msgstr "Monthly encoded data requires a window covering complete months"
+
+msgid "日期必须是合法的 YYYY-MM-DD"
+msgstr "Dates must be valid YYYY-MM-DD values"
+
+msgid "时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细"
+msgstr "Time grouping grain {grain} cannot be finer than data grain {data_grain} for metric \"{metric}\""
+
+msgid "时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细"
+msgstr "Time grouping grain {grain} cannot be finer than data grain {data_grain}"
+
+msgid "未标注实体"
+msgstr "Unlabeled entity"
+
+msgid "未知数据粒度 {data_grain}"
+msgstr "Unknown data grain {data_grain}"
+
+msgid "未知时间编码格式 {time_format}"
+msgstr "Unknown time encoding format {time_format}"
+
+msgid "每个成员按有数据的桶计算均值，空桶不补零"
+msgstr "Average each member over time buckets with data; do not fill empty buckets with zero"
+
+msgid "每个输出期间取全局最后一个有数据的桶，成员缺失为未知"
+msgstr "Use the last time bucket with data across all members in each output period; missing members are unknown"
+
+msgid "沿用口径表达式跨时间汇总"
+msgstr "Aggregate across time using the metric definition expression"
+
+msgid "派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义"
+msgstr "Derived metrics do not support time_aggregation={time_aggregation}: component metrics are aggregated over the entire time window before evaluating the formula; last and avg over per-bucket formula results are not supported. Use sum or adjust the metric definition"
+
+msgid "编码日期键只支持 day 与 month 分组，按月编码不能按日分组"
+msgstr "Encoded date keys support only day and month grouping; monthly encoding cannot be grouped by day"
+
+msgid "编码日期键的列类型与 time_format 不匹配"
+msgstr "The encoded date key column type does not match time_format"
+
+msgid "编码时间字段必须是整数或字符串类型：{column}（{data_type}）"
+msgstr "Encoded time columns must have an integer or string type: {column} ({data_type})"
+
+msgid "{dimension}：{member}"
+msgstr "{dimension}: {member}"
+
+msgid "{metric}·{period}"
+msgstr "{metric} · {period}"
+
+msgid "时间粒度未知，无法判断期间覆盖度"
+msgstr "The time grain is unknown; period coverage cannot be determined"
+
+msgid "覆盖度的开始日期不能晚于结束日期"
+msgstr "The coverage start date cannot be later than the end date"
+
+msgid "期间列与已声明的时间粒度不一致，无法判断覆盖度"
+msgstr "The period column does not match the declared time grain; coverage cannot be determined"
+
+msgid "指标组成成环，无法确认时间语义"
+msgstr "Metric components form a cycle; time semantics cannot be determined"
+
+msgid "指标的组成版本缺失，无法确认时间语义"
+msgstr "A metric component version is missing; time semantics cannot be determined"
+
+msgid "数据粒度未知，无法判断期间覆盖度"
+msgstr "The data grain is unknown; period coverage cannot be determined"
+
+msgid "查询版本缺失，无法确认跨时间合成方式"
+msgstr "A query version is missing; aggregation across time cannot be determined"
+
+msgid "该指标跨时间不能累加，不能按天数折算"
+msgstr "This metric is not additive across time and cannot be normalized by day count"
+
+msgid "无法确认列对应的指标时间语义，不能按天数折算"
+msgstr "Time semantics for the metric corresponding to this column cannot be determined; day-count normalization is unavailable"
+
+msgid "数据粒度未知，无法执行趋势预检"
+msgstr "The data grain is unknown; trend prechecks cannot run"
+
+msgid "受治理数据集没有时间分组，无法判断期间覆盖度"
+msgstr "The governed dataset has no time grouping; period coverage cannot be determined"
+
+msgid "受治理数据集缺少指标意图，无法确认数据粒度"
+msgstr "The governed dataset has no metric intent; the data grain cannot be determined"
+
+msgid "指标 {code} 缺少锁定的查询版本，无法确认数据粒度"
+msgstr "Metric {code} has no pinned query version; the data grain cannot be determined"
+
+msgid "保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度"
+msgstr "The saved data grain is incomplete or differs from the pinned version; period coverage cannot be determined"
+
+msgid "查询粒度比数据粒度更细，无法判断期间覆盖度"
+msgstr "The query grain is finer than the data grain; period coverage cannot be determined"
+
+msgid "受治理数据集缺少时间期间列，无法判断期间覆盖度"
+msgstr "The governed dataset has no time period column; period coverage cannot be determined"
+
+msgid "口径声明为比率量纲"
+msgstr "The metric definition declares a ratio unit"
+
+msgid "列 {column} 不能按成员相加：{reason}"
+msgstr "Column {column} cannot be summed across members: {reason}"
+
+msgid "系统预检：两期的{grain}趋势"
+msgstr "System precheck: {grain} trends across both periods"
+
+msgid " 按{dimension}"
+msgstr " by {dimension}"
+
+msgid " 对比{period}"
+msgstr " compared with {period}"
+
+msgid "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"
+msgstr "The formula contains constants other than 0, 1, 24, 60, 100, 1000, 3600, 10000, 1e6, 1e8, and 1e9: this is a hypothetical calculation and may only be cited by inferences or recommendations"
+
+msgid "日"
+msgstr "Day"
+
+msgid "周"
+msgstr "Week"
+
+msgid "月"
+msgstr "Month"
+
+msgid "季"
+msgstr "Quarter"
+
+msgid "年"
+msgstr "Year"
+
+msgid "{key} 必须为 (0, 1] 范围内的有限数值"
+msgstr "{key} must be a finite number in the interval (0, 1]"

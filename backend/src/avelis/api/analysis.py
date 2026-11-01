@@ -15,6 +15,7 @@ from avelis import jobs, modelcfg
 from avelis.analysis import export
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
+from avelis.analysis.dataset_projection import build_column_roles, dataset_meta
 from avelis.analysis.rerun import rerun_dataset
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
@@ -274,14 +275,16 @@ def _dataset_seq(ref: str) -> int:
     return int(ref[1:])
 
 
-def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    meta = d.meta or {}
+def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100,
+                    session: Session | None = None) -> dict[str, Any]:
+    meta = dataset_meta(session, d) if session is not None else d.meta or {}
     source = meta.get("rerun_of")
     return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns,
             "row_count": len(d.rows), "truncated": d.truncated, "inputs": d.inputs,
             "sql": meta.get("sql"), "metric_version_ids": meta.get("metric_version_ids", []),
             "metric_codes": meta.get("metric_codes", []), "window": meta.get("window", {}),
             "time_column": meta.get("time_column"), "units": meta.get("units", {}),
+            "polarity": meta.get("polarity", {}), "column_roles": build_column_roles(d.columns, meta),
             "summary_units": meta.get("summary_units", {}), "purpose": meta.get("purpose"),
             "answer_id": d.answer_id, "created_at": d.created_at.isoformat(),
             "explore": bool(meta.get("explore")), "assumption": bool(meta.get("assumption")),
@@ -301,9 +304,11 @@ def get_dataset(run_id: str, ref: str, offset: int = Query(0, ge=0), limit: int 
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
     require_dataset_access(session, user, d)
     if legacy:
+        meta = dataset_meta(session, d)
         return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns, "rows": d.rows,
-                "truncated": d.truncated, "meta": d.meta, "inputs": d.inputs, "answer_id": d.answer_id}
-    return _dataset_detail(d, offset=offset, limit=limit)
+                "truncated": d.truncated, "meta": meta, "inputs": d.inputs, "answer_id": d.answer_id,
+                "column_roles": build_column_roles(d.columns, meta)}
+    return _dataset_detail(d, offset=offset, limit=limit, session=session)
 
 
 @router.post("/analysis/runs/{run_id}/datasets/{ref}/rerun", response_model=S.AnalysisDatasetDetailOut)
@@ -313,7 +318,7 @@ def rerun(run_id: str, ref: str, body: S.AnalysisDatasetRerunIn, user: User = De
     d = _dataset(session, run, _dataset_seq(ref))
     result = rerun_dataset(session, user, run, d, body.window.model_dump(mode="json", exclude_none=True))
     session.commit()
-    return _dataset_detail(result)
+    return _dataset_detail(result, session=session)
 
 
 @router.get("/analysis/runs/{run_id}/datasets/{seq}/csv")
@@ -391,7 +396,10 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
             if dataset.get("restricted"):
                 continue
             d = saved[dataset["ref"]]
-            dataset.update(rows=d.rows, meta=_export_metadata(session, user, d.meta))
+            dataset.update(rows=d.rows, meta=_export_metadata(session, user, dataset_meta(session, d)))
+            if "units" not in (d.meta or {}):
+                # 早期运行没有数值列元数据，导出仍使用原来的选轴回退。
+                dataset.pop("column_roles", None)
     if format == "md":
         return Response(export.to_markdown(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
                         media_type="text/markdown; charset=utf-8",

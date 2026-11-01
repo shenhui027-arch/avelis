@@ -1606,6 +1606,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/business-calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Business Calendar */
+        get: operations["get_business_calendar_api_settings_business_calendar_get"];
+        /** Put Business Calendar */
+        put: operations["put_business_calendar_api_settings_business_calendar_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports": {
         parameters: {
             query?: never;
@@ -1846,6 +1864,14 @@ export interface components {
             units: {
                 [key: string]: unknown;
             };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
             /** Summary Units */
             summary_units: {
                 [key: string]: unknown;
@@ -1908,6 +1934,10 @@ export interface components {
             inputs: string[];
             /** Answer Id */
             answer_id: string | null;
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -1947,6 +1977,18 @@ export interface components {
             metric_version_ids?: string[];
             /** Time Column */
             time_column?: string | null;
+            /** Units */
+            units?: {
+                [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -2498,6 +2540,26 @@ export interface components {
             /** Default Db */
             default_db?: string | null;
         };
+        /** BusinessCalendarIn */
+        BusinessCalendarIn: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+        };
+        /** BusinessCalendarOut */
+        BusinessCalendarOut: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+            /** Configured */
+            configured: boolean;
+        };
         /** CandidateOut */
         CandidateOut: {
             /** Id */
@@ -2782,6 +2844,18 @@ export interface components {
             doc?: components["schemas"]["ColumnDocOut"] | null;
             /** Confirmations */
             confirmations: components["schemas"]["ConfirmationOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ColumnRole */
+        ColumnRole: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "time" | "dimension" | "measure" | "change" | "rate";
+            /** Label */
+            label: string;
         } & {
             [key: string]: unknown;
         };
@@ -3780,6 +3854,24 @@ export interface components {
             time_column: string;
             /** Timezone */
             timezone: string;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -4453,6 +4545,24 @@ export interface components {
             time_column?: string;
             /** Timezone */
             timezone?: string | null;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -7684,6 +7794,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_business_calendar_api_settings_business_calendar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
+                };
+            };
+        };
+    };
+    put_business_calendar_api_settings_business_calendar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessCalendarIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
                 };
             };
             /** @description Validation Error */

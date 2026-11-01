@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
@@ -67,6 +67,11 @@ class VersionSpec(BaseModel):
     expression: str = Field(min_length=1)
     time_column: str = ""
     timezone: str | None = None
+    time_format: Literal["yyyymmdd", "yyyy-mm-dd", "yyyymm"] | None = None
+    data_grain: Literal["day", "week", "month", "quarter", "year"] = "day"
+    time_aggregation: Literal["sum", "last", "avg"] = "sum"
+    value_kind: Literal["level", "ratio", "count"] | None = None
+    polarity: Literal["up_good", "down_good"] | None = None
     filters: str | None = None
     dimensions: list[Dimension] = Field(default_factory=list)
     joins: list[JoinStep] = Field(default_factory=list)
@@ -80,7 +85,7 @@ class VersionSpec(BaseModel):
     @model_validator(mode="after")
     def _base_fields(self) -> "VersionSpec":
         if self.kind == "base" and (not self.base_asset_id or not self.time_column):
-            raise ValueError("基础指标需要 base_asset_id 与 time_column")
+            raise ValueError(gettext("基础指标需要 base_asset_id 与 time_column"))
         return self
 
     def as_spec(self) -> dict[str, Any]:

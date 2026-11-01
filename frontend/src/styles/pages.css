@@ -643,8 +643,8 @@
 .av-cause__entity { color: var(--text-primary); font: var(--type-body-strong); }
 .av-cause__type { color: var(--text-tertiary); font: var(--type-caption); }
 .av-cause__dir { font: 600 14px/1 var(--font-sans); text-align: center; }
-.av-cause__dir.is-up { color: var(--ok, var(--accent-text)); }
-.av-cause__dir.is-down { color: var(--danger); }
+/* 原因的涨跌不代表好坏（期望方向见口径，ADR 0014）：箭头用中性色 */
+.av-cause__dir.is-up, .av-cause__dir.is-down { color: var(--text-secondary); }
 .av-cause__value { font: var(--type-num); white-space: nowrap; }
 .av-timeline { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .av-timeline__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 3px 0 3px 26px; position: relative; counter-increment: step; color: var(--text-secondary); font: 400 12px/18px var(--font-sans); }
@@ -860,6 +860,15 @@
 /* 吸顶标题栏自带 backdrop-filter：嵌在里面的菜单伸出标题栏后模糊不到下面的内容，半透明底会透出正文，垫一层不透明底色 */
 .av-doc__hd .av-menu { background: linear-gradient(var(--bg-overlay), var(--bg-overlay)), var(--bg-base); }
 .av-analysis__joins { display: flex; flex-direction: column; gap: var(--space-2); } .av-analysis__joins .av-caption { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+
+/* 业务日历（设置）：周末勾选 + 两列日期清单 */
+.av-calendar { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4); }
+.av-calendar__group { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
+.av-calendar__days { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.av-calendar__day { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-subtle); border-radius: 999px; color: var(--text-secondary); font: var(--type-caption); cursor: pointer; }
+.av-calendar__day:has(input:checked) { border-color: var(--accent); color: var(--text-primary); background: var(--accent-subtle, var(--bg-raised)); }
+.av-calendar__day input { margin: 0; accent-color: var(--accent); }
+.av-calendar__lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
 /* 输入框底栏：时间、确认、模型、定时统一成同一种胶囊，菜单用同一套弹出层；发送是圆形主按钮 */
 .av-compose__bar { gap: 6px; }
 .av-chip__btn, .av-compose__bar .av-mbar__btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;

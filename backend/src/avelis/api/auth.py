@@ -272,6 +272,7 @@ def settings_view(user: User = Depends(current_user), session: Session = Depends
     s = get_settings()
     return {
         "business_timezone": s.business_timezone,
+        "number_style": s.number_style,
         "allow_self_review": s.allow_self_review,
         "self_review_policy": "允许自审" if s.allow_self_review else "禁止自审：提交人、创建人不能批准同一版本",
         "unassigned_asset_policy": s.unassigned_asset_policy,

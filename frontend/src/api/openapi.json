@@ -5307,6 +5307,76 @@
     ]
    }
   },
+  "/api/settings/business-calendar": {
+   "get": {
+    "tags": [
+     "系统设置"
+    ],
+    "summary": "Get Business Calendar",
+    "operationId": "get_business_calendar_api_settings_business_calendar_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BusinessCalendarOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "系统设置"
+    ],
+    "summary": "Put Business Calendar",
+    "operationId": "put_business_calendar_api_settings_business_calendar_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BusinessCalendarIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BusinessCalendarOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/imports": {
    "get": {
     "tags": [
@@ -6023,6 +6093,24 @@
       "type": "object",
       "title": "Units"
      },
+     "polarity": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "up_good",
+        "down_good"
+       ]
+      },
+      "type": "object",
+      "title": "Polarity"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
+     },
      "summary_units": {
       "additionalProperties": true,
       "type": "object",
@@ -6195,6 +6283,13 @@
        }
       ],
       "title": "Answer Id"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
      }
     },
     "additionalProperties": true,
@@ -6298,6 +6393,29 @@
        }
       ],
       "title": "Time Column"
+     },
+     "units": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Units"
+     },
+     "polarity": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "up_good",
+        "down_good"
+       ]
+      },
+      "type": "object",
+      "title": "Polarity"
+     },
+     "column_roles": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/ColumnRole"
+      },
+      "type": "object",
+      "title": "Column Roles"
      }
     },
     "additionalProperties": true,
@@ -7997,6 +8115,87 @@
     ],
     "title": "Body_upload_api_imports_upload_post"
    },
+   "BusinessCalendarIn": {
+    "properties": {
+     "weekend_days": {
+      "items": {
+       "type": "integer",
+       "maximum": 6.0,
+       "minimum": 0.0
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Weekend Days"
+     },
+     "holidays": {
+      "items": {
+       "type": "string",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+       "format": "date"
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Holidays"
+     },
+     "workdays": {
+      "items": {
+       "type": "string",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+       "format": "date"
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Workdays"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "BusinessCalendarIn"
+   },
+   "BusinessCalendarOut": {
+    "properties": {
+     "weekend_days": {
+      "items": {
+       "type": "integer",
+       "maximum": 6.0,
+       "minimum": 0.0
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Weekend Days"
+     },
+     "holidays": {
+      "items": {
+       "type": "string",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+       "format": "date"
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Holidays"
+     },
+     "workdays": {
+      "items": {
+       "type": "string",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+       "format": "date"
+      },
+      "type": "array",
+      "maxItems": 2000,
+      "title": "Workdays"
+     },
+     "configured": {
+      "type": "boolean",
+      "title": "Configured"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "configured"
+    ],
+    "title": "BusinessCalendarOut"
+   },
    "CandidateOut": {
     "properties": {
      "id": {
@@ -8907,6 +9106,32 @@
      "confirmations"
     ],
     "title": "ColumnOut"
+   },
+   "ColumnRole": {
+    "properties": {
+     "role": {
+      "type": "string",
+      "enum": [
+       "time",
+       "dimension",
+       "measure",
+       "change",
+       "rate"
+      ],
+      "title": "Role"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "role",
+     "label"
+    ],
+    "title": "ColumnRole"
    },
    "CommentCoverageOut": {
     "properties": {
@@ -11574,6 +11799,75 @@
       "type": "string",
       "title": "Timezone"
      },
+     "time_format": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "yyyymmdd",
+         "yyyy-mm-dd",
+         "yyyymm"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Format"
+     },
+     "data_grain": {
+      "type": "string",
+      "enum": [
+       "day",
+       "week",
+       "month",
+       "quarter",
+       "year"
+      ],
+      "title": "Data Grain",
+      "default": "day"
+     },
+     "time_aggregation": {
+      "type": "string",
+      "enum": [
+       "sum",
+       "last",
+       "avg"
+      ],
+      "title": "Time Aggregation",
+      "default": "sum"
+     },
+     "value_kind": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "level",
+         "ratio",
+         "count"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value Kind"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
+     },
      "filters": {
       "anyOf": [
        {
@@ -13597,6 +13891,75 @@
        }
       ],
       "title": "Timezone"
+     },
+     "time_format": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "yyyymmdd",
+         "yyyy-mm-dd",
+         "yyyymm"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time Format"
+     },
+     "data_grain": {
+      "type": "string",
+      "enum": [
+       "day",
+       "week",
+       "month",
+       "quarter",
+       "year"
+      ],
+      "title": "Data Grain",
+      "default": "day"
+     },
+     "time_aggregation": {
+      "type": "string",
+      "enum": [
+       "sum",
+       "last",
+       "avg"
+      ],
+      "title": "Time Aggregation",
+      "default": "sum"
+     },
+     "value_kind": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "level",
+         "ratio",
+         "count"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value Kind"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
      },
      "filters": {
       "anyOf": [

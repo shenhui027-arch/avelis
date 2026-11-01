@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation, localcontext  # noqa: F401 - Deci
 from typing import Any
 
 from avelis.governance.derived import significant12 as _significant12
+from avelis.i18n import Msg, gettext
 
 Row = dict[str, Any]
 
@@ -105,7 +106,7 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         p1 = math.prod((v[1] for v in vals.values()), start=Decimal(1))
         weight = p1 if p1 == p0 else (p1 - p0) / (p1.ln() - p0.ln())
         exact = {name: weight * (b / a).ln() for name, (a, b) in vals.items()}
-        unexplained = change - (p1 - p0)
+        unexplained = (change - (p1 - p0)) or Decimal(0)  # 零写成 0，不写 0E-10
         # 所有贡献按同一绝对精度（最大量级的 15 位有效数字）舍入；剩下的几个末位单位只是表示尾差，
         # 并入绝对值最大的贡献，使贡献之和精确等于因子之积的变化
         scale = max([abs(p1 - p0), *map(abs, exact.values())])
@@ -113,7 +114,7 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
         contributions = {n: c.quantize(step) for n, c in exact.items()}
         if contributions:
             largest = max(contributions, key=lambda n: abs(contributions[n]))
-            contributions[largest] += (p1 - p0).quantize(step) - sum(contributions.values(), Decimal(0))
+            contributions[largest] += (p1 - p0) - sum(contributions.values(), Decimal(0))  # 以精确净变化为准，不先舍入
         contributions = {n: c if c else Decimal(0) for n, c in contributions.items()}  # 零写成 0，不写 0E-17
     rows = [{"factor": n, "previous": vals[n][0], "current": vals[n][1],
              "change_rate": _q((vals[n][1] - vals[n][0]) / vals[n][0]), "contribution": contributions[n]} for n in exact]
@@ -128,27 +129,52 @@ def factor_decompose(total: tuple[Any, Any], factors: dict[str, tuple[Any, Any]]
 
 # --- 日历折算 -----------------------------------------------------------------------
 
-def period_days(start: date, end: date, holidays: set[date] | None = None) -> dict[str, int | None]:
+def period_days(start: date, end: date, holidays: set[date] | None = None, *,
+                weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, int | None]:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    return {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() >= 5),
-            "holidays": sum(1 for d in days if d in holidays) if holidays is not None else None}
+    weekends = {5, 6} if weekend_days is None else weekend_days
+    workdays = workdays or set()
+    out = {"days": len(days), "weekend_days": sum(1 for d in days if d.weekday() in weekends),
+           "holidays": sum(1 for d in days if d in holidays and d not in workdays) if holidays is not None else None}
+    if holidays is not None:
+        # 周末与节假日取并集扣除，避免同一天扣两次；调休上班日优先恢复为工作日。
+        out["business_days"] = sum(1 for d in days if d in workdays or (d.weekday() not in weekends and d not in holidays))
+    return out
 
 
 def calendar_adjust(current: Any, previous: Any, current_period: tuple[date, date],
-                    previous_period: tuple[date, date], holidays: set[date] | None = None) -> dict[str, Any]:
-    """只按自然日天数折算；周六日天数供参考，未配置业务日历时节假日未知。"""
+                    previous_period: tuple[date, date], holidays: set[date] | None = None, *,
+                    weekend_days: set[int] | None = None, workdays: set[date] | None = None) -> dict[str, Any]:
+    """保留自然日折算；配置业务日历后，另给出节假日、工作日数与工作日折算。"""
     cur, prev = number(current), number(previous)
     if cur is None or prev is None:
         raise CalcError("两期值都需要")
-    dc, dp = period_days(*current_period, holidays), period_days(*previous_period, holidays)
+    dc = period_days(*current_period, holidays, weekend_days=weekend_days, workdays=workdays)
+    dp = period_days(*previous_period, holidays, weekend_days=weekend_days, workdays=workdays)
     daily_cur, daily_prev = cur / dc["days"], prev / dp["days"]
     # 本期天数按上期日均值折算出的“天数效应”；其余为日均水平的变化
     day_effect = daily_prev * (dc["days"] - dp["days"])
-    return {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
-            "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
-            "change": cur - prev, "day_count_effect": _significant12(day_effect),
-            "daily_level_effect": _significant12(cur - prev - day_effect),
-            "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
+    out = {"current": {**dc, "value": cur, "daily": _significant12(daily_cur)},
+           "previous": {**dp, "value": prev, "daily": _significant12(daily_prev)},
+           "change": cur - prev, "day_count_effect": _significant12(day_effect),
+           "daily_level_effect": _significant12(cur - prev - day_effect),
+           "daily_change_rate": _q((daily_cur - daily_prev) / daily_prev) if daily_prev else None}
+    if holidays is not None:
+        business_cur = cur / dc["business_days"] if dc["business_days"] else None
+        business_prev = prev / dp["business_days"] if dp["business_days"] else None
+        business_effect = business_prev * (dc["business_days"] - dp["business_days"]) if business_prev is not None else None
+        out.update(business_daily={"current": _significant12(business_cur) if business_cur is not None else None,
+                                   "previous": _significant12(business_prev) if business_prev is not None else None},
+                   business_day_effect=_significant12(business_effect) if business_effect is not None else None,
+                   business_level_effect=_significant12(cur - prev - business_effect) if business_effect is not None else None)
+        notes = [gettext("{period}工作日数为 0，工作日均值无法计算", period=label)
+                 for label, days in ((gettext("本期"), dc), (gettext("上期"), dp))
+                 if not days["business_days"]]
+        if business_prev is None:
+            notes.append(gettext("上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"))
+        if notes:
+            out["business_days_note"] = "；".join(notes)
+    return out
 
 
 # --- 相关性 -------------------------------------------------------------------------
@@ -245,9 +271,47 @@ def correlate(rows: list[Row], x: str, y: str) -> dict[str, Any]:
 
 # --- 覆盖度 -------------------------------------------------------------------------
 
+def period_labels(start: date, end: date, grain: str) -> list[str]:
+    """与问数的期间列一致：周用周一，季用季初日期，月与年保留相应精度。"""
+    if grain not in {"day", "week", "month", "quarter", "year"}:
+        raise CalcError(Msg("时间粒度未知，无法判断期间覆盖度"))
+    if start > end:
+        raise CalcError(Msg("覆盖度的开始日期不能晚于结束日期"))
+    if grain == "week":
+        cursor = start - timedelta(days=start.weekday())
+    elif grain == "quarter":
+        cursor = date(start.year, (start.month - 1) // 3 * 3 + 1, 1)
+    elif grain == "year":
+        cursor = date(start.year, 1, 1)
+    elif grain == "month":
+        cursor = start.replace(day=1)
+    else:
+        cursor = start
+    labels = []
+    while cursor <= end:
+        labels.append(cursor.strftime("%Y-%m") if grain == "month" else (
+            str(cursor.year) if grain == "year" else cursor.isoformat()))
+        if grain in {"day", "week"}:
+            step = 1 if grain == "day" else 7
+            if (end - cursor).days < step:
+                break
+            cursor += timedelta(days=step)
+        elif grain == "year":
+            if cursor.year == 9999:
+                break
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            month = cursor.month + (1 if grain == "month" else 3)
+            year = cursor.year + (month - 1) // 12
+            if year > 9999:
+                break
+            cursor = date(year, (month - 1) % 12 + 1, 1)
+    return labels
+
+
 def coverage(rows: list[Row], keys: list[str], period: str | None, start: date | None = None,
-             end: date | None = None) -> dict[str, Any]:
-    """各成员的行数与覆盖的日期；给定起止日期时列出缺失的日期（period 为 YYYY-MM-DD）。"""
+             end: date | None = None, *, grain: str | None = None) -> dict[str, Any]:
+    """各成员的行数与期间覆盖度；只有粒度明确，或原有日日期证据完整时判断缺口。"""
     expected = None
     daily = bool(period and rows)
     if daily:
@@ -259,11 +323,25 @@ def coverage(rows: list[Row], keys: list[str], period: str | None, start: date |
                 daily = False
             if not daily:
                 break
-    if daily and start and end:
-        expected = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
+    if period and grain and start and end:
+        expected = period_labels(start, end, grain)
+        for row in rows:
+            value = row.get(period)
+            try:
+                parsed = date.fromisoformat(f"{value}-01" if grain == "month" else (
+                    f"{value}-01-01" if grain == "year" else value))
+                valid = period_labels(parsed, parsed, grain) == [value]
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise CalcError(Msg("期间列与已声明的时间粒度不一致，无法判断覆盖度"))
+    elif daily and start and end:
+        expected = period_labels(start, end, "day")
     groups: dict[tuple, list[Row]] = {}
     for r in rows:
         groups.setdefault(tuple(r.get(k) for k in keys), []).append(r)
+    if not groups and grain and not keys:
+        groups[()] = []
     out = []
     for key in sorted(groups, key=str):
         members = groups[key]

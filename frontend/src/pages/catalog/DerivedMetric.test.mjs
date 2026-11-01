@@ -120,7 +120,7 @@ assert.deepEqual(requests.map(({ method }) => method), ["POST", "PUT"]);
 assert.equal(requests[0].path, "/api/metrics/{metric_id}/versions");
 assert.equal(requests[1].path, "/api/metric-versions/{version_id}");
 for (const { request } of requests) {
-  assert.deepEqual(request.body, { kind: "derived", description: "客单价", expression: "paid_sales / orders_cnt", unit: null, unit_scale: 1 }, "Never send base-only fields for a derived version (unit is shared: ADR 0009)");
+  assert.deepEqual(request.body, { kind: "derived", description: "客单价", expression: "paid_sales / orders_cnt", unit: null, unit_scale: 1, value_kind: null, polarity: null }, "Never send base-only fields for a derived version (unit is shared: ADR 0009)");
 }
 
 const unknown = render(page.VersionEditor, { metricId: version.metric_id, base: { ...version, expression: "paid_sales + missing_metric + paid_sales + 1e3" }, mode: "new", onClose() {}, onSaved() {} });

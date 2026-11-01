@@ -18,6 +18,29 @@ import { t } from "../../i18n";
 const ROLE_LABEL: Record<string, string> = { measure: t("度量"), time: t("时间"), dimension: t("维度"), filter: t("过滤"), join_key: t("关联键") };
 const METRIC_TABS = [{ id: "definition", label: t("口径") }, { id: "dependency", label: t("依赖") }, { id: "history", label: t("历史") }] as const;
 type MetricTab = typeof METRIC_TABS[number]["id"];
+type Spec = Schemas["VersionSpec"];
+// 口径的时间与量纲语义（ADR 0014）：默认值与原行为一致
+const TIME_FORMATS = [["", t("日期 / 时间类型")], ["yyyymmdd", t("编码 yyyymmdd")], ["yyyy-mm-dd", t("文本 yyyy-mm-dd")], ["yyyymm", t("编码 yyyymm（按月）")]] as const;
+const DATA_GRAINS = [["day", t("日")], ["week", t("周")], ["month", t("月")], ["quarter", t("季")], ["year", t("年")]] as const;
+const TIME_AGGREGATIONS = [["sum", t("按时间累加")], ["last", t("取期末值")], ["avg", t("取期间平均")]] as const;
+const VALUE_KINDS = [["", t("按表达式推断")], ["level", t("水平值")], ["ratio", t("比率")], ["count", t("计数")]] as const;
+const POLARITIES = [["", t("不区分")], ["up_good", t("越高越好")], ["down_good", t("越低越好")]] as const;
+const optionLabel = (options: readonly (readonly [string, string])[], value: string | null | undefined) =>
+  options.find(([v]) => v === (value ?? ""))?.[1] ?? value ?? "—";
+
+/** 量纲与期望方向：基础与派生指标共用（只影响显示与判断，不计入依赖指纹） */
+function MeasureSemantics({ valueKind, polarity, onChange }: {
+  valueKind: string; polarity: string; onChange: (patch: { value_kind?: string; polarity?: string }) => void;
+}) {
+  return <div className="av-metric-form__row">
+    <label className="av-field"><span className="av-label">{t("量纲")} <Hint text={t("比率显示为百分比；不填时按表达式推断")} /></span>
+      <Select value={valueKind} onChange={(v) => onChange({ value_kind: v })}>
+        {VALUE_KINDS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
+    <label className="av-field"><span className="av-label">{t("期望方向")} <Hint text={t("决定涨跌的颜色；不区分时用中性色")} /></span>
+      <Select value={polarity} onChange={(v) => onChange({ polarity: v })}>
+        {POLARITIES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
+  </div>;
+}
 
 export function MetricDetail({ metricId }: { metricId: string }) {
   const metrics = useMetrics();
@@ -137,6 +160,10 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
             <dt>{t("基础资产")}</dt><dd className="av-mono">{v.base_asset ? <Link to={`/catalog/assets/${String(v.base_asset.id)}`}>{String(v.base_asset.qualified)}</Link> : "—"}</dd>
             <dt>{t("表达式")}</dt><dd><Code sql={v.expression} raw /></dd>
             <dt>{t("时间字段")}</dt><dd className="av-mono">{v.time_column} <span className="av-tag">{v.timezone}</span></dd>
+            <dt>{t("时间语义")}</dt><dd className="av-metric-detail__tags">
+              <span className="av-tag">{optionLabel(TIME_FORMATS, v.time_format)}</span>
+              <span className="av-tag">{t("粒度 {{grain}}", { grain: optionLabel(DATA_GRAINS, v.data_grain ?? "day") })}</span>
+              <span className="av-tag">{optionLabel(TIME_AGGREGATIONS, v.time_aggregation ?? "sum")}</span></dd>
             <dt>{t("过滤")}</dt><dd className="av-mono">{v.filters || "—"}</dd>
             <dt>{t("允许维度")}</dt><dd className="av-metric-detail__tags">{v.dimensions.length ? v.dimensions.map((d) => <span key={String(d.name)} className="av-tag">{String(d.label ?? d.name)} · {String(d.column)}</span>) : "—"}</dd>
             <dt>{t("统计粒度")}</dt><dd className="av-mono">{v.grain.join(" × ") || "—"}</dd>
@@ -144,6 +171,7 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
             {v.dedupe_basis ? <><dt>{t("防重复依据")}</dt><dd>{v.dedupe_basis}</dd></> : null}
             </>}
             <dt>{t("单位")}</dt><dd>{v.unit ? <>{v.unit}{v.unit_scale && v.unit_scale !== 1 ? <span className="av-tag av-mono">×{v.unit_scale}</span> : null}</> : <Pill tone="warn">{t("单位待补")}</Pill>}</dd>
+            <dt>{t("量纲 · 方向")}</dt><dd>{optionLabel(VALUE_KINDS, v.value_kind)} · {optionLabel(POLARITIES, v.polarity)}</dd>
           </dl>
         </div>
       </section>
@@ -302,12 +330,14 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
   const [expression, setExpression] = useState(base?.expression ?? "");
   const [unit, setUnit] = useState(base?.unit ?? "");
   const [unitScale, setUnitScale] = useState(String(base?.unit_scale ?? 1));
+  const [measure, setMeasure] = useState({ value_kind: String(base?.value_kind ?? ""), polarity: String(base?.polarity ?? "") });
   const [message, setMessage] = useMessage();
   // Consume Python numeric literals first, including digit separators and base prefixes.
   const codes = [...new Set((expression.match(/0[xX](?:_?[\da-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+|(?:\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?|\.\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
     .filter((token) => /^[A-Za-z_]/.test(token)))];
   const body = { kind: "derived", description: description.trim(), expression: expression.trim(), unit: unit.trim() || null,
-    unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)) } satisfies Schemas["VersionSpec"];
+    unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)),
+    value_kind: (measure.value_kind || null) as Spec["value_kind"], polarity: (measure.polarity || null) as Spec["polarity"] } satisfies Spec;
   const save = useAction(() => mode === "edit" && base
     ? unwrap(api.PUT("/api/metric-versions/{version_id}", { params: { path: { version_id: base.id } }, body }))
     : unwrap(api.POST("/api/metrics/{metric_id}/versions", { params: { path: { metric_id: metricId } }, body })), ["metrics", "metric-version"]);
@@ -350,6 +380,7 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
         <label className="av-field"><span className="av-label">{t("列的倍数")} <Hint text={t("列本身已按万计（如“万元”“万件”）时填 10000，默认 1")} /></span>
           <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
       </div>
+      <MeasureSemantics valueKind={measure.value_kind} polarity={measure.polarity} onChange={(p) => setMeasure({ ...measure, ...p })} />
       <Banner message={message} />
     </form>
   </Drawer>;
@@ -365,9 +396,13 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const availableAssets = (assets.data ?? []).filter((a) => sources.data?.some((d) => d.id === a.datasource.id && d.engine.capabilities.includes("query")));
   const [form, setForm] = useState({
     description: base?.description ?? "", base_asset_id: String(base?.base_asset?.id ?? ""), expression: base?.expression ?? "",
-    time_column: base?.time_column ?? "", timezone: base?.timezone ?? "Asia/Shanghai", filters: base?.filters ?? "",
+    // 时区留空表示沿用系统业务时区（设置加载前后可能不同，提交时再取）
+    time_column: base?.time_column ?? "", timezone: base?.timezone ?? "", filters: base?.filters ?? "",
     grain: (base?.grain ?? []).join(", "), dedupe_basis: base?.dedupe_basis ?? "",
+    time_format: String(base?.time_format ?? ""), data_grain: String(base?.data_grain ?? "day"), time_aggregation: String(base?.time_aggregation ?? "sum"),
+    value_kind: String(base?.value_kind ?? ""), polarity: String(base?.polarity ?? ""),
   });
+  const businessTz = useTimeZone();
   const [unit, setUnit] = useState(base?.unit ?? "");
   const [unitScale, setUnitScale] = useState(String(base?.unit_scale ?? 1));
   const [dims, setDims] = useState<Dim[]>((base?.dimensions ?? []).map((d) => ({ name: String(d.name), column: String(d.column), label: String(d.label ?? "") })));
@@ -383,9 +418,12 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const baseValid = availableAssets.some((a) => a.id === form.base_asset_id);
   const dimsValid = dims.every((d) => d.name.trim() && d.column.trim());
   const joinsValid = joins.every((j) => j.alias.trim() && j.from.trim() && paths.data?.some((p) => p.id === j.join_path_id));
-  const valid = canEdit && baseValid && !!form.description.trim() && !!form.expression.trim() && !!form.time_column.trim() && !!form.timezone.trim() && dimsValid && joinsValid;
+  const valid = canEdit && baseValid && !!form.description.trim() && !!form.expression.trim() && !!form.time_column.trim() && dimsValid && joinsValid;
   const body = {
-    ...form, description: form.description.trim(), expression: form.expression.trim(), time_column: form.time_column.trim(), timezone: form.timezone.trim(),
+    ...form, description: form.description.trim(), expression: form.expression.trim(), time_column: form.time_column.trim(),
+    timezone: form.timezone.trim() || businessTz, time_format: (form.time_format || null) as Spec["time_format"],
+    data_grain: form.data_grain as Spec["data_grain"], time_aggregation: form.time_aggregation as Spec["time_aggregation"],
+    value_kind: (form.value_kind || null) as Spec["value_kind"], polarity: (form.polarity || null) as Spec["polarity"],
     filters: form.filters.trim() || null, dedupe_basis: form.dedupe_basis.trim() || null,
     unit: unit.trim() || null, unit_scale: Math.max(1, Math.round(Number(unitScale) || 1)),
     grain: form.grain.split(/[,，×]/).map((s) => s.trim()).filter(Boolean),
@@ -432,8 +470,19 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
       <div className="av-metric-form__columns">
         <label className="av-field"><span className="av-label">{t("时间字段")}</span>
           <input required className="av-input av-mono" list={`${editorId}-cols`} value={form.time_column} onChange={(e) => setForm({ ...form, time_column: e.target.value })} /></label>
-        <label className="av-field"><span className="av-label">{t("业务时区")}</span>
-          <input required className="av-input av-mono" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} /></label>
+        <label className="av-field"><span className="av-label">{t("业务时区")} <Hint text={t("留空时使用系统业务时区；查询的日期边界与按时间分组都按它解释")} /></span>
+          <input className="av-input av-mono" placeholder={businessTz} value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} /></label>
+      </div>
+      <div className="av-metric-form__row">
+        <label className="av-field"><span className="av-label">{t("时间格式")} <Hint text={t("时间列是整数或文本编码的日期键（如 20260901）时选择对应格式")} /></span>
+          <Select value={form.time_format} onChange={(v) => setForm({ ...form, time_format: v, data_grain: v === "yyyymm" && ["day", "week"].includes(form.data_grain) ? "month" : form.data_grain })}>
+            {TIME_FORMATS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
+        <label className="av-field"><span className="av-label">{t("数据粒度")} <Hint text={t("数据本身最细到哪一级；按时间分组不能比它更细，覆盖度按它判断缺失")} /></span>
+          <Select value={form.data_grain} onChange={(v) => setForm({ ...form, data_grain: v })}>
+            {DATA_GRAINS.filter(([v]) => form.time_format !== "yyyymm" || !["day", "week"].includes(v)).map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
+        <label className="av-field"><span className="av-label">{t("跨时间合成")} <Hint text={t("流量（如产量）按时间累加；存量（如库存、余额、在册人数）取期末或期间平均")} /></span>
+          <Select value={form.time_aggregation} onChange={(v) => setForm({ ...form, time_aggregation: v })}>
+            {TIME_AGGREGATIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
       </div>
       {form.base_asset_id ? <QueryState query={asset} rows={1}>{() => null}</QueryState> : null}
       <datalist id={`${editorId}-cols`}>{columns.map((c) => <option key={c} value={c} />)}</datalist>
@@ -490,6 +539,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
         <label className="av-field"><span className="av-label">{t("列的倍数")} <Hint text={t("列本身已按万计（如“万元”“万件”）时填 10000，默认 1")} /></span>
           <input className="av-input av-mono" type="number" min={1} step={1} value={unitScale} onChange={(e) => setUnitScale(e.target.value)} /></label>
       </div>
+      <MeasureSemantics valueKind={form.value_kind} polarity={form.polarity} onChange={(p) => setForm({ ...form, ...p })} />
       <Banner message={message} />
     </form>
   </Drawer>;
