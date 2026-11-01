@@ -835,7 +835,8 @@ class AnalysisTask(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     owner_id: Mapped[str] = fk("app_user.id")
-    # {"kind": "fixed", "start", "end", "compare_start", "compare_end"} 或 {"kind": "last_month"}（上个自然月对比再上个月）
+    # {"kind": "fixed", "start", "end", "compare_start", "compare_end"}
+    # 或 {"kind": "last_month"}（上个自然月对比再上个月）
     window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     schedule_cron: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | paused

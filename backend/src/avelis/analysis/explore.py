@@ -69,7 +69,8 @@ BANNED_FUNCTIONS = {
 
 AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN", exp.Max: "MAX"}
 # Avelis 标准 SQL 的源方言：sqlglot 上游要求明确源方言，默认方言 "" 不在支持范围
-# （https://github.com/tobymao/sqlglot/issues/8845）。标准函数本来就是 PostgreSQL 的写法，sqlglot 对它的支持与测试最完善。
+# （https://github.com/tobymao/sqlglot/issues/8845）。标准函数本来就是 PostgreSQL 的写法，
+# sqlglot 对它的支持与测试最完善。
 # 本模块里所有的解析、qualify 与 .sql() 都显式传方言（tests/unit/test_sqlglot_usage.py 防回流）。
 STANDARD_DIALECT = "postgres"
 # 标准函数（模型能用的全部函数）：类别与参数个数。每个都在 StarRocks、PostgreSQL 上有转换测试
@@ -341,7 +342,8 @@ def _parse(sql: str, dialect: str = STANDARD_DIALECT) -> exp.Expression:
     if not isinstance(ast, exp.Select):
         raise ExploreRejected("syntax", "not_select", f"只允许 SELECT 或 WITH … SELECT（收到 {type(ast).__name__}）")
     if dialect == STANDARD_DIALECT:
-        # 标识符按 PostgreSQL 规则规范化：未加引号的折成小写，加了引号的原样保留。路由（table_refs）与绑定都用规范化后的名字
+        # 标识符按 PostgreSQL 规则规范化：未加引号的折成小写，加了引号的原样保留。
+        # 路由（table_refs）与绑定都用规范化后的名字
         ast = normalize_identifiers(ast, dialect=STANDARD_DIALECT)
         # 标准 SQL 的除法一律是数值除法（不按 PostgreSQL 的整数相除取整），各引擎结果一致：目标是 PostgreSQL 时
         # 生成 CAST(… AS DOUBLE PRECISION)，StarRocks 的 / 本来就是数值除法
@@ -779,9 +781,13 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
 
 
 def _case(node: exp.Case, scope: Scope) -> _Info:
-    """CASE WHEN 条件 THEN 值 ELSE 值 END（ADR 0009 第 6 点“证据资格”）：WHEN 条件里的字面量（含 CAST、BETWEEN、IN 里的）
-    只用来过滤，不进入数值；THEN / ELSE 的分支值是列、0、1 或 NULL 时不算业务常量，整体按列处理（条件聚合是列的登记聚合）。
+    (
+        """CASE WHEN 条件 THEN 值 ELSE 值 END（ADR 0009 第 6 点“证据资格”）："""
+        """WHEN 条件里的字面量（含 CAST、BETWEEN、IN 里的）
+    只用来过滤，不进入数值；THEN / ELSE 的分支值是列、0、1 或 NULL 时不算业务常量，"""
+        """整体按列处理（条件聚合是列的登记聚合）。
     分支里有其他常量或表达式时如实分析，带出相应的假设标记。"""
+    )
     if node.this is not None:  # CASE x WHEN …：按值匹配，不在允许的写法里
         return _Info("other", _deps(node, scope), bad_constant=True)
     ifs = node.args.get("ifs") or []

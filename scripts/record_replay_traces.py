@@ -1,4 +1,5 @@
-"""从真实模型的分析运行录制回放轨迹（ADR 0009 第 5 点）：写到 backend/tests/replay/traces/<名称>.json。
+(
+    """从真实模型的分析运行录制回放轨迹（ADR 0009 第 5 点）：写到 backend/tests/replay/traces/<名称>.json。
 
   uv run --project backend python scripts/record_replay_traces.py --eval .demo/eval/<时间>.json   从评测结果里各挑一条：
                                                          首轮通过、修订后通过、修订后仍失败
@@ -6,13 +7,15 @@
 
 在跑过分析的元数据库上运行（与评测相同，AVELIS_DATABASE_URL 可指向单独的库）。按字段白名单保存
 （见 backend/tests/replay/fake_model.py）：
-- messages：模型每次回复的 content 与 tool_calls（name、args），取自 LangGraph checkpoint，不含模型元数据与工具结果原文；
+- messages：模型每次回复的 content 与 tool_calls（name、args），取自 LangGraph checkpoint，"""
+    """不含模型元数据与工具结果原文；
 - fixtures：取数类工具（受治理查询、自动归因、探索查询、元数据上下文）产生的数据集，只保留列、行与量纲等核验需要的字段，
   不保存 SQL、数据源与资产编号；计算类工具不保存产出，回放时用冻结的数据重新计算；
 - expect：真实运行的核验结论（status、ok、revised、conclusion），回放必须得到同样的结论。
 只录评测集里的题目（合成数据上的运行，不把生产运行转成回放）；写盘前检查轨迹不含 .env 里的口令与密钥、连接串。
 找不到某一类运行时跳过它（保留原有轨迹文件），并打印原因。
 """
+)
 
 from __future__ import annotations
 

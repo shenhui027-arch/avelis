@@ -487,7 +487,8 @@ def markdown(summary: dict, results: list[dict], meta: dict) -> str:
     mark = {True: "✓", False: "✗", None: "—"}
     lines += [
         f"| {r['id']} | {r['category']} | {r['status'] or '—'} | {r['conclusion'] or '—'} | {mark[r['primary_hit']]} | "
-        f"{mark[r['key_value_hit']]} | {'—' if r['sources_failed'] is None else r['sources_failed']} | {mark[r['passed']]} |"
+        f"{mark[r['key_value_hit']]} | {'—' if r['sources_failed'] is None else r['sources_failed']} | "
+        f"{mark[r['passed']]} |"
         for r in results
     ]
     return "\n".join(lines) + "\n"

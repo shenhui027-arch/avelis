@@ -67,12 +67,15 @@ MODEL_ROWS = 60  # 一次返回给模型的数据行上限；完整数据集保�
 
 @dataclass
 class Budget:
-    """预算按工具类别分开（ADR 0009 第 7 点第 7 条）：
-    - tool_calls 是总调用次数，其中最后 report_reserve 次留给 submit_report：其他工具最多执行 tool_calls − report_reserve 次，
+    (
+        """预算按工具类别分开（ADR 0009 第 7 点第 7 条）：
+    - tool_calls 是总调用次数，其中最后 report_reserve 次留给 submit_report："""
+        """其他工具最多执行 tool_calls − report_reserve 次，
       submit_report 每轮最多尝试 report_reserve 次（解析失败后可以重交），这几次总是可用，被拒绝的调用不占用它们；
     - queries 是查询类工具（query_metric、query_sql、sample_values、explain_change 的子查询）共用的额度，
       用完只停用查询类工具，计算工具与 submit_report 照常可用；
     - explore 是其中探索查询的单独上限。"""
+    )
 
     tool_calls: int = field(default_factory=lambda: get_settings().analysis_tool_calls)
     queries: int = field(default_factory=lambda: get_settings().analysis_query_limit)
@@ -80,7 +83,8 @@ class Budget:
     # 探索查询（含 sample_values）单独计数，失败、重试、修订都算（ADR 0009 第 6 点）
     explore: int = field(default_factory=lambda: get_settings().analysis_explore_limit)
     report_reserve: int = 2  # 总调用次数里保留最后几次给 submit_report（参数解析失败时可以重交一次）
-    # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：到上限后不再请求模型，记为预算截止。
+    # 模型请求（含失败与重试）与累计 token 的上限（任务书第 13 节，manifest b0.budget）：
+    # 到上限后不再请求模型，记为预算截止。
     # token 上限是 E1 前统一修订的值（manifest b0.token_cap_decision）：第 13 节的 16 万输入 / 2.4 万输出装不下 B0，
     # 取 max(默认值, ceil(历史 P95 × 1.2))；None 表示不限（只记录）
     model_requests: int = field(default_factory=lambda: get_settings().analysis_model_requests)
@@ -424,7 +428,8 @@ class QueryArgs(BaseModel):
     )
     compare: Literal["previous_period", "previous_calendar", "previous_year", "custom"] | None = Field(
         None,
-        description="对比：上一期（紧邻的同长度区间）/ 上一自然期（本期须为整月、整季或整年）/ 去年同期 / custom（用 compare_start、compare_end 指定，"
+        description="对比：上一期（紧邻的同长度区间）/ 上一自然期（本期须为整月、整季或整年）/ 去年同期 / "
+        "custom（用 compare_start、compare_end 指定，"
         "如 9 月对比自然月 8 月）；不能与 time_grain 同用",
     )
     compare_start: date | None = None
@@ -462,7 +467,8 @@ class ExplainArgs(BaseModel):
     filters: list[DimensionFilter] = Field(
         default_factory=list,
         description=(
-            "题目范围的筛选（与 query_metric 的 filters 相同，如某个区域、渠道）：总量、各维度与因子拆解的子查询都带上；"
+            "题目范围的筛选（与 query_metric 的 filters 相同，如某个区域、渠道）："
+            "总量、各维度与因子拆解的子查询都带上；"
             "被筛选的维度不再作为候选维度扫描"
         ),
     )
@@ -559,7 +565,8 @@ class Scope(BaseModel):
     """理解阶段的结构化输出（ADR 0012）：问题类型、指标、筛选、窗口；确定不了时写追问。"""
 
     question_type: Literal["lookup", "change", "relation", "other"] = Field(
-        description="lookup：只取数值、排名、明细或对比；change：为什么变化 / 是否变化；relation：什么关系、怎么分布；other：其他"
+        description="lookup：只取数值、排名、明细或对比；change：为什么变化 / 是否变化；"
+        "relation：什么关系、怎么分布；other：其他"
     )
     metric_codes: list[str] = Field(
         default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）"
@@ -626,7 +633,8 @@ class ReportArgs(BaseModel):
     claims: list[Claim]
     unexplained: str | list[Part] | None = Field(None, description="仍未解释的部分：文字或片段列表")
     conclusion: Literal["ranked_reasons", "offsetting", "no_material_change", "insufficient_evidence"] = Field(
-        description="结论类型：ranked_reasons 有排序的原因；offsetting 成员变化相互抵消；no_material_change 没有实质变化；"
+        description="结论类型：ranked_reasons 有排序的原因；offsetting 成员变化相互抵消；"
+        "no_material_change 没有实质变化；"
         "insufficient_evidence 证据不足。所问指标做过 explain_change 时必须与它的判定一致"
     )
     scope: ReportScope | None = Field(
@@ -1382,8 +1390,11 @@ class AnalysisToolbox:
 
     # -- 统一分发 --
     def dispatch(self, name: str, args: Any, *, only_report: bool = False) -> str:
-        """模型的每一次工具调用都从这里进入：参数校验之前就计数（未知工具、参数无效、重复提交计划都算）。
-        其他工具的次数用完后只能调用 submit_report（被拒绝的调用不占用它的预留次数）。only_report：时间将尽，只接受 submit_report。"""
+        (
+            """模型的每一次工具调用都从这里进入：参数校验之前就计数（未知工具、参数无效、重复提交计划都算）。
+        其他工具的次数用完后只能调用 submit_report（被拒绝的调用不占用它的预留次数）。"""
+            """only_report：时间将尽，只接受 submit_report。"""
+        )
         self.check_executor()
         if self.stopped:
             return _json({"error": f"{self.stopped}：不再执行工具"})
@@ -1882,8 +1893,11 @@ class AnalysisToolbox:
         scope: ReportScope | None = None,
         method: str | list | None = None,
     ) -> str:
-        """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。scope 的窗口没写时取本次分析的窗口，
+        (
+            """保存模型提交的片段列表与原因项；渲染与结构检查在 verify 节点（ADR 0009）。"""
+            """scope 的窗口没写时取本次分析的窗口，
         登记键与 explain_change 用同一个函数生成。"""
+        )
         scope = _model(ReportScope, scope) if scope is not None else None
         scope_view, key = None, None
         if scope is not None:
@@ -2772,7 +2786,8 @@ class AnalysisToolbox:
         unknown = [d for d in dims if d not in allowed]
         if unknown:
             raise ValueError(
-                f"维度 {'、'.join(unknown)} 不是指标 {args.metric_code} 允许的维度（可用：{'、'.join(allowed) or '无'}）"
+                f"维度 {'、'.join(unknown)} 不是指标 {args.metric_code} 允许的维度"
+                f"（可用：{'、'.join(allowed) or '无'}）"
             )
         ratio = rule["algorithm"] == "ratio"
         codes = [rule["numerator"], rule["denominator"]] if ratio else [args.metric_code]
@@ -3504,7 +3519,8 @@ class AnalysisToolbox:
                 **(
                     {
                         "assumption": gettext(
-                            "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"
+                            "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量："
+                            "假设计算，只能被推断、建议引用"
                         )
                     }
                     if assumption
@@ -3611,7 +3627,8 @@ class AnalysisToolbox:
                         self.query_sql,
                         QuerySqlArgs,
                         "探索查询：口径覆盖不到的数据，按血缘与字段注释写一条 SELECT；只能用当前用户可见的"
-                        "已采集表，先用 describe_asset、lineage 读注释与关联键；系统校验后重新生成 SQL 执行，结果带“探索查询”标记",
+                        "已采集表，先用 describe_asset、lineage 读注释与关联键；"
+                        "系统校验后重新生成 SQL 执行，结果带“探索查询”标记",
                     ),
                     t(
                         self.sample_values,

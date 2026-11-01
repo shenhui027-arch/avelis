@@ -1,7 +1,9 @@
-"""报告数字的引用片段（ADR 0009 第 1 点）：模型写片段列表，后端按数据集取值、格式化后生成正文。
+(
+    """报告数字的引用片段（ADR 0009 第 1 点）：模型写片段列表，后端按数据集取值、格式化后生成正文。
 
 报告的所有模型字段（标题、摘要、未解释、结论、premise、validation）都写成片段列表
-parts: list[str | NumberRef | LabelRef | CountRef | WindowRef]（参照 DB-GPT 报告规格 ReportPart = str | ReportReference）。
+parts: list[str | NumberRef | LabelRef | CountRef | WindowRef]"""
+    """（参照 DB-GPT 报告规格 ReportPart = str | ReportReference）。
 不在正文里嵌入内联占位语法，因此不需要转义，结构由 pydantic 与工具的 JSON schema 校验；取值时的语义错误
 （数据集、列不存在，没有恰好选中一行，量纲不允许所用的格式，方向与正负不一致等）在渲染时逐个片段记下，反馈给模型。
 
@@ -10,6 +12,7 @@ meta.summary_units 里登记。格式只能用在相应的量纲上，单位一�
 
 引用的定义、取值、格式化与渲染集中在本模块，细节调整只改这里。
 """
+)
 
 from __future__ import annotations
 

@@ -1,12 +1,15 @@
-"""分析报告导出（ADR 0007 第 11 点）：Markdown、HTML、PDF（含图表与证据附录）、数据集 CSV。
+(
+    """分析报告导出（ADR 0007 第 11 点）：Markdown、HTML、PDF（含图表与证据附录）、数据集 CSV。
 
 导出内容与报告页读同一份保存结果。默认 brief 只给出正文、可读标签与白话风险提示；full 保留引用编号、
 原始检查原因和依据附录。appendix 为旧参数，只有未指定 audience 时才决定受众。
 PDF、Markdown 使用渲染后的正文（text）；每个数字的来源（数据集、取值路径、量纲、单位、格式、原值）另有一张
 引用来源表（sources_csv，ADR 0009）。来源含探索数据的数字标“探索查询（未经口径审核）”。
 PDF 嵌入中文 TrueType 字体（子集）：AVELIS_PDF_FONT 指定的字体文件，否则在常见位置找系统字体（Windows 等线 / 微软雅黑 /
-黑体，Linux 文泉驿 / Noto CJK）；都找不到时退回 reportlab 内置的 STSong-Light（不嵌入，需阅读器有亚洲字体包），并在报告中注明。
+黑体，Linux 文泉驿 / Noto CJK）；都找不到时退回 reportlab 内置的 STSong-Light（不嵌入，需阅读器有亚洲字体包），"""
+    """并在报告中注明。
 """
+)
 
 from __future__ import annotations
 
@@ -849,7 +852,8 @@ def _source_marks(seg: dict) -> list[str]:
 
 def _bad_fields(verification: dict) -> list[str]:
     return [
-        f"{gettext(FIELD_LABEL[f['field']]) if f['field'] in FIELD_LABEL else f['field']}：{'；'.join(f.get('problems') or [])}"
+        f"{gettext(FIELD_LABEL[f['field']]) if f['field'] in FIELD_LABEL else f['field']}："
+        f"{'；'.join(f.get('problems') or [])}"
         for f in verification.get("fields", [])
         if f.get("status") == "unverified"
     ]

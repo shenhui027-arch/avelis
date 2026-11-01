@@ -1,4 +1,6 @@
-"""报告核验（ADR 0009 第 2 点）：数字写成引用片段（见 grounding），后端渲染；核验只做结构检查，不再从正文里提取数字。
+(
+    """报告核验（ADR 0009 第 2 点）：数字写成引用片段（见 grounding），后端渲染；"""
+    """核验只做结构检查，不再从正文里提取数字。
 
 核验层保证“数值来源”：每个事实、计算类数字都来自本次运行的某个数据集单元格或登记的汇总值，显示格式由系统按量纲
 决定，渲染过程没有拼接或改写（界面叫“来源已校验”）。它不保证句子语义正确（取错列、错成员、错期间），那部分交给评测。
@@ -7,7 +9,8 @@
 1. 引用必须能解析：数据集、列或汇总路径存在；恰好选中一行；值是有限数值；方向与正负一致（水平值不写方向）；
 2. 数值段不能拼接：两个数值段直接相邻，或中间只隔着空白与 . , e E + - ×，判错；数值段后面紧跟的文字不能以
    单位或数量后缀开头（%、倍、成、元、万、亿、个百分点、折），单位只由系统输出；
-3. 文字片段里不能有阿拉伯数字（半角、全角），完整的 ASCII 字母加数字识别符除外；日期用 WindowRef 或数据集里的日期单元格；
+3. 文字片段里不能有阿拉伯数字（半角、全角），完整的 ASCII 字母加数字识别符除外；"""
+    """日期用 WindowRef 或数据集里的日期单元格；
 4. 文字片段里不能有中文数量表达（ADR 0009 第 7 点调整，不维护白名单与数量词表）：二至九、十、百、千、万、亿、两、
    零〇 组成的数字后面紧跟量词或单位；“百分之……”“……分之……”；财务大写一律判定。“一”（冠词、序数）、序数与时间词
    （“第二”“九月下旬”）、没有量词的说法（“两期”“两渠道”）都不判定；剩下的中文数量风险交给评测衡量；
@@ -19,6 +22,7 @@
 有事实、计算类结论或标题、摘要、“未解释”没通过时为 failed；分析方法的问题单独提示，不影响整体状态。
 另统计数字来源构成：口径、探索、计算、上下文各有多少个数字。
 """
+)
 
 from __future__ import annotations
 
@@ -132,11 +136,14 @@ def ground_report(
     explanations: dict[str, str] | None = None,
     question_type: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
+    (
+        """渲染模型提交的报告并做结构检查，返回（渲染后的报告，核验结果）。页面与导出都读这份保存结果。
     report：{title, summary, unexplained（片段列表或文字）, claims: [{type, parts, refs, premise, validation}],
     conclusion, causes, metric_code, scope, scope_key}；datasets：见 grounding.resolve；window：本次运行的窗口；
-    explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），结论类型以它为准；
+    explanations：本次运行里 explain_change 的判定，键是 grounding.scope_key（unsupported 表示不适用），"""
+        """结论类型以它为准；
     question_type：理解阶段判出的问题类型，变化类（change）的报告必须写 scope 并有同范围的判定。"""
+    )
     if report.get("incomplete"):  # 后端生成的“未完成”报告：没有引用，原样保留，不核验
         return report, {
             "ok": False,
@@ -241,10 +248,13 @@ WITH_CAUSES = ("ranked_reasons", "offsetting")
 
 
 def _conclusion_matches(report: dict, explanations: dict[str, str], question_type: str | None = None) -> list[str]:
-    """结论类型交给确定性引擎（ADR 0009 第 7 点第 3、9 条）：报告的 scope（所问指标、筛选与窗口）做过 explain_change 时，
+    (
+        """结论类型交给确定性引擎（ADR 0009 第 7 点第 3、9 条）："""
+        """报告的 scope（所问指标、筛选与窗口）做过 explain_change 时，
     结论类型必须与同一 scope 的判定一致；只和 scope 完全相同的判定比对。做过 explain_change 却没写 scope 的，要求写明；
     断言了变化情况却没有同范围判定的，要求用这个 scope 调用 explain_change。理解阶段判为变化类的问题，不论结论类型，
     都必须写 scope 并有同范围的判定（判定登记为 unsupported 的除外）。explanations：登记键 → 判定。"""
+    )
     key, conclusion = report.get("scope_key"), report.get("conclusion")
     explained = {k: v for k, v in explanations.items() if v != "unsupported"}
     change = question_type == "change"
@@ -275,9 +285,12 @@ def _conclusion_matches(report: dict, explanations: dict[str, str], question_typ
 
 
 def _causes(report: dict, datasets: dict[str, dict], window: dict | None) -> tuple[list, list, list[str]]:
-    """原因项的核验（ADR 0009 第 5 点）：结构合法；证据存在且类型对；贡献引用能解析、方向与正负一致；实体在证据里找得到；
+    (
+        """原因项的核验（ADR 0009 第 5 点）：结构合法；证据存在且类型对；贡献引用能解析、方向与正负一致；"""
+        """实体在证据里找得到；
     结论类型与原因列表一致（ranked_reasons 至少一项；offsetting 前两项是最大的减少项与增加项，方向一减一增；
     其余两种不能有原因）。"""
+    )
     conclusion = report.get("conclusion")
     raw = report.get("causes") or []
     problems: list[str] = []

@@ -1,15 +1,19 @@
-"""回放用的假模型（ADR 0009 第 5 点）：按顺序返回录制的模型消息，取数类工具返回冻结的数据集。
+(
+    """回放用的假模型（ADR 0009 第 5 点）：按顺序返回录制的模型消息，取数类工具返回冻结的数据集。
 
 轨迹文件（traces/*.json）按字段白名单保存：
 - 顶层：version、name、question、window、messages，第 2 版另有 fixtures、expect；
-- messages：每条只有 content 与 tool_calls（每个调用只有 name、args）。不保存工具结果原文、密钥、连接信息与模型的其他元数据；
+- messages：每条只有 content 与 tool_calls（每个调用只有 name、args）。"""
+    """不保存工具结果原文、密钥、连接信息与模型的其他元数据；
 - fixtures：取数类工具（FETCH_TOOLS）按调用顺序各一项 {tool, datasets}，数据集只有 DATASET_FIELDS，meta 只有 META_FIELDS
-  （列、行、量纲、窗口、查询意图、来源标记），不保存 SQL、数据源与资产编号。计算类工具不录产出，回放时用冻结的数据重新计算；
+  （列、行、量纲、窗口、查询意图、来源标记），不保存 SQL、数据源与资产编号。"""
+    """计算类工具不录产出，回放时用冻结的数据重新计算；
 - expect：真实运行的核验结论（status、ok、revised、conclusion）；
 - report_schema：录制时 submit_report 参数的模式版本（tools.REPORT_SCHEMA），与当前版本不同的轨迹跳过并提示重新录制。
 第 1 版是手工构造的轨迹（没有 fixtures，数据夹具在测试里冻结），按 ADR 0012 的流程：理解（submit_scope）→ 预检 →
 推理 → 核验与修订；第 2 版由 scripts/record_replay_traces.py 从真实模型的运行录制（流程改版后不再录制，留作格式）。
 """
+)
 
 from __future__ import annotations
 
