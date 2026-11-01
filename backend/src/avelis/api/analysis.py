@@ -101,14 +101,20 @@ def list_analysis_models(user: User = Depends(current_user), session: Session = 
 
 
 @router.post("/analysis/runs", status_code=201, response_model=S.AnalysisRunOut)
-def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current_user),
-               session: Session = Depends(get_session)) -> dict:
+def create_run(
+    body: RunCreate, wait: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
     analysis.warm_up()
-    run = analysis.create_run(session, user, body.question, _window(body.window),
-                              confirmation_mode=body.confirmation_mode,
-                              model=body.model.model_dump() if body.model else None,
-                              reasoning_effort=body.reasoning_effort)
+    run = analysis.create_run(
+        session,
+        user,
+        body.question,
+        _window(body.window),
+        confirmation_mode=body.confirmation_mode,
+        model=body.model.model_dump() if body.model else None,
+        reasoning_effort=body.reasoning_effort,
+    )
     # 运行与 Job 同一事务提交，之后才执行或唤醒 worker：不会留下没有 Job、恢复器回收不到的分析
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
@@ -122,50 +128,60 @@ def create_run(body: RunCreate, wait: bool = False, user: User = Depends(current
 
 @router.get("/analysis/runs", response_model=list[S.AnalysisRunOut])
 def list_runs(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
-                           .order_by(AnalysisRun.created_at.desc()).limit(100))
+    runs = session.scalars(
+        select(AnalysisRun).where(AnalysisRun.user_id == user.id).order_by(AnalysisRun.created_at.desc()).limit(100)
+    )
     return [analysis.run_view(session, r, full=False, user=user) for r in runs]
 
 
 @router.get("/analysis/conversations", response_model=list[S.AnalysisConversationOut])
-def list_conversations(archived: bool = False, user: User = Depends(current_user),
-                       session: Session = Depends(get_session)) -> list[dict]:
+def list_conversations(
+    archived: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> list[dict]:
     return analysis.list_conversations(session, user, archived=archived)
 
 
 @router.get("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
-def get_conversation(conversation_id: str, user: User = Depends(current_user),
-                     session: Session = Depends(get_session)) -> dict:
+def get_conversation(
+    conversation_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     return analysis.get_conversation(session, user, conversation_id)
 
 
 @router.patch("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
-def rename_conversation(conversation_id: str, body: ConversationPatch, user: User = Depends(current_user),
-                        session: Session = Depends(get_session)) -> dict:
+def rename_conversation(
+    conversation_id: str,
+    body: ConversationPatch,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     data = analysis.rename_conversation(session, user, conversation_id, body.display_title)
     session.commit()
     return data
 
 
 @router.post("/analysis/conversations/{conversation_id}/archive", response_model=S.AnalysisConversationDetailOut)
-def archive_conversation(conversation_id: str, user: User = Depends(current_user),
-                         session: Session = Depends(get_session)) -> dict:
+def archive_conversation(
+    conversation_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     data = analysis.archive_conversation(session, user, conversation_id, archived=True)
     session.commit()
     return data
 
 
 @router.post("/analysis/conversations/{conversation_id}/restore", response_model=S.AnalysisConversationDetailOut)
-def restore_conversation(conversation_id: str, user: User = Depends(current_user),
-                         session: Session = Depends(get_session)) -> dict:
+def restore_conversation(
+    conversation_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     data = analysis.archive_conversation(session, user, conversation_id, archived=False)
     session.commit()
     return data
 
 
 @router.delete("/analysis/conversations/{conversation_id}", status_code=204)
-def delete_conversation(conversation_id: str, user: User = Depends(current_user),
-                        session: Session = Depends(get_session)) -> Response:
+def delete_conversation(
+    conversation_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> Response:
     analysis.delete_conversation(session, user, conversation_id)
     session.commit()
     return Response(status_code=204)
@@ -177,8 +193,9 @@ def get_run(run_id: str, user: User = Depends(current_user), session: Session = 
 
 
 @router.post("/analysis/runs/{run_id}/resume", response_model=S.AnalysisRunOut)
-def resume_run(run_id: str, body: S.AnalysisResumeIn, user: User = Depends(current_user),
-               session: Session = Depends(get_session)) -> dict:
+def resume_run(
+    run_id: str, body: S.AnalysisResumeIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """确认本次提议并原子领取，重复提交不会创建第二个 Job。"""
     run = analysis.resume_run(session, user, run_id, body.model_dump())
     job_id = run.budget["job_id"]
@@ -188,8 +205,9 @@ def resume_run(run_id: str, body: S.AnalysisResumeIn, user: User = Depends(curre
 
 
 @router.post("/analysis/runs/{run_id}/messages", status_code=201, response_model=S.AnalysisMessageOut)
-def add_message(run_id: str, body: S.AnalysisMessageIn, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict:
+def add_message(
+    run_id: str, body: S.AnalysisMessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """记录插话；只在下一次模型调用前生效，等待确认期间不消费。"""
     message = analysis.add_message(session, user, run_id, body.text)
     session.commit()
@@ -213,13 +231,20 @@ def compact_run(run_id: str, user: User = Depends(current_user), session: Sessio
 
 
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
-def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> dict:
+def followup_run(
+    run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """对已完成报告发起新运行，继承已确认的范围与假设。"""
     analysis.warm_up()
-    run = analysis.followup_run(session, user, run_id, body.text, confirmation_mode=body.confirmation_mode,
-                                model=body.model.model_dump() if body.model else None,
-                                reasoning_effort=body.reasoning_effort)
+    run = analysis.followup_run(
+        session,
+        user,
+        run_id,
+        body.text,
+        confirmation_mode=body.confirmation_mode,
+        model=body.model.model_dump() if body.model else None,
+        reasoning_effort=body.reasoning_effort,
+    )
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     session.commit()
     jobs._wake(job_id)
@@ -228,33 +253,44 @@ def followup_run(run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(c
 
 # --- 个人经验 -----------------------------------------------------------------------
 
+
 @router.get("/analysis/experiences", response_model=list[S.ExperienceOut])
 def list_experiences(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     return experiences.list_experiences(session, user)
 
 
 @router.post("/analysis/experiences", status_code=201, response_model=S.ExperienceOut)
-def save_experience(body: S.ExperienceCandidate, user: User = Depends(current_user),
-                    session: Session = Depends(get_session)) -> dict:
+def save_experience(
+    body: S.ExperienceCandidate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """仅在用户明确提交保存时持久化。候选确认与长期保存分开。"""
     return experiences.save_experience(session, user, **body.model_dump(exclude_none=True))
 
 
 @router.post("/analysis/experiences/{experience_id}/revoke", response_model=S.ExperienceOut)
-def revoke_experience(experience_id: str, body: S.ExperienceRevokeIn, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> dict:
+def revoke_experience(
+    experience_id: str,
+    body: S.ExperienceRevokeIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     return experiences.revoke_experience(session, user, experience_id, reason=body.reason)
 
 
 @router.post("/analysis/experiences/{experience_id}/replace", response_model=S.ExperienceOut)
-def replace_experience(experience_id: str, body: S.ExperienceCandidate, user: User = Depends(current_user),
-                       session: Session = Depends(get_session)) -> dict:
+def replace_experience(
+    experience_id: str,
+    body: S.ExperienceCandidate,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     return experiences.replace_experience(session, user, experience_id, **body.model_dump(exclude_none=True))
 
 
 @router.post("/analysis/experiences/{experience_id}/to-join-path", response_model=S.JoinPathOut)
-def experience_to_join_path(experience_id: str, user: User = Depends(current_user),
-                            session: Session = Depends(get_session)) -> dict:
+def experience_to_join_path(
+    experience_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     from avelis.api.governance import join_path_view
 
     path = experiences.to_join_path(session, user, experience_id)
@@ -275,29 +311,55 @@ def _dataset_seq(ref: str) -> int:
     return int(ref[1:])
 
 
-def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100,
-                    session: Session | None = None) -> dict[str, Any]:
+def _dataset_detail(
+    d: AnalysisDataset, *, offset: int = 0, limit: int = 100, session: Session | None = None
+) -> dict[str, Any]:
     meta = dataset_meta(session, d) if session is not None else d.meta or {}
     source = meta.get("rerun_of")
-    return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns,
-            "row_count": len(d.rows), "truncated": d.truncated, "inputs": d.inputs,
-            "sql": meta.get("sql"), "metric_version_ids": meta.get("metric_version_ids", []),
-            "metric_codes": meta.get("metric_codes", []), "window": meta.get("window", {}),
-            "time_column": meta.get("time_column"), "units": meta.get("units", {}),
-            "polarity": meta.get("polarity", {}), "column_roles": build_column_roles(d.columns, meta),
-            "summary_units": meta.get("summary_units", {}), "purpose": meta.get("purpose"),
-            "answer_id": d.answer_id, "created_at": d.created_at.isoformat(),
-            "explore": bool(meta.get("explore")), "assumption": bool(meta.get("assumption")),
-            "partial": bool(meta.get("partial")), "rerunnable": d.kind == "governed" and bool(meta.get("intent")),
-            "source": {"run_id": source["run_id"], "ref": source["ref"]} if source else None,
-            "meta": meta, "offset": offset, "limit": limit, "rows": d.rows[offset:offset + limit],
-            "total": len(d.rows)}
+    return {
+        "ref": f"D{d.seq}",
+        "kind": d.kind,
+        "title": d.title,
+        "columns": d.columns,
+        "row_count": len(d.rows),
+        "truncated": d.truncated,
+        "inputs": d.inputs,
+        "sql": meta.get("sql"),
+        "metric_version_ids": meta.get("metric_version_ids", []),
+        "metric_codes": meta.get("metric_codes", []),
+        "window": meta.get("window", {}),
+        "time_column": meta.get("time_column"),
+        "units": meta.get("units", {}),
+        "polarity": meta.get("polarity", {}),
+        "column_roles": build_column_roles(d.columns, meta),
+        "summary_units": meta.get("summary_units", {}),
+        "purpose": meta.get("purpose"),
+        "answer_id": d.answer_id,
+        "created_at": d.created_at.isoformat(),
+        "explore": bool(meta.get("explore")),
+        "assumption": bool(meta.get("assumption")),
+        "partial": bool(meta.get("partial")),
+        "rerunnable": d.kind == "governed" and bool(meta.get("intent")),
+        "source": {"run_id": source["run_id"], "ref": source["ref"]} if source else None,
+        "meta": meta,
+        "offset": offset,
+        "limit": limit,
+        "rows": d.rows[offset : offset + limit],
+        "total": len(d.rows),
+    }
 
 
-@router.get("/analysis/runs/{run_id}/datasets/{ref}",
-            response_model=S.AnalysisDatasetDetailOut | S.AnalysisDatasetLegacyOut)
-def get_dataset(run_id: str, ref: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000),
-                user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
+@router.get(
+    "/analysis/runs/{run_id}/datasets/{ref}", response_model=S.AnalysisDatasetDetailOut | S.AnalysisDatasetLegacyOut
+)
+def get_dataset(
+    run_id: str,
+    ref: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
     """D 编号返回分页详情；数字序号保留原有全行结构。"""
     legacy = bool(re.fullmatch(r"[0-9]+", ref))
     seq = int(ref) if legacy else _dataset_seq(ref)
@@ -305,15 +367,29 @@ def get_dataset(run_id: str, ref: str, offset: int = Query(0, ge=0), limit: int 
     require_dataset_access(session, user, d)
     if legacy:
         meta = dataset_meta(session, d)
-        return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns, "rows": d.rows,
-                "truncated": d.truncated, "meta": meta, "inputs": d.inputs, "answer_id": d.answer_id,
-                "column_roles": build_column_roles(d.columns, meta)}
+        return {
+            "ref": f"D{d.seq}",
+            "kind": d.kind,
+            "title": d.title,
+            "columns": d.columns,
+            "rows": d.rows,
+            "truncated": d.truncated,
+            "meta": meta,
+            "inputs": d.inputs,
+            "answer_id": d.answer_id,
+            "column_roles": build_column_roles(d.columns, meta),
+        }
     return _dataset_detail(d, offset=offset, limit=limit, session=session)
 
 
 @router.post("/analysis/runs/{run_id}/datasets/{ref}/rerun", response_model=S.AnalysisDatasetDetailOut)
-def rerun(run_id: str, ref: str, body: S.AnalysisDatasetRerunIn, user: User = Depends(current_user),
-          session: Session = Depends(get_session)) -> dict[str, Any]:
+def rerun(
+    run_id: str,
+    ref: str,
+    body: S.AnalysisDatasetRerunIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
     run = analysis.visible_run(session, user, run_id)
     d = _dataset(session, run, _dataset_seq(ref))
     result = rerun_dataset(session, user, run, d, body.window.model_dump(mode="json", exclude_none=True))
@@ -322,12 +398,16 @@ def rerun(run_id: str, ref: str, body: S.AnalysisDatasetRerunIn, user: User = De
 
 
 @router.get("/analysis/runs/{run_id}/datasets/{seq}/csv")
-def dataset_csv(run_id: str, seq: int, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> Response:
+def dataset_csv(
+    run_id: str, seq: int, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> Response:
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
     require_dataset_access(session, user, d)
-    return Response(export.to_csv(d.columns, d.rows), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-D{d.seq}.csv"'})
+    return Response(
+        export.to_csv(d.columns, d.rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-D{d.seq}.csv"'},
+    )
 
 
 def _export_metadata(session: Session, user: User, meta: dict) -> dict:
@@ -335,8 +415,7 @@ def _export_metadata(session: Session, user: User, meta: dict) -> dict:
     versions = meta.get("versions") or {}
     version_ids = list(versions.values()) or meta.get("metric_version_ids") or []
     metric_codes = meta.get("metric_codes") or list(versions)
-    labels: dict[str, Any] = {"metric_names": [], "dimensions": [],
-                              "column_docs": dict(meta.get("column_docs") or {})}
+    labels: dict[str, Any] = {"metric_names": [], "dimensions": [], "column_docs": dict(meta.get("column_docs") or {})}
     can_see = None
     for version_id in dict.fromkeys(version_ids):
         version = session.get(MetricVersion, version_id)
@@ -351,9 +430,14 @@ def _export_metadata(session: Session, user: User, meta: dict) -> dict:
             if not name or not ref or labels["column_docs"].get(name, {}).get("comment"):
                 continue
             alias, column = ref.split(".", 1) if "." in ref else ("b", ref)
-            dependency = next((d for d in version.dependency or []
-                               if d.get("role") == "dimension" and d.get("alias") == alias
-                               and d.get("column") == column), None)
+            dependency = next(
+                (
+                    d
+                    for d in version.dependency or []
+                    if d.get("role") == "dimension" and d.get("alias") == alias and d.get("column") == column
+                ),
+                None,
+            )
             if dependency is None:
                 continue
             asset_id = dependency.get("asset_id")
@@ -367,25 +451,32 @@ def _export_metadata(session: Session, user: User, meta: dict) -> dict:
                 can_see = visible_to(session, user)
             if asset is None or not can_see(asset):
                 continue
-            comment = session.scalar(select(ColumnVersion.comment).where(
-                ColumnVersion.asset_version_id == snapshot["version_id"], ColumnVersion.name == column))
+            comment = session.scalar(
+                select(ColumnVersion.comment).where(
+                    ColumnVersion.asset_version_id == snapshot["version_id"], ColumnVersion.name == column
+                )
+            )
             if comment and comment.strip() and comment.strip().lower() != column.lower():
                 labels["column_docs"][name] = {"comment": comment.strip()}
     return {**meta, "export_labels": labels}
 
 
 @router.get("/analysis/runs/{run_id}/export")
-def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "full"] | None = None,
-               appendix: bool | None = None, datasets: str | None = None,
-               user: User = Depends(current_user),
-               session: Session = Depends(get_session)) -> Response:
+def export_run(
+    run_id: str,
+    format: str = "pdf",
+    audience: Literal["brief", "full"] | None = None,
+    appendix: bool | None = None,
+    datasets: str | None = None,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> Response:
     run = analysis.visible_run(session, user, run_id)
     if run.status != "succeeded":
         raise HTTPException(409, "分析尚未完成，不能导出")
     resolved_audience = export.resolve_audience(audience, appendix)
     view = analysis.run_view(session, run, user=user)
-    saved = {f"D{d.seq}": d for d in session.scalars(
-        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
+    saved = {f"D{d.seq}": d for d in session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
     selected = None
     if datasets is not None:
         selected = list(dict.fromkeys(ref.strip() for ref in datasets.split(",")))
@@ -401,27 +492,42 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
                 # 早期运行没有数值列元数据，导出仍使用原来的选轴回退。
                 dataset.pop("column_roles", None)
     if format == "md":
-        return Response(export.to_markdown(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
-                        media_type="text/markdown; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'})
+        return Response(
+            export.to_markdown(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.md"'},
+        )
     if format == "pdf":
-        return Response(export.to_pdf(view, audience=resolved_audience, datasets=selected), media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'})
+        return Response(
+            export.to_pdf(view, audience=resolved_audience, datasets=selected),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.pdf"'},
+        )
     if format == "html":
-        return Response(export.to_html(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
-                        media_type="text/html; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.html"'})
+        return Response(
+            export.to_html(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.html"'},
+        )
     if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
-        return Response(export.sources_csv(view), media_type="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'})
+        return Response(
+            export.sources_csv(view),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'},
+        )
     raise HTTPException(422, "format 只能是 pdf、html、md 或 csv")
 
 
 # --- 任务 ---------------------------------------------------------------------------
 
+
 @router.get("/analysis/cron/preview", response_model=S.CronPreviewOut)
-def preview_cron(expr: str, count: int = Query(5, ge=1, le=10), user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> dict:
+def preview_cron(
+    expr: str,
+    count: int = Query(5, ge=1, le=10),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     """按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。"""
     access.require_role(session, user, "analyst", "steward", "reviewer")
     timezone = get_settings().business_timezone
@@ -449,19 +555,25 @@ def _task(session: Session, user: User, task_id: str) -> AnalysisTask:
 
 @router.post("/analysis/tasks", status_code=201, response_model=S.AnalysisTaskOut)
 def create_task(body: TaskCreate, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    return analysis.task_view(analysis.create_task(session, user, body.title, body.question, _window(body.window),
-                                                   body.schedule_cron))
+    return analysis.task_view(
+        analysis.create_task(session, user, body.title, body.question, _window(body.window), body.schedule_cron)
+    )
 
 
 @router.get("/analysis/tasks", response_model=list[S.AnalysisTaskOut])
 def list_tasks(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return [analysis.task_view(t) for t in session.scalars(
-        select(AnalysisTask).where(AnalysisTask.owner_id == user.id).order_by(AnalysisTask.created_at.desc()))]
+    return [
+        analysis.task_view(t)
+        for t in session.scalars(
+            select(AnalysisTask).where(AnalysisTask.owner_id == user.id).order_by(AnalysisTask.created_at.desc())
+        )
+    ]
 
 
 @router.patch("/analysis/tasks/{task_id}", response_model=S.AnalysisTaskOut)
-def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user),
-               session: Session = Depends(get_session)) -> dict:
+def patch_task(
+    task_id: str, body: TaskPatch, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     changes = body.model_dump(exclude_unset=True)
     if "window" in changes:
         changes["window"] = _window(body.window)
@@ -472,8 +584,9 @@ def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user)
 def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
-    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual",
-                                                "request_locale": current_locale()}, user.id)
+    job_id = jobs._enqueue(
+        session, "analysis", {"task_id": task.id, "trigger": "manual", "request_locale": current_locale()}, user.id
+    )
     session.commit()
     status = jobs.run_and_wait(job_id, _sync_wait_seconds())  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
@@ -493,28 +606,45 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
 @router.get("/analysis/tasks/{task_id}/runs", response_model=list[S.AnalysisRunOut])
 def task_runs(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     task = _task(session, user, task_id)
-    return [analysis.run_view(session, r, full=False, user=user) for r in session.scalars(
-        select(AnalysisRun).where(AnalysisRun.task_id == task.id).order_by(AnalysisRun.created_at.desc()).limit(50))]
+    return [
+        analysis.run_view(session, r, full=False, user=user)
+        for r in session.scalars(
+            select(AnalysisRun).where(AnalysisRun.task_id == task.id).order_by(AnalysisRun.created_at.desc()).limit(50)
+        )
+    ]
 
 
 # --- 通知 ---------------------------------------------------------------------------
 
+
 @router.get("/notifications", response_model=list[S.NotificationOut])
-def list_notifications(unread: bool = False, user: User = Depends(current_user),
-                       session: Session = Depends(get_session)) -> list[dict]:
+def list_notifications(
+    unread: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> list[dict]:
     stmt = select(Notification).where(Notification.user_id == user.id)
     if unread:
         stmt = stmt.where(Notification.read_at.is_(None))
-    return [{"id": n.id, "kind": n.kind, "title": n.title, "body": n.body, "link": n.link,
-             "read_at": n.read_at.isoformat() if n.read_at else None, "created_at": n.created_at.isoformat()}
-            # 未读优先：未读数与列表里能看到、能标为已读的条目一致
-            for n in session.scalars(stmt.order_by(Notification.read_at.is_(None).desc(), Notification.created_at.desc())
-                                     .limit(100))]
+    return [
+        {
+            "id": n.id,
+            "kind": n.kind,
+            "title": n.title,
+            "body": n.body,
+            "link": n.link,
+            "read_at": n.read_at.isoformat() if n.read_at else None,
+            "created_at": n.created_at.isoformat(),
+        }
+        # 未读优先：未读数与列表里能看到、能标为已读的条目一致
+        for n in session.scalars(
+            stmt.order_by(Notification.read_at.is_(None).desc(), Notification.created_at.desc()).limit(100)
+        )
+    ]
 
 
 @router.post("/notifications/{notification_id}/read", status_code=204)
-def read_notification(notification_id: str, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> Response:
+def read_notification(
+    notification_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> Response:
     n = session.get(Notification, notification_id)
     if n is None or n.user_id != user.id:
         raise NotFound("通知不存在")

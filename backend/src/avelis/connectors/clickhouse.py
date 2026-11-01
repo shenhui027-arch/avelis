@@ -73,8 +73,9 @@ class ClickHouseConnector:
         self._conn_args = dict(host=host, port=port, username=user, password=password)
 
     def _client(self, timeout: int = 60):
-        return clickhouse_connect.get_client(**self._conn_args, connect_timeout=5, send_receive_timeout=timeout,
-                                             autogenerate_session_id=False)
+        return clickhouse_connect.get_client(
+            **self._conn_args, connect_timeout=5, send_receive_timeout=timeout, autogenerate_session_id=False
+        )
 
     # --- 采集 ---------------------------------------------------------------------
 
@@ -87,8 +88,11 @@ class ClickHouseConnector:
 
     def _server_identity(self, client) -> dict[str, Any]:
         version, server_uuid = client.query("SELECT version(), toString(serverUUID())").result_rows[0]
-        identity = {"version": version, "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}",
-                    "server_uuid": server_uuid}
+        identity = {
+            "version": version,
+            "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}",
+            "server_uuid": server_uuid,
+        }
         if server_uuid and server_uuid != "00000000-0000-0000-0000-000000000000":
             identity["instance_id"] = f"ch:{server_uuid}"
         return identity
@@ -104,7 +108,9 @@ class ClickHouseConnector:
             tables = client.query(
                 "SELECT database, name, engine, toString(uuid), comment, as_select, sorting_key, primary_key "
                 "FROM system.tables WHERE database IN {dbs:Array(String)} AND NOT is_temporary "
-                "ORDER BY database, name", parameters={"dbs": databases}).result_rows
+                "ORDER BY database, name",
+                parameters={"dbs": databases},
+            ).result_rows
             columns = self._columns(client, databases, with_comments=True)
         finally:
             client.close()
@@ -114,32 +120,47 @@ class ClickHouseConnector:
             definition = (as_select or "").strip() or None
             if kind in ("view", "materialized_view") and definition is None:
                 warnings.append(f"视图 {db}.{name} 未读到定义")
-            assets.append(ObservedAsset(
-                catalog=CATALOG, db=db, name=name, kind=kind,
-                columns=[ObservedColumn(name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4])
-                         for c in columns.get((db, name), [])],
-                physical_id=_identity(uuid, kind),
-                table_model=engine, key_columns=[], unique_keys=[], comment=comment or None,
-                definition=definition if kind != "table" else None,
-                properties={"engine": engine, "sorting_key": sorting_key, "primary_key": primary_key},
-            ))
+            assets.append(
+                ObservedAsset(
+                    catalog=CATALOG,
+                    db=db,
+                    name=name,
+                    kind=kind,
+                    columns=[
+                        ObservedColumn(name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4])
+                        for c in columns.get((db, name), [])
+                    ],
+                    physical_id=_identity(uuid, kind),
+                    table_model=engine,
+                    key_columns=[],
+                    unique_keys=[],
+                    comment=comment or None,
+                    definition=definition if kind != "table" else None,
+                    properties={"engine": engine, "sorting_key": sorting_key, "primary_key": primary_key},
+                )
+            )
         return Snapshot(server_identity=identity, assets=assets, warnings=warnings)
 
     @staticmethod
-    def _columns(client, databases: list[str], tables: list[str] | None = None,
-                 with_comments: bool = False) -> dict[tuple[str, str], list[tuple]]:
-        sql = ("SELECT database, table, name, type, position, comment FROM system.columns "
-               "WHERE database IN {dbs:Array(String)}")
+    def _columns(
+        client, databases: list[str], tables: list[str] | None = None, with_comments: bool = False
+    ) -> dict[tuple[str, str], list[tuple]]:
+        sql = (
+            "SELECT database, table, name, type, position, comment FROM system.columns "
+            "WHERE database IN {dbs:Array(String)}"
+        )
         params: dict[str, Any] = {"dbs": databases}
         if tables is not None:
             sql += " AND table IN {tables:Array(String)}"
             params["tables"] = tables
         out: dict[tuple[str, str], list[tuple]] = {}
         for db, table, name, raw_type, position, comment in client.query(
-                sql + " ORDER BY database, table, position", parameters=params).result_rows:
+            sql + " ORDER BY database, table, position", parameters=params
+        ).result_rows:
             data_type, nullable = _type(raw_type)
             out.setdefault((db, table), []).append(
-                (name, data_type, int(position), nullable, (comment or None) if with_comments else None))
+                (name, data_type, int(position), nullable, (comment or None) if with_comments else None)
+            )
         return out
 
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
@@ -150,7 +171,9 @@ class ClickHouseConnector:
                 "SELECT toUnixTimestamp(event_time), user, query_kind, tables, query FROM system.query_log "
                 "WHERE type = 'QueryFinish' AND query_kind IN ('Create', 'Alter', 'Drop', 'Rename') "
                 "AND event_time >= toDateTime({since:Int64}) AND event_time <= toDateTime({until:Int64}) "
-                "ORDER BY event_time", parameters={"since": _epoch(since), "until": _epoch(until)}).result_rows
+                "ORDER BY event_time",
+                parameters={"since": _epoch(since), "until": _epoch(until)},
+            ).result_rows
         except ClickHouseError as exc:
             raise AuditUnavailable(_first_line(str(exc)), _audit_cause(exc)) from exc
         finally:
@@ -160,14 +183,22 @@ class ClickHouseConnector:
             objects = [tuple(t.split(".", 1)) for t in tables if "." in t]
             objects = [o for o in objects if not databases or o[0] in databases]
             if objects:
-                events.append(DdlEvent(at=_from_epoch(ts), db_user=user, objects=objects,
-                                       statement_type=str(kind).upper(), statement=query))
+                events.append(
+                    DdlEvent(
+                        at=_from_epoch(ts),
+                        db_user=user,
+                        objects=objects,
+                        statement_type=str(kind).upper(),
+                        statement=query,
+                    )
+                )
         return events
 
     # --- 只读执行 ------------------------------------------------------------------
 
-    def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
-                       max_rows: int, timezone: str | None = None) -> QueryResult:
+    def execute_select(
+        self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult:
         settings: dict[str, Any] = {"max_execution_time": int(timeout_seconds)}
         if timezone is not None:
             # 请求级设置，HTTP 客户端复用时也不会污染后续查询。
@@ -177,7 +208,7 @@ class ClickHouseConnector:
         client = self._client(timeout=int(timeout_seconds) + 10)
         try:
             result = client.query(sql_text, settings=settings)
-            rows = [list(r) for r in result.result_rows[:max_rows + 1]]
+            rows = [list(r) for r in result.result_rows[: max_rows + 1]]
             columns = list(result.column_names)
         except ClickHouseError as exc:
             raise _query_error(exc) from exc
@@ -194,7 +225,9 @@ class ClickHouseConnector:
             rows = client.query(
                 "SELECT database, table, toString(max(modification_time)) FROM system.parts "
                 "WHERE active AND (database, table) IN {names:Array(Tuple(String, String))} "
-                "GROUP BY database, table", parameters={"names": names}).result_rows
+                "GROUP BY database, table",
+                parameters={"names": names},
+            ).result_rows
         except ClickHouseError as exc:
             error = _query_error(exc)
             if error.code == "permission":  # 未授予 system.parts 的读取权限：不报告新鲜度，而不是让问数失败
@@ -208,17 +241,19 @@ class ClickHouseConnector:
     def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 库.表 当前的列（名称、类型，按位置）、视图定义与 UUID；对象不存在时列为空。"""
         names = [(d, n) for d, n in objects if IDENT.match(d) and IDENT.match(n)]
-        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
-                                                      for k in names}
+        out: dict[tuple[str, str], dict[str, Any]] = {
+            k: {"columns": [], "definition": None, "physical_id": None} for k in names
+        }
         if not names:
             return out
         dbs, tables = sorted({d for d, _ in names}), sorted({n for _, n in names})
         client = self._client(timeout=30)
         try:
             for db, name, engine, uuid, as_select in client.query(
-                    "SELECT database, name, engine, toString(uuid), as_select FROM system.tables "
-                    "WHERE database IN {dbs:Array(String)} AND name IN {tables:Array(String)}",
-                    parameters={"dbs": dbs, "tables": tables}).result_rows:
+                "SELECT database, name, engine, toString(uuid), as_select FROM system.tables "
+                "WHERE database IN {dbs:Array(String)} AND name IN {tables:Array(String)}",
+                parameters={"dbs": dbs, "tables": tables},
+            ).result_rows:
                 if (db, name) in out:
                     out[(db, name)]["physical_id"] = _identity(uuid, _kind(engine))
                     if _kind(engine) != "table":

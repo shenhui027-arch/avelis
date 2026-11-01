@@ -73,8 +73,11 @@ def run_and_wait(job_id: str, timeout_seconds: float) -> str | None:
 
 def run_job(job_id: str) -> None:
     with session_scope() as session:
-        claimed = session.execute(update(Job).where(Job.id == job_id, Job.status == "queued").values(
-            status="running", started_at=utcnow(), attempts=Job.attempts + 1)).rowcount
+        claimed = session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == "queued")
+            .values(status="running", started_at=utcnow(), attempts=Job.attempts + 1)
+        ).rowcount
         if not claimed:
             return
         job = session.get(Job, job_id)
@@ -86,8 +89,11 @@ def run_job(job_id: str) -> None:
     error = None
     try:
         if kind == "collect":
-            result = {"run_id": collect_now(payload["datasource_id"], trigger=payload.get("trigger", "manual"),
-                                            actor_id=actor)}
+            result = {
+                "run_id": collect_now(
+                    payload["datasource_id"], trigger=payload.get("trigger", "manual"), actor_id=actor
+                )
+            }
         elif kind == "import":
             from avelis.importer.batch import run_import
 
@@ -100,8 +106,11 @@ def run_job(job_id: str) -> None:
     with session_scope() as session:
         job = session.get(Job, job_id)
         result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
-        session.execute(update(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).values(
-            status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow()))
+        session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
+            .values(status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow())
+        )
 
 
 def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> None:
@@ -115,8 +124,9 @@ def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, A
         log.exception("分析任务 %s 失败", job_id)
         error = f"{type(exc).__name__}: {str(exc)[:500]}"
         with session_scope() as session:
-            job = session.scalar(select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
-                                 .with_for_update())
+            job = session.scalar(
+                select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).with_for_update()
+            )
             if job is not None:
                 job.status, job.error, job.finished_at = "failed", error, utcnow()
                 analysis_service.reconcile_abandoned(session, job, error)
@@ -133,12 +143,24 @@ def schedule_due() -> list[str]:
     with session_scope() as session:
         # 固定加锁顺序，避免多个调度器以相反顺序持有事务锁。
         for ds in session.scalars(select(Datasource).where(Datasource.status == "active").order_by(Datasource.id)):
-            session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                            {"key": f"schedule:collect:{ds.id}"})
-            last = session.scalar(select(CollectionRun.started_at).where(CollectionRun.datasource_id == ds.id)
-                                  .order_by(CollectionRun.started_at.desc()).limit(1))
-            pending = session.scalar(select(Job.id).where(Job.kind == "collect", Job.status.in_(("queued", "running")),
-                                                          Job.payload["datasource_id"].as_string() == ds.id).limit(1))
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"schedule:collect:{ds.id}"}
+            )
+            last = session.scalar(
+                select(CollectionRun.started_at)
+                .where(CollectionRun.datasource_id == ds.id)
+                .order_by(CollectionRun.started_at.desc())
+                .limit(1)
+            )
+            pending = session.scalar(
+                select(Job.id)
+                .where(
+                    Job.kind == "collect",
+                    Job.status.in_(("queued", "running")),
+                    Job.payload["datasource_id"].as_string() == ds.id,
+                )
+                .limit(1)
+            )
             if pending:
                 continue
             if last is None or utcnow() - last.replace(tzinfo=None) >= timedelta(minutes=ds.collect_interval_minutes):
@@ -157,13 +179,20 @@ def stale_jobs(older_than_seconds: int | None = None) -> list[str]:
 
 def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     """把运行超时的任务记为失败，返回本次更新的任务 ID。"""
-    older_than_seconds = (get_settings().worker_running_timeout_seconds if older_than_seconds is None
-                          else older_than_seconds)
+    older_than_seconds = (
+        get_settings().worker_running_timeout_seconds if older_than_seconds is None else older_than_seconds
+    )
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
     reason = f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"
     with session_scope() as session:
-        rows = list(session.execute(update(Job).where(Job.status == "running", Job.started_at < cutoff).values(
-            status="failed", finished_at=utcnow(), error=reason).returning(Job.id, Job.kind, Job.payload, Job.result)))
+        rows = list(
+            session.execute(
+                update(Job)
+                .where(Job.status == "running", Job.started_at < cutoff)
+                .values(status="failed", finished_at=utcnow(), error=reason)
+                .returning(Job.id, Job.kind, Job.payload, Job.result)
+            )
+        )
         for job_id, kind, _, _ in rows:  # 关联的分析运行一并处理：未结束的终结，已结束的按运行终态修正 Job
             if kind in ANALYSIS_KINDS:
                 from avelis.analysis import service as analysis_service
@@ -201,8 +230,11 @@ def scan_once() -> None:
     from avelis.analysis import service as analysis_service
 
     _guarded("回收超时任务", abandoned_jobs)
-    due = [*_guarded("定时采集入队", schedule_due, []), *_guarded("定时分析入队", analysis_service.schedule_due, []),
-           *_guarded("扫描排队任务", stale_jobs, [])]
+    due = [
+        *_guarded("定时采集入队", schedule_due, []),
+        *_guarded("定时分析入队", analysis_service.schedule_due, []),
+        *_guarded("扫描排队任务", stale_jobs, []),
+    ]
     for job_id in due:
         _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
     _guarded("清理超期历史", purge_history_if_due)
@@ -231,8 +263,12 @@ def main() -> None:
 
     def _heartbeat():
         while True:
-            _guarded("写入 worker 心跳", lambda: cache.client().set(
-                cache.WORKER_HEARTBEAT, utcnow().replace(tzinfo=timezone.utc).isoformat(), ex=60))
+            _guarded(
+                "写入 worker 心跳",
+                lambda: cache.client().set(
+                    cache.WORKER_HEARTBEAT, utcnow().replace(tzinfo=timezone.utc).isoformat(), ex=60
+                ),
+            )
             heartbeat_ready.set()
             if heartbeat_stop.wait(20):
                 break

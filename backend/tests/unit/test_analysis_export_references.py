@@ -31,12 +31,26 @@ def _member_view():
     summary = record("成员 ", " 的收入下降", "D901")
     claim = record("成员 ", " 的收入下降，仍需复核", "D902")
     claim.update(type="inference", refs=["D903"], details={"premise": record("已确认成员 ", "", "D904")})
-    return {"datasets": [], "verification": {}, "report": {
-        "title": "门店D1的收入下降（D905）", "summary": summary["text"], "fields": {"summary": summary},
-        "claims": [claim, {"type": "fact", "text": "门店D1的收入下降；D1 的观测结果仍需复核", "refs": ["D906"]}],
-        "causes": [{"type": "member", "label": "D1", "entity": {"member": "D1"},
-                    "direction": "down", "evidence": ["D907"], "contribution": {"text": "收入下降"}}],
-    }}
+    return {
+        "datasets": [],
+        "verification": {},
+        "report": {
+            "title": "门店D1的收入下降（D905）",
+            "summary": summary["text"],
+            "fields": {"summary": summary},
+            "claims": [claim, {"type": "fact", "text": "门店D1的收入下降；D1 的观测结果仍需复核", "refs": ["D906"]}],
+            "causes": [
+                {
+                    "type": "member",
+                    "label": "D1",
+                    "entity": {"member": "D1"},
+                    "direction": "down",
+                    "evidence": ["D907"],
+                    "contribution": {"text": "收入下降"},
+                }
+            ],
+        },
+    }
 
 
 def test_brief_preserves_grounded_members_and_only_hides_references(render):
@@ -71,20 +85,37 @@ def test_brief_preserves_unidentified_member_without_label_or_entity_metadata(re
     record = {"text": text}
     if structured:
         record["segments"] = [{"kind": "text", "text": text}]
-    view = {"datasets": [], "verification": {}, "report": {
-        "title": text, "summary": text, "fields": {"summary": deepcopy(record)},
-        "claims": [{"type": "fact", **record}],
-    }}
+    view = {
+        "datasets": [],
+        "verification": {},
+        "report": {
+            "title": text,
+            "summary": text,
+            "fields": {"summary": deepcopy(record)},
+            "claims": [{"type": "fact", **record}],
+        },
+    }
 
     assert render(view, audience="brief").count(text) >= 3
 
 
 def test_brief_keeps_bare_members_despite_declared_refs_and_hides_contextual_references(render):
-    view = {"datasets": [], "verification": {}, "report": {
-        "title": "已保存引用 D901", "summary": "来源已校验 D902",
-        "claims": [{"type": "fact", "text": "D903 的结果已保存；D1 的收入下降", "refs": ["D903"],
-                    "segments": [{"kind": "text", "text": "D903 的结果已保存；D1 的收入下降"}]}],
-    }}
+    view = {
+        "datasets": [],
+        "verification": {},
+        "report": {
+            "title": "已保存引用 D901",
+            "summary": "来源已校验 D902",
+            "claims": [
+                {
+                    "type": "fact",
+                    "text": "D903 的结果已保存；D1 的收入下降",
+                    "refs": ["D903"],
+                    "segments": [{"kind": "text", "text": "D903 的结果已保存；D1 的收入下降"}],
+                }
+            ],
+        },
+    }
 
     text = render(view, audience="brief")
 
@@ -97,9 +128,12 @@ def test_brief_keeps_bare_members_despite_declared_refs_and_hides_contextual_ref
 @pytest.mark.parametrize("member", ["D1", "(D1)", "引用 D1"])
 def test_brief_preserves_text_member_matching_an_adjacent_reference_segment(render, member):
     body = member + " 的收入下降"
-    claim = {"type": "fact", "refs": ["D1"], "text": body + "[D1]",
-             "segments": [{"kind": "text", "text": body},
-                          {"kind": "ref", "ref": "D1", "text": "[D1]"}]}
+    claim = {
+        "type": "fact",
+        "refs": ["D1"],
+        "text": body + "[D1]",
+        "segments": [{"kind": "text", "text": body}, {"kind": "ref", "ref": "D1", "text": "[D1]"}],
+    }
     view = {"datasets": [], "verification": {}, "report": {"claims": [claim]}}
 
     text = render(view, audience="brief")
@@ -109,10 +143,14 @@ def test_brief_preserves_text_member_matching_an_adjacent_reference_segment(rend
 
 
 def test_brief_does_not_treat_a_known_member_as_a_global_reference_whitelist(render):
-    view = {"datasets": [], "verification": {}, "report": {
-        "summary": "引用 D1 的保存结果",
-        "causes": [{"type": "member", "entity": {"member": "D1"}, "direction": "down"}],
-    }}
+    view = {
+        "datasets": [],
+        "verification": {},
+        "report": {
+            "summary": "引用 D1 的保存结果",
+            "causes": [{"type": "member", "entity": {"member": "D1"}, "direction": "down"}],
+        },
+    }
 
     text = render(view, audience="brief")
 

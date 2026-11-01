@@ -13,8 +13,9 @@ from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.models import AnalysisDataset, Answer, Asset, Metric, MetricVersion, User
 
 
-def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
-                     datasets: Mapping[str, AnalysisDataset] | None = None) -> bool:
+def can_read_dataset(
+    session: Session, user: User, dataset: AnalysisDataset, datasets: Mapping[str, AnalysisDataset] | None = None
+) -> bool:
     """检查保存版本与输入来源，不用最新版本替代历史上实际读过的来源。"""
     allowed = access.domain_ids(session, user)
     known = datasets
@@ -25,9 +26,10 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
         if any(session.get(Asset, asset_id, populate_existing=True) is None for asset_id in ids):
             return False
         closure = ask_service.upstream_closure(session, list(ids))
-        return all(access.can_read_asset(session, user,
-                                         session.get(Asset, asset_id, populate_existing=True), allowed)
-                   for asset_id in closure)
+        return all(
+            access.can_read_asset(session, user, session.get(Asset, asset_id, populate_existing=True), allowed)
+            for asset_id in closure
+        )
 
     def version_visible(version_id: str) -> bool:
         if version_id in versions_checked:
@@ -59,22 +61,29 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
             return assets_visible(set(meta.get("asset_ids") or []))
         # 旧上下文只保存显示名：按当时固定列结构定位，找不到来源时不交付历史行。
         rows = [dict(zip(d.columns, row)) for row in d.rows]
-        asset_names = {r["base_asset"] for r in rows} if "base_asset" in d.columns else {
-            r["object"] for r in rows if r.get("type") == "元数据变更"}
+        asset_names = (
+            {r["base_asset"] for r in rows}
+            if "base_asset" in d.columns
+            else {r["object"] for r in rows if r.get("type") == "元数据变更"}
+        )
         metric_names = {r["object"] for r in rows if r.get("type") == "口径版本流转"}
         if rows and not asset_names and not metric_names:
             return False
         ids: set[str] = set()
         for name in asset_names:
-            matches = list(session.scalars(select(Asset).where(
-                Asset.catalog_name + "." + Asset.db_name + "." + Asset.name == name)))
+            matches = list(
+                session.scalars(
+                    select(Asset).where(Asset.catalog_name + "." + Asset.db_name + "." + Asset.name == name)
+                )
+            )
             if not matches:
                 return False
             ids.update(a.id for a in matches)
         for name in metric_names:
             metrics = list(session.scalars(select(Metric).where(Metric.name == name)))
-            if not metrics or any(session.get(Metric, m.id, populate_existing=True).domain_id not in allowed
-                                  for m in metrics):
+            if not metrics or any(
+                session.get(Metric, m.id, populate_existing=True).domain_id not in allowed for m in metrics
+            ):
                 return False
         return assets_visible(ids)
 
@@ -88,8 +97,10 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
         parents = set(d.inputs or []) | set(meta.get("closure") or [])
         if parents:
             if known is None:
-                known = {f"D{item.seq}": item for item in session.scalars(select(AnalysisDataset).where(
-                    AnalysisDataset.run_id == d.run_id))}
+                known = {
+                    f"D{item.seq}": item
+                    for item in session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == d.run_id))
+                }
             if any(ref not in known or not visible(known[ref]) for ref in parents):
                 return False
         if d.kind == "governed":
@@ -97,8 +108,11 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
             ids = set(meta.get("metric_version_ids") or []) | set((meta.get("versions") or {}).values())
             if answer is not None:
                 ids.update(answer.metric_version_ids or [])
-            sources = {s["asset_id"] for s in (answer.evidence or {}).get("sources", [])
-                       if s.get("asset_id")} if answer else set()
+            sources = (
+                {s["asset_id"] for s in (answer.evidence or {}).get("sources", []) if s.get("asset_id")}
+                if answer
+                else set()
+            )
             result = bool(ids) and all(version_visible(v) for v in ids) and assets_visible(sources)
         elif d.kind in ("explore", "ungoverned"):
             ids = {table["asset_id"] for table in meta.get("tables") or [] if table.get("asset_id")}
@@ -113,7 +127,8 @@ def can_read_dataset(session: Session, user: User, dataset: AnalysisDataset,
     return visible(dataset)
 
 
-def require_dataset_access(session: Session, user: User, dataset: AnalysisDataset,
-                           datasets: Mapping[str, AnalysisDataset] | None = None) -> None:
+def require_dataset_access(
+    session: Session, user: User, dataset: AnalysisDataset, datasets: Mapping[str, AnalysisDataset] | None = None
+) -> None:
     if not can_read_dataset(session, user, dataset, datasets):
         raise Forbidden("你已没有该数据的访问权限")

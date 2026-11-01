@@ -24,9 +24,18 @@ def test_0010_adds_optional_material_change_ratio_and_round_trips(meta_db, facto
     code = factory.metric(owner)
     with session_scope() as s:
         metric = s.scalar(select(Metric).where(Metric.code == code))
-        version = MetricVersion(metric_id=metric.id, version_no=1, status="draft", description="d", kind="base",
-                                expression="SUM(x)", time_column="d", timezone="Asia/Shanghai", created_by=owner,
-                                material_change_ratio=Decimal("0.02"))
+        version = MetricVersion(
+            metric_id=metric.id,
+            version_no=1,
+            status="draft",
+            description="d",
+            kind="base",
+            expression="SUM(x)",
+            time_column="d",
+            timezone="Asia/Shanghai",
+            created_by=owner,
+            material_change_ratio=Decimal("0.02"),
+        )
         s.add(version)
         s.flush()
         version_id = version.id
@@ -39,8 +48,10 @@ def test_0010_adds_optional_material_change_ratio_and_round_trips(meta_db, facto
 
     command.upgrade(cfg, "head")
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT material_change_ratio FROM metric_version WHERE id = :id"),
-                           {"id": version_id}) is None
+        assert (
+            conn.scalar(text("SELECT material_change_ratio FROM metric_version WHERE id = :id"), {"id": version_id})
+            is None
+        )
     with session_scope() as s:
         s.get(MetricVersion, version_id).material_change_ratio = Decimal("0.005")
     with session_scope() as s:

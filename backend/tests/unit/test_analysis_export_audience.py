@@ -40,6 +40,7 @@ def render(request, monkeypatch):
     if request.param == "markdown":
         return lambda view, **kwargs: export.to_markdown(view, **kwargs)
     if request.param == "html":
+
         def html_text(view, **kwargs):
             class Text(HTMLParser):
                 def __init__(self):
@@ -80,19 +81,41 @@ def _assert_brief(text):
 def test_restricted_export_discards_stale_rows_metadata_and_report_text(render, audience):
     view = sample_view()
     restricted = view["datasets"][0]
-    restricted.update(restricted=True, title="受限标题不可交付", columns=["受限列不可交付"],
-                      rows=[["受限行不可交付"]], sql="SELECT '受限查询不可交付'",
-                      metric_version_ids=["受限版本不可交付"],
-                      meta={"summary": "受限汇总不可交付", "sql": "SELECT '受限元数据不可交付'"})
-    view["report"] = {"title": "中立报告", "summary": "可见摘要", "claims": [
-        {"type": "fact", "refs": ["D1"], "text": "受限结论不可交付"},
-        {"type": "inference", "refs": ["D3"], "text": "可见判断", "premise": "旧前提不可交付",
-         "errors": ["受限前提核验原值不可交付"],
-         "details": {"premise": {"text": "受限前提不可交付", "refs": ["D1"]}}}],
+    restricted.update(
+        restricted=True,
+        title="受限标题不可交付",
+        columns=["受限列不可交付"],
+        rows=[["受限行不可交付"]],
+        sql="SELECT '受限查询不可交付'",
+        metric_version_ids=["受限版本不可交付"],
+        meta={"summary": "受限汇总不可交付", "sql": "SELECT '受限元数据不可交付'"},
+    )
+    view["report"] = {
+        "title": "中立报告",
+        "summary": "可见摘要",
+        "claims": [
+            {"type": "fact", "refs": ["D1"], "text": "受限结论不可交付"},
+            {
+                "type": "inference",
+                "refs": ["D3"],
+                "text": "可见判断",
+                "premise": "旧前提不可交付",
+                "errors": ["受限前提核验原值不可交付"],
+                "details": {"premise": {"text": "受限前提不可交付", "refs": ["D1"]}},
+            },
+        ],
         "fields": {"unexplained": {"text": "受限未知项不可交付", "refs": ["D1"]}},
         "unexplained": "受限未知项不可交付",
-        "causes": [{"type": "member", "label": "受限原因不可交付", "evidence": ["D1"],
-                    "entity": {"member": "受限成员不可交付"}, "contribution": {"text": "受限贡献不可交付"}}]}
+        "causes": [
+            {
+                "type": "member",
+                "label": "受限原因不可交付",
+                "evidence": ["D1"],
+                "entity": {"member": "受限成员不可交付"},
+                "contribution": {"text": "受限贡献不可交付"},
+            }
+        ],
+    }
     view["verification"]["conclusion"] = {"status": "unverified", "problems": ["受限极值与范围不可交付"]}
     original = deepcopy(view)
 
@@ -122,15 +145,27 @@ def test_restricted_datasets_are_ineligible_for_charts_tables_and_core_metrics()
 def test_restricted_records_keep_visible_verification_indices_aligned(render):
     view = sample_view()
     view["datasets"][0]["restricted"] = True
-    view["report"] = {"title": "报告", "claims": [
-        {"type": "fact", "refs": ["D1"], "text": "已失权"},
-        {"type": "fact", "refs": ["D3"], "text": "可见结论", "errors": ["结论未通过"]}],
-        "causes": [{"type": "factor", "label": "已失权", "evidence": ["D1"]},
-                   {"type": "factor", "label": "可见原因", "evidence": ["D3"], "errors": ["原因未通过"]}]}
-    view["verification"] = {"claims": [{"index": 0, "status": "verified"},
-                                       {"index": 1, "status": "unverified", "problems": ["结论未通过"]}],
-                            "causes": [{"index": 0, "status": "verified"},
-                                       {"index": 1, "status": "unverified", "problems": ["原因未通过"]}]}
+    view["report"] = {
+        "title": "报告",
+        "claims": [
+            {"type": "fact", "refs": ["D1"], "text": "已失权"},
+            {"type": "fact", "refs": ["D3"], "text": "可见结论", "errors": ["结论未通过"]},
+        ],
+        "causes": [
+            {"type": "factor", "label": "已失权", "evidence": ["D1"]},
+            {"type": "factor", "label": "可见原因", "evidence": ["D3"], "errors": ["原因未通过"]},
+        ],
+    }
+    view["verification"] = {
+        "claims": [
+            {"index": 0, "status": "verified"},
+            {"index": 1, "status": "unverified", "problems": ["结论未通过"]},
+        ],
+        "causes": [
+            {"index": 0, "status": "verified"},
+            {"index": 1, "status": "unverified", "problems": ["原因未通过"]},
+        ],
+    }
 
     text = render(view, audience="brief")
 
@@ -138,8 +173,9 @@ def test_restricted_records_keep_visible_verification_indices_aligned(render):
     assert "已失权" not in text
 
 
-@pytest.mark.parametrize("kwargs", [{}, {"audience": "brief"}, {"appendix": False},
-                                   {"audience": "brief", "appendix": True}])
+@pytest.mark.parametrize(
+    "kwargs", [{}, {"audience": "brief"}, {"appendix": False}, {"audience": "brief", "appendix": True}]
+)
 def test_default_and_brief_have_only_plain_language_body(render, kwargs):
     text = render(sample_view(), **kwargs)
     _assert_brief(text)
@@ -154,8 +190,9 @@ def test_default_and_brief_have_only_plain_language_body(render, kwargs):
 def test_brief_pdf_footer_is_small_gray_and_has_no_appendix_page_break(monkeypatch):
     story = _pdf_story(monkeypatch, sample_view())
     assert not any(isinstance(item, PageBreak) for item in _flowables(story))
-    footer = next(item for item in _flowables(story)
-                  if isinstance(item, Paragraph) and item.getPlainText() == APPROVED_FOOTER)
+    footer = next(
+        item for item in _flowables(story) if isinstance(item, Paragraph) and item.getPlainText() == APPROVED_FOOTER
+    )
     assert footer.style.fontSize <= 8
     assert footer.style.textColor == HexColor(export.GRAY)
 
@@ -165,8 +202,7 @@ def test_audience_builds_actual_pdf_bytes(audience):
     assert export.to_pdf(sample_view(), audience=audience).startswith(b"%PDF")
 
 
-@pytest.mark.parametrize("kwargs", [{"audience": "full"}, {"appendix": True},
-                                   {"audience": "full", "appendix": False}])
+@pytest.mark.parametrize("kwargs", [{"audience": "full"}, {"appendix": True}, {"audience": "full", "appendix": False}])
 def test_full_and_appendix_compatibility_keep_used_evidence(render, kwargs):
     text = render(sample_view(), **kwargs)
     assert all(phrase in text for phrase in ("附录", "数据检查", "用到的数据", "查询明细"))
@@ -180,31 +216,51 @@ def test_full_and_appendix_compatibility_keep_used_evidence(render, kwargs):
 
 def test_full_appendix_only_lists_body_references_and_selected_data(render):
     def dataset(seq, kind="governed"):
-        return {"ref": f"D{seq}", "kind": kind, "title": f"技术标题{seq}",
-                "columns": ["member", "value"], "rows": [["甲", 10], ["乙", 30]],
-                "row_count": 200 if seq == 4 else 2, "truncated": seq == 4,
-                "sql": f"SELECT {seq} AS query_marker", "metric_version_ids": [f"version-{seq}"],
-                "meta": {"units": {"value": {"kind": "delta", "unit": "元"}},
-                         "metric_names": [f"显示指标{seq}"], "summary": "检查记录正常"}}
+        return {
+            "ref": f"D{seq}",
+            "kind": kind,
+            "title": f"技术标题{seq}",
+            "columns": ["member", "value"],
+            "rows": [["甲", 10], ["乙", 30]],
+            "row_count": 200 if seq == 4 else 2,
+            "truncated": seq == 4,
+            "sql": f"SELECT {seq} AS query_marker",
+            "metric_version_ids": [f"version-{seq}"],
+            "meta": {
+                "units": {"value": {"kind": "delta", "unit": "元"}},
+                "metric_names": [f"显示指标{seq}"],
+                "summary": "检查记录正常",
+            },
+        }
 
     def segment(seq):
-        return {"kind": "value", "ref": f"D{seq}", "path": f"D{seq}.value[#1]",
-                "text": "10元", "raw": "10"}
+        return {"kind": "value", "ref": f"D{seq}", "path": f"D{seq}.value[#1]", "text": "10元", "raw": "10"}
 
-    saved = [dataset(i, "calc" if i == 2 else "explore" if i == 4 else "context" if i == 8 else "governed")
-             for i in range(1, 10)]
+    saved = [
+        dataset(i, "calc" if i == 2 else "explore" if i == 4 else "context" if i == 8 else "governed")
+        for i in range(1, 10)
+    ]
     saved[1]["inputs"] = ["D6"]
-    view = {"datasets": saved, "verification": {"ok": True}, "report": {
-        "title": "中立报告", "fields": {
-            "summary": {"segments": [segment(9)]}, "unexplained": {"segments": [segment(4)]},
-            "method": {"segments": [{"kind": "text", "text": "采用已保存的分析方法"}, segment(5)]}},
-        "claims": [
-            {"type": "fact", "text": "正文结论", "refs": ["D1"]},
-            {"type": "recommendation", "text": "建议", "details": {
-                "premise": {"segments": [segment(3)]}}},
-            {"type": "fact", "text": "不重复检查原文", "refs": ["D8"]}],
-        "causes": [{"type": "factor", "label": "原因甲", "evidence": ["D2"],
-                    "contribution": {"segments": [segment(2)]}}]}}
+    view = {
+        "datasets": saved,
+        "verification": {"ok": True},
+        "report": {
+            "title": "中立报告",
+            "fields": {
+                "summary": {"segments": [segment(9)]},
+                "unexplained": {"segments": [segment(4)]},
+                "method": {"segments": [{"kind": "text", "text": "采用已保存的分析方法"}, segment(5)]},
+            },
+            "claims": [
+                {"type": "fact", "text": "正文结论", "refs": ["D1"]},
+                {"type": "recommendation", "text": "建议", "details": {"premise": {"segments": [segment(3)]}}},
+                {"type": "fact", "text": "不重复检查原文", "refs": ["D8"]},
+            ],
+            "causes": [
+                {"type": "factor", "label": "原因甲", "evidence": ["D2"], "contribution": {"segments": [segment(2)]}}
+            ],
+        },
+    }
     original = deepcopy(view)
     text = render(view, audience="full", datasets=["D7"])
     appendix = text.split("附录", 1)[1]
@@ -257,8 +313,11 @@ def test_unused_temporary_query_does_not_change_brief_assurance(render):
 
 def test_brief_plain_language_applies_to_saved_body_text_and_dataset_notes(render):
     view = sample_view()
-    view["report"].update(title="受治理指标 D1 的计算分析", summary="来源已校验 D1，计算结果需结合上下文。",
-                          unexplained="核验 D2 的探索查询与口径版本仍需补充。")
+    view["report"].update(
+        title="受治理指标 D1 的计算分析",
+        summary="来源已校验 D1，计算结果需结合上下文。",
+        unexplained="核验 D2 的探索查询与口径版本仍需补充。",
+    )
     claim = view["report"]["claims"][2]
     claim["text"] = "根据 D2 受治理计算结果推断，未核实。"
     claim["details"]["premise"]["segments"] = [{"kind": "text", "text": "依据 D2 的口径版本计算。"}]
@@ -272,7 +331,9 @@ def test_brief_reports_failed_numbers_once_without_raw_check_details(render):
     view = sample_view()
     detail = "原始校验错误 SELECT D404 口径版本 version-internal"
     view["verification"].update(
-        unverified=2, unverified_fields=1, unverified_causes=1,
+        unverified=2,
+        unverified_fields=1,
+        unverified_causes=1,
         fields=[{"field": "summary", "status": "unverified", "problems": [detail]}],
         conclusion={"status": "unverified", "problems": [detail]},
     )
@@ -301,9 +362,11 @@ def _dimension_view():
     view = sample_view()
     d = view["datasets"][4]
     columns = ["group_code", "kind_code", "note_code", "unknown_code", "指标甲·对比期"]
-    d.update(title="指标甲 2026-09-01~2026-09-30 按group_code、kind_code 对比2026-08-01~2026-08-31",
-             columns=columns, rows=[["甲", "甲类", "注释甲", "未知甲", 100],
-                                    ["乙", "乙类", "注释乙", "未知乙", 200]])
+    d.update(
+        title="指标甲 2026-09-01~2026-09-30 按group_code、kind_code 对比2026-08-01~2026-08-31",
+        columns=columns,
+        rows=[["甲", "甲类", "注释甲", "未知甲", 100], ["乙", "乙类", "注释乙", "未知乙", 200]],
+    )
     d["units"] = d["meta"]["units"] = {"指标甲·对比期": {"kind": "level"}}
     d["intent"]["group_by"] = columns[:-1]
     labels = {
@@ -314,8 +377,10 @@ def _dimension_view():
             {"name": "note_code", "column": "b.note_code"},
             {"name": "unknown_code", "column": "b.unknown_code"},
         ],
-        "column_docs": {"group_code": {"comment": "备用注释", "status": "ok"},
-                        "note_code": {"comment": "注释显示名", "status": "ok"}},
+        "column_docs": {
+            "group_code": {"comment": "备用注释", "status": "ok"},
+            "note_code": {"comment": "注释显示名", "status": "ok"},
+        },
     }
     d["meta"]["export_labels"] = labels
     return view, d, labels
@@ -342,8 +407,12 @@ def test_brief_fixed_calculation_columns_have_neutral_chinese_headers(render):
     view = sample_view()
     dataset = view["datasets"][4]
     columns = ["period", "days", "weekend_days", "holidays", "value", "daily"]
-    dataset.update(kind="calc", title="日历对比", columns=columns,
-                   rows=[["本期", 30, 8, 1, 100, 3.33], ["对比期", 31, 10, 0, 110, 3.55]])
+    dataset.update(
+        kind="calc",
+        title="日历对比",
+        columns=columns,
+        rows=[["本期", 30, 8, 1, 100, 3.33], ["对比期", 31, 10, 0, 110, 3.55]],
+    )
     dataset["units"] = dataset["meta"]["units"] = {"value": {"kind": "level"}, "daily": {"kind": "level"}}
     dataset["intent"]["group_by"] = ["period"]
     text = render(view, audience="brief", datasets=["D5"])
@@ -360,14 +429,20 @@ def test_full_preserves_original_dataset_titles_and_raw_column_names(render):
     assert "group_code" in text and "kind_code" in text and "note_code" in text
 
 
-@pytest.mark.parametrize(("column", "expected"), [
-    ("member", ["current", "previous"]),
-    ("period", ["本期", "对比期"]),
-])
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [
+        ("member", ["current", "previous"]),
+        ("period", ["本期", "对比期"]),
+    ],
+)
 def test_brief_chart_translates_only_fixed_period_values(column, expected):
-    dataset = {"kind": "calc", "columns": [column, "value"],
-               "rows": [["current", 10], ["previous", 30]],
-               "meta": {"units": {"value": {"kind": "level"}}}}
+    dataset = {
+        "kind": "calc",
+        "columns": [column, "value"],
+        "rows": [["current", 10], ["previous", 30]],
+        "meta": {"units": {"value": {"kind": "level"}}},
+    }
     font, _ = export.pdf_font()
     chart = export._chart(dataset, font, brief=True)
     labels = list(_drawing_text(chart))
@@ -391,8 +466,7 @@ def test_brief_preserves_spaces_between_text_and_numeric_segments(render):
     view["report"].pop("title")
     numeric = deepcopy(view["report"]["claims"][0]["segments"][0])
     numeric.update(text="10", raw="10")
-    segments = [{"kind": "text", "text": "指标 A = "}, numeric,
-                {"kind": "text", "text": " units"}]
+    segments = [{"kind": "text", "text": "指标 A = "}, numeric, {"kind": "text", "text": " units"}]
     view["report"]["fields"]["title"] = {"segments": deepcopy(segments)}
     view["report"]["claims"][2]["details"]["premise"] = {"segments": deepcopy(segments)}
     text = render(view, audience="brief")

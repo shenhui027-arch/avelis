@@ -38,6 +38,7 @@ VALUE_RANK = {"value_direct": 0, "value_computed": 1, "value_aggregated": 2}
 @dataclass(frozen=True)
 class SqlDialect:
     """解析所需的全部引擎差异。"""
+
     name: str  # SQLGlot 方言名
     default_catalog: str  # 未写 Catalog 的表补全为该值（库.表 两级命名的引擎也补一个固定 Catalog）
     normalize: Callable[[exp.Expression], exp.Expression] | None = None  # 引擎改写过的定义写法，解析前规整
@@ -109,9 +110,17 @@ class ParsedQuery:
     def details(self) -> dict[str, Any]:
         return {
             "tables": self.tables,
-            "joins": [{"kind": j.kind, "left": [[r.table, r.column] for r in j.left],
-                       "right": [[r.table, r.column] for r in j.right], "right_table": j.right_table,
-                       "left_tables": j.left_tables, "condition": j.condition} for j in self.joins],
+            "joins": [
+                {
+                    "kind": j.kind,
+                    "left": [[r.table, r.column] for r in j.left],
+                    "right": [[r.table, r.column] for r in j.right],
+                    "right_table": j.right_table,
+                    "left_tables": j.left_tables,
+                    "condition": j.condition,
+                }
+                for j in self.joins
+            ],
             "group_outputs": self.group_outputs,
             "distinct": self.distinct,
             "passthrough": self.passthrough,
@@ -125,6 +134,7 @@ class SqlNotSupported(Exception):
 
 
 # --- 规范化 -----------------------------------------------------------------------
+
 
 def strip_alias_prefixes(expression: exp.Expression) -> exp.Expression:
     """供引擎选用的规整函数。StarRocks 把别名列写成 `db`.`alias`.`col`（Catalog 表为 `catalog`.`db`.`alias`.`col`），
@@ -140,8 +150,10 @@ def strip_alias_prefixes(expression: exp.Expression) -> exp.Expression:
 def fold_identifiers(dialect_name: str) -> Callable[[exp.Expression], exp.Expression]:
     """供引擎选用的规整函数：按该引擎的规则折叠未加引号的标识符（Oracle 存为大写）。
     视图原文里写的 schema_a.table_a 在数据字典中是 SCHEMA_A.TABLE_A，表名与列名都要先折叠，才能对上已采集的资产。"""
+
     def fold(expression: exp.Expression) -> exp.Expression:
         return normalize_identifiers(expression, dialect=dialect_name)
+
     return fold
 
 
@@ -149,8 +161,9 @@ def _select_star(expression: exp.Expression) -> bool:
     """投影中残留的 * 或 t.*（未能按表结构展开）。COUNT(*) 等聚合参数里的 * 不算。"""
     for select in expression.find_all(exp.Select):
         for projection in select.expressions:
-            if isinstance(projection, exp.Star) or (isinstance(projection, exp.Column)
-                                                    and isinstance(projection.this, exp.Star)):
+            if isinstance(projection, exp.Star) or (
+                isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star)
+            ):
                 return True
     return False
 
@@ -192,8 +205,15 @@ def canonical_hash_of(sql: str, dialect: SqlDialect) -> tuple[str | None, str]:
 
 # --- 解析 -------------------------------------------------------------------------
 
-def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, dict[str, dict[str, str]]]],
-                default_catalog: str | None = None, default_db: str | None = None) -> ParsedQuery:
+
+def parse_query(
+    sql: str,
+    *,
+    dialect: SqlDialect,
+    schema: dict[str, dict[str, dict[str, dict[str, str]]]],
+    default_catalog: str | None = None,
+    default_db: str | None = None,
+) -> ParsedQuery:
     d = dialect.name
     canonical, digest = canonical_hash_of(sql, dialect)
     try:
@@ -201,8 +221,9 @@ def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, di
     except ParseError as exc:
         return ParsedQuery("failed", f"SQL 无法解析：{_first_line(exc)}", canonical, digest)
     if len(statements) != 1:
-        return ParsedQuery("unsupported", f"包含 {len(statements)} 条语句；视图定义只接受一条 SELECT",
-                           canonical, digest)
+        return ParsedQuery(
+            "unsupported", f"包含 {len(statements)} 条语句；视图定义只接受一条 SELECT", canonical, digest
+        )
     root = statements[0]
     if not isinstance(root, exp.Query):
         return ParsedQuery("unsupported", f"不是查询语句（{root.key.upper()}）", canonical, digest)
@@ -217,8 +238,13 @@ def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, di
         return result
 
     try:
-        qualified = qualify(root, schema=MappingSchema(schema, dialect=d), dialect=d,
-                            validate_qualify_columns=True, quote_identifiers=False)
+        qualified = qualify(
+            root,
+            schema=MappingSchema(schema, dialect=d),
+            dialect=d,
+            validate_qualify_columns=True,
+            quote_identifiers=False,
+        )
     except (OptimizeError, ValueError, KeyError) as exc:
         result.status = "failed"
         result.reason = f"列无法对应到已采集的表结构：{_first_line(exc)}"
@@ -245,8 +271,9 @@ def parse_query(sql: str, *, dialect: SqlDialect, schema: dict[str, dict[str, di
             problems.append(f"输出列 {name} 含标量子查询，来源未展开")
         sources = _trace(inner, scope, problems, d)
         relation = max((s.relation for s in sources), key=VALUE_RANK.get, default=None)
-        result.columns.append(OutputColumn(name=name, expression=inner.sql(dialect=d), relation=relation,
-                                           sources=sources))
+        result.columns.append(
+            OutputColumn(name=name, expression=inner.sql(dialect=d), relation=relation, sources=sources)
+        )
 
     for sub in traverse_scope(qualified):
         _collect_influences(sub, result, problems, d)
@@ -282,8 +309,14 @@ def _level_relation(expression: exp.Expression) -> str:
     return "value_computed"
 
 
-def _trace(expression: exp.Expression, scope: Scope, problems: list[str], d: str,
-           inherited: str = "value_direct", depth: int = 0) -> list[ValueSource]:
+def _trace(
+    expression: exp.Expression,
+    scope: Scope,
+    problems: list[str],
+    d: str,
+    inherited: str = "value_direct",
+    depth: int = 0,
+) -> list[ValueSource]:
     """把表达式中的列追到实体表的列，沿途合成取值类型（直接 < 计算 < 聚合）。"""
     if depth > 32:
         problems.append("嵌套层数超过 32，来源未展开")
@@ -296,8 +329,7 @@ def _trace(expression: exp.Expression, scope: Scope, problems: list[str], d: str
             continue  # 标量子查询内的列属于另一个作用域，已在投影处报告“未展开”
         source = scope.sources.get(column.table)
         if isinstance(source, exp.Table):
-            out.append(ValueSource(ColumnRef(qualified_name(source), column.name), relation,
-                                   expression.sql(dialect=d)))
+            out.append(ValueSource(ColumnRef(qualified_name(source), column.name), relation, expression.sql(dialect=d)))
         elif isinstance(source, Scope):
             inner = _projection(source, column.name)
             if inner is None:
@@ -389,10 +421,16 @@ def _collect_influences(scope: Scope, result: ParsedQuery, problems: list[str], 
                 left_refs.extend(_resolve_refs(a, scope, problems, d))
                 right_refs.extend(_resolve_refs(b, scope, problems, d))
         side = join.args.get("side") or ""
-        result.joins.append(JoinInfo(
-            kind=(side or join.args.get("kind") or "inner").lower(), left=left_refs, right=right_refs,
-            right_table=right_tables[0] if len(right_tables) == 1 else None,
-            left_tables=list(left_tables), condition=on.sql(dialect=d)))
+        result.joins.append(
+            JoinInfo(
+                kind=(side or join.args.get("kind") or "inner").lower(),
+                left=left_refs,
+                right=right_refs,
+                right_table=right_tables[0] if len(right_tables) == 1 else None,
+                left_tables=list(left_tables),
+                condition=on.sql(dialect=d),
+            )
+        )
         left_tables.extend(right_tables)
 
 

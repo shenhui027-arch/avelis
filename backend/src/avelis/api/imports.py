@@ -135,8 +135,15 @@ def _run(session: Session, imported: ImportBatch, *, wait: bool, created: bool =
     return {**batch.batch_view(session, imported), "duplicate": not created}
 
 
-def _created(session: Session, user: User, *, wait: bool = False, files: list[ImportFile] | None = None,
-             notes: list[str] | None = None, **kwargs) -> dict:
+def _created(
+    session: Session,
+    user: User,
+    *,
+    wait: bool = False,
+    files: list[ImportFile] | None = None,
+    notes: list[str] | None = None,
+    **kwargs,
+) -> dict:
     service.require_import_access(session, user)
     if files is None:
         filename, content = kwargs.pop("filename"), kwargs.pop("content")
@@ -151,13 +158,27 @@ def _created(session: Session, user: User, *, wait: bool = False, files: list[Im
 
 
 @router.post("/imports", status_code=202, response_model=S.ImportBatchOut)
-def create_import(body: ImportBody, response: Response, wait: bool = False,
-                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+def create_import(
+    body: ImportBody,
+    response: Response,
+    wait: bool = False,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
     max_bytes = get_settings().import_max_bytes
     if len(body.content) > max_bytes:
-        raise HTTPException(422, [{"type": "string_too_long", "loc": ["body", "content"],
-                                   "msg": f"String should have at most {max_bytes} characters",
-                                   "input": body.content, "ctx": {"max_length": max_bytes}}])
+        raise HTTPException(
+            422,
+            [
+                {
+                    "type": "string_too_long",
+                    "loc": ["body", "content"],
+                    "msg": f"String should have at most {max_bytes} characters",
+                    "input": body.content,
+                    "ctx": {"max_length": max_bytes},
+                }
+            ],
+        )
     response.status_code = 200 if wait else 202
     return _created(session, user, wait=wait, **body.model_dump())
 
@@ -180,15 +201,24 @@ def _form_functions(text: str | None) -> list[str]:
 
 
 @router.post("/imports/upload", status_code=202, response_model=S.ImportBatchOut)
-async def upload(datasource_id: str = Form(...), file: UploadFile | None = File(None),
-                 default_db: str | None = Form(None), files: list[UploadFile] | None = File(None),
-                 bracket_files: Annotated[list[UploadFile] | None, File(alias="files[]")] = None,
-                 model_assist: str | None = Form(None), sql_functions: str | None = Form(None), wait: bool = False,
-                 response: Response = None, user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> dict:
+async def upload(
+    datasource_id: str = Form(...),
+    file: UploadFile | None = File(None),
+    default_db: str | None = Form(None),
+    files: list[UploadFile] | None = File(None),
+    bracket_files: Annotated[list[UploadFile] | None, File(alias="files[]")] = None,
+    model_assist: str | None = Form(None),
+    sql_functions: str | None = Form(None),
+    wait: bool = False,
+    response: Response = None,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     settings = get_settings()
-    uploaded = [*(files if isinstance(files, list) else []),
-                *(bracket_files if isinstance(bracket_files, list) else [])]
+    uploaded = [
+        *(files if isinstance(files, list) else []),
+        *(bracket_files if isinstance(bracket_files, list) else []),
+    ]
     if isinstance(file, UploadFile) or (file is not None and hasattr(file, "read")):
         uploaded.append(file)
     if not uploaded:
@@ -213,15 +243,32 @@ async def upload(datasource_id: str = Form(...), file: UploadFile | None = File(
             content = raw.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
             raise HTTPException(422, "文件不是 UTF-8 文本") from exc
-        return _created(session, user, datasource_id=datasource_id, filename=filename, content=content,
-                        source_type=None, default_db=default_db, params={}, wait=wait,
-                        model_assist=_form_json(model_assist, ModelAssist, {"failed_sql": False, "code": False}),
-                        sql_functions=_form_functions(sql_functions))
+        return _created(
+            session,
+            user,
+            datasource_id=datasource_id,
+            filename=filename,
+            content=content,
+            source_type=None,
+            default_db=default_db,
+            params={},
+            wait=wait,
+            model_assist=_form_json(model_assist, ModelAssist, {"failed_sql": False, "code": False}),
+            sql_functions=_form_functions(sql_functions),
+        )
     expanded, notes = read_uploads(raw_files, max_file_bytes=settings.import_max_bytes, max_batch_bytes=max_batch_bytes)
-    return _created(session, user, datasource_id=datasource_id, files=expanded, notes=notes,
-                    default_db=default_db, params={}, wait=wait,
-                    model_assist=_form_json(model_assist, ModelAssist, {"failed_sql": False, "code": False}),
-                    sql_functions=_form_functions(sql_functions))
+    return _created(
+        session,
+        user,
+        datasource_id=datasource_id,
+        files=expanded,
+        notes=notes,
+        default_db=default_db,
+        params={},
+        wait=wait,
+        model_assist=_form_json(model_assist, ModelAssist, {"failed_sql": False, "code": False}),
+        sql_functions=_form_functions(sql_functions),
+    )
 
 
 @router.get("/imports", response_model=list[S.ImportBatchBrief])
@@ -233,34 +280,49 @@ def list_imports(user: User = Depends(current_user), session: Session = Depends(
     for item in imported:
         batch.reconcile_batch(session, item)
     duplicate_ids = {file_id for item in imported for file_id in (item.options or {}).get("duplicate_file_ids", [])}
-    files = list(session.scalars(select(ImportJob).where(or_(ImportJob.batch_id.in_([b.id for b in imported]),
-                                                            ImportJob.id.in_(duplicate_ids)))
-                                 .order_by(ImportJob.created_at, ImportJob.id)))
+    files = list(
+        session.scalars(
+            select(ImportJob)
+            .where(or_(ImportJob.batch_id.in_([b.id for b in imported]), ImportJob.id.in_(duplicate_ids)))
+            .order_by(ImportJob.created_at, ImportJob.id)
+        )
+    )
     grouped: dict[str, list[ImportJob]] = {}
     for item in files:
         grouped.setdefault(item.batch_id, []).append(item)
     by_id = {item.id: item for item in files}
     for item in imported:
-        grouped.setdefault(item.id, []).extend(by_id[file_id] for file_id in
-                                               (item.options or {}).get("duplicate_file_ids", []) if file_id in by_id)
+        grouped.setdefault(item.id, []).extend(
+            by_id[file_id] for file_id in (item.options or {}).get("duplicate_file_ids", []) if file_id in by_id
+        )
         grouped[item.id] = _ordered_files(item, grouped[item.id])
-    return [{"id": b.id, "status": b.status, "file_count": len(grouped.get(b.id, [])),
-             "statement_count": sum((b.stats or {}).get("statements", {}).values()), "progress": b.progress or {},
-             "created_at": b.created_at.isoformat(),
-             "filename": grouped[b.id][0].filename if grouped.get(b.id) else None} for b in imported]
+    return [
+        {
+            "id": b.id,
+            "status": b.status,
+            "file_count": len(grouped.get(b.id, [])),
+            "statement_count": sum((b.stats or {}).get("statements", {}).values()),
+            "progress": b.progress or {},
+            "created_at": b.created_at.isoformat(),
+            "filename": grouped[b.id][0].filename if grouped.get(b.id) else None,
+        }
+        for b in imported
+    ]
 
 
 @router.get("/imports/sql-functions/{datasource_id}", response_model=S.ImportSqlFunctionsOut)
-def get_sql_functions(datasource_id: str, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> dict:
+def get_sql_functions(
+    datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     if session.get(Datasource, datasource_id) is None:
         raise HTTPException(404, "数据源不存在")
     return {"datasource_id": datasource_id, "sql_functions": _sql_functions(session, datasource_id, [])}
 
 
-def _save_sql_functions(session: Session, user: User, datasource_id: str, names: list[str], *,
-                        append: bool = False) -> dict:
+def _save_sql_functions(
+    session: Session, user: User, datasource_id: str, names: list[str], *, append: bool = False
+) -> dict:
     # 数据源行始终存在；设置尚未创建时也能串行化追加与全量替换。
     if session.scalar(select(Datasource.id).where(Datasource.id == datasource_id).with_for_update()) is None:
         raise HTTPException(404, "数据源不存在")
@@ -282,15 +344,17 @@ def _save_sql_functions(session: Session, user: User, datasource_id: str, names:
 
 
 @router.put("/imports/sql-functions/{datasource_id}", response_model=S.ImportSqlFunctionsOut)
-def put_sql_functions(datasource_id: str, body: SqlFunctions, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> dict:
+def put_sql_functions(
+    datasource_id: str, body: SqlFunctions, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     return _save_sql_functions(session, user, datasource_id, body.sql_functions)
 
 
 @router.post("/imports/sql-functions/{datasource_id}", response_model=S.ImportSqlFunctionsOut)
-def post_sql_function(datasource_id: str, body: SqlFunction, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> dict:
+def post_sql_function(
+    datasource_id: str, body: SqlFunction, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     return _save_sql_functions(session, user, datasource_id, [body.sql_function], append=True)
 
@@ -304,8 +368,9 @@ def get_import(batch_id: str, user: User = Depends(current_user), session: Sessi
 def _file(session: Session, batch_id: str, file_id: str) -> ImportJob:
     item = service.job_or_404(session, file_id)
     imported = batch.batch_or_404(session, batch_id)
-    if ((item.stats or {}).get("duplicate_of") or
-            (item.batch_id != batch_id and file_id not in (imported.options or {}).get("duplicate_file_ids", []))):
+    if (item.stats or {}).get("duplicate_of") or (
+        item.batch_id != batch_id and file_id not in (imported.options or {}).get("duplicate_file_ids", [])
+    ):
         raise HTTPException(404, "文件不属于此导入批次")
     return item
 
@@ -319,8 +384,14 @@ def _file_ids(session: Session, batch_id: str):
 def _ordered_files(imported: ImportBatch, files: list[ImportJob]) -> list[ImportJob]:
     order = _file_positions(imported)
     visible = {item.id: item for item in files if not (item.stats or {}).get("duplicate_of")}
-    return sorted(visible.values(), key=lambda item: (
-        order.get(item.id, (item.stats or {}).get("upload_order", len(files))), item.created_at, item.id))
+    return sorted(
+        visible.values(),
+        key=lambda item: (
+            order.get(item.id, (item.stats or {}).get("upload_order", len(files))),
+            item.created_at,
+            item.id,
+        ),
+    )
 
 
 def _file_positions(imported: ImportBatch) -> dict[str, int]:
@@ -333,92 +404,175 @@ def _file_positions(imported: ImportBatch) -> dict[str, int]:
 def _file_order(session: Session, batch_id: str) -> tuple:
     imported = batch.batch_or_404(session, batch_id)
     order = _file_positions(imported)
-    ordinal = (case(order, value=ImportJob.id, else_=len(order)) if order else
-               ImportJob.stats["upload_order"].as_integer().nulls_last())
+    ordinal = (
+        case(order, value=ImportJob.id, else_=len(order))
+        if order
+        else ImportJob.stats["upload_order"].as_integer().nulls_last()
+    )
     return ordinal, ImportJob.created_at, ImportJob.id
 
 
 def _statement_view(item: ExtractedStatement) -> dict:
-    return {"id": item.id, "file_id": item.job_id, "seq": item.seq,
-            "lines": [item.line_start, item.line_end], "method": item.method,
-            "statement_type": item.statement_type, "target": item.target_ref, "writes": item.writes or [],
-            "status": item.status, "reason": item.reason, "placeholders": item.placeholders or [],
-            "raw_text": item.raw_text, "sql_text": item.sql_text, "text_hash": item.text_hash}
+    return {
+        "id": item.id,
+        "file_id": item.job_id,
+        "seq": item.seq,
+        "lines": [item.line_start, item.line_end],
+        "method": item.method,
+        "statement_type": item.statement_type,
+        "target": item.target_ref,
+        "writes": item.writes or [],
+        "status": item.status,
+        "reason": item.reason,
+        "placeholders": item.placeholders or [],
+        "raw_text": item.raw_text,
+        "sql_text": item.sql_text,
+        "text_hash": item.text_hash,
+    }
 
 
 @router.get("/imports/{batch_id}/statements", response_model=S.ImportStatementPage)
-def statements(batch_id: str, file_id: str | None = None, status: str | None = None, q: str | None = None,
-               offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
-               user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def statements(
+    batch_id: str,
+    file_id: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     service.require_import_access(session, user)
     batch.batch_or_404(session, batch_id)
     if file_id:
         _file(session, batch_id, file_id)
     if status and status not in STATUSES:
         raise HTTPException(422, "语句状态不合法")
-    conditions = [ExtractedStatement.job_id == file_id if file_id else
-                  ExtractedStatement.job_id.in_(_file_ids(session, batch_id))]
+    conditions = [
+        ExtractedStatement.job_id == file_id if file_id else ExtractedStatement.job_id.in_(_file_ids(session, batch_id))
+    ]
     if q:
-        conditions.append(or_(ExtractedStatement.raw_text.icontains(q, autoescape=True),
-                              ExtractedStatement.sql_text.icontains(q, autoescape=True)))
-    pending = select(CandidateEdge.id).where(CandidateEdge.statement_id == ExtractedStatement.id,
-                                            CandidateEdge.status == "pending").exists()
-    counts = dict(session.execute(select(ExtractedStatement.status, func.count()).where(*conditions)
-                                  .group_by(ExtractedStatement.status)).all())
-    counts["pending_review"] = session.scalar(select(func.count()).select_from(ExtractedStatement)
-                                              .where(*conditions, pending)) or 0
+        conditions.append(
+            or_(
+                ExtractedStatement.raw_text.icontains(q, autoescape=True),
+                ExtractedStatement.sql_text.icontains(q, autoescape=True),
+            )
+        )
+    pending = (
+        select(CandidateEdge.id)
+        .where(CandidateEdge.statement_id == ExtractedStatement.id, CandidateEdge.status == "pending")
+        .exists()
+    )
+    counts = dict(
+        session.execute(
+            select(ExtractedStatement.status, func.count()).where(*conditions).group_by(ExtractedStatement.status)
+        ).all()
+    )
+    counts["pending_review"] = (
+        session.scalar(select(func.count()).select_from(ExtractedStatement).where(*conditions, pending)) or 0
+    )
     filtered = [*conditions]
     if status:
         filtered.append(pending if status == "pending_review" else ExtractedStatement.status == status)
     total = session.scalar(select(func.count()).select_from(ExtractedStatement).where(*filtered)) or 0
-    items = session.scalars(select(ExtractedStatement).join(ImportJob, ImportJob.id == ExtractedStatement.job_id)
-                            .where(*filtered).order_by(*_file_order(session, batch_id), ExtractedStatement.seq)
-                            .offset(offset).limit(limit))
-    return {"items": [_statement_view(item) for item in items], "total": total,
-            "counts": counts, "offset": offset, "limit": limit}
+    items = session.scalars(
+        select(ExtractedStatement)
+        .join(ImportJob, ImportJob.id == ExtractedStatement.job_id)
+        .where(*filtered)
+        .order_by(*_file_order(session, batch_id), ExtractedStatement.seq)
+        .offset(offset)
+        .limit(limit)
+    )
+    return {
+        "items": [_statement_view(item) for item in items],
+        "total": total,
+        "counts": counts,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 def _edge_view(edge: LineageEdge) -> dict:
-    return {"id": edge.id, "source_ref": edge.source_ref, "source_column": edge.source_column,
-            "target_ref": edge.target_ref, "target_column": edge.target_column, "relation": edge.relation}
+    return {
+        "id": edge.id,
+        "source_ref": edge.source_ref,
+        "source_column": edge.source_column,
+        "target_ref": edge.target_ref,
+        "target_column": edge.target_column,
+        "relation": edge.relation,
+    }
 
 
 def _candidate_views(session: Session, items: list[CandidateEdge]) -> list[dict]:
     edge_ids = [c.lineage_edge_id for c in items if c.lineage_edge_id]
-    edges = ({e.id: e for e in session.scalars(select(LineageEdge).where(LineageEdge.id.in_(edge_ids)))}
-             if edge_ids else {})
-    hop_ids = {hop for attributes in [*(edge.attributes or {} for edge in edges.values()),
-                                     *(item.evidence or {} for item in items)]
-               for hop in attributes.get("hops", []) if isinstance(hop, str)}
+    edges = (
+        {e.id: e for e in session.scalars(select(LineageEdge).where(LineageEdge.id.in_(edge_ids)))} if edge_ids else {}
+    )
+    hop_ids = {
+        hop
+        for attributes in [
+            *(edge.attributes or {} for edge in edges.values()),
+            *(item.evidence or {} for item in items),
+        ]
+        for hop in attributes.get("hops", [])
+        if isinstance(hop, str)
+    }
     hops = {e.id: e for e in session.scalars(select(LineageEdge).where(LineageEdge.id.in_(hop_ids)))} if hop_ids else {}
     result = []
     for c in items:
         edge = edges.get(c.lineage_edge_id)
         attributes = {**(c.evidence or {}), **(edge.attributes or {} if edge else {})}
-        hop_views = [_edge_view(hops[h]) if h in hops else {"id": h} for h in attributes.get("hops", [])
-                     if isinstance(h, str)]
-        result.append({"id": c.id, "file_id": c.job_id, "statement_id": c.statement_id,
-                       "origin": c.origin, "status": c.status,
-                       "source": f"{c.source_ref}.{c.source_column}" if c.source_column else c.source_ref,
-                       "target": f"{c.target_ref}.{c.target_column}" if c.target_column else c.target_ref,
-                       "source_ref": c.source_ref, "source_column": c.source_column, "target_ref": c.target_ref,
-                       "target_column": c.target_column, "relation": c.relation, "expression": c.expression,
-                       "confidence": c.confidence, "evidence": c.evidence or {}, "lineage_edge_id": c.lineage_edge_id,
-                       "modified": c.modified or {}, "reason": c.reason, "decided_by": c.decided_by,
-                       "attributes": attributes, "via": attributes.get("via", []), "hops": hop_views})
+        hop_views = [
+            _edge_view(hops[h]) if h in hops else {"id": h} for h in attributes.get("hops", []) if isinstance(h, str)
+        ]
+        result.append(
+            {
+                "id": c.id,
+                "file_id": c.job_id,
+                "statement_id": c.statement_id,
+                "origin": c.origin,
+                "status": c.status,
+                "source": f"{c.source_ref}.{c.source_column}" if c.source_column else c.source_ref,
+                "target": f"{c.target_ref}.{c.target_column}" if c.target_column else c.target_ref,
+                "source_ref": c.source_ref,
+                "source_column": c.source_column,
+                "target_ref": c.target_ref,
+                "target_column": c.target_column,
+                "relation": c.relation,
+                "expression": c.expression,
+                "confidence": c.confidence,
+                "evidence": c.evidence or {},
+                "lineage_edge_id": c.lineage_edge_id,
+                "modified": c.modified or {},
+                "reason": c.reason,
+                "decided_by": c.decided_by,
+                "attributes": attributes,
+                "via": attributes.get("via", []),
+                "hops": hop_views,
+            }
+        )
     return result
 
 
 @router.get("/imports/{batch_id}/candidates", response_model=S.ImportCandidatePage)
-def candidates(batch_id: str, file_id: str | None = None, status: str | None = None, origin: str | None = None,
-               statement_id: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
-               user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def candidates(
+    batch_id: str,
+    file_id: str | None = None,
+    status: str | None = None,
+    origin: str | None = None,
+    statement_id: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     service.require_import_access(session, user)
     batch.batch_or_404(session, batch_id)
     if file_id:
         _file(session, batch_id, file_id)
-    conditions = [CandidateEdge.job_id == file_id if file_id else
-                  CandidateEdge.job_id.in_(_file_ids(session, batch_id))]
+    conditions = [
+        CandidateEdge.job_id == file_id if file_id else CandidateEdge.job_id.in_(_file_ids(session, batch_id))
+    ]
     if status:
         conditions.append(CandidateEdge.status == status)
     if origin:
@@ -426,37 +580,58 @@ def candidates(batch_id: str, file_id: str | None = None, status: str | None = N
     if statement_id:
         conditions.append(CandidateEdge.statement_id == statement_id)
     total = session.scalar(select(func.count()).select_from(CandidateEdge).where(*conditions)) or 0
-    items = list(session.scalars(select(CandidateEdge).join(ImportJob, ImportJob.id == CandidateEdge.job_id)
-                                 .where(*conditions).order_by(*_file_order(session, batch_id),
-                                                              CandidateEdge.created_at, CandidateEdge.id)
-                                 .offset(offset).limit(limit)))
+    items = list(
+        session.scalars(
+            select(CandidateEdge)
+            .join(ImportJob, ImportJob.id == CandidateEdge.job_id)
+            .where(*conditions)
+            .order_by(*_file_order(session, batch_id), CandidateEdge.created_at, CandidateEdge.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
     return {"items": _candidate_views(session, items), "total": total, "offset": offset, "limit": limit}
 
 
 @router.get("/imports/{batch_id}/files/{job_id}/content", response_model=S.ImportContentOut)
-def content(batch_id: str, job_id: str, user: User = Depends(current_user),
-            session: Session = Depends(get_session)) -> dict:
+def content(
+    batch_id: str, job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     batch.batch_or_404(session, batch_id)
     item = _file(session, batch_id, job_id)
-    return {"file_id": item.id, "filename": item.filename,
-            "content": session.scalar(select(ImportSource.content).where(ImportSource.job_id == item.id)) or ""}
+    return {
+        "file_id": item.id,
+        "filename": item.filename,
+        "content": session.scalar(select(ImportSource.content).where(ImportSource.job_id == item.id)) or "",
+    }
 
 
 @router.get("/imports/{batch_id}/model-payload", response_model=list[dict])
-def model_payload(batch_id: str, user: User = Depends(current_user),
-                  session: Session = Depends(get_session)) -> list[dict]:
+def model_payload(
+    batch_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> list[dict]:
     service.require_import_access(session, user)
     imported = batch.batch_or_404(session, batch_id)
-    files = _ordered_files(imported, list(session.scalars(
-        select(ImportJob).where(ImportJob.id.in_(_file_ids(session, batch_id))))))
-    return [{**payload, "file_id": item.id, "filename": item.filename}
-            for item in files for payload in (item.model_payload or [])]
+    files = _ordered_files(
+        imported, list(session.scalars(select(ImportJob).where(ImportJob.id.in_(_file_ids(session, batch_id)))))
+    )
+    return [
+        {**payload, "file_id": item.id, "filename": item.filename}
+        for item in files
+        for payload in (item.model_payload or [])
+    ]
 
 
 @router.put("/imports/{batch_id}/params", status_code=202, response_model=S.ImportBatchOut)
-def set_params(batch_id: str, body: ParamsBody, response: Response, wait: bool = False,
-               user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def set_params(
+    batch_id: str,
+    body: ParamsBody,
+    response: Response,
+    wait: bool = False,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     service.require_import_access(session, user)
     imported = batch.set_params(session, user, batch.batch_or_404(session, batch_id), body.params)
     response.status_code = 200 if wait else 202
@@ -490,8 +665,9 @@ def _decision_problem(session: Session, candidate: CandidateEdge, decision: str)
 def _lock_datasources(session: Session, datasource_ids: set[str]) -> None:
     if datasource_ids:
         # 与整批替换使用同一把锁，拿锁后才重新检查文件版本。
-        session.execute(select(Datasource.id).where(Datasource.id.in_(datasource_ids))
-                        .order_by(Datasource.id).with_for_update()).all()
+        session.execute(
+            select(Datasource.id).where(Datasource.id.in_(datasource_ids)).order_by(Datasource.id).with_for_update()
+        ).all()
 
 
 def _lock_candidate_sources(session: Session, candidates: list[CandidateEdge]) -> None:
@@ -504,17 +680,32 @@ def _lock_candidate_sources(session: Session, candidates: list[CandidateEdge]) -
 
 
 @router.post("/candidates/decisions", response_model=S.ImportDecisionsOut)
-def decide_many(body: DecisionsBody, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict:
+def decide_many(
+    body: DecisionsBody, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     ids = list(dict.fromkeys(body.ids))
     initial = list(session.scalars(select(CandidateEdge).where(CandidateEdge.id.in_(ids))))
     _lock_candidate_sources(session, initial)
-    found = {c.id: c for c in session.scalars(select(CandidateEdge).where(CandidateEdge.id.in_(ids))
-                                              .order_by(CandidateEdge.id).with_for_update()
-                                              .execution_options(populate_existing=True))}
-    problems = [{"id": candidate_id, "reason": "候选不存在" if candidate_id not in found
-                 else _decision_problem(session, found[candidate_id], body.decision)} for candidate_id in ids]
+    found = {
+        c.id: c
+        for c in session.scalars(
+            select(CandidateEdge)
+            .where(CandidateEdge.id.in_(ids))
+            .order_by(CandidateEdge.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    }
+    problems = [
+        {
+            "id": candidate_id,
+            "reason": "候选不存在"
+            if candidate_id not in found
+            else _decision_problem(session, found[candidate_id], body.decision),
+        }
+        for candidate_id in ids
+    ]
     problems = [item for item in problems if item["reason"]]
     if problems:
         raise HTTPException(409, {"message": "部分候选不能处理，整批未作修改", "candidates": problems})
@@ -524,15 +715,20 @@ def decide_many(body: DecisionsBody, user: User = Depends(current_user),
 
 
 @router.post("/candidates/{candidate_id}/decision", response_model=S.ImportBatchOut)
-def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_user),
-           session: Session = Depends(get_session)) -> dict:
+def decide(
+    candidate_id: str, body: DecisionBody, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     initial = session.get(CandidateEdge, candidate_id)
     if initial is None:
         raise HTTPException(404, "候选不存在")
     _lock_candidate_sources(session, [initial])
-    candidate = session.scalar(select(CandidateEdge).where(CandidateEdge.id == candidate_id).with_for_update()
-                                .execution_options(populate_existing=True))
+    candidate = session.scalar(
+        select(CandidateEdge)
+        .where(CandidateEdge.id == candidate_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if candidate is None:
         raise HTTPException(404, "候选不存在")
     problem = _decision_problem(session, candidate, body.decision)
@@ -545,8 +741,9 @@ def decide(candidate_id: str, body: DecisionBody, user: User = Depends(current_u
 
 
 @router.post("/imports/{batch_id}/edges", status_code=201, response_model=S.ImportBatchOut)
-def manual_edge(batch_id: str, body: ManualEdge, user: User = Depends(current_user),
-                session: Session = Depends(get_session)) -> dict:
+def manual_edge(
+    batch_id: str, body: ManualEdge, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     service.require_import_access(session, user)
     imported = batch.batch_or_404(session, batch_id)
     item = _file(session, batch_id, body.file_id)

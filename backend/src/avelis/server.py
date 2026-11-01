@@ -22,9 +22,14 @@ logger = logging.getLogger(__name__)
 
 def uvicorn_options(settings: Settings) -> dict:
     """组装服务参数，不创建应用或连接外部服务。"""
-    return {"host": settings.host, "port": settings.port, "workers": settings.workers,
-            "proxy_headers": True, "forwarded_allow_ips": settings.forwarded_allow_ips,
-            "log_level": settings.log_level}
+    return {
+        "host": settings.host,
+        "port": settings.port,
+        "workers": settings.workers,
+        "proxy_headers": True,
+        "forwarded_allow_ips": settings.forwarded_allow_ips,
+        "log_level": settings.log_level,
+    }
 
 
 def main() -> None:
@@ -35,8 +40,10 @@ def main() -> None:
     except ConfigError as exc:
         report_config_error(exc)
         raise SystemExit(2) from None
-    logging.basicConfig(level=logging.DEBUG if settings.log_level == "trace" else settings.log_level.upper(),
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if settings.log_level == "trace" else settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     if settings.auto_migrate:
         migrate()
     if settings.auto_init_admin:

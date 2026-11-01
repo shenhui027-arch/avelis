@@ -11,11 +11,14 @@ from avelis.analysis import calc
 
 
 def test_contribution_ranks_members_by_change_and_shares_sum_to_one():
-    rows = [{"region": "华东", "cur": "500", "prev": "400"}, {"region": "华南", "cur": "200", "prev": "350"},
-            {"region": "华北", "cur": "300", "prev": "300"}, {"region": "西南", "cur": "120", "prev": None}]
+    rows = [
+        {"region": "华东", "cur": "500", "prev": "400"},
+        {"region": "华南", "cur": "200", "prev": "350"},
+        {"region": "华北", "cur": "300", "prev": "300"},
+        {"region": "西南", "cur": "120", "prev": None},
+    ]
     out = calc.contribution(rows, ["region"], "cur", "prev")
-    assert out["total"] == {"previous": Decimal(1050), "current": Decimal(1120), "change": None,
-                            "change_rate": None}
+    assert out["total"] == {"previous": Decimal(1050), "current": Decimal(1120), "change": None, "change_rate": None}
     assert [r["region"] for r in out["rows"]] == ["华南", "华东", "华北", "西南"]
     south = out["rows"][0]
     assert south["change"] == Decimal(-150) and south["change_rate"] == Decimal("-0.4286")
@@ -41,8 +44,13 @@ def test_factor_decompose_lmdi_contributions_add_up_exactly():
 
 
 def test_calendar_adjust_separates_day_count_effect():
-    out = calc.calendar_adjust("3000", "3100", (date(2026, 9, 1), date(2026, 9, 30)),
-                               (date(2026, 8, 1), date(2026, 8, 31)), holidays={date(2026, 9, 25)})
+    out = calc.calendar_adjust(
+        "3000",
+        "3100",
+        (date(2026, 9, 1), date(2026, 9, 30)),
+        (date(2026, 8, 1), date(2026, 8, 31)),
+        holidays={date(2026, 9, 25)},
+    )
     assert out["current"]["days"] == 30 and out["previous"]["days"] == 31
     assert out["current"]["weekend_days"] == 8 and out["previous"]["weekend_days"] == 10
     assert out["current"]["holidays"] == 1
@@ -62,15 +70,17 @@ def test_correlate_reports_sample_size_and_p_value():
     assert "pearson" not in few and "少于" in few["note"]
     flat = calc.correlate([{"x": i, "y": 3} for i in range(10)], "x", "y")
     assert "pearson" not in flat and "没有变化" in flat["note"]
-    ranked = calc.correlate([{"x": i, "y": i ** 3} for i in range(1, 11)], "x", "y")
+    ranked = calc.correlate([{"x": i, "y": i**3} for i in range(1, 11)], "x", "y")
     assert ranked["spearman"] == 1.0 and ranked["pearson"] < 1.0  # 单调但非线性
 
 
 def test_segment_describe_and_outliers():
     rows = [{"d": "核心", "v": 10}, {"d": "核心", "v": 14}, {"d": "社区", "v": 5}, {"d": "社区", "v": 7}]
     seg = calc.segment_compare(rows, "d", ["v"])
-    assert seg == [{"d": "核心", "count": 2, "v_sum": 24.0, "v_mean": 12.0, "v_median": 12.0},
-                   {"d": "社区", "count": 2, "v_sum": 12.0, "v_mean": 6.0, "v_median": 6.0}]
+    assert seg == [
+        {"d": "核心", "count": 2, "v_sum": 24.0, "v_mean": 12.0, "v_median": 12.0},
+        {"d": "社区", "count": 2, "v_sum": 12.0, "v_mean": 6.0, "v_median": 6.0},
+    ]
     data = [{"s": f"S{i}", "v": v} for i, v in enumerate([10, 11, 12, 11, 10, 12, 11, 40])]
     out = calc.outliers(data, "v", ["s"])
     assert [r["s"] for r in out["rows"]] == ["S7"] and out["rows"][0]["side"] == "高"
@@ -78,14 +88,24 @@ def test_segment_describe_and_outliers():
 
 
 def test_coverage_counts_rows_and_missing_days():
-    rows = [{"store": "A", "period": "2026-09-27"}, {"store": "A", "period": "2026-09-28"},
-            {"store": "B", "period": "2026-09-27"}]
+    rows = [
+        {"store": "A", "period": "2026-09-27"},
+        {"store": "A", "period": "2026-09-28"},
+        {"store": "B", "period": "2026-09-27"},
+    ]
     out = calc.coverage(rows, ["store"], "period", date(2026, 9, 27), date(2026, 9, 28))
     assert out["rows"] == [
         {"store": "A", "rows": 2, "periods": 2, "missing_count": 0, "missing_periods": ""},
-        {"store": "B", "rows": 1, "periods": 1, "missing_count": 1, "missing_periods": "2026-09-28"}]
-    assert out["summary"] == {"members": 2, "rows": 3, "expected_periods": 2, "members_with_gaps": 1,
-                              "members_complete": 1, "missing_total": 1}
+        {"store": "B", "rows": 1, "periods": 1, "missing_count": 1, "missing_periods": "2026-09-28"},
+    ]
+    assert out["summary"] == {
+        "members": 2,
+        "rows": 3,
+        "expected_periods": 2,
+        "members_with_gaps": 1,
+        "members_complete": 1,
+        "missing_total": 1,
+    }
     assert calc.coverage(rows, [], None)["summary"]["rows"] == 3
 
 

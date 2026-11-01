@@ -55,13 +55,17 @@ def normalized_type(value: str) -> str:
 
 
 def _edge(kind: str, source: str, target: str, columns: list[dict]) -> dict:
-    return {"type": kind, "from": source, "to": target, "columns": columns,
-            "clue": kind in {"shared_key", "shared_value"}}
+    return {
+        "type": kind,
+        "from": source,
+        "to": target,
+        "columns": columns,
+        "clue": kind in {"shared_key", "shared_value"},
+    }
 
 
 def _edge_key(edge: dict) -> tuple:
-    return (edge["type"], edge["from"], edge["to"],
-            tuple((c["from"] or "", c["to"] or "") for c in edge["columns"]))
+    return (edge["type"], edge["from"], edge["to"], tuple((c["from"] or "", c["to"] or "") for c in edge["columns"]))
 
 
 def _column_name(value: str | None) -> str | None:
@@ -89,8 +93,12 @@ class MetadataGraph:
             offset += PAGE_SIZE
 
     def _readable(self, asset: Asset | None) -> bool:
-        return bool(asset is not None and asset.status == "active" and asset.kind != "catalog_table"
-                    and access.can_read_asset(self.session, self.user, asset, self.allowed))
+        return bool(
+            asset is not None
+            and asset.status == "active"
+            and asset.kind != "catalog_table"
+            and access.can_read_asset(self.session, self.user, asset, self.allowed)
+        )
 
     def _asset(self, asset_id: str | None) -> Asset | None:
         asset = self.session.get(Asset, asset_id) if asset_id else None
@@ -101,8 +109,11 @@ class MetadataGraph:
 
     def _columns(self, asset: Asset):
         if asset.current_version_id:
-            for row in self._rows(select(ColumnVersion).where(
-                    ColumnVersion.asset_version_id == asset.current_version_id).order_by(ColumnVersion.name)):
+            for row in self._rows(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == asset.current_version_id)
+                .order_by(ColumnVersion.name)
+            ):
                 yield row[0]
 
     def _metric(self, code: str):
@@ -117,15 +128,23 @@ class MetadataGraph:
     def _asset_node(self, asset: Asset, column: ColumnVersion | None = None) -> dict:
         name = qualified(asset)
         version = self._version(asset) if column is None else None
-        return {"id": f"column:{name}.{column.name}" if column is not None else f"asset:{name}",
-                "kind": "column" if column is not None else "asset", "qualified": name,
-                "name": column.name if column is not None else name,
-                "comment": column.comment if column is not None else (version.comment if version else None)}
+        return {
+            "id": f"column:{name}.{column.name}" if column is not None else f"asset:{name}",
+            "kind": "column" if column is not None else "asset",
+            "qualified": name,
+            "name": column.name if column is not None else name,
+            "comment": column.comment if column is not None else (version.comment if version else None),
+        }
 
     @staticmethod
     def _metric_node(metric: Metric, version: MetricVersion) -> dict:
-        return {"id": f"metric:{metric.code}", "kind": "metric", "name": metric.name,
-                "code": metric.code, "comment": version.description}
+        return {
+            "id": f"metric:{metric.code}",
+            "kind": "metric",
+            "name": metric.name,
+            "code": metric.code,
+            "comment": version.description,
+        }
 
     def _resolve(self, node: str) -> dict | None:
         kind, sep, name = node.partition(":")
@@ -137,16 +156,26 @@ class MetadataGraph:
         parts = name.split(".")
         if kind not in {"asset", "column"} or len(parts) != (4 if kind == "column" else 3):
             return None
-        for (asset,) in self._rows(select(Asset).where(
-                Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2],
-                Asset.status == "active", Asset.kind != "catalog_table").order_by(Asset.id)):
+        for (asset,) in self._rows(
+            select(Asset)
+            .where(
+                Asset.catalog_name == parts[0],
+                Asset.db_name == parts[1],
+                Asset.name == parts[2],
+                Asset.status == "active",
+                Asset.kind != "catalog_table",
+            )
+            .order_by(Asset.id)
+        ):
             if not self._readable(asset):
                 continue
             if kind == "asset":
                 return self._asset_node(asset)
-            for (column,) in self._rows(select(ColumnVersion).where(
-                    ColumnVersion.asset_version_id == asset.current_version_id, ColumnVersion.name == parts[3])
-                    .order_by(ColumnVersion.id)):
+            for (column,) in self._rows(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == asset.current_version_id, ColumnVersion.name == parts[3])
+                .order_by(ColumnVersion.id)
+            ):
                 return self._asset_node(asset, column)
         return None
 
@@ -169,24 +198,43 @@ class MetadataGraph:
 
         def match(column):
             return column.icontains(keyword, autoescape=True)
-        for (metric,) in self._rows(select(Metric).join(MetricVersion, MetricVersion.metric_id == Metric.id)
-                                   .where(Metric.domain_id.in_(self.allowed), MetricVersion.status == "published",
-                                          or_(match(Metric.code), match(Metric.name), match(MetricVersion.description)))
-                                   .distinct().order_by(Metric.code)):
+
+        for (metric,) in self._rows(
+            select(Metric)
+            .join(MetricVersion, MetricVersion.metric_id == Metric.id)
+            .where(
+                Metric.domain_id.in_(self.allowed),
+                MetricVersion.status == "published",
+                or_(match(Metric.code), match(Metric.name), match(MetricVersion.description)),
+            )
+            .distinct()
+            .order_by(Metric.code)
+        ):
             if found := self._metric(metric.code):
                 add(self._metric_node(*found), [found[0].code, found[0].name])
         full_name = Asset.catalog_name + "." + Asset.db_name + "." + Asset.name
-        for (asset,) in self._rows(select(Asset).outerjoin(AssetVersion, AssetVersion.id == Asset.current_version_id)
-                                  .where(Asset.status == "active", Asset.kind != "catalog_table",
-                                         or_(match(full_name), match(AssetVersion.comment)))
-                                  .order_by(Asset.catalog_name, Asset.db_name, Asset.name, Asset.id)):
+        for (asset,) in self._rows(
+            select(Asset)
+            .outerjoin(AssetVersion, AssetVersion.id == Asset.current_version_id)
+            .where(
+                Asset.status == "active",
+                Asset.kind != "catalog_table",
+                or_(match(full_name), match(AssetVersion.comment)),
+            )
+            .order_by(Asset.catalog_name, Asset.db_name, Asset.name, Asset.id)
+        ):
             if self._readable(asset):
                 add(self._asset_node(asset), [qualified(asset)])
-        for asset, column in self._rows(select(Asset, ColumnVersion).join(
-                ColumnVersion, ColumnVersion.asset_version_id == Asset.current_version_id).where(
-                Asset.status == "active", Asset.kind != "catalog_table",
-                or_(match(ColumnVersion.name), match(ColumnVersion.comment)))
-                .order_by(Asset.catalog_name, Asset.db_name, Asset.name, ColumnVersion.name, Asset.id)):
+        for asset, column in self._rows(
+            select(Asset, ColumnVersion)
+            .join(ColumnVersion, ColumnVersion.asset_version_id == Asset.current_version_id)
+            .where(
+                Asset.status == "active",
+                Asset.kind != "catalog_table",
+                or_(match(ColumnVersion.name), match(ColumnVersion.comment)),
+            )
+            .order_by(Asset.catalog_name, Asset.db_name, Asset.name, ColumnVersion.name, Asset.id)
+        ):
             if self._readable(asset):
                 add(self._asset_node(asset, column), [column.name])
         return {"nodes": [item[3] for item in chosen], "truncated": count > 20, "omitted": max(0, count - 20)}
@@ -203,8 +251,10 @@ class MetadataGraph:
     def _lineage_edges(self, assets: set[str], relation):
         if not assets:
             return
-        statement = select(LineageEdge).where(LineageEdge.status == "active", or_(
-            LineageEdge.source_asset_id.in_(assets), LineageEdge.target_asset_id.in_(assets)))
+        statement = select(LineageEdge).where(
+            LineageEdge.status == "active",
+            or_(LineageEdge.source_asset_id.in_(assets), LineageEdge.target_asset_id.in_(assets)),
+        )
         if relation == "join_key":
             statement = statement.where(LineageEdge.relation == "join_key")
         for (edge,) in self._rows(statement.order_by(LineageEdge.id)):
@@ -217,18 +267,31 @@ class MetadataGraph:
             if edge.relation == "join_key" and relation in (None, "join_key"):
                 yield from self._pairs("join_key", left, right, columns)
         if relation in (None, "join_key"):
-            for (path,) in self._rows(select(JoinPath).where(JoinPath.status == "approved", or_(
-                    JoinPath.left_asset_id.in_(assets), JoinPath.right_asset_id.in_(assets))).order_by(JoinPath.id)):
+            for (path,) in self._rows(
+                select(JoinPath)
+                .where(
+                    JoinPath.status == "approved",
+                    or_(JoinPath.left_asset_id.in_(assets), JoinPath.right_asset_id.in_(assets)),
+                )
+                .order_by(JoinPath.id)
+            ):
                 left, right = self._asset(path.left_asset_id), self._asset(path.right_asset_id)
                 if left is not None and right is not None:
                     pairs = [{"from": a, "to": b} for a, b in zip(path.left_columns, path.right_columns)]
                     yield from self._pairs("join_key", left, right, pairs)
 
     def _metric_edges(self, assets: set[str], metric_codes: set[str]):
-        for (metric,) in self._rows(select(Metric).join(MetricVersion, MetricVersion.metric_id == Metric.id).where(
-                Metric.domain_id.in_(self.allowed), MetricVersion.status == "published", or_(
-                    MetricVersion.base_asset_id.in_(assets), Metric.code.in_(metric_codes)))
-                .distinct().order_by(Metric.code)):
+        for (metric,) in self._rows(
+            select(Metric)
+            .join(MetricVersion, MetricVersion.metric_id == Metric.id)
+            .where(
+                Metric.domain_id.in_(self.allowed),
+                MetricVersion.status == "published",
+                or_(MetricVersion.base_asset_id.in_(assets), Metric.code.in_(metric_codes)),
+            )
+            .distinct()
+            .order_by(Metric.code)
+        ):
             found = self._metric(metric.code)
             if found is None:
                 continue
@@ -236,8 +299,10 @@ class MetadataGraph:
             base = self._asset(version.base_asset_id)
             if base is None:
                 continue
-            used = {_column_name(version.time_column), *(_column_name(d.get("column"))
-                                                         for d in version.dimensions or [])}
+            used = {
+                _column_name(version.time_column),
+                *(_column_name(d.get("column")) for d in version.dimensions or []),
+            }
             try:
                 expression = parse_one(version.expression, read="postgres")
                 used.update(c.name for c in expression.find_all(exp.Column) if not c.table or c.table == "b")
@@ -254,8 +319,11 @@ class MetadataGraph:
         version = self._version(asset)
         keys = (version.key_columns or []) if version else []
         unique = (version.unique_keys or []) if version else []
-        return bool(column.is_key or column.name in keys
-                    or any(column.name in (key if isinstance(key, list) else [key]) for key in unique))
+        return bool(
+            column.is_key
+            or column.name in keys
+            or any(column.name in (key if isinstance(key, list) else [key]) for key in unique)
+        )
 
     def _shared_key_edges(self, assets: set[str]):
         for asset_id in sorted(assets):
@@ -264,16 +332,25 @@ class MetadataGraph:
                 continue
             for column in self._columns(left):
                 # 先用精确列名缩小候选，再检查类型和键；不枚举任意两张表的列组合。
-                for right, other in self._rows(select(Asset, ColumnVersion).join(
-                        ColumnVersion, ColumnVersion.asset_version_id == Asset.current_version_id).where(
-                        Asset.status == "active", Asset.kind != "catalog_table", Asset.id != left.id,
+                for right, other in self._rows(
+                    select(Asset, ColumnVersion)
+                    .join(ColumnVersion, ColumnVersion.asset_version_id == Asset.current_version_id)
+                    .where(
+                        Asset.status == "active",
+                        Asset.kind != "catalog_table",
+                        Asset.id != left.id,
                         Asset.datasource_id == left.datasource_id,
-                        ColumnVersion.name == column.name).order_by(Asset.id, ColumnVersion.id)):
+                        ColumnVersion.name == column.name,
+                    )
+                    .order_by(Asset.id, ColumnVersion.id)
+                ):
                     if not self._readable(right) or (right.id in assets and right.id < left.id):
                         continue
-                    if (not normalized_type(column.data_type)
-                            or normalized_type(column.data_type) != normalized_type(other.data_type)
-                            or not (self._is_key(left, column) or self._is_key(right, other))):
+                    if (
+                        not normalized_type(column.data_type)
+                        or normalized_type(column.data_type) != normalized_type(other.data_type)
+                        or not (self._is_key(left, column) or self._is_key(right, other))
+                    ):
                         continue
                     a, b = sorted((left, right), key=qualified)
                     yield from self._pairs("shared_key", a, b, [{"from": column.name, "to": column.name}])
@@ -282,8 +359,9 @@ class MetadataGraph:
         """只枚举已有缓存键；先核对资产权限与版本，再读取取值。缓存缺失、不可用都不回源。"""
         try:
             client = cache.client()
-            patterns = [f"avelis:dimvals:{i}:*" for i in sorted(asset_ids)] if asset_ids is not None else [
-                "avelis:dimvals:*"]
+            patterns = (
+                [f"avelis:dimvals:{i}:*" for i in sorted(asset_ids)] if asset_ids is not None else ["avelis:dimvals:*"]
+            )
             for pattern in patterns:
                 for key in client.scan_iter(match=pattern, count=PAGE_SIZE):
                     key = key.decode() if isinstance(key, bytes) else key
@@ -294,9 +372,11 @@ class MetadataGraph:
                     asset = self._asset(asset_id)
                     if asset is None or asset.current_version_id != version_id:
                         continue
-                    for (column,) in self._rows(select(ColumnVersion).where(
-                            ColumnVersion.asset_version_id == version_id, ColumnVersion.name == name)
-                            .order_by(ColumnVersion.id)):
+                    for (column,) in self._rows(
+                        select(ColumnVersion)
+                        .where(ColumnVersion.asset_version_id == version_id, ColumnVersion.name == name)
+                        .order_by(ColumnVersion.id)
+                    ):
                         raw = client.get(key)
                         raw = raw.decode() if isinstance(raw, bytes) else raw
                         if raw:
@@ -310,8 +390,9 @@ class MetadataGraph:
             for right, other, candidates in self._cached_columns():
                 if left.datasource_id != right.datasource_id:
                     continue
-                if left.id == right.id or (right.id in assets and (qualified(right), other.name)
-                                          < (qualified(left), column.name)):
+                if left.id == right.id or (
+                    right.id in assets and (qualified(right), other.name) < (qualified(left), column.name)
+                ):
                     continue
                 if not values.isdisjoint(candidates):
                     if qualified(left) < qualified(right):
@@ -330,9 +411,11 @@ class MetadataGraph:
                 metrics.add(resolved["code"])
             else:
                 parts = resolved["qualified"].split(".")
-                for (asset,) in self._rows(select(Asset).where(
-                        Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2])
-                        .order_by(Asset.id)):
+                for (asset,) in self._rows(
+                    select(Asset)
+                    .where(Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2])
+                    .order_by(Asset.id)
+                ):
                     if self._readable(asset):
                         assets.add(asset.id)
         if relation in (None, "lineage", "join_key"):
@@ -350,8 +433,10 @@ class MetadataGraph:
         for edge in self._candidate_edges(frontier, relation):
             if relation is not None and edge["type"] != relation:
                 continue
-            if not ((direction in ("both", "out") and edge["from"] in frontier)
-                    or (direction in ("both", "in") and edge["to"] in frontier)):
+            if not (
+                (direction in ("both", "out") and edge["from"] in frontier)
+                or (direction in ("both", "in") and edge["to"] in frontier)
+            ):
                 continue
             if self._resolve(edge["from"]) is None or self._resolve(edge["to"]) is None:
                 continue
@@ -365,8 +450,9 @@ class MetadataGraph:
                 omitted += 1
         return [chosen[key] for key in sorted(chosen)], omitted
 
-    def neighbors(self, node: str, relation: Relation | None = None, direction: Direction = "both",
-                  depth: int = 1) -> dict:
+    def neighbors(
+        self, node: str, relation: Relation | None = None, direction: Direction = "both", depth: int = 1
+    ) -> dict:
         NeighborsArgs(node=node, relation=relation, direction=direction, depth=depth)
         root = self._resolve(node)
         if root is None:
@@ -390,8 +476,13 @@ class MetadataGraph:
                     edges[_edge_key(edge)] = edge
             if not frontier:
                 break
-        return {"nodes": list(nodes.values()), "edges": [edges[k] for k in sorted(edges)],
-                "truncated": omitted > 0, "omitted": omitted, "note": CLUE_NOTE}
+        return {
+            "nodes": list(nodes.values()),
+            "edges": [edges[k] for k in sorted(edges)],
+            "truncated": omitted > 0,
+            "omitted": omitted,
+            "note": CLUE_NOTE,
+        }
 
     def path(self, start: str, end: str, max_depth: int = 3) -> dict:
         """按层寻找最短路径；每层最多展开 30 个节点、180 条可见边，不穿过无权节点。"""
@@ -432,8 +523,12 @@ class MetadataGraph:
         # 直连终点边总被优先保留，因此一、二跳结果仍可确认最短；首层漏掉的分支却可能藏有二跳路径。
         # 此时不把已找到的三跳候选当作最短路径返回。
         if distance.get(end) == 3 and first_layer_clipped:
-            return {**empty, "truncated": True, "omitted": omitted,
-                    "note": CLUE_NOTE + "；展开已截断，尚不能确认最短路径，请缩小节点范围"}
+            return {
+                **empty,
+                "truncated": True,
+                "omitted": omitted,
+                "note": CLUE_NOTE + "；展开已截断，尚不能确认最短路径，请缩小节点范围",
+            }
         # 动态计数后只构造前三条，避免多条平行边使路径队列成倍增长。
         counts = {end: 1}
         for node in sorted(distance, key=lambda n: (-distance[n], n)):
@@ -450,14 +545,20 @@ class MetadataGraph:
             for other, edge in sorted(adjacency.get(node, []), key=lambda pair: (pair[0], _edge_key(pair[1]))):
                 if counts.get(other, 0):
                     walk(other, [*walked, other], [*edges, edge])
+
         walk(start, [start], [])
         omitted += max(0, counts.get(start, 0) - 3)
-        return {"paths": paths, "truncated": omitted > 0, "omitted": omitted,
-                "note": CLUE_NOTE + ("；展开已截断，路径可能不完整" if graph_omitted else "")}
+        return {
+            "paths": paths,
+            "truncated": omitted > 0,
+            "omitted": omitted,
+            "note": CLUE_NOTE + ("；展开已截断，路径可能不完整" if graph_omitted else ""),
+        }
 
 
-def reference_tables(graph: MetadataGraph, versions: list[MetricVersion], closure: dict[str, Asset],
-                     k: int = 12) -> list:
+def reference_tables(
+    graph: MetadataGraph, versions: list[MetricVersion], closure: dict[str, Asset], k: int = 12
+) -> list:
     """只展开来源闭包的直接邻居，优先补充不同来源且能对齐时间窗口的表。"""
     k = min(12, max(0, k))
     if not k:
@@ -468,29 +569,38 @@ def reference_tables(graph: MetadataGraph, versions: list[MetricVersion], closur
 
     def upstream_ids(asset: Asset) -> set[str]:
         if asset.id not in upstream:
-            upstream[asset.id] = {a.id for a in service.upstream_closure(graph.session, [asset.id]).values()
-                                  if access.can_read_asset(graph.session, graph.user, a, graph.allowed)}
+            upstream[asset.id] = {
+                a.id
+                for a in service.upstream_closure(graph.session, [asset.id]).values()
+                if access.can_read_asset(graph.session, graph.user, a, graph.allowed)
+            }
         return upstream[asset.id]
 
-    roots = {a.id for a in closure.values()
-             if access.can_read_asset(graph.session, graph.user, a, graph.allowed)
-             and not upstream_ids(a) - {a.id}}
+    roots = {
+        a.id
+        for a in closure.values()
+        if access.can_read_asset(graph.session, graph.user, a, graph.allowed) and not upstream_ids(a) - {a.id}
+    }
     candidates: dict[str, dict] = {}
     # 来源闭包本身可能较大，也分成至多 30 个起点的一批；不继续展开发现的邻居。
     ordered = sorted(sources)
     for offset in range(0, len(ordered), NODE_LIMIT):
-        batch = set(ordered[offset:offset + NODE_LIMIT])
+        batch = set(ordered[offset : offset + NODE_LIMIT])
         for relation in ("join_key", "shared_key", "shared_value"):
             edges, _ = graph._expand(batch, relation, "both")
             for edge in edges:
                 for here, there in ((edge["from"], edge["to"]), (edge["to"], edge["from"])):
                     if here not in batch or not there.startswith("asset:"):
                         continue
-                    if there not in candidates and there not in sources and sum(
-                            n not in sources for n in candidates) >= LAYER_EDGES:
+                    if (
+                        there not in candidates
+                        and there not in sources
+                        and sum(n not in sources for n in candidates) >= LAYER_EDGES
+                    ):
                         continue
-                    entry = candidates.setdefault(there, {"distance": 0 if there in sources else 1,
-                                                          "reasons": [], "connected": set()})
+                    entry = candidates.setdefault(
+                        there, {"distance": 0 if there in sources else 1, "reasons": [], "connected": set()}
+                    )
                     side = "to" if there == edge["to"] else "from"
                     entry["connected"].update(c[side] for c in edge["columns"] if c[side])
                     reason = {key: edge[key] for key in ("type", "columns", "clue")}
@@ -507,9 +617,18 @@ def reference_tables(graph: MetadataGraph, versions: list[MetricVersion], closur
         asset = sources.get(node)
         if asset is None:
             parts = name.split(".")
-            asset = next((a for (a,) in graph._rows(select(Asset).where(
-                Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2]).order_by(Asset.id))
-                          if graph._readable(a)), None)
+            asset = next(
+                (
+                    a
+                    for (a,) in graph._rows(
+                        select(Asset)
+                        .where(Asset.catalog_name == parts[0], Asset.db_name == parts[1], Asset.name == parts[2])
+                        .order_by(Asset.id)
+                    )
+                    if graph._readable(a)
+                ),
+                None,
+            )
         if asset is None or asset.id in base_ids:
             continue
         reasons = sorted(entry["reasons"], key=lambda r: (r["type"], str(r["columns"])))
@@ -518,12 +637,31 @@ def reference_tables(graph: MetadataGraph, versions: list[MetricVersion], closur
         if internal and not reasons:
             reasons = [{"type": "lineage", "columns": [], "clue": False}]
         sibling = bool(upstream_ids(asset) & roots)
-        date_columns = sorted(c.name for c in graph._columns(asset) if normalized_type(c.data_type) in {
-            "date", "datetime", "timestamp", "timestampwithtimezone", "timestampwithouttimezone",
-        })[:3]
+        date_columns = sorted(
+            c.name
+            for c in graph._columns(asset)
+            if normalized_type(c.data_type)
+            in {
+                "date",
+                "datetime",
+                "timestamp",
+                "timestampwithtimezone",
+                "timestampwithouttimezone",
+            }
+        )[:3]
         rank = (internal, sibling, not date_columns, entry["distance"], -len(connected), name)
-        ranked.append((rank, {"table": name, "comment": resolved["comment"], "via": reasons,
-                              "date_columns": date_columns, "sibling": sibling}))
+        ranked.append(
+            (
+                rank,
+                {
+                    "table": name,
+                    "comment": resolved["comment"],
+                    "via": reasons,
+                    "date_columns": date_columns,
+                    "sibling": sibling,
+                },
+            )
+        )
         ranked.sort(key=lambda item: item[0])
         del ranked[k:]
     return [table for _, table in ranked]

@@ -46,8 +46,7 @@ def checkpointer(monkeypatch):
 
 
 def _finished_followup(api, parent=None):
-    run = (service.followup_run(api.session, api.user, parent.id, "继续查原因")
-           if parent is not None else followup(api))
+    run = service.followup_run(api.session, api.user, parent.id, "继续查原因") if parent is not None else followup(api)
     run.status = "succeeded"
     api.session.flush()
     return run
@@ -109,14 +108,18 @@ def test_any_busy_turn_blocks_archive_and_delete_without_mutation(api, model, st
     (api.run if busy_turn == "root" else child).status = status
     api.session.commit()
     before = {run.id: _content(run) for run in (api.run, child)}
-    response = (api.client.delete(f"{PATH}/{api.run.id}") if operation == "delete"
-                else api.client.post(f"{PATH}/{api.run.id}/archive"))
+    response = (
+        api.client.delete(f"{PATH}/{api.run.id}")
+        if operation == "delete"
+        else api.client.post(f"{PATH}/{api.run.id}/archive")
+    )
     assert response.status_code == 409, response.text
     assert api.run.archived_at is None
     assert {run.id: _content(run) for run in (api.run, child)} == before
     assert set(api.session.scalars(select(AnalysisRun.id))) == {api.run.id, child.id}
-    assert api.session.scalar(select(AuditEvent).where(
-        AuditEvent.action == f"analysis.conversation.{operation}")) is None
+    assert (
+        api.session.scalar(select(AuditEvent).where(AuditEvent.action == f"analysis.conversation.{operation}")) is None
+    )
 
 
 @pytest.mark.parametrize("admin", [False, True])
@@ -131,16 +134,20 @@ def test_only_initiator_can_archive_restore_or_delete(api, admin, operation):
     api.session.refresh(api.run)
     archived_at = api.run.archived_at
     api.app.dependency_overrides[current_user] = lambda: actor
-    response = (api.client.delete(f"{PATH}/{api.run.id}") if operation == "delete"
-                else api.client.post(f"{PATH}/{api.run.id}/{operation}"))
+    response = (
+        api.client.delete(f"{PATH}/{api.run.id}")
+        if operation == "delete"
+        else api.client.post(f"{PATH}/{api.run.id}/{operation}")
+    )
     assert response.status_code == (403 if admin else 404), response.text
     assert api.client.get(PATH).json() == []
     assert api.client.get(PATH, params={"archived": "true"}).json() == []
     api.session.refresh(api.run)
     assert api.run.archived_at == archived_at
     assert api.session.get(AnalysisDataset, api.dataset.id) is not None
-    assert api.session.scalar(select(AuditEvent).where(
-        AuditEvent.action == f"analysis.conversation.{operation}")) is None
+    assert (
+        api.session.scalar(select(AuditEvent).where(AuditEvent.action == f"analysis.conversation.{operation}")) is None
+    )
 
 
 @pytest.mark.parametrize("operation", ["archive", "restore", "delete"])
@@ -148,8 +155,11 @@ def test_lifecycle_requires_existing_root_conversation(api, model, operation):
     child = _finished_followup(api)
     api.session.commit()
     for identifier in (child.id, "missing"):
-        response = (api.client.delete(f"{PATH}/{identifier}") if operation == "delete"
-                    else api.client.post(f"{PATH}/{identifier}/{operation}"))
+        response = (
+            api.client.delete(f"{PATH}/{identifier}")
+            if operation == "delete"
+            else api.client.post(f"{PATH}/{identifier}/{operation}")
+        )
         assert response.status_code == 404, response.text
     assert api.session.get(AnalysisRun, api.run.id) is not None
 
@@ -162,58 +172,139 @@ def _seed_delete_scope(api):
     grandchild = _finished_followup(api, child)
     api.run.display_title = "待删除的对话"
     api.run.checkpoint = {"candidates": [{"id": "root-candidate", "source": {"run_id": api.run.id}}]}
-    other = AnalysisRun(id="unrelated-run", user_id=api.user.id, question="另一对话", trigger="manual",
-                        status="stopped", checkpoint={"candidates": [{"id": "unrelated-candidate"}]})
+    other = AnalysisRun(
+        id="unrelated-run",
+        user_id=api.user.id,
+        question="另一对话",
+        trigger="manual",
+        status="stopped",
+        checkpoint={"candidates": [{"id": "unrelated-candidate"}]},
+    )
     api.session.add(other)
     api.session.flush()
     for run in (api.run, child, grandchild, other):
         dataset = api.session.scalar(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))
         if dataset is None:
-            dataset = AnalysisDataset(run_id=run.id, seq=1, kind="context", title="保留数据", columns=["value"],
-                                      rows=[[1]])
+            dataset = AnalysisDataset(
+                run_id=run.id, seq=1, kind="context", title="保留数据", columns=["value"], rows=[[1]]
+            )
             api.session.add(dataset)
             api.session.flush()
-        api.session.add_all([
-            AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="view_dataset", status="ok", dataset_id=dataset.id),
-            AnalysisMessage(run_id=run.id, user_id=api.user.id, text="原文补充"),
-        ])
-    task = AnalysisTask(id="saved-task", owner_id=api.user.id, title="继续运行的任务", question=api.run.question,
-                        status="active", schedule_cron="0 9 * * *", last_run_id=grandchild.id)
-    other_task = AnalysisTask(id="unrelated-task", owner_id=api.user.id, title="其他任务", question="其他问题",
-                              status="active", last_run_id=other.id)
+        api.session.add_all(
+            [
+                AnalysisStep(
+                    run_id=run.id, seq=1, kind="tool", tool="view_dataset", status="ok", dataset_id=dataset.id
+                ),
+                AnalysisMessage(run_id=run.id, user_id=api.user.id, text="原文补充"),
+            ]
+        )
+    task = AnalysisTask(
+        id="saved-task",
+        owner_id=api.user.id,
+        title="继续运行的任务",
+        question=api.run.question,
+        status="active",
+        schedule_cron="0 9 * * *",
+        last_run_id=grandchild.id,
+    )
+    other_task = AnalysisTask(
+        id="unrelated-task",
+        owner_id=api.user.id,
+        title="其他任务",
+        question="其他问题",
+        status="active",
+        last_run_id=other.id,
+    )
     experience = Experience(id="saved-experience", owner_id=api.user.id)
     api.session.add_all([task, other_task, experience])
     api.session.flush()
-    version = ExperienceVersion(id="saved-experience-version", experience_id=experience.id, version=1,
-                                kind="rule", content="独立保存的经验", confirmed_by=api.user.id,
-                                refs=[{"object_type": "analysis_run", "object_id": api.run.id}],
-                                source={"run_id": child.id, "checkpoint": "conclusion", "user_text": "保留"})
-    path = JoinPath(id="saved-path", code="saved-path", name="已提交的关联路径", left_asset_id=api.asset.id,
-                    right_asset_id=api.asset.id, left_columns=["key"], right_columns=["key"], cardinality="11",
-                    status="pending", created_by=api.user.id, source={"run_id": grandchild.id})
+    version = ExperienceVersion(
+        id="saved-experience-version",
+        experience_id=experience.id,
+        version=1,
+        kind="rule",
+        content="独立保存的经验",
+        confirmed_by=api.user.id,
+        refs=[{"object_type": "analysis_run", "object_id": api.run.id}],
+        source={"run_id": child.id, "checkpoint": "conclusion", "user_text": "保留"},
+    )
+    path = JoinPath(
+        id="saved-path",
+        code="saved-path",
+        name="已提交的关联路径",
+        left_asset_id=api.asset.id,
+        right_asset_id=api.asset.id,
+        left_columns=["key"],
+        right_columns=["key"],
+        cardinality="11",
+        status="pending",
+        created_by=api.user.id,
+        source={"run_id": grandchild.id},
+    )
     api.session.add_all([version, path])
     api.session.flush()
-    approval = JoinPathApproval(id="saved-approval", join_path_id=path.id, domain_id="asset-domain",
-                                user_id=api.user.id, decision="approved")
-    old_audit = AuditEvent(id="old-audit", actor_id=api.user.id, actor_name=api.user.username,
-                           action="analysis.followup", object_type="analysis_run", object_id=child.id,
-                           detail={"parent_run_id": api.run.id}, chain_seq=1, prev_hash="0" * 64, row_hash="a" * 64)
-    mark = HistoryMark(id="history-mark", table_name="audit_event", row_id=old_audit.id, column_name="detail",
-                       old_value={}, new_value={"run_id": child.id}, chain_seq=2, prev_hash="a" * 64, row_hash="b" * 64)
-    anchor = HistoryAnchor(id="history-anchor", kind="purge", cutoff=utcnow(), retention_days=90,
-                           counts={}, gaps=[], actor_name=api.user.username,
-                           chain_seq=3, prev_hash="b" * 64, row_hash="c" * 64)
+    approval = JoinPathApproval(
+        id="saved-approval", join_path_id=path.id, domain_id="asset-domain", user_id=api.user.id, decision="approved"
+    )
+    old_audit = AuditEvent(
+        id="old-audit",
+        actor_id=api.user.id,
+        actor_name=api.user.username,
+        action="analysis.followup",
+        object_type="analysis_run",
+        object_id=child.id,
+        detail={"parent_run_id": api.run.id},
+        chain_seq=1,
+        prev_hash="0" * 64,
+        row_hash="a" * 64,
+    )
+    mark = HistoryMark(
+        id="history-mark",
+        table_name="audit_event",
+        row_id=old_audit.id,
+        column_name="detail",
+        old_value={},
+        new_value={"run_id": child.id},
+        chain_seq=2,
+        prev_hash="a" * 64,
+        row_hash="b" * 64,
+    )
+    anchor = HistoryAnchor(
+        id="history-anchor",
+        kind="purge",
+        cutoff=utcnow(),
+        retention_days=90,
+        counts={},
+        gaps=[],
+        actor_name=api.user.username,
+        chain_seq=3,
+        prev_hash="b" * 64,
+        row_hash="c" * 64,
+    )
     head = HistoryChainHead(id=1, last_seq=3, last_hash="c" * 64)
-    notifications = [Notification(id=f"notice-{i}", user_id=api.user.id, kind="analysis_done", title="分析通知",
-                                  link=link) for i, link in enumerate([
-        f"/analysis/runs/{api.run.id}", f"/analysis/runs/{child.id}", f"/analysis/runs/{grandchild.id}",
-        f"/analysis/conversations/{api.run.id}", f"/analysis/runs/{other.id}",
-        f"/analysis/runs/{api.run.id}-different", "/analysis/tasks", None,
-    ])]
+    notifications = [
+        Notification(id=f"notice-{i}", user_id=api.user.id, kind="analysis_done", title="分析通知", link=link)
+        for i, link in enumerate(
+            [
+                f"/analysis/runs/{api.run.id}",
+                f"/analysis/runs/{child.id}",
+                f"/analysis/runs/{grandchild.id}",
+                f"/analysis/conversations/{api.run.id}",
+                f"/analysis/runs/{other.id}",
+                f"/analysis/runs/{api.run.id}-different",
+                "/analysis/tasks",
+                None,
+            ]
+        )
+    ]
     api.session.add_all([approval, old_audit, mark, anchor, head, *notifications])
     api.session.commit()
-    return {"deleted_ids": {api.run.id, child.id, grandchild.id}, "other_id": other.id,
-            "experience_source": deepcopy(version.source), "path_source": deepcopy(path.source)}
+    return {
+        "deleted_ids": {api.run.id, child.id, grandchild.id},
+        "other_id": other.id,
+        "experience_source": deepcopy(version.source),
+        "path_source": deepcopy(path.source),
+    }
 
 
 def _assert_deleted_scope(session, scope):
@@ -242,8 +333,7 @@ def _assert_deleted_scope(session, scope):
     assert session.get(HistoryChainHead, 1).last_hash == "c" * 64
     event = session.scalar(select(AuditEvent).where(AuditEvent.action == "analysis.conversation.delete"))
     assert event is not None and event.object_id == "run" and event.actor_id == "actor"
-    assert event.detail == {"conversation_id": "run", "turn_count": 3, "title": "待删除的对话",
-                            "checkpoint_threads": 3}
+    assert event.detail == {"conversation_id": "run", "turn_count": 3, "title": "待删除的对话", "checkpoint_threads": 3}
 
 
 @pytest.mark.parametrize("archived", [False, True])
@@ -287,8 +377,12 @@ def test_checkpoint_cleanup_failure_preserves_all_application_data(api, model, c
     models = (AnalysisRun, AnalysisMessage, AnalysisStep, AnalysisDataset, AnalysisTask, Notification, AuditEvent)
 
     def application_rows(session):
-        return {model: deepcopy([dict(row) for row in session.execute(
-            select(model.__table__).order_by(model.id)).mappings()]) for model in models}
+        return {
+            model: deepcopy(
+                [dict(row) for row in session.execute(select(model.__table__).order_by(model.id)).mappings()]
+            )
+            for model in models
+        }
 
     before = application_rows(api.session)
 
@@ -327,20 +421,39 @@ def test_delete_service_remains_one_rollbackable_transaction(api, model):
 
 
 def test_archiving_task_conversation_does_not_pause_or_join_future_scheduled_runs(api, model):
-    task = AnalysisTask(id="scheduled-task", owner_id=api.user.id, title="每天分析", question="定时分析问题",
-                        status="active", schedule_cron="0 9 * * *", next_run_at=utcnow())
+    task = AnalysisTask(
+        id="scheduled-task",
+        owner_id=api.user.id,
+        title="每天分析",
+        question="定时分析问题",
+        status="active",
+        schedule_cron="0 9 * * *",
+        next_run_at=utcnow(),
+    )
     api.session.add(task)
     api.session.flush()
     run = service.create_run(api.session, api.user, task.question, None, task=task, trigger="schedule")
     run.status = "succeeded"
     task.last_run_id = run.id
     api.session.commit()
-    before_task = (task.question, deepcopy(task.window), task.status, task.schedule_cron, task.next_run_at,
-                   task.last_run_id)
+    before_task = (
+        task.question,
+        deepcopy(task.window),
+        task.status,
+        task.schedule_cron,
+        task.next_run_at,
+        task.last_run_id,
+    )
     response = api.client.post(f"{PATH}/{run.id}/archive")
     assert response.status_code == 200, response.text
-    assert before_task == (task.question, task.window, task.status, task.schedule_cron, task.next_run_at,
-                           task.last_run_id)
+    assert before_task == (
+        task.question,
+        task.window,
+        task.status,
+        task.schedule_cron,
+        task.next_run_at,
+        task.last_run_id,
+    )
     next_run = service.create_run(api.session, api.user, task.question, None, task=task, trigger="schedule")
     api.session.commit()
     assert next_run.task_id == run.task_id == task.id

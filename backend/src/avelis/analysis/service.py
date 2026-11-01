@@ -67,6 +67,7 @@ def _graph():
 
 # --- 时间窗口 -----------------------------------------------------------------------
 
+
 def _month(d: date, offset: int) -> tuple[date, date]:
     y, m = d.year, d.month + offset
     while m <= 0:
@@ -102,6 +103,7 @@ def resolve_window(window: dict | None, today: date) -> dict[str, str]:
 
 # --- cron（5 段：分 时 日 月 周，业务时区）-------------------------------------------------
 
+
 def _field(spec: str, low: int, high: int) -> set[int]:
     out: set[int] = set()
     for part in spec.split(","):
@@ -126,8 +128,9 @@ def parse_cron(expr: str) -> tuple[set[int], ...]:
     if len(parts) != 5:
         raise Invalid("cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）")
     try:
-        minute, hour, dom, month, dow = (_field(p, lo, hi) for p, (lo, hi) in
-                                         zip(parts, ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))))
+        minute, hour, dom, month, dow = (
+            _field(p, lo, hi) for p, (lo, hi) in zip(parts, ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7)))
+        )
     except ValueError:
         raise Invalid(Msg("cron 表达式无效：{expr}", expr=expr)) from None
     if 7 in dow:
@@ -143,15 +146,17 @@ def next_run(expr: str, after: datetime) -> datetime:
     逐日查找；永远不会触发的表达式（如 2 月 30 日）判为无效。"""
     minute, hour, dom, month, dow = parse_cron(expr)
     tz = ZoneInfo(get_settings().business_timezone)
-    start = (after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).replace(second=0, microsecond=0, tzinfo=None)
-             + timedelta(minutes=1))
+    start = after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).replace(
+        second=0, microsecond=0, tzinfo=None
+    ) + timedelta(minutes=1)
     times = sorted((h, m) for h in hour for m in minute)
     dom_any, dow_any = len(dom) == 31, len(dow) == 7
     day = start.date()
     for _ in range(CRON_SEARCH_DAYS):
         cron_dow = (day.weekday() + 1) % 7
-        day_ok = (day.day in dom or cron_dow in dow) if not (dom_any or dow_any) else (
-            day.day in dom and cron_dow in dow)
+        day_ok = (
+            (day.day in dom or cron_dow in dow) if not (dom_any or dow_any) else (day.day in dom and cron_dow in dow)
+        )
         if day.month in month and day_ok:
             for h, m in times:
                 candidate = datetime.combine(day, dtime(h, m))
@@ -163,27 +168,42 @@ def next_run(expr: str, after: datetime) -> datetime:
 
 # --- 运行 ---------------------------------------------------------------------------
 
+
 def require_analysis_model(session: Session, model_choice: dict | None = None) -> modelcfg.Resolved:
     if not modelcfg.policy(session)["send_results"]:
         raise Conflict("分析模式需要允许向模型发送查询结果（模型配置 → 数据外发）。需保密请接入本地模型")
-    resolved = (modelcfg.resolve_choice(session, **model_choice, temperature=0.2) if model_choice is not None else
-                modelcfg.resolve(session, "analysis", temperature=0.2))
+    resolved = (
+        modelcfg.resolve_choice(session, **model_choice, temperature=0.2)
+        if model_choice is not None
+        else modelcfg.resolve(session, "analysis", temperature=0.2)
+    )
     if resolved is None:
         raise Conflict("分析模式需要配置并检测通过一个支持工具调用的模型（模型配置 → 分析，未指定时沿用问数模型）")
     return resolved
 
 
-def create_run(session: Session, user: User, question: str, window: dict | None, *, task: AnalysisTask | None = None,
-               trigger: str = "manual", confirmation_mode: str = "auto", model: dict | None = None,
-               reasoning_effort: str | None = None, _model_choice: dict | None = None) -> AnalysisRun:
+def create_run(
+    session: Session,
+    user: User,
+    question: str,
+    window: dict | None,
+    *,
+    task: AnalysisTask | None = None,
+    trigger: str = "manual",
+    confirmation_mode: str = "auto",
+    model: dict | None = None,
+    reasoning_effort: str | None = None,
+    _model_choice: dict | None = None,
+) -> AnalysisRun:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     if not question.strip():
         raise Invalid("请输入要分析的问题")
     choice = _model_choice
     if choice is not None:
-        choice = {**modelcfg.analysis_model_choice(
-            session, {key: choice[key] for key in ("provider_id", "model_id")}),
-                  "reasoning_effort": choice["reasoning_effort"]}
+        choice = {
+            **modelcfg.analysis_model_choice(session, {key: choice[key] for key in ("provider_id", "model_id")}),
+            "reasoning_effort": choice["reasoning_effort"],
+        }
     elif model is not None or reasoning_effort is not None:
         choice = modelcfg.analysis_model_choice(session, model, reasoning_effort)
     if choice is not None:
@@ -191,14 +211,23 @@ def create_run(session: Session, user: User, question: str, window: dict | None,
     else:
         require_analysis_model(session)
     tz = get_settings().business_timezone
-    run = AnalysisRun(task_id=task.id if task else None, user_id=user.id, question=question.strip(), trigger=trigger,
-                      status="queued", window=resolve_window(window, business_today(tz)),
-                      budget=Budget().view(), confirmation_mode=confirmation_mode,
-                      checkpoint={"request_locale": current_locale()}, model_choice=choice)
+    run = AnalysisRun(
+        task_id=task.id if task else None,
+        user_id=user.id,
+        question=question.strip(),
+        trigger=trigger,
+        status="queued",
+        window=resolve_window(window, business_today(tz)),
+        budget=Budget().view(),
+        confirmation_mode=confirmation_mode,
+        checkpoint={"request_locale": current_locale()},
+        model_choice=choice,
+    )
     session.add(run)
     session.flush()
-    audit.record(session, user, "analysis.create", "analysis_run", run.id, trigger=trigger,
-                 task_id=task.id if task else None)
+    audit.record(
+        session, user, "analysis.create", "analysis_run", run.id, trigger=trigger, task_id=task.id if task else None
+    )
     return run
 
 
@@ -224,16 +253,20 @@ def _own_job(session: Session, job_id: str, attempt: int):
     加锁顺序全局一致：Job → 运行 → 任务。"""
     from avelis.models import Job
 
-    return session.scalar(select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
-                          .with_for_update())
+    return session.scalar(
+        select(Job).where(Job.id == job_id, Job.status == "running", Job.attempts == attempt).with_for_update()
+    )
 
 
 def _close_job(job, outcome: dict[str, Any]) -> dict[str, Any]:
     """在调用方的事务中写入 Job 终态（与运行、任务、通知同一事务提交）。"""
     job.status = JOB_STATUS[outcome["status"]]
     job.error = outcome.get("reason") if job.status == "failed" else None
-    job.result = {**(job.result or {}), **{k: v for k, v in outcome.items() if k != "status"},
-                  "outcome": outcome["status"]}
+    job.result = {
+        **(job.result or {}),
+        **{k: v for k, v in outcome.items() if k != "status"},
+        "outcome": outcome["status"],
+    }
     job.finished_at = utcnow()
     return outcome
 
@@ -246,15 +279,27 @@ def _claim_run(session: Session, run_id: str, job, attempt: int) -> str | None:
     saved = (pending.checkpoint or {}).get("snapshot") if pending else None
     # 恢复继承暂停前的预算；执行权仍只属于新 Job 的本次尝试。
     budget = (saved or {}).get("budget") or Budget().view()
-    claimed = session.execute(update(AnalysisRun).where(AnalysisRun.id == run_id, AnalysisRun.status == "queued")
-                              .values(status="running", started_at=(pending.started_at if pending else None) or utcnow(),
-                                      finished_at=None, error=None,
-                                      budget={**budget, "executor": token, "job_id": job.id})).rowcount
+    claimed = session.execute(
+        update(AnalysisRun)
+        .where(AnalysisRun.id == run_id, AnalysisRun.status == "queued")
+        .values(
+            status="running",
+            started_at=(pending.started_at if pending else None) or utcnow(),
+            finished_at=None,
+            error=None,
+            budget={**budget, "executor": token, "job_id": job.id},
+        )
+    ).rowcount
     return token if claimed else None
 
 
-def execute(session: Session, run_id: str, job_id: str, attempt: int,
-            finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None) -> dict[str, Any]:
+def execute(
+    session: Session,
+    run_id: str,
+    job_id: str,
+    attempt: int,
+    finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """恢复运行保存的请求语言，再执行 Job 管线。"""
     run = session.get(AnalysisRun, run_id)
     locale = (run.checkpoint or {}).get("request_locale", "zh-CN") if run is not None else "zh-CN"
@@ -262,8 +307,13 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
         return _execute(session, run_id, job_id, attempt, finish)
 
 
-def _execute(session: Session, run_id: str, job_id: str, attempt: int,
-             finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None) -> dict[str, Any]:
+def _execute(
+    session: Session,
+    run_id: str,
+    job_id: str,
+    attempt: int,
+    finish: Callable[[Session, AnalysisRun], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """执行一次分析（worker 与同步入口都经过 Job，见 jobs.run_job）。
     - 领取：Job 与运行都满足条件才写 running；
     - 中间写入：每一步提交前核对执行权（toolbox._step），失去执行权即停止、不再写入；
@@ -276,7 +326,9 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
         return {"status": "lost", "reason": "Job 已不由本次尝试持有"}
     token = _claim_run(session, run_id, job, attempt)
     if token is None:
-        outcome = _close_job(job, {"status": "skipped", "analysis_run_id": run_id, "reason": "分析不存在或已不在排队状态"})
+        outcome = _close_job(
+            job, {"status": "skipped", "analysis_run_id": run_id, "reason": "分析不存在或已不在排队状态"}
+        )
         session.commit()
         return outcome
     session.commit()
@@ -292,28 +344,44 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
             problem = identity_problem(session, user)
             if problem:
                 raise PermissionLost(problem)
-        resolved = (require_analysis_model(session, run.model_choice) if run.model_choice is not None else
-                    require_analysis_model(session))
+        resolved = (
+            require_analysis_model(session, run.model_choice)
+            if run.model_choice is not None
+            else require_analysis_model(session)
+        )
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
-        toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget, executor=token,
-                                  adapter=adapter)
+        toolbox = AnalysisToolbox(
+            session, user, run, ask_service.Catalog([], {}), budget, executor=token, adapter=adapter
+        )
         if checkpoint.get("resume_pending"):
             toolbox.restore(saved)
             budget = toolbox.budget
         settings = get_settings()
         example = analysis_agent.prompt_example(ask_service.visible_catalog(session, user, with_values=False))
-        config = {"configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved},
-                  "recursion_limit": 50}
+        config = {
+            "configurable": {"thread_id": f"analysis:{run.id}", "toolbox": toolbox, "model": resolved},
+            "recursion_limit": 50,
+        }
         graph = _graph()
         if checkpoint.get("resume_pending"):
             if not graph.get_state(config).next:
                 raise Conflict("分析检查点不存在或已经恢复")
             result = graph.invoke(Command(resume=checkpoint["feedback"]), config)
         else:
-            result = graph.invoke(analysis_agent.initial_state(
-                run.question, business_today(settings.business_timezone), settings.business_timezone, run.window,
-                example, inherited=checkpoint.get("inherited"), confirmation_mode=run.confirmation_mode,
-                unattended=run.trigger == "schedule", request_locale=checkpoint.get("request_locale", "zh-CN")), config)
+            result = graph.invoke(
+                analysis_agent.initial_state(
+                    run.question,
+                    business_today(settings.business_timezone),
+                    settings.business_timezone,
+                    run.window,
+                    example,
+                    inherited=checkpoint.get("inherited"),
+                    confirmation_mode=run.confirmation_mode,
+                    unattended=run.trigger == "schedule",
+                    request_locale=checkpoint.get("request_locale", "zh-CN"),
+                ),
+                config,
+            )
         state = graph.get_state(config).values
         plan, verification = toolbox.plan or {}, dict(toolbox.verification or {})
         report = {**(toolbox.report or {}), "notes": state.get("notes", [])}
@@ -325,18 +393,29 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
             error = f"分析中发起人权限失效：{toolbox.permission_lost}；之后的取数全部被拒绝"
         elif result.get("__interrupt__"):
             status = "waiting"
-            checkpoint.update(pending=result["__interrupt__"][0].value,
-                              proposal=state.get("proposal") or {}, snapshot=toolbox.snapshot(), resume_pending=False)
+            checkpoint.update(
+                pending=result["__interrupt__"][0].value,
+                proposal=state.get("proposal") or {},
+                snapshot=toolbox.snapshot(),
+                resume_pending=False,
+            )
             report = {"title": gettext("等待确认"), "incomplete": True, "notes": state.get("notes", [])}
         elif toolbox.clarification:  # 待澄清：用户可见的短问题与可恢复的上下文（问题、范围、已用预算）
             status = "clarify"
-            report = {"title": gettext("需要澄清"), "summary": toolbox.clarification["question"],
-                      "clarification": toolbox.clarification, "incomplete": True, "notes": state.get("notes", [])}
+            report = {
+                "title": gettext("需要澄清"),
+                "summary": toolbox.clarification["question"],
+                "clarification": toolbox.clarification,
+                "incomplete": True,
+                "notes": state.get("notes", []),
+            }
         else:
             status = "succeeded"
-        checkpoint.update(confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
-                          confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
-                          proposal=state.get("proposal") or checkpoint.get("proposal") or {})
+        checkpoint.update(
+            confirmed_scope=state.get("confirmed_scope") or checkpoint.get("confirmed_scope") or {},
+            confirmed_items=state.get("confirmed_items") or checkpoint.get("confirmed_items") or [],
+            proposal=state.get("proposal") or checkpoint.get("proposal") or {},
+        )
         if "inherited" in state:
             checkpoint["inherited"] = state["inherited"]
         if status != "waiting":
@@ -384,7 +463,9 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
             for candidate in candidates:
                 if candidate["source"]["checkpoint"] in ("understand", "interject") and not candidate["refs"]:
                     candidate["refs"] = _scope_metric_refs(session, checkpoint)
-            candidates = [c for c in candidates if c["refs"] or c["source"]["checkpoint"] not in ("understand", "interject")]
+            candidates = [
+                c for c in candidates if c["refs"] or c["source"]["checkpoint"] not in ("understand", "interject")
+            ]
         checkpoint["candidates"] = candidates
     run.checkpoint = checkpoint
     run.model_adapter = adapter
@@ -392,11 +473,20 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
     run.budget = budget.view()
     run.finished_at = None if status == "waiting" else utcnow()
     session.flush()
-    outcome = (finish(session, run) if finish else
-               _finish_task(session, run.task_id, run) if run.task_id else _outcome(run))
+    outcome = (
+        finish(session, run) if finish else _finish_task(session, run.task_id, run) if run.task_id else _outcome(run)
+    )
     _close_job(job, {**outcome, "analysis_run_id": run.id})
-    audit.record(session, user, "analysis.wait" if status == "waiting" else "analysis.finish", "analysis_run", run.id, status=run.status,
-                 verified=(run.verification or {}).get("ok"), queries=budget.used_queries)
+    audit.record(
+        session,
+        user,
+        "analysis.wait" if status == "waiting" else "analysis.finish",
+        "analysis_run",
+        run.id,
+        status=run.status,
+        verified=(run.verification or {}).get("ok"),
+        queries=budget.used_queries,
+    )
     session.commit()
     return {**outcome, "analysis_run_id": run.id}
 
@@ -462,8 +552,7 @@ def add_message(session: Session, user: User, run_id: str, text: str) -> Analysi
     message = AnalysisMessage(run_id=run.id, user_id=user.id, text=text)
     session.add(message)
     session.flush()
-    audit.record(session, user, "analysis.message", "analysis_run", run.id,
-                 message_id=message.id, text=message.text)
+    audit.record(session, user, "analysis.message", "analysis_run", run.id, message_id=message.id, text=message.text)
     return message
 
 
@@ -514,8 +603,12 @@ def compact_run(session: Session, user: User, run_id: str) -> AnalysisRun:
 
 
 def message_view(message: AnalysisMessage) -> dict[str, Any]:
-    return {"id": message.id, "text": message.text, "created_at": message.created_at.isoformat(),
-            "consumed_at": message.consumed_at.isoformat() if message.consumed_at else None}
+    return {
+        "id": message.id,
+        "text": message.text,
+        "created_at": message.created_at.isoformat(),
+        "consumed_at": message.consumed_at.isoformat() if message.consumed_at else None,
+    }
 
 
 def _feedback(proposal: dict, feedback: dict) -> dict:
@@ -525,8 +618,10 @@ def _feedback(proposal: dict, feedback: dict) -> dict:
     supplied = [d.get("item_id") for d in decisions]
     if len(supplied) != len(set(supplied)) or set(supplied) != expected:
         raise Invalid("请逐项确认或否决，且不要重复提交同一项")
-    return {"decisions": [{"item_id": d["item_id"], "decision": d["decision"]} for d in decisions],
-            "supplement": (feedback.get("supplement") or "").strip()}
+    return {
+        "decisions": [{"item_id": d["item_id"], "decision": d["decision"]} for d in decisions],
+        "supplement": (feedback.get("supplement") or "").strip(),
+    }
 
 
 def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
@@ -542,8 +637,7 @@ def _scope_metric_refs(session: Session, checkpoint: dict) -> list[dict]:
     return refs
 
 
-def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, checkpoint: dict,
-                             feedback: dict) -> None:
+def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, checkpoint: dict, feedback: dict) -> None:
     confirmed = {d["item_id"] for d in feedback["decisions"] if d["decision"] == "confirmed"}
     proposal = dict(checkpoint.get("proposal") or {})
     proposal["items"] = [dict(item) for item in proposal.get("items") or []]
@@ -560,9 +654,15 @@ def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, che
             continue
         spec = item["join"]
         try:
-            path = joins.propose(session, user, left_asset_id=assets[0].id, left_columns=spec["left_columns"],
-                                 right_asset_id=assets[1].id, right_columns=spec["right_columns"],
-                                 source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]})
+            path = joins.propose(
+                session,
+                user,
+                left_asset_id=assets[0].id,
+                left_columns=spec["left_columns"],
+                right_asset_id=assets[1].id,
+                right_columns=spec["right_columns"],
+                source={"run_id": run.id, "checkpoint": "assumptions", "user_text": item["content"]},
+            )
         except GovernanceError as exc:
             warning = f"这条关联没能提议为关联路径：{exc}"
             if warning not in warnings:
@@ -591,34 +691,50 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
             raise Invalid("请回答追问后继续分析")
         feedback = {"answer": answer}
         candidates = experiences.candidates_from_feedback(
-            run_id=run.id, proposal={}, feedback={"supplement": f"问题：{pending['question']} 回答：{answer}"},
-            refs=_scope_metric_refs(session, checkpoint), checkpoint="understand")
+            run_id=run.id,
+            proposal={},
+            feedback={"supplement": f"问题：{pending['question']} 回答：{answer}"},
+            refs=_scope_metric_refs(session, checkpoint),
+            checkpoint="understand",
+        )
     else:
         feedback = _feedback(checkpoint.get("proposal") or {}, feedback)
         _propose_confirmed_joins(session, user, run, checkpoint, feedback)
         candidates = experiences.candidates_from_feedback(
-            run_id=run.id, proposal=checkpoint.get("proposal") or {}, feedback=feedback,
-            refs=_scope_metric_refs(session, checkpoint))
+            run_id=run.id,
+            proposal=checkpoint.get("proposal") or {},
+            feedback=feedback,
+            refs=_scope_metric_refs(session, checkpoint),
+        )
     checkpoint.pop("pending")
     checkpoint.update(feedback=feedback, resume_pending=True)
     checkpoint["candidates"] = [*(checkpoint.get("candidates") or []), *candidates]
-    claimed = session.execute(update(AnalysisRun).where(AnalysisRun.id == run.id, AnalysisRun.status == "waiting")
-                              .values(status="queued", checkpoint=checkpoint, finished_at=None)).rowcount
+    claimed = session.execute(
+        update(AnalysisRun)
+        .where(AnalysisRun.id == run.id, AnalysisRun.status == "waiting")
+        .values(status="queued", checkpoint=checkpoint, finished_at=None)
+    ).rowcount
     if not claimed:
         raise Conflict("这次确认已提交")
     job_id = jobs._enqueue(session, "analysis_run", {"run_id": run.id}, user.id)
     run.status, run.checkpoint = "queued", checkpoint
     run.budget = {**(run.budget or {}), "job_id": job_id}
     run.finished_at = None
-    audit.record(session, user, "analysis.resume", "analysis_run", run.id,
-                 feedback=feedback, job_id=job_id)
+    audit.record(session, user, "analysis.resume", "analysis_run", run.id, feedback=feedback, job_id=job_id)
     session.flush()
     return run
 
 
-def followup_run(session: Session, user: User, run_id: str, text: str,
-                 confirmation_mode: str = "auto", *, model: dict | None = None,
-                 reasoning_effort: str | None = None) -> AnalysisRun:
+def followup_run(
+    session: Session,
+    user: User,
+    run_id: str,
+    text: str,
+    confirmation_mode: str = "auto",
+    *,
+    model: dict | None = None,
+    reasoning_effort: str | None = None,
+) -> AnalysisRun:
     parent = visible_run(session, user, run_id)
     if parent.user_id != user.id:
         raise Forbidden("只有发起人可以继续分析")
@@ -629,8 +745,9 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     text = text.strip()
     saved = parent.checkpoint or {}
     lookup = (parent.report or {}).get("kind") == "lookup"
-    scope = ((parent.plan or {}).get("scope") if lookup else
-             saved.get("confirmed_scope") or (parent.plan or {}).get("scope")) or {}
+    scope = (
+        (parent.plan or {}).get("scope") if lookup else saved.get("confirmed_scope") or (parent.plan or {}).get("scope")
+    ) or {}
     window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
     inherited_choice = None
     if model is None and reasoning_effort is None and parent.model_choice is not None:
@@ -638,9 +755,16 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
         inherited_choice = dict(parent.model_choice)
     elif model is None and parent.model_choice is not None:
         model = {key: parent.model_choice[key] for key in ("provider_id", "model_id")}
-    run = create_run(session, user, text if lookup or not scope else parent.question, window,
-                     confirmation_mode=confirmation_mode, model=model, reasoning_effort=reasoning_effort,
-                     _model_choice=inherited_choice)
+    run = create_run(
+        session,
+        user,
+        text if lookup or not scope else parent.question,
+        window,
+        confirmation_mode=confirmation_mode,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        _model_choice=inherited_choice,
+    )
     run.parent_run_id = parent.id
     run.conversation_id = parent.conversation_id or parent.id
     inherited = {"user_text": text}
@@ -651,20 +775,30 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     from avelis.analysis.conversation_context import build_followup_context
 
     inherited["conversation"] = build_followup_context(session, user, parent, run)
-    run.checkpoint = {**(run.checkpoint or {}), "inherited": inherited,
-                      "candidates": experiences.candidates_from_feedback(
-                          run_id=run.id, proposal={}, feedback={"challenge": text},
-                          refs=_scope_metric_refs(session, saved), checkpoint="conclusion")}
-    audit.record(session, user, "analysis.followup", "analysis_run", run.id,
-                 parent_run_id=parent.id, user_text=text)
+    run.checkpoint = {
+        **(run.checkpoint or {}),
+        "inherited": inherited,
+        "candidates": experiences.candidates_from_feedback(
+            run_id=run.id,
+            proposal={},
+            feedback={"challenge": text},
+            refs=_scope_metric_refs(session, saved),
+            checkpoint="conclusion",
+        ),
+    }
+    audit.record(session, user, "analysis.followup", "analysis_run", run.id, parent_run_id=parent.id, user_text=text)
     session.flush()
     return run
 
 
 def _conversation_runs(session: Session, root: AnalysisRun) -> list[AnalysisRun]:
-    return list(session.scalars(select(AnalysisRun).where(AnalysisRun.conversation_id == root.id)
-                               .order_by(AnalysisRun.parent_run_id.is_not(None),
-                                         AnalysisRun.created_at, AnalysisRun.id)))
+    return list(
+        session.scalars(
+            select(AnalysisRun)
+            .where(AnalysisRun.conversation_id == root.id)
+            .order_by(AnalysisRun.parent_run_id.is_not(None), AnalysisRun.created_at, AnalysisRun.id)
+        )
+    )
 
 
 def visible_conversation(session: Session, user: User, conversation_id: str) -> AnalysisRun:
@@ -684,35 +818,52 @@ def _owned_conversation(session: Session, user: User, conversation_id: str) -> A
     return root
 
 
-def conversation_view(session: Session, root: AnalysisRun, latest: AnalysisRun, turn_count: int,
-                      *, user: User) -> dict[str, Any]:
+def conversation_view(
+    session: Session, root: AnalysisRun, latest: AnalysisRun, turn_count: int, *, user: User
+) -> dict[str, Any]:
     title = run_view(session, root, full=False, user=user)["title"]
     activity = latest.finished_at or latest.started_at or latest.created_at
-    return {"id": root.id, "title": root.display_title or title or root.question,
-            "display_title": root.display_title, "question": root.question,
-            "latest_run_id": latest.id, "status": latest.status, "turn_count": turn_count,
-            "archived_at": root.archived_at.isoformat() if root.archived_at else None,
-            "created_at": root.created_at.isoformat(), "updated_at": activity.isoformat(),
-            "started_at": latest.started_at.isoformat() if latest.started_at else None,
-            "finished_at": latest.finished_at.isoformat() if latest.finished_at else None}
+    return {
+        "id": root.id,
+        "title": root.display_title or title or root.question,
+        "display_title": root.display_title,
+        "question": root.question,
+        "latest_run_id": latest.id,
+        "status": latest.status,
+        "turn_count": turn_count,
+        "archived_at": root.archived_at.isoformat() if root.archived_at else None,
+        "created_at": root.created_at.isoformat(),
+        "updated_at": activity.isoformat(),
+        "started_at": latest.started_at.isoformat() if latest.started_at else None,
+        "finished_at": latest.finished_at.isoformat() if latest.finished_at else None,
+    }
 
 
 def list_conversations(session: Session, user: User, *, archived: bool = False) -> list[dict[str, Any]]:
     activity = func.coalesce(AnalysisRun.finished_at, AnalysisRun.started_at, AnalysisRun.created_at)
     roots = select(AnalysisRun.id).where(
-        AnalysisRun.user_id == user.id, AnalysisRun.conversation_id == AnalysisRun.id,
-        AnalysisRun.archived_at.is_not(None) if archived else AnalysisRun.archived_at.is_(None))
-    groups = session.execute(select(AnalysisRun.conversation_id, func.max(activity).label("activity"),
-                                    func.count().label("turn_count"))
-                             .where(AnalysisRun.conversation_id.in_(roots))
-                             .group_by(AnalysisRun.conversation_id)
-                             .order_by(func.max(activity).desc(), AnalysisRun.conversation_id).limit(100))
+        AnalysisRun.user_id == user.id,
+        AnalysisRun.conversation_id == AnalysisRun.id,
+        AnalysisRun.archived_at.is_not(None) if archived else AnalysisRun.archived_at.is_(None),
+    )
+    groups = session.execute(
+        select(AnalysisRun.conversation_id, func.max(activity).label("activity"), func.count().label("turn_count"))
+        .where(AnalysisRun.conversation_id.in_(roots))
+        .group_by(AnalysisRun.conversation_id)
+        .order_by(func.max(activity).desc(), AnalysisRun.conversation_id)
+        .limit(100)
+    )
     conversations = []
     for conversation_id, _, turn_count in groups:
         root = session.get(AnalysisRun, conversation_id)
-        latest = session.scalar(select(AnalysisRun).where(AnalysisRun.conversation_id == conversation_id)
-                                .order_by(AnalysisRun.parent_run_id.is_not(None).desc(),
-                                          AnalysisRun.created_at.desc(), AnalysisRun.id.desc()).limit(1))
+        latest = session.scalar(
+            select(AnalysisRun)
+            .where(AnalysisRun.conversation_id == conversation_id)
+            .order_by(
+                AnalysisRun.parent_run_id.is_not(None).desc(), AnalysisRun.created_at.desc(), AnalysisRun.id.desc()
+            )
+            .limit(1)
+        )
         conversations.append(conversation_view(session, root, latest, turn_count, user=user))
     return conversations
 
@@ -720,8 +871,10 @@ def list_conversations(session: Session, user: User, *, archived: bool = False) 
 def get_conversation(session: Session, user: User, conversation_id: str) -> dict[str, Any]:
     root = visible_conversation(session, user, conversation_id)
     runs = _conversation_runs(session, root)
-    return {**conversation_view(session, root, runs[-1], len(runs), user=user),
-            "runs": [run_view(session, run, full=False, user=user) for run in runs]}
+    return {
+        **conversation_view(session, root, runs[-1], len(runs), user=user),
+        "runs": [run_view(session, run, full=False, user=user) for run in runs],
+    }
 
 
 def rename_conversation(session: Session, user: User, conversation_id: str, display_title: str) -> dict[str, Any]:
@@ -731,16 +884,29 @@ def rename_conversation(session: Session, user: User, conversation_id: str, disp
         raise Invalid("对话显示名最多 80 字")
     previous_title = root.display_title
     root.display_title = display_title or None
-    audit.record(session, user, "analysis.conversation.rename", "analysis_run", root.id,
-                 previous_title=previous_title, display_title=root.display_title)
+    audit.record(
+        session,
+        user,
+        "analysis.conversation.rename",
+        "analysis_run",
+        root.id,
+        previous_title=previous_title,
+        display_title=root.display_title,
+    )
     session.flush()
     return get_conversation(session, user, root.id)
 
 
 def _inactive_conversation_runs(session: Session, root: AnalysisRun) -> list[AnalysisRun]:
-    runs = list(session.scalars(select(AnalysisRun).where(AnalysisRun.conversation_id == root.id)
-                               .order_by(AnalysisRun.created_at, AnalysisRun.id).with_for_update()
-                               .execution_options(populate_existing=True)))
+    runs = list(
+        session.scalars(
+            select(AnalysisRun)
+            .where(AnalysisRun.conversation_id == root.id)
+            .order_by(AnalysisRun.created_at, AnalysisRun.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
     if any(run.status in {"queued", "running", "waiting"} for run in runs):
         raise Conflict("对话中有正在运行或等待确认的分析，请先停止再操作")
     return runs
@@ -769,8 +935,17 @@ def delete_conversation(session: Session, user: User, conversation_id: str) -> N
     for run_id in run_ids:
         saver.delete_thread(f"analysis:{run_id}")
     title = root.display_title or run_view(session, root, full=False, user=user)["title"] or root.question
-    audit.record(session, user, "analysis.conversation.delete", "analysis_run", root.id,
-                 conversation_id=root.id, turn_count=len(runs), checkpoint_threads=len(run_ids), title=title)
+    audit.record(
+        session,
+        user,
+        "analysis.conversation.delete",
+        "analysis_run",
+        root.id,
+        conversation_id=root.id,
+        turn_count=len(runs),
+        checkpoint_threads=len(run_ids),
+        title=title,
+    )
     session.execute(update(AnalysisTask).where(AnalysisTask.last_run_id.in_(run_ids)).values(last_run_id=None))
     links = [f"/analysis/runs/{run_id}" for run_id in run_ids]
     links.append(f"/analysis/conversations/{root.id}")
@@ -784,12 +959,20 @@ def delete_conversation(session: Session, user: User, conversation_id: str) -> N
 
 # --- 任务与定时 ---------------------------------------------------------------------
 
-def create_task(session: Session, user: User, title: str, question: str, window: dict | None,
-                schedule_cron: str | None) -> AnalysisTask:
+
+def create_task(
+    session: Session, user: User, title: str, question: str, window: dict | None, schedule_cron: str | None
+) -> AnalysisTask:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     resolve_window(window, date.today())  # 先校验
-    task = AnalysisTask(title=title.strip() or question[:60], question=question.strip(), owner_id=user.id,
-                        window=window or {}, schedule_cron=schedule_cron or None, status="active")
+    task = AnalysisTask(
+        title=title.strip() or question[:60],
+        question=question.strip(),
+        owner_id=user.id,
+        window=window or {},
+        schedule_cron=schedule_cron or None,
+        status="active",
+    )
     if task.schedule_cron:
         task.next_run_at = next_run(task.schedule_cron, utcnow())
     session.add(task)
@@ -813,11 +996,18 @@ def update_task(session: Session, user: User, task: AnalysisTask, changes: dict)
         task.paused_reason = None if task.status == "active" else (changes.get("reason") or "手动暂停")
     if "title" in changes and changes["title"]:
         task.title = changes["title"]
-    task.next_run_at = next_run(task.schedule_cron, utcnow()) if task.schedule_cron and task.status == "active" \
-        else None
+    task.next_run_at = (
+        next_run(task.schedule_cron, utcnow()) if task.schedule_cron and task.status == "active" else None
+    )
     task.updated_at = utcnow()
-    audit.record(session, user, "analysis_task.update", "analysis_task", task.id, **{
-        k: v for k, v in changes.items() if k in ("status", "schedule_cron")})
+    audit.record(
+        session,
+        user,
+        "analysis_task.update",
+        "analysis_task",
+        task.id,
+        **{k: v for k, v in changes.items() if k in ("status", "schedule_cron")},
+    )
     return task
 
 
@@ -865,8 +1055,14 @@ def _finish_task(session: Session, task_id: str, run: AnalysisRun) -> dict[str, 
         body = (run.report or {}).get("summary")
     else:
         title, body = f"分析完成：{task.title}", (run.report or {}).get("summary")
-    _notify(session, task.owner_id, "analysis_finished" if run.status == "succeeded" else "analysis_failed",
-            title, body, f"/analysis/runs/{run.id}")
+    _notify(
+        session,
+        task.owner_id,
+        "analysis_finished" if run.status == "succeeded" else "analysis_failed",
+        title,
+        body,
+        f"/analysis/runs/{run.id}",
+    )
     return {"status": "succeeded" if run.status == "succeeded" else "failed", "reason": run.error}
 
 
@@ -874,8 +1070,12 @@ def _task_notified(session: Session, run: AnalysisRun) -> bool:
     if session.scalar(select(Notification.id).where(Notification.link == f"/analysis/runs/{run.id}").limit(1)):
         return True
     task = session.get(AnalysisTask, run.task_id)
-    return bool(task and task.status == "paused" and task.last_run_id == run.id
-                and task.updated_at >= (run.finished_at or run.created_at))
+    return bool(
+        task
+        and task.status == "paused"
+        and task.last_run_id == run.id
+        and task.updated_at >= (run.finished_at or run.created_at)
+    )
 
 
 def run_task(task_id: str, trigger: str, job_id: str, attempt: int) -> dict[str, Any]:
@@ -922,16 +1122,29 @@ def schedule_due() -> list[str]:
     queued = []
     with session_scope() as session:
         now = utcnow()
-        for task in session.scalars(select(AnalysisTask).where(
-                AnalysisTask.status == "active", AnalysisTask.next_run_at.is_not(None),
-                AnalysisTask.next_run_at <= now).order_by(AnalysisTask.id).with_for_update(skip_locked=True)):
-            pending = session.scalar(select(Job.id).where(Job.kind == "analysis", Job.status.in_(("queued", "running")),
-                                                          Job.payload["task_id"].as_string() == task.id).limit(1))
+        for task in session.scalars(
+            select(AnalysisTask)
+            .where(
+                AnalysisTask.status == "active", AnalysisTask.next_run_at.is_not(None), AnalysisTask.next_run_at <= now
+            )
+            .order_by(AnalysisTask.id)
+            .with_for_update(skip_locked=True)
+        ):
+            pending = session.scalar(
+                select(Job.id)
+                .where(
+                    Job.kind == "analysis",
+                    Job.status.in_(("queued", "running")),
+                    Job.payload["task_id"].as_string() == task.id,
+                )
+                .limit(1)
+            )
             task.next_run_at = next_run(task.schedule_cron, now)
             if pending:
                 continue
-            queued.append(jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "schedule"},
-                                        task.owner_id))
+            queued.append(
+                jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "schedule"}, task.owner_id)
+            )
     for job_id in queued:
         jobs._wake(job_id)
     return queued
@@ -951,28 +1164,57 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
 
     checkpoint = run.checkpoint or {}
     conversation_id = run.conversation_id or run.id
-    turn = 1 if conversation_id == run.id else 1 + session.scalar(select(func.count()).select_from(AnalysisRun).where(
-        AnalysisRun.conversation_id == conversation_id,
-        AnalysisRun.parent_run_id.is_not(None),
-        or_(AnalysisRun.created_at < run.created_at,
-            (AnalysisRun.created_at == run.created_at) & (AnalysisRun.id <= run.id))))
-    data = {"id": run.id, "task_id": run.task_id, "parent_run_id": run.parent_run_id,
-            "conversation_id": conversation_id, "turn": turn,
-            "confirmation_mode": run.confirmation_mode, "question": run.question, "trigger": run.trigger,
-            "status": run.status, "window": run.window, "pending": checkpoint.get("pending"),
-            "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,
-            "reasoning_effort": run.reasoning_effort, "model_choice": run.model_choice,
-            "error": run.error, "created_at": run.created_at.isoformat(),
-            "started_at": run.started_at.isoformat() if run.started_at else None,
-            "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-            "title": (run.report or {}).get("title"), "verified": (run.verification or {}).get("ok"), "messages": []}
+    turn = (
+        1
+        if conversation_id == run.id
+        else 1
+        + session.scalar(
+            select(func.count())
+            .select_from(AnalysisRun)
+            .where(
+                AnalysisRun.conversation_id == conversation_id,
+                AnalysisRun.parent_run_id.is_not(None),
+                or_(
+                    AnalysisRun.created_at < run.created_at,
+                    (AnalysisRun.created_at == run.created_at) & (AnalysisRun.id <= run.id),
+                ),
+            )
+        )
+    )
+    data = {
+        "id": run.id,
+        "task_id": run.task_id,
+        "parent_run_id": run.parent_run_id,
+        "conversation_id": conversation_id,
+        "turn": turn,
+        "confirmation_mode": run.confirmation_mode,
+        "question": run.question,
+        "trigger": run.trigger,
+        "status": run.status,
+        "window": run.window,
+        "pending": checkpoint.get("pending"),
+        "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"},
+        "model_adapter": run.model_adapter,
+        "reasoning_effort": run.reasoning_effort,
+        "model_choice": run.model_choice,
+        "error": run.error,
+        "created_at": run.created_at.isoformat(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "title": (run.report or {}).get("title"),
+        "verified": (run.verification or {}).get("ok"),
+        "messages": [],
+    }
     if not full:
         title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
         if user is not None and title_refs:
             datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
             known = {f"D{d.seq}": d for d in datasets}
-            restricted_refs = {f"D{d.seq}" for d in datasets if f"D{d.seq}" in title_refs
-                               and not can_read_dataset(session, user, d, known)}
+            restricted_refs = {
+                f"D{d.seq}"
+                for d in datasets
+                if f"D{d.seq}" in title_refs and not can_read_dataset(session, user, d, known)
+            }
             data["title"] = restrict_report(run.report or {}, restricted_refs).get("title")
         return data
     lookup_restricted = False
@@ -980,21 +1222,29 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         from avelis.api.ask import answer_view
 
         source = session.get(Answer, run.report.get("answer_id"))
-        lookup_restricted = source is None or not can_read_dataset(session, user, AnalysisDataset(
-            kind="governed", answer_id=source.id, meta={"metric_version_ids": source.metric_version_ids}))
+        lookup_restricted = source is None or not can_read_dataset(
+            session,
+            user,
+            AnalysisDataset(
+                kind="governed", answer_id=source.id, meta={"metric_version_ids": source.metric_version_ids}
+            ),
+        )
         if not lookup_restricted:
-            answer = session.scalar(select(Answer).where(
-                Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id))
+            answer = session.scalar(
+                select(Answer).where(Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id)
+            )
             if answer is not None:
                 data["answer"] = answer_view(answer, session=session)
     steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
-    datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)
-                                    .order_by(AnalysisDataset.seq)))
+    datasets = list(
+        session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id).order_by(AnalysisDataset.seq))
+    )
     known = {f"D{d.seq}": d for d in datasets}
     restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
     readable = {d.id for d in datasets} - restricted
-    report = restrict_report(run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted},
-                             lookup_restricted=lookup_restricted)
+    report = restrict_report(
+        run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted}, lookup_restricted=lookup_restricted
+    )
     report = report_dimension_labels(session, report, [d for d in datasets if d.id in readable])
     metadata = {d.id: dataset_meta(session, d) for d in datasets if d.id in readable}
     has_restricted = bool(restricted or lookup_restricted)
@@ -1015,20 +1265,28 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         if not has_restricted or step.kind == "user":
             return args
         # 后续步骤可能复述任意来源的数据，只保留明确的结构字段。
-        projected = {key: value for key, value in args.items()
-                     if key in {"code", "metric_code"} and is_metric_code(value)}
+        projected = {
+            key: value for key, value in args.items() if key in {"code", "metric_code"} and is_metric_code(value)
+        }
         codes = args.get("metric_codes")
         if isinstance(codes, list) and all(is_metric_code(code) for code in codes):
             projected["metric_codes"] = codes
-        projected.update({key: value for key, value in args.items()
-                          if key in {"start_date", "end_date", "compare_start", "compare_end"}
-                          and is_window_date(value)})
-        projected.update({key: args[key] for key in ("dataset", "ref")
-                          if isinstance(args.get(key), str) and args[key] in known})
+        projected.update(
+            {
+                key: value
+                for key, value in args.items()
+                if key in {"start_date", "end_date", "compare_start", "compare_end"} and is_window_date(value)
+            }
+        )
+        projected.update(
+            {key: args[key] for key in ("dataset", "ref") if isinstance(args.get(key), str) and args[key] in known}
+        )
         if isinstance(args.get("window"), dict):
-            projected["window"] = {key: value for key, value in args["window"].items()
-                                   if key in {"start", "end", "compare_start", "compare_end"}
-                                   and is_window_date(value)}
+            projected["window"] = {
+                key: value
+                for key, value in args["window"].items()
+                if key in {"start", "end", "compare_start", "compare_end"} and is_window_date(value)
+            }
         return projected
 
     def step_output(step) -> dict:
@@ -1039,35 +1297,62 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         # 模型与其他步骤可能复述任意来源；工具只有明确关联可读数据集时才保留输出。
         return {"rows": [], "restricted": True} if step.kind == "tool" else {"restricted": True}
 
-    messages = session.scalars(select(AnalysisMessage).where(AnalysisMessage.run_id == run.id)
-                               .order_by(AnalysisMessage.created_at, AnalysisMessage.id))
-    data.update(plan=run.plan, report=report, title=report.get("title"),
-                verification=restrict_verification(run.verification or {}, report),
-                messages=[message_view(message) for message in messages],
-                proposal=checkpoint.get("proposal"), experience_candidates=checkpoint.get("candidates") or [],
-                join_candidates=checkpoint.get("join_candidates") or [],
-                checkpoint_warnings=checkpoint.get("warnings") or [],
-                confirmed_scope=checkpoint.get("confirmed_scope") or {},
-                confirmed_items=checkpoint.get("confirmed_items") or [],
-                steps=[{"seq": s.seq, "kind": s.kind, "tool": s.tool,
-                        "args": step_args(s),
-                        "reason": None if has_restricted and s.kind != "user" else s.reason,
-                        "status": s.status,
-                        "output": step_output(s),
-                        "dataset": _ref(session, s.dataset_id),
-                        "duration_ms": s.duration_ms, "at": s.created_at.isoformat()} for s in steps],
-                datasets=[{"ref": f"D{d.seq}", "seq": d.seq, "kind": d.kind, "title": d.title, "answer_id": d.answer_id,
-                           "inputs": d.inputs, "columns": d.columns,
-                           "rows": [] if d.id in restricted else d.rows[:50], "row_count": len(d.rows),
-                           **({"restricted": True} if d.id in restricted else {}),
-                           "truncated": d.truncated, "summary": None if d.id in restricted else d.meta.get("summary"),
-                           "sql": None if d.id in restricted else d.meta.get("sql"),
-                           "metric_version_ids": d.meta.get("metric_version_ids", []),
-                           "time_column": d.meta.get("time_column"),
-                           "units": metadata[d.id].get("units", {}) if d.id in readable else {},
-                           "polarity": metadata[d.id].get("polarity", {}) if d.id in readable else {},
-                           "column_roles": build_column_roles(d.columns, metadata[d.id]) if d.id in readable else {}}
-                          for d in datasets])
+    messages = session.scalars(
+        select(AnalysisMessage)
+        .where(AnalysisMessage.run_id == run.id)
+        .order_by(AnalysisMessage.created_at, AnalysisMessage.id)
+    )
+    data.update(
+        plan=run.plan,
+        report=report,
+        title=report.get("title"),
+        verification=restrict_verification(run.verification or {}, report),
+        messages=[message_view(message) for message in messages],
+        proposal=checkpoint.get("proposal"),
+        experience_candidates=checkpoint.get("candidates") or [],
+        join_candidates=checkpoint.get("join_candidates") or [],
+        checkpoint_warnings=checkpoint.get("warnings") or [],
+        confirmed_scope=checkpoint.get("confirmed_scope") or {},
+        confirmed_items=checkpoint.get("confirmed_items") or [],
+        steps=[
+            {
+                "seq": s.seq,
+                "kind": s.kind,
+                "tool": s.tool,
+                "args": step_args(s),
+                "reason": None if has_restricted and s.kind != "user" else s.reason,
+                "status": s.status,
+                "output": step_output(s),
+                "dataset": _ref(session, s.dataset_id),
+                "duration_ms": s.duration_ms,
+                "at": s.created_at.isoformat(),
+            }
+            for s in steps
+        ],
+        datasets=[
+            {
+                "ref": f"D{d.seq}",
+                "seq": d.seq,
+                "kind": d.kind,
+                "title": d.title,
+                "answer_id": d.answer_id,
+                "inputs": d.inputs,
+                "columns": d.columns,
+                "rows": [] if d.id in restricted else d.rows[:50],
+                "row_count": len(d.rows),
+                **({"restricted": True} if d.id in restricted else {}),
+                "truncated": d.truncated,
+                "summary": None if d.id in restricted else d.meta.get("summary"),
+                "sql": None if d.id in restricted else d.meta.get("sql"),
+                "metric_version_ids": d.meta.get("metric_version_ids", []),
+                "time_column": d.meta.get("time_column"),
+                "units": metadata[d.id].get("units", {}) if d.id in readable else {},
+                "polarity": metadata[d.id].get("polarity", {}) if d.id in readable else {},
+                "column_roles": build_column_roles(d.columns, metadata[d.id]) if d.id in readable else {},
+            }
+            for d in datasets
+        ],
+    )
     return data
 
 
@@ -1081,10 +1366,16 @@ def _ref(session: Session, dataset_id: str | None) -> str | None:
 
 
 def task_view(task: AnalysisTask) -> dict[str, Any]:
-    return {"id": task.id, "title": task.title, "question": task.question, "owner_id": task.owner_id,
-            "window": task.window, "schedule_cron": task.schedule_cron, "status": task.status,
-            "paused_reason": task.paused_reason, "last_run_id": task.last_run_id,
-            "next_run_at": task.next_run_at.isoformat() if task.next_run_at else None,
-            "created_at": task.created_at.isoformat()}
-
-
+    return {
+        "id": task.id,
+        "title": task.title,
+        "question": task.question,
+        "owner_id": task.owner_id,
+        "window": task.window,
+        "schedule_cron": task.schedule_cron,
+        "status": task.status,
+        "paused_reason": task.paused_reason,
+        "last_run_id": task.last_run_id,
+        "next_run_at": task.next_run_at.isoformat() if task.next_run_at else None,
+        "created_at": task.created_at.isoformat(),
+    }

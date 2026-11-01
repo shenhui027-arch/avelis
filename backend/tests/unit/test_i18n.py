@@ -26,13 +26,28 @@ from avelis.i18n import Msg, current_locale, gettext, locale_context, negotiate_
 SOURCE = Path(__file__).resolve().parents[2] / "src" / "avelis"
 
 
-@pytest.mark.parametrize("header,expected", [
-    ("zh-TW", "zh-TW"), ("zh-HK", "zh-TW"), ("zh-Hant", "zh-TW"), ("zh-Hant-HK", "zh-TW"),
-    ("zh-Hant-CN", "zh-TW"), ("zh", "zh-CN"), ("zh-SG", "zh-CN"), ("zh-Hans", "zh-CN"),
-    ("en-US", "en"), ("fr", "zh-CN"), ("", "zh-CN"), (None, "zh-CN"),
-    ("fr;q=1,en-US;q=0.8,zh;q=0.4", "en"), ("en;q=0.2,zh-HK;q=0.9", "zh-TW"),
-    ("en;q=0,zh-TW;q=0.1", "zh-TW"), ("en;q=oops", "zh-CN"), ("*", "zh-CN"),
-])
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("zh-TW", "zh-TW"),
+        ("zh-HK", "zh-TW"),
+        ("zh-Hant", "zh-TW"),
+        ("zh-Hant-HK", "zh-TW"),
+        ("zh-Hant-CN", "zh-TW"),
+        ("zh", "zh-CN"),
+        ("zh-SG", "zh-CN"),
+        ("zh-Hans", "zh-CN"),
+        ("en-US", "en"),
+        ("fr", "zh-CN"),
+        ("", "zh-CN"),
+        (None, "zh-CN"),
+        ("fr;q=1,en-US;q=0.8,zh;q=0.4", "en"),
+        ("en;q=0.2,zh-HK;q=0.9", "zh-TW"),
+        ("en;q=0,zh-TW;q=0.1", "zh-TW"),
+        ("en;q=oops", "zh-CN"),
+        ("*", "zh-CN"),
+    ],
+)
 def test_language_negotiation(header, expected):
     assert negotiate_locale(header) == expected
 
@@ -77,11 +92,14 @@ def application(monkeypatch):
     return app
 
 
-@pytest.mark.parametrize("locale,constant,template", [
-    ("zh-CN", "数据源不存在", "时间窗口无效：模型名稱 / SQL 原文"),
-    ("zh-TW", "資料來源不存在", "時間範圍無效：模型名稱 / SQL 原文"),
-    ("en", "Data source not found", "Invalid time window: 模型名稱 / SQL 原文"),
-])
+@pytest.mark.parametrize(
+    "locale,constant,template",
+    [
+        ("zh-CN", "数据源不存在", "时间窗口无效：模型名稱 / SQL 原文"),
+        ("zh-TW", "資料來源不存在", "時間範圍無效：模型名稱 / SQL 原文"),
+        ("en", "Data source not found", "Invalid time window: 模型名稱 / SQL 原文"),
+    ],
+)
 def test_request_error_translation(application, locale, constant, template):
     with TestClient(application) as client:
         headers = {"Accept-Language": locale}
@@ -113,7 +131,9 @@ def test_special_errors_and_validation(application):
             capability = client.get("/i18n/special/capability", headers=headers).json()
             assert capability == {"detail": expected_capability, "capability": "query"}
             assert client.get("/i18n/special/lock", headers=headers).json() == {
-                "detail": expected_lock, "lock": "resource-key"}
+                "detail": expected_lock,
+                "lock": "resource-key",
+            }
             validation = client.get("/i18n/validation?count=wrong", headers=headers)
             assert validation.status_code == 422
             assert validation.json()["detail"][0]["type"] == "int_parsing"
@@ -159,8 +179,9 @@ def test_redacted_model_errors_keep_original_truncation(monkeypatch, invalid_jso
     def fail(*_, **__):
         raise error
 
-    monkeypatch.setattr(modelcfg.httpx, "get", (lambda *_, **__: SimpleNamespace(status_code=200, json=fail))
-                        if invalid_json else fail)
+    monkeypatch.setattr(
+        modelcfg.httpx, "get", (lambda *_, **__: SimpleNamespace(status_code=200, json=fail)) if invalid_json else fail
+    )
     prefix = "获取模型列表失败：" if invalid_json else "无法连接 https://offline.invalid/models："
     expected = modelcfg.redact_error(f"{prefix}{type(error).__name__}: {error}", key)
     with pytest.raises(Conflict) as caught:
@@ -188,8 +209,9 @@ def test_simultaneous_requests_keep_locale_isolated(application):
 
     async def request():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="http://test") as client:
-            responses = await asyncio.gather(*[
-                client.get("/i18n/concurrent", headers={"Accept-Language": locale}) for locale in ("en", "zh-TW")])
+            responses = await asyncio.gather(
+                *[client.get("/i18n/concurrent", headers={"Accept-Language": locale}) for locale in ("en", "zh-TW")]
+            )
         return [response.json() for response in responses]
 
     assert asyncio.run(request()) == [
@@ -206,18 +228,46 @@ def _literal(node):
 def _source_messages():
     """使用 AST 收集多行常量和位置参数，避免目录检查依赖代码排版。"""
     messages = set()
-    dictionaries = {"TYPE_LABEL", "DATA_SOURCE_LABEL", "REPORT_STATUS", "MEASURE_LABEL", "CALC_COLUMN_LABELS",
-                    "CALC_PERIOD_LABELS", "FIELD_LABEL", "CONCLUSION", "CAPABILITY_LABEL", "SOURCE_COLUMNS",
-                    "PURPOSES", "EFFORT_LABELS", "BRIEF_SOURCE_NOTE", "BRIEF_EXPLORE_NOTE", "EXPLORE_MARK",
-                    "RESTRICTED_NOTE"}
+    dictionaries = {
+        "TYPE_LABEL",
+        "DATA_SOURCE_LABEL",
+        "REPORT_STATUS",
+        "MEASURE_LABEL",
+        "CALC_COLUMN_LABELS",
+        "CALC_PERIOD_LABELS",
+        "FIELD_LABEL",
+        "CONCLUSION",
+        "CAPABILITY_LABEL",
+        "SOURCE_COLUMNS",
+        "PURPOSES",
+        "EFFORT_LABELS",
+        "BRIEF_SOURCE_NOTE",
+        "BRIEF_EXPLORE_NOTE",
+        "EXPLORE_MARK",
+        "RESTRICTED_NOTE",
+    }
     for path in SOURCE.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             candidates = []
             if isinstance(node, ast.Call):
                 name = node.func.id if isinstance(node.func, ast.Name) else ""
-                if name in {"NotFound", "Forbidden", "Conflict", "Invalid", "GovernanceError", "Msg", "gettext",
-                            "_404", "_unauthorized", "_answer_text"} and node.args:
+                if (
+                    name
+                    in {
+                        "NotFound",
+                        "Forbidden",
+                        "Conflict",
+                        "Invalid",
+                        "GovernanceError",
+                        "Msg",
+                        "gettext",
+                        "_404",
+                        "_unauthorized",
+                        "_answer_text",
+                    }
+                    and node.args
+                ):
                     candidates.append(node.args[0])
                 if name == "HTTPException":
                     candidates.extend(k.value for k in node.keywords if k.arg == "detail")
@@ -228,8 +278,9 @@ def _source_messages():
                     candidates.append(node.args[1])
                 if name in {"OptionField", "Engine"}:
                     candidates.extend(k.value for k in node.keywords if k.arg in {"label", "hint", "note"})
-            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in dictionaries
-                                                    for t in node.targets):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id in dictionaries for t in node.targets
+            ):
                 candidates.extend(n for n in ast.walk(node.value) if isinstance(n, ast.Constant))
             for candidate in candidates:
                 # 条件表达式中的两个固定分支也都必须有译文。
@@ -281,13 +332,24 @@ def test_generated_grain_notes_and_event_labels_translate_at_api_exit():
         assert translate(note) == "透傳自 db_a.table_a"
 
 
-@pytest.mark.parametrize("locale,label,invalid,missing", [
-    ("zh-CN", "认证方式", "Hive 数据源配置取值不合法：认证方式（可选 NONE、NOSASL、LDAP）", "Hive 数据源缺少配置：采集的库"),
-    ("zh-TW", "認證方式", "Hive 資料來源設定值不合法：認證方式（可選 NONE、NOSASL、LDAP）", None),
-    ("en", "Authentication",
-     "The Hive data source has invalid settings: Authentication (choose from NONE, NOSASL, LDAP)",
-     "The Hive data source is missing settings: Databases to collect"),
-])
+@pytest.mark.parametrize(
+    "locale,label,invalid,missing",
+    [
+        (
+            "zh-CN",
+            "认证方式",
+            "Hive 数据源配置取值不合法：认证方式（可选 NONE、NOSASL、LDAP）",
+            "Hive 数据源缺少配置：采集的库",
+        ),
+        ("zh-TW", "認證方式", "Hive 資料來源設定值不合法：認證方式（可選 NONE、NOSASL、LDAP）", None),
+        (
+            "en",
+            "Authentication",
+            "The Hive data source has invalid settings: Authentication (choose from NONE, NOSASL, LDAP)",
+            "The Hive data source is missing settings: Databases to collect",
+        ),
+    ],
+)
 def test_engine_options_and_option_errors_follow_request_language(monkeypatch, locale, label, invalid, missing):
     from avelis.api import datasources as api
 

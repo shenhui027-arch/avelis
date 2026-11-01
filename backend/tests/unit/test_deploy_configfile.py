@@ -107,7 +107,10 @@ def test_explicit_missing_or_malformed_config_is_a_config_error(monkeypatch, tmp
 
 
 def test_toml_types_are_flattened_and_reuse_settings_parsers(monkeypatch, tmp_path):
-    write_toml(monkeypatch, tmp_path, '''
+    write_toml(
+        monkeypatch,
+        tmp_path,
+        """
 [server]
 port = 8123
 cors_origins = ["https://one.example", "https://two.example"]
@@ -116,7 +119,8 @@ auto_migrate = true
 [analysis]
 retrieval = true
 material_change_ratio = 2
-''')
+""",
+    )
     value = config.build_settings()
     assert value.port == 8123 and value.auto_migrate is True and value.analysis_retrieval is True
     assert value.material_change_ratio == 2.0
@@ -125,25 +129,31 @@ material_change_ratio = 2
     assert value.env["AVELIS_CORS_ORIGINS"] == "https://one.example,https://two.example"
 
 
-@pytest.mark.parametrize(("content", "key"), [
-    ('[server]\nport = "abc"\n', "AVELIS_PORT"),
-    ("[server]\nport = true\n", "AVELIS_PORT"),
-    ('[server]\ncors_origins = "https://one.example"\n', "AVELIS_CORS_ORIGINS"),
-    ('[server]\ncors_origins = ["https://one.example", 1]\n', "AVELIS_CORS_ORIGINS"),
-    ("[server]\nhost = 12\n", "AVELIS_HOST"),
-    ('[bootstrap]\nauto_migrate = "yes"\n', "AVELIS_AUTO_MIGRATE"),
-    ("[analysis]\nmaterial_change_ratio = true\n", "AVELIS_MATERIAL_CHANGE_RATIO"),
-])
+@pytest.mark.parametrize(
+    ("content", "key"),
+    [
+        ('[server]\nport = "abc"\n', "AVELIS_PORT"),
+        ("[server]\nport = true\n", "AVELIS_PORT"),
+        ('[server]\ncors_origins = "https://one.example"\n', "AVELIS_CORS_ORIGINS"),
+        ('[server]\ncors_origins = ["https://one.example", 1]\n', "AVELIS_CORS_ORIGINS"),
+        ("[server]\nhost = 12\n", "AVELIS_HOST"),
+        ('[bootstrap]\nauto_migrate = "yes"\n', "AVELIS_AUTO_MIGRATE"),
+        ("[analysis]\nmaterial_change_ratio = true\n", "AVELIS_MATERIAL_CHANGE_RATIO"),
+    ],
+)
 def test_wrong_toml_types_are_rejected(monkeypatch, tmp_path, content, key):
     write_toml(monkeypatch, tmp_path, content)
     with pytest.raises(config.ConfigError, match=key):
         config.build_settings()
 
 
-@pytest.mark.parametrize(("content", "unknown", "suggestion"), [
-    ("[server]\nporrt = 8080\n", "porrt", "port"),
-    ("[servre]\nport = 8080\n", "servre", "server"),
-])
+@pytest.mark.parametrize(
+    ("content", "unknown", "suggestion"),
+    [
+        ("[server]\nporrt = 8080\n", "porrt", "port"),
+        ("[servre]\nport = 8080\n", "servre", "server"),
+    ],
+)
 def test_unknown_toml_names_include_a_close_suggestion(monkeypatch, tmp_path, content, unknown, suggestion):
     write_toml(monkeypatch, tmp_path, content)
     with pytest.raises(config.ConfigError) as caught:
@@ -209,12 +219,16 @@ def test_sensitive_plaintext_and_file_conflict_in_the_same_layer(monkeypatch, tm
     secret_file = tmp_path / "credential"
     secret_file.write_text("file-password", encoding="utf-8")
     if layer == "配置文件":
-        write_toml(monkeypatch, tmp_path,
-                   f'[database]\npassword = "plain-password"\npassword_file = {secret_file.as_posix()!r}\n')
+        write_toml(
+            monkeypatch,
+            tmp_path,
+            f'[database]\npassword = "plain-password"\npassword_file = {secret_file.as_posix()!r}\n',
+        )
     elif layer == ".env":
         dotenv = tmp_path / "test.env"
-        dotenv.write_text(f"AVELIS_DB_PASSWORD=plain-password\nAVELIS_DB_PASSWORD_FILE={secret_file}\n",
-                          encoding="utf-8")
+        dotenv.write_text(
+            f"AVELIS_DB_PASSWORD=plain-password\nAVELIS_DB_PASSWORD_FILE={secret_file}\n", encoding="utf-8"
+        )
         monkeypatch.setenv("AVELIS_ENV_FILE", str(dotenv))
     else:
         monkeypatch.setenv("AVELIS_DB_PASSWORD", "plain-password")
@@ -251,16 +265,28 @@ def test_direct_environment_supports_secret_file_reference(tmp_path):
 def test_explicit_connection_urls_win_over_components():
     database_url = "postgresql+psycopg://custom:pw@explicit/db?sslmode=require"
     redis_url = "redis://:pw@explicit:6379/6"
-    value = settings(AVELIS_DATABASE_URL=database_url, AVELIS_DB_HOST="ignored", AVELIS_DB_PASSWORD="ignored",
-                     AVELIS_REDIS_URL=redis_url, AVELIS_REDIS_HOST="ignored", AVELIS_REDIS_SSL="true")
+    value = settings(
+        AVELIS_DATABASE_URL=database_url,
+        AVELIS_DB_HOST="ignored",
+        AVELIS_DB_PASSWORD="ignored",
+        AVELIS_REDIS_URL=redis_url,
+        AVELIS_REDIS_HOST="ignored",
+        AVELIS_REDIS_SSL="true",
+    )
     assert value.database_url == database_url and value.redis_url == redis_url
 
 
 def test_database_components_encode_credentials_and_add_sslmode():
     password = "p@ss:/?#%+&=word"
     username = "user@name+suffix"
-    value = settings(AVELIS_DB_HOST="db.internal", AVELIS_DB_PORT="5433", AVELIS_DB_NAME="metadata",
-                     AVELIS_DB_USER=username, AVELIS_DB_PASSWORD=password, AVELIS_DB_SSLMODE="verify-full")
+    value = settings(
+        AVELIS_DB_HOST="db.internal",
+        AVELIS_DB_PORT="5433",
+        AVELIS_DB_NAME="metadata",
+        AVELIS_DB_USER=username,
+        AVELIS_DB_PASSWORD=password,
+        AVELIS_DB_SSLMODE="verify-full",
+    )
     url = urlsplit(value.database_url)
     assert url.scheme == "postgresql+psycopg" and url.hostname == "db.internal" and url.port == 5433
     assert unquote_plus(url.username) == username and unquote_plus(url.password) == password
@@ -274,8 +300,9 @@ def test_database_components_defaults_omit_empty_sslmode():
 
 @pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"])
 def test_database_sslmode_accepts_libpq_choices(sslmode):
-    assert settings(AVELIS_DB_HOST="db.internal", AVELIS_DB_PASSWORD="password",
-                    AVELIS_DB_SSLMODE=sslmode).database_url.endswith(f"?sslmode={sslmode}")
+    assert settings(
+        AVELIS_DB_HOST="db.internal", AVELIS_DB_PASSWORD="password", AVELIS_DB_SSLMODE=sslmode
+    ).database_url.endswith(f"?sslmode={sslmode}")
 
 
 def test_database_components_require_password_and_valid_sslmode():
@@ -287,15 +314,26 @@ def test_database_components_require_password_and_valid_sslmode():
 
 def test_redis_components_encode_password_use_tls_and_database():
     password = "redis@:/?#%+&=word"
-    url = urlsplit(settings(AVELIS_REDIS_HOST="redis.internal", AVELIS_REDIS_PORT="6380", AVELIS_REDIS_DB="4",
-                           AVELIS_REDIS_SSL="true", AVELIS_REDIS_PASSWORD=password).redis_url)
+    url = urlsplit(
+        settings(
+            AVELIS_REDIS_HOST="redis.internal",
+            AVELIS_REDIS_PORT="6380",
+            AVELIS_REDIS_DB="4",
+            AVELIS_REDIS_SSL="true",
+            AVELIS_REDIS_PASSWORD=password,
+        ).redis_url
+    )
     assert url.scheme == "rediss" and url.hostname == "redis.internal" and url.port == 6380
     assert unquote_plus(url.password) == password and url.path == "/4"
 
 
 def test_no_hosts_or_urls_preserves_demo_connection_defaults():
-    value = settings(AVELIS_PG_PORT="25432", AVELIS_PG_PASSWORD="pg@+password",
-                     AVELIS_REDIS_PORT="26379", AVELIS_REDIS_PASSWORD="redis@+password")
+    value = settings(
+        AVELIS_PG_PORT="25432",
+        AVELIS_PG_PASSWORD="pg@+password",
+        AVELIS_REDIS_PORT="26379",
+        AVELIS_REDIS_PASSWORD="redis@+password",
+    )
     assert value.database_url == "postgresql+psycopg://avelis:pg%40%2Bpassword@127.0.0.1:25432/avelis"
     assert value.redis_url == "redis://:redis%40%2Bpassword@127.0.0.1:26379/0"
 
@@ -310,9 +348,16 @@ def test_public_url_is_normalized_and_added_to_cors_without_duplicate():
 
 def test_config_error_aggregates_problems_preserves_exception_types_and_hides_values():
     with pytest.raises(config.ConfigError) as caught:
-        config.build_settings({"AVELIS_SECRET": "tiny-secret", "AVELIS_PORT": "bad-port",
-                               "AVELIS_AUTO_MIGRATE": "bad-bool", "AVELIS_DB_HOST": "db.internal",
-                               "AVELIS_DB_PASSWORD": "", "AVELIS_LOG_LEVEL": "bad-level"})
+        config.build_settings(
+            {
+                "AVELIS_SECRET": "tiny-secret",
+                "AVELIS_PORT": "bad-port",
+                "AVELIS_AUTO_MIGRATE": "bad-bool",
+                "AVELIS_DB_HOST": "db.internal",
+                "AVELIS_DB_PASSWORD": "",
+                "AVELIS_LOG_LEVEL": "bad-level",
+            }
+        )
     error = caught.value
     assert isinstance(error, ValueError) and isinstance(error, RuntimeError)
     assert len(error.problems) >= 5
@@ -356,10 +401,14 @@ def test_existing_environment_unassigned_asset_policy_remains_unrestricted():
 
 
 def test_existing_boolean_environment_keeps_accepting_arbitrary_strings():
-    value = settings(AVELIS_ALLOW_SELF_REVIEW="previously-accepted", AVELIS_ASK_LIVE_CHECK="previously-accepted",
-                     AVELIS_REQUIRE_COLUMN_COMMENTS="previously-accepted",
-                     AVELIS_ANALYSIS_RETRIEVAL="previously-accepted", AVELIS_ANALYSIS_INVESTIGATION="previously-accepted",
-                     AVELIS_MODEL_SEND_RESULTS="previously-accepted")
+    value = settings(
+        AVELIS_ALLOW_SELF_REVIEW="previously-accepted",
+        AVELIS_ASK_LIVE_CHECK="previously-accepted",
+        AVELIS_REQUIRE_COLUMN_COMMENTS="previously-accepted",
+        AVELIS_ANALYSIS_RETRIEVAL="previously-accepted",
+        AVELIS_ANALYSIS_INVESTIGATION="previously-accepted",
+        AVELIS_MODEL_SEND_RESULTS="previously-accepted",
+    )
     assert value.allow_self_review is False and value.ask_live_check is True
     assert value.require_column_comments is False
     assert value.analysis_retrieval is False and value.analysis_investigation is False
@@ -414,8 +463,9 @@ def test_config_cli_failure_has_exit_two_and_no_traceback(monkeypatch, tmp_path,
 
 
 def test_export_service_secrets_writes_final_component_passwords(monkeypatch, tmp_path, capsys):
-    write_toml(monkeypatch, tmp_path, '[database]\nhost = "postgres"\npassword = "config-password"\n'
-                                      '[redis]\nhost = "redis"\n')
+    write_toml(
+        monkeypatch, tmp_path, '[database]\nhost = "postgres"\npassword = "config-password"\n[redis]\nhost = "redis"\n'
+    )
     monkeypatch.setenv("AVELIS_DB_PASSWORD", "effective-db@password")
     monkeypatch.setenv("AVELIS_REDIS_PASSWORD", "effective-redis password")
     directory = tmp_path / "new" / "service-secrets"

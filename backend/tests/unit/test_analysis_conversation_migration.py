@@ -29,8 +29,9 @@ def test_conversation_migration_compiles_postgresql_upgrade_and_downgrade():
     assert migration.revision == "0016_conversation"
     assert migration.down_revision == "0015"
     ddl = io.StringIO()
-    context = MigrationContext.configure(dialect_name="postgresql", opts={
-        "as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata})
+    context = MigrationContext.configure(
+        dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata}
+    )
     with Operations.context(context):
         migration.upgrade()
         migration.downgrade()
@@ -56,12 +57,15 @@ def test_conversation_migration_backfills_parent_chains_and_keeps_schedules_inde
     migration = load_migration()
     engine = create_engine("sqlite://")
     metadata = MetaData()
-    original = Table("analysis_run", metadata,
-                     Column("id", String(32), primary_key=True),
-                     Column("parent_run_id", String(32)),
-                     Column("task_id", String(32)),
-                     Column("trigger", String(16), nullable=False),
-                     Column("question", String, nullable=False))
+    original = Table(
+        "analysis_run",
+        metadata,
+        Column("id", String(32), primary_key=True),
+        Column("parent_run_id", String(32)),
+        Column("task_id", String(32)),
+        Column("trigger", String(16), nullable=False),
+        Column("question", String, nullable=False),
+    )
     metadata.create_all(engine)
     rows = [
         {"id": "root", "parent_run_id": None, "task_id": None, "trigger": "manual", "question": "根问题"},
@@ -86,7 +90,10 @@ def test_conversation_migration_backfills_parent_chains_and_keeps_schedules_inde
         for row in rows:
             root_id = "root" if row["id"] in {"root", "second", "third", "branch"} else row["id"]
             assert result[row["id"]] == {
-                **row, "conversation_id": root_id, "display_title": None, "archived_at": None,
+                **row,
+                "conversation_id": root_id,
+                "display_title": None,
+                "archived_at": None,
             }
         assert inspect(connection).get_indexes("analysis_run")[0]["column_names"] == ["conversation_id"]
         assert inspect(connection).get_foreign_keys("analysis_run")[0]["constrained_columns"] == ["conversation_id"]
@@ -101,9 +108,7 @@ def test_conversation_migration_enforces_existing_root_reference():
     migration = load_migration()
     engine = create_engine("sqlite://")
     metadata = MetaData()
-    Table("analysis_run", metadata,
-          Column("id", String(32), primary_key=True),
-          Column("parent_run_id", String(32)))
+    Table("analysis_run", metadata, Column("id", String(32), primary_key=True), Column("parent_run_id", String(32)))
     metadata.create_all(engine)
     with engine.begin() as connection:
         context = MigrationContext.configure(connection)
@@ -113,9 +118,14 @@ def test_conversation_migration_enforces_existing_root_reference():
         connection.exec_driver_sql("PRAGMA foreign_keys = ON")
         upgraded = Table("analysis_run", MetaData(), autoload_with=connection)
         connection.execute(upgraded.insert(), {"id": "root", "conversation_id": "root"})
-        connection.execute(upgraded.insert(), {
-            "id": "followup", "parent_run_id": "root", "conversation_id": "root",
-        })
+        connection.execute(
+            upgraded.insert(),
+            {
+                "id": "followup",
+                "parent_run_id": "root",
+                "conversation_id": "root",
+            },
+        )
         with pytest.raises(IntegrityError):
             connection.execute(upgraded.insert(), {"id": "invalid", "conversation_id": "missing"})
         with pytest.raises(IntegrityError):
@@ -142,8 +152,14 @@ def test_root_run_defaults_conversation_to_explicit_or_generated_id():
         assert generated.conversation_id == generated.id
         assert explicit.archived_at is None
         assert generated.archived_at is None
-        followup = AnalysisRun(user_id="user", parent_run_id=explicit.id, conversation_id=explicit.id,
-                               question="继续查", trigger="manual", status="queued")
+        followup = AnalysisRun(
+            user_id="user",
+            parent_run_id=explicit.id,
+            conversation_id=explicit.id,
+            question="继续查",
+            trigger="manual",
+            status="queued",
+        )
         session.add(followup)
         session.flush()
         assert followup.conversation_id == explicit.id

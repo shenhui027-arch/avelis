@@ -52,37 +52,79 @@ def _qualify(ref: str, default_db: str | None, catalog: str) -> str | None:
     return None
 
 
-def _write_edge(session: Session, actor: User, job: ImportJob, stmt: ExtractedStatement | None, *, origin: str,
-                source_ref: str, source_column: str | None, target_ref: str, target_column: str | None,
-                relation: str, expression: str | None, candidate_origin: str, confidence: float | None,
-                evidence: dict[str, Any], reason: str | None = None, record_candidate: bool = True) -> LineageEdge:
+def _write_edge(
+    session: Session,
+    actor: User,
+    job: ImportJob,
+    stmt: ExtractedStatement | None,
+    *,
+    origin: str,
+    source_ref: str,
+    source_column: str | None,
+    target_ref: str,
+    target_column: str | None,
+    relation: str,
+    expression: str | None,
+    candidate_origin: str,
+    confidence: float | None,
+    evidence: dict[str, Any],
+    reason: str | None = None,
+    record_candidate: bool = True,
+) -> LineageEdge:
     source = resolve_qualified(session, job.datasource_id, source_ref)
     target = resolve_qualified(session, job.datasource_id, target_ref)
-    edge = LineageEdge(origin=origin, import_job_id=job.id, target_asset_id=target.id if target else None,
-                       target_ref=target_ref, target_asset_version_id=target.current_version_id if target else None,
-                       target_column=target_column, source_asset_id=source.id if source else None,
-                       source_ref=source_ref, source_column=source_column, relation=relation,
-                       expression=expression, created_by=actor.id, reason=reason, status="active",
-                       attributes={"lines": evidence.get("lines"), "statement_id": stmt.id if stmt else None,
-                                   "job": job.filename, "design_time": True,
-                                   **{k: evidence[k] for k in ("via", "hops", "paths", "op", "carried_from")
-                                      if k in evidence}})
+    edge = LineageEdge(
+        origin=origin,
+        import_job_id=job.id,
+        target_asset_id=target.id if target else None,
+        target_ref=target_ref,
+        target_asset_version_id=target.current_version_id if target else None,
+        target_column=target_column,
+        source_asset_id=source.id if source else None,
+        source_ref=source_ref,
+        source_column=source_column,
+        relation=relation,
+        expression=expression,
+        created_by=actor.id,
+        reason=reason,
+        status="active",
+        attributes={
+            "lines": evidence.get("lines"),
+            "statement_id": stmt.id if stmt else None,
+            "job": job.filename,
+            "design_time": True,
+            **{k: evidence[k] for k in ("via", "hops", "paths", "op", "carried_from") if k in evidence},
+        },
+    )
     session.add(edge)
     session.flush()
     if not record_candidate:
         return edge
-    candidate = CandidateEdge(job_id=job.id, statement_id=stmt.id if stmt else None, origin=candidate_origin,
-                              source_ref=source_ref, source_column=source_column, target_ref=target_ref,
-                              target_column=target_column, relation=relation, expression=expression,
-                              confidence=confidence, evidence=evidence, status="written", lineage_edge_id=edge.id,
-                              decided_by=actor.id if candidate_origin != "parsed" else None,
-                              decided_at=utcnow() if candidate_origin != "parsed" else None, reason=reason)
+    candidate = CandidateEdge(
+        job_id=job.id,
+        statement_id=stmt.id if stmt else None,
+        origin=candidate_origin,
+        source_ref=source_ref,
+        source_column=source_column,
+        target_ref=target_ref,
+        target_column=target_column,
+        relation=relation,
+        expression=expression,
+        confidence=confidence,
+        evidence=evidence,
+        status="written",
+        lineage_edge_id=edge.id,
+        decided_by=actor.id if candidate_origin != "parsed" else None,
+        decided_at=utcnow() if candidate_origin != "parsed" else None,
+        reason=reason,
+    )
     session.add(candidate)
     return edge
 
 
-def _validate(c: Candidate, known: dict[str, set[str]], default_db: str | None, catalog: str,
-              snippet: str) -> str | None:
+def _validate(
+    c: Candidate, known: dict[str, set[str]], default_db: str | None, catalog: str, snippet: str
+) -> str | None:
     if c.relation not in RELATIONS:
         return f"关系类型 {c.relation} 不合法"
     source, target = _qualify(c.source_ref, default_db, catalog), _qualify(c.target_ref, default_db, catalog)
@@ -97,6 +139,7 @@ def _validate(c: Candidate, known: dict[str, set[str]], default_db: str | None, 
 
 # --- 参数、人工处理 -----------------------------------------------------------------
 
+
 def _refresh_referencing_batches(session: Session, job: ImportJob) -> None:
     from avelis.importer.batch import refresh_status
 
@@ -106,8 +149,9 @@ def _refresh_referencing_batches(session: Session, job: ImportJob) -> None:
             refresh_status(session, imported, counts_only=imported.status in ("queued", "running"))
 
 
-def decide(session: Session, actor: User, candidate: CandidateEdge, decision: str, reason: str,
-           changes: dict[str, Any]) -> CandidateEdge:
+def decide(
+    session: Session, actor: User, candidate: CandidateEdge, decision: str, reason: str, changes: dict[str, Any]
+) -> CandidateEdge:
     require_import_access(session, actor)
     if decision not in ("accept", "reject", "modify"):
         raise Invalid("decision 只能是 accept、reject 或 modify")
@@ -130,31 +174,54 @@ def decide(session: Session, actor: User, candidate: CandidateEdge, decision: st
             raise Conflict("中间段只用于查证，请处理折叠后的边")
         raise Conflict("解析边当前不是 active，不能再处理")
     if candidate.status == "written":  # 修改或驳回已写入的解析边：旧边失效
-        session.execute(update(LineageEdge).where(LineageEdge.id == candidate.lineage_edge_id,
-                                                 LineageEdge.status == "active")
-                        .values(status="superseded", superseded_at=now))
+        session.execute(
+            update(LineageEdge)
+            .where(LineageEdge.id == candidate.lineage_edge_id, LineageEdge.status == "active")
+            .values(status="superseded", superseded_at=now)
+        )
     if decision == "reject":
         candidate.status = "rejected"
     else:
-        values = {k: changes.get(k) or getattr(candidate, k)
-                  for k in ("source_ref", "source_column", "target_ref", "target_column", "relation")}
+        values = {
+            k: changes.get(k) or getattr(candidate, k)
+            for k in ("source_ref", "source_column", "target_ref", "target_column", "relation")
+        }
         if values["relation"] not in RELATIONS:
             raise Invalid(Msg("关系类型 {relation} 不合法", relation=values["relation"]))
         origin = "model_confirmed" if candidate.origin in ("model", "model_sql") else "import_manual"
-        edge = _write_edge(session, actor, job, stmt, origin=origin, expression=candidate.expression,
-                           candidate_origin=candidate.origin, confidence=candidate.confidence,
-                           evidence={**candidate.evidence, "from_candidate": candidate.id}, reason=reason,
-                           record_candidate=False, **values)
+        edge = _write_edge(
+            session,
+            actor,
+            job,
+            stmt,
+            origin=origin,
+            expression=candidate.expression,
+            candidate_origin=candidate.origin,
+            confidence=candidate.confidence,
+            evidence={**candidate.evidence, "from_candidate": candidate.id},
+            reason=reason,
+            record_candidate=False,
+            **values,
+        )
         candidate.status = "modified" if decision == "modify" else "accepted"
         candidate.lineage_edge_id = edge.id
         candidate.modified = {k: v for k, v in values.items() if v != getattr(candidate, k)}
     candidate.decided_by, candidate.decided_at, candidate.reason = actor.id, now, reason
     session.flush()
-    if job.status == "needs_review" and not session.scalar(select(CandidateEdge.id).where(
-            CandidateEdge.job_id == job.id, CandidateEdge.status == "pending").limit(1)):
+    if job.status == "needs_review" and not session.scalar(
+        select(CandidateEdge.id).where(CandidateEdge.job_id == job.id, CandidateEdge.status == "pending").limit(1)
+    ):
         job.status = "done"
-    audit.record(session, actor, f"import.candidate_{decision}", "candidate_edge", candidate.id, job_id=job.id,
-                 reason=reason, changes=candidate.modified)
+    audit.record(
+        session,
+        actor,
+        f"import.candidate_{decision}",
+        "candidate_edge",
+        candidate.id,
+        job_id=job.id,
+        reason=reason,
+        changes=candidate.modified,
+    )
     _refresh_referencing_batches(session, job)
     return candidate
 
@@ -163,11 +230,23 @@ def add_manual_edge(session: Session, actor: User, job: ImportJob, values: dict[
     require_import_access(session, actor)
     if values.get("relation") not in RELATIONS:
         raise Invalid("关系类型不合法")
-    edge = _write_edge(session, actor, job, None, origin="import_manual", source_ref=values["source_ref"],
-                       source_column=values.get("source_column"), target_ref=values["target_ref"],
-                       target_column=values.get("target_column"), relation=values["relation"], expression=None,
-                       candidate_origin="manual", confidence=None, evidence={"lines": values.get("lines")},
-                       reason=reason)
+    edge = _write_edge(
+        session,
+        actor,
+        job,
+        None,
+        origin="import_manual",
+        source_ref=values["source_ref"],
+        source_column=values.get("source_column"),
+        target_ref=values["target_ref"],
+        target_column=values.get("target_column"),
+        relation=values["relation"],
+        expression=None,
+        candidate_origin="manual",
+        confidence=None,
+        evidence={"lines": values.get("lines")},
+        reason=reason,
+    )
     _refresh_referencing_batches(session, job)
     return edge
 

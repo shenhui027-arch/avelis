@@ -70,14 +70,21 @@ IdType = String(32)
 
 @lru_cache(maxsize=4)
 def _engine(url: str, pool_size: int = 5, max_overflow: int = 10, pool_recycle_seconds: int = 1800) -> Engine:
-    return create_engine(url, pool_pre_ping=True, pool_size=pool_size, max_overflow=max_overflow,
-                         pool_recycle=pool_recycle_seconds, future=True)
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_recycle=pool_recycle_seconds,
+        future=True,
+    )
 
 
 def get_engine() -> Engine:
     settings = get_settings()
-    return _engine(settings.database_url, settings.db_pool_size, settings.db_max_overflow,
-                   settings.db_pool_recycle_seconds)
+    return _engine(
+        settings.database_url, settings.db_pool_size, settings.db_max_overflow, settings.db_pool_recycle_seconds
+    )
 
 
 @contextmanager
@@ -100,16 +107,19 @@ def advisory_lock(key: str) -> Iterator[None]:
 
 
 @lru_cache(maxsize=4)
-def _session_factory(url: str, pool_size: int = 5, max_overflow: int = 10,
-                     pool_recycle_seconds: int = 1800) -> sessionmaker[Session]:
-    return sessionmaker(bind=_engine(url, pool_size, max_overflow, pool_recycle_seconds),
-                        expire_on_commit=False, future=True)
+def _session_factory(
+    url: str, pool_size: int = 5, max_overflow: int = 10, pool_recycle_seconds: int = 1800
+) -> sessionmaker[Session]:
+    return sessionmaker(
+        bind=_engine(url, pool_size, max_overflow, pool_recycle_seconds), expire_on_commit=False, future=True
+    )
 
 
 def session_factory() -> sessionmaker[Session]:
     settings = get_settings()
-    return _session_factory(settings.database_url, settings.db_pool_size, settings.db_max_overflow,
-                            settings.db_pool_recycle_seconds)
+    return _session_factory(
+        settings.database_url, settings.db_pool_size, settings.db_max_overflow, settings.db_pool_recycle_seconds
+    )
 
 
 @contextmanager

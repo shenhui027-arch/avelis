@@ -105,13 +105,15 @@ class Connector(Protocol):
 
 
 class QueryConnector(Protocol):
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
-                       timezone: str | None = None) -> QueryResult: ...
+    def execute_select(
+        self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult: ...
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]: ...
 
-    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
-                         ) -> dict[tuple[str, str], dict[str, Any]]: ...
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]: ...
 
 
 def sha256_json(payload: Any) -> str:

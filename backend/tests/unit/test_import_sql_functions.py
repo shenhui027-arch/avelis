@@ -99,10 +99,13 @@ def test_append_reuses_function_name_validation(allowed, name):
     assert session.queries == [] and session.setting is None
 
 
-@pytest.mark.parametrize("locale,expected", [
-    ("en", "Execution function names must be valid identifiers or dotted names, with at most 128 characters"),
-    ("zh-TW", "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"),
-])
+@pytest.mark.parametrize(
+    "locale,expected",
+    [
+        ("en", "Execution function names must be valid identifiers or dotted names, with at most 128 characters"),
+        ("zh-TW", "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"),
+    ],
+)
 def test_single_function_validation_is_localized(locale, expected):
     with locale_context(locale), pytest.raises(ValueError) as error:
         imports.SqlFunction(sql_function="a()")

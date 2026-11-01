@@ -113,40 +113,50 @@ def code_blocks(source: str, language: str) -> list[CodeBlock]:
             tree = ast.parse(source)
         except SyntaxError:
             return [CodeBlock(1, len(lines), source)]
-        definitions = [node for node in tree.body if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
-        header_nodes = [node for node in tree.body if isinstance(
-            node, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign))
-            and not any(isinstance(child, (ast.Call, ast.Await)) for child in ast.walk(node))]
-        header = "\n".join("\n".join(lines[n.lineno - 1:n.end_lineno]) for n in header_nodes)
+        definitions = [
+            node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        ]
+        header_nodes = [
+            node
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign))
+            and not any(isinstance(child, (ast.Call, ast.Await)) for child in ast.walk(node))
+        ]
+        header = "\n".join("\n".join(lines[n.lineno - 1 : n.end_lineno]) for n in header_nodes)
         blocks: list[CodeBlock] = []
 
         cursor = 1
         for node in definitions:
             start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
             if cursor < start and any(n not in header_nodes for n in tree.body if cursor <= n.lineno < start):
-                blocks.append(CodeBlock(cursor, start - 1, "\n".join(lines[cursor - 1:start - 1]), header))
-            blocks.append(CodeBlock(start, node.end_lineno or node.lineno,
-                                    "\n".join(lines[start - 1:node.end_lineno]), header))
+                blocks.append(CodeBlock(cursor, start - 1, "\n".join(lines[cursor - 1 : start - 1]), header))
+            blocks.append(
+                CodeBlock(start, node.end_lineno or node.lineno, "\n".join(lines[start - 1 : node.end_lineno]), header)
+            )
             cursor = (node.end_lineno or node.lineno) + 1
         if cursor <= len(lines):
-            blocks.append(CodeBlock(cursor, len(lines), "\n".join(lines[cursor - 1:]), header))
+            blocks.append(CodeBlock(cursor, len(lines), "\n".join(lines[cursor - 1 :]), header))
         return blocks or [CodeBlock(1, len(lines), source, header)]
     if language == "shell":
-        starts = [i for i, line in enumerate(lines, 1) if re.match(
-            r"^\s*(?:function\s+)?[A-Za-z_]\w*\s*(?:\(\s*\))?\s*\{\s*(?:#.*)?$", line)]
+        starts = [
+            i
+            for i, line in enumerate(lines, 1)
+            if re.match(r"^\s*(?:function\s+)?[A-Za-z_]\w*\s*(?:\(\s*\))?\s*\{\s*(?:#.*)?$", line)
+        ]
         if starts:
-            preamble = list(enumerate(lines[:starts[0] - 1], 1))
+            preamble = list(enumerate(lines[: starts[0] - 1], 1))
             static_lines = {i for i, line in preamble if _shell_static_line(line)}
             header = "\n".join(line for i, line in preamble if i in static_lines)
             executable = [i for i, _ in preamble if i not in static_lines]
             blocks = []
             if executable:
                 first, last = executable[0], executable[-1]
-                blocks.append(CodeBlock(first, last, "\n".join(lines[first - 1:last]), header))
+                blocks.append(CodeBlock(first, last, "\n".join(lines[first - 1 : last]), header))
             ends = [*starts[1:], len(lines) + 1]
-            blocks.extend(CodeBlock(start, end - 1, "\n".join(lines[start - 1:end - 1]), header)
-                          for start, end in zip(starts, ends))
+            blocks.extend(
+                CodeBlock(start, end - 1, "\n".join(lines[start - 1 : end - 1]), header)
+                for start, end in zip(starts, ends)
+            )
             return blocks
     return [CodeBlock(1, len(lines), source)]
 
@@ -210,6 +220,7 @@ def _constant_values(source: str) -> set[str]:
                         if isinstance(target, ast.Name):
                             bindings[target.id] = value
                     collect(value)
+
     visit(tree.body)
     return strings
 
@@ -262,8 +273,9 @@ def normalized_sql(sql: str, dialect_name: str) -> str | None:
         return None
 
 
-def _grounded_tables(sql: str, dialect: SqlDialect, block: CodeBlock,
-                     known: dict[str, set[str]], default_db: str | None) -> str | None:
+def _grounded_tables(
+    sql: str, dialect: SqlDialect, block: CodeBlock, known: dict[str, set[str]], default_db: str | None
+) -> str | None:
     try:
         tree = sqlglot.parse_one(sql, read=dialect.name)
     except sqlglot.errors.SqlglotError:
@@ -285,24 +297,39 @@ def _grounded_tables(sql: str, dialect: SqlDialect, block: CodeBlock,
         if not table.db and table.name in ctes:
             continue
         names = [".".join(filter(None, [table.db, table.name])), table.sql(dialect=dialect.name)]
-        if not any(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I)
-                   for name in names for text in [visible, *constants]):
+        if not any(
+            re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I)
+            for name in names
+            for text in [visible, *constants]
+        ):
             return f"还原 SQL 的表 {names[0]} 未出现在代码块中，也不能由块内常量拼出"
         if id(table) not in targets:
-            qualified = qualify_ref(".".join(filter(None, [table.catalog, table.db, table.name])),
-                                    default_db, dialect.default_catalog)
+            qualified = qualify_ref(
+                ".".join(filter(None, [table.catalog, table.db, table.name])), default_db, dialect.default_catalog
+            )
             if qualified not in known:
                 return f"来源表 {names[0]} 未采集，也不是本批次产生的表"
     return None
 
 
 def _known_tables(schema: dict) -> dict[str, set[str]]:
-    return {f"{c}.{d}.{t}": set(cols) for c, dbs in schema.items()
-            for d, tables in dbs.items() for t, cols in tables.items()}
+    return {
+        f"{c}.{d}.{t}": set(cols)
+        for c, dbs in schema.items()
+        for d, tables in dbs.items()
+        for t, cols in tables.items()
+    }
 
 
-def _fragment_hash(mode: str, text: str, reason: str | None, dialect: SqlDialect,
-                   default_db: str | None, execution: dict[str, Any], database_context: list[dict]) -> str:
+def _fragment_hash(
+    mode: str,
+    text: str,
+    reason: str | None,
+    dialect: SqlDialect,
+    default_db: str | None,
+    execution: dict[str, Any],
+    database_context: list[dict],
+) -> str:
     value = [mode, text, reason, dialect.name, dialect.default_catalog, default_db, execution, database_context]
     return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
 
@@ -321,11 +348,21 @@ def _default_db_at(contexts: list[dict], line: int, default_db: str | None, seq:
     return default_db
 
 
-def run_assistance(*, language: str, content: str, rule_statements: list[Any], dialect: SqlDialect,
-                   schema: dict, default_db: str | None, options: dict, policy: dict,
-                   resolved=None, budget: AssistBudget | None = None,
-                   cached: dict[str, dict[str, Any]] | None = None,
-                   statement_contexts: list[dict[str, Any]] | None = None) -> AssistanceResult:
+def run_assistance(
+    *,
+    language: str,
+    content: str,
+    rule_statements: list[Any],
+    dialect: SqlDialect,
+    schema: dict,
+    default_db: str | None,
+    options: dict,
+    policy: dict,
+    resolved=None,
+    budget: AssistBudget | None = None,
+    cached: dict[str, dict[str, Any]] | None = None,
+    statement_contexts: list[dict[str, Any]] | None = None,
+) -> AssistanceResult:
     """不访问数据库；调用方在确定性提交后写入返回的语句、候选与逐片段载荷。"""
     result = AssistanceResult()
     budget = budget if budget is not None else AssistBudget()
@@ -335,17 +372,27 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
     known = _known_tables(model_schema)
     model = resolved if policy.get("send_code") else None
     adapter = model.adapter if model else "demo-rules"
-    model_id = (getattr(model.model, "model_name", None) or getattr(model.model, "model", None)
-                or adapter.partition(":")[2] or adapter) if model else None
-    execution = {"is_demo": model is None, "adapter": adapter,
-                 "model_id": model_id if isinstance(model_id, str) else adapter}
+    model_id = (
+        (
+            getattr(model.model, "model_name", None)
+            or getattr(model.model, "model", None)
+            or adapter.partition(":")[2]
+            or adapter
+        )
+        if model
+        else None
+    )
+    execution = {
+        "is_demo": model is None,
+        "adapter": adapter,
+        "model_id": model_id if isinstance(model_id, str) else adapter,
+    }
     contexts = sorted(statement_contexts or [], key=lambda c: (c["line_start"], c["seq"]))
     file_end = max(1, len(content.splitlines()))
     assist = options.get("model_assist") or {}
     fragments: list[tuple[str, CodeBlock, Any, str | None]] = []
     for stmt in rule_statements:
-        block = CodeBlock(_value(stmt, "line_start", 1), _value(stmt, "line_end", 1),
-                          _value(stmt, "raw_text", ""))
+        block = CodeBlock(_value(stmt, "line_start", 1), _value(stmt, "line_end", 1), _value(stmt, "raw_text", ""))
         if _value(stmt, "method") == "unrecognized":
             fragments.append(("non_sql", block, stmt, None))
         elif assist.get("failed_sql") and _value(stmt, "status") in ("failed", "unsupported"):
@@ -354,40 +401,83 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
         fragments.extend(("code", block, None, None) for block in code_blocks(content, language))
 
     def add_candidate(values: dict[str, Any]) -> None:
-        signature = tuple(values.get(k) for k in ("statement_id", "origin", "source_ref", "source_column",
-                                                 "target_ref", "target_column", "relation"))
-        if not any(tuple(c.get(k) for k in ("statement_id", "origin", "source_ref", "source_column",
-                                            "target_ref", "target_column", "relation")) == signature
-                   for c in result.candidates):
+        signature = tuple(
+            values.get(k)
+            for k in (
+                "statement_id",
+                "origin",
+                "source_ref",
+                "source_column",
+                "target_ref",
+                "target_column",
+                "relation",
+            )
+        )
+        if not any(
+            tuple(
+                c.get(k)
+                for k in (
+                    "statement_id",
+                    "origin",
+                    "source_ref",
+                    "source_column",
+                    "target_ref",
+                    "target_column",
+                    "relation",
+                )
+            )
+            == signature
+            for c in result.candidates
+        ):
             result.candidates.append(values)
 
     for mode, block, stmt, failure_reason in fragments:
         fragment_db = _default_db_at(contexts, block.line_start, default_db, _value(stmt, "seq"))
-        database_context = [{"line_start": c["line_start"] - block.line_start,
-                             "line_end": c["line_end"] - block.line_start,
-                             "default_db": c["default_db"], "default_db_after": c["default_db_after"]}
-                            for c in contexts if block.line_start <= c["line_start"] <= block.line_end]
+        database_context = [
+            {
+                "line_start": c["line_start"] - block.line_start,
+                "line_end": c["line_end"] - block.line_start,
+                "default_db": c["default_db"],
+                "default_db_after": c["default_db_after"],
+            }
+            for c in contexts
+            if block.line_start <= c["line_start"] <= block.line_end
+        ]
         context_prompt = "\n".join(
             f"第 {c['line_end'] + block.line_start} 行之后默认数据库为 "
             f"{c['default_db_after'] if c['default_db_after'] is not None else '（未设置）'}"
-            for c in database_context if c["default_db"] != c["default_db_after"])
+            for c in database_context
+            if c["default_db"] != c["default_db_after"]
+        )
         text, redactions = redact(block.snippet)
         reason = redact(failure_reason)[0] if failure_reason else None
         digest = _fragment_hash(mode, block.snippet, failure_reason, dialect, fragment_db, execution, database_context)
         statement_id = _value(stmt, "id")
         payload: dict[str, Any] = {
-            "statement_id": statement_id, "lines": [block.line_start, block.line_end], "kind": mode,
-            "text": text, "redactions": redactions, "fragment_hash": digest, "adapter": adapter,
-            "sent_to": adapter if model else "未发送（演示规则）", "is_demo": model is None,
-            "model_id": execution["model_id"], "default_db": fragment_db,
+            "statement_id": statement_id,
+            "lines": [block.line_start, block.line_end],
+            "kind": mode,
+            "text": text,
+            "redactions": redactions,
+            "fragment_hash": digest,
+            "adapter": adapter,
+            "sent_to": adapter if model else "未发送（演示规则）",
+            "is_demo": model is None,
+            "model_id": execution["model_id"],
+            "default_db": fragment_db,
         }
         if reason:
             payload["failure_reason"] = reason
         visible_known = {t: c for t, c in known.items() if t.split(".")[-1] in text}
-        payload["prompt"] = (operation_prompt(text, block.line_start, block.line_end, default_db=fragment_db,
-                                              database_context=context_prompt) if mode == "code"
-                             else candidate_prompt(text, block.line_start, visible_known, reason,
-                                                   default_db=fragment_db, database_context=context_prompt))
+        payload["prompt"] = (
+            operation_prompt(
+                text, block.line_start, block.line_end, default_db=fragment_db, database_context=context_prompt
+            )
+            if mode == "code"
+            else candidate_prompt(
+                text, block.line_start, visible_known, reason, default_db=fragment_db, database_context=context_prompt
+            )
+        )
         result.payloads.append(payload)
         entry = cached.get(digest)
         if entry and entry.get("kind") == mode and not entry.get("error") and entry.get("execution") == execution:
@@ -401,34 +491,62 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
             else:
                 for edge in raw.get("edges", []):
                     edge["evidence_lines"] = [n + offset for n in edge.get("evidence_lines", [])]
-            payload.update(reused=True, sent_to="未发送（复用片段结果）",
-                           adapter=entry.get("adapter", adapter), is_demo=entry.get("is_demo", True))
+            payload.update(
+                reused=True,
+                sent_to="未发送（复用片段结果）",
+                adapter=entry.get("adapter", adapter),
+                is_demo=entry.get("is_demo", True),
+            )
         else:
             if not budget.reserve(len(text) + len(reason or "")):
                 payload.pop("text", None)
                 payload.pop("prompt", None)
-                payload.update(sent_to="未发送（超过批次上限）", skipped=True,
-                               note="模型辅助超过批次上限（200 片段、200 万字符）")
+                payload.update(
+                    sent_to="未发送（超过批次上限）", skipped=True, note="模型辅助超过批次上限（200 片段、200 万字符）"
+                )
                 result.notes.append(f"第 {block.line_start} 至 {block.line_end} 行：{payload['note']}")
                 continue
             if model is None:
-                payload["note"] = ("模型配置未允许发送代码片段，改用演示规则" if not policy.get("send_code")
-                                   else "未配置有效模型，使用演示规则")
+                payload["note"] = (
+                    "模型配置未允许发送代码片段，改用演示规则"
+                    if not policy.get("send_code")
+                    else "未配置有效模型，使用演示规则"
+                )
             try:
                 if mode == "code":
-                    operations = model_operations(model.model, text, block.line_start, block.line_end,
-                                                  default_db=fragment_db, database_context=context_prompt) \
-                        if model else ModelOperations()
+                    operations = (
+                        model_operations(
+                            model.model,
+                            text,
+                            block.line_start,
+                            block.line_end,
+                            default_db=fragment_db,
+                            database_context=context_prompt,
+                        )
+                        if model
+                        else ModelOperations()
+                    )
                     raw = operations.model_dump()
                     if operations.validation_errors:
                         raw["dropped_operations"] = operations.validation_errors
                 else:
+
                     def columns_of(ref):
                         return known.get(qualify_ref(ref, fragment_db, dialect.default_catalog), set())
-                    edges = model_candidates(model.model, text, block.line_start, visible_known,
-                                             failure_reason=reason, default_db=fragment_db,
-                                             database_context=context_prompt) if model else demo_candidates(
-                        text, block.line_start, columns_of)
+
+                    edges = (
+                        model_candidates(
+                            model.model,
+                            text,
+                            block.line_start,
+                            visible_known,
+                            failure_reason=reason,
+                            default_db=fragment_db,
+                            database_context=context_prompt,
+                        )
+                        if model
+                        else demo_candidates(text, block.line_start, columns_of)
+                    )
                     raw = {"edges": [asdict(c) for c in edges]}
             except Exception as exc:  # 片段失败只写说明，不影响已经提交的确定性结果。
                 error = f"{type(exc).__name__}: {exc}"
@@ -439,32 +557,56 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                 result.notes.append(f"第 {block.line_start} 至 {block.line_end} 行：{payload['error']}")
                 continue
         payload["result"] = raw
-        result.cache[digest] = {"kind": mode, "result": copy.deepcopy(raw), "line_start": block.line_start,
-                                "adapter": payload["adapter"], "is_demo": payload["is_demo"], "execution": execution}
+        result.cache[digest] = {
+            "kind": mode,
+            "result": copy.deepcopy(raw),
+            "line_start": block.line_start,
+            "adapter": payload["adapter"],
+            "is_demo": payload["is_demo"],
+            "execution": execution,
+        }
         dropped: list[str] = []
         if mode != "code":
             for values in raw.get("edges", []):
                 try:
                     candidate = Candidate(**values)
-                    problem = validate_candidate(candidate, known, fragment_db, dialect.default_catalog,
-                                                 text, line_start=block.line_start,
-                                                 line_end=min(block.line_end, file_end))
+                    problem = validate_candidate(
+                        candidate,
+                        known,
+                        fragment_db,
+                        dialect.default_catalog,
+                        text,
+                        line_start=block.line_start,
+                        line_end=min(block.line_end, file_end),
+                    )
                 except (TypeError, ValueError) as exc:
                     dropped.append(f"候选结构不合法：{exc}")
                     continue
                 if problem:
                     dropped.append(problem)
                     continue
-                add_candidate({
-                    "statement_id": statement_id, "statement_seq": _value(stmt, "seq"), "origin": "model",
-                    "source_ref": qualify_ref(candidate.source_ref, fragment_db, dialect.default_catalog),
-                    "source_column": candidate.source_column,
-                    "target_ref": qualify_ref(candidate.target_ref, fragment_db, dialect.default_catalog),
-                    "target_column": candidate.target_column, "relation": candidate.relation, "expression": None,
-                    "confidence": candidate.confidence, "status": "pending", "evidence": {
-                        "lines": candidate.evidence_lines, "rationale": candidate.rationale,
-                        "adapter": payload["adapter"], "is_demo": payload["is_demo"], "fragment_hash": digest},
-                })
+                add_candidate(
+                    {
+                        "statement_id": statement_id,
+                        "statement_seq": _value(stmt, "seq"),
+                        "origin": "model",
+                        "source_ref": qualify_ref(candidate.source_ref, fragment_db, dialect.default_catalog),
+                        "source_column": candidate.source_column,
+                        "target_ref": qualify_ref(candidate.target_ref, fragment_db, dialect.default_catalog),
+                        "target_column": candidate.target_column,
+                        "relation": candidate.relation,
+                        "expression": None,
+                        "confidence": candidate.confidence,
+                        "status": "pending",
+                        "evidence": {
+                            "lines": candidate.evidence_lines,
+                            "rationale": candidate.rationale,
+                            "adapter": payload["adapter"],
+                            "is_demo": payload["is_demo"],
+                            "fragment_hash": digest,
+                        },
+                    }
+                )
         else:
             operations = ModelOperations.model_validate(raw)
             dropped.extend(raw.get("dropped_operations", []))
@@ -477,7 +619,8 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                 names.extend(operations.suggested_sql_functions)
                 for name in names:
                     if re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", name) and re.search(
-                            r"(?<!\w)" + re.escape(name) + r"\s*\(", block.text):
+                        r"(?<!\w)" + re.escape(name) + r"\s*\(", block.text
+                    ):
                         if name not in result.suggested_sql_functions:
                             result.suggested_sql_functions.append(name)
                 if not operation.sql:
@@ -496,25 +639,42 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                     dropped.append(problem)
                     continue
                 sql, missing = substitute(operation.sql, options.get("params") or {})
-                overlapping = [s for s in rule_statements if _value(s, "method") != "unrecognized"
-                               and _value(s, "line_start", 0) <= operation.line_end
-                               and _value(s, "line_end", 0) >= operation.line_start and _value(s, "sql_text")]
+                overlapping = [
+                    s
+                    for s in rule_statements
+                    if _value(s, "method") != "unrecognized"
+                    and _value(s, "line_start", 0) <= operation.line_end
+                    and _value(s, "line_end", 0) >= operation.line_start
+                    and _value(s, "sql_text")
+                ]
                 canonical = normalized_sql(sql, dialect.name) if not missing else None
-                if canonical and any(normalized_sql(_value(s, "sql_text"), dialect.name) == canonical
-                                     for s in overlapping):
-                    payload.setdefault("comparisons", []).append({
-                        "lines": [operation.line_start, operation.line_end], "status": "consistent",
-                        "note": "规则与模型一致"})
+                if canonical and any(
+                    normalized_sql(_value(s, "sql_text"), dialect.name) == canonical for s in overlapping
+                ):
+                    payload.setdefault("comparisons", []).append(
+                        {
+                            "lines": [operation.line_start, operation.line_end],
+                            "status": "consistent",
+                            "note": "规则与模型一致",
+                        }
+                    )
                     continue
                 comparison = "conflict" if overlapping else "new"
-                code = "\n".join(content.splitlines()[operation.line_start - 1:operation.line_end])
+                code = "\n".join(content.splitlines()[operation.line_start - 1 : operation.line_end])
                 key = f"assist:{len(result.statements)}"
-                parsed = None if missing else parse_statement(sql, dialect=dialect, schema=model_schema,
-                                                               default_db=operation_db)
+                parsed = (
+                    None
+                    if missing
+                    else parse_statement(sql, dialect=dialect, schema=model_schema, default_db=operation_db)
+                )
                 statement = {
-                    "id": key, "seq": len(rule_statements) + len(result.statements) + 1,
-                    "line_start": operation.line_start, "line_end": operation.line_end,
-                    "raw_text": code, "sql_text": operation.sql if missing else sql, "method": "model_sql",
+                    "id": key,
+                    "seq": len(rule_statements) + len(result.statements) + 1,
+                    "line_start": operation.line_start,
+                    "line_end": operation.line_end,
+                    "raw_text": code,
+                    "sql_text": operation.sql if missing else sql,
+                    "method": "model_sql",
                     "status": "needs_params" if missing else parsed.status,
                     "statement_type": None if parsed is None else parsed.statement_type,
                     "reason": f"还原 SQL 需要补充参数：{', '.join(missing)}" if missing else parsed.reason,
@@ -532,18 +692,32 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                         if edge.source_ref not in known:
                             dropped.append(f"来源表 {edge.source_ref} 未采集，也不是本批次产生的表")
                             continue
-                        values.append({
-                            "statement_id": key, "statement_seq": statement["seq"], "origin": "model_sql",
-                            "source_ref": edge.source_ref, "source_column": edge.source_column,
-                            "target_ref": write.target_ref, "target_column": edge.target_column,
-                            "relation": edge.relation, "expression": edge.expression,
-                            "confidence": operation.confidence, "status": "pending", "evidence": {
-                                "lines": [operation.line_start, operation.line_end], "original_code": code,
-                                "restored_sql": operation.sql, "rationale": operation.rationale,
-                                "comparison": comparison, "adapter": payload["adapter"],
-                                "is_demo": payload["is_demo"], "fragment_hash": digest,
-                                "note": "与规则结果不一致，优先复核" if overlapping else "规则未抽取到的新候选"},
-                        })
+                        values.append(
+                            {
+                                "statement_id": key,
+                                "statement_seq": statement["seq"],
+                                "origin": "model_sql",
+                                "source_ref": edge.source_ref,
+                                "source_column": edge.source_column,
+                                "target_ref": write.target_ref,
+                                "target_column": edge.target_column,
+                                "relation": edge.relation,
+                                "expression": edge.expression,
+                                "confidence": operation.confidence,
+                                "status": "pending",
+                                "evidence": {
+                                    "lines": [operation.line_start, operation.line_end],
+                                    "original_code": code,
+                                    "restored_sql": operation.sql,
+                                    "rationale": operation.rationale,
+                                    "comparison": comparison,
+                                    "adapter": payload["adapter"],
+                                    "is_demo": payload["is_demo"],
+                                    "fragment_hash": digest,
+                                    "note": "与规则结果不一致，优先复核" if overlapping else "规则未抽取到的新候选",
+                                },
+                            }
+                        )
                 for value in values:
                     add_candidate(value)
                 for write in writes:
@@ -554,8 +728,9 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                     if write.created or name not in tables:
                         tables[name] = {column: "VARCHAR" for column in write.target_columns}
                     else:
-                        tables[name].update({column: tables[name].get(column, "VARCHAR")
-                                             for column in write.target_columns})
+                        tables[name].update(
+                            {column: tables[name].get(column, "VARCHAR") for column in write.target_columns}
+                        )
                     known[write.target_ref] = set(tables[name])
         if dropped:
             payload["dropped"] = dropped

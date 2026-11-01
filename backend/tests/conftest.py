@@ -52,8 +52,13 @@ class SecretEnv(dict):
     不能把口令打进日志与模型上下文。"""
 
     def __repr__(self) -> str:
-        return "{" + ", ".join(f"{k!r}: {'***' if any(w in k.upper() for w in SECRET_WORDS) else repr(v)}"
-                               for k, v in self.items()) + "}"
+        return (
+            "{"
+            + ", ".join(
+                f"{k!r}: {'***' if any(w in k.upper() for w in SECRET_WORDS) else repr(v)}" for k, v in self.items()
+            )
+            + "}"
+        )
 
     __str__ = __repr__
 

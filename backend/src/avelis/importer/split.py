@@ -49,7 +49,7 @@ def _client_marks(line: str, state: _ClientState, delimiter: str) -> list[int]:
     marks: list[int] = []
     index = 0
     while index < len(line):
-        char, pair = line[index], line[index:index + 2]
+        char, pair = line[index], line[index : index + 2]
         if state.comments:
             if pair == "/*":
                 state.comments += 1
@@ -132,16 +132,24 @@ def _token_segments(text: str, dialect_name: str, line_offset: int, routine_batc
         if first is not None:
             statement = text[first:end].rstrip()
             if statement:
-                segments.append(Segment(
-                    line_offset + bisect_right(line_starts, first),
-                    line_offset + bisect_right(line_starts, first + len(statement) - 1),
-                    "sql", statement, placeholders_of(statement),
-                ))
+                segments.append(
+                    Segment(
+                        line_offset + bisect_right(line_starts, first),
+                        line_offset + bisect_right(line_starts, first + len(statement) - 1),
+                        "sql",
+                        statement,
+                        placeholders_of(statement),
+                    )
+                )
 
     # 客户端已给出过程定义的边界，过程可以没有 BEGIN，或在 BEGIN 前有声明。
     routine_types = {TokenType.PROCEDURE, TokenType.FUNCTION, TokenType.TRIGGER}
-    if (routine_batch and tokens and tokens[0].token_type == TokenType.CREATE
-            and any(token.token_type in routine_types for token in tokens[1:5])):
+    if (
+        routine_batch
+        and tokens
+        and tokens[0].token_type == TokenType.CREATE
+        and any(token.token_type in routine_types for token in tokens[1:5])
+    ):
         first = tokens[0].start
         last = len(tokens) - 1
         while last >= 0 and tokens[last].token_type == TokenType.SEMICOLON:
@@ -166,9 +174,17 @@ def _token_segments(text: str, dialect_name: str, line_offset: int, routine_batc
             blocks.append(kind)
         elif kind == TokenType.BEGIN:
             # BEGIN; 与 BEGIN TRAN[SACTION] / WORK 是事务，不是过程块。
-            if following and following.token_type != TokenType.SEMICOLON and following.text.upper() not in {
-                "TRANSACTION", "TRAN", "WORK", "DISTRIBUTED",
-            }:
+            if (
+                following
+                and following.token_type != TokenType.SEMICOLON
+                and following.text.upper()
+                not in {
+                    "TRANSACTION",
+                    "TRAN",
+                    "WORK",
+                    "DISTRIBUTED",
+                }
+            ):
                 blocks.append(kind)
         elif kind == TokenType.END and blocks:
             # END IF / LOOP 等结束控制流，不能提前关闭外围 BEGIN。
@@ -212,8 +228,9 @@ def _character_segments(text: str, line_offset: int) -> list[Segment]:
         elif char == ";":
             statement = "".join(buf).strip()
             if statement:
-                segments.append(Segment(start_line + line_offset, line + line_offset, "sql", statement,
-                                        placeholders_of(statement)))
+                segments.append(
+                    Segment(start_line + line_offset, line + line_offset, "sql", statement, placeholders_of(statement))
+                )
             buf, start_line = [], None
         else:
             if not char.isspace() and start_line is None:
@@ -224,14 +241,19 @@ def _character_segments(text: str, line_offset: int) -> list[Segment]:
         index += 1
     statement = "".join(buf).strip()
     if statement:
-        segments.append(Segment(start_line + line_offset, line + line_offset, "sql", statement,
-                                placeholders_of(statement)))
+        segments.append(
+            Segment(start_line + line_offset, line + line_offset, "sql", statement, placeholders_of(statement))
+        )
     return segments
 
 
 def split_sql(
-    text: str, dialect_name: str = "starrocks", separators: Sequence[str] = (), *,
-    line_offset: int = 0, notes: list[str] | None = None,
+    text: str,
+    dialect_name: str = "starrocks",
+    separators: Sequence[str] = (),
+    *,
+    line_offset: int = 0,
+    notes: list[str] | None = None,
 ) -> list[Segment]:
     """先处理客户端分隔符，再按方言 token 的顶层分号切分；说明写入 notes。"""
     segments = []

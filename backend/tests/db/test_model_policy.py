@@ -40,8 +40,15 @@ def test_notifications_list_unread_first(factory):
     with session_scope() as s:
         s.add(Notification(user_id=uid, kind="analysis_failed", title="很早的未读", created_at=now - timedelta(days=9)))
         for i in range(35):
-            s.add(Notification(user_id=uid, kind="analysis_finished", title=f"已读 {i}", read_at=now,
-                               created_at=now - timedelta(minutes=i)))
+            s.add(
+                Notification(
+                    user_id=uid,
+                    kind="analysis_finished",
+                    title=f"已读 {i}",
+                    read_at=now,
+                    created_at=now - timedelta(minutes=i),
+                )
+            )
     session = session_factory()()
     try:
         items = api.list_notifications(unread=False, user=session.get(User, uid), session=session)

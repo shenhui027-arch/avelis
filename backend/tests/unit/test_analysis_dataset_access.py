@@ -49,21 +49,58 @@ def dataset_db():
     metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as session:
         user = User(id="reader", username="reader", display_name="阅读者", password_hash="unused")
-        session.add_all([user, UserRole(user_id=user.id, role="analyst"),
-                         Domain(id="visible", code="visible", name="可见域", owner_id=user.id),
-                         Domain(id="hidden", code="hidden", name="其他域", owner_id=user.id),
-                         DomainMember(domain_id="visible", user_id=user.id, role="viewer"),
-                         Datasource(id="source", name="source", kind="fake", host="offline", port=1)])
-        asset = Asset(id="asset", datasource_id="source", kind="table", catalog_name="local", db_name="data",
-                      name="facts", domain_id="visible")
+        session.add_all(
+            [
+                user,
+                UserRole(user_id=user.id, role="analyst"),
+                Domain(id="visible", code="visible", name="可见域", owner_id=user.id),
+                Domain(id="hidden", code="hidden", name="其他域", owner_id=user.id),
+                DomainMember(domain_id="visible", user_id=user.id, role="viewer"),
+                Datasource(id="source", name="source", kind="fake", host="offline", port=1),
+            ]
+        )
+        asset = Asset(
+            id="asset",
+            datasource_id="source",
+            kind="table",
+            catalog_name="local",
+            db_name="data",
+            name="facts",
+            domain_id="visible",
+        )
         metric = Metric(id="metric", code="m", name="指标", domain_id="visible", owner_id=user.id, created_by=user.id)
-        version = MetricVersion(id="version", metric_id=metric.id, version_no=1, status="published", kind="base",
-                                base_asset_id=asset.id, description="测试口径", expression="SUM(value)",
-                                time_column="day", timezone="Asia/Shanghai", created_by=user.id)
-        run = AnalysisRun(id="run", user_id=user.id, question="查看数据", trigger="manual", status="succeeded",
-                          window={"start": "2026-01-01", "end": "2026-01-31"}, model_adapter="offline")
-        dataset = AnalysisDataset(id="dataset", run_id=run.id, seq=1, kind="governed", title="指标数据",
-                                  columns=["value"], rows=[[7], [9]], meta={"metric_version_ids": [version.id]})
+        version = MetricVersion(
+            id="version",
+            metric_id=metric.id,
+            version_no=1,
+            status="published",
+            kind="base",
+            base_asset_id=asset.id,
+            description="测试口径",
+            expression="SUM(value)",
+            time_column="day",
+            timezone="Asia/Shanghai",
+            created_by=user.id,
+        )
+        run = AnalysisRun(
+            id="run",
+            user_id=user.id,
+            question="查看数据",
+            trigger="manual",
+            status="succeeded",
+            window={"start": "2026-01-01", "end": "2026-01-31"},
+            model_adapter="offline",
+        )
+        dataset = AnalysisDataset(
+            id="dataset",
+            run_id=run.id,
+            seq=1,
+            kind="governed",
+            title="指标数据",
+            columns=["value"],
+            rows=[[7], [9]],
+            meta={"metric_version_ids": [version.id]},
+        )
         session.add_all([asset, metric, version, run, dataset])
         session.commit()
         yield session, user, run, dataset, asset, metric, version
@@ -73,13 +110,28 @@ def dataset_db():
 @pytest.mark.parametrize("revoked", ["asset", "metric", "membership"])
 def test_revocation_restricts_governed_calc_run_and_step_rows(dataset_db, revoked):
     session, user, run, dataset, asset, metric, _ = dataset_db
-    calc = AnalysisDataset(id="calc", run_id=run.id, seq=2, kind="calc", title="计算结果", inputs=["D1"],
-                           columns=["value"], rows=[[16]], meta={"closure": ["D1"], "summary": {"total": 16}})
+    calc = AnalysisDataset(
+        id="calc",
+        run_id=run.id,
+        seq=2,
+        kind="calc",
+        title="计算结果",
+        inputs=["D1"],
+        columns=["value"],
+        rows=[[16]],
+        meta={"closure": ["D1"], "summary": {"total": 16}},
+    )
     dataset.meta = {**dataset.meta, "sql": "SELECT value FROM local.data.facts"}
-    step = AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="ok", dataset_id=dataset.id,
-                        args={"sql": dataset.meta["sql"]},
-                        output={"dataset": "D1", "columns": dataset.columns, "rows": dataset.rows,
-                                "summary": {"total": 16}})
+    step = AnalysisStep(
+        run_id=run.id,
+        seq=1,
+        kind="tool",
+        tool="query_metric",
+        status="ok",
+        dataset_id=dataset.id,
+        args={"sql": dataset.meta["sql"]},
+        output={"dataset": "D1", "columns": dataset.columns, "rows": dataset.rows, "summary": {"total": 16}},
+    )
     session.add_all([calc, step])
     session.commit()
     assert can_read_dataset(session, user, dataset)
@@ -103,10 +155,13 @@ def test_revocation_restricts_governed_calc_run_and_step_rows(dataset_db, revoke
 @pytest.mark.parametrize("stored", ["parts", "segments", "both"])
 def test_legacy_title_dependencies_restrict_list_and_full_views(dataset_db, stored):
     session, user, run, _, asset, _, _ = dataset_db
-    report, verification = ground_report({
-        "title": ["成员：", {"dataset": "D1", "label": "member"},
-                  "；数值：", {"dataset": "D1", "column": "value"}],
-    }, {"D1": {"columns": ["member", "value"], "rows": [{"member": "受限成员甲", "value": 7654321}]}}, {})
+    report, verification = ground_report(
+        {
+            "title": ["成员：", {"dataset": "D1", "label": "member"}, "；数值：", {"dataset": "D1", "column": "value"}],
+        },
+        {"D1": {"columns": ["member", "value"], "rows": [{"member": "受限成员甲", "value": 7654321}]}},
+        {},
+    )
     title = report["fields"]["title"]
     assert "refs" not in title  # 已保存的旧字段只有 parts / segments。
     if stored != "both":
@@ -129,10 +184,25 @@ def test_legacy_title_dependencies_restrict_list_and_full_views(dataset_db, stor
 
 def test_revocation_hides_model_and_unattributed_outputs_but_keeps_interjections(dataset_db):
     session, user, run, dataset, asset, _, _ = dataset_db
-    visible = AnalysisDataset(id="visible-dataset", run_id=run.id, seq=2, kind="context", title="可见数据",
-                              columns=["value"], rows=[[4321]], meta={"asset_ids": ["visible-asset"]})
-    visible_asset = Asset(id="visible-asset", datasource_id="source", kind="table", catalog_name="local",
-                          db_name="data", name="visible_facts", domain_id="visible")
+    visible = AnalysisDataset(
+        id="visible-dataset",
+        run_id=run.id,
+        seq=2,
+        kind="context",
+        title="可见数据",
+        columns=["value"],
+        rows=[[4321]],
+        meta={"asset_ids": ["visible-asset"]},
+    )
+    visible_asset = Asset(
+        id="visible-asset",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="visible_facts",
+        domain_id="visible",
+    )
     model_output = {"text": "模型复述 7654321", "thinking": "推理包含受限成员甲", "input_tokens": 100}
     interjection = {"text": "用户自己写的 7654321", "messages": [{"id": "message", "text": "受限成员甲"}]}
     specs = [
@@ -145,9 +215,12 @@ def test_revocation_hides_model_and_unattributed_outputs_but_keeps_interjections
         ("tool", "query_sql", visible.id, {"rows": [[4321]]}),
         ("user", "message", None, interjection),
     ]
-    steps = [AnalysisStep(run_id=run.id, seq=i, kind=kind, tool=tool, dataset_id=dataset_id,
-                          status="ok", args={}, output=output)
-             for i, (kind, tool, dataset_id, output) in enumerate(specs, 1)]
+    steps = [
+        AnalysisStep(
+            run_id=run.id, seq=i, kind=kind, tool=tool, dataset_id=dataset_id, status="ok", args={}, output=output
+        )
+        for i, (kind, tool, dataset_id, output) in enumerate(specs, 1)
+    ]
     session.add_all([visible_asset, visible, *steps])
     session.commit()
     assert [s["output"] for s in service.run_view(session, run, user=user)["steps"]] == [s.output for s in steps]
@@ -163,31 +236,71 @@ def test_revocation_hides_model_and_unattributed_outputs_but_keeps_interjections
     assert service.run_view(session, run)["steps"][0]["output"] == model_output
 
 
-@pytest.mark.parametrize("kind,association", [
-    ("tool", "restricted"), ("tool", "readable"), ("tool", None),
-    ("model", None), ("plan", None), ("note", None), ("context", None), ("user", None),
-])
+@pytest.mark.parametrize(
+    "kind,association",
+    [
+        ("tool", "restricted"),
+        ("tool", "readable"),
+        ("tool", None),
+        ("model", None),
+        ("plan", None),
+        ("note", None),
+        ("context", None),
+        ("user", None),
+    ],
+)
 def test_revocation_projects_all_step_args_and_reasons(dataset_db, kind, association):
     session, user, run, dataset, asset, _, _ = dataset_db
-    visible_asset = Asset(id="visible-asset", datasource_id="source", kind="table", catalog_name="local",
-                          db_name="data", name="visible_facts", domain_id="visible")
-    visible = AnalysisDataset(id="visible-dataset", run_id=run.id, seq=2, kind="context", title="可见数据",
-                              columns=["value"], rows=[[4321]], meta={"asset_ids": [visible_asset.id]})
+    visible_asset = Asset(
+        id="visible-asset",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="visible_facts",
+        domain_id="visible",
+    )
+    visible = AnalysisDataset(
+        id="visible-dataset",
+        run_id=run.id,
+        seq=2,
+        kind="context",
+        title="可见数据",
+        columns=["value"],
+        rows=[[4321]],
+        meta={"asset_ids": [visible_asset.id]},
+    )
     args = {
-        "metric_codes": ["m"], "metric_code": "m", "code": "m",
-        "start_date": "2026-01-01", "end_date": "2026-01-31",
-        "compare_start": "2025-12-01", "compare_end": "2025-12-31",
-        "dataset": "D1", "ref": "D2",
+        "metric_codes": ["m"],
+        "metric_code": "m",
+        "code": "m",
+        "start_date": "2026-01-01",
+        "end_date": "2026-01-31",
+        "compare_start": "2025-12-01",
+        "compare_end": "2025-12-31",
+        "dataset": "D1",
+        "ref": "D2",
         "window": {"start": "2026-01-01", "end": "2026-01-31", "member": "受限成员甲"},
         "filters": [{"dimension": "member", "op": "eq", "values": ["受限成员甲"]}],
-        "purpose": "分析受限成员甲的 7654321", "question": "受限成员甲为何变化",
+        "purpose": "分析受限成员甲的 7654321",
+        "question": "受限成员甲为何变化",
         "sql": "SELECT * FROM facts WHERE member = '受限成员甲'",
-        "match": {"member": "受限成员甲"}, "label": "受限成员甲", "unknown": {"value": 7654321},
+        "match": {"member": "受限成员甲"},
+        "label": "受限成员甲",
+        "unknown": {"value": 7654321},
     }
     reason = "受限成员甲贡献 7654321，继续查询"
-    step = AnalysisStep(run_id=run.id, seq=1, kind=kind, tool="query_metric", status="ok",
-                        dataset_id={"restricted": dataset.id, "readable": visible.id}.get(association),
-                        args=deepcopy(args), reason=reason, output={})
+    step = AnalysisStep(
+        run_id=run.id,
+        seq=1,
+        kind=kind,
+        tool="query_metric",
+        status="ok",
+        dataset_id={"restricted": dataset.id, "readable": visible.id}.get(association),
+        args=deepcopy(args),
+        reason=reason,
+        output={},
+    )
     session.add_all([visible_asset, visible, step])
     session.commit()
     full_step = service.run_view(session, run, user=user)["steps"][0]
@@ -201,9 +314,20 @@ def test_revocation_projects_all_step_args_and_reasons(dataset_db, kind, associa
     else:
         assert projected["tool"] == "query_metric"
         assert projected["args"] == {
-            key: value for key, value in args.items()
-            if key in {"metric_codes", "metric_code", "code", "start_date", "end_date",
-                       "compare_start", "compare_end", "dataset", "ref"}
+            key: value
+            for key, value in args.items()
+            if key
+            in {
+                "metric_codes",
+                "metric_code",
+                "code",
+                "start_date",
+                "end_date",
+                "compare_start",
+                "compare_end",
+                "dataset",
+                "ref",
+            }
         } | {"window": {"start": "2026-01-01", "end": "2026-01-31"}}
         assert projected["reason"] is None
         assert "受限成员甲" not in str(projected["args"])
@@ -215,15 +339,28 @@ def test_revocation_projects_all_step_args_and_reasons(dataset_db, kind, associa
 def test_revocation_omits_unvalidated_values_in_structural_step_args(dataset_db):
     session, user, run, dataset, asset, _, _ = dataset_db
     args = {
-        "code": {"member": "受限成员甲"}, "metric_code": "受限成员甲",
+        "code": {"member": "受限成员甲"},
+        "metric_code": "受限成员甲",
         "metric_codes": ["m", {"value": 7654321}],
-        "start_date": {"value": 7654321}, "end_date": "2026-01-31",
-        "compare_start": "受限成员甲", "compare_end": "2026-02-30",
-        "dataset": {"member": "受限成员甲"}, "ref": "受限成员甲",
+        "start_date": {"value": 7654321},
+        "end_date": "2026-01-31",
+        "compare_start": "受限成员甲",
+        "compare_end": "2026-02-30",
+        "dataset": {"member": "受限成员甲"},
+        "ref": "受限成员甲",
         "window": {"start": "受限成员甲", "end": "2026-01-31", "compare_start": [7654321]},
     }
-    step = AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="error",
-                        dataset_id=dataset.id, args=deepcopy(args), reason="受限成员甲 7654321", output={})
+    step = AnalysisStep(
+        run_id=run.id,
+        seq=1,
+        kind="tool",
+        tool="query_metric",
+        status="error",
+        dataset_id=dataset.id,
+        args=deepcopy(args),
+        reason="受限成员甲 7654321",
+        output={},
+    )
     session.add(step)
     session.commit()
     assert service.run_view(session, run, user=user)["steps"][0]["args"] == args
@@ -238,11 +375,22 @@ def test_revocation_omits_unvalidated_values_in_structural_step_args(dataset_db)
 
 def test_derived_components_and_historical_versions_are_checked(dataset_db):
     session, user, _, dataset, asset, metric, version = dataset_db
-    derived = Metric(id="derived", code="derived", name="组合指标", domain_id="visible",
-                     owner_id=user.id, created_by=user.id)
-    dv = MetricVersion(id="derived-version", metric_id=derived.id, version_no=1, status="published", kind="derived",
-                       components=[{"metric_id": metric.id, "version_id": version.id}], description="组合口径",
-                       expression="m * 2", time_column="day", timezone="Asia/Shanghai", created_by=user.id)
+    derived = Metric(
+        id="derived", code="derived", name="组合指标", domain_id="visible", owner_id=user.id, created_by=user.id
+    )
+    dv = MetricVersion(
+        id="derived-version",
+        metric_id=derived.id,
+        version_no=1,
+        status="published",
+        kind="derived",
+        components=[{"metric_id": metric.id, "version_id": version.id}],
+        description="组合口径",
+        expression="m * 2",
+        time_column="day",
+        timezone="Asia/Shanghai",
+        created_by=user.id,
+    )
     session.add_all([derived, dv])
     dataset.meta = {"metric_version_ids": [dv.id]}
     session.commit()
@@ -251,11 +399,28 @@ def test_derived_components_and_historical_versions_are_checked(dataset_db):
     session.commit()
     assert not can_read_dataset(session, user, dataset)
     metric.domain_id = "visible"
-    replacement = Asset(id="new-source", datasource_id="source", kind="table", catalog_name="local",
-                        db_name="data", name="new_facts", domain_id="visible")
-    current = MetricVersion(id="new-version", metric_id=metric.id, version_no=2, status="published", kind="base",
-                            base_asset_id=replacement.id, description="新口径", expression="SUM(value)",
-                            time_column="day", timezone="Asia/Shanghai", created_by=user.id)
+    replacement = Asset(
+        id="new-source",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="new_facts",
+        domain_id="visible",
+    )
+    current = MetricVersion(
+        id="new-version",
+        metric_id=metric.id,
+        version_no=2,
+        status="published",
+        kind="base",
+        base_asset_id=replacement.id,
+        description="新口径",
+        expression="SUM(value)",
+        time_column="day",
+        timezone="Asia/Shanghai",
+        created_by=user.id,
+    )
     session.add_all([replacement, current])
     asset.domain_id = "hidden"
     session.commit()
@@ -265,15 +430,30 @@ def test_derived_components_and_historical_versions_are_checked(dataset_db):
 @pytest.mark.parametrize("link", ["lineage", "identity"])
 def test_upstream_sources_are_rechecked(dataset_db, link):
     session, user, _, dataset, asset, _, _ = dataset_db
-    upstream = Asset(id="upstream", datasource_id="source", kind="table", catalog_name="local", db_name="data",
-                     name="upstream", domain_id="visible")
+    upstream = Asset(
+        id="upstream",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="upstream",
+        domain_id="visible",
+    )
     session.add(upstream)
     if link == "lineage":
-        session.add(LineageEdge(origin="manual", target_asset_id=asset.id, source_asset_id=upstream.id,
-                                source_ref="local.data.upstream", relation="value"))
+        session.add(
+            LineageEdge(
+                origin="manual",
+                target_asset_id=asset.id,
+                source_asset_id=upstream.id,
+                source_ref="local.data.upstream",
+                relation="value",
+            )
+        )
     else:
-        session.add(IdentityLink(source_asset_id=asset.id, target_asset_id=upstream.id,
-                                 status="confirmed", method="manual"))
+        session.add(
+            IdentityLink(source_asset_id=asset.id, target_asset_id=upstream.id, status="confirmed", method="manual")
+        )
     session.commit()
     assert can_read_dataset(session, user, dataset)
     upstream.domain_id = "hidden"
@@ -281,12 +461,15 @@ def test_upstream_sources_are_rechecked(dataset_db, link):
     assert not can_read_dataset(session, user, dataset)
 
 
-@pytest.mark.parametrize("kind,meta,columns,rows", [
-    ("explore", {"tables": [{"asset_id": "asset"}]}, ["value"], [[7]]),
-    ("context", {"asset_ids": ["asset"]}, ["value"], [[7]]),
-    ("context", {}, ["base_asset"], [["local.data.facts"]]),
-    ("context", {}, ["type", "object"], [["元数据变更", "local.data.facts"]]),
-])
+@pytest.mark.parametrize(
+    "kind,meta,columns,rows",
+    [
+        ("explore", {"tables": [{"asset_id": "asset"}]}, ["value"], [[7]]),
+        ("context", {"asset_ids": ["asset"]}, ["value"], [[7]]),
+        ("context", {}, ["base_asset"], [["local.data.facts"]]),
+        ("context", {}, ["type", "object"], [["元数据变更", "local.data.facts"]]),
+    ],
+)
 def test_explore_and_current_and_legacy_context_sources(dataset_db, kind, meta, columns, rows):
     session, user, _, dataset, asset, _, _ = dataset_db
     dataset.kind, dataset.meta, dataset.columns, dataset.rows = kind, meta, columns, rows
@@ -299,8 +482,15 @@ def test_explore_and_current_and_legacy_context_sources(dataset_db, kind, meta, 
 
 def test_lookup_answer_is_withheld_after_source_revocation(dataset_db):
     session, user, run, _, asset, _, version = dataset_db
-    answer = Answer(id="answer", question="查询", asked_by=user.id, status="answered", model_adapter="offline",
-                    metric_version_ids=[version.id], result={"columns": ["value"], "rows": [[7]]})
+    answer = Answer(
+        id="answer",
+        question="查询",
+        asked_by=user.id,
+        status="answered",
+        model_adapter="offline",
+        metric_version_ids=[version.id],
+        result={"columns": ["value"], "rows": [[7]]},
+    )
     session.add(answer)
     run.report = {"kind": "lookup", "answer_id": answer.id}
     session.commit()
@@ -312,10 +502,24 @@ def test_lookup_answer_is_withheld_after_source_revocation(dataset_db):
 
 def test_answer_keeps_historical_actual_source_checks(dataset_db):
     session, user, _, dataset, _, _, version = dataset_db
-    former_source = Asset(id="former-source", datasource_id="source", kind="table", catalog_name="local",
-                          db_name="data", name="former_source", domain_id="visible")
-    answer = Answer(id="saved-answer", question="查询", asked_by=user.id, status="answered", model_adapter="offline",
-                    metric_version_ids=[version.id], evidence={"sources": [{"asset_id": former_source.id}]})
+    former_source = Asset(
+        id="former-source",
+        datasource_id="source",
+        kind="table",
+        catalog_name="local",
+        db_name="data",
+        name="former_source",
+        domain_id="visible",
+    )
+    answer = Answer(
+        id="saved-answer",
+        question="查询",
+        asked_by=user.id,
+        status="answered",
+        model_adapter="offline",
+        metric_version_ids=[version.id],
+        evidence={"sources": [{"asset_id": former_source.id}]},
+    )
     session.add_all([former_source, answer])
     dataset.answer_id = answer.id
     session.commit()

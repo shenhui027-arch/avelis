@@ -18,13 +18,22 @@ from tests.pymysql_contract import mogrify
 
 AUDIT_TABLE = "starrocks_audit_db__.starrocks_audit_tbl__"
 T0 = datetime(2026, 10, 30, 8)
-WINDOW = Window(T0 - timedelta(minutes=10), T0 - timedelta(minutes=10) + timedelta(seconds=2),
-                T0 + timedelta(minutes=1), T0 + timedelta(minutes=1, seconds=2))
+WINDOW = Window(
+    T0 - timedelta(minutes=10),
+    T0 - timedelta(minutes=10) + timedelta(seconds=2),
+    T0 + timedelta(minutes=1),
+    T0 + timedelta(minutes=1, seconds=2),
+)
 
 
 def _connector(audit_table=AUDIT_TABLE, **options):
-    return StarRocksConnector("db", 9030, "collector", "offline-test-password",
-                              {"databases": ["store"], "ddl_audit_table": audit_table, **options})
+    return StarRocksConnector(
+        "db",
+        9030,
+        "collector",
+        "offline-test-password",
+        {"databases": ["store"], "ddl_audit_table": audit_table, **options},
+    )
 
 
 class _Session:
@@ -89,8 +98,13 @@ def test_unbound_reason_translates_at_request_time():
 
 
 def _columns(classifier="isQuery", **changes):
-    fields = {"timestamp": "datetime", "user": "varchar(64)", "db": "varchar(96)",
-              "stmt": "varchar(1048576)", "state": "varchar(8)"}
+    fields = {
+        "timestamp": "datetime",
+        "user": "varchar(64)",
+        "db": "varchar(96)",
+        "stmt": "varchar(1048576)",
+        "state": "varchar(8)",
+    }
     if classifier:
         fields[classifier] = "tinyint(1)" if classifier.lower() == "isquery" else "varchar(32)"
     fields.update(changes)
@@ -98,8 +112,17 @@ def _columns(classifier="isQuery", **changes):
 
 
 def _row(stmt="ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16)", *, at=T0, **extra):
-    return {"ts": at.replace(tzinfo=timezone.utc).timestamp(), "actor": "alice@10.0.0.1", "db": "store",
-            "stmt": stmt, "state": "EOF", "is_query": 0, "query_type": "query", "stmt_type": "ALTER", **extra}
+    return {
+        "ts": at.replace(tzinfo=timezone.utc).timestamp(),
+        "actor": "alice@10.0.0.1",
+        "db": "store",
+        "stmt": stmt,
+        "state": "EOF",
+        "is_query": 0,
+        "query_type": "query",
+        "stmt_type": "ALTER",
+        **extra,
+    }
 
 
 class _Cursor:
@@ -146,8 +169,9 @@ class _Connection:
 
 def _bind(monkeypatch, connector=None, rows=None, columns=None, zone="Asia/Shanghai", **kwargs):
     connector = connector or _connector()
-    cursor = _Cursor(rows if rows is not None else [_row()], columns if columns is not None else _columns(),
-                     zone, **kwargs)
+    cursor = _Cursor(
+        rows if rows is not None else [_row()], columns if columns is not None else _columns(), zone, **kwargs
+    )
     connection = _Connection(cursor)
     monkeypatch.setattr(connector, "_connect", lambda **_kwargs: connection)
     return connector, connection, cursor
@@ -161,8 +185,12 @@ def test_auditloader_schema_versions_and_utc_event_contract(monkeypatch, classif
     assert connector.ddl_identifier_fold == "insensitive"
     assert len(events) == 1
     event = events[0]
-    assert (event.at, event.db_user, event.objects, event.statement_type) == \
-        (T0, "alice@10.0.0.1", [("store", "sales")], "ALTER")
+    assert (event.at, event.db_user, event.objects, event.statement_type) == (
+        T0,
+        "alice@10.0.0.1",
+        [("store", "sales")],
+        "ALTER",
+    )
     assert event.statement == _row()["stmt"] and event.may_lag and event.certain is None
     assert connection.closed
     assert any(params == ("Asia/Shanghai",) for sql, params in cursor.calls if sql.startswith("SET time_zone"))
@@ -177,44 +205,55 @@ def test_schema_field_names_are_case_insensitive(monkeypatch):
 
 @pytest.mark.parametrize("classifier", ["isQuery", "queryType", "stmtType", "stmt_type"])
 def test_only_successful_nonquery_ddl_is_accepted(monkeypatch, classifier):
-    rows = [_row(), _row("CREATE TABLE store.new_table (id INT)", state="OK", stmt_type="CREATE"),
-            _row(state="ERR"), _row(state="RUNNING"), _row(state=None),
-            _row("SELECT * FROM store.sales", is_query=1, stmt_type="SELECT"),
-            _row("SELECT * FROM store.sales", is_query=0, stmt_type="SELECT"),
-            _row("INSERT INTO store.sales VALUES (1)", query_type="insert", stmt_type="INSERT"),
-            _row("UPDATE store.sales SET channel = 'ALTER TABLE store.sales DROP COLUMN channel'",
-                 stmt_type="UPDATE"),
-            _row("-- ALTER TABLE store.sales ADD COLUMN secret INT\nSELECT 1", is_query=1, stmt_type="SELECT")]
+    rows = [
+        _row(),
+        _row("CREATE TABLE store.new_table (id INT)", state="OK", stmt_type="CREATE"),
+        _row(state="ERR"),
+        _row(state="RUNNING"),
+        _row(state=None),
+        _row("SELECT * FROM store.sales", is_query=1, stmt_type="SELECT"),
+        _row("SELECT * FROM store.sales", is_query=0, stmt_type="SELECT"),
+        _row("INSERT INTO store.sales VALUES (1)", query_type="insert", stmt_type="INSERT"),
+        _row("UPDATE store.sales SET channel = 'ALTER TABLE store.sales DROP COLUMN channel'", stmt_type="UPDATE"),
+        _row("-- ALTER TABLE store.sales ADD COLUMN secret INT\nSELECT 1", is_query=1, stmt_type="SELECT"),
+    ]
     connector, connection, _ = _bind(monkeypatch, rows=rows, columns=_columns(classifier))
     events = connector.ddl_events(T0, T0)
-    assert [(e.statement_type, e.objects) for e in events] == \
-        [("ALTER", [("store", "sales")]), ("CREATE", [("store", "new_table")])]
+    assert [(e.statement_type, e.objects) for e in events] == [
+        ("ALTER", [("store", "sales")]),
+        ("CREATE", [("store", "new_table")]),
+    ]
     assert all(e.may_lag for e in events) and connection.closed
 
 
 def test_query_classifier_cannot_disagree_with_ddl_text(monkeypatch):
-    for columns, bad in ((_columns("isQuery"), {"is_query": 1}),
-                         (_columns("queryType"), {"query_type": "insert"}),
-                         (_columns("queryType"), {"query_type": "unknown"})):
+    for columns, bad in (
+        (_columns("isQuery"), {"is_query": 1}),
+        (_columns("queryType"), {"query_type": "insert"}),
+        (_columns("queryType"), {"query_type": "unknown"}),
+    ):
         connector, _, _ = _bind(monkeypatch, rows=[_row(**bad)], columns=columns)
         assert connector.ddl_events(T0, T0) == []
 
 
 def test_objects_rename_truncate_and_scope_are_not_guessed(monkeypatch):
-    rows = [_row("RENAME TABLE store.old TO store.sales", stmt_type="RENAME"),
-            _row("TRUNCATE TABLE store.sales", stmt_type="TRUNCATE"),
-            _row("ALTER TABLE sales DROP COLUMN channel"),
-            _row("ALTER TABLE `default_catalog`.`store`.`sales` ADD COLUMN x INT"),
-            _row("ALTER TABLE other.sales ADD COLUMN x INT"),
-            _row("ALTER TABLE `external`.`store`.`sales` ADD COLUMN x INT"),
-            _row("CREATE USER 'someone'@'%' IDENTIFIED BY 'secret'", stmt_type="CREATE"),
-            _row("ALTER TABLE sales ADD COLUMN c INT", db=""),
-            _row("ALTER TABLE store.sales ADD COLUMN c INT; ALTER TABLE store.private ADD COLUMN c INT")]
+    rows = [
+        _row("RENAME TABLE store.old TO store.sales", stmt_type="RENAME"),
+        _row("TRUNCATE TABLE store.sales", stmt_type="TRUNCATE"),
+        _row("ALTER TABLE sales DROP COLUMN channel"),
+        _row("ALTER TABLE `default_catalog`.`store`.`sales` ADD COLUMN x INT"),
+        _row("ALTER TABLE other.sales ADD COLUMN x INT"),
+        _row("ALTER TABLE `external`.`store`.`sales` ADD COLUMN x INT"),
+        _row("CREATE USER 'someone'@'%' IDENTIFIED BY 'secret'", stmt_type="CREATE"),
+        _row("ALTER TABLE sales ADD COLUMN c INT", db=""),
+        _row("ALTER TABLE store.sales ADD COLUMN c INT; ALTER TABLE store.private ADD COLUMN c INT"),
+    ]
     connector, connection, _ = _bind(monkeypatch, rows=rows)
     events = connector.ddl_events(T0, T0)
     assert [(e.statement_type, e.objects) for e in events] == [
         ("RENAME", [("store", "old"), ("store", "sales")]),
-        ("TRUNCATE", [("store", "sales")]), ("ALTER", [("store", "sales")]),
+        ("TRUNCATE", [("store", "sales")]),
+        ("ALTER", [("store", "sales")]),
         ("ALTER", [("store", "sales")]),
     ]
     assert connection.closed
@@ -257,8 +296,18 @@ def test_invalid_audit_binding_is_incompatible_without_connecting(monkeypatch, b
     assert captured.value.cause == "incompatible"
 
 
-@pytest.mark.parametrize("changes", [{"timestamp": None}, {"user": None}, {"db": None}, {"stmt": None},
-                                     {"state": None}, {"timestamp": "varchar(32)"}, {"stmt": "bigint"}])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"timestamp": None},
+        {"user": None},
+        {"db": None},
+        {"stmt": None},
+        {"state": None},
+        {"timestamp": "varchar(32)"},
+        {"stmt": "bigint"},
+    ],
+)
 def test_missing_or_wrong_schema_is_incompatible_and_closes_connection(monkeypatch, changes):
     connector, connection, cursor = _bind(monkeypatch, columns=_columns(**changes))
     with pytest.raises(AuditUnavailable) as captured:
@@ -274,8 +323,10 @@ def test_missing_all_statement_classifiers_is_incompatible(monkeypatch):
     assert captured.value.cause == "incompatible" and connection.closed
 
 
-@pytest.mark.parametrize("classifier,kind", [("isQuery", "datetime"), ("queryType", "bigint"),
-                                            ("stmtType", "bigint"), ("stmt_type", "datetime")])
+@pytest.mark.parametrize(
+    "classifier,kind",
+    [("isQuery", "datetime"), ("queryType", "bigint"), ("stmtType", "bigint"), ("stmt_type", "datetime")],
+)
 def test_classifier_field_types_are_validated(monkeypatch, classifier, kind):
     connector, connection, _ = _bind(monkeypatch, columns=_columns(classifier, **{classifier: kind}))
     with pytest.raises(AuditUnavailable) as captured:
@@ -291,17 +342,20 @@ def test_unknown_fe_timezone_is_incompatible_instead_of_assuming_local_time(monk
     assert captured.value.cause == "incompatible" and connection.closed
 
 
-@pytest.mark.parametrize("errno,message,cause", [
-    (1146, "Table 'audit.events' doesn't exist", "not_enabled"),
-    (1049, "Unknown database 'audit'", "not_enabled"),
-    (1142, "SELECT command denied to user 'collector' for table 'events'", "no_permission"),
-    (1044, "Access denied for user 'collector' to database 'audit'", "no_permission"),
-    (1054, "Unknown column 'timestamp' in 'field list'", "incompatible"),
-    (1105, "Column 'timestamp' does not exist in table audit.events", "incompatible"),
-    (1105, "Table [audit.events] is not found", "not_enabled"),
-    (1298, "Unknown or incorrect time zone: 'unconfigured'", "incompatible"),
-    (2013, "Lost connection to MySQL server during query", "error"),
-])
+@pytest.mark.parametrize(
+    "errno,message,cause",
+    [
+        (1146, "Table 'audit.events' doesn't exist", "not_enabled"),
+        (1049, "Unknown database 'audit'", "not_enabled"),
+        (1142, "SELECT command denied to user 'collector' for table 'events'", "no_permission"),
+        (1044, "Access denied for user 'collector' to database 'audit'", "no_permission"),
+        (1054, "Unknown column 'timestamp' in 'field list'", "incompatible"),
+        (1105, "Column 'timestamp' does not exist in table audit.events", "incompatible"),
+        (1105, "Table [audit.events] is not found", "not_enabled"),
+        (1298, "Unknown or incorrect time zone: 'unconfigured'", "incompatible"),
+        (2013, "Lost connection to MySQL server during query", "error"),
+    ],
+)
 @pytest.mark.parametrize("stage", ["columns", "zone", "set_zone", "read"])
 def test_native_errors_have_honest_causes_and_close(monkeypatch, errno, message, cause, stage):
     connector, connection, _ = _bind(monkeypatch, error=pymysql.err.OperationalError(errno, message), error_stage=stage)
@@ -313,9 +367,14 @@ def test_native_errors_have_honest_causes_and_close(monkeypatch, errno, message,
     assert connection.closed
 
 
-@pytest.mark.parametrize("error,cause", [(pymysql.err.OperationalError(1045, "Access denied"), "no_permission"),
-                                        (pymysql.err.OperationalError(2003, "Can't connect"), "error"),
-                                        (OSError("network offline"), "error")])
+@pytest.mark.parametrize(
+    "error,cause",
+    [
+        (pymysql.err.OperationalError(1045, "Access denied"), "no_permission"),
+        (pymysql.err.OperationalError(2003, "Can't connect"), "error"),
+        (OSError("network offline"), "error"),
+    ],
+)
 def test_connect_failures_are_audit_unavailable(monkeypatch, error, cause):
     connector = _connector()
 
@@ -328,8 +387,15 @@ def test_connect_failures_are_audit_unavailable(monkeypatch, error, cause):
     assert captured.value.cause == cause and str(error.args[-1]) in str(captured.value)
 
 
-@pytest.mark.parametrize("cause,label", [("not_enabled", "未开启"), ("no_permission", "无权读取"),
-                                        ("incompatible", "结构"), ("error", "读取 DDL 审计失败")])
+@pytest.mark.parametrize(
+    "cause,label",
+    [
+        ("not_enabled", "未开启"),
+        ("no_permission", "无权读取"),
+        ("incompatible", "结构"),
+        ("error", "读取 DDL 审计失败"),
+    ],
+)
 def test_read_failures_are_reported_as_unavailable_not_unmatched(monkeypatch, cause, label):
     connector = _connector()
 
@@ -341,13 +407,20 @@ def test_read_failures_are_reported_as_unavailable_not_unmatched(monkeypatch, ca
     assert result["status"] == changes[0]["attribution_status"] == "unavailable"
     assert changes[0]["actor_db_user"] is None
     assert changes[0]["attribution"]["cause"] == cause
-    assert label in changes[0]["attribution"]["reason"] and "offline error detail" in changes[0]["attribution"]["reason"]
+    assert (
+        label in changes[0]["attribution"]["reason"] and "offline error detail" in changes[0]["attribution"]["reason"]
+    )
 
 
-@pytest.mark.parametrize("stmt", ["ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16) ...",
-                                  "ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16",
-                                  "ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16))",
-                                  "ALTER TABLE store.sales COMMENT 'unfinished"])
+@pytest.mark.parametrize(
+    "stmt",
+    [
+        "ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16) ...",
+        "ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16",
+        "ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16))",
+        "ALTER TABLE store.sales COMMENT 'unfinished",
+    ],
+)
 def test_incomplete_or_visibly_truncated_sql_is_incompatible(monkeypatch, stmt):
     connector, connection, _ = _bind(monkeypatch, rows=[_row(stmt)])
     with pytest.raises(AuditUnavailable) as captured:
@@ -423,8 +496,15 @@ def test_escaped_column_does_not_hide_an_actor_on_the_same_table(monkeypatch):
     assert changes[0]["attribution"]["candidates"] == ["alice@10.0.0.1", "bob"]
 
 
-@pytest.mark.parametrize("suffix", ["RENAME TO `sales``archive`", 'RENAME TO "sales""archive"',
-                                   "RENAME TO external.store.sales", "RENAME `sales``archive`"])
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "RENAME TO `sales``archive`",
+        'RENAME TO "sales""archive"',
+        "RENAME TO external.store.sales",
+        "RENAME `sales``archive`",
+    ],
+)
 def test_alter_rename_never_fabricates_a_prefix_or_other_catalog_target(monkeypatch, suffix):
     connector, _, _ = _bind(monkeypatch, rows=[_row(f"ALTER TABLE store.old {suffix}")])
     _, changes = _attribute(connector, [_change("comment_changed", column=None)])
@@ -447,7 +527,9 @@ def test_internal_audit_never_attributes_same_named_external_catalog_asset(monke
 
 @pytest.mark.parametrize("object_name", ["`sales``archive`", '"sales""archive"'])
 def test_escaped_identifier_never_attributes_its_prefix_object(monkeypatch, object_name):
-    connector, connection, _ = _bind(monkeypatch, rows=[_row(f"ALTER TABLE store.{object_name} ADD COLUMN channel INT")])
+    connector, connection, _ = _bind(
+        monkeypatch, rows=[_row(f"ALTER TABLE store.{object_name} ADD COLUMN channel INT")]
+    )
     result, changes = _attribute(connector, [_change("comment_changed", None)])
     assert result["status"] == "unavailable" and result["cause"] == "incompatible"
     assert changes[0]["attribution_status"] == "unavailable" and changes[0]["actor_db_user"] is None
@@ -470,8 +552,9 @@ def test_renaming_table_members_does_not_invent_another_table(monkeypatch, targe
     assert connection.closed
 
 
-@pytest.mark.parametrize("stmt", ["RENAME TABLE store.sales TO store.archived_sales",
-                                  "ALTER TABLE store.sales RENAME TO archived_sales"])
+@pytest.mark.parametrize(
+    "stmt", ["RENAME TABLE store.sales TO store.archived_sales", "ALTER TABLE store.sales RENAME TO archived_sales"]
+)
 def test_renaming_a_table_keeps_both_real_object_names(monkeypatch, stmt):
     connector, connection, _ = _bind(monkeypatch, rows=[_row(stmt)])
     events = connector.ddl_events(T0, T0)
@@ -499,8 +582,10 @@ def test_commented_ddl_keeps_a_competing_user_in_column_attribution(monkeypatch,
     assert connection.closed
 
 
-@pytest.mark.parametrize("prefix", ["/* ALTER TABLE store.sales ADD COLUMN channel INT */\n",
-                                    "-- ALTER TABLE store.sales ADD COLUMN channel INT\n"])
+@pytest.mark.parametrize(
+    "prefix",
+    ["/* ALTER TABLE store.sales ADD COLUMN channel INT */\n", "-- ALTER TABLE store.sales ADD COLUMN channel INT\n"],
+)
 def test_ddl_inside_a_comment_does_not_turn_a_select_into_audit_evidence(monkeypatch, prefix):
     connector, connection, _ = _bind(monkeypatch, rows=[_row(prefix + "SELECT * FROM store.sales", is_query=0)])
     assert connector.ddl_events(T0, T0) == []

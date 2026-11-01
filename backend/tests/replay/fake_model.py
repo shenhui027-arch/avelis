@@ -25,19 +25,49 @@ MESSAGE_FIELDS = {"content", "tool_calls"}
 CALL_FIELDS = {"name", "args"}
 FIXTURE_FIELDS = {"tool", "datasets"}
 DATASET_FIELDS = {"seq", "kind", "title", "inputs", "columns", "rows", "truncated", "meta"}
-META_FIELDS = {"intent", "time_column", "units", "summary_units", "window", "summary", "column_evidence", "explore",
-               "assumption", "partial", "preview", "purpose"}
+META_FIELDS = {
+    "intent",
+    "time_column",
+    "units",
+    "summary_units",
+    "window",
+    "summary",
+    "column_evidence",
+    "explore",
+    "assumption",
+    "partial",
+    "preview",
+    "purpose",
+}
 EXPECT_FIELDS = {"status", "ok", "revised", "conclusion"}
 # 取数类工具：结果来自数据库或元数据库，回放时返回冻结的数据集；其余工具（计算）用冻结的数据重新执行
-FETCH_TOOLS = {"search_metrics", "describe_metric", "search_assets", "describe_asset", "lineage", "changes",
-               "data_health", "query_metric", "query_sql", "sample_values", "explain_change"}
+FETCH_TOOLS = {
+    "search_metrics",
+    "describe_metric",
+    "search_assets",
+    "describe_asset",
+    "lineage",
+    "changes",
+    "data_health",
+    "query_metric",
+    "query_sql",
+    "sample_values",
+    "explain_change",
+}
 
 
 def dataset_fixture(ds) -> dict[str, Any]:
     """数据集的白名单视图（录制用）。"""
-    return {"seq": ds.seq, "kind": ds.kind, "title": ds.title, "inputs": list(ds.inputs or []), "columns": list(ds.columns),
-            "rows": ds.rows, "truncated": bool(ds.truncated),
-            "meta": {k: v for k, v in (ds.meta or {}).items() if k in META_FIELDS}}
+    return {
+        "seq": ds.seq,
+        "kind": ds.kind,
+        "title": ds.title,
+        "inputs": list(ds.inputs or []),
+        "columns": list(ds.columns),
+        "rows": ds.rows,
+        "truncated": bool(ds.truncated),
+        "meta": {k: v for k, v in (ds.meta or {}).items() if k in META_FIELDS},
+    }
 
 
 def load_trace(name: str) -> dict[str, Any]:
@@ -46,6 +76,7 @@ def load_trace(name: str) -> dict[str, Any]:
     def only(obj: dict, allowed: set[str], where: str) -> None:
         extra = set(obj) - allowed
         assert not extra, f"轨迹 {name} {where}含白名单以外的字段：{extra}"
+
     only(trace, TRACE_FIELDS, "")
     for i, message in enumerate(trace["messages"]):
         only(message, MESSAGE_FIELDS, f"第 {i + 1} 条消息")
@@ -53,7 +84,9 @@ def load_trace(name: str) -> dict[str, Any]:
             only(call, CALL_FIELDS, f"第 {i + 1} 条消息的工具调用")
     for i, fixture in enumerate(trace.get("fixtures") or []):
         only(fixture, FIXTURE_FIELDS, f"第 {i + 1} 个取数夹具")
-        assert fixture["tool"] in FETCH_TOOLS, f"轨迹 {name} 第 {i + 1} 个取数夹具的工具 {fixture['tool']} 不是取数类工具"
+        assert fixture["tool"] in FETCH_TOOLS, (
+            f"轨迹 {name} 第 {i + 1} 个取数夹具的工具 {fixture['tool']} 不是取数类工具"
+        )
         for ds in fixture["datasets"]:
             only(ds, DATASET_FIELDS, f"第 {i + 1} 个取数夹具的数据集")
             only(ds["meta"], META_FIELDS, f"第 {i + 1} 个取数夹具的数据集 meta ")
@@ -77,9 +110,13 @@ class ScriptedModel:
             raise AssertionError(f"回放轨迹只有 {len(self.messages)} 条消息，图流程请求了第 {self.calls + 1} 条")
         message = self.messages[self.calls]
         self.calls += 1
-        return AIMessage(content=message.get("content", ""), tool_calls=[
-            {"name": c["name"], "args": c["args"], "id": f"replay_{self.calls}_{i}"}
-            for i, c in enumerate(message.get("tool_calls") or [])])
+        return AIMessage(
+            content=message.get("content", ""),
+            tool_calls=[
+                {"name": c["name"], "args": c["args"], "id": f"replay_{self.calls}_{i}"}
+                for i, c in enumerate(message.get("tool_calls") or [])
+            ],
+        )
 
 
 def replay_fetches(box, fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -101,10 +138,21 @@ def replay_fetches(box, fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
         box.budget.used_explore += name in ("query_sql", "sample_values")
         last = None
         for ds in fixture["datasets"]:
-            assert ds["seq"] == len(box.datasets()) + 1, f"数据集编号不一致：夹具 D{ds['seq']}，回放下一个 D{len(box.datasets()) + 1}"
-            last = box._dataset(ds["kind"], ds["title"], ds["columns"], ds["rows"], inputs=ds["inputs"],
-                                truncated=ds["truncated"], meta=ds["meta"])
-        return json.dumps(box._view(f"D{last.seq}", last) if last else {"replayed": name}, ensure_ascii=False,
-                          default=str)
+            assert ds["seq"] == len(box.datasets()) + 1, (
+                f"数据集编号不一致：夹具 D{ds['seq']}，回放下一个 D{len(box.datasets()) + 1}"
+            )
+            last = box._dataset(
+                ds["kind"],
+                ds["title"],
+                ds["columns"],
+                ds["rows"],
+                inputs=ds["inputs"],
+                truncated=ds["truncated"],
+                meta=ds["meta"],
+            )
+        return json.dumps(
+            box._view(f"D{last.seq}", last) if last else {"replayed": name}, ensure_ascii=False, default=str
+        )
+
     box.dispatch = dispatch
     return pending

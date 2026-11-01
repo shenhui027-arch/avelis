@@ -90,11 +90,10 @@ def test_html_has_only_inline_resources_and_unique_svg_ids():
     view["report"]["summary"] += " 参考文本 https://example.test/说明"
     markup = export.to_html(view, audience="full", datasets=["D3", "D5"])
     document = Document(markup)
-    assert '<!DOCTYPE svg' not in markup and '<?xml' not in markup
+    assert "<!DOCTYPE svg" not in markup and "<?xml" not in markup
     assert "https://example.test/说明" in document.visible
-    assert 'http://www.w3.org/2000/svg' in markup
-    assert not {"script", "link", "img", "image", "iframe", "object", "embed"} & {
-        tag for tag, _ in document.tags}
+    assert "http://www.w3.org/2000/svg" in markup
+    assert not {"script", "link", "img", "image", "iframe", "object", "embed"} & {tag for tag, _ in document.tags}
     for _, attrs in document.tags:
         for name, value in attrs.items():
             if name in ("src", "href", "xlink:href", "poster", "data"):
@@ -102,8 +101,8 @@ def test_html_has_only_inline_resources_and_unique_svg_ids():
     assert not re.search(r"@import|url\(\s*['\"]?(?:https?:)?//", markup, flags=re.I)
     identifiers = [attrs["id"] for _, attrs in document.tags if "id" in attrs]
     assert identifiers and len(identifiers) == len(set(identifiers))
-    assert 'font-family: system-ui' in markup and 'Microsoft YaHei' in markup
-    assert 'font-family: AvelisCJK' not in markup and 'font-family: STSong-Light' not in markup
+    assert "font-family: system-ui" in markup and "Microsoft YaHei" in markup
+    assert "font-family: AvelisCJK" not in markup and "font-family: STSong-Light" not in markup
 
 
 def test_html_matches_pdf_saved_values_and_content_rules(monkeypatch):
@@ -111,9 +110,23 @@ def test_html_matches_pdf_saved_values_and_content_rules(monkeypatch):
     markup = export.to_html(view, audience="full")
     text = Document(markup).visible
     pdf_text = "\n".join(_story_text(_pdf_story(monkeypatch, view, audience="full")))
-    expected = ("指标变化分析", "核心指标", "125.30万元", "140.00万元", "-14.70万元", "-10.5%",
-                "结论", "关键发现", "判断与建议", "还没查清", "关键数据", "附录", "口径版本：version-1",
-                "其余成员两期合计为净增长+13.70万元。", "共 25 行，显示前 10 行 · 结果被截断")
+    expected = (
+        "指标变化分析",
+        "核心指标",
+        "125.30万元",
+        "140.00万元",
+        "-14.70万元",
+        "-10.5%",
+        "结论",
+        "关键发现",
+        "判断与建议",
+        "还没查清",
+        "关键数据",
+        "附录",
+        "口径版本：version-1",
+        "其余成员两期合计为净增长+13.70万元。",
+        "共 25 行，显示前 10 行 · 结果被截断",
+    )
     assert all(value in text and value in pdf_text for value in expected)
     for value in ("-14.47万元", "+13.70万元", "-13.93万元", "成员甲", "成员乙", "日历因素"):
         assert value in text
@@ -139,10 +152,15 @@ def test_html_dataset_selection_and_table_limits_are_shared_with_pdf():
     assert len([tag for tag, _ in Document(body).tags if tag == "svg"]) == 2
 
 
-@pytest.mark.parametrize("style,value,expected", [
-    ("cn", "1899.1256", "1899.13"), ("intl", "1899.1256", "1899.13"),
-    ("cn", "12500", "1.25万"), ("intl", "12500", "12.50K"),
-])
+@pytest.mark.parametrize(
+    "style,value,expected",
+    [
+        ("cn", "1899.1256", "1899.13"),
+        ("intl", "1899.1256", "1899.13"),
+        ("cn", "12500", "1.25万"),
+        ("intl", "12500", "12.50K"),
+    ],
+)
 def test_exports_keep_grounded_number_format_with_and_without_units(style, value, expected, monkeypatch):
     monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
     view = sample_view()
@@ -153,16 +171,24 @@ def test_exports_keep_grounded_number_format_with_and_without_units(style, value
     units = {"带单位": {"kind": "level", "unit": "单位甲"}, "无单位": {"kind": "level"}}
     selected["units"] = selected["meta"]["units"] = units
     source = {**selected, "rows": [dict(zip(selected["columns"], selected["rows"][0]))]}
-    grounded = grounding.render([
-        {"dataset": "D5", "column": "带单位"}, "；", {"dataset": "D5", "column": "无单位"},
-    ], {"D5": source}, None)
+    grounded = grounding.render(
+        [
+            {"dataset": "D5", "column": "带单位"},
+            "；",
+            {"dataset": "D5", "column": "无单位"},
+        ],
+        {"D5": source},
+        None,
+    )
     assert grounded["errors"] == []
     assert grounded["text"] == expected + "单位甲；" + expected
     assert export._table_data(selected)[1] == ["成员甲", expected + "单位甲", expected]
 
-    documents = [export.to_markdown(view, appendix=False, datasets=["D5"]),
-                 Document(export.to_html(view, datasets=["D5"])).visible,
-                 "\n".join(_story_text(_pdf_story(monkeypatch, view, datasets=["D5"])))]
+    documents = [
+        export.to_markdown(view, appendix=False, datasets=["D5"]),
+        Document(export.to_html(view, datasets=["D5"])).visible,
+        "\n".join(_story_text(_pdf_story(monkeypatch, view, datasets=["D5"]))),
+    ]
     for document in documents:
         assert expected + "单位甲" in document
         assert "1,899" not in document
@@ -173,13 +199,18 @@ def test_exports_keep_method_warning_separate_from_report_verdict(monkeypatch):
     problem = "方法描述中有未引用的数值"
     view["report"]["method"] = "核对 9 月的查询结果。"
     view["report"]["fields"] = {"method": {"status": "unverified", "errors": [problem]}}
-    view["verification"].update(unverified_fields=1, fields=[
-        {"field": "method", "status": "unverified", "problems": [problem]},
-    ])
+    view["verification"].update(
+        unverified_fields=1,
+        fields=[
+            {"field": "method", "status": "unverified", "problems": [problem]},
+        ],
+    )
 
-    documents = [export.to_markdown(view, audience="full"),
-                 Document(export.to_html(view, audience="full")).visible,
-                 "\n".join(_story_text(_pdf_story(monkeypatch, view, audience="full")))]
+    documents = [
+        export.to_markdown(view, audience="full"),
+        Document(export.to_html(view, audience="full")).visible,
+        "\n".join(_story_text(_pdf_story(monkeypatch, view, audience="full"))),
+    ]
     for document in documents:
         assert "来源全部通过，含未核实的推断，1 处报告字段未通过" in document
         assert "分析方法：" + problem in document
@@ -229,8 +260,13 @@ def test_direct_html_renderer_enforces_restricted_dataset_boundary(audience):
 
     view = sample_view()
     selected = view["datasets"][4]
-    selected.update(restricted=True, title="不可交付标题", sql="SELECT '不可交付查询'",
-                    rows=[["不可交付行", 12345]], meta={"sql": "SELECT '不可交付元数据'"})
+    selected.update(
+        restricted=True,
+        title="不可交付标题",
+        sql="SELECT '不可交付查询'",
+        rows=[["不可交付行", 12345]],
+        meta={"sql": "SELECT '不可交付元数据'"},
+    )
     original = deepcopy(view)
 
     text = Document(to_html(view, audience=audience, datasets=["D5"])).visible

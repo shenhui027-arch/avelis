@@ -22,13 +22,17 @@ class ClickHouse(EngineProfile):
     grain_sql_name = '"store"."returns"'
     sales_unique_key = False  # MergeTree 排序键不保证唯一
     rename = ("RENAME TABLE store.returns TO store.refunds",)
-    recreate = ("DROP TABLE store.refunds SYNC",
-                "CREATE TABLE store.refunds (return_id UInt64, sale_id UInt64, return_date Date, "
-                "amount Decimal(18, 2)) ENGINE = MergeTree ORDER BY return_id")
-    replace_view = ("CREATE OR REPLACE VIEW store.city_daily_sales AS "
-                    "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
-                    "FROM store.sales AS s INNER JOIN store.shops AS h ON h.shop_id = s.shop_id "
-                    "GROUP BY s.sale_date, h.city",)
+    recreate = (
+        "DROP TABLE store.refunds SYNC",
+        "CREATE TABLE store.refunds (return_id UInt64, sale_id UInt64, return_date Date, "
+        "amount Decimal(18, 2)) ENGINE = MergeTree ORDER BY return_id",
+    )
+    replace_view = (
+        "CREATE OR REPLACE VIEW store.city_daily_sales AS "
+        "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
+        "FROM store.sales AS s INNER JOIN store.shops AS h ON h.shop_id = s.shop_id "
+        "GROUP BY s.sale_date, h.city",
+    )
     sleep_sql = "SELECT sleep(3) FROM numbers(3) SETTINGS max_block_size = 1"
     write_sql = "INSERT INTO store.sales VALUES (9999, '2026-09-15', 1, 'paid', 1.00)"
 

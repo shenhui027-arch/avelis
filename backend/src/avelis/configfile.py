@@ -95,10 +95,17 @@ CONFIG_KEYS = {
     "import.max_batch_bytes": ConfigKey("AVELIS_IMPORT_MAX_BATCH_BYTES", int, 100 * 1024**2),
 }
 ENV_KEYS = {spec.env: path for path, spec in CONFIG_KEYS.items()}
-SENSITIVE_KEYS = frozenset({
-    "AVELIS_SECRET", "AVELIS_DB_PASSWORD", "AVELIS_REDIS_PASSWORD", "AVELIS_INITIAL_ADMIN_PASSWORD",
-    "AVELIS_MODEL_API_KEY", "AVELIS_DATABASE_URL", "AVELIS_REDIS_URL",
-})
+SENSITIVE_KEYS = frozenset(
+    {
+        "AVELIS_SECRET",
+        "AVELIS_DB_PASSWORD",
+        "AVELIS_REDIS_PASSWORD",
+        "AVELIS_INITIAL_ADMIN_PASSWORD",
+        "AVELIS_MODEL_API_KEY",
+        "AVELIS_DATABASE_URL",
+        "AVELIS_REDIS_URL",
+    }
+)
 
 
 class ConfigError(ValueError, RuntimeError):
@@ -149,7 +156,9 @@ def read_config(process: dict[str, str]) -> ConfigValues:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         # TOML 异常可能带原始输入，不回显解析器异常或敏感值。
-        result.problem("AVELIS_CONFIG", "配置文件不存在、无法读取或 TOML 格式无效", source="环境变量" if explicit else "默认")
+        result.problem(
+            "AVELIS_CONFIG", "配置文件不存在、无法读取或 TOML 格式无效", source="环境变量" if explicit else "默认"
+        )
         return result
     sections = {p.split(".")[0] for p in CONFIG_KEYS}
     valid = dict(CONFIG_KEYS)
@@ -160,8 +169,10 @@ def read_config(process: dict[str, str]) -> ConfigValues:
         if section not in sections or not isinstance(entries, dict):
             suggestion = get_close_matches(section, sorted(sections), n=1, cutoff=0)
             hint = f"；建议使用 [{suggestion[0]}]" if suggestion else ""
-            result.problems.append(f"[{section}]（来源：配置文件 {path}）：未知的节或节格式无效{hint}。"
-                                   "合法的节见 avelis.example.toml 或 docs/configuration.md")
+            result.problems.append(
+                f"[{section}]（来源：配置文件 {path}）：未知的节或节格式无效{hint}。"
+                "合法的节见 avelis.example.toml 或 docs/configuration.md"
+            )
             continue
         for name, value in entries.items():
             full = f"{section}.{name}"
@@ -169,8 +180,10 @@ def read_config(process: dict[str, str]) -> ConfigValues:
             if spec is None:
                 suggestion = get_close_matches(full, valid, n=1, cutoff=0)
                 hint = f"；建议使用 {suggestion[0]}" if suggestion else ""
-                result.problems.append(f"[{section}] {name}（来源：配置文件 {path}）：未知的键{hint}。"
-                                       "合法的键见 avelis.example.toml 或 docs/configuration.md")
+                result.problems.append(
+                    f"[{section}] {name}（来源：配置文件 {path}）：未知的键{hint}。"
+                    "合法的键见 avelis.example.toml 或 docs/configuration.md"
+                )
                 continue
             correct = type(value) is spec.kind
             if spec.kind is float:
@@ -178,8 +191,13 @@ def read_config(process: dict[str, str]) -> ConfigValues:
             if spec.kind is list:
                 correct = isinstance(value, list) and all(type(item) is str for item in value)
             if not correct:
-                expected = {str: "字符串（加英文双引号）", int: "整数（不加引号）", float: "数值", bool: "true 或 false（不加引号）",
-                            list: "字符串数组，如 [\"a\", \"b\"]"}[spec.kind]
+                expected = {
+                    str: "字符串（加英文双引号）",
+                    int: "整数（不加引号）",
+                    float: "数值",
+                    bool: "true 或 false（不加引号）",
+                    list: '字符串数组，如 ["a", "b"]',
+                }[spec.kind]
                 result.problem(spec.env.removesuffix("_FILE"), f"类型不符，必须为 {expected}", source="配置文件")
                 continue
             result[spec.env] = flatten(value)

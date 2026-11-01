@@ -118,10 +118,14 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
             for edge_index, edge in enumerate(write.edges):
                 raw = FoldEdge(
                     id=_id(statement.statement_id, str(write_index), str(edge_index)),
-                    job_id=statement.job_id, statement_id=statement.statement_id,
-                    source_ref=edge.source_ref, source_column=edge.source_column,
-                    target_ref=write.target_ref, target_column=edge.target_column,
-                    relation=edge.relation, expression=edge.expression,
+                    job_id=statement.job_id,
+                    statement_id=statement.statement_id,
+                    source_ref=edge.source_ref,
+                    source_column=edge.source_column,
+                    target_ref=write.target_ref,
+                    target_column=edge.target_column,
+                    relation=edge.relation,
+                    expression=edge.expression,
                     attributes={**(write.attributes or {}), **(edge.attributes or {})},
                 )
                 raw_edges.append(raw)
@@ -147,8 +151,9 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
                 # 改名 / 换表得到的新名字是本批产生的：之后被 DROP 时同样是中间表
                 created = write.created or op in ("rename", "swap") or bool(previous and previous.created)
                 temporary = write.temporary or bool(previous and previous.temporary)
-                write_targets[ref] = table(ref, created=created, temporary=temporary,
-                                           fresh=write.created or op in ("rename", "swap"))
+                write_targets[ref] = table(
+                    ref, created=created, temporary=temporary, fresh=write.created or op in ("rename", "swap")
+                )
                 columns = None if any(raw.relation == "table" for raw in raw_edges) else set(write.target_columns)
                 written_columns.setdefault(write_targets[ref], []).append((position, columns))
                 for column in (write.attributes or {}).get("replace_columns", []):
@@ -177,21 +182,31 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
             expanded_by_id[raw.id] = [replace(raw, attributes={**raw.attributes, "hops": [raw.id], "via": []})]
             continue
         expanded: list[FoldEdge] = []
-        if not segment.source.created and segment.source.previous_data is None and not any(
-            position < segment.position and (columns is None or raw.source_column in columns)
-            for position, columns in written_columns.get(segment.source, [])
+        if (
+            not segment.source.created
+            and segment.source.previous_data is None
+            and not any(
+                position < segment.position and (columns is None or raw.source_column in columns)
+                for position, columns in written_columns.get(segment.source, [])
+            )
         ):
             # 外部表未被此前写入覆盖的列仍以原表为来源；影响边不会覆盖数据列。
-            expanded.append(replace(
-                raw, id=_id("folded", raw.id),
-                attributes={**raw.attributes, "hops": [raw.id], "via": [segment.source.ref]},
-            ))
+            expanded.append(
+                replace(
+                    raw,
+                    id=_id("folded", raw.id),
+                    attributes={**raw.attributes, "hops": [raw.id], "via": [segment.source.ref]},
+                )
+            )
         for prior in incoming.get(segment.source, []):
             if prior.position >= segment.position:
                 continue
             previous = prior.edge
-            if (raw.source_column is not None and previous.target_column is not None
-                    and raw.source_column != previous.target_column):
+            if (
+                raw.source_column is not None
+                and previous.target_column is not None
+                and raw.source_column != previous.target_column
+            ):
                 continue
             # 每次无条件赋值开启该列的新版本；SET 自读仍取赋值前的版本。
             # 影响边和表级边描述行集，列赋值不会清除这些依赖。
@@ -206,11 +221,17 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
                 relation, source_column, target_column = _compose(source, raw)
                 hops = [*source.attributes["hops"], raw.id]
                 via = [*source.attributes["via"], segment.source.ref]
-                expanded.append(replace(
-                    raw, id=_id("folded", *hops), source_ref=source.source_ref,
-                    source_column=source_column, target_column=target_column, relation=relation,
-                    attributes={**raw.attributes, "via": via, "hops": hops},
-                ))
+                expanded.append(
+                    replace(
+                        raw,
+                        id=_id("folded", *hops),
+                        source_ref=source.source_ref,
+                        source_column=source_column,
+                        target_column=target_column,
+                        relation=relation,
+                        attributes={**raw.attributes, "via": via, "hops": hops},
+                    )
+                )
         expanded_by_id[raw.id] = expanded
 
     active: list[FoldEdge] = []
@@ -225,8 +246,14 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
         if segment.target.intermediate:
             continue
         for edge in expanded_by_id[raw.id] if segment.source.intermediate else [raw]:
-            key = (edge.statement_id, edge.source_ref, edge.source_column,
-                   edge.target_ref, edge.target_column, edge.relation)
+            key = (
+                edge.statement_id,
+                edge.source_ref,
+                edge.source_column,
+                edge.target_ref,
+                edge.target_column,
+                edge.relation,
+            )
             hops = list(edge.attributes.get("hops", [edge.id]))
             if key in emitted:
                 emitted[key].attributes["paths"].append(hops)

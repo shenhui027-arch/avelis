@@ -55,8 +55,16 @@ def test_generation_is_row_for_row_deterministic(dataset):
     assert mfg_data.checksum(dataset) == mfg_data.checksum(other)
     assert set(table.split(".")[0] for table in dataset.tables) <= set(mfg_data.DATABASES)
     assert dataset.truth["timezone"] == "Asia/Shanghai"
-    assert set(dataset.truth["scenarios"]) == {"material_batch", "planned_maintenance", "new_line", "mid_autumn",
-                                                "offsetting", "energy_gap", "stable", "energy_relationship"}
+    assert set(dataset.truth["scenarios"]) == {
+        "material_batch",
+        "planned_maintenance",
+        "new_line",
+        "mid_autumn",
+        "offsetting",
+        "energy_gap",
+        "stable",
+        "energy_relationship",
+    }
     for scenario in dataset.truth["scenarios"].values():
         assert scenario["before"]["period"] and scenario["after"]["period"]
         assert scenario["primary_entity"] and scenario["mechanism_assets"]
@@ -177,8 +185,16 @@ def test_daily_truth_reconciles_to_source_facts_without_losing_missing_energy(da
     assert len(keyed) == len(daily) == len(mfg_data.days()) * len(mfg_data.LINES)
     # 每个生产日的报工与计量独立归并，防止多事实表联接造成重复计量。
     for source, day_column, pairs in (
-        ("mfg_mes.production_report", "production_date", (("production_qty", "production_qty"), ("good_qty", "good_qty"),
-                                                         ("defect_qty", "defect_qty"), ("work_hours", "work_hours"))),
+        (
+            "mfg_mes.production_report",
+            "production_date",
+            (
+                ("production_qty", "production_qty"),
+                ("good_qty", "good_qty"),
+                ("defect_qty", "defect_qty"),
+                ("work_hours", "work_hours"),
+            ),
+        ),
         ("mfg_eam.downtime", "stat_date", (("duration_minutes", "downtime_minutes"),)),
         ("mfg_mes.energy_reading", "reading_date", (("energy_kwh", "energy_kwh"),)),
     ):
@@ -193,13 +209,15 @@ def test_daily_truth_reconciles_to_source_facts_without_losing_missing_energy(da
                     assert row[output] is None
                 else:
                     assert _decimal(row[output]) == totals[key][output]
-    actual_readings = Counter((str(row["reading_date"]), row["line_id"])
-                              for row in _records(dataset, "mfg_mes.energy_reading"))
-    expected_readings = Counter((str(row["stat_date"]), row["line_id"])
-                                for row in _records(dataset, "mfg_mes.schedule")
-                                if row["schedule_status"] != "未投产")
-    downtime_events = Counter((str(row["stat_date"]), row["line_id"])
-                             for row in _records(dataset, "mfg_eam.downtime"))
+    actual_readings = Counter(
+        (str(row["reading_date"]), row["line_id"]) for row in _records(dataset, "mfg_mes.energy_reading")
+    )
+    expected_readings = Counter(
+        (str(row["stat_date"]), row["line_id"])
+        for row in _records(dataset, "mfg_mes.schedule")
+        if row["schedule_status"] != "未投产"
+    )
+    downtime_events = Counter((str(row["stat_date"]), row["line_id"]) for row in _records(dataset, "mfg_eam.downtime"))
     for key, row in keyed.items():
         assert int(row["energy_reading_count"]) == actual_readings[key]
         assert int(row["expected_reading_count"]) == expected_readings[key]
@@ -207,9 +225,13 @@ def test_daily_truth_reconciles_to_source_facts_without_losing_missing_energy(da
     material = _view_records(dataset, "dws_material_daily")
     maintenance = _view_records(dataset, "dws_maintenance_daily")
     assert sum(int(r["batch_count"]) for r in material) == len(dataset.tables["mfg_scm.material_receipt"])
-    assert sum(_decimal(r["received_qty"]) for r in material) == sum(r[6] for r in dataset.tables["mfg_scm.material_receipt"])
+    assert sum(_decimal(r["received_qty"]) for r in material) == sum(
+        r[6] for r in dataset.tables["mfg_scm.material_receipt"]
+    )
     assert sum(int(r["order_count"]) for r in maintenance) == len(dataset.tables["mfg_eam.maintenance_order"])
-    assert sum(int(r["maintenance_minutes"]) for r in maintenance) == sum(r[8] for r in dataset.tables["mfg_eam.maintenance_order"])
+    assert sum(int(r["maintenance_minutes"]) for r in maintenance) == sum(
+        r[8] for r in dataset.tables["mfg_eam.maintenance_order"]
+    )
     gap = keyed[("2026-09-18", "SW2")]
     assert gap["energy_kwh"] is None and int(gap["production_qty"]) > 0
     assert int(gap["energy_reading_count"]) == 0 < int(gap["expected_reading_count"]) == 3
@@ -227,21 +249,34 @@ def test_production_view_joins_only_unique_grains_and_yield_does_not_include_rec
         if alias != "s":
             join = next(join for join in tree.args["joins"] if join.this.alias_or_name == alias)
             assert join.side == "LEFT"
-            pairs = [{(column.table, column.name) for column in equals.find_all(exp.Column)}
-                     for equals in join.args["on"].find_all(exp.EQ)]
+            pairs = [
+                {(column.table, column.name) for column in equals.find_all(exp.Column)}
+                for equals in join.args["on"].find_all(exp.EQ)
+            ]
             assert {(alias, date_column), ("s", "stat_date")} in pairs
             assert {(alias, "line_id"), ("s", "line_id")} in pairs
     # 维表主键完整性由上面的数据测试核对；这里限制多行事实不能直接连入。
     direct_tables = {f"{relation.db}.{relation.name}" for relation in relations if isinstance(relation, exp.Table)}
-    assert direct_tables == {"mfg_mes.production_line", "mfg_mes.factory", "mfg_mes.equipment_model", "mfg_mes.product_family"}
-    for alias, target in (("l", ("s", "line_id")), ("f", ("l", "factory_id")),
-                          ("em", ("l", "model_id")), ("pf", ("l", "product_family_id"))):
+    assert direct_tables == {
+        "mfg_mes.production_line",
+        "mfg_mes.factory",
+        "mfg_mes.equipment_model",
+        "mfg_mes.product_family",
+    }
+    for alias, target in (
+        ("l", ("s", "line_id")),
+        ("f", ("l", "factory_id")),
+        ("em", ("l", "model_id")),
+        ("pf", ("l", "product_family_id")),
+    ):
         relation = sources[alias]
         primary_key = mfg_data.TABLE_METADATA[f"{relation.db}.{relation.name}"]["key"]
         assert len(primary_key) == 1
         join = next(join for join in tree.args["joins"] if join.this.alias_or_name == alias)
         assert {(column.table, column.name) for column in join.args["on"].find_all(exp.Column)} == {
-            (alias, primary_key[0]), target}
+            (alias, primary_key[0]),
+            target,
+        }
     energy_projection = next(item for item in tree.selects if item.alias_or_name == "energy_kwh")
     assert isinstance(energy_projection, exp.Column) and energy_projection.table == "e"
     sources_used = {f"{table.db}.{table.name}" for table in tree.find_all(exp.Table)}
@@ -256,7 +291,9 @@ def test_production_view_joins_only_unique_grains_and_yield_does_not_include_rec
 def test_scenario_truth_is_calculated_from_changed_source_rows(dataset):
     changed = mfg_data.Dataset(tables={name: list(rows) for name, rows in dataset.tables.items()})
     columns = mfg_data.TABLE_COLUMNS["mfg_mes.production_report"]
-    batch_index, production_index, good_index = (columns.index(column) for column in ("batch_no", "production_qty", "good_qty"))
+    batch_index, production_index, good_index = (
+        columns.index(column) for column in ("batch_no", "production_qty", "good_qty")
+    )
     rows = changed.tables["mfg_mes.production_report"]
     index = next(i for i, row in enumerate(rows) if row[batch_index] == mfg_data.BAD_BATCH)
     row = list(rows[index])
@@ -287,7 +324,11 @@ def test_material_batch_cause_has_large_defect_increase(dataset):
 
 def test_planned_maintenance_explains_output_loss(dataset):
     scenario = dataset.truth["scenarios"]["planned_maintenance"]
-    assert Decimal("0.5") < _decimal(scenario["after"]["production_qty"]) / scenario["before"]["production_qty"] < Decimal("0.8")
+    assert (
+        Decimal("0.5")
+        < _decimal(scenario["after"]["production_qty"]) / scenario["before"]["production_qty"]
+        < Decimal("0.8")
+    )
     assert scenario["shutdown_period"]["production_qty"] == 0
     assert scenario["planned_downtime_minutes"] == 7 * 24 * 60
     assert scenario["start"] == "2026-09-08 00:00:00" and scenario["end_exclusive"] == "2026-09-15 00:00:00"
@@ -345,8 +386,10 @@ def test_stable_metric_stays_within_noise(dataset):
 def test_equipment_energy_relationship_survives_two_periods(dataset):
     scenario = dataset.truth["scenarios"]["energy_relationship"]
     for period in ("before", "after"):
-        intensities = {model: _decimal(values["energy_kwh"]) / values["production_qty"]
-                       for model, values in scenario[period]["models"].items()}
+        intensities = {
+            model: _decimal(values["energy_kwh"]) / values["production_qty"]
+            for model, values in scenario[period]["models"].items()
+        }
         assert sorted(intensities, key=intensities.get) == ["精益A型", "标准B型", "重载C型"]
         assert intensities["重载C型"] > 2 * intensities["精益A型"]
     assert "相关" in scenario["interpretation"] and "因果" in scenario["interpretation"]
@@ -355,7 +398,9 @@ def test_equipment_energy_relationship_survives_two_periods(dataset):
 def test_metric_specs_reference_existing_view_columns():
     for code, _, view, expression, time_column, dims, grain, _ in demo_setup.MFG_METRICS:
         columns = {column for column, _ in mfg_data.VIEW_COLUMNS[f"mfg_dw.{view}"]}
-        expression_columns = {column.name for column in sqlglot.parse_one(expression, dialect="starrocks").find_all(exp.Column)}
+        expression_columns = {
+            column.name for column in sqlglot.parse_one(expression, dialect="starrocks").find_all(exp.Column)
+        }
         assert expression_columns <= columns, code
         assert {time_column, *grain, *(dimension["column"] for dimension in dims)} <= columns, code
         assert demo_setup.MFG_UNITS[code], code
@@ -372,7 +417,13 @@ def test_question_set_loads_with_generated_truth_and_no_implicit_demo_state(data
     questions = {question["id"]: question for question in loaded["questions"]}
     assert set(questions) == {f"m{i:02d}" for i in range(1, 9)} | {"ma01"}
     assert {question["category"] for question in questions.values()} >= {
-        "explore", "dimension", "calendar", "governance", "negative", "adversarial"}
+        "explore",
+        "dimension",
+        "calendar",
+        "governance",
+        "negative",
+        "adversarial",
+    }
     assert questions["m08"]["question"] == raw["questions"]["m08"]["question"]
     assert questions["m08"]["expect"]["conclusion"] == ["ranked_reasons"]
     assert questions["ma01"]["user"] == "sun" and questions["ma01"]["expect"]["denied_ok"]
@@ -391,7 +442,9 @@ def test_question_set_loads_with_generated_truth_and_no_implicit_demo_state(data
         for reference, binding in zip(refs, bindings, strict=True):
             assert reference["table"] in dataset.truth
             assert binding["value"] is None
-            assert binding["truth"] == scoring_v2.truth_periods(dataset.truth, reference, questions[question_id]["window"])
+            assert binding["truth"] == scoring_v2.truth_periods(
+                dataset.truth, reference, questions[question_id]["window"]
+            )
         assert questions[question_id]["expect"]["key_value"]["any_of"]
     assert questions["m01"]["business"]["direction"] == "down"
     assert questions["m02"]["business"]["direction"] == "down"
@@ -435,16 +488,20 @@ def test_grant_uses_select_only_for_manufacturing_databases(monkeypatch):
     monkeypatch.setattr(demo, "SR_USERS", ("avelis_reader", "avelis_collector"))
     mfg_data.grant(Connection(), {})
     assert len(statements) == len(demo.SR_USERS) * len(mfg_data.DATABASES) * 2
-    assert all(re.fullmatch(r"GRANT SELECT ON ALL (TABLES|VIEWS) IN DATABASE mfg_\w+ TO USER '[a-z_]+'@'%'", sql)
-               for sql in statements)
+    assert all(
+        re.fullmatch(r"GRANT SELECT ON ALL (TABLES|VIEWS) IN DATABASE mfg_\w+ TO USER '[a-z_]+'@'%'", sql)
+        for sql in statements
+    )
     assert all(any(f"DATABASE {database} " in sql for sql in statements) for database in mfg_data.DATABASES)
 
 
 def test_setup_domain_members_examples_and_datasource_are_seeded_offline(monkeypatch):
     calls = []
     published = []
-    assets = [{"qualified": f"default_catalog.mfg_dw.{view}", "id": f"asset-{view}", "domain_id": None}
-              for view in {metric[2] for metric in demo_setup.MFG_METRICS}]
+    assets = [
+        {"qualified": f"default_catalog.mfg_dw.{view}", "id": f"asset-{view}", "domain_id": None}
+        for view in {metric[2] for metric in demo_setup.MFG_METRICS}
+    ]
 
     class Api:
         def __init__(self, client, username, password):
@@ -479,8 +536,11 @@ def test_setup_domain_members_examples_and_datasource_are_seeded_offline(monkeyp
     assert source["collect"]["username"] == "avelis_collector"
     assert source["query"]["username"] == "avelis_reader"
     assert any(path == "/api/datasources/source-mfg/collect?wait=true" for _, _, path, _ in calls)
-    assigned = [path.rsplit("/", 1)[1] for _, method, path, kw in calls if method == "PATCH"
-                and kw["json"] == {"domain_id": "domain-mfg"}]
+    assigned = [
+        path.rsplit("/", 1)[1]
+        for _, method, path, kw in calls
+        if method == "PATCH" and kw["json"] == {"domain_id": "domain-mfg"}
+    ]
     assert set(assigned) == {asset["id"] for asset in assets}
     assert published == [(client, "test", {asset["qualified"]: asset["id"] for asset in assets}, "domain-mfg")]
 

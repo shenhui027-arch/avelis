@@ -61,8 +61,13 @@ def governed_units(columns: list[str], metrics: dict[str, Any], period_label: st
         base = metric_unit(version)
         declared = [(name, base)]
         if period_label is not None:
-            declared.extend(((f"{name}·{period_label}", base), (f"{name}·变化", like(base, "delta")),
-                             (f"{name}·变化率", {"kind": "rate_change"})))
+            declared.extend(
+                (
+                    (f"{name}·{period_label}", base),
+                    (f"{name}·变化", like(base, "delta")),
+                    (f"{name}·变化率", {"kind": "rate_change"}),
+                )
+            )
         for column, meta in declared:
             if column in columns:
                 units[column] = meta
@@ -83,11 +88,15 @@ def governed_polarity(columns: list[str], metrics: dict[str, Any], period_label:
 
 # --- derive ----------------------------------------------------------------------------
 
+
 def constants(formula: str) -> list[Decimal]:
     """公式里不在白名单（0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9）里的常量。"""
     tree = ast.parse(formula.strip(), mode="eval")
-    return [Decimal(str(n.value)) for n in ast.walk(tree)
-            if isinstance(n, ast.Constant) and Decimal(str(n.value)) not in CONSTANTS]
+    return [
+        Decimal(str(n.value))
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and Decimal(str(n.value)) not in CONSTANTS
+    ]
 
 
 def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
@@ -96,9 +105,11 @@ def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
     同单位加减保留单位，相除得到无量纲比率；比率与白名单常量可缩放带单位的量。
     不同单位的水平值 / 计数沿用每单位均值规则；不能确认的运算返回 unknown。
     """
+
     def scalar(meta: dict) -> bool:
         return meta["kind"] == "constant" or (
-            not meta.get("unit") and meta["kind"] in {"ratio", "rate_change", "share"})
+            not meta.get("unit") and meta["kind"] in {"ratio", "rate_change", "share"}
+        )
 
     def kind_of(node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Expression):
@@ -126,11 +137,22 @@ def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
                     return left
                 if left["kind"] == "constant" and left["value"] == 0:
                     return right  # 0 - x 与 -x 保持同一量纲
-                if (isinstance(node.op, ast.Sub) and right["kind"] == "constant" and right["value"] == 1
-                        and left["kind"] == "ratio" and not left.get("unit")):
+                if (
+                    isinstance(node.op, ast.Sub)
+                    and right["kind"] == "constant"
+                    and right["value"] == 1
+                    and left["kind"] == "ratio"
+                    and not left.get("unit")
+                ):
                     return {"kind": "rate_change"}
                 if _same(left, right):
-                    if isinstance(node.op, ast.Sub) and left["kind"] in ("level", "count", "ratio", "rate_change", "share"):
+                    if isinstance(node.op, ast.Sub) and left["kind"] in (
+                        "level",
+                        "count",
+                        "ratio",
+                        "rate_change",
+                        "share",
+                    ):
                         return like(left, "delta")
                     return left
             if isinstance(node.op, ast.Mult):
@@ -178,7 +200,10 @@ def insensitive(formula: str, env: dict[str, Decimal], evaluate) -> list[str]:
     base = evaluate(formula, env)
     out = []
     for name, value in env.items():
-        for bumped in ((value or Decimal(0)) * Decimal("1.37") + Decimal("0.91"), (value or Decimal(0)) - Decimal("3.1")):
+        for bumped in (
+            (value or Decimal(0)) * Decimal("1.37") + Decimal("0.91"),
+            (value or Decimal(0)) - Decimal("3.1"),
+        ):
             if evaluate(formula, {**env, name: bumped}) != base:
                 break
         else:

@@ -28,9 +28,19 @@ def test_0009_adds_optional_unit_columns_and_round_trips(meta_db, factory):
     code = factory.metric(owner)
     with session_scope() as s:
         metric = s.scalar(select(Metric).where(Metric.code == code))
-        version = MetricVersion(metric_id=metric.id, version_no=1, status="draft", description="d", kind="derived",
-                                expression="a / b", time_column="", timezone="Asia/Shanghai", created_by=owner,
-                                unit="元", unit_scale=10000)
+        version = MetricVersion(
+            metric_id=metric.id,
+            version_no=1,
+            status="draft",
+            description="d",
+            kind="derived",
+            expression="a / b",
+            time_column="",
+            timezone="Asia/Shanghai",
+            created_by=owner,
+            unit="元",
+            unit_scale=10000,
+        )
         s.add(version)
         s.flush()
         version_id = version.id

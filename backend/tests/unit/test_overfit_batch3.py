@@ -27,12 +27,20 @@ SECRET = "offline-unit-test-secret-0123456789"
 
 
 def _version(**changes):
-    return SimpleNamespace(**{
-        "id": "version_a", "metric_id": "metric_id_a", "kind": "base", "expression": "SUM(value_a)",
-        "value_kind": None, "unit": "单位甲", "unit_scale": 1, "polarity": "down_good",
-        "dimensions": [{"name": "dimension_a", "label": "维度甲"}, {"name": "dimension_b"}],
-        **changes,
-    })
+    return SimpleNamespace(
+        **{
+            "id": "version_a",
+            "metric_id": "metric_id_a",
+            "kind": "base",
+            "expression": "SUM(value_a)",
+            "value_kind": None,
+            "unit": "单位甲",
+            "unit_scale": 1,
+            "polarity": "down_good",
+            "dimensions": [{"name": "dimension_a", "label": "维度甲"}, {"name": "dimension_b"}],
+            **changes,
+        }
+    )
 
 
 def _metric():
@@ -58,10 +66,21 @@ class _Session:
 
 def _dataset(kind="governed", *, columns=None, meta=None, seq=1):
     return SimpleNamespace(
-        id=f"dataset_{seq}", seq=seq, kind=kind, title="数据甲", columns=columns or ["dimension_a", "指标甲"],
-        rows=[[3, 40]], truncated=False, inputs=[], answer_id=None, created_at=NOW,
-        meta=meta if meta is not None else {
-            "versions": {"metric_a": "version_a"}, "metric_version_ids": ["version_a"],
+        id=f"dataset_{seq}",
+        seq=seq,
+        kind=kind,
+        title="数据甲",
+        columns=columns or ["dimension_a", "指标甲"],
+        rows=[[3, 40]],
+        truncated=False,
+        inputs=[],
+        answer_id=None,
+        created_at=NOW,
+        meta=meta
+        if meta is not None
+        else {
+            "versions": {"metric_a": "version_a"},
+            "metric_version_ids": ["version_a"],
             "intent": {"metric_codes": ["metric_a"], "group_by": ["dimension_a"]},
         },
     )
@@ -69,22 +88,41 @@ def _dataset(kind="governed", *, columns=None, meta=None, seq=1):
 
 def _run(report=None):
     return SimpleNamespace(
-        id="run_a", task_id=None, parent_run_id=None, conversation_id="run_a",
-        confirmation_mode="auto", question="查看指标甲",
-        trigger="manual", status="succeeded", window={}, budget={}, model_adapter="offline",
-        reasoning_effort=None, model_choice=None, error=None, created_at=NOW, started_at=None,
-        finished_at=None, checkpoint={}, report=report or {"title": "报告甲"}, verification={"ok": True}, plan={},
+        id="run_a",
+        task_id=None,
+        parent_run_id=None,
+        conversation_id="run_a",
+        confirmation_mode="auto",
+        question="查看指标甲",
+        trigger="manual",
+        status="succeeded",
+        window={},
+        budget={},
+        model_adapter="offline",
+        reasoning_effort=None,
+        model_choice=None,
+        error=None,
+        created_at=NOW,
+        started_at=None,
+        finished_at=None,
+        checkpoint={},
+        report=report or {"title": "报告甲"},
+        verification={"ok": True},
+        plan={},
     )
 
 
-@pytest.mark.parametrize("kind,expression,declared,expected", [
-    ("base", "SUM(value_a)", "ratio", "ratio"),
-    ("derived", "a / b", "level", "level"),
-    ("derived", "a / b", "count", "count"),
-    ("base", "SUM(value_a)", None, "level"),
-    ("derived", "a / b", None, "ratio"),
-    ("derived", "a + b", None, "level"),
-])
+@pytest.mark.parametrize(
+    "kind,expression,declared,expected",
+    [
+        ("base", "SUM(value_a)", "ratio", "ratio"),
+        ("derived", "a / b", "level", "level"),
+        ("derived", "a / b", "count", "count"),
+        ("base", "SUM(value_a)", None, "level"),
+        ("derived", "a / b", None, "ratio"),
+        ("derived", "a + b", None, "level"),
+    ],
+)
 def test_metric_value_kind_overrides_inference_and_preserves_default(kind, expression, declared, expected):
     version = _version(kind=kind, expression=expression, value_kind=declared, unit_scale=1000)
     assert measures.metric_kind(version) == expected
@@ -121,13 +159,20 @@ def test_calculated_results_inherit_only_explicitly_retained_time_column(monkeyp
     source = _batch1_governed(box)
     source.meta["time_column"] = "维度甲"
     args = {"keys": ["维度甲"]} if retained else {}
-    out = json.loads(box._calc("aggregate", args, ["D1"], lambda: (
-        "计算甲", ["维度甲", "value_a"], [["成员甲", 40]], {}, {"units": {"value_a": {"kind": "count"}}})))
+    out = json.loads(
+        box._calc(
+            "aggregate",
+            args,
+            ["D1"],
+            lambda: ("计算甲", ["维度甲", "value_a"], [["成员甲", 40]], {}, {"units": {"value_a": {"kind": "count"}}}),
+        )
+    )
     assert out["dataset"] == "D2"
     meta = box.datasets()["D2"].meta
     assert meta.get("time_column") == ("维度甲" if retained else None)
     assert dataset_projection.build_column_roles(out["columns"], meta)["维度甲"]["role"] == (
-        "time" if retained else "dimension")
+        "time" if retained else "dimension"
+    )
 
 
 def test_calendar_calculation_registers_period_and_derive_marks_mixed_values_unknown(monkeypatch):
@@ -137,10 +182,16 @@ def test_calendar_calculation_registers_period_and_derive_marks_mixed_values_unk
     calendar_meta = box.datasets()[adjusted["dataset"]].meta
     assert calendar_meta["time_column"] == "period"
     assert dataset_projection.build_column_roles(adjusted["columns"], calendar_meta)["period"]["role"] == "time"
-    derived = json.loads(box.derive("指标乙", [
-        {"name": "a", "dataset": "D1", "column": "指标甲", "match": {"维度甲": "成员甲"}},
-        {"name": "b", "dataset": "D1", "column": "指标甲·上一期", "match": {"维度甲": "成员甲"}},
-    ], "a / b"))
+    derived = json.loads(
+        box.derive(
+            "指标乙",
+            [
+                {"name": "a", "dataset": "D1", "column": "指标甲", "match": {"维度甲": "成员甲"}},
+                {"name": "b", "dataset": "D1", "column": "指标甲·上一期", "match": {"维度甲": "成员甲"}},
+            ],
+            "a / b",
+        )
+    )
     derived_meta = box.datasets()[derived["dataset"]].meta
     assert derived_meta["units"]["value"] == {"kind": "unknown"}
     assert derived_meta["summary_units"]["value"] == {"kind": "ratio"}
@@ -157,17 +208,25 @@ def test_formula_and_exploration_share_conversion_constants(constant, engine):
     assert result.columns[0].eligible and not result.columns[0].assumption
 
 
-@pytest.mark.parametrize("sql,key", [
-    ("SELECT qty AS key_a, SUM(amount) AS value_a FROM d1.facts GROUP BY qty", "key_a"),
-    ("SELECT item_id, SUM(qty) AS value_a FROM d1.facts GROUP BY item_id", "item_id"),
-    ("WITH grouped AS (SELECT qty AS numeric_key, SUM(amount) AS total FROM d1.facts GROUP BY qty) "
-     "SELECT numeric_key AS key_a, total AS value_a FROM grouped", "key_a"),
-])
+@pytest.mark.parametrize(
+    "sql,key",
+    [
+        ("SELECT qty AS key_a, SUM(amount) AS value_a FROM d1.facts GROUP BY qty", "key_a"),
+        ("SELECT item_id, SUM(qty) AS value_a FROM d1.facts GROUP BY item_id", "item_id"),
+        (
+            "WITH grouped AS (SELECT qty AS numeric_key, SUM(amount) AS total FROM d1.facts GROUP BY qty) "
+            "SELECT numeric_key AS key_a, total AS value_a FROM grouped",
+            "key_a",
+        ),
+    ],
+)
 def test_exploration_numeric_group_keys_keep_dimension_role_through_aliases_and_ctes(sql, key):
     result = validate_explore("postgres", sql)
     assert result.group_by == [key]
-    meta = {"units": {column.name: {"kind": column.kind} for column in result.columns},
-            "intent": {"group_by": result.group_by}}
+    meta = {
+        "units": {column.name: {"kind": column.kind} for column in result.columns},
+        "intent": {"group_by": result.group_by},
+    }
     roles = dataset_projection.build_column_roles([column.name for column in result.columns], meta)
     assert roles[key] == {"role": "dimension", "label": key}
     assert roles["value_a"]["role"] == "measure"
@@ -182,16 +241,36 @@ def test_governed_polarity_covers_comparison_and_change_columns_without_guessing
 
 
 def test_column_roles_follow_registered_semantics_and_labels():
-    columns = ["time_a", "dimension_a", "dimension_b", "其他键", "期间", "列·变化率",
-               "count_a", "ratio_a", "share_a", "delta_a", "rate_a", "unknown_a"]
+    columns = [
+        "time_a",
+        "dimension_a",
+        "dimension_b",
+        "其他键",
+        "期间",
+        "列·变化率",
+        "count_a",
+        "ratio_a",
+        "share_a",
+        "delta_a",
+        "rate_a",
+        "unknown_a",
+    ]
     meta = {
-        "time_column": "time_a", "intent": {"group_by": ["time_a", "dimension_a", "dimension_b"]},
+        "time_column": "time_a",
+        "intent": {"group_by": ["time_a", "dimension_a", "dimension_b"]},
         "dimensions": [{"name": "dimension_a", "label": "维度甲"}, {"name": "dimension_b"}],
         "measure_labels": {"列·变化率": "指标甲", "delta_a": "指标甲", "rate_a": "指标甲"},
-        "units": {"time_a": {"kind": "count"}, "dimension_a": {"kind": "count"},
-                  "列·变化率": {"kind": "level"}, "count_a": {"kind": "count"}, "ratio_a": {"kind": "ratio"},
-                  "share_a": {"kind": "share"}, "delta_a": {"kind": "delta"},
-                  "rate_a": {"kind": "rate_change"}, "unknown_a": {"kind": "unknown"}},
+        "units": {
+            "time_a": {"kind": "count"},
+            "dimension_a": {"kind": "count"},
+            "列·变化率": {"kind": "level"},
+            "count_a": {"kind": "count"},
+            "ratio_a": {"kind": "ratio"},
+            "share_a": {"kind": "share"},
+            "delta_a": {"kind": "delta"},
+            "rate_a": {"kind": "rate_change"},
+            "unknown_a": {"kind": "unknown"},
+        },
     }
     original = deepcopy(meta)
     roles = dataset_projection.build_column_roles(columns, meta)
@@ -209,8 +288,11 @@ def test_column_roles_follow_registered_semantics_and_labels():
 
 def test_column_roles_do_not_invent_dimensions_when_units_are_missing():
     columns = ["time_a", "dimension_a", "dimension_b", "value_a", "期间"]
-    meta = {"time_column": "time_a", "intent": {"group_by": ["dimension_a"]},
-            "dimensions": [{"name": "dimension_b", "label": "维度乙"}]}
+    meta = {
+        "time_column": "time_a",
+        "intent": {"group_by": ["dimension_a"]},
+        "dimensions": [{"name": "dimension_b", "label": "维度乙"}],
+    }
     assert dataset_projection.build_column_roles(columns, meta) == {
         "time_a": {"role": "time", "label": "time_a"},
         "dimension_a": {"role": "dimension", "label": "dimension_a"},
@@ -220,21 +302,32 @@ def test_column_roles_do_not_invent_dimensions_when_units_are_missing():
 
 def test_registered_measure_role_wins_over_unused_dimension_with_same_name():
     version = _version(value_kind="count", dimensions=[{"name": "value", "label": "维度甲"}])
-    roles = dataset_projection.build_column_roles(["value"], {
-        "units": {"value": {"kind": "count"}}, "dimensions": version.dimensions,
-        "measure_labels": {"value": "指标甲"},
-    })
+    roles = dataset_projection.build_column_roles(
+        ["value"],
+        {
+            "units": {"value": {"kind": "count"}},
+            "dimensions": version.dimensions,
+            "measure_labels": {"value": "指标甲"},
+        },
+    )
     assert roles["value"] == {"role": "measure", "label": "指标甲"}
-    result = ask_service._result_contract({"columns": ["value"], "rows": [[40]]},
-                                         Intent(metric_code="metric_a"), [(_metric(), version)], value_column="value")
+    result = ask_service._result_contract(
+        {"columns": ["value"], "rows": [[40]]},
+        Intent(metric_code="metric_a"),
+        [(_metric(), version)],
+        value_column="value",
+    )
     assert result["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
 
 
 @pytest.mark.parametrize("source", ["versions", "metric_version_ids"])
 def test_dataset_meta_reads_locked_version_and_does_not_mutate_saved_metadata(source):
     columns = ["dimension_a", "指标甲", "指标甲·上一自然期", "指标甲·变化", "指标甲·变化率"]
-    meta = {source: {"metric_a": "version_a"} if source == "versions" else ["version_a"],
-            "intent": {"compare": "previous_calendar"}, "units": {"指标甲": {"kind": "level"}}}
+    meta = {
+        source: {"metric_a": "version_a"} if source == "versions" else ["version_a"],
+        "intent": {"compare": "previous_calendar"},
+        "units": {"指标甲": {"kind": "level"}},
+    }
     dataset = _dataset(columns=columns, meta=meta)
     session = _Session(_version(value_kind="ratio", unit=None))
     session.store[(MetricVersion, "latest_a")] = _version(id="latest_a", polarity="up_good", value_kind="count")
@@ -258,15 +351,19 @@ def test_dataset_meta_does_not_query_versions_for_ungoverned_results(kind):
 
 @pytest.mark.parametrize("source", ["versions", "metric_version_ids"])
 def test_report_dimension_labels_use_asked_metric_locked_version(source):
-    report = {"metric_code": "metric_a", "causes": [
-        {"type": "member", "evidence": ["D1"], "entity": {"dimension": "dimension_a", "member": "成员甲"}},
-        {"type": "calendar", "entity": {"dimension": "dimension_a"}},
-        {"type": "member", "restricted": True, "entity": {}},
-    ]}
+    report = {
+        "metric_code": "metric_a",
+        "causes": [
+            {"type": "member", "evidence": ["D1"], "entity": {"dimension": "dimension_a", "member": "成员甲"}},
+            {"type": "calendar", "entity": {"dimension": "dimension_a"}},
+            {"type": "member", "restricted": True, "entity": {}},
+        ],
+    }
     dataset = _dataset(meta={source: {"metric_a": "version_a"} if source == "versions" else ["version_a"]})
     session = _Session()
     session.store[(MetricVersion, "other_a")] = _version(
-        id="other_a", dimensions=[{"name": "dimension_a", "label": "其他显示名"}])
+        id="other_a", dimensions=[{"name": "dimension_a", "label": "其他显示名"}]
+    )
     unrelated = _dataset(seq=2, meta={"versions": {"metric_b": "other_a"}})
     original = deepcopy(report)
     projected = dataset_projection.report_dimension_labels(session, report, [dataset, unrelated])
@@ -276,13 +373,16 @@ def test_report_dimension_labels_use_asked_metric_locked_version(source):
 
 
 def test_report_dimension_label_conflict_uses_dimension_name():
-    report = {"scope": {"metric_code": "metric_a"}, "causes": [
-        {"type": "member", "evidence": ["D1", "D2"],
-         "entity": {"dimension": "dimension_a", "member": "成员甲"}},
-    ]}
+    report = {
+        "scope": {"metric_code": "metric_a"},
+        "causes": [
+            {"type": "member", "evidence": ["D1", "D2"], "entity": {"dimension": "dimension_a", "member": "成员甲"}},
+        ],
+    }
     session = _Session()
     session.store[(MetricVersion, "version_b")] = _version(
-        id="version_b", dimensions=[{"name": "dimension_a", "label": "维度乙"}])
+        id="version_b", dimensions=[{"name": "dimension_a", "label": "维度乙"}]
+    )
     datasets = [_dataset(), _dataset(seq=2, meta={"versions": {"metric_a": "version_b"}})]
     projected = dataset_projection.report_dimension_labels(session, report, datasets)
     assert projected["causes"][0]["entity"]["dimension_label"] == "dimension_a"
@@ -300,7 +400,8 @@ def test_report_dimension_labels_follow_calculation_sources_and_ignore_unrelated
     report = {"metric_code": "metric_a", "causes": [cause]}
     session = _Session()
     session.store[(MetricVersion, "version_b")] = _version(
-        id="version_b", dimensions=[{"name": "dimension_a", "label": "维度乙"}])
+        id="version_b", dimensions=[{"name": "dimension_a", "label": "维度乙"}]
+    )
     calculation = _dataset("calc", seq=2, meta={})
     calculation.inputs = ["D1"]
     rerun = _dataset(seq=3, meta={"versions": {"metric_a": "version_b"}})
@@ -310,9 +411,14 @@ def test_report_dimension_labels_follow_calculation_sources_and_ignore_unrelated
 
 @pytest.mark.parametrize("kind", ["governed", "explore", "calc"])
 def test_dataset_detail_and_schema_keep_column_contract(kind):
-    meta = {"time_column": "time_a", "intent": {"group_by": ["dimension_a"]},
-            "units": {"指标甲": {"kind": "count"}}, "dimension_labels": {"dimension_a": "维度甲"},
-            "measure_labels": {"指标甲": "指标甲"}, "polarity": {"指标甲": "down_good"}}
+    meta = {
+        "time_column": "time_a",
+        "intent": {"group_by": ["dimension_a"]},
+        "units": {"指标甲": {"kind": "count"}},
+        "dimension_labels": {"dimension_a": "维度甲"},
+        "measure_labels": {"指标甲": "指标甲"},
+        "polarity": {"指标甲": "down_good"},
+    }
     dataset = _dataset(kind=kind, columns=["time_a", "dimension_a", "指标甲"], meta=meta)
     dataset.rows = [[202603, 3, 40]]
     detail = analysis_api._dataset_detail(dataset, session=_Session())
@@ -327,11 +433,19 @@ def test_dataset_detail_and_schema_keep_column_contract(kind):
 
 
 def test_run_view_and_schema_expose_governed_explore_and_calculated_contracts():
-    datasets = [_dataset(), _dataset("explore", seq=2, meta={"units": {"指标甲": {"kind": "level"}}}),
-                _dataset("calc", seq=3, meta={"units": {"指标甲": {"kind": "delta"}}})]
-    run = _run({"metric_code": "metric_a", "causes": [
-        {"type": "member", "evidence": ["D1"], "entity": {"dimension": "dimension_a", "member": "成员甲"}},
-    ]})
+    datasets = [
+        _dataset(),
+        _dataset("explore", seq=2, meta={"units": {"指标甲": {"kind": "level"}}}),
+        _dataset("calc", seq=3, meta={"units": {"指标甲": {"kind": "delta"}}}),
+    ]
+    run = _run(
+        {
+            "metric_code": "metric_a",
+            "causes": [
+                {"type": "member", "evidence": ["D1"], "entity": {"dimension": "dimension_a", "member": "成员甲"}},
+            ],
+        }
+    )
     view = analysis_service.run_view(_Session(datasets=datasets), run)
     serialized = schemas.AnalysisRunOut.model_validate(view).model_dump(mode="json")
     governed, exploratory, calculated = serialized["datasets"]
@@ -358,8 +472,9 @@ def test_ask_simple_result_contract_labels_numeric_dimensions_and_time(time_grai
     result = {"columns": columns, "rows": [[202603, 3, 40] if time_grain else [3, 40]]}
     original = deepcopy(result)
     intent = Intent(metric_code="metric_a", group_by=["dimension_a"], time_grain=time_grain)
-    projected = ask_service._result_contract(result, intent, [(_metric(), _version(value_kind="count"))],
-                                             value_column="value")
+    projected = ask_service._result_contract(
+        result, intent, [(_metric(), _version(value_kind="count"))], value_column="value"
+    )
     assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲"}
     assert projected["polarity"] == {"value": "down_good"}
     assert projected["column_roles"]["dimension_a"] == {"role": "dimension", "label": "维度甲"}
@@ -373,10 +488,18 @@ def test_ask_simple_result_contract_labels_numeric_dimensions_and_time(time_grai
 def test_ask_planned_result_contract_carries_change_roles_and_polarity(direction):
     columns = ["dimension_a", "指标甲", "指标甲·上一自然期", "指标甲·变化", "指标甲·变化率"]
     intent = Intent(metric_code="metric_a", group_by=["dimension_a"], compare="previous_calendar")
-    projected = ask_service._result_contract({"columns": columns, "rows": [[3, 40, 50, -10, -0.2]]}, intent,
-                                             [(_metric(), _version(value_kind="ratio", polarity=direction))])
+    projected = ask_service._result_contract(
+        {"columns": columns, "rows": [[3, 40, 50, -10, -0.2]]},
+        intent,
+        [(_metric(), _version(value_kind="ratio", polarity=direction))],
+    )
     assert [projected["column_roles"][column]["role"] for column in columns] == [
-        "dimension", "measure", "measure", "change", "rate"]
+        "dimension",
+        "measure",
+        "measure",
+        "change",
+        "rate",
+    ]
     assert all(projected["column_roles"][column]["label"] == "指标甲" for column in columns[1:])
     assert projected["polarity"] == ({column: direction for column in columns[1:]} if direction else {})
 
@@ -385,10 +508,14 @@ def test_no_comparison_metric_name_suffix_does_not_overwrite_another_metric_cont
     first = SimpleNamespace(id="metric_id_b", code="metric_b", name="指标甲·变化率")
     columns = [first.name, "指标甲"]
     intent = Intent(metric_codes=["metric_b", "metric_a"])
-    result = ask_service._result_contract({"columns": columns, "rows": [[40, 0.2]]}, intent, [
-        (first, _version(value_kind="count", polarity="up_good")),
-        (_metric(), _version(value_kind="ratio", polarity="down_good")),
-    ])
+    result = ask_service._result_contract(
+        {"columns": columns, "rows": [[40, 0.2]]},
+        intent,
+        [
+            (first, _version(value_kind="count", polarity="up_good")),
+            (_metric(), _version(value_kind="ratio", polarity="down_good")),
+        ],
+    )
     assert result["units"][first.name]["kind"] == "count"
     assert result["units"]["指标甲"]["kind"] == "ratio"
     assert result["column_roles"] == {
@@ -401,8 +528,11 @@ def test_no_comparison_metric_name_suffix_does_not_overwrite_another_metric_cont
 @pytest.mark.parametrize("scenario", ["simple", "planned", "inconsistent"])
 def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monkeypatch, scenario):
     planned = scenario == "planned"
-    intent = Intent(metric_code="metric_a", metric_codes=["metric_b"] if scenario == "inconsistent" else [],
-                    compare="previous_calendar" if planned else None)
+    intent = Intent(
+        metric_code="metric_a",
+        metric_codes=["metric_b"] if scenario == "inconsistent" else [],
+        compare="previous_calendar" if planned else None,
+    )
     shared = {"columns": ["指标甲"] if planned else ["value"], "rows": [[40]]}
     original = deepcopy(shared)
     answer = SimpleNamespace(status="pending", result={})
@@ -412,8 +542,13 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
 
     monkeypatch.setattr(ask_service, "get_settings", lambda: object())
     monkeypatch.setattr(ask_service, "_fulfil_plan" if planned else "_fulfil", fulfil_from_cache)
-    ask_service.fulfil(object(), object(), intent, answer,
-                       ask_service.Catalog([], {"metric_a": (_metric(), _version(value_kind="count"))}))
+    ask_service.fulfil(
+        object(),
+        object(),
+        intent,
+        answer,
+        ask_service.Catalog([], {"metric_a": (_metric(), _version(value_kind="count"))}),
+    )
     assert answer.result["column_roles"] and answer.result["polarity"]
     assert answer.result is not shared and shared == original
     if not planned:
@@ -421,8 +556,9 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
         assert answer.result["units"]["value"]["kind"] == "count"
         assert answer.result["polarity"] == {"value": "down_good"}
     if scenario == "inconsistent":
-        historical = SimpleNamespace(status="answered", result=shared, intent=intent.model_dump(mode="json"),
-                                      metric_version_ids=["version_a"])
+        historical = SimpleNamespace(
+            status="answered", result=shared, intent=intent.model_dump(mode="json"), metric_version_ids=["version_a"]
+        )
         projected = ask_api._answer_result(historical, _Session(_version(value_kind="count")))
         assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
         assert projected["units"]["value"]["kind"] == "count"
@@ -430,9 +566,12 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
 
 def test_historical_answer_contract_uses_locked_version_without_mutating_saved_result():
     result = {"columns": ["dimension_a", "value"], "rows": [[3, 40]]}
-    answer = SimpleNamespace(status="answered", result=result,
-                             intent=Intent(metric_code="metric_a", group_by=["dimension_a"]).model_dump(mode="json"),
-                             metric_version_ids=["version_a"])
+    answer = SimpleNamespace(
+        status="answered",
+        result=result,
+        intent=Intent(metric_code="metric_a", group_by=["dimension_a"]).model_dump(mode="json"),
+        metric_version_ids=["version_a"],
+    )
     session = _Session(_version(value_kind="count"))
     projected = ask_api._answer_result(answer, session)
     assert projected["column_roles"]["dimension_a"]["label"] == "维度甲"
@@ -445,9 +584,12 @@ def test_historical_answer_contract_uses_locked_version_without_mutating_saved_r
 @pytest.mark.parametrize("case", ["missing_version", "invalid_intent", "ambiguous_versions", "renamed_metric"])
 def test_historical_answer_does_not_guess_when_metadata_cannot_be_resolved(case):
     result = {"columns": ["value"], "rows": [[40]]}
-    answer = SimpleNamespace(status="answered", result=result,
-                             intent=Intent(metric_code="metric_a").model_dump(mode="json"),
-                             metric_version_ids=["version_a"])
+    answer = SimpleNamespace(
+        status="answered",
+        result=result,
+        intent=Intent(metric_code="metric_a").model_dump(mode="json"),
+        metric_version_ids=["version_a"],
+    )
     session = _Session()
     if case == "missing_version":
         session.store.pop((MetricVersion, "version_a"))
@@ -476,9 +618,14 @@ def test_historical_answer_preserves_existing_or_unavailable_contract(case):
 
 
 def test_export_contract_uses_numeric_dimensions_and_rate_without_suffix():
-    dataset = {"columns": ["dimension_a", "value_a"], "rows": [[101, 0.2], [102, 0.3]],
-               "column_roles": {"dimension_a": {"role": "dimension", "label": "维度甲"},
-                                "value_a": {"role": "rate", "label": "指标甲"}}}
+    dataset = {
+        "columns": ["dimension_a", "value_a"],
+        "rows": [[101, 0.2], [102, 0.3]],
+        "column_roles": {
+            "dimension_a": {"role": "dimension", "label": "维度甲"},
+            "value_a": {"role": "rate", "label": "指标甲"},
+        },
+    }
     assert export._metric_columns(dataset) == [1]
     assert export._chart_labels(dataset, [1]) == [0]
     assert export._column_label(dataset, "value_a") == "指标甲"
@@ -498,11 +645,14 @@ def test_export_empty_and_partial_contracts_do_not_guess_numeric_columns():
 
 def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_keys():
     dataset = {
-        "columns": ["time_a", "dimension_a", "value_a"], "time_column": "dimension_a",
+        "columns": ["time_a", "dimension_a", "value_a"],
+        "time_column": "dimension_a",
         "rows": [["2026-01", 101, 10], ["2026-02", 101, 20], ["2026-03", 101, 30]],
-        "column_roles": {"time_a": {"role": "time", "label": "time_a"},
-                         "dimension_a": {"role": "dimension", "label": "维度甲"},
-                         "value_a": {"role": "measure", "label": "指标甲"}},
+        "column_roles": {
+            "time_a": {"role": "time", "label": "time_a"},
+            "dimension_a": {"role": "dimension", "label": "维度甲"},
+            "value_a": {"role": "measure", "label": "指标甲"},
+        },
     }
     chart = export._chart(dataset, "Helvetica")
     line = next(item for item in chart.contents if isinstance(item, LinePlot))
@@ -513,18 +663,26 @@ def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_ke
 
 
 def test_export_change_axis_comes_from_contract_instead_of_unit_or_column_name():
-    dataset = {"columns": ["dimension_a", "列·变化", "value_a"],
-               "column_roles": {"dimension_a": {"role": "dimension", "label": "维度甲"},
-                                "列·变化": {"role": "measure", "label": "指标甲"},
-                                "value_a": {"role": "change", "label": "指标甲"}},
-               "units": {"列·变化": {"kind": "delta"}, "value_a": {"kind": "level"}}}
+    dataset = {
+        "columns": ["dimension_a", "列·变化", "value_a"],
+        "column_roles": {
+            "dimension_a": {"role": "dimension", "label": "维度甲"},
+            "列·变化": {"role": "measure", "label": "指标甲"},
+            "value_a": {"role": "change", "label": "指标甲"},
+        },
+        "units": {"列·变化": {"kind": "delta"}, "value_a": {"kind": "level"}},
+    }
     assert export._chart_value(dataset, export._metric_columns(dataset)) == 2
 
 
 @pytest.mark.parametrize("render", [export.to_markdown, export.to_html])
 def test_export_member_cause_uses_dimension_label_in_report(render):
-    cause = {"type": "member", "entity": {"dimension": "dimension_a", "dimension_label": "维度甲", "member": "成员甲"},
-             "direction": "down", "contribution": {"text": "贡献待核实"}}
+    cause = {
+        "type": "member",
+        "entity": {"dimension": "dimension_a", "dimension_label": "维度甲", "member": "成员甲"},
+        "direction": "down",
+        "contribution": {"text": "贡献待核实"},
+    }
     view = {"report": {"title": "报告甲", "causes": [cause]}, "datasets": [], "verification": {}}
     assert "维度甲：成员甲" in render(view, audience="full")
     assert export._cause_label({}) == "未标注实体"
@@ -535,13 +693,28 @@ def test_export_member_cause_uses_dimension_label_in_report(render):
 
 def _comparison_view(kind="level"):
     columns = ["指标甲", "指标甲·上一自然期", "指标甲·变化", "指标甲·变化率"]
-    dataset = {"ref": "D1", "kind": "governed", "columns": columns, "rows": [[40, 50, -10, -0.2]],
-               "meta": {"intent": {"compare": "previous_calendar", "start_date": "2026-03-01",
-                                    "end_date": "2026-03-31", "compare_start": "2026-01-01",
-                                    "compare_end": "2026-01-31"},
-                        "window": {"start": "2026-03-01", "end": "2026-03-31"},
-                        "units": {columns[0]: {"kind": kind}, columns[1]: {"kind": kind},
-                                  columns[2]: {"kind": "delta"}, columns[3]: {"kind": "rate_change"}}}}
+    dataset = {
+        "ref": "D1",
+        "kind": "governed",
+        "columns": columns,
+        "rows": [[40, 50, -10, -0.2]],
+        "meta": {
+            "intent": {
+                "compare": "previous_calendar",
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-31",
+                "compare_start": "2026-01-01",
+                "compare_end": "2026-01-31",
+            },
+            "window": {"start": "2026-03-01", "end": "2026-03-31"},
+            "units": {
+                columns[0]: {"kind": kind},
+                columns[1]: {"kind": kind},
+                columns[2]: {"kind": "delta"},
+                columns[3]: {"kind": "rate_change"},
+            },
+        },
+    }
     return {"report": {"claims": [{"refs": ["D1"]}]}, "datasets": [dataset]}
 
 
@@ -566,12 +739,14 @@ def test_number_style_toml_environment_and_settings_view_share_config(style, tmp
     path.write_text(f'[business]\nnumber_style = "{style}"\n', encoding="utf-8")
     parsed = configfile.read_config({"AVELIS_CONFIG": str(path)})
     assert not parsed.problems and parsed["AVELIS_NUMBER_STYLE"] == style
-    settings = config.build_settings(configfile.merge_layers(
-        parsed, configfile.ConfigValues({"AVELIS_SECRET": SECRET})))
+    settings = config.build_settings(
+        configfile.merge_layers(parsed, configfile.ConfigValues({"AVELIS_SECRET": SECRET}))
+    )
     assert settings.number_style == style
     override = "intl" if style == "cn" else "cn"
-    values = configfile.merge_layers(parsed, configfile.ConfigValues({"AVELIS_SECRET": SECRET,
-                                                                     "AVELIS_NUMBER_STYLE": override}))
+    values = configfile.merge_layers(
+        parsed, configfile.ConfigValues({"AVELIS_SECRET": SECRET, "AVELIS_NUMBER_STYLE": override})
+    )
     assert config.build_settings(values).number_style == override
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(auth.modelcfg, "settings_view", lambda session: {})
@@ -586,14 +761,22 @@ def test_number_style_defaults_to_cn_and_rejects_unknown_enum():
         config.build_settings({"AVELIS_SECRET": SECRET, "AVELIS_NUMBER_STYLE": "unknown"})
 
 
-@pytest.mark.parametrize("style,value,expected", [
-    ("cn", "9999", "9999单位甲"), ("intl", "1000", "1000单位甲"),
-    ("intl", "9999", "9999单位甲"), ("cn", "10000", "1.00万单位甲"),
-    ("intl", "10000", "10.00K单位甲"), ("cn", "1000000", "100.00万单位甲"),
-    ("intl", "1000000", "1.00M单位甲"), ("cn", "100000000", "1.00亿单位甲"),
-    ("intl", "100000000", "100.00M单位甲"), ("cn", "1000000000", "10.00亿单位甲"),
-    ("intl", "1000000000", "1.00B单位甲"),
-])
+@pytest.mark.parametrize(
+    "style,value,expected",
+    [
+        ("cn", "9999", "9999单位甲"),
+        ("intl", "1000", "1000单位甲"),
+        ("intl", "9999", "9999单位甲"),
+        ("cn", "10000", "1.00万单位甲"),
+        ("intl", "10000", "10.00K单位甲"),
+        ("cn", "1000000", "100.00万单位甲"),
+        ("intl", "1000000", "1.00M单位甲"),
+        ("cn", "100000000", "1.00亿单位甲"),
+        ("intl", "100000000", "100.00M单位甲"),
+        ("cn", "1000000000", "10.00亿单位甲"),
+        ("intl", "1000000000", "1.00B单位甲"),
+    ],
+)
 def test_number_style_thresholds_and_exports_reuse_grounding(monkeypatch, style, value, expected):
     monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
     unit = {"kind": "level", "unit": "单位甲"}

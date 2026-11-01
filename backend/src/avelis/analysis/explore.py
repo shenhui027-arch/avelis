@@ -38,10 +38,34 @@ MAX_JOINS = 4
 # 不改变量纲的常量：中性的 0（条件聚合的 ELSE 0 等）、1，以及换算倍数
 ALLOWED_CONSTANTS = CONSTANTS
 # 原来禁止清单里的函数：作为额外一道防线，名字出现在任何函数节点上都拒绝
-BANNED_FUNCTIONS = {"sleep", "pg_sleep", "pg_sleep_for", "pg_sleep_until", "benchmark", "load_file", "pg_read_file",
-                    "pg_read_binary_file", "pg_ls_dir", "lo_import", "lo_export", "dblink", "url", "file", "files", "s3",
-                    "hdfs", "remote", "mysql", "jdbc", "generate_series", "copy", "pg_terminate_backend",
-                    "pg_cancel_backend", "set_config", "current_setting"}
+BANNED_FUNCTIONS = {
+    "sleep",
+    "pg_sleep",
+    "pg_sleep_for",
+    "pg_sleep_until",
+    "benchmark",
+    "load_file",
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "lo_import",
+    "lo_export",
+    "dblink",
+    "url",
+    "file",
+    "files",
+    "s3",
+    "hdfs",
+    "remote",
+    "mysql",
+    "jdbc",
+    "generate_series",
+    "copy",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "set_config",
+    "current_setting",
+}
 
 AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN", exp.Max: "MAX"}
 # Avelis 标准 SQL 的源方言：sqlglot 上游要求明确源方言，默认方言 "" 不在支持范围
@@ -53,26 +77,91 @@ STANDARD_DIALECT = "postgres"
 # 算术、CASE、CAST 是结构节点。日期加减只有一种写法：列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）：
 # 规范形式唯一。
 STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
-    exp.Sum: ("聚合", 1, 1), exp.Count: ("聚合", 0, 1), exp.Avg: ("聚合", 1, 1), exp.Min: ("聚合", 1, 1),
+    exp.Sum: ("聚合", 1, 1),
+    exp.Count: ("聚合", 0, 1),
+    exp.Avg: ("聚合", 1, 1),
+    exp.Min: ("聚合", 1, 1),
     exp.Max: ("聚合", 1, 1),
-    exp.Coalesce: ("条件", 2, 4), exp.Nullif: ("条件", 2, 2),
+    exp.Coalesce: ("条件", 2, 4),
+    exp.Nullif: ("条件", 2, 2),
     exp.TimestampTrunc: ("日期", 2, 2),  # DATE_TRUNC('month', 列)：postgres 方言解析为 TimestampTrunc
 }
 DATE_UNITS = {"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"}  # 日期截断与 INTERVAL 允许的单位
 # 结构节点的允许清单（函数另外按档案核对）
 STRUCTURE = {
-    exp.Select, exp.From, exp.Join, exp.Where, exp.Group, exp.Having, exp.Order, exp.Ordered, exp.Limit, exp.Column,
-    exp.Identifier, exp.Table, exp.TableAlias, exp.Alias, exp.Literal, exp.Null, exp.Boolean, exp.Paren, exp.And,
-    exp.Or, exp.Not, exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.In, exp.Between, exp.Like,
-    exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg, exp.Case, exp.Cast, exp.DataType, exp.DataTypeParam, exp.CTE,
-    exp.With, exp.Subquery, exp.Distinct, exp.Var, exp.Interval,
+    exp.Select,
+    exp.From,
+    exp.Join,
+    exp.Where,
+    exp.Group,
+    exp.Having,
+    exp.Order,
+    exp.Ordered,
+    exp.Limit,
+    exp.Column,
+    exp.Identifier,
+    exp.Table,
+    exp.TableAlias,
+    exp.Alias,
+    exp.Literal,
+    exp.Null,
+    exp.Boolean,
+    exp.Paren,
+    exp.And,
+    exp.Or,
+    exp.Not,
+    exp.EQ,
+    exp.NEQ,
+    exp.GT,
+    exp.GTE,
+    exp.LT,
+    exp.LTE,
+    exp.Is,
+    exp.In,
+    exp.Between,
+    exp.Like,
+    exp.Add,
+    exp.Sub,
+    exp.Mul,
+    exp.Div,
+    exp.Mod,
+    exp.Neg,
+    exp.Case,
+    exp.Cast,
+    exp.DataType,
+    exp.DataTypeParam,
+    exp.CTE,
+    exp.With,
+    exp.Subquery,
+    exp.Distinct,
+    exp.Var,
+    exp.Interval,
 }
 SELECT_ARGS = {"expressions", "from_", "joins", "where", "group", "having", "order", "limit", "distinct", "with_"}
-CAST_TYPES = {exp.DataType.Type.INT, exp.DataType.Type.BIGINT, exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE,
-              exp.DataType.Type.VARCHAR, exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP,
-              exp.DataType.Type.DATETIME}  # DATETIME：标准 TIMESTAMP 在 StarRocks 上的写法（复核时出现）
-NUMERIC_TYPES = ("int", "decimal", "numeric", "double", "float", "real", "bigint", "smallint", "tinyint", "largeint",
-                 "number", "money")
+CAST_TYPES = {
+    exp.DataType.Type.INT,
+    exp.DataType.Type.BIGINT,
+    exp.DataType.Type.DECIMAL,
+    exp.DataType.Type.DOUBLE,
+    exp.DataType.Type.VARCHAR,
+    exp.DataType.Type.DATE,
+    exp.DataType.Type.TIMESTAMP,
+    exp.DataType.Type.DATETIME,
+}  # DATETIME：标准 TIMESTAMP 在 StarRocks 上的写法（复核时出现）
+NUMERIC_TYPES = (
+    "int",
+    "decimal",
+    "numeric",
+    "double",
+    "float",
+    "real",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "largeint",
+    "number",
+    "money",
+)
 
 
 class ExploreRejected(Exception):
@@ -84,8 +173,13 @@ class ExploreRejected(Exception):
         self.stage, self.code, self.message, self.hints = stage, code, message, hints or []
 
     def view(self) -> dict[str, Any]:
-        return {"error": self.message, "stage": self.stage, "code": self.code, "sent_to_database": False,
-                **({"hints": self.hints} if self.hints else {})}
+        return {
+            "error": self.message,
+            "stage": self.stage,
+            "code": self.code,
+            "sent_to_database": False,
+            **({"hints": self.hints} if self.hints else {}),
+        }
 
 
 @dataclass(frozen=True)
@@ -98,6 +192,7 @@ class BoundColumn:
 @dataclass(frozen=True)
 class BoundTable:
     """表源绑定：数据源 + 资产 + 资产版本 + 物理身份；生成 SQL 用系统给出的精确限定名。"""
+
     asset_id: str
     asset_version_id: str
     physical_id: str | None
@@ -108,7 +203,9 @@ class BoundTable:
     columns: tuple[BoundColumn, ...]
     use_only: bool = False  # PostgreSQL：FROM ONLY，不扫描继承子表
     definition: str | None = None  # 视图：绑定版本的定义原文（执行前与当前定义比较）
-    upstream: tuple[tuple[str, str | None], ...] = ()  # 视图：上游闭包（资产编号，绑定的版本编号），执行前、交付前一起复查
+    upstream: tuple[
+        tuple[str, str | None], ...
+    ] = ()  # 视图：上游闭包（资产编号，绑定的版本编号），执行前、交付前一起复查
 
     @property
     def qualified(self) -> str:
@@ -122,6 +219,7 @@ Resolver = Callable[[str | None, str | None, str], BoundTable]
 class ExploreProfile:
     """一个引擎（按版本）的探索能力档案：目标方言（标准 SQL 转换成它再执行）、表源规则、执行参数；
     functions 是标准函数转换到本方言后、按本方言解析出的节点（只用于复核重新生成的 SQL）。"""
+
     engine: str
     version: str
     dialect: str
@@ -133,12 +231,27 @@ class ExploreProfile:
 # 标准函数转换到目标方言后，按目标方言解析出的节点与标准 SQL 相同
 _TRANSLATED = dict(STANDARD_FUNCTIONS)
 PROFILES: dict[str, ExploreProfile] = {
-    "starrocks": ExploreProfile("starrocks", "2", "starrocks", True, functions=dict(_TRANSLATED),
-                                settings={"query_timeout": "按统一截止时间", "query_mem_limit": 2 * 1024 ** 3,
-                                          "pipeline_dop": 1}),
-    "postgres": ExploreProfile("postgres", "2", "postgres", True, functions=dict(_TRANSLATED),
-                               settings={"statement_timeout": "按统一截止时间", "lock_timeout": "2s", "work_mem": "16MB",
-                                         "max_parallel_workers_per_gather": 0}),
+    "starrocks": ExploreProfile(
+        "starrocks",
+        "2",
+        "starrocks",
+        True,
+        functions=dict(_TRANSLATED),
+        settings={"query_timeout": "按统一截止时间", "query_mem_limit": 2 * 1024**3, "pipeline_dop": 1},
+    ),
+    "postgres": ExploreProfile(
+        "postgres",
+        "2",
+        "postgres",
+        True,
+        functions=dict(_TRANSLATED),
+        settings={
+            "statement_timeout": "按统一截止时间",
+            "lock_timeout": "2s",
+            "work_mem": "16MB",
+            "max_parallel_workers_per_gather": 0,
+        },
+    ),
 }
 
 
@@ -173,6 +286,7 @@ class Validated:
 
 # --- 主流程 ----------------------------------------------------------------------------
 
+
 def validate(sql: str, profile: ExploreProfile, resolver: Resolver, *, max_rows: int) -> Validated:
     if not sql or not sql.strip():
         raise ExploreRejected("parse", "empty", "SQL 为空")
@@ -189,9 +303,16 @@ def validate(sql: str, profile: ExploreProfile, resolver: Resolver, *, max_rows:
     columns = _outputs(qualified)
     group_by, time_column = _column_contract(qualified)
     final, limit = _regenerate(qualified, bound, profile, max_rows)
-    return Validated(sql=final, tables=list({t.asset_id: t for t in bound.values()}.values()), columns=columns,
-                     limit=limit, dialect=profile.dialect, profile=f"{profile.engine}/{profile.version}",
-                     group_by=group_by, time_column=time_column)
+    return Validated(
+        sql=final,
+        tables=list({t.asset_id: t for t in bound.values()}.values()),
+        columns=columns,
+        limit=limit,
+        dialect=profile.dialect,
+        profile=f"{profile.engine}/{profile.version}",
+        group_by=group_by,
+        time_column=time_column,
+    )
 
 
 def table_refs(sql: str) -> list[tuple[str | None, str | None, str]]:
@@ -245,9 +366,12 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
             rule = functions.get(kind)
             if rule is None:
                 name = node.this if isinstance(node, exp.Anonymous) else node.sql_name()
-                raise ExploreRejected("syntax", "function_not_allowed",
-                                      f"函数 {name} 不在{label}的允许清单里（标准函数：聚合、COALESCE、NULLIF、"
-                                      f"DATE_TRUNC；日期加减写成 列 ± INTERVAL 'n' DAY）")
+                raise ExploreRejected(
+                    "syntax",
+                    "function_not_allowed",
+                    f"函数 {name} 不在{label}的允许清单里（标准函数：聚合、COALESCE、NULLIF、"
+                    f"DATE_TRUNC；日期加减写成 列 ± INTERVAL 'n' DAY）",
+                )
             _check_arity(node, rule)
             if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and _unit(node) not in DATE_UNITS:
                 raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
@@ -268,29 +392,40 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
         if isinstance(node, exp.With) and node.args.get("recursive"):
             raise ExploreRejected("syntax", "recursive", "不允许递归 CTE")
         if isinstance(node, exp.Subquery) and not isinstance(node.parent, (exp.From, exp.Join)):
-            raise ExploreRejected("syntax", "scalar_subquery", "只允许在 FROM / JOIN 中使用派生表，不允许标量子查询与相关子查询")
+            raise ExploreRejected(
+                "syntax", "scalar_subquery", "只允许在 FROM / JOIN 中使用派生表，不允许标量子查询与相关子查询"
+            )
         if isinstance(node, exp.In) and node.args.get("query"):
             raise ExploreRejected("syntax", "in_subquery", "不允许 IN (子查询)")
         if isinstance(node, exp.Table) and not isinstance(node.this, exp.Identifier):
             raise ExploreRejected("syntax", "table_function", "表源只能是普通表引用，不允许表函数")
-        if isinstance(node, exp.Table) and (node.args.get("joins") or node.args.get("pivots") or node.args.get("laterals")
-                                            or node.args.get("version") or node.args.get("sample")):
+        if isinstance(node, exp.Table) and (
+            node.args.get("joins")
+            or node.args.get("pivots")
+            or node.args.get("laterals")
+            or node.args.get("version")
+            or node.args.get("sample")
+        ):
             raise ExploreRejected("syntax", "table_modifier", "表引用不允许附加子句")
         if isinstance(node, exp.Join):
             _check_join_shape(node)
         if isinstance(node, exp.Cast):
             to = node.args.get("to")
             if not isinstance(to, exp.DataType) or to.this not in CAST_TYPES:
-                raise ExploreRejected("syntax", "cast_type",
-                                      f"不支持转换成 {to.sql(dialect=STANDARD_DIALECT) if to else '未知类型'}")
+                raise ExploreRejected(
+                    "syntax", "cast_type", f"不支持转换成 {to.sql(dialect=STANDARD_DIALECT) if to else '未知类型'}"
+                )
         if isinstance(node, exp.Var) and not isinstance(node.parent, (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)):
             raise ExploreRejected("syntax", "variable", "不允许变量")
-        if isinstance(node, exp.Interval) and (_unit(node) not in DATE_UNITS
-                                               or not isinstance(node.parent, (exp.Add, exp.Sub))):
-            raise ExploreRejected("syntax", "date_unit",
-                                  f"INTERVAL 只用于日期加减（列 ± INTERVAL 'n' 单位），单位只能是 {'、'.join(sorted(DATE_UNITS))}")
-        if isinstance(node, exp.Limit) and not (isinstance(node.expression, exp.Literal)
-                                                and node.expression.is_int):
+        if isinstance(node, exp.Interval) and (
+            _unit(node) not in DATE_UNITS or not isinstance(node.parent, (exp.Add, exp.Sub))
+        ):
+            raise ExploreRejected(
+                "syntax",
+                "date_unit",
+                f"INTERVAL 只用于日期加减（列 ± INTERVAL 'n' 单位），单位只能是 {'、'.join(sorted(DATE_UNITS))}",
+            )
+        if isinstance(node, exp.Limit) and not (isinstance(node.expression, exp.Literal) and node.expression.is_int):
             raise ExploreRejected("syntax", "limit", "LIMIT 只能是整数")
 
 
@@ -317,7 +452,11 @@ def _check_arity(node: exp.Expression, rule: tuple[str, int, int]) -> None:
 
 
 def _check_join_shape(join: exp.Join) -> None:
-    if join.args.get("using") or join.args.get("method") or (join.args.get("kind") or "").upper() in ("CROSS", "NATURAL"):
+    if (
+        join.args.get("using")
+        or join.args.get("method")
+        or (join.args.get("kind") or "").upper() in ("CROSS", "NATURAL")
+    ):
         raise ExploreRejected("syntax", "join_form", "不允许 USING、NATURAL、CROSS JOIN")
     if join.args.get("on") is None:
         raise ExploreRejected("join", "cartesian", "JOIN 必须带等值 ON 条件（不允许笛卡尔积）")
@@ -405,28 +544,52 @@ def _qualify(ast: exp.Expression, bound: dict[int, BoundTable], profile: Explore
         table.set("this", exp.to_identifier(target.name, quoted=True))
         table.meta["avelis_bound"] = target
         mapping.setdefault(target.catalog, {}).setdefault(target.db, {})[target.name] = {
-            c.name: ("DOUBLE" if _is_numeric(c.data_type) else "TEXT") for c in target.columns}
+            c.name: ("DOUBLE" if _is_numeric(c.data_type) else "TEXT") for c in target.columns
+        }
     try:
         schema = MappingSchema(mapping, dialect=STANDARD_DIALECT, normalize=False)
-        return qualify(tree, dialect=STANDARD_DIALECT, schema=schema, validate_qualify_columns=True,
-                       quote_identifiers=True, expand_stars=False, identify=True)
+        return qualify(
+            tree,
+            dialect=STANDARD_DIALECT,
+            schema=schema,
+            validate_qualify_columns=True,
+            quote_identifiers=True,
+            expand_stars=False,
+            identify=True,
+        )
     except OptimizeError as e:
         tables = {b.asset_id: b for b in bound.values()}.values()
-        hints = [f"{t.qualified}：" + "、".join(f"{c.name}" + (f"（{c.comment}）" if c.comment else "")
-                                              for c in t.columns[:60]) for t in tables]
+        hints = [
+            f"{t.qualified}："
+            + "、".join(f"{c.name}" + (f"（{c.comment}）" if c.comment else "") for c in t.columns[:60])
+            for t in tables
+        ]
         # 只差大小写：标识符按 PostgreSQL 规则，不加引号的折成小写，有大写字母的列名要加双引号
         written = {i.name for i in ast.find_all(exp.Identifier) if not i.quoted}
-        cased = sorted({c.name for t in tables for c in t.columns if c.name != c.name.lower()
-                        and c.name.lower() in {w.lower() for w in written}})
+        cased = sorted(
+            {
+                c.name
+                for t in tables
+                for c in t.columns
+                if c.name != c.name.lower() and c.name.lower() in {w.lower() for w in written}
+            }
+        )
         hints += [f'列名有大写字母时加双引号：写成 "{name}"' for name in cased]
-        raise ExploreRejected("column", "column_unresolved", f"列无法唯一解析：{str(e).splitlines()[0][:160]}",
-                              hints) from None
+        raise ExploreRejected(
+            "column", "column_unresolved", f"列无法唯一解析：{str(e).splitlines()[0][:160]}", hints
+        ) from None
 
 
 def _check_aliases(tree: exp.Expression) -> None:
     for select in tree.find_all(exp.Select):
-        sources = [s.alias_or_name for s in [select.args.get("from_") and select.args["from_"].this,
-                                             *[j.this for j in select.args.get("joins") or []]] if s is not None]
+        sources = [
+            s.alias_or_name
+            for s in [
+                select.args.get("from_") and select.args["from_"].this,
+                *[j.this for j in select.args.get("joins") or []],
+            ]
+            if s is not None
+        ]
         if len(sources) != len(set(sources)):
             raise ExploreRejected("column", "duplicate_alias", "同一查询块里的表别名重复")
         names = [p.alias_or_name for p in select.expressions]
@@ -442,12 +605,19 @@ def _check_joins(tree: exp.Expression) -> None:
         for join in select.args.get("joins") or []:
             alias = join.this.alias_or_name
             for part in _conjuncts(join.args.get("on")):
-                if not (isinstance(part, exp.EQ) and isinstance(part.this, exp.Column)
-                        and isinstance(part.expression, exp.Column) and part.this.table != part.expression.table):
+                if not (
+                    isinstance(part, exp.EQ)
+                    and isinstance(part.this, exp.Column)
+                    and isinstance(part.expression, exp.Column)
+                    and part.this.table != part.expression.table
+                ):
                     raise ExploreRejected("join", "non_equi_join", "JOIN 的 ON 只能是两侧列的等值条件（可用 AND 连接）")
                 if {part.this.table, part.expression.table} - joined != {alias}:
-                    raise ExploreRejected("join", "join_not_linked",
-                                          f"JOIN {alias} 的 ON 条件必须把 {alias} 与前面已有的表连起来（否则是笛卡尔积）")
+                    raise ExploreRejected(
+                        "join",
+                        "join_not_linked",
+                        f"JOIN {alias} 的 ON 条件必须把 {alias} 与前面已有的表连起来（否则是笛卡尔积）",
+                    )
             joined.add(alias)
 
 
@@ -462,6 +632,7 @@ def _conjuncts(node: exp.Expression | None) -> list[exp.Expression]:
 
 
 # --- 证据资格与量纲 ---------------------------------------------------------------------
+
 
 @dataclass
 class _Info:
@@ -479,15 +650,27 @@ def _outputs(tree: exp.Expression) -> list[OutputColumn]:
         info = _analyze(projection.unalias() if isinstance(projection, exp.Alias) else projection, root)
         has_data = bool(info.deps)
         assumption = not has_data or info.bad_constant or info.kind in ("const", "other")
-        kind = {"column": "level" if info.numeric else "text", "agg_level": "level", "count": "count",
-                "ratio": "ratio", "delta": "delta"}.get(info.kind, "unknown" if info.numeric else "text")
+        kind = {
+            "column": "level" if info.numeric else "text",
+            "agg_level": "level",
+            "count": "count",
+            "ratio": "ratio",
+            "delta": "delta",
+        }.get(info.kind, "unknown" if info.numeric else "text")
         direct = info.kind == "column"
-        out.append(OutputColumn(
-            name=projection.alias_or_name, expression=projection.sql(dialect=STANDARD_DIALECT), deps=sorted(info.deps),
-            kind=kind,
-            eligible=not assumption and info.numeric and info.kind in ("column", "agg_level", "count", "ratio", "arith",
-                                                                       "delta"),
-            label_ok=direct and not info.numeric, assumption=assumption and info.numeric))
+        out.append(
+            OutputColumn(
+                name=projection.alias_or_name,
+                expression=projection.sql(dialect=STANDARD_DIALECT),
+                deps=sorted(info.deps),
+                kind=kind,
+                eligible=not assumption
+                and info.numeric
+                and info.kind in ("column", "agg_level", "count", "ratio", "arith", "delta"),
+                label_ok=direct and not info.numeric,
+                assumption=assumption and info.numeric,
+            )
+        )
     return out
 
 
@@ -517,7 +700,10 @@ def _column_contract(tree: exp.Expression) -> tuple[list[str], str | None]:
                 column = next((c for c in bound.columns if c.name == node.name), None) if bound else None
                 if column:
                     try:
-                        timed = exp.DataType.build(column.data_type, dialect=STANDARD_DIALECT).this in exp.DataType.TEMPORAL_TYPES
+                        timed = (
+                            exp.DataType.build(column.data_type, dialect=STANDARD_DIALECT).this
+                            in exp.DataType.TEMPORAL_TYPES
+                        )
                     except (ParseError, ValueError):
                         timed = False
                     return grouped, timed
@@ -543,8 +729,11 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
         if node.is_string:
             return _Info("const", numeric=False)
         value = _decimal(node.this)
-        return _Info("const", constants={value} if value is not None else set(),
-                     bad_constant=value is None or value not in ALLOWED_CONSTANTS)
+        return _Info(
+            "const",
+            constants={value} if value is not None else set(),
+            bad_constant=value is None or value not in ALLOWED_CONSTANTS,
+        )
     if isinstance(node, exp.Neg):
         inner = _analyze(node.this, scope)
         return _Info("arith" if inner.deps else "const", inner.deps, inner.constants, inner.numeric, inner.bad_constant)
@@ -576,11 +765,17 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
         return _Info(kind, left.deps | right.deps, left.constants | right.constants, True, bad)
     if isinstance(node, exp.Cast):
         inner = _analyze(node.this, scope)
-        return _Info("other" if inner.kind != "column" else "arith", inner.deps, inner.constants,
-                     inner.numeric and node.args["to"].is_type(*exp.DataType.NUMERIC_TYPES), inner.bad_constant)
+        return _Info(
+            "other" if inner.kind != "column" else "arith",
+            inner.deps,
+            inner.constants,
+            inner.numeric and node.args["to"].is_type(*exp.DataType.NUMERIC_TYPES),
+            inner.bad_constant,
+        )
     deps = _deps(node, scope)
-    return _Info("other", deps, numeric=not isinstance(node, (exp.Lower, exp.Upper, exp.Trim, exp.Substring)),
-                 bad_constant=True)
+    return _Info(
+        "other", deps, numeric=not isinstance(node, (exp.Lower, exp.Upper, exp.Trim, exp.Substring)), bad_constant=True
+    )
 
 
 def _case(node: exp.Case, scope: Scope) -> _Info:
@@ -594,12 +789,19 @@ def _case(node: exp.Case, scope: Scope) -> _Info:
     filters = set().union(*(_deps(w.this, scope) for w in ifs)) if ifs else set()
 
     def neutral(value: exp.Expression | None) -> bool:
-        return value is None or isinstance(value, exp.Null) or (
-            isinstance(value, exp.Literal) and not value.is_string and _decimal(value.this) in (Decimal(0), Decimal(1)))
+        return (
+            value is None
+            or isinstance(value, exp.Null)
+            or (
+                isinstance(value, exp.Literal)
+                and not value.is_string
+                and _decimal(value.this) in (Decimal(0), Decimal(1))
+            )
+        )
+
     values = [_analyze(b, scope) for b in branches if not neutral(b)]
     if values and all(v.kind == "column" for v in values):
-        return _Info("column", set().union(*(v.deps for v in values)) | filters,
-                     numeric=all(v.numeric for v in values))
+        return _Info("column", set().union(*(v.deps for v in values)) | filters, numeric=all(v.numeric for v in values))
     if not values:  # 只有 0 / 1 / NULL：条件计数的指示值
         return _Info("const", filters)
     deps = set().union(*(v.deps for v in values)) | filters
@@ -612,8 +814,11 @@ def _conditional_count(node: exp.Expression) -> bool:
         return False
     ones = [w.args.get("true") for w in node.args.get("ifs") or []]
     default = node.args.get("default")
-    return bool(ones) and all(isinstance(v, exp.Literal) and v.this == "1" for v in ones) and (
-        default is None or (isinstance(default, exp.Literal) and default.this == "0"))
+    return (
+        bool(ones)
+        and all(isinstance(v, exp.Literal) and v.this == "1" for v in ones)
+        and (default is None or (isinstance(default, exp.Literal) and default.this == "0"))
+    )
 
 
 def _decimal(text: str) -> Decimal | None:
@@ -628,8 +833,11 @@ def _column(node: exp.Column, scope: Scope) -> _Info:
     if isinstance(source, exp.Table):
         bound: BoundTable | None = source.meta.get("avelis_bound")
         col = next((c for c in bound.columns if c.name == node.name), None) if bound else None
-        return _Info("column", {f"{bound.qualified}.{node.name}" if bound else node.sql(dialect=STANDARD_DIALECT)},
-                     numeric=bool(col and _is_numeric(col.data_type)))
+        return _Info(
+            "column",
+            {f"{bound.qualified}.{node.name}" if bound else node.sql(dialect=STANDARD_DIALECT)},
+            numeric=bool(col and _is_numeric(col.data_type)),
+        )
     if isinstance(source, Scope):
         for projection in source.expression.expressions:
             if projection.alias_or_name == node.name:
@@ -658,14 +866,17 @@ def _deps(node: exp.Expression, scope: Scope) -> set[str]:
 
 # --- 重新生成 ---------------------------------------------------------------------------
 
-def _regenerate(tree: exp.Expression, bound: dict[int, BoundTable], profile: ExploreProfile,
-                max_rows: int) -> tuple[str, int]:
+
+def _regenerate(
+    tree: exp.Expression, bound: dict[int, BoundTable], profile: ExploreProfile, max_rows: int
+) -> tuple[str, int]:
     final = tree.copy()
     for table in final.find_all(exp.Table):
         target: BoundTable | None = table.meta.get("avelis_bound")
         if target is None and not _is_cte_ref(table):
-            raise ExploreRejected("binding", "unbound_table",
-                                  f"表 {table.sql(dialect=STANDARD_DIALECT)} 没有绑定到已采集的资产")
+            raise ExploreRejected(
+                "binding", "unbound_table", f"表 {table.sql(dialect=STANDARD_DIALECT)} 没有绑定到已采集的资产"
+            )
         if target is not None:
             if not profile.catalog_in_sql:
                 table.set("catalog", None)

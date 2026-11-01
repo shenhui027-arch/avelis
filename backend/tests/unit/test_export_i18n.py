@@ -58,12 +58,17 @@ def test_source_csv_translates_headers_but_preserves_source_text():
     # 位置、类型、量纲等产品标签可翻译，显示值、来源名、路径、单位及原值必须相同。
     preserved = (2, 3, 4, 5, 7, 8, 11)
     assert [[row[index] for index in preserved] for row in rows[1:]] == [
-        [row[index] for index in preserved] for row in original[1:]]
+        [row[index] for index in preserved] for row in original[1:]
+    ]
 
 
 def test_fixed_label_collision_does_not_translate_metadata_or_members():
-    dataset = {"kind": "calc", "columns": ["member", "current"], "rows": [["本期", "核心指标"]],
-               "meta": {"column_docs": {"member": {"comment": "核心指标"}}}}
+    dataset = {
+        "kind": "calc",
+        "columns": ["member", "current"],
+        "rows": [["本期", "核心指标"]],
+        "meta": {"column_docs": {"member": {"comment": "核心指标"}}},
+    }
     with locale_context("en"):
         table = export._table_data(dataset, brief=True)
     assert table[0][0] == "核心指标"

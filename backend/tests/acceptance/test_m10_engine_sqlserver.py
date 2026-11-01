@@ -22,13 +22,17 @@ class SqlServer(EngineProfile):
     grain_sql_name = "[storedb].[store].[returns]"
     sales_unique_key = True
     rename = ("EXEC sp_rename 'store.returns', 'refunds'",)
-    recreate = ("DROP TABLE store.refunds",
-                "CREATE TABLE store.refunds (return_id BIGINT NOT NULL PRIMARY KEY, sale_id BIGINT NOT NULL, "
-                "return_date DATE NOT NULL, amount DECIMAL(18, 2) NOT NULL)")
-    replace_view = ("CREATE OR ALTER VIEW store.city_daily_sales AS "
-                    "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
-                    "FROM store.sales AS s INNER JOIN store.shops AS h ON h.shop_id = s.shop_id "
-                    "GROUP BY s.sale_date, h.city",)
+    recreate = (
+        "DROP TABLE store.refunds",
+        "CREATE TABLE store.refunds (return_id BIGINT NOT NULL PRIMARY KEY, sale_id BIGINT NOT NULL, "
+        "return_date DATE NOT NULL, amount DECIMAL(18, 2) NOT NULL)",
+    )
+    replace_view = (
+        "CREATE OR ALTER VIEW store.city_daily_sales AS "
+        "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
+        "FROM store.sales AS s INNER JOIN store.shops AS h ON h.shop_id = s.shop_id "
+        "GROUP BY s.sale_date, h.city",
+    )
     sleep_sql = "WAITFOR DELAY '00:00:05'; SELECT 1 AS x"
     write_sql = "INSERT INTO store.sales VALUES (9999, '2026-09-15', 1, N'paid', 1.00)"
 

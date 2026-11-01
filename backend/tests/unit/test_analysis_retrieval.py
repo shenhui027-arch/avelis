@@ -16,17 +16,38 @@ from avelis.models import Asset, AssetVersion, ColumnVersion, JoinPath, LineageE
 from tests.unit.test_analysis_toolbox import make_box
 
 BASE_TOOLS = [
-    "search_metrics", "describe_metric", "search_assets", "describe_asset", "lineage", "changes", "data_health",
-    "query_metric", "view_dataset", "explain_change", "contribution", "factor_decompose", "calendar_adjust", "correlate", "coverage",
-    "derive", "describe", "segment_compare", "outliers", "submit_report",
+    "search_metrics",
+    "describe_metric",
+    "search_assets",
+    "describe_asset",
+    "lineage",
+    "changes",
+    "data_health",
+    "query_metric",
+    "view_dataset",
+    "explain_change",
+    "contribution",
+    "factor_decompose",
+    "calendar_adjust",
+    "correlate",
+    "coverage",
+    "derive",
+    "describe",
+    "segment_compare",
+    "outliers",
+    "submit_report",
 ]
 CLUE_NOTE = "只是发现线索，不是批准的关联，跨表比较走探索查询校验或分别查询后合并"
 
 
 def settings(monkeypatch, *, enabled=False, investigation=False):
-    value = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only",
-                                   "AVELIS_ANALYSIS_RETRIEVAL": str(enabled).lower(),
-                                   "AVELIS_ANALYSIS_INVESTIGATION": str(investigation).lower()})
+    value = config.build_settings(
+        {
+            "AVELIS_SECRET": "unit-test-secret-only",
+            "AVELIS_ANALYSIS_RETRIEVAL": str(enabled).lower(),
+            "AVELIS_ANALYSIS_INVESTIGATION": str(investigation).lower(),
+        }
+    )
     monkeypatch.setattr(tools, "get_settings", lambda: value)
     return value
 
@@ -39,21 +60,36 @@ def box(monkeypatch, *, enabled=False):
 
 
 def asset(name, *, status="active", kind="table", domain="d1", datasource_id="ds1"):
-    return Asset(id=name, catalog_name="cat", db_name="db", name=name, current_version_id=f"v-{name}",
-                 status=status, kind=kind, domain_id=domain, datasource_id=datasource_id)
+    return Asset(
+        id=name,
+        catalog_name="cat",
+        db_name="db",
+        name=name,
+        current_version_id=f"v-{name}",
+        status=status,
+        kind=kind,
+        domain_id=domain,
+        datasource_id=datasource_id,
+    )
 
 
 def column(name="key_a", data_type="VARCHAR(32)", *, is_key=False, ordinal=1, comment=None):
-    return ColumnVersion(id=f"c-{name}-{ordinal}", name=name, data_type=data_type, is_key=is_key,
-                         ordinal=ordinal, comment=comment)
+    return ColumnVersion(
+        id=f"c-{name}-{ordinal}", name=name, data_type=data_type, is_key=is_key, ordinal=ordinal, comment=comment
+    )
 
 
-def graph(monkeypatch, assets=(), *, rows=(), visible=None, columns=None, versions=None, metric_sources=None,
-          upstream=None):
+def graph(
+    monkeypatch, assets=(), *, rows=(), visible=None, columns=None, versions=None, metric_sources=None, upstream=None
+):
     """底层读取只返回给定对象；权限仍走产品代码的 can_read_asset。"""
     assets = {a.id: a for a in assets}
-    version_map = {a.current_version_id: AssetVersion(id=a.current_version_id, asset_id=a.id,
-                   key_columns=[], unique_keys=[], comment=f"{a.name} 注释") for a in assets.values()}
+    version_map = {
+        a.current_version_id: AssetVersion(
+            id=a.current_version_id, asset_id=a.id, key_columns=[], unique_keys=[], comment=f"{a.name} 注释"
+        )
+        for a in assets.values()
+    }
     version_map.update(versions or {})
 
     class Session:
@@ -68,33 +104,47 @@ def graph(monkeypatch, assets=(), *, rows=(), visible=None, columns=None, versio
         def scalar(self, statement):
             return None
 
-    result = retrieval.MetadataGraph(Session(), SimpleNamespace(id="u1"), {"d1"},
-                                     metric_sources=metric_sources or (lambda code: (None, None, [], {})))
-    monkeypatch.setattr(retrieval.access, "can_read_asset",
-                        lambda session, user, value, allowed: value.id in (visible if visible is not None else assets))
+    result = retrieval.MetadataGraph(
+        Session(),
+        SimpleNamespace(id="u1"),
+        {"d1"},
+        metric_sources=metric_sources or (lambda code: (None, None, [], {})),
+    )
+    monkeypatch.setattr(
+        retrieval.access,
+        "can_read_asset",
+        lambda session, user, value, allowed: value.id in (visible if visible is not None else assets),
+    )
 
     def read(statement):
         selected = tuple(c["entity"] for c in statement.column_descriptions)
         if isinstance(rows, dict) and selected in rows:
             if selected == (Asset, ColumnVersion):
-                datasource_ids = [expected for key, expected in statement.compile().params.items()
-                                  if key.startswith("datasource_id_")]
-                return iter((a, c) for a, c in rows[selected]
-                            if all(a.datasource_id == expected for expected in datasource_ids))
+                datasource_ids = [
+                    expected for key, expected in statement.compile().params.items() if key.startswith("datasource_id_")
+                ]
+                return iter(
+                    (a, c) for a, c in rows[selected] if all(a.datasource_id == expected for expected in datasource_ids)
+                )
             return iter(rows[selected])
         if rows and not isinstance(rows, dict):
             return iter(rows)
         params = statement.compile().params
         if selected == (Asset,):
-            return iter((a,) for a in assets.values() if all(
-                not key.startswith("name_") or a.name == expected for key, expected in params.items()))
+            return iter(
+                (a,)
+                for a in assets.values()
+                if all(not key.startswith("name_") or a.name == expected for key, expected in params.items())
+            )
         if selected == (ColumnVersion,):
             found = []
             for a in assets.values():
                 for c in (columns or {}).get(a.id, []):
-                    if all((not key.startswith("asset_version_id_") or a.current_version_id == expected)
-                           and (not key.startswith("name_") or c.name == expected)
-                           for key, expected in params.items()):
+                    if all(
+                        (not key.startswith("asset_version_id_") or a.current_version_id == expected)
+                        and (not key.startswith("name_") or c.name == expected)
+                        for key, expected in params.items()
+                    ):
                         found.append((c,))
             return iter(found)
         return iter(())
@@ -105,24 +155,41 @@ def graph(monkeypatch, assets=(), *, rows=(), visible=None, columns=None, versio
 
 
 def node(name):
-    return {"id": f"asset:cat.db.{name}", "kind": "asset", "name": name, "qualified": f"cat.db.{name}",
-            "asset_id": name, "comment": f"{name} 注释"}
+    return {
+        "id": f"asset:cat.db.{name}",
+        "kind": "asset",
+        "name": name,
+        "qualified": f"cat.db.{name}",
+        "asset_id": name,
+        "comment": f"{name} 注释",
+    }
 
 
 def edge(start, end, relation="join_key", *, count=1):
-    return {"type": relation, "from": f"asset:cat.db.{start}", "to": f"asset:cat.db.{end}",
-            "columns": [{"from": f"key_{i}", "to": f"key_{i}"} for i in range(count)],
-            "clue": relation in {"shared_key", "shared_value"}}
+    return {
+        "type": relation,
+        "from": f"asset:cat.db.{start}",
+        "to": f"asset:cat.db.{end}",
+        "columns": [{"from": f"key_{i}", "to": f"key_{i}"} for i in range(count)],
+        "clue": relation in {"shared_key", "shared_value"},
+    }
 
 
 def injected_graph(monkeypatch, names, edges, *, hidden=(), columns=None, upstream=None):
-    result = graph(monkeypatch, [asset(n) for n in names], visible=set(names) - set(hidden),
-                   columns=columns, upstream=upstream)
+    result = graph(
+        monkeypatch, [asset(n) for n in names], visible=set(names) - set(hidden), columns=columns, upstream=upstream
+    )
     nodes = {node(n)["id"]: node(n) for n in names if n not in hidden}
     monkeypatch.setattr(result, "_resolve", lambda value: nodes.get(value))
-    monkeypatch.setattr(result, "_candidate_edges", lambda frontier, relation: iter(
-        e for e in edges if (not relation or e["type"] == relation)
-        and (e["from"] in frontier or e["to"] in frontier)))
+    monkeypatch.setattr(
+        result,
+        "_candidate_edges",
+        lambda frontier, relation: iter(
+            e
+            for e in edges
+            if (not relation or e["type"] == relation) and (e["from"] in frontier or e["to"] in frontier)
+        ),
+    )
     return result
 
 
@@ -131,8 +198,9 @@ def test_settings_are_opt_in_and_independent():
     assert defaults.analysis_retrieval is False and defaults.analysis_investigation is False
     enabled = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_RETRIEVAL": "true"})
     assert enabled.analysis_retrieval is True and enabled.analysis_investigation is False
-    investigation = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only",
-                                          "AVELIS_ANALYSIS_INVESTIGATION": "true"})
+    investigation = config.build_settings(
+        {"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_INVESTIGATION": "true"}
+    )
     assert investigation.analysis_retrieval is False and investigation.analysis_investigation is True
 
 
@@ -149,9 +217,11 @@ def test_disabled_context_pack_matches_original_nonempty_snapshot(monkeypatch):
     value.precheck_meta = [{"table": "cat.db.a", "comment": "表甲", "columns": []}]
     value.precheck_notes = ["步骤甲未完成"]
     value.precheck_refs = [{"table": "cat.db.b", "comment": "参考表乙"}]
-    expected = ('口径：{"code": "metric_a", "name": "指标甲", "kind": "base", "expression": "SUM(value_a)"}'
-                '\n\n来源表 {"table": "cat.db.a", "comment": "表甲", "columns": []}'
-                '\n\n预检中没有完成的步骤：步骤甲未完成')
+    expected = (
+        '口径：{"code": "metric_a", "name": "指标甲", "kind": "base", "expression": "SUM(value_a)"}'
+        '\n\n来源表 {"table": "cat.db.a", "comment": "表甲", "columns": []}'
+        "\n\n预检中没有完成的步骤：步骤甲未完成"
+    )
     assert value.context_pack().encode() == expected.encode()
     settings(monkeypatch, investigation=True)
     assert value.context_pack().encode() == expected.encode()
@@ -165,12 +235,14 @@ def test_enabled_tools_append_only_and_describe_clues(monkeypatch):
     assert CLUE_NOTE in " ".join(t.description for t in available if t.name in {"find", "neighbors", "path"})
 
 
-@pytest.mark.parametrize(("name", "args", "expected"), [
-    ("find", {"keyword": "a"}, {"nodes": [], "truncated": False, "omitted": 0}),
-    ("neighbors", {"node": "asset:cat.db.a"}, {"nodes": [], "edges": [], "truncated": False, "omitted": 0}),
-    ("path", {"start": "asset:cat.db.a", "end": "asset:cat.db.b"},
-     {"paths": [], "truncated": False, "omitted": 0}),
-])
+@pytest.mark.parametrize(
+    ("name", "args", "expected"),
+    [
+        ("find", {"keyword": "a"}, {"nodes": [], "truncated": False, "omitted": 0}),
+        ("neighbors", {"node": "asset:cat.db.a"}, {"nodes": [], "edges": [], "truncated": False, "omitted": 0}),
+        ("path", {"start": "asset:cat.db.a", "end": "asset:cat.db.b"}, {"paths": [], "truncated": False, "omitted": 0}),
+    ],
+)
 def test_retrieval_tools_use_guard_and_dispatch_budget(monkeypatch, name, args, expected):
     value = box(monkeypatch, enabled=True)
     calls = []
@@ -194,10 +266,15 @@ def test_retrieval_tools_use_guard_and_dispatch_budget(monkeypatch, name, args, 
     assert value.session.added[-1].tool == name
 
 
-@pytest.mark.parametrize("args", [{"node": "asset:cat.db.a", "depth": 4},
-                                 {"node": "asset:cat.db.a", "depth": 0},
-                                 {"node": "asset:cat.db.a", "relation": "unknown"},
-                                 {"node": "asset:cat.db.a", "direction": "unknown"}])
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"node": "asset:cat.db.a", "depth": 4},
+        {"node": "asset:cat.db.a", "depth": 0},
+        {"node": "asset:cat.db.a", "relation": "unknown"},
+        {"node": "asset:cat.db.a", "direction": "unknown"},
+    ],
+)
 def test_invalid_neighbors_arguments_are_rejected_before_expansion(monkeypatch, args):
     value = box(monkeypatch, enabled=True)
     monkeypatch.setattr(retrieval.MetadataGraph, "neighbors", lambda *a, **k: pytest.fail("参数错误仍展开图"))
@@ -221,7 +298,7 @@ def test_metadata_candidate_rows_are_read_in_bounded_pages():
         def execute(self, statement):
             limit, offset = statement._limit_clause.value, statement._offset_clause.value
             calls.append((limit, offset))
-            return SimpleNamespace(all=lambda: values[offset:offset + limit])
+            return SimpleNamespace(all=lambda: values[offset : offset + limit])
 
     value = retrieval.MetadataGraph(Session(), None, set(), metric_sources=lambda code: None)
     assert list(value._rows(select(Asset))) == values
@@ -306,8 +383,7 @@ def test_path_keeps_direct_target_when_edge_and_node_limits_would_sort_it_out(mo
     names = ["a", *(f"n{i:03d}" for i in range(181)), "z_target"]
     value = injected_graph(monkeypatch, names, [edge("a", name) for name in names[1:]])
     result = value.path("asset:cat.db.a", "asset:cat.db.z_target")
-    assert len(result["paths"]) == 1 and result["paths"][0]["nodes"] == [
-        "asset:cat.db.a", "asset:cat.db.z_target"]
+    assert len(result["paths"]) == 1 and result["paths"][0]["nodes"] == ["asset:cat.db.a", "asset:cat.db.z_target"]
     assert len(result["paths"][0]["edges"]) == 1
     assert result["truncated"] is True and result["omitted"] > 0
 
@@ -344,24 +420,38 @@ def test_find_sorts_name_hits_before_comments_and_filters_metric_visibility(monk
             raise ValueError("不可见")
         return (metric, current, [current], {}) if code == metric.code else (old, previous, [previous], {})
 
-    value = graph(monkeypatch, [a, b], rows={(Metric,): [(old,), (hidden,), (metric,)],
-                  (Asset,): [(b,), (a,)], (Asset, ColumnVersion): [(b, col)]}, metric_sources=visible,
-                  versions={"v-z": AssetVersion(id="v-z", asset_id="z", comment="signal 注释", key_columns=[],
-                                                unique_keys=[])})
+    value = graph(
+        monkeypatch,
+        [a, b],
+        rows={(Metric,): [(old,), (hidden,), (metric,)], (Asset,): [(b,), (a,)], (Asset, ColumnVersion): [(b, col)]},
+        metric_sources=visible,
+        versions={"v-z": AssetVersion(id="v-z", asset_id="z", comment="signal 注释", key_columns=[], unique_keys=[])},
+    )
     out = value.find("signal")
-    assert [n["id"] for n in out["nodes"]] == ["asset:cat.db.signal_a", "column:cat.db.z.signal_column",
-                                               "metric:signal_metric", "asset:cat.db.z"]
+    assert [n["id"] for n in out["nodes"]] == [
+        "asset:cat.db.signal_a",
+        "column:cat.db.z.signal_column",
+        "metric:signal_metric",
+        "asset:cat.db.z",
+    ]
     assert out["truncated"] is False and out["omitted"] == 0
     assert "hidden" not in json.dumps(out) and "signal_old" not in json.dumps(out)
 
 
 def test_find_twenty_result_limit_counts_only_readable_matches(monkeypatch):
     readable = [asset(f"item{i:02d}") for i in range(25)]
-    excluded = [asset("item_hidden"), asset("item_deleted", status="deleted"),
-                asset("item_external", kind="catalog_table")]
+    excluded = [
+        asset("item_hidden"),
+        asset("item_deleted", status="deleted"),
+        asset("item_external", kind="catalog_table"),
+    ]
     all_items = [*readable, *excluded]
-    value = graph(monkeypatch, all_items, rows={(Asset,): [(a,) for a in reversed(all_items)]},
-                  visible={a.id for a in readable} | {"item_deleted", "item_external"})
+    value = graph(
+        monkeypatch,
+        all_items,
+        rows={(Asset,): [(a,) for a in reversed(all_items)]},
+        visible={a.id for a in readable} | {"item_deleted", "item_external"},
+    )
     out = value.find("item")
     assert len(out["nodes"]) == 20 and out["truncated"] is True and out["omitted"] == 5
     assert [n["qualified"] for n in out["nodes"]] == [f"cat.db.item{i:02d}" for i in range(20)]
@@ -369,8 +459,15 @@ def test_find_twenty_result_limit_counts_only_readable_matches(monkeypatch):
 
 
 def test_lineage_edges_preserve_table_and_column_endpoints(monkeypatch):
-    observed = LineageEdge(id="l1", source_asset_id="a", target_asset_id="b", source_column="source_a",
-                           target_column="target_a", relation="value_direct", status="active")
+    observed = LineageEdge(
+        id="l1",
+        source_asset_id="a",
+        target_asset_id="b",
+        source_column="source_a",
+        target_column="target_a",
+        relation="value_direct",
+        status="active",
+    )
     value = graph(monkeypatch, [asset("a"), asset("b")], rows={(LineageEdge,): [(observed,)]})
     result = list(value._lineage_edges({"a"}, "lineage"))
     assert len(result) == 2 and all(e["type"] == "lineage" and e["clue"] is False for e in result)
@@ -380,12 +477,26 @@ def test_lineage_edges_preserve_table_and_column_endpoints(monkeypatch):
 
 
 def test_join_key_edges_use_observed_relation_and_approved_paths(monkeypatch):
-    observed = LineageEdge(id="l1", source_asset_id="a", target_asset_id="b", source_column="key_a",
-                           target_column="key_b", relation="join_key", status="active")
-    approved = JoinPath(id="j1", left_asset_id="a", right_asset_id="b", left_columns=["key_c", "key_d"],
-                        right_columns=["key_e", "key_f"], status="approved")
-    value = graph(monkeypatch, [asset("a"), asset("b")],
-                  rows={(LineageEdge,): [(observed,)], (JoinPath,): [(approved,)]})
+    observed = LineageEdge(
+        id="l1",
+        source_asset_id="a",
+        target_asset_id="b",
+        source_column="key_a",
+        target_column="key_b",
+        relation="join_key",
+        status="active",
+    )
+    approved = JoinPath(
+        id="j1",
+        left_asset_id="a",
+        right_asset_id="b",
+        left_columns=["key_c", "key_d"],
+        right_columns=["key_e", "key_f"],
+        status="approved",
+    )
+    value = graph(
+        monkeypatch, [asset("a"), asset("b")], rows={(LineageEdge,): [(observed,)], (JoinPath,): [(approved,)]}
+    )
     result = list(value._lineage_edges({"a"}, "join_key"))
     tables = [e for e in result if e["from"].startswith("asset:")]
     assert len(tables) == 2 and all(e["type"] == "join_key" and e["clue"] is False for e in result)
@@ -394,13 +505,25 @@ def test_join_key_edges_use_observed_relation_and_approved_paths(monkeypatch):
 
 def test_metric_column_edges_use_expression_time_and_base_dimensions(monkeypatch):
     metric = Metric(id="m1", code="metric_a", name="指标甲", domain_id="d1")
-    version = MetricVersion(id="mv1", status="published", base_asset_id="a",
-                            expression="SUM(value_a) + SUM(b.extra_a) + SUM(j.other_a)", time_column="b.date_a",
-                            dimensions=[{"column": "b.dim_a"}, {"column": "j.excluded"}])
-    cols = [column(name, ordinal=i) for i, name in enumerate(
-        ["value_a", "extra_a", "date_a", "dim_a", "other_a", "excluded", "unused"])]
-    value = graph(monkeypatch, [asset("a")], rows={(Metric,): [(metric,)]}, columns={"a": cols},
-                  metric_sources=lambda code: (metric, version, [version], {}))
+    version = MetricVersion(
+        id="mv1",
+        status="published",
+        base_asset_id="a",
+        expression="SUM(value_a) + SUM(b.extra_a) + SUM(j.other_a)",
+        time_column="b.date_a",
+        dimensions=[{"column": "b.dim_a"}, {"column": "j.excluded"}],
+    )
+    cols = [
+        column(name, ordinal=i)
+        for i, name in enumerate(["value_a", "extra_a", "date_a", "dim_a", "other_a", "excluded", "unused"])
+    ]
+    value = graph(
+        monkeypatch,
+        [asset("a")],
+        rows={(Metric,): [(metric,)]},
+        columns={"a": cols},
+        metric_sources=lambda code: (metric, version, [version], {}),
+    )
     result = list(value._metric_edges({"a"}, {metric.code}))
     assert len(result) == 5 and all(e["type"] == "metric_column" and not e["clue"] for e in result)
     table = next(e for e in result if e["to"].startswith("asset:"))
@@ -410,14 +533,18 @@ def test_metric_column_edges_use_expression_time_and_base_dimensions(monkeypatch
     assert list(value._metric_edges({"a"}, {metric.code})) == []
 
 
-@pytest.mark.parametrize(("left_type", "right_type", "left_key", "right_key", "expected"), [
-    ("VARCHAR(32)", "varchar", True, False, True),
-    (" VARCHAR ( 64 ) ", "VaRcHaR(128)", False, True, True),
-    ("VARCHAR(32)", "integer", True, True, False),
-    ("varchar", "varchar", False, False, False),
-])
+@pytest.mark.parametrize(
+    ("left_type", "right_type", "left_key", "right_key", "expected"),
+    [
+        ("VARCHAR(32)", "varchar", True, False, True),
+        (" VARCHAR ( 64 ) ", "VaRcHaR(128)", False, True, True),
+        ("VARCHAR(32)", "integer", True, True, False),
+        ("varchar", "varchar", False, False, False),
+    ],
+)
 def test_shared_key_requires_normalized_type_and_key_on_at_least_one_side(
-        monkeypatch, left_type, right_type, left_key, right_key, expected):
+    monkeypatch, left_type, right_type, left_key, right_key, expected
+):
     a, b = asset("a"), asset("b")
     left, right = column(data_type=left_type, is_key=left_key), column(data_type=right_type, is_key=right_key)
     value = graph(monkeypatch, [a, b], rows={(Asset, ColumnVersion): [(b, right)]}, columns={"a": [left]})
@@ -432,13 +559,19 @@ def test_shared_key_accepts_asset_version_keys(monkeypatch, metadata):
     version = AssetVersion(id="v-a", asset_id="a", key_columns=[], unique_keys=[])
     for key, value in metadata.items():
         setattr(version, key, value)
-    value = graph(monkeypatch, [a, b], rows={(Asset, ColumnVersion): [(b, column())]},
-                  columns={"a": [column()]}, versions={"v-a": version})
+    value = graph(
+        monkeypatch,
+        [a, b],
+        rows={(Asset, ColumnVersion): [(b, column())]},
+        columns={"a": [column()]},
+        versions={"v-a": version},
+    )
     assert list(value._shared_key_edges({"a"}))
 
 
-@pytest.mark.parametrize(("right_datasource", "expected"), [("ds2", False), ("ds1", True)],
-                         ids=["different_datasources", "same_datasource"])
+@pytest.mark.parametrize(
+    ("right_datasource", "expected"), [("ds2", False), ("ds1", True)], ids=["different_datasources", "same_datasource"]
+)
 def test_shared_key_same_name_and_type_require_same_datasource(monkeypatch, right_datasource, expected):
     a, b = asset("a"), asset("b", datasource_id=right_datasource)
     left, right = column(is_key=True), column()
@@ -452,15 +585,19 @@ def test_shared_key_same_name_and_type_require_same_datasource(monkeypatch, righ
         assert result == []
 
 
-@pytest.mark.parametrize(("right_datasource", "expected"), [("ds2", False), ("ds1", True)],
-                         ids=["different_datasources", "same_datasource"])
+@pytest.mark.parametrize(
+    ("right_datasource", "expected"), [("ds2", False), ("ds1", True)], ids=["different_datasources", "same_datasource"]
+)
 def test_shared_value_common_values_require_same_datasource(monkeypatch, right_datasource, expected):
     a, b = asset("a"), asset("b", datasource_id=right_datasource)
     left, right = column("dim_a"), column("dim_b")
     value = graph(monkeypatch, [a, b])
     cached = [(a, left, {"成员甲", "成员乙"}), (b, right, {"成员乙", "成员丙"})]
-    monkeypatch.setattr(value, "_cached_columns", lambda assets=None: iter(
-        entry for entry in cached if assets is None or entry[0].id in assets))
+    monkeypatch.setattr(
+        value,
+        "_cached_columns",
+        lambda assets=None: iter(entry for entry in cached if assets is None or entry[0].id in assets),
+    )
     result = list(value._shared_value_edges({"a"}))
     if expected:
         assert len(result) == 2 and all(e["type"] == "shared_value" and e["clue"] for e in result)
@@ -473,12 +610,13 @@ def test_shared_value_common_values_require_same_datasource(monkeypatch, right_d
 @pytest.mark.parametrize("missing", [True, False])
 def test_shared_value_uses_only_existing_cache_and_never_source_connectors(monkeypatch, missing):
     items = [asset("a"), asset("b"), asset("hidden")]
-    value = graph(monkeypatch, items, visible={"a", "b"},
-                  columns={a.id: [column("dim_a")] for a in items})
+    value = graph(monkeypatch, items, visible={"a", "b"}, columns={a.id: [column("dim_a")] for a in items})
     calls = []
-    values = {"avelis:dimvals:a:v-a:dim_a": "成员甲\x1f成员乙",
-              "avelis:dimvals:b:v-b:dim_a": "成员乙\x1f成员丙",
-              "avelis:dimvals:hidden:v-hidden:dim_a": "成员乙"}
+    values = {
+        "avelis:dimvals:a:v-a:dim_a": "成员甲\x1f成员乙",
+        "avelis:dimvals:b:v-b:dim_a": "成员乙\x1f成员丙",
+        "avelis:dimvals:hidden:v-hidden:dim_a": "成员乙",
+    }
 
     class Cache:
         def scan_iter(self, **kwargs):
@@ -499,8 +637,7 @@ def test_shared_value_uses_only_existing_cache_and_never_source_connectors(monke
     else:
         assert result and all(e["type"] == "shared_value" and e["clue"] is True for e in result)
         tables = [e for e in result if e["from"].startswith("asset:")]
-        assert {e["from"] for e in tables} | {e["to"] for e in tables} == {
-            "asset:cat.db.a", "asset:cat.db.b"}
+        assert {e["from"] for e in tables} | {e["to"] for e in tables} == {"asset:cat.db.a", "asset:cat.db.b"}
 
 
 def test_shared_value_cache_failure_is_empty_without_connectors(monkeypatch):
@@ -516,8 +653,13 @@ def test_shared_value_cache_failure_is_empty_without_connectors(monkeypatch):
 
 def test_reference_tables_sort_outside_then_columns_then_name_and_only_direct_neighbors(monkeypatch):
     names = ["a", "inside", "c", "d", "e", "f", "g"]
-    edges = [edge("a", "c", "shared_key", count=2), edge("a", "d", "shared_value"),
-             edge("a", "e", "join_key"), edge("c", "f", "join_key", count=4), edge("a", "g", "lineage")]
+    edges = [
+        edge("a", "c", "shared_key", count=2),
+        edge("a", "d", "shared_value"),
+        edge("a", "e", "join_key"),
+        edge("c", "f", "join_key", count=4),
+        edge("a", "g", "lineage"),
+    ]
     value = injected_graph(monkeypatch, names, edges)
     closure = {name: value._asset(name) for name in ["a", "inside"]}
     base = SimpleNamespace(base_asset_id="a")
@@ -537,14 +679,24 @@ def test_reference_tables_exclude_cross_datasource_clues_before_ranking_and_limi
     cross_value = asset("a_cross_value", datasource_id="ds2")
     same_key, same_value = asset("z_same_key"), asset("z_same_value")
     key, dimension = column(is_key=True), column("dim_a")
-    value = graph(monkeypatch, [source, cross_key, cross_value, same_key, same_value],
-                  rows={(Asset, ColumnVersion): [(cross_key, key), (same_key, key)]},
-                  columns={source.id: [key], cross_key.id: [key], same_key.id: [key],
-                           cross_value.id: [dimension], same_value.id: [dimension]})
-    cached = [(source, key, {"成员甲"}), (cross_value, dimension, {"成员甲"}),
-              (same_value, dimension, {"成员甲"})]
-    monkeypatch.setattr(value, "_cached_columns", lambda assets=None: iter(
-        entry for entry in cached if assets is None or entry[0].id in assets))
+    value = graph(
+        monkeypatch,
+        [source, cross_key, cross_value, same_key, same_value],
+        rows={(Asset, ColumnVersion): [(cross_key, key), (same_key, key)]},
+        columns={
+            source.id: [key],
+            cross_key.id: [key],
+            same_key.id: [key],
+            cross_value.id: [dimension],
+            same_value.id: [dimension],
+        },
+    )
+    cached = [(source, key, {"成员甲"}), (cross_value, dimension, {"成员甲"}), (same_value, dimension, {"成员甲"})]
+    monkeypatch.setattr(
+        value,
+        "_cached_columns",
+        lambda assets=None: iter(entry for entry in cached if assets is None or entry[0].id in assets),
+    )
     versions, closure = [SimpleNamespace(base_asset_id=source.id)], {source.id: source}
     refs = retrieval.reference_tables(value, versions, closure, k=2)
     assert [r["table"] for r in refs] == ["cat.db.z_same_key", "cat.db.z_same_value"]
@@ -566,16 +718,22 @@ def test_reference_tables_expand_only_source_closure_once_while_neighbors_allows
     assert [r["table"] for r in refs] == ["cat.db.b"]
     assert calls and all(frontier == {"asset:cat.db.a"} for frontier in calls)
     assert {n["qualified"] for n in value.neighbors("asset:cat.db.a", depth=3)["nodes"]} == {
-        "cat.db.a", "cat.db.b", "cat.db.c", "cat.db.d"}
+        "cat.db.a",
+        "cat.db.b",
+        "cat.db.c",
+        "cat.db.d",
+    }
 
 
 def test_reference_tables_rank_recursive_sibling_after_non_sibling_before_internal(monkeypatch):
     names = ["source", "base", "middle", "other", "a_sibling", "z_external"]
-    value = injected_graph(monkeypatch, names, [edge("source", "a_sibling", count=4),
-                                                edge("source", "z_external")],
-                           columns={"a_sibling": [column("date_a", "DATE")]},
-                           upstream={"source": ["base"], "a_sibling": ["middle"],
-                                     "middle": ["base"], "z_external": ["other"]})
+    value = injected_graph(
+        monkeypatch,
+        names,
+        [edge("source", "a_sibling", count=4), edge("source", "z_external")],
+        columns={"a_sibling": [column("date_a", "DATE")]},
+        upstream={"source": ["base"], "a_sibling": ["middle"], "middle": ["base"], "z_external": ["other"]},
+    )
     closure = {name: value._asset(name) for name in ["source", "base"]}
     refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="source")], closure)
     assert [r["table"] for r in refs] == ["cat.db.z_external", "cat.db.a_sibling", "cat.db.base"]
@@ -584,9 +742,13 @@ def test_reference_tables_rank_recursive_sibling_after_non_sibling_before_intern
 
 def test_reference_sibling_detection_filters_unreadable_upstream_assets(monkeypatch):
     names = ["source", "hidden", "a_external", "z_sibling"]
-    value = injected_graph(monkeypatch, names, [edge("source", "a_external"), edge("source", "z_sibling")],
-                           hidden={"hidden"}, upstream={"source": ["hidden"],
-                           "a_external": ["hidden"], "z_sibling": ["source"]})
+    value = injected_graph(
+        monkeypatch,
+        names,
+        [edge("source", "a_external"), edge("source", "z_sibling")],
+        hidden={"hidden"},
+        upstream={"source": ["hidden"], "a_external": ["hidden"], "z_sibling": ["source"]},
+    )
     closure = {"source": value._asset("source"), "hidden": value.session.get(Asset, "hidden")}
     refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="source")], closure)
     assert [r["table"] for r in refs] == ["cat.db.a_external", "cat.db.z_sibling"]
@@ -596,10 +758,15 @@ def test_reference_sibling_detection_filters_unreadable_upstream_assets(monkeypa
 
 @pytest.mark.parametrize(("kind", "status"), [("catalog_table", "active"), ("table", "deleted")])
 def test_reference_sibling_detection_retains_authorized_terminal_sources_outside_searchable_kinds(
-        monkeypatch, kind, status):
+    monkeypatch, kind, status
+):
     names = ["source", "inside", "base", "a_external", "z_sibling"]
-    value = injected_graph(monkeypatch, names, [edge("source", "a_external"), edge("source", "z_sibling")],
-                           upstream={"source": ["inside"], "inside": ["base"], "z_sibling": ["base"]})
+    value = injected_graph(
+        monkeypatch,
+        names,
+        [edge("source", "a_external"), edge("source", "z_sibling")],
+        upstream={"source": ["inside"], "inside": ["base"], "z_sibling": ["base"]},
+    )
     terminal = value.session.get(Asset, "base")
     terminal.kind, terminal.status = kind, status
     closure = {name: value.session.get(Asset, name) for name in ["source", "inside", "base"]}
@@ -609,26 +776,34 @@ def test_reference_sibling_detection_retains_authorized_terminal_sources_outside
     assert "cat.db.base" not in {r["table"] for r in refs}
 
 
-@pytest.mark.parametrize("data_type", [" DATE ", "Datetime(6)", "TimeStamp(3)",
-                                      "TIMESTAMP(6) WITH TIME ZONE", "timestamp without time zone"])
+@pytest.mark.parametrize(
+    "data_type", [" DATE ", "Datetime(6)", "TimeStamp(3)", "TIMESTAMP(6) WITH TIME ZONE", "timestamp without time zone"]
+)
 def test_reference_tables_rank_normalized_date_types_before_more_connections_and_name(monkeypatch, data_type):
-    value = injected_graph(monkeypatch, ["source", "a_plain", "z_dated"],
-                           [edge("source", "a_plain", count=4), edge("source", "z_dated")],
-                           columns={"a_plain": [column("date_named_only", "VARCHAR")],
-                                    "z_dated": [column("window_a", data_type)]})
-    refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="source")],
-                                      {"source": value._asset("source")})
+    value = injected_graph(
+        monkeypatch,
+        ["source", "a_plain", "z_dated"],
+        [edge("source", "a_plain", count=4), edge("source", "z_dated")],
+        columns={"a_plain": [column("date_named_only", "VARCHAR")], "z_dated": [column("window_a", data_type)]},
+    )
+    refs = retrieval.reference_tables(
+        value, [SimpleNamespace(base_asset_id="source")], {"source": value._asset("source")}
+    )
     assert [r["table"] for r in refs] == ["cat.db.z_dated", "cat.db.a_plain"]
     assert [r["date_columns"] for r in refs] == [["window_a"], []]
 
 
 @pytest.mark.parametrize("data_type", ["date_text", "datetime_text", "timestamp_text"])
 def test_reference_date_columns_do_not_match_type_name_prefixes(monkeypatch, data_type):
-    value = injected_graph(monkeypatch, ["source", "a_plain", "z_pseudo"],
-                           [edge("source", "a_plain"), edge("source", "z_pseudo")],
-                           columns={"z_pseudo": [column("window_a", data_type)]})
-    refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="source")],
-                                      {"source": value._asset("source")})
+    value = injected_graph(
+        monkeypatch,
+        ["source", "a_plain", "z_pseudo"],
+        [edge("source", "a_plain"), edge("source", "z_pseudo")],
+        columns={"z_pseudo": [column("window_a", data_type)]},
+    )
+    refs = retrieval.reference_tables(
+        value, [SimpleNamespace(base_asset_id="source")], {"source": value._asset("source")}
+    )
     assert [r["table"] for r in refs] == ["cat.db.a_plain", "cat.db.z_pseudo"]
     assert all(r["date_columns"] == [] for r in refs)
 
@@ -653,16 +828,24 @@ def test_reference_tables_rank_fifteen_same_layer_candidates_by_signals_and_cap_
 def test_reference_tables_use_compact_entry_format_with_three_date_column_names(monkeypatch):
     value = injected_graph(monkeypatch, ["a", "b"], [edge("a", "b", count=7)])
     cols = [column(f"key_{i}", "INTEGER", ordinal=i + 1, comment=f"连接列 {i}") for i in range(7)]
-    cols += [column("time_z", "TIMESTAMP", ordinal=8, comment="日期甲"),
-             column("date_a", " DATE ", ordinal=9, comment="日期乙"),
-             column("datetime_b", "DATETIME(6)", ordinal=10, comment="日期丙"),
-             column("timestamp_c", "TimeStamp(3)", ordinal=11, comment="日期丁"),
-             column("unrelated", "VARCHAR", ordinal=12, comment="普通列")]
+    cols += [
+        column("time_z", "TIMESTAMP", ordinal=8, comment="日期甲"),
+        column("date_a", " DATE ", ordinal=9, comment="日期乙"),
+        column("datetime_b", "DATETIME(6)", ordinal=10, comment="日期丙"),
+        column("timestamp_c", "TimeStamp(3)", ordinal=11, comment="日期丁"),
+        column("unrelated", "VARCHAR", ordinal=12, comment="普通列"),
+    ]
     monkeypatch.setattr(value, "_columns", lambda item: iter(cols if item.id == "b" else []))
     refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="a")], {"a": value._asset("a")})
-    assert refs == [{"table": "cat.db.b", "comment": "b 注释",
-                     "via": [{"type": "join_key", "columns": edge("a", "b", count=7)["columns"], "clue": False}],
-                     "date_columns": ["date_a", "datetime_b", "time_z"], "sibling": False}]
+    assert refs == [
+        {
+            "table": "cat.db.b",
+            "comment": "b 注释",
+            "via": [{"type": "join_key", "columns": edge("a", "b", count=7)["columns"], "clue": False}],
+            "date_columns": ["date_a", "datetime_b", "time_z"],
+            "sibling": False,
+        }
+    ]
     assert set(refs[0]) == {"table", "comment", "via", "date_columns", "sibling"}
     assert set(refs[0]["via"][0]) == {"type", "columns", "clue"}
     assert "连接列" not in json.dumps(refs, ensure_ascii=False) and "普通列" not in json.dumps(refs, ensure_ascii=False)
@@ -670,14 +853,15 @@ def test_reference_tables_use_compact_entry_format_with_three_date_column_names(
 
 def test_reference_ranking_counts_distinct_candidate_columns_and_keeps_asymmetric_via(monkeypatch):
     asymmetric = edge("a", "c", "join_key")
-    asymmetric["columns"] = [{"from": "source_x", "to": "target_y"},
-                              {"from": "source_z", "to": "target_y"},
-                              {"from": "source_w", "to": "target_y"}]
+    asymmetric["columns"] = [
+        {"from": "source_x", "to": "target_y"},
+        {"from": "source_z", "to": "target_y"},
+        {"from": "source_w", "to": "target_y"},
+    ]
     paired = edge("a", "d", "join_key")
     paired["columns"] = [{"from": "p", "to": "p"}, {"from": "q", "to": "q"}]
     value = injected_graph(monkeypatch, ["a", "c", "d"], [asymmetric, paired])
-    cols = {"c": [column("target_y"), column("source_x")],
-            "d": [column("p"), column("q")]}
+    cols = {"c": [column("target_y"), column("source_x")], "d": [column("p"), column("q")]}
     monkeypatch.setattr(value, "_columns", lambda item: iter(cols.get(item.id, [])))
     refs = retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="a")], {"a": value._asset("a")})
     assert [r["table"] for r in refs] == ["cat.db.d", "cat.db.c"]
@@ -687,25 +871,39 @@ def test_reference_ranking_counts_distinct_candidate_columns_and_keeps_asymmetri
 
 
 def test_reference_block_keeps_metadata_and_clue_warning_within_budget():
-    refs = [{"table": f"cat.db.t{i}", "comment": "注释" * 400,
-             "via": [{"type": "shared_key", "columns": [{"from": "key_a", "to": "key_a"}], "clue": True}],
-             "date_columns": ["date_a"], "sibling": False} for i in range(5)]
+    refs = [
+        {
+            "table": f"cat.db.t{i}",
+            "comment": "注释" * 400,
+            "via": [{"type": "shared_key", "columns": [{"from": "key_a", "to": "key_a"}], "clue": True}],
+            "date_columns": ["date_a"],
+            "sibling": False,
+        }
+        for i in range(5)
+    ]
     out = retrieval.reference_block(refs)
     assert out.startswith("参考表（元数据图线索）") and len(out) <= 2500
     assert "省略" in out and "张" in out and CLUE_NOTE in out
     assert "cat.db.t0" in out and "shared_key" in out and "key_a" in out
     entries = [line for line in out.splitlines() if line.startswith("{")]
     assert 0 < len(entries) < len(refs)
-    assert [json.loads(line) for line in entries] == refs[:len(entries)]
-    assert entries == [json.dumps(ref, ensure_ascii=False, separators=(",", ":")) for ref in refs[:len(entries)]]
+    assert [json.loads(line) for line in entries] == refs[: len(entries)]
+    assert entries == [json.dumps(ref, ensure_ascii=False, separators=(",", ":")) for ref in refs[: len(entries)]]
     assert f"省略 {len(refs) - len(entries)} 张参考表" in out
     assert retrieval.reference_block(refs, limit=10000) == out
 
 
 def test_compact_reference_block_fits_twelve_small_tables():
-    refs = [{"table": f"cat.db.t{i}", "comment": "注释",
-             "via": [{"type": "shared_key", "columns": [{"from": "key_a", "to": "key_a"}], "clue": True}],
-             "date_columns": ["date_a"], "sibling": False} for i in range(12)]
+    refs = [
+        {
+            "table": f"cat.db.t{i}",
+            "comment": "注释",
+            "via": [{"type": "shared_key", "columns": [{"from": "key_a", "to": "key_a"}], "clue": True}],
+            "date_columns": ["date_a"],
+            "sibling": False,
+        }
+        for i in range(12)
+    ]
     out = retrieval.reference_block(refs)
     assert len(out) <= 2500 and "省略" not in out
     assert [json.loads(line) for line in out.splitlines() if line.startswith("{")] == refs
@@ -725,8 +923,9 @@ def test_reference_block_handles_single_oversized_table_and_small_budget():
 def test_context_reference_block_follows_source_metadata_and_obeys_total_budget(monkeypatch):
     value = box(monkeypatch, enabled=True)
     value.precheck_meta = [{"table": "cat.db.a", "columns": []}]
-    value.precheck_refs = [{"table": "cat.db.b", "comment": "参考表注释", "via": [],
-                            "date_columns": [], "sibling": False}]
+    value.precheck_refs = [
+        {"table": "cat.db.b", "comment": "参考表注释", "via": [], "date_columns": [], "sibling": False}
+    ]
     out = value.context_pack()
     assert out.index("来源表") < out.index("参考表（元数据图线索）") and "cat.db.b" in out
     assert len(out) <= value.PACK_CHARS
@@ -752,8 +951,14 @@ def test_change_precheck_references_are_opt_in_and_follow_source_metadata(monkey
         return expected
 
     monkeypatch.setattr(retrieval, "reference_tables", references)
-    scope = Scope(question_type="change", metric_codes=["metric_a"], start_date="2026-09-01",
-                  end_date="2026-09-30", compare_start="2026-08-01", compare_end="2026-08-31")
+    scope = Scope(
+        question_type="change",
+        metric_codes=["metric_a"],
+        start_date="2026-09-01",
+        end_date="2026-09-30",
+        compare_start="2026-08-01",
+        compare_end="2026-08-31",
+    )
     value.precheck(scope)
     assert ordered[-2:] == ["source", "reference"] and value.precheck_refs == expected
     settings(monkeypatch)

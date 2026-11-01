@@ -22,8 +22,9 @@ pytestmark = pytest.mark.db
 @pytest.fixture(scope="module")
 def src(source_db):
     args, name = source_db
-    connector = PostgresConnector(args["host"], args["port"], args["user"], args["password"],
-                                  {"database": name, "schemas": ["store"]})
+    connector = PostgresConnector(
+        args["host"], args["port"], args["user"], args["password"], {"database": name, "schemas": ["store"]}
+    )
 
     def connect(autocommit=True):
         return psycopg.connect(**args, dbname=name, autocommit=autocommit)
@@ -59,8 +60,13 @@ class _Session:
 def _attribute(connector, events, window):
     from types import SimpleNamespace
 
-    return attribute(_Session({"s": SimpleNamespace(db_name="store", name="sales")}), get_engine("postgres"),
-                     connector, events, window)
+    return attribute(
+        _Session({"s": SimpleNamespace(db_name="store", name="sales")}),
+        get_engine("postgres"),
+        connector,
+        events,
+        window,
+    )
 
 
 def test_long_transaction_belongs_to_the_window_it_committed_in(src):
@@ -139,16 +145,20 @@ def test_batched_request_keeps_no_statement_text(src):
     connector, connect = src
     previous = connector.snapshot().audit_cursor
     with connect(autocommit=False) as conn:
-        conn.execute("CREATE TABLE store.hidden (a int); COMMENT ON TABLE store.hidden IS $$s3cr3t$$; "
-                     "ALTER TABLE store.sales ADD COLUMN channel text")
+        conn.execute(
+            "CREATE TABLE store.hidden (a int); COMMENT ON TABLE store.hidden IS $$s3cr3t$$; "
+            "ALTER TABLE store.sales ADD COLUMN channel text"
+        )
         _as(conn, "carol")
         conn.commit()
     current = connector.snapshot().audit_cursor
     event = {"kind": "column_added", "asset_id": "s", "column_name": "channel", "before": {}, "after": {}}
     _attribute(connector, [event], _window(previous, current))
     assert event["actor_db_user"] == "carol"
-    assert all("summary" not in s and set(s) <= {"at", "db_user", "statement_type", "certain", "xid"}
-               for s in event["attribution"]["statements"])
+    assert all(
+        "summary" not in s and set(s) <= {"at", "db_user", "statement_type", "certain", "xid"}
+        for s in event["attribution"]["statements"]
+    )
     assert all(s.get("xid") for s in event["attribution"]["statements"])  # 结构化信息里带事务号
     assert "s3cr3t" not in repr(event["attribution"]) and "hidden" not in repr(event["attribution"]["statements"])
 
@@ -157,8 +167,12 @@ def test_audit_table_has_time_and_transaction_indexes(src):
     # 15：按 (at, id) 与 xid 读取都有索引；模式与对象类型过滤在库里完成
     _, connect = src
     with connect() as conn:
-        names = {r[0] for r in conn.execute(
-            "SELECT indexname FROM pg_indexes WHERE schemaname = 'avelis_audit' AND tablename = 'ddl_event'")}
+        names = {
+            r[0]
+            for r in conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'avelis_audit' AND tablename = 'ddl_event'"
+            )
+        }
     assert {"ddl_event_at_id", "ddl_event_xid"} <= names
 
 

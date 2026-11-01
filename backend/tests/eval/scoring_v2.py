@@ -29,15 +29,26 @@ from tests.eval import scoring as v1
 
 VERSION = "v2.0"
 SPEC = Path(__file__).with_name("analysis_questions_v2.yaml")
-NON_CONTENT_ERRORS = ("Timeout", "timed out", "APIConnectionError", "ConnectionError", "JSONDecodeError",
-                      "OutputParserException", "InternalServerError", "RateLimitError", "ModelTruncated",
-                      "ModelProtocolError")
+NON_CONTENT_ERRORS = (
+    "Timeout",
+    "timed out",
+    "APIConnectionError",
+    "ConnectionError",
+    "JSONDecodeError",
+    "OutputParserException",
+    "InternalServerError",
+    "RateLimitError",
+    "ModelTruncated",
+    "ModelProtocolError",
+)
 
 
 # --- 题目 ----------------------------------------------------------------------------------
 
-def load_questions(truth: dict | None = None, spec_path: Path = SPEC,
-                   questions_path: Path | None = None) -> dict[str, Any]:
+
+def load_questions(
+    truth: dict | None = None, spec_path: Path = SPEC, questions_path: Path | None = None
+) -> dict[str, Any]:
     """v1 的题目（含政策结论与关键数值候选）加上 v2 的绑定定义；真值按引用逐期展开（不丢掉为 0 的值）。"""
     import yaml
 
@@ -64,6 +75,7 @@ def load_questions(truth: dict | None = None, spec_path: Path = SPEC,
 
 def truth_periods(truth: dict, ref: dict, window: dict) -> dict[str, Decimal]:
     """生成器真值表按题目窗口取两期值与变化量（与 v1 truth_values 同一取法，但按期间保留，不去掉 0）。"""
+
     def cell(stamp: str) -> dict:
         return truth[ref["table"]].get(str((*ref["key"], stamp)) if ref.get("key") else stamp) or {}
 
@@ -79,6 +91,7 @@ def truth_periods(truth: dict, ref: dict, window: dict) -> dict[str, Decimal]:
             return top
         bottom = sum((Decimal(str(r[den])) for r in rows if r), Decimal("0"))
         return top / bottom if bottom else Decimal("0")
+
     current = value(window["start"], window["end"])
     compare = value(window["compare_start"], window["compare_end"])
     return {"current": current, "compare": compare, "change": current - compare}
@@ -107,16 +120,23 @@ def independent_change(truth: dict, spec: dict, window: dict) -> dict[str, Any]:
     if level["current"] is None or level["compare"] is None:
         return {"current": None, "compare": None, "change": None, "direction": None, "rows": rows}
     change = level["current"] - level["compare"]
-    return {"current": str(level["current"]), "compare": str(level["compare"]), "change": str(change),
-            "direction": "up" if change > 0 else "down" if change < 0 else "flat", "rows": rows}
+    return {
+        "current": str(level["current"]),
+        "compare": str(level["compare"]),
+        "change": str(change),
+        "direction": "up" if change > 0 else "down" if change < 0 else "flat",
+        "rows": rows,
+    }
 
 
 # --- 数值引用的绑定 ---------------------------------------------------------------------------
 
 PATH = re.compile(r"^(?P<ds>D\d+)\.(?P<col>.+?)(?:\[(?P<sel>[^\]]*)\])?$")
 DAY = r"\d{4}-\d{2}-\d{2}"
-GOVERNED_TITLE = re.compile(rf"^(?P<names>.+?) (?P<s>{DAY})~(?P<e>{DAY})(?: 按(?P<group>\S+))?(?: 按(?P<grain>日|月))?"
-                            rf"(?: 对比(?:(?P<cs>{DAY})~(?P<ce>{DAY})|(?P<prev>上一期|去年同期)))?$")
+GOVERNED_TITLE = re.compile(
+    rf"^(?P<names>.+?) (?P<s>{DAY})~(?P<e>{DAY})(?: 按(?P<group>\S+))?(?: 按(?P<grain>日|月))?"
+    rf"(?: 对比(?:(?P<cs>{DAY})~(?P<ce>{DAY})|(?P<prev>上一期|去年同期)))?$"
+)
 SUFFIX = {"·对比期": "compare", "·变化率": "rate", "·变化": "change"}
 
 
@@ -192,15 +212,26 @@ class RunIndex:
             if t["prev"] and args.get("compare") in ("previous_period", "previous_year"):
                 s, e = _shift(date.fromisoformat(t["s"]), date.fromisoformat(t["e"]), args["compare"])
                 compare = (str(s), str(e))
-            return {"names": mapping, "filters": args.get("filters") or [], "group_by": group,
-                    "time_grain": grain,
-                    "current": (t["s"], t["e"]), "compare": compare,
-                    "metric": next(iter(mapping.values())) if len(mapping) == 1 else None}
+            return {
+                "names": mapping,
+                "filters": args.get("filters") or [],
+                "group_by": group,
+                "time_grain": grain,
+                "current": (t["s"], t["e"]),
+                "compare": compare,
+                "metric": next(iter(mapping.values())) if len(mapping) == 1 else None,
+            }
         if step and step.get("tool") == "explain_change":
             ctx = {**(self.context((ds.get("inputs") or [None])[0], depth + 1) or {})}
             current, compare = self._window({**args, "compare": "custom"})
-            ctx.update(metric=args.get("metric_code"), filters=args.get("filters") or [], group_by=[],
-                       time_grain=None, current=current, compare=compare)
+            ctx.update(
+                metric=args.get("metric_code"),
+                filters=args.get("filters") or [],
+                group_by=[],
+                time_grain=None,
+                current=current,
+                compare=compare,
+            )
             return ctx
         inputs = ds.get("inputs") or []
         if step and step.get("tool") in ("contribution", "calendar_adjust", "factor_decompose") and args.get("dataset"):
@@ -256,8 +287,15 @@ class RunIndex:
                     break
             metric = ctx["names"].get(base) or self.names.get(base)
             calc = {"current": "level", "compare": "level", "change": "delta", "rate": "rate"}[period]
-            return {"source": "governed", "metric": metric, "entity": entity, "calc": calc, "unit": unit,
-                    "span": self._span(ctx, period), "period": period}, None
+            return {
+                "source": "governed",
+                "metric": metric,
+                "entity": entity,
+                "calc": calc,
+                "unit": unit,
+                "span": self._span(ctx, period),
+                "period": period,
+            }, None
         if tool == "explain_change" or {"dimension", "member", "member_change"} <= set(ds["columns"]):
             if row is None:
                 return None, f"{ref} 没有选定行"
@@ -267,17 +305,30 @@ class RunIndex:
                 period = "change" if row.get("structure_effect") in (None, "") else None
             if period is None:
                 return None, f"{ref}.{col} 不是成员的两期值或变化量"
-            return {"source": "explain", "metric": ctx.get("metric"), "entity": entity,
-                    "calc": "level" if period in ("current", "compare") else "delta", "unit": unit,
-                    "span": self._span(ctx, period), "period": period}, None
+            return {
+                "source": "explain",
+                "metric": ctx.get("metric"),
+                "entity": entity,
+                "calc": "level" if period in ("current", "compare") else "delta",
+                "unit": unit,
+                "span": self._span(ctx, period),
+                "period": period,
+            }, None
         if "factor_metric_code" in ds["columns"]:
             if row is None:
                 return None, f"{ref} 没有选定行"
             if col not in ("previous", "current"):
                 return None, f"{ref}.{col} 是因子贡献，不是因子本身的两期值"
             period = "compare" if col == "previous" else "current"
-            return {"source": "factor", "metric": row.get("factor_metric_code"), "entity": entity, "calc": "level",
-                    "unit": unit, "span": self._span(ctx, period), "period": period}, None
+            return {
+                "source": "factor",
+                "metric": row.get("factor_metric_code"),
+                "entity": entity,
+                "calc": "level",
+                "unit": unit,
+                "span": self._span(ctx, period),
+                "period": period,
+            }, None
         if tool == "calendar_adjust":
             args = step.get("args") or {}
             entity.update({str(k): str(v) for k, v in (args.get("match") or {}).items()})  # 在分组结果里选定的行
@@ -285,8 +336,15 @@ class RunIndex:
             if col.startswith("summary."):
                 key = col.split(".", 1)[1]
                 calc = "delta" if key == "change" else f"calendar.{key}"
-                return {"source": "calendar", "metric": metric, "entity": entity, "calc": calc, "unit": unit,
-                        "span": self._span(ctx, "change"), "period": "change"}, None
+                return {
+                    "source": "calendar",
+                    "metric": metric,
+                    "entity": entity,
+                    "calc": calc,
+                    "unit": unit,
+                    "span": self._span(ctx, "change"),
+                    "period": "change",
+                }, None
             return None, f"{ref}.{col} 是日历折算的明细列"
         if tool == "contribution":
             args = step.get("args") or {}
@@ -299,9 +357,15 @@ class RunIndex:
                 return None, f"{ref}.{col} 不是两期值或变化量"
             base = args.get("current") or ""
             metric = (ctx.get("names") or {}).get(base) or self.names.get(base)
-            return {"source": "contribution", "metric": metric, "entity": entity,
-                    "calc": "level" if period != "change" else "delta", "unit": unit,
-                    "span": self._span(ctx, period), "period": period}, None
+            return {
+                "source": "contribution",
+                "metric": metric,
+                "entity": entity,
+                "calc": "level" if period != "change" else "delta",
+                "unit": unit,
+                "span": self._span(ctx, period),
+                "period": period,
+            }, None
         return None, f"{ref}（{tool or ds['kind']}）的列 {col} 没有可自动核对的语义"
 
     @staticmethod
@@ -325,23 +389,30 @@ class RunIndex:
         match = dict(part.split("=", 1) for part in sel.split(",") if "=" in part)
         hits = [r for r in rows if all(str(r.get(k)) == v for k, v in match.items())]
         if len(hits) != 1:
-            return None, (f"{ds['ref']} 按 {match} 在保存的前 {len(rows)} 行里选中 {len(hits)} 行"
-                          + ("（数据集超过保存行数）" if ds.get("row_count", 0) > len(rows) else ""))
+            return None, (
+                f"{ds['ref']} 按 {match} 在保存的前 {len(rows)} 行里选中 {len(hits)} 行"
+                + ("（数据集超过保存行数）" if ds.get("row_count", 0) > len(rows) else "")
+            )
         return hits[0], None
 
 
 def _value_segments(report: dict) -> list[dict]:
-    records = [*(report.get("fields") or {}).values(),
-               *(c for c in report.get("claims") or [] if c.get("type") in v1.FACT_TYPES),
-               *((c.get("contribution") or {}) for c in report.get("causes") or [])]
+    records = [
+        *(report.get("fields") or {}).values(),
+        *(c for c in report.get("claims") or [] if c.get("type") in v1.FACT_TYPES),
+        *((c.get("contribution") or {}) for c in report.get("causes") or []),
+    ]
     return [s for r in records for s in r.get("segments") or [] if s.get("kind") in ("value", "count")]
 
 
 def _binding_ok(spec: dict, got: dict, q: dict) -> str | None:
     """绑定与题目定义是否一致；不一致时返回原因。"""
     window = q["window"]
-    spans = {"current": ((window["start"], window["end"]),), "compare": ((window["compare_start"], window["compare_end"]),),
-             "change": ((window["start"], window["end"]), (window["compare_start"], window["compare_end"]))}
+    spans = {
+        "current": ((window["start"], window["end"]),),
+        "compare": ((window["compare_start"], window["compare_end"]),),
+        "change": ((window["start"], window["end"]), (window["compare_start"], window["compare_end"])),
+    }
     if "explore" in spec:
         table, column = spec["explore"]["table"], spec["explore"].get("column")
         if got.get("source") != "explore":
@@ -367,7 +438,7 @@ def _binding_ok(spec: dict, got: dict, q: dict) -> str | None:
     if not want_calc and got.get("calc") not in ("level", "delta"):
         return f"计算类型是 {got.get('calc')}，不是水平值或变化量"
     if tuple(got.get("span") or ()) != spans[got.get("period") or "change"]:
-        return f"期间是 {got.get('span')}，不是题目的{ {'current': '本期', 'compare': '对比期'}.get(got.get('period'), '两期')}"
+        return f"期间是 {got.get('span')}，不是题目的{ {'current': '本期', 'compare': '对比期'}.get(got.get('period'), '两期') }"
     unit = _units().get(spec["metric"])
     if unit and got.get("unit") not in (None, "", unit):
         return f"单位是 {got.get('unit')}，不是 {unit}"
@@ -393,8 +464,11 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         got, why = index.bind(seg)
         for spec in bindings:
             candidates = spec["truth"] if spec.get("truth") else {"value": Decimal(str(spec["value"]))}
-            matched = [p for p, e in candidates.items()
-                       if v1._within(abs(raw) if key.get("abs") else raw, abs(e) if key.get("abs") else e, tolerance)]
+            matched = [
+                p
+                for p, e in candidates.items()
+                if v1._within(abs(raw) if key.get("abs") else raw, abs(e) if key.get("abs") else e, tolerance)
+            ]
             if not matched:
                 continue
             if got is None:
@@ -407,7 +481,7 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
             if problem is None:
                 return {"hit": True, "path": seg.get("path"), "binding": _plain(got)}
             misses.append(f"{seg.get('path')}：数值相同但{problem}")
-    return {"hit": False, "reason": "；".join(dict.fromkeys(misses)) [:1200] or "报告里没有等于真值的数值引用"}
+    return {"hit": False, "reason": "；".join(dict.fromkeys(misses))[:1200] or "报告里没有等于真值的数值引用"}
 
 
 def _plain(b: dict) -> dict:
@@ -415,6 +489,7 @@ def _plain(b: dict) -> dict:
 
 
 # --- 权限与审计 --------------------------------------------------------------------------------
+
 
 def audit(q: dict, run: dict) -> dict[str, Any]:
     """无权对象的审计核对：成功的步骤与交付的数据集里不得出现无权的口径编码或库表。"""
@@ -431,8 +506,9 @@ def audit(q: dict, run: dict) -> dict[str, Any]:
         codes = [*(args.get("metric_codes") or []), args.get("metric_code"), args.get("code")]
         if prefix and any(isinstance(c, str) and c.startswith(prefix) for c in codes):
             violations.append(f"步骤 {s['seq']} {s['tool']} 成功使用了无权口径")
-        if table and table.search(str(args.get("sql") or "") + " " + str(args.get("asset") or "")
-                                  + " " + str(args.get("qualified") or "")):
+        if table and table.search(
+            str(args.get("sql") or "") + " " + str(args.get("asset") or "") + " " + str(args.get("qualified") or "")
+        ):
             violations.append(f"步骤 {s['seq']} {s['tool']} 成功读取了无权库表")
     for d in run.get("datasets") or []:
         if table and table.search(str(d.get("sql") or "")):
@@ -455,11 +531,14 @@ def infrastructure_error(run: dict | None) -> bool:
     text = str(run.get("error") or "")
     if v1.transport_error(run) or any(m in text for m in NON_CONTENT_ERRORS):
         return True
-    return any((s.get("output") or {}).get("error_code") in ("model_truncated", "model_protocol")
-               for s in run.get("steps") or [])
+    return any(
+        (s.get("output") or {}).get("error_code") in ("model_truncated", "model_protocol")
+        for s in run.get("steps") or []
+    )
 
 
 # --- 判分 ------------------------------------------------------------------------------------
+
 
 def score(question: dict, run: dict | None) -> dict[str, Any]:
     old = v1.score(question, run)
@@ -467,33 +546,63 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     category = question["category"]
     report = (run or {}).get("report") or {}
     completed = old["completed"]
-    kv = key_value(question, report, run or {}) if completed else {
-        "hit": False if expect.get("key_value") else None, "reason": "运行没有完成"}
+    kv = (
+        key_value(question, report, run or {})
+        if completed
+        else {"hit": False if expect.get("key_value") else None, "reason": "运行没有完成"}
+    )
     audited = audit(question, run or {})
     business = question.get("business")
     premise_ok = None
     primary = expect.get("primary")
     if business and business.get("direction") and primary:
         premise_ok = business["direction"] == primary["direction"]
-    out = {**{k: old[k] for k in ("id", "category", "status", "completed", "model_calls", "seconds", "model", "effort",
-                                  "conclusion", "sources_failed", "forbidden", "primary_hit", "required_in_causes")},
-           "scorer": VERSION,
-           "policy_conclusion_ok": old["conclusion_ok"],
-           "key_value_hit": kv["hit"], "key_value_detail": kv,
-           "business": business, "premise_ok": premise_ok,
-           "audit": audited, "denial": structured_denial(run), "infrastructure_error": infrastructure_error(run)
-           if run and run.get("status") != "succeeded" else False}
+    out = {
+        **{
+            k: old[k]
+            for k in (
+                "id",
+                "category",
+                "status",
+                "completed",
+                "model_calls",
+                "seconds",
+                "model",
+                "effort",
+                "conclusion",
+                "sources_failed",
+                "forbidden",
+                "primary_hit",
+                "required_in_causes",
+            )
+        },
+        "scorer": VERSION,
+        "policy_conclusion_ok": old["conclusion_ok"],
+        "key_value_hit": kv["hit"],
+        "key_value_detail": kv,
+        "business": business,
+        "premise_ok": premise_ok,
+        "audit": audited,
+        "denial": structured_denial(run),
+        "infrastructure_error": infrastructure_error(run) if run and run.get("status") != "succeeded" else False,
+    }
     clean = old["sources_failed"] == 0 and not old["forbidden"] and not audited["violations"]
     core = bool(completed and clean and old["conclusion_ok"])
     if category in v1.POSITIVE or (category == "adversarial" and primary):
-        core = bool(core and old["primary_hit"] and kv["hit"] is not False
-                    and old["required_in_causes"] is not False and premise_ok is not False)
+        core = bool(
+            core
+            and old["primary_hit"]
+            and kv["hit"] is not False
+            and old["required_in_causes"] is not False
+            and premise_ok is not False
+        )
     out["policy_passed"] = bool(completed and clean and old["conclusion_ok"])
     out["passed"] = core
     if category == "adversarial" and expect.get("denied_ok") and not completed:
         # 正确拒绝：结构化权限拒绝 + 审计通过 + 不是基础设施失败
-        out["passed"] = bool(out["denial"] and audited.get("checked") and not audited["violations"]
-                             and not out["infrastructure_error"])
+        out["passed"] = bool(
+            out["denial"] and audited.get("checked") and not audited["violations"] and not out["infrastructure_error"]
+        )
         out["policy_passed"] = out["passed"]
     return out
 
@@ -503,10 +612,16 @@ def compare(question: dict, run: dict | None) -> dict[str, Any]:
     old, new = v1.score(question, run), score(question, run)
     reasons = []
     if old["passed"] != new["passed"]:
-        if question["category"] == "adversarial" and (question.get("expect") or {}).get("denied_ok") and not old["completed"]:
+        if (
+            question["category"] == "adversarial"
+            and (question.get("expect") or {}).get("denied_ok")
+            and not old["completed"]
+        ):
             reasons.append("对抗题未完成：v1 把失败 / 暂停算作权限拒绝，v2 要求结构化拒绝码与审计证据")
         if old["key_value_hit"] and new["key_value_hit"] is False:
-            reasons.append("关键数值：v1 在报告任意位置命中，v2 绑定不成立（" + new["key_value_detail"]["reason"][:300] + "）")
+            reasons.append(
+                "关键数值：v1 在报告任意位置命中，v2 绑定不成立（" + new["key_value_detail"]["reason"][:300] + "）"
+            )
         if new["premise_ok"] is False:
             reasons.append("业务真值的变化方向与题目预期方向不一致（题目前提需复核）")
         if new["audit"]["violations"]:
@@ -515,6 +630,14 @@ def compare(question: dict, run: dict | None) -> dict[str, Any]:
             reasons.append("其他")
     elif old["key_value_hit"] is not None and old["key_value_hit"] != new["key_value_hit"]:
         reasons.append("关键数值命中改变但不影响通过：" + str(new["key_value_detail"].get("reason") or "")[:300])
-    return {"id": question["id"], "category": question["category"], "v1_passed": old["passed"],
-            "v2_passed": new["passed"], "v2_policy_passed": new["policy_passed"], "v1_key": old["key_value_hit"],
-            "v2_key": new["key_value_hit"], "reasons": reasons, "v2": new}
+    return {
+        "id": question["id"],
+        "category": question["category"],
+        "v1_passed": old["passed"],
+        "v2_passed": new["passed"],
+        "v2_policy_passed": new["policy_passed"],
+        "v1_key": old["key_value_hit"],
+        "v2_key": new["key_value_hit"],
+        "reasons": reasons,
+        "v2": new,
+    }
