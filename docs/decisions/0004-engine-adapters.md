@@ -155,7 +155,10 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
   - Kerberos（GSSAPI）未支持：需要系统 Kerberos 库、KDC 与 keytab，镜像里没有，也没有联调。只支持 binary 传输，不支持 http 传输。
   - 引擎层为此新增两项通用能力：配置项可以是 `choice`（固定可选值 + 默认值），以及 `credential_free`（某配置项取某些值时采集账号可不填）。前端按它们渲染，不按引擎写死。
 - **不支持问数执行**：Hive 查询要起计算作业，超时、资源限制、错误归类都没有联调，不声明 `query` 与 `live_check`。
-- SQLGlot 的已知问题（不影响血缘）：`hive` 方言解析不了 `UNIONTYPE<…>` 类型字面量；采集服务构造解析用 schema 时会截断嵌套类型（如 `struct<a:decimal(10,2)>`）。列级血缘不做类型推断，两者都不影响结果，单元测试覆盖了这一点。
+- 联调中发现并修复的两个类型问题：
+  - SQLGlot 的 `hive` 方言解析不了 `UNIONTYPE<…>`（上游测试里也列为“暂时解析不了”）。按约定在 fork 修：分支 `fix/hive-uniontype` 基于上游 main，用于向 tobymao/sqlglot 提 PR；Avelis 依赖分支 `avelis-v30.25.0`（v30.25.0 + 该修复，并去掉上游指向私有仓库的集成测试子模块，否则 uv 拉 git 依赖会失败），在 `backend/pyproject.toml` 的 `tool.uv.sources` 固定提交。上游合并发布后切回 PyPI。镜像构建阶段因此需要 git（运行镜像不含）。
+  - 采集服务构造解析用 schema 时只取类型名第一个括号之前的部分，嵌套类型被截断成错的类型（如 `struct<a:decimal(10,2),b:int>` 变成 `STRUCT<A:DECIMAL`）。改为逐层去掉长度 / 精度参数、保留嵌套结构与后缀，对其他引擎的类型逐一核对过不变差。
+  - SQLGlot 版本号随之变化（`PARSER_VERSION` 变化），已采集的视图会在下次采集时按新版本重新解析，这是既有机制。
 
 ## 规划中的引擎（未登记，未验证）
 

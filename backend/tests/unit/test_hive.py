@@ -168,8 +168,19 @@ def test_complex_types_constraints_and_escaped_comment():
 
 
 def test_hive_types_map_into_lineage_schema():
-    # 采集到的 Hive 原样类型进入解析用的 schema（collect.service.build_schema）后，引用这些列的视图照常解析：
-    # 嵌套类型、uniontype 只在类型推断时才会被 SQLGlot 解析，列级血缘不依赖它们
+    # 采集到的 Hive 原样类型进入解析用的 schema（collect.service.build_schema）：逐层去掉参数，嵌套结构完整保留，
+    # 并能被 SQLGlot（hive）解析成同样的类型；引用这些列的视图照常解析
+    from sqlglot import exp
+
+    assert _sqlglot_type("struct<a:decimal(10,2),b:int>") == "STRUCT<A:DECIMAL,B:INT>"
+    assert _sqlglot_type("map<string,varchar(10)>") == "MAP<STRING,VARCHAR>"
+    assert _sqlglot_type("array<decimal(10,2)>") == "ARRAY<DECIMAL>"
+    assert _sqlglot_type("timestamp(6) with time zone") == "TIMESTAMP WITH TIME ZONE"
+    assert _sqlglot_type("Array(Decimal(18, 2))") == "ARRAY" and _sqlglot_type("") == "VARCHAR"
+    union = exp.DataType.build(_sqlglot_type("uniontype<int,string>"), dialect="hive")
+    assert union.is_type(exp.DType.UNION) and union.sql("hive") == "UNIONTYPE<INT, STRING>"
+    nested = exp.DataType.build(_sqlglot_type("struct<a:decimal(10,2),b:int>"), dialect="hive")
+    assert nested.sql("hive") == "STRUCT<A: DECIMAL, B: INT>"
     hive = get_engine("hive").sql
     types = ["bigint", "decimal(18,2)", "varchar(16)", "date", "timestamp", "string", "binary", "boolean",
              "array<string>", "map<string,int>", "struct<street:string,zip:int>", "struct<a:decimal(10,2),b:int>",
