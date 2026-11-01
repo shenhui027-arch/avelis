@@ -1,2 +1,0 @@
-[redis]
-password_file = 'E:/Dev/Repos/Active/Avelis/.worktrees/thread/backend/.pytest-tmp-worker-heartbeat-4b122d79cd744f10af365c44dd8662e9/test_missing_or_unreadable_sec0/missing-credential'

@@ -1,2 +1,0 @@
-[server]
-cors_origins = ["https://one.example", 1]
