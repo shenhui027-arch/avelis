@@ -202,7 +202,8 @@ def comp_query(*, engine="postgres", grain=None, data_grain="day", time_format=N
 
     dialect = replace(get_engine(engine).sql, default_catalog="catalog_a")
     version = SimpleNamespace(dimensions=[{"name": "维度甲", "column": "dimension_a"},
-                                          {"name": "time_bucket", "column": "dimension_b"}],
+                                          *[{"name": name, "column": "dimension_b"}
+                                            for name in ("time_bucket", "TIME_BUCKET", "Time_Bucket")]],
                               expression="SUM(measure_a)", time_column="time_a", filters=None,
                               data_grain=data_grain, time_format=time_format, timezone="America/New_York")
     asset = SimpleNamespace(catalog_name="catalog_a", db_name="schema_a", name="asset_a")
@@ -292,6 +293,16 @@ def test_time_bucket_keeps_output_period_and_avoids_collisions():
     assert "TO_CHAR(b.time_a, 'YYYY-MM')" in compiled.sql
     assert "TO_CHAR(DATE_TRUNC('WEEK', b.time_a), 'YYYY-MM-DD')" in compiled.sql
     assert compiled.sql.endswith("LIMIT 101")
+
+
+@pytest.mark.parametrize("dimension", ["TIME_BUCKET", "Time_Bucket"])
+@pytest.mark.parametrize("reserved,expected", [((), "time_bucket_1"), (("TIME_BUCKET_1",), "time_bucket_2")])
+def test_time_bucket_avoids_casefolded_dimension_and_reserved_names(dimension, reserved, expected):
+    compiled, _ = comp_query(bucket="day", group_by=[dimension], reserved=reserved)
+    assert compiled.columns == [dimension, expected, "value"]
+    assert compiled.plan["bucket_column"] == expected
+    bucket = svc_sqlglot.parse_one(compiled.sql, read="postgres").selects[-2]
+    assert bucket.alias == expected and bucket.args["alias"].args["quoted"]
 
 
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "starrocks", "doris", "sqlserver", "oracle", "clickhouse"])
@@ -830,8 +841,8 @@ def svc_state(monkeypatch, method="last", *, rows=None, max_rows=1000, output_gr
 
     def execute(sql, **kwargs):
         calls.append((sql, kwargs))
-        columns = [column.alias_or_name if engine != "oracle" or column.args["alias"].args.get("quoted")
-                   else column.alias_or_name.upper()
+        columns = [column.alias_or_name if column.args["alias"].args.get("quoted")
+                   else (column.alias_or_name.upper() if engine == "oracle" else column.alias_or_name.lower())
                    for column in svc_sqlglot.parse_one(sql, read=engine).selects]
         result_rows = rows(sql) if callable(rows) else rows
         return SvcResult(columns=columns, rows=result_rows or [], truncated=False,
@@ -891,6 +902,19 @@ def test_oracle_time_aggregation_reads_quoted_bucket_with_collision_suffix(monke
     bucket_name = "time_bucket_1" if dimension == "time_bucket" else "time_bucket"
     bucket = svc_sqlglot.parse_one(state.calls[0][0], read="oracle").selects[-2]
     assert bucket.alias == bucket_name and bucket.args["alias"].args["quoted"]
+
+
+@svc_pytest.mark.parametrize("method,expected", [("avg", "4"), ("last", "6")])
+@svc_pytest.mark.parametrize("dimension", ["TIME_BUCKET", "Time_Bucket"])
+def test_postgres_time_aggregation_reads_bucket_after_alias_folding(monkeypatch, method, expected, dimension):
+    state = svc_state(monkeypatch, method, dimension=dimension, rows=[
+        ["成员甲", "2026-01-01", 2], ["成员甲", "2026-01-02", 6]])
+    answer = state.run()
+    assert answer.status == "answered"
+    assert answer.result["columns"] == ["time_bucket", "value"]
+    assert answer.result["rows"] == [["成员甲", expected]]
+    bucket = svc_sqlglot.parse_one(state.calls[0][0], read="postgres").selects[-2]
+    assert bucket.alias == "time_bucket_1" and bucket.args["alias"].args["quoted"]
 
 
 def test_batch2_service_last_composes_each_output_period_independently(monkeypatch):
