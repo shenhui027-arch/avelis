@@ -475,8 +475,8 @@ def test_multiple_intermediate_paths_to_same_value_are_merged_without_losing_hop
     assert result.active[0].attributes["hops"] == result.active[0].attributes["paths"][0]
 
 
-def _fold_updates(sql):
-    dialect = SqlDialect("postgres", "cat", normalize=fold_identifiers("postgres"))
+def _fold_updates(sql, name="postgres"):
+    dialect = SqlDialect(name, "cat", normalize=fold_identifiers(name))
     schema = {"cat": {"src": {name: {"x": "INT", "y": "INT", "z": "INT"} for name in ("a", "b", "c")},
                       "dw": {name: {"x": "INT", "y": "INT"}
                              for name in ("tmp", "second", "out", "before_update")}}}
@@ -517,22 +517,54 @@ def test_update_replaces_only_assigned_columns_and_preserves_earlier_reads(tempo
     assert result.intermediate_tables == ["cat.dw.tmp"]
 
 
-def test_unconditional_update_composes_old_self_column_with_external_value():
+def test_unconditional_update_composes_old_self_columns():
     result = _fold_updates([
         "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
         "INSERT INTO dw.tmp SELECT x,y FROM src.a",
-        "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b",
+        "UPDATE dw.tmp SET x=x+y",
         "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
     ])
     assert signature(result) == {
         ("cat.src.a", "x", "cat.dw.out", "x", "value_computed"),
-        ("cat.src.b", "z", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.a", "y", "cat.dw.out", "x", "value_computed"),
         ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
     }
     computed = next(edge for edge in result.active if edge.source_column == "x")
     assert len(computed.attributes["hops"]) == 3
     assert computed.attributes["via"] == ["cat.dw.tmp", "cat.dw.tmp"]
     assert all(hop in {edge.id for edge in result.intermediate} for hop in computed.attributes["hops"])
+
+
+def test_update_from_only_changes_matched_rows_and_keeps_old_column_source():
+    # FROM 只更新匹配到的行，没匹配到的行保留旧值，旧来源不能丢
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    values = {sig for sig in signature(result) if sig[-1].startswith("value_")}
+    assert ("cat.src.a", "x", "cat.dw.out", "x", "value_direct") in values
+    assert ("cat.src.b", "z", "cat.dw.out", "x", "value_computed") in values
+    assert ("cat.src.a", "y", "cat.dw.out", "y", "value_direct") in values
+
+
+@pytest.mark.parametrize("update", [
+    "UPDATE dw.tmp t JOIN src.b b ON b.y = t.y SET t.x = b.z",
+    "UPDATE dw.tmp SET x = 0 LIMIT 10",
+    "UPDATE dw.tmp SET x = 0 ORDER BY y LIMIT 10",
+])
+def test_restricted_mysql_update_keeps_old_column_source(update):
+    # JOIN、LIMIT 只改匹配到的行，与 WHERE 一样不能当作整列替换
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        update,
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ], "mysql")
+    values = {sig for sig in signature(result) if sig[-1].startswith("value_")}
+    assert ("cat.src.a", "x", "cat.dw.out", "x", "value_direct") in values
+    assert ("cat.src.a", "y", "cat.dw.out", "y", "value_direct") in values
 
 
 def test_multiple_column_assignments_read_the_same_pre_update_snapshot():
