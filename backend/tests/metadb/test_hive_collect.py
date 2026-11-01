@@ -41,7 +41,8 @@ SEED = [
     f"DROP DATABASE IF EXISTS {DB} CASCADE",
     f"CREATE DATABASE {DB} COMMENT '联调库'",
     f"CREATE TABLE {DB}.shops (shop_id BIGINT COMMENT '门店 ID', city STRING COMMENT '城市', "
-    "tags ARRAY<STRING>, addr STRUCT<street:STRING,zip:INT> COMMENT '地址') COMMENT '门店'",
+    "tags ARRAY<STRING>, addr STRUCT<street:STRING,zip:INT> COMMENT '地址', u UNIONTYPE<INT,STRING>) "
+    "COMMENT '门店'",
     f"CREATE TABLE {DB}.sales (sale_id BIGINT NOT NULL COMMENT '销售单 ID', shop_id BIGINT, status VARCHAR(16), "
     "amount DECIMAL(18,2) COMMENT '金额') COMMENT '销售' PARTITIONED BY (sale_date DATE COMMENT '销售日期') "
     "STORED AS ORC",
@@ -133,7 +134,8 @@ def test_collect_tables_views_and_lineage(hive):
                                     ("status", "varchar(16)", True, None), ("amount", "decimal(18,2)", True, "金额"),
                                     ("sale_date", "date", True, "销售日期")]
     _, shops_v = assets[f"hive.{DB}.shops"]
-    assert [c[1] for c in _columns(shops_v.id)][2:] == ["array<string>", "struct<street:string,zip:int>"]
+    assert [c[1] for c in _columns(shops_v.id)][2:] == ["array<string>", "struct<street:string,zip:int>",
+                                                        "uniontype<int,string>"]
     view, view_v = assets[f"hive.{DB}.city_daily_sales"]
     assert view.kind == "view" and view_v.comment == "城市日销售"
     with session_scope() as s:
