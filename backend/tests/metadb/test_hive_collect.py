@@ -4,7 +4,8 @@
   AVELIS_DATABASE_URL=postgresql+psycopg://avelis:…@127.0.0.1:25432/avelis_hive_test \\
   AVELIS_HIVE_TEST_PORT=20000 [AVELIS_HIVE_TEST_AUTH=LDAP AVELIS_HIVE_TEST_USER=admin AVELIS_HIVE_TEST_PASSWORD=…] \\
   uv run pytest -m db tests/metadb/test_hive_collect.py
-未设置 AVELIS_HIVE_TEST_PORT 时整组跳过。测试会重建 Hive 中的 avelis_it 库。
+未设置 AVELIS_HIVE_TEST_PORT 时连真实 Hive 的用例跳过；“库不可见”用例用脚本化的游标，只需要元数据库。
+测试会重建 Hive 中的 avelis_it 库。
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from avelis.connectors.hive import HiveConnector
 from avelis.db import session_scope
 from avelis.models import (
     Asset,
+    AssetColumn,
     AssetVersion,
     ChangeEvent,
     ChangeSet,
@@ -187,3 +189,76 @@ def test_wrong_ldap_password_fails_collection(hive):
         cred.secret_enc = encrypt_secret("wrong-password")
     with pytest.raises(CollectionFailed):
         run_collection(hive["ds"], trigger="manual")
+
+
+class _ScriptedCursor:
+    """不连 Hive：SHOW DATABASES 的结果可切换，其余返回一张固定的表（模拟授权收紧后库在列表中被过滤）。"""
+
+    def __init__(self):
+        self.visible = True
+        self._rows: list[tuple] = []
+
+    def execute(self, sql: str) -> None:
+        if sql == "SELECT version()":
+            self._rows = [("4.1.0",)]
+        elif sql == "SHOW DATABASES":
+            self._rows = [("default",), *([(DB,)] if self.visible else [])]
+        elif sql.startswith("SHOW TABLES IN"):
+            self._rows = [("orders",)]
+        elif sql.startswith("DESCRIBE FORMATTED"):
+            self._rows = [("order_id", "bigint", "订单 ID"), ("amount", "decimal(18,2)", ""), ("", None, None),
+                          ("# Detailed Table Information", None, None),
+                          ("Table Type:         ", "EXTERNAL_TABLE      ", None)]
+        else:
+            raise AssertionError(sql)
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+
+def test_invisible_database_fails_and_keeps_catalog(metadb, monkeypatch):
+    from types import SimpleNamespace
+
+    from avelis.collect import service
+
+    cursor = _ScriptedCursor()
+    connection = SimpleNamespace(cursor=lambda: cursor, close=lambda: None)
+
+    def connector(session, ds):
+        conn = HiveConnector(ds.host, ds.port, "", "", ds.options)
+        conn._connect = lambda timeout=60: connection
+        return conn
+
+    monkeypatch.setattr(service, "collect_connector", connector)
+    with session_scope() as s:
+        ds = Datasource(name="Hive 授权收紧", kind="hive", host="hs2", port=10000, options={"databases": [DB]})
+        s.add(ds)
+        s.flush()
+        ds_id = ds.id
+    first = run_collection(ds_id, trigger="manual")
+    before = _assets(ds_id)
+    assert set(before) == {f"hive.{DB}.orders"}
+
+    cursor.visible = False
+    with pytest.raises(CollectionFailed, match=f"配置的库 {DB}"):
+        run_collection(ds_id, trigger="manual")
+    with session_scope() as s:
+        failed = s.scalars(select(CollectionRun).where(CollectionRun.datasource_id == ds_id)
+                           .order_by(CollectionRun.started_at.desc())).first()
+        assert failed.status == "failed" and DB in failed.error
+        asset = s.scalar(select(Asset).where(Asset.datasource_id == ds_id))
+        assert asset.status == "active" and asset.deleted_at is None
+        assert asset.current_version_id == before[f"hive.{DB}.orders"][1].id
+        assert s.get(AssetVersion, asset.current_version_id).superseded_at is None
+        columns = s.scalars(select(AssetColumn).where(AssetColumn.asset_id == asset.id)).all()
+        assert {c.name for c in columns} == {"order_id", "amount"} and all(c.status == "active" for c in columns)
+        kinds = {e.kind for e in s.scalars(
+            select(ChangeEvent).join(ChangeSet, ChangeSet.id == ChangeEvent.change_set_id)
+            .where(ChangeSet.datasource_id == ds_id))}
+    assert "deleted" not in kinds and "column_removed" not in kinds
+    # 库重新可见后照常采集，没有凭空的变更
+    cursor.visible = True
+    assert _events(run_collection(ds_id, trigger="manual")) == set() and first

@@ -277,3 +277,103 @@ def test_connector_auth_modes():
         HiveConnector("h", 1, "", "", {"auth": "KERBEROS"})
     with pytest.raises(ValueError, match="名称不合法"):
         HiveConnector("h", 1, "", "", {"databases": ["store; DROP"]}).snapshot()
+
+
+class _FakeCursor:
+    """按 SQL 返回脚本化结果的 HiveServer2 游标（不连库）。"""
+
+    def __init__(self, databases: list[str]):
+        self.databases = databases
+        self.executed: list[str] = []
+        self._rows: list[tuple] = []
+
+    def execute(self, sql: str) -> None:
+        self.executed.append(sql)
+        if sql == "SELECT version()":
+            self._rows = [("4.1.0 r75e40b7537c91a70ccaa31c397d21823c7528eeb",)]
+        elif sql == "SHOW DATABASES":
+            self._rows = [(d,) for d in self.databases]
+        elif sql.startswith("SHOW TABLES IN"):
+            self._rows = [("sales",)]
+        elif sql.startswith("DESCRIBE FORMATTED"):
+            self._rows = SALES
+        else:
+            raise AssertionError(f"未预期的语句：{sql}")
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+
+class _FakeConnection:
+    def __init__(self, cursor: _FakeCursor):
+        self._cursor = cursor
+        self.closed = False
+
+    def cursor(self):
+        return self._cursor
+
+    def close(self):
+        self.closed = True
+
+
+def _fake_connector(monkeypatch, visible: list[str]) -> tuple[HiveConnector, _FakeCursor, _FakeConnection]:
+    cursor = _FakeCursor(visible)
+    conn = _FakeConnection(cursor)
+    connector = HiveConnector("hs2", 10000, "", "", {"databases": ["store"]})
+    monkeypatch.setattr(connector, "_connect", lambda timeout=60: conn)
+    return connector, cursor, conn
+
+
+def test_snapshot_fails_when_configured_database_is_not_visible(monkeypatch):
+    # 授权插件会按权限过滤 SHOW DATABASES：看不到不代表已删除，整次采集失败，而不是返回一个缺库的“成功”快照
+    connector, cursor, conn = _fake_connector(monkeypatch, ["default"])
+    with pytest.raises(RuntimeError, match="配置的库 store 在 SHOW DATABASES 中不可见"):
+        connector.snapshot()
+    assert not any(s.startswith(("SHOW TABLES", "DESCRIBE")) for s in cursor.executed) and conn.closed
+
+
+def test_snapshot_collects_visible_database(monkeypatch):
+    connector, cursor, _ = _fake_connector(monkeypatch, ["default", "store"])
+    snap = connector.snapshot()
+    assert [a.qualified for a in snap.assets] == ["hive.store.sales"] and snap.warnings == []
+    assert "DESCRIBE FORMATTED `store`.`sales`" in cursor.executed
+
+
+def test_invisible_database_leaves_catalog_untouched(monkeypatch):
+    # 采集服务：快照失败时不进入 _apply_snapshot（不会把已有资产记成删除），批次记为失败并保留原因
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from avelis.collect import service
+
+    run = SimpleNamespace(id="run-1", status="running", finished_at=None, error=None)
+    ds = Datasource(id="ds-1", name="数仓", kind="hive", host="hs2", port=10000, options={"databases": ["store"]})
+
+    class _Session:
+        def get(self, model, key):
+            return ds if model is Datasource else run
+
+        def scalar(self, _):
+            return None
+
+        def add(self, obj):
+            obj.id = run.id
+
+        def flush(self):
+            pass
+
+    @contextmanager
+    def _scope():
+        yield _Session()
+
+    connector, _, _ = _fake_connector(monkeypatch, ["default"])
+    applied = []
+    monkeypatch.setattr(service, "session_scope", _scope)
+    monkeypatch.setattr(service, "collect_connector", lambda session, d: connector)
+    monkeypatch.setattr(service, "_apply_snapshot", lambda *a, **k: applied.append(a))
+    with pytest.raises(service.CollectionFailed, match="配置的库 store"):
+        service.run_collection("ds-1", trigger="manual")
+    assert applied == [] and run.status == "failed" and "配置的库 store" in run.error

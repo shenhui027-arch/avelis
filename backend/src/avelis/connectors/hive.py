@@ -6,6 +6,8 @@
   定义用 Hive 保存的展开文本（Expanded Query：库名、别名都已补全，与建视图时的当前库无关）：
   视图取 SHOW CREATE TABLE（输出 CREATE VIEW … AS <展开文本>）；物化视图的 SHOW CREATE TABLE 只给建表语句、不含查询，
   取 DESCRIBE FORMATTED 的 “# Materialized View Information” 小节。不读业务数据，不起 MapReduce / Tez 作业。
+- 配置的库在 SHOW DATABASES 中不可见（授权插件会过滤）或读不到某张表时整次采集失败，不返回缺了对象的快照
+  （否则采集服务会把它们记成删除）。
 - 表类型：MANAGED_TABLE、EXTERNAL_TABLE 都是普通表（Hive 的外部表只是数据位置由用户管理，不指向另一个数据源），
   原类型记在 table_model；VIRTUAL_VIEW 为视图；MATERIALIZED_VIEW 为物化视图。
 - 分区列排在普通列之后（与 SELECT * 的列序一致），列名记在 properties.partition_columns。
@@ -238,10 +240,13 @@ class HiveConnector:
             cur = conn.cursor()
             identity = self._server_identity(cur)
             existing = {str(r[0]).lower() for r in self._rows(cur, "SHOW DATABASES")}
+            # 配置的库看不到时整次采集失败（与读不到表结构一致）：Hive 授权插件会按权限过滤 SHOW DATABASES，
+            # 看不到不代表已删除；跳过会把这个库已采集的资产全部记成删除
+            missing = [db for db in databases if db not in existing]
+            if missing:
+                raise RuntimeError(f"配置的库 {'、'.join(missing)} 在 SHOW DATABASES 中不可见"
+                                   "（不存在或采集账号无权限），本次采集不更新目录")
             for db in databases:
-                if db not in existing:
-                    warnings.append(f"库 {db} 不存在或采集账号不可见")
-                    continue
                 for (name,) in self._rows(cur, f"SHOW TABLES IN {_quote(db)}"):
                     name = str(name)
                     # 读不到某张表的结构时整次采集失败：跳过会被当成“已删除”，产生错误的变更
