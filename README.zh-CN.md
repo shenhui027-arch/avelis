@@ -54,6 +54,7 @@ Avelis 用自然语言回答关于业务数据的问题，并说清每个数从�
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
 
 StarRocks 还能把外部表与 JDBC Catalog 追溯到背后的 MySQL 表；MySQL 目前作为这些外部表的追溯目标采集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支持的引擎，见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
@@ -150,7 +151,6 @@ pnpm dev
 
 计划中的方向，不承诺日期：
 
-- Hive 引擎（元数据与视图血缘），开发中。
 - 更多引擎的外部 Catalog 与物化视图。
 - StarRocks、SQL Server、Oracle 的变更归因。
 - 问数表达能力：派生指标嵌套、按周 / 月的时间粒度、占比。
