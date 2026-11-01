@@ -23,10 +23,10 @@ import sqlglot
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlglot import exp
-from sqlglot.errors import ParseError, TokenError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlglot import exp
+from sqlglot.errors import ParseError, TokenError
 
 from avelis.analysis import attribution, calc, explore, investigation, measures, retrieval
 from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
@@ -52,8 +52,8 @@ from avelis.models import (
     ColumnVersion,
     Datasource,
     Domain,
-    MetricVersion,
     Metric,
+    MetricVersion,
     MetricVersionTransition,
     User,
 )
@@ -2096,10 +2096,10 @@ class AnalysisToolbox:
         out: dict[str, dict] = {}
         for ref in inputs:
             ds = self._datasets.get(ref)
-            for col, ev in ((ds.meta or {}).get("column_evidence") or {}).items() if ds else []:
-                if col in names:
-                    prior = out.get(col)  # 同名列出现在多个输入里：取更严格的一个
-                    out[col] = ev if prior is None else {**prior, "eligible": prior.get("eligible") and ev.get("eligible"),
+            for column, ev in ((ds.meta or {}).get("column_evidence") or {}).items() if ds else []:
+                if column in names:
+                    prior = out.get(column)  # 同名列出现在多个输入里：取更严格的一个
+                    out[column] = ev if prior is None else {**prior, "eligible": prior.get("eligible") and ev.get("eligible"),
                                                          "label_ok": prior.get("label_ok") and ev.get("label_ok"),
                                                          "assumption": prior.get("assumption") or ev.get("assumption")}
         return out

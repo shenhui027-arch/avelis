@@ -435,6 +435,9 @@
 .av-datasources__field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
 .av-datasources__form .av-field { min-width: 0; }
 .av-datasources__form .av-label { display: flex; align-items: center; gap: var(--space-2); }
+.av-datasources__capabilities { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.av-datasources__form .av-datasources__capabilities { margin-top: var(--space-2); }
+.av-datasources__engine-note { display: block; margin-top: var(--space-2); }
 @media (max-width: 1279px) {
   .av-datasources__workspace { grid-template-columns: 224px minmax(0, 1fr); }
   .av-datasources__detail { padding: var(--space-4); }

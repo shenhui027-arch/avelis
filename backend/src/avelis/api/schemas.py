@@ -56,6 +56,13 @@ class EngineOptionOut(Out):
     type: str
     required: bool
     hint: str
+    choices: list[str] = []
+    default: str = ""
+
+
+class CredentialFreeOut(Out):
+    option: str
+    values: list[str]
 
 
 class EngineOut(Out):
@@ -69,6 +76,7 @@ class EngineOut(Out):
     is_test_adapter: bool
     note: str
     options: list[EngineOptionOut] = []
+    credential_free: CredentialFreeOut | None = None
 
 
 class DatasourceOut(Out):

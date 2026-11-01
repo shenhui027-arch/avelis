@@ -14,7 +14,6 @@ from reportlab.platypus import PageBreak, Paragraph
 from avelis.analysis import export
 from tests.unit.test_analysis_export import _flowables, _pdf_story, _story_text, sample_view
 
-
 APPROVED_FOOTER = "报告中的数字均来自系统内已审核的指标口径，可在 Avelis 中查看计算依据。"
 EXPLORE_FOOTER = "部分数字来自临时查询，尚未经过指标口径审核。"
 REFERENCE = re.compile(r"(?<![A-Za-z0-9_])D[1-9]\d*(?![A-Za-z0-9_])")

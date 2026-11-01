@@ -2846,6 +2846,15 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** CredentialFreeOut */
+        CredentialFreeOut: {
+            /** Option */
+            option: string;
+            /** Values */
+            values: string[];
+        } & {
+            [key: string]: unknown;
+        };
         /** CredentialOut */
         CredentialOut: {
             /** Purpose */
@@ -3088,6 +3097,16 @@ export interface components {
             required: boolean;
             /** Hint */
             hint: string;
+            /**
+             * Choices
+             * @default []
+             */
+            choices?: string[];
+            /**
+             * Default
+             * @default
+             */
+            default?: string;
         } & {
             [key: string]: unknown;
         };
@@ -3116,6 +3135,7 @@ export interface components {
              * @default []
              */
             options?: components["schemas"]["EngineOptionOut"][];
+            credential_free?: components["schemas"]["CredentialFreeOut"] | null;
         } & {
             [key: string]: unknown;
         };

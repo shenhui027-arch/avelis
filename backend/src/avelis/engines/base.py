@@ -33,9 +33,11 @@ class OptionField:
     """数据源连接配置中的一项（前端按它渲染表单，不按数据库类型写死）。"""
     key: str
     label: str
-    type: str = "list"  # list：逗号分隔的名称列表；text：单个名称
+    type: str = "list"  # list：逗号分隔的名称列表；text：单个名称；choice：从 choices 中选一个
     required: bool = False
     hint: str = ""
+    choices: tuple[str, ...] = ()
+    default: str = ""  # 未填写时的取值（choice 用）
 
 
 @dataclass(frozen=True)
@@ -58,9 +60,26 @@ class Engine:
     catalog_option: str | None = None
     # 命令行客户端的脚本分隔符，不属于 SQL 方言语法。
     script_separators: tuple[str, ...] = field(default_factory=tuple)
+    # 配置项取这些值时采集账号可不填（如 Hive 的 auth = NONE：服务端不校验口令）：(配置项, 取值)
+    credential_free: tuple[str, tuple[str, ...]] | None = None
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
+
+    def option(self, options: dict[str, Any] | None, key: str) -> Any:
+        """数据源配置中的一项；未填写时取登记的默认值。"""
+        value = (options or {}).get(key)
+        if value in (None, ""):
+            return next((o.default for o in self.options if o.key == key), None) or None
+        return value
+
+    def credentials_required(self, options: dict[str, Any] | None) -> bool:
+        if not self.needs_credentials:
+            return False
+        if self.credential_free is None:
+            return True
+        key, values = self.credential_free
+        return self.option(options, key) not in values
 
     def dialect_for(self, options: dict[str, Any] | None) -> SqlDialect:
         """某个数据源的解析方言：catalog 段因数据源而异的引擎（库名作 catalog）在这里补齐。"""
@@ -73,8 +92,10 @@ class Engine:
                 "default_catalog": self.sql.default_catalog, "name_levels": list(self.name_levels),
                 "capabilities": sorted(self.capabilities), "default_port": self.default_port,
                 "is_test_adapter": self.is_test_adapter, "note": self.note,
-                "options": [{"key": o.key, "label": o.label, "type": o.type, "required": o.required, "hint": o.hint}
-                            for o in self.options]}
+                "options": [{"key": o.key, "label": o.label, "type": o.type, "required": o.required, "hint": o.hint,
+                             "choices": list(o.choices), "default": o.default} for o in self.options],
+                "credential_free": ({"option": self.credential_free[0], "values": list(self.credential_free[1])}
+                                    if self.credential_free else None)}
 
 
 class UnsupportedEngine(Exception):

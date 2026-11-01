@@ -72,7 +72,6 @@ def test_prompt_examples_come_from_visible_metrics():
 
     from avelis.analysis import agent
 
-    budget = SimpleNamespace(tool_calls=10, queries=5)
     empty = agent.system_message(agent.prompt_example(SimpleNamespace(versions={})))
     assert '"column": "<指标>", "match": {"<维度>": "<成员>"}' in empty.content and "暂无可用口径" in empty.content
     catalog = SimpleNamespace(versions={

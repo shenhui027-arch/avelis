@@ -1,7 +1,7 @@
 """StarRocks 3.5.14 实机核验：采集、身份、外部表、权限与资源限制。
 
 每一项都在演示容器里真实执行，结果（成功、返回、报错原文）原样记录，
-供 docs/starrocks-notes.md 引用。破坏性试验只在独立的 avelis_probe 库中进行。
+供 docs/engines/starrocks.md 引用。破坏性试验只在独立的 avelis_probe 库中进行。
 口令不会写进结果：凡是出现 .env 里口令的地方都替换为 <redacted>。
 """
 

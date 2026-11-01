@@ -179,7 +179,7 @@ uv run python ../scripts/worker_soak.py --minutes 60
 
 Codex 使用 `gpt-6.1-sol`，最高推理档（可派生子任务），快速服务档。
 
-- **Logo**：Codex 先生成 3 个方向的概念图，再手工绘制矢量文件，见 [design/brand](../design/brand/README.md)。采用方向 3“有依据的 A”：A 的轮廓加上一条通往方形依据节点的支路。已接入侧栏、登录页和 favicon。
+- **Logo**：Codex 先生成 3 个方向的概念图，再手工绘制矢量文件，见 [design/brand](../../../design/brand/README.md)。采用方向 3“有依据的 A”：A 的轮廓加上一条通往方形依据节点的支路。已接入侧栏、登录页和 favicon。
 - **后端验收评审**：只读审查，报告 12 个 P1、12 个 P2、1 个 P3，另有 7 项待确认。
   - 我修复了治理与权限类的问题：#1–#6、#8–#14、#16、#23、#25；
   - Codex 在独立 worktree 的分支上修复了任务协调、导入、脱敏、模型配置类的问题：#7、#15、#17–#22、#24，新增 124 个单元用例；
