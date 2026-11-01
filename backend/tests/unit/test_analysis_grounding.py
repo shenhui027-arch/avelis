@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
+from avelis.analysis import grounding
 from avelis.analysis.grounding import CountRef, LabelRef, NumberRef, WindowRef, render
 from avelis.analysis.verify import ground_report
 
@@ -68,10 +71,73 @@ def test_display_is_decided_by_kind_not_by_the_model():
     assert text({"dataset": "D7", "column": "转化率"}) == "31.3%"  # 无单位的比率（转化率）：百分比
     assert text({"dataset": "D7", "column": "客单价"}) == "596.43元"  # 有单位的比率：原值加单位
     assert text({"dataset": "D4", "column": "转化率·变化"}) == "-1.2个百分点"  # 比率之差
-    assert text({"dataset": "D6", "column": "客流"}) == "1,200"  # unknown：原值、千分位、不带单位
+    assert text({"dataset": "D6", "column": "客流"}) == "1200"  # unknown 也沿用数字体系，不到 1 万不分组
     assert text({"dataset": "D5", "summary": "value"}, ) == "0.5"
     assert "结构不合法" in errors({**huadong, "format": "wan1"})[0]  # 模型不再选格式
     assert "结构不合法" in errors({**huadong, "precision": 5})[0]
+
+
+@pytest.mark.parametrize("style", ["cn", "intl"])
+@pytest.mark.parametrize("kind", ["level", "delta", "count"])
+@pytest.mark.parametrize("value", ["0", "1899.1256", "-1899.1256", "9999.9999", "12500.1256"])
+@pytest.mark.parametrize("precision", [None, 0, 3])
+def test_same_kind_with_and_without_units_shares_format(style, kind, value, precision, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    data = {
+        "D1": {"columns": ["value"], "rows": [{"value": value}],
+               "units": {"value": {"kind": kind, "unit": "单位甲"}}},
+        "D2": {"summary": {"value": value}, "summary_units": {"value": {"kind": kind}}},
+    }
+    with_unit = text({"dataset": "D1", "column": "value", "precision": precision}, data=data)
+    without_unit = text({"dataset": "D2", "summary": "value", "precision": precision}, data=data)
+    assert with_unit == without_unit + "单位甲"
+
+
+@pytest.mark.parametrize("style,value,expected", [
+    ("cn", "1000", "1000"), ("intl", "1000", "1000"),
+    ("cn", "1899", "1899"), ("intl", "1899", "1899"),
+    ("cn", "9999.994", "9999.99"), ("intl", "9999.994", "9999.99"),
+    ("cn", "10000", "1.00万"), ("intl", "10000", "10.00K"),
+    ("cn", "1000000", "100.00万"), ("intl", "1000000", "1.00M"),
+    ("cn", "100000000", "1.00亿"), ("intl", "100000000", "100.00M"),
+    ("cn", "1000000000", "10.00亿"), ("intl", "1000000000", "1.00B"),
+])
+def test_number_styles_share_thresholds_rounding_and_grouping(style, value, expected, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    for unit in ("", "单位甲"):
+        meta = grounding._unit({"kind": "level", "unit": unit})
+        assert grounding.display(Decimal(value), meta) == expected + unit
+
+
+@pytest.mark.parametrize("style,expected", [("cn", "1.25万"), ("intl", "12.50K")])
+def test_unknown_numbers_share_compact_style_and_keep_small_value_precision(style, expected, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    meta = grounding._unit({"kind": "unknown"})
+    assert grounding.display(Decimal("12500"), meta) == expected
+    assert grounding.display(Decimal("1412"), meta) == "1412"
+    assert grounding.display(Decimal("1412.12555"), meta) == "1412.1256"
+    assert grounding.display(Decimal("1412.12555"), meta, precision=2) == "1412.13"
+
+
+@pytest.mark.parametrize("style,expected", [("cn", "1.25万"), ("intl", "12.50K")])
+def test_display_applies_registered_scale_before_shared_number_format(style, expected, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    for unit in ("", "单位甲"):
+        meta = grounding._unit({"kind": "level", "unit": unit, "scale": "10000"})
+        assert grounding.display(Decimal("0.18991256"), meta) == "1899.13" + unit
+        assert grounding.display(Decimal("0.18991256"), meta, precision=3) == "1899.126" + unit
+        assert grounding.display(Decimal("1.25"), meta) == expected + unit
+
+
+@pytest.mark.parametrize("style", ["cn", "intl"])
+@pytest.mark.parametrize("kind", ["ratio", "share"])
+def test_dimensionless_ratios_remain_percentages(style, kind, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    meta = grounding._unit({"kind": kind})
+    assert grounding.display(Decimal("0.843"), meta) == "84.3%"
+    assert grounding.display(Decimal("0.84325"), meta, precision=2) == "84.33%"
+    with_unit = grounding._unit({"kind": "ratio", "unit": "单位甲"})
+    assert grounding.display(Decimal("1412.12555"), with_unit) == "1412.13单位甲"
 
 
 def test_direction_is_checked_and_shown_as_absolute_value():
@@ -153,7 +219,7 @@ def test_rule2_value_segments_cannot_be_concatenated_or_followed_by_units():
 
 
 @pytest.mark.parametrize("words, digit", [("共 3 家", "3"), ("同比 ３％", "３"), ("2026-09-15 当天", "2026-09-15"),
-                                          ("见（D19）", "19"), ("Top3 门店", "3")])
+                                          ("9 月", "9"), ("下降 9 单", "9")])
 def test_rule3_no_arabic_digits_in_text_parts(words, digit):
     _, result, _ = check([words, "，", HUADONG])
     assert result["problems"] == [f"第 1 个片段（文字）出现数字“{digit}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"]
@@ -163,14 +229,16 @@ def test_rule3_no_arabic_digits_in_text_parts(words, digit):
 @pytest.mark.parametrize("words, digits", [
     ("查询明细宽表（D9、D13），并用状态分布（D10）核对口径", []),
     ("查询D9核验", []),
-    ("见（D99）", ["99"]),
-    ("AD9", ["9"]),
+    ("见（D99）", []),
+    ("AD9", []),
+    ("口径 V1，方案 P12", []),
+    ("Top3", []),
     ("D9x", ["9"]),
     ("9 月", ["9"]),
     ("下降 9 单", ["9"]),
     ("核对（D9、D13），D10）后下降 9 单", ["9"]),
 ])
-def test_rule3_only_existing_standalone_dataset_ids_are_allowed_in_checked_text(target, words, digits):
+def test_rule3_standalone_identifiers_are_allowed_in_checked_text(target, words, digits):
     data = {**DATA, "D9": DATA["D1"], "D10": DATA["D1"], "D13": DATA["D1"]}
     claim = {"type": target if target in ("fact", "calc") else "fact", "parts": ["核对口径"], "refs": ["D1"]}
     report = {"title": "标题", "summary": "摘要", "unexplained": "无", "method": "核对口径",
@@ -183,17 +251,16 @@ def test_rule3_only_existing_standalone_dataset_ids_are_allowed_in_checked_text(
     record = rendered["claims"][0] if target in ("fact", "calc") else rendered["fields"][target]
     assert record["errors"] == [f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）"
                                 for d in digits]
-    assert verification["ok"] == (not digits)
+    assert verification["ok"] == (not digits or target == "method")
 
 
-@pytest.mark.parametrize("dataset_ids, digits", [(["D9"], ["99"]), (["D99"], ["9"]), ([], ["9", "99"])])
-def test_rule3_dataset_ids_are_taken_from_each_run(dataset_ids, digits):
+@pytest.mark.parametrize("dataset_ids", [["D9"], ["D99"], []])
+def test_rule3_text_identifiers_do_not_require_a_dataset(dataset_ids):
     data = {**DATA, **{ref: DATA["D1"] for ref in dataset_ids}}
     report = {"method": "核对 D9、D99", "conclusion": "insufficient_evidence",
               "claims": [{"type": "fact", "parts": [HUADONG]}]}
     rendered, _ = ground_report(report, data, WINDOW)
-    assert rendered["fields"]["method"]["errors"] == [
-        f"第 1 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）" for d in digits]
+    assert rendered["fields"]["method"]["errors"] == []
 
 
 @pytest.mark.parametrize("words, found", [("D1 共三家门店", ["三家"]), ("D1 约三分之一", ["三分之"]),
@@ -341,7 +408,8 @@ def test_json_array_strings_follow_existing_report_verification(target, parts, v
     assert (rendered, verification) == expected
     record = rendered["claims"][0] if target in ("fact", "calc") else rendered["fields"][target]
     assert record["parts"] == parts
-    assert verification["ok"] == valid
+    assert verification["ok"] == (valid or target == "method")
+    assert record["status"] == ("verified" if valid else "unverified")
     if valid:
         assert record["text"] == "华东成交额 196.94万元"
         assert record["segments"][1]["kind"] == "value"

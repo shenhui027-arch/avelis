@@ -91,19 +91,66 @@ def constants(formula: str) -> list[Decimal]:
 
 
 def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
-    """按公式形式推断结果量纲：a/b 为比率，a/b-1 为变化率，a-b 为差额，同量纲加减保持原量纲，其余 unknown。
-    水平值除以计数（或计数除以水平值，如水平值 / 计数）是每单位的均值，按水平值处理（单位写成“分子/分母”），
-    不是无量纲比率：两个均值相减是差额，不会显示成百分比或“个百分点”。"""
+    """递归推导 AST 的量纲；输入已由 derive 按 scale 换算为基本单位。
+
+    同单位加减保留单位，相除得到无量纲比率；比率与白名单常量可缩放带单位的量。
+    不同单位的水平值 / 计数沿用每单位均值规则；不能确认的运算返回 unknown。
+    """
+    def scalar(meta: dict) -> bool:
+        return meta["kind"] == "constant" or (
+            not meta.get("unit") and meta["kind"] in {"ratio", "rate_change", "share"})
+
     def kind_of(node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Expression):
             return kind_of(node.body)
         if isinstance(node, ast.Name):
             return {key: value for key, value in (units.get(node.id) or UNKNOWN).items() if key != "scale"}
+        if isinstance(node, ast.Constant):
+            value = Decimal(str(node.value))
+            return {"kind": "constant", "value": value} if value in CONSTANTS else dict(UNKNOWN)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            inner = kind_of(node.operand)
+            return {**inner, "value": -inner["value"]} if inner["kind"] == "constant" else inner
         if isinstance(node, ast.BinOp):
             left, right = kind_of(node.left), kind_of(node.right)
-            if isinstance(node.op, ast.Div) and not isinstance(node.right, ast.Constant):
+            if left["kind"] == "unknown" or right["kind"] == "unknown":
+                return dict(UNKNOWN)
+            if left["kind"] == right["kind"] == "constant":
+                # 仅做量纲推导；组合常量的数值由现有求值器处理。
+                from avelis.governance.derived import evaluate
+
+                value = evaluate(ast.unparse(node), {})
+                return {"kind": "constant", "value": value} if value is not None else dict(UNKNOWN)
+            if isinstance(node.op, (ast.Add, ast.Sub)):
+                if right["kind"] == "constant" and right["value"] == 0:
+                    return left
+                if left["kind"] == "constant" and left["value"] == 0:
+                    return right  # 0 - x 与 -x 保持同一量纲
+                if (isinstance(node.op, ast.Sub) and right["kind"] == "constant" and right["value"] == 1
+                        and left["kind"] == "ratio" and not left.get("unit")):
+                    return {"kind": "rate_change"}
+                if _same(left, right):
+                    if isinstance(node.op, ast.Sub) and left["kind"] in ("level", "count", "ratio", "rate_change", "share"):
+                        return like(left, "delta")
+                    return left
+            if isinstance(node.op, ast.Mult):
+                if left["kind"] == "constant":
+                    return right
+                if right["kind"] == "constant":
+                    return left
+                if scalar(left):
+                    return right if not scalar(right) else {"kind": "ratio"}
+                if scalar(right):
+                    return left
+            if isinstance(node.op, ast.Div):
+                if right["kind"] == "constant":
+                    return left
+                if scalar(right):
+                    return left if not scalar(left) else {"kind": "ratio"}
                 if left["kind"] == "delta" and right["kind"] in ("level", "count") and _same(left, right):
                     return {"kind": "rate_change"}  # (a-b)/b
+                if _same(left, right) and ({left["kind"], right["kind"]} != {"level", "count"} or left.get("unit")):
+                    return {"kind": "ratio"}
                 if {left["kind"], right["kind"]} == {"level", "count"}:  # 水平值 / 计数：每单位均值
                     unit = "/".join(x for x in (left.get("unit"), right.get("unit")) if x)
                     return col("level", unit)
@@ -111,22 +158,19 @@ def formula_unit(formula: str, units: dict[str, dict]) -> dict[str, Any]:
                     unit = "" if _same(left, right) else "/".join(x for x in (left.get("unit"), right.get("unit")) if x)
                     return col("ratio", unit)
                 return dict(UNKNOWN)
-            if isinstance(node.op, ast.Sub) and isinstance(node.right, ast.Constant) and node.right.value == 1:
-                return {"kind": "rate_change"} if left["kind"] == "ratio" and not left.get("unit") else dict(UNKNOWN)
-            if isinstance(node.op, (ast.Add, ast.Sub)) and _same(left, right) and left["kind"] != "unknown":
-                if isinstance(node.op, ast.Sub) and left["kind"] in ("level", "count"):
-                    return like(left, "delta")
-                if isinstance(node.op, ast.Sub) and left["kind"] in ("ratio", "rate_change", "share"):
-                    return like(left, "delta")
-                return left
         return dict(UNKNOWN)
 
-    return kind_of(ast.parse(formula.strip(), mode="eval"))
+    result = kind_of(ast.parse(formula.strip(), mode="eval"))
+    return dict(UNKNOWN) if result["kind"] == "constant" else result
 
 
 def _same(a: dict, b: dict) -> bool:
-    return (a.get("unit") or "") == (b.get("unit") or "") and str(a.get("scale") or 1) == str(b.get("scale") or 1) and (
-        a["kind"] == b["kind"] or {a["kind"], b["kind"]} <= {"level", "delta", "count"})
+    return (
+        bool(a.get("of_ratio")) == bool(b.get("of_ratio"))
+        and (a.get("unit") or "") == (b.get("unit") or "")
+        and str(a.get("scale") or 1) == str(b.get("scale") or 1)
+        and (a["kind"] == b["kind"] or {a["kind"], b["kind"]} <= {"level", "delta", "count"})
+    )
 
 
 def insensitive(formula: str, env: dict[str, Decimal], evaluate) -> list[str]:

@@ -6,10 +6,11 @@ import re
 from copy import deepcopy
 from html import escape
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
 import pytest
 
-from avelis.analysis import export
+from avelis.analysis import export, grounding
 from tests.unit.test_analysis_export import _pdf_story, _story_text, sample_view
 
 
@@ -131,11 +132,59 @@ def test_html_dataset_selection_and_table_limits_are_shared_with_pdf():
     body = markup.split('<section class="appendix">', 1)[0]
     text = Document(body).visible
     assert "D5 另一个可选指标" in text and "D2 主要成员的变化" not in text
-    assert "指标甲分组对比" not in text and "1,000" in text
+    assert "指标甲分组对比" not in text and "1000" in text and "1,000" not in text
     assert "成员10" in text and "成员11" not in text
     assert "第七列" not in text and "不可输出" not in text
     assert "共 12 行，显示前 10 行" in text
     assert len([tag for tag, _ in Document(body).tags if tag == "svg"]) == 2
+
+
+@pytest.mark.parametrize("style,value,expected", [
+    ("cn", "1899.1256", "1899.13"), ("intl", "1899.1256", "1899.13"),
+    ("cn", "12500", "1.25万"), ("intl", "12500", "12.50K"),
+])
+def test_exports_keep_grounded_number_format_with_and_without_units(style, value, expected, monkeypatch):
+    monkeypatch.setattr(grounding, "get_settings", lambda: SimpleNamespace(number_style=style))
+    view = sample_view()
+    selected = view["datasets"][4]
+    selected["columns"] = ["成员", "带单位", "无单位"]
+    selected["rows"] = [["成员甲", value, value], ["成员乙", "0", "0"]]
+    selected["row_count"] = 2
+    units = {"带单位": {"kind": "level", "unit": "单位甲"}, "无单位": {"kind": "level"}}
+    selected["units"] = selected["meta"]["units"] = units
+    source = {**selected, "rows": [dict(zip(selected["columns"], selected["rows"][0]))]}
+    grounded = grounding.render([
+        {"dataset": "D5", "column": "带单位"}, "；", {"dataset": "D5", "column": "无单位"},
+    ], {"D5": source}, None)
+    assert grounded["errors"] == []
+    assert grounded["text"] == expected + "单位甲；" + expected
+    assert export._table_data(selected)[1] == ["成员甲", expected + "单位甲", expected]
+
+    documents = [export.to_markdown(view, appendix=False, datasets=["D5"]),
+                 Document(export.to_html(view, datasets=["D5"])).visible,
+                 "\n".join(_story_text(_pdf_story(monkeypatch, view, datasets=["D5"])))]
+    for document in documents:
+        assert expected + "单位甲" in document
+        assert "1,899" not in document
+
+
+def test_exports_keep_method_warning_separate_from_report_verdict(monkeypatch):
+    view = sample_view()
+    problem = "方法描述中有未引用的数值"
+    view["report"]["method"] = "核对 9 月的查询结果。"
+    view["report"]["fields"] = {"method": {"status": "unverified", "errors": [problem]}}
+    view["verification"].update(unverified_fields=1, fields=[
+        {"field": "method", "status": "unverified", "problems": [problem]},
+    ])
+
+    documents = [export.to_markdown(view, audience="full"),
+                 Document(export.to_html(view, audience="full")).visible,
+                 "\n".join(_story_text(_pdf_story(monkeypatch, view, audience="full")))]
+    for document in documents:
+        assert "来源全部通过，含未核实的推断，1 处报告字段未通过" in document
+        assert "分析方法：" + problem in document
+        assert "有未通过的事实或字段" not in document
+    assert "有 1 处数字未通过系统校验，请谨慎使用。" in export.to_markdown(view)
 
 
 def test_html_reuses_nearby_level_chart_suppression():

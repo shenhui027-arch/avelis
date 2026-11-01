@@ -829,8 +829,8 @@ msgstr " ({bad} additional invalid references)"
 msgid "{count} 条事实 / 计算类结论未通过"
 msgstr "{count} factual or calculated findings failed verification"
 
-msgid "{count} 处标题 / 摘要 / 未解释未通过"
-msgstr "{count} title, summary, or unexplained sections failed verification"
+msgid "{count} 处报告字段未通过"
+msgstr "{count} report fields failed verification"
 
 msgid "结论 {index}"
 msgstr "Finding {index}"
@@ -1779,3 +1779,9 @@ msgstr "The parsed edge is no longer active and cannot be reviewed"
 
 msgid "语句状态不合法"
 msgstr "Invalid statement status"
+
+msgid "column 与 summary 必须且只能写一个"
+msgstr "Specify exactly one of column and summary"
+
+msgid "汇总值不能带 match 或 exclude"
+msgstr "Summary values cannot use match or exclude"
