@@ -34,8 +34,9 @@ def settings():
 
 @pytest.mark.parametrize("language", ["auto", "zh-CN", "zh-TW", "en"])
 def test_reply_language_accepts_configured_values(language):
-    settings = config.build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789",
-                                      "AVELIS_REPLY_LANGUAGE": language})
+    settings = config.build_settings(
+        {"AVELIS_SECRET": "offline-unit-test-secret-0123456789", "AVELIS_REPLY_LANGUAGE": language}
+    )
     assert settings.reply_language == language
     assert configfile.CONFIG_KEYS["agent.reply_language"].env == "AVELIS_REPLY_LANGUAGE"
 
@@ -46,8 +47,7 @@ def test_reply_language_toml_and_invalid_value(tmp_path):
     values = configfile.read_config({"AVELIS_CONFIG": str(path)})
     assert not values.problems and values["AVELIS_REPLY_LANGUAGE"] == "zh-TW"
     with pytest.raises(config.ConfigError, match="AVELIS_REPLY_LANGUAGE"):
-        config.build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789",
-                               "AVELIS_REPLY_LANGUAGE": "fr"})
+        config.build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789", "AVELIS_REPLY_LANGUAGE": "fr"})
 
 
 def test_run_saves_locale_and_background_restores_it(monkeypatch, settings):
@@ -76,9 +76,18 @@ def test_followup_preserves_new_requests_locale(monkeypatch, settings):
     monkeypatch.setattr(analysis_service, "require_analysis_model", lambda *_: None)
     monkeypatch.setattr(analysis_service.audit, "record", lambda *_, **__: None)
     monkeypatch.setattr(analysis_service.experiences, "candidates_from_feedback", lambda **_: [])
-    parent = SimpleNamespace(id="parent", user_id="user", status="succeeded", question="原始问题",
-                             checkpoint={"request_locale": "zh-CN"}, report={"kind": "lookup"},
-                             plan={}, window={}, model_choice=None, conversation_id="parent")
+    parent = SimpleNamespace(
+        id="parent",
+        user_id="user",
+        status="succeeded",
+        question="原始问题",
+        checkpoint={"request_locale": "zh-CN"},
+        report={"kind": "lookup"},
+        plan={},
+        window={},
+        model_choice=None,
+        conversation_id="parent",
+    )
     monkeypatch.setattr(analysis_service, "visible_run", lambda *_: parent)
     # 对话归属与历史轮次要查数据库，这里只关心请求语言
     monkeypatch.setattr(analysis_service, "_owned_conversation", lambda *_: parent)
@@ -103,8 +112,9 @@ def test_manual_task_api_saves_request_locale_in_job(monkeypatch, locale):
     monkeypatch.setattr(analysis_api.analysis, "run_view", lambda *_, **__: {"id": run.id})
     with locale_context(locale):
         assert analysis_api.run_task_now(task.id, user, session) == {"id": run.id}
-    enqueue.assert_called_once_with(session, "analysis", {"task_id": task.id, "trigger": "manual",
-                                                         "request_locale": locale}, user.id)
+    enqueue.assert_called_once_with(
+        session, "analysis", {"task_id": task.id, "trigger": "manual", "request_locale": locale}, user.id
+    )
 
 
 @pytest.mark.parametrize("locale", [None, "zh-TW", "en"])
@@ -141,8 +151,9 @@ def test_analysis_instructions_are_user_context_and_system_is_stable(monkeypatch
     monkeypatch.setattr(analysis_agent, "get_settings", lambda: settings)
     systems = []
     for locale in ("zh-CN", "zh-TW", "en"):
-        box, model, graph_config, state, _ = configured(monkeypatch, [scope_reply(),
-            reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+        box, model, graph_config, state, _ = configured(
+            monkeypatch, [scope_reply(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+        )
         state["context"]["request_locale"] = locale
         result = analysis_agent.build_graph(MemorySaver()).invoke(state, graph_config)
         assert result["phase"] == "done"
@@ -187,13 +198,27 @@ def test_ask_waiting_resume_updates_persisted_locale_without_old_instruction(mon
     monkeypatch.setattr(ask_agent.modelcfg, "resolve", lambda *_: SimpleNamespace(model=model, adapter="offline"))
     monkeypatch.setattr(ask_agent.modelcfg, "policy", lambda *_: {"send_results": False})
     monkeypatch.setattr(ask_agent.service, "visible_catalog", lambda *_, **__: SimpleNamespace(cards=[]))
-    monkeypatch.setattr(ask_agent, "Toolbox", lambda *_: SimpleNamespace(
-        intent=None, clarification=None, tools=lambda: []))
+    monkeypatch.setattr(
+        ask_agent, "Toolbox", lambda *_: SimpleNamespace(intent=None, clarification=None, tools=lambda: [])
+    )
     app = ask_agent.build_graph(MemorySaver())
-    graph_config = {"configurable": {"thread_id": "language-thread", "session": object(), "user": object(),
-                                     "answer": SimpleNamespace(evidence={}), "request_locale": "en"}}
-    first = app.invoke({"turns": [ask_agent.RESET, "原始问题"], "messages": [HumanMessage("原始问题")],
-                        "context": {"request_locale": "en"}}, graph_config)
+    graph_config = {
+        "configurable": {
+            "thread_id": "language-thread",
+            "session": object(),
+            "user": object(),
+            "answer": SimpleNamespace(evidence={}),
+            "request_locale": "en",
+        }
+    }
+    first = app.invoke(
+        {
+            "turns": [ask_agent.RESET, "原始问题"],
+            "messages": [HumanMessage("原始问题")],
+            "context": {"request_locale": "en"},
+        },
+        graph_config,
+    )
     assert first["__interrupt__"]
     graph_config["configurable"]["request_locale"] = "zh-TW"
     resumed = app.invoke(Command(resume="原始补充"), graph_config)
@@ -217,9 +242,13 @@ def test_explanation_keeps_rules_and_original_data_with_locale_instruction(monke
     monkeypatch.setattr(ask_agent.modelcfg, "resolve", lambda *_, **__: SimpleNamespace(model=model))
     systems = []
     for locale in ("zh-CN", "zh-TW", "en"):
-        answer = SimpleNamespace(message="模板原文", status="answered", question="原始问题",
-                                 result={"columns": ["指标甲"], "rows": [["原始值"]]},
-                                 evidence={"metric_version": {"description": "元数据原文"}})
+        answer = SimpleNamespace(
+            message="模板原文",
+            status="answered",
+            question="原始问题",
+            result={"columns": ["指标甲"], "rows": [["原始值"]]},
+            evidence={"metric_version": {"description": "元数据原文"}},
+        )
         graph_config = {"configurable": {"session": object(), "user": object(), "answer": answer}}
         ask_agent.explain({"context": {"request_locale": locale}}, graph_config)
         system, user = model.invoke.call_args.args[0]
@@ -236,9 +265,16 @@ def test_simplified_chinese_has_explicit_symmetric_instruction(monkeypatch, sett
     """简体与英文、繁体一样给出明确指令；固定为简体时，即使请求是英文，用户消息里也是简体指令。"""
     instructions = {locale: reply_language_instruction(locale) for locale in ("zh-CN", "zh-TW", "en")}
     assert all(instructions.values()) and len(set(instructions.values())) == 3
-    assert "简体中文" in instructions["zh-CN"] and "保持原文" in instructions["zh-CN"] and "核验与引用规则不变" in instructions["zh-CN"]
+    assert (
+        "简体中文" in instructions["zh-CN"]
+        and "保持原文" in instructions["zh-CN"]
+        and "核验与引用规则不变" in instructions["zh-CN"]
+    )
     fixed = replace(settings, reply_language="zh-CN")
     monkeypatch.setattr(analysis_agent, "get_settings", lambda: fixed)
     monkeypatch.setattr(ask_agent, "get_settings", lambda: fixed)
     assert analysis_agent._reply_context("原始问题", {"request_locale": "en"}) == "原始问题\n\n" + instructions["zh-CN"]
-    assert ask_agent._reply_instruction({"context": {"request_locale": "en"}}, {"configurable": {}}) == instructions["zh-CN"]
+    assert (
+        ask_agent._reply_instruction({"context": {"request_locale": "en"}}, {"configurable": {}})
+        == instructions["zh-CN"]
+    )

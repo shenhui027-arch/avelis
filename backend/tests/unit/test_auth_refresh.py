@@ -71,9 +71,14 @@ def api(monkeypatch):
             self.values.pop(name, None)
             self.deadlines.pop(name, None)
 
-    state = SimpleNamespace(settings=build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789"}),
-                            clock=Clock, store=MemoryRedis(), security=security, cache=cache,
-                            AuditEvent=AuditEvent)
+    state = SimpleNamespace(
+        settings=build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789"}),
+        clock=Clock,
+        store=MemoryRedis(),
+        security=security,
+        cache=cache,
+        AuditEvent=AuditEvent,
+    )
     monkeypatch.setattr(security, "get_settings", lambda: state.settings)
     monkeypatch.setattr(auth, "get_settings", lambda: state.settings)
     monkeypatch.setattr(security, "datetime", Clock)
@@ -93,8 +98,13 @@ def api(monkeypatch):
     try:
         with Session(engine, expire_on_commit=False) as session:
             state.session = session
-            state.user = User(id="actor", username="actor", display_name="登录用户",
-                              password_hash=security.hash_password("Initial-pass-2026"), must_change_password=True)
+            state.user = User(
+                id="actor",
+                username="actor",
+                display_name="登录用户",
+                password_hash=security.hash_password("Initial-pass-2026"),
+                must_change_password=True,
+            )
             state.admin = User(id="admin", username="admin", display_name="管理员", password_hash="unused")
             session.add_all([state.user, state.admin, UserRole(user_id="admin", role="admin")])
             session.commit()
@@ -141,8 +151,10 @@ def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api, must_
         assert data["expires_in"] == 120 * 60
         assert datetime.fromisoformat(data["expires_at"]).timestamp() == claims["exp"]
         assert data["token_type"] == "bearer" and data["must_change_password"] is must_change_password
-        assert api.store.writes[-1] == (f"avelis:revoked:{old_claims['jti']}",
-                                       old_claims["exp"] - int(api.clock.moment.timestamp()))
+        assert api.store.writes[-1] == (
+            f"avelis:revoked:{old_claims['jti']}",
+            old_claims["exp"] - int(api.clock.moment.timestamp()),
+        )
         assert api.client.get("/api/me", headers=bearer(old)).status_code == 401
         assert api.client.post("/api/auth/refresh", headers=bearer(old)).status_code == 401
         me = api.client.get("/api/me", headers=bearer(data["access_token"]))
@@ -214,15 +226,19 @@ def test_password_change_or_admin_reset_prevents_old_token_refresh(api, action):
     old_claims = api.security.decode_access_token(old)
     api.clock.moment += timedelta(microseconds=500_000)
     if action == "change":
-        response = api.client.post("/api/me/password", headers=bearer(old),
-                                   json={"current_password": "Initial-pass-2026", "new_password": "Brand-new-2026"})
+        response = api.client.post(
+            "/api/me/password",
+            headers=bearer(old),
+            json={"current_password": "Initial-pass-2026", "new_password": "Brand-new-2026"},
+        )
         assert response.status_code == 200, response.text
         fresh = response.json()["access_token"]
         assert api.security.decode_access_token(fresh)["auth_time"] == old_claims["auth_time"]
     else:
         admin_token, _, _ = api.security.create_access_token(api.admin.id, api.admin.username)
-        response = api.client.post(f"/api/users/{api.user.id}/password", headers=bearer(admin_token),
-                                   json={"new_password": "Brand-new-2026"})
+        response = api.client.post(
+            f"/api/users/{api.user.id}/password", headers=bearer(admin_token), json={"new_password": "Brand-new-2026"}
+        )
         assert response.status_code == 200, response.text
         fresh = login(api, password="Brand-new-2026").json()["access_token"]
     rejected = api.client.post("/api/auth/refresh", headers=bearer(old))
@@ -236,8 +252,11 @@ def test_password_change_preserves_original_session_maximum(api):
     auth_time = int(api.clock.moment.timestamp()) - int(timedelta(hours=167, minutes=30).total_seconds())
     old, _, _ = api.security.create_access_token(api.user.id, api.user.username, auth_time=auth_time)
     api.clock.moment += timedelta(microseconds=500_000)
-    response = api.client.post("/api/me/password", headers=bearer(old),
-                               json={"current_password": "Initial-pass-2026", "new_password": "Brand-new-2026"})
+    response = api.client.post(
+        "/api/me/password",
+        headers=bearer(old),
+        json={"current_password": "Initial-pass-2026", "new_password": "Brand-new-2026"},
+    )
     assert response.status_code == 200, response.text
     data = response.json()
     claims = api.security.decode_access_token(data["access_token"])

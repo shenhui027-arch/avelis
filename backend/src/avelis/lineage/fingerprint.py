@@ -48,23 +48,45 @@ class GraphState:
     def __init__(self, session: Session):
         self.assets = {a.id: a for a in session.scalars(select(Asset))}
         current_ids = [a.current_version_id for a in self.assets.values() if a.current_version_id]
-        self.versions = {v.id: v for v in session.scalars(
-            select(AssetVersion).where(AssetVersion.id.in_(current_ids)))} if current_ids else {}
+        self.versions = (
+            {v.id: v for v in session.scalars(select(AssetVersion).where(AssetVersion.id.in_(current_ids)))}
+            if current_ids
+            else {}
+        )
         self.columns: dict[str, dict[str, ColumnVersion]] = {}
         if current_ids:
             for col in session.scalars(select(ColumnVersion).where(ColumnVersion.asset_version_id.in_(current_ids))):
                 self.columns.setdefault(col.asset_version_id, {})[col.name] = col
-        self.definitions = {d.asset_version_id: d for d in session.scalars(
-            select(Definition).where(Definition.asset_version_id.in_(current_ids)))} if current_ids else {}
+        self.definitions = (
+            {
+                d.asset_version_id: d
+                for d in session.scalars(select(Definition).where(Definition.asset_version_id.in_(current_ids)))
+            }
+            if current_ids
+            else {}
+        )
         def_ids = [d.id for d in self.definitions.values()]
-        self.parses = {p.definition_id: p for p in session.scalars(select(ParseResult).where(
-            ParseResult.definition_id.in_(def_ids), ParseResult.parser_version == PARSER_VERSION))} if def_ids else {}
+        self.parses = (
+            {
+                p.definition_id: p
+                for p in session.scalars(
+                    select(ParseResult).where(
+                        ParseResult.definition_id.in_(def_ids), ParseResult.parser_version == PARSER_VERSION
+                    )
+                )
+            }
+            if def_ids
+            else {}
+        )
         self.edges: dict[str, list[LineageEdge]] = {}
-        for edge in session.scalars(select(LineageEdge).where(LineageEdge.status == "active",
-                                                              LineageEdge.origin.in_(("parsed", "manual")))):
+        for edge in session.scalars(
+            select(LineageEdge).where(LineageEdge.status == "active", LineageEdge.origin.in_(("parsed", "manual")))
+        ):
             self.edges.setdefault(edge.target_asset_id, []).append(edge)
-        self.links = {link.source_asset_id: link for link in session.scalars(
-            select(IdentityLink).where(IdentityLink.superseded_at.is_(None)))}
+        self.links = {
+            link.source_asset_id: link
+            for link in session.scalars(select(IdentityLink).where(IdentityLink.superseded_at.is_(None)))
+        }
 
     def column(self, asset_id: str, name: str) -> ColumnVersion | None:
         asset = self.assets.get(asset_id)
@@ -101,29 +123,40 @@ def compute_fingerprints(state: GraphState) -> dict[tuple[str, str], Fingerprint
             return Fingerprint(sha256_json(["missing-asset", asset_id, column]), "broken", "上游资产已删除")
         col = state.column(asset_id, column)
         if col is None:
-            return Fingerprint(sha256_json(["missing-column", asset_id, column]), "broken",
-                               f"字段 {asset.db_name}.{asset.name}.{column} 已不存在")
+            return Fingerprint(
+                sha256_json(["missing-column", asset_id, column]),
+                "broken",
+                f"字段 {asset.db_name}.{asset.name}.{column} 已不存在",
+            )
         if asset.kind in BASE_KINDS or (asset.kind == "table"):
             return Fingerprint(sha256_json(["base", col.column_id, col.data_type]), "ok")
         if asset.kind in EXTERNAL_KINDS:
             return _external(asset, col)
         if asset.kind == "view":
             return _view(asset, column)
-        return Fingerprint(sha256_json(["opaque", col.column_id, col.data_type]), "unknown",
-                           f"{asset.kind} 的字段来源未解析")
+        return Fingerprint(
+            sha256_json(["opaque", col.column_id, col.data_type]), "unknown", f"{asset.kind} 的字段来源未解析"
+        )
 
     def _external(asset: Asset, col: ColumnVersion) -> Fingerprint:
         own = ["ext", col.column_id, col.data_type]
         link = state.links.get(asset.id)
         if link is None or link.status not in ("confirmed", "candidate") or not link.target_asset_id:
             reason = "外部来源未匹配到他库真实表" if link is None else f"外部来源匹配状态：{link.status}"
-            return Fingerprint(sha256_json(own + ["unlinked", link.status if link else None]), "unknown", reason,
-                               {"link_status": link.status if link else None})
+            return Fingerprint(
+                sha256_json(own + ["unlinked", link.status if link else None]),
+                "unknown",
+                reason,
+                {"link_status": link.status if link else None},
+            )
         upstream = fp(link.target_asset_id, col.name)
         status = upstream.status if upstream.status != "ok" else ("ok" if link.status == "confirmed" else "unknown")
-        return Fingerprint(sha256_json(own + [link.target_asset_id, upstream.fingerprint]), status,
-                           upstream.reason or (None if link.status == "confirmed" else "外部来源仅为候选匹配"),
-                           {"link_status": link.status, "upstream": [link.target_asset_id, col.name]})
+        return Fingerprint(
+            sha256_json(own + [link.target_asset_id, upstream.fingerprint]),
+            status,
+            upstream.reason or (None if link.status == "confirmed" else "外部来源仅为候选匹配"),
+            {"link_status": link.status, "upstream": [link.target_asset_id, col.name]},
+        )
 
     def _view(asset: Asset, column: str) -> Fingerprint:
         definition = state.definitions.get(asset.current_version_id or "")
@@ -164,10 +197,15 @@ def compute_fingerprints(state: GraphState) -> dict[tuple[str, str], Fingerprint
             statuses.append("unknown")
             reasons.append(parse.reason or "部分解析")
         status = "broken" if "broken" in statuses else "unknown" if "unknown" in statuses else "ok"
-        digest = sha256_json(["view", definition.canonical_hash, expression, sorted(map(str, parts_v)),
-                              sorted(map(str, parts_i))])
-        return Fingerprint(digest, status, "；".join(dict.fromkeys(reasons)) or None,
-                           {"expression": expression, "value_sources": len(values), "influences": len(influences)})
+        digest = sha256_json(
+            ["view", definition.canonical_hash, expression, sorted(map(str, parts_v)), sorted(map(str, parts_i))]
+        )
+        return Fingerprint(
+            digest,
+            status,
+            "；".join(dict.fromkeys(reasons)) or None,
+            {"expression": expression, "value_sources": len(values), "influences": len(influences)},
+        )
 
     for asset in state.assets.values():
         if asset.status != "active" or not asset.current_version_id:

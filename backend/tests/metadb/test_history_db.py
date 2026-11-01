@@ -76,15 +76,31 @@ def world(metadb):
         run = CollectionRun(datasource_id=ds.id, trigger="manual", status="succeeded", finished_at=now)
         s.add(run)
         s.flush()
-        asset = Asset(datasource_id=ds.id, kind="table", catalog_name="c", db_name="store", name="sales",
-                      status="active", domain_id=domain.id)
+        asset = Asset(
+            datasource_id=ds.id,
+            kind="table",
+            catalog_name="c",
+            db_name="store",
+            name="sales",
+            status="active",
+            domain_id=domain.id,
+        )
         s.add(asset)
         s.flush()
         versions = []
         for no in range(3):
-            v = AssetVersion(asset_id=asset.id, version_no=no + 1, observed_run_id=run.id, last_seen_run_id=run.id,
-                             kind="table", catalog_name="c", db_name="store", name="sales", content_hash=f"h{no}",
-                             superseded_at=now if no < 2 else None)
+            v = AssetVersion(
+                asset_id=asset.id,
+                version_no=no + 1,
+                observed_run_id=run.id,
+                last_seen_run_id=run.id,
+                kind="table",
+                catalog_name="c",
+                db_name="store",
+                name="sales",
+                content_hash=f"h{no}",
+                superseded_at=now if no < 2 else None,
+            )
             s.add(v)
             s.flush()
             versions.append(v)
@@ -95,9 +111,18 @@ def world(metadb):
         s.flush()
 
         def mv(metric, no, status, version, **kw):
-            row = MetricVersion(metric_id=metric.id, version_no=no, status=status, description="d", expression="x",
-                                time_column="t", timezone="UTC", created_by=admin.id,
-                                asset_versions={asset.id: {"version_id": version.id}} if version else {}, **kw)
+            row = MetricVersion(
+                metric_id=metric.id,
+                version_no=no,
+                status=status,
+                description="d",
+                expression="x",
+                time_column="t",
+                timezone="UTC",
+                created_by=admin.id,
+                asset_versions={asset.id: {"version_id": version.id}} if version else {},
+                **kw,
+            )
             s.add(row)
             s.flush()
             return row
@@ -109,10 +134,25 @@ def world(metadb):
         s.add(cs)
         s.flush()
         for column in ("=1+1", "amount"):
-            s.add(ChangeEvent(change_set_id=cs.id, asset_id=asset.id, kind="column_added", column_name=column,
-                              after={"data_type": "int"}, attribution_status="matched", actor_db_user="alice"))
-        return {"admin_id": admin.id, "versions": [v.id for v in versions], "asset": asset.id, "cs": cs.id,
-                "run": run.id, "ds": ds.id}
+            s.add(
+                ChangeEvent(
+                    change_set_id=cs.id,
+                    asset_id=asset.id,
+                    kind="column_added",
+                    column_name=column,
+                    after={"data_type": "int"},
+                    attribution_status="matched",
+                    actor_db_user="alice",
+                )
+            )
+        return {
+            "admin_id": admin.id,
+            "versions": [v.id for v in versions],
+            "asset": asset.id,
+            "cs": cs.id,
+            "run": run.id,
+            "ds": ds.id,
+        }
 
 
 def test_rows_are_sealed_and_chain_verifies(world):
@@ -123,23 +163,41 @@ def test_rows_are_sealed_and_chain_verifies(world):
 def test_unsealed_rows_keep_primary_key_and_committed_unsealed_rows_are_frozen(metadb, world):
     # 2：同一事务里先插入再改主键 → 拒绝（封链会按插入时的主键找行）
     with metadb.connect() as conn:
-        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                          "VALUES ('a0000000000000000000000000000001', now(), 'x', 't', 't', '{}')"))
+        conn.execute(
+            text(
+                "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                "VALUES ('a0000000000000000000000000000001', now(), 'x', 't', 't', '{}')"
+            )
+        )
         with pytest.raises(Exception, match="id 不能修改"):
-            conn.execute(text("UPDATE audit_event SET id = 'b0000000000000000000000000000001' "
-                              "WHERE id = 'a0000000000000000000000000000001'"))
+            conn.execute(
+                text(
+                    "UPDATE audit_event SET id = 'b0000000000000000000000000000001' "
+                    "WHERE id = 'a0000000000000000000000000000001'"
+                )
+            )
         conn.rollback()
     # 绕过触发器提交了一条未封链的行：之后普通 UPDATE 不能借“未封链”分支改写它
-    _replica(metadb, "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                     "VALUES ('c0000000000000000000000000000001', now(), 'x', 't', 't', '{}')")
-    _rejected(metadb, "UPDATE audit_event SET action = 'rewritten' WHERE id = 'c0000000000000000000000000000001'",
-              match="已提交但未封链")
+    _replica(
+        metadb,
+        "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+        "VALUES ('c0000000000000000000000000000001', now(), 'x', 't', 't', '{}')",
+    )
+    _rejected(
+        metadb,
+        "UPDATE audit_event SET action = 'rewritten' WHERE id = 'c0000000000000000000000000000001'",
+        match="已提交但未封链",
+    )
     assert _verify()["first_break"]["kind"] == "unsealed"
     _replica(metadb, "DELETE FROM audit_event WHERE id = 'c0000000000000000000000000000001'")
     # 封链时找不到本事务插入的行（这里借清理开关删掉）→ 拒绝提交
     with metadb.connect() as conn:
-        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                          "VALUES ('d0000000000000000000000000000001', now(), 'x', 't', 't', '{}')"))
+        conn.execute(
+            text(
+                "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                "VALUES ('d0000000000000000000000000000001', now(), 'x', 't', 't', '{}')"
+            )
+        )
         conn.execute(text("SET LOCAL avelis.history_purge = 'on'"))
         conn.execute(text("DELETE FROM audit_event WHERE id = 'd0000000000000000000000000000001'"))
         with pytest.raises(Exception, match="封链时找不到"):
@@ -152,33 +210,52 @@ def test_savepoints_are_legal_and_follow_the_insert_registry(metadb, world):
     # 复核 #2：判断“本事务插入”不用 xmin（保存点子事务的 xmin 不同），用插入触发器的事务内登记
     with metadb.connect() as conn:
         conn.execute(text("SAVEPOINT s1"))
-        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                          "VALUES ('e0000000000000000000000000000001', now(), 'x', 'sp', 't', '{}')"))
-        conn.execute(text("UPDATE audit_event SET detail = '{\"补全\": true}' "
-                          "WHERE id = 'e0000000000000000000000000000001'"))
+        conn.execute(
+            text(
+                "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                "VALUES ('e0000000000000000000000000000001', now(), 'x', 'sp', 't', '{}')"
+            )
+        )
+        conn.execute(
+            text("UPDATE audit_event SET detail = '{\"补全\": true}' WHERE id = 'e0000000000000000000000000000001'")
+        )
         conn.execute(text("RELEASE SAVEPOINT s1"))
         conn.execute(text("SAVEPOINT s2"))
-        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                          "VALUES ('e0000000000000000000000000000002', now(), 'x', 'sp', 't', '{}')"))
+        conn.execute(
+            text(
+                "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                "VALUES ('e0000000000000000000000000000002', now(), 'x', 'sp', 't', '{}')"
+            )
+        )
         conn.execute(text("ROLLBACK TO SAVEPOINT s2"))  # 回滚掉的插入不会留下待封链的行
         conn.commit()
     with metadb.connect() as conn:
         rows = conn.execute(text("SELECT id, chain_seq IS NOT NULL, detail FROM audit_event WHERE action = 'sp'")).all()
     assert rows == [("e0000000000000000000000000000001", True, {"补全": True})]
     # 提交之后：同一会话的新事务里，这一行已经封链，不能再改
-    _rejected(metadb, "UPDATE audit_event SET detail = '{}' WHERE id = 'e0000000000000000000000000000001'",
-              match="是历史内容")
+    _rejected(
+        metadb, "UPDATE audit_event SET detail = '{}' WHERE id = 'e0000000000000000000000000000001'", match="是历史内容"
+    )
     assert _verify()["ok"] is True
 
 
 def test_inserted_xact_is_the_only_proof_of_ownership(metadb, world):
     # B：插入它的顶层事务号写在行里，不可改；ON CONFLICT DO NOTHING 不会让旧的未封链行“属于”当前事务
     row = "f0000000000000000000000000000001"
-    _replica(metadb, "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                     "VALUES (:id, now(), 'x', 'legacy', 't', '{}')", id=row)
+    _replica(
+        metadb,
+        "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+        "VALUES (:id, now(), 'x', 'legacy', 't', '{}')",
+        id=row,
+    )
     with metadb.connect() as conn:
-        conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                          "VALUES (:id, now(), 'x', 'again', 't', '{}') ON CONFLICT (id) DO NOTHING"), {"id": row})
+        conn.execute(
+            text(
+                "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                "VALUES (:id, now(), 'x', 'again', 't', '{}') ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": row},
+        )
         with pytest.raises(Exception, match="不是本事务插入的未封链行"):
             conn.execute(text("UPDATE audit_event SET action = 'rewritten' WHERE id = :id"), {"id": row})
         conn.rollback()
@@ -190,11 +267,16 @@ def test_inserted_xact_is_the_only_proof_of_ownership(metadb, world):
         conn.rollback()
     _replica(metadb, "DELETE FROM audit_event WHERE id = :id", id=row)
     with metadb.connect() as conn:
-        xact = conn.execute(text("SELECT inserted_xact::text FROM audit_event WHERE inserted_xact IS NOT NULL "
-                                 "LIMIT 1")).scalar()
+        xact = conn.execute(
+            text("SELECT inserted_xact::text FROM audit_event WHERE inserted_xact IS NOT NULL LIMIT 1")
+        ).scalar()
     assert xact
-    _rejected(metadb, "UPDATE audit_event SET inserted_xact = '1'::xid8 WHERE inserted_xact = CAST(:x AS xid8)",
-              match="inserted_xact 不能修改", x=xact)
+    _rejected(
+        metadb,
+        "UPDATE audit_event SET inserted_xact = '1'::xid8 WHERE inserted_xact = CAST(:x AS xid8)",
+        match="inserted_xact 不能修改",
+        x=xact,
+    )
     assert _verify()["ok"] is True
 
 
@@ -202,22 +284,33 @@ def test_state_columns_must_change_together(metadb, world):
     # 9：血缘边的 status 与 superseded_at、变更集的 status 与 resolved_at 只能成对、只改一次
     edge = new_id()
     with metadb.begin() as conn:
-        conn.execute(text("INSERT INTO lineage_edge (id, origin, source_ref, relation, attributes, status, created_at) "
-                          "VALUES (:id, 'manual', 'store.a', 'value_direct', '{}', 'active', now())"), {"id": edge})
-    _rejected(metadb, "UPDATE lineage_edge SET superseded_at = '2020-01-01' WHERE id = :id", match="必须同时改",
-              id=edge)
+        conn.execute(
+            text(
+                "INSERT INTO lineage_edge (id, origin, source_ref, relation, attributes, status, created_at) "
+                "VALUES (:id, 'manual', 'store.a', 'value_direct', '{}', 'active', now())"
+            ),
+            {"id": edge},
+        )
+    _rejected(
+        metadb, "UPDATE lineage_edge SET superseded_at = '2020-01-01' WHERE id = :id", match="必须同时改", id=edge
+    )
     _rejected(metadb, "UPDATE lineage_edge SET status = 'superseded' WHERE id = :id", match="必须同时改", id=edge)
     with metadb.begin() as conn:
-        conn.execute(text("UPDATE lineage_edge SET status = 'superseded', superseded_at = now() WHERE id = :id"),
-                     {"id": edge})
+        conn.execute(
+            text("UPDATE lineage_edge SET status = 'superseded', superseded_at = now() WHERE id = :id"), {"id": edge}
+        )
         marks = conn.execute(text("SELECT count(*) FROM history_mark WHERE row_id = :id"), {"id": edge}).scalar()
     assert marks == 2
     _rejected(metadb, "UPDATE lineage_edge SET status = 'active', superseded_at = NULL WHERE id = :id", id=edge)
     with metadb.begin() as conn:
         open_set = new_id()
-        conn.execute(text("INSERT INTO change_set (id, run_id, datasource_id, status, summary, window_end, created_at) "
-                          "VALUES (:id, :run, :ds, 'open', '{}', now(), now())"),
-                     {"id": open_set, "run": world["run"], "ds": world["ds"]})
+        conn.execute(
+            text(
+                "INSERT INTO change_set (id, run_id, datasource_id, status, summary, window_end, created_at) "
+                "VALUES (:id, :run, :ds, 'open', '{}', now(), now())"
+            ),
+            {"id": open_set, "run": world["run"], "ds": world["ds"]},
+        )
     _rejected(metadb, "UPDATE change_set SET status = 'resolved' WHERE id = :id", match="必须同时改", id=open_set)
     _rejected(metadb, "UPDATE change_set SET resolved_at = now() WHERE id = :id", match="必须同时改", id=open_set)
     assert _verify()["ok"] is True
@@ -246,12 +339,20 @@ def test_export_reads_one_snapshot_with_hard_cap(metadb, world, monkeypatch):
         snap.execute(text("SET TRANSACTION READ ONLY"))
         body, manifest = records.export(snap, admin, records.EventFilter(), "csv")
         with session_scope() as s:
-            s.add(ChangeEvent(change_set_id=world["cs"], asset_id=world["asset"], kind="column_added",
-                              column_name="late", attribution_status="unsupported"))
+            s.add(
+                ChangeEvent(
+                    change_set_id=world["cs"],
+                    asset_id=world["asset"],
+                    kind="column_added",
+                    column_name="late",
+                    attribution_status="unsupported",
+                )
+            )
         again, manifest2 = records.export(snap, admin, records.EventFilter(), "csv")
     finally:
         snap.rollback()
         snap.close()
+
     def data_of(raw: bytes) -> bytes:
         return b"".join(line for line in raw.splitlines(keepends=True) if not line.startswith(b"#"))
 
@@ -289,15 +390,32 @@ def test_purge_rechecks_eligibility_when_a_version_regains_protection(metadb, wo
     with session_scope() as s:
         asset = s.get(Asset, world["asset"])
         run = s.get(CollectionRun, world["run"])
-        old = AssetVersion(asset_id=asset.id, version_no=10, observed_run_id=run.id, last_seen_run_id=run.id,
-                           kind="table", catalog_name="c", db_name="store", name="sales", content_hash="old",
-                           superseded_at=utcnow())
+        old = AssetVersion(
+            asset_id=asset.id,
+            version_no=10,
+            observed_run_id=run.id,
+            last_seen_run_id=run.id,
+            kind="table",
+            catalog_name="c",
+            db_name="store",
+            name="sales",
+            content_hash="old",
+            superseded_at=utcnow(),
+        )
         s.add(old)
         s.flush()
         metric = s.scalar(select(Metric).where(Metric.code == "sales"))
-        rejected = MetricVersion(metric_id=metric.id, version_no=9, status="rejected", description="d",
-                                 expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
-                                 asset_versions={asset.id: {"version_id": old.id}})
+        rejected = MetricVersion(
+            metric_id=metric.id,
+            version_no=9,
+            status="rejected",
+            description="d",
+            expression="x",
+            time_column="t",
+            timezone="UTC",
+            created_by=world["admin_id"],
+            asset_versions={asset.id: {"version_id": old.id}},
+        )
         s.add(rejected)
         s.flush()
         old_id, rejected_id = old.id, rejected.id
@@ -328,19 +446,40 @@ def test_purge_with_only_derived_layer_candidates_and_rejected_draft_refs(metadb
     with session_scope() as s:
         asset = s.get(Asset, world["asset"])
         run = s.get(CollectionRun, world["run"])
-        old = AssetVersion(asset_id=asset.id, version_no=20, observed_run_id=run.id, last_seen_run_id=run.id,
-                           kind="table", catalog_name="c", db_name="store", name="sales", content_hash="v20",
-                           superseded_at=utcnow() - timedelta(days=4000))
+        old = AssetVersion(
+            asset_id=asset.id,
+            version_no=20,
+            observed_run_id=run.id,
+            last_seen_run_id=run.id,
+            kind="table",
+            catalog_name="c",
+            db_name="store",
+            name="sales",
+            content_hash="v20",
+            superseded_at=utcnow() - timedelta(days=4000),
+        )
         s.add(old)
         s.flush()
-        s.execute(text("INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
-                       "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
-                       "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"),
-                  {"id": new_id(), "a": asset.id, "v": asset.current_version_id})
+        s.execute(
+            text(
+                "INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
+                "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
+                "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"
+            ),
+            {"id": new_id(), "a": asset.id, "v": asset.current_version_id},
+        )
         metric = s.scalar(select(Metric).where(Metric.code == "sales"))
-        rejected = MetricVersion(metric_id=metric.id, version_no=21, status="rejected", description="d",
-                                 expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
-                                 asset_versions={asset.id: {"version_id": old.id}})
+        rejected = MetricVersion(
+            metric_id=metric.id,
+            version_no=21,
+            status="rejected",
+            description="d",
+            expression="x",
+            time_column="t",
+            timezone="UTC",
+            created_by=world["admin_id"],
+            asset_versions={asset.id: {"version_id": old.id}},
+        )
         s.add(rejected)
         s.flush()
         old_id, rejected_id = old.id, rejected.id
@@ -358,10 +497,19 @@ def test_purge_with_only_derived_layer_candidates_and_rejected_draft_refs(metadb
     # 第四轮复核 5：派生口径经 components 固定了这个（已改回草稿、旧版本已清理的）组成版本，被驳回后改回草稿
     with session_scope() as s:
         ratio = s.scalar(select(Metric).where(Metric.code == "ratio"))
-        derived = MetricVersion(metric_id=ratio.id, version_no=22, status="rejected", description="d", kind="derived",
-                                expression="x", time_column="t", timezone="UTC", created_by=world["admin_id"],
-                                components=[{"metric_code": "sales", "version_id": rejected_id}],
-                                asset_versions={})
+        derived = MetricVersion(
+            metric_id=ratio.id,
+            version_no=22,
+            status="rejected",
+            description="d",
+            kind="derived",
+            expression="x",
+            time_column="t",
+            timezone="UTC",
+            created_by=world["admin_id"],
+            components=[{"metric_code": "sales", "version_id": rejected_id}],
+            asset_versions={},
+        )
         s.add(derived)
         s.flush()
         s.get(MetricVersion, rejected_id).asset_versions = {world["asset"]: {"version_id": old_id}}  # 模拟旧引用
@@ -371,10 +519,14 @@ def test_purge_with_only_derived_layer_candidates_and_rejected_draft_refs(metadb
 
     # 只有推导层候选（没有链上候选）：不会因空条件报错
     with session_scope() as s:
-        s.execute(text("INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
-                       "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
-                       "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"),
-                  {"id": new_id(), "a": world["asset"], "v": world["versions"][2]})
+        s.execute(
+            text(
+                "INSERT INTO grain (id, asset_id, asset_version_id, columns, origin, status, "
+                "column_fingerprints, verify_detail, created_at, superseded_at) VALUES (:id, :a, :v, '[]', "
+                "'observed', 'verified', '{}', '{}', now(), now() - interval '4000 days')"
+            ),
+            {"id": new_id(), "a": world["asset"], "v": world["versions"][2]},
+        )
     result = retention.purge(retention_days=3650)
     assert result["status"] == "purged" and result["counts"] == {"grain": 1}, result
 
@@ -434,9 +586,14 @@ def test_migration_upgrade_downgrade_upgrade_with_data(metadb):
     command.downgrade(cfg, "0005")
     with metadb.begin() as conn:
         for i in range(5):
-            conn.execute(text("INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
-                              "VALUES (:id, now() - make_interval(mins => :i), 'old', 'legacy', 't', "
-                              "'{\"n\": 1}')"), {"id": new_id(), "i": i})
+            conn.execute(
+                text(
+                    "INSERT INTO audit_event (id, at, actor_name, action, object_type, detail) "
+                    "VALUES (:id, now() - make_interval(mins => :i), 'old', 'legacy', 't', "
+                    "'{\"n\": 1}')"
+                ),
+                {"id": new_id(), "i": i},
+            )
     command.upgrade(cfg, "head")
     report = _verify()
     assert report["ok"] is True and report["tables"]["audit_event"] == 5
@@ -445,8 +602,11 @@ def test_migration_upgrade_downgrade_upgrade_with_data(metadb):
     with metadb.begin() as conn:
         assert conn.execute(text("SELECT count(*) FROM audit_event WHERE action = 'legacy'")).scalar() == 5
         conn.execute(text("UPDATE audit_event SET detail = '{\"n\": 2}'"))  # 降级后不再有只追加约束
-        cols = set(conn.execute(text("SELECT column_name FROM information_schema.columns "
-                                     "WHERE table_name = 'audit_event'")).scalars())
+        cols = set(
+            conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = 'audit_event'")
+            ).scalars()
+        )
     assert not cols & {"chain_seq", "prev_hash", "row_hash"}
     command.upgrade(cfg, "head")
     report = _verify()

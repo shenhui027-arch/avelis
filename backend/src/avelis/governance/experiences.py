@@ -36,8 +36,9 @@ def _require_user(session: Session, actor: User) -> None:
     access.require_role(session, actor, "analyst", "steward", "reviewer")
 
 
-def candidates_from_feedback(*, run_id: str, proposal: dict, feedback: dict, refs: list[dict],
-                             checkpoint: str = "assumptions") -> list[dict]:
+def candidates_from_feedback(
+    *, run_id: str, proposal: dict, feedback: dict, refs: list[dict], checkpoint: str = "assumptions"
+) -> list[dict]:
     """保留用户补充（含插话）、质疑与否决的推断。
 
     否决的推断作为否定经验；确认的推断只用于本次分析，关联另走治理提议。
@@ -48,25 +49,38 @@ def candidates_from_feedback(*, run_id: str, proposal: dict, feedback: dict, ref
     for field in ("supplement", "challenge"):
         text = str(feedback.get(field) or "").strip()
         if text:
-            candidates.append({"kind": "rule", "content": text[:CONTENT_CHARS], "refs": _merge_refs(refs),
-                               "source": {"run_id": run_id, "checkpoint": checkpoint,
-                                          "user_text": text[:CONTENT_CHARS]}})
+            candidates.append(
+                {
+                    "kind": "rule",
+                    "content": text[:CONTENT_CHARS],
+                    "refs": _merge_refs(refs),
+                    "source": {"run_id": run_id, "checkpoint": checkpoint, "user_text": text[:CONTENT_CHARS]},
+                }
+            )
     seen: set[str] = set()
     for decision in feedback.get("decisions", []):
         item_id = str(decision.get("item_id", ""))
         item = items.get(item_id)
-        if (item is None or item.get("source") != "inferred" or item_id in seen
-                or decision.get("decision") != "rejected"):
+        if (
+            item is None
+            or item.get("source") != "inferred"
+            or item_id in seen
+            or decision.get("decision") != "rejected"
+        ):
             continue
         seen.add(item_id)
         text = str(item.get("content", "")).strip()
         if not text:
             continue
         content = ("否决：" + text)[:CONTENT_CHARS]
-        candidates.append({"kind": "negative", "content": content,
-                           "refs": _merge_refs(item.get("refs") or [], refs),
-                           "source": {"run_id": run_id, "checkpoint": checkpoint,
-                                      "user_text": content}})
+        candidates.append(
+            {
+                "kind": "negative",
+                "content": content,
+                "refs": _merge_refs(item.get("refs") or [], refs),
+                "source": {"run_id": run_id, "checkpoint": checkpoint, "user_text": content},
+            }
+        )
     return candidates
 
 
@@ -86,8 +100,9 @@ def _asset_keys(asset: Asset) -> set[str]:
     return {asset.id, f"{asset.db_name}.{asset.name}", f"{asset.catalog_name}.{asset.db_name}.{asset.name}"}
 
 
-def _resolve_refs(session: Session, actor: User, refs: list[dict], *,
-                  allowed: set[str] | None = None) -> tuple[list[dict], set[str], set[str]]:
+def _resolve_refs(
+    session: Session, actor: User, refs: list[dict], *, allowed: set[str] | None = None
+) -> tuple[list[dict], set[str], set[str]]:
     """规范化到具体版本，并返回用于结构化召回的口径键与资产键。"""
     from avelis.ask.service import visible_metric
     from avelis.governance.metrics import latest_governed_version
@@ -100,9 +115,13 @@ def _resolve_refs(session: Session, actor: User, refs: list[dict], *,
             asset = session.get(Asset, object_id)
             if asset is None:
                 raise Invalid("经验引用的资产不存在")
-            version = (session.scalar(select(AssetVersion).where(AssetVersion.asset_id == asset.id,
-                                                               AssetVersion.version_no == number))
-                       if number is not None else session.get(AssetVersion, asset.current_version_id))
+            version = (
+                session.scalar(
+                    select(AssetVersion).where(AssetVersion.asset_id == asset.id, AssetVersion.version_no == number)
+                )
+                if number is not None
+                else session.get(AssetVersion, asset.current_version_id)
+            )
             if version is None or version.asset_id != asset.id:
                 raise Invalid("经验引用的资产版本不存在")
             if not access.can_read_asset(session, actor, asset, allowed):
@@ -111,10 +130,19 @@ def _resolve_refs(session: Session, actor: User, refs: list[dict], *,
             asset_keys.update(_asset_keys(asset))
         else:
             metric = session.get(Metric, object_id) if object_type == "metric" else None
-            version = (session.get(MetricVersion, object_id) if object_type == "metric_version" else
-                       (session.scalar(select(MetricVersion).where(MetricVersion.metric_id == object_id,
-                                                                  MetricVersion.version_no == number))
-                        if number is not None else (latest_governed_version(session, metric) if metric else None)))
+            version = (
+                session.get(MetricVersion, object_id)
+                if object_type == "metric_version"
+                else (
+                    session.scalar(
+                        select(MetricVersion).where(
+                            MetricVersion.metric_id == object_id, MetricVersion.version_no == number
+                        )
+                    )
+                    if number is not None
+                    else (latest_governed_version(session, metric) if metric else None)
+                )
+            )
             if version is None or (number is not None and version.version_no != number):
                 raise Invalid("经验引用的口径版本不存在")
             metric = metric or session.get(Metric, version.metric_id)
@@ -136,17 +164,31 @@ def _source(session: Session, actor: User, source: dict) -> dict:
 
 
 def _view(experience: Experience, version: ExperienceVersion) -> dict[str, Any]:
-    return {"id": experience.id, "owner_id": experience.owner_id, "scope": experience.scope,
-            "current_version": experience.current_version, "status": experience.status,
-            "created_at": experience.created_at.isoformat(), "version_id": version.id, "version": version.version,
-            "kind": version.kind, "content": version.content, "refs": version.refs, "source": version.source,
-            "confirmed_by": version.confirmed_by, "confirmed_at": version.confirmed_at.isoformat(),
-            "superseded_by": version.superseded_by}
+    return {
+        "id": experience.id,
+        "owner_id": experience.owner_id,
+        "scope": experience.scope,
+        "current_version": experience.current_version,
+        "status": experience.status,
+        "created_at": experience.created_at.isoformat(),
+        "version_id": version.id,
+        "version": version.version,
+        "kind": version.kind,
+        "content": version.content,
+        "refs": version.refs,
+        "source": version.source,
+        "confirmed_by": version.confirmed_by,
+        "confirmed_at": version.confirmed_at.isoformat(),
+        "superseded_by": version.superseded_by,
+    }
 
 
 def _current(session: Session, experience: Experience) -> ExperienceVersion:
-    version = session.scalar(select(ExperienceVersion).where(ExperienceVersion.experience_id == experience.id,
-                                                             ExperienceVersion.version == experience.current_version))
+    version = session.scalar(
+        select(ExperienceVersion).where(
+            ExperienceVersion.experience_id == experience.id, ExperienceVersion.version == experience.current_version
+        )
+    )
     if version is None:
         raise Conflict("经验当前版本缺失")
     return version
@@ -165,8 +207,12 @@ def _dedup_key(kind: str, content: str, refs: list[dict]) -> tuple:
 
 def list_experiences(session: Session, actor: User) -> list[dict]:
     _require_user(session, actor)
-    rows = session.scalars(select(Experience).where(Experience.owner_id == actor.id, Experience.scope == "personal")
-                           .order_by(Experience.created_at.desc(), Experience.id).limit(500))
+    rows = session.scalars(
+        select(Experience)
+        .where(Experience.owner_id == actor.id, Experience.scope == "personal")
+        .order_by(Experience.created_at.desc(), Experience.id)
+        .limit(500)
+    )
     result, seen = [], set()
     for row in rows:
         version = _current(session, row)
@@ -181,9 +227,11 @@ def list_experiences(session: Session, actor: User) -> list[dict]:
 
 def _matching_active(session: Session, actor: User, kind: str, content: str, refs: list[dict]) -> dict | None:
     key = _dedup_key(kind, content, refs)
-    rows = session.scalars(select(Experience).where(Experience.owner_id == actor.id, Experience.scope == "personal",
-                                                    Experience.status == "active")
-                           .order_by(Experience.created_at.desc(), Experience.id))
+    rows = session.scalars(
+        select(Experience)
+        .where(Experience.owner_id == actor.id, Experience.scope == "personal", Experience.status == "active")
+        .order_by(Experience.created_at.desc(), Experience.id)
+    )
     for row in rows:
         version = _current(session, row)
         if _dedup_key(version.kind, version.content, version.refs) == key:
@@ -203,17 +251,37 @@ def save_experience(session: Session, actor: User, *, kind: str, content: str, r
     if existing is not None:
         return existing
     now = utcnow()
-    experience = Experience(id=new_id(), owner_id=actor.id, scope="personal", current_version=1,
-                            status="active", created_at=now)
-    version = ExperienceVersion(id=new_id(), experience_id=experience.id, version=1, kind=kind,
-                                content=content, refs=pinned, source=origin,
-                                confirmed_by=actor.id, confirmed_at=now)
+    experience = Experience(
+        id=new_id(), owner_id=actor.id, scope="personal", current_version=1, status="active", created_at=now
+    )
+    version = ExperienceVersion(
+        id=new_id(),
+        experience_id=experience.id,
+        version=1,
+        kind=kind,
+        content=content,
+        refs=pinned,
+        source=origin,
+        confirmed_by=actor.id,
+        confirmed_at=now,
+    )
     session.add(experience)
     session.flush()
     session.add(version)
     session.flush()
-    audit.record(session, actor, "experience.save", "experience", experience.id,
-                 version_id=version.id, version=1, kind=kind, refs=pinned, source=origin, content=version.content)
+    audit.record(
+        session,
+        actor,
+        "experience.save",
+        "experience",
+        experience.id,
+        version_id=version.id,
+        version=1,
+        kind=kind,
+        refs=pinned,
+        source=origin,
+        content=version.content,
+    )
     return _view(experience, version)
 
 
@@ -224,14 +292,24 @@ def revoke_experience(session: Session, actor: User, experience_id: str, *, reas
         raise Conflict("只有有效经验可以撤销")
     version = _current(session, experience)
     experience.status = "revoked"
-    audit.record(session, actor, "experience.revoke", "experience", experience.id,
-                 version_id=version.id, from_status="active", to_status="revoked", reason=reason)
+    audit.record(
+        session,
+        actor,
+        "experience.revoke",
+        "experience",
+        experience.id,
+        version_id=version.id,
+        from_status="active",
+        to_status="revoked",
+        reason=reason,
+    )
     session.flush()
     return _view(experience, version)
 
 
-def replace_experience(session: Session, actor: User, experience_id: str, *, kind: str, content: str,
-                       refs: list[dict], source: dict) -> dict:
+def replace_experience(
+    session: Session, actor: User, experience_id: str, *, kind: str, content: str, refs: list[dict], source: dict
+) -> dict:
     _require_user(session, actor)
     experience = _owned(session, actor, experience_id, lock=True)
     if experience.status != "active":
@@ -242,9 +320,18 @@ def replace_experience(session: Session, actor: User, experience_id: str, *, kin
         return replacement
     experience.status = "superseded"
     old.superseded_by = replacement["version_id"]
-    audit.record(session, actor, "experience.replace", "experience", experience.id,
-                 version_id=old.id, superseded_by=old.superseded_by, replacement_id=replacement["id"],
-                 from_status="active", to_status="superseded")
+    audit.record(
+        session,
+        actor,
+        "experience.replace",
+        "experience",
+        experience.id,
+        version_id=old.id,
+        superseded_by=old.superseded_by,
+        replacement_id=replacement["id"],
+        from_status="active",
+        to_status="superseded",
+    )
     session.flush()
     return replacement
 
@@ -254,7 +341,9 @@ _QUALIFIED_COLUMN = rf"{_IDENTIFIER}(?:\s*\.\s*{_IDENTIFIER}){{1,3}}"
 _JOIN_EQUALITY = re.compile(rf"({_QUALIFIED_COLUMN})\s*=\s*({_QUALIFIED_COLUMN})")
 _JOIN_EXPRESSION = re.compile(
     rf"(?P<expression>{_JOIN_EQUALITY.pattern}(?:\s+AND\s+{_JOIN_EQUALITY.pattern})*)"
-    r"(?:\s*(?:\([^()]*\)|（[^（）]*）))?", re.IGNORECASE)
+    r"(?:\s*(?:\([^()]*\)|（[^（）]*）))?",
+    re.IGNORECASE,
+)
 
 
 def _column_ref(text: str) -> tuple[str, str]:
@@ -263,10 +352,12 @@ def _column_ref(text: str) -> tuple[str, str]:
 
 
 def _join_asset(session: Session, actor: User, name: str, side: str, allowed: set[str]) -> Asset:
-    matches = [asset for asset in session.scalars(select(Asset).where(Asset.status == "active"))
-               if name in {asset.name, f"{asset.db_name}.{asset.name}",
-                           f"{asset.catalog_name}.{asset.db_name}.{asset.name}"}
-               and access.can_read_asset(session, actor, asset, allowed)]
+    matches = [
+        asset
+        for asset in session.scalars(select(Asset).where(Asset.status == "active"))
+        if name in {asset.name, f"{asset.db_name}.{asset.name}", f"{asset.catalog_name}.{asset.db_name}.{asset.name}"}
+        and access.can_read_asset(session, actor, asset, allowed)
+    ]
     if not matches:
         raise Invalid(Msg("{side}资产 {name} 无法匹配当前用户可见的资产", side=Msg(side), name=name))
     if len(matches) != 1:
@@ -297,17 +388,28 @@ def to_join_path(session: Session, actor: User, experience_id: str) -> JoinPath:
         right = _join_asset(session, actor, right_name, "右侧", allowed)
         if left_asset is None:
             left_asset, right_asset = left, right
-        if ((left.id, right.id) != (left_asset.id, right_asset.id)
-                and (left.id, right.id) == (right_asset.id, left_asset.id)):
+        if (left.id, right.id) != (left_asset.id, right_asset.id) and (left.id, right.id) == (
+            right_asset.id,
+            left_asset.id,
+        ):
             left, right, left_column, right_column = right, left, right_column, left_column
         if (left.id, right.id) != (left_asset.id, right_asset.id):
             raise Invalid("各对关联键必须属于相同的左侧和右侧资产")
         left_columns.append(left_column)
         right_columns.append(right_column)
-    path = joins.propose(session, actor, left_asset_id=left_asset.id, left_columns=left_columns,
-                         right_asset_id=right_asset.id, right_columns=right_columns,
-                         source={"run_id": version.source.get("run_id"),
-                                 "checkpoint": version.source.get("checkpoint"), "user_text": version.content})
+    path = joins.propose(
+        session,
+        actor,
+        left_asset_id=left_asset.id,
+        left_columns=left_columns,
+        right_asset_id=right_asset.id,
+        right_columns=right_columns,
+        source={
+            "run_id": version.source.get("run_id"),
+            "checkpoint": version.source.get("checkpoint"),
+            "user_text": version.content,
+        },
+    )
     revoke_experience(session, actor, experience.id, reason=f"已转为关联路径 {path.code}")
     return path
 
@@ -316,22 +418,36 @@ def _keywords(text: str) -> set[str]:
     words = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]+", text[:1000].casefold())
     tokens = []
     for word in words:
-        tokens.extend([word] if not re.fullmatch(r"[\u4e00-\u9fff]+", word) else
-                      [word[i:i + 2] for i in range(max(1, len(word) - 1))])
+        tokens.extend(
+            [word]
+            if not re.fullmatch(r"[\u4e00-\u9fff]+", word)
+            else [word[i : i + 2] for i in range(max(1, len(word) - 1))]
+        )
     return set(tokens[:64])
 
 
-def recall(session: Session, actor: User, *, metric_codes: Iterable[str] = (), asset_keys: Iterable[str] = (),
-           question: str = "", k: int = 6, char_limit: int = 3000) -> list[dict]:
+def recall(
+    session: Session,
+    actor: User,
+    *,
+    metric_codes: Iterable[str] = (),
+    asset_keys: Iterable[str] = (),
+    question: str = "",
+    k: int = 6,
+    char_limit: int = 3000,
+) -> list[dict]:
     """先过滤本人、状态、全部引用权限和精确结构化键，再做有界关键词匹配。"""
     _require_user(session, actor)
     wanted_metrics, wanted_assets = set(metric_codes), set(asset_keys)
     if not k or not char_limit or not (wanted_metrics or wanted_assets):
         return []
     allowed = access.domain_ids(session, actor)
-    rows = session.scalars(select(Experience).where(Experience.owner_id == actor.id, Experience.scope == "personal",
-                                                    Experience.status == "active")
-                           .order_by(Experience.created_at.desc(), Experience.id).limit(RECALL_SCAN))
+    rows = session.scalars(
+        select(Experience)
+        .where(Experience.owner_id == actor.id, Experience.scope == "personal", Experience.status == "active")
+        .order_by(Experience.created_at.desc(), Experience.id)
+        .limit(RECALL_SCAN)
+    )
     keywords = _keywords(question)
     matches = []
     for experience in rows:

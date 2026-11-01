@@ -52,8 +52,14 @@ def test_list_groups_before_limit_and_orders_by_latest_activity(api, model):
     child = followup(api)
     child.finished_at = child.created_at + timedelta(hours=3)
     child.status = "succeeded"
-    other = AnalysisRun(id="other", user_id=api.user.id, question="另一问题", trigger="manual", status="failed",
-                        created_at=child.created_at + timedelta(hours=1))
+    other = AnalysisRun(
+        id="other",
+        user_id=api.user.id,
+        question="另一问题",
+        trigger="manual",
+        status="failed",
+        created_at=child.created_at + timedelta(hours=1),
+    )
     api.session.add(other)
     api.session.commit()
     response = api.client.get("/api/analysis/conversations")
@@ -67,8 +73,16 @@ def test_list_groups_before_limit_and_orders_by_latest_activity(api, model):
 
 
 def test_root_stays_first_when_followup_has_same_timestamp(api):
-    child = AnalysisRun(id="aaa", user_id=api.user.id, question="继续核对", trigger="manual", status="queued",
-                        conversation_id=api.run.id, parent_run_id=api.run.id, created_at=api.run.created_at)
+    child = AnalysisRun(
+        id="aaa",
+        user_id=api.user.id,
+        question="继续核对",
+        trigger="manual",
+        status="queued",
+        conversation_id=api.run.id,
+        parent_run_id=api.run.id,
+        created_at=api.run.created_at,
+    )
     api.session.add(child)
     api.session.commit()
     data = api.client.get(f"/api/analysis/conversations/{api.run.id}").json()
@@ -78,11 +92,14 @@ def test_root_stays_first_when_followup_has_same_timestamp(api):
     assert api.client.get("/api/analysis/conversations").json()[0]["latest_run_id"] == child.id
 
 
-@pytest.mark.parametrize("title,stored", [("  新显示名  ", "新显示名"), ("字" * 80, "字" * 80), ("", None), ("  ", None)])
+@pytest.mark.parametrize(
+    "title,stored", [("  新显示名  ", "新显示名"), ("字" * 80, "字" * 80), ("", None), ("  ", None)]
+)
 def test_rename_trims_and_clears_without_changing_analysis(api, model, title, stored):
     child = followup(api)
-    before = {r.id: (r.question, deepcopy(r.report), deepcopy(r.checkpoint), r.conversation_id)
-              for r in (api.run, child)}
+    before = {
+        r.id: (r.question, deepcopy(r.report), deepcopy(r.checkpoint), r.conversation_id) for r in (api.run, child)
+    }
     response = api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": title})
     assert response.status_code == 200, response.text
     assert response.json()["title"] == (stored or "原报告")
@@ -107,7 +124,9 @@ def test_rename_does_not_enter_future_followup_context(api, model):
     question = api.run.question
     child = followup(api)
     before = refresh_followup_context(api.session, api.user, child)
-    response = api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": "仅供左侧显示的名字"})
+    response = api.client.patch(
+        f"/api/analysis/conversations/{api.run.id}", json={"display_title": "仅供左侧显示的名字"}
+    )
     assert response.status_code == 200, response.text
     assert refresh_followup_context(api.session, api.user, child) == before
     after = followup(api).checkpoint["inherited"]
@@ -124,10 +143,14 @@ def test_conversation_list_is_user_scoped_and_only_initiator_can_rename(api):
     api.app.dependency_overrides[current_user] = lambda: other
     assert api.client.get("/api/analysis/conversations").json() == []
     assert api.client.get(f"/api/analysis/conversations/{api.run.id}").status_code == 404
-    assert api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": "改名"}).status_code == 404
+    assert (
+        api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": "改名"}).status_code == 404
+    )
     api.app.dependency_overrides[current_user] = lambda: admin
     assert api.client.get("/api/analysis/conversations").json() == []
-    assert api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": "改名"}).status_code == 403
+    assert (
+        api.client.patch(f"/api/analysis/conversations/{api.run.id}", json={"display_title": "改名"}).status_code == 403
+    )
     assert api.run.display_title is None
 
 
@@ -135,8 +158,9 @@ def test_scheduled_runs_of_same_task_have_independent_conversations(api, model):
     task = AnalysisTask(owner_id=api.user.id, title="定时核对", question="检查指标变化", status="active")
     api.session.add(task)
     api.session.flush()
-    runs = [service.create_run(api.session, api.user, task.question, None, task=task, trigger="schedule")
-            for _ in range(2)]
+    runs = [
+        service.create_run(api.session, api.user, task.question, None, task=task, trigger="schedule") for _ in range(2)
+    ]
     api.session.commit()
     assert runs[0].conversation_id == runs[0].id != runs[1].conversation_id == runs[1].id
     assert all(r.parent_run_id is None for r in runs)

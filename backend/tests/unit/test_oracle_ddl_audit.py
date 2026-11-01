@@ -17,12 +17,30 @@ SINCE, UNTIL = NOW - timedelta(minutes=5), NOW + timedelta(minutes=5)
 
 
 def _record(statement="ALTER TABLE APP.ORDERS ADD channel VARCHAR2(20)", **changes):
-    return dict(at=NOW, user="DDL_USER", action="ALTER TABLE", schema="APP", name="ORDERS",
-                statement=statement, return_code=0, audit_type="Standard") | changes
+    return (
+        dict(
+            at=NOW,
+            user="DDL_USER",
+            action="ALTER TABLE",
+            schema="APP",
+            name="ORDERS",
+            statement=statement,
+            return_code=0,
+            audit_type="Standard",
+        )
+        | changes
+    )
 
 
-def _policy(option="ALTER TABLE", kind="STANDARD ACTION", schema=None, object_type=None,
-            enabled="BY USER", entity="ALL USERS", success="YES"):
+def _policy(
+    option="ALTER TABLE",
+    kind="STANDARD ACTION",
+    schema=None,
+    object_type=None,
+    enabled="BY USER",
+    entity="ALL USERS",
+    success="YES",
+):
     return option, kind, schema, object_type, enabled, entity, success
 
 
@@ -53,16 +71,22 @@ class _Cursor:
         assert "OBJECT_NAME IS NOT NULL" in sql
         actions = {v for k, v in binds.items() if k.startswith("a")}
         schemas = {v for k, v in binds.items() if k.startswith("s") and k != "since"}
-        records = [r for r in self.conn.records if r["audit_type"] == "Standard" and r["return_code"] == 0
-                   and r["action"] in actions and r["schema"] in schemas and r["name"] is not None]
+        records = [
+            r
+            for r in self.conn.records
+            if r["audit_type"] == "Standard"
+            and r["return_code"] == 0
+            and r["action"] in actions
+            and r["schema"] in schemas
+            and r["name"] is not None
+        ]
         if sql.startswith("SELECT 1"):
             assert "ROWNUM = 1" in sql and "since" not in binds and "until" not in binds
             self.rows = [(1,)] if records else []
             return self
         assert " >= :since" in sql and " <= :until" in sql
         records = [r for r in records if binds["since"] <= _utc(r["at"]) <= binds["until"]]
-        self.rows = [tuple(r[k] for k in ("at", "user", "action", "schema", "name", "statement"))
-                     for r in records]
+        self.rows = [tuple(r[k] for k in ("at", "user", "action", "schema", "name", "statement")) for r in records]
         return self
 
     def fetchall(self):
@@ -104,8 +128,9 @@ def _utc(value):
 
 
 def _connector(monkeypatch, connection):
-    connector = OracleConnector("offline.invalid", 1521, "COLLECTOR", "unused",
-                                {"service": "FREEPDB1", "schemas": ["app"]})
+    connector = OracleConnector(
+        "offline.invalid", 1521, "COLLECTOR", "unused", {"service": "FREEPDB1", "schemas": ["app"]}
+    )
     monkeypatch.setattr(connector, "_connect", lambda: connection)
     return connector
 
@@ -113,11 +138,16 @@ def _connector(monkeypatch, connection):
 def test_only_successful_standard_ddl_with_bound_schema_and_window(monkeypatch):
     connection = _Connection()
     clob = _Clob(connection, "ALTER TABLE app.orders ADD channel VARCHAR2(20)")
-    connection.records = [_record(clob), _record(return_code=904, user="FAILED"),
-                          _record(action="SELECT", user="READER"), _record(schema="PRIVATE", user="OTHER_SCHEMA"),
-                          _record(audit_type="Database Vault", user="OTHER_AUDIT"),
-                          _record(at=SINCE - timedelta(seconds=1), user="OLD"),
-                          _record(at=UNTIL + timedelta(seconds=1), user="LATER"), _record(name=None)]
+    connection.records = [
+        _record(clob),
+        _record(return_code=904, user="FAILED"),
+        _record(action="SELECT", user="READER"),
+        _record(schema="PRIVATE", user="OTHER_SCHEMA"),
+        _record(audit_type="Database Vault", user="OTHER_AUDIT"),
+        _record(at=SINCE - timedelta(seconds=1), user="OLD"),
+        _record(at=UNTIL + timedelta(seconds=1), user="LATER"),
+        _record(name=None),
+    ]
     connector = _connector(monkeypatch, connection)
     events = connector.ddl_events(SINCE, UNTIL)
     assert len(events) == 1 and events[0].db_user == "DDL_USER"
@@ -145,12 +175,15 @@ def test_old_timestamp_falls_back_only_when_utc_column_is_absent(monkeypatch):
 
 
 @pytest.mark.parametrize("as_clob", [False, True])
-@pytest.mark.parametrize("statement,expected", [
-    ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
-    ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
-    ("COMMENT ON TABLE APP.ORDERS IS 'verify' ", "COMMENT ON TABLE APP.ORDERS IS 'verify' "),
-    ("COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'"),
-])
+@pytest.mark.parametrize(
+    "statement,expected",
+    [
+        ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
+        ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
+        ("COMMENT ON TABLE APP.ORDERS IS 'verify' ", "COMMENT ON TABLE APP.ORDERS IS 'verify' "),
+        ("COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'"),
+    ],
+)
 def test_sql_text_removes_only_trailing_nul_for_text_and_clob(monkeypatch, as_clob, statement, expected):
     connection = _Connection()
     value = _Clob(connection, statement) if as_clob else statement
@@ -165,20 +198,24 @@ def test_sql_text_removes_only_trailing_nul_for_text_and_clob(monkeypatch, as_cl
 def test_aware_datetimes_are_normalized_to_utc_without_avelis_host_timezone(monkeypatch):
     offset = timezone(timedelta(hours=8))
     connection = _Connection([_record(at=NOW.replace(tzinfo=timezone.utc).astimezone(offset))])
-    events = _connector(monkeypatch, connection).ddl_events(SINCE.replace(tzinfo=timezone.utc).astimezone(offset),
-                                                            UNTIL.replace(tzinfo=timezone.utc).astimezone(offset))
+    events = _connector(monkeypatch, connection).ddl_events(
+        SINCE.replace(tzinfo=timezone.utc).astimezone(offset), UNTIL.replace(tzinfo=timezone.utc).astimezone(offset)
+    )
     assert events[0].at == NOW and events[0].at.tzinfo is None
     assert connection.calls[0][1]["since"] == SINCE
 
 
-@pytest.mark.parametrize("error,cause,fragment", [
-    ('ORA-01031: insufficient privileges', "no_permission", "AUDIT_VIEWER"),
-    ('ORA-00942: table or view does not exist', "no_permission", "AUDIT_VIEWER"),
-    ('ORA-41900: missing privilege', "no_permission", "AUDIT_VIEWER"),
-    ('ORA-00904: "SQL_TEXT": invalid identifier', "incompatible", "结构"),
-    ('ORA-00932: inconsistent datatypes', "incompatible", "结构"),
-    ('ORA-03113: end-of-file on communication channel\nsecond line', "error", "读取"),
-])
+@pytest.mark.parametrize(
+    "error,cause,fragment",
+    [
+        ("ORA-01031: insufficient privileges", "no_permission", "AUDIT_VIEWER"),
+        ("ORA-00942: table or view does not exist", "no_permission", "AUDIT_VIEWER"),
+        ("ORA-41900: missing privilege", "no_permission", "AUDIT_VIEWER"),
+        ('ORA-00904: "SQL_TEXT": invalid identifier', "incompatible", "结构"),
+        ("ORA-00932: inconsistent datatypes", "incompatible", "结构"),
+        ("ORA-03113: end-of-file on communication channel\nsecond line", "error", "读取"),
+    ],
+)
 def test_native_failures_report_cause_and_original_error(monkeypatch, error, cause, fragment):
     connection = _Connection(errors={"FROM UNIFIED_AUDIT_TRAIL": oracledb.DatabaseError(error)})
     with pytest.raises(AuditUnavailable) as caught:
@@ -196,27 +233,39 @@ def test_empty_window_with_historical_success_is_not_misreported_as_disabled(mon
     assert all("AUDIT_UNIFIED_ENABLED_POLICIES" not in sql for sql, _ in connection.calls)
 
 
-@pytest.mark.parametrize("policy", [
-    _policy(), _policy("CREATE VIEW", entity="DEPLOY_USER"),
-    _policy("DROP TABLE", enabled="EXCEPT USER", entity="COLLECTOR"),
-    _policy("ALTER TABLE", enabled="BY GRANTED ROLE", entity="DDL_ROLE"),
-    _policy("ALTER ANY TABLE", kind="SYSTEM PRIVILEGE"),
-    _policy("ALTER", kind="OBJECT ACTION", schema="APP", object_type="TABLE"),
-    _policy("ALL", kind="STANDARD ACTION"),
-    _policy("DDL_ROLE", kind="ROLE PRIVILEGE"),  # 无法排除覆盖 DDL 的未知类型，保守保留来源
-])
+@pytest.mark.parametrize(
+    "policy",
+    [
+        _policy(),
+        _policy("CREATE VIEW", entity="DEPLOY_USER"),
+        _policy("DROP TABLE", enabled="EXCEPT USER", entity="COLLECTOR"),
+        _policy("ALTER TABLE", enabled="BY GRANTED ROLE", entity="DDL_ROLE"),
+        _policy("ALTER ANY TABLE", kind="SYSTEM PRIVILEGE"),
+        _policy("ALTER", kind="OBJECT ACTION", schema="APP", object_type="TABLE"),
+        _policy("ALL", kind="STANDARD ACTION"),
+        _policy("DDL_ROLE", kind="ROLE PRIVILEGE"),  # 无法排除覆盖 DDL 的未知类型，保守保留来源
+    ],
+)
 def test_empty_history_with_successful_related_policy_is_ready(monkeypatch, policy):
     connection = _Connection(policies=[policy])
     assert _connector(monkeypatch, connection).ddl_events(SINCE, UNTIL) == []
     assert "AUDIT_UNIFIED_POLICIES p" in connection.calls[-1][0]
 
 
-@pytest.mark.parametrize("policies", [
-    [], [_policy(success="NO")], [_policy("SELECT TABLE")], [_policy("CREATE SESSION", kind="SYSTEM PRIVILEGE")],
-    [_policy(enabled="INVALID")], [_policy(entity=None)], [_policy(schema="OTHER_SCHEMA")],
-    [_policy("ALTER", kind="OBJECT ACTION", object_type="SEQUENCE")],
-    [_policy("ALL", kind="OBJECT ACTION", object_type="SEQUENCE")],
-])
+@pytest.mark.parametrize(
+    "policies",
+    [
+        [],
+        [_policy(success="NO")],
+        [_policy("SELECT TABLE")],
+        [_policy("CREATE SESSION", kind="SYSTEM PRIVILEGE")],
+        [_policy(enabled="INVALID")],
+        [_policy(entity=None)],
+        [_policy(schema="OTHER_SCHEMA")],
+        [_policy("ALTER", kind="OBJECT ACTION", object_type="SEQUENCE")],
+        [_policy("ALL", kind="OBJECT ACTION", object_type="SEQUENCE")],
+    ],
+)
 def test_no_history_and_no_related_success_policy_is_not_enabled(monkeypatch, policies):
     connection = _Connection(records=[_record(return_code=904)], policies=policies)
     with pytest.raises(AuditUnavailable) as caught:
@@ -226,8 +275,9 @@ def test_no_history_and_no_related_success_policy_is_not_enabled(monkeypatch, po
     assert isinstance(caught.value.args[0], Msg)
 
 
-@pytest.mark.parametrize("kind", ["INVALID", "XS ACTION", "OLS_ACTION", "DATAPUMP ACTION", "DIRECT LOAD ACTION",
-                                 "DV ACTION"])
+@pytest.mark.parametrize(
+    "kind", ["INVALID", "XS ACTION", "OLS_ACTION", "DATAPUMP ACTION", "DIRECT LOAD ACTION", "DV ACTION"]
+)
 def test_nonstandard_policy_types_do_not_enable_standard_ddl_auditing(monkeypatch, kind):
     connection = _Connection(policies=[_policy("ALTER TABLE", kind=kind)])
     with pytest.raises(AuditUnavailable) as caught:
@@ -235,9 +285,14 @@ def test_nonstandard_policy_types_do_not_enable_standard_ddl_auditing(monkeypatc
     assert caught.value.cause == "not_enabled"
 
 
-@pytest.mark.parametrize("error,cause", [("ORA-01031: denied", "no_permission"),
-                                       ('ORA-00904: "ENABLED_OPTION": missing', "incompatible"),
-                                       ("ORA-03113: connection lost", "error")])
+@pytest.mark.parametrize(
+    "error,cause",
+    [
+        ("ORA-01031: denied", "no_permission"),
+        ('ORA-00904: "ENABLED_OPTION": missing', "incompatible"),
+        ("ORA-03113: connection lost", "error"),
+    ],
+)
 def test_policy_probe_failure_does_not_pretend_audit_is_disabled(monkeypatch, error, cause):
     connection = _Connection(errors={"AUDIT_UNIFIED_ENABLED_POLICIES": oracledb.DatabaseError(error)})
     with pytest.raises(AuditUnavailable) as caught:
@@ -250,8 +305,13 @@ def test_invalid_required_values_are_incompatible(monkeypatch, changes):
     connection = _Connection([_record(**changes)])
     if "at" in changes:
         # 真实驱动返回的异常类型来自结果结构；让替身仍执行到连接器的值验证。
-        monkeypatch.setattr(_Cursor, "fetchall", lambda _: [("bad timestamp", "DDL_USER", "ALTER TABLE",
-                                                             "APP", "ORDERS", "ALTER TABLE APP.ORDERS ADD X INT")])
+        monkeypatch.setattr(
+            _Cursor,
+            "fetchall",
+            lambda _: [
+                ("bad timestamp", "DDL_USER", "ALTER TABLE", "APP", "ORDERS", "ALTER TABLE APP.ORDERS ADD X INT")
+            ],
+        )
         connection.records = []
     with pytest.raises(AuditUnavailable) as caught:
         _connector(monkeypatch, connection).ddl_events(SINCE, UNTIL)
@@ -277,19 +337,27 @@ def test_incompatible_event_row_shape_is_an_audit_unavailable(monkeypatch, row):
     assert caught.value.cause == "incompatible"
 
 
-@pytest.mark.parametrize("statements,column,expected,actor", [
-    (["ALTER TABLE APP.ORDERS ADD channel VARCHAR2(20)"], "CHANNEL", "matched", "DDL_USER"),
-    (["ALTER TABLE APP.ORDERS MODIFY amount NUMBER(20,2)"], "CHANNEL", "unmatched", None),
-    ([None], "CHANNEL", "ambiguous", None),
-    (['ALTER TABLE APP.ORDERS ADD "Channel" VARCHAR2(20)'], "CHANNEL", "unmatched", None),
-    (["ALTER TABLE APP.ORDERS ADD channel VARCHAR2(20)"], "Channel", "unmatched", None),
-    (['ALTER TABLE APP.ORDERS ADD "Channel" VARCHAR2(20)'], "Channel", "matched", "DDL_USER"),
-    (["CREATE OR REPLACE VIEW APP.ORDERS AS SELECT * FROM APP.BASE"], "CHANNEL", "matched", "DDL_USER"),
-])
-def test_column_attribution_uses_real_sql_and_oracle_identifier_folding(monkeypatch, statements, column,
-                                                                    expected, actor):
-    connection = _Connection([_record(statement, action="CREATE VIEW" if statement and statement.startswith("CREATE")
-                                     else "ALTER TABLE") for statement in statements])
+@pytest.mark.parametrize(
+    "statements,column,expected,actor",
+    [
+        (["ALTER TABLE APP.ORDERS ADD channel VARCHAR2(20)"], "CHANNEL", "matched", "DDL_USER"),
+        (["ALTER TABLE APP.ORDERS MODIFY amount NUMBER(20,2)"], "CHANNEL", "unmatched", None),
+        ([None], "CHANNEL", "ambiguous", None),
+        (['ALTER TABLE APP.ORDERS ADD "Channel" VARCHAR2(20)'], "CHANNEL", "unmatched", None),
+        (["ALTER TABLE APP.ORDERS ADD channel VARCHAR2(20)"], "Channel", "unmatched", None),
+        (['ALTER TABLE APP.ORDERS ADD "Channel" VARCHAR2(20)'], "Channel", "matched", "DDL_USER"),
+        (["CREATE OR REPLACE VIEW APP.ORDERS AS SELECT * FROM APP.BASE"], "CHANNEL", "matched", "DDL_USER"),
+    ],
+)
+def test_column_attribution_uses_real_sql_and_oracle_identifier_folding(
+    monkeypatch, statements, column, expected, actor
+):
+    connection = _Connection(
+        [
+            _record(statement, action="CREATE VIEW" if statement and statement.startswith("CREATE") else "ALTER TABLE")
+            for statement in statements
+        ]
+    )
     connector = _connector(monkeypatch, connection)
     event = {"kind": "column_added", "asset_id": "asset", "column_name": column, "before": {}, "after": {}}
     session = SimpleNamespace(get=lambda *_: SimpleNamespace(db_name="APP", name="ORDERS"))
@@ -304,7 +372,12 @@ def test_column_attribution_uses_real_sql_and_oracle_identifier_folding(monkeypa
 def test_no_permission_is_preserved_by_attribution(monkeypatch):
     connection = _Connection(errors={"UNIFIED_AUDIT_TRAIL": oracledb.DatabaseError("ORA-01031: denied")})
     event = {"kind": "column_added", "asset_id": None, "column_name": "CHANNEL", "before": {}, "after": {}}
-    result = attribute(SimpleNamespace(), get_engine("oracle"), _connector(monkeypatch, connection), [event],
-                       Window(SINCE, SINCE, UNTIL, UNTIL))
+    result = attribute(
+        SimpleNamespace(),
+        get_engine("oracle"),
+        _connector(monkeypatch, connection),
+        [event],
+        Window(SINCE, SINCE, UNTIL, UNTIL),
+    )
     assert result["status"] == "unavailable" and result["cause"] == "no_permission"
     assert event["actor_db_user"] is None and "AUDIT_VIEWER" in event["attribution"]["reason"]

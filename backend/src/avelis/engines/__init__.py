@@ -29,8 +29,9 @@ def get_engine(kind: str) -> Engine:
     try:
         return _REGISTRY[kind]
     except KeyError:
-        raise UnsupportedEngine(Msg("不支持的数据源类型：{kind}（已支持：{supported}）", kind=kind,
-                                    supported="、".join(sorted(_REGISTRY)))) from None
+        raise UnsupportedEngine(
+            Msg("不支持的数据源类型：{kind}（已支持：{supported}）", kind=kind, supported="、".join(sorted(_REGISTRY)))
+        ) from None
 
 
 def engines() -> list[Engine]:
@@ -51,8 +52,11 @@ class CredentialMissing(Exception):
 
 
 def _credential(session: Session, ds: Datasource, purpose: str, required: bool = True) -> tuple[str, str]:
-    cred = session.scalar(select(DatasourceCredential).where(
-        DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == purpose))
+    cred = session.scalar(
+        select(DatasourceCredential).where(
+            DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == purpose
+        )
+    )
     if cred is None:
         if not required:
             return "", ""
@@ -87,5 +91,16 @@ def _register_builtin() -> None:
 
 _register_builtin()
 
-__all__ = ["CapabilityMissing", "CredentialMissing", "Engine", "UnsupportedEngine", "collect_connector",
-           "dialect_of", "engine_of", "engines", "get_engine", "query_connector", "register"]
+__all__ = [
+    "CapabilityMissing",
+    "CredentialMissing",
+    "Engine",
+    "UnsupportedEngine",
+    "collect_connector",
+    "dialect_of",
+    "engine_of",
+    "engines",
+    "get_engine",
+    "query_connector",
+    "register",
+]

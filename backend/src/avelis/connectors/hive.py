@@ -39,11 +39,14 @@ AUTH_MODES = ("NONE", "NOSASL", "LDAP")
 # 认证方式 → impyla 的 auth_mechanism。NONE 在 HiveServer2 上仍走 SASL 传输（PLAIN），只是不校验口令
 MECHANISM = {"NONE": "PLAIN", "NOSASL": "NOSASL", "LDAP": "LDAP"}
 DEFAULT_USER = "avelis"
-KINDS = {"MANAGED_TABLE": "table", "EXTERNAL_TABLE": "table", "VIRTUAL_VIEW": "view",
-         "MATERIALIZED_VIEW": "materialized_view"}
+KINDS = {
+    "MANAGED_TABLE": "table",
+    "EXTERNAL_TABLE": "table",
+    "VIRTUAL_VIEW": "view",
+    "MATERIALIZED_VIEW": "materialized_view",
+}
 # SHOW CREATE TABLE 对普通视图的输出：CREATE VIEW `库`.`视图` AS <展开文本>
-CREATE_VIEW = re.compile(r"^\s*CREATE\s+VIEW\s+(?:`(?:[^`]|``)+`|\w+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|\w+))?\s+AS\s+",
-                         re.I)
+CREATE_VIEW = re.compile(r"^\s*CREATE\s+VIEW\s+(?:`(?:[^`]|``)+`|\w+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|\w+))?\s+AS\s+", re.I)
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\"}
 
 
@@ -70,6 +73,7 @@ def _cell(value: Any) -> str:
 @dataclass
 class Described:
     """DESCRIBE FORMATTED 的结构化结果。"""
+
     columns: list[tuple[str, str, str | None]] = field(default_factory=list)  # 名称、类型、注释
     partition_columns: list[tuple[str, str, str | None]] = field(default_factory=list)
     info: dict[str, str] = field(default_factory=dict)  # Detailed Table Information、Storage Information 中的“键: 值”
@@ -152,7 +156,7 @@ def view_query(create_statement: str | None) -> str | None:
     text = create_statement.strip()
     m = CREATE_VIEW.match(text)
     if m:
-        return text[m.end():].strip()
+        return text[m.end() :].strip()
     try:
         statement = sqlglot.parse_one(text, read="hive")
     except sqlglot.errors.ParseError:
@@ -172,8 +176,15 @@ def observed(db: str, name: str, described: Described, definition: str | None) -
         if col in seen:  # 个别版本把分区列在普通列里也列一遍
             continue
         seen.add(col)
-        columns.append(ObservedColumn(name=col, data_type=data_type, ordinal=len(columns) + 1,
-                                      nullable=col not in described.not_null, comment=comment))
+        columns.append(
+            ObservedColumn(
+                name=col,
+                data_type=data_type,
+                ordinal=len(columns) + 1,
+                nullable=col not in described.not_null,
+                comment=comment,
+            )
+        )
     info = described.info
     properties: dict[str, Any] = {
         "table_type": table_type or None,
@@ -186,9 +197,18 @@ def observed(db: str, name: str, described: Described, definition: str | None) -
     if described.primary_key:
         properties["declared_primary_key"] = described.primary_key  # DISABLE NOVALIDATE：不校验，不作粒度依据
     return ObservedAsset(
-        catalog=CATALOG, db=db, name=name, kind=kind, columns=columns, physical_id=None,
-        table_model=table_type or None, key_columns=[], unique_keys=[], comment=described.comment,
-        definition=definition if kind != "table" else None, properties=properties,
+        catalog=CATALOG,
+        db=db,
+        name=name,
+        kind=kind,
+        columns=columns,
+        physical_id=None,
+        table_model=table_type or None,
+        key_columns=[],
+        unique_keys=[],
+        comment=described.comment,
+        definition=definition if kind != "table" else None,
+        properties=properties,
     )
 
 
@@ -205,9 +225,14 @@ class HiveConnector:
         if auth == "LDAP" and not (user and password):
             raise ValueError("Hive 认证方式 LDAP 需要采集账号与口令")
         self.auth = auth
-        self._conn_args = dict(host=host, port=port, auth_mechanism=MECHANISM[auth], user=user or DEFAULT_USER,
-                               # PLAIN 机制要求带口令；NONE 模式下服务端不校验，随便给一个
-                               password=password or ("-" if auth == "NONE" else None))
+        self._conn_args = dict(
+            host=host,
+            port=port,
+            auth_mechanism=MECHANISM[auth],
+            user=user or DEFAULT_USER,
+            # PLAIN 机制要求带口令；NONE 模式下服务端不校验，随便给一个
+            password=password or ("-" if auth == "NONE" else None),
+        )
 
     def _connect(self, timeout: int = 60):
         return connect(**self._conn_args, timeout=timeout)
@@ -226,8 +251,11 @@ class HiveConnector:
     def _server_identity(self, cur) -> dict[str, Any]:
         cur.execute("SELECT version()")
         row = cur.fetchone()
-        return {"version": str(row[0]) if row else None,
-                "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}", "auth": self.auth}
+        return {
+            "version": str(row[0]) if row else None,
+            "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}",
+            "auth": self.auth,
+        }
 
     def snapshot(self) -> Snapshot:
         databases = _checked([str(d).lower() for d in self.options.get("databases", [])], "库")
@@ -244,8 +272,10 @@ class HiveConnector:
             # 看不到不代表已删除；跳过会把这个库已采集的资产全部记成删除
             missing = [db for db in databases if db not in existing]
             if missing:
-                raise RuntimeError(f"配置的库 {'、'.join(missing)} 在 SHOW DATABASES 中不可见"
-                                   "（不存在或采集账号无权限），本次采集不更新目录")
+                raise RuntimeError(
+                    f"配置的库 {'、'.join(missing)} 在 SHOW DATABASES 中不可见"
+                    "（不存在或采集账号无权限），本次采集不更新目录"
+                )
             for db in databases:
                 for (name,) in self._rows(cur, f"SHOW TABLES IN {_quote(db)}"):
                     name = str(name)

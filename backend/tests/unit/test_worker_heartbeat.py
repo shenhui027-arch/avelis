@@ -87,7 +87,8 @@ def test_worker_starts_daemon_heartbeat_before_scan_without_writing_each_loop(mo
     jobs.main()
 
     worker.connection.set.assert_called_once_with(
-        cache.WORKER_HEARTBEAT, now.replace(tzinfo=timezone.utc).isoformat(), ex=60)
+        cache.WORKER_HEARTBEAT, now.replace(tzinfo=timezone.utc).isoformat(), ex=60
+    )
     assert worker.connection.brpop.call_args_list == [call([cache.JOB_QUEUE], timeout=5)] * 2
     assert worker.run.call_args_list == [call("job-id")] * 2
     assert heartbeat.waits == [20]
@@ -155,6 +156,7 @@ def test_worker_and_heartbeat_continue_after_heartbeat_redis_failure(monkeypatch
     if operation == "set":
         worker.connection.set.side_effect = lambda *args, **kwargs: fail()
     else:
+
         def client():
             if threading.current_thread() is heartbeat.threads[0]:
                 return fail()

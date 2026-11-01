@@ -46,8 +46,10 @@ class Intent(BaseModel):
     # 按时间分组：结果多一列时间段（默认 period，与维度重名时见 period_column），
     # 排在维度之前。不能与对比期同用
     time_grain: Literal["day", "week", "month", "quarter", "year"] | None = Field(
-        default=None, description="时间分组：day 为 YYYY-MM-DD，week 为周一的 YYYY-MM-DD，month 为 YYYY-MM，"
-        "quarter 为季初日期 YYYY-MM-DD，year 为 YYYY；不能比口径 data_grain 更细")
+        default=None,
+        description="时间分组：day 为 YYYY-MM-DD，week 为周一的 YYYY-MM-DD，month 为 YYYY-MM，"
+        "quarter 为季初日期 YYYY-MM-DD，year 为 YYYY；不能比口径 data_grain 更细",
+    )
     clarification: str | None = None
     candidates: list[str] = Field(default_factory=list)
 
@@ -59,8 +61,9 @@ class Intent(BaseModel):
             self.metric_codes = [self.metric_code]
         if self.time_grain and self.compare:
             raise ValueError("按时间分组时不能同时与上一期或去年同期对比（两期的日期对不上）")
-        if self.compare == "custom" and not (self.compare_start and self.compare_end
-                                             and self.compare_start <= self.compare_end):
+        if self.compare == "custom" and not (
+            self.compare_start and self.compare_end and self.compare_start <= self.compare_end
+        ):
             raise ValueError("compare=custom 需要有效的 compare_start 与 compare_end")
         return self
 
@@ -108,8 +111,11 @@ def comparison_range(start: date, end: date, compare: str) -> tuple[date, date]:
     return last_year(start), last_year(end)
 
 
-COMPARE_WORDS = {"previous_calendar": ("上一自然期", "上个自然期"), "previous_year": ("同比", "去年同期"),
-                 "previous_period": ("环比", "上一期", "前一天", "上期")}
+COMPARE_WORDS = {
+    "previous_calendar": ("上一自然期", "上个自然期"),
+    "previous_year": ("同比", "去年同期"),
+    "previous_period": ("环比", "上一期", "前一天", "上期"),
+}
 TOP_N = re.compile(r"(?:前|[Tt][Oo][Pp]\s*|最高的?|最多的?)\s*(\d{1,3})")
 BOTTOM_N = re.compile(r"(?:后|最低的?|最少的?)\s*(\d{1,3})")
 
@@ -148,9 +154,16 @@ def matched_dimension_values(text: str, values: list[str]) -> list[str]:
         while start >= 0:
             spans.append((start, start + len(value), value))
             start = text.find(value, start + 1)
-    return sorted({value for start, end, value in spans
-                   if not any(other_start <= start and end <= other_end and other_end - other_start > end - start
-                              for other_start, other_end, _ in spans)})
+    return sorted(
+        {
+            value
+            for start, end, value in spans
+            if not any(
+                other_start <= start and end <= other_end and other_end - other_start > end - start
+                for other_start, other_end, _ in spans
+            )
+        }
+    )
 
 
 class DemoIntentModel:
@@ -169,26 +182,30 @@ class DemoIntentModel:
                     spans.append((start, start + len(label), card))
                     start = text.find(label, start + 1)
         if not spans:
-            return Intent(clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标",
-                          candidates=[m.name for m in metrics])
+            return Intent(
+                clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标", candidates=[m.name for m in metrics]
+            )
         # 被更长的匹配完全包含的短匹配不算（如“<指标甲>净额”包含“<指标甲>”）
-        spans = [s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0])
-                                             for o in spans)]
+        spans = [
+            s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0]) for o in spans)
+        ]
         by_position: dict[tuple[int, int], dict[str, MetricCard]] = {}
         for begin, end_, card in spans:
             by_position.setdefault((begin, end_), {})[card.code] = card
         ambiguous = [cards for cards in by_position.values() if len(cards) > 1]
         if ambiguous:  # 同一段文字对应多个指标（同名或同别名）：追问
-            return Intent(clarification="问题可能指多个指标，请明确是哪一个",
-                          candidates=[c.name for c in ambiguous[0].values()])
+            return Intent(
+                clarification="问题可能指多个指标，请明确是哪一个", candidates=[c.name for c in ambiguous[0].values()]
+            )
         ordered: list[MetricCard] = []
         for _, cards in sorted(by_position.items()):
             card = next(iter(cards.values()))
             if card.code not in {c.code for c in ordered}:
                 ordered.append(card)
         if len(ordered) > MAX_METRICS:
-            return Intent(clarification=f"一次最多比较 {MAX_METRICS} 个指标，请缩小范围",
-                          candidates=[c.name for c in ordered])
+            return Intent(
+                clarification=f"一次最多比较 {MAX_METRICS} 个指标，请缩小范围", candidates=[c.name for c in ordered]
+            )
         card = ordered[0]
 
         days = self._dates(text, today)
@@ -215,15 +232,35 @@ class DemoIntentModel:
         elif any(w in text for w in ("排名", "最高", "最多", "排行")):
             order = "desc"
         if order and not group_by:
-            return Intent(metric_codes=[c.code for c in ordered],
-                          clarification="排名需要一个维度，请说明按哪个维度排（候选见下）",
-                          candidates=[d.get("label") or d["name"] for d in shared])
-        return Intent(metric_codes=[c.code for c in ordered], start_date=start, end_date=end, filters=filters,
-                      group_by=group_by, order=order, limit=min(limit, MAX_LIMIT) if limit else None,
-                      compare=compare, time_grain=next((grain for grain, words in (
-                          ("day", ("按日", "按天", "每日", "每天")), ("week", ("按周", "每周")),
-                          ("month", ("按月", "每月")), ("quarter", ("按季", "每季")),
-                          ("year", ("按年", "每年"))) if any(word in text for word in words)), None))
+            return Intent(
+                metric_codes=[c.code for c in ordered],
+                clarification="排名需要一个维度，请说明按哪个维度排（候选见下）",
+                candidates=[d.get("label") or d["name"] for d in shared],
+            )
+        return Intent(
+            metric_codes=[c.code for c in ordered],
+            start_date=start,
+            end_date=end,
+            filters=filters,
+            group_by=group_by,
+            order=order,
+            limit=min(limit, MAX_LIMIT) if limit else None,
+            compare=compare,
+            time_grain=next(
+                (
+                    grain
+                    for grain, words in (
+                        ("day", ("按日", "按天", "每日", "每天")),
+                        ("week", ("按周", "每周")),
+                        ("month", ("按月", "每月")),
+                        ("quarter", ("按季", "每季")),
+                        ("year", ("按年", "每年")),
+                    )
+                    if any(word in text for word in words)
+                ),
+                None,
+            ),
+        )
 
     @staticmethod
     def _dates(text: str, today: date) -> list[date]:

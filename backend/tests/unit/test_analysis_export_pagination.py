@@ -28,7 +28,7 @@ def drawn_text(monkeypatch):
 @pytest.mark.parametrize("length", [30, 2500])
 def test_summary_paginates_without_losing_text(drawn_text, audience, length):
     sentence = "本期指标变化仍需结合已确认的范围解释。"
-    summary = "摘要起点" + (sentence * (length // len(sentence) + 1))[:length - 8] + "摘要终点"
+    summary = "摘要起点" + (sentence * (length // len(sentence) + 1))[: length - 8] + "摘要终点"
     view = {"report": {"title": "指标变化", "summary": summary}}
 
     pdf = export.to_pdf(view, audience=audience)
@@ -52,10 +52,14 @@ def test_unresolved_item_paginates_without_losing_text(drawn_text, audience):
 
 def test_metric_card_paginates_without_losing_text(monkeypatch, drawn_text):
     value = "指标值起点" + "甲乙丙丁" * 600 + "指标值终点"
-    monkeypatch.setattr(export, "_core_metrics", lambda view: [
-        {"label": "本期", "text": value, "raw": 1, "measure": "level", "ref": "D1"},
-        {"label": "对比期", "text": "2", "raw": 2, "measure": "level", "ref": "D1"},
-    ])
+    monkeypatch.setattr(
+        export,
+        "_core_metrics",
+        lambda view: [
+            {"label": "本期", "text": value, "raw": 1, "measure": "level", "ref": "D1"},
+            {"label": "对比期", "text": "2", "raw": 2, "measure": "level", "ref": "D1"},
+        ],
+    )
     view = {"report": {"title": "指标变化", "summary": "已发现变化。"}}
 
     assert export.to_pdf(view).startswith(b"%PDF")
@@ -67,10 +71,19 @@ def test_metric_card_paginates_without_losing_text(monkeypatch, drawn_text):
 
 def test_data_cell_paginates_without_losing_text(drawn_text):
     member = "成员起点" + "甲乙丙丁" * 1000 + "成员终点"
-    view = {"report": {"title": "指标变化", "summary": "已发现变化。"}, "datasets": [
-        {"ref": "D1", "kind": "governed", "title": "指标明细", "columns": ["成员", "值"],
-         "rows": [[member, 1], ["另一成员", 2]], "meta": {"units": {"值": {"kind": "level"}}}},
-    ]}
+    view = {
+        "report": {"title": "指标变化", "summary": "已发现变化。"},
+        "datasets": [
+            {
+                "ref": "D1",
+                "kind": "governed",
+                "title": "指标明细",
+                "columns": ["成员", "值"],
+                "rows": [[member, 1], ["另一成员", 2]],
+                "meta": {"units": {"值": {"kind": "level"}}},
+            },
+        ],
+    }
 
     assert export.to_pdf(view, datasets=["D1"]).startswith(b"%PDF")
     text = "".join(drawn_text)

@@ -85,8 +85,16 @@ def create_access_token(user_id: str, username: str, *, auth_time: int | None = 
     expires = min(now + timedelta(minutes=settings.access_token_minutes), session_expires).replace(microsecond=0)
     jti = uuid.uuid4().hex
     token = jwt.encode(
-        {"sub": user_id, "name": username, "iat": now, "iat_us": epoch_us(now), "auth_time": auth_time,
-         "exp": expires, "jti": jti, "aud": JWT_AUDIENCE},
+        {
+            "sub": user_id,
+            "name": username,
+            "iat": now,
+            "iat_us": epoch_us(now),
+            "auth_time": auth_time,
+            "exp": expires,
+            "jti": jti,
+            "aud": JWT_AUDIENCE,
+        },
         _jwt_key(settings.secret),
         algorithm=JWT_ALGORITHM,
     )

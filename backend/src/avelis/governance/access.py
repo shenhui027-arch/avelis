@@ -43,8 +43,9 @@ def domain_ids(session: Session, user: User) -> set[str]:
 
 
 def domain_role(session: Session, user: User, domain_id: str) -> str | None:
-    return session.scalar(select(DomainMember.role).where(DomainMember.domain_id == domain_id,
-                                                          DomainMember.user_id == user.id))
+    return session.scalar(
+        select(DomainMember.role).where(DomainMember.domain_id == domain_id, DomainMember.user_id == user.id)
+    )
 
 
 def require_domain_maintainer(session: Session, user: User, domain_id: str) -> None:
@@ -62,8 +63,9 @@ def require_domain_owner(session: Session, user: User, domain_id: str) -> None:
     raise Forbidden("需要该业务域负责人", domain_id=domain_id)
 
 
-def can_see_object(session: Session, user: User, object_type: str, object_id: str,
-                   allowed: set[str] | None = None) -> bool:
+def can_see_object(
+    session: Session, user: User, object_type: str, object_id: str, allowed: set[str] | None = None
+) -> bool:
     """列表、详情、工作台、审计共用的对象可见性：资产按业务域（含未归属策略）；指标按所属业务域；
     关联路径要两侧资产都可见；答案只给提问人；用户只能看自己。管理员可见全部。"""
     from avelis.models import Answer, Asset, Experience, JoinPath, Metric, MetricVersion
@@ -88,7 +90,8 @@ def can_see_object(session: Session, user: User, object_type: str, object_id: st
         path = session.get(JoinPath, object_id)
         return path is not None and all(
             (a := session.get(Asset, asset_id)) is not None and can_read_asset(session, user, a, allowed)
-            for asset_id in (path.left_asset_id, path.right_asset_id))
+            for asset_id in (path.left_asset_id, path.right_asset_id)
+        )
     if object_type == "answer":
         answer = session.get(Answer, object_id)
         return answer is not None and answer.asked_by == user.id

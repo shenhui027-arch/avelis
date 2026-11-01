@@ -23,10 +23,14 @@ def _expanded(api: Api, imported: dict) -> dict:
     """批次详情不内嵌原文、语句或候选，验收按分页接口读取。"""
     batch_id = imported["id"]
     first = imported["files"][0]
-    return {**imported, "language": first["language"], "filename": first["filename"],
-            "statements": api.get(f"/api/imports/{batch_id}/statements", params={"limit": 500})["items"],
-            "candidates": api.get(f"/api/imports/{batch_id}/candidates", params={"limit": 500})["items"],
-            "model_payload": api.get(f"/api/imports/{batch_id}/model-payload")}
+    return {
+        **imported,
+        "language": first["language"],
+        "filename": first["filename"],
+        "statements": api.get(f"/api/imports/{batch_id}/statements", params={"limit": 500})["items"],
+        "candidates": api.get(f"/api/imports/{batch_id}/candidates", params={"limit": 500})["items"],
+        "model_payload": api.get(f"/api/imports/{batch_id}/model-payload"),
+    }
 
 
 def confirmed_edges(job_id: str, status: str = "active"):
@@ -34,30 +38,55 @@ def confirmed_edges(job_id: str, status: str = "active"):
     from avelis.models import ImportJob, LineageEdge
 
     with session_scope() as s:
-        return [(e.origin, e.source_ref, e.source_column, e.target_ref, e.target_column, e.relation)
-                for e in s.scalars(select(LineageEdge).join(ImportJob, LineageEdge.import_job_id == ImportJob.id)
-                                   .where(ImportJob.batch_id == job_id, LineageEdge.status == status))]
+        return [
+            (e.origin, e.source_ref, e.source_column, e.target_ref, e.target_column, e.relation)
+            for e in s.scalars(
+                select(LineageEdge)
+                .join(ImportJob, LineageEdge.import_job_id == ImportJob.id)
+                .where(ImportJob.batch_id == job_id, LineageEdge.status == status)
+            )
+        ]
 
 
 def test_00_setup(stack, admin: Api):
     client, env, _ = stack
     pw = env["AVELIS_DEMO_USER_PASSWORD"]
-    admin.post("/api/users", {"username": "zhang", "display_name": "张敏", "password": pw, "roles": ["steward"]},
-               expect=201)
-    admin.post("/api/users", {"username": "wang", "display_name": "王强", "password": pw, "roles": ["analyst"]},
-               expect=201)
-    mysql = admin.post("/api/datasources", {
-        "name": "电商维表库（MySQL）", "kind": "mysql", "host": "127.0.0.1", "port": int(env["SHOP_MYSQL_PORT"]),
-        "options": {"databases": ["shop_dim"]},
-        "collect": {"username": "avelis_collector", "password": env["SHOP_MYSQL_COLLECTOR_PASSWORD"]}}, expect=201)
-    sr = admin.post("/api/datasources", {
-        "name": "演示 StarRocks", "kind": "starrocks", "host": "127.0.0.1", "port": int(env["SR_QUERY_PORT"]),
-        "options": {"databases": ["shop", "ads", "dim"], "catalogs": ["shop_mysql"],
-                    "catalog_databases": {"shop_mysql": ["shop_dim"]}},
-        "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
-        "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]}}, expect=201)
-    admin.post("/api/endpoint-aliases", {"datasource_id": mysql["id"], "host": "shop-mysql", "port": 3306},
-               expect=201)
+    admin.post(
+        "/api/users", {"username": "zhang", "display_name": "张敏", "password": pw, "roles": ["steward"]}, expect=201
+    )
+    admin.post(
+        "/api/users", {"username": "wang", "display_name": "王强", "password": pw, "roles": ["analyst"]}, expect=201
+    )
+    mysql = admin.post(
+        "/api/datasources",
+        {
+            "name": "电商维表库（MySQL）",
+            "kind": "mysql",
+            "host": "127.0.0.1",
+            "port": int(env["SHOP_MYSQL_PORT"]),
+            "options": {"databases": ["shop_dim"]},
+            "collect": {"username": "avelis_collector", "password": env["SHOP_MYSQL_COLLECTOR_PASSWORD"]},
+        },
+        expect=201,
+    )
+    sr = admin.post(
+        "/api/datasources",
+        {
+            "name": "演示 StarRocks",
+            "kind": "starrocks",
+            "host": "127.0.0.1",
+            "port": int(env["SR_QUERY_PORT"]),
+            "options": {
+                "databases": ["shop", "ads", "dim"],
+                "catalogs": ["shop_mysql"],
+                "catalog_databases": {"shop_mysql": ["shop_dim"]},
+            },
+            "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
+            "query": {"username": "avelis_reader", "password": env["SR_READER_PASSWORD"]},
+        },
+        expect=201,
+    )
+    admin.post("/api/endpoint-aliases", {"datasource_id": mysql["id"], "host": "shop-mysql", "port": 3306}, expect=201)
     admin.post(f"/api/datasources/{mysql['id']}/collect?wait=true")
     admin.post(f"/api/datasources/{sr['id']}/collect?wait=true")
     ctx.update(sr=sr["id"], admin=admin, zhang=Api(client, "zhang", pw), wang=Api(client, "wang", pw))
@@ -66,8 +95,12 @@ def test_00_setup(stack, admin: Api):
 def test_01_sql_file_multi_statement():
     zhang = ctx["zhang"]
     content = (FIXTURES / "etl_orders.sql").read_text(encoding="utf-8")
-    job = _expanded(zhang, zhang.post("/api/imports?wait=true", {
-        "datasource_id": ctx["sr"], "filename": "etl_orders.sql", "content": content}))
+    job = _expanded(
+        zhang,
+        zhang.post(
+            "/api/imports?wait=true", {"datasource_id": ctx["sr"], "filename": "etl_orders.sql", "content": content}
+        ),
+    )
     assert job["duplicate"] is False and job["language"] == "sql" and job["status"] == "done"
     kinds = [(s["statement_type"], s["status"], s["target"]) for s in job["statements"]]
     assert kinds[0][:2] == (None, "skipped") or kinds[0][1] == "skipped"  # USE
@@ -78,18 +111,48 @@ def test_01_sql_file_multi_statement():
     edges = confirmed_edges(job["id"])
     intermediate = confirmed_edges(job["id"], "intermediate")
     # 临时表串联：orders → tmp_paid → order_daily_net
-    assert ("import", "default_catalog.shop.orders", "paid_amount", "default_catalog.shop.tmp_paid", "paid_amount",
-            "value_direct") in intermediate
-    assert ("import", "default_catalog.shop.tmp_paid", "refund_amount", "default_catalog.ads.order_daily_net",
-            "net_amount", "value_aggregated") in intermediate
-    assert ("import", "default_catalog.shop.orders", "refund_amount", "default_catalog.ads.order_daily_net",
-            "net_amount", "value_aggregated") in edges
+    assert (
+        "import",
+        "default_catalog.shop.orders",
+        "paid_amount",
+        "default_catalog.shop.tmp_paid",
+        "paid_amount",
+        "value_direct",
+    ) in intermediate
+    assert (
+        "import",
+        "default_catalog.shop.tmp_paid",
+        "refund_amount",
+        "default_catalog.ads.order_daily_net",
+        "net_amount",
+        "value_aggregated",
+    ) in intermediate
+    assert (
+        "import",
+        "default_catalog.shop.orders",
+        "refund_amount",
+        "default_catalog.ads.order_daily_net",
+        "net_amount",
+        "value_aggregated",
+    ) in edges
     assert not any("default_catalog.shop.tmp_paid" in (edge[1], edge[3]) for edge in edges)
     # 跨库：MySQL 维表经 Catalog 进入 INSERT
-    assert ("import", "shop_mysql.shop_dim.dim_category", "category_name", "default_catalog.ads.category_daily",
-            "category_name", "value_direct") in edges
-    assert ("import", "default_catalog.shop.orders", "status", "default_catalog.shop.tmp_paid", None,
-            "filter") in intermediate
+    assert (
+        "import",
+        "shop_mysql.shop_dim.dim_category",
+        "category_name",
+        "default_catalog.ads.category_daily",
+        "category_name",
+        "value_direct",
+    ) in edges
+    assert (
+        "import",
+        "default_catalog.shop.orders",
+        "status",
+        "default_catalog.shop.tmp_paid",
+        None,
+        "filter",
+    ) in intermediate
     # 行号证据
     tmp = next(c for c in job["candidates"] if c["target"] == "default_catalog.shop.tmp_paid.paid_amount")
     assert tmp["evidence"]["lines"] == [5, 8] and tmp["status"] == "intermediate" and tmp["origin"] == "parsed"
@@ -101,8 +164,10 @@ def test_01_sql_file_multi_statement():
     assert {"default_catalog.ads.order_daily_net", "default_catalog.ads.category_daily"} <= design
 
     # 重复导入：返回原任务，不产生重复边
-    again = _expanded(zhang, zhang.post("/api/imports?wait=true", {
-        "datasource_id": ctx["sr"], "filename": "副本.sql", "content": content}))
+    again = _expanded(
+        zhang,
+        zhang.post("/api/imports?wait=true", {"datasource_id": ctx["sr"], "filename": "副本.sql", "content": content}),
+    )
     assert again["duplicate"] is True and again["id"] == job["id"]
     assert len(confirmed_edges(job["id"])) == len(edges)
 
@@ -110,8 +175,13 @@ def test_01_sql_file_multi_statement():
 def test_02_python_code_with_dataframe_and_dynamic_sql():
     zhang = ctx["zhang"]
     content = (FIXTURES / "etl_daily_orders.py").read_text(encoding="utf-8")
-    job = _expanded(zhang, zhang.post("/api/imports?wait=true", {
-        "datasource_id": ctx["sr"], "filename": "etl_daily_orders.py", "content": content}))
+    job = _expanded(
+        zhang,
+        zhang.post(
+            "/api/imports?wait=true",
+            {"datasource_id": ctx["sr"], "filename": "etl_daily_orders.py", "content": content},
+        ),
+    )
     assert job["language"] == "python" and job["status"] == "needs_params"
     by_method = {}
     for s in job["statements"]:
@@ -138,11 +208,16 @@ def test_02_python_code_with_dataframe_and_dynamic_sql():
     rewritten = zhang.put(f"/api/imports/{previous_id}/params?wait=true", {"params": {"dt": "2026-09-15"}})
     assert rewritten["id"] != previous_id
     job = _expanded(zhang, zhang.get(f"/api/imports/{rewritten['id']}"))
-    dynamic = next(s for s in job["statements"] if s["method"] == dynamic["method"]
-                   and s["lines"] == dynamic["lines"])
+    dynamic = next(s for s in job["statements"] if s["method"] == dynamic["method"] and s["lines"] == dynamic["lines"])
     assert dynamic["status"] == "parsed" and "'2026-09-15'" in dynamic["sql_text"]
-    assert ("import", "default_catalog.shop.orders", "paid_amount", "default_catalog.ads.region_snapshot",
-            "paid_total", "value_aggregated") in confirmed_edges(job["id"])
+    assert (
+        "import",
+        "default_catalog.shop.orders",
+        "paid_amount",
+        "default_catalog.ads.region_snapshot",
+        "paid_total",
+        "value_aggregated",
+    ) in confirmed_edges(job["id"])
     assert job["status"] == "needs_review"
     ctx["py_job"] = job
 
@@ -158,48 +233,87 @@ def test_03_human_decisions():
     edges_before = sorted(confirmed_edges(job["id"]), key=repr)
     admin = ctx["admin"]  # 全量审计只有管理员可读
     audit_before = admin.get("/api/audit", params={"limit": 1000})
-    ctx["wang"].post(f"/api/candidates/{agg_edge['id']}/decision", {"decision": "reject", "reason": "x"},
-                     expect=403)
+    ctx["wang"].post(f"/api/candidates/{agg_edge['id']}/decision", {"decision": "reject", "reason": "x"}, expect=403)
     unchanged = _expanded(zhang, zhang.get(f"/api/imports/{job['id']}"))
     assert next(c for c in unchanged["candidates"] if c["id"] == agg_edge["id"]) == agg_edge
     assert sorted(confirmed_edges(job["id"]), key=repr) == edges_before
     assert admin.get("/api/audit", params={"limit": 1000}) == audit_before
     zhang.post(f"/api/candidates/{table_edge['id']}/decision", {"decision": "accept"}, expect=422)  # 缺理由
-    zhang.post(f"/api/candidates/{table_edge['id']}/decision",
-               {"decision": "reject", "reason": "orders 只用于关联，不是数据来源"})
-    zhang.post(f"/api/candidates/{agg_edge['id']}/decision",
-               {"decision": "accept", "reason": "item_total = SUM(item_amount)，与代码一致"})
+    zhang.post(
+        f"/api/candidates/{table_edge['id']}/decision",
+        {"decision": "reject", "reason": "orders 只用于关联，不是数据来源"},
+    )
+    zhang.post(
+        f"/api/candidates/{agg_edge['id']}/decision",
+        {"decision": "accept", "reason": "item_total = SUM(item_amount)，与代码一致"},
+    )
     # 修改一条解析边：关系类型更正
-    parsed = next(c for c in job["candidates"] if c["origin"] == "parsed"
-                  and c["target"] == "default_catalog.ads.refund_daily.refund_date")
-    job = _expanded(zhang, zhang.post(f"/api/candidates/{parsed['id']}/decision",
-                     {"decision": "modify", "reason": "refund_date 作为分组键输出", "relation": "group_by"}))
+    parsed = next(
+        c
+        for c in job["candidates"]
+        if c["origin"] == "parsed" and c["target"] == "default_catalog.ads.refund_daily.refund_date"
+    )
+    job = _expanded(
+        zhang,
+        zhang.post(
+            f"/api/candidates/{parsed['id']}/decision",
+            {"decision": "modify", "reason": "refund_date 作为分组键输出", "relation": "group_by"},
+        ),
+    )
     states = {c["id"]: c for c in job["candidates"]}
     assert states[table_edge["id"]]["status"] == "rejected" and states[table_edge["id"]]["lineage_edge_id"] is None
     assert states[agg_edge["id"]]["status"] == "accepted" and states[agg_edge["id"]]["decided_by"]
     assert states[parsed["id"]]["status"] == "modified" and states[parsed["id"]]["modified"] == {"relation": "group_by"}
     edges = confirmed_edges(job["id"])
-    assert ("model_confirmed", "default_catalog.shop.order_items", "item_amount", "default_catalog.ads.item_daily",
-            "item_total", "value_aggregated") in edges
-    assert not any(e[1] == "default_catalog.shop.orders" and e[3] == "default_catalog.ads.item_daily"
-                   and e[5] == "table" for e in edges)
-    assert ("import_manual", "default_catalog.shop.refund_raw", "refund_date", "default_catalog.ads.refund_daily",
-            "refund_date", "group_by") in edges
-    assert ("import", "default_catalog.shop.refund_raw", "refund_date", "default_catalog.ads.refund_daily",
-            "refund_date", "value_direct") not in edges  # 原解析边已失效
+    assert (
+        "model_confirmed",
+        "default_catalog.shop.order_items",
+        "item_amount",
+        "default_catalog.ads.item_daily",
+        "item_total",
+        "value_aggregated",
+    ) in edges
+    assert not any(
+        e[1] == "default_catalog.shop.orders" and e[3] == "default_catalog.ads.item_daily" and e[5] == "table"
+        for e in edges
+    )
+    assert (
+        "import_manual",
+        "default_catalog.shop.refund_raw",
+        "refund_date",
+        "default_catalog.ads.refund_daily",
+        "refund_date",
+        "group_by",
+    ) in edges
+    assert (
+        "import",
+        "default_catalog.shop.refund_raw",
+        "refund_date",
+        "default_catalog.ads.refund_daily",
+        "refund_date",
+        "value_direct",
+    ) not in edges  # 原解析边已失效
     # 仍有未处理的候选 → 任务待复核；全部处理后完成
     pending = [c for c in job["candidates"] if c["status"] == "pending"]
     for c in pending:
-        job = _expanded(zhang, zhang.post(f"/api/candidates/{c['id']}/decision",
-                                         {"decision": "reject", "reason": "演示：不采纳"}))
+        job = _expanded(
+            zhang, zhang.post(f"/api/candidates/{c['id']}/decision", {"decision": "reject", "reason": "演示：不采纳"})
+        )
     assert job["status"] == "done"
 
 
 def test_04_shell_script_and_upload(stack):
     zhang = ctx["zhang"]
     raw = (FIXTURES / "load_snapshot.sh").read_bytes()
-    job = _expanded(zhang, zhang.call("POST", "/api/imports/upload?wait=true", data={"datasource_id": ctx["sr"]},
-                     files={"file": ("load_snapshot.sh", raw, "text/x-sh")}))
+    job = _expanded(
+        zhang,
+        zhang.call(
+            "POST",
+            "/api/imports/upload?wait=true",
+            data={"datasource_id": ctx["sr"]},
+            files={"file": ("load_snapshot.sh", raw, "text/x-sh")},
+        ),
+    )
     assert job["language"] == "shell" and job["status"] == "needs_params"
     targets = {s["target"] for s in job["statements"]}
     assert "default_catalog.ads.refund_count" in targets
@@ -208,8 +322,10 @@ def test_04_shell_script_and_upload(stack):
     assert rewritten["id"] != previous_id
     job = _expanded(zhang, zhang.get(f"/api/imports/{rewritten['id']}"))
     assert job["status"] == "done"
-    assert {s["target"] for s in job["statements"]} >= {"default_catalog.ads.region_paid_snapshot",
-                                                         "default_catalog.ads.refund_count"}
+    assert {s["target"] for s in job["statements"]} >= {
+        "default_catalog.ads.region_paid_snapshot",
+        "default_catalog.ads.refund_count",
+    }
 
 
 def test_05_import_does_not_touch_observed_lineage():
@@ -234,14 +350,32 @@ def test_06_real_model_candidates_need_confirmation(stack, admin: Api):
     key, name = env.get("AVELIS_MODEL_API_KEY"), env.get("AVELIS_MODEL_NAME")
     if not key or not name:
         pytest.skip("未配置模型密钥")
-    provider = admin.post("/api/model-providers", {
-        "code": "deepseek", "preset": "deepseek", "base_url": env.get("AVELIS_MODEL_BASE_URL") or None,
-        "api_key": key, "models": [{"id": name, "enabled": True}]}, expect=201)
-    admin.put("/api/model-settings", {"assignments": {"import": {"provider_id": provider["id"], "model_id": name}},
-                                      "policy": {"send_code": True, "send_results": False}})
+    provider = admin.post(
+        "/api/model-providers",
+        {
+            "code": "deepseek",
+            "preset": "deepseek",
+            "base_url": env.get("AVELIS_MODEL_BASE_URL") or None,
+            "api_key": key,
+            "models": [{"id": name, "enabled": True}],
+        },
+        expect=201,
+    )
+    admin.put(
+        "/api/model-settings",
+        {
+            "assignments": {"import": {"provider_id": provider["id"], "model_id": name}},
+            "policy": {"send_code": True, "send_results": False},
+        },
+    )
     content = (FIXTURES / "etl_daily_orders.py").read_text(encoding="utf-8").replace("item_rollup", "item_rollup_v2")
-    job = _expanded(ctx["zhang"], ctx["zhang"].post("/api/imports?wait=true", {
-        "datasource_id": ctx["sr"], "filename": "etl_v2.py", "content": content, "params": {"dt": "2026-09-15"}}))
+    job = _expanded(
+        ctx["zhang"],
+        ctx["zhang"].post(
+            "/api/imports?wait=true",
+            {"datasource_id": ctx["sr"], "filename": "etl_v2.py", "content": content, "params": {"dt": "2026-09-15"}},
+        ),
+    )
     payload = job["model_payload"][0]
     assert payload["sent_to"] == f"deepseek:{name}" and "Pa55word" not in payload["text"]
     model = [c for c in job["candidates"] if c["origin"] == "model"]
@@ -250,5 +384,6 @@ def test_06_real_model_candidates_need_confirmation(stack, admin: Api):
     assert not [e for e in confirmed_edges(job["id"]) if e[0] == "model_confirmed"]
     # 模型输出经过校验：来源表都是已采集的表
     assert all(c["source_ref"].startswith("default_catalog.shop.") for c in model)
-    admin.put("/api/model-settings", {"assignments": {"import": None},
-                                      "policy": {"send_code": False, "send_results": False}})
+    admin.put(
+        "/api/model-settings", {"assignments": {"import": None}, "policy": {"send_code": False, "send_results": False}}
+    )

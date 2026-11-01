@@ -96,15 +96,22 @@ def route(session: Session, user: User, sql_text: str) -> ExploreSource:
         if not sources:
             raise ExploreRejected("binding", "asset_not_visible", f"表 {label} 不存在或当前用户不可见")
         if len(sources) > 1:
-            raise ExploreRejected("binding", "ambiguous_table", f"表 {label} 在多个数据源里都有，请写出 catalog.库.表",
-                                  sorted(f"{a.catalog_name}.{a.db_name}.{a.name}（{ds.name}）" for a, ds in hits))
+            raise ExploreRejected(
+                "binding",
+                "ambiguous_table",
+                f"表 {label} 在多个数据源里都有，请写出 catalog.库.表",
+                sorted(f"{a.catalog_name}.{a.db_name}.{a.name}（{ds.name}）" for a, ds in hits),
+            )
         chosen.update(sources)
     if not chosen:
         raise ExploreRejected("syntax", "no_source", "每个查询块都必须有表源（FROM 已采集的表）")
     if len(chosen) > 1:
-        raise ExploreRejected("binding", "cross_datasource",
-                              "一条探索查询只能用同一个数据源的表："
-                              f"{'、'.join(sorted(d.name for d in chosen.values()))}，请分别查询后用计算工具合并")
+        raise ExploreRejected(
+            "binding",
+            "cross_datasource",
+            "一条探索查询只能用同一个数据源的表："
+            f"{'、'.join(sorted(d.name for d in chosen.values()))}，请分别查询后用计算工具合并",
+        )
     return explore_source(session, next(iter(chosen)))
 
 
@@ -122,9 +129,15 @@ def resolver(session: Session, user: User, source: ExploreSource):
         if not db:
             raise ExploreRejected("binding", "table_unqualified", f"表 {name} 需要写出库名（库.表）")
         catalog = catalog or source.default_catalog
-        asset = session.scalar(select(Asset).where(
-            Asset.datasource_id == source.datasource.id, Asset.catalog_name == catalog, Asset.db_name == db,
-            Asset.name == name, Asset.status == "active"))
+        asset = session.scalar(
+            select(Asset).where(
+                Asset.datasource_id == source.datasource.id,
+                Asset.catalog_name == catalog,
+                Asset.db_name == db,
+                Asset.name == name,
+                Asset.status == "active",
+            )
+        )
         if asset is None or not access.can_read_asset(session, user, asset, allowed):
             raise deny(label)
         version = session.get(AssetVersion, asset.current_version_id) if asset.current_version_id else None
@@ -157,10 +170,28 @@ def resolver(session: Session, user: User, source: ExploreSource):
             if relkind != "r":
                 raise deny(label, "kind_not_allowed", "不是普通表")
             use_only = True
-        columns = tuple(BoundColumn(c.name, c.data_type, c.comment) for c in session.scalars(
-            select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id).order_by(ColumnVersion.ordinal)))
-        return BoundTable(asset.id, version.id, asset.physical_id, catalog, db, name, asset.kind, columns, use_only,
-                          definition, upstream_versions)
+        columns = tuple(
+            BoundColumn(c.name, c.data_type, c.comment)
+            for c in session.scalars(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == version.id)
+                .order_by(ColumnVersion.ordinal)
+            )
+        )
+        return BoundTable(
+            asset.id,
+            version.id,
+            asset.physical_id,
+            catalog,
+            db,
+            name,
+            asset.kind,
+            columns,
+            use_only,
+            definition,
+            upstream_versions,
+        )
+
     return resolve
 
 
@@ -170,9 +201,15 @@ def _unresolved_lineage(session: Session, closure: dict[str, Asset]) -> str | No
     from avelis.models import LineageEdge
 
     for asset in closure.values():
-        edges = list(session.execute(select(LineageEdge.source_asset_id, LineageEdge.source_ref).where(
-            LineageEdge.target_asset_id == asset.id, LineageEdge.status == "active",
-            LineageEdge.origin.in_(("parsed", "manual")))))
+        edges = list(
+            session.execute(
+                select(LineageEdge.source_asset_id, LineageEdge.source_ref).where(
+                    LineageEdge.target_asset_id == asset.id,
+                    LineageEdge.status == "active",
+                    LineageEdge.origin.in_(("parsed", "manual")),
+                )
+            )
+        )
         unbound = [ref for source, ref in edges if source is None]
         if unbound:
             return f"{asset.db_name}.{asset.name} ← {unbound[0]}"
@@ -215,7 +252,9 @@ def recheck_access(session: Session, user: User, validated: Validated) -> None:
             if up is None or up.status != "active" or not access.can_read_asset(session, user, up, allowed):
                 raise ExploreRejected("binding", "access_revoked", f"视图 {t.qualified} 的上游当前已无权访问")
             if up.current_version_id != version_id:
-                raise ExploreRejected("binding", "asset_changed", f"视图 {t.qualified} 的上游已有新版本，请重新提交查询")
+                raise ExploreRejected(
+                    "binding", "asset_changed", f"视图 {t.qualified} 的上游已有新版本，请重新提交查询"
+                )
 
 
 def units(columns: list[OutputColumn]) -> dict[str, dict]:
@@ -224,34 +263,79 @@ def units(columns: list[OutputColumn]) -> dict[str, dict]:
 
 
 def evidence(columns: list[OutputColumn]) -> dict[str, dict]:
-    return {c.name: {"eligible": c.eligible, "label_ok": c.label_ok, "assumption": c.assumption,
-                     "expression": c.expression, "deps": c.deps} for c in columns}
+    return {
+        c.name: {
+            "eligible": c.eligible,
+            "label_ok": c.label_ok,
+            "assumption": c.assumption,
+            "expression": c.expression,
+            "deps": c.deps,
+        }
+        for c in columns
+    }
 
 
 def execution_identity(session: Session, ds: Datasource) -> str | None:
-    cred = session.scalar(select(DatasourceCredential).where(DatasourceCredential.datasource_id == ds.id,
-                                                             DatasourceCredential.purpose == "query"))
+    cred = session.scalar(
+        select(DatasourceCredential).where(
+            DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == "query"
+        )
+    )
     return cred.username if cred else None
 
 
 def digest(result: QueryResult) -> str:
-    return hashlib.sha256(json.dumps([result.columns, result.rows], ensure_ascii=False, default=str).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps([result.columns, result.rows], ensure_ascii=False, default=str).encode()
+    ).hexdigest()
 
 
-def record(session: Session, user: User, run_id: str, *, step: int, source: ExploreSource | None, purpose: str,
-           outcome: str, validated: Validated | None = None, error: ExploreRejected | QueryError | None = None,
-           result: QueryResult | None = None, limits: dict | None = None, identity: str | None = None) -> None:
-    detail: dict[str, Any] = {"run_id": run_id, "step": step, "purpose": purpose, "outcome": outcome,
-                              "sent_to_database": outcome in ("ok", "failed")}
+def record(
+    session: Session,
+    user: User,
+    run_id: str,
+    *,
+    step: int,
+    source: ExploreSource | None,
+    purpose: str,
+    outcome: str,
+    validated: Validated | None = None,
+    error: ExploreRejected | QueryError | None = None,
+    result: QueryResult | None = None,
+    limits: dict | None = None,
+    identity: str | None = None,
+) -> None:
+    detail: dict[str, Any] = {
+        "run_id": run_id,
+        "step": step,
+        "purpose": purpose,
+        "outcome": outcome,
+        "sent_to_database": outcome in ("ok", "failed"),
+    }
     if source is not None:
-        detail.update(datasource_id=source.datasource.id, engine=source.datasource.kind,
-                      engine_version=(source.datasource.server_identity or {}).get("version"),
-                      profile=f"{source.profile.engine}/{source.profile.version}", dialect=source.profile.dialect)
+        detail.update(
+            datasource_id=source.datasource.id,
+            engine=source.datasource.kind,
+            engine_version=(source.datasource.server_identity or {}).get("version"),
+            profile=f"{source.profile.engine}/{source.profile.version}",
+            dialect=source.profile.dialect,
+        )
     if validated is not None:
-        detail.update(sql=validated.sql, sqlglot=validated.sqlglot, row_limit=validated.limit,
-                      assets=[{"asset_id": t.asset_id, "asset_version_id": t.asset_version_id,
-                               "physical_id": t.physical_id, "qualified": t.qualified} for t in validated.tables],
-                      columns=[{"name": c.name, "deps": c.deps} for c in validated.columns])
+        detail.update(
+            sql=validated.sql,
+            sqlglot=validated.sqlglot,
+            row_limit=validated.limit,
+            assets=[
+                {
+                    "asset_id": t.asset_id,
+                    "asset_version_id": t.asset_version_id,
+                    "physical_id": t.physical_id,
+                    "qualified": t.qualified,
+                }
+                for t in validated.tables
+            ],
+            columns=[{"name": c.name, "deps": c.deps} for c in validated.columns],
+        )
     if isinstance(error, ExploreRejected):
         detail.update(stage=error.stage, code=error.code, message=error.message)
     elif isinstance(error, QueryError):
@@ -271,5 +355,16 @@ def record(session: Session, user: User, run_id: str, *, step: int, source: Expl
     audit.record(session, user, "analysis.explore", "analysis_run", run_id, **detail)
 
 
-__all__ = ["ExploreRejected", "ExploreSource", "evidence", "explore_source", "live_check", "record", "route",
-           "recheck_access", "resolver", "units", "validate"]
+__all__ = [
+    "ExploreRejected",
+    "ExploreSource",
+    "evidence",
+    "explore_source",
+    "live_check",
+    "record",
+    "route",
+    "recheck_access",
+    "resolver",
+    "units",
+    "validate",
+]

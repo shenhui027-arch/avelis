@@ -20,8 +20,13 @@ def test_compiler_grain_error_preserves_template_and_dynamic_grain(locale):
     with pytest.raises(Invalid) as caught:
         compiler.compile_metric_query(
             version=SimpleNamespace(dimensions=[], data_grain="business_grain_a"),
-            aliases={}, steps=[], intent=SimpleNamespace(time_grain=None),
-            max_rows=10, time_type="date", dialect="postgres")
+            aliases={},
+            steps=[],
+            intent=SimpleNamespace(time_grain=None),
+            max_rows=10,
+            time_type="date",
+            dialect="postgres",
+        )
     message = caught.value.message
     assert isinstance(message, Msg)
     assert message.template == "未知数据粒度 {data_grain}"
@@ -47,11 +52,14 @@ def test_fulfil_renders_governance_error_before_saving_answer(monkeypatch, local
 
 
 @pytest.mark.parametrize("locale", ["zh-TW", "en"])
-@pytest.mark.parametrize("case,source", [
-    ("unknown_grain", "时间粒度未知，无法判断期间覆盖度"),
-    ("reversed_window", "覆盖度的开始日期不能晚于结束日期"),
-    ("mismatched_period", "期间列与已声明的时间粒度不一致，无法判断覆盖度"),
-])
+@pytest.mark.parametrize(
+    "case,source",
+    [
+        ("unknown_grain", "时间粒度未知，无法判断期间覆盖度"),
+        ("reversed_window", "覆盖度的开始日期不能晚于结束日期"),
+        ("mismatched_period", "期间列与已声明的时间粒度不一致，无法判断覆盖度"),
+    ],
+)
 def test_coverage_diagnostics_translate_before_saving_tool_steps(monkeypatch, locale, case, source):
     from tests.unit.test_analysis_toolbox import make_box
 
@@ -62,8 +70,9 @@ def test_coverage_diagnostics_translate_before_saving_tool_steps(monkeypatch, lo
             return calc.period_labels(date(2026, 1, 1), date(2026, 1, 31), "hour")
         if case == "reversed_window":
             return calc.period_labels(date(2026, 2, 1), date(2026, 1, 31), "day")
-        return calc.coverage([{"period": "2026-01-15"}], [], "period", date(2026, 1, 1),
-                             date(2026, 1, 31), grain="month")
+        return calc.coverage(
+            [{"period": "2026-01-15"}], [], "period", date(2026, 1, 1), date(2026, 1, 31), grain="month"
+        )
 
     with locale_context(locale):
         output = json.loads(box._guard("coverage", {}, reject))
@@ -77,8 +86,13 @@ def test_coverage_missing_version_keeps_business_code_in_saved_translation(monke
     from tests.unit.test_analysis_toolbox import make_box
 
     box = make_box(monkeypatch=monkeypatch)
-    dataset = box._dataset("governed", "业务指标甲", ["period", "value"], [["2026-01-01", 10]], meta={
-        "intent": {"metric_codes": ["业务指标甲"], "time_grain": "day"}, "versions": {}})
+    dataset = box._dataset(
+        "governed",
+        "业务指标甲",
+        ["period", "value"],
+        [["2026-01-01", 10]],
+        meta={"intent": {"metric_codes": ["业务指标甲"], "time_grain": "day"}, "versions": {}},
+    )
     with locale_context(locale):
         output = json.loads(box.coverage(dataset=f"D{dataset.seq}"))
     assert "业务指标甲" in output["error"]
@@ -149,8 +163,9 @@ def test_answer_cache_keeps_request_language_separate(monkeypatch):
 @pytest.mark.parametrize("locale", ["zh-TW", "en"])
 def test_zero_business_days_note_follows_request_language(locale):
     with locale_context(locale):
-        output = calc.calendar_adjust(10, 10, (date(2026, 1, 3), date(2026, 1, 4)),
-                                      (date(2025, 12, 27), date(2025, 12, 28)), holidays=set())
+        output = calc.calendar_adjust(
+            10, 10, (date(2026, 1, 3), date(2026, 1, 4)), (date(2025, 12, 27), date(2025, 12, 28)), holidays=set()
+        )
     assert "0" in output["business_days_note"]
     assert "工作日数为 0" not in output["business_days_note"]
     assert "上期工作日均值不可得" not in output["business_days_note"]
@@ -158,14 +173,21 @@ def test_zero_business_days_note_follows_request_language(locale):
 
 def test_dataset_labels_translate_system_suffixes_without_changing_saved_columns():
     metric = SimpleNamespace(name="业务指标甲")
-    version = SimpleNamespace(metric_id="metric_a", dimensions=[], kind="base", unit="元",
-                              unit_scale=1, value_kind="level", polarity=None)
+    version = SimpleNamespace(
+        metric_id="metric_a", dimensions=[], kind="base", unit="元", unit_scale=1, value_kind="level", polarity=None
+    )
     store = {(MetricVersion, "version_a"): version, (Metric, "metric_a"): metric}
     columns = ["业务指标甲", "业务指标甲·上一自然期", "业务指标甲·变化", "业务指标甲·变化率"]
     saved = {column: "业务指标甲·本期" if column == metric.name else column for column in columns}
-    dataset = SimpleNamespace(kind="governed", columns=columns, meta={
-        "versions": {"metric_a": "version_a"}, "intent": {"compare": "previous_calendar"},
-        "column_labels": saved})
+    dataset = SimpleNamespace(
+        kind="governed",
+        columns=columns,
+        meta={
+            "versions": {"metric_a": "version_a"},
+            "intent": {"compare": "previous_calendar"},
+            "column_labels": saved,
+        },
+    )
     with locale_context("en"):
         meta = dataset_meta(SimpleNamespace(get=lambda model, key: store.get((model, key))), dataset)
     assert dataset.columns == columns and dataset.meta["column_labels"] == saved
@@ -181,12 +203,22 @@ def test_export_api_passes_language_projection_to_metadata_renderer(monkeypatch)
     from avelis.api import analysis as api
 
     metric = SimpleNamespace(name="业务指标甲")
-    version = SimpleNamespace(metric_id="metric_a", dimensions=[], kind="base", unit="元",
-                              unit_scale=1, value_kind="level", polarity=None)
+    version = SimpleNamespace(
+        metric_id="metric_a", dimensions=[], kind="base", unit="元", unit_scale=1, value_kind="level", polarity=None
+    )
     store = {(MetricVersion, "version_a"): version, (Metric, "metric_a"): metric}
-    dataset = SimpleNamespace(seq=1, kind="governed", columns=[metric.name], rows=[[10]], meta={
-        "versions": {"metric_a": "version_a"}, "intent": {"compare": "previous_calendar"},
-        "units": {metric.name: {"kind": "level"}}, "column_labels": {metric.name: "业务指标甲·本期"}})
+    dataset = SimpleNamespace(
+        seq=1,
+        kind="governed",
+        columns=[metric.name],
+        rows=[[10]],
+        meta={
+            "versions": {"metric_a": "version_a"},
+            "intent": {"compare": "previous_calendar"},
+            "units": {metric.name: {"kind": "level"}},
+            "column_labels": {metric.name: "业务指标甲·本期"},
+        },
+    )
     session = SimpleNamespace(get=lambda model, key: store.get((model, key)), scalars=lambda _: [dataset])
     monkeypatch.setattr(api.analysis, "visible_run", lambda *_: SimpleNamespace(id="run_a", status="succeeded"))
     monkeypatch.setattr(api.analysis, "run_view", lambda *_a, **_k: {"datasets": [{"ref": "D1"}]})
@@ -197,8 +229,9 @@ def test_export_api_passes_language_projection_to_metadata_renderer(monkeypatch)
         return meta
 
     monkeypatch.setattr(api, "_export_metadata", export_metadata)
-    monkeypatch.setattr(api.export, "to_markdown", lambda view, **_: export._column_label(
-        view["datasets"][0], metric.name))
+    monkeypatch.setattr(
+        api.export, "to_markdown", lambda view, **_: export._column_label(view["datasets"][0], metric.name)
+    )
     with locale_context("en"):
         response = api.export_run("run_a", format="md", audience="brief", user=None, session=session)
     assert len(rendered) == 1

@@ -1,11 +1,14 @@
-"""分析智能体评测运行器（ADR 0009 第 5 点，最小版本）。
+(
+    """分析智能体评测运行器（ADR 0009 第 5 点，最小版本）。
 
-  uv run --project backend python scripts/eval_analysis.py --repeat 2       串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
+  uv run --project backend python scripts/eval_analysis.py --repeat 2       """
+    """串行跑完评测集（backend/tests/eval/analysis_questions.yaml）
   uv run --project backend python scripts/eval_analysis.py --repeat 2 --resume .demo/eval/<时间>.json
                                                续跑：沿用上次已有真实结果的运行，只重跑登录失效（401）与没跑到的
   uv run --project backend python scripts/eval_analysis.py --only d01,n01   只跑部分题
   uv run --project backend python scripts/eval_analysis.py --rescore .demo/eval/<时间>.json
-                                               按当前题目定义对已保存的运行重新判分（不调用模型），写 <时间>-rescored.json / .md
+                                               按当前题目定义对已保存的运行重新判分（不调用模型），"""
+    """写 <时间>-rescored.json / .md
 （用后端的依赖环境运行：判分读 YAML、发起分析都需要后端依赖。）
 
 在演示环境上运行（合成电商数据集已灌入、元数据库已有演示口径），用 .env 中已授权用于验收的模型。
@@ -13,6 +16,7 @@
 超时）时重跑一次。每题开始前重新登录（访问令牌 30 分钟过期，整轮评测超过这个时长）。
 结果写到 .demo/eval/<时间>.json，并生成同名 Markdown 汇总（总体与分类的比例、重复运行的稳定性）。
 """
+)
 
 from __future__ import annotations
 
@@ -53,8 +57,13 @@ def _login(client, username: str, password: str) -> dict[str, str]:
 def _ask(client, headers: dict[str, str], question: dict) -> dict | None:
     """发起一次分析并取回运行详情；发不出去或接口报错时返回 None（判分记为没完成）。"""
     try:
-        resp = client.post("/api/analysis/runs", params={"wait": "true"}, headers=headers, timeout=WAIT_SECONDS,
-                           json={"question": question["question"], "window": question["window"]})
+        resp = client.post(
+            "/api/analysis/runs",
+            params={"wait": "true"},
+            headers=headers,
+            timeout=WAIT_SECONDS,
+            json={"question": question["question"], "window": question["window"]},
+        )
     except Exception as exc:  # noqa: BLE001 - 传输层错误
         return {"status": "failed", "error": f"ConnectionError: {exc}"}
     if resp.status_code >= 400:
@@ -70,8 +79,11 @@ def _confirm_all(client, headers: dict[str, str], run: dict | None) -> dict | No
     deadline = time.monotonic() + WAIT_SECONDS
     while run and run.get("status") == "waiting" and (run.get("pending") or {}).get("kind") == "assumptions":
         items = (run.get("proposal") or {}).get("items") or []
-        resp = client.post(f"/api/analysis/runs/{run['id']}/resume", headers=headers,
-                           json={"decisions": [{"item_id": i["id"], "decision": "confirmed"} for i in items]})
+        resp = client.post(
+            f"/api/analysis/runs/{run['id']}/resume",
+            headers=headers,
+            json={"decisions": [{"item_id": i["id"], "decision": "confirmed"} for i in items]},
+        )
         if resp.status_code >= 400:
             return {**run, "status": "failed", "error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
         jobs.run_and_wait(resp.json()["budget"]["job_id"], deadline - time.monotonic())
@@ -93,8 +105,9 @@ def reusable(saved: dict) -> dict[tuple[str, int], tuple[dict, dict]]:
     return out
 
 
-def run_questions(client, questions: list[dict], repeat: int, password: str,
-                  reuse: dict | None = None) -> tuple[list[dict], list[dict]]:
+def run_questions(
+    client, questions: list[dict], repeat: int, password: str, reuse: dict | None = None
+) -> tuple[list[dict], list[dict]]:
     from tests.eval.scoring import score, transport_error
 
     results, runs = [], []
@@ -112,25 +125,36 @@ def run_questions(client, questions: list[dict], repeat: int, password: str,
             if retried:
                 run = _ask(client, headers, q)
             run = _confirm_all(client, headers, run)
-            result = {**score(q, run), "holdout": bool(q.get("holdout")), "repeat": attempt, "retried": retried,
-                      "seconds": round(time.monotonic() - began, 1),
-                      "run_id": (run or {}).get("id"), "error": (run or {}).get("error"),
-                      "tool_calls": (((run or {}).get("budget") or {}).get("used") or {}).get("tool_calls"),
-                      **({"resumed": True} if reuse is not None else {})}
+            result = {
+                **score(q, run),
+                "holdout": bool(q.get("holdout")),
+                "repeat": attempt,
+                "retried": retried,
+                "seconds": round(time.monotonic() - began, 1),
+                "run_id": (run or {}).get("id"),
+                "error": (run or {}).get("error"),
+                "tool_calls": (((run or {}).get("budget") or {}).get("used") or {}).get("tool_calls"),
+                **({"resumed": True} if reuse is not None else {}),
+            }
             results.append(result)
             runs.append({"id": q["id"], "repeat": attempt, "run": run})
-            print(f"[{attempt}/{repeat}] {q['id']} {q['category']}: {'通过' if result['passed'] else '未通过'}"
-                  f"（{result['status']}，{result['seconds']}s）" + ("，续跑" if reuse is not None else ""), flush=True)
+            print(
+                f"[{attempt}/{repeat}] {q['id']} {q['category']}: {'通过' if result['passed'] else '未通过'}"
+                f"（{result['status']}，{result['seconds']}s）" + ("，续跑" if reuse is not None else ""),
+                flush=True,
+            )
     return results, runs
 
 
 def code_version() -> dict:
     """评测结果里记下代码版本（manifest 要求）：提交与工作区是否有未提交的改动。"""
+
     def git(*args: str) -> str:
         try:
             return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             return ""
+
     return {"git_sha": git("rev-parse", "HEAD") or None, "git_dirty": bool(git("status", "--porcelain"))}
 
 
@@ -178,29 +202,46 @@ def main() -> int:
             os.environ.setdefault(key, value)
     data, data_v2, scorer_v2 = load_question_set(args.questions, args.truth)
     wanted = {x.strip() for x in args.only.split(",") if x.strip()}
-    questions = [q for q in data["questions"] if (not wanted or q["id"] in wanted)
-                 and (args.holdout or not q.get("holdout"))]
+    questions = [
+        q for q in data["questions"] if (not wanted or q["id"] in wanted) and (args.holdout or not q.get("holdout"))
+    ]
     started = datetime.now()
     reuse = reusable(json.loads(args.resume.read_text(encoding="utf-8"))) if args.resume else None
     results, runs = run_questions(_client(env), questions, args.repeat, env["AVELIS_DEMO_USER_PASSWORD"], reuse)
     summary = summarize(results)
-    meta = {"started": started.isoformat(timespec="seconds"), "version": data.get("version"), "repeat": args.repeat,
-            "questions": [q["id"] for q in questions], **code_version(),
-            "scorers": {"v1": "scoring.py", "v2": scorer_v2.VERSION}}
+    meta = {
+        "started": started.isoformat(timespec="seconds"),
+        "version": data.get("version"),
+        "repeat": args.repeat,
+        "questions": [q["id"] for q in questions],
+        **code_version(),
+        "scorers": {"v1": "scoring.py", "v2": scorer_v2.VERSION},
+    }
     if args.questions:
         meta.update(questions_file=str(args.questions), truth_file=str(args.truth))
     results_v2 = score_v2({q["id"]: q for q in data_v2["questions"]}, runs, scorer_v2)
     if args.resume:
-        meta.update(resumed_from=args.resume.name, reused=sum(1 for r in results if not r.get("resumed")),
-                    resumed=sum(1 for r in results if r.get("resumed")))
+        meta.update(
+            resumed_from=args.resume.name,
+            reused=sum(1 for r in results if not r.get("resumed")),
+            resumed=sum(1 for r in results if r.get("resumed")),
+        )
     OUT.mkdir(parents=True, exist_ok=True)
     stem = OUT / started.strftime("%Y%m%d-%H%M%S")
-    stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results,
-                                                     "results_v2": results_v2, "runs": runs},
-                                                    ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    stem.with_suffix(".json").write_text(
+        json.dumps(
+            {"meta": meta, "summary": summary, "results": results, "results_v2": results_v2, "runs": runs},
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
     stem.with_suffix(".md").write_text(markdown(summary, results, meta), encoding="utf-8")
-    print(f"总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}（v2 "
-          f"{sum(r['passed'] for r in results_v2)}/{len(results_v2)}）；结果：{stem}.json、{stem}.md")
+    print(
+        f"总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}（v2 "
+        f"{sum(r['passed'] for r in results_v2)}/{len(results_v2)}）；结果：{stem}.json、{stem}.md"
+    )
     return 0
 
 
@@ -214,20 +255,35 @@ def rescore(path: Path, questions_path: Path | None = None, truth_path: Path | N
     results = []
     for item in saved["runs"]:
         old = previous[(item["id"], item["repeat"])]
-        results.append({**score(questions[item["id"]], item["run"]), "holdout": bool(questions[item["id"]].get("holdout")),
-                        "repeat": item["repeat"], "retried": old["retried"],
-                        "seconds": old["seconds"], "run_id": old["run_id"], "error": old["error"],
-                        "tool_calls": old["tool_calls"]})
+        results.append(
+            {
+                **score(questions[item["id"]], item["run"]),
+                "holdout": bool(questions[item["id"]].get("holdout")),
+                "repeat": item["repeat"],
+                "retried": old["retried"],
+                "seconds": old["seconds"],
+                "run_id": old["run_id"],
+                "error": old["error"],
+                "tool_calls": old["tool_calls"],
+            }
+        )
     summary = summarize(results)
     meta = {**saved["meta"], "rescored_from": path.name}
     extra = {}
     if questions_path:
-        meta.update(questions_file=str(questions_path), truth_file=str(truth_path),
-                    scorers={"v1": "scoring.py", "v2": scorer_v2.VERSION})
+        meta.update(
+            questions_file=str(questions_path),
+            truth_file=str(truth_path),
+            scorers={"v1": "scoring.py", "v2": scorer_v2.VERSION},
+        )
         extra["results_v2"] = score_v2({q["id"]: q for q in data_v2["questions"]}, saved["runs"], scorer_v2)
     stem = path.with_name(path.stem + "-rescored")
-    stem.with_suffix(".json").write_text(json.dumps({"meta": meta, "summary": summary, "results": results, **extra},
-                                                    ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    stem.with_suffix(".json").write_text(
+        json.dumps(
+            {"meta": meta, "summary": summary, "results": results, **extra}, ensure_ascii=False, indent=2, default=str
+        ),
+        encoding="utf-8",
+    )
     stem.with_suffix(".md").write_text(markdown(summary, results, meta), encoding="utf-8")
     print(f"重新判分：总体通过 {summary['overall']['hits']}/{summary['overall']['runs']}；结果：{stem}.json、{stem}.md")
     return 0

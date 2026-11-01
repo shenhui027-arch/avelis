@@ -30,8 +30,9 @@ def get_session() -> Iterator[Session]:
 
 
 def _unauthorized(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail,
-                         headers={"WWW-Authenticate": "Bearer"})
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail=detail, headers={"WWW-Authenticate": "Bearer"}
+    )
 
 
 def current_claims(token: str = Depends(oauth2_scheme)) -> dict:

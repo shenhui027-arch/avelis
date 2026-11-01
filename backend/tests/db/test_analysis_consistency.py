@@ -43,8 +43,9 @@ class ScriptedGraph:
 def no_model(monkeypatch):
     """不连接模型与会话状态表：分析模型视为已配置，图由各测试提供。"""
     monkeypatch.setattr(service, "warm_up", lambda: None)
-    monkeypatch.setattr(service, "require_analysis_model",
-                        lambda session: SimpleNamespace(adapter="test", model=None, factory=None))
+    monkeypatch.setattr(
+        service, "require_analysis_model", lambda session: SimpleNamespace(adapter="test", model=None, factory=None)
+    )
     monkeypatch.setattr(jobs, "_wake", lambda job_id: None)
 
 
@@ -64,8 +65,15 @@ def _run_with_job(user_id: str) -> tuple[str, str]:
 
 def _task_with_job(user_id: str, trigger: str = "schedule") -> tuple[str, str]:
     with session_scope() as s:
-        task = AnalysisTask(title="归因", question="上个月成交额为什么变化？", owner_id=user_id, window={},
-                            schedule_cron="0 9 1 * *", status="active", next_run_at=utcnow())
+        task = AnalysisTask(
+            title="归因",
+            question="上个月成交额为什么变化？",
+            owner_id=user_id,
+            window={},
+            schedule_cron="0 9 1 * *",
+            status="active",
+            next_run_at=utcnow(),
+        )
         s.add(task)
         s.flush()
         return task.id, jobs._enqueue(s, "analysis", {"task_id": task.id, "trigger": trigger}, user_id)
@@ -74,8 +82,11 @@ def _task_with_job(user_id: str, trigger: str = "schedule") -> tuple[str, str]:
 def _claim(job_id: str) -> int:
     """像 jobs.run_job 一样领取 Job，但不执行（模拟领取后挂起的 worker）。"""
     with session_scope() as s:
-        s.execute(update(Job).where(Job.id == job_id, Job.status == "queued").values(
-            status="running", started_at=utcnow(), attempts=Job.attempts + 1))
+        s.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == "queued")
+            .values(status="running", started_at=utcnow(), attempts=Job.attempts + 1)
+        )
         return s.get(Job, job_id).attempts
 
 
@@ -93,11 +104,14 @@ def _get(cls, id_):
 
 def _steps(run_id: str) -> list[tuple[str, str]]:
     with session_scope() as s:
-        return [(st.tool, st.status) for st in s.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run_id)
-                                                         .order_by(AnalysisStep.seq))]
+        return [
+            (st.tool, st.status)
+            for st in s.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run_id).order_by(AnalysisStep.seq))
+        ]
 
 
 # --- 授权 ---------------------------------------------------------------------------
+
 
 def test_execute_rejects_inactive_user_before_any_model_call(factory, no_model, monkeypatch):
     g = graph(monkeypatch, lambda box: pytest.fail("停用账号不能进入分析"))
@@ -148,6 +162,7 @@ def test_role_removed_during_run_loses_permission(factory, no_model, monkeypatch
 
 # --- 状态机 ---------------------------------------------------------------------------
 
+
 def test_sync_run_interrupted_is_recovered_through_its_job(factory, no_model, monkeypatch):
     """wait=true 也经过 Job：请求进程在执行中退出后，恢复器按 Job 回收运行（复核：同步执行永久 running）。"""
     from avelis.api import analysis as api
@@ -162,8 +177,12 @@ def test_sync_run_interrupted_is_recovered_through_its_job(factory, no_model, mo
     session = session_factory()()
     try:
         with pytest.raises(Crash):
-            api.create_run(api.RunCreate(question="为什么 9 月成交额下降？"), wait=True, user=session.get(User, uid),
-                           session=session)
+            api.create_run(
+                api.RunCreate(question="为什么 9 月成交额下降？"),
+                wait=True,
+                user=session.get(User, uid),
+                session=session,
+            )
     finally:
         session.close()
     with session_scope() as s:
@@ -237,8 +256,16 @@ def test_recovery_follows_terminal_run_and_sends_missing_notification(factory, n
     task_id, job_id = _task_with_job(uid)
     _claim(job_id)
     with session_scope() as s:
-        run = AnalysisRun(user_id=uid, task_id=task_id, question="q", trigger="schedule", status="succeeded",
-                          report={"summary": "完成"}, verification={"ok": True}, finished_at=utcnow())
+        run = AnalysisRun(
+            user_id=uid,
+            task_id=task_id,
+            question="q",
+            trigger="schedule",
+            status="succeeded",
+            report={"summary": "完成"},
+            verification={"ok": True},
+            finished_at=utcnow(),
+        )
         s.add(run)
         s.flush()
         run_id = run.id
@@ -281,8 +308,9 @@ def test_api_creates_run_and_job_in_one_transaction(factory, no_model, monkeypat
     uid = factory.user()
     session = session_factory()()
     try:
-        view = api.create_run(api.RunCreate(question="为什么 9 月成交额下降？"), wait=False,
-                              user=session.get(User, uid), session=session)
+        view = api.create_run(
+            api.RunCreate(question="为什么 9 月成交额下降？"), wait=False, user=session.get(User, uid), session=session
+        )
     finally:
         session.close()
     assert woke == [("analysis_run", "queued")] and view["status"] == "queued"
@@ -311,8 +339,10 @@ def test_manual_task_run_goes_through_a_job(factory, no_model, monkeypatch):
     with session_scope() as s:
         job = s.scalar(select(Job).where(Job.kind == "analysis", Job.payload["task_id"].as_string() == task_id))
         assert job.status == "succeeded" and job.result["analysis_run_id"] == view["id"]
-        assert s.scalar(select(Notification.kind).where(Notification.link == f"/analysis/runs/{view['id']}")) == \
-            "analysis_finished"
+        assert (
+            s.scalar(select(Notification.kind).where(Notification.link == f"/analysis/runs/{view['id']}"))
+            == "analysis_finished"
+        )
 
 
 def test_scheduled_job_for_paused_task_is_skipped(factory, no_model, monkeypatch):
@@ -331,8 +361,12 @@ def test_scheduled_job_for_paused_task_is_skipped(factory, no_model, monkeypatch
 
 
 def _denied_query(box, code):
-    out = json.loads(box.dispatch("query_metric", {
-        "metric_codes": [code], "start_date": "2026-09-01", "end_date": "2026-09-30", "purpose": "取数"}))
+    out = json.loads(
+        box.dispatch(
+            "query_metric",
+            {"metric_codes": [code], "start_date": "2026-09-01", "end_date": "2026-09-30", "purpose": "取数"},
+        )
+    )
     assert out["status"] == "denied" and box.budget.used_queries == 0
 
 
@@ -378,6 +412,7 @@ def test_denial_followed_by_failure_still_pauses_task(factory, no_model, monkeyp
 
 
 # --- 第三轮复核 -------------------------------------------------------------------------
+
 
 def test_finalization_locks_job_before_run(factory, no_model, monkeypatch):
     """收尾与恢复器同一加锁顺序（Job → 运行）：另一个连接持有 Job 锁时，收尾在 Job 上等待，
@@ -426,9 +461,15 @@ def test_recovery_keeps_paused_outcome_when_already_notified(factory, no_model):
     _claim(job_id)
     reason = "指标 m1 当前无权访问"
     with session_scope() as s:
-        run = AnalysisRun(user_id=uid, task_id=task_id, question="q", trigger="schedule", status="succeeded",
-                          report={"permission": {"lost": None, "denials": [{"message": reason}]}},
-                          finished_at=utcnow() - timedelta(minutes=1))
+        run = AnalysisRun(
+            user_id=uid,
+            task_id=task_id,
+            question="q",
+            trigger="schedule",
+            status="succeeded",
+            report={"permission": {"lost": None, "denials": [{"message": reason}]}},
+            finished_at=utcnow() - timedelta(minutes=1),
+        )
         s.add(run)
         s.flush()
         run_id = run.id

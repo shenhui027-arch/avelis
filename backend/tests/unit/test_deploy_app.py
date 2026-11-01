@@ -81,8 +81,9 @@ def test_frontend_preserves_api_method_not_allowed(configure, dist):
         assert client.get("/api/auth/token").status_code == 405
 
 
-@pytest.mark.parametrize("path", ["/..%2F..%2Fpyproject.toml", "/assets/../../x", "/%2e%2e/pyproject.toml",
-                                  "/assets/%2e%2e/%2e%2e/x"])
+@pytest.mark.parametrize(
+    "path", ["/..%2F..%2Fpyproject.toml", "/assets/../../x", "/%2e%2e/pyproject.toml", "/assets/%2e%2e/%2e%2e/x"]
+)
 def test_frontend_cannot_read_outside_dist(configure, dist, path):
     with TestClient(configure(AVELIS_FRONTEND_DIR=str(dist))) as client:
         response = client.get(path)
@@ -150,8 +151,7 @@ def test_ready_checks_database_and_redis_without_exposing_errors(configure, monk
         assert response.json() == {"status": "ok"}
     else:
         assert response.status_code == 503
-        assert response.json()["failed"] == [name for name, ok in (("database", database), ("redis", redis))
-                                               if not ok]
+        assert response.json()["failed"] == [name for name, ok in (("database", database), ("redis", redis)) if not ok]
         assert "private-password" not in response.text
         assert "internal-host" not in response.text
 
@@ -203,8 +203,9 @@ def test_module_asgi_app_loads_configuration_once(configure, monkeypatch):
 
 
 def test_invalid_frontend_stops_asgi_startup(monkeypatch, tmp_path):
-    settings = build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789",
-                               "AVELIS_FRONTEND_DIR": str(tmp_path)})
+    settings = build_settings(
+        {"AVELIS_SECRET": "offline-unit-test-secret-0123456789", "AVELIS_FRONTEND_DIR": str(tmp_path)}
+    )
     monkeypatch.setattr(api_app, "get_settings", lambda: settings)
     messages = []
 

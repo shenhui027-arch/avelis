@@ -53,19 +53,38 @@ def generated(session: Session, user: User, mode: str) -> list[dict[str, Any]]:
         if dims:
             picks.append((metric.name, dims))
     if mode == "ask":
-        texts = [t for name, dims in picks[:2] for t in (
-            gettext("{name} {period} 按{dimension}的排名", name=name, period=period,
-                    dimension=next(iter(dims.values()))),
-            gettext("{name} {period} 环比", name=name, period=period))]
+        texts = [
+            t
+            for name, dims in picks[:2]
+            for t in (
+                gettext(
+                    "{name} {period} 按{dimension}的排名", name=name, period=period, dimension=next(iter(dims.values()))
+                ),
+                gettext("{name} {period} 环比", name=name, period=period),
+            )
+        ]
     else:
-        texts = [gettext("{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？",
-                         name=name, period=period, dimension=next(iter(dims.values())))
-                 for name, dims in picks[:2]]
+        texts = [
+            gettext(
+                "{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？",
+                name=name,
+                period=period,
+                dimension=next(iter(dims.values())),
+            )
+            for name, dims in picks[:2]
+        ]
         if len(picks) >= 2:
             shared = next((label for name, label in picks[0][1].items() if name in picks[1][1]), None)
             if shared:
-                texts.append(gettext("{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？",
-                                     first=picks[0][0], second=picks[1][0], period=period, dimension=shared))
+                texts.append(
+                    gettext(
+                        "{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？",
+                        first=picks[0][0],
+                        second=picks[1][0],
+                        period=period,
+                        dimension=shared,
+                    )
+                )
     return [{"text": t, "domain": None, "source": "generated"} for t in texts[:LIMIT]]
 
 

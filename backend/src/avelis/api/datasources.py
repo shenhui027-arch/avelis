@@ -52,21 +52,41 @@ class DatasourceCreate(BaseModel):
 
 def datasource_view(session: Session, ds: Datasource) -> dict:
     creds = session.scalars(select(DatasourceCredential).where(DatasourceCredential.datasource_id == ds.id))
-    last = session.scalar(select(CollectionRun).where(CollectionRun.datasource_id == ds.id)
-                          .order_by(CollectionRun.started_at.desc()).limit(1))
+    last = session.scalar(
+        select(CollectionRun)
+        .where(CollectionRun.datasource_id == ds.id)
+        .order_by(CollectionRun.started_at.desc())
+        .limit(1)
+    )
     return {
-        "id": ds.id, "name": ds.name, "kind": ds.kind, "host": ds.host, "port": ds.port, "options": ds.options,
+        "id": ds.id,
+        "name": ds.name,
+        "kind": ds.kind,
+        "host": ds.host,
+        "port": ds.port,
+        "options": ds.options,
         "is_test_adapter": ds.is_test_adapter,
         "source_label": gettext("测试适配器" if ds.is_test_adapter else "真实数据库"),
-        "status": ds.status, "server_identity": ds.server_identity,
+        "status": ds.status,
+        "server_identity": ds.server_identity,
         "collect_interval_minutes": ds.collect_interval_minutes,
-        "allow_exploration": ds.allow_exploration, "exploration_supported": _exploration_supported(ds),
-        "credentials": [{"purpose": c.purpose, "username": c.username, "password": "已设置（不回传）",
-                         "updated_at": c.updated_at.isoformat()} for c in creds],
+        "allow_exploration": ds.allow_exploration,
+        "exploration_supported": _exploration_supported(ds),
+        "credentials": [
+            {
+                "purpose": c.purpose,
+                "username": c.username,
+                "password": "已设置（不回传）",
+                "updated_at": c.updated_at.isoformat(),
+            }
+            for c in creds
+        ],
         "last_run": run_view(last) if last else None,
         "engine": engine_of(ds).describe(),
-        "aliases": [{"id": a.id, "host": a.host, "port": a.port, "note": a.note} for a in session.scalars(
-            select(EndpointAlias).where(EndpointAlias.datasource_id == ds.id))],
+        "aliases": [
+            {"id": a.id, "host": a.host, "port": a.port, "note": a.note}
+            for a in session.scalars(select(EndpointAlias).where(EndpointAlias.datasource_id == ds.id))
+        ],
     }
 
 
@@ -85,14 +105,24 @@ class Exploration(BaseModel):
 
 
 def run_view(run: CollectionRun) -> dict:
-    return {"id": run.id, "status": run.status, "trigger": run.trigger, "started_at": run.started_at.isoformat(),
-            "finished_at": run.finished_at.isoformat() if run.finished_at else None, "stats": run.stats,
-            "error": run.error, "snapshot_hash": run.snapshot_hash}
+    return {
+        "id": run.id,
+        "status": run.status,
+        "trigger": run.trigger,
+        "started_at": run.started_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "stats": run.stats,
+        "error": run.error,
+        "snapshot_hash": run.snapshot_hash,
+    }
 
 
 def _set_credential(session: Session, ds: Datasource, purpose: str, cred: Credential) -> None:
-    row = session.scalar(select(DatasourceCredential).where(DatasourceCredential.datasource_id == ds.id,
-                                                            DatasourceCredential.purpose == purpose))
+    row = session.scalar(
+        select(DatasourceCredential).where(
+            DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == purpose
+        )
+    )
     if row is None:
         row = DatasourceCredential(datasource_id=ds.id, purpose=purpose, username=cred.username, secret_enc="")
         session.add(row)
@@ -112,8 +142,9 @@ def list_engines(user: User = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/datasources", status_code=201, response_model=S.DatasourceOut)
-def create_datasource(body: DatasourceCreate, user: User = Depends(current_user),
-                      session: Session = Depends(get_session)) -> dict:
+def create_datasource(
+    body: DatasourceCreate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "steward")
     if session.scalar(select(Datasource.id).where(Datasource.name == body.name)):
         raise HTTPException(409, Msg("数据源 {name} 已存在", name=body.name))
@@ -123,18 +154,34 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     # 配置项名是适配器的固定标签，连同列表分隔符按请求语言取译文；可选值是协议取值，原样列出
     missing = [gettext(o.label) for o in engine.options if o.required and not (body.options or {}).get(o.key)]
     if missing:
-        raise HTTPException(422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label,
-                                     options=gettext("、").join(missing)))
-    invalid = [gettext("{label}（可选 {choices}）", label=gettext(o.label), choices=gettext("、").join(o.choices))
-               for o in engine.options if o.choices and (body.options or {}).get(o.key) not in (None, "", *o.choices)]
+        raise HTTPException(
+            422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label, options=gettext("、").join(missing))
+        )
+    invalid = [
+        gettext("{label}（可选 {choices}）", label=gettext(o.label), choices=gettext("、").join(o.choices))
+        for o in engine.options
+        if o.choices and (body.options or {}).get(o.key) not in (None, "", *o.choices)
+    ]
     if invalid:
-        raise HTTPException(422, Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label,
-                                     options=gettext("；").join(invalid)))
-    interval = (body.collect_interval_minutes if "collect_interval_minutes" in body.model_fields_set
-                else get_settings().collect_interval_minutes)
-    ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,
-                    is_test_adapter=engine.is_test_adapter, collect_interval_minutes=interval,
-                    created_by=user.id)
+        raise HTTPException(
+            422,
+            Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label, options=gettext("；").join(invalid)),
+        )
+    interval = (
+        body.collect_interval_minutes
+        if "collect_interval_minutes" in body.model_fields_set
+        else get_settings().collect_interval_minutes
+    )
+    ds = Datasource(
+        name=body.name,
+        kind=body.kind,
+        host=body.host,
+        port=body.port,
+        options=body.options,
+        is_test_adapter=engine.is_test_adapter,
+        collect_interval_minutes=interval,
+        created_by=user.id,
+    )
     session.add(ds)
     session.flush()
     for purpose in ("collect", "query"):
@@ -142,14 +189,25 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
         if cred is not None:
             _set_credential(session, ds, purpose, cred)
     session.flush()
-    audit.record(session, user, "datasource.create", "datasource", ds.id, name=ds.name, kind=ds.kind,
-                 host=ds.host, port=ds.port, credentials=[p for p in ("collect", "query") if getattr(body, p)])
+    audit.record(
+        session,
+        user,
+        "datasource.create",
+        "datasource",
+        ds.id,
+        name=ds.name,
+        kind=ds.kind,
+        host=ds.host,
+        port=ds.port,
+        credentials=[p for p in ("collect", "query") if getattr(body, p)],
+    )
     return datasource_view(session, ds)
 
 
 @router.put("/datasources/{datasource_id}/exploration", response_model=S.DatasourceOut)
-def set_exploration(datasource_id: str, body: Exploration, user: User = Depends(current_user),
-                    session: Session = Depends(get_session)) -> dict:
+def set_exploration(
+    datasource_id: str, body: Exploration, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     """按数据源开关探索查询（ADR 0009 第 6 点）：默认开启，管理员可以关闭。"""
     access.require_role(session, user, "admin")
     ds = session.get(Datasource, datasource_id)
@@ -162,8 +220,13 @@ def set_exploration(datasource_id: str, body: Exploration, user: User = Depends(
 
 
 @router.put("/datasources/{datasource_id}/credentials/{purpose}", response_model=S.DatasourceOut)
-def set_credential(datasource_id: str, purpose: Literal["collect", "query"], body: Credential,
-                   user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def set_credential(
+    datasource_id: str,
+    purpose: Literal["collect", "query"],
+    body: Credential,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     access.require_role(session, user, "admin")
     ds = session.get(Datasource, datasource_id) or _404("数据源不存在")
     _set_credential(session, ds, purpose, body)
@@ -179,25 +242,29 @@ class AliasCreate(BaseModel):
 
 
 @router.post("/endpoint-aliases", status_code=201, response_model=S.AliasOut)
-def create_alias(body: AliasCreate, user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> dict:
+def create_alias(
+    body: AliasCreate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "steward")
     if session.get(Datasource, body.datasource_id) is None:
         _404("数据源不存在")
     if session.scalar(select(EndpointAlias.id).where(EndpointAlias.host == body.host, EndpointAlias.port == body.port)):
         raise HTTPException(409, Msg("端点 {host}:{port} 已登记", host=body.host, port=body.port))
-    alias = EndpointAlias(datasource_id=body.datasource_id, host=body.host, port=body.port, note=body.note,
-                          created_by=user.id)
+    alias = EndpointAlias(
+        datasource_id=body.datasource_id, host=body.host, port=body.port, note=body.note, created_by=user.id
+    )
     session.add(alias)
     session.flush()
-    audit.record(session, user, "endpoint_alias.create", "datasource", body.datasource_id, host=body.host,
-                 port=body.port)
+    audit.record(
+        session, user, "endpoint_alias.create", "datasource", body.datasource_id, host=body.host, port=body.port
+    )
     return {"id": alias.id, "datasource_id": alias.datasource_id, "host": alias.host, "port": alias.port}
 
 
 @router.post("/datasources/{datasource_id}/collect", response_model=S.CollectOut)
-def collect(datasource_id: str, wait: bool = False, user: User = Depends(current_user),
-            session: Session = Depends(get_session)) -> dict:
+def collect(
+    datasource_id: str, wait: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "steward")
     if session.get(Datasource, datasource_id) is None:
         _404("数据源不存在")
@@ -217,16 +284,30 @@ def collect(datasource_id: str, wait: bool = False, user: User = Depends(current
 
 @router.get("/datasources/{datasource_id}/runs", response_model=list[S.RunOut])
 def list_runs(datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list:
-    return [run_view(r) for r in session.scalars(select(CollectionRun).where(
-        CollectionRun.datasource_id == datasource_id).order_by(CollectionRun.started_at.desc()).limit(50))]
+    return [
+        run_view(r)
+        for r in session.scalars(
+            select(CollectionRun)
+            .where(CollectionRun.datasource_id == datasource_id)
+            .order_by(CollectionRun.started_at.desc())
+            .limit(50)
+        )
+    ]
 
 
 @router.get("/jobs/{job_id}", response_model=S.JobOut)
 def get_job(job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     job = session.get(Job, job_id) or _404("任务不存在")
-    return {"id": job.id, "kind": job.kind, "status": job.status, "payload": job.payload, "result": job.result,
-            "error": job.error, "created_at": job.created_at.isoformat(),
-            "finished_at": job.finished_at.isoformat() if job.finished_at else None}
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "payload": job.payload,
+        "result": job.result,
+        "error": job.error,
+        "created_at": job.created_at.isoformat(),
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
 
 
 def _404(message: str):

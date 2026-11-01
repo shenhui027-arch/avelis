@@ -15,45 +15,62 @@ def settings(**env):
     return build_settings({"AVELIS_SECRET": SECRET, **env})
 
 
-@pytest.mark.parametrize(("field", "default"), [
-    ("query_timeout_seconds", 30),
-    ("query_mem_limit_bytes", 2 * 1024**3),
-    ("query_max_rows", 1000),
-    ("answer_cache_seconds", 300),
-    ("collect_interval_minutes", 15),
-    ("host", "127.0.0.1"),
-    ("port", 8000),
-    ("workers", 1),
-    ("forwarded_allow_ips", "127.0.0.1"),
-    ("log_level", "info"),
-    ("frontend_dir", None),
-    ("auto_migrate", False),
-    ("auto_init_admin", False),
-    ("db_pool_size", 5),
-    ("db_max_overflow", 10),
-    ("db_pool_recycle_seconds", 1800),
-    ("import_max_bytes", 20 * 1024**2),
-    ("import_max_batch_bytes", 100 * 1024**2),
-    ("ask_max_tool_rounds", 8),
-    ("analysis_tool_calls", 30),
-    ("analysis_seconds", 300),
-    ("analysis_explore_limit", 8),
-    ("analysis_model_requests", 16),
-    ("analysis_input_tokens", 552321),
-    ("analysis_output_tokens", 30716),
-    ("model_timeout_seconds", 60),
-])
+@pytest.mark.parametrize(
+    ("field", "default"),
+    [
+        ("query_timeout_seconds", 30),
+        ("query_mem_limit_bytes", 2 * 1024**3),
+        ("query_max_rows", 1000),
+        ("answer_cache_seconds", 300),
+        ("collect_interval_minutes", 15),
+        ("host", "127.0.0.1"),
+        ("port", 8000),
+        ("workers", 1),
+        ("forwarded_allow_ips", "127.0.0.1"),
+        ("log_level", "info"),
+        ("frontend_dir", None),
+        ("auto_migrate", False),
+        ("auto_init_admin", False),
+        ("db_pool_size", 5),
+        ("db_max_overflow", 10),
+        ("db_pool_recycle_seconds", 1800),
+        ("import_max_bytes", 20 * 1024**2),
+        ("import_max_batch_bytes", 100 * 1024**2),
+        ("ask_max_tool_rounds", 8),
+        ("analysis_tool_calls", 30),
+        ("analysis_seconds", 300),
+        ("analysis_explore_limit", 8),
+        ("analysis_model_requests", 16),
+        ("analysis_input_tokens", 552321),
+        ("analysis_output_tokens", 30716),
+        ("model_timeout_seconds", 60),
+    ],
+)
 def test_deploy_defaults_match_existing_behavior(field, default):
     assert getattr(settings(), field) == default
 
 
 POSITIVE_FIELDS = (
-    "QUERY_TIMEOUT_SECONDS", "QUERY_MEM_LIMIT_BYTES", "QUERY_MAX_ROWS", "ANSWER_CACHE_SECONDS",
-    "WORKERS", "IMPORT_MAX_BYTES", "IMPORT_MAX_BATCH_BYTES", "ASK_MAX_TOOL_ROUNDS", "ANALYSIS_TOOL_CALLS",
-    "ANALYSIS_SECONDS", "ANALYSIS_EXPLORE_LIMIT", "ANALYSIS_MODEL_REQUESTS", "MODEL_TIMEOUT_SECONDS",
+    "QUERY_TIMEOUT_SECONDS",
+    "QUERY_MEM_LIMIT_BYTES",
+    "QUERY_MAX_ROWS",
+    "ANSWER_CACHE_SECONDS",
+    "WORKERS",
+    "IMPORT_MAX_BYTES",
+    "IMPORT_MAX_BATCH_BYTES",
+    "ASK_MAX_TOOL_ROUNDS",
+    "ANALYSIS_TOOL_CALLS",
+    "ANALYSIS_SECONDS",
+    "ANALYSIS_EXPLORE_LIMIT",
+    "ANALYSIS_MODEL_REQUESTS",
+    "MODEL_TIMEOUT_SECONDS",
 )
 NONNEGATIVE_FIELDS = (
-    "DB_POOL_SIZE", "DB_MAX_OVERFLOW", "DB_POOL_RECYCLE_SECONDS", "ANALYSIS_INPUT_TOKENS", "ANALYSIS_OUTPUT_TOKENS",
+    "DB_POOL_SIZE",
+    "DB_MAX_OVERFLOW",
+    "DB_POOL_RECYCLE_SECONDS",
+    "ANALYSIS_INPUT_TOKENS",
+    "ANALYSIS_OUTPUT_TOKENS",
 )
 
 
@@ -94,10 +111,19 @@ def test_bounded_environment_accepts_boundaries_and_rejects_overflow(name, maxim
 
 
 @pytest.mark.parametrize("name", ["AUTO_MIGRATE", "AUTO_INIT_ADMIN"])
-@pytest.mark.parametrize(("value", "expected"), [
-    ("1", True), ("true", True), ("YES", True), (" On ", True),
-    ("0", False), ("false", False), ("NO", False), (" Off ", False),
-])
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1", True),
+        ("true", True),
+        ("YES", True),
+        (" On ", True),
+        ("0", False),
+        ("false", False),
+        ("NO", False),
+        (" Off ", False),
+    ],
+)
 def test_boolean_environment_accepts_standard_spellings(name, value, expected):
     assert getattr(settings(**{f"AVELIS_{name}": value}), name.lower()) is expected
 
@@ -150,9 +176,14 @@ def test_frontend_directory_resolution_errors_include_key_in_chinese(monkeypatch
 
 def test_existing_environment_parsing_keeps_its_previous_acceptance():
     value = settings(
-        AVELIS_ALLOW_SELF_REVIEW="yes", AVELIS_ASK_LIVE_CHECK="off", AVELIS_REQUIRE_COLUMN_COMMENTS="on",
-        AVELIS_ANALYSIS_RETRIEVAL="on", AVELIS_ANALYSIS_INVESTIGATION="on", AVELIS_ANALYSIS_QUERY_LIMIT="-1",
-        AVELIS_LOGIN_MAX_FAILURES="0", AVELIS_CORS_ORIGINS=" https://one.example,https://two.example ",
+        AVELIS_ALLOW_SELF_REVIEW="yes",
+        AVELIS_ASK_LIVE_CHECK="off",
+        AVELIS_REQUIRE_COLUMN_COMMENTS="on",
+        AVELIS_ANALYSIS_RETRIEVAL="on",
+        AVELIS_ANALYSIS_INVESTIGATION="on",
+        AVELIS_ANALYSIS_QUERY_LIMIT="-1",
+        AVELIS_LOGIN_MAX_FAILURES="0",
+        AVELIS_CORS_ORIGINS=" https://one.example,https://two.example ",
     )
     assert value.allow_self_review is False
     assert value.ask_live_check is True
