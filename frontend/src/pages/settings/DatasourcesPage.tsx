@@ -130,7 +130,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
               {(history) => {
                 const lastSuccess = history.find((run) => run.status === "succeeded");
                 return <span>{t("最近成功")} <span className="av-mono">{lastSuccess ? formatTime(lastSuccess.finished_at ?? lastSuccess.started_at, tz)
-                  : history.length ? t("最近 {{length}} 次无成功记录", { length: history.length }) : t("暂无采集记录")}</span></span>;
+                  : history.length ? t("最近 {{count}} 次无成功记录", { count: history.length }) : t("暂无采集记录")}</span></span>;
               }}
             </QueryState>
             {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs">{t("查看采集错误")}</a> : null}

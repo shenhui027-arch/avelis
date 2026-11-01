@@ -248,7 +248,7 @@ function Links({ a }: { a: AssetDetailT }) {
                   {mismatch.length ? <Pill tone="danger">{t("{{count}} 列类型不一致", { count: mismatch.length })}</Pill> : null}
                   {notes.length ? <Pill tone="warn">{t("{{count}} 列类型规格不同", { count: notes.length })}</Pill> : null}
                   {!missing.length && !mismatch.length ? <span>{t("映射字段核验通过")}</span> : null}
-                  <span className="av-caption">{t("{{count}} 列同名", { count: match.matched!.length })}{sourceOnly.length ? t(" · 源表另有 {{length}} 列", { length: sourceOnly.length }) : ""}</span>
+                  <span className="av-caption">{t("{{count}} 列同名", { count: match.matched!.length })}{sourceOnly.length ? t(" · 源表另有 {{count}} 列", { count: sourceOnly.length }) : ""}</span>
                 </> : <span className="av-status av-status--warn">{t("尚无字段核验结果")}</span>}
               </div>
               {l.evidence.reason ? <span className="av-caption">{String(l.evidence.reason)}</span> : null}
