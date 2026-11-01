@@ -32,6 +32,7 @@ from avelis.lineage.sql import SqlDialect, fold_identifiers, strip_alias_prefixe
 
 STARROCKS = Engine(
     kind="starrocks", label="StarRocks",
+    script_separators=("DELIMITER",),
     # StarRocks 存储的视图定义把别名列写成 `db`.`alias`.`col`，解析前规整
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
@@ -43,6 +44,7 @@ STARROCKS = Engine(
 
 MYSQL = Engine(
     kind="mysql", label="MySQL",
+    script_separators=("DELIMITER",),
     sql=SqlDialect(name="mysql", default_catalog="def"),  # information_schema 中 MySQL 的 Catalog 恒为 def
     name_levels=("database", "table"),
     capabilities=frozenset({METADATA, IDENTITY_TARGET}),
@@ -77,6 +79,7 @@ CLICKHOUSE = Engine(
 
 SQLSERVER = Engine(
     kind="sqlserver", label="SQL Server",
+    script_separators=("GO",),
     sql=SqlDialect(name="tsql", default_catalog="master", national_strings=True),
     name_levels=("database", "schema", "table"), catalog_option="database",
     capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
@@ -88,6 +91,7 @@ SQLSERVER = Engine(
 
 ORACLE = Engine(
     kind="oracle", label="Oracle",
+    script_separators=("/",),
     # 服务名作 catalog 段，查询中不写；DATE 带时间部分，按日期过滤用区间
     sql=SqlDialect(name="oracle", default_catalog="FREEPDB1", normalize=fold_identifiers("oracle"),
                    catalog_in_sql=False, date_has_time=True),
@@ -101,6 +105,7 @@ ORACLE = Engine(
 
 DORIS = Engine(
     kind="doris", label="Doris",
+    script_separators=("DELIMITER",),
     # 视图定义的存储写法与 StarRocks 相同（`internal`.`db`.`alias`.`col`），复用别名前缀规整
     sql=SqlDialect(name="doris", default_catalog=DORIS_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
@@ -113,6 +118,7 @@ DORIS = Engine(
 
 FAKE = Engine(
     kind="fake", label="测试适配器",
+    script_separators=("DELIMITER",),
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
     capabilities=frozenset({METADATA, VIEW_LINEAGE}),

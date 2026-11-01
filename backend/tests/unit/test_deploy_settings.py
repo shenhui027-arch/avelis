@@ -32,7 +32,8 @@ def settings(**env):
     ("db_pool_size", 5),
     ("db_max_overflow", 10),
     ("db_pool_recycle_seconds", 1800),
-    ("import_max_bytes", 2 * 1024**2),
+    ("import_max_bytes", 20 * 1024**2),
+    ("import_max_batch_bytes", 100 * 1024**2),
     ("ask_max_tool_rounds", 8),
     ("analysis_tool_calls", 30),
     ("analysis_seconds", 300),
@@ -48,8 +49,8 @@ def test_deploy_defaults_match_existing_behavior(field, default):
 
 POSITIVE_FIELDS = (
     "QUERY_TIMEOUT_SECONDS", "QUERY_MEM_LIMIT_BYTES", "QUERY_MAX_ROWS", "ANSWER_CACHE_SECONDS",
-    "WORKERS", "IMPORT_MAX_BYTES", "ASK_MAX_TOOL_ROUNDS", "ANALYSIS_TOOL_CALLS", "ANALYSIS_SECONDS",
-    "ANALYSIS_EXPLORE_LIMIT", "ANALYSIS_MODEL_REQUESTS", "MODEL_TIMEOUT_SECONDS",
+    "WORKERS", "IMPORT_MAX_BYTES", "IMPORT_MAX_BATCH_BYTES", "ASK_MAX_TOOL_ROUNDS", "ANALYSIS_TOOL_CALLS",
+    "ANALYSIS_SECONDS", "ANALYSIS_EXPLORE_LIMIT", "ANALYSIS_MODEL_REQUESTS", "MODEL_TIMEOUT_SECONDS",
 )
 NONNEGATIVE_FIELDS = (
     "DB_POOL_SIZE", "DB_MAX_OVERFLOW", "DB_POOL_RECYCLE_SECONDS", "ANALYSIS_INPUT_TOKENS", "ANALYSIS_OUTPUT_TOKENS",

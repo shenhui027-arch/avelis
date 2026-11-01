@@ -87,6 +87,10 @@ def run_job(job_id: str) -> None:
         if kind == "collect":
             result = {"run_id": collect_now(payload["datasource_id"], trigger=payload.get("trigger", "manual"),
                                             actor_id=actor)}
+        elif kind == "import":
+            from avelis.importer.batch import run_import
+
+            result = run_import(payload["batch_id"], job_id=job_id, attempt=attempt)
         else:
             raise ValueError(f"未知任务类型 {kind}")
     except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
