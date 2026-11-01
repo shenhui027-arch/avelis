@@ -272,14 +272,18 @@ def test_generated_relation_requires_shared_dimension(monkeypatch, shared):
         assert "按共有维度" in relations[0]["text"]
 
 
-@pytest.mark.parametrize("values", [["SKU1", "SKU10", "成员甲", "成员甲乙"], ["成员甲乙", "成员甲", "SKU10", "SKU1"]])
+@pytest.mark.parametrize("values", [["SKU1", "SKU10", "KU10", "北京", "京", "成员甲", "成员甲乙"],
+                                    ["成员甲乙", "成员甲", "京", "北京", "KU10", "SKU10", "SKU1"]])
 @pytest.mark.parametrize("text,expected", [
     ("SKU10 与成员甲乙", ["SKU10", "成员甲乙"]),
     ("SKU10 与 SKU1，成员甲乙与成员甲", ["SKU1", "SKU10", "成员甲", "成员甲乙"]),
+    ("SKU10 与 KU10", ["KU10", "SKU10"]),
+    ("北京", ["北京"]),
+    ("北京与京", ["京", "北京"]),
     ("SKU10 SKU10", ["SKU10"]),
     ("无对应成员", []),
 ])
-def test_demo_and_tool_member_values_longest_per_position(values, text, expected):
+def test_demo_and_tool_member_values_exclude_contained_matches(values, text, expected):
     card = MetricCard(code="metric_a", name="指标甲", aliases=[], dimensions=[{"name": "dimension_a", "label": "维度甲"}],
                       dimension_values={"dimension_a": values})
     parsed = DemoIntentModel().parse(f"指标甲 2026-01-01 至 2026-01-02 {text}", [card], today=date(2026, 2, 1))

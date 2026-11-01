@@ -261,6 +261,10 @@ def _shared_dimensions(components: list[dict[str, Any]]) -> list[dict[str, Any]]
 def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
     _validate_time_semantics(version)
     if version.kind == "derived":
+        time_aggregation = getattr(version, "time_aggregation", None) or "sum"
+        if time_aggregation != "sum":
+            raise Invalid(f"派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，"
+                          "尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义")
         components = derived_components(session, version)
         return {"aliases": {}, "steps": [], "dependency": [], "expression": None, "components": components,
                 "dimensions": _shared_dimensions(components)}

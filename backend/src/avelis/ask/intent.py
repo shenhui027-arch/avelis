@@ -141,16 +141,16 @@ DATE_PATTERNS = [
 
 
 def matched_dimension_values(text: str, values: list[str]) -> list[str]:
-    """按原文各起点取最长成员值；短值另有独立出现时仍然保留。"""
-    longest: dict[int, tuple[int, str]] = {}
+    """排除被更长成员值完全包含的匹配；短值另有独立出现时仍然保留。"""
+    spans: list[tuple[int, int, str]] = []
     for value in values:
         start = text.find(value) if value else -1
         while start >= 0:
-            end = start + len(value)
-            if start not in longest or end > longest[start][0]:
-                longest[start] = (end, value)
+            spans.append((start, start + len(value), value))
             start = text.find(value, start + 1)
-    return sorted({value for _, value in longest.values()})
+    return sorted({value for start, end, value in spans
+                   if not any(other_start <= start and end <= other_end and other_end - other_start > end - start
+                              for other_start, other_end, _ in spans)})
 
 
 class DemoIntentModel:

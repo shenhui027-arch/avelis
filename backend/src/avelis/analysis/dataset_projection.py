@@ -16,6 +16,7 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, st
                   if d.get("name")}
     dimensions.update(meta.get("dimension_labels") or {})
     measures = meta.get("measure_labels") or {}
+    labels = meta.get("column_labels") or {}
     roles = {}
     for column in columns:
         kind = (units.get(column) or {}).get("kind")
@@ -34,7 +35,7 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, st
         else:
             continue  # unknown 量纲没有足够信息，不能把数值列冒充维度。
         label = dimensions.get(column) if role == "dimension" else measures.get(column)
-        roles[column] = {"role": role, "label": label or column}
+        roles[column] = {"role": role, "label": labels.get(column) or label or column}
     return roles
 
 
@@ -49,6 +50,7 @@ def dataset_meta(session, dataset) -> dict:
         return meta
     dimensions = dict(meta.get("dimension_labels") or {})
     labels = dict(meta.get("measure_labels") or {})
+    column_labels = dict(meta.get("column_labels") or {})
     units = dict(meta.get("units") or {})
     polarity = dict(meta.get("polarity") or {})
     version_ids = list((meta.get("versions") or {}).values()) or meta.get("metric_version_ids") or []
@@ -69,10 +71,11 @@ def dataset_meta(session, dataset) -> dict:
             else:
                 units.setdefault(column, unit)
             labels.setdefault(column, metric.name)
+            column_labels.setdefault(column, f"{metric.name}·本期" if period and column == metric.name else column)
         for column, direction in measures.governed_polarity(dataset.columns, {metric.name: version}, period).items():
             polarity.setdefault(column, direction)
     return {**meta, **({"units": units} if units or "units" in meta else {}), "polarity": polarity,
-            "dimension_labels": dimensions, "measure_labels": labels}
+            "dimension_labels": dimensions, "measure_labels": labels, "column_labels": column_labels}
 
 
 def report_dimension_labels(session, report: dict, datasets: list) -> dict:

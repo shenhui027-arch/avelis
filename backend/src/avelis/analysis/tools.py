@@ -1715,11 +1715,15 @@ class AnalysisToolbox:
         period_label = service.PERIOD_LABEL[args.compare] if args.compare else None
         units = measures.governed_units(columns, versions, period_label)
         dimension_labels: dict[str, str] = {}
+        # 指标归属与完整列标签分开；表头还需保留期间、变化和变化率。
         measure_labels: dict[str, str] = {}
+        column_labels: dict[str, str] = {}
         for name, version in versions.items():
             for dimension in version.dimensions or []:
                 dimension_labels.setdefault(dimension["name"], dimension.get("label") or dimension["name"])
-            measure_labels.update({column: name for column in measures.governed_units(columns, {name: version}, period_label)})
+            for column in measures.governed_units(columns, {name: version}, period_label):
+                measure_labels[column] = name
+                column_labels[column] = f"{name}·本期" if period_label and column == name else column
         ds = self._dataset("governed", title, columns, result["rows"], answer_id=answer.id,
                            truncated=bool(result.get("truncated")),
                            meta={"sql": answer.sql, "metric_version_ids": answer.metric_version_ids,
@@ -1731,6 +1735,7 @@ class AnalysisToolbox:
                                  "time_column": columns[0] if args.time_grain else None, "units": units,
                                  "polarity": measures.governed_polarity(columns, versions, period_label),
                                  "dimension_labels": dimension_labels, "measure_labels": measure_labels,
+                                 "column_labels": column_labels,
                                  "window": {"start": str(args.start_date), "end": str(args.end_date)}})
         self._governed[key] = ds
         return self._view(f"D{ds.seq}", ds), ds, "ok"
