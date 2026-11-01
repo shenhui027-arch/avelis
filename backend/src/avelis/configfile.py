@@ -55,6 +55,7 @@ CONFIG_KEYS = {
     "bootstrap.initial_admin_username": ConfigKey("AVELIS_INITIAL_ADMIN_USERNAME", str, "admin"),
     "bootstrap.initial_admin_password": ConfigKey("AVELIS_INITIAL_ADMIN_PASSWORD", str, ""),
     "business.timezone": ConfigKey("AVELIS_BUSINESS_TIMEZONE", str, "Asia/Shanghai"),
+    "business.number_style": ConfigKey("AVELIS_NUMBER_STYLE", str, "cn"),
     "business.unassigned_asset_policy": ConfigKey("AVELIS_UNASSIGNED_ASSET_POLICY", str, "deny"),
     "business.require_column_comments": ConfigKey("AVELIS_REQUIRE_COLUMN_COMMENTS", bool, False),
     "query.timeout_seconds": ConfigKey("AVELIS_QUERY_TIMEOUT_SECONDS", int, 30),
@@ -63,6 +64,7 @@ CONFIG_KEYS = {
     "query.answer_cache_seconds": ConfigKey("AVELIS_ANSWER_CACHE_SECONDS", int, 300),
     "query.live_check": ConfigKey("AVELIS_ASK_LIVE_CHECK", bool, True),
     "query.max_tool_rounds": ConfigKey("AVELIS_ASK_MAX_TOOL_ROUNDS", int, 8),
+    "agent.reply_language": ConfigKey("AVELIS_REPLY_LANGUAGE", str, "auto"),
     "collect.interval_minutes": ConfigKey("AVELIS_COLLECT_INTERVAL_MINUTES", int, 15),
     "collect.ddl_audit_slack_seconds": ConfigKey("AVELIS_DDL_AUDIT_SLACK_SECONDS", int, 5),
     "worker.schedule_seconds": ConfigKey("AVELIS_WORKER_SCHEDULE_SECONDS", int, 60),
@@ -81,13 +83,16 @@ CONFIG_KEYS = {
     "analysis.material_change_ratio": ConfigKey("AVELIS_MATERIAL_CHANGE_RATIO", float, 0.01),
     "analysis.retrieval": ConfigKey("AVELIS_ANALYSIS_RETRIEVAL", bool, False),
     "analysis.investigation": ConfigKey("AVELIS_ANALYSIS_INVESTIGATION", bool, False),
+    "analysis.uniform_tolerance": ConfigKey("AVELIS_ANALYSIS_UNIFORM_TOLERANCE", float, 0.5),
+    "analysis.spike_share": ConfigKey("AVELIS_ANALYSIS_SPIKE_SHARE", float, 0.5),
     "model.timeout_seconds": ConfigKey("AVELIS_MODEL_TIMEOUT_SECONDS", int, 60),
     "model.provider": ConfigKey("AVELIS_MODEL_PROVIDER", str, ""),
     "model.name": ConfigKey("AVELIS_MODEL_NAME", str, ""),
     "model.base_url": ConfigKey("AVELIS_MODEL_BASE_URL", str, ""),
     "model.api_key": ConfigKey("AVELIS_MODEL_API_KEY", str, ""),
     "model.send_results": ConfigKey("AVELIS_MODEL_SEND_RESULTS", bool, False),
-    "import.max_bytes": ConfigKey("AVELIS_IMPORT_MAX_BYTES", int, 2097152),
+    "import.max_bytes": ConfigKey("AVELIS_IMPORT_MAX_BYTES", int, 20 * 1024**2),  # 单文件或粘贴内容，20 MB
+    "import.max_batch_bytes": ConfigKey("AVELIS_IMPORT_MAX_BATCH_BYTES", int, 100 * 1024**2),
 }
 ENV_KEYS = {spec.env: path for path, spec in CONFIG_KEYS.items()}
 SENSITIVE_KEYS = frozenset({

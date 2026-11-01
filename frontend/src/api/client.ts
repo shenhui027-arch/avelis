@@ -1,5 +1,6 @@
 // 类型由后端 OpenAPI 生成（pnpm gen:api），请求只走 /api。
 import createClient, { type Middleware } from "openapi-fetch";
+import { currentLanguage, t } from "../i18n";
 import type { components, paths } from "./schema";
 
 export type Schemas = components["schemas"];
@@ -83,6 +84,8 @@ const auth: Middleware = {
     if (refreshing) await refreshing;
     const value = token.get();
     if (value) request.headers.set("Authorization", `Bearer ${value}`);
+    // 后端按界面语言返回错误与提示（ADR 0015）
+    request.headers.set("Accept-Language", currentLanguage());
     retries.set(request, request.clone());
     return request;
   },
@@ -111,12 +114,12 @@ const auth: Middleware = {
 export const api = createClient<paths>({ baseUrl: "" });
 api.use(auth);
 
-/** 把 openapi-fetch 的结果变成“成功返回数据，失败抛 ApiError（带后端的中文原因）”。 */
+/** 把 openapi-fetch 的结果变成“成功返回数据，失败抛 ApiError（带后端按界面语言给出的原因）”。 */
 export async function unwrap<T>(promise: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
   const { data, error, response } = await promise;
   if (error !== undefined || !response.ok) {
     const detail = (error as { detail?: unknown })?.detail;
-    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? "输入不合法" : `请求失败（${response.status}）`;
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? t("输入不合法") : t("请求失败（{{status}}）", { status: response.status });
     throw new ApiError(response.status, message, error);
   }
   return data as T;
@@ -126,9 +129,9 @@ export type LoginResult = { mustChangePassword: boolean; expiresAt: string };
 
 export async function login(username: string, password: string): Promise<LoginResult> {
   const body = new URLSearchParams({ username, password });
-  const response = await fetch("/api/auth/token", { method: "POST", body });
+  const response = await fetch("/api/auth/token", { method: "POST", body, headers: { "Accept-Language": currentLanguage() } });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(response.status, json.detail ?? "登录失败");
+  if (!response.ok) throw new ApiError(response.status, json.detail ?? t("登录失败"));
   token.issue(json);
   return { mustChangePassword: !!json.must_change_password, expiresAt: json.expires_at };
 }

@@ -31,6 +31,7 @@ flowchart LR
 - **config**：一次性容器。校验 `avelis.toml`，有错误就打印中文说明并退出（其余服务不会启动）；通过后把元数据库与 Redis 的口令交给内置的 postgres、redis 服务，所以口令只需要在 `avelis.toml` 里写一次。
 - **app**：`python -m avelis.server`。同一端口提供 `/api`（接口，文档在 `/api/docs`）与构建好的前端（其他路径回退到 `index.html`，由前端路由处理）。启动时自动迁移元数据库、创建首个管理员。
 - **worker**：`python -m avelis.jobs`。执行采集任务、定时采集与定时分析、超期历史清理。与 app 同一镜像、同一配置，单独一个容器。
+  worker 启动后每轮向 Redis 写入 UTC ISO 时间心跳（`avelis:worker:heartbeat`，TTL 60 秒，正常退出时删除），可通过无需登录的 `GET /api/health/worker` 查询 `alive` 与 `last_seen`；心跳缺失或 Redis 不可用时返回 `false` 与 `null`，HTTP 状态始终为 200。
 - **postgres**：元数据库（只支持 PostgreSQL，也存放问数智能体的会话状态）。
 - **redis**：Redis 协议服务（镜像为 Valkey 8），用于任务唤醒、缓存、锁与令牌吊销。
 

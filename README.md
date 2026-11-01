@@ -20,7 +20,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis is at v0.1 and has not published a release yet. The user interface is currently in Simplified Chinese; English and Traditional Chinese are planned. The documentation is available in English, Simplified Chinese and Traditional Chinese.
+> Avelis is at v0.1 and has not published a release yet. The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## Highlights
 
@@ -54,6 +54,7 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
 
 StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
@@ -150,8 +151,6 @@ The full index is in [docs/README.en.md](docs/README.en.md). Design decision rec
 
 Planned directions, without dates:
 
-- English and Traditional Chinese user interface.
-- Hive engine (metadata and view lineage), in progress.
 - External catalogs and materialized views for more engines.
 - DDL attribution for StarRocks, SQL Server and Oracle.
 - Richer Q&A: nested derived metrics, week and month grains, share of total.

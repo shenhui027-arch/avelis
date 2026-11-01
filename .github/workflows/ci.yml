@@ -66,3 +66,6 @@ jobs:
       - name: 构建
         working-directory: frontend
         run: pnpm build
+      - name: 界面语言检查（语言包完整性与三语渲染）
+        working-directory: frontend
+        run: pnpm check:i18n

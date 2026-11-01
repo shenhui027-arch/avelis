@@ -1,6 +1,9 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey,
+} from "@tanstack/react-query";
 
+import { t } from "../i18n";
 import { api, ApiError, unwrap, type Schemas } from "./client";
 
 export type Asset = Schemas["AssetOut"];
@@ -11,7 +14,9 @@ export type Domain = Schemas["DomainOut"];
 export type ChangeSet = Schemas["ChangeSetOut"];
 export type Task = Schemas["TaskOut"];
 export type Answer = Schemas["AnswerOut"];
-export type ImportJob = Schemas["ImportJobOut"];
+export type ImportBatch = Schemas["ImportBatchOut"];
+export type ImportStatement = Schemas["StatementOut"];
+export type ImportCandidate = Schemas["CandidateOut"];
 export type JoinPath = Schemas["JoinPathOut"];
 export type Datasource = Schemas["DatasourceOut"];
 export type User = Schemas["UserOut"];
@@ -20,16 +25,18 @@ export type Graph = Schemas["GraphOut"];
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     const body = e.body as { blockers?: string[] } | undefined;
-    return body?.blockers?.length ? `${e.message}：${body.blockers.join("；")}` : e.message;
+    return body?.blockers?.length ? t("{{message}}：{{reasons}}", { message: e.message, reasons: body.blockers.join(t("；")) }) : e.message;
   }
-  return e instanceof Error ? e.message : "操作失败";
+  return e instanceof Error ? e.message : t("操作失败");
 }
 
 export const useAppSettings = () => useQuery({
   queryKey: ["settings"],
-  queryFn: () => unwrap(api.GET("/api/settings")) as Promise<{ business_timezone?: string; self_review_policy?: string }>,
+  queryFn: () => unwrap(api.GET("/api/settings")) as Promise<{ business_timezone?: string; self_review_policy?: string; number_style?: "cn" | "intl" }>,
 });
 export const useTimeZone = () => useAppSettings().data?.business_timezone ?? "Asia/Shanghai";
+/** 数字显示体系（ADR 0014）：cn 用万、亿，intl 用 K、M、B；与后端报告渲染一致 */
+export const useNumberStyle = () => useAppSettings().data?.number_style ?? "cn";
 export const useWorkbench = () => useQuery({ queryKey: ["workbench"], queryFn: () => unwrap(api.GET("/api/workbench")) });
 export const useDatasources = () => useQuery({ queryKey: ["datasources"], queryFn: () => unwrap(api.GET("/api/datasources")) });
 /** 支持问数执行的数据源（按引擎能力，不按数据库类型）：指标与关联路径只能建在这些数据源的资产上。 */
@@ -70,10 +77,48 @@ export const useThread = (id?: string) => useQuery({
   queryKey: ["thread", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/ask/threads/{thread_id}", { params: { path: { thread_id: id! } } })),
 });
-export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")) });
+// 导入批次在后台执行：排队或进行中时轮询进度，结束后停止
+const importBusy = (status?: string) => status === "queued" || status === "running";
+export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")),
+  refetchInterval: (q) => (q.state.data?.some((b) => importBusy(b.status)) ? 2000 : false) });
 export const useImport = (id?: string) => useQuery({
   queryKey: ["import", id], enabled: !!id,
-  queryFn: () => unwrap(api.GET("/api/imports/{job_id}", { params: { path: { job_id: id! } } })),
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}", { params: { path: { batch_id: id! } } })),
+  refetchInterval: (q) => (importBusy(q.state.data?.status) ? 1000 : false),
+});
+// 语句与候选按固定页大小分页（接口上限 500），“加载更多”递增 offset 并累积各页
+type ImportPage = { offset: number; items: unknown[]; total: number };
+const nextOffset = (last: ImportPage) =>
+  last.offset + last.items.length < last.total && last.items.length ? last.offset + last.items.length : undefined;
+export type ImportStatementQuery = { file_id?: string | null; status?: string | null; q?: string | null };
+export const useImportStatements = (batchId: string, query: ImportStatementQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportStatementPage"], Error, InfiniteData<Schemas["ImportStatementPage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "statements", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/statements", {
+      params: { path: { batch_id: batchId }, query: { ...query, offset: pageParam, limit: pageSize } } })),
+  });
+export type ImportCandidateQuery = { file_id?: string | null; status?: string | null; origin?: string | null };
+export const useImportCandidates = (batchId: string, query: ImportCandidateQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportCandidatePage"], Error, InfiniteData<Schemas["ImportCandidatePage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "candidates", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/candidates", {
+      params: { path: { batch_id: batchId }, query: { ...query, statement_id: null, offset: pageParam, limit: pageSize } } })),
+  });
+export const useImportContent = (batchId: string, fileId?: string) => useQuery({
+  queryKey: ["import", batchId, "content", fileId], enabled: !!fileId, staleTime: Infinity,
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/files/{job_id}/content", {
+    params: { path: { batch_id: batchId, job_id: fileId! } } })),
+});
+export const useImportPayload = (batchId: string, version: string) => useQuery({
+  queryKey: ["import", batchId, "payload", version],
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/model-payload", { params: { path: { batch_id: batchId } } })),
+});
+export const useSqlFunctions = (datasourceId?: string) => useQuery({
+  queryKey: ["import-sql-functions", datasourceId], enabled: !!datasourceId,
+  queryFn: () => unwrap(api.GET("/api/imports/sql-functions/{datasource_id}", {
+    params: { path: { datasource_id: datasourceId! } } })),
 });
 export const useGraph = (domainIds: string[], assetId?: string) => useQuery({
   queryKey: ["graph", domainIds.join(","), assetId],
@@ -87,7 +132,7 @@ export const useAudit = (objectType?: string, objectId?: string) => useQuery({
     params: { query: { object_type: objectType ?? null, object_id: objectId ?? null, limit: 50 } } })),
 });
 
-/** 操作：成功后刷新相关查询；失败抛出后端的中文原因。 */
+/** 操作：成功后刷新相关查询；失败抛出后端给出的原因。 */
 export function useAction<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>, invalidate: string[] = []) {
   const qc = useQueryClient();
   return useMutation({

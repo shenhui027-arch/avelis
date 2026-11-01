@@ -7,7 +7,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from avelis import jobs, modelcfg
 from avelis.analysis import export
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
+from avelis.analysis.dataset_projection import build_column_roles, dataset_meta
 from avelis.analysis.rerun import rerun_dataset
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
@@ -22,6 +23,7 @@ from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import Invalid, NotFound
+from avelis.i18n import Msg, current_locale, translate
 from avelis.models import (
     AnalysisDataset,
     AnalysisRun,
@@ -69,6 +71,18 @@ class TaskPatch(BaseModel):
     reason: str | None = None
 
 
+class ConversationPatch(BaseModel):
+    display_title: str
+
+    @field_validator("display_title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 80:
+            raise ValueError("对话显示名最多 80 字")
+        return value
+
+
 def _window(w: Window | None) -> dict | None:
     return w.model_dump(exclude_none=True) if w else None
 
@@ -111,6 +125,50 @@ def list_runs(user: User = Depends(current_user), session: Session = Depends(get
     runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
                            .order_by(AnalysisRun.created_at.desc()).limit(100))
     return [analysis.run_view(session, r, full=False, user=user) for r in runs]
+
+
+@router.get("/analysis/conversations", response_model=list[S.AnalysisConversationOut])
+def list_conversations(archived: bool = False, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)) -> list[dict]:
+    return analysis.list_conversations(session, user, archived=archived)
+
+
+@router.get("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def get_conversation(conversation_id: str, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)) -> dict:
+    return analysis.get_conversation(session, user, conversation_id)
+
+
+@router.patch("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def rename_conversation(conversation_id: str, body: ConversationPatch, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> dict:
+    data = analysis.rename_conversation(session, user, conversation_id, body.display_title)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/archive", response_model=S.AnalysisConversationDetailOut)
+def archive_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=True)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/restore", response_model=S.AnalysisConversationDetailOut)
+def restore_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=False)
+    session.commit()
+    return data
+
+
+@router.delete("/analysis/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: str, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> Response:
+    analysis.delete_conversation(session, user, conversation_id)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
@@ -217,14 +275,16 @@ def _dataset_seq(ref: str) -> int:
     return int(ref[1:])
 
 
-def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    meta = d.meta or {}
+def _dataset_detail(d: AnalysisDataset, *, offset: int = 0, limit: int = 100,
+                    session: Session | None = None) -> dict[str, Any]:
+    meta = dataset_meta(session, d) if session is not None else d.meta or {}
     source = meta.get("rerun_of")
     return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns,
             "row_count": len(d.rows), "truncated": d.truncated, "inputs": d.inputs,
             "sql": meta.get("sql"), "metric_version_ids": meta.get("metric_version_ids", []),
             "metric_codes": meta.get("metric_codes", []), "window": meta.get("window", {}),
             "time_column": meta.get("time_column"), "units": meta.get("units", {}),
+            "polarity": meta.get("polarity", {}), "column_roles": build_column_roles(d.columns, meta),
             "summary_units": meta.get("summary_units", {}), "purpose": meta.get("purpose"),
             "answer_id": d.answer_id, "created_at": d.created_at.isoformat(),
             "explore": bool(meta.get("explore")), "assumption": bool(meta.get("assumption")),
@@ -244,9 +304,11 @@ def get_dataset(run_id: str, ref: str, offset: int = Query(0, ge=0), limit: int 
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
     require_dataset_access(session, user, d)
     if legacy:
+        meta = dataset_meta(session, d)
         return {"ref": f"D{d.seq}", "kind": d.kind, "title": d.title, "columns": d.columns, "rows": d.rows,
-                "truncated": d.truncated, "meta": d.meta, "inputs": d.inputs, "answer_id": d.answer_id}
-    return _dataset_detail(d, offset=offset, limit=limit)
+                "truncated": d.truncated, "meta": meta, "inputs": d.inputs, "answer_id": d.answer_id,
+                "column_roles": build_column_roles(d.columns, meta)}
+    return _dataset_detail(d, offset=offset, limit=limit, session=session)
 
 
 @router.post("/analysis/runs/{run_id}/datasets/{ref}/rerun", response_model=S.AnalysisDatasetDetailOut)
@@ -256,7 +318,7 @@ def rerun(run_id: str, ref: str, body: S.AnalysisDatasetRerunIn, user: User = De
     d = _dataset(session, run, _dataset_seq(ref))
     result = rerun_dataset(session, user, run, d, body.window.model_dump(mode="json", exclude_none=True))
     session.commit()
-    return _dataset_detail(result)
+    return _dataset_detail(result, session=session)
 
 
 @router.get("/analysis/runs/{run_id}/datasets/{seq}/csv")
@@ -334,7 +396,10 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
             if dataset.get("restricted"):
                 continue
             d = saved[dataset["ref"]]
-            dataset.update(rows=d.rows, meta=_export_metadata(session, user, d.meta))
+            dataset.update(rows=d.rows, meta=_export_metadata(session, user, dataset_meta(session, d)))
+            if "units" not in (d.meta or {}):
+                # 早期运行没有数值列元数据，导出仍使用原来的选轴回退。
+                dataset.pop("column_roles", None)
     if format == "md":
         return Response(export.to_markdown(view, audience=resolved_audience, datasets=selected).encode("utf-8"),
                         media_type="text/markdown; charset=utf-8",
@@ -369,7 +434,7 @@ def preview_cron(expr: str, count: int = Query(5, ge=1, le=10), user: User = Dep
             after = analysis.next_run(expr, after)
             runs.append(after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).isoformat())
     except Invalid as exc:
-        runs, error = [], exc.message
+        runs, error = [], translate(exc.message)
     return {"expr": expr, "timezone": timezone, "runs": runs, "error": error}
 
 
@@ -407,7 +472,8 @@ def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user)
 def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
-    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
+    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual",
+                                                "request_locale": current_locale()}, user.id)
     session.commit()
     status = jobs.run_and_wait(job_id, _sync_wait_seconds())  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
@@ -418,9 +484,9 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
         if status not in jobs.TERMINAL:
             raise HTTPException(409, "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看")
         task_now = session.get(AnalysisTask, task.id)
-        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
+        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or Msg("未知原因")
         label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
-        raise HTTPException(409, f"{label}：{reason}")
+        raise HTTPException(409, Msg("{label}：{reason}", label=Msg(label), reason=reason))
     return analysis.run_view(session, session.get(AnalysisRun, run_id), user=user)
 
 

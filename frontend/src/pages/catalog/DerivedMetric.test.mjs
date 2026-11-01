@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+globalThis.document ??= { body: {} }; // 抽屉的挂载点；createPortal 已打桩为原地渲染
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const query = require("@tanstack/react-query");
@@ -63,6 +64,11 @@ function load(file, extra = "") {
     if (name.endsWith("api/hooks")) return load("../../api/hooks.ts");
     if (name.endsWith("components/ui")) return load("../../components/ui.tsx");
     if (name === "./Icon") return { Icon: () => null, Hint: () => null };
+    // 界面语言：键即简体原文，测试里按原文渲染并代入插值
+    if (name.endsWith("/i18n")) return { currentLanguage: () => "zh-CN",
+      t: (k, o = {}) => Object.entries(o).reduce((s, [p, v]) => s.split("{{" + p + "}}").join(String(v)), k) };
+    // 抽屉挂到 document.body；服务端渲染测试里没有 document，直接原地渲染
+    if (name === "react-dom") return { ...require("react-dom"), createPortal: (node) => node };
     if (name.endsWith("layout/Shell")) return { useRoles: () => new Set(["admin"]), useMe: () => ({ isSuccess: true, data: { id: "admin" } }) };
     if (name.endsWith("format")) return { formatTime: String };
     if (name === "react-router") return { Link: ({ to, children, ...props }) => React.createElement("a", { ...props, href: to }, children) };
@@ -114,7 +120,7 @@ assert.deepEqual(requests.map(({ method }) => method), ["POST", "PUT"]);
 assert.equal(requests[0].path, "/api/metrics/{metric_id}/versions");
 assert.equal(requests[1].path, "/api/metric-versions/{version_id}");
 for (const { request } of requests) {
-  assert.deepEqual(request.body, { kind: "derived", description: "客单价", expression: "paid_sales / orders_cnt", unit: null, unit_scale: 1 }, "Never send base-only fields for a derived version (unit is shared: ADR 0009)");
+  assert.deepEqual(request.body, { kind: "derived", description: "客单价", expression: "paid_sales / orders_cnt", unit: null, unit_scale: 1, value_kind: null, polarity: null }, "Never send base-only fields for a derived version (unit is shared: ADR 0009)");
 }
 
 const unknown = render(page.VersionEditor, { metricId: version.metric_id, base: { ...version, expression: "paid_sales + missing_metric + paid_sales + 1e3" }, mode: "new", onClose() {}, onSaved() {} });

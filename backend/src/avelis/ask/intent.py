@@ -16,6 +16,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, model_validator
 
+from avelis.governance.errors import Invalid
+
 MAX_METRICS = 4
 MAX_LIMIT = 100
 
@@ -37,13 +39,15 @@ class Intent(BaseModel):
     group_by: list[str] = Field(default_factory=list)
     order: Literal["desc", "asc"] | None = None
     limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
-    compare: Literal["previous_period", "previous_year", "custom"] | None = None
+    compare: Literal["previous_period", "previous_calendar", "previous_year", "custom"] | None = None
     # compare="custom"（M8）：指定对比期，如本期 9 月对比自然月 8 月（上一期是紧邻的同长度区间 8 月 2 日至 31 日）
     compare_start: date | None = None
     compare_end: date | None = None
-    # 按时间分组（M8）：结果多一列时间段（默认 period，与维度重名时见 period_column；day 为 YYYY-MM-DD，month 为 YYYY-MM），
+    # 按时间分组：结果多一列时间段（默认 period，与维度重名时见 period_column），
     # 排在维度之前。不能与对比期同用
-    time_grain: Literal["day", "month"] | None = None
+    time_grain: Literal["day", "week", "month", "quarter", "year"] | None = Field(
+        default=None, description="时间分组：day 为 YYYY-MM-DD，week 为周一的 YYYY-MM-DD，month 为 YYYY-MM，"
+        "quarter 为季初日期 YYYY-MM-DD，year 为 YYYY；不能比口径 data_grain 更细")
     clarification: str | None = None
     candidates: list[str] = Field(default_factory=list)
 
@@ -80,10 +84,20 @@ def period_column(group_by: list[str], reserved: list[str] | tuple[str, ...] = (
 
 
 def comparison_range(start: date, end: date, compare: str) -> tuple[date, date]:
-    """对比期：上一期为紧邻的同长度区间（单日即前一天）；同比为去年同日期（2 月 29 日按 28 日）。"""
+    """对比期：上一期为紧邻的同长度区间；上一自然期要求单个整月/季/年；同比闰日按 28 日。"""
     if compare == "previous_period":
         days = (end - start).days + 1
         return start - timedelta(days=days), start - timedelta(days=1)
+    if compare == "previous_calendar":
+        # 先识别更大的自然期间，避免整年被误当成连续十二个月。
+        if start.month == 1 and start.day == 1 and end == date(start.year, 12, 31):
+            return date(start.year - 1, 1, 1), date(start.year - 1, 12, 31)
+        following = end + timedelta(days=1)
+        months = (following.year - start.year) * 12 + following.month - start.month
+        if start.day == 1 and following.day == 1 and (months == 1 or (months == 3 and start.month in (1, 4, 7, 10))):
+            previous_month = start.year * 12 + start.month - 1 - months
+            return date(previous_month // 12, previous_month % 12 + 1, 1), start - timedelta(days=1)
+        raise Invalid("previous_calendar 需要整月、整季或整年窗口，请用 previous_period 或 custom")
 
     def last_year(d: date) -> date:
         try:
@@ -94,7 +108,8 @@ def comparison_range(start: date, end: date, compare: str) -> tuple[date, date]:
     return last_year(start), last_year(end)
 
 
-COMPARE_WORDS = {"previous_year": ("同比", "去年同期"), "previous_period": ("环比", "上一期", "前一天", "上期")}
+COMPARE_WORDS = {"previous_calendar": ("上一自然期", "上个自然期"), "previous_year": ("同比", "去年同期"),
+                 "previous_period": ("环比", "上一期", "前一天", "上期")}
 TOP_N = re.compile(r"(?:前|[Tt][Oo][Pp]\s*|最高的?|最多的?)\s*(\d{1,3})")
 BOTTOM_N = re.compile(r"(?:后|最低的?|最少的?)\s*(\d{1,3})")
 
@@ -123,6 +138,19 @@ DATE_PATTERNS = [
     re.compile(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})"),
     re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})[日号]"),
 ]
+
+
+def matched_dimension_values(text: str, values: list[str]) -> list[str]:
+    """排除被更长成员值完全包含的匹配；短值另有独立出现时仍然保留。"""
+    spans: list[tuple[int, int, str]] = []
+    for value in values:
+        start = text.find(value) if value else -1
+        while start >= 0:
+            spans.append((start, start + len(value), value))
+            start = text.find(value, start + 1)
+    return sorted({value for start, end, value in spans
+                   if not any(other_start <= start and end <= other_end and other_end - other_start > end - start
+                              for other_start, other_end, _ in spans)})
 
 
 class DemoIntentModel:
@@ -172,7 +200,7 @@ class DemoIntentModel:
         # 多个指标时，过滤与分组只能用它们共有的维度
         shared = [d for d in card.dimensions if all(any(x["name"] == d["name"] for x in c.dimensions) for c in ordered)]
         for dim in shared:
-            hit = [v for v in card.dimension_values.get(dim["name"], []) if v and v in text]
+            hit = matched_dimension_values(text, card.dimension_values.get(dim["name"], []))
             if hit:
                 filters.append(DimensionFilter(dimension=dim["name"], values=sorted(set(hit))))
             label = dim.get("label") or dim["name"]
@@ -192,7 +220,10 @@ class DemoIntentModel:
                           candidates=[d.get("label") or d["name"] for d in shared])
         return Intent(metric_codes=[c.code for c in ordered], start_date=start, end_date=end, filters=filters,
                       group_by=group_by, order=order, limit=min(limit, MAX_LIMIT) if limit else None,
-                      compare=compare)
+                      compare=compare, time_grain=next((grain for grain, words in (
+                          ("day", ("按日", "按天", "每日", "每天")), ("week", ("按周", "每周")),
+                          ("month", ("按月", "每月")), ("quarter", ("按季", "每季")),
+                          ("year", ("按年", "每年"))) if any(word in text for word in words)), None))
 
     @staticmethod
     def _dates(text: str, today: date) -> list[date]:

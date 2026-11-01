@@ -28,6 +28,7 @@ from avelis.engines import engine_of
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.governance.metric_sql import BASE_ALIAS, column_ref, is_additive, parse_snippet
+from avelis.i18n import Msg
 from avelis.lineage.grain import cardinality, effective_grains
 from avelis.models import (
     Asset,
@@ -53,16 +54,55 @@ TRANSITIONS = {
     ("affected", "pending_review"),  # 待批准时受影响：恢复后回到待批准，仍须正式复核
     ("affected", "retired"),
 }
-EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "filters",
-                   "dimensions", "joins", "grain", "dedupe_basis", "unit", "unit_scale", "material_change_ratio")
+EDITABLE_FIELDS = ("description", "base_asset_id", "expression", "time_column", "timezone", "time_format",
+                   "data_grain", "time_aggregation", "filters", "dimensions", "joins", "grain", "dedupe_basis",
+                   "unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
 # 只影响显示与分析判断的元数据：不计入依赖指纹，修改不算口径漂移
-DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio")
+DISPLAY_FIELDS = ("unit", "unit_scale", "material_change_ratio", "value_kind", "polarity")
 TIME_TYPES = ("date", "datetime", "timestamp")
+TIME_DEFAULTS = {"time_format": None, "data_grain": "day", "time_aggregation": "sum"}
+
+
+def encoded_time_type(data_type: str) -> str | None:
+    """编码日期键只接受明确的整数或字符串类型，不把浮点数、定点数推断为日期键。"""
+    normalized = data_type.lower().strip()
+    # ClickHouse 的可空、低基数包装不改变底层类型
+    for wrapper in ("nullable(", "lowcardinality("):
+        if normalized.startswith(wrapper) and normalized.endswith(")"):
+            return encoded_time_type(normalized[len(wrapper):-1])
+    name = normalized.split("(", 1)[0].split()
+    name = name[0] if name else ""
+    if name in ("tinyint", "smallint", "mediumint", "int", "integer", "bigint", "int2", "int4", "int8",
+                "int16", "int32", "int64", "int128", "int256", "uint8", "uint16", "uint32", "uint64",
+                "uint128", "uint256"):
+        return "integer"
+    if name in ("char", "character", "varchar", "varchar2", "nvarchar", "nvarchar2", "nchar", "text",
+                "tinytext", "mediumtext", "longtext", "string", "fixedstring", "clob", "nclob", "bpchar"):
+        return "string"
+    return None
+
+
+def _validate_time_semantics(version: MetricVersion) -> None:
+    allowed = {"time_format": (None, "yyyymmdd", "yyyy-mm-dd", "yyyymm"),
+               "data_grain": ("day", "week", "month", "quarter", "year"),
+               "time_aggregation": ("sum", "last", "avg"), "value_kind": (None, "level", "ratio", "count"),
+               "polarity": (None, "up_good", "down_good")}
+    for key, values in allowed.items():
+        value = getattr(version, key, None)
+        # SQLAlchemy 的 Python 默认值在未 flush 的新对象上尚未生效
+        if value is None and key in ("data_grain", "time_aggregation"):
+            value = TIME_DEFAULTS[key]
+        if value not in values:
+            raise Invalid(Msg("{key} 取值无效：{value}", key=key, value=value))
+    if (getattr(version, "time_format", None) == "yyyymm"
+            and (getattr(version, "data_grain", None) or "day") not in ("month", "quarter", "year")):
+        raise Invalid(Msg("yyyymm 时间格式要求 data_grain 为 month、quarter 或 year"))
 
 
 def transition(session: Session, version: MetricVersion, to_status: str, actor: User | None, reason: str) -> None:
     if (version.status, to_status) not in TRANSITIONS:
-        raise Conflict(f"不允许从 {version.status} 转为 {to_status}", from_status=version.status, to_status=to_status)
+        raise Conflict(Msg("不允许从 {from_status} 转为 {to_status}", from_status=version.status, to_status=to_status),
+                       from_status=version.status, to_status=to_status)
     session.add(MetricVersionTransition(metric_version_id=version.id, from_status=version.status, to_status=to_status,
                                         actor_id=actor.id if actor else None, reason=reason))
     version.status = to_status
@@ -80,7 +120,7 @@ def create_metric(session: Session, actor: User, *, code: str, name: str, domain
         raise NotFound("业务域不存在")
     access.require_domain_maintainer(session, actor, domain_id)
     if session.scalar(select(Metric.id).where(Metric.code == code)):
-        raise Conflict(f"指标编码 {code} 已存在")
+        raise Conflict(Msg("指标编码 {code} 已存在", code=code))
     owner_id = owner_id or session.get(Domain, domain_id).owner_id
     metric = Metric(code=code, name=name, domain_id=domain_id, owner_id=owner_id, aliases=aliases,
                     created_by=actor.id)
@@ -177,17 +217,17 @@ def resolve_joins(session: Session, version: MetricVersion) -> tuple[dict[str, A
         alias, path_id = join.get("alias"), join.get("join_path_id")
         left_alias = join.get("from", BASE_ALIAS)
         if not alias or alias in aliases or not alias.isidentifier():
-            raise Invalid(f"第 {i + 1} 个关联的别名不合法或重复：{alias}")
+            raise Invalid(Msg("第 {index} 个关联的别名不合法或重复：{alias}", index=i + 1, alias=alias))
         if left_alias not in aliases:
-            raise Invalid(f"第 {i + 1} 个关联引用了未定义的别名 {left_alias}")
+            raise Invalid(Msg("第 {index} 个关联引用了未定义的别名 {alias}", index=i + 1, alias=left_alias))
         path = session.get(JoinPath, path_id)
         if path is None:
-            raise Invalid(f"关联路径不存在：{path_id}")
+            raise Invalid(Msg("关联路径不存在：{path_id}", path_id=path_id))
         if path.left_asset_id != aliases[left_alias].id:
-            raise Invalid(f"关联路径 {path.code} 的左侧不是 {left_alias}")
+            raise Invalid(Msg("关联路径 {code} 的左侧不是 {alias}", code=path.code, alias=left_alias))
         right = session.get(Asset, path.right_asset_id)
         if right is None or right.status != "active":
-            raise Invalid(f"关联路径 {path.code} 的右侧资产已删除")
+            raise Invalid(Msg("关联路径 {code} 的右侧资产已删除", code=path.code))
         aliases[alias] = right
         steps.append({"alias": alias, "from": left_alias, "path": path, "right": right,
                       "pre_aggregate": bool(join.get("pre_aggregate"))})
@@ -203,7 +243,7 @@ def derived_components(session: Session, version: MetricVersion) -> list[dict[st
     for code in parse_formula(version.expression):
         metric = session.scalar(select(Metric).where(Metric.code == code))
         if metric is None:
-            raise Invalid(f"公式引用了不存在的指标 {code}")
+            raise Invalid(Msg("公式引用了不存在的指标 {code}", code=code))
         if metric.id == own.id:
             raise Invalid("派生指标不能引用自身")
         current = latest_governed_version(session, metric)
@@ -221,7 +261,13 @@ def _shared_dimensions(components: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
+    _validate_time_semantics(version)
     if version.kind == "derived":
+        time_aggregation = getattr(version, "time_aggregation", None) or "sum"
+        if time_aggregation != "sum":
+            raise Invalid(Msg("派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，"
+                              "尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义",
+                              time_aggregation=time_aggregation))
         components = derived_components(session, version)
         return {"aliases": {}, "steps": [], "dependency": [], "expression": None, "components": components,
                 "dimensions": _shared_dimensions(components)}
@@ -241,7 +287,8 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
             return
         if column not in columns[alias]:
             asset = aliases[alias]
-            raise Invalid(f"{label}引用的列不存在：{asset.db_name}.{asset.name}.{column}")
+            raise Invalid(Msg("{label}引用的列不存在：{database}.{asset}.{column}", label=label if isinstance(label, Msg) else Msg(label),
+                              database=asset.db_name, asset=asset.name, column=column))
         refs.append((alias, column, role))
 
     expression = parse_snippet(version.expression or "", dialect=dialect, label="表达式", aliases=names,
@@ -254,20 +301,29 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
             check(alias, column, "过滤条件", "filter")
     time_alias, time_col = column_ref(version.time_column or "", dialect=dialect, label="时间字段", aliases=names)
     check(time_alias, time_col, "时间字段", "time")
-    if not columns[time_alias][time_col].data_type.lower().startswith(TIME_TYPES):
-        raise Invalid(f"时间字段必须是日期或时间类型：{time_col}（{columns[time_alias][time_col].data_type}）")
+    time_type = columns[time_alias][time_col].data_type
+    if getattr(version, "time_format", None) is None:
+        if not time_type.lower().startswith(TIME_TYPES):
+            raise Invalid(Msg("时间字段必须是日期或时间类型：{column}（{data_type}）", column=time_col,
+                              data_type=time_type))
+    elif encoded_time_type(time_type) is None:
+        raise Invalid(Msg("编码时间字段必须是整数或字符串类型：{column}（{data_type}）", column=time_col,
+                          data_type=time_type))
+    elif version.time_format == "yyyy-mm-dd" and encoded_time_type(time_type) != "string":
+        raise Invalid(Msg("yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）", column=time_col,
+                          data_type=time_type))
     try:
         ZoneInfo(version.timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise Invalid(f"业务时区无效：{version.timezone}") from exc
+        raise Invalid(Msg("业务时区无效：{timezone}", timezone=version.timezone)) from exc
     seen_dims = set()
     for dim in version.dimensions or []:
         if not dim.get("name") or dim["name"] in seen_dims:
-            raise Invalid(f"维度名称缺失或重复：{dim}")
+            raise Invalid(Msg("维度名称缺失或重复：{dimension}", dimension=dim))
         seen_dims.add(dim["name"])
-        alias, column = column_ref(dim.get("column", ""), dialect=dialect, label=f"维度 {dim['name']} ",
+        alias, column = column_ref(dim.get("column", ""), dialect=dialect, label=Msg("维度 {name} ", name=dim["name"]),
                                    aliases=names)
-        check(alias, column, f"维度 {dim['name']} ", "dimension")
+        check(alias, column, Msg("维度 {name} ", name=dim["name"]), "dimension")
     for step in steps:
         for c in step["path"].left_columns:
             check(step["from"], c, "关联键", "join_key")
@@ -288,10 +344,18 @@ def validate_spec(session: Session, version: MetricVersion) -> dict[str, Any]:
 
 
 def dependency_fingerprint(version: MetricVersion, dependency: list[dict[str, Any]]) -> str:
-    spec = {k: getattr(version, k) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
+    spec = {k: getattr(version, k, None) for k in EDITABLE_FIELDS if k not in DISPLAY_FIELDS}
+    # 默认语义与迁移前相同，保留已有待审、已发布版本的指纹；非默认值纳入取数依赖
+    time_spec = {k: spec[k] for k, default in TIME_DEFAULTS.items() if spec[k] is not None and spec[k] != default}
+    for key in TIME_DEFAULTS:
+        spec.pop(key)
+    spec.update(time_spec)
     if version.kind == "derived":  # 派生：公式 + 每个组成指标锁定的版本及其依赖指纹
-        return sha256_json({"formula": version.expression, "components": [
-            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]})
+        payload = {"formula": version.expression, "components": [
+            [c["metric_code"], c["version_id"], c["dependency_fingerprint"]] for c in dependency]}
+        if time_spec:
+            payload["time_semantics"] = time_spec
+        return sha256_json(payload)
     return sha256_json({"spec": spec, "deps": [[d["asset_id"], d["column"], d["fingerprint"]] for d in dependency]})
 
 
@@ -423,7 +487,7 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
     metric = session.get(Metric, version.metric_id)
     access.require_domain_maintainer(session, actor, metric.domain_id)
     if version.status != "draft":
-        raise Conflict(f"只有草稿可以提交复核（当前 {version.status}）")
+        raise Conflict(Msg("只有草稿可以提交复核（当前 {status}）", status=version.status))
     check = publish_check(session, version, actor)
     version.publish_check = check
     version.dependency = check["dependency"]
@@ -460,7 +524,7 @@ def _asset_versions(session: Session, dependency: list[dict[str, Any]]) -> dict[
 def approve(session: Session, actor: User, version: MetricVersion, note: str | None) -> MetricVersion:
     access.require_role(session, actor, "reviewer")
     if version.status != "pending_review":
-        raise Conflict(f"只有待复核的版本可以批准（当前 {version.status}）")
+        raise Conflict(Msg("只有待复核的版本可以批准（当前 {status}）", status=version.status))
     if not get_settings().allow_self_review and actor.id in (version.submitted_by, version.created_by):
         raise Forbidden("禁止自审：提交人或创建人不能批准同一版本（AVELIS_ALLOW_SELF_REVIEW=false）")
     check = publish_check(session, version, actor)
@@ -556,6 +620,9 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "description": version.description, "expression": version.expression,
         "base_asset": {"id": base.id, "qualified": f"{base.catalog_name}.{base.db_name}.{base.name}"} if base else None,
         "time_column": version.time_column, "timezone": version.timezone, "filters": version.filters,
+        "time_format": getattr(version, "time_format", None), "data_grain": getattr(version, "data_grain", None) or "day",
+        "time_aggregation": getattr(version, "time_aggregation", None) or "sum",
+        "value_kind": getattr(version, "value_kind", None), "polarity": getattr(version, "polarity", None),
         "dimensions": version.dimensions, "joins": version.joins, "grain": version.grain,
         "dedupe_basis": version.dedupe_basis, "unit": version.unit, "unit_scale": version.unit_scale,
         "material_change_ratio": float(version.material_change_ratio) if version.material_change_ratio is not None

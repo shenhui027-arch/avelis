@@ -1,7 +1,7 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力。
 
-已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1。
-规划中的引擎（Hive；只考虑 SQLGlot 支持的方言）见 ADR 0004：
+已登记：StarRocks 3.5、MySQL 8（只采元数据）、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1、
+Hive 4.1（元数据与视图血缘）。只考虑 SQLGlot 支持的方言（ADR 0004）：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
 
@@ -12,6 +12,9 @@ from avelis.connectors.clickhouse import ClickHouseConnector
 from avelis.connectors.doris import INTERNAL_CATALOG as DORIS_CATALOG
 from avelis.connectors.doris import DorisConnector
 from avelis.connectors.fake import FakeConnector
+from avelis.connectors.hive import AUTH_MODES as HIVE_AUTH_MODES
+from avelis.connectors.hive import CATALOG as HIVE_CATALOG
+from avelis.connectors.hive import HiveConnector
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.oracle import OracleConnector
 from avelis.connectors.postgres import PostgresConnector
@@ -32,6 +35,7 @@ from avelis.lineage.sql import SqlDialect, fold_identifiers, strip_alias_prefixe
 
 STARROCKS = Engine(
     kind="starrocks", label="StarRocks",
+    script_separators=("DELIMITER",),
     # StarRocks 存储的视图定义把别名列写成 `db`.`alias`.`col`，解析前规整
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
@@ -43,6 +47,7 @@ STARROCKS = Engine(
 
 MYSQL = Engine(
     kind="mysql", label="MySQL",
+    script_separators=("DELIMITER",),
     sql=SqlDialect(name="mysql", default_catalog="def"),  # information_schema 中 MySQL 的 Catalog 恒为 def
     name_levels=("database", "table"),
     capabilities=frozenset({METADATA, IDENTITY_TARGET}),
@@ -77,6 +82,7 @@ CLICKHOUSE = Engine(
 
 SQLSERVER = Engine(
     kind="sqlserver", label="SQL Server",
+    script_separators=("GO",),
     sql=SqlDialect(name="tsql", default_catalog="master", national_strings=True),
     name_levels=("database", "schema", "table"), catalog_option="database",
     capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
@@ -88,6 +94,7 @@ SQLSERVER = Engine(
 
 ORACLE = Engine(
     kind="oracle", label="Oracle",
+    script_separators=("/",),
     # 服务名作 catalog 段，查询中不写；DATE 带时间部分，按日期过滤用区间
     sql=SqlDialect(name="oracle", default_catalog="FREEPDB1", normalize=fold_identifiers("oracle"),
                    catalog_in_sql=False, date_has_time=True),
@@ -101,6 +108,7 @@ ORACLE = Engine(
 
 DORIS = Engine(
     kind="doris", label="Doris",
+    script_separators=("DELIMITER",),
     # 视图定义的存储写法与 StarRocks 相同（`internal`.`db`.`alias`.`col`），复用别名前缀规整
     sql=SqlDialect(name="doris", default_catalog=DORIS_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
@@ -111,8 +119,24 @@ DORIS = Engine(
          "外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）",
 )
 
+HIVE = Engine(
+    kind="hive", label="Hive",
+    # 库.表 两级；资产名补固定 Catalog 段 hive，生成的 SQL 不写 Catalog 段
+    sql=SqlDialect(name="hive", default_catalog=HIVE_CATALOG, catalog_in_sql=False),
+    name_levels=("database", "table"),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE}),
+    collector=HiveConnector, default_port=10000,
+    options=(OptionField("databases", "采集的库", required=True),
+             OptionField("auth", "认证方式", type="choice", choices=HIVE_AUTH_MODES, default="NONE",
+                         hint="NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持")),
+    credential_free=("auth", ("NONE", "NOSASL")),
+    note="经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；"
+         "不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据",
+)
+
 FAKE = Engine(
     kind="fake", label="测试适配器",
+    script_separators=("DELIMITER",),
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
     capabilities=frozenset({METADATA, VIEW_LINEAGE}),
@@ -120,4 +144,4 @@ FAKE = Engine(
     is_test_adapter=True, needs_credentials=False, note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, FAKE)

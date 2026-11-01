@@ -25,6 +25,10 @@ RUN pnpm build
 # ---------- 后端：uv 按锁文件安装依赖 ----------
 FROM ${PYTHON_IMAGE} AS backend
 COPY --from=uv /uv /usr/local/bin/uv
+# git 只在构建阶段使用：sqlglot 取自 fork 的固定提交（backend/pyproject.toml 的 tool.uv.sources），运行镜像不含 git
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_HTTP_TIMEOUT=300 UV_HTTP_RETRIES=5
 WORKDIR /app/backend

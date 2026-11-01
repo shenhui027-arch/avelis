@@ -23,7 +23,7 @@ from typing import Any
 
 import oracledb
 
-from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
 
 IDENT = re.compile(r"^[A-Za-z0-9_$#]+$")
 SESSION = ("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS' "
@@ -187,11 +187,13 @@ class OracleConnector:
     # --- 只读执行 ------------------------------------------------------------------
 
     def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
-                       max_rows: int) -> QueryResult:
+                       max_rows: int, timezone: str | None = None) -> QueryResult:
         """只读事务内执行；Oracle 没有单查询内存上限可由会话设置，靠调用超时与行数上限约束。"""
         try:
             with self._connect(call_timeout_ms=int(timeout_seconds) * 1000) as conn:
                 with conn.cursor() as cur:
+                    if timezone is not None:
+                        cur.execute(f"ALTER SESSION SET TIME_ZONE = '{checked_timezone(timezone)}'")
                     cur.execute("SET TRANSACTION READ ONLY")
                     cur.execute(sql_text)
                     columns = [d[0] for d in cur.description or []]

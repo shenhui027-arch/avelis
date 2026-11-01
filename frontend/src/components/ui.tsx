@@ -2,36 +2,38 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 
+import { t } from "../i18n";
 import { Icon } from "./Icon";
 
 export { Hint, Icon } from "./Icon";
 
-// --- 状态：状态点 + 两三个字 ---------------------------------------------------------
+// --- 状态：状态点 + 两三个字（文字取自语言包 status.*） ----------------------------------
 
 type Tone = "ok" | "warn" | "danger" | "info" | "";
 
 const STATUS: Record<string, [Tone, string]> = {
   // 指标版本
-  draft: ["", "草稿"], pending_review: ["info", "待复核"], published: ["ok", "已发布"], affected: ["warn", "受影响"],
-  retired: ["danger", "失效"], archived: ["", "归档"], rejected: ["danger", "已驳回"],
+  draft: ["", t("草稿")], pending_review: ["info", t("待复核")], published: ["ok", t("已发布")], affected: ["warn", t("受影响")],
+  retired: ["danger", t("失效")], archived: ["", t("归档")], rejected: ["danger", t("已驳回")],
   // 回答
-  answered: ["ok", "已回答"], blocked: ["danger", "已拦截"], clarify: ["info", "待澄清"], denied: ["danger", "已拒绝"],
-  error: ["danger", "出错"],
+  answered: ["ok", t("已回答")], blocked: ["danger", t("已拦截")], clarify: ["info", t("待澄清")], denied: ["danger", t("已拒绝")],
+  error: ["danger", t("出错")],
   // 变更、复核、任务
-  open: ["warn", "待处理"], resolved: ["ok", "已处理"], queued: ["info", "排队中"], running: ["info", "进行中"],
-  succeeded: ["ok", "成功"], failed: ["danger", "失败"],
+  open: ["warn", t("待处理")], resolved: ["ok", t("已处理")], queued: ["info", t("排队中")], running: ["info", t("进行中")],
+  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")],
   // 同一张表、粒度、指纹
-  confirmed: ["ok", "同一张表"], candidate: ["warn", "待确认"], mismatch: ["danger", "列不一致"],
-  unresolved: ["", "未匹配"], verified: ["ok", "已核验"], unverified: ["warn", "未核验"], violated: ["danger", "不唯一"],
-  stale: ["warn", "需重新声明"], timeout: ["warn", "核验超时"], ok: ["ok", "正常"], broken: ["danger", "上游缺失"],
-  unknown: ["warn", "证据不全"],
+  confirmed: ["ok", t("同一张表")], candidate: ["warn", t("待确认")], mismatch: ["danger", t("列不一致")],
+  unresolved: ["", t("未匹配")], verified: ["ok", t("已核验")], unverified: ["warn", t("未核验")], violated: ["danger", t("不唯一")],
+  stale: ["warn", t("需重新声明")], timeout: ["warn", t("核验超时")], ok: ["ok", t("正常")], broken: ["danger", t("上游缺失")],
+  unknown: ["warn", t("证据不全")],
   // 关联路径、导入
-  pending: ["info", "待批准"], approved: ["ok", "已批准"], needs_params: ["warn", "待补参数"],
-  needs_review: ["warn", "待确认"], done: ["ok", "完成"], parsed: ["ok", "已解析"], partial: ["warn", "部分解析"],
-  unsupported: ["", "不支持"], skipped: ["", "跳过"], model: ["warn", "模型候选"], written: ["ok", "已写入"],
-  accepted: ["ok", "已接受"], modified: ["info", "已修改"], active: ["ok", "有效"], deleted: ["danger", "已删除"],
-  waiting: ["info", "待回答"], never: ["", "未采集"],
+  pending: ["info", t("待批准")], approved: ["ok", t("已批准")], needs_params: ["warn", t("待补参数")],
+  needs_review: ["warn", t("待确认")], done: ["ok", t("完成")], parsed: ["ok", t("已解析")], partial: ["warn", t("部分解析")],
+  unsupported: ["", t("不支持")], skipped: ["", t("跳过")], model: ["warn", t("模型候选")], written: ["ok", t("已写入")],
+  accepted: ["ok", t("已接受")], modified: ["info", t("已修改")], active: ["ok", t("有效")], deleted: ["danger", t("已删除")],
+  waiting: ["info", t("待回答")], never: ["", t("未采集")], superseded: ["", t("已替换")], intermediate: ["", t("中间段")],
 };
 
 export function statusOf(status: string | null | undefined): [Tone, string] {
@@ -65,16 +67,16 @@ export function Plat({ kind }: { kind: string }) {
 }
 
 export const KIND_LABEL: Record<string, string> = {
-  table: "表", view: "视图", materialized_view: "物化视图", external_table: "外部表", catalog_table: "Catalog 表",
-  design_time: "设计时",
+  table: t("表"), view: t("视图"), materialized_view: t("物化视图"), external_table: t("外部表"), catalog_table: t("Catalog 表"),
+  design_time: t("设计时"),
 };
 
 export const RELATION_LABEL: Record<string, string> = {
-  value_direct: "直接", value_computed: "计算", value_aggregated: "聚合", filter: "过滤", join_key: "关联键",
-  group_by: "分组", table: "表级",
+  value_direct: t("直接"), value_computed: t("计算"), value_aggregated: t("聚合"), filter: t("过滤"), join_key: t("关联键"),
+  group_by: t("分组"), table: t("表级"),
 };
 
-export const CARD_LABEL: Record<string, string> = { n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", unknown: "未知" };
+export const CARD_LABEL: Record<string, string> = { n1: "N:1", "11": "1:1", "1n": "1:N", nn: "N:N", unknown: t("未知") };
 
 // --- 控件 -------------------------------------------------------------------------
 
@@ -138,6 +140,19 @@ export function PaneHeader({ title, count, children }: { title: ReactNode; count
   );
 }
 
+/**
+ * 详情页顶部的层级：第一项是返回上一级的链接，其余是所在位置，只读。
+ * 用在“列表 → 详情”的二级页，不用再点侧栏栏目才能退回列表。
+ */
+export function Crumbs({ back, items = [] }: { back: { label: string; to: string }; items?: ReactNode[] }) {
+  return (
+    <nav className="av-crumbs" aria-label={t("位置")}>
+      <Link className="av-crumbs__back" to={back.to}><Icon name="back" small />{back.label}</Link>
+      {items.map((item, i) => <span key={i} className="av-crumbs__item">{item}</span>)}
+    </nav>
+  );
+}
+
 export function Empty({ text, action, compact, icon }: { text: string; action?: ReactNode; compact?: boolean; icon?: string }) {
   return (
     <div className={`av-empty${compact ? " av-empty--compact" : ""}`} style={{ padding: "var(--space-6)" }}>
@@ -149,7 +164,7 @@ export function Empty({ text, action, compact, icon }: { text: string; action?: 
 /** 列表加载时的占位行：保持布局，不先显示 0 或空态。 */
 export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: number }) {
   return (
-    <div className="av-skeleton" aria-busy="true" aria-label="加载中">
+    <div className="av-skeleton" aria-busy="true" aria-label={t("加载中")}>
       {Array.from({ length: rows }, (_, i) => <span key={i} style={{ height }} />)}
     </div>
   );
@@ -159,7 +174,7 @@ export function Skeleton({ rows = 5, height = 44 }: { rows?: number; height?: nu
  * 一次查询的四种状态：加载（骨架）、失败（原因 + 重试）、成功但为空（空态，可带下一步动作）、有数据。
  * 只有成功后才显示“0 条”或业务空态，避免加载中、失败被误读为“没有数据”。
  */
-export function QueryState<T>({ query, isEmpty, emptyText = "暂无数据", emptyAction, rows, compact, children }: {
+export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, compact, children }: {
   query: UseQueryResult<T>; isEmpty?: (data: T) => boolean; emptyText?: string; emptyAction?: ReactNode;
   rows?: number; compact?: boolean; children: (data: T) => ReactNode;
 }) {
@@ -167,15 +182,15 @@ export function QueryState<T>({ query, isEmpty, emptyText = "暂无数据", empt
   if (query.isError) {
     return (
       <div className="av-query-error" role="alert">
-        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : "加载失败"}</span>
+        <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("加载失败")}</span>
         <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => query.refetch()}>
-          <Icon name="refresh" />重试
+          <Icon name="refresh" />{t("重试")}
         </button>
       </div>
     );
   }
   const data = query.data as T;
-  if (isEmpty?.(data)) return <Empty text={emptyText} action={emptyAction} compact={compact} />;
+  if (isEmpty?.(data)) return <Empty text={emptyText ?? t("暂无数据")} action={emptyAction} compact={compact} />;
   return <>{children(data)}</>;
 }
 
@@ -212,7 +227,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
       <div className="av-backdrop" onClick={onClose} />
       <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
         <PaneHeader title={title}>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭")} onClick={onClose}>
             <Icon name="close" />
           </button>
         </PaneHeader>
@@ -299,14 +314,14 @@ export function CommentDoc({ doc }: { doc: ColumnDoc | null | undefined }) {
   if (!doc) return null;
   if (doc.status === "ok") return <span className="av-coldoc">{doc.comment}</span>;
   if (doc.status === "linked") {
-    return <span className="av-coldoc" title={`取自源表 ${doc.source}`}>{doc.comment}</span>;
+    return <span className="av-coldoc" title={t("取自源表 {{source}}", { source: doc.source })}>{doc.comment}</span>;
   }
   if (doc.status === "inherited") {
     return (
-      <span className="av-coldoc av-coldoc--gap" title={`本列没有数据库注释；上游 ${doc.source} 的注释可沿用`}>
-        <Pill tone="warn">缺注释</Pill><span>上游：{doc.comment}</span>
+      <span className="av-coldoc av-coldoc--gap" title={t("本列没有数据库注释；上游 {{source}} 的注释可沿用", { source: doc.source })}>
+        <Pill tone="warn">{t("缺注释")}</Pill><span>{t("上游：{{comment}}", { comment: doc.comment })}</span>
       </span>
     );
   }
-  return <span className="av-coldoc av-coldoc--gap" title="本列与上游都没有数据库注释"><Pill tone="warn">注释缺失</Pill></span>;
+  return <span className="av-coldoc av-coldoc--gap" title={t("本列与上游都没有数据库注释")}><Pill tone="warn">{t("注释缺失")}</Pill></span>;
 }

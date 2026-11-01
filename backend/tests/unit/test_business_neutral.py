@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCANNED = [ROOT / "backend" / "src", ROOT / "frontend" / "src"]
 EXCLUDED = {"demo_setup.py", "openapi.json", "schema.d.ts"}  # 演示种子与自动生成的接口描述
-SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql"}
+SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".json", ".sql", ".po"}
 # 演示数据集特有的词：库名、表名前缀、口径编码，以及演示用的业务词
 DEMO_TERMS = [r"\bec_", r"\bdws_", r"ec_dw", r"paid_sales", r"orders_cnt", "成交额", "门店", "客单价", "华东", "华南",
               "华北", "西南", "客流", "抖音", "福田", "广州", "深圳", "商圈", "楼层", "投放", "实付", "daily_sales", "shop_dim",
@@ -109,6 +109,8 @@ def test_example_questions_fall_back_to_metric_templates(monkeypatch):
         "m1": (SimpleNamespace(name="指标甲"), SimpleNamespace(dimensions=[{"name": "d", "label": "维度甲"}]))})
     monkeypatch.setattr(ask_service, "visible_catalog", lambda s, u, with_values: catalog)
     asked = examples.example_questions(Session(), None, "ask")
-    assert asked[0] == {"text": "指标甲 按维度甲的最近一期排名", "domain": None, "source": "generated"}
+    assert (re.fullmatch(r"指标甲 \d{4}-\d{2}-\d{2} 至 \d{4}-\d{2}-\d{2} 按维度甲的排名", asked[0]["text"])
+            and asked[0]["domain"] is None and asked[0]["source"] == "generated")
     analysed = [q["text"] for q in examples.example_questions(Session(), None, "analysis")]
-    assert analysed[-1] == "指标甲 和 指标乙 按维度甲有什么关系？" and len(analysed) == 3
+    assert (re.fullmatch(r"指标甲 和 指标乙 \d{4}-\d{2}-\d{2} 至 \d{4}-\d{2}-\d{2} 相比上一期按维度甲有什么关系？",
+                         analysed[-1]) and len(analysed) == 3)

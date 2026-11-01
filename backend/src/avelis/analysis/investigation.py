@@ -13,11 +13,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.optimizer.scope import traverse_scope
 
 from avelis.analysis import attribution
-
-# 至少三个上一期值为正的成员，其变化率都在总体变化率的 ±50% 以内，才判为均匀。
-UNIFORM_TOLERANCE = Decimal("0.5")
-# 最大单日绝对偏差达到本期总偏差绝对值的 50%，记为集中在某个时间点。
-SPIKE_SHARE = Decimal("0.5")
+from avelis.config import get_settings
 
 
 def _number(value: Any) -> Decimal | None:
@@ -148,7 +144,8 @@ def _dimension(rows: list[dict], previous: Decimal | None, change: Decimal | Non
         result["reason"] = "总体变化率不可计算，不能判断均匀"
     else:
         rate = change / previous
-        result["uniform"] = all(abs((c - p) / p - rate) <= abs(rate) * UNIFORM_TOLERANCE for p, c in eligible)
+        tolerance = Decimal(str(get_settings().analysis_uniform_tolerance))
+        result["uniform"] = all(abs((c - p) / p - rate) <= abs(rate) * tolerance for p, c in eligible)
     return result
 
 
@@ -169,7 +166,11 @@ def _time_distribution(dataset: Any, scope: dict) -> dict:
         return result
     meta = dataset.meta or {}
     intent = meta.get("intent") or {}
-    if intent.get("time_grain") != "day" or intent.get("group_by") or len(intent.get("metric_codes") or []) > 1:
+    if intent.get("time_grain") != "day" or any(
+            grain != "day" for grain in (meta.get("data_grains") or {}).values()):
+        result["reason"] = "时间集中度只适用于日粒度；当前数据或查询不是日粒度，无法计算单日偏差"
+        return result
+    if intent.get("group_by") or len(intent.get("metric_codes") or []) > 1:
         return result
     start, end, before, bend = (_date(scope.get(k)) for k in ("start", "end", "compare_start", "compare_end"))
     if None in (start, end, before, bend) or start > end or before > bend:
@@ -203,7 +204,8 @@ def _time_distribution(dataset: Any, scope: dict) -> dict:
         return result
     day, value = max(deviations, key=lambda item: abs(item[1]))
     share = abs(value) / abs(total)
-    return {"max_day_share": float(share), "date": day.isoformat(), "concentrated": share >= SPIKE_SHARE, "reason": ""}
+    threshold = Decimal(str(get_settings().analysis_spike_share))
+    return {"max_day_share": float(share), "date": day.isoformat(), "concentrated": share >= threshold, "reason": ""}
 
 
 def distribution(attribution_dataset: Any, trend_dataset: Any, datasets: Any = None,
@@ -233,7 +235,8 @@ def distribution(attribution_dataset: Any, trend_dataset: Any, datasets: Any = N
 
 def distribution_block(value: dict, limit: int = 600) -> str:
     """上下文中的短块也计入总字符预算，保留不可计算的原因。"""
-    lines = ["变化的分布特征（均匀：各成员变化率都在总体变化率的 ±50% 以内，至少三个正基数成员）"]
+    tolerance = (Decimal(str(get_settings().analysis_uniform_tolerance)) * 100).normalize()
+    lines = [f"变化的分布特征（均匀：各成员变化率都在总体变化率的 ±{tolerance:f}% 以内，至少三个正基数成员）"]
     if not value.get("dimensions"):
         lines.append("成员分布不可计算：没有可用的完整归因维度")
     for label, dim in value.get("dimensions", {}).items():
@@ -274,11 +277,11 @@ def event_datasets(datasets: dict[str, Any], closure_tables: set[str]) -> list[s
     found = []
     for ref, dataset in datasets.items():
         meta = dataset.meta or {}
-        if not meta.get("sql") or not _has_dates(dataset):
+        if not meta.get("sql") or not meta.get("dialect") or not _has_dates(dataset):
             continue
         try:
-            # 调用方补入数据源的真实方言；无法取得时按 StarRocks 解析。
-            trees = sqlglot.parse(meta["sql"], read=meta.get("dialect") or "starrocks")
+            # 调用方补入数据源的真实方言；无法确定时不触发依赖表源的修订。
+            trees = sqlglot.parse(meta["sql"], read=meta["dialect"])
             if len(trees) != 1 or not isinstance(trees[0], exp.Query):
                 continue
             # 作用域中的物理表不包含 CTE 名称，避免把内部别名误作外部表。
