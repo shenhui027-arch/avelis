@@ -877,6 +877,8 @@ class AnalysisDatasetRerunIn(BaseModel):
 
 class AnalysisRunOut(Out):
     id: str
+    conversation_id: str
+    turn: int
     question: str
     status: str
     trigger: str
@@ -907,6 +909,25 @@ class AnalysisRunOut(Out):
     checkpoint_warnings: list[str] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
+
+
+class AnalysisConversationOut(Out):
+    id: str
+    title: str
+    display_title: str | None = None
+    question: str
+    latest_run_id: str
+    status: str
+    turn_count: int
+    archived_at: str | None = None
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class AnalysisConversationDetailOut(AnalysisConversationOut):
+    runs: list[AnalysisRunOut]
 
 
 class CronPreviewOut(Out):

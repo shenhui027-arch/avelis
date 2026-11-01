@@ -8,9 +8,10 @@ import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
-import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, type ProposalItem } from "./AnalysisInteractions";
+import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
+import { ArchivedConversations } from "../../layout/Conversations";
 import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
@@ -78,7 +79,7 @@ function windowBody(kind: WindowKind, fixed: { start: string; end: string; cs: s
 
 export function AnalysisPage() {
   const { runId, section } = useParams();
-  const view = section === "tasks" || section === "experiences" ? section : "runs";
+  const view = section === "tasks" || section === "experiences" || section === "archived" ? section : "runs";
   const evidence = view === "runs" && !!runId;
   const dataset = useOpenDataset();
   const run = useRun(evidence ? runId : undefined);
@@ -91,6 +92,7 @@ export function AnalysisPage() {
             onDownload={(seq, ref) => void download(`/api/analysis/runs/${runId}/datasets/${seq}/csv`, `analysis-${runId}-${ref}.csv`)} />
         </div> : runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
           {view === "tasks" ? <div className="av-analysis__page"><PageHead title="定时任务" /><TaskList /></div>
+            : view === "archived" ? <div className="av-analysis__page"><PageHead title="已归档的对话" hint="归档的对话可以打开查看、恢复到左侧，或永久删除" /><ArchivedConversations /></div>
             : view === "experiences" ? <div className="av-analysis__page">
               <PageHead title="个人经验" hint="在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回" /><ExperienceList /></div>
             : <Composer />}
@@ -268,7 +270,7 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
 /** 原因排序（ADR 0009 第 5 点）：第一项是首要原因；每项标明实体、方向、贡献与证据。 */
 /** 还没查清、可以让模型继续查的点：报告里“仍未解释”的每一条，加上未通过来源校验的结论。
  *  点“继续查”把它放进底部输入框，用户可以改了再发。 */
-function NextSteps({ text, unverified, onPick }: { text?: string; unverified: number; onPick: (text: string) => void }) {
+function NextSteps({ text, unverified, onPick }: { text?: string; unverified: number; onPick?: (text: string) => void }) {
   const items = (text ?? "").split(/[；;]\s*/).map((s) => s.trim().replace(/[。.]$/, "")).filter(Boolean);
   if (unverified) items.push(`有 ${unverified} 条事实或计算未通过来源校验，需要重新核对`);
   if (!items.length) return null;
@@ -279,7 +281,8 @@ function NextSteps({ text, unverified, onPick }: { text?: string; unverified: nu
         {items.map((item) => (
           <li key={item}>
             <span>{item}</span>
-            <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => onPick(`继续查：${item}`)}>
+            <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!onPick}
+              title={onPick ? "在这个对话里接着分析这一条" : "等当前这一轮完成后再继续"} onClick={() => onPick?.(`继续查：${item}`)}>
               继续查</button>
           </li>
         ))}
@@ -329,13 +332,45 @@ function LookupAnswer({ a }: { a: Answer }) {
   );
 }
 
+/** 一段对话：所有轮次按时间顺序在同一页，底部输入框接着最新一轮继续；地址总是指向最新一轮。 */
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
-  const tz = useTimeZone();
-  const [error, setError] = useState<string | null>(null);
-  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
+  const navigate = useNavigate();
+  const convId = (run.data as (Run & { conversation_id?: string }) | undefined)?.conversation_id;
+  const conv = useQuery({
+    queryKey: ["analysis-conversation", convId], enabled: !!convId,
+    queryFn: () => unwrap(api.GET("/api/analysis/conversations/{conversation_id}", { params: { path: { conversation_id: convId! } } })),
+  });
+  const latestId = conv.data?.latest_run_id;
+  useEffect(() => { if (latestId && latestId !== id) navigate(`/analysis/runs/${latestId}`, { replace: true }); }, [latestId, id, navigate]);
+  const continueWith = useContinue(id);
+  const bottom = useRef<HTMLDivElement>(null);
+  const earlier = (conv.data?.runs ?? []).filter((t) => t.id !== id);
+  const total = earlier.length + 1;
+  // 有多轮时打开就定位到最新一轮；新的一轮出现时也滚过去
+  useEffect(() => { if (total > 1) bottom.current?.scrollIntoView({ block: "start" }); }, [total, id]);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = run.data;
+  const live = ["queued", "running", "waiting"].includes(r.status);
+  const done = r.status === "succeeded";
+  const onContinue = done && !continueWith.pending ? (text: string) => continueWith.send(text) : undefined;
+  return (
+    <>
+      <div className="av-analysis__scroll">
+        {earlier.map((t, i) => <RunTurn key={t.id} r={t} turn={i + 1} total={total} onContinue={onContinue} />)}
+        <div ref={bottom} />
+        <RunTurn r={r} turn={total} total={total} onContinue={onContinue} />
+        {continueWith.error ? <div className="av-banner av-banner--danger av-turn__error">{continueWith.error}</div> : null}
+      </div>
+      {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
+    </>
+  );
+}
+
+/** 对话里的一轮：问题、过程、报告。导出与状态按这一轮。 */
+function RunTurn({ r, turn, total, onContinue }: { r: Run; turn: number; total: number; onContinue?: (text: string) => void }) {
+  const tz = useTimeZone();
+  const [error, setError] = useState<string | null>(null);
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[];
     sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[] };
@@ -363,8 +398,6 @@ function RunDetail({ id }: { id: string }) {
   const win = r.window as { start?: string; end?: string; compare_start?: string; compare_end?: string } | null;
   const live = running || r.status === "waiting";
   return (
-    <>
-    <div className="av-analysis__scroll">
     <article className="av-doc">
       <header className="av-doc__hd">
         <div className="av-doc__titles">
@@ -372,7 +405,7 @@ function RunDetail({ id }: { id: string }) {
           <p className="av-doc__sub">
             {win?.start ? <span className="av-mono">{win.start} ~ {win.end}{win.compare_start ? `　对比 ${win.compare_start} ~ ${win.compare_end}` : ""}</span> : null}
             <span>{formatTime(r.created_at, tz)}</span>
-            {hitl.parent_run_id ? <Link to={`/analysis/runs/${hitl.parent_run_id}`}>续问自上一次分析</Link> : null}
+            {total > 1 ? <span className="av-turn__no">第 {turn} 轮</span> : null}
           </p>
         </div>
         <div className="av-doc__actions">
@@ -409,7 +442,7 @@ function RunDetail({ id }: { id: string }) {
           {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
         <Causes causes={report.causes} conclusion={report.conclusion} />
         <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
-          onPick={(text) => setSeed({ text, n: (seed?.n ?? 0) + 1 })} />
+          onPick={onContinue ? (text) => onContinue(text) : undefined} />
         <details className="av-fold" open={!!(verification.ok === false && verification.unverified)}>
           <summary>结论依据 <span className="av-caption">{report.claims?.length ?? 0} 条事实、计算与推断</span></summary>
           <ol className="av-claims">
@@ -447,9 +480,6 @@ function RunDetail({ id }: { id: string }) {
       {!running && r.status !== "waiting" ? <CandidatesPanel candidates={hitl.experience_candidates} /> : null}
       </DatasetSql.Provider>
     </article>
-    </div>
-    {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} seed={seed} />}</div> : null}
-    </>
   );
 }
 
