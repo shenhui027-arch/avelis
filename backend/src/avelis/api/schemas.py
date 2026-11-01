@@ -580,6 +580,7 @@ class AuditOut(Out):
 
 class StatementOut(Out):
     id: str
+    file_id: str | None = None
     seq: int
     lines: list[int]
     method: str
@@ -590,10 +591,13 @@ class StatementOut(Out):
     placeholders: list[str]
     raw_text: str
     sql_text: str | None = None
+    text_hash: str | None = None
+    writes: list[Json] = Field(default_factory=list)
 
 
 class CandidateOut(Out):
     id: str
+    file_id: str | None = None
     statement_id: str | None = None
     origin: str
     status: str
@@ -611,6 +615,9 @@ class CandidateOut(Out):
     modified: Json
     reason: str | None = None
     decided_by: str | None = None
+    attributes: Json = Field(default_factory=dict)
+    via: list[str] = Field(default_factory=list)
+    hops: list[Json] = Field(default_factory=list)
 
 
 class ImportJobOut(Out):
@@ -631,6 +638,80 @@ class ImportJobOut(Out):
     candidates: list[CandidateOut] = Field(default_factory=list)
     duplicate: bool | None = None
     content: str | None = None
+
+
+class ImportFileOut(Out):
+    id: str
+    filename: str
+    source_key: str
+    revision: int
+    supersedes: str | None = None
+    superseded_by: str | None = None
+    language: str
+    status: str
+    statement_count: int = 0
+    stats: Json = Field(default_factory=dict)
+
+
+class ImportBatchBrief(Out):
+    id: str
+    status: str
+    file_count: int
+    statement_count: int
+    progress: Json
+    created_at: str
+    filename: str | None = None
+
+
+class ImportBatchOut(Out):
+    id: str
+    datasource_id: str
+    default_db: str | None = None
+    status: str
+    progress: Json = Field(default_factory=dict)
+    stats: Json = Field(default_factory=dict)
+    options: Json = Field(default_factory=dict)
+    params: Json = Field(default_factory=dict)
+    files: list[ImportFileOut] = Field(default_factory=list)
+    unmatched_tables: list[Json] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    job_id: str | None = None
+    created_at: str
+    updated_at: str | None = None
+    error: str | None = None
+    duplicate: bool | None = None
+
+
+class ImportStatementPage(Out):
+    items: list[StatementOut]
+    total: int
+    counts: dict[str, int]
+    offset: int
+    limit: int
+
+
+class ImportCandidatePage(Out):
+    items: list[CandidateOut]
+    total: int
+    offset: int
+    limit: int
+
+
+class ImportContentOut(Out):
+    file_id: str
+    filename: str
+    content: str
+
+
+class ImportSqlFunctionsOut(Out):
+    datasource_id: str
+    sql_functions: list[str]
+
+
+class ImportDecisionsOut(Out):
+    ids: list[str]
+    decision: str
+    processed: int
 
 
 # --- 工作台 -----------------------------------------------------------------------

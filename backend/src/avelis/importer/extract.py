@@ -1,6 +1,6 @@
 """从 SQL 脚本、Python、Shell 中抽取语句与数据操作片段（确定性，带行号）。
 
-- SQL：按分号切分（识别引号与注释），多语句按顺序处理；
+- SQL：按引擎客户端分隔符与方言分词切分，多语句按顺序处理；
 - Python：用 ast 找 spark.sql / cursor.execute / text / read_sql 等调用的字符串参数
   （普通字符串、三引号、f-string、字面量拼接、.format），f-string 与 .format 的占位符记为待补参数；
   同一函数中不含 SQL、但有 DataFrame 读写（spark.table / saveAsTable / insertInto）的语句块作为“未识别片段”；
@@ -11,31 +11,15 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass, field
+from collections.abc import Sequence
 from enum import Enum
+
+from avelis.importer.split import PLACEHOLDER, Segment, split_sql
+from avelis.importer.split import placeholders_of as placeholders_of
 
 SQL_CALLS = {"sql", "execute", "executemany", "text", "read_sql", "read_sql_query"}
 DATAFRAME_MARKERS = ("spark.table(", "read.table(", "saveAsTable(", "insertInto(", ".join(")
-PLACEHOLDER = re.compile(r"\$\{(\w+)\}|\{(\w+)\}|%\((\w+)\)s")
 SHELL_SQL_COMMANDS = re.compile(r"\b(mysql|starrocks|beeline|hive|spark-sql|psql)\b")
-
-
-@dataclass
-class Segment:
-    line_start: int
-    line_end: int
-    method: str  # sql | python_ast | shell | unrecognized
-    text: str
-    placeholders: list[str] = field(default_factory=list)
-
-
-def placeholders_of(text: str) -> list[str]:
-    names = []
-    for m in PLACEHOLDER.finditer(text):
-        name = next(g for g in m.groups() if g)
-        if name not in names:
-            names.append(name)
-    return names
 
 
 def substitute(text: str, params: dict[str, str]) -> tuple[str, list[str]]:
@@ -50,58 +34,6 @@ def substitute(text: str, params: dict[str, str]) -> tuple[str, list[str]]:
         return m.group(0)
 
     return PLACEHOLDER.sub(rep, text), missing
-
-
-def split_sql(text: str, line_offset: int = 0) -> list[Segment]:
-    """按分号切分 SQL，忽略引号与注释中的分号；返回每条语句的行号范围。"""
-    segments, buf = [], []
-    line, start_line = 1, None
-    i, n = 0, len(text)
-    quote = None
-    while i < n:
-        ch = text[i]
-        nxt = text[i + 1] if i + 1 < n else ""
-        if quote:
-            buf.append(ch)
-            if ch == "\\" and quote != "`":
-                buf.append(nxt)
-                i += 2
-                continue
-            if ch == quote:
-                quote = None
-        elif ch == "-" and nxt == "-" or ch == "#":
-            end = text.find("\n", i)
-            end = n if end < 0 else end
-            i = end
-            continue
-        elif ch == "/" and nxt == "*":
-            end = text.find("*/", i + 2)
-            end = n if end < 0 else end + 2
-            line += text.count("\n", i, end)
-            i = end
-            continue
-        elif ch in ("'", '"', "`"):
-            quote = ch
-            buf.append(ch)
-            start_line = start_line or line
-        elif ch == ";":
-            statement = "".join(buf).strip()
-            if statement:
-                segments.append(Segment(start_line + line_offset, line + line_offset, "sql", statement,
-                                        placeholders_of(statement)))
-            buf, start_line = [], None
-        else:
-            if not ch.isspace() and start_line is None:
-                start_line = line
-            buf.append(ch)
-        if ch == "\n":
-            line += 1
-        i += 1
-    statement = "".join(buf).strip()
-    if statement:
-        segments.append(Segment(start_line + line_offset, line + line_offset, "sql", statement,
-                                placeholders_of(statement)))
-    return segments
 
 
 # --- Python -----------------------------------------------------------------------
@@ -144,9 +76,23 @@ def _string_value(node: ast.AST, constants: Bindings) -> str | None:
     return None
 
 
-def _contains_sql_call(node: ast.AST) -> bool:
-    return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in SQL_CALLS
-               for n in ast.walk(node))
+def _call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _call_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def _is_sql_call(node: ast.AST, calls: set[str]) -> bool:
+    return isinstance(node, ast.Call) and (
+        _call_name(node.func) in calls or _call_name(node.func).rsplit(".", 1)[-1] in calls
+    )
+
+
+def _contains_sql_call(node: ast.AST, calls: set[str]) -> bool:
+    return any(_is_sql_call(child, calls) for child in ast.walk(node))
 
 
 def _assigned_names(nodes: list[ast.stmt]) -> set[str]:
@@ -189,7 +135,10 @@ def _assigned_names(nodes: list[ast.stmt]) -> set[str]:
     return names
 
 
-def extract_python(source: str) -> tuple[list[Segment], list[str]]:
+def extract_python(
+    source: str, dialect_name: str = "starrocks", separators: Sequence[str] = (),
+    sql_functions: Sequence[str] = (),
+) -> tuple[list[Segment], list[str]]:
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
@@ -197,6 +146,7 @@ def extract_python(source: str) -> tuple[list[Segment], list[str]]:
     lines = source.splitlines()
     segments: list[Segment] = []
     notes: list[str] = []
+    calls = SQL_CALLS | set(sql_functions)
 
     def binding_value(node: ast.AST, bindings: Bindings) -> str | None | _Unknown:
         value = _string_value(node, bindings)
@@ -248,16 +198,15 @@ def extract_python(source: str) -> tuple[list[Segment], list[str]]:
             return
         for child in ast.iter_child_nodes(node):
             expression(child, bindings)
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr in SQL_CALLS and node.args):
+        if not (_is_sql_call(node, calls) and node.args):
             return
         text = _string_value(node.args[0], bindings)
         if text is None:
-            notes.append(f"第 {node.lineno} 行的 {node.func.attr}() 参数无法确定，已交给模型候选流程")
+            notes.append(f"第 {node.lineno} 行的 {_call_name(node.func)}() 参数无法确定，已交给模型候选流程")
             segments.append(Segment(node.lineno, node.end_lineno or node.lineno, "unrecognized",
                                     "\n".join(lines[node.lineno - 1:(node.end_lineno or node.lineno)])))
         else:
-            for seg in split_sql(text):
+            for seg in split_sql(text, dialect_name, separators, notes=notes):
                 segments.append(Segment(node.lineno, node.end_lineno or node.lineno, "python_ast", seg.text,
                                         seg.placeholders))
 
@@ -390,7 +339,7 @@ def extract_python(source: str) -> tuple[list[Segment], list[str]]:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 flush()
                 blocks(stmt.body)
-            elif _contains_sql_call(stmt) or isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            elif _contains_sql_call(stmt, calls) or isinstance(stmt, (ast.Import, ast.ImportFrom)):
                 flush()
             else:
                 current.append(stmt)
@@ -407,27 +356,35 @@ HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 DASH_E = re.compile(r"""-e\s+(["'])(.*?)(?<!\\)\1""", re.S)
 
 
-def extract_shell(source: str) -> tuple[list[Segment], list[str]]:
+def extract_shell(
+    source: str, dialect_name: str = "starrocks", separators: Sequence[str] = (),
+    sql_functions: Sequence[str] = (),
+) -> tuple[list[Segment], list[str]]:
     lines = source.splitlines()
     segments: list[Segment] = []
+    notes: list[str] = []
+    commands = SHELL_SQL_COMMANDS
+    if sql_functions:
+        custom = "|".join(re.escape(name) for name in sql_functions)
+        commands = re.compile(SHELL_SQL_COMMANDS.pattern + rf"|(?<![\w.])(?:{custom})(?![\w.])")
     i = 0
     while i < len(lines):
         line = lines[i]
         m = HEREDOC.search(line)
-        if m and SHELL_SQL_COMMANDS.search(line):
+        if m and commands.search(line):
             delimiter, body, j = m.group(1), [], i + 1
             while j < len(lines) and lines[j].strip() != delimiter:
                 body.append(lines[j])
                 j += 1
-            for seg in split_sql("\n".join(body), line_offset=i + 1):
+            for seg in split_sql("\n".join(body), dialect_name, separators, line_offset=i + 1, notes=notes):
                 seg.method = "shell"
                 segments.append(seg)
             i = j + 1
             continue
-        if SHELL_SQL_COMMANDS.search(line):
+        if commands.search(line):
             for em in DASH_E.finditer(line):
-                for seg in split_sql(em.group(2), line_offset=i):
+                for seg in split_sql(em.group(2), dialect_name, separators, line_offset=i, notes=notes):
                     seg.method = "shell"
                     segments.append(seg)
         i += 1
-    return segments, []
+    return segments, notes

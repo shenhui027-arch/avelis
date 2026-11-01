@@ -56,6 +56,8 @@ class Engine:
     options: tuple[OptionField, ...] = field(default_factory=tuple)
     # catalog 段取自数据源配置中的哪一项（如 PostgreSQL 的库名）；为空时用方言的固定 default_catalog
     catalog_option: str | None = None
+    # 命令行客户端的脚本分隔符，不属于 SQL 方言语法。
+    script_separators: tuple[str, ...] = field(default_factory=tuple)
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
