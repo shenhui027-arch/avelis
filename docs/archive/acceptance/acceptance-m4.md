@@ -5,7 +5,7 @@
 - 环境：
   - 本机 Docker 演示环境：StarRocks 3.5.14、MySQL 8.4 维表库、PostgreSQL 18、Valkey 8。
   - 问数理解使用演示规则（确定性）。M1 中的两项真实 DeepSeek 用例在回归中一并重跑。
-- 测试文件：[backend/tests/acceptance/test_m4_exceptions.py](../backend/tests/acceptance/test_m4_exceptions.py)。
+- 测试文件：[backend/tests/acceptance/test_m4_exceptions.py](../../../backend/tests/acceptance/test_m4_exceptions.py)。
 
 ## 怎么复现
 
@@ -58,7 +58,7 @@ uv run pytest -m acceptance                                          # M1 + M2 +
   - 修复一个缺陷：worker 在执行中退出后，任务永远停在 `running`。`schedule_due` 又把“已有任务在跑”的数据源跳过，所以该数据源的定时采集会永久停止。
   - 现在运行超过 `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS`（默认 3600）的任务会被如实记为失败，不自动重跑。
 
-**引擎适配层**：多数据库扩展，见 [ADR 0004](decisions/0004-engine-adapters.md)。
+**引擎适配层**：多数据库扩展，见 [ADR 0004](../../decisions/0004-engine-adapters.md)。
 
 - 解析核心与具体数据库解耦；方言与能力来自注册表。
 - 新增 `GET /api/engines`。

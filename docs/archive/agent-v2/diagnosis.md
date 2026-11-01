@@ -177,7 +177,7 @@ v2 通过的 13 次中，f03、h08 是题目定义改过之后才通过（保存
 
 h10（范围 / 候选召回 + 活动事件）、e01（无“均价”口径 + 调价事件）、h07（丢筛选 + 投放 / 活动）、f02（贡献当原因 + 活动）、
 h09（日历 vs 因子）、d02（丢筛选 + 投放渠道）。覆盖范围、跨表事件、判断三类主要失败；都是已看过的开发题，不称盲测。
-材料与来源见 `experiments/agent-v2/e1_injections.yaml`，执行与计数方式见 `docs/agent-v2/handoff.md`。
+材料与来源见 `experiments/agent-v2/e1_injections.yaml`，执行与计数方式见 `docs/archive/agent-v2/handoff.md`。
 
 ## 7. E0 协议冒烟（真实模型，2026-10-31 北京时间周六凌晨，空闲时段）
 
