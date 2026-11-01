@@ -33,7 +33,7 @@ const STATUS: Record<string, [Tone, string]> = {
   needs_review: ["warn", t("待确认")], done: ["ok", t("完成")], parsed: ["ok", t("已解析")], partial: ["warn", t("部分解析")],
   unsupported: ["", t("不支持")], skipped: ["", t("跳过")], model: ["warn", t("模型候选")], written: ["ok", t("已写入")],
   accepted: ["ok", t("已接受")], modified: ["info", t("已修改")], active: ["ok", t("有效")], deleted: ["danger", t("已删除")],
-  waiting: ["info", t("待回答")], never: ["", t("未采集")],
+  waiting: ["info", t("待回答")], never: ["", t("未采集")], superseded: ["", t("已替换")], intermediate: ["", t("中间段")],
 };
 
 export function statusOf(status: string | null | undefined): [Tone, string] {

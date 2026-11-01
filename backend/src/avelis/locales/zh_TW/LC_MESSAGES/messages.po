@@ -1682,3 +1682,105 @@ msgstr "年"
 
 msgid "{key} 必须为 (0, 1] 范围内的有限数值"
 msgstr "{key} 必須是 (0, 1] 範圍內的有限數值"
+
+msgid "批次超过 {size:g} MB"
+msgstr "批次超過 {size:g} MB"
+
+msgid "文件路径不合法：{name}"
+msgstr "檔案路徑不合法：{name}"
+
+msgid "文件 {name} 超过单文件大小上限"
+msgstr "檔案 {name} 超過單一檔案大小上限"
+
+msgid "文件名不能超过 255 个字符：{name}"
+msgstr "檔名不能超過 255 個字元：{name}"
+
+msgid "文件来源键不能超过 512 个字符：{name}"
+msgstr "檔案來源鍵不能超過 512 個字元：{name}"
+
+msgid "批次中存在重复来源键：{name}"
+msgstr "批次中有重複的來源鍵：{name}"
+
+msgid "文件 {name} 不是有效的 UTF-8 文本"
+msgstr "檔案 {name} 不是有效的 UTF-8 文字"
+
+msgid "文件 {name} 不是有效的 zip"
+msgstr "檔案 {name} 不是有效的 zip"
+
+msgid "zip 条目数不能超过 {limit}"
+msgstr "zip 條目數不能超過 {limit}"
+
+msgid "zip 不支持符号链接：{name}"
+msgstr "zip 不支援符號連結：{name}"
+
+msgid "不支持嵌套 zip：{name}"
+msgstr "不支援巢狀 zip：{name}"
+
+msgid "不支持加密 zip 条目：{name}"
+msgstr "不支援加密的 zip 條目：{name}"
+
+msgid "文件 {name} 超过单文件大小上限（按解压后大小计量）"
+msgstr "檔案 {name} 超過單一檔案大小上限（以解壓縮後大小計算）"
+
+msgid "zip 条目无法读取：{name}"
+msgstr "zip 條目無法讀取：{name}"
+
+msgid "文件 {name} 的导入内容为空"
+msgstr "檔案 {name} 的匯入內容為空"
+
+msgid "重复文件 {name} 已被更新，请重新导入该批次"
+msgstr "重複檔案 {name} 已被更新，請重新匯入此批次"
+
+msgid "中间段只用于查证，请处理折叠后的边"
+msgstr "中間段只用於查證，請處理摺疊後的邊"
+
+msgid "候选所属文件已被新版本替换，不能再处理"
+msgstr "候選所屬檔案已被新版本取代，不能再處理"
+
+msgid "同一批次的来源键不能重复"
+msgstr "同一批次的來源鍵不能重複"
+
+msgid "后台导入任务已经结束或执行权已变更，本次结果未写入"
+msgstr "背景匯入任務已結束或執行權已變更，本次結果未寫入"
+
+msgid "导入内容超过批次大小上限（按解压后大小计量）"
+msgstr "匯入內容超過批次大小上限（以解壓縮後大小計算）"
+
+msgid "导入批次不存在"
+msgstr "匯入批次不存在"
+
+msgid "导入选项不是有效的 JSON"
+msgstr "匯入選項不是有效的 JSON"
+
+msgid "执行函数名列表不合法"
+msgstr "執行函式名稱清單不合法"
+
+msgid "批次正在处理或文件版本已被替换，不能补边"
+msgstr "批次正在處理或檔案版本已被取代，不能補邊"
+
+msgid "批次正在执行，不能补充参数"
+msgstr "批次正在執行，不能補充參數"
+
+msgid "批次超过导入总大小上限"
+msgstr "批次超過匯入總大小上限"
+
+msgid "文件不属于此导入批次"
+msgstr "檔案不屬於此匯入批次"
+
+msgid "文件超过导入大小上限"
+msgstr "檔案超過匯入大小上限"
+
+msgid "没有可导入的 SQL、Python 或 Shell 文件"
+msgstr "沒有可匯入的 SQL、Python 或 Shell 檔案"
+
+msgid "没有可导入的文件"
+msgstr "沒有可匯入的檔案"
+
+msgid "至少上传一个文件"
+msgstr "至少上傳一個檔案"
+
+msgid "解析边当前不是 active，不能再处理"
+msgstr "解析邊目前不是 active，不能再處理"
+
+msgid "语句状态不合法"
+msgstr "語句狀態不合法"

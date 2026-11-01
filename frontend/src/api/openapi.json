@@ -5378,57 +5378,46 @@
    }
   },
   "/api/imports": {
-   "get": {
-    "tags": [
-     "导入血缘"
-    ],
-    "summary": "List Imports",
-    "operationId": "list_imports_api_imports_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "items": {
-          "$ref": "#/components/schemas/ImportJobOut"
-         },
-         "type": "array",
-         "title": "Response List Imports Api Imports Get"
-        }
-       }
-      }
-     }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
-   },
    "post": {
     "tags": [
      "导入血缘"
     ],
     "summary": "Create Import",
     "operationId": "create_import_api_imports_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "wait",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Wait"
+      }
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/ImportBody"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
-     "200": {
+     "202": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
+         "$ref": "#/components/schemas/ImportBatchOut"
         }
        }
       }
@@ -5443,12 +5432,35 @@
        }
       }
      }
-    },
+    }
+   },
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "List Imports",
+    "operationId": "list_imports_api_imports_get",
     "security": [
      {
       "OAuth2PasswordBearer": []
      }
-    ]
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ImportBatchBrief"
+         },
+         "title": "Response List Imports Api Imports Get"
+        }
+       }
+      }
+     }
+    }
    }
   },
   "/api/imports/upload": {
@@ -5458,52 +5470,6 @@
     ],
     "summary": "Upload",
     "operationId": "upload_api_imports_upload_post",
-    "requestBody": {
-     "content": {
-      "multipart/form-data": {
-       "schema": {
-        "$ref": "#/components/schemas/Body_upload_api_imports_upload_post"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
-   }
-  },
-  "/api/imports/{job_id}": {
-   "get": {
-    "tags": [
-     "导入血缘"
-    ],
-    "summary": "Get Import",
-    "operationId": "get_import_api_imports__job_id__get",
     "security": [
      {
       "OAuth2PasswordBearer": []
@@ -5511,22 +5477,33 @@
     ],
     "parameters": [
      {
-      "name": "job_id",
-      "in": "path",
-      "required": true,
+      "name": "wait",
+      "in": "query",
+      "required": false,
       "schema": {
-       "type": "string",
-       "title": "Job Id"
+       "type": "boolean",
+       "default": false,
+       "title": "Wait"
       }
      }
     ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_upload_api_imports_upload_post"
+       }
+      }
+     }
+    },
     "responses": {
-     "200": {
+     "202": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
+         "$ref": "#/components/schemas/ImportBatchOut"
         }
        }
       }
@@ -5544,13 +5521,13 @@
     }
    }
   },
-  "/api/imports/{job_id}/params": {
-   "put": {
+  "/api/imports/sql-functions/{datasource_id}": {
+   "get": {
     "tags": [
      "导入血缘"
     ],
-    "summary": "Set Params",
-    "operationId": "set_params_api_imports__job_id__params_put",
+    "summary": "Get Sql Functions",
+    "operationId": "get_sql_functions_api_imports_sql_functions__datasource_id__get",
     "security": [
      {
       "OAuth2PasswordBearer": []
@@ -5558,12 +5535,531 @@
     ],
     "parameters": [
      {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportSqlFunctionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Put Sql Functions",
+    "operationId": "put_sql_functions_api_imports_sql_functions__datasource_id__put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SqlFunctions"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportSqlFunctionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Get Import",
+    "operationId": "get_import_api_imports__batch_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportBatchOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}/statements": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Statements",
+    "operationId": "statements_api_imports__batch_id__statements_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     },
+     {
+      "name": "file_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "File Id"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportStatementPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}/candidates": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Candidates",
+    "operationId": "candidates_api_imports__batch_id__candidates_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     },
+     {
+      "name": "file_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "File Id"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "origin",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Origin"
+      }
+     },
+     {
+      "name": "statement_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Statement Id"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportCandidatePage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}/files/{job_id}/content": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Content",
+    "operationId": "content_api_imports__batch_id__files__job_id__content_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     },
+     {
       "name": "job_id",
       "in": "path",
       "required": true,
       "schema": {
        "type": "string",
        "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportContentOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}/model-payload": {
+   "get": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Model Payload",
+    "operationId": "model_payload_api_imports__batch_id__model_payload_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": true
+         },
+         "title": "Response Model Payload Api Imports  Batch Id  Model Payload Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/imports/{batch_id}/params": {
+   "put": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Set Params",
+    "operationId": "set_params_api_imports__batch_id__params_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "batch_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Batch Id"
+      }
+     },
+     {
+      "name": "wait",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Wait"
       }
      }
     ],
@@ -5578,12 +6074,12 @@
      }
     },
     "responses": {
-     "200": {
+     "202": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
+         "$ref": "#/components/schemas/ImportBatchOut"
         }
        }
       }
@@ -5599,6 +6095,52 @@
       }
      }
     }
+   }
+  },
+  "/api/candidates/decisions": {
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Decide Many",
+    "operationId": "decide_many_api_candidates_decisions_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DecisionsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportDecisionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
    }
   },
   "/api/candidates/{candidate_id}/decision": {
@@ -5640,7 +6182,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
+         "$ref": "#/components/schemas/ImportBatchOut"
         }
        }
       }
@@ -5658,13 +6200,13 @@
     }
    }
   },
-  "/api/imports/{job_id}/edges": {
+  "/api/imports/{batch_id}/edges": {
    "post": {
     "tags": [
      "导入血缘"
     ],
     "summary": "Manual Edge",
-    "operationId": "manual_edge_api_imports__job_id__edges_post",
+    "operationId": "manual_edge_api_imports__batch_id__edges_post",
     "security": [
      {
       "OAuth2PasswordBearer": []
@@ -5672,12 +6214,12 @@
     ],
     "parameters": [
      {
-      "name": "job_id",
+      "name": "batch_id",
       "in": "path",
       "required": true,
       "schema": {
        "type": "string",
-       "title": "Job Id"
+       "title": "Batch Id"
       }
      }
     ],
@@ -5697,7 +6239,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ImportJobOut"
+         "$ref": "#/components/schemas/ImportBatchOut"
         }
        }
       }
@@ -8092,8 +8634,15 @@
       "title": "Datasource Id"
      },
      "file": {
-      "type": "string",
-      "contentMediaType": "application/octet-stream",
+      "anyOf": [
+       {
+        "type": "string",
+        "contentMediaType": "application/octet-stream"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "File"
      },
      "default_db": {
@@ -8106,12 +8655,63 @@
        }
       ],
       "title": "Default Db"
+     },
+     "files": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "contentMediaType": "application/octet-stream"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Files"
+     },
+     "files[]": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "contentMediaType": "application/octet-stream"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Files[]"
+     },
+     "model_assist": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Assist"
+     },
+     "sql_functions": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql Functions"
      }
     },
     "type": "object",
     "required": [
-     "datasource_id",
-     "file"
+     "datasource_id"
     ],
     "title": "Body_upload_api_imports_upload_post"
    },
@@ -8201,6 +8801,17 @@
      "id": {
       "type": "string",
       "title": "Id"
+     },
+     "file_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "File Id"
      },
      "statement_id": {
       "anyOf": [
@@ -8327,6 +8938,26 @@
        }
       ],
       "title": "Decided By"
+     },
+     "attributes": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Attributes"
+     },
+     "via": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Via"
+     },
+     "hops": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Hops"
      }
     },
     "additionalProperties": true,
@@ -9742,6 +10373,7 @@
      "reason": {
       "type": "string",
       "minLength": 1,
+      "pattern": "\\S",
       "title": "Reason"
      },
      "source_ref": {
@@ -9806,6 +10438,39 @@
      "reason"
     ],
     "title": "DecisionBody"
+   },
+   "DecisionsBody": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "minItems": 1,
+      "title": "Ids"
+     },
+     "decision": {
+      "type": "string",
+      "enum": [
+       "accept",
+       "reject"
+      ],
+      "title": "Decision"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ids",
+     "decision",
+     "reason"
+    ],
+    "title": "DecisionsBody"
    },
    "DefinitionOut": {
     "properties": {
@@ -10992,6 +11657,183 @@
     ],
     "title": "ImpactOut"
    },
+   "ImportBatchBrief": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "file_count": {
+      "type": "integer",
+      "title": "File Count"
+     },
+     "statement_count": {
+      "type": "integer",
+      "title": "Statement Count"
+     },
+     "progress": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Progress"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "filename": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Filename"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "status",
+     "file_count",
+     "statement_count",
+     "progress",
+     "created_at"
+    ],
+    "title": "ImportBatchBrief"
+   },
+   "ImportBatchOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "default_db": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Db"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "progress": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Progress"
+     },
+     "stats": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Stats"
+     },
+     "options": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Options"
+     },
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params"
+     },
+     "files": {
+      "items": {
+       "$ref": "#/components/schemas/ImportFileOut"
+      },
+      "type": "array",
+      "title": "Files"
+     },
+     "unmatched_tables": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Unmatched Tables"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notes"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Job Id"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated At"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "duplicate": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duplicate"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "datasource_id",
+     "status",
+     "created_at"
+    ],
+    "title": "ImportBatchOut"
+   },
    "ImportBody": {
     "properties": {
      "datasource_id": {
@@ -11001,6 +11843,7 @@
      "filename": {
       "type": "string",
       "maxLength": 255,
+      "minLength": 1,
       "title": "Filename",
       "default": "粘贴的 SQL.sql"
      },
@@ -11043,6 +11886,16 @@
       },
       "type": "object",
       "title": "Params"
+     },
+     "model_assist": {
+      "$ref": "#/components/schemas/ModelAssist"
+     },
+     "sql_functions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sql Functions"
      }
     },
     "type": "object",
@@ -11052,7 +11905,90 @@
     ],
     "title": "ImportBody"
    },
-   "ImportJobOut": {
+   "ImportCandidatePage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/CandidateOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "items",
+     "total",
+     "offset",
+     "limit"
+    ],
+    "title": "ImportCandidatePage"
+   },
+   "ImportContentOut": {
+    "properties": {
+     "file_id": {
+      "type": "string",
+      "title": "File Id"
+     },
+     "filename": {
+      "type": "string",
+      "title": "Filename"
+     },
+     "content": {
+      "type": "string",
+      "title": "Content"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "file_id",
+     "filename",
+     "content"
+    ],
+    "title": "ImportContentOut"
+   },
+   "ImportDecisionsOut": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ids"
+     },
+     "decision": {
+      "type": "string",
+      "title": "Decision"
+     },
+     "processed": {
+      "type": "integer",
+      "title": "Processed"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ids",
+     "decision",
+     "processed"
+    ],
+    "title": "ImportDecisionsOut"
+   },
+   "ImportFileOut": {
     "properties": {
      "id": {
       "type": "string",
@@ -11062,126 +11998,53 @@
       "type": "string",
       "title": "Filename"
      },
+     "source_key": {
+      "type": "string",
+      "title": "Source Key"
+     },
+     "revision": {
+      "type": "integer",
+      "title": "Revision"
+     },
+     "supersedes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Supersedes"
+     },
+     "superseded_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Superseded By"
+     },
      "language": {
       "type": "string",
       "title": "Language"
-     },
-     "source_type": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Source Type"
-     },
-     "datasource_id": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Datasource Id"
-     },
-     "default_db": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Default Db"
      },
      "status": {
       "type": "string",
       "title": "Status"
      },
-     "params": {
-      "additionalProperties": true,
-      "type": "object",
-      "title": "Params"
+     "statement_count": {
+      "type": "integer",
+      "title": "Statement Count",
+      "default": 0
      },
      "stats": {
       "additionalProperties": true,
       "type": "object",
       "title": "Stats"
-     },
-     "model_adapter": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Model Adapter"
-     },
-     "model_payload": {
-      "items": {
-       "additionalProperties": true,
-       "type": "object"
-      },
-      "type": "array",
-      "title": "Model Payload"
-     },
-     "content_hash": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Content Hash"
-     },
-     "created_at": {
-      "type": "string",
-      "title": "Created At"
-     },
-     "statements": {
-      "items": {
-       "$ref": "#/components/schemas/StatementOut"
-      },
-      "type": "array",
-      "title": "Statements"
-     },
-     "candidates": {
-      "items": {
-       "$ref": "#/components/schemas/CandidateOut"
-      },
-      "type": "array",
-      "title": "Candidates"
-     },
-     "duplicate": {
-      "anyOf": [
-       {
-        "type": "boolean"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Duplicate"
-     },
-     "content": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Content"
      }
     },
     "additionalProperties": true,
@@ -11189,12 +12052,74 @@
     "required": [
      "id",
      "filename",
+     "source_key",
+     "revision",
      "language",
-     "status",
-     "stats",
-     "created_at"
+     "status"
     ],
-    "title": "ImportJobOut"
+    "title": "ImportFileOut"
+   },
+   "ImportSqlFunctionsOut": {
+    "properties": {
+     "datasource_id": {
+      "type": "string",
+      "title": "Datasource Id"
+     },
+     "sql_functions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sql Functions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "datasource_id",
+     "sql_functions"
+    ],
+    "title": "ImportSqlFunctionsOut"
+   },
+   "ImportStatementPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/StatementOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "counts": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Counts"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "items",
+     "total",
+     "counts",
+     "offset",
+     "limit"
+    ],
+    "title": "ImportStatementPage"
    },
    "JobOut": {
     "properties": {
@@ -11514,6 +12439,10 @@
    },
    "ManualEdge": {
     "properties": {
+     "file_id": {
+      "type": "string",
+      "title": "File Id"
+     },
      "source_ref": {
       "type": "string",
       "title": "Source Ref"
@@ -11551,6 +12480,7 @@
      "reason": {
       "type": "string",
       "minLength": 1,
+      "pattern": "\\S",
       "title": "Reason"
      },
      "lines": {
@@ -11570,6 +12500,7 @@
     },
     "type": "object",
     "required": [
+     "file_id",
      "source_ref",
      "target_ref",
      "relation",
@@ -12083,6 +13014,22 @@
      "domain_id"
     ],
     "title": "MetricVersionOut"
+   },
+   "ModelAssist": {
+    "properties": {
+     "failed_sql": {
+      "type": "boolean",
+      "title": "Failed Sql",
+      "default": false
+     },
+     "code": {
+      "type": "boolean",
+      "title": "Code",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "ModelAssist"
    },
    "ModelEntry": {
     "properties": {
@@ -13018,6 +13965,22 @@
     ],
     "title": "SettingsOut"
    },
+   "SqlFunctions": {
+    "properties": {
+     "sql_functions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sql Functions"
+     }
+    },
+    "type": "object",
+    "required": [
+     "sql_functions"
+    ],
+    "title": "SqlFunctions"
+   },
    "StageOut": {
     "properties": {
      "key": {
@@ -13062,6 +14025,17 @@
      "id": {
       "type": "string",
       "title": "Id"
+     },
+     "file_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "File Id"
      },
      "seq": {
       "type": "integer",
@@ -13136,6 +14110,25 @@
        }
       ],
       "title": "Sql Text"
+     },
+     "text_hash": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Text Hash"
+     },
+     "writes": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Writes"
      }
     },
     "additionalProperties": true,

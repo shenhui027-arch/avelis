@@ -12,15 +12,18 @@ from fastapi.testclient import TestClient
 from avelis.api import imports
 from avelis.api.deps import current_user, get_session
 from avelis.governance.errors import GovernanceError
-from avelis.models import CandidateEdge, ExtractedStatement, ImportJob, ImportSource, User, UserRole
+from avelis.models import AppSetting, ImportBatch, ImportJob, ImportSource, User, UserRole
 
 
 class ImportSession:
     def __init__(self, roles: set[str]):
         self.roles = roles
         self.reads = []
+        self.batch = ImportBatch(id="batch-1", datasource_id="ds-1", status="done", progress={}, stats={}, options={},
+                                 created_at=datetime(2026, 10, 29, tzinfo=UTC))
         self.job = ImportJob(
-            id="job-1", datasource_id="ds-1", filename="private.sql", language="sql", source_type="sql",
+            id="job-1", batch_id="batch-1", datasource_id="ds-1", filename="private.sql", language="sql",
+            source_type="sql",
             status="done", params={"password": "private-param"}, stats={}, model_adapter="private-model",
             model_payload=[{"text": "private-model-payload"}], content_hash="digest",
             created_at=datetime(2026, 10, 29, tzinfo=UTC),
@@ -33,8 +36,8 @@ class ImportSession:
         self.reads.append(entity)
         if entity is ImportJob:
             return [self.job]
-        assert entity in (ExtractedStatement, CandidateEdge)
-        return []
+        assert entity is ImportBatch
+        return [self.batch]
 
     def scalar(self, statement):
         assert statement.column_descriptions[0]["entity"] is ImportSource
@@ -43,6 +46,11 @@ class ImportSession:
 
     def get(self, entity, object_id):
         self.reads.append(entity)
+        if entity is AppSetting:
+            return None
+        if entity is ImportBatch:
+            assert object_id == self.batch.id
+            return self.batch
         assert entity is ImportJob and object_id == self.job.id
         return self.job
 
@@ -63,12 +71,20 @@ def client_for(session: ImportSession) -> TestClient:
 @pytest.mark.parametrize("roles", [set(), {"analyst"}, {"reviewer"}, {"analyst", "reviewer"}])
 @pytest.mark.parametrize("method,path,body", [
     ("GET", "/api/imports", None),
-    ("GET", "/api/imports/job-1", None),
+    ("GET", "/api/imports/batch-1", None),
+    ("GET", "/api/imports/batch-1/statements", None),
+    ("GET", "/api/imports/batch-1/candidates", None),
+    ("GET", "/api/imports/batch-1/files/job-1/content", None),
+    ("GET", "/api/imports/batch-1/model-payload", None),
+    ("GET", "/api/imports/sql-functions/ds-1", None),
+    ("PUT", "/api/imports/sql-functions/ds-1", {"sql_functions": ["run_sql"]}),
     ("POST", "/api/imports", {"datasource_id": "ds-1", "content": "SELECT 1"}),
-    ("PUT", "/api/imports/job-1/params", {"params": {"table": "orders"}}),
+    ("PUT", "/api/imports/batch-1/params", {"params": {"table": "events"}}),
     ("POST", "/api/candidates/pending-candidate/decision", {"decision": "accept", "reason": "确认"}),
-    ("POST", "/api/imports/job-1/edges", {
-        "source_ref": "shop.orders", "target_ref": "shop.report", "relation": "table", "reason": "补充",
+    ("POST", "/api/candidates/decisions", {"ids": ["pending-candidate"], "decision": "reject", "reason": "复核"}),
+    ("POST", "/api/imports/batch-1/edges", {
+        "file_id": "job-1", "source_ref": "src.events", "target_ref": "dw.daily_summary",
+        "relation": "table", "reason": "补充",
     }),
 ])
 def test_import_payload_routes_reject_before_reading(roles, method, path, body):
@@ -96,11 +112,11 @@ def test_steward_and_admin_can_list_and_read_import_payload(roles):
     session = ImportSession(roles)
     with client_for(session) as client:
         listed = client.get("/api/imports")
-        detail = client.get("/api/imports/job-1")
+        original = client.get("/api/imports/batch-1/files/job-1/content")
+        payloads = client.get("/api/imports/batch-1/model-payload")
     assert listed.status_code == 200
-    assert listed.json()[0]["id"] == "job-1"
-    assert detail.status_code == 200
-    payload = detail.json()
-    assert payload["content"] == "SELECT 'private-source';"
-    assert payload["params"] == {"password": "private-param"}
-    assert payload["model_payload"] == [{"text": "private-model-payload"}]
+    assert listed.json()[0]["id"] == "batch-1"
+    assert original.status_code == 200
+    assert original.json()["content"] == "SELECT 'private-source';"
+    assert payloads.status_code == 200
+    assert payloads.json() == [{"text": "private-model-payload", "file_id": "job-1", "filename": "private.sql"}]

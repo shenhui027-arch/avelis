@@ -108,7 +108,8 @@ class Settings:
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800
-    import_max_bytes: int = 2 * 1024**2
+    import_max_bytes: int = 20 * 1024**2
+    import_max_batch_bytes: int = 100 * 1024**2
     ask_max_tool_rounds: int = 8
     reply_language: str = "auto"
     analysis_tool_calls: int = 30
@@ -293,6 +294,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
         db_pool_recycle_seconds=_nonnegative_int(env, "AVELIS_DB_POOL_RECYCLE_SECONDS",
                                                 Settings.db_pool_recycle_seconds),
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
+        import_max_batch_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BATCH_BYTES", Settings.import_max_batch_bytes),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
         reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
@@ -321,7 +323,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
     positive = {
         "AVELIS_ACCESS_TOKEN_MINUTES", "AVELIS_SESSION_MAX_HOURS", "AVELIS_QUERY_TIMEOUT_SECONDS",
         "AVELIS_QUERY_MEM_LIMIT_BYTES", "AVELIS_QUERY_MAX_ROWS", "AVELIS_ANSWER_CACHE_SECONDS", "AVELIS_WORKERS",
-        "AVELIS_IMPORT_MAX_BYTES", "AVELIS_ASK_MAX_TOOL_ROUNDS", "AVELIS_ANALYSIS_TOOL_CALLS",
+        "AVELIS_IMPORT_MAX_BYTES", "AVELIS_IMPORT_MAX_BATCH_BYTES", "AVELIS_ASK_MAX_TOOL_ROUNDS",
+        "AVELIS_ANALYSIS_TOOL_CALLS",
         "AVELIS_ANALYSIS_SECONDS", "AVELIS_ANALYSIS_EXPLORE_LIMIT", "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
     }

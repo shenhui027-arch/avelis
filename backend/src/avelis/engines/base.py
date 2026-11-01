@@ -59,6 +59,8 @@ class Engine:
     options: tuple[OptionField, ...] = field(default_factory=tuple)
     # catalog 段取自数据源配置中的哪一项（如 PostgreSQL 的库名）；为空时用方言的固定 default_catalog
     catalog_option: str | None = None
+    # 命令行客户端的脚本分隔符，不属于 SQL 方言语法。
+    script_separators: tuple[str, ...] = field(default_factory=tuple)
     # 配置项取这些值时采集账号可不填（如 Hive 的 auth = NONE：服务端不校验口令）：(配置项, 取值)
     credential_free: tuple[str, tuple[str, ...]] | None = None
 

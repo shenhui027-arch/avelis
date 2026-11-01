@@ -1677,3 +1677,105 @@ msgstr "Year"
 
 msgid "{key} 必须为 (0, 1] 范围内的有限数值"
 msgstr "{key} must be a finite number in the interval (0, 1]"
+
+msgid "批次超过 {size:g} MB"
+msgstr "The batch exceeds {size:g} MB"
+
+msgid "文件路径不合法：{name}"
+msgstr "Invalid file path: {name}"
+
+msgid "文件 {name} 超过单文件大小上限"
+msgstr "File {name} exceeds the per-file size limit"
+
+msgid "文件名不能超过 255 个字符：{name}"
+msgstr "File names cannot exceed 255 characters: {name}"
+
+msgid "文件来源键不能超过 512 个字符：{name}"
+msgstr "Source keys cannot exceed 512 characters: {name}"
+
+msgid "批次中存在重复来源键：{name}"
+msgstr "Duplicate source key in the batch: {name}"
+
+msgid "文件 {name} 不是有效的 UTF-8 文本"
+msgstr "File {name} is not valid UTF-8 text"
+
+msgid "文件 {name} 不是有效的 zip"
+msgstr "File {name} is not a valid zip"
+
+msgid "zip 条目数不能超过 {limit}"
+msgstr "A zip cannot contain more than {limit} entries"
+
+msgid "zip 不支持符号链接：{name}"
+msgstr "Symbolic links in zips are not supported: {name}"
+
+msgid "不支持嵌套 zip：{name}"
+msgstr "Nested zips are not supported: {name}"
+
+msgid "不支持加密 zip 条目：{name}"
+msgstr "Encrypted zip entries are not supported: {name}"
+
+msgid "文件 {name} 超过单文件大小上限（按解压后大小计量）"
+msgstr "File {name} exceeds the per-file size limit (measured after decompression)"
+
+msgid "zip 条目无法读取：{name}"
+msgstr "Cannot read zip entry: {name}"
+
+msgid "文件 {name} 的导入内容为空"
+msgstr "File {name} has no content to import"
+
+msgid "重复文件 {name} 已被更新，请重新导入该批次"
+msgstr "Duplicate file {name} has been updated; import the batch again"
+
+msgid "中间段只用于查证，请处理折叠后的边"
+msgstr "Intermediate hops are for tracing only; review the folded edge instead"
+
+msgid "候选所属文件已被新版本替换，不能再处理"
+msgstr "The candidate's file was replaced by a newer version and can no longer be reviewed"
+
+msgid "同一批次的来源键不能重复"
+msgstr "Source keys must be unique within a batch"
+
+msgid "后台导入任务已经结束或执行权已变更，本次结果未写入"
+msgstr "The background import has ended or changed hands; these results were not written"
+
+msgid "导入内容超过批次大小上限（按解压后大小计量）"
+msgstr "The import exceeds the batch size limit (measured after decompression)"
+
+msgid "导入批次不存在"
+msgstr "Import batch not found"
+
+msgid "导入选项不是有效的 JSON"
+msgstr "Import options are not valid JSON"
+
+msgid "执行函数名列表不合法"
+msgstr "Invalid list of SQL execution functions"
+
+msgid "批次正在处理或文件版本已被替换，不能补边"
+msgstr "Edges cannot be added while the batch is running or after the file version was replaced"
+
+msgid "批次正在执行，不能补充参数"
+msgstr "Parameters cannot be added while the batch is running"
+
+msgid "批次超过导入总大小上限"
+msgstr "The batch exceeds the total import size limit"
+
+msgid "文件不属于此导入批次"
+msgstr "The file does not belong to this import batch"
+
+msgid "文件超过导入大小上限"
+msgstr "The file exceeds the import size limit"
+
+msgid "没有可导入的 SQL、Python 或 Shell 文件"
+msgstr "No SQL, Python or Shell files to import"
+
+msgid "没有可导入的文件"
+msgstr "No files to import"
+
+msgid "至少上传一个文件"
+msgstr "Upload at least one file"
+
+msgid "解析边当前不是 active，不能再处理"
+msgstr "The parsed edge is no longer active and cannot be reviewed"
+
+msgid "语句状态不合法"
+msgstr "Invalid statement status"

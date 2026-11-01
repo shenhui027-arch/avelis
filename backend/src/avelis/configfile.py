@@ -91,7 +91,8 @@ CONFIG_KEYS = {
     "model.base_url": ConfigKey("AVELIS_MODEL_BASE_URL", str, ""),
     "model.api_key": ConfigKey("AVELIS_MODEL_API_KEY", str, ""),
     "model.send_results": ConfigKey("AVELIS_MODEL_SEND_RESULTS", bool, False),
-    "import.max_bytes": ConfigKey("AVELIS_IMPORT_MAX_BYTES", int, 2097152),
+    "import.max_bytes": ConfigKey("AVELIS_IMPORT_MAX_BYTES", int, 20 * 1024**2),  # 单文件或粘贴内容，20 MB
+    "import.max_batch_bytes": ConfigKey("AVELIS_IMPORT_MAX_BATCH_BYTES", int, 100 * 1024**2),
 }
 ENV_KEYS = {spec.env: path for path, spec in CONFIG_KEYS.items()}
 SENSITIVE_KEYS = frozenset({
