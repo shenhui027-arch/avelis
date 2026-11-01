@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from avelis.importer.fold import FoldStatement, fold_writes
+from avelis.importer.statements import parse_statement
+from avelis.lineage.sql import SqlDialect, fold_identifiers
 
 
 def edge(source, source_column="id", target_column="id", relation="value_direct"):
@@ -18,8 +20,8 @@ def write(target, edges, *, temporary=False, created=False, op=None):
                            created=created, attributes={"op": op} if op else {})
 
 
-def statement(seq, writes=(), *, drops=(), removes=(), job="file-a"):
-    return FoldStatement(job, f"statement-{seq}", list(writes), list(drops), list(removes))
+def statement(seq, writes=(), *, drops=(), removes=(), resets=(), job="file-a"):
+    return FoldStatement(job, f"statement-{seq}", list(writes), list(drops), list(removes), list(resets))
 
 
 def signature(result):
@@ -158,6 +160,81 @@ def test_recreated_name_does_not_inherit_old_lifecycle():
         ("cat.src.second", "id", "cat.stage.rows", "id", "value_direct"),
         ("cat.stage.rows", "id", "cat.dw.daily_summary", "id", "value_direct"),
     }
+
+
+@pytest.mark.parametrize("reset", ["TRUNCATE TABLE dw.tmp", "DELETE FROM dw.tmp"])
+@pytest.mark.parametrize("create", ["CREATE TABLE dw.tmp(id INT)", "CREATE TEMPORARY TABLE dw.tmp(id INT)"])
+def test_data_reset_cuts_prior_sources_and_preserves_created_then_dropped_lifecycle(reset, create):
+    dialect = SqlDialect("postgres", "cat", normalize=fold_identifiers("postgres"))
+    schema = {"cat": {"src": {"a": {"id": "INT"}, "b": {"id": "INT"}},
+                      "dw": {"tmp": {"id": "INT"}, "out": {"id": "INT"}}}}
+    sql = [create, "INSERT INTO dw.tmp SELECT id FROM src.a", reset,
+           "INSERT INTO dw.tmp SELECT id FROM src.b", "INSERT INTO dw.out SELECT id FROM dw.tmp",
+           "DROP TABLE dw.tmp"]
+    statements = []
+    for seq, text in enumerate(sql):
+        parsed = parse_statement(text, dialect=dialect, schema=schema)
+        assert parsed.status in {"parsed", "skipped"}, parsed.reason
+        statements.append(statement(seq, parsed.writes, drops=parsed.dropped_refs,
+                                    removes=parsed.removed_refs, resets=parsed.reset_refs))
+    before = deepcopy(statements)
+    result = fold_writes(statements)
+    assert signature(result) == {("cat.src.b", "id", "cat.dw.out", "id", "value_direct")}
+    assert result.intermediate_tables == ["cat.dw.tmp"]
+    assert len(result.intermediate) == 3
+    assert statements == before
+
+
+@pytest.mark.parametrize("created", [False, True])
+def test_data_reset_alone_preserves_old_segment_intermediate_rules(created):
+    result = fold_writes([
+        statement(1, [write("cat.stage.rows", [edge("cat.src.first")], created=created)]),
+        statement(2, resets=["cat.stage.rows"]),
+        statement(3, [write("cat.stage.rows", [edge("cat.src.second")])]),
+        statement(4, [write("cat.dw.daily_summary", [edge("cat.stage.rows")])]),
+    ])
+    assert signature(result) == {
+        ("cat.src.first", "id", "cat.stage.rows", "id", "value_direct"),
+        ("cat.src.second", "id", "cat.stage.rows", "id", "value_direct"),
+        ("cat.stage.rows", "id", "cat.dw.daily_summary", "id", "value_direct"),
+    }
+    assert not result.intermediate
+
+
+def test_reset_then_drop_existing_table_does_not_make_old_or_new_writes_intermediate():
+    result = fold_writes([
+        statement(1, [write("cat.stage.rows", [edge("cat.src.first")])]),
+        statement(2, resets=["cat.stage.rows"]),
+        statement(3, [write("cat.stage.rows", [edge("cat.src.second")])]),
+        statement(4, [write("cat.dw.daily_summary", [edge("cat.stage.rows")])]),
+        statement(5, drops=["cat.stage.rows"]),
+    ])
+    assert len(result.active) == 3
+    assert not result.intermediate
+    assert not result.intermediate_tables
+
+
+def test_reset_before_rename_preserves_structure_lifecycle_and_only_composes_current_data():
+    result = fold_writes([
+        statement(1, [write("cat.stage.rows", [edge("cat.src.first")], created=True)]),
+        statement(2, resets=["cat.stage.rows"]),
+        statement(3, [write("cat.stage.rows", [edge("cat.src.second")])]),
+        statement(4, [write("cat.dw.daily_summary", [edge("cat.stage.rows")], op="rename")],
+                  removes=["cat.stage.rows"]),
+    ])
+    assert signature(result) == {("cat.src.second", "id", "cat.dw.daily_summary", "id", "value_direct")}
+    assert len(result.intermediate) == 3
+
+
+def test_filtered_delete_keeps_prior_sources_available_to_fold():
+    parsed = parse_statement("DELETE FROM stage.rows WHERE id=1",
+                             dialect=SqlDialect("postgres", "cat"), schema={})
+    result = fold_writes([
+        statement(1, [write("cat.stage.rows", [edge("cat.src.events")], temporary=True)]),
+        statement(2, parsed.writes, resets=parsed.reset_refs),
+        statement(3, [write("cat.dw.daily_summary", [edge("cat.stage.rows")])]),
+    ])
+    assert signature(result) == {("cat.src.events", "id", "cat.dw.daily_summary", "id", "value_direct")}
 
 
 def test_column_matching_does_not_cross_unrelated_columns_or_future_writes():

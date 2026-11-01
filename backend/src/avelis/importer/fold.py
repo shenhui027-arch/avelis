@@ -19,6 +19,7 @@ class FoldStatement:
     writes: list[Write] = field(default_factory=list)
     dropped_refs: list[str] = field(default_factory=list)
     removed_refs: list[str] = field(default_factory=list)
+    reset_refs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -53,6 +54,7 @@ class _Table:
     created: bool = False
     intermediate: bool = False
     temporary: bool = False
+    previous_data: _Table | None = None
 
 
 @dataclass
@@ -82,6 +84,7 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
     """折叠有序语句的写入；不修改输入，也不查询数据库。
 
     同一个表名在 DROP、RENAME 或 SWAP 前后有独立的生命周期，避免把换名后的最终表也当成中间表。
+    清空数据会分离来源实例，但保留结构生命周期，之后的 DROP 仍按原规则判定各实例的中间边。
     原始边的 ID 由语句与位置确定，调用方可直接用它插入 ORM，hops 无需另做数据库查询。
     同一条下游语句的重复边保留首条，并在 paths 中保留所有组成路径。
     """
@@ -99,6 +102,12 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
         state.intermediate = state.intermediate or temporary
         state.temporary = state.temporary or temporary
         return state
+
+    def mark_intermediate(state: _Table | None, *, created_only: bool = False) -> None:
+        while state is not None:
+            if not created_only or state.created:
+                state.intermediate = True
+            state = state.previous_data
 
     for position, statement in enumerate(statements):
         raw_writes: list[tuple[Write, list[FoldEdge]]] = []
@@ -143,13 +152,16 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
         for ref in statement.removed_refs:
             previous = before.get(ref)
             if previous is not None:
-                previous.intermediate = True
+                mark_intermediate(previous)
                 if current.get(ref) is previous:
                     current.pop(ref, None)
         for ref in statement.dropped_refs:
             previous = current.pop(ref, None)
-            if previous is not None and previous.created:
-                previous.intermediate = True
+            mark_intermediate(previous, created_only=True)
+        for ref in statement.reset_refs:
+            previous = table(ref)
+            current[ref] = _Table(ref, previous.created, previous.intermediate, previous.temporary, previous)
+            tables.append(current[ref])
 
     expanded_by_id: dict[str, list[FoldEdge]] = {}
     for segment in segments:

@@ -271,15 +271,30 @@ def _known_tables(schema: dict) -> dict[str, set[str]]:
 
 
 def _fragment_hash(mode: str, text: str, reason: str | None, dialect: SqlDialect,
-                   default_db: str | None) -> str:
-    value = [mode, text, reason, dialect.name, dialect.default_catalog, default_db]
+                   default_db: str | None, execution: dict[str, Any], database_context: list[dict]) -> str:
+    value = [mode, text, reason, dialect.name, dialect.default_catalog, default_db, execution, database_context]
     return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
+
+
+def _default_db_at(contexts: list[dict], line: int, default_db: str | None, seq: int | None = None) -> str | None:
+    if seq is not None:
+        match = next((c for c in contexts if c["seq"] == seq), None)
+        if match is not None:
+            return match["default_db"]
+    for context in contexts:
+        if context["line_start"] > line:
+            break
+        if context["line_end"] >= line:
+            return context["default_db"]
+        default_db = context["default_db_after"]
+    return default_db
 
 
 def run_assistance(*, language: str, content: str, rule_statements: list[Any], dialect: SqlDialect,
                    schema: dict, default_db: str | None, options: dict, policy: dict,
                    resolved=None, budget: AssistBudget | None = None,
-                   cached: dict[str, dict[str, Any]] | None = None) -> AssistanceResult:
+                   cached: dict[str, dict[str, Any]] | None = None,
+                   statement_contexts: list[dict[str, Any]] | None = None) -> AssistanceResult:
     """不访问数据库；调用方在确定性提交后写入返回的语句、候选与逐片段载荷。"""
     result = AssistanceResult()
     budget = budget if budget is not None else AssistBudget()
@@ -287,6 +302,11 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
     known = _known_tables(schema)
     model = resolved if policy.get("send_code") else None
     adapter = model.adapter if model else "demo-rules"
+    model_id = (getattr(model.model, "model_name", None) or getattr(model.model, "model", None)
+                or adapter.partition(":")[2] or adapter) if model else None
+    execution = {"is_demo": model is None, "adapter": adapter,
+                 "model_id": model_id if isinstance(model_id, str) else adapter}
+    contexts = sorted(statement_contexts or [], key=lambda c: (c["line_start"], c["seq"]))
     file_end = max(1, len(content.splitlines()))
     assist = options.get("model_assist") or {}
     fragments: list[tuple[str, CodeBlock, Any, str | None]] = []
@@ -309,23 +329,35 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
             result.candidates.append(values)
 
     for mode, block, stmt, failure_reason in fragments:
+        fragment_db = _default_db_at(contexts, block.line_start, default_db, _value(stmt, "seq"))
+        database_context = [{"line_start": c["line_start"] - block.line_start,
+                             "line_end": c["line_end"] - block.line_start,
+                             "default_db": c["default_db"], "default_db_after": c["default_db_after"]}
+                            for c in contexts if block.line_start <= c["line_start"] <= block.line_end]
+        context_prompt = "\n".join(
+            f"第 {c['line_end'] + block.line_start} 行之后默认数据库为 "
+            f"{c['default_db_after'] if c['default_db_after'] is not None else '（未设置）'}"
+            for c in database_context if c["default_db"] != c["default_db_after"])
         text, redactions = redact(block.snippet)
         reason = redact(failure_reason)[0] if failure_reason else None
-        digest = _fragment_hash(mode, block.snippet, failure_reason, dialect, default_db)
+        digest = _fragment_hash(mode, block.snippet, failure_reason, dialect, fragment_db, execution, database_context)
         statement_id = _value(stmt, "id")
         payload: dict[str, Any] = {
             "statement_id": statement_id, "lines": [block.line_start, block.line_end], "kind": mode,
             "text": text, "redactions": redactions, "fragment_hash": digest, "adapter": adapter,
             "sent_to": adapter if model else "未发送（演示规则）", "is_demo": model is None,
+            "model_id": execution["model_id"], "default_db": fragment_db,
         }
         if reason:
             payload["failure_reason"] = reason
         visible_known = {t: c for t, c in known.items() if t.split(".")[-1] in text}
-        payload["prompt"] = (operation_prompt(text, block.line_start, block.line_end) if mode == "code"
-                             else candidate_prompt(text, block.line_start, visible_known, reason))
+        payload["prompt"] = (operation_prompt(text, block.line_start, block.line_end, default_db=fragment_db,
+                                              database_context=context_prompt) if mode == "code"
+                             else candidate_prompt(text, block.line_start, visible_known, reason,
+                                                   default_db=fragment_db, database_context=context_prompt))
         result.payloads.append(payload)
         entry = cached.get(digest)
-        if entry and entry.get("kind") == mode and not entry.get("error"):
+        if entry and entry.get("kind") == mode and not entry.get("error") and entry.get("execution") == execution:
             raw = copy.deepcopy(entry.get("result", {}))
             # 缓存的行号相对于片段复用，前面的无关代码增删不会使旧行号越界。
             offset = block.line_start - entry.get("line_start", block.line_start)
@@ -351,16 +383,18 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                                    else "未配置有效模型，使用演示规则")
             try:
                 if mode == "code":
-                    operations = model_operations(model.model, text, block.line_start, block.line_end) \
+                    operations = model_operations(model.model, text, block.line_start, block.line_end,
+                                                  default_db=fragment_db, database_context=context_prompt) \
                         if model else ModelOperations()
                     raw = operations.model_dump()
                     if operations.validation_errors:
                         raw["dropped_operations"] = operations.validation_errors
                 else:
                     def columns_of(ref):
-                        return known.get(qualify_ref(ref, default_db, dialect.default_catalog), set())
+                        return known.get(qualify_ref(ref, fragment_db, dialect.default_catalog), set())
                     edges = model_candidates(model.model, text, block.line_start, visible_known,
-                                             failure_reason=reason) if model else demo_candidates(
+                                             failure_reason=reason, default_db=fragment_db,
+                                             database_context=context_prompt) if model else demo_candidates(
                         text, block.line_start, columns_of)
                     raw = {"edges": [asdict(c) for c in edges]}
             except Exception as exc:  # 片段失败只写说明，不影响已经提交的确定性结果。
@@ -373,13 +407,13 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                 continue
         payload["result"] = raw
         result.cache[digest] = {"kind": mode, "result": copy.deepcopy(raw), "line_start": block.line_start,
-                                "adapter": payload["adapter"], "is_demo": payload["is_demo"]}
+                                "adapter": payload["adapter"], "is_demo": payload["is_demo"], "execution": execution}
         dropped: list[str] = []
         if mode != "code":
             for values in raw.get("edges", []):
                 try:
                     candidate = Candidate(**values)
-                    problem = validate_candidate(candidate, known, default_db, dialect.default_catalog,
+                    problem = validate_candidate(candidate, known, fragment_db, dialect.default_catalog,
                                                  text, line_start=block.line_start,
                                                  line_end=min(block.line_end, file_end))
                 except (TypeError, ValueError) as exc:
@@ -390,9 +424,9 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                     continue
                 add_candidate({
                     "statement_id": statement_id, "statement_seq": _value(stmt, "seq"), "origin": "model",
-                    "source_ref": qualify_ref(candidate.source_ref, default_db, dialect.default_catalog),
+                    "source_ref": qualify_ref(candidate.source_ref, fragment_db, dialect.default_catalog),
                     "source_column": candidate.source_column,
-                    "target_ref": qualify_ref(candidate.target_ref, default_db, dialect.default_catalog),
+                    "target_ref": qualify_ref(candidate.target_ref, fragment_db, dialect.default_catalog),
                     "target_column": candidate.target_column, "relation": candidate.relation, "expression": None,
                     "confidence": candidate.confidence, "status": "pending", "evidence": {
                         "lines": candidate.evidence_lines, "rationale": candidate.rationale,
@@ -414,7 +448,16 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                             result.suggested_sql_functions.append(name)
                 if not operation.sql:
                     continue
-                problem = _grounded_tables(operation.sql, dialect, block, known, default_db)
+                operation_db = _default_db_at(contexts, operation.line_start, default_db)
+                operation_databases = {operation_db}
+                for context in contexts:
+                    if operation.line_start <= context["line_start"] <= operation.line_end:
+                        operation_databases.add(context["default_db"])
+                        operation_databases.add(context["default_db_after"])
+                if len(operation_databases) > 1:
+                    dropped.append("操作行范围包含默认数据库切换，无法确定还原 SQL 的默认库")
+                    continue
+                problem = _grounded_tables(operation.sql, dialect, block, known, operation_db)
                 if problem:
                     dropped.append(problem)
                     continue
@@ -433,7 +476,7 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                 code = "\n".join(content.splitlines()[operation.line_start - 1:operation.line_end])
                 key = f"assist:{len(result.statements)}"
                 parsed = None if missing else parse_statement(sql, dialect=dialect, schema=schema,
-                                                               default_db=default_db)
+                                                               default_db=operation_db)
                 statement = {
                     "id": key, "seq": len(rule_statements) + len(result.statements) + 1,
                     "line_start": operation.line_start, "line_end": operation.line_end,

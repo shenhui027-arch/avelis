@@ -1,5 +1,7 @@
 """导入语句按语法树记录多写入、结构事实与列级依赖。"""
 
+from copy import deepcopy
+
 import pytest
 from sqlglot.errors import ParseError, TokenError
 
@@ -211,6 +213,40 @@ def test_drop_is_script_fact_without_edges():
     assert result.status == "skipped"
     assert result.dropped_refs == ["c.dw.stage"]
     assert not result.writes and not result.edges
+
+
+@pytest.mark.parametrize("name,sql,refs", [
+    ("postgres", "TRUNCATE TABLE dw.stage", ["c.dw.stage"]),
+    ("postgres", "TRUNCATE TABLE dw.stage, dw.daily_summary", ["c.dw.stage", "c.dw.daily_summary"]),
+    ("postgres", "DELETE FROM dw.stage", ["c.dw.stage"]),
+    ("postgres", "DELETE FROM stage", ["c.dw.stage"]),
+    ("mysql", "DELETE target FROM dw.stage target JOIN src.events source ON target.id=source.id", ["c.dw.stage"]),
+    ("oracle", "TRUNCATE TABLE dw.stage", ["C.DW.STAGE"]),
+])
+def test_clear_data_records_only_reset_targets_without_writes(name, sql, refs):
+    result = parse(sql, name, default_db="dw")
+    assert result.status == "skipped"
+    assert result.reset_refs == refs
+    assert result.reason == "清空表数据，之前的来源不再传递"
+    assert not result.writes and not result.edges
+    assert not result.dropped_refs and not result.removed_refs
+
+
+@pytest.mark.parametrize("sql", ["TRUNCATE TABLE dw.stage", "DELETE FROM dw.stage"])
+def test_data_reset_preserves_registered_schema(sql):
+    schema = {"c": {"dw": {"stage": {"id": "INT"}}}}
+    original = deepcopy(schema)
+    dialect = SqlDialect("postgres", "c", normalize=fold_identifiers("postgres"))
+    result = parse_statement(sql, dialect=dialect, schema=schema)
+    assert result.reset_refs == ["c.dw.stage"]
+    assert schema == original
+
+
+def test_filtered_delete_does_not_reset_data_sources():
+    result = parse("DELETE FROM dw.stage WHERE id=1")
+    assert result.status == "skipped"
+    assert not result.reset_refs and not result.writes
+    assert result.reason == "不产生写入来源的数据流"
 
 
 @pytest.mark.parametrize("sql", [

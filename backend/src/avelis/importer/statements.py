@@ -47,6 +47,7 @@ class ParsedStatement:
     writes: list[Write] = field(default_factory=list)
     dropped_refs: list[str] = field(default_factory=list)
     removed_refs: list[str] = field(default_factory=list)
+    reset_refs: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # 单目标调用方仍可直接读取这些字段；多目标调用方遍历 writes。
@@ -380,6 +381,20 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             refs = [ref for t in tree.find_all(exp.Table)
                     if (ref := _qualify(t, dialect.default_catalog, default_db))]
             return ParsedStatement("skipped", "DROP TABLE", dropped_refs=refs, reason="删除表，不产生数据流")
+        if ((isinstance(tree, exp.TruncateTable) and not tree.args.get("is_database"))
+                or (isinstance(tree, exp.Delete) and tree.args.get("where") is None)):
+            targets = (tree.expressions if isinstance(tree, exp.TruncateTable)
+                       else tree.args.get("tables") or [tree.this])
+            if isinstance(tree, exp.Delete) and tree.args.get("tables"):
+                # 多表 DELETE 的目标可以写别名，只清空目标，不能把 JOIN / USING 的来源也算入。
+                sources = [tree.this, *(tree.args.get("using") or [])]
+                bindings = {t.alias_or_name: t for source in sources if isinstance(source, exp.Expression)
+                            for t in source.find_all(exp.Table)}
+                targets = [bindings.get(t.name, t) if not t.db and not t.catalog else t for t in targets]
+            refs = list(dict.fromkeys(ref for t in targets if isinstance(t, exp.Table)
+                                      if (ref := _qualify(t, dialect.default_catalog, default_db))))
+            kind = "TRUNCATE TABLE" if isinstance(tree, exp.TruncateTable) else "DELETE"
+            return ParsedStatement("skipped", kind, reset_refs=refs, reason="清空表数据，之前的来源不再传递")
         if isinstance(tree, (exp.Delete, exp.TruncateTable, exp.Set, exp.Transaction, exp.Commit, exp.Rollback)):
             return ParsedStatement("skipped", kind, reason="不产生写入来源的数据流")
         if isinstance(tree, exp.Query):

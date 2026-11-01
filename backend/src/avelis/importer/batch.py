@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import sqlglot
@@ -247,6 +247,7 @@ class PreparedFile:
     parsed: list[Any]
     notes: list[str]
     reused: bool = False
+    statement_contexts: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _progress(batch_id: str, **values) -> None:
@@ -274,9 +275,11 @@ def _prepare(batch: ImportBatch, files: list[ImportJob], contents: dict[str, str
     prepared, count, last_progress = [], 0, time.monotonic()
     for file_index, job in enumerate(ordered):
         default_db, statements, parsed_results = job.default_db, [], []
+        statement_contexts = []
         segments, file_notes = extracted[job.id]
         reusable = (reused_statements or {}).get(job.id, {})
         for seq, segment in enumerate(segments, 1):
+            statement_db = default_db
             original = reusable.get(seq)
             stmt = ExtractedStatement(id=original.id if original else new_id(), job_id=job.id, seq=seq,
                                       line_start=segment.line_start,
@@ -313,6 +316,8 @@ def _prepare(batch: ImportBatch, files: list[ImportJob], contents: dict[str, str
                                 tables[name].update({c: tables[name].get(c, "VARCHAR") for c in write.target_columns})
                             if model_schema is not None:
                                 model_schema.setdefault(catalog, {}).setdefault(db, {})[name] = dict(tables[name])
+            statement_contexts.append({"seq": seq, "line_start": stmt.line_start, "line_end": stmt.line_end,
+                                       "default_db": statement_db, "default_db_after": default_db})
             statements.append(stmt)
             parsed_results.append(parsed)
             count += 1
@@ -321,7 +326,8 @@ def _prepare(batch: ImportBatch, files: list[ImportJob], contents: dict[str, str
                           current_file=job.filename)
                 last_progress = time.monotonic()
         prepared.append(PreparedFile(job, statements, parsed_results, file_notes,
-                                     reused=job.id in (reused_statements or {})))
+                                     reused=job.id in (reused_statements or {}),
+                                     statement_contexts=statement_contexts))
     _progress(batch.id, phase="write", files_total=len(files), files_done=len(files),
               statements_done=count, current_file=None)
     return prepared, notes
@@ -437,7 +443,8 @@ def _persist_prepared(session: Session, actor: User, batch: ImportBatch, prepare
                         setattr(stored, field, getattr(stmt, field))
                 statements_by_id[stmt.id] = stored
             session.flush()
-            job.stats = {**(job.stats or {}), "statements": dict(Counter(s.status for s in session.scalars(
+            job.stats = {**(job.stats or {}), "statement_contexts": file.statement_contexts,
+                         "statements": dict(Counter(s.status for s in session.scalars(
                 select(ExtractedStatement).where(ExtractedStatement.job_id == job.id))))}
             continue
         previous = session.scalar(select(ImportJob).where(
@@ -458,7 +465,7 @@ def _persist_prepared(session: Session, actor: User, batch: ImportBatch, prepare
         job.stats = {"previous_id": previous.id if previous else None, "replaced_edges": replaced,
                      "upload_order": (job.stats or {}).get("upload_order", 0),
                      "notes": file.notes, "statements": dict(Counter(s.status for s in file.statements)),
-                     "assist_cache": cache}
+                     "assist_cache": cache, "statement_contexts": file.statement_contexts}
         jobs_by_id[job.id] = job
         for stmt in file.statements:
             statements_by_id[stmt.id] = stmt
@@ -478,6 +485,7 @@ def _persist_prepared(session: Session, actor: User, batch: ImportBatch, prepare
             if parsed is not None:
                 folds.append(FoldStatement(job_id=file.job.id, statement_id=stmt.id, writes=parsed.writes,
                                            dropped_refs=getattr(parsed, "dropped_refs", []),
+                                           reset_refs=getattr(parsed, "reset_refs", []),
                                            removed_refs=getattr(parsed, "removed_refs", [])))
     folded = fold_writes(folds)
     reused_ids = {f.job.id for f in prepared if f.reused}
@@ -603,10 +611,12 @@ def _assist(batch_id: str, prepared: list[PreparedFile], contents: dict, schema:
                 policy = modelcfg.policy(session)
                 resolved = modelcfg.resolve(session, "import") if policy.get("send_code") else None
                 options, cached = copy.deepcopy(batch.options), copy.deepcopy(job.stats.get("assist_cache", {}))
+                statement_contexts = copy.deepcopy(job.stats.get("statement_contexts", []))
             # 模型调用不持有元数据库事务或 Job 锁；回写前重新检查当前版本与执行权。
             result = run_assistance(language=job.language, content=contents[job.id], rule_statements=statements,
                                     dialect=dialect, schema=schema, default_db=job.default_db,
-                                    options=options, policy=policy, resolved=resolved, budget=budget, cached=cached)
+                                    options=options, policy=policy, resolved=resolved, budget=budget, cached=cached,
+                                    statement_contexts=statement_contexts)
             with session_scope() as session:
                 batch = session.get(ImportBatch, batch_id)
                 _check_attempt(session, execution_job_id, attempt)
@@ -749,7 +759,8 @@ def run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None 
         raise
 
 
-def refresh_status(session: Session, batch: ImportBatch, *, keep_running: bool = False) -> None:
+def refresh_status(session: Session, batch: ImportBatch, *, keep_running: bool = False,
+                   counts_only: bool = False) -> None:
     files = [j for j in session.scalars(select(ImportJob).where(ImportJob.batch_id == batch.id))
              if not (j.stats or {}).get("duplicate_of")]
     ids = list(dict.fromkeys([*[f.id for f in files], *(batch.options or {}).get("duplicate_file_ids", [])]))
@@ -759,12 +770,13 @@ def refresh_status(session: Session, batch: ImportBatch, *, keep_running: bool =
     for file in files:
         status_counts = Counter(s.status for s in statements if s.job_id == file.id)
         file.stats = {**file.stats, "statements": dict(status_counts)}
-        if file.superseded_by is None:
+        if not counts_only and file.superseded_by is None:
             file.status = ("needs_params" if status_counts["needs_params"]
                            else "needs_review" if pending[file.id] else "done")
     counts = Counter(s.status for s in statements)
-    batch.status = ("running" if keep_running else "needs_params" if counts["needs_params"]
-                    else "needs_review" if sum(pending.values()) else "done")
+    if not counts_only:
+        batch.status = ("running" if keep_running else "needs_params" if counts["needs_params"]
+                        else "needs_review" if sum(pending.values()) else "done")
     edges = list(session.scalars(select(LineageEdge).where(LineageEdge.import_job_id.in_(ids),
                                                          LineageEdge.status.in_(("active", "intermediate")))))
     batch.stats = {**(batch.stats or {}), "statements": dict(counts), "statement_count": len(statements),
