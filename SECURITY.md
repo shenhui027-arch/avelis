@@ -35,7 +35,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 
 - Change every password and the `[security] secret` in `avelis.toml` before the first start; never commit `avelis.toml` or `.env`.
 - Give Avelis a read-only account for queries and a metadata-only account for collection.
-- Sending query results to a model provider is disabled by default. Enable it only for providers you trust, or use a locally hosted model.
+- By default Avelis sends query results and (redacted) code snippets to the configured model provider, because the analysis agent needs them. To stop this, turn off **发送查询结果** (send query results) and **发送代码片段** (send code snippets) under **设置 → 模型配置** (Settings → Models). If your data must not leave your network, connect a locally hosted model through an OpenAI-compatible endpoint instead.
 - Put Avelis behind HTTPS in production; see the [deployment guide](docs/deployment.md).
 
 ## 简体中文
@@ -66,5 +66,5 @@ Avelis 还没有发布稳定版本，安全修复只在 `main` 分支进行。
 
 - 首次启动前修改 `avelis.toml` 中的全部口令与 `[security] secret`；不要提交 `avelis.toml` 或 `.env`。
 - 给 Avelis 分配只读查询账号与只读元数据的采集账号。
-- 向模型服务发送查询结果默认关闭；只对信任的服务开启，或使用本地部署的模型。
+- Avelis 默认把查询结果与（已脱敏的）代码片段发送给配置的模型服务，分析智能体需要它们。要停止发送，在 **设置 → 模型配置** 关闭“发送查询结果”与“发送代码片段”。数据不能离开内网时，请通过 OpenAI 兼容接口接入本地部署的模型。
 - 生产环境放在 HTTPS 之后，见[部署指南](docs/deployment.md)。
