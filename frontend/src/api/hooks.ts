@@ -11,7 +11,9 @@ export type Domain = Schemas["DomainOut"];
 export type ChangeSet = Schemas["ChangeSetOut"];
 export type Task = Schemas["TaskOut"];
 export type Answer = Schemas["AnswerOut"];
-export type ImportJob = Schemas["ImportJobOut"];
+export type ImportBatch = Schemas["ImportBatchOut"];
+export type ImportStatement = Schemas["StatementOut"];
+export type ImportCandidate = Schemas["CandidateOut"];
 export type JoinPath = Schemas["JoinPathOut"];
 export type Datasource = Schemas["DatasourceOut"];
 export type User = Schemas["UserOut"];
@@ -70,10 +72,40 @@ export const useThread = (id?: string) => useQuery({
   queryKey: ["thread", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/ask/threads/{thread_id}", { params: { path: { thread_id: id! } } })),
 });
-export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")) });
+// 导入批次在后台执行：排队或进行中时轮询进度，结束后停止
+const importBusy = (status?: string) => status === "queued" || status === "running";
+export const useImports = () => useQuery({ queryKey: ["imports"], queryFn: () => unwrap(api.GET("/api/imports")),
+  refetchInterval: (q) => (q.state.data?.some((b) => importBusy(b.status)) ? 2000 : false) });
 export const useImport = (id?: string) => useQuery({
   queryKey: ["import", id], enabled: !!id,
-  queryFn: () => unwrap(api.GET("/api/imports/{job_id}", { params: { path: { job_id: id! } } })),
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}", { params: { path: { batch_id: id! } } })),
+  refetchInterval: (q) => (importBusy(q.state.data?.status) ? 1000 : false),
+});
+export type ImportStatementQuery = { file_id?: string | null; status?: string | null; q?: string | null; limit: number };
+export const useImportStatements = (batchId: string, query: ImportStatementQuery, version: string) => useQuery({
+  queryKey: ["import", batchId, "statements", query, version], placeholderData: (previous) => previous,
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/statements", {
+    params: { path: { batch_id: batchId }, query: { ...query, offset: 0 } } })),
+});
+export type ImportCandidateQuery = { file_id?: string | null; status?: string | null; origin?: string | null; limit: number };
+export const useImportCandidates = (batchId: string, query: ImportCandidateQuery, version: string) => useQuery({
+  queryKey: ["import", batchId, "candidates", query, version], placeholderData: (previous) => previous,
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/candidates", {
+    params: { path: { batch_id: batchId }, query: { ...query, statement_id: null, offset: 0 } } })),
+});
+export const useImportContent = (batchId: string, fileId?: string) => useQuery({
+  queryKey: ["import", batchId, "content", fileId], enabled: !!fileId, staleTime: Infinity,
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/files/{job_id}/content", {
+    params: { path: { batch_id: batchId, job_id: fileId! } } })),
+});
+export const useImportPayload = (batchId: string, version: string) => useQuery({
+  queryKey: ["import", batchId, "payload", version],
+  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/model-payload", { params: { path: { batch_id: batchId } } })),
+});
+export const useSqlFunctions = (datasourceId?: string) => useQuery({
+  queryKey: ["import-sql-functions", datasourceId], enabled: !!datasourceId,
+  queryFn: () => unwrap(api.GET("/api/imports/sql-functions/{datasource_id}", {
+    params: { path: { datasource_id: datasourceId! } } })),
 });
 export const useGraph = (domainIds: string[], assetId?: string) => useQuery({
   queryKey: ["graph", domainIds.join(","), assetId],
