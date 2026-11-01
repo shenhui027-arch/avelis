@@ -1,6 +1,6 @@
 # StarRocks 3.5.14 实机核验记录
 
-- 环境：本机 Docker，`starrocks/allin1-ubuntu:3.5.14`（`3.5.14-23a56ec`，单 FE + 单 BE），电商维表库 MySQL 8.4.10，见 [ADR 0001](decisions/0001-demo-environment.md)。
+- 环境：本机 Docker，`starrocks/allin1-ubuntu:3.5.14`（`3.5.14-23a56ec`，单 FE + 单 BE），电商维表库 MySQL 8.4.10，见 [ADR 0001](../decisions/0001-demo-environment.md)。
 - 方法：`uv run scripts/demo.py verify` 逐项真实执行（`scripts/sr_probe.py`），原始结果写入 `.demo/sr-verify.json`（不进仓库，口令已替换为 `<redacted>`）。破坏性试验只在临时库 `avelis_probe` 中进行。
 - 日期：2026-10-29。
 - 适用范围：以下结论只代表单节点 Docker 环境；多 FE/BE、存算分离、其他版本、生产权限体系仍待验证。
@@ -56,7 +56,7 @@ PROPERTIES ("host" = "shop-mysql", "port" = "3306", "user" = "sr_legacy", "passw
             "database" = "shop_dim", "table" = "dim_region");
 ```
 
-## 对 M1 的直接输入
+## 对实现的直接影响
 
 1. 定义采集用 `information_schema.views`；解析前做别名归一化（第 2 条）。
 2. 资产身份：内表用 `TABLE_ID`；视图与外部表用“库 + 名称 + 创建时间 + 定义哈希”，并支持可选的 OPERATE 增强（第 3、4 条）。

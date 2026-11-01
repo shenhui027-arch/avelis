@@ -977,6 +977,7 @@ def _chart(d: dict, font: str, *, brief: bool = False):
 def to_pdf(view: dict, *, audience: Audience | None = None, appendix: bool | None = None,
            datasets: list[str] | None = None) -> bytes:
     from html import escape
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle

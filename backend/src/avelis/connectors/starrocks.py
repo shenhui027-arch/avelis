@@ -1,4 +1,4 @@
-"""StarRocks 连接器（真实数据库）。按 docs/starrocks-notes.md 的实机核验结论实现。
+"""StarRocks 连接器（真实数据库）。按 docs/engines/starrocks.md 的实机核验结论实现。
 
 - 视图定义取 information_schema.views.VIEW_DEFINITION（规范化后全限定）；
 - 内表身份用 tables_config.TABLE_ID；视图与外部表 TABLE_ID 为 0，不作为身份；
