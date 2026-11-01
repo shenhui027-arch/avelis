@@ -531,7 +531,8 @@ def test_followup_drops_normalized_inherited_content_before_numbering(monkeypatc
 def waiting_run(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     box.user.username = "user-a"
-    run = AnalysisRun(id="waiting", user_id=box.user.id, question="检查指标变化", status="waiting", trigger="manual",
+    run = AnalysisRun(id="waiting", conversation_id="waiting", user_id=box.user.id,
+                      question="检查指标变化", status="waiting", trigger="manual",
                       confirmation_mode="auto", window={}, budget=box.budget.view(),
                       checkpoint={"proposal": {"items": [{"id": "P1", "source": "inferred",
                                                            **proposal()["items"][0]}]},

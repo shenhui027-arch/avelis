@@ -24,10 +24,10 @@ from avelis.db import utcnow
 from avelis.engines import dialect_of
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Invalid, NotFound
+from avelis.i18n import Msg
 from avelis.importer.candidates import Candidate, demo_candidates, model_candidates, redact
 from avelis.importer.extract import Segment, extract_python, extract_shell, split_sql, substitute
 from avelis.importer.statements import parse_statement
-from avelis.i18n import Msg
 from avelis.lineage.grain import resolve_qualified
 from avelis.models import CandidateEdge, Datasource, ExtractedStatement, ImportJob, ImportSource, LineageEdge, User
 

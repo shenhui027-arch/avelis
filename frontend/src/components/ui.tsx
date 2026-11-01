@@ -2,6 +2,7 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 
 import { t } from "../i18n";
 import { Icon } from "./Icon";
@@ -136,6 +137,19 @@ export function PaneHeader({ title, count, children }: { title: ReactNode; count
       <h2>{title}{count !== undefined ? <Count n={count} /> : null}</h2>
       {children ? <div className="av-actions">{children}</div> : null}
     </div>
+  );
+}
+
+/**
+ * 详情页顶部的层级：第一项是返回上一级的链接，其余是所在位置，只读。
+ * 用在“列表 → 详情”的二级页，不用再点侧栏栏目才能退回列表。
+ */
+export function Crumbs({ back, items = [] }: { back: { label: string; to: string }; items?: ReactNode[] }) {
+  return (
+    <nav className="av-crumbs" aria-label={t("位置")}>
+      <Link className="av-crumbs__back" to={back.to}><Icon name="back" small />{back.label}</Link>
+      {items.map((item, i) => <span key={i} className="av-crumbs__item">{item}</span>)}
+    </nav>
   );
 }
 

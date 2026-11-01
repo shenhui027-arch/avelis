@@ -57,7 +57,8 @@ def test_model_retry_time_boundary_uses_configured_timeout(monkeypatch, config_v
     monkeypatch.setattr(analysis_agent, "_prepare_context", lambda *args, **kwargs: None)
     budget = tools.Budget(input_tokens=None, output_tokens=None)
     monkeypatch.setattr(budget, "remaining", lambda: remaining)
-    box = SimpleNamespace(budget=budget, stopped=False, check_executor=Mock(), _step=Mock())
+    box = SimpleNamespace(budget=budget, stopped=False, check_executor=Mock(),
+                          check_copied_permissions=Mock(), _step=Mock())
     response = AIMessage(content="离线响应")
     model = SimpleNamespace(invoke=Mock(side_effect=[TimeoutError("离线超时"), response]))
     if retry:

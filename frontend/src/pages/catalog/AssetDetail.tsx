@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { api, ApiError, unwrap } from "../../api/client";
 import { errorText, useAction, useAsset, useDomains, useTimeZone, type AssetDetail as AssetDetailT } from "../../api/hooks";
 import {
-  Banner, Code, CommentDoc, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Status, Tabs, useMessage,
+  Banner, Code, CommentDoc, Crumbs, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Status, Tabs, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
@@ -36,7 +36,8 @@ function AssetContent({ a }: { a: AssetDetailT }) {
     <div className="av-pane__body">
       <div className="av-page av-asset-detail">
         <div className="av-asset-heading">
-          <span className="av-caption av-mono"><Plat kind={a.datasource.kind} /> {a.datasource.name} · {a.qualified.split(".").slice(0, 2).join(".")}</span>
+          <Crumbs back={{ label: t("资产"), to: "/catalog/assets" }}
+            items={[<><Plat kind={a.datasource.kind} /> {a.datasource.name}</>, <span className="av-mono">{a.qualified.split(".").slice(0, -1).join(".")}</span>]} />
           <div className="av-pagehd">
             <div className="av-pagehd__title">
               <h1 className="av-mono">{a.qualified.split(".").pop()}</h1>

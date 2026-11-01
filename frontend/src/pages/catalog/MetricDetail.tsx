@@ -9,7 +9,7 @@ import {
   useTimeZone, useUsers, type Metric, type MetricVersion,
 } from "../../api/hooks";
 import {
-  Banner, CARD_LABEL, Code, Drawer, Empty, Hint, Icon, Pill, QueryState, Select, Status, Switch, shortName, useMessage,
+  Banner, CARD_LABEL, Code, Crumbs, Drawer, Empty, Hint, Icon, Pill, QueryState, Select, Status, Switch, shortName, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe, useRoles } from "../../layout/Shell";
@@ -43,7 +43,8 @@ function MetricContent({ metric }: { metric: Metric }) {
 
   return <div className="av-metric-detail">
     <header className="av-metric-detail__header">
-      <span className="av-caption av-mono">{metric.code} {t("· 负责人")} {metric.owner.display_name}</span>
+      <Crumbs back={{ label: t("指标"), to: "/catalog/metrics" }}
+        items={[<span className="av-mono">{metric.code}</span>, <>{t("负责人")} {metric.owner.display_name}</>]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{metric.name}</h1>
           {version.isSuccess ? <Status value={version.data.status} /> : null}

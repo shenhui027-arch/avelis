@@ -22,7 +22,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from langgraph.types import Command
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit, modelcfg
@@ -35,7 +35,16 @@ from avelis.db import session_scope, utcnow
 from avelis.governance import access, experiences, joins
 from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
 from avelis.i18n import Msg, current_locale, gettext, locale_context
-from avelis.models import AnalysisMessage, AnalysisRun, AnalysisTask, Metric, Notification, User
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisMessage,
+    AnalysisRun,
+    AnalysisStep,
+    AnalysisTask,
+    Metric,
+    Notification,
+    User,
+)
 
 log = logging.getLogger("avelis.analysis")
 _GRAPH: dict[str, Any] = {}
@@ -360,7 +369,7 @@ def _execute(session: Session, run_id: str, job_id: str, attempt: int,
     if run.stop_requested:
         if toolbox is None:
             toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget)
-            toolbox.restore(saved)
+            toolbox.restore(saved, check_permissions=False)
             budget = toolbox.budget
         status, error = "stopped", "用户停止"
         report, verification = _stopped_report(toolbox, notes=report.get("notes"))
@@ -462,6 +471,10 @@ def _stopped_report(toolbox: AnalysisToolbox, *, notes: list[str] | None = None)
     """沿用预算截止的后端未完成报告与核验路径；停止不调用模型、不增加步骤。"""
     toolbox.user_stopped = True
     toolbox.report = None
+    try:
+        toolbox.check_copied_permissions()
+    except PermissionLost:
+        pass  # 停止只记录失权；核验与 run_view 仍按当前权限投影历史证据。
     analysis_agent.verify({}, {"configurable": {"toolbox": toolbox, "model": None}})
     stop_notes = list(notes or [])
     if "分析停止：用户停止" not in stop_notes:
@@ -479,7 +492,7 @@ def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
         checkpoint = dict(run.checkpoint or {})
         saved = checkpoint.get("snapshot") or {}
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), Budget())
-        toolbox.restore(saved)
+        toolbox.restore(saved, check_permissions=False)
         run.report, run.verification = _stopped_report(toolbox, notes=(run.report or {}).get("notes"))
         run.plan = toolbox.plan or run.plan
         run.status, run.error, run.finished_at = "stopped", "用户停止", utcnow()
@@ -609,6 +622,8 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
     parent = visible_run(session, user, run_id)
     if parent.user_id != user.id:
         raise Forbidden("只有发起人可以继续分析")
+    # 与归档、删除共用根运行锁，不能在对话检查结束后再插入新轮次。
+    _owned_conversation(session, user, parent.conversation_id or parent.id)
     if parent.status != "succeeded":
         raise Conflict("只有已完成的分析可以发起续问")
     text = text.strip()
@@ -627,11 +642,15 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
                      confirmation_mode=confirmation_mode, model=model, reasoning_effort=reasoning_effort,
                      _model_choice=inherited_choice)
     run.parent_run_id = parent.id
+    run.conversation_id = parent.conversation_id or parent.id
     inherited = {"user_text": text}
     if lookup:
         inherited.update(previous_question=parent.question, previous_scope=scope, previous_window=parent.window or {})
     else:
         inherited.update(scope=scope, items=saved.get("confirmed_items") or [])
+    from avelis.analysis.conversation_context import build_followup_context
+
+    inherited["conversation"] = build_followup_context(session, user, parent, run)
     run.checkpoint = {**(run.checkpoint or {}), "inherited": inherited,
                       "candidates": experiences.candidates_from_feedback(
                           run_id=run.id, proposal={}, feedback={"challenge": text},
@@ -640,6 +659,127 @@ def followup_run(session: Session, user: User, run_id: str, text: str,
                  parent_run_id=parent.id, user_text=text)
     session.flush()
     return run
+
+
+def _conversation_runs(session: Session, root: AnalysisRun) -> list[AnalysisRun]:
+    return list(session.scalars(select(AnalysisRun).where(AnalysisRun.conversation_id == root.id)
+                               .order_by(AnalysisRun.parent_run_id.is_not(None),
+                                         AnalysisRun.created_at, AnalysisRun.id)))
+
+
+def visible_conversation(session: Session, user: User, conversation_id: str) -> AnalysisRun:
+    root = visible_run(session, user, conversation_id)
+    if root.conversation_id != root.id:
+        raise NotFound("对话不存在")
+    return root
+
+
+def _owned_conversation(session: Session, user: User, conversation_id: str) -> AnalysisRun:
+    root = visible_conversation(session, user, conversation_id)
+    root = session.get(AnalysisRun, root.id, with_for_update=True, populate_existing=True)
+    if root is None:
+        raise NotFound("对话不存在")
+    if root.user_id != user.id:
+        raise Forbidden("只有发起人可以修改对话")
+    return root
+
+
+def conversation_view(session: Session, root: AnalysisRun, latest: AnalysisRun, turn_count: int,
+                      *, user: User) -> dict[str, Any]:
+    title = run_view(session, root, full=False, user=user)["title"]
+    activity = latest.finished_at or latest.started_at or latest.created_at
+    return {"id": root.id, "title": root.display_title or title or root.question,
+            "display_title": root.display_title, "question": root.question,
+            "latest_run_id": latest.id, "status": latest.status, "turn_count": turn_count,
+            "archived_at": root.archived_at.isoformat() if root.archived_at else None,
+            "created_at": root.created_at.isoformat(), "updated_at": activity.isoformat(),
+            "started_at": latest.started_at.isoformat() if latest.started_at else None,
+            "finished_at": latest.finished_at.isoformat() if latest.finished_at else None}
+
+
+def list_conversations(session: Session, user: User, *, archived: bool = False) -> list[dict[str, Any]]:
+    activity = func.coalesce(AnalysisRun.finished_at, AnalysisRun.started_at, AnalysisRun.created_at)
+    roots = select(AnalysisRun.id).where(
+        AnalysisRun.user_id == user.id, AnalysisRun.conversation_id == AnalysisRun.id,
+        AnalysisRun.archived_at.is_not(None) if archived else AnalysisRun.archived_at.is_(None))
+    groups = session.execute(select(AnalysisRun.conversation_id, func.max(activity).label("activity"),
+                                    func.count().label("turn_count"))
+                             .where(AnalysisRun.conversation_id.in_(roots))
+                             .group_by(AnalysisRun.conversation_id)
+                             .order_by(func.max(activity).desc(), AnalysisRun.conversation_id).limit(100))
+    conversations = []
+    for conversation_id, _, turn_count in groups:
+        root = session.get(AnalysisRun, conversation_id)
+        latest = session.scalar(select(AnalysisRun).where(AnalysisRun.conversation_id == conversation_id)
+                                .order_by(AnalysisRun.parent_run_id.is_not(None).desc(),
+                                          AnalysisRun.created_at.desc(), AnalysisRun.id.desc()).limit(1))
+        conversations.append(conversation_view(session, root, latest, turn_count, user=user))
+    return conversations
+
+
+def get_conversation(session: Session, user: User, conversation_id: str) -> dict[str, Any]:
+    root = visible_conversation(session, user, conversation_id)
+    runs = _conversation_runs(session, root)
+    return {**conversation_view(session, root, runs[-1], len(runs), user=user),
+            "runs": [run_view(session, run, full=False, user=user) for run in runs]}
+
+
+def rename_conversation(session: Session, user: User, conversation_id: str, display_title: str) -> dict[str, Any]:
+    root = _owned_conversation(session, user, conversation_id)
+    display_title = display_title.strip()
+    if len(display_title) > 80:
+        raise Invalid("对话显示名最多 80 字")
+    previous_title = root.display_title
+    root.display_title = display_title or None
+    audit.record(session, user, "analysis.conversation.rename", "analysis_run", root.id,
+                 previous_title=previous_title, display_title=root.display_title)
+    session.flush()
+    return get_conversation(session, user, root.id)
+
+
+def _inactive_conversation_runs(session: Session, root: AnalysisRun) -> list[AnalysisRun]:
+    runs = list(session.scalars(select(AnalysisRun).where(AnalysisRun.conversation_id == root.id)
+                               .order_by(AnalysisRun.created_at, AnalysisRun.id).with_for_update()
+                               .execution_options(populate_existing=True)))
+    if any(run.status in {"queued", "running", "waiting"} for run in runs):
+        raise Conflict("对话中有正在运行或等待确认的分析，请先停止再操作")
+    return runs
+
+
+def archive_conversation(session: Session, user: User, conversation_id: str, *, archived: bool) -> dict[str, Any]:
+    root = _owned_conversation(session, user, conversation_id)
+    if archived:
+        _inactive_conversation_runs(session, root)
+    root.archived_at = (root.archived_at or utcnow()) if archived else None
+    action = "archive" if archived else "restore"
+    audit.record(session, user, f"analysis.conversation.{action}", "analysis_run", root.id)
+    session.flush()
+    return get_conversation(session, user, root.id)
+
+
+def delete_conversation(session: Session, user: User, conversation_id: str) -> None:
+    """删除运行及其附属内容；治理对象、执行记录与历史审计独立保留。由请求事务统一提交。"""
+    from avelis.ask import agent as ask_agent
+
+    root = _owned_conversation(session, user, conversation_id)
+    runs = _inactive_conversation_runs(session, root)
+    run_ids = [run.id for run in runs]
+    # 检查点独立自动提交，先清理可在失败时保留完整的应用数据供重试。
+    saver = ask_agent.checkpointer()
+    for run_id in run_ids:
+        saver.delete_thread(f"analysis:{run_id}")
+    title = root.display_title or run_view(session, root, full=False, user=user)["title"] or root.question
+    audit.record(session, user, "analysis.conversation.delete", "analysis_run", root.id,
+                 conversation_id=root.id, turn_count=len(runs), checkpoint_threads=len(run_ids), title=title)
+    session.execute(update(AnalysisTask).where(AnalysisTask.last_run_id.in_(run_ids)).values(last_run_id=None))
+    links = [f"/analysis/runs/{run_id}" for run_id in run_ids]
+    links.append(f"/analysis/conversations/{root.id}")
+    session.execute(update(Notification).where(Notification.link.in_(links)).values(link=None))
+    for model in (AnalysisMessage, AnalysisStep, AnalysisDataset):
+        session.execute(delete(model).where(model.run_id.in_(run_ids)))
+    # 同一条语句删除整条链，满足父子关系与根运行自身的外键约束。
+    session.execute(delete(AnalysisRun).where(AnalysisRun.id.in_(run_ids)))
+    session.flush()
 
 
 # --- 任务与定时 ---------------------------------------------------------------------
@@ -803,7 +943,14 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
+    conversation_id = run.conversation_id or run.id
+    turn = 1 if conversation_id == run.id else 1 + session.scalar(select(func.count()).select_from(AnalysisRun).where(
+        AnalysisRun.conversation_id == conversation_id,
+        AnalysisRun.parent_run_id.is_not(None),
+        or_(AnalysisRun.created_at < run.created_at,
+            (AnalysisRun.created_at == run.created_at) & (AnalysisRun.id <= run.id))))
     data = {"id": run.id, "task_id": run.task_id, "parent_run_id": run.parent_run_id,
+            "conversation_id": conversation_id, "turn": turn,
             "confirmation_mode": run.confirmation_mode, "question": run.question, "trigger": run.trigger,
             "status": run.status, "window": run.window, "pending": checkpoint.get("pending"),
             "budget": {k: v for k, v in (run.budget or {}).items() if k != "executor"}, "model_adapter": run.model_adapter,

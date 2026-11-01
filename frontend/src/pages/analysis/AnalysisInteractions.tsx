@@ -1,7 +1,7 @@
 // 分析的人机协作（ADR 0013）：预检后确认依据、对报告质疑或补充、把确认过的内容保存为个人经验。
 // 只有用户明确保存的内容才进入经验库；本次确认只对本次分析生效。
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
@@ -144,17 +144,27 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
 
 /** 对已完成的报告质疑或补充规则：带着已确认的范围与依据重新分析一次。 */
 /** 回答下方常驻的输入框：继续追问、指出哪里不对或补充规则，都会基于这次分析开一轮新的。 */
-export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; seed?: { text: string; n: number } | null }) {
+/** 在同一个对话里接着分析：发出后跳到新的一轮（同一对话的页面会把它接在下面）。模型与档位沿用上一轮。 */
+export function useContinue(runId: string) {
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  const m = useAction((text: string) => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
+    params: { path: { run_id: runId } }, body: { text } as never })), ["analysis-runs", "analysis-conversations", "analysis-conversation"]);
+  return {
+    pending: m.isPending, error,
+    send: (text: string) => { setError(null); m.mutate(text, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (e) => setError(errorText(e)) }); },
+  };
+}
+
+export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
   const runId = run.id;
   const navigate = useNavigate();
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
-  // 报告里点“继续查”：把那一条放进输入框并聚焦，用户改了再发
-  useEffect(() => { if (seed) { setText(seed.text); input.current?.focus(); } }, [seed]);
   const [error, setError] = useState<string | null>(null);
   const picker = useModelChoice((run as { model_choice?: ModelChoice | null }).model_choice);
   const followup = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
-    params: { path: { run_id: runId } }, body: { text, ...picker.body } as never })), ["analysis-runs"]);
+    params: { path: { run_id: runId } }, body: { text, ...picker.body } as never })), ["analysis-runs", "analysis-conversations", "analysis-conversation"]);
   return (
     <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();

@@ -59,6 +59,8 @@ class LiveSession(MemorySession):
                 obj.id = new_id()
             if hasattr(obj, "created_at") and obj.created_at is None:
                 obj.created_at = utcnow()
+            if isinstance(obj, AnalysisRun) and obj.conversation_id is None:
+                obj.conversation_id = obj.id
             self.store[(type(obj), obj.id)] = obj
 
     def rollback(self):
