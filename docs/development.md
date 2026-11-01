@@ -37,7 +37,7 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
   - 报告可导出 PDF / Markdown / CSV，分析可保存为定时任务。
   
   需要支持工具调用的真实模型，见 [ADR 0007](decisions/0007-analysis-agent.md)。演示用的合成电商数据集用 `uv run scripts/ec_data.py load` 灌入，`bootstrap demo` 会自动接入。
-- **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
+- **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；默认向模型发送查询结果与脱敏后的代码片段（分析需要），可在同一页面关闭，需保密时接入本地模型。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
 - **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（采集、视图血缘、问数、执行前核对），以及 MySQL（采集，作为外部表的追溯目标）。更多引擎的演示库用 `uv run scripts/demo.py up --engines` 启动，各引擎的验收记录见[更多引擎验收（归档）](archive/acceptance/acceptance-m7.md)。新增数据库的步骤见 [ADR 0004](decisions/0004-engine-adapters.md)。
 - **执行前核对**：每次问数执行前（含命中缓存）核对来源的列与视图定义是否与上次采集一致；不一致就拦截并排队采集（`AVELIS_ASK_LIVE_CHECK`，默认开启）。
