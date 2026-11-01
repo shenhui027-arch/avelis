@@ -1312,8 +1312,8 @@ msgstr "Databases to collect"
 msgid "只接 JDBC MySQL Catalog"
 msgstr "Supports JDBC MySQL Catalog only"
 
-msgid "v0.1 只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
-msgstr "v0.1 collects metadata only and serves as a tracing target for external or Catalog tables. View parsing and question answering execution have not been integration tested"
+msgid "目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
+msgstr "Currently collects metadata only and serves as a tracing target for external or Catalog tables. View parsing and question answering execution have not been integration tested"
 
 msgid "库"
 msgstr "Database"

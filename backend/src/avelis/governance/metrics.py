@@ -461,7 +461,7 @@ def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
                             + (f"（V{cv.version_no} 为 {cv.status}）" if cv else ""))
             continue
         if cv.kind == "derived":
-            blockers.append(f"组成指标 {metric.name} 本身是派生指标；v0.1 不支持派生嵌套")
+            blockers.append(f"组成指标 {metric.name} 本身是派生指标；暂不支持派生嵌套")
             continue
         pinned.append({"metric_code": metric.code, "metric_id": metric.id, "metric_name": metric.name,
                        "version_id": cv.id, "version_no": cv.version_no,
