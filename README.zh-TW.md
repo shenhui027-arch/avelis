@@ -4,7 +4,7 @@
 
 # Avelis
 
-[English](README.md) · [简体中文](README.zh-CN.md) · **繁體中文**
+[English](README.en.md) · [简体中文](README.md) · **繁體中文**
 
 **有依據的智慧問數與分析，建立在血緣、口徑治理與變更管理之上。**
 
