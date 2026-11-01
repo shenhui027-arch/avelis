@@ -8,6 +8,7 @@
 | [deployment.md](deployment.md) | 部署指南：Docker Compose、外部 PostgreSQL / Redis、不用 Docker 部署、升级、备份、排障 |
 | [configuration.md](configuration.md) | 配置参考：全部 `AVELIS_*` 环境变量、默认值与是否必填 |
 | [development.md](development.md) | 开发指南：后端与前端开发命令、本地演示环境、一条命令复现验收 |
+| [documentation-guide.md](documentation-guide.md) | 文档规范：README 与文档的结构、语言、术语、链接与图片写法 |
 
 ## 设计
 
