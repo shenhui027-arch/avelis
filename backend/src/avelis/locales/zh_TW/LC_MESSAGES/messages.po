@@ -1790,3 +1790,7 @@ msgstr "column 與 summary 必須且只能填寫一個"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "彙總值不能帶 match 或 exclude"
+
+#: src/avelis/api/imports.py
+msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
+msgstr "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"

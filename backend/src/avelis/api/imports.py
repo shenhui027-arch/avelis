@@ -16,7 +16,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
-from avelis.i18n import Msg
+from avelis.i18n import Msg, gettext
 from avelis.importer import batch, service
 from avelis.importer.archive import ImportFile, read_uploads
 from avelis.models import (
@@ -97,10 +97,19 @@ class SqlFunctions(BaseModel):
         for name in names:
             name = name.strip()
             if not name or len(name) > 128 or not all(part.isidentifier() for part in name.split(".")):
-                raise ValueError("执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符")
+                raise ValueError(gettext("执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"))
             if name not in result:
                 result.append(name)
         return result
+
+
+class SqlFunction(BaseModel):
+    sql_function: str
+
+    @field_validator("sql_function")
+    @classmethod
+    def valid_name(cls, name: str) -> str:
+        return SqlFunctions(sql_functions=[name]).sql_functions[0]
 
 
 def _functions_key(datasource_id: str) -> str:
@@ -250,23 +259,40 @@ def get_sql_functions(datasource_id: str, user: User = Depends(current_user),
     return {"datasource_id": datasource_id, "sql_functions": _sql_functions(session, datasource_id, [])}
 
 
+def _save_sql_functions(session: Session, user: User, datasource_id: str, names: list[str], *,
+                        append: bool = False) -> dict:
+    # 数据源行始终存在；设置尚未创建时也能串行化追加与全量替换。
+    if session.scalar(select(Datasource.id).where(Datasource.id == datasource_id).with_for_update()) is None:
+        raise HTTPException(404, "数据源不存在")
+    key = _functions_key(datasource_id)
+    setting = session.get(AppSetting, key, populate_existing=True)
+    saved = (setting.value or {}).get("sql_functions", []) if setting else []
+    if append:
+        names = list(dict.fromkeys([*saved, *names]))
+        if setting is not None and names == saved:
+            return {"datasource_id": datasource_id, "sql_functions": saved}
+    if setting is None:
+        setting = AppSetting(key=key)
+        session.add(setting)
+    setting.value = {"sql_functions": names}
+    setting.updated_by, setting.updated_at = user.id, utcnow()
+    audit.record(session, user, "import.sql_functions", "datasource", datasource_id, sql_functions=names)
+    session.flush()
+    return {"datasource_id": datasource_id, "sql_functions": names}
+
+
 @router.put("/imports/sql-functions/{datasource_id}", response_model=S.ImportSqlFunctionsOut)
 def put_sql_functions(datasource_id: str, body: SqlFunctions, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> dict:
     service.require_import_access(session, user)
-    if session.get(Datasource, datasource_id) is None:
-        raise HTTPException(404, "数据源不存在")
-    key = _functions_key(datasource_id)
-    setting = session.get(AppSetting, key)
-    if setting is None:
-        setting = AppSetting(key=key)
-        session.add(setting)
-    setting.value = {"sql_functions": body.sql_functions}
-    setting.updated_by, setting.updated_at = user.id, utcnow()
-    audit.record(session, user, "import.sql_functions", "datasource", datasource_id,
-                 sql_functions=body.sql_functions)
-    session.flush()
-    return {"datasource_id": datasource_id, "sql_functions": body.sql_functions}
+    return _save_sql_functions(session, user, datasource_id, body.sql_functions)
+
+
+@router.post("/imports/sql-functions/{datasource_id}", response_model=S.ImportSqlFunctionsOut)
+def post_sql_function(datasource_id: str, body: SqlFunction, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)) -> dict:
+    service.require_import_access(session, user)
+    return _save_sql_functions(session, user, datasource_id, [body.sql_function], append=True)
 
 
 @router.get("/imports/{batch_id}", response_model=S.ImportBatchOut)
