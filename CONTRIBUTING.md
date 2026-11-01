@@ -24,7 +24,7 @@ uv sync
 AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
 
 # Frontend
-cd frontend
+cd ../frontend
 pnpm install
 pnpm build
 ```
@@ -72,7 +72,7 @@ uv sync
 AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
 
 # 前端
-cd frontend
+cd ../frontend
 pnpm install
 pnpm build
 ```
