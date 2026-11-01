@@ -1068,7 +1068,6 @@
   "查看已解析": "View parsed",
   "没有需要模型推断的片段": "No fragments need model inference",
   "第 {{lines}} 行": "Lines {{lines}}",
-  "未发送": "Not sent",
   "已脱敏 {{count}} 处_one": "{{count}} item redacted",
   "已脱敏 {{count}} 处_other": "{{count}} items redacted",
   "导入": "Import",
@@ -1286,5 +1285,6 @@
   "提供方类型": "Provider type",
   "自填接口地址": "Custom API URL",
   "小写字母、数字、- 或 _，用于区分同类提供方": "Lowercase letters, digits, - or _, to tell providers of the same type apart",
-  "仅支持小写字母、数字、- 和 _": "Only lowercase letters, digits, - and _ are allowed"
+  "仅支持小写字母、数字、- 和 _": "Only lowercase letters, digits, - and _ are allowed",
+  "未发送（演示规则）": "Not sent (demo rules)"
 }

@@ -327,13 +327,16 @@ function Candidates({ j, onFocus, onLocate }: SourceActions) {
   </>;
 }
 
+// 后端对没发给模型的片段记下固定原文“未发送（演示规则）”：按原文判断，只在显示时翻译；其余值是适配器名，原样显示
+const notSent = (sentTo: unknown) => String(sentTo).startsWith("未发送");
+
 function Payload({ j }: { j: ImportJob }) {
   if (!j.model_payload?.length) return <Empty text={t("没有需要模型推断的片段")} compact />;
   return <div className="av-stack">{j.model_payload.map((p, i) => <section key={i} className="av-panel">
     <div className="av-panel__hd"><h2 className="av-panel__title">{t("第 {{lines}} 行", { lines: (p.lines as number[]).join("–") })}</h2>
-      <span className={`av-status ${String(p.sent_to).startsWith(t("未发送")) ? "" : "av-status--warn"}`}>{String(p.sent_to)}</span></div>
+      <span className={`av-status ${notSent(p.sent_to) ? "" : "av-status--warn"}`}>{notSent(p.sent_to) ? t("未发送（演示规则）") : String(p.sent_to)}</span></div>
     <div className="av-panel__bd av-import-payload">
-      <span className="av-caption">{t("已脱敏 {{count}} 处", { count: String(p.redactions) })}{p.note ? ` · ${String(p.note)}` : ""}{p.error ? ` · ${String(p.error)}` : ""}</span>
+      <span className="av-caption">{t("已脱敏 {{count}} 处", { count: Number(p.redactions) })}{p.note ? ` · ${String(p.note)}` : ""}{p.error ? ` · ${String(p.error)}` : ""}</span>
       <pre className="av-code">{String(p.text)}</pre>
     </div>
   </section>)}</div>;
