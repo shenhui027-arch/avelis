@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "started": "2026-11-01T14:35:30",
+    "commit": "unit-test",
+    "scorer": "unit-test",
+    "seed": 20261031,
+    "material": "e1_injections.yaml",
+    "initial_spent_cny": "0"
+  },
+  "ledger": {
+    "cap_cny": "2",
+    "spent_cny": "2.30",
+    "per_run_reserve_cny": "1.5",
+    "remaining_cny": "-0.30",
+    "can_start": false
+  },
+  "stop_reason": "费用预留不足：累计已花 2.30 元 + 每次预留 1.5 元 > 上限 2 元，停止后续运行",
+  "results": [
+    {
+      "scenario": "one",
+      "condition": "D0",
+      "repeat": 1,
+      "seconds": 0.0,
+      "run_id": "unit-test-run",
+      "injection": {
+        "condition": "D0"
+      },
+      "score": {
+        "passed": true
+      },
+      "run": {
+        "id": "unit-test-run",
+        "status": "succeeded",
+        "steps": [
+          {
+            "kind": "model",
+            "status": "ok",
+            "at": "2026-10-30T10:00:00+08:00",
+            "output": {
+              "output_tokens": 100000
+            }
+          }
+        ]
+      },
+      "cost": {
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "output_tokens": 100000,
+        "missing_usage": 1,
+        "peak_cny": "0.80",
+        "off_peak_cny": "0",
+        "total_cny": "0.80"
+      },
+      "cost_estimated": true,
+      "cost_estimate_reason": "1 个模型步骤缺少用量",
+      "cost_accounted_cny": "2.30",
+      "ledger": {
+        "cap_cny": "2",
+        "spent_cny": "2.30",
+        "per_run_reserve_cny": "1.5",
+        "remaining_cny": "-0.30",
+        "can_start": false
+      }
+    }
+  ]
+}

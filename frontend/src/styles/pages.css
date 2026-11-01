@@ -954,6 +954,8 @@
 .av-archived__delete:hover { color: var(--danger); }
 /* 对话里的多轮：轮次标签，轮与轮之间留出间隔 */
 .av-turn__no { padding: 0 6px; border-radius: var(--radius-full); background: var(--accent-subtle); color: var(--accent-text, var(--accent)); font: 600 11px/18px var(--font-sans); }
-.av-analysis__scroll > .av-doc + .av-doc, .av-analysis__scroll > div + .av-doc { margin-top: var(--space-6); }
+.av-analysis__scroll > .av-turn + .av-turn { margin-top: var(--space-6); }
 .av-turn__error { margin: var(--space-3) auto; max-width: 880px; }
 @media (prefers-reduced-motion: reduce) { .av-dot.is-live { animation: none; } }
+.av-runlog__queued { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.av-runlog__queued .av-banner { font-size: 12px; }

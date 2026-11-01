@@ -24,7 +24,8 @@ from avelis.api import (
     model_settings,
     workbench,
 )
-from avelis.cache import LockBusy, client as cache_client
+from avelis.api.schemas import WorkerHealthOut
+from avelis.cache import WORKER_HEARTBEAT, LockBusy, client as cache_client
 from avelis.config import get_settings
 from avelis.db import get_engine
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
@@ -79,6 +80,14 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/api/health/worker", response_model=WorkerHealthOut)
+    def worker_health() -> dict:
+        try:
+            last_seen = cache_client().get(WORKER_HEARTBEAT)
+        except Exception:
+            last_seen = None
+        return {"alive": last_seen is not None, "last_seen": last_seen}
 
     @app.get("/api/health/ready")
     def ready() -> JSONResponse:

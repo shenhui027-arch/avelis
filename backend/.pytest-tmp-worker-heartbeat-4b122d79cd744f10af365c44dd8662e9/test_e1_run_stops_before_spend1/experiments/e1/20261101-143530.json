@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "started": "2026-11-01T14:35:30",
+    "commit": "unit-test",
+    "scorer": "unit-test",
+    "seed": 20261031,
+    "material": "e1_injections.yaml",
+    "initial_spent_cny": "1"
+  },
+  "ledger": {
+    "cap_cny": "2",
+    "spent_cny": "1",
+    "per_run_reserve_cny": "1.5",
+    "remaining_cny": "1",
+    "can_start": false
+  },
+  "stop_reason": "费用预留不足：累计已花 1 元 + 每次预留 1.5 元 > 上限 2 元，停止后续运行",
+  "results": []
+}

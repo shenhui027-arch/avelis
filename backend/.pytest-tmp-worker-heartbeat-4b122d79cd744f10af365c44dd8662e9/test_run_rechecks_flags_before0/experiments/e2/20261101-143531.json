@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "started": "2026-11-01T14:35:31",
+    "git_sha": "unit-sha",
+    "git_dirty": true,
+    "conditions": [
+      "RH"
+    ],
+    "flags": {
+      "RH": {
+        "analysis_retrieval": true,
+        "analysis_investigation": true
+      }
+    },
+    "scenarios": [
+      "h10"
+    ],
+    "repeat": 1,
+    "seed": 20261101,
+    "effort": null,
+    "output_token_cap": null,
+    "tag": "e2",
+    "model_timeout": null,
+    "run_seconds": null,
+    "scorer": "unit-v2.1.3",
+    "scorer_sha256": "403694cbc98e292f4b1b225782495dd65d6dd3005e44b47a0e88ba6b11375ed5",
+    "truth": "E:\\Dev\\Repos\\Active\\Avelis\\.worktrees\\thread\\backend\\.pytest-tmp-worker-heartbeat-4b122d79cd744f10af365c44dd8662e9\\test_run_rechecks_flags_before0\\truth.json",
+    "initial_spent_cny": "0"
+  },
+  "ledger": {
+    "cap_cny": "20",
+    "spent_cny": "0",
+    "per_run_reserve_cny": "1.5",
+    "remaining_cny": "20",
+    "can_start": true
+  },
+  "stop_reason": "运行中止：RuntimeError: 条件 RH 的产品开关不匹配：期望 {'analysis_retrieval': True, 'analysis_investigation': True}，实际 {'analysis_retrieval': False, 'analysis_investigation': True}",
+  "results": []
+}

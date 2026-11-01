@@ -332,34 +332,32 @@ function LookupAnswer({ a }: { a: Answer }) {
   );
 }
 
-/** 一段对话：所有轮次按时间顺序在同一页，底部输入框接着最新一轮继续；地址总是指向最新一轮。 */
+/** 一段对话：所有轮次按时间顺序在同一页，底部输入框接着最新一轮继续；打开某一轮的地址时定位到那一轮。 */
 function RunDetail({ id }: { id: string }) {
   const run = useRun(id);
-  const navigate = useNavigate();
   const convId = (run.data as (Run & { conversation_id?: string }) | undefined)?.conversation_id;
   const conv = useQuery({
     queryKey: ["analysis-conversation", convId], enabled: !!convId,
     queryFn: () => unwrap(api.GET("/api/analysis/conversations/{conversation_id}", { params: { path: { conversation_id: convId! } } })),
   });
-  const latestId = conv.data?.latest_run_id;
-  useEffect(() => { if (latestId && latestId !== id) navigate(`/analysis/runs/${latestId}`, { replace: true }); }, [latestId, id, navigate]);
-  const continueWith = useContinue(id);
-  const bottom = useRef<HTMLDivElement>(null);
-  const earlier = (conv.data?.runs ?? []).filter((t) => t.id !== id);
-  const total = earlier.length + 1;
-  // 有多轮时打开就定位到最新一轮；新的一轮出现时也滚过去
-  useEffect(() => { if (total > 1) bottom.current?.scrollIntoView({ block: "start" }); }, [total, id]);
+  const latestId = conv.data?.latest_run_id ?? id;
+  const latest = useRun(latestId);
+  const continueWith = useContinue(latestId);
+  const focus = useRef<HTMLDivElement>(null);
+  const ids = conv.data?.runs.map((t) => t.id) ?? [id];
+  const total = ids.length;
+  // 有多轮时定位到地址指向的那一轮（续问后地址换成新一轮，也就滚到新一轮）
+  useEffect(() => { if (total > 1) focus.current?.scrollIntoView({ block: "start" }); }, [total, id]);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
-  const r = run.data;
+  const r = latest.data ?? run.data;
   const live = ["queued", "running", "waiting"].includes(r.status);
   const done = r.status === "succeeded";
   const onContinue = done && !continueWith.pending ? (text: string) => continueWith.send(text) : undefined;
   return (
     <>
       <div className="av-analysis__scroll">
-        {earlier.map((t, i) => <RunTurn key={t.id} r={t} turn={i + 1} total={total} onContinue={onContinue} />)}
-        <div ref={bottom} />
-        <RunTurn r={r} turn={total} total={total} onContinue={onContinue} />
+        {ids.map((tid, i) => <div key={tid} ref={tid === id ? focus : undefined} className="av-turn">
+          <TurnById id={tid} turn={i + 1} total={total} onContinue={onContinue} autoFollow={id === latestId} /></div>)}
         {continueWith.error ? <div className="av-banner av-banner--danger av-turn__error">{continueWith.error}</div> : null}
       </div>
       {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
@@ -367,8 +365,17 @@ function RunDetail({ id }: { id: string }) {
   );
 }
 
+/** 按 id 取一轮的完整详情（报告、过程、数据集）再渲染；对话接口只给各轮概要。 */
+function TurnById({ id, turn, total, onContinue, autoFollow }: { id: string; turn: number; total: number; onContinue?: (text: string) => void;
+  autoFollow?: boolean }) {
+  const run = useRun(id);
+  if (!run.data) return run.isError ? <Empty text={errorText(run.error)} compact /> : <Empty text="加载中…" compact />;
+  return <RunTurn r={run.data} turn={turn} total={total} onContinue={onContinue} autoFollow={autoFollow} />;
+}
+
 /** 对话里的一轮：问题、过程、报告。导出与状态按这一轮。 */
-function RunTurn({ r, turn, total, onContinue }: { r: Run; turn: number; total: number; onContinue?: (text: string) => void }) {
+function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: number; total: number; onContinue?: (text: string) => void;
+  autoFollow?: boolean }) {
   const tz = useTimeZone();
   const [error, setError] = useState<string | null>(null);
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
@@ -416,7 +423,7 @@ function RunTurn({ r, turn, total, onContinue }: { r: Run; turn: number; total: 
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
       <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>
-      {r.steps?.length || live ? <RunTranscript run={r} live={live} footer={<>
+      {r.steps?.length || live ? <RunTranscript run={r} live={live} autoFollow={autoFollow} footer={<>
         {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
         <p className="av-caption av-doc__meta">
           <span>模型 {r.model_adapter ?? "—"}</span>

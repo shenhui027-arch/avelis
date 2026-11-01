@@ -15,6 +15,11 @@ class Out(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class WorkerHealthOut(Out):
+    alive: bool
+    last_seen: str | None = None
+
+
 # --- 数据源 -----------------------------------------------------------------------
 
 class RunOut(Out):
