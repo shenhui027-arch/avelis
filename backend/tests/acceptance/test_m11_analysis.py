@@ -32,11 +32,12 @@ def truth() -> dict:
 
 def toolbox(username: str, budget=None):
     """以某个用户身份建一个分析运行与工具箱（不经过模型）。"""
+    from sqlalchemy import select
+
     from avelis.analysis.tools import AnalysisToolbox, Budget
     from avelis.ask import service
     from avelis.db import session_scope
     from avelis.models import AnalysisRun, User
-    from sqlalchemy import select
 
     scope = session_scope()
     session = scope.__enter__()
@@ -72,6 +73,7 @@ def rows(ds_json: str) -> list[dict]:
 def test_00_setup_ec_domain_and_metrics(stack, admin: Api):
     import demo
     import ec_data
+
     from avelis import demo_setup
 
     client, env, _ = stack
@@ -233,8 +235,6 @@ def test_03_permission_budget_and_verification(admin: Api):
         box.dispatch("search_metrics", {})
         over = json.loads(box.dispatch("search_metrics", {}))
         assert "上限" in over["error"] and box.budget.used_tools == 3  # 工具次数用完
-        d1 = {r["region"]: r["退款金额"] for r in rows(json.dumps(box._view("D1", box.datasets()["D1"]),
-                                                                ensure_ascii=False, default=str))}
         ds = box.datasets()["D1"]
         rendered, verification = ground_report({"title": "退款", "summary": "退款", "claims": [
             {"type": "fact", "parts": ["华南退款 ", {"dataset": "D1", "column": "退款金额", "match": {"region": "华南"}}]},

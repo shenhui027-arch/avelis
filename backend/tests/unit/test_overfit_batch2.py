@@ -2,14 +2,42 @@
 
 import importlib.util
 import json
+from contextlib import contextmanager as conn_contextmanager
+from datetime import date as svc_date
 from pathlib import Path
 from types import SimpleNamespace
+from types import SimpleNamespace as conn_SimpleNamespace
+from types import SimpleNamespace as svc_ns
 
+import pymysql as conn_pymysql
 import pytest
+import pytest as conn_pytest
+import pytest as svc_pytest
+import sqlglot as svc_sqlglot
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
+from avelis.ask import service as svc_service
+from avelis.ask.intent import Intent as SvcIntent
+from avelis.connectors.base import QueryError as conn_QueryError
+from avelis.connectors.base import QueryResult as SvcResult
+from avelis.connectors.base import current_timezone_offset as conn_current_offset
+from avelis.connectors.clickhouse import ClickHouseConnector as conn_ClickHouseConnector
+from avelis.connectors.doris import DorisConnector as conn_DorisConnector
+from avelis.connectors.fake import FakeConnector as conn_FakeConnector
+from avelis.connectors.mysql import MySQLMetaConnector as conn_MySQLConnector
+from avelis.connectors.oracle import OracleConnector as conn_OracleConnector
+from avelis.connectors.postgres import PostgresConnector as conn_PostgresConnector
+from avelis.connectors.sqlserver import SqlServerConnector as conn_SqlServerConnector
+from avelis.connectors.starrocks import StarRocksConnector as conn_StarRocksConnector
 from avelis.governance import metrics as meta_metrics
 from avelis.governance.errors import Invalid as MetaInvalid
+from avelis.lineage.sql import SqlDialect as SvcDialect
+from avelis.models import Answer as SvcAnswer
+from avelis.models import Datasource as SvcDatasource
+from avelis.models import Metric as SvcMetric
 from avelis.models import MetricVersion as MetaMetricVersion
+from avelis.models import MetricVersion as SvcVersion
 
 
 def meta_version(**kwargs):
@@ -29,7 +57,7 @@ def meta_validate(monkeypatch, *, data_type="date", **kwargs):
 
 
 def test_metric_time_migration_and_model_defaults(monkeypatch):
-    path = Path(__file__).parents[2] / "src/avelis/migrations/versions/0016_metric_time_semantics.py"
+    path = Path(__file__).parents[2] / "src/avelis/migrations/versions/0017_metric_time_semantics.py"
     spec = importlib.util.spec_from_file_location("metric_time_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
@@ -37,7 +65,7 @@ def test_metric_time_migration_and_model_defaults(monkeypatch):
     monkeypatch.setattr(migration.op, "add_column", lambda table, column: columns.append((table, column)))
     monkeypatch.setattr(migration.op, "drop_column", lambda table, column: dropped.append((table, column)))
     migration.upgrade()
-    assert migration.revision == "0016" and migration.down_revision == "0015"
+    assert migration.revision == "0017_metric_time" and migration.down_revision == "0016_conversation"
     assert all(table == "metric_version" for table, _ in columns)
     assert [column.name for _, column in columns] == [
         "time_format", "data_grain", "time_aggregation", "value_kind", "polarity"]
@@ -52,6 +80,14 @@ def test_metric_time_migration_and_model_defaults(monkeypatch):
             assert column.nullable
     migration.downgrade()
     assert [name for _, name in dropped] == [column.name for _, column in reversed(columns)]
+
+
+def test_metric_time_migration_is_the_single_head_after_conversations():
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    scripts = ScriptDirectory.from_config(config)
+    assert scripts.get_heads() == ["0017_metric_time"]
+    assert scripts.get_revision("0017_metric_time").down_revision == "0016_conversation"
+    assert scripts.get_revision("0016_conversation").down_revision == "0015"
 
 
 def test_metric_time_input_defaults_and_storage_fields():
@@ -75,8 +111,9 @@ def test_metric_time_input_defaults_and_storage_fields():
     ("value_kind", "unknown"), ("polarity", "unknown"),
 ])
 def test_metric_time_invalid_enums_are_rejected(field, value):
-    from avelis.api.governance import VersionSpec
     from pydantic import ValidationError
+
+    from avelis.api.governance import VersionSpec
 
     with pytest.raises(MetaInvalid, match=field):
         meta_metrics.validate_spec(None, meta_version(**{field: value}))
@@ -314,22 +351,6 @@ def test_submit_intent_threads_time_grain_and_calendar_compare():
 
 # CONNECTOR_TESTS
 
-from contextlib import contextmanager as conn_contextmanager
-from types import SimpleNamespace as conn_SimpleNamespace
-
-import pymysql as conn_pymysql
-import pytest as conn_pytest
-
-from avelis.connectors.base import QueryError as conn_QueryError, current_timezone_offset as conn_current_offset
-from avelis.connectors.clickhouse import ClickHouseConnector as conn_ClickHouseConnector
-from avelis.connectors.doris import DorisConnector as conn_DorisConnector
-from avelis.connectors.fake import FakeConnector as conn_FakeConnector
-from avelis.connectors.mysql import MySQLMetaConnector as conn_MySQLConnector
-from avelis.connectors.oracle import OracleConnector as conn_OracleConnector
-from avelis.connectors.postgres import PostgresConnector as conn_PostgresConnector
-from avelis.connectors.sqlserver import SqlServerConnector as conn_SqlServerConnector
-from avelis.connectors.starrocks import StarRocksConnector as conn_StarRocksConnector
-
 
 class conn_Cursor:
     def __init__(self, connection):
@@ -513,6 +534,7 @@ def test_connector_fake_accepts_timezone_and_preserves_row_limit():
 ])
 def test_analysis_coverage_uses_declared_period_labels(grain, start, end, labels):
     from datetime import date
+
     from avelis.analysis import calc
 
     rows = [{"维度甲": "成员甲", "period": value} for value in labels[::2]]
@@ -524,6 +546,7 @@ def test_analysis_coverage_uses_declared_period_labels(grain, start, end, labels
 
 def test_analysis_empty_governed_coverage_reports_all_missing_periods():
     from datetime import date
+
     from avelis.analysis import calc
 
     out = calc.coverage([], [], "period", date(2026, 1, 1), date(2026, 3, 31), grain="month")
@@ -534,6 +557,7 @@ def test_analysis_empty_governed_coverage_reports_all_missing_periods():
 
 def test_analysis_coverage_does_not_guess_undeclared_monthly_dates():
     from datetime import date
+
     from avelis.analysis import calc
 
     out = calc.coverage([{"period": "2026-01"}], [], "period", date(2026, 1, 1), date(2026, 3, 31))
@@ -640,6 +664,7 @@ def test_analysis_derived_grain_resolves_locked_components(monkeypatch):
 def test_analysis_governed_monthly_coverage_uses_query_grain(monkeypatch):
     import json
     from datetime import date
+
     from tests.unit.test_analysis_toolbox import make_box as ana_make_box
 
     box = ana_make_box(monkeypatch=monkeypatch)
@@ -656,6 +681,7 @@ def test_analysis_governed_monthly_coverage_uses_query_grain(monkeypatch):
 @pytest.mark.parametrize("engine", ["postgres", "starrocks"])
 def test_analysis_exploration_passes_business_timezone(monkeypatch, engine):
     import json
+
     from avelis.analysis import tools as ana_tools
     from avelis.config import build_settings
     from tests.unit.test_analysis_explore_tool import explore_box as ana_explore_box
@@ -721,10 +747,15 @@ def test_analysis_coverage_reads_locked_versions_when_legacy_grains_are_absent(m
 @pytest.mark.parametrize("engine", ["postgres", "starrocks"])
 def test_analysis_exploration_preserves_timezone_fallback_warnings(monkeypatch, engine):
     import json
+
     from avelis.connectors.base import QueryResult
     from tests.unit.test_analysis_explore_tool import (
         FakeConnector as AnaConnector,
+    )
+    from tests.unit.test_analysis_explore_tool import (
         audits as ana_audits,
+    )
+    from tests.unit.test_analysis_explore_tool import (
         explore_box as ana_explore_box,
     )
 
@@ -740,18 +771,6 @@ def test_analysis_exploration_preserves_timezone_fallback_warnings(monkeypatch, 
     assert json.loads(box.view_dataset(ref=out["dataset"]))["warnings"] == warnings
 
 # 服务合成与执行链路
-from datetime import date as svc_date
-from decimal import Decimal as svc_decimal
-from types import SimpleNamespace as svc_ns
-
-import pytest as svc_pytest
-import sqlglot as svc_sqlglot
-
-from avelis.ask import service as svc_service
-from avelis.ask.intent import Intent as SvcIntent
-from avelis.connectors.base import QueryResult as SvcResult
-from avelis.lineage.sql import SqlDialect as SvcDialect
-from avelis.models import Answer as SvcAnswer, Datasource as SvcDatasource, Metric as SvcMetric, MetricVersion as SvcVersion
 
 
 def svc_state(monkeypatch, method="last", *, rows=None, max_rows=1000, output_grain=None):

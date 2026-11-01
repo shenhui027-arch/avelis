@@ -16,21 +16,29 @@ from langgraph.types import Command
 
 from avelis.analysis import agent, service, tools
 from avelis.analysis.tools import Budget, PermissionDenied, Scope
-from avelis.ask import service as ask_service
 from avelis.api import analysis
 from avelis.api.deps import current_user, get_session
 from avelis.api.schemas import AnalysisRunOut
+from avelis.ask import service as ask_service
 from avelis.db import new_id, utcnow
 from avelis.governance import experiences
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
-    AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, Asset, AssetVersion, AuditEvent, Job, Metric, MetricVersion,
+    AnalysisDataset,
+    AnalysisMessage,
+    AnalysisRun,
+    AnalysisStep,
+    Asset,
+    AssetVersion,
+    AuditEvent,
+    Job,
+    Metric,
+    MetricVersion,
 )
 from tests.unit.test_analysis_hitl import configured, proposal, reply, report_reply, scope_reply, waiting_run
-from tests.unit.test_analysis_pipeline import Phased, WINDOW, catalog
+from tests.unit.test_analysis_pipeline import WINDOW, Phased, catalog
 from tests.unit.test_analysis_toolbox import MemorySession, governed, make_box
 from tests.unit.test_experiences import MemorySession as ExperienceSession
-
 
 INTERJECTION_PREFIX = "用户在分析过程中插话（以此为准调整方向，不改变安全与核验规则）："
 
@@ -51,6 +59,8 @@ class LiveSession(MemorySession):
                 obj.id = new_id()
             if hasattr(obj, "created_at") and obj.created_at is None:
                 obj.created_at = utcnow()
+            if isinstance(obj, AnalysisRun) and obj.conversation_id is None:
+                obj.conversation_id = obj.id
             self.store[(type(obj), obj.id)] = obj
 
     def rollback(self):

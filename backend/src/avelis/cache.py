@@ -17,6 +17,7 @@ from avelis.config import get_settings
 from avelis.connectors.base import sha256_json
 
 JOB_QUEUE = "avelis:jobs"
+WORKER_HEARTBEAT = "avelis:worker:heartbeat"
 
 
 @lru_cache(maxsize=2)

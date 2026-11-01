@@ -804,6 +804,13 @@ class AnalysisRun(Base):
     id: Mapped[str] = pk()
     task_id: Mapped[str | None] = fk("analysis_task.id", nullable=True)
     parent_run_id: Mapped[str | None] = fk("analysis_run.id", nullable=True)
+    # 根运行以自身为对话；续问由创建服务显式沿用根运行 ID。
+    conversation_id: Mapped[str] = mapped_column(
+        IdType, ForeignKey("analysis_run.id"), nullable=False, index=True,
+        default=lambda context: context.get_current_parameters()["id"],
+    )
+    display_title: Mapped[str | None] = mapped_column(String(80))
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     user_id: Mapped[str] = fk("app_user.id", index=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule

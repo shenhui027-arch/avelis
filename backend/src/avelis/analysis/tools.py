@@ -22,14 +22,14 @@ from typing import Annotated, Any, Literal
 import sqlglot
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlglot import exp
-from sqlglot.errors import ParseError, TokenError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlglot import exp
+from sqlglot.errors import ParseError, TokenError
 
 from avelis.analysis import attribution, calc, explore, investigation, measures, retrieval
-from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
+from avelis.analysis.grounding import Cause, Part, decode_parts, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import MAX_LIMIT, DimensionFilter, Intent, comparison_range
@@ -41,6 +41,7 @@ from avelis.governance import access
 from avelis.governance.business_calendar import get_business_calendar
 from avelis.governance.derived import parse_formula
 from avelis.governance.errors import GovernanceError
+from avelis.i18n import Msg, gettext, translate
 from avelis.models import (
     AnalysisDataset,
     AnalysisMessage,
@@ -53,8 +54,8 @@ from avelis.models import (
     ColumnVersion,
     Datasource,
     Domain,
-    MetricVersion,
     Metric,
+    MetricVersion,
     MetricVersionTransition,
     User,
 )
@@ -517,6 +518,11 @@ class Claim(BaseModel):
     premise: str | list[Part] | None = Field(None, description="推断与建议的前提（文字或片段列表）")
     validation: str | list[Part] | None = Field(None, description="建议的验证方式（文字或片段列表）")
 
+    @field_validator("parts", mode="before")
+    @classmethod
+    def decode_field_parts(cls, value: Any) -> Any:
+        return decode_parts(value)
+
 
 # submit_report 参数的模式版本：片段、原因等结构改变时加一。回放轨迹记录录制时的版本，版本不同的轨迹要重新录制
 # （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定；3：原因按编码关联、报告写所问指标
@@ -545,10 +551,15 @@ class ReportArgs(BaseModel):
     scope: ReportScope | None = Field(None, description="所问的指标、筛选与窗口（问“为什么变化”时必填）：结论类型按"
                                                          "同一 scope 的 explain_change 判定核对")
     method: str | list[Part] | None = Field(None, description="分析方法（可选）：怎么排查、用了哪些数据集；片段列表，"
-                                                             "数字写成引用对象")
+                                                             "数字写成引用对象；数据集写编号如 D5 即可")
     causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
                                                                    "第一项是首要原因；offsetting 时前两项是最大的减少项与"
                                                                    "增加项；其余两种结论不填）")
+
+    @field_validator("title", "summary", "unexplained", "method", mode="before")
+    @classmethod
+    def decode_field_parts(cls, value: Any) -> Any:
+        return decode_parts(value)
 
 
 # --- 工具箱 ---------------------------------------------------------------------------
@@ -569,6 +580,7 @@ class AnalysisToolbox:
         self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
         self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
         self._seq = 0
+        self._dataset_seq_floor = 0  # 续问装载时可能省略撤权数据集，其已分配编号仍须保留。
         self._datasets: dict[str, AnalysisDataset] = {}
         self._governed: dict[str, AnalysisDataset] = {}  # 受治理查询参数（不含 purpose）→ 数据集：相同查询复用
         self._scanned: dict[str, AnalysisDataset] = {}  # explain_change 扫描过的“指标 × 维度 × 窗口 × 筛选” → 数据集
@@ -585,7 +597,8 @@ class AnalysisToolbox:
 
     _SNAPSHOT_FIELDS = ("plan", "explanations", "denials", "precheck_notes", "precheck_groups", "precheck_meta",
                         "precheck_refs", "precheck_metric", "precheck_problem", "precheck_distribution",
-                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences", "interjections")
+                        "proposal", "feedback", "confirmed_scope", "confirmed_items", "experiences", "interjections",
+                        "_dataset_seq_floor")
 
     def snapshot(self) -> dict:
         """仅保存可序列化的工具状态；恢复不会重做预检、取数或分配已有的 D 编号。"""
@@ -599,7 +612,7 @@ class AnalysisToolbox:
             "scanned": {key: f"D{ds.seq}" for key, ds in self._scanned.items()},
             "state": {key: getattr(self, key) for key in self._SNAPSHOT_FIELDS if hasattr(self, key)}}))
 
-    def restore(self, snapshot: dict) -> None:
+    def restore(self, snapshot: dict, *, check_permissions: bool = True) -> None:
         if not snapshot:
             return
         self.budget = Budget.restore(snapshot["budget"])
@@ -612,6 +625,8 @@ class AnalysisToolbox:
         for key, value in (snapshot.get("state") or {}).items():
             if key in self._SNAPSHOT_FIELDS:
                 setattr(self, key, value)
+        if check_permissions:
+            self.check_copied_permissions()
 
     def check_resume_permissions(self) -> None:
         """在旧上下文再次交给模型之前核对账号、范围、来源和引用。"""
@@ -801,16 +816,53 @@ class AnalysisToolbox:
         truncated = bool(truncated or any(p.truncated for p in parents))
         if "metric_codes" not in meta:  # 原因按编码关联：计算结果继承输入的口径编码
             meta["metric_codes"] = sorted({c for p in parents for c in (p.meta or {}).get("metric_codes") or []})
-        ds = AnalysisDataset(run_id=self.run.id, seq=len(self._datasets) + 1, kind=kind, title=title[:255],
+        seq = max(self._dataset_seq_floor, max((ds.seq for ds in self._datasets.values()), default=0)) + 1
+        ds = AnalysisDataset(run_id=self.run.id, seq=seq, kind=kind, title=title[:255],
                              answer_id=answer_id, inputs=inputs, columns=columns,
                              rows=json.loads(_json(rows)), truncated=truncated, meta=json.loads(_json(meta)))
         self.session.add(ds)
         self.session.flush()
         self._datasets[f"D{ds.seq}"] = ds
+        self._dataset_seq_floor = ds.seq
         return ds
 
     def datasets(self) -> dict[str, AnalysisDataset]:
         return dict(self._datasets)
+
+    def _has_copied_source(self, dataset: AnalysisDataset) -> bool:
+        pending, visited = [dataset], set()
+        while pending:
+            current = pending.pop()
+            if (current.meta or {}).get("copied_from"):
+                return True
+            refs = set(current.inputs or []) | set((current.meta or {}).get("closure") or [])
+            for ref in refs - visited:
+                visited.add(ref)
+                if ref in self._datasets:
+                    pending.append(self._datasets[ref])
+        return False
+
+    def readable_datasets(self) -> dict[str, AnalysisDataset]:
+        """续问带入的历史证据及其计算结果，按当前来源权限交给模型与核验。"""
+        from avelis.analysis.dataset_access import can_read_dataset
+
+        return {ref: dataset for ref, dataset in self._datasets.items()
+                if not self._has_copied_source(dataset)
+                or can_read_dataset(self.session, self.user, dataset, self._datasets)}
+
+    def check_copied_permissions(self) -> None:
+        """旧模型消息可能复述历史证据；撤权后停止，不能仅删掉数据集后继续旧消息。"""
+        restricted = set(self._datasets) - self.readable_datasets().keys()
+        if restricted:
+            self.permission_lost = "续问继承的数据集已没有访问权限，分析停止"
+            raise PermissionLost(self.permission_lost)
+
+    def _check_copied_dataset(self, dataset: AnalysisDataset) -> None:
+        from avelis.analysis.dataset_access import can_read_dataset
+
+        if self._has_copied_source(dataset) and not can_read_dataset(
+                self.session, self.user, dataset, self._datasets):
+            self._deny("你已没有该数据的访问权限", dataset=f"D{dataset.seq}")
 
     def _unit(self, ref: str, column: str) -> dict:
         """数据集某列登记的量纲与单位；没登记的按 unknown。"""
@@ -821,6 +873,7 @@ class AnalysisToolbox:
         ds = self._datasets.get(ref)
         if ds is None:
             raise calc.CalcError(f"数据集 {ref} 不存在（可用：{'、'.join(self._datasets) or '无'}）")
+        self._check_copied_dataset(ds)
         return ds, [dict(zip(ds.columns, r)) for r in ds.rows]
 
     def _column_expression(self, ref: str, column: str) -> exp.Expression | None:
@@ -878,7 +931,7 @@ class AnalysisToolbox:
                             for component in components.values())):
                     rule = {"algorithm": "additive", "reason": ""}
             if getattr(version, "value_kind", None) == "ratio":
-                rule = {"algorithm": None, "reason": "口径声明为比率量纲"}
+                rule = {"algorithm": None, "reason": Msg("口径声明为比率量纲")}
             names = [metric.name, f"{metric.name}·变化"]
             if intent.get("compare"):
                 names.append(f"{metric.name}·{service.PERIOD_LABEL[intent['compare']]}")
@@ -887,21 +940,21 @@ class AnalysisToolbox:
             rule = rules.get(column)
             if rule is None or rule["algorithm"] != "additive":
                 reason = (rule.get("reason") or "派生比率不能按成员相加") if rule else "无法确认该列对应的可加指标"
-                raise calc.CalcError(f"列 {column} 不能按成员相加：{reason}")
+                raise calc.CalcError(Msg("列 {column} 不能按成员相加：{reason}", column=column, reason=reason))
 
     def _time_versions(self, version: MetricVersion, seen: set[str] | None = None) -> list[MetricVersion]:
         """递归读取锁定的组成版本；元数据缺失或成环时不推测时间语义。"""
         seen = set(seen or ())
         identity = str(getattr(version, "id", None) or id(version))
         if identity in seen:
-            raise calc.CalcError("指标组成成环，无法确认时间语义")
+            raise calc.CalcError(Msg("指标组成成环，无法确认时间语义"))
         seen.add(identity)
         versions = [version]
         if version.kind == "derived":
             for component in version.components or []:
                 child = self.session.get(MetricVersion, component.get("version_id"))
                 if child is None:
-                    raise calc.CalcError("指标的组成版本缺失，无法确认时间语义")
+                    raise calc.CalcError(Msg("指标的组成版本缺失，无法确认时间语义"))
                 versions.extend(self._time_versions(child, seen))
         return versions
 
@@ -909,7 +962,7 @@ class AnalysisToolbox:
         grains = [getattr(v, "data_grain", None) or "day" for v in self._time_versions(version)]
         order = {grain: i for i, grain in enumerate(("day", "week", "month", "quarter", "year"))}
         if any(grain not in order for grain in grains):
-            raise calc.CalcError("数据粒度未知，无法判断期间覆盖度")
+            raise calc.CalcError(Msg("数据粒度未知，无法判断期间覆盖度"))
         return max(grains, key=order.get)
 
     def _require_time_additive(self, dataset: str, columns: list[str]) -> None:
@@ -929,12 +982,12 @@ class AnalysisToolbox:
             version_id = (ds.meta.get("versions") or {}).get(code)
             version = self.session.get(MetricVersion, version_id) if version_id else None
             if version is None:
-                raise calc.CalcError("查询版本缺失，无法确认跨时间合成方式")
+                raise calc.CalcError(Msg("查询版本缺失，无法确认跨时间合成方式"))
             if any((getattr(v, "time_aggregation", None) or "sum") != "sum" for v in self._time_versions(version)):
-                raise calc.CalcError("该指标跨时间不能累加，不能按天数折算")
+                raise calc.CalcError(Msg("该指标跨时间不能累加，不能按天数折算"))
             checked.update(selected)
         if checked != set(columns):
-            raise calc.CalcError("无法确认列对应的指标时间语义，不能按天数折算")
+            raise calc.CalcError(Msg("无法确认列对应的指标时间语义，不能按天数折算"))
 
     def _view(self, ref: str, ds: AnalysisDataset, *, offset: int = 0, limit: int = MODEL_ROWS) -> dict:
         rows = ds.rows[offset:offset + limit]
@@ -963,6 +1016,7 @@ class AnalysisToolbox:
             ds = self._datasets.get(ref)
             if ds is None:
                 raise calc.CalcError(f"数据集 {ref} 不在本次运行中（可用：{'、'.join(self._datasets) or '无'}）")
+            self._check_copied_dataset(ds)
             out = self._view(ref, ds, offset=offset, limit=limit)
             end = offset + len(out["rows"])
             out.update(offset=offset, next_offset=end if end < len(ds.rows) else None,
@@ -989,6 +1043,7 @@ class AnalysisToolbox:
             raise PermissionLost("发起人已没有查询角色")
         self.user = user
         self._allowed = access.domain_ids(self.session, user)
+        self.check_copied_permissions()
 
     def _deny(self, message: str, **detail) -> None:
         self.denials.append({"message": message, **detail})
@@ -1045,7 +1100,9 @@ class AnalysisToolbox:
             return _json({"error": exc.message, "status": "denied"})
         except (calc.CalcError, HTTPException, ValueError, GovernanceError) as exc:
             message = exc.detail if isinstance(exc, HTTPException) else (
-                exc.message if isinstance(exc, GovernanceError) else str(exc))
+                exc.message if isinstance(exc, GovernanceError) else (
+                    exc.args[0] if isinstance(exc, calc.CalcError) and exc.args else str(exc)))
+            message = translate(message)
             self._step("tool", tool, args, "error", {"error": message}, started=started)
             return _json({"error": message})
         self._step("tool", tool, args, status, output if dataset is None else {"dataset": f"D{dataset.seq}"},
@@ -1176,7 +1233,8 @@ class AnalysisToolbox:
             try:
                 out = json.loads(call())
             except Exception as exc:  # noqa: BLE001 - 预检的单步失败如实记下
-                out = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+                message = (translate(exc.args[0]) if isinstance(exc, calc.CalcError) and exc.args else str(exc))
+                out = {"error": f"{type(exc).__name__}: {message[:200]}"}
             if out.get("error"):
                 self.precheck_notes.append(f"{label}：{str(out['error'])[:200]}")
             elif out.get("dataset"):
@@ -1217,12 +1275,13 @@ class AnalysisToolbox:
             def trend():
                 # 详情已包含锁定组成推导出的粒度；旧详情缺字段时沿用迁移定义的日默认值。
                 trend_grain = self.precheck_metric.get("data_grain", "day")
-                grain_name = {"day": "日", "week": "周", "month": "月", "quarter": "季", "year": "年"}.get(trend_grain)
+                grain_name = {"day": gettext("日"), "week": gettext("周"), "month": gettext("月"),
+                              "quarter": gettext("季"), "year": gettext("年")}.get(trend_grain)
                 if grain_name is None:
-                    raise calc.CalcError("数据粒度未知，无法执行趋势预检")
+                    raise calc.CalcError(Msg("数据粒度未知，无法执行趋势预检"))
                 return self.query_metric(metric_codes=[code], start_date=window["compare_start"],
                     end_date=window["end"], filters=filters, time_grain=trend_grain,
-                    purpose=f"系统预检：两期的{grain_name}趋势")
+                    purpose=gettext("系统预检：两期的{grain}趋势", grain=grain_name))
             daily = run("趋势", trend, "trend")
             if daily.get("dataset"):
                 run("覆盖度", lambda: self.coverage(dataset=daily["dataset"], start_date=date.fromisoformat(
@@ -1706,11 +1765,17 @@ class AnalysisToolbox:
             columns[-1] = names[0]
         if len(set(columns)) != len(columns):  # 列名重复会让按列取值互相覆盖：如实拒绝
             raise calc.CalcError(f"查询结果的列名重复（{'、'.join(columns)}），无法作为数据集使用")
-        title = f"{'、'.join(names)} {args.start_date}~{args.end_date}" + (
-            f" 按{'、'.join(args.group_by)}" if args.group_by else "") + (
-            f" 按{ {'day': '日', 'week': '周', 'month': '月', 'quarter': '季', 'year': '年'}[args.time_grain]}" if args.time_grain else "") + (
-            f" 对比{ {'previous_period': '上一期', 'previous_calendar': '上一自然期', 'previous_year': '去年同期'}.get(args.compare) or f'{args.compare_start}~{args.compare_end}'}"
-            if args.compare else "")
+        title = f"{'、'.join(names)} {args.start_date}~{args.end_date}"
+        if args.group_by:
+            title += gettext(" 按{dimension}", dimension="、".join(args.group_by))
+        if args.time_grain:
+            grain_name = {"day": gettext("日"), "week": gettext("周"), "month": gettext("月"),
+                          "quarter": gettext("季"), "year": gettext("年")}[args.time_grain]
+            title += gettext(" 按{dimension}", dimension=grain_name)
+        if args.compare:
+            period = {"previous_period": gettext("上一期"), "previous_calendar": gettext("上一自然期"),
+                      "previous_year": gettext("去年同期")}.get(args.compare) or f"{args.compare_start}~{args.compare_end}"
+            title += gettext(" 对比{period}", period=period)
         versions = {scoped.versions[c][0].name: scoped.versions[c][1] for c in args.metric_codes}
         period_label = service.PERIOD_LABEL[args.compare] if args.compare else None
         units = measures.governed_units(columns, versions, period_label)
@@ -2189,10 +2254,10 @@ class AnalysisToolbox:
         out: dict[str, dict] = {}
         for ref in inputs:
             ds = self._datasets.get(ref)
-            for col, ev in ((ds.meta or {}).get("column_evidence") or {}).items() if ds else []:
-                if col in names:
-                    prior = out.get(col)  # 同名列出现在多个输入里：取更严格的一个
-                    out[col] = ev if prior is None else {**prior, "eligible": prior.get("eligible") and ev.get("eligible"),
+            for column, ev in ((ds.meta or {}).get("column_evidence") or {}).items() if ds else []:
+                if column in names:
+                    prior = out.get(column)  # 同名列出现在多个输入里：取更严格的一个
+                    out[column] = ev if prior is None else {**prior, "eligible": prior.get("eligible") and ev.get("eligible"),
                                                          "label_ok": prior.get("label_ok") and ev.get("label_ok"),
                                                          "assumption": prior.get("assumption") or ev.get("assumption")}
         return out
@@ -2303,29 +2368,29 @@ class AnalysisToolbox:
                 intent = ds.meta.get("intent") or {}
                 grain = intent.get("time_grain")
                 if grain not in {"day", "week", "month", "quarter", "year"}:
-                    raise calc.CalcError("受治理数据集没有时间分组，无法判断期间覆盖度")
+                    raise calc.CalcError(Msg("受治理数据集没有时间分组，无法判断期间覆盖度"))
                 order = {g: i for i, g in enumerate(("day", "week", "month", "quarter", "year"))}
                 codes = intent.get("metric_codes") or ([intent["metric_code"]] if intent.get("metric_code") else [])
                 if not codes:
-                    raise calc.CalcError("受治理数据集缺少指标意图，无法确认数据粒度")
+                    raise calc.CalcError(Msg("受治理数据集缺少指标意图，无法确认数据粒度"))
                 data_grains = {}
                 for code in codes:
                     version_id = (ds.meta.get("versions") or {}).get(code)
                     version = self.session.get(MetricVersion, version_id) if version_id else None
                     if version is None:
-                        raise calc.CalcError(f"指标 {code} 缺少锁定的查询版本，无法确认数据粒度")
+                        raise calc.CalcError(Msg("指标 {code} 缺少锁定的查询版本，无法确认数据粒度", code=code))
                     data_grains[code] = self._data_grain(version)
                 saved_grains = ds.meta.get("data_grains")
                 if saved_grains is not None and saved_grains != data_grains:
-                    raise calc.CalcError("保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度")
+                    raise calc.CalcError(Msg("保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度"))
                 if any(order[grain] < order[g] for g in data_grains.values()):
-                    raise calc.CalcError("查询粒度比数据粒度更细，无法判断期间覆盖度")
+                    raise calc.CalcError(Msg("查询粒度比数据粒度更细，无法判断期间覆盖度"))
             period_col = period or ds.meta.get("time_column")
             if period and period not in ds.columns:
                 raise calc.CalcError(f"{dataset} 没有日期列 {period}")
             period_col = period_col if period_col in ds.columns else None
             if ds.kind == "governed" and period_col is None:
-                raise calc.CalcError("受治理数据集缺少时间期间列，无法判断期间覆盖度")
+                raise calc.CalcError(Msg("受治理数据集缺少时间期间列，无法判断期间覆盖度"))
             expression = self._column_expression(dataset, period_col) if period_col else None
             if ds.kind != "governed" and expression is not None and any(
                     isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and explore._unit(node) != "DAY"
@@ -2382,7 +2447,7 @@ class AnalysisToolbox:
             unit = measures.formula_unit(formula, {v.name: self._unit(v.dataset, v.column) for v in values})
             rows_out.append([label, None, formula, None, result])
             summary = {"label": label, "formula": formula, "value": result,
-                       **({"assumption": "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"}
+                       **({"assumption": gettext("公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用")}
                           if assumption else {})}
             # value 混合各输入的量纲，登记 unknown；只在 summary.value 登记结果量纲。
             return (f"派生：{label}", ["name", "dataset", "column", "rows", "value"], rows_out, summary,
@@ -2507,6 +2572,7 @@ def _model(cls, value):
 
 def _parts(value):
     """标题、摘要等字段：文字或片段列表；片段里的引用对象转成 dict 保存。"""
+    value = decode_parts(value)
     if value is None or isinstance(value, str):
         return value
     return [p.model_dump() if isinstance(p, BaseModel) else p for p in value]

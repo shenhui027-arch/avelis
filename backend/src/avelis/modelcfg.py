@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timezone
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -30,6 +30,7 @@ import avelis.ask.llm  # noqa: F401 - 先关闭外部追踪
 from avelis import audit
 from avelis.db import utcnow
 from avelis.governance.errors import Conflict, GovernanceError, Invalid, NotFound
+from avelis.i18n import Msg, gettext
 from avelis.models import AppSetting, ModelAssignment, ModelProvider, User
 from avelis.security import decrypt_secret, encrypt_secret
 
@@ -117,13 +118,15 @@ def _context_window(p: ModelProvider, model: dict) -> tuple[int | None, str | No
 def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str]]:
     """页面上的档位选项：值、名称、实际生效的档位（与所选不同时页面注明）。"""
     mapping = effort_map(p, model_id) or {}
-    return [{"value": e, "label": EFFORT_LABELS[e], "effective": mapping[e], "effective_label": EFFORT_LABELS[mapping[e]]}
+    return [{"value": e, "label": gettext(EFFORT_LABELS[e]), "effective": mapping[e],
+             "effective_label": gettext(EFFORT_LABELS[mapping[e]])}
             for e in EFFORTS if e in mapping]
 
 
 def _validate_effort(p: ModelProvider, model_id: str, effort: str | None) -> None:
     if effort is not None and effort not in (effort_map(p, model_id) or {}):
-        raise Invalid(f"{p.name} · {model_id} 不支持思考强度“{EFFORT_LABELS.get(effort, effort)}”")
+        raise Invalid(Msg("{provider} · {model} 不支持思考强度“{effort}”", provider=p.name,
+                          model=model_id, effort=Msg(EFFORT_LABELS[effort]) if effort in EFFORT_LABELS else effort))
 
 
 def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None) -> str | None:
@@ -189,7 +192,8 @@ def settings_view(session: Session) -> dict[str, Any]:
         p = session.get(ModelProvider, a.provider_id) if a else None
         effort = (a.reasoning_effort if a else None) or DEFAULT_EFFORT[purpose]
         effective = effective_effort(p, a.model_id, effort) if a else None
-        out[purpose] = {**meta, "provider_id": a.provider_id if a else None, "model_id": a.model_id if a else None,
+        out[purpose] = {**meta, "label": gettext(meta["label"]), "hint": gettext(meta["hint"]),
+                        "provider_id": a.provider_id if a else None, "model_id": a.model_id if a else None,
                         "updated_at": a.updated_at.isoformat() if a else None,
                         "reasoning_effort": effort, "default_effort": DEFAULT_EFFORT[purpose],
                         "effective_effort": effective}
@@ -198,7 +202,7 @@ def settings_view(session: Session) -> dict[str, Any]:
     configured = ask is not None and _enabled_model(provider, ask.model_id, needs_tools=True) is not None
     return {"assignments": out, "policy": policy(session),
             "mode": "configured" if configured else "demo",
-            "note": None if configured else "未配置有效的问数理解模型：使用演示模型（规则匹配）"}
+            "note": None if configured else gettext("未配置有效的问数理解模型：使用演示模型（规则匹配）")}
 
 
 def get_assignment(session: Session, purpose: str) -> ModelAssignment | None:
@@ -286,7 +290,7 @@ def create_provider(session: Session, actor: User, *, code: str, preset: str | N
                     models: list[dict[str, Any]]) -> ModelProvider:
     base = PRESETS.get(preset or "custom")
     if base is None:
-        raise Invalid(f"未知预设：{preset}")
+        raise Invalid(Msg("未知预设：{preset}", preset=preset))
     kind = kind or base["kind"]
     if kind not in ("openai_compatible", "anthropic"):
         raise Invalid("kind 只能是 openai_compatible 或 anthropic")
@@ -294,7 +298,7 @@ def create_provider(session: Session, actor: User, *, code: str, preset: str | N
     if not url.startswith(("https://", "http://")):
         raise Invalid("接口地址必须以 http:// 或 https:// 开头")
     if session.scalar(select(ModelProvider.id).where(ModelProvider.code == code)):
-        raise Conflict(f"提供方编码 {code} 已存在")
+        raise Conflict(Msg("提供方编码 {code} 已存在", code=code))
     p = ModelProvider(code=code, name=name or base["name"], kind=kind, preset=preset, base_url=url,
                       models=_normalise_models(models), created_by=actor.id, enabled=True)
     _set_key(p, api_key)
@@ -347,7 +351,7 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
                   new_policy: dict[str, bool] | None) -> dict[str, Any]:
     for purpose, target in assignments.items():
         if purpose not in PURPOSES:
-            raise Invalid(f"未知用途：{purpose}")
+            raise Invalid(Msg("未知用途：{purpose}", purpose=purpose))
         current = session.get(ModelAssignment, purpose)
         if not target:
             if current is not None:
@@ -355,12 +359,12 @@ def save_settings(session: Session, actor: User, assignments: dict[str, dict | N
             continue
         p = _get(session, target["provider_id"])
         if not p.enabled or not p.api_key_enc:
-            raise Conflict(f"提供方 {p.name} 未启用或未设置密钥")
+            raise Conflict(Msg("提供方 {provider} 未启用或未设置密钥", provider=p.name))
         model = next((m for m in p.models if m["id"] == target["model_id"] and m["enabled"]), None)
         if model is None:
-            raise Conflict(f"模型 {target['model_id']} 不在 {p.name} 的启用列表中")
+            raise Conflict(Msg("模型 {model} 不在 {provider} 的启用列表中", model=target["model_id"], provider=p.name))
         if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
-            raise Conflict(f"{PURPOSES[purpose]['label']}需要该模型最近一次服务器检测成功且支持工具调用")
+            raise Conflict(Msg("{purpose}需要该模型最近一次服务器检测成功且支持工具调用", purpose=Msg(PURPOSES[purpose]["label"])))
         effort = target.get("reasoning_effort")
         _validate_effort(p, model["id"], effort)
         if current is None:
@@ -390,7 +394,7 @@ def build_chat_model(p: ModelProvider, model_id: str, *, temperature: float = 0.
     """effort：思考强度（按提供方适配，见 _effort_kwargs；思考开启时 temperature 不生效，不依赖它）；
     max_tokens：输出上限，阶段需要时由系统设定（如理解阶段）。"""
     if not p.api_key_enc:
-        raise Conflict(f"提供方 {p.name} 未设置密钥")
+        raise Conflict(Msg("提供方 {provider} 未设置密钥", provider=p.name))
     key = decrypt_secret(p.api_key_enc)
     if p.kind == "anthropic":
         from langchain_anthropic import ChatAnthropic
@@ -470,13 +474,18 @@ def fetch_models(session: Session, actor: User, provider_id: str) -> list[str]:
         resp = httpx.get(url, headers=headers, timeout=20)
     except httpx.HTTPError as exc:
         message = redact_error(f"无法连接 {url}：{type(exc).__name__}: {exc}", key)
+        # 先保留完整文案的脱敏与截断结果，再标记固定前缀；错误原文不参与翻译。
+        if message.startswith("无法连接 "):
+            message = Msg("无法连接 {error}", error=message.removeprefix("无法连接 "))
         raise Conflict(message) from None
     if resp.status_code != 200:
-        raise Conflict(f"获取模型列表失败：HTTP {resp.status_code}", body=redact_error(resp.text, key))
+        raise Conflict(Msg("获取模型列表失败：HTTP {status}", status=resp.status_code), body=redact_error(resp.text, key))
     try:
         ids = sorted({m.get("id") for m in resp.json().get("data", []) if m.get("id")})
     except (ValueError, TypeError, AttributeError) as exc:
         message = redact_error(f"获取模型列表失败：{type(exc).__name__}: {exc}", key)
+        if message.startswith("获取模型列表失败："):
+            message = Msg("获取模型列表失败：{error}", error=message.removeprefix("获取模型列表失败："))
         raise Conflict(message) from None
     audit.record(session, actor, "model_provider.fetch_models", "model_provider", p.id, count=len(ids))
     return ids

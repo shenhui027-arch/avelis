@@ -1,5 +1,5 @@
 {
-  "source": "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-001339.json",
+  "source": "eval:.demo\\eval\\20261031-001339.json",
   "summary": {
     "runs": 3,
     "changed": 0,
@@ -42,7 +42,7 @@
       "repeat": 1,
       "audit_key": "e02:20261031-001339:1",
       "run_id": "0a6ac02358664fd7ad0c9ec81c2d64ce",
-      "source": "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-001339.json",
+      "source": "eval:.demo\\eval\\20261031-001339.json",
       "v2_1_1": {
         "id": "e02",
         "category": "explore",
@@ -139,7 +139,7 @@
       "repeat": 1,
       "audit_key": "h10:20261031-001339:1",
       "run_id": "d02bbd5723b84c0c8b950152281dd100",
-      "source": "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-001339.json",
+      "source": "eval:.demo\\eval\\20261031-001339.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -310,7 +310,7 @@
       "repeat": 1,
       "audit_key": "h12:20261031-001339:1",
       "run_id": "366d2ed3e4b343559093657d79838981",
-      "source": "eval:E:\\Dev\\Repos\\Active\\Avelis\\.demo\\eval\\20261031-001339.json",
+      "source": "eval:.demo\\eval\\20261031-001339.json",
       "v2_1_1": {
         "id": "h12",
         "category": "adversarial",

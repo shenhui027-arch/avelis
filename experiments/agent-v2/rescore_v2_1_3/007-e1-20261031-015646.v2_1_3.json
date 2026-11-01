@@ -1,5 +1,5 @@
 {
-  "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+  "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
   "summary": {
     "runs": 48,
     "changed": 0,
@@ -42,7 +42,7 @@
       "repeat": 1,
       "audit_key": "d02:D1:1",
       "run_id": "22ac9f6312d24468960f863eedf6cde7",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -293,7 +293,7 @@
       "repeat": 1,
       "audit_key": "h09:D3:1",
       "run_id": "813c76d8482c4521a357886b9a95d596",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -436,7 +436,7 @@
       "repeat": 1,
       "audit_key": "e01:D1:1",
       "run_id": "a166203177a746768a52e1b8a045eabc",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -557,7 +557,7 @@
       "repeat": 1,
       "audit_key": "f02:D2:1",
       "run_id": "87d6703ae04d4acc9ee359c4a215d568",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -730,7 +730,7 @@
       "repeat": 1,
       "audit_key": "h09:D1:1",
       "run_id": "f0b54a64ac874f85ae4648a141a0613f",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -873,7 +873,7 @@
       "repeat": 1,
       "audit_key": "h07:D0:1",
       "run_id": "b0825a60f3784ea5b76a615a3eea5649",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -1116,7 +1116,7 @@
       "repeat": 1,
       "audit_key": "h07:D3:1",
       "run_id": "0b49c3ef63e94a3082a698681456c26a",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -1535,7 +1535,7 @@
       "repeat": 1,
       "audit_key": "e01:D0:1",
       "run_id": "3c0e11da60f44bffb97e60c6183c2367",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -1632,7 +1632,7 @@
       "repeat": 1,
       "audit_key": "h10:D0:1",
       "run_id": "8acafb8db0064321bc16caa7c85901d3",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -1811,7 +1811,7 @@
       "repeat": 1,
       "audit_key": "f02:D1:1",
       "run_id": "31937f1ba00c438193393af275bde509",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -1984,7 +1984,7 @@
       "repeat": 1,
       "audit_key": "d02:D3:1",
       "run_id": "17835f68b5864fda844186eaa0146bfe",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -2261,7 +2261,7 @@
       "repeat": 1,
       "audit_key": "h09:D2:1",
       "run_id": "01b6a0abd67e4f1daf997216580fc8c7",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -2404,7 +2404,7 @@
       "repeat": 1,
       "audit_key": "d02:D0:1",
       "run_id": "761b8c65945144148395b5117054caf8",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -2599,7 +2599,7 @@
       "repeat": 1,
       "audit_key": "h07:D2:1",
       "run_id": "9e4131bedc884eefa785a89a7034485d",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -2834,7 +2834,7 @@
       "repeat": 1,
       "audit_key": "h10:D3:1",
       "run_id": "91fa3f52c40e4cbdb4ce52a145c8721a",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -3005,7 +3005,7 @@
       "repeat": 1,
       "audit_key": "f02:D3:1",
       "run_id": "46ca158d1dbb4a22a1fd1b7b37c668aa",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -3176,7 +3176,7 @@
       "repeat": 1,
       "audit_key": "d02:D2:1",
       "run_id": "a92d4474dd974684a75fd52b26aa03bd",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -3451,7 +3451,7 @@
       "repeat": 1,
       "audit_key": "e01:D2:1",
       "run_id": "9d81bd07150f4278a30af5b4f39f9352",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -3572,7 +3572,7 @@
       "repeat": 1,
       "audit_key": "h10:D1:1",
       "run_id": "d6b6d39625324bf6a06ba2237b20be9d",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -3743,7 +3743,7 @@
       "repeat": 1,
       "audit_key": "h09:D0:1",
       "run_id": "18ffec4cf7d04aa097b05ba6559bdc75",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -3886,7 +3886,7 @@
       "repeat": 1,
       "audit_key": "h10:D2:1",
       "run_id": "2debc34048824a4cbc163e38c5c850b8",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -4057,7 +4057,7 @@
       "repeat": 1,
       "audit_key": "f02:D0:1",
       "run_id": "2b9c71096b0f4183bdc2efa3208b19a5",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -4172,7 +4172,7 @@
       "repeat": 1,
       "audit_key": "e01:D3:1",
       "run_id": "6ed39368ec6f4aa9ac9b59d3f1316764",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -4357,7 +4357,7 @@
       "repeat": 1,
       "audit_key": "h07:D1:1",
       "run_id": "e6e84aa097f040a2ad0ef0c2dd892492",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -4592,7 +4592,7 @@
       "repeat": 2,
       "audit_key": "h09:D2:2",
       "run_id": "1fe78327ee9b42248251493955a22b5b",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -4735,7 +4735,7 @@
       "repeat": 2,
       "audit_key": "d02:D3:2",
       "run_id": "77de3a30737c457fbe6584b93d30f7a2",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -5002,7 +5002,7 @@
       "repeat": 2,
       "audit_key": "f02:D3:2",
       "run_id": "b0cbea50e5b143e68f22533731b3d82e",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -5173,7 +5173,7 @@
       "repeat": 2,
       "audit_key": "d02:D2:2",
       "run_id": "3263a31f7d3d4cdba3b45563d7502406",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -5384,7 +5384,7 @@
       "repeat": 2,
       "audit_key": "e01:D0:2",
       "run_id": "49f2bc9770754a5ebb1682dcade4cf20",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -5481,7 +5481,7 @@
       "repeat": 2,
       "audit_key": "h10:D0:2",
       "run_id": "cfac1336eadb4c5b8bfc948cff72b279",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -5652,7 +5652,7 @@
       "repeat": 2,
       "audit_key": "h10:D2:2",
       "run_id": "bb4ecfcd27714b409791cd990de4b693",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -5823,7 +5823,7 @@
       "repeat": 2,
       "audit_key": "h07:D1:2",
       "run_id": "64de21f8713940d981f18592d6a7234b",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -6078,7 +6078,7 @@
       "repeat": 2,
       "audit_key": "h07:D2:2",
       "run_id": "0cfc79b4b38049849fee54894045ff0c",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -6569,7 +6569,7 @@
       "repeat": 2,
       "audit_key": "e01:D2:2",
       "run_id": "dafc078de8fe4549bf04a699f2efae33",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -6754,7 +6754,7 @@
       "repeat": 2,
       "audit_key": "f02:D0:2",
       "run_id": "7987af78448e466783b944ab83e46039",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -6869,7 +6869,7 @@
       "repeat": 2,
       "audit_key": "f02:D2:2",
       "run_id": "bb1a46b4ae474666b12cad7bb47b2c64",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -7042,7 +7042,7 @@
       "repeat": 2,
       "audit_key": "h09:D0:2",
       "run_id": "1114ac35f4854ced89d5c496616ec40f",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -7185,7 +7185,7 @@
       "repeat": 2,
       "audit_key": "h07:D0:2",
       "run_id": "42d30aeb86364ce19632a712e37beb96",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -7448,7 +7448,7 @@
       "repeat": 2,
       "audit_key": "d02:D0:2",
       "run_id": "9246ef22d0b1428987956579ea157eeb",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",
@@ -7715,7 +7715,7 @@
       "repeat": 2,
       "audit_key": "h09:D1:2",
       "run_id": "03f1ea09313e4290bcd52d1b76faf30d",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -7858,7 +7858,7 @@
       "repeat": 2,
       "audit_key": "e01:D1:2",
       "run_id": "c03de110c8664940ab69e33b59ba4971",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -7979,7 +7979,7 @@
       "repeat": 2,
       "audit_key": "f02:D1:2",
       "run_id": "153c74083dc9417187429c6336047315",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "f02",
         "category": "factor",
@@ -8118,7 +8118,7 @@
       "repeat": 2,
       "audit_key": "h10:D1:2",
       "run_id": "24f2f9f6958d4f7a96f7e015862dea5d",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -8289,7 +8289,7 @@
       "repeat": 2,
       "audit_key": "h10:D3:2",
       "run_id": "12d43388fbcc4e809f8b63f41f9e4944",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h10",
         "category": "explore",
@@ -8460,7 +8460,7 @@
       "repeat": 2,
       "audit_key": "e01:D3:2",
       "run_id": "71c734345f9d44d3b89de3424e431737",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "e01",
         "category": "explore",
@@ -8645,7 +8645,7 @@
       "repeat": 2,
       "audit_key": "h09:D3:2",
       "run_id": "7b868da9144841f39c91bb93d616ce37",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h09",
         "category": "calendar",
@@ -8788,7 +8788,7 @@
       "repeat": 2,
       "audit_key": "h07:D3:2",
       "run_id": "a1880308c8ae4bf28c98c3fe4e56609a",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "h07",
         "category": "dimension",
@@ -8903,7 +8903,7 @@
       "repeat": 2,
       "audit_key": "d02:D1:2",
       "run_id": "51fd757abc7142b68dad074f65f4daf4",
-      "source": "e1:E:\\Dev\\Claude\\Avelis\\quizzical-chandrasekhar-b9645f\\.demo\\experiments\\e1\\20261031-015646.json",
+      "source": "e1:.demo\\experiments\\e1\\20261031-015646.json",
       "v2_1_1": {
         "id": "d02",
         "category": "dimension",

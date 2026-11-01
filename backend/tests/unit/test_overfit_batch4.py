@@ -13,8 +13,10 @@ from pydantic import ValidationError
 
 from avelis import config, configfile
 from avelis.analysis import agent, calc, investigation
-from avelis.api import app as api_app, deps, schemas
-from avelis.ask import agent as ask_agent, examples, intent, service
+from avelis.api import app as api_app
+from avelis.api import deps, schemas
+from avelis.ask import agent as ask_agent
+from avelis.ask import examples, intent, service
 from avelis.ask.intent import DemoIntentModel, MetricCard
 from avelis.governance import business_calendar
 from avelis.models import AppSetting, AuditEvent

@@ -1,4 +1,5 @@
 import type { Answer } from "../../api/hooks";
+import { t } from "../../i18n";
 
 export type ColumnRole = { role: "time" | "dimension" | "measure" | "change" | "rate"; label?: string };
 export type Polarity = "up_good" | "down_good";
@@ -41,7 +42,7 @@ export type DerivedMetric = {
 };
 
 export const PERIOD_LABEL: Record<string, string> = {
-  current: "本期", previous_period: "上一期", previous_year: "去年同期", previous_calendar: "上一自然期",
+  current: t("本期"), previous_period: t("上一期"), previous_year: t("去年同期"), previous_calendar: t("上一自然期"),
 };
 
 export function planQueries(answer: Answer): PlanQuery[] {

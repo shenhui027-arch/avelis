@@ -1,0 +1,1684 @@
+msgid ""
+msgstr ""
+"Language: zh_TW\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid " · 按{dimensions}"
+msgstr " · 按{dimensions}"
+
+msgid "DDL 审计归因"
+msgstr "DDL 稽核歸因"
+
+msgid "HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2；DDL 归因读 system.query_log（采集账号需其 SELECT）"
+msgstr "HTTP 介面；排序鍵不保證唯一，不作為粒度依據；查詢帳號需 readonly=2；DDL 歸因讀 system.query_log（擷取帳號需其 SELECT）"
+
+msgid "context_window 必须是 1024 到 10000000 之间的整数"
+msgstr "context_window 必須是 1024 到 10000000 之間的整數"
+
+msgid "cron 表达式不会触发（日期不存在，如 2 月 30 日）：{expr}"
+msgstr "cron 運算式不會觸發（日期不存在，如 2 月 30 日）：{expr}"
+
+msgid "cron 表达式无效：{expr}"
+msgstr "cron 運算式無效：{expr}"
+
+msgid "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"
+msgstr "cron 需要 5 段：分 時 日 月 週（如 0 9 1 * * 表示每月 1 日 9:00）"
+
+msgid "datasets 只能包含本次运行已有的 D 编号，以逗号分隔"
+msgstr "datasets 只能包含本次執行已有的 D 編號，以逗號分隔"
+
+msgid "decision 只能是 accept、reject 或 modify"
+msgstr "decision 只能是 accept、reject 或 modify"
+
+msgid "decision 只能是 approved 或 rejected"
+msgstr "decision 只能是 approved 或 rejected"
+
+msgid "format 只能是 pdf、html、md 或 csv"
+msgstr "format 只能是 pdf、html、md 或 csv"
+
+msgid "kind 只能是 openai_compatible 或 anthropic"
+msgstr "kind 只能是 openai_compatible 或 anthropic"
+
+msgid "v0.1 只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
+msgstr "v0.1 只採中繼資料，作為外部資料表 / Catalog 表的追溯目標；檢視表解析與問數執行尚未整合測試"
+
+msgid "{count} 个受影响"
+msgstr "{count} 個受影響"
+
+msgid "{count} 处标题 / 摘要 / 未解释未通过"
+msgstr "{count} 處標題 / 摘要 / 未解釋未通過"
+
+msgid "{count} 条事实 / 计算类结论未通过"
+msgstr "{count} 條事實 / 計算類結論未通過"
+
+msgid "{count} 条候选待确认"
+msgstr "{count} 條候選待確認"
+
+msgid "{count} 次拦截"
+msgstr "{count} 次攔截"
+
+msgid "{count} 项影响口径"
+msgstr "{count} 項影響定義"
+
+msgid "{database}.{asset} 没有列：{columns}"
+msgstr "{database}.{asset} 沒有欄位：{columns}"
+
+msgid "{engine} 数据源缺少配置：{options}"
+msgstr "{engine} 資料來源缺少設定：{options}"
+
+msgid "{engine} 适配器不支持问数执行，不需要只读查询账号"
+msgstr "{engine} 配接器不支援問數執行，不需要唯讀查詢帳號"
+
+msgid "{engine}不支持{capability}"
+msgstr "{engine}不支援{capability}"
+
+msgid "{head}：共 {row_count} 行{rank}{truncated}"
+msgstr "{head}：共 {row_count} 列{rank}{truncated}"
+
+msgid "{head}：没有符合条件的数据"
+msgstr "{head}：沒有符合條件的資料"
+
+msgid "{healthy} / {total} 数据源正常"
+msgstr "{healthy} / {total} 資料來源正常"
+
+msgid "{label}不允许子查询或窗口函数：{text}"
+msgstr "{label}不允許子查詢或視窗函式：{text}"
+
+msgid "{label}不能包含聚合：{text}"
+msgstr "{label}不能包含聚合：{text}"
+
+msgid "{label}不能带别名：{text}"
+msgstr "{label}不能帶別名：{text}"
+
+msgid "{label}使用了不允许的函数 {function}：{text}"
+msgstr "{label}使用了不允許的函式 {function}：{text}"
+
+msgid "{label}包含不支持的语法 {syntax}：{text}"
+msgstr "{label}包含不支援的語法 {syntax}：{text}"
+
+msgid "{label}只允许在 COUNT(*) 中使用星号：{text}"
+msgstr "{label}僅允許在 COUNT(*) 中使用星號：{text}"
+
+msgid "{label}只能是单个表达式：{text}"
+msgstr "{label}只能是單一運算式：{text}"
+
+msgid "{label}只能用“别名.列”引用：{text}"
+msgstr "{label}只能用「別名.欄位」引用：{text}"
+
+msgid "{label}引用了未定义的别名 {alias}：{text}"
+msgstr "{label}引用了未定義的別名 {alias}：{text}"
+
+msgid "{label}引用的列不存在：{database}.{asset}.{column}"
+msgstr "{label}引用的欄位不存在：{database}.{asset}.{column}"
+
+msgid "{label}必须是单个列：{text}"
+msgstr "{label}必須是單一欄位：{text}"
+
+msgid "{label}必须是聚合表达式（SUM / COUNT / AVG / MIN / MAX）：{text}"
+msgstr "{label}必須是聚合運算式（SUM / COUNT / AVG / MIN / MAX）：{text}"
+
+msgid "{label}无法解析：{text}"
+msgstr "{label}無法解析：{text}"
+
+msgid "{label}：{reason}"
+msgstr "{label}：{reason}"
+
+msgid "{provider} · {model} 不支持思考强度“{effort}”"
+msgstr "{provider} · {model} 不支援思考程度「{effort}」"
+
+msgid "{purpose}需要该模型最近一次服务器检测成功且支持工具调用"
+msgstr "{purpose}需要該模型最近一次伺服器檢測成功且支援工具呼叫"
+
+msgid "{side}资产 {name} 匹配到多个可见资产，请使用更完整的名称"
+msgstr "{side}資產 {name} 對應到多個可見資產，請使用更完整的名稱"
+
+msgid "{side}资产 {name} 无法匹配当前用户可见的资产"
+msgstr "{side}資產 {name} 無法對應目前使用者可見的資產"
+
+msgid "{start} 至 {end}"
+msgstr "{start} 至 {end}"
+
+msgid "一个派生指标最多引用 {limit} 个指标"
+msgstr "一個衍生指標最多引用 {limit} 個指標"
+
+msgid "上一期"
+msgstr "上一期"
+
+msgid "上升"
+msgstr "上升"
+
+msgid "下降"
+msgstr "下降"
+
+msgid "不允许从 {from_status} 转为 {to_status}"
+msgstr "不允許從 {from_status} 轉為 {to_status}"
+
+msgid "不支持的数据源类型：{kind}（已支持：{supported}）"
+msgstr "不支援的資料來源類型：{kind}（已支援：{supported}）"
+
+msgid "不支持的时间窗口类型：{kind}"
+msgstr "不支援的時間範圍類型：{kind}"
+
+msgid "不能停用自己"
+msgstr "不能停用自己"
+
+msgid "不能去掉自己的管理员角色"
+msgstr "不能去掉自己的管理員角色"
+
+msgid "业务域 {code} 已存在"
+msgstr "業務域 {code} 已存在"
+
+msgid "业务域不存在"
+msgstr "業務域不存在"
+
+msgid "业务时区无效：{timezone}"
+msgstr "業務時區無效：{timezone}"
+
+msgid "个人经验不存在"
+msgstr "個人經驗不存在"
+
+msgid "中"
+msgstr "中"
+
+msgid "中位数"
+msgstr "中位數"
+
+msgid "临时查询，未经口径审核"
+msgstr "臨時查詢，未經定義審核"
+
+msgid "主要原因"
+msgstr "主要原因"
+
+msgid "事实"
+msgstr "事實"
+
+msgid "仅用于单元测试，结果会标记为测试数据"
+msgstr "僅用於單元測試，結果會標記為測試資料"
+
+msgid "今日"
+msgstr "今日"
+
+msgid "从高到低"
+msgstr "從高到低"
+
+msgid "任务不存在"
+msgstr "任務不存在"
+
+msgid "任务已暂停"
+msgstr "任務已暫停"
+
+msgid "会话不存在"
+msgstr "對話不存在"
+
+msgid "会话不存在或不属于当前用户"
+msgstr "對話不存在或不屬於目前使用者"
+
+msgid "会话已失效，请重新登录"
+msgstr "對話已失效，請重新登入"
+
+msgid "位置"
+msgstr "位置"
+
+msgid "低"
+msgstr "低"
+
+msgid "作为外部表的追溯目标"
+msgstr "作為外部資料表的追溯目標"
+
+msgid "作用"
+msgstr "作用"
+
+msgid "你已没有该数据的访问权限"
+msgstr "你已沒有該資料的存取權限"
+
+msgid "依据"
+msgstr "依據"
+
+msgid "候选不存在"
+msgstr "候選不存在"
+
+msgid "候选当前状态为 {status}，不能再处理"
+msgstr "候選目前狀態為 {status}，不能再處理"
+
+msgid "假设计算"
+msgstr "假設計算"
+
+msgid "偏离方向"
+msgstr "偏離方向"
+
+msgid "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
+msgstr "中繼資料按輪詢擷取，最長延遲為一個擷取間隔：未發現變更不代表沒有變更。"
+
+msgid "元数据采集"
+msgstr "中繼資料擷取"
+
+msgid "全部"
+msgstr "全部"
+
+msgid "全部可用"
+msgstr "全部可用"
+
+msgid "公式中的常量只能是数字：{text}"
+msgstr "公式中的常量只能是數字：{text}"
+
+msgid "公式包含不支持的语法 {syntax}"
+msgstr "公式包含不支援的語法 {syntax}"
+
+msgid "公式包含不支持的语法 {syntax}：{text}"
+msgstr "公式包含不支援的語法 {syntax}：{text}"
+
+msgid "公式只允许加减乘除：{text}"
+msgstr "公式僅允許加減乘除：{text}"
+
+msgid "公式只允许取负这一种一元运算：{text}"
+msgstr "公式僅允許取負這一種一元運算：{text}"
+
+msgid "公式引用了不存在的指标 {code}"
+msgstr "公式引用了不存在的指標 {code}"
+
+msgid "公式无法解析：{text}"
+msgstr "公式無法解析：{text}"
+
+msgid "公式至少要引用一个指标"
+msgstr "公式至少要引用一個指標"
+
+msgid "共 {total} 行，显示前 {shown} 行"
+msgstr "共 {total} 列，顯示前 {shown} 列"
+
+msgid "关系类型 {relation} 不合法"
+msgstr "關係類型 {relation} 不合法"
+
+msgid "关系类型不合法"
+msgstr "關係類型不合法"
+
+msgid "关联两侧的资产不存在或已删除"
+msgstr "關聯兩側的資產不存在或已刪除"
+
+msgid "关联路径 {code} 的右侧资产已删除"
+msgstr "關聯路徑 {code} 的右側資產已刪除"
+
+msgid "关联路径 {code} 的左侧不是 {alias}"
+msgstr "關聯路徑 {code} 的左側不是 {alias}"
+
+msgid "关联路径不存在"
+msgstr "關聯路徑不存在"
+
+msgid "关联路径不存在：{path_id}"
+msgstr "關聯路徑不存在：{path_id}"
+
+msgid "关联路径当前状态为 {status}，不能审批"
+msgstr "關聯路徑目前狀態為 {status}，不能審核"
+
+msgid "关联路径当前状态为 {status}，不能审批：依据已变化，请先在变更中处理复核任务"
+msgstr "關聯路徑目前狀態為 {status}，不能審核：依據已變化，請先在變更中處理複核任務"
+
+msgid "关联路径编码 {code} 已存在"
+msgstr "關聯路徑編碼 {code} 已存在"
+
+msgid "关联路径编码发生并发冲突，请重试"
+msgstr "關聯路徑編碼發生同時更新衝突，請再試一次"
+
+msgid "关联键"
+msgstr "關聯鍵"
+
+msgid "关联键两侧数量必须一致且不为空"
+msgstr "關聯鍵兩側數量必須一致且不為空"
+
+msgid "关联键当前推导仍与批准时不一致"
+msgstr "關聯鍵目前推導仍與核準時不一致"
+
+msgid "关键发现"
+msgstr "關鍵發現"
+
+msgid "关键数据"
+msgstr "關鍵資料"
+
+msgid "关闭"
+msgstr "關閉"
+
+msgid "分析"
+msgstr "分析"
+
+msgid "分析不存在或不属于当前用户"
+msgstr "分析不存在或不屬於目前使用者"
+
+msgid "分析任务不存在或不属于当前用户"
+msgstr "分析任務不存在或不屬於目前使用者"
+
+msgid "分析尚未完成，不能导出"
+msgstr "分析尚未完成，不能匯出"
+
+msgid "分析已经结束，不能插话、停止或压缩上下文"
+msgstr "分析已經結束，不能插話、停止或壓縮上下文"
+
+msgid "分析报告"
+msgstr "分析報告"
+
+msgid "分析方法"
+msgstr "分析方法"
+
+msgid "分析方法：{method}"
+msgstr "分析方法：{method}"
+
+msgid "分析未完成"
+msgstr "分析未完成"
+
+msgid "分析检查点不存在或已经恢复"
+msgstr "分析檢查點不存在或已經恢復"
+
+msgid "分析模式需要允许向模型发送查询结果（模型配置 → 数据外发）。需保密请接入本地模型"
+msgstr "分析模式需要允許向模型傳送查詢結果（模型設定 → 資料外發）。需保密請接上本機模型"
+
+msgid "分析模式需要配置并检测通过一个支持工具调用的模型（模型配置 → 分析，未指定时沿用问数模型）"
+msgstr "分析模式需要設定並檢測通過一個支援工具呼叫的模型（模型設定 → 分析，未指定時沿用問數模型）"
+
+msgid "分析正在运行或等待确认，暂不能重跑数据集"
+msgstr "分析正在執行或等待確認，暫不能重新執行資料集"
+
+msgid "分析运行不存在"
+msgstr "分析執行不存在"
+
+msgid "分析运行不存在或不属于当前用户"
+msgstr "分析執行不存在或不屬於目前使用者"
+
+msgid "分组"
+msgstr "分組"
+
+msgid "列"
+msgstr "列"
+
+msgid "列不存在：{columns}"
+msgstr "欄位不存在：{columns}"
+
+msgid "列级边"
+msgstr "欄位層級連結"
+
+msgid "判断与建议"
+msgstr "判斷與建議"
+
+msgid "前提"
+msgstr "前提"
+
+msgid "剩余变化"
+msgstr "剩餘變化"
+
+msgid "单位"
+msgstr "單位"
+
+msgid "占比"
+msgstr "佔比"
+
+msgid "原值"
+msgstr "原值"
+
+msgid "原因"
+msgstr "原因"
+
+msgid "原因 {index}"
+msgstr "原因 {index}"
+
+msgid "去年同期"
+msgstr "去年同期"
+
+msgid "发布前检查未通过"
+msgstr "發布前檢查未通過"
+
+msgid "取值路径"
+msgstr "取值路徑"
+
+msgid "变化"
+msgstr "變化"
+
+msgid "变化占比"
+msgstr "變化佔比"
+
+msgid "变化发生在上次成功采集之后、本次采集之前；更精确的时间无法确认"
+msgstr "變化發生在上次成功擷取之後、本次擷取之前；更精確的時間無法確認"
+
+msgid "变化率"
+msgstr "變化率"
+
+msgid "变化类型"
+msgstr "變化類型"
+
+msgid "变化贡献"
+msgstr "變化貢獻"
+
+msgid "变更"
+msgstr "變更"
+
+msgid "变更集不存在"
+msgstr "變更集不存在"
+
+msgid "变量一"
+msgstr "變數一"
+
+msgid "变量二"
+msgstr "變數二"
+
+msgid "口径"
+msgstr "定義"
+
+msgid "口径版本：{versions}"
+msgstr "定義版本：{versions}"
+
+msgid "只接 JDBC MySQL Catalog"
+msgstr "只接 JDBC MySQL Catalog"
+
+msgid "只有业务域“{domain}”的负责人可以代表该域批准"
+msgstr "只有業務域「{domain}」的負責人可以代表該域核準"
+
+msgid "只有任务发起人或管理员可以修改"
+msgstr "只有任務發起人或管理員可以修改"
+
+msgid "只有任务负责人可以处理"
+msgstr "只有任務負責人可以處理"
+
+msgid "只有保存了查询意图的受治理数据集可以重跑"
+msgstr "只有儲存了查詢意圖的受治理資料集可以重新執行"
+
+msgid "只有发起人可以继续分析"
+msgstr "只有發起人可以繼續分析"
+
+msgid "只有已完成的分析可以发起续问"
+msgstr "只有已完成的分析可以提出後續問題"
+
+msgid "只有待复核的版本可以批准（当前 {status}）"
+msgstr "只有待複核的版本可以核準（目前 {status}）"
+
+msgid "只有有效经验可以撤销"
+msgstr "只有有效經驗可以撤銷"
+
+msgid "只有有效经验可以替代"
+msgstr "只有有效經驗可以替代"
+
+msgid "只有有效经验可以转为关联路径"
+msgstr "只有有效經驗可以轉為關聯路徑"
+
+msgid "只有管理员可以查看全部审计"
+msgstr "只有管理員可以檢視全部稽核"
+
+msgid "只有草稿可以提交复核（当前 {status}）"
+msgstr "只有草稿可以送出複核（目前 {status}）"
+
+msgid "只有草稿或被驳回的版本可以修改；已发布版本请新建版本"
+msgstr "只有草稿或被駁回的版本可以修改；已發布版本請建立版本"
+
+msgid "只能提议当前可见资产之间的关联路径"
+msgstr "只能提議目前可見資產之間的關聯路徑"
+
+msgid "右侧"
+msgstr "右側"
+
+msgid "各对关联键必须属于相同的左侧和右侧资产"
+msgstr "各對關聯鍵必須屬於相同的左側和右側資產"
+
+msgid "合计"
+msgstr "合計"
+
+msgid "名称"
+msgstr "名稱"
+
+msgid "否"
+msgstr "否"
+
+msgid "否定经验不能转为关联路径"
+msgstr "否定經驗不能轉為關聯路徑"
+
+msgid "周末天数"
+msgstr "週末天數"
+
+msgid "因子指标"
+msgstr "因子指標"
+
+msgid "因素"
+msgstr "因素"
+
+msgid "均值"
+msgstr "平均值"
+
+msgid "基础资产不存在或已删除"
+msgstr "基礎資產不存在或已刪除"
+
+msgid "处理方式只能是：{resolutions}"
+msgstr "處理方式只能是：{resolutions}"
+
+msgid "复核任务不存在"
+msgstr "複核任務不存在"
+
+msgid "复核任务已处理"
+msgstr "複核任務已處理"
+
+msgid "外部表追源"
+msgstr "外部資料表追源"
+
+msgid "外部表追溯"
+msgstr "外部資料表追溯"
+
+msgid "天数"
+msgstr "天數"
+
+msgid "如 FREEPDB1"
+msgstr "如 FREEPDB1"
+
+msgid "字段"
+msgstr "欄位"
+
+msgid "字段不存在或尚未计算推导指纹"
+msgstr "欄位不存在或尚未計算推導指紋"
+
+msgid "密码不能包含账号"
+msgstr "密碼不能包含帳號"
+
+msgid "密码过于简单"
+msgstr "密碼過於簡單"
+
+msgid "对比"
+msgstr "對比"
+
+msgid "对比期"
+msgstr "比較期"
+
+msgid "对象不存在或无权访问"
+msgstr "物件不存在或無權存取"
+
+msgid "导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"
+msgstr "匯入程式碼中出現、尚未在資料來源中擷取到的表（設計時血緣）"
+
+msgid "导入任务不存在"
+msgstr "匯入任務不存在"
+
+msgid "导入内容为空"
+msgstr "匯入內容為空"
+
+msgid "导入血缘推断"
+msgstr "匯入血緣推論"
+
+msgid "小数位"
+msgstr "小數位"
+
+msgid "工作日天数"
+msgstr "工作日天數"
+
+msgid "左侧"
+msgstr "左側"
+
+msgid "差额"
+msgstr "差額"
+
+msgid "已保存 {count} 条检查记录，未保存汇总结论"
+msgstr "已儲存 {count} 條檢查紀錄，未儲存彙整結論"
+
+msgid "已保存数据图表"
+msgstr "已儲存資料圖表"
+
+msgid "已保存的采集记录含失败或未知状态"
+msgstr "已儲存的擷取紀錄含失敗或未知狀態"
+
+msgid "已保存的采集记录均成功"
+msgstr "已儲存的擷取紀錄均成功"
+
+msgid "已保存范围内未发现变更"
+msgstr "已儲存範圍內未發現變更"
+
+msgid "已保存范围内记录 {count} 项变更"
+msgstr "已儲存範圍內紀錄 {count} 項變更"
+
+msgid "已发布"
+msgstr "已發布"
+
+msgid "库"
+msgstr "資料庫"
+
+msgid "建议"
+msgstr "建議"
+
+msgid "建议目标（非观测值）"
+msgstr "建議目標（非觀測值）"
+
+msgid "建议这样验证"
+msgstr "建議這樣驗證"
+
+msgid "当前定义仍与该版本不一致，不能按“已恢复”处理。请先在数据库恢复原定义并重新采集"
+msgstr "目前定義仍與該版本不一致，不能按「已恢復」處理。請先在資料庫恢復原定義並重新擷取"
+
+msgid "当前密码不正确"
+msgstr "目前密碼不正確"
+
+msgid "影响"
+msgstr "影響"
+
+msgid "影响幅度"
+msgstr "影響幅度"
+
+msgid "待处理"
+msgstr "待處理"
+
+msgid "待验证"
+msgstr "待驗證"
+
+msgid "必须填写处理理由"
+msgstr "必須填寫處理理由"
+
+msgid "成员"
+msgstr "成員"
+
+msgid "成员变化"
+msgstr "成員變化"
+
+msgid "成员变化相互抵消"
+msgstr "成員變化相互抵消"
+
+msgid "所选模型不可用于分析：请启用提供方和模型、设置密钥并通过工具调用检测"
+msgstr "所選模型不可用於分析：請啟用提供者和模型、設定金鑰並通過工具呼叫檢測"
+
+msgid "执行前核对来源结构"
+msgstr "執行前核對來源結構"
+
+msgid "批次"
+msgstr "批次"
+
+msgid "报告中的数字均来自系统内已审核的指标口径，可在 Avelis 中查看计算依据。"
+msgstr "報告中的數字均來自系統內已審核的指標定義，可在 Avelis 中檢視計算依據。"
+
+msgid "指定的新口径必须是已发布的指标版本"
+msgstr "指定的新定義必須是已發布的指標版本"
+
+msgid "指标不存在"
+msgstr "指標不存在"
+
+msgid "指标不存在或无权访问"
+msgstr "指標不存在或無權存取"
+
+msgid "指标口径"
+msgstr "指標定義"
+
+msgid "指标明细"
+msgstr "指標明細"
+
+msgid "指标标识"
+msgstr "指標標識"
+
+msgid "指标版本不存在"
+msgstr "指標版本不存在"
+
+msgid "指标版本当前为 {status}，不是受影响状态"
+msgstr "指標版本目前為 {status}，不是受影響狀態"
+
+msgid "指标类型只能是 base（基础）或 derived（派生）"
+msgstr "指標類型只能是 base（基礎）或 derived（衍生）"
+
+msgid "指标编码 {code} 已存在"
+msgstr "指標編碼 {code} 已存在"
+
+msgid "排名"
+msgstr "排名"
+
+msgid "探索查询（未经口径审核）"
+msgstr "探索查詢（未經定義審核）"
+
+msgid "接口地址必须以 http:// 或 https:// 开头"
+msgstr "介面位址必須以 http:// 或 https:// 開頭"
+
+msgid "推断"
+msgstr "推論"
+
+msgid "推断，未核实"
+msgstr "推論，未證實"
+
+msgid "提交后依赖已变化，请退回维护者重新提交"
+msgstr "送出後依賴已變化，請退回維護者重新送出"
+
+msgid "提供方 {provider} 未启用或未设置密钥"
+msgstr "提供者 {provider} 未啟用或未設定金鑰"
+
+msgid "提供方 {provider} 未设置密钥"
+msgstr "提供者 {provider} 未設定金鑰"
+
+msgid "提供方编码 {code} 已存在"
+msgstr "提供者編碼 {code} 已存在"
+
+msgid "摘要"
+msgstr "摘要"
+
+msgid "数据检查"
+msgstr "資料檢查"
+
+msgid "数据源 {datasource}（{engine}）不支持{capability}"
+msgstr "資料來源 {datasource}（{engine}）不支援{capability}"
+
+msgid "数据源 {name} 已存在"
+msgstr "資料來源 {name} 已存在"
+
+msgid "数据源 {name} 未配置 {purpose} 账号"
+msgstr "資料來源 {name} 未設定 {purpose} 帳號"
+
+msgid "数据源不存在"
+msgstr "資料來源不存在"
+
+msgid "数据集"
+msgstr "資料集"
+
+msgid "数据集不存在"
+msgstr "資料集不存在"
+
+msgid "数量"
+msgstr "數量"
+
+msgid "文件不是 UTF-8 文本"
+msgstr "檔案不是 UTF-8 文字"
+
+msgid "文件超过 {size:g} MB"
+msgstr "檔案超過 {size:g} MB"
+
+msgid "新口径不能是受影响的版本本身"
+msgstr "新定義不能是受影響的版本本身"
+
+msgid "新密码不能与当前密码相同"
+msgstr "新密碼不能與目前密碼相同"
+
+msgid "方向"
+msgstr "方向"
+
+msgid "无影响口径的变更"
+msgstr "無影響定義的變更"
+
+msgid "无待确认候选"
+msgstr "無待確認候選"
+
+msgid "无拦截"
+msgstr "無攔截"
+
+msgid "无数据"
+msgstr "無資料"
+
+msgid "无权访问经验引用的口径"
+msgstr "無權存取經驗引用的定義"
+
+msgid "无权访问经验引用的资产"
+msgstr "無權存取經驗引用的資產"
+
+msgid "日历因素"
+msgstr "日曆因素"
+
+msgid "日历因素（天数）"
+msgstr "日曆因素（天數）"
+
+msgid "日均"
+msgstr "每日平均"
+
+msgid "时间字段"
+msgstr "時間欄位"
+
+msgid "时间字段必须是日期或时间类型：{column}（{data_type}）"
+msgstr "時間欄位必須是日期或時間類型：{column}（{data_type}）"
+
+msgid "时间窗口不完整或日期格式错误：{error}"
+msgstr "時間範圍不完整或日期格式錯誤：{error}"
+
+msgid "时间窗口无效：{error}"
+msgstr "時間範圍無效：{error}"
+
+msgid "时间窗口的开始日期晚于结束日期"
+msgstr "時間範圍的開始日期晚於結束日期"
+
+msgid "是"
+msgstr "是"
+
+msgid "是否截断"
+msgstr "是否截斷"
+
+msgid "是否显著"
+msgstr "是否顯著"
+
+msgid "显示值"
+msgstr "顯示值"
+
+msgid "显著性概率"
+msgstr "顯著性機率"
+
+msgid "最大值"
+msgstr "最大值"
+
+msgid "最小值"
+msgstr "最小值"
+
+msgid "最高"
+msgstr "最高"
+
+msgid "有 {failed} 处数字未通过系统校验，请谨慎使用。"
+msgstr "有 {failed} 處數字未通過系統驗證，請謹慎使用。"
+
+msgid "有排序的原因"
+msgstr "有排序的原因"
+
+msgid "有未通过的事实或字段"
+msgstr "有未通過的事實或欄位"
+
+msgid "服务名"
+msgstr "服務名"
+
+msgid "期间"
+msgstr "期間"
+
+msgid "期间数"
+msgstr "期間數"
+
+msgid "未命名原因"
+msgstr "未命名原因"
+
+msgid "未命名成员"
+msgstr "未命名成員"
+
+msgid "未找到"
+msgstr "找不到"
+
+msgid "未找到可嵌入的中文字体（AVELIS_PDF_FONT）：中文需阅读器安装亚洲字体包才能显示。"
+msgstr "找不到可嵌入的中文字體（AVELIS_PDF_FONT）：中文需閱讀器安裝亞洲字體包才能顯示。"
+
+msgid "未登记"
+msgstr "未登記"
+
+msgid "未知"
+msgstr "未知"
+
+msgid "未知原因"
+msgstr "未知原因"
+
+msgid "未知用途：{purpose}"
+msgstr "未知用途：{purpose}"
+
+msgid "未知角色：{roles}"
+msgstr "未知角色：{roles}"
+
+msgid "未知预设：{preset}"
+msgstr "未知預設：{preset}"
+
+msgid "未解释"
+msgstr "未解釋"
+
+msgid "未设置密钥"
+msgstr "未設定金鑰"
+
+msgid "未运行"
+msgstr "未執行"
+
+msgid "未通过（{error}）"
+msgstr "未通過（{error}）"
+
+msgid "未通过：{error}"
+msgstr "未通過：{error}"
+
+msgid "未配置可用的分析模型"
+msgstr "未設定可用的分析模型"
+
+msgid "本期"
+msgstr "本期"
+
+msgid "权重"
+msgstr "權重"
+
+msgid "来源"
+msgstr "來源"
+
+msgid "来源全部通过"
+msgstr "來源全部通過"
+
+msgid "来源全部通过，含未核实的推断"
+msgstr "來源全部通過，含未證實的推論"
+
+msgid "来源标签"
+msgstr "來源標籤"
+
+msgid "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}"
+msgstr "來源結構在上次擷取之後已變化，已排入佇列重新擷取，擷取完成後再驗證：{changes}"
+
+msgid "查询明细"
+msgstr "查詢明細"
+
+msgid "查询结果的列名重复，无法作为数据集使用"
+msgstr "查詢結果的欄位名稱重複，無法作為資料集使用"
+
+msgid "标准差"
+msgstr "標準差"
+
+msgid "标记"
+msgstr "標記"
+
+msgid "标题"
+msgstr "標題"
+
+msgid "样本数"
+msgstr "樣本數"
+
+msgid "核心指标"
+msgstr "核心指標"
+
+msgid "模型 {model} 不在 {provider} 的启用列表中"
+msgstr "模型 {model} 不在 {provider} 的啟用清單中"
+
+msgid "模型提供方不存在"
+msgstr "模型提供者不存在"
+
+msgid "模式名按大写保存"
+msgstr "綱要名稱以大寫儲存"
+
+msgid "比率"
+msgstr "比率"
+
+msgid "比率影响"
+msgstr "比率影響"
+
+msgid "水平值"
+msgstr "水平值"
+
+msgid "没有可核实的事实"
+msgstr "沒有可證實的事實"
+
+msgid "没有实质变化"
+msgstr "沒有實質變化"
+
+msgid "没有权限读取该对象背后的来源：{sources}"
+msgstr "沒有權限讀取該物件背後的來源：{sources}"
+
+msgid "没能确定要查询的指标与日期，请换个说法或补充信息"
+msgstr "沒能確定要查詢的指標與日期，請換個說法或補充資訊"
+
+msgid "治理事件"
+msgstr "治理事件"
+
+msgid "派生指标不能引用自身"
+msgstr "衍生指標不能引用自身"
+
+msgid "派生指标需要公式，例如 metric_a / metric_b"
+msgstr "衍生指標需要公式，例如 metric_a / metric_b"
+
+msgid "测试适配器"
+msgstr "測試配接器"
+
+msgid "状态只能是 active 或 paused"
+msgstr "狀態只能是 active 或 paused"
+
+msgid "生成日期 {year}年{month}月{day}日"
+msgstr "產生日期 {year}年{month}月{day}日"
+
+msgid "用到的数据"
+msgstr "用到的資料"
+
+msgid "用户不存在"
+msgstr "使用者不存在"
+
+msgid "用户不存在或已停用"
+msgstr "使用者不存在或已停用"
+
+msgid "用户名 {username} 已存在"
+msgstr "使用者名稱 {username} 已存在"
+
+msgid "用户名或密码错误"
+msgstr "使用者名稱或密碼錯誤"
+
+msgid "用户名或密码错误，再失败 {attempts} 次将暂时锁定"
+msgstr "使用者名稱或密碼錯誤，再失敗 {attempts} 次將暫時鎖定"
+
+msgid "登录已超过最长时长，请重新登录"
+msgstr "登入已超過最長時間，請重新登入"
+
+msgid "禁止自审：提交人或创建人不能批准同一版本（AVELIS_ALLOW_SELF_REVIEW=false）"
+msgstr "禁止自審：送出人或建立人不能核準同一版本（AVELIS_ALLOW_SELF_REVIEW=false）"
+
+msgid "禁止自审：提交人或创建人不能驳回同一版本"
+msgstr "禁止自審：送出人或建立人不能駁回同一版本"
+
+msgid "秩相关系数"
+msgstr "秩相關係數"
+
+msgid "端点 {host}:{port} 已登记"
+msgstr "端點 {host}:{port} 已登記"
+
+msgid "符合条件的变更记录超过导出上限 {cap} 条（AVELIS_HISTORY_EXPORT_MAX_ROWS），请缩小时间段或其他筛选条件"
+msgstr "符合條件的變更紀錄超過匯出上限 {cap} 條（AVELIS_HISTORY_EXPORT_MAX_ROWS），請縮小時間段或其他篩選條件"
+
+msgid "第 {index} 个关联引用了未定义的别名 {alias}"
+msgstr "第 {index} 個關聯引用了未定義的別名 {alias}"
+
+msgid "第 {index} 个关联的别名不合法或重复：{alias}"
+msgstr "第 {index} 個關聯的別名不合法或重複：{alias}"
+
+msgid "等待确认"
+msgstr "等待確認"
+
+msgid "答案不存在或无权访问"
+msgstr "答案不存在或無權存取"
+
+msgid "类型"
+msgstr "類型"
+
+msgid "粒度不存在"
+msgstr "粒度不存在"
+
+msgid "线性相关系数"
+msgstr "線性相關係數"
+
+msgid "经验内容需要是 x.col = y.col，多对关联键用 AND 连接，可在末尾加括号说明"
+msgstr "經驗內容需要是 x.col = y.col，多對關聯鍵用 AND 連接，可在末尾加括號說明"
+
+msgid "经验引用最多 {limit} 项"
+msgstr "經驗引用最多 {limit} 項"
+
+msgid "经验引用的口径不存在"
+msgstr "經驗引用的定義不存在"
+
+msgid "经验引用的口径版本不存在"
+msgstr "經驗引用的定義版本不存在"
+
+msgid "经验引用的资产不存在"
+msgstr "經驗引用的資產不存在"
+
+msgid "经验引用的资产版本不存在"
+msgstr "經驗引用的資產版本不存在"
+
+msgid "经验当前版本缺失"
+msgstr "經驗目前版本缺失"
+
+msgid "结构影响"
+msgstr "結構影響"
+
+msgid "结果被截断"
+msgstr "結果被截斷"
+
+msgid "结果解释"
+msgstr "結果解釋"
+
+msgid "结论"
+msgstr "結論"
+
+msgid "结论 {index}"
+msgstr "結論 {index}"
+
+msgid "结论 {index} {label}"
+msgstr "結論 {index} {label}"
+
+msgid "结论未通过：{error}"
+msgstr "結論未通過：{error}"
+
+msgid "维度"
+msgstr "維度"
+
+msgid "维度 {name} "
+msgstr "維度 {name} "
+
+msgid "维度名称缺失或重复：{dimension}"
+msgstr "維度名稱缺失或重複：{dimension}"
+
+msgid "编号"
+msgstr "編號"
+
+msgid "缺失数"
+msgstr "缺失數"
+
+msgid "缺失期间"
+msgstr "缺失期間"
+
+msgid "自定义对比需要 compare_start 与 compare_end"
+msgstr "自訂對比需要 compare_start 與 compare_end"
+
+msgid "节假日"
+msgstr "國定假日"
+
+msgid "节假日天数"
+msgstr "國定假日天數"
+
+msgid "获取模型列表失败：HTTP {status}"
+msgstr "取得模型清單失敗：HTTP {status}"
+
+msgid "血缘"
+msgstr "血緣"
+
+msgid "行数"
+msgstr "列數"
+
+msgid "表达式"
+msgstr "運算式"
+
+msgid "视图血缘解析"
+msgstr "檢視表血緣解析"
+
+msgid "解析边已写入，无需接受"
+msgstr "解析邊已寫入，無需接受"
+
+msgid "计数"
+msgstr "計數"
+
+msgid "计算"
+msgstr "計算"
+
+msgid "访问令牌已注销"
+msgstr "存取權杖已撤銷"
+
+msgid "访问令牌无效或已过期"
+msgstr "存取權杖無效或已過期"
+
+msgid "证据不足"
+msgstr "證據不足"
+
+msgid "该业务域不涉及这条关联路径"
+msgstr "該業務域不涉及這條關聯路徑"
+
+msgid "该提供方正被用途使用，不能删除"
+msgstr "該提供者正被用途使用，不能刪除"
+
+msgid "该提供方正被用途使用，先在“默认模型”中改用其他模型再停用"
+msgstr "該提供者正被用途使用，先在「預設模型」中改用其他模型再停用"
+
+msgid "该数据源正在采集中"
+msgstr "該資料來源正在擷取中"
+
+msgid "说明"
+msgstr "說明"
+
+msgid "请回答追问后继续分析"
+msgstr "請回答追問後繼續分析"
+
+msgid "请指定有效的时间窗口"
+msgstr "請指定有效的時間範圍"
+
+msgid "请补充问题的指标与日期"
+msgstr "請補充問題的指標與日期"
+
+msgid "请输入插话内容"
+msgstr "請輸入插話內容"
+
+msgid "请输入要分析的问题"
+msgstr "請輸入要分析的問題"
+
+msgid "请逐项确认或否决，且不要重复提交同一项"
+msgstr "請逐項確認或否決，且不要重複送出同一項"
+
+msgid "负责人不存在"
+msgstr "負責人不存在"
+
+msgid "资产 {database}.{asset} 未归属业务域，无法确定由谁批准关联路径"
+msgstr "資產 {database}.{asset} 未歸屬業務域，無法確定由誰核準關聯路徑"
+
+msgid "资产不存在"
+msgstr "資產不存在"
+
+msgid "资产不存在或无权访问"
+msgstr "資產不存在或無權存取"
+
+msgid "资源正被其他任务占用"
+msgstr "資源正被其他任務佔用"
+
+msgid "过滤条件"
+msgstr "過濾條件"
+
+msgid "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看"
+msgstr "執行尚未開始（已由背景 worker 領取），請稍後在任務頁檢視"
+
+msgid "还没查清"
+msgstr "還沒查清"
+
+msgid "这次确认已提交"
+msgstr "這次確認已送出"
+
+msgid "这次确认已提交，或分析当前不在等待确认"
+msgstr "這次確認已送出，或分析目前不在等待確認"
+
+msgid "连续登录失败次数过多，请 {minutes} 分钟后再试"
+msgstr "連續登入失敗次數過多，請 {minutes} 分鐘後再試"
+
+msgid "选择“发布新口径”时必须指定已发布的新指标版本"
+msgstr "選取「發布新定義」時必須指定已發布的新指標版本"
+
+msgid "通知不存在"
+msgstr "通知不存在"
+
+msgid "部分数字来自临时查询，尚未经过指标口径审核。"
+msgstr "部分數字來自臨時查詢，尚未經過指標定義審核。"
+
+msgid "采集"
+msgstr "擷取"
+
+msgid "采集失败：{error}"
+msgstr "擷取失敗：{error}"
+
+msgid "采集的库"
+msgstr "擷取的資料庫"
+
+msgid "采集的模式"
+msgstr "擷取的綱要"
+
+msgid "采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度；DDL 归因需在库中部署事件触发器（avelis_audit.ddl_event），采集账号可读该表"
+msgstr "擷取帳號唯讀系統目錄；實體識別用 pg_class.oid；不報告資料新鮮度；DDL 歸因需在資料庫中部署事件觸發器（avelis_audit.ddl_event），擷取帳號可讀該資料表"
+
+msgid "采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）"
+msgstr "擷取帳號只需 SHOW_VIEW_PRIV；查詢帳號需 SELECT_PRIV 與 SHOW_VIEW_PRIV；TABLE_ID 作實體識別（檢視表也有）；外部 Catalog 尚未整合測試；DDL 歸因讀 __internal_schema.audit_log（擷取帳號需其 SELECT_PRIV）"
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度"
+msgstr "擷取帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體識別；識別字按大寫儲存；不報告資料新鮮度"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度"
+msgstr "擷取帳號需綱要的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體識別；不報告資料新鮮度"
+
+msgid "量纲"
+msgstr "量綱"
+
+msgid "问数"
+msgstr "問數"
+
+msgid "问数执行"
+msgstr "問數執行"
+
+msgid "问数理解"
+msgstr "問數理解"
+
+msgid "附录"
+msgstr "附錄"
+
+msgid "需要澄清"
+msgstr "需要澄清"
+
+msgid "需要角色：{roles}"
+msgstr "需要角色：{roles}"
+
+msgid "需要该业务域的负责人或维护者身份"
+msgstr "需要該業務域的負責人或維護者身分"
+
+msgid "需要该业务域负责人"
+msgstr "需要該業務域負責人"
+
+msgid "驳回必须填写理由"
+msgstr "駁回必須填寫理由"
+
+msgid "验证方式"
+msgstr "驗證方式"
+
+msgid "高"
+msgstr "高"
+
+msgid "（另有 {bad} 个无效引用）"
+msgstr "（另有 {bad} 個無效引用）"
+
+msgid "（已截断）"
+msgstr "（已截斷）"
+
+msgid "（无）"
+msgstr "（無）"
+
+msgid "（未保存 SQL）"
+msgstr "（未儲存 SQL）"
+
+msgid "，存在口径漂移或未知状态"
+msgstr "，存在定義漂移或未知狀態"
+
+msgid "，按{metric}{direction}"
+msgstr "，按{metric}{direction}"
+
+msgid "，无口径漂移"
+msgstr "，無定義漂移"
+
+msgid "{label}：{detail}"
+msgstr "{label}：{detail}"
+
+msgid "中文名"
+msgstr "中文名稱"
+
+msgid "口径版本"
+msgstr "定義版本"
+
+msgid "查询依据"
+msgstr "查詢依據"
+
+msgid "检查"
+msgstr "檢查"
+
+msgid "核验"
+msgstr "驗證"
+
+msgid "临时查询"
+msgstr "臨時查詢"
+
+msgid "探索查询"
+msgstr "探索查詢"
+
+msgid "受治理查询"
+msgstr "受治理查詢"
+
+msgid "受治理"
+msgstr "受治理"
+
+msgid "已审核指标"
+msgstr "已審核指標"
+
+msgid "已审核"
+msgstr "已審核"
+
+msgid "来源已校验"
+msgstr "來源已驗證"
+
+msgid "来源已确认"
+msgstr "來源已確認"
+
+msgid "上下文"
+msgstr "脈絡"
+
+msgid "相关信息"
+msgstr "相關資訊"
+
+msgid "指标定义"
+msgstr "指標定義"
+
+msgid "真实数据库"
+msgstr "實際資料庫"
+
+msgid "{head}：{value}"
+msgstr "{head}：{value}"
+
+msgid "从低到高"
+msgstr "由低到高"
+
+msgid "无法连接 {error}"
+msgstr "無法連線 {error}"
+
+msgid "获取模型列表失败：{error}"
+msgstr "取得模型清單失敗：{error}"
+
+msgid "理解问题、检索口径、追问；必须支持工具调用"
+msgstr "理解問題、搜尋定義、追問；必須支援工具呼叫"
+
+msgid "用自然语言解释查询结果；仅在允许发送查询结果时使用"
+msgstr "以自然語言解釋查詢結果；僅在允許傳送查詢結果時使用"
+
+msgid "对确定性解析覆盖不到的代码片段提出候选血缘"
+msgstr "針對確定性解析無法涵蓋的程式碼片段提出候選血緣"
+
+msgid "多步分析：规划、调用上下文与查询工具、撰写报告；必须支持工具调用；未指定时沿用问数模型"
+msgstr "多步分析：規劃、呼叫脈絡與查詢工具、撰寫報告；必須支援工具呼叫；未指定時沿用問數模型"
+
+msgid "未配置有效的问数理解模型：使用演示模型（规则匹配）"
+msgstr "未設定有效的問數理解模型：使用示範模型（規則比對）"
+
+msgid "新增"
+msgstr "新增"
+
+msgid "删除"
+msgstr "刪除"
+
+msgid "改名"
+msgstr "改名"
+
+msgid "定义变化"
+msgstr "定義變化"
+
+msgid "字段推导变化"
+msgstr "欄位推導變化"
+
+msgid "上游缺失"
+msgstr "上游缺失"
+
+msgid "新增列"
+msgstr "新增欄"
+
+msgid "删除列"
+msgstr "刪除欄"
+
+msgid "类型变化"
+msgstr "型別變化"
+
+msgid "改名候选"
+msgstr "改名候選"
+
+msgid "粒度变化"
+msgstr "粒度變化"
+
+msgid "同一张表匹配变化"
+msgstr "同一張表匹配變化"
+
+msgid "外部地址变化"
+msgstr "外部地址變化"
+
+msgid "注释变化"
+msgstr "註解變化"
+
+msgid "实例变化"
+msgstr "例項變化"
+
+msgid "键列推导已变化：{columns}，需重新声明"
+msgstr "鍵欄推導已變化：{columns}，需重新宣告"
+
+msgid "经身份映射继承他库表的键"
+msgstr "經身份對映繼承他庫表的鍵"
+
+msgid "透传自 {table}"
+msgstr "透傳自 {table}"
+
+msgid "认证方式"
+msgstr "認證方式"
+
+msgid "NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持"
+msgstr "NONE 不驗證密碼，帳號可不填；LDAP 需帳號與密碼；尚不支援 Kerberos"
+
+msgid "经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据"
+msgstr "經 HiveServer2（binary 傳輸）唯讀中繼資料，不讀業務資料；檢視表定義取 Hive 儲存的展開文字解析血緣；不支援問數執行；HiveServer2 不公開資料表 ID，資料表與檢視表依名稱對應；主鍵約束不驗證，不作為粒度依據"
+
+msgid "{label}（可选 {choices}）"
+msgstr "{label}（可選 {choices}）"
+
+msgid "{engine} 数据源配置取值不合法：{options}"
+msgstr "{engine} 資料來源設定值不合法：{options}"
+
+msgid "、"
+msgstr "、"
+
+msgid "；"
+msgstr "；"
+
+msgid "只有发起人可以修改对话"
+msgstr "只有發起人可以修改對話"
+
+msgid "对话不存在"
+msgstr "對話不存在"
+
+msgid "对话中有正在运行或等待确认的分析，请先停止再操作"
+msgstr "對話中有正在執行或等待確認的分析，請先停止再操作"
+
+msgid "对话显示名最多 80 字"
+msgstr "對話顯示名稱最多 80 字"
+
+msgid "SQL Server 的 datetimeoffset 时间列不支持按时间分组"
+msgstr "SQL Server 的 datetimeoffset 時間欄位不支援依時間分組"
+
+msgid "previous_calendar 需要整月、整季或整年窗口，请用 previous_period 或 custom"
+msgstr "previous_calendar 需要完整月份、季度或年度範圍，請使用 previous_period 或 custom"
+
+msgid "yyyy-mm-dd 时间格式要求时间字段为字符串类型：{column}（{data_type}）"
+msgstr "yyyy-mm-dd 時間格式要求時間欄位為字串型別：{column}（{data_type}）"
+
+msgid "yyyymm 时间格式要求 data_grain 为 month、quarter 或 year"
+msgstr "yyyymm 時間格式要求 data_grain 為 month、quarter 或 year"
+
+msgid "{first} 和 {second} {period} 相比上一期按{dimension}有什么关系？"
+msgstr "{first} 和 {second} {period} 相較上一期，依{dimension}有什麼關係？"
+
+msgid "{key} 取值无效：{value}"
+msgstr "{key} 的值無效：{value}"
+
+msgid "{name} {period} 按{dimension}的排名"
+msgstr "{name} {period} 依{dimension}的排名"
+
+msgid "{name} {period} 环比"
+msgstr "{name} {period} 與上一期比較"
+
+msgid "{name} {period} 相比上一期为什么变化？主要来自哪些{dimension}？"
+msgstr "{name} {period} 相較上一期為什麼變化？主要來自哪些{dimension}？"
+
+msgid "{period}工作日数为 0，工作日均值无法计算"
+msgstr "{period}工作日數為 0，無法計算工作日平均值"
+
+msgid "上一自然期"
+msgstr "上一曆期"
+
+msgid "上期"
+msgstr "上期"
+
+msgid "上期工作日均值不可得，工作日数效应与工作日水平效应无法计算"
+msgstr "無法取得上期工作日平均值，無法計算工作日數效應與工作日水準效應"
+
+msgid "业务时区无效：{name}"
+msgstr "業務時區無效：{name}"
+
+msgid "同一天不能既是节假日又是调休上班日"
+msgstr "同一天不能同時是假日與補班日"
+
+msgid "基础指标需要 base_asset_id 与 time_column"
+msgstr "基礎指標需要 base_asset_id 與 time_column"
+
+msgid "对比窗口的开始日期晚于结束日期"
+msgstr "比較範圍的開始日期晚於結束日期"
+
+msgid "对比窗口需要同时提供 compare_start 与 compare_end"
+msgstr "比較範圍需要同時提供 compare_start 與 compare_end"
+
+msgid "带时区的时间列需要有效的业务时区"
+msgstr "含時區的時間欄位需要有效的業務時區"
+
+msgid "当前方言 {dialect} 不支持该时间分组"
+msgstr "目前的方言 {dialect} 不支援此時間分組"
+
+msgid "数据库不支持业务时区 {name}，已按查询时刻的固定偏移 {offset} 执行；跨夏令时边界可能有偏差"
+msgstr "資料庫不支援業務時區 {name}，已依查詢時刻的固定偏移 {offset} 執行；跨越日光節約時間邊界時可能有誤差"
+
+msgid "数据按月编码，窗口必须是整月"
+msgstr "資料以月份編碼，範圍必須涵蓋完整月份"
+
+msgid "日期必须是合法的 YYYY-MM-DD"
+msgstr "日期必須是有效的 YYYY-MM-DD"
+
+msgid "时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细"
+msgstr "時間分組粒度 {grain} 不能比指標「{metric}」的資料粒度 {data_grain} 更細"
+
+msgid "时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细"
+msgstr "時間分組粒度 {grain} 不能比資料粒度 {data_grain} 更細"
+
+msgid "未标注实体"
+msgstr "未標註實體"
+
+msgid "未知数据粒度 {data_grain}"
+msgstr "未知資料粒度 {data_grain}"
+
+msgid "未知时间编码格式 {time_format}"
+msgstr "未知時間編碼格式 {time_format}"
+
+msgid "每个成员按有数据的桶计算均值，空桶不补零"
+msgstr "每個成員依有資料的時間區間計算平均值，空白區間不補零"
+
+msgid "每个输出期间取全局最后一个有数据的桶，成员缺失为未知"
+msgstr "每個輸出期間採用整體最後一個有資料的時間區間，缺少的成員視為未知"
+
+msgid "沿用口径表达式跨时间汇总"
+msgstr "沿用口徑運算式跨時間彙總"
+
+msgid "派生指标不支持 time_aggregation={time_aggregation}：当前按整个时间窗口汇总组成指标后计算公式，尚不支持对逐桶公式结果取末值（last）或均值（avg）；请使用 sum 或调整口径定义"
+msgstr "衍生指標不支援 time_aggregation={time_aggregation}：目前先依整個時間範圍彙總組成指標，再計算公式，尚不支援對各時間區間的公式結果取末值（last）或平均值（avg）；請使用 sum 或調整口徑定義"
+
+msgid "编码日期键只支持 day 与 month 分组，按月编码不能按日分组"
+msgstr "編碼日期鍵僅支援 day 與 month 分組，以月份編碼時不能依日分組"
+
+msgid "编码日期键的列类型与 time_format 不匹配"
+msgstr "編碼日期鍵的欄位型別與 time_format 不符"
+
+msgid "编码时间字段必须是整数或字符串类型：{column}（{data_type}）"
+msgstr "編碼時間欄位必須是整數或字串型別：{column}（{data_type}）"
+
+msgid "{dimension}：{member}"
+msgstr "{dimension}：{member}"
+
+msgid "{metric}·{period}"
+msgstr "{metric}·{period}"
+
+msgid "时间粒度未知，无法判断期间覆盖度"
+msgstr "時間粒度未知，無法判斷期間涵蓋率"
+
+msgid "覆盖度的开始日期不能晚于结束日期"
+msgstr "涵蓋率的開始日期不能晚於結束日期"
+
+msgid "期间列与已声明的时间粒度不一致，无法判断覆盖度"
+msgstr "期間欄位與宣告的時間粒度不一致，無法判斷涵蓋率"
+
+msgid "指标组成成环，无法确认时间语义"
+msgstr "指標組成形成循環，無法確認時間語義"
+
+msgid "指标的组成版本缺失，无法确认时间语义"
+msgstr "缺少指標組成版本，無法確認時間語義"
+
+msgid "数据粒度未知，无法判断期间覆盖度"
+msgstr "資料粒度未知，無法判斷期間涵蓋率"
+
+msgid "查询版本缺失，无法确认跨时间合成方式"
+msgstr "缺少查詢版本，無法確認跨時間彙整方式"
+
+msgid "该指标跨时间不能累加，不能按天数折算"
+msgstr "此指標無法跨時間累加，不能依天數換算"
+
+msgid "无法确认列对应的指标时间语义，不能按天数折算"
+msgstr "無法確認欄位對應的指標時間語義，不能依天數換算"
+
+msgid "数据粒度未知，无法执行趋势预检"
+msgstr "資料粒度未知，無法執行趨勢預檢"
+
+msgid "受治理数据集没有时间分组，无法判断期间覆盖度"
+msgstr "受治理資料集沒有時間分組，無法判斷期間涵蓋率"
+
+msgid "受治理数据集缺少指标意图，无法确认数据粒度"
+msgstr "受治理資料集缺少指標意圖，無法確認資料粒度"
+
+msgid "指标 {code} 缺少锁定的查询版本，无法确认数据粒度"
+msgstr "指標 {code} 缺少鎖定的查詢版本，無法確認資料粒度"
+
+msgid "保存的数据粒度不完整或与锁定版本不一致，无法判断期间覆盖度"
+msgstr "儲存的資料粒度不完整或與鎖定版本不一致，無法判斷期間涵蓋率"
+
+msgid "查询粒度比数据粒度更细，无法判断期间覆盖度"
+msgstr "查詢粒度比資料粒度更細，無法判斷期間涵蓋率"
+
+msgid "受治理数据集缺少时间期间列，无法判断期间覆盖度"
+msgstr "受治理資料集缺少時間期間欄位，無法判斷期間涵蓋率"
+
+msgid "口径声明为比率量纲"
+msgstr "口徑宣告為比率量綱"
+
+msgid "列 {column} 不能按成员相加：{reason}"
+msgstr "欄位 {column} 不能依成員相加：{reason}"
+
+msgid "系统预检：两期的{grain}趋势"
+msgstr "系統預檢：兩期的{grain}趨勢"
+
+msgid " 按{dimension}"
+msgstr " 依{dimension}"
+
+msgid " 对比{period}"
+msgstr " 比較{period}"
+
+msgid "公式含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常量：假设计算，只能被推断、建议引用"
+msgstr "公式包含 0、1、24、60、100、1000、3600、10000、1e6、1e8、1e9 以外的常數：假設計算，只能由推論與建議引用"
+
+msgid "日"
+msgstr "日"
+
+msgid "周"
+msgstr "週"
+
+msgid "月"
+msgstr "月"
+
+msgid "季"
+msgstr "季"
+
+msgid "年"
+msgstr "年"
+
+msgid "{key} 必须为 (0, 1] 范围内的有限数值"
+msgstr "{key} 必須是 (0, 1] 範圍內的有限數值"

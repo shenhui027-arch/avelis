@@ -18,6 +18,7 @@ from avelis.db import utcnow
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.governance.metrics import dependency_drift, mark_affected, status_before_affected, transition
+from avelis.i18n import Msg
 from avelis.models import (
     Answer,
     Asset,
@@ -186,7 +187,7 @@ def resolve_task(session: Session, actor: User, task: ReviewTask, resolution: st
     if task.status != "open":
         raise Conflict("复核任务已处理")
     if resolution not in RESOLUTIONS:
-        raise Invalid(f"处理方式只能是：{'、'.join(RESOLUTIONS)}")
+        raise Invalid(Msg("处理方式只能是：{resolutions}", resolutions="、".join(RESOLUTIONS)))
     if task.assignee_id != actor.id and not access.is_admin(session, actor):
         raise Forbidden("只有任务负责人可以处理")
     if not note:
@@ -212,7 +213,7 @@ def _resolve_metric(session: Session, actor: User, task: ReviewTask, resolution:
                     linked_id: str | None) -> None:
     version = session.get(MetricVersion, task.object_id)
     if version.status != "affected":
-        raise Conflict(f"指标版本当前为 {version.status}，不是受影响状态")
+        raise Conflict(Msg("指标版本当前为 {status}，不是受影响状态", status=version.status))
     if resolution == "restored":
         drift = dependency_drift(session, version)
         if drift:

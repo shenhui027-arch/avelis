@@ -6,10 +6,12 @@ import re
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match
 
 from avelis.api import (
@@ -22,14 +24,19 @@ from avelis.api import (
     history,
     imports,
     model_settings,
-    settings as system_settings,
     workbench,
 )
-from avelis.cache import LockBusy, client as cache_client
+from avelis.api import (
+    settings as system_settings,
+)
+from avelis.api.schemas import WorkerHealthOut
+from avelis.cache import WORKER_HEARTBEAT, LockBusy
+from avelis.cache import client as cache_client
 from avelis.config import get_settings
 from avelis.db import get_engine
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
 from avelis.governance.errors import GovernanceError
+from avelis.i18n import LocaleMiddleware, gettext, translate
 
 
 class _FrontendRoute(APIRoute):
@@ -55,31 +62,45 @@ def create_app() -> FastAPI:
                   redoc_url=None)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=False,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-                       allow_headers=["Authorization", "Content-Type"])
+                       allow_headers=["Authorization", "Content-Type", "Accept-Language"])
+    app.add_middleware(LocaleMiddleware)
 
     @app.exception_handler(GovernanceError)
     async def governance_error(_: Request, exc: GovernanceError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, **exc.detail})
+        return JSONResponse(status_code=exc.status_code, content={"detail": translate(exc.message), **exc.detail})
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        return await http_exception_handler(request, StarletteHTTPException(
+            exc.status_code, translate(exc.detail), headers=exc.headers))
 
     @app.exception_handler(CredentialMissing)
     async def credential_missing(_: Request, exc: CredentialMissing) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
+        return JSONResponse(status_code=409, content={"detail": translate(exc.args[0])})
 
     @app.exception_handler(CapabilityMissing)
     async def capability_missing(_: Request, exc: CapabilityMissing) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(exc), "capability": exc.capability})
+        return JSONResponse(status_code=409, content={"detail": translate(exc.args[0]), "capability": exc.capability})
 
     @app.exception_handler(UnsupportedEngine)
     async def unsupported_engine(_: Request, exc: UnsupportedEngine) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exc)})
+        return JSONResponse(status_code=422, content={"detail": translate(exc.args[0])})
 
     @app.exception_handler(LockBusy)
     async def lock_busy(_: Request, exc: LockBusy) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "资源正被其他任务占用", "lock": str(exc)})
+        return JSONResponse(status_code=409, content={"detail": gettext("资源正被其他任务占用"), "lock": str(exc)})
 
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/api/health/worker", response_model=WorkerHealthOut)
+    def worker_health() -> dict:
+        try:
+            last_seen = cache_client().get(WORKER_HEARTBEAT)
+        except Exception:
+            last_seen = None
+        return {"alive": last_seen is not None, "last_seen": last_seen}
 
     @app.get("/api/health/ready")
     def ready() -> JSONResponse:

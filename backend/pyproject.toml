@@ -12,7 +12,7 @@ dependencies = [
     "psycopg[binary]==3.3.6",
     "pymysql==1.2.3",
     "cryptography==50.0.2",
-    "sqlglot==30.25.0",
+    "sqlglot",
     "redis==8.1.0",
     "pyjwt==2.15.1",
     "httpx==0.28.1",
@@ -30,6 +30,8 @@ dependencies = [
     "oracledb>=3.3",
     "reportlab>=4.2",
     "json-repair>=0.50",
+    "impyla>=0.24",
+    "babel>=2.18.0",
 ]
 
 [dependency-groups]
@@ -37,12 +39,19 @@ dev = [
     "pytest==9.2.0",
 ]
 
+[tool.uv.sources]
+# fork 分支 avelis-v30.25.0：v30.25.0 + Hive UNIONTYPE 修复（上游 tobymao/sqlglot#8861 合并发布后切回 PyPI 并删掉这里）
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "8c7faa079c7c832f8b281a9e9f6c01cad2ea53c0" }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/avelis"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/avelis/locales" = "avelis/locales"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -57,8 +66,15 @@ addopts = "-m 'not acceptance'"
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.ruff]
+required-version = ">=0.17"
 line-length = 120
 extend-exclude = ["src/avelis/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+# 新代码按 120 列写；存量长行较多，统一格式化前不作为错误，避免与进行中的分支大面积冲突
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest 夹具按参数名注入：从别的测试模块导入夹具后再作为参数出现，会被误报为重复定义
+"tests/**" = ["F811"]

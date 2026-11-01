@@ -16,10 +16,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlglot
-from sqlglot import exp
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+from sqlglot import exp
 
 from avelis import audit, cache
 from avelis.analysis import measures
@@ -44,6 +44,7 @@ from avelis.governance.metrics import (
     validate_spec,
     visible_metrics,
 )
+from avelis.i18n import Msg, current_locale, gettext, locale_context, translate
 from avelis.lineage.sql import canonical_hash_of
 from avelis.models import (
     Answer,
@@ -143,7 +144,7 @@ def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog
                                              value_column="value" if simple else None)
     except GovernanceError as exc:
         answer.status = "error"
-        answer.message = exc.message
+        answer.message = translate(exc.message)
         answer.error_code = "governance"
 
 
@@ -238,8 +239,9 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
                    "dependency_fingerprint": version.dependency_fingerprint}
     answer.evidence["time_aggregation"] = {
         "method": time_aggregation, "data_grain": data_grain, "output_grain": intent.time_grain,
-        "note": {"sum": "沿用口径表达式跨时间汇总", "last": "每个输出期间取全局最后一个有数据的桶，成员缺失为未知",
-                 "avg": "每个成员按有数据的桶计算均值，空桶不补零"}[time_aggregation]}
+        "note": {"sum": gettext("沿用口径表达式跨时间汇总"),
+                 "last": gettext("每个输出期间取全局最后一个有数据的桶，成员缺失为未知"),
+                 "avg": gettext("每个成员按有数据的桶计算均值，空桶不补零")}[time_aggregation]}
     schema = {f"{a.catalog_name}.{a.db_name}.{a.name}": set(_columns(session, a)) for a in aliases.values()}
     try:
         validate_sql(compiled.sql, dialect=dialect, allowed_tables=set(compiled.tables), schema=schema,
@@ -281,7 +283,7 @@ def _fulfil(session: Session, user: User, intent: Intent, answer: Answer,
     key = cache.answer_cache_key({
         "sql": compiled.sql, "version": version.id, "deps": version.dependency_fingerprint,
         "assets": sorted((a.id, a.current_version_id) for a in closure.values()),
-        "scope": sorted(allowed), "freshness": freshness.get("tables"),
+        "scope": sorted(allowed), "freshness": freshness.get("tables"), "locale": current_locale(),
         **({"time_aggregation": time_aggregation, "order": intent.order, "limit": intent.limit}
            if time_aggregation != "sum" else {}),
     })
@@ -561,7 +563,8 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
         data_grain = getattr(version, "data_grain", None) or "day"
         if intent.time_grain and (data_grain not in TIME_GRAINS
                                   or TIME_GRAINS.index(intent.time_grain) < TIME_GRAINS.index(data_grain)):
-            raise Invalid(f"时间分组粒度 {intent.time_grain} 不能比指标“{metric.name}”的数据粒度 {data_grain} 更细")
+            raise Invalid(Msg("时间分组粒度 {grain} 不能比指标“{metric}”的数据粒度 {data_grain} 更细",
+                              grain=intent.time_grain, metric=metric.name, data_grain=data_grain))
         if version.kind != "derived":
             runs[code] = (metric, version)
             continue
@@ -705,19 +708,29 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
     answer.message = _explain_plan(requested, intent, answer.result)
 
 
+def _answer_text(template: str, **params) -> str:
+    language = getattr(get_settings(), "reply_language", "auto")
+    with locale_context(current_locale() if language == "auto" else language):
+        return gettext(template, **params)
+
+
 def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else f"{intent.start_date} 至 {intent.end_date}"
+    period = str(intent.start_date) if same_day else _answer_text(
+        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     names = "、".join(f"{m.name}（V{v.version_no}）" for _, m, v in requested)
     head = f"{period}{('（' + scope + '）') if scope else ''} {names}"
     if not result["rows"]:
-        return f"{head}：没有符合条件的数据"
+        return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         cells = dict(zip(result["columns"], result["rows"][0]))
-        return f"{head}：" + "；".join(f"{k} {'无数据' if v is None else v}" for k, v in cells.items())
-    rank = f"，按{requested[0][1].name}{'从高到低' if intent.order == 'desc' else '从低到高'}" if intent.order else ""
-    return f"{head}：共 {result['row_count']} 行{rank}{'（已截断）' if result['truncated'] else ''}"
+        return _answer_text("{head}：{value}", head=head, value="；".join(
+            f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()))
+    rank = _answer_text("，按{metric}{direction}", metric=requested[0][1].name,
+                        direction=_answer_text("从高到低" if intent.order == "desc" else "从低到高")) if intent.order else ""
+    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
+                        rank=rank, truncated=_answer_text("（已截断）") if result["truncated"] else "")
 
 
 def _jsonable(value: Any) -> Any:
@@ -732,15 +745,17 @@ def _iso(value) -> str | None:
 
 def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
-    period = str(intent.start_date) if same_day else f"{intent.start_date} 至 {intent.end_date}"
+    period = str(intent.start_date) if same_day else _answer_text(
+        "{start} 至 {end}", start=intent.start_date, end=intent.end_date)
     scope = "，".join(f"{f.dimension}={'/'.join(f.values)}" for f in intent.filters)
     head = f"{period}{('（' + scope + '）') if scope else ''} {metric.name}（V{version.version_no}）"
     if not result["rows"]:
-        return f"{head}：没有符合条件的数据"
+        return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         value = result["rows"][0][-1]
-        return f"{head}：{value if value is not None else '无数据'}"
-    return f"{head}：共 {result['row_count']} 行{'（已截断）' if result['truncated'] else ''}"
+        return _answer_text("{head}：{value}", head=head, value=value if value is not None else _answer_text("无数据"))
+    return _answer_text("{head}：共 {row_count} 行{rank}{truncated}", head=head, row_count=result["row_count"],
+                        rank="", truncated=_answer_text("（已截断）") if result["truncated"] else "")
 
 
 def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -> str:

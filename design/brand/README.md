@@ -1,4 +1,6 @@
-# Avelis Logo
+# Avelis Logo（早期方案）
+
+> 这里是 v0.1 早期选定的标记方案与概念图，保留作设计记录。产品当前使用的是“棱镜 A”标记：`frontend/public/favicon.svg`（带深色底板）与 `frontend/src/components/Logo.tsx`（界面内的标记与字标）。
 
 选定 **方向 3：有依据的 A（Grounded A）**。
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,9 +22,20 @@ from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access, experiences
-from avelis.governance.errors import NotFound
-from avelis.models import (AnalysisDataset, AnalysisRun, AnalysisTask, Asset, ColumnVersion, Job,
-                           Metric, MetricVersion, Notification, User)
+from avelis.governance.errors import Invalid, NotFound
+from avelis.i18n import Msg, current_locale, translate
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisRun,
+    AnalysisTask,
+    Asset,
+    ColumnVersion,
+    Job,
+    Metric,
+    MetricVersion,
+    Notification,
+    User,
+)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -57,6 +69,18 @@ class TaskPatch(BaseModel):
     schedule_cron: str | None = None
     status: str | None = None
     reason: str | None = None
+
+
+class ConversationPatch(BaseModel):
+    display_title: str
+
+    @field_validator("display_title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 80:
+            raise ValueError("对话显示名最多 80 字")
+        return value
 
 
 def _window(w: Window | None) -> dict | None:
@@ -101,6 +125,50 @@ def list_runs(user: User = Depends(current_user), session: Session = Depends(get
     runs = session.scalars(select(AnalysisRun).where(AnalysisRun.user_id == user.id)
                            .order_by(AnalysisRun.created_at.desc()).limit(100))
     return [analysis.run_view(session, r, full=False, user=user) for r in runs]
+
+
+@router.get("/analysis/conversations", response_model=list[S.AnalysisConversationOut])
+def list_conversations(archived: bool = False, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)) -> list[dict]:
+    return analysis.list_conversations(session, user, archived=archived)
+
+
+@router.get("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def get_conversation(conversation_id: str, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)) -> dict:
+    return analysis.get_conversation(session, user, conversation_id)
+
+
+@router.patch("/analysis/conversations/{conversation_id}", response_model=S.AnalysisConversationDetailOut)
+def rename_conversation(conversation_id: str, body: ConversationPatch, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> dict:
+    data = analysis.rename_conversation(session, user, conversation_id, body.display_title)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/archive", response_model=S.AnalysisConversationDetailOut)
+def archive_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=True)
+    session.commit()
+    return data
+
+
+@router.post("/analysis/conversations/{conversation_id}/restore", response_model=S.AnalysisConversationDetailOut)
+def restore_conversation(conversation_id: str, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)) -> dict:
+    data = analysis.archive_conversation(session, user, conversation_id, archived=False)
+    session.commit()
+    return data
+
+
+@router.delete("/analysis/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: str, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)) -> Response:
+    analysis.delete_conversation(session, user, conversation_id)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
@@ -328,7 +396,7 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
             if dataset.get("restricted"):
                 continue
             d = saved[dataset["ref"]]
-            dataset.update(rows=d.rows, meta=_export_metadata(session, user, d.meta))
+            dataset.update(rows=d.rows, meta=_export_metadata(session, user, dataset_meta(session, d)))
             if "units" not in (d.meta or {}):
                 # 早期运行没有数值列元数据，导出仍使用原来的选轴回退。
                 dataset.pop("column_roles", None)
@@ -350,6 +418,25 @@ def export_run(run_id: str, format: str = "pdf", audience: Literal["brief", "ful
 
 
 # --- 任务 ---------------------------------------------------------------------------
+
+@router.get("/analysis/cron/preview", response_model=S.CronPreviewOut)
+def preview_cron(expr: str, count: int = Query(5, ge=1, le=10), user: User = Depends(current_user),
+                 session: Session = Depends(get_session)) -> dict:
+    """按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。"""
+    access.require_role(session, user, "analyst", "steward", "reviewer")
+    timezone = get_settings().business_timezone
+    tz = ZoneInfo(timezone)
+    runs, error = [], None
+    try:
+        analysis.parse_cron(expr)
+        after = utcnow()
+        for _ in range(count):
+            after = analysis.next_run(expr, after)
+            runs.append(after.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).isoformat())
+    except Invalid as exc:
+        runs, error = [], translate(exc.message)
+    return {"expr": expr, "timezone": timezone, "runs": runs, "error": error}
+
 
 def _task(session: Session, user: User, task_id: str) -> AnalysisTask:
     from avelis.governance import access
@@ -385,7 +472,8 @@ def patch_task(task_id: str, body: TaskPatch, user: User = Depends(current_user)
 def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
     task = _task(session, user, task_id)
-    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual"}, user.id)
+    job_id = jobs._enqueue(session, "analysis", {"task_id": task.id, "trigger": "manual",
+                                                "request_locale": current_locale()}, user.id)
     session.commit()
     status = jobs.run_and_wait(job_id, _sync_wait_seconds())  # 与定时同一路径，在本进程内领取并执行
     session.expire_all()
@@ -396,9 +484,9 @@ def run_task_now(task_id: str, user: User = Depends(current_user), session: Sess
         if status not in jobs.TERMINAL:
             raise HTTPException(409, "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看")
         task_now = session.get(AnalysisTask, task.id)
-        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or "未知原因"
+        reason = result.get("reason") or job.error or (task_now.paused_reason if task_now else None) or Msg("未知原因")
         label = "任务已暂停" if result.get("outcome") == "paused" else "未运行"
-        raise HTTPException(409, f"{label}：{reason}")
+        raise HTTPException(409, Msg("{label}：{reason}", label=Msg(label), reason=reason))
     return analysis.run_view(session, session.get(AnalysisRun, run_id), user=user)
 
 

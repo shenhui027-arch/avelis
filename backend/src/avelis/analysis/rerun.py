@@ -13,6 +13,7 @@ from avelis.analysis import dataset_access, measures
 from avelis.ask import service as ask
 from avelis.ask.intent import Intent, comparison_range
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
+from avelis.i18n import Msg
 from avelis.models import AnalysisDataset, AnalysisRun, AnalysisStep, User
 
 
@@ -40,7 +41,7 @@ def rerun_dataset(session: Session, user: User, run: AnalysisRun, dataset: Analy
     try:
         intent = Intent.model_validate(changed)
     except ValidationError as exc:
-        raise Invalid(f"时间窗口无效：{exc}") from None
+        raise Invalid(Msg("时间窗口无效：{error}", error=exc)) from None
     if not intent.start_date or not intent.end_date or intent.start_date > intent.end_date:
         raise Invalid("请指定有效的时间窗口")
     if intent.compare in ("previous_period", "previous_year"):
