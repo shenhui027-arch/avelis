@@ -609,7 +609,7 @@ def test_international_style_preserves_scale_sign_precision_and_ratio(monkeypatc
     assert grounding.display(Decimal("-0.125"), delta, direction="down") == "125.00K单位甲"
     assert grounding.display(Decimal("0.125"), grounding._unit({"kind": "ratio"})) == "12.5%"
     assert grounding.display(Decimal("0.125"), grounding._unit({"kind": "delta", "of_ratio": True})) == "+12.5个百分点"
-    assert export._axis(9999) == "9,999"
+    assert export._axis(9999) == "9999"
     assert export._axis(10000) == "10K"
     assert export._axis(1000000) == "1M"
     assert export._axis(1000000000) == "1B"

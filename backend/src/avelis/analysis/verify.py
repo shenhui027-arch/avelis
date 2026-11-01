@@ -3,11 +3,11 @@
 核验层保证“数值来源”：每个事实、计算类数字都来自本次运行的某个数据集单元格或登记的汇总值，显示格式由系统按量纲
 决定，渲染过程没有拼接或改写（界面叫“来源已校验”）。它不保证句子语义正确（取错列、错成员、错期间），那部分交给评测。
 
-适用于事实、计算类结论，以及标题、摘要、“未解释”：
+适用于事实、计算类结论，以及标题、摘要、“未解释”、分析方法（方法的问题只作字段级提示）：
 1. 引用必须能解析：数据集、列或汇总路径存在；恰好选中一行；值是有限数值；方向与正负一致（水平值不写方向）；
 2. 数值段不能拼接：两个数值段直接相邻，或中间只隔着空白与 . , e E + - ×，判错；数值段后面紧跟的文字不能以
    单位或数量后缀开头（%、倍、成、元、万、亿、个百分点、折），单位只由系统输出；
-3. 文字片段里不能有阿拉伯数字（半角、全角），本次已有的数据集编号（如 D5）除外；日期用 WindowRef 或数据集里的日期单元格；
+3. 文字片段里不能有阿拉伯数字（半角、全角），完整的 ASCII 字母加数字识别符除外；日期用 WindowRef 或数据集里的日期单元格；
 4. 文字片段里不能有中文数量表达（ADR 0009 第 7 点调整，不维护白名单与数量词表）：二至九、十、百、千、万、亿、两、
    零〇 组成的数字后面紧跟量词或单位；“百分之……”“……分之……”；财务大写一律判定。“一”（冠词、序数）、序数与时间词
    （“第二”“九月下旬”）、没有量词的说法（“两期”“两渠道”）都不判定；剩下的中文数量风险交给评测衡量；
@@ -16,7 +16,8 @@
 推断、建议类结论及 premise、validation：引用照常渲染，文字片段里允许出现数字（假设或方案，不是观测值），不核验。
 
 报告整体状态：all_passed（来源全部通过）、with_inference（含未核实的推断）、no_facts（没有可核实的事实）；
-有事实、计算类结论或字段没通过时为 failed。另统计数字来源构成：口径、探索、计算、上下文各有多少个数字。
+有事实、计算类结论或标题、摘要、“未解释”没通过时为 failed；分析方法的问题单独提示，不影响整体状态。
+另统计数字来源构成：口径、探索、计算、上下文各有多少个数字。
 """
 
 from __future__ import annotations
@@ -33,7 +34,9 @@ FIELDS = ("title", "summary", "unexplained", "method")
 DETAILS = ("premise", "validation")
 NUMERIC = ("value", "count")
 DIGITS = re.compile(r"[0-9０-９][0-9０-９.,:/\-]*")
-DATASET_TOKEN = re.compile(r"(?<![A-Za-z0-9])D[0-9]+(?![A-Za-z0-9])")
+# 只豁免完整的字母前缀加数字标记；ASCII 字母数字边界防止吞掉 1e3、V1x 等真实数字的一部分。
+# 中文与标点可直接邻接标记；引用对象和显式 refs 的数据集存在性仍由各自的结构检查保证。
+IDENTIFIER_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]+[0-9]+(?![A-Za-z0-9])")
 # 中文数量表达（第 2 点第 4 条）：数字由二至九、十、百、千、万、亿、两、零〇 组成（“一”只在与它们相连时算进数字，
 # 如“一百”“十一”），从整段数字的开头匹配（前面是“第”的是序数），后面紧跟量词或单位才算数量
 _CN_DIGIT = "零〇一二两三四五六七八九十百千万亿"
@@ -62,13 +65,13 @@ def _concat_problems(segments: list[dict]) -> list[str]:
     return problems
 
 
-def _text_problems(segments: list[dict], dataset_refs: set[str]) -> list[str]:
+def _text_problems(segments: list[dict]) -> list[str]:
     problems = []
     for s in segments:
         if s["kind"] != "text":
             continue
         text = s["text"]
-        numeric_text = DATASET_TOKEN.sub(lambda m: " " if m.group(0) in dataset_refs else m.group(0), text)
+        numeric_text = IDENTIFIER_TOKEN.sub(" ", text)
         for d in list(dict.fromkeys(DIGITS.findall(numeric_text)))[:3]:
             problems.append(f"第 {s['part']} 个片段（文字）出现数字“{d}”：数字请写成引用对象（日期用 WindowRef 或数据集里的日期）")
         found = [m.group(0) for pattern in (CN_QUANTITY, CN_FRACTION, CN_FINANCIAL) for m in pattern.finditer(text)]
@@ -88,16 +91,16 @@ def _restricted_problems(segments: list[dict]) -> list[str]:
     return problems
 
 
-def check(segments: list[dict], errors: list[str], dataset_refs: set[str]) -> list[str]:
+def check(segments: list[dict], errors: list[str]) -> list[str]:
     """事实、计算类结论与标题等字段的结构检查：返回问题列表，空表示通过。"""
-    return [*errors, *_concat_problems(segments), *_text_problems(segments, dataset_refs), *_restricted_problems(segments)]
+    return [*errors, *_concat_problems(segments), *_text_problems(segments), *_restricted_problems(segments)]
 
 
 def _record(parts: Any, datasets: dict[str, dict], window: dict | None, *, checked: bool) -> tuple[dict, list[str]]:
     """一个字段的保存结果：parts、text、segments、status、errors。"""
     parts = decode_parts(parts)
     r = render(parts, datasets, window)
-    problems = check(r["segments"], r["errors"], set(datasets)) if checked else list(r["errors"])
+    problems = check(r["segments"], r["errors"]) if checked else list(r["errors"])
     status = ("unverified" if problems else "verified") if checked else "unchecked"
     return {"parts": parts, "text": r["text"], "segments": r["segments"], "status": status, "errors": problems}, r["refs"]
 
@@ -153,12 +156,13 @@ def ground_report(report: dict[str, Any], datasets: dict[str, dict], window: dic
     rendered["causes"], cause_results, conclusion_problems = _causes(report, datasets, window)
     conclusion_problems += _conclusion_matches(report, explanations or {}, question_type)
     unverified_fields = sum(f["status"] == "unverified" for f in field_results)
+    failed_fields = any(f["status"] == "unverified" and f["field"] != "method" for f in field_results)
     unverified_causes = sum(c["status"] == "unverified" for c in cause_results)
-    ok = unverified == 0 and unverified_fields == 0 and unverified_causes == 0 and not conclusion_problems
+    ok = unverified == 0 and not failed_fields and unverified_causes == 0 and not conclusion_problems
     facts = [c for c in claims if c["type"] in CHECKED]
     status = ("failed" if not ok else "no_facts" if not facts else
               "with_inference" if any(c["type"] not in CHECKED for c in claims) else "all_passed")
-    # ok 只表示没有未通过的事实或字段（决定是否修订）；“只有推断、没有事实”由 status=no_facts 表示，界面不显示“全部通过”
+    # method 的过程描述只保留字段级提示；ok 决定是否修订事实、计算与报告结论。“只有推断、没有事实”由 no_facts 表示。
     verification = {"ok": ok, "status": status, "unverified": unverified, "claims": results,
                     "fields": field_results, "unverified_fields": unverified_fields,
                     "causes": cause_results, "unverified_causes": unverified_causes,
