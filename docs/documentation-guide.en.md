@@ -22,8 +22,8 @@ This guide sets the structure, languages and style of the README and documentati
 
 | File | Language | Contents |
 |---|---|---|
-| `README.md` | English | Project entry point, structured as in section 3; shown by default on GitHub |
-| `README.zh-CN.md` | Simplified Chinese | Same structure and content as the English version; **the authoritative source** |
+| `README.md` | Simplified Chinese | Project entry point, structured as in section 3; shown by default on GitHub; **the authoritative source** |
+| `README.en.md` | English | Same structure and content as the Simplified Chinese version |
 | `README.zh-TW.md` | Traditional Chinese | Same structure and content as the Simplified Chinese version |
 | `CONTRIBUTING.md` | Three languages, one section each | Development setup, commit conventions, pull request process, testing requirements |
 | `CODE_OF_CONDUCT.md` | Three languages, one section each | Adopts the Contributor Covenant 2.1 |
@@ -99,7 +99,7 @@ In `docs/`, translations are **files with the same name plus a language suffix**
 
 ### Originals and keeping in sync
 
-- **Simplified Chinese is the original**; English and Traditional Chinese are translations. The README is the exception in presentation only: GitHub shows the English version by default, but the Simplified Chinese version remains the authoritative content.
+- **Simplified Chinese is the original**; English and Traditional Chinese are translations. This includes the README: `README.md`, which GitHub shows by default, is the Simplified Chinese version.
 - When the original changes, update both translations in the same pull request. If a translation cannot be updated in time, add the line “This page is behind the Simplified Chinese original.” under its language links and open an issue.
 - Traditional Chinese translations start from [OpenCC](https://github.com/BYVoid/OpenCC) `s2twp` (Taiwan phrasing) and are then checked term by term against the table below; a character conversion alone is not enough.
 - English translations follow the meaning rather than the words; commands, settings, code and paths stay as they are.
