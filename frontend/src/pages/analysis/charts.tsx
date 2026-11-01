@@ -1,11 +1,11 @@
 // 分析页的两种图：趋势（折线）与贡献（以 0 为中线的横向条）。内联 SVG，颜色取设计令牌。
+import { formatCompact } from "../../format";
+import { t } from "../../i18n";
+
 const PALETTE = ["var(--accent)", "var(--danger)", "var(--ok)", "var(--warn)", "#8E4EC6", "#12A594"];
 
 function fmt(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1e8) return `${(n / 1e8).toFixed(2)}亿`;
-  if (abs >= 1e4) return `${(n / 1e4).toFixed(1)}万`;
-  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return Math.abs(n) >= 1e4 ? formatCompact(n) : Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
 export function BarChart({ bars, label }: { bars: { label: string; value: number }[]; label: string }) {
@@ -17,7 +17,7 @@ export function BarChart({ bars, label }: { bars: { label: string; value: number
   const zero = left + (hasNeg ? plot / 2 : 0);
   const scale = (hasNeg ? plot / 2 : plot) / max;
   return (
-    <svg className="av-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${label}条形图`}>
+    <svg className="av-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t("{{label}}条形图", { label })}>
       <text x={left} y={11} className="av-chart__label">{label}</text>
       <line x1={zero} x2={zero} y1={top - 4} y2={height - 6} className="av-chart__axis" />
       {bars.map((b, i) => {
@@ -45,13 +45,13 @@ export function LineChart({ series, label }: { series: { name: string; points: {
   const y = (v: number) => top + (1 - (v - lo) / (hi - lo || 1)) * (height - top - bottom);
   const ticks = xs.filter((_, i) => i % Math.max(1, Math.ceil(xs.length / 5)) === 0);
   return (
-    <svg className="av-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${label}趋势图`}>
+    <svg className="av-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t("{{label}}趋势图", { label })}>
       <text x={left} y={11} className="av-chart__label">{label}</text>
       {series.map((s, i) => <text key={s.name} x={left + 70 + i * 62} y={11} className="av-chart__tick" fill={PALETTE[i % PALETTE.length]}>{s.name.slice(0, 6)}</text>)}
       <line x1={left} x2={width - right} y1={height - bottom} y2={height - bottom} className="av-chart__axis" />
       <text x={left - 4} y={y(hi) + 4} textAnchor="end" className="av-chart__tick">{fmt(hi)}</text>
       <text x={left - 4} y={y(lo) + 4} textAnchor="end" className="av-chart__tick">{fmt(lo)}</text>
-      {ticks.map((t) => <text key={t} x={x(t)} y={height - 6} textAnchor="middle" className="av-chart__tick">{t.slice(5)}</text>)}
+      {ticks.map((tick) => <text key={tick} x={x(tick)} y={height - 6} textAnchor="middle" className="av-chart__tick">{tick.slice(5)}</text>)}
       {series.map((s, i) => (
         <polyline key={s.name} fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth={1.6}
           points={[...s.points].sort((a, b) => a.x.localeCompare(b.x)).map((p) => `${x(p.x)},${y(p.y)}`).join(" ")} />
