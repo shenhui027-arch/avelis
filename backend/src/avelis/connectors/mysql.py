@@ -10,8 +10,8 @@ from typing import Any
 
 import pymysql
 
-from avelis.connectors.base import ObservedAsset, ObservedColumn, Snapshot
-from avelis.connectors.starrocks import _checked, _in_list
+from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.starrocks import _checked, _classify, _in_list, _set_timezone
 
 
 class MySQLMetaConnector:
@@ -23,9 +23,31 @@ class MySQLMetaConnector:
         self._conn_args = dict(host=host, port=port, user=user, password=password)
         self.options = options or {}
 
-    def _connect(self) -> pymysql.Connection:
+    def _connect(self, read_timeout: int = 60) -> pymysql.Connection:
         return pymysql.connect(**self._conn_args, autocommit=True, charset="utf8mb4", connect_timeout=5,
-                               read_timeout=60, cursorclass=pymysql.cursors.DictCursor)
+                               read_timeout=read_timeout, cursorclass=pymysql.cursors.DictCursor)
+
+    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
+                       timezone: str | None = None) -> QueryResult:
+        """只读事务执行；保留元数据适配器的能力声明，不据此开放未经联调的问数。"""
+        conn = self._connect(read_timeout=timeout_seconds + 15)
+        try:
+            cur = conn.cursor(pymysql.cursors.Cursor)
+            warnings = _set_timezone(cur, timezone)
+            cur.execute(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout_seconds) * 1000}")
+            cur.execute("START TRANSACTION READ ONLY")
+            cur.execute(sql)
+            columns = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(max_rows + 1)
+            conn.rollback()
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows,
+                               warnings=warnings)
+        except pymysql.MySQLError as exc:
+            errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            message = str(exc.args[-1]) if exc.args else str(exc)
+            raise QueryError(_classify(errno, message), errno, message) from exc
+        finally:
+            conn.close()
 
     def server_identity(self) -> dict[str, Any]:
         conn = self._connect()

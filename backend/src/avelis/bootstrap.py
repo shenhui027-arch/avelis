@@ -7,7 +7,7 @@
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
   uv run python -m avelis.bootstrap openapi PATH   导出 OpenAPI 文档（前端据此生成类型）
-  uv run python -m avelis.bootstrap model          按 .env 的 AVELIS_MODEL_* 登记一个模型提供方并设为问数模型
+  uv run python -m avelis.bootstrap model          按配置（[model] 或 AVELIS_MODEL_*）登记一个模型提供方并设为问数模型
                                                    （之后在“模型配置”页面维护）
   uv run python -m avelis.bootstrap verify-history 核验历史哈希链（断链时退出码 1，打印位置与原因）
   uv run python -m avelis.bootstrap purge-history [--dry-run] [--days N]
@@ -191,8 +191,27 @@ def ensure_superadmin(reset_password: bool = False) -> str | None:
         return user.id
 
 
+def model_operator() -> str:
+    """登记模型时记在审计里的操作人。
+
+    演示环境（配置了 AVELIS_DEMO_USER_PASSWORD）沿用自动化管理员 ops_admin；部署环境不建任何演示账号，
+    用已存在的启用管理员：优先初始管理员账号（AVELIS_INITIAL_ADMIN_USERNAME），否则最早创建的那个。"""
+    env = get_settings().env
+    if len(env.get("AVELIS_DEMO_USER_PASSWORD", "")) >= 8:
+        return ensure_admin(superadmin=False)  # 登记模型不需要本地超级管理员
+    preferred = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "").strip() or "admin"
+    with session_scope() as session:
+        admins = (select(User).join(UserRole, UserRole.user_id == User.id)
+                  .where(UserRole.role == "admin", User.is_active.is_(True)))
+        admin = (session.scalar(admins.where(User.username == preferred))
+                 or session.scalar(admins.order_by(User.created_at, User.id).limit(1)))
+        if admin is None:
+            raise SystemExit("没有可用的管理员：先执行 python -m avelis.bootstrap init-admin 创建首个管理员")
+        return admin.id
+
+
 def model_from_env() -> str:
-    """开发便利：把 .env 中的 AVELIS_MODEL_* 登记为提供方，并指定为问数理解与导入推断模型。"""
+    """把配置中的模型（[model] 或 AVELIS_MODEL_*）登记为提供方，并指定为问数理解与导入推断模型。"""
     from avelis import modelcfg
     from avelis.models import ModelProvider
 
@@ -201,14 +220,14 @@ def model_from_env() -> str:
                                                             "AVELIS_MODEL_API_KEY"))
     if not (provider and name and key):
         raise SystemExit("缺少 AVELIS_MODEL_PROVIDER / AVELIS_MODEL_NAME / AVELIS_MODEL_API_KEY")
-    admin_id = ensure_admin(superadmin=False)  # 登记模型不需要本地超级管理员
+    admin_id = model_operator()
     with session_scope() as session:
         admin = session.get(User, admin_id)
         p = session.scalar(select(ModelProvider).where(ModelProvider.code == "env-default"))
         kind = "anthropic" if provider == "anthropic" else "openai_compatible"
         if p is None:
             p = modelcfg.create_provider(session, admin, code="env-default", preset="custom",
-                                         name=f"{provider}（来自 .env）", kind=kind,
+                                         name=f"{provider}（来自配置）", kind=kind,
                                          base_url=env.get("AVELIS_MODEL_BASE_URL") or None, api_key=key,
                                          models=[{"id": name, "enabled": True}])
         modelcfg.check(session, admin, p.id, name)

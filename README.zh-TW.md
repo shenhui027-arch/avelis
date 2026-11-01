@@ -20,7 +20,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis 處於 v0.1，尚未發布正式版本。介面目前為簡體中文，英文與繁體中文在計劃中；文件提供簡體中文、繁體中文與英文。
+> Avelis 處於 v0.1，尚未發布正式版本。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 功能亮點
 
@@ -54,6 +54,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
 | Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4 | ✓ | | | | |
 
 StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表；MySQL 目前作為這些外部表的追溯目標採集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，見 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
@@ -150,8 +151,6 @@ pnpm dev
 
 計劃中的方向，不承諾日期：
 
-- 介面支援英文與繁體中文。
-- Hive 引擎（中繼資料與檢視表血緣），開發中。
 - 更多引擎的外部 Catalog 與物化檢視表。
 - StarRocks、SQL Server、Oracle 的變更歸因。
 - 問數表達能力：衍生指標巢狀、按週 / 月的時間粒度、佔比。

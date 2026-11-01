@@ -4,15 +4,62 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from avelis.i18n import gettext
 
 Json = dict[str, Any]
 
 
 class Out(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+# --- 系统设置 ---------------------------------------------------------------------
+
+BusinessCalendarWeekday = Annotated[int, Field(strict=True, ge=0, le=6)]
+BusinessCalendarDate = Annotated[str, Field(strict=True, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                          json_schema_extra={"format": "date"})]
+
+
+class BusinessCalendarIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    weekend_days: list[BusinessCalendarWeekday] = Field(default_factory=lambda: [5, 6], max_length=2000)
+    holidays: list[BusinessCalendarDate] = Field(default_factory=list, max_length=2000)
+    workdays: list[BusinessCalendarDate] = Field(default_factory=list, max_length=2000)
+
+    @field_validator("weekend_days")
+    @classmethod
+    def normalize_weekdays(cls, values: list[int]) -> list[int]:
+        return sorted(set(values))
+
+    @field_validator("holidays", "workdays")
+    @classmethod
+    def normalize_dates(cls, values: list[str]) -> list[str]:
+        for value in values:
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                raise ValueError(gettext("日期必须是合法的 YYYY-MM-DD")) from None
+        return sorted(set(values))
+
+    @model_validator(mode="after")
+    def disjoint_dates(self) -> "BusinessCalendarIn":
+        if set(self.holidays) & set(self.workdays):
+            raise ValueError(gettext("同一天不能既是节假日又是调休上班日"))
+        return self
+
+
+class BusinessCalendarOut(BusinessCalendarIn):
+    configured: bool
+
+
+class WorkerHealthOut(Out):
+    alive: bool
+    last_seen: str | None = None
 
 
 # --- 数据源 -----------------------------------------------------------------------
@@ -56,6 +103,13 @@ class EngineOptionOut(Out):
     type: str
     required: bool
     hint: str
+    choices: list[str] = []
+    default: str = ""
+
+
+class CredentialFreeOut(Out):
+    option: str
+    values: list[str]
 
 
 class EngineOut(Out):
@@ -69,6 +123,7 @@ class EngineOut(Out):
     is_test_adapter: bool
     note: str
     options: list[EngineOptionOut] = []
+    credential_free: CredentialFreeOut | None = None
 
 
 class DatasourceOut(Out):
@@ -385,6 +440,11 @@ class MetricVersionOut(Out):
     base_asset: Json | None = None
     time_column: str
     timezone: str
+    time_format: Literal["yyyymmdd", "yyyy-mm-dd", "yyyymm"] | None = None
+    data_grain: Literal["day", "week", "month", "quarter", "year"] = "day"
+    time_aggregation: Literal["sum", "last", "avg"] = "sum"
+    value_kind: Literal["level", "ratio", "count"] | None = None
+    polarity: Literal["up_good", "down_good"] | None = None
     filters: str | None = None
     dimensions: list[Json]
     joins: list[Json]
@@ -580,6 +640,7 @@ class AuditOut(Out):
 
 class StatementOut(Out):
     id: str
+    file_id: str | None = None
     seq: int
     lines: list[int]
     method: str
@@ -590,10 +651,13 @@ class StatementOut(Out):
     placeholders: list[str]
     raw_text: str
     sql_text: str | None = None
+    text_hash: str | None = None
+    writes: list[Json] = Field(default_factory=list)
 
 
 class CandidateOut(Out):
     id: str
+    file_id: str | None = None
     statement_id: str | None = None
     origin: str
     status: str
@@ -611,6 +675,9 @@ class CandidateOut(Out):
     modified: Json
     reason: str | None = None
     decided_by: str | None = None
+    attributes: Json = Field(default_factory=dict)
+    via: list[str] = Field(default_factory=list)
+    hops: list[Json] = Field(default_factory=list)
 
 
 class ImportJobOut(Out):
@@ -631,6 +698,80 @@ class ImportJobOut(Out):
     candidates: list[CandidateOut] = Field(default_factory=list)
     duplicate: bool | None = None
     content: str | None = None
+
+
+class ImportFileOut(Out):
+    id: str
+    filename: str
+    source_key: str
+    revision: int
+    supersedes: str | None = None
+    superseded_by: str | None = None
+    language: str
+    status: str
+    statement_count: int = 0
+    stats: Json = Field(default_factory=dict)
+
+
+class ImportBatchBrief(Out):
+    id: str
+    status: str
+    file_count: int
+    statement_count: int
+    progress: Json
+    created_at: str
+    filename: str | None = None
+
+
+class ImportBatchOut(Out):
+    id: str
+    datasource_id: str
+    default_db: str | None = None
+    status: str
+    progress: Json = Field(default_factory=dict)
+    stats: Json = Field(default_factory=dict)
+    options: Json = Field(default_factory=dict)
+    params: Json = Field(default_factory=dict)
+    files: list[ImportFileOut] = Field(default_factory=list)
+    unmatched_tables: list[Json] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    job_id: str | None = None
+    created_at: str
+    updated_at: str | None = None
+    error: str | None = None
+    duplicate: bool | None = None
+
+
+class ImportStatementPage(Out):
+    items: list[StatementOut]
+    total: int
+    counts: dict[str, int]
+    offset: int
+    limit: int
+
+
+class ImportCandidatePage(Out):
+    items: list[CandidateOut]
+    total: int
+    offset: int
+    limit: int
+
+
+class ImportContentOut(Out):
+    file_id: str
+    filename: str
+    content: str
+
+
+class ImportSqlFunctionsOut(Out):
+    datasource_id: str
+    sql_functions: list[str]
+
+
+class ImportDecisionsOut(Out):
+    ids: list[str]
+    decision: str
+    processed: int
 
 
 # --- 工作台 -----------------------------------------------------------------------
@@ -788,6 +929,11 @@ class AnalysisStepOut(Out):
     output: Json = Field(default_factory=dict)
 
 
+class ColumnRole(Out):
+    role: Literal["time", "dimension", "measure", "change", "rate"]
+    label: str
+
+
 class AnalysisDatasetOut(Out):
     ref: str
     seq: int
@@ -803,6 +949,9 @@ class AnalysisDatasetOut(Out):
     summary: Any = None
     metric_version_ids: list[str] = Field(default_factory=list)
     time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
+    units: Json = Field(default_factory=dict)
+    polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
 
 
 class AnalysisDatasetLegacyOut(Out):
@@ -817,6 +966,7 @@ class AnalysisDatasetLegacyOut(Out):
     meta: Json
     inputs: list[str]
     answer_id: str | None
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
 
 
 class AnalysisDatasetSource(Out):
@@ -838,6 +988,8 @@ class AnalysisDatasetDetailOut(Out):
     window: Json
     time_column: str | None
     units: Json
+    polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
+    column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
     summary_units: Json
     purpose: str | None
     answer_id: str | None
@@ -863,11 +1015,11 @@ class AnalysisDatasetRerunWindow(BaseModel):
     @model_validator(mode="after")
     def valid_range(self) -> "AnalysisDatasetRerunWindow":
         if self.start > self.end:
-            raise ValueError("时间窗口的开始日期晚于结束日期")
+            raise ValueError(gettext("时间窗口的开始日期晚于结束日期"))
         if bool(self.compare_start) != bool(self.compare_end):
-            raise ValueError("对比窗口需要同时提供 compare_start 与 compare_end")
+            raise ValueError(gettext("对比窗口需要同时提供 compare_start 与 compare_end"))
         if self.compare_start and self.compare_end and self.compare_start > self.compare_end:
-            raise ValueError("对比窗口的开始日期晚于结束日期")
+            raise ValueError(gettext("对比窗口的开始日期晚于结束日期"))
         return self
 
 
@@ -877,6 +1029,8 @@ class AnalysisDatasetRerunIn(BaseModel):
 
 class AnalysisRunOut(Out):
     id: str
+    conversation_id: str
+    turn: int
     question: str
     status: str
     trigger: str
@@ -907,6 +1061,25 @@ class AnalysisRunOut(Out):
     checkpoint_warnings: list[str] = Field(default_factory=list)
     confirmed_scope: Json = Field(default_factory=dict)
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
+
+
+class AnalysisConversationOut(Out):
+    id: str
+    title: str
+    display_title: str | None = None
+    question: str
+    latest_run_id: str
+    status: str
+    turn_count: int
+    archived_at: str | None = None
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class AnalysisConversationDetailOut(AnalysisConversationOut):
+    runs: list[AnalysisRunOut]
 
 
 class CronPreviewOut(Out):

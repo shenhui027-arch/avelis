@@ -12,7 +12,7 @@ dependencies = [
     "psycopg[binary]==3.3.6",
     "pymysql==1.2.3",
     "cryptography==50.0.2",
-    "sqlglot==30.25.0",
+    "sqlglot",
     "redis==8.1.0",
     "pyjwt==2.15.1",
     "httpx==0.28.1",
@@ -30,6 +30,8 @@ dependencies = [
     "oracledb>=3.3",
     "reportlab>=4.2",
     "json-repair>=0.50",
+    "impyla>=0.24",
+    "babel>=2.18.0",
 ]
 
 [dependency-groups]
@@ -37,12 +39,19 @@ dev = [
     "pytest==9.2.0",
 ]
 
+[tool.uv.sources]
+# fork 分支 avelis-v30.27.0：v30.27.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861）+ MySQL RENAME TABLE（上游 PR 待提交）；都合并发布后切回 PyPI 并删掉这里
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "8614b60bf11925e1c5f29fd61f3a552a02fc4976" }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/avelis"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/avelis/locales" = "avelis/locales"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

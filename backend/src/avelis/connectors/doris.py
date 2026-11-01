@@ -27,7 +27,7 @@ import pymysql
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent, objects_in
-from avelis.connectors.starrocks import IDENT, _checked, _in_list
+from avelis.connectors.starrocks import IDENT, _checked, _in_list, _set_timezone
 
 INTERNAL_CATALOG = "internal"
 UNIQUE_MODELS = ("UNI",)
@@ -179,17 +179,20 @@ class DorisConnector:
 
     # --- 只读执行 ------------------------------------------------------------------
 
-    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int) -> QueryResult:
+    def execute_select(self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int,
+                       timezone: str | None = None) -> QueryResult:
         conn = self._connect(read_timeout=timeout_seconds + 15)
         try:
             cur = conn.cursor(pymysql.cursors.Cursor)
+            warnings = _set_timezone(cur, timezone)
             cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
             if mem_limit_bytes:
                 cur.execute(f"SET exec_mem_limit = {int(mem_limit_bytes)}")
             cur.execute(sql)
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
-            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows,
+                               warnings=warnings)
         except pymysql.MySQLError as exc:
             raise _query_error(exc) from exc
         finally:

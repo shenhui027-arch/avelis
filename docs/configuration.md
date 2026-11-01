@@ -116,8 +116,11 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | 配置文件 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `timezone` | `AVELIS_BUSINESS_TIMEZONE` | `Asia/Shanghai` | 业务时区 |
+| `number_style` | `AVELIS_NUMBER_STYLE` | `cn` | 数字显示体系：`cn` 使用万、亿；`intl` 使用 K、M、B，报告正文与导出共用，应用设置接口同时提供给前端图表 |
 | `unassigned_asset_policy` | `AVELIS_UNASSIGNED_ASSET_POLICY` | `deny` | 未归属业务域的资产：`deny`（只有管理员与维护者可见）/ `allow` |
 | `require_column_comments` | `AVELIS_REQUIRE_COLUMN_COMMENTS` | `false` | 口径依赖的列缺数据库注释时是否阻断发布（否则只提示） |
+
+`number_style` 按换算回基本单位后的绝对值选择缩写：`cn` 在 ≥ `1e8` 时用亿、≥ `1e4` 时用万；`intl` 在 ≥ `1e9` 时用 B、≥ `1e6` 时用 M、≥ `1e4` 时用 K（除以 `1e3`）。两种体系都从 `1e4` 起缩写，因此 `1e3` 至小于 `1e4` 的数仍按普通数字显示。百分比、百分点、带单位的比率和未知量纲保持原有格式。
 
 ### 问数与查询 `[query]`
 
@@ -160,6 +163,14 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `material_change_ratio` | `AVELIS_MATERIAL_CHANGE_RATIO` | `0.01` | 变化显著性阈值（口径未单独设置时） |
 | `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | 元数据图证据发现（实验特性） |
 | `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | 证据解释（实验特性，本阶段只定义开关） |
+| `uniform_tolerance` | `AVELIS_ANALYSIS_UNIFORM_TOLERANCE` | `0.5` | 均匀容差，有限数值，范围 `(0, 1]`；至少三个正基数成员的变化率都在总体变化率的 ±此比例以内，才判为均匀 |
+| `spike_share` | `AVELIS_ANALYSIS_SPIKE_SHARE` | `0.5` | 时间集中度阈值，有限数值，范围 `(0, 1]`；最大单日绝对偏差占总偏差绝对值达到此比例，判为集中在某个时间点 |
+
+### 智能体 `[agent]`
+
+`reply_language`（环境变量 `AVELIS_REPLY_LANGUAGE`）默认是 `"auto"`，分析与问数的回答跟随请求的 `Accept-Language`；也可固定为 `"zh-CN"`、`"zh-TW"` 或 `"en"`。固定回答语言只影响智能体生成给用户看的文字，接口提示与导出标签仍按请求语言返回。
+
+分析运行把请求语言保存在已有的检查点 JSON 中；手动“立即运行”任务时，语言还会写入 Job，独立 worker 领取后仍使用本次请求的语言。问数会话把本轮语言保存在 LangGraph 会话上下文中，后续请求切换界面语言时会更新。无请求上下文的新定时运行默认使用 `zh-CN`，也可用固定回答语言配置控制。指标名、维度成员、字段名、数据取值及引用的元数据保留原文，核验与引用规则不变；语言指令放在运行的用户消息中，系统提示保持稳定。
 
 ### 模型 `[model]`
 

@@ -2,18 +2,20 @@
 // 地址带 ?dataset=D3，可以直接分享到具体数据集。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Drawer, Empty, Icon, Pill } from "../../components/ui";
 import { BarChart, LineChart } from "./charts";
+import { t } from "../../i18n";
 
 type Detail = Schemas["AnalysisDatasetDetailOut"];
-type Chartable = { columns: string[]; rows: unknown[][]; time_column?: string | null };
+type Chartable = { columns: string[]; rows: unknown[][]; time_column?: string | null;
+  column_roles?: Record<string, { role: string; label?: string }> | null };
 
-export const DATASET_KIND: Record<string, [string, "ok" | "warn" | "info"]> = { governed: ["受治理", "ok"], calc: ["计算", "info"],
-  context: ["上下文", "info"], explore: ["探索", "warn"], ungoverned: ["未治理", "warn"] };
+export const DATASET_KIND: Record<string, [string, "ok" | "warn" | "info"]> = { governed: [t("受治理"), "ok"], calc: [t("计算"), "info"],
+  context: [t("上下文"), "info"], explore: [t("探索"), "warn"], ungoverned: [t("未治理"), "warn"] };
 const PAGE = 100;
 
 function numeric(v: unknown): number | null {
@@ -21,8 +23,10 @@ function numeric(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 首列是保存的时间段列（time_column）时画趋势；否则对 change / contribution（或第一个数值列）画贡献条。空值不画。 */
+/** 有列契约（ADR 0014）时按角色选轴：时间列画趋势，变化列优先、其次度量列为数值，维度列为类目；契约里没有可画的列就不画。
+ *  没有契约的旧运行退回原规则：首列是保存的时间段列时画趋势，否则对 change / contribution（或第一个数值列）画贡献条。空值不画。 */
 export function DatasetChart({ d, limit = 12 }: { d: Chartable; limit?: number }) {
+  if (d.column_roles) return <RoleChart d={d} roles={d.column_roles} limit={limit} />;
   const cols = d.columns;
   const trend = !!d.time_column && cols[0] === d.time_column;
   const numCols = cols.map((_, i) => i).filter((i) => !(trend && i === 0) && d.rows.some((r) => numeric(r[i]) !== null)
@@ -46,6 +50,36 @@ export function DatasetChart({ d, limit = 12 }: { d: Chartable; limit?: number }
     return v === null ? [] : [{ label: labelCols.map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: v }];
   });
   return bars.length > 1 ? <BarChart bars={bars} label={cols[value]} /> : null;
+}
+
+function RoleChart({ d, roles, limit }: { d: Chartable; roles: Record<string, { role: string; label?: string }>; limit: number }) {
+  const cols = d.columns;
+  const of = (role: string) => cols.map((_, i) => i).filter((i) => roles[cols[i]]?.role === role);
+  const value = of("change")[0] ?? of("measure")[0];
+  if (value === undefined || !d.rows.length) return null;
+  const label = roles[cols[value]]?.label ?? cols[value];
+  const time = of("time")[0];
+  const dims = of("dimension");
+  if (time !== undefined && d.rows.length > 2) {
+    const series = new Map<string, { x: string; y: number }[]>();
+    for (const r of d.rows) {
+      const key = dims.map((i) => String(r[i] ?? "")).join(" / ") || label;
+      const y = numeric(r[value]);
+      if (y !== null) series.set(key, [...(series.get(key) ?? []), { x: String(r[time]), y }]);
+    }
+    return <LineChart series={[...series].slice(0, 6).map(([name, points]) => ({ name, points }))} label={label} />;
+  }
+  if (d.rows.length < 2) return null;
+  const bars = d.rows.slice(0, limit).flatMap((r, i) => {
+    const v = numeric(r[value]);
+    return v === null ? [] : [{ label: dims.slice(0, 2).map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: v }];
+  });
+  return bars.length > 1 ? <BarChart bars={bars} label={label} /> : null;
+}
+
+/** 证据编号：带上它所属的那一轮。续问会复制并重新编号数据集，同一个 D 编号在不同轮次里指向不同的数据。 */
+export function EvidenceLink({ runId, refId }: { runId: string; refId: string }) {
+  return <Link className="av-tag av-mono" to={{ pathname: `/analysis/runs/${runId}`, hash: `dataset-${refId}` }}>{refId}</Link>;
 }
 
 /** 当前打开的数据集（地址里的 ?dataset=）与打开、关闭的方法。 */
@@ -83,29 +117,29 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
   return (
     <div className="av-dsview">
       <header className="av-dsview__hd">
-        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>← 返回报告</button>
+        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("← 返回报告")}</button>
         <div className="av-dsview__title">
           <span className="av-tag av-mono">{refId}</span>
-          <h1 title={d?.title}>{d?.title ?? "数据集"}</h1>
+          <h1 title={d?.title}>{d?.title ?? t("数据集")}</h1>
           {d ? <Pill tone={tone}>{label}</Pill> : null}
-          {d?.explore ? <Pill tone="warn">含探索来源</Pill> : null}
-          {d?.assumption ? <Pill tone="warn">含假设</Pill> : null}
-          {d?.partial ? <Pill tone="warn">部分结果</Pill> : null}
+          {d?.explore ? <Pill tone="warn">{t("含探索来源")}</Pill> : null}
+          {d?.assumption ? <Pill tone="warn">{t("含假设")}</Pill> : null}
+          {d?.partial ? <Pill tone="warn">{t("部分结果")}</Pill> : null}
         </div>
         {d ? <div className="av-actions">
           {d.rerunnable && canRerun ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setRerun(true)}>
-            <Icon name="refresh" small />换时间重跑</button> : null}
+            <Icon name="refresh" small />{t("换时间重跑")}</button> : null}
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => onDownload(Number(refId.slice(1)), refId)}>
             <Icon name="download" small />CSV</button>
         </div> : null}
       </header>
-      {forbidden ? <Empty text="你已没有该数据的访问权限" /> : detail.isError ? <div className="av-banner av-banner--danger">{errorText(detail.error)}</div> : null}
+      {forbidden ? <Empty text={t("你已没有该数据的访问权限")} /> : detail.isError ? <div className="av-banner av-banner--danger">{errorText(detail.error)}</div> : null}
       {d ? <div className="av-dsview__bd">
         <p className="av-caption av-dsview__meta">
-          共 {d.total} 行{d.truncated ? " · 结果被截断，不代表来源全集" : ""}
-          {w.start ? ` · 窗口 ${w.start} ~ ${w.end}` : ""}
-          {d.inputs.length ? ` · 输入 ${d.inputs.join("、")}` : ""}
-          {d.source ? <> · 由 <button type="button" className="av-dsview__link" onClick={() => onOpen(d.source!.ref)}>{d.source.ref}</button> 换时间重跑</> : null}
+          {t("共 {{count}} 行", { count: d.total })}{d.truncated ? t(" · 结果被截断，不代表来源全集") : ""}
+          {w.start ? t(" · 窗口 {{start}} ~ {{end}}", { start: w.start, end: w.end }) : ""}
+          {d.inputs.length ? t(" · 输入 {{v1}}", { v1: d.inputs.join(t("、")) }) : ""}
+          {d.source ? <> {t("· 由")} <button type="button" className="av-dsview__link" onClick={() => onOpen(d.source!.ref)}>{d.source.ref}</button> {t("换时间重跑")}</> : null}
         </p>
         {d.purpose ? <p className="av-dsview__purpose">{d.purpose}</p> : null}
         {offset === 0 ? <div className="av-dsview__chart"><DatasetChart d={d} limit={20} /></div> : null}
@@ -114,12 +148,12 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           <tbody>{d.rows.map((row, i) => <tr key={offset + i}>{row.map((v, j) => <td key={j} className="av-mono">{v == null ? "—" : String(v)}</td>)}</tr>)}</tbody>
         </table></div>
         {pages > 1 ? <div className="av-dsview__pager">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(offset - PAGE)}>上一页</button>
-          <span className="av-caption">第 {offset / PAGE + 1} / {pages} 页</span>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset + PAGE >= d.total} onClick={() => setOffset(offset + PAGE)}>下一页</button>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(offset - PAGE)}>{t("上一页")}</button>
+          <span className="av-caption">{t("第 {{page}} / {{pages}} 页", { page: offset / PAGE + 1, pages })}</span>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset + PAGE >= d.total} onClick={() => setOffset(offset + PAGE)}>{t("下一页")}</button>
         </div> : null}
-        {d.sql ? <details className="av-fold"><summary>SQL 与口径版本 <span className="av-caption">{d.metric_version_ids.length ? `${d.metric_version_ids.length} 个口径版本` : "探索查询"}</span></summary>
-          {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join("、")}</p> : null}
+        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
+          {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}
           <Code sql={d.sql} /></details> : null}
       </div> : null}
       {rerun && d ? <RerunDrawer runId={runId} d={d} onClose={() => setRerun(false)} onDone={(ref) => { setRerun(false); onOpen(ref); }} /> : null}
@@ -145,18 +179,18 @@ function RerunDrawer({ runId, d, onClose, onDone }: { runId: string; d: Detail; 
       <input className="av-input" type="date" value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></label>
   );
   return (
-    <Drawer title={`换时间重跑 ${d.ref}`} onClose={onClose} footer={<div className="av-actions">
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>取消</button>
+    <Drawer title={t("换时间重跑 {{ref}}", { ref: d.ref })} onClose={onClose} footer={<div className="av-actions">
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("取消")}</button>
       <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={!ready || go.isPending}
         onClick={() => go.mutate(undefined, {
           onSuccess: (out) => { void queryClient.invalidateQueries({ queryKey: ["analysis-dataset", runId] }); onDone((out as Detail).ref); },
-          onError: (e) => setError(errorText(e)) })}>{go.isPending ? "取数中…" : "重跑"}</button>
+          onError: (e) => setError(errorText(e)) })}>{go.isPending ? t("取数中…") : t("重跑")}</button>
     </div>}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <p className="av-caption">同样的口径、维度和筛选，换一个时间窗口重新取数。按现在可用的口径版本和你当前的权限执行，结果作为新的数据集保存在这次分析里，报告不变。</p>
-      <div className="av-dsview__dates">{field("start", "开始")}{field("end", "结束")}</div>
-      {custom ? <div className="av-dsview__dates">{field("cs", "对比开始")}{field("ce", "对比结束")}</div>
-        : intent.compare ? <p className="av-caption">对比期按新窗口自动推算（{intent.compare === "previous_year" ? "同比" : "环比"}）。</p> : null}
+      <p className="av-caption">{t("同样的口径、维度和筛选，换一个时间窗口重新取数。按现在可用的口径版本和你当前的权限执行，结果作为新的数据集保存在这次分析里，报告不变。")}</p>
+      <div className="av-dsview__dates">{field("start", t("开始"))}{field("end", t("结束"))}</div>
+      {custom ? <div className="av-dsview__dates">{field("cs", t("对比开始"))}{field("ce", t("对比结束"))}</div>
+        : intent.compare ? <p className="av-caption">{intent.compare === "previous_year" ? t("对比期按新窗口自动推算（同比）。") : t("对比期按新窗口自动推算（环比）。")}</p> : null}
     </Drawer>
   );
 }

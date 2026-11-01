@@ -26,6 +26,8 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 from sqlglot.schema import MappingSchema
 
+from avelis.analysis.measures import CONSTANTS
+
 SQLGLOT_VERSION = sqlglot.__version__
 MAX_SQL_LENGTH = 5000
 MAX_NODES = 600
@@ -34,7 +36,7 @@ MAX_IN_LIST = 200
 MAX_ORDER_KEYS = 10
 MAX_JOINS = 4
 # 不改变量纲的常量：中性的 0（条件聚合的 ELSE 0 等）、1，以及换算倍数
-ALLOWED_CONSTANTS = {Decimal(0), Decimal(1), Decimal(100), Decimal(1000), Decimal(10000), Decimal(100000000)}
+ALLOWED_CONSTANTS = CONSTANTS
 # 原来禁止清单里的函数：作为额外一道防线，名字出现在任何函数节点上都拒绝
 BANNED_FUNCTIONS = {"sleep", "pg_sleep", "pg_sleep_for", "pg_sleep_until", "benchmark", "load_file", "pg_read_file",
                     "pg_read_binary_file", "pg_ls_dir", "lo_import", "lo_export", "dblink", "url", "file", "files", "s3",
@@ -165,6 +167,8 @@ class Validated:
     profile: str
     sqlglot: str = SQLGLOT_VERSION
     source_dialect: str = "avelis-standard"  # 模型书写的方言
+    group_by: list[str] = field(default_factory=list)  # 输出列中由分组表达式直接投影的列
+    time_column: str | None = None
 
 
 # --- 主流程 ----------------------------------------------------------------------------
@@ -183,9 +187,11 @@ def validate(sql: str, profile: ExploreProfile, resolver: Resolver, *, max_rows:
     _check_aliases(qualified)
     _check_joins(qualified)
     columns = _outputs(qualified)
+    group_by, time_column = _column_contract(qualified)
     final, limit = _regenerate(qualified, bound, profile, max_rows)
     return Validated(sql=final, tables=list({t.asset_id: t for t in bound.values()}.values()), columns=columns,
-                     limit=limit, dialect=profile.dialect, profile=f"{profile.engine}/{profile.version}")
+                     limit=limit, dialect=profile.dialect, profile=f"{profile.engine}/{profile.version}",
+                     group_by=group_by, time_column=time_column)
 
 
 def table_refs(sql: str) -> list[tuple[str | None, str | None, str]]:
@@ -483,6 +489,49 @@ def _outputs(tree: exp.Expression) -> list[OutputColumn]:
                                                                        "delta"),
             label_ok=direct and not info.numeric, assumption=assumption and info.numeric))
     return out
+
+
+def _column_contract(tree: exp.Expression) -> tuple[list[str], str | None]:
+    """按限定后的分组表达式与已绑定日期类型登记列角色；直接投影可追溯 CTE，不改变证据资格。"""
+    root = build_scope(tree)
+
+    def roles(node: exp.Expression, scope: Scope) -> tuple[bool, bool]:
+        node = node.unalias()
+        while isinstance(node, exp.Paren):
+            node = node.this
+        group = scope.expression.args.get("group")
+        grouped = group is not None and any(node == key for key in group.expressions)
+        if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+            return grouped, True
+        if isinstance(node, exp.Cast):
+            return grouped, node.args["to"].this in exp.DataType.TEMPORAL_TYPES
+        if isinstance(node, exp.Column):
+            source = scope.sources.get(node.table)
+            if isinstance(source, Scope):
+                for projection in source.expression.expressions:
+                    if projection.alias_or_name == node.name:
+                        inner_grouped, timed = roles(projection, source)
+                        return grouped or inner_grouped, timed
+            elif isinstance(source, exp.Table):
+                bound = source.meta.get("avelis_bound")
+                column = next((c for c in bound.columns if c.name == node.name), None) if bound else None
+                if column:
+                    try:
+                        timed = exp.DataType.build(column.data_type, dialect=STANDARD_DIALECT).this in exp.DataType.TEMPORAL_TYPES
+                    except (ParseError, ValueError):
+                        timed = False
+                    return grouped, timed
+        return grouped, False
+
+    group_by, time_columns = [], []
+    for projection in tree.expressions:
+        grouped, timed = roles(projection, root)
+        if grouped:
+            group_by.append(projection.alias_or_name)
+        if timed:
+            time_columns.append(projection.alias_or_name)
+    # 一个数据集只登记唯一的时间轴；多个日期投影时不代替调用方选择。
+    return group_by, time_columns[0] if len(time_columns) == 1 else None
 
 
 def _analyze(node: exp.Expression, scope: Scope) -> _Info:

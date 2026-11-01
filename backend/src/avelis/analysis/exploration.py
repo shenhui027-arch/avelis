@@ -262,6 +262,8 @@ def record(session: Session, user: User, run_id: str, *, step: int, source: Expl
             detail["cancel_error"] = error.cancel_error  # 取消失败时的异常类别与消息（只进审计）
     if result is not None:
         detail.update(rows=len(result.rows), truncated=result.truncated, digest=digest(result))
+        if getattr(result, "warnings", None):
+            detail["query_warnings"] = list(result.warnings)
     if limits:
         detail["limits"] = limits
     if identity:

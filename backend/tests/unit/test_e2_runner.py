@@ -628,7 +628,8 @@ def test_model_timeout_is_read_for_each_request_and_retry_and_restores_original(
                              input_tokens=None, used_model_requests=0, model_blocked=lambda: False)
     steps = []
     toolbox = SimpleNamespace(budget=budget, stopped=False, _step=lambda *args, **kwargs: steps.append(args),
-                              check_executor=lambda: None, consume_messages=lambda: None,
+                              check_executor=lambda: None, check_copied_permissions=lambda: None,
+                              consume_messages=lambda: None,
                               consume_compact_request=lambda: False, interjections=[])
 
     def fail(messages):

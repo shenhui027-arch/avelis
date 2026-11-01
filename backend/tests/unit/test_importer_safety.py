@@ -30,6 +30,39 @@ def test_redact_common_secret_forms_once(source, secrets, count):
     assert all(secret not in cleaned for secret in secrets)
 
 
+@pytest.mark.parametrize("source,expected", [
+    ('DB_PASSWORD = "x"', 'DB_PASSWORD = "<redacted>"'),
+    ("mysql_pwd: 'x'", "mysql_pwd: '<redacted>'"),
+    ('client_secret="x"', 'client_secret="<redacted>"'),
+    ('auth_token = x', 'auth_token = <redacted>'),
+    ('SECRET_KEY = "x"', 'SECRET_KEY = "<redacted>"'),
+    ('private_key = "x"', 'private_key = "<redacted>"'),
+    ('{"db_password": "x"}', '{"db_password": "<redacted>"}'),
+])
+def test_redact_prefixed_secret_assignments_and_json_keys(source, expected):
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("key", [
+    "db_password", "mysql_passwd", "mysql_pwd", "client_secret", "auth_token",
+    "service_api_key", "service_apikey", "service_access_key", "service_secret_key",
+    "service_private_key", "db-password", "service-api-key", "service-access-key",
+    "service-secret-key", "service-private-key", "serviceAPIKEY", "serviceAcCeSsKeY",
+    "_TOKEN", "\u00fcber_token",
+])
+def test_redact_identifier_ending_in_sensitive_word(key):
+    assert redact(f'{key} = "value"') == (f'{key} = "<redacted>"', 1)
+
+
+@pytest.mark.parametrize("key", [
+    "password_policy", "db_password_hash", "auth_token_expiry", "private_key_path", "api_key_name",
+])
+def test_redact_preserves_identifiers_with_non_sensitive_suffix(key):
+    source = f'{key} = "public"'
+    assert redact(source) == (source, 0)
+
+
 def test_redaction_count_is_idempotent_and_preserves_other_code():
     source = 'password = "first secret"\nconfig = {"token": "second-secret"}\nurl = "u:third-secret@host"'
     cleaned, count = redact(source)

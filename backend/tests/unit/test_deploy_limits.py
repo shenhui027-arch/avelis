@@ -57,7 +57,8 @@ def test_model_retry_time_boundary_uses_configured_timeout(monkeypatch, config_v
     monkeypatch.setattr(analysis_agent, "_prepare_context", lambda *args, **kwargs: None)
     budget = tools.Budget(input_tokens=None, output_tokens=None)
     monkeypatch.setattr(budget, "remaining", lambda: remaining)
-    box = SimpleNamespace(budget=budget, stopped=False, check_executor=Mock(), _step=Mock())
+    box = SimpleNamespace(budget=budget, stopped=False, check_executor=Mock(),
+                          check_copied_permissions=Mock(), _step=Mock())
     response = AIMessage(content="离线响应")
     model = SimpleNamespace(invoke=Mock(side_effect=[TimeoutError("离线超时"), response]))
     if retry:
@@ -168,4 +169,4 @@ def test_import_upload_dynamic_byte_limit_and_utf8_error(monkeypatch, config_val
     limits.import_max_bytes = config_value.import_max_bytes
     with pytest.raises(HTTPException) as default_limit:
         invoke_upload(b"x" * (config_value.import_max_bytes + 1))
-    assert (default_limit.value.status_code, default_limit.value.detail) == (413, "文件超过 2 MB")
+    assert (default_limit.value.status_code, default_limit.value.detail) == (413, "文件超过 20 MB")

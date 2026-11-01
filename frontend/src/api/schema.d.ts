@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/worker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Worker Health */
+        get: operations["worker_health_api_health_worker_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health/ready": {
         parameters: {
             query?: never;
@@ -1028,6 +1045,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analysis/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["list_conversations_api_analysis_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation */
+        get: operations["get_conversation_api_analysis_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Conversation */
+        delete: operations["delete_conversation_api_analysis_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Conversation */
+        patch: operations["rename_conversation_api_analysis_conversations__conversation_id__patch"];
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Conversation */
+        post: operations["archive_conversation_api_analysis_conversations__conversation_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/conversations/{conversation_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Conversation */
+        post: operations["restore_conversation_api_analysis_conversations__conversation_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analysis/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -1519,6 +1606,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/business-calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Business Calendar */
+        get: operations["get_business_calendar_api_settings_business_calendar_get"];
+        /** Put Business Calendar */
+        put: operations["put_business_calendar_api_settings_business_calendar_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports": {
         parameters: {
             query?: never;
@@ -1554,7 +1659,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/imports/{job_id}": {
+    "/api/imports/sql-functions/{datasource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sql Functions */
+        get: operations["get_sql_functions_api_imports_sql_functions__datasource_id__get"];
+        /** Put Sql Functions */
+        put: operations["put_sql_functions_api_imports_sql_functions__datasource_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/{batch_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1562,7 +1685,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Import */
-        get: operations["get_import_api_imports__job_id__get"];
+        get: operations["get_import_api_imports__batch_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1571,7 +1694,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/imports/{job_id}/params": {
+    "/api/imports/{batch_id}/statements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Statements */
+        get: operations["statements_api_imports__batch_id__statements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/{batch_id}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidates */
+        get: operations["candidates_api_imports__batch_id__candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/{batch_id}/files/{job_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Content */
+        get: operations["content_api_imports__batch_id__files__job_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/{batch_id}/model-payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Model Payload */
+        get: operations["model_payload_api_imports__batch_id__model_payload_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/{batch_id}/params": {
         parameters: {
             query?: never;
             header?: never;
@@ -1580,8 +1771,25 @@ export interface paths {
         };
         get?: never;
         /** Set Params */
-        put: operations["set_params_api_imports__job_id__params_put"];
+        put: operations["set_params_api_imports__batch_id__params_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/candidates/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Many */
+        post: operations["decide_many_api_candidates_decisions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1605,7 +1813,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/imports/{job_id}/edges": {
+    "/api/imports/{batch_id}/edges": {
         parameters: {
             query?: never;
             header?: never;
@@ -1615,7 +1823,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Manual Edge */
-        post: operations["manual_edge_api_imports__job_id__edges_post"];
+        post: operations["manual_edge_api_imports__batch_id__edges_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1667,6 +1875,66 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisConversationDetailOut */
+        AnalysisConversationDetailOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Display Title */
+            display_title?: string | null;
+            /** Question */
+            question: string;
+            /** Latest Run Id */
+            latest_run_id: string;
+            /** Status */
+            status: string;
+            /** Turn Count */
+            turn_count: number;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Runs */
+            runs: components["schemas"]["AnalysisRunOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AnalysisConversationOut */
+        AnalysisConversationOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Display Title */
+            display_title?: string | null;
+            /** Question */
+            question: string;
+            /** Latest Run Id */
+            latest_run_id: string;
+            /** Status */
+            status: string;
+            /** Turn Count */
+            turn_count: number;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AnalysisDatasetDetailOut */
         AnalysisDatasetDetailOut: {
             /** Ref */
@@ -1698,6 +1966,14 @@ export interface components {
             /** Units */
             units: {
                 [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
             };
             /** Summary Units */
             summary_units: {
@@ -1761,6 +2037,10 @@ export interface components {
             inputs: string[];
             /** Answer Id */
             answer_id: string | null;
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -1800,6 +2080,18 @@ export interface components {
             metric_version_ids?: string[];
             /** Time Column */
             time_column?: string | null;
+            /** Units */
+            units?: {
+                [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity?: {
+                [key: string]: "up_good" | "down_good";
+            };
+            /** Column Roles */
+            column_roles?: {
+                [key: string]: components["schemas"]["ColumnRole"];
+            };
         } & {
             [key: string]: unknown;
         };
@@ -1976,6 +2268,10 @@ export interface components {
         AnalysisRunOut: {
             /** Id */
             id: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Turn */
+            turn: number;
             /** Question */
             question: string;
             /** Status */
@@ -2343,14 +2639,44 @@ export interface components {
             /** Datasource Id */
             datasource_id: string;
             /** File */
-            file: string;
+            file?: string | null;
             /** Default Db */
             default_db?: string | null;
+            /** Files */
+            files?: string[] | null;
+            /** Files[] */
+            "files[]"?: string[] | null;
+            /** Model Assist */
+            model_assist?: string | null;
+            /** Sql Functions */
+            sql_functions?: string | null;
+        };
+        /** BusinessCalendarIn */
+        BusinessCalendarIn: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+        };
+        /** BusinessCalendarOut */
+        BusinessCalendarOut: {
+            /** Weekend Days */
+            weekend_days?: number[];
+            /** Holidays */
+            holidays?: string[];
+            /** Workdays */
+            workdays?: string[];
+            /** Configured */
+            configured: boolean;
         };
         /** CandidateOut */
         CandidateOut: {
             /** Id */
             id: string;
+            /** File Id */
+            file_id?: string | null;
             /** Statement Id */
             statement_id?: string | null;
             /** Origin */
@@ -2389,6 +2715,16 @@ export interface components {
             reason?: string | null;
             /** Decided By */
             decided_by?: string | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            };
+            /** Via */
+            via?: string[];
+            /** Hops */
+            hops?: {
+                [key: string]: unknown;
+            }[];
         } & {
             [key: string]: unknown;
         };
@@ -2634,6 +2970,18 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ColumnRole */
+        ColumnRole: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "time" | "dimension" | "measure" | "change" | "rate";
+            /** Label */
+            label: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** CommentCoverageOut */
         CommentCoverageOut: {
             /** Datasource Id */
@@ -2716,12 +3064,26 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ConversationPatch */
+        ConversationPatch: {
+            /** Display Title */
+            display_title: string;
+        };
         /** Credential */
         Credential: {
             /** Username */
             username: string;
             /** Password */
             password: string;
+        };
+        /** CredentialFreeOut */
+        CredentialFreeOut: {
+            /** Option */
+            option: string;
+            /** Values */
+            values: string[];
+        } & {
+            [key: string]: unknown;
         };
         /** CredentialOut */
         CredentialOut: {
@@ -2863,6 +3225,18 @@ export interface components {
             /** Relation */
             relation?: string | null;
         };
+        /** DecisionsBody */
+        DecisionsBody: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accept" | "reject";
+            /** Reason */
+            reason: string;
+        };
         /** DefinitionOut */
         DefinitionOut: {
             /** Raw Sql */
@@ -2953,6 +3327,16 @@ export interface components {
             required: boolean;
             /** Hint */
             hint: string;
+            /**
+             * Choices
+             * @default []
+             */
+            choices?: string[];
+            /**
+             * Default
+             * @default
+             */
+            default?: string;
         } & {
             [key: string]: unknown;
         };
@@ -2981,6 +3365,7 @@ export interface components {
              * @default []
              */
             options?: components["schemas"]["EngineOptionOut"][];
+            credential_free?: components["schemas"]["CredentialFreeOut"] | null;
         } & {
             [key: string]: unknown;
         };
@@ -3300,6 +3685,74 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ImportBatchBrief */
+        ImportBatchBrief: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /** File Count */
+            file_count: number;
+            /** Statement Count */
+            statement_count: number;
+            /** Progress */
+            progress: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at: string;
+            /** Filename */
+            filename?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportBatchOut */
+        ImportBatchOut: {
+            /** Id */
+            id: string;
+            /** Datasource Id */
+            datasource_id: string;
+            /** Default Db */
+            default_db?: string | null;
+            /** Status */
+            status: string;
+            /** Progress */
+            progress?: {
+                [key: string]: unknown;
+            };
+            /** Stats */
+            stats?: {
+                [key: string]: unknown;
+            };
+            /** Options */
+            options?: {
+                [key: string]: unknown;
+            };
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Files */
+            files?: components["schemas"]["ImportFileOut"][];
+            /** Unmatched Tables */
+            unmatched_tables?: {
+                [key: string]: unknown;
+            }[];
+            /** Notes */
+            notes?: string[];
+            /** Job Id */
+            job_id?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Duplicate */
+            duplicate?: boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ImportBody */
         ImportBody: {
             /** Datasource Id */
@@ -3319,49 +3772,98 @@ export interface components {
             params?: {
                 [key: string]: string;
             };
+            model_assist?: components["schemas"]["ModelAssist"];
+            /** Sql Functions */
+            sql_functions?: string[];
         };
-        /** ImportJobOut */
-        ImportJobOut: {
+        /** ImportCandidatePage */
+        ImportCandidatePage: {
+            /** Items */
+            items: components["schemas"]["CandidateOut"][];
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportContentOut */
+        ImportContentOut: {
+            /** File Id */
+            file_id: string;
+            /** Filename */
+            filename: string;
+            /** Content */
+            content: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportDecisionsOut */
+        ImportDecisionsOut: {
+            /** Ids */
+            ids: string[];
+            /** Decision */
+            decision: string;
+            /** Processed */
+            processed: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportFileOut */
+        ImportFileOut: {
             /** Id */
             id: string;
             /** Filename */
             filename: string;
+            /** Source Key */
+            source_key: string;
+            /** Revision */
+            revision: number;
+            /** Supersedes */
+            supersedes?: string | null;
+            /** Superseded By */
+            superseded_by?: string | null;
             /** Language */
             language: string;
-            /** Source Type */
-            source_type?: string | null;
-            /** Datasource Id */
-            datasource_id?: string | null;
-            /** Default Db */
-            default_db?: string | null;
             /** Status */
             status: string;
-            /** Params */
-            params?: {
-                [key: string]: unknown;
-            };
+            /**
+             * Statement Count
+             * @default 0
+             */
+            statement_count?: number;
             /** Stats */
-            stats: {
+            stats?: {
                 [key: string]: unknown;
             };
-            /** Model Adapter */
-            model_adapter?: string | null;
-            /** Model Payload */
-            model_payload?: {
-                [key: string]: unknown;
-            }[];
-            /** Content Hash */
-            content_hash?: string | null;
-            /** Created At */
-            created_at: string;
-            /** Statements */
-            statements?: components["schemas"]["StatementOut"][];
-            /** Candidates */
-            candidates?: components["schemas"]["CandidateOut"][];
-            /** Duplicate */
-            duplicate?: boolean | null;
-            /** Content */
-            content?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportSqlFunctionsOut */
+        ImportSqlFunctionsOut: {
+            /** Datasource Id */
+            datasource_id: string;
+            /** Sql Functions */
+            sql_functions: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ImportStatementPage */
+        ImportStatementPage: {
+            /** Items */
+            items: components["schemas"]["StatementOut"][];
+            /** Total */
+            total: number;
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
         } & {
             [key: string]: unknown;
         };
@@ -3498,6 +4000,8 @@ export interface components {
         };
         /** ManualEdge */
         ManualEdge: {
+            /** File Id */
+            file_id: string;
             /** Source Ref */
             source_ref: string;
             /** Source Column */
@@ -3604,6 +4108,24 @@ export interface components {
             time_column: string;
             /** Timezone */
             timezone: string;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -3667,6 +4189,19 @@ export interface components {
             }[];
         } & {
             [key: string]: unknown;
+        };
+        /** ModelAssist */
+        ModelAssist: {
+            /**
+             * Failed Sql
+             * @default false
+             */
+            failed_sql?: boolean;
+            /**
+             * Code
+             * @default false
+             */
+            code?: boolean;
         };
         /** ModelEntry */
         ModelEntry: {
@@ -3982,6 +4517,11 @@ export interface components {
             /** Note */
             note: string | null;
         };
+        /** SqlFunctions */
+        SqlFunctions: {
+            /** Sql Functions */
+            sql_functions: string[];
+        };
         /** StageOut */
         StageOut: {
             /** Key */
@@ -4003,6 +4543,8 @@ export interface components {
         StatementOut: {
             /** Id */
             id: string;
+            /** File Id */
+            file_id?: string | null;
             /** Seq */
             seq: number;
             /** Lines */
@@ -4023,6 +4565,12 @@ export interface components {
             raw_text: string;
             /** Sql Text */
             sql_text?: string | null;
+            /** Text Hash */
+            text_hash?: string | null;
+            /** Writes */
+            writes?: {
+                [key: string]: unknown;
+            }[];
         } & {
             [key: string]: unknown;
         };
@@ -4277,6 +4825,24 @@ export interface components {
             time_column?: string;
             /** Timezone */
             timezone?: string | null;
+            /** Time Format */
+            time_format?: ("yyyymmdd" | "yyyy-mm-dd" | "yyyymm") | null;
+            /**
+             * Data Grain
+             * @default day
+             * @enum {string}
+             */
+            data_grain?: "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Time Aggregation
+             * @default sum
+             * @enum {string}
+             */
+            time_aggregation?: "sum" | "last" | "avg";
+            /** Value Kind */
+            value_kind?: ("level" | "ratio" | "count") | null;
+            /** Polarity */
+            polarity?: ("up_good" | "down_good") | null;
             /** Filters */
             filters?: string | null;
             /** Dimensions */
@@ -4347,6 +4913,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** WorkerHealthOut */
+        WorkerHealthOut: {
+            /** Alive */
+            alive: boolean;
+            /** Last Seen */
+            last_seen?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
     };
     responses: never;
     parameters: never;
@@ -4374,6 +4949,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    worker_health_api_health_worker_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerHealthOut"];
                 };
             };
         };
@@ -6315,6 +6910,194 @@ export interface operations {
             };
         };
     };
+    list_conversations_api_analysis_conversations_get: {
+        parameters: {
+            query?: {
+                archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_api_analysis_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_conversation_api_analysis_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_conversation_api_analysis_conversations__conversation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_conversation_api_analysis_conversations__conversation_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_conversation_api_analysis_conversations__conversation_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_run_api_analysis_runs__run_id__get: {
         parameters: {
             query?: never;
@@ -7304,6 +8087,59 @@ export interface operations {
             };
         };
     };
+    get_business_calendar_api_settings_business_calendar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
+                };
+            };
+        };
+    };
+    put_business_calendar_api_settings_business_calendar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessCalendarIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCalendarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_imports_api_imports_get: {
         parameters: {
             query?: never;
@@ -7319,14 +8155,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"][];
+                    "application/json": components["schemas"]["ImportBatchBrief"][];
                 };
             };
         };
     };
     create_import_api_imports_post: {
         parameters: {
-            query?: never;
+            query?: {
+                wait?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7338,12 +8176,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -7359,7 +8197,9 @@ export interface operations {
     };
     upload_api_imports_upload_post: {
         parameters: {
-            query?: never;
+            query?: {
+                wait?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7371,12 +8211,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -7390,11 +8230,184 @@ export interface operations {
             };
         };
     };
-    get_import_api_imports__job_id__get: {
+    get_sql_functions_api_imports_sql_functions__datasource_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSqlFunctionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_sql_functions_api_imports_sql_functions__datasource_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SqlFunctions"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSqlFunctionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_import_api_imports__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportBatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    statements_api_imports__batch_id__statements_get: {
+        parameters: {
+            query?: {
+                file_id?: string | null;
+                status?: string | null;
+                q?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportStatementPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    candidates_api_imports__batch_id__candidates_get: {
+        parameters: {
+            query?: {
+                file_id?: string | null;
+                status?: string | null;
+                origin?: string | null;
+                statement_id?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportCandidatePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    content_api_imports__batch_id__files__job_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
                 job_id: string;
             };
             cookie?: never;
@@ -7407,7 +8420,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportContentOut"];
                 };
             };
             /** @description Validation Error */
@@ -7421,12 +8434,47 @@ export interface operations {
             };
         };
     };
-    set_params_api_imports__job_id__params_put: {
+    model_payload_api_imports__batch_id__model_payload_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                job_id: string;
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_params_api_imports__batch_id__params_put: {
+        parameters: {
+            query?: {
+                wait?: boolean;
+            };
+            header?: never;
+            path: {
+                batch_id: string;
             };
             cookie?: never;
         };
@@ -7437,12 +8485,45 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportBatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_many_api_candidates_decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportDecisionsOut"];
                 };
             };
             /** @description Validation Error */
@@ -7477,7 +8558,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -7491,12 +8572,12 @@ export interface operations {
             };
         };
     };
-    manual_edge_api_imports__job_id__edges_post: {
+    manual_edge_api_imports__batch_id__edges_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                job_id: string;
+                batch_id: string;
             };
             cookie?: never;
         };
@@ -7512,7 +8593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobOut"];
+                    "application/json": components["schemas"]["ImportBatchOut"];
                 };
             };
             /** @description Validation Error */
