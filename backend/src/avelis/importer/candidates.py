@@ -31,14 +31,9 @@ SECRET_PATTERN = re.compile(
     r"|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}\b",
     re.I,
 )
-_INLINE_SECRET_VALUE = re.compile(
-    # 连续的引号片段属于同一个值（如 shell 的 foo"bar baz"），不能留下拼接的后半段。
-    r'(?:"(?:\\[^\r\n]|[^"\\\r\n])*+(?:"|$)|'
-    r"'(?:\\[^\r\n]|[^'\\\r\n])*+(?:'|$)|"
-    r"\\[^\r\n]|[^\r\n \t\f\v,;)\]}\"'\\]++)++"
-)
+_UNQUOTED_SECRET_VALUE = re.compile(r"(?:\\[^\r\n]|[^\r\n \t\f\v,;)\]}\"'\\]++)++")
 _CONTINUATION = re.compile(r"\\\r?\n")
-_TRIPLE_QUOTE = re.compile("\"\"\"|'''")
+_VALUE_QUOTE = re.compile("\"\"\"|'''|[\"']")
 _URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
 
 
@@ -85,6 +80,30 @@ def redact(text: str) -> tuple[str, int]:
         # 不完整的代码片段也不能泄露尚未闭合的多行值。
         return closing + 3 if closing >= 0 else len(logical)
 
+    def quote_end(start: int) -> int:
+        quote = logical[start]
+        cursor = start + 1
+        while cursor < len(logical):
+            char = logical[cursor]
+            cursor += 1
+            if char == "\\":
+                cursor = min(cursor + 1, len(logical))
+            elif char == quote:
+                return cursor
+        return cursor
+
+    def secret_value_end(start: int) -> int:
+        # 拼接片段仍算一个值；只有引号内部允许跨普通换行。
+        cursor = start
+        while cursor < len(logical):
+            if logical[cursor] in "\"'":
+                cursor = quote_end(cursor)
+            elif (part := _UNQUOTED_SECRET_VALUE.match(logical, cursor)) is not None:
+                cursor = part.end()
+            else:
+                break
+        return cursor
+
     start = skip_until = 0
     pending = False
     while start < len(logical):
@@ -94,12 +113,12 @@ def redact(text: str) -> tuple[str, int]:
         if end >= skip_until:
             line = logical[start:end]
             position = max(0, skip_until - start)
-            if pending:
-                # 下一条逻辑行无条件整行遮蔽，不猜测它是不是另一条赋值。
+            if pending and line.strip():
+                # 空白行原样保留；下一条非空逻辑行整行遮蔽，含跨行引号值。
                 mask_end = end
                 scan = start
-                while (triple := _TRIPLE_QUOTE.search(logical, scan, mask_end)) is not None:
-                    closing = triple_end(triple.start())
+                while (quote := _VALUE_QUOTE.search(logical, scan, mask_end)) is not None:
+                    closing = triple_end(quote.start()) if len(quote[0]) == 3 else quote_end(quote.start())
                     scan = closing
                     if closing > mask_end:
                         closing_newline = logical.find("\n", closing)
@@ -132,11 +151,13 @@ def redact(text: str) -> tuple[str, int]:
                         skip_until = value_end
                         position = value_end - start
                     else:
-                        value = _INLINE_SECRET_VALUE.match(line, position)
-                        if value is not None:
+                        value_start = start + position
+                        closing = secret_value_end(value_start)
+                        if closing > value_start:
                             quote = line[position] if line[position] in "\"'" else ""
-                            cover(start + position, start + value.end(), quote + "<redacted>" + quote)
-                            position = value.end()
+                            cover(value_start, closing, quote + "<redacted>" + quote)
+                            skip_until = closing
+                            position = closing - start
                 elif match.group("user") is not None:
                     password_end = url_ends[match.start()]
                     if password_end > position:
