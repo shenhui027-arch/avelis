@@ -15,6 +15,7 @@ import {
   Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, statusOf, shortName,
 } from "../../components/ui";
 import { SWATCHES } from "../catalog/CatalogPage";
+import { t } from "../../i18n";
 
 type GNode = Graph["nodes"][number];
 type ColKey = string; // `${nodeId}::${column}`
@@ -71,7 +72,7 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
         <span className="av-node__id">
           <span className="av-node__path">
             {domainSwatch ? <span className={`av-swatch av-swatch--${domainSwatch}`} /> : null}
-            {node.datasource ? <Plat kind={node.datasource.kind} /> : <span className="av-plat">导入</span>}
+            {node.datasource ? <Plat kind={node.datasource.kind} /> : <span className="av-plat">{t("导入")}</span>}
             {parts.slice(-3, -1).join(".")}
           </span>
           <span className="av-node__name">{parts[parts.length - 1]}</span>
@@ -86,11 +87,11 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
               <span>{c.name}</span><span>{c.relation ? RELATION_LABEL[c.relation] : ""}</span>
             </button>
           ))}
-          {columns.length > MAX_COLS ? <button type="button" className="av-node__more av-lineage__all-columns nodrag" onClick={(event) => { event.stopPropagation(); data.onAllColumns(); }}>查看全部 {columns.length} 列</button> : null}
+          {columns.length > MAX_COLS ? <button type="button" className="av-node__more av-lineage__all-columns nodrag" onClick={(event) => { event.stopPropagation(); data.onAllColumns(); }}>{t("查看全部 {{count}} 列", { count: columns.length })}</button> : null}
         </div>
       ) : null}
-      {density === "columns" && grain ? <div className="av-node__grain">粒度 <b>{grain.columns.join(", ")}</b><Dot tone={tone} /></div> : null}
-      {density === "columns" && link ? <div className="av-node__link"><Icon name="link" small />同一张表 <b>{link.target}</b><Status value={link.status} /></div> : null}
+      {density === "columns" && grain ? <div className="av-node__grain">{t("粒度")} <b>{grain.columns.join(", ")}</b><Dot tone={tone} /></div> : null}
+      {density === "columns" && link ? <div className="av-node__link"><Icon name="link" small />{t("同一张表")} <b>{link.target}</b><Status value={link.status} /></div> : null}
       <Handle type="source" position={Position.Right} className="av-lineage__handle" />
     </div>
   );
@@ -215,10 +216,10 @@ function Canvas() {
       for (const c of e.columns) {
         if (!c.target_column || !c.source_column || !VALUE.has(c.relation)) continue;
         const s = `${e.source}::${c.source_column}`;
-        const t = `${e.target}::${c.target_column}`;
+        const targetKey = `${e.target}::${c.target_column}`;
         const key = `${e.source}->${e.target}`;
-        up.set(t, [...(up.get(t) ?? []), { from: s, edge: key }]);
-        down.set(s, [...(down.get(s) ?? []), { to: t, edge: key }]);
+        up.set(targetKey, [...(up.get(targetKey) ?? []), { from: s, edge: key }]);
+        down.set(s, [...(down.get(s) ?? []), { to: targetKey, edge: key }]);
       }
     }
     for (const l of graph.data.identity_links) {
@@ -287,7 +288,7 @@ function Canvas() {
       layout.setEdge(e.source, e.target);
       builtEdges.push({
         id: key, source: e.source, target: e.target, type: "flow",
-        label: !value && e.relations.includes("join_key") ? "关联" : undefined,
+        label: !value && e.relations.includes("join_key") ? t("关联") : undefined,
         labelStyle: { fill: "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
         labelBgStyle: { fill: "var(--bg-overlay)" },
         data: { tone: value ? "value" : "influence", design: designTime, onPath, dim: hasPath && !onPath, ambient },
@@ -299,7 +300,7 @@ function Canvas() {
       layout.setEdge(l.target.id, src.id);
       const onPath = path.edgeKeys.has(`id:${l.id}`);
       builtEdges.push({
-        id: `id:${l.id}`, source: l.target.id, target: src.id, type: "flow", label: "同一张表",
+        id: `id:${l.id}`, source: l.target.id, target: src.id, type: "flow", label: t("同一张表"),
         labelStyle: { fill: "var(--text-tertiary)", fontSize: 11 }, labelBgStyle: { fill: "var(--bg-overlay)" },
         data: { tone: "identity", design: false, onPath, dim: hasPath && !onPath, ambient },
       });
@@ -312,7 +313,7 @@ function Canvas() {
         const touches = selected === j.left_asset_id || selected === j.right_asset_id;
         builtEdges.push({
           id: `join:${j.id}`, source: j.left_asset_id, target: j.right_asset_id, type: "flow",
-          label: `${j.status === "pending" ? "待审核 · " : ""}${j.left_columns.join("、")}`,
+          label: `${j.status === "pending" ? t("待审核 · ") : ""}${j.left_columns.join(t("、"))}`,
           labelStyle: { fill: "var(--accent)", fontSize: 11, fontFamily: "var(--font-mono)" },
           labelBgStyle: { fill: "var(--bg-overlay)" },
           data: { tone: "join", design: j.status === "pending", onPath: false, dim: hasPath && !touches, ambient: false },
@@ -384,29 +385,29 @@ function Canvas() {
   return (
     <div className="av-lineage" data-inspector-open={inspectorOpen} style={{ "--lineage-inspector-w": `${inspectorWidth}px` } as CSSProperties}>
       <div className="av-lineage__workspace">
-        <div className="av-lineage__toolbar" aria-label="血缘工具栏">
+        <div className="av-lineage__toolbar" aria-label={t("血缘工具栏")}>
           <details className="av-lineage__domain-filter">
-            <summary className="av-btn av-btn--secondary av-btn--sm">业务域{domainIds.length ? ` · ${domainIds.length}` : " · 全部"}<Icon name="chevron" small /></summary>
+            <summary className="av-btn av-btn--secondary av-btn--sm">{t("业务域")}{domainIds.length ? ` · ${domainIds.length}` : t(" · 全部")}<Icon name="chevron" small /></summary>
             <div className="av-lineage__domain-menu">
-              <QueryState query={domains} isEmpty={(items) => !items.length} emptyText="暂无业务域" compact rows={3}>
-                {(items) => <fieldset><legend className="av-section-label">筛选业务域</legend>{items.map((domain) => <label key={domain.id}>
+              <QueryState query={domains} isEmpty={(items) => !items.length} emptyText={t("暂无业务域")} compact rows={3}>
+                {(items) => <fieldset><legend className="av-section-label">{t("筛选业务域")}</legend>{items.map((domain) => <label key={domain.id}>
                   <input type="checkbox" checked={domainIds.includes(domain.id)} onChange={() => toggleDomain(domain.id)} />
                   <span className={"av-swatch av-swatch--" + swatchOf.get(domain.id)} />{domain.name}
                 </label>)}</fieldset>}
               </QueryState>
-              <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!domainIds.length && !focusAsset} onClick={clearFilters}>清除筛选</button>
+              <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!domainIds.length && !focusAsset} onClick={clearFilters}>{t("清除筛选")}</button>
             </div>
           </details>
           {graph.isSuccess && graph.data.nodes.length ? <NodeSearch nodes={graph.data.nodes} onPick={pick} /> : null}
-          <label className="av-lineage__toggle"><input type="checkbox" checked={showJoins} onChange={(e) => setShowJoins(e.target.checked)} />关联路径</label>
-          <Seg value={density} label="节点显示" options={[{ value: "overview", label: "只看表" }, { value: "columns", label: "显示字段" }]} onChange={setDensity} />
-          {focusAsset ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={clearFilters}>查看全部血缘</button> : null}
-          <Link className="av-btn av-btn--sm av-btn--primary av-lineage__import" to="/lineage/import"><Icon name="upload" small />导入</Link>
+          <label className="av-lineage__toggle"><input type="checkbox" checked={showJoins} onChange={(e) => setShowJoins(e.target.checked)} />{t("关联路径")}</label>
+          <Seg value={density} label={t("节点显示")} options={[{ value: "overview", label: t("只看表") }, { value: "columns", label: t("显示字段") }]} onChange={setDensity} />
+          {focusAsset ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={clearFilters}>{t("查看全部血缘")}</button> : null}
+          <Link className="av-btn av-btn--sm av-btn--primary av-lineage__import" to="/lineage/import"><Icon name="upload" small />{t("导入")}</Link>
         </div>
         <div className="av-canvas av-lineage__canvas">
           <QueryState query={graph} isEmpty={(data) => !data.nodes.length}
-            emptyText={domainIds.length || focusAsset ? "没有匹配的血缘" : "暂无血缘"}
-            emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>清除筛选</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">导入血缘</Link>}>
+            emptyText={domainIds.length || focusAsset ? t("没有匹配的血缘") : t("暂无血缘")}
+            emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>{t("清除筛选")}</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">{t("导入血缘")}</Link>}>
             {() => <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} minZoom={0.1} maxZoom={1.6}
               proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
               onNodeClick={(_, node) => pick(node.id)}
@@ -414,29 +415,29 @@ function Canvas() {
           </QueryState>
           {graph.isSuccess && graph.data.nodes.length ? <>
             <details className="av-float av-lineage__legend">
-              <summary>图例</summary>
+              <summary>{t("图例")}</summary>
               <div className="av-lineage__legend-items">
-                <Legend tone="value" label="取值" />
-                <Legend tone="influence" label="过滤 / 关联 / 分组" />
-                <Legend tone="identity" label="同一张表" />
-                <Legend tone="join" label="关联路径（治理）" />
-                <Legend tone="design" label="导入（设计时）" />
-                <Legend tone="path" label="选中路径" />
+                <Legend tone="value" label={t("取值")} />
+                <Legend tone="influence" label={t("过滤 / 关联 / 分组")} />
+                <Legend tone="identity" label={t("同一张表")} />
+                <Legend tone="join" label={t("关联路径（治理）")} />
+                <Legend tone="design" label={t("导入（设计时）")} />
+                <Legend tone="path" label={t("选中路径")} />
               </div>
             </details>
-            <div className="av-float av-lineage__zoom" role="group" aria-label="画布缩放">
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="缩小" onClick={() => flow.zoomOut()}><Icon name="zoomout" /></button>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-lineage__zoom-value" title="恢复到 100%"
-                aria-label={`当前缩放 ${Math.round(zoom * 100)}%，恢复到 100%`} onClick={() => flow.zoomTo(1, { duration: 200 })}>{Math.round(zoom * 100)}%</button>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label="放大" onClick={() => flow.zoomIn()}><Icon name="zoomin" /></button>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost" onClick={() => flow.fitView({ padding: 0.16 })}><Icon name="fit" />适应画布</button>
+            <div className="av-float av-lineage__zoom" role="group" aria-label={t("画布缩放")}>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("缩小")} onClick={() => flow.zoomOut()}><Icon name="zoomout" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-lineage__zoom-value" title={t("恢复到 100%")}
+                aria-label={t("当前缩放 {{pct}}%，恢复到 100%", { pct: Math.round(zoom * 100) })} onClick={() => flow.zoomTo(1, { duration: 200 })}>{Math.round(zoom * 100)}%</button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("放大")} onClick={() => flow.zoomIn()}><Icon name="zoomin" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost" onClick={() => flow.fitView({ padding: 0.16 })}><Icon name="fit" />{t("适应画布")}</button>
             </div>
           </> : null}
         </div>
       </div>
-      {selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label="检查器">
-        <div className="av-lineage__resize" role="separator" aria-orientation="vertical" aria-label="拖动调整检查器宽度"
-          title="拖动调整宽度，双击恢复默认" onPointerDown={startResize}
+      {selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label={t("检查器")}>
+        <div className="av-lineage__resize" role="separator" aria-orientation="vertical" aria-label={t("拖动调整检查器宽度")}
+          title={t("拖动调整宽度，双击恢复默认")} onPointerDown={startResize}
           onDoubleClick={() => { setInspectorWidth(INSPECTOR_DEFAULT); try { localStorage.removeItem(INSPECTOR_KEY); } catch { /* 忽略 */ } }} />
         <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data} column={column?.split("::")[1] ?? null}
           showColumns={showColumns} onShowColumns={() => setShowColumns(true)} onColumn={(name) => setColumn(selectedNode.id + "::" + name)}
@@ -470,7 +471,7 @@ function NodeSearch({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
   return (
     <div className="av-lineage__search" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
       <Icon name="search" small />
-      <input type="search" value={text} placeholder={`搜索表（共 ${nodes.length} 张）`} aria-label="搜索表"
+      <input type="search" value={text} placeholder={t("搜索表（共 {{count}} 张）", { count: nodes.length })} aria-label={t("搜索表")}
         onChange={(e) => { setText(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && hits[0]) choose(hits[0]);
@@ -482,7 +483,7 @@ function NodeSearch({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
             <span className="av-mono">{shortName(n.qualified)}</span>
             <span className="av-caption">{KIND_LABEL[n.kind] ?? n.kind}</span>
           </button>
-        )) : <span className="av-caption av-lineage__search-empty">没有匹配的表</span>}
+        )) : <span className="av-caption av-lineage__search-empty">{t("没有匹配的表")}</span>}
       </div> : null}
     </div>
   );
@@ -524,54 +525,54 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
         <div className="av-lineage__inspector-actions">
           <span className="av-section-label">{KIND_LABEL[node.kind] ?? node.kind}{node.datasource ? ` · ${node.datasource.name}` : ""}</span>
           <div className="av-actions">
-            {node.kind !== "design_time" ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${node.id}`}>资产</Link> : null}
-            <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label="关闭检查器" onClick={onClose}><Icon name="close" /></button>
+            {node.kind !== "design_time" ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${node.id}`}>{t("资产")}</Link> : null}
+            <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭检查器")} onClick={onClose}><Icon name="close" /></button>
           </div>
         </div>
         <span className="av-mono av-lineage__qualified">{node.qualified}{column ? <span className="av-lineage__column-name">.{column}</span> : null}</span>
         {node.note ? <span className="av-caption">{node.note}</span> : null}
       </div>
       <div className="av-inspector__bd">
-        {showColumns ? <section className="av-lineage__column-browser" aria-label="全部字段">
-          <label className="av-section-label" htmlFor="lineage-column-search">字段 {asset.isSuccess || node.kind === "design_time" ? `· ${columns.length}` : ""}</label>
-          <input id="lineage-column-search" className="av-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索字段" autoFocus />
-          {node.kind !== "design_time" && asset.isPending ? <span className="av-caption" role="status">正在加载完整字段…</span> : null}
-          {node.kind !== "design_time" && asset.isError ? <div className="av-lineage__column-error" role="alert"><span className="av-caption">完整字段加载失败，当前仅显示血缘字段</span><button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => asset.refetch()}>重试</button></div> : null}
+        {showColumns ? <section className="av-lineage__column-browser" aria-label={t("全部字段")}>
+          <label className="av-section-label" htmlFor="lineage-column-search">{t("字段")} {asset.isSuccess || node.kind === "design_time" ? `· ${columns.length}` : ""}</label>
+          <input id="lineage-column-search" className="av-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索字段")} autoFocus />
+          {node.kind !== "design_time" && asset.isPending ? <span className="av-caption" role="status">{t("正在加载完整字段…")}</span> : null}
+          {node.kind !== "design_time" && asset.isError ? <div className="av-lineage__column-error" role="alert"><span className="av-caption">{t("完整字段加载失败，当前仅显示血缘字段")}</span><button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => asset.refetch()}>{t("重试")}</button></div> : null}
           <div className="av-lineage__column-list">{visibleColumns.map((name) => <button key={name} type="button" className="av-btn av-btn--ghost av-lineage__column-item" aria-pressed={column === name} onClick={() => onColumn(name)}><span className="av-mono">{name}</span><span className="av-caption">{asset.data?.columns.find((item) => item.name === name)?.data_type}</span></button>)}</div>
-          {!visibleColumns.length && columns.length ? <Empty text="没有匹配字段" compact action={<button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearch("")}>清除搜索</button>} /> : null}
-          {!columns.length && (asset.isSuccess || node.kind === "design_time") ? <Empty text="暂无字段" compact /> : null}
-        </section> : <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onShowColumns}>查看全部字段</button>}
+          {!visibleColumns.length && columns.length ? <Empty text={t("没有匹配字段")} compact action={<button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearch("")}>{t("清除搜索")}</button>} /> : null}
+          {!columns.length && (asset.isSuccess || node.kind === "design_time") ? <Empty text={t("暂无字段")} compact /> : null}
+        </section> : <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onShowColumns}>{t("查看全部字段")}</button>}
         {column ? (
           <>
-            {col ? <dl className="av-kv"><dt>类型</dt><dd className="av-mono">{col.data_type}</dd>
-              <dt>推导</dt><dd><Status value={col.fingerprint_status ?? "unknown"} /> <span className="av-mono av-muted">{col.fingerprint?.slice(0, 10)}</span></dd>
-              {col.fingerprint_reason ? <><dt>原因</dt><dd>{col.fingerprint_reason}</dd></> : null}
-              <dt>业务含义</dt><dd>{col.confirmations.find((c) => c.valid)?.meaning ?? <span className="av-muted">未确认</span>}</dd></dl> : null}
-            <Flow title="来源" onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
-            <Flow title="下游" onPick={(k) => { const [id, col] = k.split("::"); if (col) onPickColumn(id, col); else onPick(id); }} items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, target: `${c.toId}::${c.target_column ?? ""}`, left: `${shortName(c.to)}.${c.target_column ?? "（影响）"}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
+            {col ? <dl className="av-kv"><dt>{t("类型")}</dt><dd className="av-mono">{col.data_type}</dd>
+              <dt>{t("推导")}</dt><dd><Status value={col.fingerprint_status ?? "unknown"} /> <span className="av-mono av-muted">{col.fingerprint?.slice(0, 10)}</span></dd>
+              {col.fingerprint_reason ? <><dt>{t("原因")}</dt><dd>{col.fingerprint_reason}</dd></> : null}
+              <dt>{t("业务含义")}</dt><dd>{col.confirmations.find((c) => c.valid)?.meaning ?? <span className="av-muted">{t("未确认")}</span>}</dd></dl> : null}
+            <Flow title={t("来源")} onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origins: [c.origin], expr: c.expression }))} />
+            <Flow title={t("下游")} onPick={(k) => { const [id, col] = k.split("::"); if (col) onPickColumn(id, col); else onPick(id); }} items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, target: `${c.toId}::${c.target_column ?? ""}`, left: `${shortName(c.to)}.${c.target_column ?? t("（影响）")}`, rel: c.relation, origins: [c.origin], expr: c.expression }))} />
           </>
         ) : (
           <>
-            {node.grains.length ? <dl className="av-kv"><dt>粒度</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
-            <Flow title="上游" onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join("、"), expr: `${e.columns.length} 条列级边` }))} />
-            <Flow title="下游" onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join("、"), expr: `${e.columns.length} 条列级边` }))} />
+            {node.grains.length ? <dl className="av-kv"><dt>{t("粒度")}</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
+            <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
+            <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
           </>
         )}
         <NodeJoins node={node} graph={graph} name={name} onPick={onPick} />
         {influenceGroups.length ? (
           <details className="av-fold av-lineage__influences">
-            <summary>影响条件 <span className="av-caption">{influences.length} 项</span>
-              <Hint text="过滤、关联键、分组决定哪些行参与，但值不复制到输出" /></summary>
+            <summary>{t("影响条件")} <span className="av-caption">{t("{{count}} 项", { count: influences.length })}</span>
+              <Hint text={t("过滤、关联键、分组决定哪些行参与，但值不复制到输出")} /></summary>
             {influenceGroups.map(([from, items]) => (
               <div key={from} className="av-lineage__stack">
                 <span className="av-caption av-mono" title={from}>{shortName(from)}</span>
-                {items.map((c, i) => <button key={i} type="button" className="av-chain__item av-lineage__chain-link" title={`查看 ${shortName(c.from)}.${c.source_column}`}
+                {items.map((c, i) => <button key={i} type="button" className="av-chain__item av-lineage__chain-link" title={t("查看 {{v1}}.{{source_column}}", { v1: shortName(c.from), source_column: c.source_column })}
                   onClick={() => onPickColumn(c.fromId, c.source_column!)}><span className="av-tag">{RELATION_LABEL[c.relation] ?? c.relation}</span><span>{c.source_column}</span></button>)}
               </div>
             ))}
           </details>
         ) : null}
-        <span className="av-caption">{column ? "点上下游的表可以跳过去。" : "切到“显示字段”后点列，可以高亮这一列的上下游。"}</span>
+        <span className="av-caption">{column ? t("点上下游的表可以跳过去。") : t("切到“显示字段”后点列，可以高亮这一列的上下游。")}</span>
       </div>
     </>
   );
@@ -582,30 +583,30 @@ function NodeJoins({ node, graph, name, onPick }: { node: GNode; graph: Graph; n
   const joins = (graph.joins ?? []).filter((j) => j.left_asset_id === node.id || j.right_asset_id === node.id);
   return (
     <div className="av-lineage__stack">
-      <span className="av-section-label">关联路径 <span className="av-caption">{joins.length}</span>
-        <Hint text="表之间怎么关联由治理维护：分析里确认的关联会生成待审核的关联路径，负责人批准后所有人都能用" /></span>
+      <span className="av-section-label">{t("关联路径")} <span className="av-caption">{joins.length}</span>
+        <Hint text={t("表之间怎么关联由治理维护：分析里确认的关联会生成待审核的关联路径，负责人批准后所有人都能用")} /></span>
       {joins.map((j) => {
         const self = j.left_asset_id === node.id;
         const other = self ? j.right_asset_id : j.left_asset_id;
-        const keys = (self ? j.left_columns : j.right_columns).map((c, i) => `${c} = ${(self ? j.right_columns : j.left_columns)[i]}`).join("，");
+        const keys = (self ? j.left_columns : j.right_columns).map((c, i) => `${c} = ${(self ? j.right_columns : j.left_columns)[i]}`).join(t("，"));
         return (
-          <button key={j.id} type="button" className="av-lineage__flow-item is-link" onClick={() => onPick(other)} title={`定位到 ${name(other)}`}>
+          <button key={j.id} type="button" className="av-lineage__flow-item is-link" onClick={() => onPick(other)} title={t("定位到 {{v1}}", { v1: name(other) })}>
             <span className="av-chain__item"><span className="av-lineage__flow-name">{shortName(name(other))}</span>
               <Status value={j.status} /></span>
             <span className="av-caption av-mono">{keys}</span>
           </button>
         );
       })}
-      <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{joins.length ? "审核与维护关联路径" : "在目录里维护关联路径"}</Link>
+      <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{joins.length ? t("审核与维护关联路径") : t("在目录里维护关联路径")}</Link>
     </div>
   );
 }
 
-const ORIGIN: Record<string, string> = { parsed: "解析", manual: "人工", import: "导入解析", import_manual: "导入·人工", model_confirmed: "模型·已确认" };
+const ORIGIN: Record<string, string> = { parsed: t("解析", { context: "origin" }), manual: t("人工"), import: t("导入解析"), import_manual: t("导入·人工"), model_confirmed: t("模型·已确认") };
 
 function Flow({ title, items, onPick }: {
   title: string; onPick?: (id: string) => void;
-  items: { key: string; target?: string; left: string; rel: string; origin: string; expr?: string | null }[];
+  items: { key: string; target?: string; left: string; rel: string; origins: string[]; expr?: string | null }[];
 }) {
   if (!items.length) return null;
   return (
@@ -615,10 +616,10 @@ function Flow({ title, items, onPick }: {
         const body = <>
           <span className="av-chain__item"><span className="av-lineage__flow-name" title={it.left}>{it.left}</span>
             <span className="av-tag av-lineage__relation-tag">{RELATION_LABEL[it.rel] ?? it.rel}</span></span>
-          <span className="av-caption">{it.origin.split("、").map((o) => ORIGIN[o] ?? o).join("、")}{it.expr ? ` · ${it.expr}` : ""}</span>
+          <span className="av-caption">{it.origins.map((o) => ORIGIN[o] ?? o).join(t("、"))}{it.expr ? ` · ${it.expr}` : ""}</span>
         </>;
         return it.target && onPick
-          ? <button key={it.key} type="button" className="av-lineage__flow-item is-link" title={`定位到 ${it.left}`} onClick={() => onPick(it.target!)}>{body}</button>
+          ? <button key={it.key} type="button" className="av-lineage__flow-item is-link" title={t("定位到 {{left}}", { left: it.left })} onClick={() => onPick(it.target!)}>{body}</button>
           : <div key={it.key} className="av-lineage__flow-item">{body}</div>;
       })}
     </div>

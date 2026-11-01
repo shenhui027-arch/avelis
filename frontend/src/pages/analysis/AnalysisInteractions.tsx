@@ -9,6 +9,7 @@ import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import { Drawer, Empty, Icon, Pill, Seg, Select, shortName } from "../../components/ui";
 import { formatTime } from "../../format";
 import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
+import { t } from "../../i18n";
 
 type Ref = { object_type: string; object_id: string; version?: number | null };
 export type ProposalItem = { id: string; kind: string; content: string; source: string; refs?: Ref[];
@@ -19,13 +20,13 @@ type Candidate = { kind: string; content: string; refs: Ref[];
 type Experience = Candidate & { id: string; status: string; version: number; created_at: string };
 type Decision = "" | "confirmed" | "rejected";
 
-const ITEM_KIND: Record<string, string> = { asset: "表", join: "关联", hypothesis: "假设", feedback: "补充" };
+const ITEM_KIND: Record<string, string> = { asset: t("表"), join: t("关联"), hypothesis: t("假设"), feedback: t("补充") };
 const SOURCE: Record<string, [string, "ok" | "info" | "warn" | ""]> = {
-  upstream: ["元数据", "ok"], experience: ["经验", "info"], inferred: ["推断", "warn"], user: ["你的补充", ""],
+  upstream: [t("元数据"), "ok"], experience: [t("经验"), "info"], inferred: [t("推断"), "warn"], user: [t("你的补充"), ""],
 };
-const ITEM_STATUS: Record<string, string> = { confirmed: "已确认", rejected: "已否决", unconfirmed: "未确认", grounded: "有依据" };
-const EXP_KIND: Record<string, string> = { join: "关联", driver: "驱动因素", alias: "别名", rule: "规则", preference: "偏好",
-  negative: "否定" };
+const ITEM_STATUS: Record<string, string> = { confirmed: t("已确认"), rejected: t("已否决"), unconfirmed: t("未确认"), grounded: t("有依据") };
+const EXP_KIND: Record<string, string> = { join: t("关联"), driver: t("驱动因素"), alias: t("别名"), rule: t("规则"), preference: t("偏好"),
+  negative: t("否定") };
 
 function SourcePill({ source }: { source: string }) {
   const [label, tone] = SOURCE[source] ?? [source, ""];
@@ -40,7 +41,7 @@ function ItemContent({ item }: { item: ProposalItem }) {
 }
 
 function refsTitle(refs?: Ref[]) {
-  return (refs ?? []).map((r) => `${r.object_type === "asset" ? "资产" : "口径"} ${r.object_id}${r.version ? ` v${r.version}` : ""}`)
+  return (refs ?? []).map((r) => `${r.object_type === "asset" ? t("资产") : t("口径")} ${r.object_id}${r.version ? ` v${r.version}` : ""}`)
     .join("\n");
 }
 
@@ -57,22 +58,22 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
   ["analysis-run", "analysis-runs"]);
   const pending = items.filter((i) => !decisions[i.id]).length;
   return (
-    <section className="av-analysis__confirm" aria-label="确认分析依据">
+    <section className="av-analysis__confirm" aria-label={t("确认分析依据")}>
       <header className="av-analysis__confirm-hd">
-        <h3>确认分析依据 {pending ? <Pill tone="warn">{pending} 项待定</Pill> : null}</h3>
+        <h3>{t("确认分析依据")} {pending ? <Pill tone="warn">{t("{{count}} 项待定", { count: pending })}</Pill> : null}</h3>
         <button type="button" className="av-btn av-btn--ghost av-btn--sm"
-          onClick={() => setDecisions(Object.fromEntries(items.map((i) => [i.id, "confirmed"])))}>全部确认</button>
+          onClick={() => setDecisions(Object.fromEntries(items.map((i) => [i.id, "confirmed"])))}>{t("全部确认")}</button>
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {!items.length ? <p className="av-caption">没有需要确认的依据，可以直接继续，或补充你知道的规则。</p> : null}
+      {!items.length ? <p className="av-caption">{t("没有需要确认的依据，可以直接继续，或补充你知道的规则。")}</p> : null}
       <ol className="av-proposals" hidden={!items.length}>
         {items.map((i) => (
           <li key={i.id} className={`av-proposal${decisions[i.id] === "rejected" ? " is-rejected" : ""}`}>
             <Pill tone="">{ITEM_KIND[i.kind] ?? i.kind}</Pill>
             <ItemContent item={i} />
             <SourcePill source={i.source} />
-            <Seg<Decision> label={`第 ${i.id} 项`} value={decisions[i.id] ?? ""}
-              options={[{ value: "confirmed", label: "确认" }, { value: "rejected", label: "否决" }]}
+            <Seg<Decision> label={t("第 {{id}} 项", { id: i.id })} value={decisions[i.id] ?? ""}
+              options={[{ value: "confirmed", label: t("确认") }, { value: "rejected", label: t("否决") }]}
               onChange={(v) => setDecisions({ ...decisions, [i.id]: v })} />
           </li>
         ))}
@@ -82,11 +83,11 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
         setError(null);
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
-        <label htmlFor={`sup-${runId}`} className="av-sr">补充</label>
+        <label htmlFor={`sup-${runId}`} className="av-sr">{t("补充")}</label>
         <textarea id={`sup-${runId}`} className="av-textarea" rows={2} maxLength={4000} value={supplement}
-          placeholder="补充（可选）：还要看的表、关联或业务规则" onChange={(e) => setSupplement(e.target.value)} />
+          placeholder={t("补充（可选）：还要看的表、关联或业务规则")} onChange={(e) => setSupplement(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || pending > 0}>
-          <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
+          <Icon name="play" />{resume.isPending ? t("提交中…") : t("继续分析")}</button>
       </form>
     </section>
   );
@@ -99,8 +100,8 @@ export function ClarifyPanel({ runId, question }: { runId: string; question: str
   const resume = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/resume", {
     params: { path: { run_id: runId } }, body: { answer } as never })), ["analysis-run", "analysis-runs"]);
   return (
-    <section className="av-analysis__confirm" aria-label="回答追问">
-      <header className="av-analysis__confirm-hd"><h3>需要你确认范围</h3></header>
+    <section className="av-analysis__confirm" aria-label={t("回答追问")}>
+      <header className="av-analysis__confirm-hd"><h3>{t("需要你确认范围")}</h3></header>
       <p className="av-analysis__question">{question}</p>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <form className="av-analysis__confirm-ft" onSubmit={(e) => {
@@ -108,11 +109,11 @@ export function ClarifyPanel({ runId, question }: { runId: string; question: str
         setError(null);
         resume.mutate(undefined, { onError: (err) => setError(errorText(err)) });
       }}>
-        <label htmlFor={`ans-${runId}`} className="av-sr">回答</label>
+        <label htmlFor={`ans-${runId}`} className="av-sr">{t("回答")}</label>
         <textarea id={`ans-${runId}`} className="av-textarea" rows={2} maxLength={2000} value={answer} autoFocus
-          placeholder="例如：指的是哪个口径、哪个范围" onChange={(e) => setAnswer(e.target.value)} />
+          placeholder={t("例如：指的是哪个口径、哪个范围")} onChange={(e) => setAnswer(e.target.value)} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || !answer.trim()}>
-          <Icon name="play" />{resume.isPending ? "提交中…" : "继续分析"}</button>
+          <Icon name="play" />{resume.isPending ? t("提交中…") : t("继续分析")}</button>
       </form>
     </section>
   );
@@ -123,9 +124,9 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
   if (!items?.length && !experiences?.length) return null;
   const pending = (items ?? []).filter((i) => i.status === "unconfirmed").length;
   return (
-    <details className="av-fold av-analysis__sources" aria-label="分析依据">
-      <summary>分析依据 <span className="av-caption">{items?.length ?? 0} 项{pending ? ` · ${pending} 项未确认` : ""}</span>
-        {experiences?.length ? <Link className="av-caption" to="/analysis/experiences">用到经验 {experiences.length} 条</Link> : null}</summary>
+    <details className="av-fold av-analysis__sources" aria-label={t("分析依据")}>
+      <summary>{t("分析依据")} <span className="av-caption">{t("{{count}} 项", { count: items?.length ?? 0 })}{pending ? t(" · {{pending}} 项未确认", { pending }) : ""}</span>
+        {experiences?.length ? <Link className="av-caption" to="/analysis/experiences">{t("用到经验 {{count}} 条", { count: experiences.length })}</Link> : null}</summary>
       <ol className="av-proposals av-proposals--compact">
         {(items ?? []).map((i, n) => (
           <li key={`${i.id ?? "u"}-${n}`} className={`av-proposal${i.status === "rejected" ? " is-rejected" : ""}`}>
@@ -133,7 +134,7 @@ export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; exp
             <ItemContent item={i} />
             <SourcePill source={i.source} />
             <span className={`av-caption av-proposal__status is-${i.status}`}>
-              {i.inherited ? "沿用 · " : ""}{ITEM_STATUS[i.status ?? ""] ?? ""}</span>
+              {i.inherited ? t("沿用 · ") : ""}{ITEM_STATUS[i.status ?? ""] ?? ""}</span>
           </li>
         ))}
       </ol>
@@ -162,15 +163,15 @@ export function FollowupForm({ run, seed }: { run: Schemas["AnalysisRunOut"]; se
       followup.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
     }}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <label htmlFor={`fu-${runId}`} className="av-sr">质疑或补充</label>
+      <label htmlFor={`fu-${runId}`} className="av-sr">{t("质疑或补充")}</label>
       <textarea ref={input} id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
-        placeholder="继续追问，或指出哪里不对、补充规则" onChange={(e) => setText(e.target.value)}
+        placeholder={t("继续追问，或指出哪里不对、补充规则")} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="av-compose__bar">
         <span className="av-compose__spacer" />
         <ModelPicker state={picker} />
         <ContextMeter run={run} />
-        <button className="av-compose__send" type="submit" aria-label="发送"
+        <button className="av-compose__send" type="submit" aria-label={t("发送")}
           disabled={followup.isPending || !text.trim()}><Icon name="send" /></button>
       </div>
     </form>
@@ -188,8 +189,8 @@ export function CandidatesPanel({ candidates }: { candidates?: Candidate[] }) {
   if (!candidates?.length) return null;
   const saved = new Set((list.data ?? []).map(candidateKey));
   return (
-    <details className="av-fold av-analysis__candidates" aria-label="保存为经验">
-      <summary>保存为经验 <span className="av-caption">{candidates.length} 条你确认或纠正过的内容</span></summary>
+    <details className="av-fold av-analysis__candidates" aria-label={t("保存为经验")}>
+      <summary>{t("保存为经验")} <span className="av-caption">{candidates.length} {t("条你确认或纠正过的内容")}</span></summary>
       <ol className="av-proposals">
         {candidates.map((c, i) => <CandidateRow key={`${i}-${candidateKey(c)}`} candidate={c} saved={saved.has(candidateKey(c))} />)}
       </ol>
@@ -205,16 +206,16 @@ function CandidateRow({ candidate, saved }: { candidate: Candidate; saved: boole
     body: { ...candidate, kind, content } as never })), ["analysis-experiences"]);
   return (
     <li className="av-proposal av-proposal--edit">
-      <Select label="经验类型" value={kind} onChange={setKind} disabled={saved} style={{ width: 104 }}>
+      <Select label={t("经验类型")} value={kind} onChange={setKind} disabled={saved} style={{ width: 104 }}>
         {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
       </Select>
-      <textarea className="av-textarea" rows={2} maxLength={4000} value={content} disabled={saved} aria-label="经验内容"
+      <textarea className="av-textarea" rows={2} maxLength={4000} value={content} disabled={saved} aria-label={t("经验内容")}
         title={refsTitle(candidate.refs)} onChange={(e) => setContent(e.target.value)} />
       {error ? <span className="av-claim__bad">{error}</span> : <span />}
-      {saved ? <Pill tone="ok">已保存</Pill> : (
+      {saved ? <Pill tone="ok">{t("已保存")}</Pill> : (
         <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={save.isPending || !content.trim()}
           onClick={() => save.mutate(undefined, { onError: (e) => setError(errorText(e)), onSuccess: () => setError(null) })}>
-          保存</button>
+          {t("保存")}</button>
       )}
     </li>
   );
@@ -237,32 +238,32 @@ export function ExperienceList() {
   return (
     <section className="av-analysis__experiences">
       <div className="av-analysis__experiences-hd">
-        <Seg label="显示范围" value={all ? "all" : "active"} onChange={(v) => setAll(v === "all")}
-          options={[{ value: "active", label: "有效" }, { value: "all", label: "全部" }]} />
+        <Seg label={t("显示范围")} value={all ? "all" : "active"} onChange={(v) => setAll(v === "all")}
+          options={[{ value: "active", label: t("有效") }, { value: "all", label: t("全部") }]} />
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       {proposed ? <div className="av-banner av-banner--info">
-        {proposed.status === "approved" ? "已有相同的关联路径" : "已提议为关联路径，等待负责人审核"}：{proposed.name}
-        <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">查看</Link></div> : null}
-      {list.isSuccess && !rows.length ? <Empty text="还没有个人经验：在分析中确认或补充后保存" compact /> : null}
+        {proposed.status === "approved" ? t("已有相同的关联路径") : t("已提议为关联路径，等待负责人审核")}：{proposed.name}
+        <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{t("查看")}</Link></div> : null}
+      {list.isSuccess && !rows.length ? <Empty text={t("还没有个人经验：在分析中确认或补充后保存")} compact /> : null}
       <div className="av-analysis__list">
         {rows.map((e) => (
           <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
             <Pill tone="">{EXP_KIND[e.kind] ?? e.kind}</Pill>
             <span className="av-row__main"><span className="av-row__title av-experience__content">{e.content}</span>
               <span className="av-row__meta" title={refsTitle(e.refs)}>
-                v{e.version} · 引用 {e.refs.length} 项 · {formatTime(e.created_at, tz)}
-                {e.status !== "active" ? ` · ${e.status === "revoked" ? "已撤销" : "已替代"}` : ""}</span></span>
+                v{e.version} {t("· 引用 {{count}} 项 ·", { count: e.refs.length })} {formatTime(e.created_at, tz)}
+                {e.status !== "active" ? ` · ${e.status === "revoked" ? t("已撤销") : t("已替代")}` : ""}</span></span>
             <span className="av-actions">
               {e.status === "active" ? <>
                 {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
-                  title="表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用"
+                  title={t("表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用")}
                   onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
                     onSuccess: (out) => setProposed(out as { name: string; status: string }),
-                    onError: (err) => setError(errorText(err)) }); }}>转为关联路径</button> : null}
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>编辑</button>
+                    onError: (err) => setError(errorText(err)) }); }}>{t("转为关联路径")}</button> : null}
+                <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>{t("编辑")}</button>
                 <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
-                  onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>撤销</button>
+                  onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>{t("撤销")}</button>
               </> : null}
             </span>
           </div>
@@ -281,19 +282,19 @@ function EditExperience({ experience, onClose }: { experience: Experience; onClo
     params: { path: { experience_id: experience.id } },
     body: { kind, content, refs: experience.refs, source: experience.source } as never })), ["analysis-experiences"]);
   return (
-    <Drawer title="编辑经验" onClose={onClose} footer={<div className="av-actions">
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>取消</button>
+    <Drawer title={t("编辑经验")} onClose={onClose} footer={<div className="av-actions">
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("取消")}</button>
       <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={replace.isPending || !content.trim()}
-        onClick={() => replace.mutate(undefined, { onSuccess: onClose, onError: (e) => setError(errorText(e)) })}>保存新版本</button>
+        onClick={() => replace.mutate(undefined, { onSuccess: onClose, onError: (e) => setError(errorText(e)) })}>{t("保存新版本")}</button>
     </div>}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <label className="av-field"><span className="av-label">类型</span>
-        <Select label="经验类型" value={kind} onChange={setKind}>
+      <label className="av-field"><span className="av-label">{t("类型")}</span>
+        <Select label={t("经验类型")} value={kind} onChange={setKind}>
           {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select></label>
-      <label className="av-field"><span className="av-label">内容</span>
+      <label className="av-field"><span className="av-label">{t("内容")}</span>
         <textarea className="av-textarea" rows={8} maxLength={4000} value={content} onChange={(e) => setContent(e.target.value)} /></label>
-      <span className="av-caption">旧版本保留在留底中</span>
+      <span className="av-caption">{t("旧版本保留在留底中")}</span>
     </Drawer>
   );
 }

@@ -108,7 +108,7 @@ export function Workbench() {
               <div className="av-list">
                 {d.datasources.map((s) => (
                   <Link key={String(s.id)} to={`/settings/datasources/${String(s.id)}`} className="av-row av-workbench__source">
-                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{n}} 分钟", { n: String(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span></span>
+                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{count}} 分钟", { count: Number(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span></span>
                     <span className="av-row__end"><Status value={String(s.status) === "ok" ? "ok" : String(s.status)} /></span>
                   </Link>
                 ))}

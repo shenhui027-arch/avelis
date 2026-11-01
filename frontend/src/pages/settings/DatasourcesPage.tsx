@@ -10,6 +10,7 @@ import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
   Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, Switch, useMessage,
 } from "../../components/ui";
+import { t } from "../../i18n";
 
 type Datasource = Schemas["DatasourceOut"];
 type CredentialPurpose = "collect" | "query";
@@ -19,8 +20,8 @@ type EngineOption = {
 
 // 能力说明：只列适配器声明的能力，未声明的明确标“不支持”，不做猜测。
 const CAPABILITY_LABEL: Record<string, string> = {
-  metadata: "元数据采集", view_lineage: "视图血缘", query: "问数执行", live_check: "执行前核对",
-  external_tables: "外部表追溯", identity_target: "外部表追溯目标", ddl_audit: "DDL 审计归因",
+  metadata: t("元数据采集"), view_lineage: t("视图血缘"), query: t("问数执行"), live_check: t("执行前核对"),
+  external_tables: t("外部表追溯"), identity_target: t("外部表追溯目标"), ddl_audit: t("DDL 审计归因"),
 };
 const CORE_CAPABILITIES = ["metadata", "view_lineage", "query"];
 
@@ -51,7 +52,7 @@ function Capabilities({ engine }: { engine: Schemas["EngineOut"] }) {
   return <span className="av-datasources__capabilities">
     {CORE_CAPABILITIES.map((c) => engine.capabilities.includes(c)
       ? <Pill key={c} tone="ok">{CAPABILITY_LABEL[c]}</Pill>
-      : <Pill key={c} title="适配器未声明该能力">{CAPABILITY_LABEL[c]}：不支持</Pill>)}
+      : <Pill key={c} title={t("适配器未声明该能力")}>{t("{{capability}}：不支持", { capability: CAPABILITY_LABEL[c] })}</Pill>)}
     {extra.map((c) => <Pill key={c} tone="ok">{CAPABILITY_LABEL[c] ?? c}</Pill>)}
   </span>;
 }
@@ -77,20 +78,20 @@ export function DatasourcesPage() {
   const [adding, setAdding] = useState(false);
   const canEdit = roles.has("admin") || roles.has("steward");
   const addButton = canEdit ? <button type="button" className="av-btn av-btn--primary" onClick={() => setAdding(true)}>
-    <Icon name="plus" />添加数据源
+    <Icon name="plus" />{t("添加数据源")}
   </button> : undefined;
 
   return (
     <div className="av-fill av-datasources">
       <div className="av-pagehd">
-        <div className="av-pagehd__title"><h1>设置</h1><SettingsTabs current="datasources" /></div>
+        <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="datasources" /></div>
         <div className="av-actions">{addButton}</div>
       </div>
       <div className="av-workspace av-datasources__workspace">
-        <section className="av-pane" aria-label="数据源列表">
-          <PaneHeader title="数据源" count={sources.isSuccess ? sources.data.length : undefined} />
+        <section className="av-pane" aria-label={t("数据源列表")}>
+          <PaneHeader title={t("数据源")} count={sources.isSuccess ? sources.data.length : undefined} />
           <div className="av-scroll">
-            <QueryState query={sources} isEmpty={(list) => !list.length} emptyText="还没有数据源" emptyAction={addButton} compact>
+            <QueryState query={sources} isEmpty={(list) => !list.length} emptyText={t("还没有数据源")} emptyAction={addButton} compact>
               {(list) => list.map((d) => (
                 <button key={d.id} type="button" className="av-provider" aria-current={d.id === (id ?? list[0]?.id)}
                   onClick={() => navigate(`/settings/datasources/${d.id}`)}>
@@ -104,13 +105,13 @@ export function DatasourcesPage() {
             </QueryState>
           </div>
         </section>
-        <section className="av-pane" aria-label="数据源详情">
+        <section className="av-pane" aria-label={t("数据源详情")}>
           <QueryState query={sources} rows={6}>
             {(list) => {
               const selected = id ? list.find((d) => d.id === id) : list[0];
               if (selected) return <Detail key={selected.id} ds={selected} canEdit={canEdit} isAdmin={roles.has("admin")} />;
-              return <Empty text={id ? "数据源不存在" : "添加数据源后查看连接与采集状态"} compact action={id
-                ? <button type="button" className="av-btn av-btn--secondary" onClick={() => navigate("/settings/datasources")}>返回数据源列表</button>
+              return <Empty text={id ? t("数据源不存在") : t("添加数据源后查看连接与采集状态")} compact action={id
+                ? <button type="button" className="av-btn av-btn--secondary" onClick={() => navigate("/settings/datasources")}>{t("返回数据源列表")}</button>
                 : addButton} />;
             }}
           </QueryState>
@@ -146,77 +147,77 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
         <button type="button" className="av-btn av-btn--primary" disabled={!canEdit || collect.isPending}
           aria-busy={collect.isPending} onClick={() => collect.mutate(undefined, {
             onSuccess: (r) => setMessage({ ok: r.status === "succeeded", text: r.status === "succeeded"
-              ? `采集完成：新版本 ${String(r.stats?.new_versions ?? 0)}，变更 ${eventCount(r.stats)} 项`
-              : r.error ?? "采集失败" }),
+              ? t("采集完成：新版本 {{v1}}，变更 {{v2}} 项", { v1: String(r.stats?.new_versions ?? 0), v2: eventCount(r.stats) })
+              : r.error ?? t("采集失败") }),
             onError: (e) => setMessage({ ok: false, text: errorText(e) }),
           })}>
-          <Icon name="refresh" small />{collect.isPending ? "采集中…" : "重新采集"}
+          <Icon name="refresh" small />{collect.isPending ? t("采集中…") : t("重新采集")}
         </button>
       </PaneHeader>
       <div className="av-scroll">
         <div className="av-datasources__detail">
           <Banner message={message} />
           <div className="av-datasources__summary">
-            <span>当前采集 <Status value={collect.isPending ? "running" : ds.last_run?.status ?? "never"} /></span>
+            <span>{t("当前采集")} <Status value={collect.isPending ? "running" : ds.last_run?.status ?? "never"} /></span>
             <QueryState query={runs} rows={1}>
               {(history) => {
                 const lastSuccess = history.find((run) => run.status === "succeeded");
-                return <span>最近成功 <span className="av-mono">{lastSuccess ? formatTime(lastSuccess.finished_at ?? lastSuccess.started_at, tz)
-                  : history.length ? `最近 ${history.length} 次无成功记录` : "暂无采集记录"}</span></span>;
+                return <span>{t("最近成功")} <span className="av-mono">{lastSuccess ? formatTime(lastSuccess.finished_at ?? lastSuccess.started_at, tz)
+                  : history.length ? t("最近 {{count}} 次无成功记录", { count: history.length }) : t("暂无采集记录")}</span></span>;
               }}
             </QueryState>
-            {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs">查看采集错误</a> : null}
+            {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs">{t("查看采集错误")}</a> : null}
           </div>
 
           <section className="av-datasources__section" aria-labelledby="datasource-connection">
-            <h3 id="datasource-connection">连接</h3>
+            <h3 id="datasource-connection">{t("连接")}</h3>
             <dl className="av-kv">
-              <dt>引擎</dt><dd>{ds.engine.label}</dd>
-              <dt>能力</dt><dd><Capabilities engine={ds.engine} />{ds.engine.note ? <span className="av-help av-datasources__engine-note">{ds.engine.note}</span> : null}</dd>
-              <dt>地址</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
-              <dt>实例</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
+              <dt>{t("引擎")}</dt><dd>{ds.engine.label}</dd>
+              <dt>{t("能力")}</dt><dd><Capabilities engine={ds.engine} />{ds.engine.note ? <span className="av-help av-datasources__engine-note">{ds.engine.note}</span> : null}</dd>
+              <dt>{t("地址")}</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
+              <dt>{t("实例")}</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
             </dl>
-            <PaneHeader title={<>端点别名 <Hint text="同一实例在其他系统中的地址，用于追溯外部表" /></>} count={ds.aliases.length} />
+            <PaneHeader title={<>{t("端点别名")} <Hint text={t("同一实例在其他系统中的地址，用于追溯外部表")} /></>} count={ds.aliases.length} />
             {ds.aliases.length ? <div className="av-table-wrap"><table className="av-table">
-              <thead><tr><th>地址</th><th>说明</th></tr></thead>
+              <thead><tr><th>{t("地址")}</th><th>{t("说明")}</th></tr></thead>
               <tbody>{ds.aliases.map((a) => <tr key={a.id}><td className="av-mono">{a.host}:{a.port}</td><td>{a.note ?? "—"}</td></tr>)}</tbody>
-            </table></div> : <Empty compact text="还没有端点别名" />}
+            </table></div> : <Empty compact text={t("还没有端点别名")} />}
             {canEdit ? <form className="av-alias-form" aria-busy={addAlias.isPending} onSubmit={(e) => {
               e.preventDefault();
               if (addAlias.isPending || !alias.host.trim() || !validPort(alias.port)) return;
               addAlias.mutate(undefined, {
-                onSuccess: () => { setAlias({ host: "", port: "" }); setMessage({ ok: true, text: "已登记端点别名" }); },
+                onSuccess: () => { setAlias({ host: "", port: "" }); setMessage({ ok: true, text: t("已登记端点别名") }); },
                 onError: (error) => setMessage({ ok: false, text: errorText(error) }),
               });
             }}>
-              <label className="av-field"><span className="av-label">主机</span><input className="av-input av-mono" required maxLength={255} disabled={addAlias.isPending}
+              <label className="av-field"><span className="av-label">{t("主机")}</span><input className="av-input av-mono" required maxLength={255} disabled={addAlias.isPending}
                 value={alias.host} onChange={(e) => setAlias({ ...alias, host: e.target.value })} /></label>
-              <label className="av-field"><span className="av-label">端口</span><input className="av-input av-mono" type="number" min={1} max={65535} required disabled={addAlias.isPending}
+              <label className="av-field"><span className="av-label">{t("端口")}</span><input className="av-input av-mono" type="number" min={1} max={65535} required disabled={addAlias.isPending}
                 value={alias.port} onChange={(e) => setAlias({ ...alias, port: e.target.value })} /></label>
               <button type="submit" className="av-btn av-btn--secondary" disabled={!alias.host.trim() || !validPort(alias.port) || addAlias.isPending}>
-                {addAlias.isPending ? "添加中…" : "添加"}
+                {addAlias.isPending ? t("添加中…") : t("添加")}
               </button>
             </form> : null}
           </section>
 
           <section className="av-datasources__section" aria-labelledby="datasource-collection">
-            <h3 id="datasource-collection">采集</h3>
+            <h3 id="datasource-collection">{t("采集")}</h3>
             <dl className="av-kv">
-              <dt>范围</dt><dd className="av-mono">{scope(ds)}</dd>
-              <dt>间隔</dt><dd>每 {ds.collect_interval_minutes} 分钟 <Hint text="轮询采集；未发现变更不代表没有变更" /></dd>
+              <dt>{t("范围")}</dt><dd className="av-mono">{scope(ds)}</dd>
+              <dt>{t("间隔")}</dt><dd>{t("每 {{count}} 分钟", { count: ds.collect_interval_minutes })} <Hint text={t("轮询采集；未发现变更不代表没有变更")} /></dd>
             </dl>
-            <div id="datasource-runs" tabIndex={-1}><PaneHeader title={<>采集批次 <Hint text="展示最近 50 次采集记录" /></>} count={runs.isSuccess ? runs.data.length : undefined} /></div>
-            <QueryState query={runs} isEmpty={(history) => !history.length} emptyText="还没有采集记录" compact>
+            <div id="datasource-runs" tabIndex={-1}><PaneHeader title={<>{t("采集批次")} <Hint text={t("展示最近 50 次采集记录")} /></>} count={runs.isSuccess ? runs.data.length : undefined} /></div>
+            <QueryState query={runs} isEmpty={(history) => !history.length} emptyText={t("还没有采集记录")} compact>
               {(history) => <div className="av-table-wrap"><table className="av-table av-datasources__runs">
-                <thead><tr><th>状态</th><th>开始</th><th>触发</th><th className="num">观察</th><th className="num">新版本</th><th className="num">变更</th><th>说明</th></tr></thead>
+                <thead><tr><th>{t("状态")}</th><th>{t("开始")}</th><th>{t("触发")}</th><th className="num">{t("观察")}</th><th className="num">{t("新版本")}</th><th className="num">{t("变更")}</th><th>{t("说明")}</th></tr></thead>
                 <tbody>{history.map((r) => {
                   const stats = r.stats ?? {};
                   return <tr key={r.id}>
                     <td><Status value={r.status} /></td><td className="av-mono">{formatTime(r.started_at, tz)}</td>
-                    <td>{({ manual: "手动", schedule: "定时", test: "测试" } as Record<string, string>)[r.trigger] ?? r.trigger}</td>
+                    <td>{({ manual: t("手动"), schedule: t("定时"), test: t("测试") } as Record<string, string>)[r.trigger] ?? r.trigger}</td>
                     <td className="num">{String(stats.assets_observed ?? "—")}</td><td className="num">{String(stats.new_versions ?? "—")}</td>
                     <td className="num">{r.status === "succeeded" || Object.keys(stats).length ? eventCount(stats) : "—"}</td>
-                    <td className="av-muted av-datasources__run-note">{r.error ?? (Array.isArray(stats.warnings) ? stats.warnings.join("；") : "—")}</td>
+                    <td className="av-muted av-datasources__run-note">{r.error ?? (Array.isArray(stats.warnings) ? stats.warnings.join(t("；")) : "—")}</td>
                   </tr>;
                 })}</tbody>
               </table></div>}
@@ -226,40 +227,40 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
           <CommentCoverage ds={ds} />
 
           <section className="av-datasources__section" aria-labelledby="datasource-exploration">
-            <h3 id="datasource-exploration">探索查询 <Hint text="分析智能体可以按血缘与字段注释，在当前用户可见的已采集表上写只读 SELECT。结果标为“探索查询（未经口径审核）”" /></h3>
+            <h3 id="datasource-exploration">{t("探索查询")} <Hint text={t("分析智能体可以按血缘与字段注释，在当前用户可见的已采集表上写只读 SELECT。结果标为“探索查询（未经口径审核）”")} /></h3>
             {ds.exploration_supported ? <dl className="av-kv">
-              <dt>状态</dt><dd className="av-datasources__switch">
-                <Switch label="允许探索查询" checked={!!ds.allow_exploration} disabled={!isAdmin || exploration.isPending}
+              <dt>{t("状态")}</dt><dd className="av-datasources__switch">
+                <Switch label={t("允许探索查询")} checked={!!ds.allow_exploration} disabled={!isAdmin || exploration.isPending}
                   onChange={(value: boolean) => exploration.mutate(value, { onError: (e) => setMessage({ ok: false, text: errorText(e) }) })} />
-                <span className="av-muted">{ds.allow_exploration ? "已开启" : "已关闭"}{isAdmin ? "" : "（只有管理员可以修改）"}</span></dd>
-            </dl> : <span className="av-muted">该引擎尚不支持探索查询（第一版支持 StarRocks 与 PostgreSQL）</span>}
+                <span className="av-muted">{ds.allow_exploration ? t("已开启") : t("已关闭")}{isAdmin ? "" : t("（只有管理员可以修改）")}</span></dd>
+            </dl> : <span className="av-muted">{t("该引擎尚不支持探索查询（第一版支持 StarRocks 与 PostgreSQL）")}</span>}
           </section>
 
           <section className="av-datasources__section" aria-labelledby="datasource-credentials">
-            <h3 id="datasource-credentials">凭据 <Hint text="密码只写不读，更换后使用新凭据连接" /></h3>
+            <h3 id="datasource-credentials">{t("凭据")} <Hint text={t("密码只写不读，更换后使用新凭据连接")} /></h3>
             {credentialPurposes.map((purpose) => {
               const credential = ds.credentials.find((c) => c.purpose === purpose);
               return <div className="av-datasources__credential" key={purpose}>
-                <span className="av-row__main"><span className="av-row__title">{purpose === "collect" ? "采集账号" : "只读查询账号"}</span>
-                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 密码已设置</>
+                <span className="av-row__main"><span className="av-row__title">{purpose === "collect" ? t("采集账号") : t("只读查询账号")}</span>
+                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> {t("· 密码已设置")}</>
                     : purpose === "collect" && credentialOptional(ds.engine, (key) => String(ds.options[key] ?? optionDefault(ds.engine, key)))
-                      ? "未设置（当前认证方式可不填）" : "未设置"}</span>
-                  {credential ? <span className="av-caption">更新于 {formatTime(credential.updated_at, tz)}</span> : null}
+                      ? t("未设置（当前认证方式可不填）") : t("未设置")}</span>
+                  {credential ? <span className="av-caption">{t("更新于")} {formatTime(credential.updated_at, tz)}</span> : null}
                 </span>
-                {isAdmin ? <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditingCredential(purpose)}>{credential ? "更换" : "设置"}</button> : null}
+                {isAdmin ? <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditingCredential(purpose)}>{credential ? t("更换") : t("设置")}</button> : null}
               </div>;
             })}
           </section>
         </div>
       </div>
       {editingCredential ? <DatasourceCredential ds={ds} purpose={editingCredential} onClose={() => setEditingCredential(null)} onSaved={() => {
-        setEditingCredential(null); setMessage({ ok: true, text: "凭据已更新" });
+        setEditingCredential(null); setMessage({ ok: true, text: t("凭据已更新") });
       }} /> : null}
     </>
   );
 }
 
-const DOC_STATUS: Record<string, string> = { inherited: "本列缺注释（上游有）", missing: "注释缺失" };
+const DOC_STATUS: Record<string, string> = { inherited: t("本列缺注释（上游有）"), missing: t("注释缺失") };
 
 /** 字段注释完整度：字段含义以数据库列注释为准，缺口交给数据库负责人补齐（可导出清单）。 */
 function CommentCoverage({ ds }: { ds: Datasource }) {
@@ -269,44 +270,44 @@ function CommentCoverage({ ds }: { ds: Datasource }) {
   });
   const exportCsv = (items: Schemas["CommentGapOut"][]) => {
     const cell = (v: string | null | undefined) => `"${(v ?? "").replaceAll('"', '""')}"`;
-    const lines = [["资产", "字段", "状态", "上游注释（可沿用）", "上游字段"].map(cell).join(","),
+    const lines = [[t("资产"), t("字段"), t("状态"), t("上游注释（可沿用）"), t("上游字段")].map(cell).join(","),
       ...items.map((x) => [x.asset, x.column, DOC_STATUS[x.status] ?? x.status, x.suggestion, x.source].map(cell).join(","))];
     const url = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${ds.name}-注释缺失.csv`;
+    link.download = t("{{name}}-注释缺失.csv", { name: ds.name });
     link.click();
     URL.revokeObjectURL(url);
   };
   return (
     <section className="av-datasources__section" aria-labelledby="datasource-comments">
-      <h3 id="datasource-comments">字段注释 <Hint text="字段含义以数据库列注释为准。Avelis 不另设显示名，缺注释的列在问数和资产中如实标出，请在数据库中补齐" /></h3>
+      <h3 id="datasource-comments">{t("字段注释")} <Hint text={t("字段含义以数据库列注释为准。Avelis 不另设显示名，缺注释的列在问数和资产中如实标出，请在数据库中补齐")} /></h3>
       <QueryState query={gaps} compact>
         {(data) => {
           const summary = data.datasources.find((x) => x.datasource_id === ds.id);
-          if (!summary || !summary.total) return <Empty text="还没有采集到字段" compact />;
+          if (!summary || !summary.total) return <Empty text={t("还没有采集到字段")} compact />;
           const rate = summary.completeness == null ? "—" : `${Math.round(summary.completeness * 1000) / 10}%`;
           return <>
             <dl className="av-kv">
-              <dt>完整度</dt><dd><strong>{rate}</strong> <span className="av-muted">{summary.ok + summary.linked} / {summary.total} 列有注释</span></dd>
-              <dt>缺口</dt><dd className="av-coverage__gaps">{summary.gaps ? <>
-                {summary.missing ? <Pill tone="warn">{summary.missing} 列注释缺失</Pill> : null}
-                {summary.inherited ? <Pill tone="warn">{summary.inherited} 列可沿用上游</Pill> : null}
-              </> : <Pill tone="ok">无</Pill>}</dd>
+              <dt>{t("完整度")}</dt><dd><strong>{rate}</strong> <span className="av-muted">{summary.ok + summary.linked} / {t("{{count}} 列有注释", { count: summary.total })}</span></dd>
+              <dt>{t("缺口")}</dt><dd className="av-coverage__gaps">{summary.gaps ? <>
+                {summary.missing ? <Pill tone="warn">{t("{{count}} 列注释缺失", { count: summary.missing })}</Pill> : null}
+                {summary.inherited ? <Pill tone="warn">{t("{{count}} 列可沿用上游", { count: summary.inherited })}</Pill> : null}
+              </> : <Pill tone="ok">{t("无")}</Pill>}</dd>
             </dl>
             {data.items.length ? <>
-              <PaneHeader title="缺注释的列" count={data.items.length}>
-                <button type="button" className="av-btn av-btn--secondary" onClick={() => exportCsv(data.items)}><Icon name="download" />导出 CSV</button>
+              <PaneHeader title={t("缺注释的列")} count={data.items.length}>
+                <button type="button" className="av-btn av-btn--secondary" onClick={() => exportCsv(data.items)}><Icon name="download" />{t("导出 CSV")}</button>
               </PaneHeader>
               <div className="av-table-wrap"><table className="av-table">
-                <thead><tr><th>资产</th><th>字段</th><th>状态</th><th>上游注释（可沿用）</th></tr></thead>
+                <thead><tr><th>{t("资产")}</th><th>{t("字段")}</th><th>{t("状态")}</th><th>{t("上游注释（可沿用）")}</th></tr></thead>
                 <tbody>{data.items.slice(0, 50).map((x) => <tr key={`${x.asset_id}.${x.column}`}>
                   <td className="av-mono">{x.asset}</td><td className="av-mono">{x.column}</td>
                   <td><Pill tone="warn">{DOC_STATUS[x.status] ?? x.status}</Pill></td>
                   <td title={x.source ?? undefined}>{x.suggestion ?? <span className="av-muted">—</span>}</td>
                 </tr>)}</tbody>
               </table></div>
-              {data.items.length > 50 ? <span className="av-caption">只显示前 50 列，完整清单请导出</span> : null}
+              {data.items.length > 50 ? <span className="av-caption">{t("只显示前 50 列，完整清单请导出")}</span> : null}
             </> : null}
           </>;
         }}
@@ -347,9 +348,9 @@ function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
   const save = useAction(() => unwrap(api.PUT("/api/datasources/{datasource_id}/credentials/{purpose}", {
     params: { path: { datasource_id: ds.id, purpose } }, body: { username: username.trim(), password },
   })), ["datasources"]);
-  return <Drawer title={`更换${purpose === "collect" ? "采集" : "只读查询"}凭据`} onClose={onClose} footer={<>
-    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
-    <button type="submit" form="datasource-credential-form" className="av-btn av-btn--primary" disabled={!username.trim() || !password || save.isPending}>{save.isPending ? "保存中…" : "保存"}</button>
+  return <Drawer title={t("更换{{v1}}凭据", { v1: purpose === "collect" ? t("采集") : t("只读查询") })} onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>{t("取消")}</button>
+    <button type="submit" form="datasource-credential-form" className="av-btn av-btn--primary" disabled={!username.trim() || !password || save.isPending}>{save.isPending ? t("保存中…") : t("保存")}</button>
   </>}>
     <p className="av-datasources__form-context">{ds.name} · <span className="av-mono">{ds.host}:{ds.port}</span></p>
     <form id="datasource-credential-form" className="av-datasources__form" aria-busy={save.isPending} onSubmit={(e) => {
@@ -357,8 +358,8 @@ function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
       if (!username.trim() || !password || save.isPending) return;
       save.mutate(undefined, { onSuccess: onSaved, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
     }}>
-      <label className="av-field"><span className="av-label">账号</span><input className="av-input av-mono" required maxLength={128} autoComplete="off" autoFocus disabled={save.isPending} value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-      <label className="av-field"><span className="av-label">新密码</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">{t("账号")}</span><input className="av-input av-mono" required maxLength={128} autoComplete="off" autoFocus disabled={save.isPending} value={username} onChange={(e) => setUsername(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">{t("新密码")}</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       <Banner message={message} />
     </form>
   </Drawer>;
@@ -388,19 +389,19 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
     },
   })), ["datasources"]);
 
-  return <Drawer title="添加数据源" onClose={onClose} footer={<>
-    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>取消</button>
-    <button type="submit" form="add-datasource-form" className="av-btn av-btn--primary" disabled={!valid || create.isPending}>{create.isPending ? "添加中…" : "添加"}</button>
+  return <Drawer title={t("添加数据源")} onClose={onClose} footer={<>
+    <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>{t("取消")}</button>
+    <button type="submit" form="add-datasource-form" className="av-btn av-btn--primary" disabled={!valid || create.isPending}>{create.isPending ? t("添加中…") : t("添加")}</button>
   </>}>
-    <QueryState query={engines} isEmpty={(list) => !list.length} emptyText="暂无可用引擎" compact>
+    <QueryState query={engines} isEmpty={(list) => !list.length} emptyText={t("暂无可用引擎")} compact>
       {(engineList) => <form id="add-datasource-form" className="av-datasources__form" aria-busy={create.isPending} onSubmit={(e) => {
         e.preventDefault();
         if (!valid || create.isPending) return;
         create.mutate(undefined, { onSuccess: onCreated, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
       }}>
         <fieldset disabled={create.isPending} className="av-datasources__form-fields">
-          <label className="av-field"><span className="av-label">类型{engine?.note ? <Hint text={engine.note} /> : null}</span>
-            <Select label="数据源类型" value={engine?.kind ?? ""} disabled={create.isPending} onChange={(kind) => {
+          <label className="av-field"><span className="av-label">{t("类型")}{engine?.note ? <Hint text={engine.note} /> : null}</span>
+            <Select label={t("数据源类型")} value={engine?.kind ?? ""} disabled={create.isPending} onChange={(kind) => {
               setForm({ ...form, kind, port: String(engineList.find((item) => item.kind === kind)?.default_port ?? "") });
               setConfiguration({}); setMessage(null);
             }}>
@@ -408,13 +409,13 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
             </Select>
             {engine ? <Capabilities engine={engine} /> : null}
           </label>
-          <label className="av-field"><span className="av-label">名称</span><input className="av-input" required maxLength={128} value={form.name} onChange={set("name")} /></label>
+          <label className="av-field"><span className="av-label">{t("名称")}</span><input className="av-input" required maxLength={128} value={form.name} onChange={set("name")} /></label>
           <div className="av-datasources__connection-form">
-            <label className="av-field"><span className="av-label">主机</span><input className="av-input av-mono" required maxLength={255} value={form.host} onChange={set("host")} /></label>
-            <label className="av-field"><span className="av-label">端口</span><input className="av-input av-mono" type="number" required min={1} max={65535} value={port} onChange={set("port")} /></label>
+            <label className="av-field"><span className="av-label">{t("主机")}</span><input className="av-input av-mono" required maxLength={255} value={form.host} onChange={set("host")} /></label>
+            <label className="av-field"><span className="av-label">{t("端口")}</span><input className="av-input av-mono" type="number" required min={1} max={65535} value={port} onChange={set("port")} /></label>
           </div>
-          {options === undefined ? <div className="av-query-error" role="alert"><Banner message={{ ok: false, text: "引擎配置项缺失，请重试" }} />
-            <button type="button" className="av-btn av-btn--secondary" onClick={() => engines.refetch()}>重试</button></div>
+          {options === undefined ? <div className="av-query-error" role="alert"><Banner message={{ ok: false, text: t("引擎配置项缺失，请重试") }} />
+            <button type="button" className="av-btn av-btn--secondary" onClick={() => engines.refetch()}>{t("重试")}</button></div>
             : options.map((option) => <label className="av-field" key={option.key}>
               <span className="av-label">{option.label}{option.required ? " *" : ""}</span>
               {option.type === "choice"
@@ -424,18 +425,18 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
                 </Select>
                 : <input className="av-input av-mono" required={option.required} aria-describedby={`datasource-option-${option.key}-hint`} value={configuration[option.key] ?? ""}
                   onChange={(e) => setConfiguration({ ...configuration, [option.key]: e.target.value })} />}
-              <span className="av-help" id={`datasource-option-${option.key}-hint`}>{[option.type === "list" ? "逗号分隔" : "", option.hint].filter(Boolean).join("；")}</span>
+              <span className="av-help" id={`datasource-option-${option.key}-hint`}>{[option.type === "list" ? t("逗号分隔") : "", option.hint].filter(Boolean).join(t("；"))}</span>
             </label>)}
-          <fieldset className="av-datasources__credential-fields"><legend>采集凭据{collectOptional ? "（可不填）" : ""}</legend><div className="av-datasources__field-pair">
-            <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
-            <label className="av-field"><span className="av-label">密码</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
+          <fieldset className="av-datasources__credential-fields"><legend>{collectOptional ? t("采集凭据（可不填）") : t("采集凭据")}</legend><div className="av-datasources__field-pair">
+            <label className="av-field"><span className="av-label">{t("采集账号")}</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
+            <label className="av-field"><span className="av-label">{t("密码")}</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
           </div></fieldset>
-          {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>只读查询凭据</legend><div className="av-datasources__field-pair">
-            <label className="av-field"><span className="av-label">查询账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.queryUser} onChange={set("queryUser")} /></label>
-            <label className="av-field"><span className="av-label">密码</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
+          {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>{t("只读查询凭据")}</legend><div className="av-datasources__field-pair">
+            <label className="av-field"><span className="av-label">{t("查询账号")}</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.queryUser} onChange={set("queryUser")} /></label>
+            <label className="av-field"><span className="av-label">{t("密码")}</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
           </div></fieldset> : null}
           {Boolean(form.collectUser.trim()) !== Boolean(form.collectPassword) || (canQuery && Boolean(form.queryUser.trim()) !== Boolean(form.queryPassword))
-            ? <span className="av-help av-help--danger" role="status">账号和密码需一起填写</span> : null}
+            ? <span className="av-help av-help--danger" role="status">{t("账号和密码需一起填写")}</span> : null}
         </fieldset>
         <Banner message={message} />
       </form>}
