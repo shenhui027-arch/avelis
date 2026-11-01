@@ -138,7 +138,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
   - 不直连 Hive Metastore（Thrift 9083）：要部署方额外开放元数据服务端口并处理它自己的认证，且拿不到视图的展开文本以外的增量信息；HiveServer2 是 Hive 对外的标准入口，权限也在这一层统一控制。
   - 不走 JDBC（JayDeBeApi + Java）：镜像要带 JRE，违背部署自包含、依赖最小的原则。
 - 资产名两级 `库.表`，固定 Catalog 段 `hive`（Hive Metastore 默认 Catalog 名）；生成的 SQL 不写 Catalog 段。库、表、列名在元数据中存为小写。
-- 采集只读元数据：`SHOW TABLES IN <库>` 列出表与视图，逐个 `DESCRIBE FORMATTED`。不读业务数据，不起 MapReduce / Tez 作业。读不到某张表的结构时整次采集失败（跳过会被当成删除）。
+- 采集只读元数据：`SHOW TABLES IN <库>` 列出表与视图，逐个 `DESCRIBE FORMATTED`。不读业务数据，不起 MapReduce / Tez 作业。配置的库在 `SHOW DATABASES` 中不可见（Hive 授权插件会按权限过滤这个列表，看不到不代表已删除）、或读不到某张表的结构时，整次采集失败，报错写明是哪个库，上一份目录原样保留；跳过会把这个库已采集的资产全部记成删除。
   - 列、类型（原样保留，如 `decimal(18,2)`、`array<string>`、`struct<a:int>`）、列注释；分区列来自 “# Partition Information”，排在普通列之后（与 `SELECT *` 列序一致），列名记在属性 `partition_columns`。
   - 表注释在 Table Parameters 的 `comment`，按 Java 转义输出（换行写成 `
 `），采集时还原。
