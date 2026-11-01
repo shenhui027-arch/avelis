@@ -1,5 +1,7 @@
 # 开发指南
 
+[English](development.en.md) | 简体中文 | [繁體中文](development.zh-TW.md)
+
 本文面向在本机开发、调试与验收 Avelis 的开发者：后端与前端的开发命令、本地演示环境、一条命令复现验收。部署到服务器见 [deployment.md](deployment.md)，配置项见 [configuration.md](configuration.md)。
 
 ## 前置条件

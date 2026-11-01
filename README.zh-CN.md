@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](backend/pyproject.toml)
 [![React](https://img.shields.io/badge/react-19-61DAFB.svg)](frontend/package.json)
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [繁體中文](README.zh-TW.md)
 
 </div>
 
@@ -20,7 +20,7 @@ Avelis 用自然语言回答关于业务数据的问题，并说清每个数从�
 ![分析会话：结论优先的报告、原因排序、证据栏与模型栏](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis 处于 v0.1，尚未发布正式版本。界面与大部分文档为简体中文。
+> Avelis 处于 v0.1，尚未发布正式版本。界面目前为简体中文，英文与繁体中文在计划中；文档提供简体中文、繁体中文与英文。
 
 ## 功能亮点
 
@@ -150,6 +150,7 @@ pnpm dev
 
 计划中的方向，不承诺日期：
 
+- 界面支持英文与繁体中文。
 - Hive 引擎（元数据与视图血缘），开发中。
 - 更多引擎的外部 Catalog 与物化视图。
 - StarRocks、SQL Server、Oracle 的变更归因。

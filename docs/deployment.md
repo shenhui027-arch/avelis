@@ -1,5 +1,7 @@
 # 部署指南
 
+[English](deployment.en.md) | 简体中文 | [繁體中文](deployment.zh-TW.md)
+
 本文说明如何把 Avelis 部署为一个可访问的服务：Docker Compose 一键部署、单容器运行、使用外部 PostgreSQL / Redis、不用 Docker 部署，以及升级、备份与排障。全部配置项见 [configuration.md](configuration.md)。
 
 > 本文的部署编排（`deploy/docker/`，Compose 项目名 `avelis`）与本地开发用的演示环境（`deploy/demo/`，项目名 `avelis-demo`）相互独立：项目名、网络、数据卷都不同，部署不会重建或删除演示容器。

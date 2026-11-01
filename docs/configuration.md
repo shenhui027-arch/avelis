@@ -1,5 +1,7 @@
 # 配置参考
 
+[English](configuration.en.md) | 简体中文 | [繁體中文](configuration.zh-TW.md)
+
 Avelis 的配置可以写在**配置文件**（TOML）里，也可以用 **`AVELIS_*` 环境变量**或 **`.env` 文件**设置。生产部署推荐配置文件；本地开发沿用仓库根目录的 `.env`。
 
 ## 1. 加载顺序

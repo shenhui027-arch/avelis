@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](backend/pyproject.toml)
 [![React](https://img.shields.io/badge/react-19-61DAFB.svg)](frontend/package.json)
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 </div>
 
@@ -20,7 +20,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis is at v0.1 and has not published a release yet. The user interface and most of the documentation are in Simplified Chinese.
+> Avelis is at v0.1 and has not published a release yet. The user interface is currently in Simplified Chinese; English and Traditional Chinese are planned. The documentation is available in English, Simplified Chinese and Traditional Chinese.
 
 ## Highlights
 
@@ -40,7 +40,7 @@ Avelis answers business questions about your databases and shows where every num
 | **Lineage** | **Catalog** |
 | ![Lineage graph with a selected table and the inspector](docs/images/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/catalog.png) |
 
-More pages (Q&A home, report follow-ups, export, personal experience, settings, light theme) are in the [product tour](docs/product-tour.md).
+More pages (Q&A home, report follow-ups, export, personal experience, settings, light theme) are in the [product tour](docs/product-tour.en.md).
 
 ## Supported databases
 
@@ -56,7 +56,7 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MySQL | 8.4 | ✓ | | | | |
 
-StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md).
+StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL is currently collected as the target of those external tables. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
 
 ## Quick start
 
@@ -77,7 +77,7 @@ docker compose ps
 
 When `app` shows `healthy`, open `http://<server-ip>:8080` and sign in as `admin` with the initial password. You will be asked to change it on first sign-in.
 
-The stack runs the app (API + web UI), a worker, PostgreSQL and Redis (Valkey), with data in Docker volumes. Next steps: add a data source under **设置 → 数据源** (Settings → Data sources) and configure a model under **设置 → 模型配置** (Settings → Models). For external databases, reverse proxy and HTTPS, running without Docker, upgrades and backups, see the [deployment guide](docs/deployment.md).
+The stack runs the app (API + web UI), a worker, PostgreSQL and Redis (Valkey), with data in Docker volumes. Next steps: add a data source under **设置 → 数据源** (Settings → Data sources) and configure a model under **设置 → 模型配置** (Settings → Models). For external databases, reverse proxy and HTTPS, running without Docker, upgrades and backups, see the [deployment guide](docs/deployment.en.md).
 
 ## Architecture
 
@@ -102,7 +102,7 @@ flowchart LR
 - **Storage**: PostgreSQL is the only supported metadata database. Redis is used for job wake-ups, caching, locks and token revocation.
 - **Deployment**: in production the backend also serves the built frontend, so a single port is enough. The worker is a separate process from the same image.
 
-See the [architecture overview](docs/architecture.md) and the [architecture decision records](docs/decisions/).
+See the [architecture overview](docs/architecture.en.md) and the [architecture decision records](docs/decisions/) (Simplified Chinese).
 
 ## Configuration
 
@@ -115,7 +115,7 @@ A deployment is configured by one commented TOML file, [`deploy/docker/avelis.ex
 | `[redis] password` | Redis password. |
 | `[bootstrap] initial_admin_password` | Initial password of the first administrator. |
 
-Precedence: `AVELIS_*` environment variables > `.env` file > configuration file > built-in defaults. Passwords can also be read from files (`password_file` / `AVELIS_*_FILE`). The configuration is validated at startup and errors name the setting to fix. All settings are listed in the [configuration reference](docs/configuration.md).
+Precedence: `AVELIS_*` environment variables > `.env` file > configuration file > built-in defaults. Passwords can also be read from files (`password_file` / `AVELIS_*_FILE`). The configuration is validated at startup and errors name the setting to fix. All settings are listed in the [configuration reference](docs/configuration.en.md).
 
 ## Development
 
@@ -133,23 +133,24 @@ pnpm install
 pnpm dev
 ```
 
-The [development guide](docs/development.md) covers the local demo environment (StarRocks, MySQL, PostgreSQL, Valkey and synthetic data), demo accounts, unit tests and the one-command acceptance run.
+The [development guide](docs/development.en.md) covers the local demo environment (StarRocks, MySQL, PostgreSQL, Valkey and synthetic data), demo accounts, unit tests and the one-command acceptance run.
 
 ## Documentation
 
 | For | Documents |
 |---|---|
-| Users | [Product tour](docs/product-tour.md) |
-| Operators | [Deployment guide](docs/deployment.md) · [Configuration reference](docs/configuration.md) |
-| Developers | [Development guide](docs/development.md) · [Architecture overview](docs/architecture.md) · [Documentation guide](docs/documentation-guide.md) |
+| Users | [Product tour](docs/product-tour.en.md) |
+| Operators | [Deployment guide](docs/deployment.en.md) · [Configuration reference](docs/configuration.en.md) |
+| Developers | [Development guide](docs/development.en.md) · [Architecture overview](docs/architecture.en.md) · [Documentation guide](docs/documentation-guide.en.md) |
 | Design decisions | [Architecture decision records](docs/decisions/) |
 
-The full index is in [docs/README.md](docs/README.md). Most documents are in Simplified Chinese.
+The full index is in [docs/README.en.md](docs/README.en.md). Design decision records (ADRs) are in Simplified Chinese only.
 
 ## Roadmap
 
 Planned directions, without dates:
 
+- English and Traditional Chinese user interface.
 - Hive engine (metadata and view lineage), in progress.
 - External catalogs and materialized views for more engines.
 - DDL attribution for StarRocks, SQL Server and Oracle.
