@@ -25,6 +25,22 @@
     }
    }
   },
+  "/api/health/ready": {
+   "get": {
+    "summary": "Ready",
+    "operationId": "ready_api_health_ready_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/auth/token": {
    "post": {
     "tags": [
@@ -8585,6 +8601,28 @@
     ],
     "title": "Credential"
    },
+   "CredentialFreeOut": {
+    "properties": {
+     "option": {
+      "type": "string",
+      "title": "Option"
+     },
+     "values": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Values"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "option",
+     "values"
+    ],
+    "title": "CredentialFreeOut"
+   },
    "CredentialOut": {
     "properties": {
      "purpose": {
@@ -9161,6 +9199,19 @@
      "hint": {
       "type": "string",
       "title": "Hint"
+     },
+     "choices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Choices",
+      "default": []
+     },
+     "default": {
+      "type": "string",
+      "title": "Default",
+      "default": ""
      }
     },
     "additionalProperties": true,
@@ -9232,6 +9283,16 @@
       "type": "array",
       "title": "Options",
       "default": []
+     },
+     "credential_free": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CredentialFreeOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": true,
@@ -10101,7 +10162,6 @@
      },
      "content": {
       "type": "string",
-      "maxLength": 2097152,
       "minLength": 1,
       "title": "Content"
      },

@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready */
+        get: operations["ready_api_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/token": {
         parameters: {
             query?: never;
@@ -2686,6 +2703,15 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** CredentialFreeOut */
+        CredentialFreeOut: {
+            /** Option */
+            option: string;
+            /** Values */
+            values: string[];
+        } & {
+            [key: string]: unknown;
+        };
         /** CredentialOut */
         CredentialOut: {
             /** Purpose */
@@ -2903,6 +2929,16 @@ export interface components {
             required: boolean;
             /** Hint */
             hint: string;
+            /**
+             * Choices
+             * @default []
+             */
+            choices?: string[];
+            /**
+             * Default
+             * @default
+             */
+            default?: string;
         } & {
             [key: string]: unknown;
         };
@@ -2931,6 +2967,7 @@ export interface components {
              * @default []
              */
             options?: components["schemas"]["EngineOptionOut"][];
+            credential_free?: components["schemas"]["CredentialFreeOut"] | null;
         } & {
             [key: string]: unknown;
         };
@@ -4324,6 +4361,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    ready_api_health_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

@@ -30,6 +30,7 @@ dependencies = [
     "oracledb>=3.3",
     "reportlab>=4.2",
     "json-repair>=0.50",
+    "impyla>=0.24",
 ]
 
 [dependency-groups]
