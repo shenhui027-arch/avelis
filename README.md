@@ -62,7 +62,7 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 
 | 数据库 | 测试版本 | 采集元数据 | 视图血缘 | 问数查询 | 执行前核对 | 变更归因到用户 |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
+| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | [✓（需绑定 AuditLoader 审计表）](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
@@ -166,7 +166,7 @@ pnpm dev
 计划中的方向，不承诺日期：
 
 - 更多引擎的外部 Catalog 与物化视图。
-- StarRocks、SQL Server、Oracle 的变更归因。
+- SQL Server、Oracle 的变更归因。
 - 问数表达能力：派生指标嵌套、按周 / 月的时间粒度、占比。
 
 版本变化见[更新日志](CHANGELOG.md)。

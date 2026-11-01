@@ -39,10 +39,12 @@ STARROCKS = Engine(
     # StarRocks 存储的视图定义把别名列写成 `db`.`alias`.`col`，解析前规整
     sql=SqlDialect(name="starrocks", default_catalog=INTERNAL_CATALOG, normalize=strip_alias_prefixes),
     name_levels=("catalog", "database", "table"),
-    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES, LIVE_CHECK}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, EXTERNAL_TABLES, LIVE_CHECK, DDL_AUDIT}),
     collector=StarRocksConnector, querier=StarRocksConnector, default_port=9030,
     options=(OptionField("databases", "采集的库", required=True),
-             OptionField("catalogs", "Catalog", hint="只接 JDBC MySQL Catalog")),
+             OptionField("catalogs", "Catalog", hint="只接 JDBC MySQL Catalog"),
+             OptionField("ddl_audit_table", "DDL 审计表", type="text", required=False,
+                         hint="库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表")),
 )
 
 MYSQL = Engine(
