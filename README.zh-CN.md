@@ -94,7 +94,7 @@ flowchart LR
   W --> RD
   APP -->|只读账号| DB[(被治理的数据库)]
   W -->|采集账号| DB
-  APP -->|默认只发问题与元数据| LLM[[模型服务]]
+  APP -->|问题、元数据与查询结果（可关闭）| LLM[[模型服务]]
 ```
 
 - **后端** `backend/`：Python 3.12、FastAPI、SQLAlchemy + Alembic、SQLGlot、LangGraph。
