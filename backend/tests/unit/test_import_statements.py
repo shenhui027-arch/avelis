@@ -184,9 +184,26 @@ def test_swap_records_two_directions_from_original_structures():
     assert {e.source_ref for e in result.writes[1].edges} == {"c.dw.daily_summary"}
 
 
-def test_mysql_rename_command_is_reported_unsupported_without_preprocessing():
+def test_mysql_rename_table_is_a_rename():
     result = parse("RENAME TABLE dw.stage TO dw.final_stage", "mysql")
-    assert result.status == "unsupported" and not result.writes
+    assert result.status == "parsed" and result.statement_type == "RENAME TABLE"
+    assert result.removed_refs == ["c.dw.stage"]
+    assert [w.target_ref for w in result.writes] == ["c.dw.final_stage"]
+    assert signatures(result.writes[0]) == {("c.dw.stage", "id", "id", "value_direct"),
+                                            ("c.dw.stage", "value", "value", "value_direct")}
+
+
+def test_mysql_rename_table_pairs_read_the_state_before_the_statement():
+    # 原子换表：daily_summary 改名为 old，stage 改名为 daily_summary
+    result = parse("RENAME TABLE dw.daily_summary TO dw.old, dw.stage TO dw.daily_summary", "mysql")
+    assert result.status == "parsed"
+    assert result.removed_refs == ["c.dw.daily_summary", "c.dw.stage"]
+    assert [(w.target_ref, {e.source_ref for e in w.edges}) for w in result.writes] == [
+        ("c.dw.old", {"c.dw.daily_summary"}), ("c.dw.daily_summary", {"c.dw.stage"})]
+
+
+def test_other_rename_statements_stay_unsupported():
+    assert parse("RENAME USER 'u'@'h' TO 'v'@'h'", "mysql").status == "unsupported"
 
 
 def test_drop_is_script_fact_without_edges():

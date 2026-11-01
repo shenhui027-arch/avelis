@@ -205,19 +205,24 @@ def _dependencies(segments: list, dialect: Any, default_db: str | None,
         def qualify(table, db=default_db):
             return service._qualify(".".join(p.name for p in table.parts), db, dialect.default_catalog)
 
-        if isinstance(tree, exp.Alter) and isinstance(tree.this, exp.Table):
-            actions = tree.args.get("actions") or []
+        renamed = False
+        for alter in tree.expressions if isinstance(tree, exp.RenameTable) else [tree]:
+            if not (isinstance(alter, exp.Alter) and isinstance(alter.this, exp.Table)):
+                continue
+            actions = alter.args.get("actions") or []
             if len(actions) == 1 and isinstance(actions[0], (exp.AlterRename, exp.SwapTable)):
+                renamed = True
                 action = actions[0]
-                old = qualify(tree.this)
-                new = qualify(action.this, tree.this.db or default_db)
+                old = qualify(alter.this)
+                new = qualify(action.this, alter.this.db or default_db)
                 if old and new:
                     reads.add(old)
                     writes.add(new)
                     if isinstance(action, exp.SwapTable):
                         reads.add(new)
                         writes.add(old)
-                continue
+        if renamed:
+            continue
         targets = []
         for node in tree.walk():
             if isinstance(node, (exp.Insert, exp.Create, exp.Update, exp.Merge)):
