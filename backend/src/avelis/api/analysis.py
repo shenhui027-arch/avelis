@@ -23,8 +23,18 @@ from avelis.db import utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import Invalid, NotFound
 from avelis.i18n import Msg, current_locale, translate
-from avelis.models import (AnalysisDataset, AnalysisRun, AnalysisTask, Asset, ColumnVersion, Job,
-                           Metric, MetricVersion, Notification, User)
+from avelis.models import (
+    AnalysisDataset,
+    AnalysisRun,
+    AnalysisTask,
+    Asset,
+    ColumnVersion,
+    Job,
+    Metric,
+    MetricVersion,
+    Notification,
+    User,
+)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 

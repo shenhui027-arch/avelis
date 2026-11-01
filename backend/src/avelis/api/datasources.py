@@ -120,9 +120,16 @@ def create_datasource(body: DatasourceCreate, user: User = Depends(current_user)
     engine = get_engine(body.kind)
     if body.query is not None and not engine.supports(QUERY):
         raise HTTPException(422, Msg("{engine} 适配器不支持问数执行，不需要只读查询账号", engine=engine.label))
-    missing = [o.label for o in engine.options if o.required and not (body.options or {}).get(o.key)]
+    # 配置项名是适配器的固定标签，连同列表分隔符按请求语言取译文；可选值是协议取值，原样列出
+    missing = [gettext(o.label) for o in engine.options if o.required and not (body.options or {}).get(o.key)]
     if missing:
-        raise HTTPException(422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label, options="、".join(missing)))
+        raise HTTPException(422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label,
+                                     options=gettext("、").join(missing)))
+    invalid = [gettext("{label}（可选 {choices}）", label=gettext(o.label), choices=gettext("、").join(o.choices))
+               for o in engine.options if o.choices and (body.options or {}).get(o.key) not in (None, "", *o.choices)]
+    if invalid:
+        raise HTTPException(422, Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label,
+                                     options=gettext("；").join(invalid)))
     interval = (body.collect_interval_minutes if "collect_interval_minutes" in body.model_fields_set
                 else get_settings().collect_interval_minutes)
     ds = Datasource(name=body.name, kind=body.kind, host=body.host, port=body.port, options=body.options,

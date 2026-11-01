@@ -1454,3 +1454,24 @@ msgstr "經身份對映繼承他庫表的鍵"
 
 msgid "透传自 {table}"
 msgstr "透傳自 {table}"
+
+msgid "认证方式"
+msgstr "認證方式"
+
+msgid "NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持"
+msgstr "NONE 不驗證密碼，帳號可不填；LDAP 需帳號與密碼；尚不支援 Kerberos"
+
+msgid "经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据"
+msgstr "經 HiveServer2（binary 傳輸）唯讀中繼資料，不讀業務資料；檢視表定義取 Hive 儲存的展開文字解析血緣；不支援問數執行；HiveServer2 不公開資料表 ID，資料表與檢視表依名稱對應；主鍵約束不驗證，不作為粒度依據"
+
+msgid "{label}（可选 {choices}）"
+msgstr "{label}（可選 {choices}）"
+
+msgid "{engine} 数据源配置取值不合法：{options}"
+msgstr "{engine} 資料來源設定值不合法：{options}"
+
+msgid "、"
+msgstr "、"
+
+msgid "；"
+msgstr "；"

@@ -1,5 +1,5 @@
 # 分析智能体 v2 对照实验 manifest（任务书第 3、12、13 节）。不含任何密钥；.env 只列键名。
-# 可由代码算出的字段由 experiments/agent-v2/fingerprint.py 生成（命令见 docs/agent-v2/handoff.md），这里冻结抄录。
+# 可由代码算出的字段由 experiments/agent-v2/fingerprint.py 生成（命令见 docs/archive/agent-v2/handoff.md），这里冻结抄录。
 # 冻结规则：E1 运行前若需改动本文件的任何 B0 字段，先升版本号并写明原因，不在运行中途改；不为差结果加预算、改评分规则。
 
 manifest_version: 1
@@ -100,7 +100,7 @@ b_raw:
 # --- B0：共同基线 = B_raw + 评分器 v2 + 底座修复（A、E、F），所有后续臂从这里出发 -----------------
 b0:
   base: b_raw
-  changes:  # 每项一个提交（分支 claude/agent-v2-p0-4de0ae），见 docs/agent-v2/diagnosis.md 第 4 节
+  changes:  # 每项一个提交（分支 claude/agent-v2-p0-4de0ae），见 docs/archive/agent-v2/diagnosis.md 第 4 节
     - {item: scorer_v2, commits: [7f6f8e4, 2f55cca], files: [backend/tests/eval/scoring_v2.py, backend/tests/eval/analysis_questions_v2.yaml]}
     - {item: fix_A_clarification, commit: 0378526}
     - {item: fix_E_model_protocol, commits: [156a2dd, 0c7506c, c439193], note: c439193 为 E0 发现的 max_tokens 字段修复}
@@ -152,7 +152,7 @@ b0:
 
 # --- E1：诊断性补齐信息实验（第 12 节），待授权 ------------------------------------------------
 e1:
-  status: 已完成 48 次（结果 docs/agent-v2/results-e1.md；原始数据 .demo/experiments/e1/20261031-015646.json，摘要 experiments/agent-v2/e1/）
+  status: 已完成 48 次（结果 docs/archive/agent-v2/results-e1.md；原始数据 .demo/experiments/e1/20261031-015646.json，摘要 experiments/agent-v2/e1/）
   permission_snapshot_after: 8c9e6c60e695815189a62800d9f6cc7079d168b50b6017e6682d5d9edb33d63b  # 与运行前相同
   code_sha: 42dbfe63002692598e69a894321eecfc75191e19  # 运行器记录，工作区干净
   scenarios: [h10, e01, h07, f02, h09, d02]  # 已看过的开发题，不称盲测
@@ -256,7 +256,7 @@ e2:
                H: {retrieval: false, investigation: true}, RH: {retrieval: true, investigation: true}}
   changes:  # R、H 的变更清单（运行前冻结）
     R: [e37bf45 元数据图 find / neighbors / path（权限先行、深度 ≤3、输出有上限）, R 预检参考表（闭包直接邻居，k ≤12，≤2500 字符）,
-        线索边只在同一数据源内（已知局限见 docs/agent-v2/p1-design.md 第 5 节）]
+        线索边只在同一数据源内（已知局限见 docs/archive/agent-v2/p1-design.md 第 5 节）]
     H: [16d61da 变化分布特征写进上下文包, 核验阶段的修订条件（与现有修订共用一轮）, 修订出口写 unexplained（不改报告协议）, 对照示例]
   scenarios: [h10, e01, h07, f02, h09, d02, e02, h05, d06, f01, c02, g01, d03, n01, a02, h12]  # 开发集，含 E1 的 6 个；不称盲测
   repeats: 2
@@ -293,7 +293,7 @@ e2b:
 
 # --- E2b-2：思考强度 max 重跑（用户 2026-10-31：“放宽超时重跑”）；前提已改变，与 E2b 第一版分开 -------------------------
 e2b_2:
-  status: 已完成（2026-10-31 17:26），32 次全部跑完，见 docs/agent-v2/results-e2b.md
+  status: 已完成（2026-10-31 17:26），32 次全部跑完，见 docs/archive/agent-v2/results-e2b.md
   code_sha_frozen: d2e87647cc7904fa586475c18626e978ffccfa8a
   premise_changed: 相对 E2 / E2b 第一版，放宽了单次请求超时与单次运行时长。这两项是“最高”档这个条件本身的参数——最高档单次请求实测最长 108 秒，
     超过了冻结的 60 秒，按原上限运行会因超时失败而测不出模型能力；不是为了把结果调好看而加预算

@@ -44,7 +44,7 @@ v2 的首要原因按题目关键字匹配实体。逐条读首要原因及其�
 
 > 2026-10-31 更正：复核原始轨迹后，表中三次“弱”（d02 / D1、h07 / D0、h07 / D1）的证据行来自 `DATE_TRUNC('MONTH')` 分组，
 > 是整月行，不是单日行，应算找到机制；h10 / D2 的“礼盒”按生成器定义不是机制。更正后合计 D0 2、D1 3、D2 5、D3 5。
-> 逐次审定见 `experiments/agent-v2/e1/human_audit.yaml`，评分器 v2.1 的重判见 `docs/agent-v2/scorer-v2_1.md`。
+> 逐次审定见 `experiments/agent-v2/e1/human_audit.yaml`，评分器 v2.1 的重判见 `docs/archive/agent-v2/scorer-v2_1.md`。
 
 ## 2. 每次运行的第一处偏离（证据包）
 

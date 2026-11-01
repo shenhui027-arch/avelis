@@ -66,13 +66,14 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
 | 引擎 | 版本（演示实例） | 能力 | 要点 |
 |---|---|---|---|
-| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对 | M0–M4，见 [starrocks-notes.md](../starrocks-notes.md) |
+| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对 | M0–M4，见 [StarRocks 实机核验](../engines/starrocks.md) |
 | MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 | SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 | Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
+| Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
 
 **ClickHouse**（M7，真实实例联调）：
 
@@ -130,13 +131,41 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 - 查询账号需 `SELECT_PRIV` 与 `SHOW_VIEW_PRIV`：执行前核对要读视图定义。
 - 数据新鲜度：`information_schema.tables.UPDATE_TIME`（写入后更新）。
 
+**Hive**（2026-11-01，真实实例联调：`apache/hive:4.1.0` 的 HiveServer2，内嵌元数据库，独立 Compose 项目 `avelis-hive`，见 `deploy/demo/hive/compose.yaml`）：
+
+- **驱动选型：impyla**（Cloudera 维护，Apache-2.0，2026-06 发布 0.24.0；依赖 thrift、thrift-sasl、pure-sasl、bitarray，Linux / Windows 都有现成 wheel，镜像构建不需要编译）。
+  - 不选 PyHive：最后一次发布是 2023 年的 0.7.0，上游已不再维护。
+  - 不直连 Hive Metastore（Thrift 9083）：要部署方额外开放元数据服务端口并处理它自己的认证，且拿不到视图的展开文本以外的增量信息；HiveServer2 是 Hive 对外的标准入口，权限也在这一层统一控制。
+  - 不走 JDBC（JayDeBeApi + Java）：镜像要带 JRE，违背部署自包含、依赖最小的原则。
+- 资产名两级 `库.表`，固定 Catalog 段 `hive`（Hive Metastore 默认 Catalog 名）；生成的 SQL 不写 Catalog 段。库、表、列名在元数据中存为小写。
+- 采集只读元数据：`SHOW TABLES IN <库>` 列出表与视图，逐个 `DESCRIBE FORMATTED`。不读业务数据，不起 MapReduce / Tez 作业。配置的库在 `SHOW DATABASES` 中不可见（Hive 授权插件会按权限过滤这个列表，看不到不代表已删除）、或读不到某张表的结构时，整次采集失败，报错写明是哪个库，上一份目录原样保留；跳过会把这个库已采集的资产全部记成删除。
+  - 列、类型（原样保留，如 `decimal(18,2)`、`array<string>`、`struct<a:int>`）、列注释；分区列来自 “# Partition Information”，排在普通列之后（与 `SELECT *` 列序一致），列名记在属性 `partition_columns`。
+  - 表注释在 Table Parameters 的 `comment`，按 Java 转义输出（换行写成 `
+`），采集时还原。
+  - 表类型：`MANAGED_TABLE`、`EXTERNAL_TABLE` 都是普通表（Hive 的外部表只是数据位置由用户管理，不指向另一个数据源），原类型记在 `table_model`；`VIRTUAL_VIEW` 为视图；`MATERIALIZED_VIEW` 为物化视图。Hive 4 默认把非事务的托管表转成外部表（`TRANSLATED_TO_EXTERNAL`）。
+  - 约束：主键 / 唯一约束只能 `DISABLE NOVALIDATE`（不校验），只记在属性 `declared_primary_key`，不作粒度依据；`NOT NULL` 约束（Hive 3 起强制执行）记为列不可空。
+- 视图定义用 Hive 保存的**展开文本**（Expanded Query：库名、别名都已补全，与建视图时的当前库无关），用 SQLGlot 的 `hive` 方言解析列级血缘。
+  - 普通视图取 `SHOW CREATE TABLE`（输出 `CREATE VIEW `库`.`视图` AS <展开文本>`），取 `AS` 之后的原文，不经 SQLGlot 重新生成，定义指纹不随 SQLGlot 版本变化。
+  - 物化视图的 `SHOW CREATE TABLE` 只给建表语句、不含查询，定义取 `DESCRIBE FORMATTED` 的 “# Materialized View Information”。核心模块目前只解析普通视图的血缘（与 ClickHouse 物化视图相同）。
+- 物理身份：HiveServer2 不暴露表 ID，表、视图都按名称对应；改名记为删除 + 新增，不冒充有物理身份的改名。实例身份只有版本与地址，不给 `instance_id`（不能作为外部表的追溯目标）。
+- 认证（配置项 `auth`）：
+  - `NONE`（默认）：HiveServer2 仍走 SASL 传输（PLAIN），但不校验口令；采集账号可不填（以 `avelis` 作会话用户），填了就以它作会话用户。
+  - `NOSASL`：无 SASL 传输，账号同上。
+  - `LDAP`：账号与口令必填，口令错误时采集失败。
+  - Kerberos（GSSAPI）未支持：需要系统 Kerberos 库、KDC 与 keytab，镜像里没有，也没有联调。只支持 binary 传输，不支持 http 传输。
+  - 引擎层为此新增两项通用能力：配置项可以是 `choice`（固定可选值 + 默认值），以及 `credential_free`（某配置项取某些值时采集账号可不填）。前端按它们渲染，不按引擎写死。
+- **不支持问数执行**：Hive 查询要起计算作业，超时、资源限制、错误归类都没有联调，不声明 `query` 与 `live_check`。
+- 联调中发现并修复的两个类型问题：
+  - SQLGlot 的 `hive` 方言解析不了 `UNIONTYPE<…>`（上游测试里也列为“暂时解析不了”）。按约定在 fork 修：上游 issue [tobymao/sqlglot#8860](https://github.com/tobymao/sqlglot/issues/8860)、PR [tobymao/sqlglot#8861](https://github.com/tobymao/sqlglot/pull/8861)（分支 `fix/hive-uniontype`，基于上游 main）；Avelis 依赖分支 `avelis-v30.25.0`（v30.25.0 + 该修复，并去掉上游指向私有仓库的集成测试子模块，否则 uv 拉 git 依赖会失败），在 `backend/pyproject.toml` 的 `tool.uv.sources` 固定提交。上游合并发布后切回 PyPI。镜像构建阶段因此需要 git（运行镜像不含）。
+  - 采集服务构造解析用 schema 时只取类型名第一个括号之前的部分，嵌套类型被截断成错的类型（如 `struct<a:decimal(10,2),b:int>` 变成 `STRUCT<A:DECIMAL`）。改为逐层去掉长度 / 精度参数、保留嵌套结构与后缀，对其他引擎的类型逐一核对过不变差。
+  - SQLGlot 版本号随之变化（`PARSER_VERSION` 变化），已采集的视图会在下次采集时按新版本重新解析，这是既有机制。
+
 ## 规划中的引擎（未登记，未验证）
 
 只考虑 SQLGlot 有方言的引擎；新引擎的前提是 SQLGlot 支持它的方言。
 
 | 引擎 | SQLGlot 方言 | 资产名映射 | 需要实测的要点 |
 |---|---|---|---|
-| Hive | `hive` | 固定 Catalog + db.table | 元数据来自 HMS 或 `SHOW CREATE TABLE`；血缘主要来自 ETL 脚本导入，而不是视图 |
 | PostgreSQL | `postgres` | db.schema.table | `pg_views` / `information_schema.views` 的定义是否已全限定；`search_path` 对解析的影响 |
 
 ## 后果

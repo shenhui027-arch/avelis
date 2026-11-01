@@ -16,10 +16,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlglot
-from sqlglot import exp
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+from sqlglot import exp
 
 from avelis import audit, cache
 from avelis.ask.compiler import ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
