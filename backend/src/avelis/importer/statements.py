@@ -340,6 +340,14 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             writes = _merge_writes(tree, **kwargs)
             return (_result("MERGE", writes) if writes else
                     ParsedStatement("skipped", "MERGE", reason="没有产生数据流的写入分支"))
+        if isinstance(tree, exp.RenameTable):
+            # RENAME TABLE a TO b[, c TO d]：每一对与 ALTER TABLE … RENAME 相同，来源都取语句执行前的状态
+            writes, removed = [], []
+            for alter in tree.expressions:
+                pair_writes, pair_removed = _rename_writes(alter, **kwargs)
+                writes.extend(pair_writes)
+                removed.extend(pair_removed)
+            return _result("RENAME TABLE", writes, removed_refs=removed)
         if isinstance(tree, exp.Alter):
             writes, removed = _rename_writes(tree, **kwargs)
             return _result("ALTER TABLE SWAP" if writes[0].attributes["op"] == "swap" else "ALTER TABLE RENAME",
