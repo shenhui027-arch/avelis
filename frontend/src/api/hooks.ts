@@ -1,5 +1,7 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey,
+} from "@tanstack/react-query";
 
 import { t } from "../i18n";
 import { api, ApiError, unwrap, type Schemas } from "./client";
@@ -82,18 +84,26 @@ export const useImport = (id?: string) => useQuery({
   queryFn: () => unwrap(api.GET("/api/imports/{batch_id}", { params: { path: { batch_id: id! } } })),
   refetchInterval: (q) => (importBusy(q.state.data?.status) ? 1000 : false),
 });
-export type ImportStatementQuery = { file_id?: string | null; status?: string | null; q?: string | null; limit: number };
-export const useImportStatements = (batchId: string, query: ImportStatementQuery, version: string) => useQuery({
-  queryKey: ["import", batchId, "statements", query, version], placeholderData: (previous) => previous,
-  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/statements", {
-    params: { path: { batch_id: batchId }, query: { ...query, offset: 0 } } })),
-});
-export type ImportCandidateQuery = { file_id?: string | null; status?: string | null; origin?: string | null; limit: number };
-export const useImportCandidates = (batchId: string, query: ImportCandidateQuery, version: string) => useQuery({
-  queryKey: ["import", batchId, "candidates", query, version], placeholderData: (previous) => previous,
-  queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/candidates", {
-    params: { path: { batch_id: batchId }, query: { ...query, statement_id: null, offset: 0 } } })),
-});
+// 语句与候选按固定页大小分页（接口上限 500），“加载更多”递增 offset 并累积各页
+type ImportPage = { offset: number; items: unknown[]; total: number };
+const nextOffset = (last: ImportPage) =>
+  last.offset + last.items.length < last.total && last.items.length ? last.offset + last.items.length : undefined;
+export type ImportStatementQuery = { file_id?: string | null; status?: string | null; q?: string | null };
+export const useImportStatements = (batchId: string, query: ImportStatementQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportStatementPage"], Error, InfiniteData<Schemas["ImportStatementPage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "statements", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/statements", {
+      params: { path: { batch_id: batchId }, query: { ...query, offset: pageParam, limit: pageSize } } })),
+  });
+export type ImportCandidateQuery = { file_id?: string | null; status?: string | null; origin?: string | null };
+export const useImportCandidates = (batchId: string, query: ImportCandidateQuery, version: string, pageSize = 100) =>
+  useInfiniteQuery<Schemas["ImportCandidatePage"], Error, InfiniteData<Schemas["ImportCandidatePage"]>, QueryKey, number>({
+    queryKey: ["import", batchId, "candidates", query, version, pageSize], placeholderData: keepPreviousData,
+    initialPageParam: 0, getNextPageParam: nextOffset,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/api/imports/{batch_id}/candidates", {
+      params: { path: { batch_id: batchId }, query: { ...query, statement_id: null, offset: pageParam, limit: pageSize } } })),
+  });
 export const useImportContent = (batchId: string, fileId?: string) => useQuery({
   queryKey: ["import", batchId, "content", fileId], enabled: !!fileId, staleTime: Infinity,
   queryFn: () => unwrap(api.GET("/api/imports/{batch_id}/files/{job_id}/content", {
