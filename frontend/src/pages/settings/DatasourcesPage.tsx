@@ -13,7 +13,16 @@ import {
 
 type Datasource = Schemas["DatasourceOut"];
 type CredentialPurpose = "collect" | "query";
-type EngineOption = { key: string; label: string; type: "list" | "text"; required: boolean; hint: string };
+type EngineOption = {
+  key: string; label: string; type: "list" | "text" | "choice"; required: boolean; hint: string; choices: string[]; default: string;
+};
+
+// 能力说明：只列适配器声明的能力，未声明的明确标“不支持”，不做猜测。
+const CAPABILITY_LABEL: Record<string, string> = {
+  metadata: "元数据采集", view_lineage: "视图血缘", query: "问数执行", live_check: "执行前核对",
+  external_tables: "外部表追溯", identity_target: "外部表追溯目标", ddl_audit: "DDL 审计归因",
+};
+const CORE_CAPABILITIES = ["metadata", "view_lineage", "query"];
 
 // EngineOut 暂以扩展字段返回 options，先核对结构，避免提交不完整配置。
 function engineOptions(engine?: Schemas["EngineOut"]): EngineOption[] | undefined {
@@ -22,14 +31,38 @@ function engineOptions(engine?: Schemas["EngineOut"]): EngineOption[] | undefine
     if (!item || typeof item !== "object") return false;
     const option = item as Record<string, unknown>;
     return typeof option.key === "string" && typeof option.label === "string"
-      && (option.type === "list" || option.type === "text")
-      && typeof option.required === "boolean" && typeof option.hint === "string";
+      && (option.type === "list" || option.type === "text" || option.type === "choice")
+      && typeof option.required === "boolean" && typeof option.hint === "string"
+      && (option.choices === undefined || (Array.isArray(option.choices) && option.choices.every((c) => typeof c === "string")))
+      && (option.default === undefined || typeof option.default === "string")
+      && (option.type !== "choice" || (Array.isArray(option.choices) && option.choices.length > 0));
   })) return undefined;
-  return raw;
+  return raw.map((option) => ({ ...option, choices: option.choices ?? [], default: option.default ?? "" }));
+}
+
+/** 当前配置下采集账号是否可不填（如 Hive 认证方式 NONE）。 */
+function credentialOptional(engine: Schemas["EngineOut"] | undefined, value: (key: string) => string): boolean {
+  const free = engine?.credential_free;
+  return !!free && free.values.includes(value(free.option));
+}
+
+function Capabilities({ engine }: { engine: Schemas["EngineOut"] }) {
+  const extra = engine.capabilities.filter((c) => !CORE_CAPABILITIES.includes(c));
+  return <span className="av-datasources__capabilities">
+    {CORE_CAPABILITIES.map((c) => engine.capabilities.includes(c)
+      ? <Pill key={c} tone="ok">{CAPABILITY_LABEL[c]}</Pill>
+      : <Pill key={c} title="适配器未声明该能力">{CAPABILITY_LABEL[c]}：不支持</Pill>)}
+    {extra.map((c) => <Pill key={c} tone="ok">{CAPABILITY_LABEL[c] ?? c}</Pill>)}
+  </span>;
 }
 
 function optionValue(option: EngineOption, input: string): string | string[] {
+  if (option.type === "choice") return input || option.default;
   return option.type === "list" ? input.split(",").map((part) => part.trim()).filter(Boolean) : input.trim();
+}
+
+function optionDefault(engine: Schemas["EngineOut"] | undefined, key: string): string {
+  return engineOptions(engine)?.find((option) => option.key === key)?.default ?? "";
 }
 
 function validPort(value: string): boolean {
@@ -139,6 +172,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
             <h3 id="datasource-connection">连接</h3>
             <dl className="av-kv">
               <dt>引擎</dt><dd>{ds.engine.label}</dd>
+              <dt>能力</dt><dd><Capabilities engine={ds.engine} />{ds.engine.note ? <span className="av-help av-datasources__engine-note">{ds.engine.note}</span> : null}</dd>
               <dt>地址</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
               <dt>实例</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
             </dl>
@@ -207,7 +241,9 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
               const credential = ds.credentials.find((c) => c.purpose === purpose);
               return <div className="av-datasources__credential" key={purpose}>
                 <span className="av-row__main"><span className="av-row__title">{purpose === "collect" ? "采集账号" : "只读查询账号"}</span>
-                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 密码已设置</> : "未设置"}</span>
+                  <span className="av-row__meta">{credential ? <><span className="av-mono">{credential.username}</span> · 密码已设置</>
+                    : purpose === "collect" && credentialOptional(ds.engine, (key) => String(ds.options[key] ?? optionDefault(ds.engine, key)))
+                      ? "未设置（当前认证方式可不填）" : "未设置"}</span>
                   {credential ? <span className="av-caption">更新于 {formatTime(credential.updated_at, tz)}</span> : null}
                 </span>
                 {isAdmin ? <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditingCredential(purpose)}>{credential ? "更换" : "设置"}</button> : null}
@@ -337,6 +373,7 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
   const options = engineOptions(engine);
   const port = form.port ?? String(engine?.default_port ?? "");
   const canQuery = engine?.capabilities.includes("query") ?? false;
+  const collectOptional = credentialOptional(engine, (key) => configuration[key] || optionDefault(engine, key));
   const valid = engines.isSuccess && !!engine && options !== undefined && !!form.name.trim() && !!form.host.trim() && validPort(port)
     && options.every((option) => !option.required || optionValue(option, configuration[option.key] ?? "").length > 0)
     && (Boolean(form.collectUser.trim()) === Boolean(form.collectPassword))
@@ -346,7 +383,6 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
     body: {
       name: form.name.trim(), kind: engine!.kind, host: form.host.trim(), port: Number(port),
       options: Object.fromEntries((options ?? []).map((option) => [option.key, optionValue(option, configuration[option.key] ?? "")])),
-      collect_interval_minutes: 15,
       collect: form.collectUser.trim() ? { username: form.collectUser.trim(), password: form.collectPassword } : null,
       query: canQuery && form.queryUser.trim() ? { username: form.queryUser.trim(), password: form.queryPassword } : null,
     },
@@ -370,6 +406,7 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
             }}>
               {engineList.map((item) => <option key={item.kind} value={item.kind}>{item.label}</option>)}
             </Select>
+            {engine ? <Capabilities engine={engine} /> : null}
           </label>
           <label className="av-field"><span className="av-label">名称</span><input className="av-input" required maxLength={128} value={form.name} onChange={set("name")} /></label>
           <div className="av-datasources__connection-form">
@@ -380,11 +417,16 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
             <button type="button" className="av-btn av-btn--secondary" onClick={() => engines.refetch()}>重试</button></div>
             : options.map((option) => <label className="av-field" key={option.key}>
               <span className="av-label">{option.label}{option.required ? " *" : ""}</span>
-              <input className="av-input av-mono" required={option.required} aria-describedby={`datasource-option-${option.key}-hint`} value={configuration[option.key] ?? ""}
-                onChange={(e) => setConfiguration({ ...configuration, [option.key]: e.target.value })} />
+              {option.type === "choice"
+                ? <Select label={option.label} value={configuration[option.key] || option.default || option.choices[0]} disabled={create.isPending}
+                  onChange={(value) => setConfiguration({ ...configuration, [option.key]: value })}>
+                  {option.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+                </Select>
+                : <input className="av-input av-mono" required={option.required} aria-describedby={`datasource-option-${option.key}-hint`} value={configuration[option.key] ?? ""}
+                  onChange={(e) => setConfiguration({ ...configuration, [option.key]: e.target.value })} />}
               <span className="av-help" id={`datasource-option-${option.key}-hint`}>{[option.type === "list" ? "逗号分隔" : "", option.hint].filter(Boolean).join("；")}</span>
             </label>)}
-          <fieldset className="av-datasources__credential-fields"><legend>采集凭据</legend><div className="av-datasources__field-pair">
+          <fieldset className="av-datasources__credential-fields"><legend>采集凭据{collectOptional ? "（可不填）" : ""}</legend><div className="av-datasources__field-pair">
             <label className="av-field"><span className="av-label">采集账号</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
             <label className="av-field"><span className="av-label">密码</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
           </div></fieldset>

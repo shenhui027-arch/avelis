@@ -1449,3 +1449,24 @@ msgstr "Key inherited from a table in another database via identity mapping"
 
 msgid "透传自 {table}"
 msgstr "Passed through from {table}"
+
+msgid "认证方式"
+msgstr "Authentication"
+
+msgid "NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持"
+msgstr "NONE doesn't check passwords, so the account is optional; LDAP requires an account and password; Kerberos is not supported"
+
+msgid "经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据"
+msgstr "Reads metadata only through HiveServer2 (binary transport), never business data. View lineage is parsed from the expanded text Hive stores. Ask execution is not supported. HiveServer2 doesn't expose table IDs, so tables and views are matched by name. Primary key constraints are not enforced and cannot establish grain"
+
+msgid "{label}（可选 {choices}）"
+msgstr "{label} (choose from {choices})"
+
+msgid "{engine} 数据源配置取值不合法：{options}"
+msgstr "The {engine} data source has invalid settings: {options}"
+
+msgid "、"
+msgstr ", "
+
+msgid "；"
+msgstr "; "

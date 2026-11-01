@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from avelis.analysis import exploration
-from avelis.analysis.explore import PROFILES, ExploreRejected
 from avelis.analysis.exploration import ExploreSource
+from avelis.analysis.explore import PROFILES, ExploreRejected
 from avelis.analysis.tools import Budget
 from avelis.connectors.base import QueryError, QueryResult
 from avelis.models import AuditEvent, Datasource

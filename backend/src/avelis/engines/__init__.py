@@ -50,17 +50,23 @@ class CredentialMissing(Exception):
     pass
 
 
-def _credential(session: Session, ds: Datasource, purpose: str) -> tuple[str, str]:
+def _credential(session: Session, ds: Datasource, purpose: str, required: bool = True) -> tuple[str, str]:
     cred = session.scalar(select(DatasourceCredential).where(
         DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == purpose))
     if cred is None:
+        if not required:
+            return "", ""
         raise CredentialMissing(Msg("数据源 {name} 未配置 {purpose} 账号", name=ds.name, purpose=purpose))
     return cred.username, decrypt_secret(cred.secret_enc)
 
 
 def collect_connector(session: Session, ds: Datasource):
     engine = engine_of(ds)
-    user, password = _credential(session, ds, "collect") if engine.needs_credentials else ("", "")
+    if engine.needs_credentials:
+        # 免口令的认证方式（如 Hive auth = NONE）下账号可不填；填了就用（服务端以它作会话用户）
+        user, password = _credential(session, ds, "collect", required=engine.credentials_required(ds.options))
+    else:
+        user, password = "", ""
     return engine.collector(ds.host, ds.port, user, password, ds.options or {})
 
 

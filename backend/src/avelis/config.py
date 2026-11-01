@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote, quote_plus, unquote_plus, urlsplit
+from urllib.parse import quote, quote_plus, unquote, urlsplit
 
 from avelis.configfile import (
     CONFIG_KEYS,
@@ -436,7 +436,8 @@ def main(argv: list[str] | None = None) -> None:
                 for service in sorted(wanted):
                     name, _, url = secrets[service]
                     target = args.directory / name
-                    target.write_text(unquote_plus(urlsplit(url).password), encoding="utf-8")
+                    # URL 里的口令是百分号编码：+ 是字面量，不能按表单编码当成空格
+                    target.write_text(unquote(urlsplit(url).password), encoding="utf-8")
                     # 0644：内置 postgres、redis 以各自的非 root 用户读取；目录只挂在 Compose 的命名卷里
                     target.chmod(0o644)
                     print(f"已写入 {target}")

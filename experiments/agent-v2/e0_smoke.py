@@ -55,13 +55,13 @@ def main() -> int:
     if not args.run:
         print(__doc__)
         return 0
-    import demo
     from langchain_core.messages import HumanMessage, ToolMessage
     from langchain_core.tools import StructuredTool
     from langchain_openai import ChatOpenAI
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
     from pydantic import BaseModel
 
+    import demo
     from avelis.llm_protocol import REASONING_FIELD, ReasoningRoundTripChatOpenAI, protocol_problem
 
     env = demo.load_env()

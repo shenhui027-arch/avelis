@@ -14,8 +14,18 @@ from avelis.db import Base
 from avelis.governance import experiences, joins
 from avelis.governance.errors import Conflict, Forbidden, Invalid
 from avelis.models import (
-    AnalysisRun, Asset, AuditEvent, ColumnVersion, Domain, DomainMember, Experience, ExperienceVersion,
-    Grain, JoinPath, User, UserRole,
+    AnalysisRun,
+    Asset,
+    AuditEvent,
+    ColumnVersion,
+    Domain,
+    DomainMember,
+    Experience,
+    ExperienceVersion,
+    Grain,
+    JoinPath,
+    User,
+    UserRole,
 )
 
 

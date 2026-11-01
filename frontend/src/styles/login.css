@@ -55,6 +55,13 @@
 .av-login__tag { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--login-line); border-radius: 999px;
   background: var(--login-glass); backdrop-filter: blur(16px); color: var(--login-muted); font: 500 12px/18px var(--font-sans); }
 .av-login__tag i { width: 6px; height: 6px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+.av-login__top-end { display: inline-flex; align-items: center; gap: 10px; }
+/* 语言选择：与标签同一套玻璃胶囊，原生下拉保证键盘与读屏可用 */
+.av-login__lang { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px; border: 1px solid var(--login-line);
+  border-radius: 999px; background: var(--login-glass); backdrop-filter: blur(16px); color: var(--login-muted); }
+.av-login__lang select { appearance: none; border: 0; background: transparent; color: var(--login-text); font: 500 12px/18px var(--font-sans); cursor: pointer; padding-right: 2px; }
+.av-login__lang select option { color: #111; }
+.av-login__lang:focus-within { border-color: var(--login-line-strong); outline: 2px solid rgba(34, 211, 238, .45); outline-offset: 2px; }
 
 /* 主体 */
 .av-login__main { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(380px, 440px); align-items: center;

@@ -13,9 +13,9 @@ from avelis.models import Datasource
 
 def test_registry_lists_only_integrated_engines():
     kinds = {e.kind for e in engines()}
-    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "doris", "fake"}
-    with pytest.raises(UnsupportedEngine, match="hive"):
-        get_engine("hive")
+    assert kinds == {"starrocks", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "doris", "hive", "fake"}
+    with pytest.raises(UnsupportedEngine, match="db2"):
+        get_engine("db2")
     with pytest.raises(ValueError, match="已登记"):
         register(get_engine("mysql"))
 

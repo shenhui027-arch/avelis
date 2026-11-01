@@ -223,6 +223,11 @@ def _source_messages():
                     candidates.extend(k.value for k in node.keywords if k.arg == "detail")
                     if len(node.args) > 1:
                         candidates.append(node.args[1])
+                # 引擎说明、配置项名与提示在 Engine.describe() 里按请求语言取译文
+                if name == "OptionField" and len(node.args) > 1:
+                    candidates.append(node.args[1])
+                if name in {"OptionField", "Engine"}:
+                    candidates.extend(k.value for k in node.keywords if k.arg in {"label", "hint", "note"})
             if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in dictionaries
                                                     for t in node.targets):
                 candidates.extend(n for n in ast.walk(node.value) if isinstance(n, ast.Constant))
@@ -274,3 +279,34 @@ def test_generated_grain_notes_and_event_labels_translate_at_api_exit():
         assert gettext("新增列") == "Column added"
     with locale_context("zh-TW"):
         assert translate(note) == "透傳自 db_a.table_a"
+
+
+@pytest.mark.parametrize("locale,label,invalid,missing", [
+    ("zh-CN", "认证方式", "Hive 数据源配置取值不合法：认证方式（可选 NONE、NOSASL、LDAP）", "Hive 数据源缺少配置：采集的库"),
+    ("zh-TW", "認證方式", "Hive 資料來源設定值不合法：認證方式（可選 NONE、NOSASL、LDAP）", None),
+    ("en", "Authentication",
+     "The Hive data source has invalid settings: Authentication (choose from NONE, NOSASL, LDAP)",
+     "The Hive data source is missing settings: Databases to collect"),
+])
+def test_engine_options_and_option_errors_follow_request_language(monkeypatch, locale, label, invalid, missing):
+    from avelis.api import datasources as api
+
+    class NoDuplicate:
+        def scalar(self, *_):
+            return None
+
+    monkeypatch.setattr(api.access, "require_role", lambda *args, **kwargs: None)
+    with locale_context(locale):
+        hive = get_engine("hive").describe()
+        auth = next(o for o in hive["options"] if o["key"] == "auth")
+        assert auth["label"] == label and auth["choices"] == ["NONE", "NOSASL", "LDAP"]
+        assert auth["hint"] == gettext("NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持")
+        assert hive["note"] == gettext(get_engine("hive").note) and (locale == "zh-CN") == ("只读" in hive["note"])
+        errors = []
+        for options in ({"databases": ["db"], "auth": "KERBEROS"}, {"auth": "NONE"}):
+            body = api.DatasourceCreate(name="hive", kind="hive", host="hive", port=10000, options=options)
+            with pytest.raises(HTTPException) as caught:
+                api.create_datasource(body, user=None, session=NoDuplicate())
+            errors.append(translate(caught.value.detail))
+    assert errors[0] == invalid
+    assert missing is None or errors[1] == missing
