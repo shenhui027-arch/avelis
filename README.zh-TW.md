@@ -62,7 +62,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 資料庫 | 測試版本 | 採集中繼資料 | 檢視表血緣 | 問數查詢 | 執行前核對 | 變更歸因到使用者 |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
+| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | [✓（須綁定 AuditLoader 審計表）](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
@@ -166,7 +166,7 @@ pnpm dev
 計劃中的方向，不承諾日期：
 
 - 更多引擎的外部 Catalog 與物化檢視表。
-- StarRocks、SQL Server、Oracle 的變更歸因。
+- SQL Server、Oracle 的變更歸因。
 - 問數表達能力：衍生指標巢狀、按週 / 月的時間粒度、佔比。
 
 版本變化見[更新日誌](CHANGELOG.md)。

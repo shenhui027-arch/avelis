@@ -1785,3 +1785,42 @@ msgstr "Specify exactly one of column and summary"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "Summary values cannot use match or exclude"
+
+msgid "DDL 审计表"
+msgstr "DDL audit table"
+
+msgid "库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表"
+msgstr "database.table; default table: starrocks_audit_db__.starrocks_audit_tbl__. Install the AuditLoader plugin and grant SELECT to the collection account. Leave blank if no audit table is bound."
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
+msgstr "No audit table is bound: bind an AuditLoader audit table in the data source option ddl_audit_table"
+
+msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
+msgstr "Invalid StarRocks audit table name: use database.table; names may be quoted with backticks"
+
+msgid "StarRocks 审计表缺少必需字段：{fields}；请核对 AuditLoader 版本和表结构"
+msgstr "The StarRocks audit table is missing required fields: {fields}; check the AuditLoader version and table schema"
+
+msgid "StarRocks 审计表字段类型不符：{fields}"
+msgstr "The StarRocks audit table has incompatible field types: {fields}"
+
+msgid "无法确定 StarRocks FE 默认时区，不能解释审计 timestamp"
+msgstr "Cannot determine the default StarRocks FE time zone or interpret the audit timestamp"
+
+msgid "StarRocks 审计表 {table} 不存在；请安装 AuditLoader 插件并绑定审计表（{error}）"
+msgstr "StarRocks audit table {table} does not exist; install the AuditLoader plugin and bind the audit table ({error})"
+
+msgid "采集账号无权读取 StarRocks 审计表 {table}；请授予 SELECT 权限（{error}）"
+msgstr "The collection account cannot read StarRocks audit table {table}; grant SELECT permission ({error})"
+
+msgid "StarRocks 审计表 {table} 读取失败：{error}"
+msgstr "Failed to read StarRocks audit table {table}: {error}"
+
+msgid "StarRocks 审计记录无效或语句可能被截断，无法可靠归因"
+msgstr "The StarRocks audit record is invalid or its statement may be truncated; reliable attribution is unavailable"
+
+msgid "StarRocks 审计记录包含暂不支持的转义对象名称，无法可靠归因"
+msgstr "The StarRocks audit record contains an escaped object name that is not yet supported; reliable attribution is unavailable"
+
+msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
+msgstr "The DDL audit source does not cover this Catalog; attribution is unavailable"

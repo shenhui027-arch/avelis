@@ -1790,3 +1790,42 @@ msgstr "column 與 summary 必須且只能填寫一個"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "彙總值不能帶 match 或 exclude"
+
+msgid "DDL 审计表"
+msgstr "DDL 稽核表"
+
+msgid "库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表"
+msgstr "資料庫.資料表，預設表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安裝 AuditLoader 外掛並授予採集帳號 SELECT 權限；留空表示未綁定稽核表"
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
+msgstr "未綁定稽核表：請在資料來源選項 ddl_audit_table 中綁定 AuditLoader 稽核表"
+
+msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
+msgstr "StarRocks 稽核表名稱無效：請使用資料庫.資料表，可用反引號引用名稱"
+
+msgid "StarRocks 审计表缺少必需字段：{fields}；请核对 AuditLoader 版本和表结构"
+msgstr "StarRocks 稽核表缺少必要欄位：{fields}；請核對 AuditLoader 版本和資料表結構"
+
+msgid "StarRocks 审计表字段类型不符：{fields}"
+msgstr "StarRocks 稽核表欄位類型不符：{fields}"
+
+msgid "无法确定 StarRocks FE 默认时区，不能解释审计 timestamp"
+msgstr "無法確定 StarRocks FE 預設時區，無法解讀稽核 timestamp"
+
+msgid "StarRocks 审计表 {table} 不存在；请安装 AuditLoader 插件并绑定审计表（{error}）"
+msgstr "StarRocks 稽核表 {table} 不存在；請安裝 AuditLoader 外掛並綁定稽核表（{error}）"
+
+msgid "采集账号无权读取 StarRocks 审计表 {table}；请授予 SELECT 权限（{error}）"
+msgstr "採集帳號無權讀取 StarRocks 稽核表 {table}；請授予 SELECT 權限（{error}）"
+
+msgid "StarRocks 审计表 {table} 读取失败：{error}"
+msgstr "StarRocks 稽核表 {table} 讀取失敗：{error}"
+
+msgid "StarRocks 审计记录无效或语句可能被截断，无法可靠归因"
+msgstr "StarRocks 稽核紀錄無效或陳述式可能遭到截斷，無法可靠歸因"
+
+msgid "StarRocks 审计记录包含暂不支持的转义对象名称，无法可靠归因"
+msgstr "StarRocks 稽核紀錄包含暫不支援的跳脫物件名稱，無法可靠歸因"
+
+msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
+msgstr "DDL 稽核來源未涵蓋此 Catalog，無法歸因"

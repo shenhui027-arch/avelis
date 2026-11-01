@@ -66,7 +66,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
 | 引擎 | 版本（演示实例） | 能力 | 要点 |
 |---|---|---|---|
-| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对 | M0–M4，见 [StarRocks 实机核验](../engines/starrocks.md) |
+| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对、可选 DDL 审计归因（`DDL_AUDIT`） | M0–M4；审计需安装 AuditLoader、授权采集账号 SELECT，并通过 `options.ddl_audit_table` 绑定审计表；见 [StarRocks 实机核验与审计说明](../engines/starrocks.md) |
 | MySQL | 8.4 | 元数据、作为外部表的追溯目标 | 视图解析与问数未联调 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |

@@ -62,7 +62,7 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 
 | Database | Tested version | Metadata | View lineage | Q&A queries | Pre-query schema check | DDL attribution |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
+| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | [✓ (requires an AuditLoader audit table)](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
@@ -166,7 +166,7 @@ The full index is in [docs/README.en.md](docs/README.en.md). Design decision rec
 Planned directions, without dates:
 
 - External catalogs and materialized views for more engines.
-- DDL attribution for StarRocks, SQL Server and Oracle.
+- DDL attribution for SQL Server and Oracle.
 - Richer Q&A: nested derived metrics, week and month grains, share of total.
 
 Changes are recorded in the [changelog](CHANGELOG.md).

@@ -223,7 +223,7 @@ def test_attribution_unknown_reasons():
     assert events[0]["attribution"]["cause"] == "error" and "ConnectionError" in events[0]["attribution"]["reason"]
 
     events = [_event("column_added", "c")]
-    _attribute(events, _Connector(), engine="starrocks")
+    _attribute(events, _Connector(), engine="fake")
     assert events[0]["attribution_status"] == "unsupported" and events[0]["actor_db_user"] is None
 
     events = [_event("added")]
