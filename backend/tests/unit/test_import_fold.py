@@ -118,6 +118,19 @@ def test_rename_collapses_prior_writes_and_new_name_remains_final():
     assert result.active[0].attributes["op"] == "rename"
 
 
+def test_renamed_external_table_dropped_later_is_intermediate():
+    # 批次外已有的 live 先改名为 old 再被删除：指向 old 的边随表消失，只留中间段
+    result = fold_writes([
+        statement(1, [write("cat.dw.new", [edge("cat.src.events")], created=True)]),
+        statement(2, [write("cat.dw.old", [edge("cat.dw.live")], op="rename"),
+                      write("cat.dw.live", [edge("cat.dw.new")], op="rename")],
+                  removes=["cat.dw.live", "cat.dw.new"]),
+        statement(3, drops=["cat.dw.old"]),
+    ])
+    assert signature(result) == {("cat.src.events", "id", "cat.dw.live", "id", "value_direct")}
+    assert "cat.dw.old" in result.intermediate_tables
+
+
 def test_swap_uses_both_pre_swap_states_without_folding_new_names():
     result = fold_writes([
         statement(1, [write("cat.stage.left", [edge("cat.src.first")], created=True)]),

@@ -128,7 +128,8 @@ def fold_writes(statements: list[FoldStatement]) -> FoldResult:
             for ref in refs:
                 first = next((raw for raw in raw_edges if raw.target_ref == ref), None)
                 previous = before.get(first.source_ref) if op in ("rename", "swap") and first else None
-                created = write.created or bool(previous and previous.created)
+                # 改名 / 换表得到的新名字是本批产生的：之后被 DROP 时同样是中间表
+                created = write.created or op in ("rename", "swap") or bool(previous and previous.created)
                 temporary = write.temporary or bool(previous and previous.temporary)
                 write_targets[ref] = table(ref, created=created, temporary=temporary,
                                            fresh=write.created or op in ("rename", "swap"))
