@@ -220,7 +220,7 @@ Avelis 是建立在数据库血缘、业务口径和变更管理之上的智能�
    - 占比（在总量中的比例）。
 
    可选：明确标注为“未治理”的临时查询兜底模式，作为独立功能。
-4. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。PostgreSQL（M5），ClickHouse、SQL Server、Oracle、Doris（M7）已接入；剩余 Hive（需要 HiveServer2 与元数据服务，血缘主要来自 ETL 脚本导入），以及各引擎的外部 Catalog、物化视图。原建议顺序：
+4. 多数据库血缘（ADR 0004）：只考虑 SQLGlot 支持方言的引擎，按“连接器 + 方言 + 能力 + 真实实例验收”逐个接入。PostgreSQL（M5），ClickHouse、SQL Server、Oracle、Doris（M7），Hive（元数据与视图血缘，经 HiveServer2；不支持问数）已接入；剩余各引擎的外部 Catalog、物化视图血缘、Hive 的 Kerberos 认证与问数执行。原建议顺序：
    1. Doris；
    2. Hive；
    3. SQL Server；
