@@ -548,14 +548,14 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
               <dt>{t("推导")}</dt><dd><Status value={col.fingerprint_status ?? "unknown"} /> <span className="av-mono av-muted">{col.fingerprint?.slice(0, 10)}</span></dd>
               {col.fingerprint_reason ? <><dt>{t("原因")}</dt><dd>{col.fingerprint_reason}</dd></> : null}
               <dt>{t("业务含义")}</dt><dd>{col.confirmations.find((c) => c.valid)?.meaning ?? <span className="av-muted">{t("未确认")}</span>}</dd></dl> : null}
-            <Flow title={t("来源")} onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
-            <Flow title={t("下游")} onPick={(k) => { const [id, col] = k.split("::"); if (col) onPickColumn(id, col); else onPick(id); }} items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, target: `${c.toId}::${c.target_column ?? ""}`, left: `${shortName(c.to)}.${c.target_column ?? t("（影响）")}`, rel: c.relation, origin: c.origin, expr: c.expression }))} />
+            <Flow title={t("来源")} onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origins: [c.origin], expr: c.expression }))} />
+            <Flow title={t("下游")} onPick={(k) => { const [id, col] = k.split("::"); if (col) onPickColumn(id, col); else onPick(id); }} items={colOut.map((c) => ({ key: `${c.to}.${c.target_column}`, target: `${c.toId}::${c.target_column ?? ""}`, left: `${shortName(c.to)}.${c.target_column ?? t("（影响）")}`, rel: c.relation, origins: [c.origin], expr: c.expression }))} />
           </>
         ) : (
           <>
             {node.grains.length ? <dl className="av-kv"><dt>{t("粒度")}</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
-            <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join(t("、")), expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
-            <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origin: e.origins.join(t("、")), expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
+            <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
+            <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{length}} 条列级边", { length: e.columns.length }) }))} />
           </>
         )}
         <NodeJoins node={node} graph={graph} name={name} onPick={onPick} />
@@ -606,7 +606,7 @@ const ORIGIN: Record<string, string> = { parsed: t("解析"), manual: t("人工"
 
 function Flow({ title, items, onPick }: {
   title: string; onPick?: (id: string) => void;
-  items: { key: string; target?: string; left: string; rel: string; origin: string; expr?: string | null }[];
+  items: { key: string; target?: string; left: string; rel: string; origins: string[]; expr?: string | null }[];
 }) {
   if (!items.length) return null;
   return (
@@ -616,7 +616,7 @@ function Flow({ title, items, onPick }: {
         const body = <>
           <span className="av-chain__item"><span className="av-lineage__flow-name" title={it.left}>{it.left}</span>
             <span className="av-tag av-lineage__relation-tag">{RELATION_LABEL[it.rel] ?? it.rel}</span></span>
-          <span className="av-caption">{it.origin.split("、").map((o) => ORIGIN[o] ?? o).join(t("、"))}{it.expr ? ` · ${it.expr}` : ""}</span>
+          <span className="av-caption">{it.origins.map((o) => ORIGIN[o] ?? o).join(t("、"))}{it.expr ? ` · ${it.expr}` : ""}</span>
         </>;
         return it.target && onPick
           ? <button key={it.key} type="button" className="av-lineage__flow-item is-link" title={t("定位到 {{left}}", { left: it.left })} onClick={() => onPick(it.target!)}>{body}</button>
