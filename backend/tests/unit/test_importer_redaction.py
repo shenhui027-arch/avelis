@@ -75,12 +75,82 @@ def test_pending_line_and_unclosed_triple_are_conservatively_masked(newline, quo
 def test_ordinary_newlines_are_hard_inline_boundaries(newline):
     source = f'password{newline}= "public"{newline}client --password{newline}public = 1'
     assert_redacted(source, source, 0)
-    # 单引号/双引号值也不能靠否定字符类或转义分支跨普通换行。
-    source = f'password = "first{newline}public = 1'
-    assert_redacted(source, f'password = "<redacted>"{newline}public = 1')
     source = f"user:credential{newline}@host"
     assert_redacted(source, source, 0)
     assert r"\s" not in SECRET_PATTERN.pattern
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+@pytest.mark.parametrize("prefix", ["password=", "PRIVATE_KEY=", "client --password "])
+def test_quoted_values_continue_across_ordinary_newlines(newline, quote, prefix):
+    source = f"{prefix}{quote}first{newline}second{quote}{newline}public = 1"
+    assert_redacted(source, f"{prefix}{quote}<redacted>{quote}{newline}public = 1")
+    source = f"{prefix}{quote}header{newline}key-material{newline}footer{quote}; public = 1"
+    assert_redacted(source, f"{prefix}{quote}<redacted>{quote}; public = 1")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_unclosed_ordinary_quote_masks_to_end_of_text(newline, quote):
+    # 原来要求在换行处截断；现在未闭合的值必须覆盖余下全文。
+    source = f"password = {quote}first{newline}public = 1"
+    assert_redacted(source, f"password = {quote}<redacted>{quote}")
+    source = f"password={quote}first{newline}second\\{quote}"
+    assert_redacted(source, f"password={quote}<redacted>{quote}")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_multiline_quotes_respect_escaping_and_resume_on_closing_line(newline, quote):
+    source = f"password={quote}a\\{quote}b{newline}c{quote}; token='next'; public = 1"
+    expected = f"password={quote}<redacted>{quote}; token='<redacted>'; public = 1"
+    assert_redacted(source, expected, 2)
+    # 偶数个反斜杠不转义闭合引号；闭合行后面仍能找到其他密钥。
+    source = f"password={quote}first{newline}last\\\\{quote}; token=next"
+    assert_redacted(source, f"password={quote}<redacted>{quote}; token=<redacted>", 2)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_multiline_single_quote_can_contain_double_quotes(newline):
+    source = f"password='first\"{newline}\"second'; public = 1"
+    assert_redacted(source, "password='<redacted>'; public = 1")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_multiple_quoted_values_on_the_same_line(newline):
+    source = f"password='one'; token=\"two{newline}three\"; api_key='four'; public = 1"
+    expected = "password='<redacted>'; token=\"<redacted>\"; api_key='<redacted>'; public = 1"
+    assert_redacted(source, expected, 3)
+    assert_redacted("password=\"one\"'two'; public = 1", 'password="<redacted>"; public = 1')
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("blank", ["", " ", "\t", " \t "])
+@pytest.mark.parametrize("prefix", ['{"password":', "password=", "client --password="])
+def test_pending_redaction_preserves_blank_lines_until_first_nonblank(newline, blank, prefix):
+    prefix += newline + (blank + newline) * 3
+    source = prefix + f'    "synthetic-secret"{newline}public = 1'
+    assert_redacted(source, prefix + f"<redacted>{newline}public = 1")
+    assert_redacted(prefix + blank, prefix + blank, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("quote", ["'", '"', "'''", '"""'])
+def test_pending_multiline_quoted_value_after_blank_lines(newline, quote):
+    prefix = f'"password":{newline} \t{newline}{newline}'
+    source = prefix + f"  {quote}first{newline}second{quote}; public = 1{newline}print(1)"
+    assert_redacted(source, prefix + f"<redacted>{newline}print(1)")
+    source = prefix + f"  {quote}first{newline}second"
+    assert_redacted(source, prefix + "<redacted>")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_bare_cli_flag_and_unrelated_assignments_keep_line_boundaries(newline):
+    source = f"client --password \t{newline} \t{newline}public = 1{newline}password_policy = 2"
+    assert_redacted(source, source, 0)
+    source = f'password=first{newline}public = "second"{newline}token=third'
+    assert_redacted(source, f'password=<redacted>{newline}public = "second"{newline}token=<redacted>', 2)
 
 
 def test_url_and_standalone_keys_keep_existing_rules_and_counts():
@@ -130,6 +200,8 @@ def test_concatenated_quoted_fragments_are_one_inline_value(value):
         "split-key",
         "empty",
         "around-separator",
+        "unclosed-quotes",
+        "pending-blank-lines",
     ],
 )
 def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
@@ -162,6 +234,13 @@ def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
         prefix = "client --password" + " " * 10000 + separator + " " * 10000
         source = prefix + newline + 'config.api_key = "secret"'
         expected = prefix + newline + "<redacted>"
+    elif kind == "unclosed-quotes":
+        source = 'password="' + (f"'{newline}" * 20000)
+        expected = 'password="<redacted>"'
+    elif kind == "pending-blank-lines":
+        prefix += newline + (f" \t{newline}" * 20000)
+        source = prefix + '"secret"' + newline + "public = 1"
+        expected = prefix + "<redacted>" + newline + "public = 1"
     else:
         source = "x" * 20000 if kind == "identifier" else "u:" * 10000
         expected = source
@@ -171,4 +250,17 @@ def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
     assert elapsed < 0.2, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
     assert cleaned == expected
     assert count == (0 if kind in ("identifier", "url-like", "split-key", "empty") else 1)
+    assert redact(cleaned) == (cleaned, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_twenty_thousand_open_quote_lines_finish_within_200ms(newline):
+    source = f'password="first{newline}' * 20000
+    # 每隔一行才遇到对应闭合引号；已扫描的部分不能从每行重新扫描。
+    expected = f'password="<redacted>"{newline}' * 10000
+    started = perf_counter()
+    cleaned, count = redact(source)
+    elapsed = perf_counter() - started
+    assert elapsed < 0.2, f"{len(source)} chars took {elapsed:.6f}s"
+    assert (cleaned, count) == (expected, 10000)
     assert redact(cleaned) == (cleaned, 0)
