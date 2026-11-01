@@ -1,6 +1,5 @@
 import i18n from "i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
-import { useSyncExternalStore } from "react";
 import { initReactI18next } from "react-i18next";
 
 import en from "./locales/en.json";
@@ -17,6 +16,7 @@ export const LANGUAGES = [
 export type Language = (typeof LANGUAGES)[number]["code"];
 
 const KEY = "avelis.lang";
+const PARAM = "lang"; // 拿不到浏览器存储时，选择记在地址栏 ?lang=
 export const DEFAULT_LANGUAGE: Language = "zh-CN";
 
 /** 浏览器语言标签归到支持的三种之一：港澳台与 Hant 用繁体，其余中文用简体，en-* 用英文。 */
@@ -39,8 +39,9 @@ void i18n
     keySeparator: false, // 键是原文，里面的“.”“：”不是层级
     nsSeparator: false,
     initAsync: false, // 语言包是静态打包的：同步初始化，模块级常量里的 t() 也能取到当前语言
-    // 只在用户主动切换时写入本机（setLanguage），自动检测的结果不落盘，浏览器语言变了还会跟着变
-    detection: { order: ["localStorage", "navigator"], lookupLocalStorage: KEY, caches: [],
+    // 只在用户主动切换时记下选择（setLanguage），自动检测的结果不落盘，浏览器语言变了还会跟着变
+    detection: { order: ["querystring", "localStorage", "sessionStorage", "navigator"], lookupQuerystring: PARAM,
+      lookupLocalStorage: KEY, lookupSessionStorage: KEY, caches: [],
       convertDetectedLanguage: (lng: string) => normalizeLanguage(lng) ?? lng },
     interpolation: { escapeValue: false }, // React 自己转义
     returnNull: false,
@@ -57,24 +58,29 @@ i18n.on("languageChanged", () => { document.documentElement.lang = currentLangua
 /** 组件、工具函数与模块级常量共用的翻译函数。 */
 export const t = i18n.t.bind(i18n) as (key: string, options?: Record<string, unknown>) => string;
 
-/** 切换语言：记在本机后整页重新加载，模块级的标签表与已格式化的内容都按新语言重新生成。 */
+/**
+ * 切换语言：记下选择后整页重新加载，模块级常量（导航、状态与角色标签表等）和已格式化的内容都按新语言重新求值，
+ * 不需要每张表各自订阅语言变化。记录位置按可用性依次退：本机存储 → 会话存储 → 地址栏 ?lang=（无痕或禁用存储时）。
+ */
 export function setLanguage(next: Language) {
   if (next === currentLanguage()) return;
-  try {
-    localStorage.setItem(KEY, next);
-  } catch {
-    // 无痕模式等拿不到存储时只在本次生效
-    void i18n.changeLanguage(next);
-    return;
-  }
-  window.location.reload();
+  const url = new URL(window.location.href);
+  url.searchParams.delete(PARAM); // 地址栏的选择优先级最高，存进存储后要去掉，否则会盖住新选择
+  const saved = [() => localStorage, () => sessionStorage].some((storage) => {
+    try {
+      storage().setItem(KEY, next);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!saved) url.searchParams.set(PARAM, next);
+  window.location.replace(url.toString());
 }
 
-const subscribe = (l: () => void) => { i18n.on("languageChanged", l); return () => i18n.off("languageChanged", l); };
-
-/** 当前语言（拿不到本机存储、只在本次切换时，LanguageRoot 靠它重新挂载界面）。 */
+/** 当前语言（切换后页面会重新加载，渲染期间不会变）。 */
 export function useLanguage(): Language {
-  return useSyncExternalStore(subscribe, currentLanguage, currentLanguage);
+  return currentLanguage();
 }
 
 export default i18n;
