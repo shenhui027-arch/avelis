@@ -25,6 +25,22 @@
     }
    }
   },
+  "/api/health/ready": {
+   "get": {
+    "summary": "Ready",
+    "operationId": "ready_api_health_ready_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/auth/token": {
    "post": {
     "tags": [
@@ -4220,6 +4236,66 @@
       "content": {
        "application/json": {
         "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/cron/preview": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Preview Cron",
+    "description": "按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。",
+    "operationId": "preview_cron_api_analysis_cron_preview_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "expr",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Expr"
+      }
+     },
+     {
+      "name": "count",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 10,
+       "minimum": 1,
+       "default": 5,
+       "title": "Count"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CronPreviewOut"
+        }
        }
       }
      },
@@ -8614,6 +8690,44 @@
     ],
     "title": "CredentialOut"
    },
+   "CronPreviewOut": {
+    "properties": {
+     "expr": {
+      "type": "string",
+      "title": "Expr"
+     },
+     "timezone": {
+      "type": "string",
+      "title": "Timezone"
+     },
+     "runs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Runs"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "expr",
+     "timezone",
+     "runs"
+    ],
+    "title": "CronPreviewOut"
+   },
    "DatasourceCreate": {
     "properties": {
      "name": {
@@ -10101,7 +10215,6 @@
      },
      "content": {
       "type": "string",
-      "maxLength": 2097152,
       "minLength": 1,
       "title": "Content"
      },

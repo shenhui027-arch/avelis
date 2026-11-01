@@ -909,6 +909,13 @@ class AnalysisRunOut(Out):
     confirmed_items: list[AnalysisProposalItem] = Field(default_factory=list)
 
 
+class CronPreviewOut(Out):
+    expr: str
+    timezone: str
+    runs: list[str]
+    error: str | None = None
+
+
 class AnalysisTaskOut(Out):
     id: str
     title: str

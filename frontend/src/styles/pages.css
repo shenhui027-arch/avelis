@@ -897,3 +897,18 @@
 .av-chip__item[aria-checked="true"] .av-mbar__check { color: var(--accent); }
 .av-chip__item[aria-checked="true"] .av-chip__text b { color: var(--accent-text, var(--accent)); }
 .av-menu.av-chip__menu--down.av-chip__menu { top: calc(100% + 6px); bottom: auto; left: 0; right: auto; z-index: 30; }
+/* 定时设置：频率分段、时间与星期选择、白话说明与接下来几次执行时间 */
+.av-cron { display: flex; flex-direction: column; gap: var(--space-3); }
+.av-cron .av-seg { flex-wrap: wrap; }
+.av-cron__field { display: flex; flex-direction: column; gap: 6px; color: var(--text-tertiary); font: 500 12px/16px var(--font-sans); }
+.av-cron__field .av-input { max-width: 220px; }
+.av-cron__field small { color: var(--text-tertiary); font: 400 12px/16px var(--font-sans); }
+.av-cron__field input[type="time"] { color-scheme: light dark; font: var(--type-mono); }
+.av-cron__days { display: flex; flex-wrap: wrap; gap: 6px; }
+.av-cron__day { height: 30px; min-width: 44px; padding: 0 10px; border: 1px solid var(--line-default); border-radius: var(--radius-full); background: transparent; color: var(--text-secondary); font: 500 12px/1 var(--font-sans); cursor: pointer; }
+.av-cron__day[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-subtle); color: var(--accent-text, var(--accent)); }
+.av-cron__summary { display: flex; flex-direction: column; gap: 6px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-raised); }
+.av-cron__summary b { color: var(--text-primary); font: 600 14px/20px var(--font-sans); }
+.av-cron__summary span { color: var(--text-tertiary); font: 400 12px/18px var(--font-sans); }
+.av-cron__summary ol { display: flex; flex-direction: column; gap: 2px; margin: 0; padding-left: 18px; color: var(--text-secondary); font: 400 13px/20px var(--font-sans); font-variant-numeric: tabular-nums; }
+.av-cron__error { color: var(--danger) !important; }
