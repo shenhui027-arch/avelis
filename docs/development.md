@@ -39,7 +39,7 @@ uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API
   需要支持工具调用的真实模型，见 [ADR 0007](decisions/0007-analysis-agent.md)。演示用的合成电商数据集用 `uv run scripts/ec_data.py load` 灌入，`bootstrap demo` 会自动接入。
 - **模型配置**：在“设置 / 模型配置”页面维护，支持 DeepSeek、OpenAI、Anthropic、通义千问、自定义 OpenAI 兼容接口。密钥加密存储，只显示末四位；检测会验证工具调用；按用途指定模型；数据外发默认关闭。开发时也可用 `uv run python -m avelis.bootstrap model` 把 `.env` 的 `AVELIS_MODEL_*` 登记进去。
 - **导入血缘**：上传 SQL 文件、粘贴 SQL、上传 Python / Shell 代码。解析出的边直接写入（可修改）；解析不了的片段由模型提出候选，必须人工接受、修改或驳回。
-- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（采集、视图血缘、问数、执行前核对），以及 MySQL（采集，作为外部表的追溯目标）。更多引擎的演示库用 `uv run scripts/demo.py up --engines` 启动，验收见 [acceptance-m7.md](acceptance-m7.md)。新增数据库的步骤见 [ADR 0004](decisions/0004-engine-adapters.md)。
+- **数据库引擎**：每种数据库是 `avelis.engines` 中的一个适配器（连接器、SQL 方言、资产名层级、能力声明），核心模块不按数据库类型分支，见 `GET /api/engines`。目前登记：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris（采集、视图血缘、问数、执行前核对），以及 MySQL（采集，作为外部表的追溯目标）。更多引擎的演示库用 `uv run scripts/demo.py up --engines` 启动，各引擎的验收记录见[更多引擎验收（归档）](archive/acceptance/acceptance-m7.md)。新增数据库的步骤见 [ADR 0004](decisions/0004-engine-adapters.md)。
 - **执行前核对**：每次问数执行前（含命中缓存）核对来源的列与视图定义是否与上次采集一致；不一致就拦截并排队采集（`AVELIS_ASK_LIVE_CHECK`，默认开启）。
 - **字段含义**：以数据库列注释为准，Avelis 不另设显示名。问数与资产原样展示列名和注释，缺注释如实标出；数据源详情给出注释完整度与缺口清单（可导出），发布检查提示缺注释（`AVELIS_REQUIRE_COLUMN_COMMENTS=true` 时阻断），见 [ADR 0006](decisions/0006-column-meaning-from-db-comments.md)。
 - **权限**：资产按业务域可见；未归属业务域的资产默认只对管理员与维护者可见（`AVELIS_UNASSIGNED_ASSET_POLICY=deny|allow`）。
@@ -70,7 +70,7 @@ pnpm gen:api        # 后端接口变化后重新生成类型
 pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
 ```
 
-样式全部来自 Avelis UI 设计系统：`design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`。
+样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`。
 
 ## 演示环境
 
@@ -128,7 +128,6 @@ cd backend && uv run python ../scripts/worker_soak.py --minutes 60
 | `ads.region_board` 华东 2026-09-15（经旧式外部表） | 300.00 |
 | Catalog 中商品维表行数 | 4 |
 
-
 ## 一条命令复现验收
 
 前置条件：Docker（Compose v2，为容器预留约 7 GB 内存）、[uv](https://docs.astral.sh/uv/)、pnpm。
@@ -145,14 +144,14 @@ uv run scripts/acceptance.py --no-llm    # 不调用真实模型（不向模型�
 2. 校验 JDBC 驱动，启动容器，灌入基线并核对 8 项基线数值；
 3. 迁移元数据库；
 4. 后端单元测试；
-5. 验收（故事 1–9 与 M4 异常场景，全部在真实 StarRocks / MySQL / PostgreSQL / Valkey 上执行）；
+5. 验收（故事 1–9 与异常场景，全部在真实 StarRocks / MySQL / PostgreSQL / Valkey 上执行）；
 6. 前端类型检查与构建；
 7. 把演示环境恢复到故事 1 的起点。
 
-报告写入 `.demo/acceptance-report.md`。`.env` 配置了模型密钥时会运行 2 项真实模型用例，问题与指标元数据会发送到配置的模型服务。各项预期值与实际结果见 [docs/acceptance.md](acceptance.md)。
-
+报告写入 `.demo/acceptance-report.md`。`.env` 配置了模型密钥时会运行 2 项真实模型用例，问题与指标元数据会发送到配置的模型服务。各项预期值与历次结果见[验收汇总（归档）](archive/acceptance/acceptance.md)。
 
 ## 设计
 
-- 设计系统 Avelis UI：<https://claude.ai/artifact/A64c2HEAdLnzYuRbpe49BB>
-- 交互原型：<https://claude.ai/artifact/REhQcCU22GwMcFGen5prw3>（原型里的示例数据仍是早期的半导体场景，后续会换成本仓库的电商数据）
+- 设计令牌：`frontend/design/tokens.json`，`pnpm gen:tokens` 生成 `frontend/src/styles/tokens.css`；组件样式在 `frontend/src/styles/avelis-ui.css`。
+- 品牌标记：当前使用的标记在 `frontend/public/favicon.svg` 与 `frontend/src/components/Logo.tsx`；`design/brand/` 保存早期的标记方案与概念图。
+- 文档写法见[文档规范](documentation-guide.md)。

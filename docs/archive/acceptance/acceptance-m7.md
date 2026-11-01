@@ -1,7 +1,7 @@
 # M7 验收说明：更多引擎
 
 - 日期：2026-10-29
-- 设计：[ADR 0004](decisions/0004-engine-adapters.md)（引擎适配层，已接入引擎的实测要点）
+- 设计：[ADR 0004](../../decisions/0004-engine-adapters.md)（引擎适配层，已接入引擎的实测要点）
 - 完成标准：每种新引擎都在真实实例上走同一组场景，不使用模拟结果。
 - 引擎与演示实例（`scripts/demo.py up --engines` 启动，compose 的 `engines` 配置）：
 
@@ -13,8 +13,8 @@
   | Apache Doris 4.1 | `apache/doris` all-in-one | 一个 FE + 一个 BE；不挂数据卷，启动后由 demo.py 设置 root 口令并灌数 |
 
 - 测试：
-  - 通用场景 [backend/tests/acceptance/engine_suite.py](../backend/tests/acceptance/engine_suite.py)，每种引擎 7 项，共 28 项。各引擎只在 `test_m10_engine_*.py` 中给出差异：连接配置、DDL 写法、标识符大小写、错误归类。
-  - 单元测试 [backend/tests/unit/test_engines.py](../backend/tests/unit/test_engines.py)：方言差异（Catalog 段、`TOP` / `FETCH FIRST`、`N'...'`、`DATE` 区间、标识符折叠）、类型写法、身份规则。
+  - 通用场景 [backend/tests/acceptance/engine_suite.py](../../../backend/tests/acceptance/engine_suite.py)，每种引擎 7 项，共 28 项。各引擎只在 `test_m10_engine_*.py` 中给出差异：连接配置、DDL 写法、标识符大小写、错误归类。
+  - 单元测试 [backend/tests/unit/test_engines.py](../../../backend/tests/unit/test_engines.py)：方言差异（Catalog 段、`TOP` / `FETCH FIRST`、`N'...'`、`DATE` 区间、标识符折叠）、类型写法、身份规则。
   - 一条命令验收默认包含这些引擎；`uv run scripts/acceptance.py --no-engines` 可以跳过它们。
 
 ## 演示数据
