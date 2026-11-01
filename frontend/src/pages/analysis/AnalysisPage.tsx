@@ -2,7 +2,7 @@
 // 报告里的数字由后端按引用渲染（ADR 0009）：数字下划线可悬停看来源数据集、取值路径与原值；人机协作见 AnalysisInteractions（ADR 0013）。
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
@@ -12,7 +12,7 @@ import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupFo
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { resultCell, type AskIntent, type AskResult } from "../ask/presentation";
 import { ArchivedConversations } from "../../layout/Conversations";
-import { DatasetChart, DatasetView, useOpenDataset } from "./DatasetView";
+import { DatasetChart, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
@@ -98,7 +98,7 @@ export function AnalysisPage() {
             : <Composer />}
         </div>}
       </main>
-      {evidence ? <aside className="av-analysis__evidence" aria-label="证据"><Datasets id={runId!} /></aside> : null}
+      {evidence ? <aside className="av-analysis__evidence" aria-label="证据"><Datasets key={runId} id={runId!} /></aside> : null}
     </div>
   );
 }
@@ -291,7 +291,7 @@ function NextSteps({ text, unverified, onPick }: { text?: string; unverified: nu
   );
 }
 
-function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: string }) {
+function Causes({ runId, causes, conclusion }: { runId: string; causes?: CauseView[]; conclusion?: string }) {
   if (!conclusion && !causes?.length) return null;
   return <section className="av-doc__section" aria-label="原因排序">
     <h2>原因排序 {conclusion && conclusion !== "ranked_reasons" ? <Pill tone="warn">{CONCLUSION[conclusion] ?? conclusion}</Pill> : null}</h2>
@@ -309,7 +309,7 @@ function Causes({ causes, conclusion }: { causes?: CauseView[]; conclusion?: str
           </span>
           <span className={`av-cause__dir is-${c.direction}`}>{c.direction === "up" ? "↑" : c.direction === "down" ? "↓" : ""}</span>
           <span className="av-cause__value">{c.contribution ? <Segments segments={c.contribution.segments} text={c.contribution.text} /> : null}</span>
-          <span className="av-claim__refs">{(c.evidence ?? []).map((ref) => <a key={ref} className="av-tag av-mono" href={`#dataset-${ref}`}>{ref}</a>)}</span>
+          <span className="av-claim__refs">{(c.evidence ?? []).map((ref) => <EvidenceLink key={ref} runId={runId} refId={ref} />)}</span>
         </li>;
       })}
     </ol> : <p className="av-caption">{conclusion === "no_material_change" ? "两期相比没有实质变化，不给出原因" : "证据不足，不给出原因排序"}</p>}
@@ -346,8 +346,16 @@ function RunDetail({ id }: { id: string }) {
   const focus = useRef<HTMLDivElement>(null);
   const ids = conv.data?.runs.map((t) => t.id) ?? [id];
   const total = ids.length;
-  // 有多轮时定位到地址指向的那一轮（续问后地址换成新一轮，也就滚到新一轮）
-  useEffect(() => { if (total > 1) focus.current?.scrollIntoView({ block: "start" }); }, [total, id]);
+  // 有多轮时定位到地址指向的那一轮（续问后地址换成新一轮，也就滚到新一轮）；
+  // 点某一轮的证据切换地址时，那一轮已在视口里就不跳动
+  useEffect(() => {
+    const el = focus.current;
+    if (total < 2 || !el) return;
+    const box = el.getBoundingClientRect();
+    const view = el.closest(".av-analysis__scroll")?.getBoundingClientRect();
+    if (view && box.bottom > view.top && box.top < view.bottom) return;
+    el.scrollIntoView({ block: "start" });
+  }, [total, id]);
   if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text="加载中…" compact />;
   const r = latest.data ?? run.data;
   const live = ["queued", "running", "waiting"].includes(r.status);
@@ -445,9 +453,11 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
           </div>
         </section>
         {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">有 {verification.unverified} 条事实或计算未通过来源校验，已在“结论依据”里标出</div> : null}
-        {badFields.map((f) => <div key={f.field} className="av-banner av-banner--danger">
-          {FIELD_LABEL[f.field] ?? f.field}未通过检查：{(f.problems ?? []).join("；")}</div>)}
-        <Causes causes={report.causes} conclusion={report.conclusion} />
+        {badFields.map((f) => <details key={f.field} className="av-banner av-banner--warn av-fieldcheck">
+          <summary>“{FIELD_LABEL[f.field] ?? f.field}”里有内容没能核实来源（例如直接写了数字），这部分不算核验通过<span className="av-fieldcheck__more">查看原因</span></summary>
+          <ul>{(f.problems ?? []).map((p, i) => <li key={i}>{p}</li>)}</ul>
+        </details>)}
+        <Causes runId={r.id} causes={report.causes} conclusion={report.conclusion} />
         <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
           onPick={onContinue ? (text) => onContinue(text) : undefined} />
         <details className="av-fold" open={!!(verification.ok === false && verification.unverified)}>
@@ -468,7 +478,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
                     {bad ? (check?.problems ?? []).map((p, j) => <span key={j} className="av-claim__bad">{p}</span>) : null}
                   </div>
                   <span className="av-claim__refs">{(c.refs ?? []).map((ref) => (
-                    <a key={ref} className="av-tag av-mono" href={`#dataset-${ref}`}>{ref}</a>))}</span>
+                    <EvidenceLink key={ref} runId={r.id} refId={ref} />))}</span>
                 </li>
               );
             })}
@@ -495,15 +505,14 @@ function Datasets({ id }: { id: string }) {
   const run = useRun(id);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // 证据链接经路由跳转（不触发 hashchange），按路由的 hash 展开并滚到对应数据集
+  const { hash } = useLocation();
   useEffect(() => {
-    const sync = () => {
-      const ref = decodeURIComponent(location.hash).replace("#dataset-", "");
-      if (ref && ref !== location.hash) setOpen((prev) => new Set(prev).add(ref));
-    };
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, []);
+    const ref = decodeURIComponent(hash).replace("#dataset-", "");
+    if (!ref || ref === hash) return;
+    setOpen((prev) => new Set(prev).add(ref));
+    requestAnimationFrame(() => document.getElementById(`dataset-${ref}`)?.scrollIntoView({ block: "nearest" }));
+  }, [hash, run.data]);
   const datasets = run.data?.datasets ?? [];
   const main = useOpenDataset();
   return (

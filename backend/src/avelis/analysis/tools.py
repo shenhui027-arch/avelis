@@ -22,14 +22,14 @@ from typing import Annotated, Any, Literal
 import sqlglot
 from fastapi import HTTPException
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.analysis import attribution, calc, explore, investigation, measures, retrieval
-from avelis.analysis.grounding import Cause, Part, describe_scope, scope_key
+from avelis.analysis.grounding import Cause, Part, decode_parts, describe_scope, scope_key
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import MAX_LIMIT, DimensionFilter, Intent, comparison_range
@@ -514,6 +514,11 @@ class Claim(BaseModel):
     premise: str | list[Part] | None = Field(None, description="推断与建议的前提（文字或片段列表）")
     validation: str | list[Part] | None = Field(None, description="建议的验证方式（文字或片段列表）")
 
+    @field_validator("parts", mode="before")
+    @classmethod
+    def decode_field_parts(cls, value: Any) -> Any:
+        return decode_parts(value)
+
 
 # submit_report 参数的模式版本：片段、原因等结构改变时加一。回放轨迹记录录制时的版本，版本不同的轨迹要重新录制
 # （模型当时按旧模式写的报告，在新模式下不成立）。2：显示格式由系统决定；3：原因按编码关联、报告写所问指标
@@ -542,10 +547,15 @@ class ReportArgs(BaseModel):
     scope: ReportScope | None = Field(None, description="所问的指标、筛选与窗口（问“为什么变化”时必填）：结论类型按"
                                                          "同一 scope 的 explain_change 判定核对")
     method: str | list[Part] | None = Field(None, description="分析方法（可选）：怎么排查、用了哪些数据集；片段列表，"
-                                                             "数字写成引用对象")
+                                                             "数字写成引用对象；数据集写编号如 D5 即可")
     causes: list[Cause] = Field(default_factory=list, description="按影响大小排序的原因（结论为 ranked_reasons 时必填，"
                                                                    "第一项是首要原因；offsetting 时前两项是最大的减少项与"
                                                                    "增加项；其余两种结论不填）")
+
+    @field_validator("title", "summary", "unexplained", "method", mode="before")
+    @classmethod
+    def decode_field_parts(cls, value: Any) -> Any:
+        return decode_parts(value)
 
 
 # --- 工具箱 ---------------------------------------------------------------------------
@@ -2419,6 +2429,7 @@ def _model(cls, value):
 
 def _parts(value):
     """标题、摘要等字段：文字或片段列表；片段里的引用对象转成 dict 保存。"""
+    value = decode_parts(value)
     if value is None or isinstance(value, str):
         return value
     return [p.model_dump() if isinstance(p, BaseModel) else p for p in value]

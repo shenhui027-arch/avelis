@@ -13,6 +13,7 @@ meta.summary_units 里登记。格式只能用在相应的量纲上，单位一�
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -120,6 +121,18 @@ class Cause(_Ref):
 
 class RefError(ValueError):
     """引用无法解析。消息直接反馈给模型。"""
+
+
+def decode_parts(value: Any) -> Any:
+    """兼容被多编码一层的片段列表；只解码整个 JSON 数组字符串，其他值原样保留。"""
+    if isinstance(value, str) and value.strip().startswith("["):
+        try:
+            decoded = json.loads(value)
+        except (ValueError, RecursionError):
+            return value
+        if isinstance(decoded, list):
+            return decoded
+    return value
 
 
 def as_part(part: Any) -> Part:
@@ -390,6 +403,7 @@ def display(value: Decimal, meta: dict, precision: int | None = None, direction:
 def render(parts: Any, datasets: dict[str, dict], window: dict | None) -> dict[str, Any]:
     """渲染片段列表：text（正文）、segments（文字段与引用段，每段带 part 序号）、errors（每个解析失败的片段一条，
     写明第几个片段）、refs（引用涉及的数据集）。解析失败的引用在正文里显示为“[?]”。"""
+    parts = decode_parts(parts)
     if parts is None:
         parts = []
     elif isinstance(parts, str):

@@ -959,3 +959,9 @@
 @media (prefers-reduced-motion: reduce) { .av-dot.is-live { animation: none; } }
 .av-runlog__queued { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
 .av-runlog__queued .av-banner { font-size: 12px; }
+.av-fieldcheck { display: block; }
+.av-fieldcheck > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; list-style: none; }
+.av-fieldcheck > summary::-webkit-details-marker { display: none; }
+.av-fieldcheck__more { font-size: 12px; opacity: .8; text-decoration: underline; text-underline-offset: 2px; }
+.av-fieldcheck[open] .av-fieldcheck__more { display: none; }
+.av-fieldcheck ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 18px; color: var(--text-secondary); }

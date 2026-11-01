@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { EvidenceLink } from "./DatasetView";
 import { ContextMeter } from "./ModelPicker";
 
 type Run = Schemas["AnalysisRunOut"];
@@ -87,7 +88,7 @@ const TOOL_NAME: Record<string, string> = { query_metric: "受治理查询", que
   describe_asset: "查看表结构", search_assets: "检索表", search_metrics: "检索口径", lineage: "查看血缘", submit_report: "提交报告",
   submit_proposal: "提出依据", submit_scope: "理解问题", ...CALC };
 
-function StepRow({ s }: { s: Step }) {
+function StepRow({ s, runId }: { s: Step; runId: string }) {
   const d = describe(s);
   const bad = s.status !== "ok" && s.status !== "skipped";
   const err = (s.output as { error?: string; message?: string } | null);
@@ -100,7 +101,7 @@ function StepRow({ s }: { s: Step }) {
         <div className="av-runlog__line">
           <span className="av-runlog__title">{d.title}</span>
           {s.reason && s.kind !== "model" ? <span className="av-runlog__reason">{s.reason}</span> : null}
-          {s.dataset ? <a className="av-tag av-mono" href={`#dataset-${s.dataset}`}>{s.dataset}</a> : null}
+          {s.dataset ? <EvidenceLink runId={runId} refId={s.dataset} /> : null}
           {s.duration_ms ? <span className="av-runlog__time">{(Number(s.duration_ms) / 1000).toFixed(1)}s</span> : null}
         </div>
         {d.detail ? <div className={`av-runlog__detail${s.kind === "model" ? " is-thought" : ""}`}>{d.detail}</div> : null}
@@ -160,7 +161,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
       </button>
       {open ? <>
       <ol className="av-runlog__steps">
-        {steps.map((s) => <StepRow key={s.seq} s={s} />)}
+        {steps.map((s) => <StepRow key={s.seq} s={s} runId={run.id} />)}
         {messages.map((m) => (
           <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">待生效</Pill></li>))}
