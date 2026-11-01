@@ -24,7 +24,7 @@ function browserGlobals(lang) {
     localStorage: storage,
     sessionStorage: { ...storage, getItem: () => null },
     document: { documentElement: { lang: "", dataset: {} }, cookie: "", addEventListener() {}, removeEventListener() {} },
-    window: { localStorage: storage, matchMedia: () => media, addEventListener() {}, removeEventListener() {}, location: { reload() {} } },
+    window: { localStorage: storage, matchMedia: () => media, addEventListener() {}, removeEventListener() {}, location: { search: "", hash: "", pathname: "/", href: "http://localhost/", reload() {}, replace() {} } },
   });
   Object.defineProperty(globalThis, "navigator", { value: { language: "en-US", languages: ["en-US"] }, configurable: true });
 }
