@@ -93,7 +93,7 @@ The Avelis product and documentation support three languages: Simplified Chinese
 In `docs/`, translations are **files with the same name plus a language suffix**: `deployment.md` is the Simplified Chinese original, `deployment.en.md` the English version and `deployment.zh-TW.md` the Traditional Chinese version. We do not use one directory per language because:
 
 - existing document paths, code comments and external links stay valid;
-- all three languages share `images/` with the same image paths;
+- screenshots are kept per interface language (see Screenshots below), with the same file names in all three languages;
 - the original and translations sit side by side, which makes review easier;
 - it matches the suffix convention of common documentation site generators, so building a site later needs no file moves.
 
@@ -121,8 +121,8 @@ English | [简体中文](deployment.md) | [繁體中文](deployment.zh-TW.md)
 
 ### Screenshots
 
-- Until the product interface supports multiple languages, documents in all three languages use the current Simplified Chinese screenshots in `docs/images/`.
-- Once it does, screenshots are retaken per language: English in `docs/images/en/`, Traditional Chinese in `docs/images/zh-TW/`, with the same file names as the Simplified Chinese ones, and translations switch to their own directory.
+- Screenshots are kept per interface language: Simplified Chinese in `docs/images/`, English in `docs/images/en/`, Traditional Chinese in `docs/images/zh-TW/`, with the same file names; each document uses the screenshots in its own language.
+- When replacing screenshots, retake all three languages together (same demo data, 1440×900) and overwrite files with the same names.
 
 ### Terminology
 

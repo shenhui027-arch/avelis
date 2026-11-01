@@ -105,7 +105,8 @@ def test_budget_restore_keeps_counting_after_clarification():
     restored = Budget.restore(view)
     assert restored.view()["used"] | {"seconds": 40.0} == view["used"]  # 已用次数原样恢复，不清零
     assert (restored.used_queries, restored.used_explore, restored.reports_total) == (4, 2, 1)
-    assert 259 <= restored.remaining() <= 260  # 已用的 40 秒从截止时间里扣除，等待用户的时间不计入
+    # 已用的 40 秒从截止时间里扣除，等待用户的时间不计入；下限留几秒余量，全量测试负载高时 restore 到读取之间会过去一两秒
+    assert 255 <= restored.remaining() <= 260
     assert restored.view()["limits"] == view["limits"]
 
 

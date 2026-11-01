@@ -10,17 +10,17 @@
 
 科技感的登入頁：左側是產品要點與「有依據的分析」示意，右側登入。管理員建立或重置密碼的帳號，首次登入必須修改密碼。
 
-![登入頁（深色）](images/login.png)
+![登入頁（深色）](images/zh-TW/login.png)
 
 支援淺色主題（跟隨系統，也可以在頁面裡切換）：
 
-![登入頁（淺色）](images/login-light.png)
+![登入頁（淺色）](images/zh-TW/login-light.png)
 
 ## 工作臺
 
 登入後的首頁：採集、血緣、變更、口徑、問數五項概況；待辦（待我處理、被攔截的提問）；我負責的指標；各資料來源的採集狀態、採集節奏與最近變更。
 
-![工作臺](images/workbench.png)
+![工作臺](images/zh-TW/workbench.png)
 
 ## 問數與分析
 
@@ -28,7 +28,7 @@
 
 從「問數」或「新問題」進入。可以直接問一個數，也可以問「為什麼變了、有什麼關係」；輸入框下可選時間理解方式、確認方式與模型，下方列出業務域設定的示例問題。
 
-![問數首頁](images/ask-home.png)
+![問數首頁](images/zh-TW/ask-home.png)
 
 ### 分析會話
 
@@ -39,48 +39,48 @@
 - 右側證據欄：本次分析產生的全部資料集，標明受治理查詢、計算、探索或上下文；
 - 底部固定的輸入框與模型欄（模型名、思考檔位、上下文用量圓環），可以繼續追問、指出不對或補充規則。
 
-![分析會話](images/analysis.png)
+![分析會話](images/zh-TW/analysis.png)
 
 報告往下是「還沒查清 · 可以讓模型繼續查」：每一條未解釋的點都可以一鍵繼續查；再往下是結論依據、分析依據，以及可儲存為經驗的確認與糾正。
 
-![報告：還沒查清與繼續查](images/analysis-report.png)
+![報告：還沒查清與繼續查](images/zh-TW/analysis-report.png)
 
 ### 匯出
 
 報告可匯出為 PDF、HTML 或 Markdown；預設是給決策者看的簡報，勾選「附帶依據」匯出完整版（含資料來源與查詢明細）。
 
-![匯出選單](images/analysis-export.png)
+![匯出選單](images/zh-TW/analysis-export.png)
 
 ### 資料集主檢視表
 
 點選證據欄或報告裡的資料集引用（如 D13），在主區域開啟資料集：圖表與明細、視窗與說明，可以換時間視窗重跑或匯出 CSV，「返回報告」回到對話。
 
-![資料集主檢視表](images/analysis-dataset.png)
+![資料集主檢視表](images/zh-TW/analysis-dataset.png)
 
 分析會話的淺色主題：
 
-![分析會話（淺色）](images/analysis-light.png)
+![分析會話（淺色）](images/zh-TW/analysis-light.png)
 
 ## 個人經驗
 
 分析過程中你確認或糾正過的內容沉澱為個人經驗（規則、關聯等），分析時按口徑與資產自動召回；關聯類經驗可以轉為受治理的關聯路徑。
 
-![個人經驗](images/experiences.png)
+![個人經驗](images/zh-TW/experiences.png)
 
 ## 血緣
 
 表級與欄位級血緣圖：按業務域篩選、搜尋表、顯示關聯路徑或欄位。選中一張表後，右側檢查器顯示它的粒度、上游與解析出的列級邊、關聯路徑及稽核狀態、影響條件。
 
-![血緣](images/lineage.png)
+![血緣](images/zh-TW/lineage.png)
 
 ## 目錄
 
 指標、資產、業務域與關聯路徑。指標詳情展示口徑版本、說明、基礎資產、表示式、時間欄位、允許維度、統計粒度與單位，以及發布前檢查（如缺資料庫註釋的欄位與可沿用的上游註釋）。
 
-![目錄：指標詳情](images/catalog.png)
+![目錄：指標詳情](images/zh-TW/catalog.png)
 
 ## 設定
 
 資料來源、模型設定與使用者。資料來源頁顯示連線、端點別名、採集範圍與間隔，以及每次採集批次的結果。
 
-![設定：資料來源](images/settings.png)
+![設定：資料來源](images/zh-TW/settings.png)

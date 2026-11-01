@@ -10,13 +10,15 @@
 
 - 只读采集数据库元数据，按物理 ID 识别同一对象；解析视图、外部表，得到表级与字段级血缘（[#7](https://github.com/shenhui027-arch/avelis/pull/7)）。
 - 导入 SQL 文件、粘贴 SQL、上传 Python / Shell 代码生成血缘；解析不了的片段由模型提出候选，人工确认。
-- 引擎适配层：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris 支持采集、视图血缘、问数与执行前核对；MySQL 支持采集，作为外部表的追溯目标（[#7](https://github.com/shenhui027-arch/avelis/pull/7)）。
+- 批量血缘导入：按方言切分、语法树优先，支持 MERGE / UPDATE / 多路 INSERT 等写入类语句，临时表与中间表折叠，后台批次与进度，多文件与 zip，同一来源重新导入时替换旧版的边，模型辅助识别不规范脚本（[#48](https://github.com/shenhui027-arch/avelis/pull/48)，ADR 0016）。
+- 引擎适配层：StarRocks、PostgreSQL、ClickHouse、SQL Server、Oracle、Doris 支持采集、视图血缘、问数与执行前核对；MySQL 支持采集，作为外部表的追溯目标（[#7](https://github.com/shenhui027-arch/avelis/pull/7)）；Hive 支持元数据采集与视图列级血缘，配置的库不可见时整次采集失败、不误标删除（[#37](https://github.com/shenhui027-arch/avelis/pull/37)）。
 - 表关联统一由治理维护；血缘页支持搜索、首屏可读、检查器可拖宽、字段可点（[#20](https://github.com/shenhui027-arch/avelis/pull/20)）。
 
 ### 口径治理与变更管理
 
 - 指标与版本状态机、发布检查、复核与跨域批准；关联路径与粒度校验。
 - 上游结构变化 → 影响分析 → 复核；受影响的口径由后端阻止继续使用。
+- 口径的时间语义（编码时间字段、数据粒度、跨时间合成、口径级时区）、量纲与期望方向、数字体系，以及业务日历（[#50](https://github.com/shenhui027-arch/avelis/pull/50)，ADR 0014）。
 - 变更留底：变更归因到数据库用户、检索与导出、历史只追加并封入哈希链、保留期可配置（[#9](https://github.com/shenhui027-arch/avelis/pull/9)，ADR 0008）。
 
 ### 智能问数
@@ -32,11 +34,14 @@
 - 数据集在主区域打开、换时间重跑、导出 CSV；历史读取按当前权限复查来源（[#19](https://github.com/shenhui027-arch/avelis/pull/19)）。
 - 报告导出 PDF / HTML / Markdown，分简报与附带依据的完整版（[#21](https://github.com/shenhui027-arch/avelis/pull/21)）。
 - 分析可保存为定时任务，定时设置可视化选择（[#32](https://github.com/shenhui027-arch/avelis/pull/32)）。
+- 续问在同一对话里接着分析，沿用此前各轮的结论与数据集；左侧对话支持重命名、归档、恢复与删除，证据按所属轮次打开（[#47](https://github.com/shenhui027-arch/avelis/pull/47)）。
 
 ### 界面
 
 - 工作台、血缘、目录、口径、变更、问数、分析、设置等页面。
 - 前端视觉 v2：玻璃质感、深浅主题、侧边栏（[#13](https://github.com/shenhui027-arch/avelis/pull/13)）；登录页与品牌标记（[#24](https://github.com/shenhui027-arch/avelis/pull/24)）；问数输入框底栏（[#31](https://github.com/shenhui027-arch/avelis/pull/31)）。
+- 界面支持简体中文、繁体中文与英文，后端报错、导出标签与模型回答跟随界面语言（[#44](https://github.com/shenhui027-arch/avelis/pull/44)、[#45](https://github.com/shenhui027-arch/avelis/pull/45)、[#46](https://github.com/shenhui027-arch/avelis/pull/46)，ADR 0015）。
+- 目录详情页提供返回上一级；后台执行器没有运行时，排队中的分析会说明原因（[#47](https://github.com/shenhui027-arch/avelis/pull/47)）。
 
 ### 安全与权限
 
@@ -47,12 +52,20 @@
 ### 部署
 
 - 后端同时托管前端，单端口访问；自包含 Docker 镜像（运行期不联网下载）与 Docker Compose 编排（[#27](https://github.com/shenhui027-arch/avelis/pull/27)）。
-- 部署配置文件 `deploy/docker/avelis.toml`（TOML，带中文注释），启动时校验并用中文指出问题（[#27](https://github.com/shenhui027-arch/avelis/pull/27)）。
+- 部署配置文件 `deploy/docker/avelis.toml`（TOML，带中文注释），启动时校验并用中文指出问题（[#27](https://github.com/shenhui027-arch/avelis/pull/27)）；部署遗留问题修复（[#29](https://github.com/shenhui027-arch/avelis/pull/29)）。
+- worker 心跳与 `/api/health/worker` 状态接口（[#47](https://github.com/shenhui027-arch/avelis/pull/47)）。
 
 ### 其他
 
 - 产品代码去掉对演示数据的结构性假设（[#26](https://github.com/shenhui027-arch/avelis/pull/26)，ADR 0010）。
-- 界面导览与真实截图（[#30](https://github.com/shenhui027-arch/avelis/pull/30)）。
+- 界面导览与真实截图（[#30](https://github.com/shenhui027-arch/avelis/pull/30)）；截图按界面语言分三套。
+- 开源准备：社区文件、README 英文为主、文档重组与归档、代码整理与 CI、文档三语（[#33](https://github.com/shenhui027-arch/avelis/pull/33)、[#34](https://github.com/shenhui027-arch/avelis/pull/34)、[#36](https://github.com/shenhui027-arch/avelis/pull/36)、[#38](https://github.com/shenhui027-arch/avelis/pull/38)、[#42](https://github.com/shenhui027-arch/avelis/pull/42)）。
 - 采用 Apache License 2.0。
+
+### 已知局限
+
+- 报告的“分析方法”里写了带数字的识别符（如口径版本 V1）时仍会判为未通过核验；方法描述不应拉低整份报告，计划在下个里程碑调整核验范围。
+- 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
+- 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
 [未发布]: https://github.com/shenhui027-arch/avelis/commits/main
