@@ -1,7 +1,7 @@
 """批量血缘导入与文件版本。
 
 Revision ID: 0018_import_batches
-Revises: （待定：接在防过拟合分支的迁移之后，同步 main 时补上）
+Revises: 0017_metric_time
 """
 
 import sqlalchemy as sa
@@ -10,7 +10,7 @@ from alembic import op
 from avelis.db import JsonType, UTCDateTime
 
 revision = "0018_import_batches"
-down_revision = None  # 待定：防过拟合分支合入 main 后接在它的迁移之后
+down_revision = "0017_metric_time"
 branch_labels = None
 depends_on = None
 

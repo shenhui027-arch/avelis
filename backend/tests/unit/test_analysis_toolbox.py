@@ -722,6 +722,105 @@ def test_derive_rejects_dead_inputs_and_marks_assumptions(monkeypatch):
     assert "无法计算" in zero["error"]
 
 
+@pytest.mark.parametrize("parts, expected", [
+    (["华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"],
+     "华东线上订单数本期低于上期：抖音来源渠道骤降是线上降幅的主要来源"),
+    (["华东成交额 ", {"dataset": "D1", "column": "成交额", "match": {"区域": "华东"}}],
+     "华东成交额 196.94万元"),
+])
+def test_report_json_array_string_fields_use_parts_and_reference_verification(monkeypatch, parts, expected):
+    box = make_box(monkeypatch=monkeypatch)
+    units_dataset(box)
+    fields = ("title", "summary", "unexplained", "method")
+    encoded = " \n" + json.dumps(parts, ensure_ascii=False) + "\t "
+    reply = box.dispatch("submit_report", {
+        **dict.fromkeys(fields, encoded), "conclusion": "insufficient_evidence", "claims": []})
+    assert json.loads(reply) == {"ok": True}
+    saved_parts = {field: box.report[field] for field in fields}
+    assert all(isinstance(value, list) and value[0] == parts[0] for value in saved_parts.values())
+    agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
+    for field in fields:
+        record = box.report["fields"][field]
+        assert box.report[field] == record["text"] == expected
+        assert record["parts"] == saved_parts[field]
+        assert record["status"] == "verified" and record["errors"] == []
+        assert [segment["kind"] for segment in record["segments"]] == (
+            ["text"] if len(parts) == 1 else ["text", "value"])
+        if len(parts) > 1:
+            assert record["segments"][1]["ref"] == "D1"
+    assert box.verification["ok"] and box.verification["unverified_fields"] == 0
+    assert box.verification["sources"]["direct"]["governed"] == (0 if len(parts) == 1 else len(fields))
+
+
+@pytest.mark.parametrize("column, expected, status", [
+    ("成交额", "华东成交额 196.94万元", "verified"),
+    ("不存在", "华东成交额 [?]", "unverified"),
+])
+def test_report_json_array_string_claim_parts_reach_reference_verification(monkeypatch, column, expected, status):
+    box = make_box(monkeypatch=monkeypatch)
+    units_dataset(box)
+    parts = ["华东成交额 ", {"dataset": "D1", "column": column, "match": {"区域": "华东"}}]
+    reply = box.dispatch("submit_report", {
+        "title": "分析结果", "summary": "已完成核对", "conclusion": "insufficient_evidence",
+        "claims": [{"type": "fact", "parts": json.dumps(parts, ensure_ascii=False)}]})
+    assert json.loads(reply) == {"ok": True}
+    saved_parts = box.report["claims"][0]["parts"]
+    assert isinstance(saved_parts, list) and saved_parts[0] == parts[0]
+    agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
+    claim = box.report["claims"][0]
+    assert claim["text"] == expected and claim["parts"] == saved_parts
+    assert claim["refs"] == ["D1"] and claim["explicit_refs"] == []
+    assert claim["status"] == status
+    assert box.verification["ok"] == (status == "verified")
+    if status == "verified":
+        assert claim["errors"] == [] and claim["segments"][1]["kind"] == "value"
+        assert box.verification["status"] == "all_passed"
+    else:
+        assert "没有列 不存在" in claim["errors"][0]
+        assert box.verification["status"] == "failed"
+
+
+@pytest.mark.parametrize("field", ["title", "summary", "unexplained", "method", "claims.0.parts"])
+@pytest.mark.parametrize("encoded", [False, True], ids=["list", "json-array-string"])
+def test_report_decoded_parts_keep_pydantic_reference_validation(monkeypatch, field, encoded):
+    box = make_box(monkeypatch=monkeypatch)
+    parts = ["华东成交额 ", {"dataset": "D1", "column": "成交额", "precision": 5}]
+    value = json.dumps(parts, ensure_ascii=False) if encoded else parts
+    report = {"title": "分析结果", "summary": "已完成核对", "conclusion": "insufficient_evidence", "claims": []}
+    if field == "claims.0.parts":
+        report["claims"] = [{"type": "fact", "parts": value}]
+    else:
+        report[field] = value
+    result = json.loads(box.dispatch("submit_report", report))
+    assert "参数结构不对" in result["error"] and field in result["error"]
+    assert "precision" in result["error"] and box.report is None
+
+
+@pytest.mark.parametrize("value, expected_parts, expected", [
+    (" 华东[线上]订单下降 ", " 华东[线上]订单下降 ", " 华东[线上]订单下降 "),
+    ("  [线上]订单下降  ", "  [线上]订单下降  ", "  [线上]订单下降  "),
+    (' ["未闭合" ', ' ["未闭合" ', ' ["未闭合" '),
+    ('["完整数组"] 后续说明', '["完整数组"] 后续说明', '["完整数组"] 后续说明'),
+    ('{"title":"文字"}', '{"title":"文字"}', '{"title":"文字"}'),
+    (json.dumps(['["内层文字"]'], ensure_ascii=False), ['["内层文字"]'], '["内层文字"]'),
+])
+def test_report_string_fields_preserve_plain_invalid_and_nested_json(monkeypatch, value, expected_parts, expected):
+    box = make_box(monkeypatch=monkeypatch)
+    fields = ("title", "summary", "unexplained", "method")
+    reply = box.dispatch("submit_report", {
+        **dict.fromkeys(fields, value), "conclusion": "insufficient_evidence", "claims": []})
+    assert json.loads(reply) == {"ok": True}
+    assert all(box.report[field] == expected_parts for field in fields)
+    agent.verify({}, {"configurable": {"toolbox": box, "model": None}})
+    for field in fields:
+        record = box.report["fields"][field]
+        assert box.report[field] == record["text"] == expected
+        assert record["parts"] == expected_parts
+        assert record["segments"] == [{"kind": "text", "part": 1, "text": expected}]
+        assert record["status"] == "verified" and record["errors"] == []
+    assert box.verification["ok"]
+
+
 def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     """ADR 0009：submit_report 保存片段列表；verify 渲染、做结构检查并保存每个字段的 parts / text / segments / status /
     errors；修订提示逐条写明第几条结论、第几个片段、什么原因。"""
@@ -760,7 +859,7 @@ def test_report_parts_are_rendered_and_revision_lists_each_problem(monkeypatch):
     assert [c["status"] for c in verification["claims"]] == ["verified", "unverified", "unverified", "unchecked"]
     calc_problems = verification["claims"][1]["problems"]
     assert calc_problems[0].startswith("第 2 个片段（D2.summary.total.change）：方向与正负不一致")
-    assert any("第 3 个片段（文字）出现数字“2”" in p for p in calc_problems)
+    assert len(calc_problems) == 1  # D2 已存在，文字里的数据集编号不再误报裸数字
     assert not any("紧跟单位" in p for p in calc_problems)  # 解析失败的引用不是数值段
     assert verification["claims"][2]["problems"] == [
         "第 2 个片段（D1.成交额[区域=西北]）：条件选中了 0 行，必须恰好一行（求和请先用 derive）"]

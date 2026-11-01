@@ -21,6 +21,7 @@ from avelis.connectors.base import sha256_text
 from avelis.db import new_id, session_scope, utcnow
 from avelis.engines import dialect_of, engine_of
 from avelis.governance.errors import Conflict, Invalid, NotFound
+from avelis.i18n import Msg
 from avelis.importer import service
 from avelis.importer.archive import FileDependencies, ImportFile, order_files
 from avelis.importer.extract import extract_python, extract_shell, substitute
@@ -77,7 +78,7 @@ def create_batch(session: Session, actor: User, *, datasource_id: str, files: li
     duplicate_ids, pending, file_order = [], [], {}
     for upload_order, file in enumerate(files):
         if not file.content.strip():
-            raise Invalid(f"文件 {file.filename} 的导入内容为空")
+            raise Invalid(Msg("文件 {name} 的导入内容为空", name=file.filename))
         digest = sha256_text(file.content)
         duplicate = by_hash.get(digest) if not force else None
         if duplicate:
@@ -428,7 +429,7 @@ def _persist_prepared(session: Session, actor: User, batch: ImportBatch, prepare
         active_files.append(file)
         if file.reused:
             if job.superseded_by is not None:
-                raise Conflict(f"重复文件 {job.filename} 已被更新，请重新导入该批次")
+                raise Conflict(Msg("重复文件 {name} 已被更新，请重新导入该批次", name=job.filename))
             index, _, old_candidates = _previous_data(session, job)
             decisions[job.id] = index
             old_counts[job.id] = set()

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.engines.base import QUERY, CapabilityMissing, Engine, UnsupportedEngine
+from avelis.i18n import Msg
 from avelis.lineage.sql import SqlDialect
 from avelis.models import Datasource, DatasourceCredential
 from avelis.security import decrypt_secret
@@ -28,7 +29,8 @@ def get_engine(kind: str) -> Engine:
     try:
         return _REGISTRY[kind]
     except KeyError:
-        raise UnsupportedEngine(f"不支持的数据源类型：{kind}（已支持：{'、'.join(sorted(_REGISTRY))}）") from None
+        raise UnsupportedEngine(Msg("不支持的数据源类型：{kind}（已支持：{supported}）", kind=kind,
+                                    supported="、".join(sorted(_REGISTRY)))) from None
 
 
 def engines() -> list[Engine]:
@@ -54,7 +56,7 @@ def _credential(session: Session, ds: Datasource, purpose: str, required: bool =
     if cred is None:
         if not required:
             return "", ""
-        raise CredentialMissing(f"数据源 {ds.name} 未配置 {purpose} 账号")
+        raise CredentialMissing(Msg("数据源 {name} 未配置 {purpose} 账号", name=ds.name, purpose=purpose))
     return cred.username, decrypt_secret(cred.secret_enc)
 
 

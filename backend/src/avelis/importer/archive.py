@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 from typing import TypeVar
 
 from avelis.governance.errors import Invalid
+from avelis.i18n import Msg
 
 LANGUAGES = {".sql": "sql", ".py": "python", ".sh": "shell", ".bash": "shell"}
 MAX_ARCHIVE_ENTRIES = 2000
@@ -42,10 +43,10 @@ def _relative_path(filename: str) -> str:
     parts = PurePosixPath(path).parts
     if (not path or path.startswith("/") or any(part in ("..", "") for part in parts)
             or ":" in path or "\x00" in path):
-        raise Invalid(f"文件路径不合法：{filename}")
+        raise Invalid(Msg("文件路径不合法：{name}", name=filename))
     normalized = posixpath.normpath(path)
     if normalized in (".", ".."):
-        raise Invalid(f"文件路径不合法：{filename}")
+        raise Invalid(Msg("文件路径不合法：{name}", name=filename))
     return normalized
 
 
@@ -61,7 +62,7 @@ def read_uploads(uploads: list[tuple[str, bytes]], *, max_file_bytes: int = 20 *
     def add(filename: str, data: bytes) -> None:
         nonlocal total_bytes
         if len(data) > max_file_bytes:
-            raise Invalid(f"文件 {filename} 超过单文件大小上限")
+            raise Invalid(Msg("文件 {name} 超过单文件大小上限", name=filename))
         total_bytes += len(data)
         if total_bytes > max_batch_bytes:
             raise Invalid("导入内容超过批次大小上限（按解压后大小计量）")
@@ -72,15 +73,15 @@ def read_uploads(uploads: list[tuple[str, bytes]], *, max_file_bytes: int = 20 *
             return
         basename = PurePosixPath(filename).name
         if len(basename) > 255:
-            raise Invalid(f"文件名不能超过 255 个字符：{basename[:80]}")
+            raise Invalid(Msg("文件名不能超过 255 个字符：{name}", name=basename[:80]))
         if len(filename) > 512:
-            raise Invalid(f"文件来源键不能超过 512 个字符：{filename[:80]}")
+            raise Invalid(Msg("文件来源键不能超过 512 个字符：{name}", name=filename[:80]))
         if filename in source_keys:
-            raise Invalid(f"批次中存在重复来源键：{filename}")
+            raise Invalid(Msg("批次中存在重复来源键：{name}", name=filename))
         try:
             content = data.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
-            raise Invalid(f"文件 {filename} 不是有效的 UTF-8 文本") from exc
+            raise Invalid(Msg("文件 {name} 不是有效的 UTF-8 文本", name=filename)) from exc
         source_keys.add(filename)
         files.append(ImportFile(basename, content, language, filename, len(data)))
 
@@ -92,34 +93,34 @@ def read_uploads(uploads: list[tuple[str, bytes]], *, max_file_bytes: int = 20 *
         try:
             archive = zipfile.ZipFile(io.BytesIO(data))
         except (zipfile.BadZipFile, OSError) as exc:
-            raise Invalid(f"文件 {filename} 不是有效的 zip") from exc
+            raise Invalid(Msg("文件 {name} 不是有效的 zip", name=filename)) from exc
         with archive:
             members = archive.infolist()
             entries += len(members)
             if entries > MAX_ARCHIVE_ENTRIES:
-                raise Invalid(f"zip 条目数不能超过 {MAX_ARCHIVE_ENTRIES}")
+                raise Invalid(Msg("zip 条目数不能超过 {limit}", limit=MAX_ARCHIVE_ENTRIES))
             for member in members:
                 name = _relative_path(member.filename)
                 if member.is_dir():
                     continue
                 mode = member.external_attr >> 16
                 if stat.S_ISLNK(mode):
-                    raise Invalid(f"zip 不支持符号链接：{name}")
+                    raise Invalid(Msg("zip 不支持符号链接：{name}", name=name))
                 if PurePosixPath(name).suffix.lower() == ".zip":
-                    raise Invalid(f"不支持嵌套 zip：{name}")
+                    raise Invalid(Msg("不支持嵌套 zip：{name}", name=name))
                 if member.flag_bits & 1:
-                    raise Invalid(f"不支持加密 zip 条目：{name}")
+                    raise Invalid(Msg("不支持加密 zip 条目：{name}", name=name))
                 if member.file_size > max_file_bytes:
-                    raise Invalid(f"文件 {name} 超过单文件大小上限（按解压后大小计量）")
+                    raise Invalid(Msg("文件 {name} 超过单文件大小上限（按解压后大小计量）", name=name))
                 if total_bytes + member.file_size > max_batch_bytes:
                     raise Invalid("导入内容超过批次大小上限（按解压后大小计量）")
                 try:
                     with archive.open(member) as stream:
                         content = stream.read(min(max_file_bytes, max_batch_bytes - total_bytes) + 1)
                 except (zipfile.BadZipFile, RuntimeError, OSError, NotImplementedError) as exc:
-                    raise Invalid(f"zip 条目无法读取：{name}") from exc
+                    raise Invalid(Msg("zip 条目无法读取：{name}", name=name)) from exc
                 if zipfile.is_zipfile(io.BytesIO(content)):
-                    raise Invalid(f"不支持嵌套 zip：{name}")
+                    raise Invalid(Msg("不支持嵌套 zip：{name}", name=name))
                 add(name, content)
     if not files:
         raise Invalid("没有可导入的 SQL、Python 或 Shell 文件", notes=notes)

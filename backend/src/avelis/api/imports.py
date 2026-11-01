@@ -16,6 +16,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.db import utcnow
+from avelis.i18n import Msg
 from avelis.importer import batch, service
 from avelis.importer.archive import ImportFile, read_uploads
 from avelis.models import (
@@ -133,7 +134,7 @@ def _created(session: Session, user: User, *, wait: bool = False, files: list[Im
         language = service.detect_language(filename, kwargs.pop("source_type", None))
         size = len(content.encode("utf-8"))
         if size > get_settings().import_max_bytes:
-            raise HTTPException(413, f"文件超过 {get_settings().import_max_bytes / 1024**2:g} MB")
+            raise HTTPException(413, Msg("文件超过 {size:g} MB", size=get_settings().import_max_bytes / 1024**2))
         files = [ImportFile(filename, content, language, filename, size)]
     kwargs["sql_functions"] = _sql_functions(session, kwargs["datasource_id"], kwargs.get("sql_functions", []))
     imported, created = batch.create_batch(session, user, files=files, notes=notes or [], **kwargs)
@@ -189,10 +190,10 @@ async def upload(datasource_id: str = Form(...), file: UploadFile | None = File(
         limit = max_batch_bytes if (item.filename or "").lower().endswith(".zip") else settings.import_max_bytes
         raw = await item.read(limit + 1)
         if len(raw) > limit:
-            raise HTTPException(413, f"文件超过 {limit / 1024**2:g} MB")
+            raise HTTPException(413, Msg("文件超过 {size:g} MB", size=limit / 1024**2))
         size += len(raw)
         if size > max_batch_bytes:
-            raise HTTPException(413, f"批次超过 {max_batch_bytes / 1024**2:g} MB")
+            raise HTTPException(413, Msg("批次超过 {size:g} MB", size=max_batch_bytes / 1024**2))
         raw_files.append((item.filename or "upload.sql", raw))
     if response is not None:
         response.status_code = 200 if wait else 202

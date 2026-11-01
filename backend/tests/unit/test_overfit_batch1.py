@@ -189,7 +189,7 @@ def test_coverage_daily_values_still_identifies_missing_date():
 def test_governed_coverage_refuses_nonday_grain(monkeypatch, grain):
     box = _batch1_box(monkeypatch)
     _batch1_governed(box, grain=grain)
-    assert "非日粒度，不能按天判断缺失" in json.loads(box.coverage("D1"))["error"]
+    assert ("没有时间分组" if grain is None else "缺少时间期间列") in json.loads(box.coverage("D1"))["error"]
 
 
 def test_derived_evaluate_rounds_significant_digits():
@@ -313,7 +313,8 @@ def test_neutral_descriptions_and_calendar_guidance():
                 "connectors/oracle.py": ["SCHEMA_A.TABLE_A.COL_A"], "lineage/sql.py": ["schema_a.table_a"]}
     for name, phrases in expected.items():
         text = (source / name).read_text(encoding="utf-8")
-        assert all(phrase in text for phrase in phrases), name
+        assert all(phrase.replace("只按自然日天数折算", "未配置业务日历时节假日未知，配置后给出节假日与工作日折算")
+                   in text for phrase in phrases), name
 
 
 
@@ -409,7 +410,7 @@ def test_batch1_exact_dimension_query_uses_literals_and_datasource_dialect(monke
     assert [literal.this for literal in tree.find(exp.Where).find(exp.In).expressions] == [member]
     assert len(list(tree.find_all(exp.Max))) == 1
     assert limits == {"timeout_seconds": 10, "mem_limit_bytes": 512 * 1024**2,
-                      "max_rows": _batch1_ask_service.DIMENSION_VALUES_LIMIT}
+                      "max_rows": _batch1_ask_service.DIMENSION_VALUES_LIMIT, "timezone": None}
     assert state["events"] == ["validate", "live", "execute"]
     if dialect.national_strings:
         assert "N'" in sql
@@ -661,6 +662,8 @@ def test_factor_decompose_exposes_subunit_residual_for_integer_totals(total, fac
     (("1000000000000", "1000000000000.001"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)}, 0),
     (("5000", "4400"), {"指标甲": (100, 80), "指标乙": (50, 55)}, 0),
     (("100", "100"), {"指标甲": (10, 20), "指标乙": (10, 5)}, 0),
+    # 大额正负贡献相互抵消、净变化很小：尾差校正以精确净变化为准，不能被舍成 0（PR #26 复核）
+    (("1000000000000", "1000000000000.001"), {"指标甲": ("1000000", "10000000"), "指标乙": ("1000000", "100000.0000000001")}, 0),
     # 输入不一致：差额只来自总量与因子之积之差，照常单列
     (("1000000000000", "1000000000000.003"), {"指标甲": ("1000000000000", "1000000000000.001"), "指标乙": (1, 1)},
      Decimal("0.002")),
@@ -671,7 +674,7 @@ def test_factor_decompose_separates_input_mismatch_from_float_error(total, facto
     assert out["unexplained"] == unexplained
     assert ("未解释差额" in parts) == bool(unexplained)
     assert sum(parts.values()) == out["total"]["change"]  # 贡献 + 未解释差额精确等于总变化
-    assert all("E" not in str(v) for v in parts.values())
+    assert all("E" not in str(v) for v in [*parts.values(), out["unexplained"]])
 
 
 def _batch1_additive_derived_box(monkeypatch, formula, second_expression='COUNT(*)'):

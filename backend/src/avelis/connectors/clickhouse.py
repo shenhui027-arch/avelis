@@ -25,7 +25,7 @@ from typing import Any
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
-from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
+from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -167,8 +167,11 @@ class ClickHouseConnector:
     # --- 只读执行 ------------------------------------------------------------------
 
     def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
-                       max_rows: int) -> QueryResult:
+                       max_rows: int, timezone: str | None = None) -> QueryResult:
         settings: dict[str, Any] = {"max_execution_time": int(timeout_seconds)}
+        if timezone is not None:
+            # 请求级设置，HTTP 客户端复用时也不会污染后续查询。
+            settings["session_timezone"] = checked_timezone(timezone)
         if mem_limit_bytes:
             settings["max_memory_usage"] = int(mem_limit_bytes)
         client = self._client(timeout=int(timeout_seconds) + 10)

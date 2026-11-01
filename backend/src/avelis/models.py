@@ -395,6 +395,12 @@ class MetricVersion(Base):
     components: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
     time_column: Mapped[str] = mapped_column(String(255), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 时间语义默认沿用日粒度累加；编码日期键必须显式声明格式
+    time_format: Mapped[str | None] = mapped_column(String(16))
+    data_grain: Mapped[str] = mapped_column(String(8), default="day", server_default="day", nullable=False)
+    time_aggregation: Mapped[str] = mapped_column(String(8), default="sum", server_default="sum", nullable=False)
+    value_kind: Mapped[str | None] = mapped_column(String(8))
+    polarity: Mapped[str | None] = mapped_column(String(8))
     filters: Mapped[str | None] = mapped_column(Text)
     dimensions: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     joins: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
@@ -831,6 +837,13 @@ class AnalysisRun(Base):
     id: Mapped[str] = pk()
     task_id: Mapped[str | None] = fk("analysis_task.id", nullable=True)
     parent_run_id: Mapped[str | None] = fk("analysis_run.id", nullable=True)
+    # 根运行以自身为对话；续问由创建服务显式沿用根运行 ID。
+    conversation_id: Mapped[str] = mapped_column(
+        IdType, ForeignKey("analysis_run.id"), nullable=False, index=True,
+        default=lambda context: context.get_current_parameters()["id"],
+    )
+    display_title: Mapped[str | None] = mapped_column(String(80))
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     user_id: Mapped[str] = fk("app_user.id", index=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual | schedule

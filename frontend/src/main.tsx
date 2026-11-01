@@ -18,6 +18,7 @@ import { Forbidden, NotFound, RouteError } from "./pages/PageState";
 import { DatasourcesPage } from "./pages/settings/DatasourcesPage";
 import { ModelSettings } from "./pages/settings/ModelSettings";
 import { UsersPage } from "./pages/settings/UsersPage";
+import { CalendarPage } from "./pages/settings/CalendarPage";
 import { Workbench } from "./pages/Workbench";
 import "./theme";
 import "./styles/tokens.css";
@@ -56,6 +57,7 @@ const router = createBrowserRouter([
       { path: "settings/datasources/:id", element: <DatasourcesPage /> },
       { path: "settings/models", element: <ModelSettings /> },
       { path: "settings/users", element: <UsersPage /> },
+      { path: "settings/calendar", element: <CalendarPage /> },
       { path: "forbidden", element: <Forbidden /> },
       { path: "*", element: <NotFound /> },
     ],
