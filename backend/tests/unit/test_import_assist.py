@@ -77,6 +77,82 @@ def test_shell_blocks_keep_original_lines_and_file_header():
     assert all(b.header == "DB=src" for b in blocks)
 
 
+@pytest.mark.parametrize("prefix", [
+    '#!/bin/sh\n# $(example) is a comment\nDB=src',
+    'export DB=src TARGET=dw\nSQL="SELECT id; SELECT v" # static SQL',
+    "SQL='$(literal) `literal`' # $(comment)",
+])
+def test_shell_static_preamble_only_supplies_context(prefix):
+    source = prefix + '\nload() {\n :\n}'
+    blocks = code_blocks(source, "shell")
+    assert len(blocks) == 1
+    assert blocks[0].line_start == len(prefix.splitlines()) + 1
+    assert blocks[0].header == prefix
+
+
+@pytest.mark.parametrize("command", [
+    f'hive -e "{SQL}"',
+    f'SQL="{SQL}"; hive -e "$SQL"',
+    f'OUTPUT=$(hive -e "{SQL}")',
+    f'OUTPUT="$(hive -e \'{SQL}\')"',
+])
+def test_shell_executable_preamble_has_own_block_and_retains_candidate(command):
+    source = '#!/bin/sh\n# load data\nDB=src\n' + command + '\nload() {\n :\n}'
+    blocks = code_blocks(source, "shell")
+    assert [(b.line_start, b.line_end) for b in blocks] == [(4, 4), (5, 7)]
+    assert blocks[0].text == command
+    assert all(b.header == '#!/bin/sh\n# load data\nDB=src' for b in blocks)
+    fake = FakeImportModel({"operations": [operation(start=4, end=4)]}, {"operations": []})
+    result = run(source, fake, language="shell")
+    assert len(fake.prompts) == 2 and not result.notes
+    assert len(result.candidates) == 1
+    assert result.candidates[0]["evidence"]["lines"] == [4, 4]
+    assert result.candidates[0]["evidence"]["original_code"] == command
+    assert [(p["lines"]) for p in result.payloads] == [[4, 4], [5, 7]]
+
+
+def test_python_module_operations_between_definitions_keep_original_lines():
+    source = ('import client\nCONFIG = "src"\n'
+              f'run_sql("{SQL}")\n'
+              'def first():\n    pass\n'
+              'frame = spark.table("src.events")\nframe.write.saveAsTable("dw.daily_summary")\n'
+              'def second():\n    pass\n'
+              f'run_sql("{SQL}")\nTAIL = "context"\n')
+    blocks = code_blocks(source, "python")
+    assert [(b.line_start, b.line_end) for b in blocks] == [(1, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
+    assert all('CONFIG = "src"' in b.header and 'TAIL = "context"' in b.header for b in blocks)
+    assert all("run_sql" not in b.header and "spark.table" not in b.header for b in blocks)
+    fake = FakeImportModel({"operations": [operation(start=3, end=3)]}, {"operations": []},
+                           {"operations": [operation(start=6, end=7)]}, {"operations": []},
+                           {"operations": [operation(start=10, end=10)]})
+    result = run(source, fake)
+    assert len(fake.prompts) == 5 and not result.notes
+    assert [c["evidence"]["lines"] for c in result.candidates] == [[3, 3], [6, 7], [10, 10]]
+    assert len(result.statements) == 3
+
+
+@pytest.mark.parametrize("source,expected", [
+    ('frame = source_frame\nframe.write = target_frame', [(1, 2)]),
+    ('def load():\n    pass\nframe = source_frame\nframe.write = target_frame', [(1, 2), (3, 4)]),
+])
+def test_python_assignment_only_module_and_tail_keep_existing_coverage(source, expected):
+    assert [(b.line_start, b.line_end) for b in code_blocks(source, "python")] == expected
+
+
+@pytest.mark.parametrize("language,source", [
+    ("shell", f'hive -e "{SQL}"\nload() {{\n :\n}}'),
+    ("python", f'run_sql("{SQL}")\ndef load():\n    pass'),
+])
+def test_top_level_model_operation_still_deduplicates_rule_sql(language, source):
+    stmt = {"id": "s", "line_start": 1, "line_end": 1, "method": "sql", "status": "parsed",
+            "raw_text": SQL, "sql_text": SQL}
+    fake = FakeImportModel({"operations": [operation(start=1, end=1)]}, {"operations": []})
+    result = run(source, fake, language=language, statements=[stmt])
+    assert len(fake.prompts) == 2 and not result.notes
+    assert not result.candidates and not result.statements
+    assert result.payloads[0]["comparisons"][0]["status"] == "consistent"
+
+
 def test_reconstructed_sql_uses_parser_and_stays_pending():
     source = f'def load():\n    run_sql("{SQL}")'
     fake = FakeImportModel({"operations": [operation(sql_function="run_sql")],

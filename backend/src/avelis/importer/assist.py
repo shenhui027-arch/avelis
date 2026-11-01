@@ -76,6 +76,33 @@ def _value(item: Any, key: str, default=None):
     return item.get(key, default) if isinstance(item, dict) else getattr(item, key, default)
 
 
+def _shell_static_line(line: str) -> bool:
+    try:
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        return False
+    if words and words[0] == "export":
+        words = words[1:]
+    if not all(re.fullmatch(r"[A-Za-z_]\w*=.*", word, re.S) for word in words):
+        return False
+    quote = None
+    escaped = False
+    for i, character in enumerate(line):
+        if escaped:
+            escaped = False
+        elif character == "\\" and quote != "'":
+            escaped = True
+        elif character in ("'", '"') and quote in (None, character):
+            quote = None if quote else character
+        elif character == "#" and quote is None and (i == 0 or line[i - 1].isspace()):
+            break
+        elif quote != "'" and (character == "`" or line.startswith("$(", i)):
+            return False
+    return True
+
+
 def code_blocks(source: str, language: str) -> list[CodeBlock]:
     """按顶层函数或类分块，静态文件头附到每块，不执行原文。"""
     lines = source.splitlines()
@@ -93,16 +120,12 @@ def code_blocks(source: str, language: str) -> list[CodeBlock]:
             and not any(isinstance(child, (ast.Call, ast.Await)) for child in ast.walk(node))]
         header = "\n".join("\n".join(lines[n.lineno - 1:n.end_lineno]) for n in header_nodes)
         blocks: list[CodeBlock] = []
+
         cursor = 1
         for node in definitions:
             start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-            if cursor < start:
-                text = "\n".join(lines[cursor - 1:start - 1])
-                # 纯 import / 常量只作为上下文，避免重复请求。
-                if any(not isinstance(n, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign))
-                       or any(isinstance(c, ast.Call) for c in ast.walk(n))
-                       for n in tree.body if cursor <= n.lineno < start):
-                    blocks.append(CodeBlock(cursor, start - 1, text, header))
+            if cursor < start and any(n not in header_nodes for n in tree.body if cursor <= n.lineno < start):
+                blocks.append(CodeBlock(cursor, start - 1, "\n".join(lines[cursor - 1:start - 1]), header))
             blocks.append(CodeBlock(start, node.end_lineno or node.lineno,
                                     "\n".join(lines[start - 1:node.end_lineno]), header))
             cursor = (node.end_lineno or node.lineno) + 1
@@ -113,10 +136,18 @@ def code_blocks(source: str, language: str) -> list[CodeBlock]:
         starts = [i for i, line in enumerate(lines, 1) if re.match(
             r"^\s*(?:function\s+)?[A-Za-z_]\w*\s*(?:\(\s*\))?\s*\{\s*(?:#.*)?$", line)]
         if starts:
-            header = "\n".join(lines[:starts[0] - 1])
+            preamble = list(enumerate(lines[:starts[0] - 1], 1))
+            static_lines = {i for i, line in preamble if _shell_static_line(line)}
+            header = "\n".join(line for i, line in preamble if i in static_lines)
+            executable = [i for i, _ in preamble if i not in static_lines]
+            blocks = []
+            if executable:
+                first, last = executable[0], executable[-1]
+                blocks.append(CodeBlock(first, last, "\n".join(lines[first - 1:last]), header))
             ends = [*starts[1:], len(lines) + 1]
-            return [CodeBlock(start, end - 1, "\n".join(lines[start - 1:end - 1]), header)
-                    for start, end in zip(starts, ends)]
+            blocks.extend(CodeBlock(start, end - 1, "\n".join(lines[start - 1:end - 1]), header)
+                          for start, end in zip(starts, ends))
+            return blocks
     return [CodeBlock(1, len(lines), source)]
 
 
