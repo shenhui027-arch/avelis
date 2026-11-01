@@ -10,6 +10,7 @@ from sqlalchemy.sql.selectable import Select
 
 from avelis.api import imports
 from avelis.importer import batch, service
+from avelis.importer.archive import ImportFile
 from avelis.models import CandidateEdge, ExtractedStatement, ImportBatch, ImportJob, LineageEdge
 from tests.unit.test_import_batch_service import MemorySession, create
 from tests.unit.test_import_batch_service import memory as memory
@@ -100,3 +101,42 @@ def test_decision_refreshes_references_when_file_has_no_owner(referenced):
     for candidate in referenced.pending:
         service.decide(referenced.session, referenced.actor, candidate, "reject", "来源不符", {})
     assert_refreshed(referenced, pending=0, active=0)
+
+
+@pytest.mark.parametrize("execution_status", ["queued", "running"])
+@pytest.mark.parametrize("action", ["decision", "manual"])
+def test_reference_refresh_preserves_execution_and_staging(referenced, execution_status, action):
+    waiting, created = batch.create_batch(
+        referenced.session, referenced.actor, datasource_id=referenced.job.datasource_id,
+        files=[ImportFile("shared.sql", "SELECT 1;", "sql"),
+               ImportFile("new.sql", "CREATE TABLE dw.new_summary AS SELECT id FROM src.events;", "sql")])
+    assert created and waiting.options["duplicate_file_ids"] == [referenced.job.id]
+    staged = next(j for j in referenced.rows[ImportJob] if j.batch_id == waiting.id)
+    waiting.status = execution_status
+    progress = copy.deepcopy(waiting.progress)
+    if action == "decision":
+        for candidate in referenced.pending:
+            service.decide(referenced.session, referenced.actor, candidate, "reject", "来源不符", {})
+        pending, active = 0, 0
+    else:
+        service.add_manual_edge(
+            referenced.session, referenced.actor, referenced.job,
+            {"source_ref": "default_catalog.src.events", "target_ref": "default_catalog.dw.manual",
+             "relation": "table"}, "补充来源")
+        pending, active = 2, 1
+
+    assert_refreshed(referenced, pending=pending, active=active)
+    assert waiting.status == execution_status and waiting.progress == progress
+    assert waiting.stats["pending_candidates"] == pending
+    assert waiting.stats["active_edges"] == active
+    assert waiting.stats["statement_count"] == 1
+    assert staged.status == "superseded" and staged.stats["staged"]
+    assert not [s for s in referenced.rows[ExtractedStatement] if s.job_id == staged.id]
+
+    result = batch.run_import(waiting.id)
+
+    assert result["status"] == ("needs_review" if pending else "done")
+    assert staged.status == "done" and not staged.stats.get("staged")
+    assert [s for s in referenced.rows[ExtractedStatement] if s.job_id == staged.id]
+    assert any(e.import_job_id == staged.id and e.status == "active"
+               and e.target_ref == "default_catalog.dw.new_summary" for e in referenced.rows[LineageEdge])

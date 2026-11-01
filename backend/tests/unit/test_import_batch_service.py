@@ -135,6 +135,68 @@ def candidates(memory, job_id):
     return [c for c in memory.rows.get(CandidateEdge, []) if c.job_id == job_id]
 
 
+def test_assistance_uses_persisted_database_after_use_for_unrecognized_candidate(memory, monkeypatch):
+    from tests.unit.test_import_assist import FakeImportModel, edge
+
+    source = ('spark.sql("USE a")\nspark.sql("USE b")\n'
+              'df = spark.table("events")\ndf.write.saveAsTable("summary")')
+    fake = FakeImportModel({"edges": [edge(source_table="events", target_table="summary", line=4)]})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {
+        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
+    monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
+    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
+                                      files=[ImportFile("pipeline.py", source, "python")])
+    batch.run_import(imported.id)
+    job = memory.rows[ImportJob][0]
+    context = job.stats["statement_contexts"][-1]
+    assert context["seq"] == 3 and context["default_db"] == "b"
+    assert len(fake.prompts) == 1 and "默认数据库为 b" in fake.prompts[0]
+    assert fake.prompts[0] == job.model_payload[0]["prompt"]
+    candidate = candidates(memory, job.id)[0]
+    assert (candidate.source_ref, candidate.target_ref) == ("default_catalog.b.events", "default_catalog.b.summary")
+
+
+def test_assistance_restored_sql_uses_operation_database_inside_block_with_use(memory, monkeypatch):
+    from tests.unit.test_import_assist import FakeImportModel, operation
+
+    sql = "INSERT INTO summary (id) SELECT id FROM events"
+    source = f'spark.sql("USE a")\nspark.sql("USE b")\nrun_sql("{sql}")'
+    fake = FakeImportModel({"operations": [operation(sql=sql, start=3, end=3)]})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {
+        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
+    monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
+    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
+                                      files=[ImportFile("pipeline.py", source, "python")], model_assist={"code": True})
+    batch.run_import(imported.id)
+    job = memory.rows[ImportJob][0]
+    assert "第 2 行之后默认数据库为 b" in fake.prompts[0]
+    assert fake.prompts[0] == job.model_payload[0]["prompt"]
+    candidate = candidates(memory, job.id)[0]
+    assert (candidate.source_ref, candidate.target_ref) == ("default_catalog.b.events", "default_catalog.b.summary")
+    assert candidate.origin == "model_sql" and candidate.status == "pending"
+
+
+def test_assistance_database_context_preserves_same_line_statement_order(memory, monkeypatch):
+    from tests.unit.test_import_assist import FakeImportModel, edge
+
+    source = 'spark.sql("USE a; USE b; ANALYZE events")'
+    fake = FakeImportModel({"edges": [edge(source_table="events", target_table="events")]})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {
+        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
+    monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
+    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
+                                      files=[ImportFile("pipeline.py", source, "python")],
+                                      model_assist={"failed_sql": True})
+    batch.run_import(imported.id)
+    job = memory.rows[ImportJob][0]
+    assert [c["default_db"] for c in job.stats["statement_contexts"]] == ["fallback", "a", "b"]
+    assert len(fake.prompts) == 1 and "默认数据库为 b" in fake.prompts[0]
+    assert candidates(memory, job.id)[0].source_ref == "default_catalog.b.events"
+
+
 def test_batch_staging_does_not_supersede_current_before_phase_two(memory):
     first = create(memory, "CREATE TABLE dw.summary AS SELECT id FROM src.events;")
     batch.run_import(first.id)

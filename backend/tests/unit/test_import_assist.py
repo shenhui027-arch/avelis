@@ -55,10 +55,11 @@ def edge(**values):
 
 def run(content, fake, *, language="python", statements=None, options=None, **kwargs):
     return run_assistance(language=language, content=content, rule_statements=statements or [],
-                          dialect=DIALECT, schema=kwargs.pop("schema", SCHEMA), default_db="dw",
+                          dialect=DIALECT, schema=kwargs.pop("schema", SCHEMA), default_db=kwargs.pop("default_db", "dw"),
                           options=options or {"model_assist": {"code": True}},
                           policy=kwargs.pop("policy", {"send_code": True}),
-                          resolved=modelcfg.Resolved(fake, "test:fake", "private-api-key"), **kwargs)
+                          resolved=kwargs.pop("resolved", modelcfg.Resolved(fake, "test:fake", "private-api-key")),
+                          **kwargs)
 
 
 def test_python_blocks_attach_imports_constants_and_configuration():
@@ -250,6 +251,71 @@ def test_fragment_cache_reuses_model_output_and_revalidates_schema():
     assert second.payloads[0]["reused"] and len(second.candidates) == 1
     third = run(source, FakeImportModel(), cached=first.cache, schema={})
     assert not third.candidates and third.payloads[0]["reused"]
+
+
+def test_demo_fragment_cache_is_invalidated_when_real_model_becomes_available():
+    source = f'def load():\n    run_sql("{SQL}")'
+    demo = run(source, FakeImportModel(), policy={"send_code": False})
+    assert demo.payloads[0]["is_demo"] and not demo.candidates
+
+    fake = FakeImportModel({"operations": [operation()]})
+    real = run(source, fake, cached=demo.cache)
+    assert len(fake.prompts) == 1 and len(real.candidates) == 1
+    assert not real.payloads[0]["is_demo"] and not real.payloads[0].get("reused")
+    assert real.payloads[0]["fragment_hash"] != demo.payloads[0]["fragment_hash"]
+
+
+@pytest.mark.parametrize("adapter,model_id", [("other:fake", "model-v1"), ("test:fake", "model-v2")])
+def test_fragment_cache_is_invalidated_when_adapter_or_model_identity_changes(adapter, model_id):
+    source = f'def load():\n    run_sql("{SQL}")'
+    first_model = FakeImportModel({"operations": [operation()]})
+    first_model.model_name = "model-v1"
+    first = run(source, first_model)
+    second_model = FakeImportModel({"operations": [operation()]})
+    second_model.model_name = model_id
+    second = run(source, second_model, cached=first.cache,
+                 resolved=modelcfg.Resolved(second_model, adapter))
+    assert len(second_model.prompts) == 1 and len(second.candidates) == 1
+    assert not second.payloads[0].get("reused")
+    assert second.payloads[0]["fragment_hash"] != first.payloads[0]["fragment_hash"]
+
+
+def test_explicit_missing_statement_database_does_not_fall_back_to_file_database():
+    source = 'spark.table("src.events").write.saveAsTable("daily_summary")'
+    stmt = {"id": "s", "seq": 1, "line_start": 1, "line_end": 1,
+            "method": "unrecognized", "raw_text": source}
+    context = {"seq": 1, "line_start": 1, "line_end": 1, "default_db": None, "default_db_after": None}
+    fake = FakeImportModel({"edges": [edge(target_table="daily_summary")]})
+    result = run(source, fake, statements=[stmt], options={"model_assist": {}}, statement_contexts=[context])
+    assert result.payloads[0]["default_db"] is None and not result.candidates
+    assert "默认数据库为 （未设置）" in fake.prompts[0]
+
+
+def test_fragment_cache_is_invalidated_when_effective_database_changes():
+    source = 'spark.table("events").write.saveAsTable("summary")'
+    stmt = {"id": "s", "seq": 1, "line_start": 1, "line_end": 1,
+            "method": "unrecognized", "raw_text": source}
+    schema = {"default_catalog": {db: {"events": {"id": "INT"}} for db in ("a", "b")}}
+    fake = FakeImportModel({"edges": [edge(source_table="events", target_table="summary")]},
+                           {"edges": [edge(source_table="events", target_table="summary")]})
+    first = run(source, fake, statements=[stmt], schema=schema, default_db="a", options={"model_assist": {}})
+    context = {"seq": 1, "line_start": 1, "line_end": 1, "default_db": "b", "default_db_after": "b"}
+    second = run(source, fake, statements=[stmt], schema=schema, cached=first.cache,
+                 statement_contexts=[context], options={"model_assist": {}})
+    assert len(fake.prompts) == 2 and not second.payloads[0].get("reused")
+    assert first.candidates[0]["source_ref"] == "default_catalog.a.events"
+    assert second.candidates[0]["source_ref"] == "default_catalog.b.events"
+
+
+def test_restored_operation_crossing_use_is_not_parsed_with_a_single_database():
+    sql = "INSERT INTO summary (id) SELECT id FROM events"
+    source = f'run_sql("USE b")\nrun_sql("{sql}")'
+    context = {"seq": 1, "line_start": 1, "line_end": 1, "default_db": "a", "default_db_after": "b"}
+    fake = FakeImportModel({"operations": [operation(sql=sql, start=1, end=2)]})
+    result = run(source, fake, default_db="a", schema={"default_catalog": {"b": {"events": {"id": "INT"}}}},
+                 statement_contexts=[context])
+    assert not result.candidates and not result.statements
+    assert "操作行范围包含默认数据库切换" in " ".join(result.notes)
 
 
 def test_batch_budget_is_shared_across_files_and_skips_excess_without_call():

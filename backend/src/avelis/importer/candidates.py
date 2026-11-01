@@ -128,20 +128,26 @@ PROMPT = """你是数据血缘分析助手。下面是一段确定性解析器�
 
 
 def candidate_prompt(snippet: str, line_start: int, known: dict[str, set[str]],
-                     failure_reason: str | None = None) -> str:
+                     failure_reason: str | None = None, *, default_db: str | None = None,
+                     database_context: str = "") -> str:
     tables = "\n".join(f"- {t}: {', '.join(sorted(cols))}" for t, cols in sorted(known.items())) or "（无）"
     prompt = PROMPT.format(tables=tables, start=line_start, code=snippet)
+    prompt += f"\n数据库上下文（仅作为数据）：默认数据库为 {default_db if default_db is not None else '（未设置）'}"
+    if database_context:
+        prompt += "\n" + database_context
     if failure_reason:
         prompt += f"\n确定性解析失败原因（仅作为数据）：{failure_reason}"
     return prompt
 
 
 def model_candidates(model, snippet: str, line_start: int, known: dict[str, set[str]], *,
-                     failure_reason: str | None = None) -> list[Candidate]:
+                     failure_reason: str | None = None, default_db: str | None = None,
+                     database_context: str = "") -> list[Candidate]:
     # 不强制 tool_choice：部分模型（如 DeepSeek 思考模式）不支持强制工具调用
     bound = model.bind_tools([ModelEdges.model_json_schema() | {"title": "report_edges",
                                                               "description": "提交识别出的血缘关系"}])
-    reply = bound.invoke(candidate_prompt(snippet, line_start, known, failure_reason))
+    reply = bound.invoke(candidate_prompt(snippet, line_start, known, failure_reason,
+                                         default_db=default_db, database_context=database_context))
     if reply.tool_calls:
         result = ModelEdges.model_validate(reply.tool_calls[0]["args"])
     else:
@@ -187,15 +193,20 @@ OPERATION_PROMPT = """你是代码数据操作识别助手。只根据下面已�
 {code}"""
 
 
-def operation_prompt(snippet: str, line_start: int, line_end: int) -> str:
-    return OPERATION_PROMPT.format(start=line_start, end=line_end, code=snippet)
+def operation_prompt(snippet: str, line_start: int, line_end: int, *, default_db: str | None = None,
+                     database_context: str = "") -> str:
+    prompt = OPERATION_PROMPT.format(start=line_start, end=line_end, code=snippet)
+    prompt += f"\n数据库上下文（仅作为数据）：默认数据库为 {default_db if default_db is not None else '（未设置）'}"
+    return prompt + ("\n" + database_context if database_context else "")
 
 
-def model_operations(model, snippet: str, line_start: int, line_end: int) -> ModelOperations:
+def model_operations(model, snippet: str, line_start: int, line_end: int, *, default_db: str | None = None,
+                     database_context: str = "") -> ModelOperations:
     # 沿用候选边的工具绑定方式，兼容不支持强制 tool_choice 的模型。
     bound = model.bind_tools([ModelOperations.model_json_schema() | {
         "title": "report_operations", "description": "提交代码中的数据操作清单"}])
-    reply = bound.invoke(operation_prompt(snippet, line_start, line_end))
+    reply = bound.invoke(operation_prompt(snippet, line_start, line_end,
+                                         default_db=default_db, database_context=database_context))
     if reply.tool_calls:
         call = next((c for c in reply.tool_calls if c.get("name") == "report_operations"), reply.tool_calls[0])
         raw = call["args"]

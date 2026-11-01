@@ -102,7 +102,7 @@ def _refresh_referencing_batches(session: Session, job: ImportJob) -> None:
     session.flush()
     for imported in session.scalars(select(ImportBatch).where(ImportBatch.datasource_id == job.datasource_id)):
         if imported.id == job.batch_id or job.id in (imported.options or {}).get("duplicate_file_ids", []):
-            refresh_status(session, imported)
+            refresh_status(session, imported, counts_only=imported.status in ("queued", "running"))
 
 
 def decide(session: Session, actor: User, candidate: CandidateEdge, decision: str, reason: str,
