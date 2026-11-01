@@ -473,3 +473,159 @@ def test_multiple_intermediate_paths_to_same_value_are_merged_without_losing_hop
         [raw[1].id, raw[3].id, raw[4].id],
     ]
     assert result.active[0].attributes["hops"] == result.active[0].attributes["paths"][0]
+
+
+def _fold_updates(sql):
+    dialect = SqlDialect("postgres", "cat", normalize=fold_identifiers("postgres"))
+    schema = {"cat": {"src": {name: {"x": "INT", "y": "INT", "z": "INT"} for name in ("a", "b", "c")},
+                      "dw": {name: {"x": "INT", "y": "INT"}
+                             for name in ("tmp", "second", "out", "before_update")}}}
+    original_schema = deepcopy(schema)
+    statements = []
+    for seq, text in enumerate(sql):
+        parsed = parse_statement(text, dialect=dialect, schema=schema)
+        assert parsed.status in {"parsed", "skipped"}, parsed.reason
+        statements.append(statement(seq, parsed.writes, drops=parsed.dropped_refs,
+                                    removes=parsed.removed_refs, resets=parsed.reset_refs))
+    original = deepcopy(statements)
+    result = fold_writes(statements)
+    assert schema == original_schema
+    assert statements == original
+    return result
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+@pytest.mark.parametrize("condition", ["", " WHERE x > 0"])
+def test_update_replaces_only_assigned_columns_and_preserves_earlier_reads(temporary, condition):
+    result = _fold_updates([
+        f"CREATE {'TEMPORARY ' if temporary else ''}TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "INSERT INTO dw.before_update SELECT x,y FROM dw.tmp",
+        f"UPDATE dw.tmp SET x=0{condition}",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+        "DROP TABLE dw.tmp",
+    ])
+    values = {sig for sig in signature(result) if sig[-1].startswith("value_")}
+    expected = {
+        ("cat.src.a", "x", "cat.dw.before_update", "x", "value_direct"),
+        ("cat.src.a", "y", "cat.dw.before_update", "y", "value_direct"),
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+    }
+    if condition:
+        expected.add(("cat.src.a", "x", "cat.dw.out", "x", "value_direct"))
+    assert values == expected
+    assert result.intermediate_tables == ["cat.dw.tmp"]
+
+
+def test_unconditional_update_composes_old_self_column_with_external_value():
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    assert signature(result) == {
+        ("cat.src.a", "x", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.b", "z", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+    }
+    computed = next(edge for edge in result.active if edge.source_column == "x")
+    assert len(computed.attributes["hops"]) == 3
+    assert computed.attributes["via"] == ["cat.dw.tmp", "cat.dw.tmp"]
+    assert all(hop in {edge.id for edge in result.intermediate} for hop in computed.attributes["hops"])
+
+
+def test_multiple_column_assignments_read_the_same_pre_update_snapshot():
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "UPDATE dw.tmp SET x=y+1,y=x+2",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    assert signature(result) == {
+        ("cat.src.a", "y", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.a", "x", "cat.dw.out", "y", "value_computed"),
+    }
+
+
+def test_repeated_unconditional_updates_read_only_the_current_column_version():
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "UPDATE dw.tmp SET x=0",
+        "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b",
+        "UPDATE dw.tmp SET x=x*2",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    assert signature(result) == {
+        ("cat.src.b", "z", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+    }
+    assert len(next(edge for edge in result.active if edge.source_column == "z").attributes["hops"]) == 3
+
+
+def test_insert_after_column_replacement_appends_to_current_column_version():
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        "UPDATE dw.tmp SET x=0",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.c",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    assert signature(result) == {
+        ("cat.src.c", "x", "cat.dw.out", "x", "value_direct"),
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+        ("cat.src.c", "y", "cat.dw.out", "y", "value_direct"),
+    }
+
+
+def test_column_replacement_keeps_upstream_row_influences():
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a WHERE z>0",
+        "UPDATE dw.tmp SET x=0",
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+    ])
+    assert signature(result) == {
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+        ("cat.src.a", "z", "cat.dw.out", None, "filter"),
+    }
+
+
+@pytest.mark.parametrize("transfer", [
+    "CREATE TEMPORARY TABLE dw.second AS SELECT x FROM dw.tmp",
+    "ALTER TABLE dw.tmp RENAME TO second",
+])
+def test_column_replacement_keeps_row_influences_already_composed_through_another_table(transfer):
+    result = _fold_updates([
+        "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a WHERE z>0",
+        transfer,
+        "UPDATE dw.second SET x=0",
+        "INSERT INTO dw.out SELECT x FROM dw.second",
+    ])
+    assert signature(result) == {("cat.src.a", "z", "cat.dw.out", None, "filter")}
+
+
+@pytest.mark.parametrize("source_column,relation", [("x", "value_direct"), (None, "table")])
+def test_column_replacement_preserves_coarse_table_dependencies(source_column, relation):
+    update = parse_statement("UPDATE stage.rows SET x=0", dialect=SqlDialect("postgres", "cat"),
+                             schema={"cat": {"stage": {"rows": {"x": "INT"}}}})
+    result = fold_writes([
+        statement(1, [write("cat.stage.rows", [edge("cat.src.a", None, None, "table")], temporary=True)]),
+        statement(2, update.writes),
+        statement(3, [write("cat.dw.out", [edge("cat.stage.rows", source_column, "x", relation)])]),
+    ])
+    assert signature(result) == {("cat.src.a", None, "cat.dw.out", None, "table")}
+
+
+def test_column_replacement_does_not_restore_external_column_after_rename():
+    dialect = SqlDialect("postgres", "cat", normalize=fold_identifiers("postgres"))
+    schema = {"cat": {"dw": {"existing": {"x": "INT", "y": "INT"}}}}
+    update = parse_statement("UPDATE dw.existing SET x=0", dialect=dialect, schema=schema)
+    rename = parse_statement("ALTER TABLE dw.existing RENAME TO renamed", dialect=dialect, schema=schema)
+    result = fold_writes([
+        statement(1, update.writes),
+        statement(2, rename.writes, removes=rename.removed_refs),
+    ])
+    assert signature(result) == {("cat.dw.existing", "y", "cat.dw.renamed", "y", "value_direct")}

@@ -224,6 +224,25 @@ def _insert_reset_refs(tree: exp.Insert, *, dialect: SqlDialect, default_db: str
     return []
 
 
+def _delete_reset_target(tree: exp.Delete) -> exp.Table | None:
+    target = tree.this
+    if (not isinstance(target, exp.Table)
+            or any(tree.args.get(key) for key in ("where", "using", "limit"))
+            or target.args.get("partition")
+            or target.find(exp.Join) is not None or tree.args.get("joins")):
+        return None
+    targets = tree.args.get("tables") or []
+    if targets:
+        if len(targets) != 1 or not isinstance(targets[0], exp.Table):
+            return None
+        explicit = targets[0]
+        if (explicit.name not in (target.name, target.alias_or_name)
+                or (explicit.db and explicit.db != target.db)
+                or (explicit.catalog and explicit.catalog != target.catalog)):
+            return None
+    return target
+
+
 def _merge_writes(tree: exp.Merge, *, dialect: SqlDialect, schema: dict, default_db: str | None) -> list[Write]:
     writes = []
     whens = tree.args.get("whens")
@@ -350,7 +369,11 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
                     ParsedStatement("skipped", "MULTITABLE INSERT", reset_refs=resets, reason="没有来源表"))
         if isinstance(tree, exp.Update):
             target, columns, query = _update_query(tree)
-            return _result("UPDATE", [_query_write(target, query, columns, **kwargs)])
+            replaces_columns = tree.args.get("where") is None
+            write = _query_write(target, query, columns, preserve_self=replaces_columns, **kwargs)
+            if replaces_columns:
+                write.attributes["replace_columns"] = list(columns)
+            return _result("UPDATE", [write])
         if isinstance(tree, exp.Merge):
             writes = _merge_writes(tree, **kwargs)
             return (_result("MERGE", writes) if writes else
@@ -395,16 +418,11 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             refs = [ref for t in tree.find_all(exp.Table)
                     if (ref := _qualify(t, dialect.default_catalog, default_db))]
             return ParsedStatement("skipped", "DROP TABLE", dropped_refs=refs, reason="删除表，不产生数据流")
+        delete_target = _delete_reset_target(tree) if isinstance(tree, exp.Delete) else None
         if ((isinstance(tree, exp.TruncateTable) and not tree.args.get("is_database"))
-                or (isinstance(tree, exp.Delete) and tree.args.get("where") is None)):
+                or delete_target is not None):
             targets = (tree.expressions if isinstance(tree, exp.TruncateTable)
-                       else tree.args.get("tables") or [tree.this])
-            if isinstance(tree, exp.Delete) and tree.args.get("tables"):
-                # 多表 DELETE 的目标可以写别名，只清空目标，不能把 JOIN / USING 的来源也算入。
-                sources = [tree.this, *(tree.args.get("using") or [])]
-                bindings = {t.alias_or_name: t for source in sources if isinstance(source, exp.Expression)
-                            for t in source.find_all(exp.Table)}
-                targets = [bindings.get(t.name, t) if not t.db and not t.catalog else t for t in targets]
+                       else [delete_target])
             refs = list(dict.fromkeys(ref for t in targets if isinstance(t, exp.Table)
                                       if (ref := _qualify(t, dialect.default_catalog, default_db))))
             kind = "TRUNCATE TABLE" if isinstance(tree, exp.TruncateTable) else "DELETE"

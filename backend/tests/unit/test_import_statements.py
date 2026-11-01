@@ -251,7 +251,9 @@ def test_drop_is_script_fact_without_edges():
     ("postgres", "TRUNCATE TABLE dw.stage, dw.daily_summary", ["c.dw.stage", "c.dw.daily_summary"]),
     ("postgres", "DELETE FROM dw.stage", ["c.dw.stage"]),
     ("postgres", "DELETE FROM stage", ["c.dw.stage"]),
-    ("mysql", "DELETE target FROM dw.stage target JOIN src.events source ON target.id=source.id", ["c.dw.stage"]),
+    ("postgres", "DELETE FROM dw.stage target", ["c.dw.stage"]),
+    ("mysql", "DELETE target FROM dw.stage target", ["c.dw.stage"]),
+    ("mysql", "DELETE FROM dw.stage ORDER BY id", ["c.dw.stage"]),
     ("oracle", "TRUNCATE TABLE dw.stage", ["C.DW.STAGE"]),
 ])
 def test_clear_data_records_only_reset_targets_without_writes(name, sql, refs):
@@ -273,8 +275,22 @@ def test_data_reset_preserves_registered_schema(sql):
     assert schema == original
 
 
-def test_filtered_delete_does_not_reset_data_sources():
-    result = parse("DELETE FROM dw.stage WHERE id=1")
+@pytest.mark.parametrize("name,sql", [
+    ("postgres", "DELETE FROM dw.stage WHERE id=1"),
+    ("postgres", "DELETE FROM dw.stage WHERE TRUE"),
+    ("postgres", "DELETE FROM dw.stage USING src.events"),
+    ("mysql", "DELETE target FROM dw.stage target JOIN src.events source ON target.id=source.id"),
+    ("mysql", "DELETE target, source FROM dw.stage target JOIN src.events source ON target.id=source.id"),
+    ("mysql", "DELETE FROM dw.stage JOIN src.events ON stage.id=events.id"),
+    ("mysql", "DELETE FROM target USING dw.stage target JOIN src.events source ON target.id=source.id"),
+    ("mysql", "DELETE FROM dw.stage LIMIT 1"),
+    ("mysql", "DELETE FROM dw.stage LIMIT 0"),
+    ("mysql", "DELETE FROM dw.stage ORDER BY id LIMIT 1"),
+    ("mysql", "DELETE FROM dw.stage PARTITION (p1)"),
+    ("tsql", "DELETE TOP (1) FROM dw.stage"),
+])
+def test_filtered_delete_does_not_reset_data_sources(name, sql):
+    result = parse(sql, name)
     assert result.status == "skipped"
     assert not result.reset_refs and not result.writes
     assert result.reason == "不产生写入来源的数据流"
