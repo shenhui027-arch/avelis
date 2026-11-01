@@ -20,6 +20,7 @@ from avelis.db import utcnow
 from avelis.engines import CapabilityMissing, dialect_of, query_connector
 from avelis.governance import access
 from avelis.governance.metrics import current_fingerprint_map
+from avelis.i18n import Msg, gettext, translate
 from avelis.lineage.grain import effective_grains
 from avelis.lineage.sql import PARSER_VERSION
 from avelis.models import (
@@ -65,6 +66,11 @@ class MemberSet(BaseModel):
     role: str = Field(pattern=r"^(owner|maintainer|viewer)$")
 
 
+def _grain_view(grain) -> dict:
+    """粒度说明按请求语言输出；只在接口出口翻译，写进发布检查留底的仍是简体原文。"""
+    return {**grain.to_dict(), "note": translate(grain.note)}
+
+
 def domain_view(session: Session, d: Domain) -> dict:
     members = session.execute(select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
                               .join(User, User.id == DomainMember.user_id).where(DomainMember.domain_id == d.id))
@@ -83,7 +89,7 @@ def list_domains(user: User = Depends(current_user), session: Session = Depends(
 def create_domain(body: DomainCreate, user: User = Depends(current_user), session: Session = Depends(get_session)):
     access.require_role(session, user, "admin")
     if session.scalar(select(Domain.id).where(Domain.code == body.code)):
-        raise HTTPException(409, f"业务域 {body.code} 已存在")
+        raise HTTPException(409, Msg("业务域 {code} 已存在", code=body.code))
     if session.get(User, body.owner_id) is None:
         raise HTTPException(422, "负责人不存在")
     d = Domain(code=body.code, name=body.name, description=body.description, owner_id=body.owner_id)
@@ -222,7 +228,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                        "canonical_hash": definition.canonical_hash} if definition else None,
         "parse": {"status": parse.status, "reason": parse.reason, "parser_version": parse.parser_version,
                   "details": parse.details} if parse else None,
-        "grains": [g.to_dict() for g in effective_grains(session, a.id, current_fingerprint_map(session))],
+        "grains": [_grain_view(g) for g in effective_grains(session, a.id, current_fingerprint_map(session))],
         "identity_link": _link_view(session, link) if link else None,
         "linked_from": [_link_view(session, x) for x in linked_from],
         "versions": [_version_view(v) for v in versions],
@@ -289,7 +295,7 @@ def declare_grain(asset_id: str, body: GrainDeclare, user: User = Depends(curren
         ColumnVersion.asset_version_id == a.current_version_id)))
     missing = set(body.columns) - names
     if missing:
-        raise HTTPException(422, f"列不存在：{', '.join(sorted(missing))}")
+        raise HTTPException(422, Msg("列不存在：{columns}", columns=", ".join(sorted(missing))))
     fps = current_fingerprint_map(session)
     g = Grain(asset_id=a.id, asset_version_id=a.current_version_id, columns=body.columns, origin="declared",
               status="unverified", column_fingerprints={c: fps.get((a.id, c)) for c in body.columns},
@@ -340,8 +346,8 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     closure = upstream_closure(session, [a.id])
     hidden = [x for x in closure.values() if not access.can_read_asset(session, user, x, allowed)]
     if hidden:
-        raise HTTPException(403, "没有权限读取该对象背后的来源：" + "、".join(
-            sorted(f"{x.catalog_name}.{x.db_name}.{x.name}" for x in hidden)))
+        raise HTTPException(403, Msg("没有权限读取该对象背后的来源：{sources}", sources="、".join(
+            sorted(f"{x.catalog_name}.{x.db_name}.{x.name}" for x in hidden))))
     ds = session.get(Datasource, a.datasource_id)
     try:
         stale = _live_check(session, ds, query_connector(session, ds), closure.values(),
@@ -349,8 +355,8 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
     except CapabilityMissing:
         stale = []
     if stale:
-        raise HTTPException(409, "来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验："
-                                 + "；".join(x["summary"] for x in stale))
+        raise HTTPException(409, Msg("来源结构在上次采集之后已变化，已排队重新采集，采集完成后再核验：{changes}",
+                                     changes="；".join(x["summary"] for x in stale)))
     sql = duplicate_key_sql(f"{a.catalog_name}.{a.db_name}.{a.name}", list(g.columns),
                             dialect=dialect_of(ds))
     detail: dict[str, Any] = {"sql": sql}
@@ -367,12 +373,13 @@ def verify_grain(grain_id: str, user: User = Depends(current_user), session: Ses
         detail["error"] = exc.message
     except (CapabilityMissing, ValueError) as exc:
         g.status = "failed"
-        detail["error"] = str(exc)
+        detail["error"] = exc.args[0] if isinstance(exc, CapabilityMissing) else str(exc)
     g.verified_at = utcnow()
     g.verify_detail = detail
     audit.record(session, user, "grain.verify", "asset", a.id, grain_id=g.id, status=g.status)
     return {"id": g.id, "grain_id": g.id, "columns": g.columns, "origin": g.origin, "status": g.status,
-            "verify_detail": detail}
+            "verify_detail": {**detail, "error": translate(exc_message)} if (
+                exc_message := detail.get("error")) is not None else detail}
 
 
 # --- 人工确认 ---------------------------------------------------------------------
@@ -453,10 +460,10 @@ def lineage_graph(domain_ids: str | None = Query(None, description="逗号分隔
         if i.startswith("ref:"):
             nodes.append({"id": i, "qualified": i[4:], "kind": "design_time", "status": "not_collected",
                           "grains": [], "in_scope": False,
-                          "note": "导入代码中出现、尚未在数据源中采集到的表（设计时血缘）"})
+                          "note": gettext("导入代码中出现、尚未在数据源中采集到的表（设计时血缘）")})
         else:
             nodes.append({**asset_summary(session, assets[i]),
-                          "grains": [g.to_dict() for g in effective_grains(session, i, fpmap)],
+                          "grains": [_grain_view(g) for g in effective_grains(session, i, fpmap)],
                           "in_scope": i in seeds})
     grouped: dict[tuple, dict] = {}
     for src, dst, e in edges:

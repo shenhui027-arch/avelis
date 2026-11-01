@@ -12,6 +12,7 @@ from decimal import Decimal, DivisionByZero, InvalidOperation, localcontext
 from typing import Any
 
 from avelis.governance.errors import Invalid
+from avelis.i18n import Msg
 
 MAX_COMPONENTS = 4
 _OPS = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
@@ -25,7 +26,7 @@ def parse_formula(formula: str) -> list[str]:
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as exc:
-        raise Invalid(f"公式无法解析：{text}") from exc
+        raise Invalid(Msg("公式无法解析：{text}", text=text)) from exc
     codes: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
@@ -33,19 +34,19 @@ def parse_formula(formula: str) -> list[str]:
                 codes.append(node.id)
         elif isinstance(node, ast.BinOp):
             if type(node.op) not in _OPS:
-                raise Invalid(f"公式只允许加减乘除：{text}")
+                raise Invalid(Msg("公式只允许加减乘除：{text}", text=text))
         elif isinstance(node, ast.UnaryOp):
             if not isinstance(node.op, ast.USub):
-                raise Invalid(f"公式只允许取负这一种一元运算：{text}")
+                raise Invalid(Msg("公式只允许取负这一种一元运算：{text}", text=text))
         elif isinstance(node, ast.Constant):
             if not isinstance(node.value, (int, float)) or isinstance(node.value, bool):
-                raise Invalid(f"公式中的常量只能是数字：{text}")
+                raise Invalid(Msg("公式中的常量只能是数字：{text}", text=text))
         elif not isinstance(node, (ast.Expression, ast.Load, *_OPS, ast.USub)):
-            raise Invalid(f"公式包含不支持的语法 {type(node).__name__}：{text}")
+            raise Invalid(Msg("公式包含不支持的语法 {syntax}：{text}", syntax=type(node).__name__, text=text))
     if not codes:
         raise Invalid("公式至少要引用一个指标")
     if len(codes) > MAX_COMPONENTS:
-        raise Invalid(f"一个派生指标最多引用 {MAX_COMPONENTS} 个指标")
+        raise Invalid(Msg("一个派生指标最多引用 {limit} 个指标", limit=MAX_COMPONENTS))
     return codes
 
 
@@ -91,7 +92,7 @@ def evaluate(formula: str, values: dict[str, Any]) -> Decimal | None:
                 return left / right
             except (DivisionByZero, InvalidOperation):
                 return None
-        raise Invalid(f"公式包含不支持的语法 {type(node).__name__}")
+        raise Invalid(Msg("公式包含不支持的语法 {syntax}", syntax=type(node).__name__))
 
     result = ev(tree)
     return None if result is None else significant12(result)

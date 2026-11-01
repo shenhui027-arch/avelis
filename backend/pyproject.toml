@@ -31,6 +31,7 @@ dependencies = [
     "reportlab>=4.2",
     "json-repair>=0.50",
     "impyla>=0.24",
+    "babel>=2.18.0",
 ]
 
 [dependency-groups]
@@ -48,6 +49,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/avelis"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/avelis/locales" = "avelis/locales"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

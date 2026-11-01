@@ -13,6 +13,7 @@ from avelis.api import schemas as S
 from avelis.api.catalog import qualified
 from avelis.api.deps import current_user, get_session
 from avelis.governance import access, changes, joins, metrics
+from avelis.i18n import gettext
 from avelis.models import (
     Asset,
     ChangeEvent,
@@ -287,7 +288,7 @@ def change_set_view(session: Session, cs: ChangeSet, full: bool, user: User | No
             "summary": cs.summary, "created_at": cs.created_at.isoformat(),
             "effective_window": {"after": cs.window_start.isoformat() if cs.window_start else None,
                                  "before": cs.window_end.isoformat(),
-                                 "note": "变化发生在上次成功采集之后、本次采集之前；更精确的时间无法确认"}}
+                                 "note": gettext("变化发生在上次成功采集之后、本次采集之前；更精确的时间无法确认")}}
     if full:
         names = {}
         events = list(session.scalars(select(ChangeEvent).where(ChangeEvent.change_set_id == cs.id)))

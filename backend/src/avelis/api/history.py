@@ -64,7 +64,7 @@ def export_change_events(format: Literal["csv", "json"] = "csv", datasource_id: 
         snap.execute(text("SET TRANSACTION READ ONLY"))
         body, manifest = records.export(snap, user, f, format)
     except records.ExportTooLarge as exc:
-        raise HTTPException(413, str(exc)) from exc
+        raise HTTPException(413, exc.args[0]) from exc
     finally:
         snap.rollback()
         snap.close()

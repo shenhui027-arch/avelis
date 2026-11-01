@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from avelis.connectors.base import Connector, QueryConnector
+from avelis.i18n import Msg, gettext
 from avelis.lineage.sql import SqlDialect
 
 # 能力：适配器只声明在真实环境联调过的能力，未声明的能力由核心模块明确报“不支持”，不做降级猜测。
@@ -87,11 +88,12 @@ class Engine:
 
     def describe(self) -> dict[str, Any]:
         return {"kind": self.kind, "label": self.label, "dialect": self.sql.name,
-                "default_catalog": self.sql.default_catalog, "name_levels": list(self.name_levels),
+                "default_catalog": self.sql.default_catalog, "name_levels": [gettext(level) for level in self.name_levels],
                 "capabilities": sorted(self.capabilities), "default_port": self.default_port,
-                "is_test_adapter": self.is_test_adapter, "note": self.note,
-                "options": [{"key": o.key, "label": o.label, "type": o.type, "required": o.required, "hint": o.hint,
-                             "choices": list(o.choices), "default": o.default} for o in self.options],
+                "is_test_adapter": self.is_test_adapter, "note": gettext(self.note),
+                "options": [{"key": o.key, "label": gettext(o.label), "type": o.type, "required": o.required,
+                             "hint": gettext(o.hint), "choices": list(o.choices), "default": o.default}
+                            for o in self.options],
                 "credential_free": ({"option": self.credential_free[0], "values": list(self.credential_free[1])}
                                     if self.credential_free else None)}
 
@@ -104,8 +106,11 @@ class CapabilityMissing(Exception):
     """数据源的引擎不具备所需能力（例如在只采元数据的引擎上执行问数）。"""
 
     def __init__(self, engine: Engine, capability: str, datasource: str | None = None):
-        where = f"数据源 {datasource}（{engine.label}）" if datasource else engine.label
-        super().__init__(f"{where}不支持{CAPABILITY_LABEL.get(capability, capability)}")
+        label = Msg(CAPABILITY_LABEL[capability]) if capability in CAPABILITY_LABEL else capability
+        message = (Msg("数据源 {datasource}（{engine}）不支持{capability}", datasource=datasource,
+                       engine=engine.label, capability=label) if datasource
+                   else Msg("{engine}不支持{capability}", engine=engine.label, capability=label))
+        super().__init__(message)
         self.engine = engine
         self.capability = capability
 
