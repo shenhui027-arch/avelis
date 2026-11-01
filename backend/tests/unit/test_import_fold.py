@@ -535,18 +535,76 @@ def test_unconditional_update_composes_old_self_columns():
     assert all(hop in {edge.id for edge in result.intermediate} for hop in computed.attributes["hops"])
 
 
-def test_update_from_only_changes_matched_rows_and_keeps_old_column_source():
-    # FROM 只更新匹配到的行，没匹配到的行保留旧值，旧来源不能丢
+@pytest.mark.parametrize("name,update,source", [
+    ("postgres", "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b", True),
+    ("mysql", "UPDATE dw.tmp t JOIN src.b b ON b.y=t.y SET t.x=t.x+b.z", True),
+    ("mysql", "UPDATE dw.tmp SET x=x+1 LIMIT 10", False),
+    ("postgres", "UPDATE dw.tmp SET x=x+1 WHERE y>0", False),
+])
+def test_restricted_update_keeps_old_column_source_and_self_computation(name, update, source):
+    # 未修改行保留旧值，修改行还要保留经过本次更新的自计算路径
     result = _fold_updates([
         "CREATE TEMPORARY TABLE dw.tmp(x INT, y INT)",
         "INSERT INTO dw.tmp SELECT x,y FROM src.a",
-        "UPDATE dw.tmp AS t SET x=t.x+b.z FROM src.b AS b",
+        update,
         "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
-    ])
+    ], name)
     values = {sig for sig in signature(result) if sig[-1].startswith("value_")}
-    assert ("cat.src.a", "x", "cat.dw.out", "x", "value_direct") in values
-    assert ("cat.src.b", "z", "cat.dw.out", "x", "value_computed") in values
-    assert ("cat.src.a", "y", "cat.dw.out", "y", "value_direct") in values
+    expected = {
+        ("cat.src.a", "x", "cat.dw.out", "x", "value_direct"),
+        ("cat.src.a", "x", "cat.dw.out", "x", "value_computed"),
+        ("cat.src.a", "y", "cat.dw.out", "y", "value_direct"),
+    }
+    if source:
+        expected.add(("cat.src.b", "z", "cat.dw.out", "x", "value_computed"))
+    assert values == expected
+    computed = next(edge for edge in result.active if edge.source_ref == "cat.src.a"
+                    and edge.source_column == "x" and edge.relation == "value_computed")
+    update_hop = next(edge for edge in result.intermediate if edge.statement_id == "statement-2"
+                      and edge.source_ref == "cat.dw.tmp" and edge.source_column == "x"
+                      and edge.target_column == "x" and edge.relation == "value_computed")
+    assert len(computed.attributes["hops"]) == 3
+    assert computed.attributes["hops"][1] == update_hop.id
+    assert computed.attributes["via"] == ["cat.dw.tmp", "cat.dw.tmp"]
+
+
+@pytest.mark.parametrize("update,restricted", [
+    ("UPDATE t SET x=0 FROM dw.tmp AS t", False),
+    ("UPDATE t SET x=0 FROM dw.tmp AS t WHERE t.y>0", True),
+    ("UPDATE t SET x=0 FROM dw.tmp AS t JOIN src.b AS b ON t.y=b.y", True),
+])
+def test_tsql_update_bound_target_only_replaces_unrestricted_columns(update, restricted):
+    result = _fold_updates([
+        "CREATE TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        update,
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+        "DROP TABLE dw.tmp",
+    ], "tsql")
+    values = {sig for sig in signature(result) if sig[-1].startswith("value_")}
+    expected = {("cat.src.a", "y", "cat.dw.out", "y", "value_direct")}
+    if restricted:
+        expected.add(("cat.src.a", "x", "cat.dw.out", "x", "value_direct"))
+    assert values == expected
+    assert result.intermediate_tables == ["cat.dw.tmp"]
+
+
+@pytest.mark.parametrize("delete,restricted", [
+    ("DELETE t FROM dw.tmp AS t", False),
+    ("DELETE t FROM dw.tmp AS t WHERE t.y>0", True),
+    ("DELETE t FROM dw.tmp AS t JOIN src.b AS b ON t.y=b.y", True),
+    ("DELETE TOP (1) FROM dw.tmp AS t", True),
+])
+def test_tsql_delete_bound_target_only_resets_unrestricted_data(delete, restricted):
+    result = _fold_updates([
+        "CREATE TABLE dw.tmp(x INT, y INT)",
+        "INSERT INTO dw.tmp SELECT x,y FROM src.a",
+        delete,
+        "INSERT INTO dw.out SELECT x,y FROM dw.tmp",
+        "DROP TABLE dw.tmp",
+    ], "tsql")
+    expected = {("cat.src.a", column, "cat.dw.out", column, "value_direct") for column in ("x", "y")}
+    assert signature(result) == (expected if restricted else set())
 
 
 @pytest.mark.parametrize("update", [

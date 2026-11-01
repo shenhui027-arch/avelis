@@ -131,13 +131,13 @@ def test_update_uses_query_lineage_and_resolves_target_alias(name, sql):
         assert ("c.src.events", "id", None, "filter") in signatures(result.writes[0])
 
 
-def test_update_drops_only_same_column_self_dependency():
+def test_update_preserves_same_column_self_dependency():
     result = parse("UPDATE dw.daily_summary AS t SET value=t.value+s.value "
                    "FROM src.events AS s WHERE t.id=s.id")
     edges = signatures(result.writes[0])
     assert result.status == "parsed", result.reason
     assert ("c.src.events", "value", "value", "value_computed") in edges
-    assert ("c.dw.daily_summary", "value", "value", "value_computed") not in edges
+    assert ("c.dw.daily_summary", "value", "value", "value_computed") in edges
     assert ("c.dw.daily_summary", "id", None, "filter") in edges
 
 
@@ -254,6 +254,7 @@ def test_drop_is_script_fact_without_edges():
     ("postgres", "DELETE FROM stage", ["c.dw.stage"]),
     ("postgres", "DELETE FROM dw.stage target", ["c.dw.stage"]),
     ("mysql", "DELETE target FROM dw.stage target", ["c.dw.stage"]),
+    ("tsql", "DELETE target FROM dw.stage target", ["c.dw.stage"]),
     ("mysql", "DELETE FROM dw.stage ORDER BY id", ["c.dw.stage"]),
     ("oracle", "TRUNCATE TABLE dw.stage", ["C.DW.STAGE"]),
 ])
@@ -289,6 +290,8 @@ def test_data_reset_preserves_registered_schema(sql):
     ("mysql", "DELETE FROM dw.stage ORDER BY id LIMIT 1"),
     ("mysql", "DELETE FROM dw.stage PARTITION (p1)"),
     ("tsql", "DELETE TOP (1) FROM dw.stage"),
+    ("tsql", "DELETE target FROM dw.stage target WHERE target.id=1"),
+    ("tsql", "DELETE target FROM dw.stage target JOIN src.events source ON target.id=source.id"),
 ])
 def test_filtered_delete_does_not_reset_data_sources(name, sql):
     result = parse(sql, name)
@@ -385,6 +388,9 @@ def test_parse_error_without_structure_falls_back_to_bounded_first_line(monkeypa
     ("UPDATE dw.stage AS t SET value = s.value FROM src.events AS s", "postgres", False),
     ("UPDATE dw.stage t JOIN src.events s ON s.id = t.id SET t.value = s.value", "mysql", False),
     ("UPDATE dw.stage SET value = 0 LIMIT 10", "mysql", False),
+    ("UPDATE t SET value = 0 FROM dw.stage AS t", "tsql", True),
+    ("UPDATE t SET value = 0 FROM dw.stage AS t WHERE t.id > 1", "tsql", False),
+    ("UPDATE t SET value = 0 FROM dw.stage AS t JOIN src.events s ON s.id = t.id", "tsql", False),
 ])
 def test_only_unrestricted_update_replaces_assigned_columns(sql, name, replaces):
     result = parse(sql, name)
@@ -403,3 +409,17 @@ def test_only_unrestricted_update_replaces_assigned_columns(sql, name, replaces)
 def test_update_and_delete_share_the_unrestricted_scope_check(sql, unrestricted):
     tree = sqlglot.parse_one(sql, read="mysql")
     assert (_unrestricted_target(tree) is not None) is unrestricted
+
+
+@pytest.mark.parametrize("name,sql", [
+    ("tsql", "UPDATE t SET value=0 FROM dw.stage AS t, src.events AS s"),
+    ("tsql", "UPDATE t SET value=0 FROM (SELECT * FROM dw.stage) AS t"),
+    ("mysql", "UPDATE t SET value=0 FROM dw.stage PARTITION (p1) AS t"),
+    ("tsql", "UPDATE t SET value=0 FROM dw.stage AS t TABLESAMPLE (10 PERCENT)"),
+    ("tsql", "UPDATE c..t SET value=0 FROM dw.stage AS t"),
+    ("tsql", "UPDATE dw.stage SET value=0 FROM dw.stage"),
+    ("tsql", "UPDATE t SET value=0 FROM dw.stage AS other"),
+])
+def test_target_binding_from_does_not_hide_additional_sources_or_restrictions(name, sql):
+    tree = sqlglot.parse_one(sql, read=name)
+    assert _unrestricted_target(tree) is None
