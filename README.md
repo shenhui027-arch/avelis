@@ -4,20 +4,26 @@
 
 # Avelis
 
+**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+
 **Grounded data Q&A and analysis, built on lineage, governed metrics and change management.**
 
 [![CI](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml/badge.svg)](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](backend/pyproject.toml)
-[![React](https://img.shields.io/badge/react-19-61DAFB.svg)](frontend/package.json)
+[![license](https://img.shields.io/badge/license-Apache--2.0-0A7BBB?style=flat)](LICENSE)
+[![backend](https://img.shields.io/badge/backend-Python%203.12%20%C2%B7%20FastAPI-3776AB?style=flat&logo=python&logoColor=white)](backend/pyproject.toml)
+[![frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20TypeScript-2F74C0?style=flat&logo=react&logoColor=white)](frontend/package.json)
+[![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
+[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
+[![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
+[![version](https://img.shields.io/badge/version-v0.1%20%C2%B7%20pre--release-E05D44?style=flat)](CHANGELOG.md)
 
-English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
+[Highlights](#highlights) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
 Avelis answers business questions about your databases and shows where every number comes from. Each answer carries its source tables, metric definition, version and the permission it was checked against. When an upstream table or view changes, Avelis knows which metrics and answers are affected and blocks the affected metrics in the backend until someone reviews them.
 
-![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/analysis.png)
+![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
 > Avelis is at v0.1 and has not published a release yet. The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
@@ -36,9 +42,9 @@ Avelis answers business questions about your databases and shows where every num
 
 | Dataset view | Workbench |
 |---|---|
-| ![Dataset opened in the main area: chart, rows, rerun with a different time window](docs/images/analysis-dataset.png) | ![Workbench: collection, lineage, changes, metrics and Q&A at a glance](docs/images/workbench.png) |
+| ![Dataset opened in the main area: chart, rows, rerun with a different time window](docs/images/en/analysis-dataset.png) | ![Workbench: collection, lineage, changes, metrics and Q&A at a glance](docs/images/en/workbench.png) |
 | **Lineage** | **Catalog** |
-| ![Lineage graph with a selected table and the inspector](docs/images/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/catalog.png) |
+| ![Lineage graph with a selected table and the inspector](docs/images/en/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/en/catalog.png) |
 
 More pages (Q&A home, report follow-ups, export, personal experience, settings, light theme) are in the [product tour](docs/product-tour.en.md).
 
