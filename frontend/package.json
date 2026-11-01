@@ -9,15 +9,19 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "gen:tokens": "node scripts/gen-tokens.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "gen:api": "cd ../backend && uv run python -m avelis.bootstrap openapi ../frontend/src/api/openapi.json && cd ../frontend && openapi-typescript src/api/openapi.json -o src/api/schema.d.ts --default-non-nullable false"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1",
     "@tanstack/react-query": "5.104.2",
     "@xyflow/react": "12.12.0",
+    "i18next": "26.5.12",
+    "i18next-browser-languagedetector": "8.2.4",
     "openapi-fetch": "0.17.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "react-i18next": "17.1.9",
     "react-router": "7.18.4"
   },
   "devDependencies": {
