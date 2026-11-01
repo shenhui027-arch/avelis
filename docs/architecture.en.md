@@ -1,4 +1,4 @@
-# Avelis Architecture and Governance (v0.1)
+# Avelis Architecture and Governance
 
 English | [简体中文](architecture.md) | [繁體中文](architecture.zh-TW.md)
 
@@ -7,9 +7,9 @@ Avelis is a data Q&A platform built on database lineage, governed metric definit
 - Every answer must carry its source, metric definition, version and the permission it was checked against.
 - When something changes upstream, the system knows which metric definitions and answers need to be confirmed again, and the **backend** blocks the affected metric definitions from being used.
 
-This document describes the components, how data flows between them and where governance rules are enforced. The scope and milestones during development are in the [development plan (archived, Simplified Chinese)](archive/PLAN.md); design decisions are in [decisions/](decisions/) (Simplified Chinese).
+This document describes the components, how data flows between them and where governance rules are enforced. Design decisions are in [decisions/](decisions/) (Simplified Chinese).
 
-## 1. Components
+## Components
 
 ```mermaid
 flowchart LR
@@ -51,20 +51,20 @@ flowchart LR
 | Background jobs | The job table is the source of truth, Redis only wakes workers; scheduled collection; backlog scan; jobs that run too long are marked failed | `jobs.py` |
 | Authentication and audit | OAuth2 password flow + PyJWT, pwdlib (Argon2), Fernet-encrypted data source passwords; every governance action is audited | `security.py`, `audit.py` ([ADR 0002](decisions/0002-backend-foundations.md), Simplified Chinese) |
 
-## 2. Four-layer data model
+## Four-layer data model
 
 | Layer | Tables | Meaning |
 |---|---|---|
 | Identity | `datasource`, `endpoint_alias`, `asset`, `asset_column` | “Which thing is it.” Assets are identified by physical ID (StarRocks `TABLE_ID`): a renamed table is the same asset; a table dropped and recreated with the same name is a new asset. A column dropped and recreated with the same name is also a new column |
-| Observation | `collection_run`, `asset_version`, `column_version`, `definition` | “What a collection run saw.” Unchanged content produces no new version; view definitions keep the original text and the normalized SQL. Append-only and on the hash chain (3.6) |
+| Observation | `collection_run`, `asset_version`, `column_version`, `definition` | “What a collection run saw.” Unchanged content produces no new version; view definitions keep the original text and the normalized SQL. Append-only and on the hash chain (see [Observation layer and change history](#observation-layer-and-change-history)) |
 | Derivation | `parse_result`, `lineage_edge`, `identity_link`, `column_fingerprint`, `grain` | “Conclusions derived from observations.” Each edge records its origin: `parsed`, `manual`, `import`, `model_confirmed`, and so on. External tables are traced through endpoint aliases and instance identity to the real table in the other database |
 | Governance | `metric`, `metric_version`, `join_path`, `confirmation`, `change_set` / `change_event`, `impact`, `review_task`, `audit_event` | “What the business has approved, and who approved it.” Only people or deterministic rules change this layer; the model cannot change it directly |
 
 Ask and import add tables such as `ask_thread`, `answer`, `import_job`, `extracted_statement` and `candidate_edge`. Change history adds `history_chain_head` (chain head), `history_mark` (allowed changes of state columns) and `history_anchor` (purge anchors).
 
-## 3. Key mechanisms
+## Key mechanisms
 
-### 3.1 Column derivation fingerprints
+### Column derivation fingerprints
 
 Every column has a fingerprint that summarizes how its value is computed:
 
@@ -79,7 +79,7 @@ As a result:
 
 A fingerprint has three states: `ok`; `broken` (upstream missing); `unknown` (incomplete evidence, for example a UNION view or an uncollected source).
 
-### 3.2 Two status lines
+### Two status lines
 
 When a metric version is published, it binds the fingerprint of every column it depends on. Before an Ask query runs, both of these must hold:
 
@@ -94,7 +94,7 @@ When a fingerprint changes, the version is marked `affected` and a review task i
 
 Until the review is done, the backend blocks the query, even if the question is identical to an earlier one and an old answer is in the cache.
 
-### 3.3 Grain and join cardinality
+### Grain and join cardinality
 
 Grain has five sources:
 
@@ -106,7 +106,7 @@ Grain has five sources:
 
 The cardinality of a join path (N:1, 1:N, N:N) is determined from the grain on both sides. An additive measure joined through 1:N or N:N is inflated, so such a metric cannot be published unless the right side is first aggregated by the join key.
 
-### 3.4 Ask pipeline
+### Ask pipeline
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ flowchart LR
   - period-over-period and year-over-year comparison.
 - Compound questions (several metrics, comparison periods, derived metrics) expand into “metric × period” sub-queries. Each sub-query goes through the full pipeline; once all pass, the backend aligns them by dimension keys, computes derived formulas and comparison columns, then sorts and takes the top N ([ADR 0005](decisions/0005-ask-expressiveness.md), Simplified Chinese).
 - A derived metric (for example average order value = paid sales / order count) locks the versions of its component metrics when submitted; when a component is affected, the derived metric is affected too and goes to review.
-- Metrics in the intent must be visible to the current user; dimensions must be ones the metric exposes; values only ever become escaped constants. Forged or injected intents are rejected or neutralized; see scenarios 02 and 03 in the [hardening acceptance record (archived, Simplified Chinese)](archive/acceptance/acceptance-m4.md).
+- Metrics in the intent must be visible to the current user; dimensions must be ones the metric exposes; values only ever become escaped constants. Forged or injected intents are rejected or neutralized.
 - **Pre-query schema check (stale metadata)**: the database may change between collection runs. So before every execution (including cache hits), Avelis reads the current columns and view definitions of the source objects with the read-only account and compares them with the last collection:
   - only the columns the metric definition actually depends on are checked, followed through lineage down to physical tables; unrelated added or dropped columns do not block;
   - any change in a view definition blocks;
@@ -138,7 +138,7 @@ flowchart LR
 - The answer cache key includes the SQL, versions, dependency fingerprints, asset versions, permission scope and table update times.
 - Time grouping: an intent may carry `time_grain` (day / month); the first result column is `period`, and SQLGlot generates the date formatting per dialect. It cannot be combined with comparison periods.
 
-### 3.5 Analysis agent
+### Analysis agent
 
 ```mermaid
 flowchart LR
@@ -158,7 +158,7 @@ flowchart LR
 - Reports export to PDF (with embedded CJK fonts, charts and an evidence appendix), Markdown, and datasets to CSV.
 - Requires a model that supports tool calling and permission to send query results to the model (allowed by default; connect a locally hosted model if data must stay private). See [ADR 0007](decisions/0007-analysis-agent.md) (Simplified Chinese).
 
-### 3.6 Observation layer and change history
+### Observation layer and change history
 
 Change history is kept only in the metadata and lineage governance layer; Ask always works on the current structure and never queries with old definitions ([ADR 0008](decisions/0008-history-integrity.md), Simplified Chinese).
 
@@ -183,7 +183,7 @@ flowchart LR
 - **Hash chain**: one global chain, sealed at commit by a constraint trigger: `row_hash = sha256(prev_hash | chain_seq | table name | content digest)`. There is a single chain lock, held only during commit. Verification (`GET /api/history/verify`, `bootstrap verify-history`) reports the first break and every problem.
 - **Retention**: `AVELIS_HISTORY_RETENTION_DAYS` (default 1095 days). The worker purges once a day: it verifies first and does not purge an incomplete chain; it never deletes current versions, versions referenced by non-terminal metric definitions, or unhandled change sets. Deletion only goes through a dedicated path with `avelis.history_purge = on` inside the transaction, and leaves a purge anchor on the chain (the sequence gap and the hashes at both ends) so the rest of the chain stays verifiable. Purges are audited.
 
-## 4. Governance rules
+## Governance rules
 
 | Rule | Default | Where it is enforced |
 |---|---|---|
@@ -198,7 +198,7 @@ flowchart LR
 | Audit | Publishing, approval, review, import handling, collection, Ask (including refusals), change-record export, chain verification and retention purges are all audited | `audit_event` |
 | Change history | History tables are append-only (triggers); the hash chain is verifiable; kept for 3 years by default; changes are attributed only to a user the database audit identifies uniquely | `history/`, migration `0007` |
 
-## 5. Operation
+## Operation
 
 - **Processes**: the API (`python -m avelis.server`, which also serves the frontend on the same port in production) and the worker (`python -m avelis.jobs`) are separate processes sharing the metadata database and Redis. See the [deployment guide](deployment.en.md) and the [configuration reference](configuration.en.md).
 - **Collection**: the worker queues collections at each data source's interval (15 minutes by default). Collections can also be started from the UI or the API.
@@ -209,7 +209,7 @@ flowchart LR
   - If the worker exits mid-job, the job is marked failed after `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS`, so a data source's scheduled collection never stops for good.
 - **Agent sessions**: stored in the PostgreSQL schema `avelis_agent`, so follow-ups continue after a restart. If the schema is dropped it is recreated automatically, but the follow-up state of earlier sessions is lost.
 
-## 6. Known limits
+## Known limits
 
 - Conclusions about StarRocks come only from a local single-node Docker 3.5.14; no production database is connected.
 - Engines declare only the capabilities that have been tested against a real instance. MySQL is currently collected for metadata only, as the target of external tables. Only engines with an SQLGlot dialect will be added.

@@ -40,10 +40,6 @@
 | [0012](decisions/0012-analysis-pipeline-system-assembled-context.md) | 分析流程改为“系统组装上下文、模型少轮推理” |
 | [0013](decisions/0013-accuracy-from-governed-metadata.md) | 对话式确认与经验学习 |
 
-## 归档
-
-[archive/](archive/) 保存 v0.1 开发过程中的计划、里程碑验收记录与分析智能体实验记录，作为设计与验收的依据，不再维护。
-
 ## 术语
 
 | 术语 | 含义 |

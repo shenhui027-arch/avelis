@@ -1,4 +1,4 @@
-# Avelis 架構與治理說明（v0.1）
+# Avelis 架構與治理說明
 
 [English](architecture.en.md) | [简体中文](architecture.md) | 繁體中文
 
@@ -7,9 +7,9 @@ Avelis 是建立在資料庫血緣、業務口徑和變更管理之上的智慧�
 - 每個答案都要有來源、口徑、版本和權限依據。
 - 上游變化後，系統知道哪些口徑和答案需要重新確認，並由**後端**阻止受影響的口徑繼續被使用。
 
-本文說明系統由哪些部分組成、資料怎麼流動、治理規則在哪裡生效。開發過程中的範圍與里程碑見[開發計劃（歸檔）](archive/PLAN.md)（簡體中文）；設計決定見 [decisions/](decisions/)（簡體中文）。
+本文說明系統由哪些部分組成、資料怎麼流動、治理規則在哪裡生效。設計決定見 [decisions/](decisions/)（簡體中文）。
 
-## 1. 組成
+## 組成
 
 ```mermaid
 flowchart LR
@@ -51,20 +51,20 @@ flowchart LR
 | 後臺任務 | job 表是事實來源，Redis 只負責喚醒；定時採集；積壓掃描；執行超時記為失敗 | `jobs.py` |
 | 認證與審計 | OAuth2 密碼模式 + PyJWT、pwdlib（Argon2）、Fernet 加密資料來源密碼；所有治理動作寫審計 | `security.py`、`audit.py`（[ADR 0002](decisions/0002-backend-foundations.md)（簡體中文）） |
 
-## 2. 四層資料模型
+## 四層資料模型
 
 | 層 | 表 | 含義 |
 |---|---|---|
 | 身份 | `datasource`、`endpoint_alias`、`asset`、`asset_column` | 「是哪個東西」。資產按物理 ID（StarRocks `TABLE_ID`）識別：改名仍是同一資產；刪後同名重建是新資產。列刪除後同名重建也是新列 |
-| 觀察 | `collection_run`、`asset_version`、`column_version`、`definition` | 「某次採集看到了什麼」。內容不變不產生新版本；檢視表定義儲存原文與規範化 SQL。只追加，在雜湊鏈上（3.6） |
+| 觀察 | `collection_run`、`asset_version`、`column_version`、`definition` | 「某次採集看到了什麼」。內容不變不產生新版本；檢視表定義儲存原文與規範化 SQL。只追加，在雜湊鏈上（見[觀察層與留底](#觀察層與留底)） |
 | 推導 | `parse_result`、`lineage_edge`、`identity_link`、`column_fingerprint`、`grain` | 「由觀察推出的結論」。每條邊記錄來源：`parsed`、`manual`、`import`、`model_confirmed` 等。外部表經端點別名與例項身份追到他庫真實表 |
 | 治理 | `metric`、`metric_version`、`join_path`、`confirmation`、`change_set` / `change_event`、`impact`、`review_task`、`audit_event` | 「業務上認可了什麼、誰認可的」。這一層只由人或確定性規則改變，模型不能直接改 |
 
 問數與匯入另有 `ask_thread`、`answer`、`import_job`、`extracted_statement`、`candidate_edge` 等表。留底另有 `history_chain_head`（鏈頭）、`history_mark`（狀態列的合法變化）、`history_anchor`（清理錨點）。
 
-## 3. 關鍵機制
+## 關鍵機制
 
-### 3.1 欄位推導指紋
+### 欄位推導指紋
 
 每個欄位有一個指紋，概括「這個值是怎麼算出來的」：
 
@@ -79,7 +79,7 @@ flowchart LR
 
 指紋狀態有三種：`ok`；`broken`（上游缺失）；`unknown`（證據不全，例如 UNION 檢視表、未採集的來源）。
 
-### 3.2 兩條狀態線
+### 兩條狀態線
 
 指標版本發布時，繫結它依賴的每個欄位的指紋。問數執行前要同時滿足兩條：
 
@@ -94,7 +94,7 @@ flowchart LR
 
 在複核完成前，即使問題與之前完全相同、快取裡有舊答案，也會被後端攔截。
 
-### 3.3 粒度與關聯基數
+### 粒度與關聯基數
 
 粒度有五種來源：
 
@@ -106,7 +106,7 @@ flowchart LR
 
 關聯路徑的基數（N:1、1:N、N:N）由兩側粒度判定。可加度量經 1:N 或 N:N 關聯會放大，這種指標不能發布，除非右側先按關聯鍵聚合。
 
-### 3.4 問數管線
+### 問數管線
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ flowchart LR
   - 環比 / 同比。
 - 組合問題（多個指標、對比期、衍生指標）展開為「指標 × 時間段」的子查詢。每個子查詢都走下圖的完整管線；全部通過後，後端按維度鍵對齊，計算派生公式與對比列，再排序、取前 N（[ADR 0005](decisions/0005-ask-expressiveness.md)（簡體中文））。
 - 衍生指標（如客單價 = 實付銷售額 / 訂單數）在提交時鎖定組成指標的版本；組成指標受影響時，衍生指標隨之受影響並進入複核。
-- 意圖中的指標必須對當前使用者可見；維度必須是該指標開放的維度；取值只會成為轉義後的常量。偽造或注入的意圖被拒絕或無害化，見[異常與加固驗收（歸檔）](archive/acceptance/acceptance-m4.md)（簡體中文）的場景 02、03。
+- 意圖中的指標必須對當前使用者可見；維度必須是該指標開放的維度；取值只會成為轉義後的常量。偽造或注入的意圖被拒絕或無害化。
 - **執行前核對（中繼資料過期）**：輪詢採集之間，庫側可能已經變了。所以每次執行前（包括命中快取時），都用唯讀帳號讀取來源物件當前的列和檢視表定義，與上次採集比較：
   - 只看口徑實際依賴的列，沿血緣一直展開到實體表；無關列的增刪不攔截；
   - 檢視表定義一變就攔截；
@@ -138,7 +138,7 @@ flowchart LR
 - 答案快取鍵包含：SQL、版本、依賴指紋、資產版本、權限範圍、表更新時間。
 - 按時間分組：意圖可帶 `time_grain`（day / month），結果首列為 `period`，日期格式化由 SQLGlot 按方言生成；不能與對比期同用。
 
-### 3.5 分析代理
+### 分析代理
 
 ```mermaid
 flowchart LR
@@ -158,9 +158,9 @@ flowchart LR
 - 報告可匯出為 PDF（嵌入中文字型，含圖表與證據附錄）、Markdown、資料集 CSV。
 - 需要模型支援工具呼叫，並允許向模型傳送查詢結果（預設允許；需保密請接入本地模型）。設計見 [ADR 0007](decisions/0007-analysis-agent.md)（簡體中文）。
 
-### 3.6 觀察層與留底
+### 觀察層與留底
 
-變更歷史只在中繼資料與血緣治理層留底；問數層只看當前結構，不按舊口徑查詢（[ADR 0008](decisions/0008-history-integrity.md)（簡體中文））。
+變更只在中繼資料與血緣治理層留存；問數層只看當前結構，不按舊口徑查詢（[ADR 0008](decisions/0008-history-integrity.md)（簡體中文））。
 
 ```mermaid
 flowchart LR
@@ -179,11 +179,11 @@ flowchart LR
   - 多個使用者為 `ambiguous`，沒有記錄為 `unmatched`，讀取失敗為 `unavailable`，引擎未接入為 `unsupported`；
   - 推匯出的變化（欄位推導、上游缺失、身份對映）為 `not_applicable`。
   - 已接入：PostgreSQL（事件觸發器）、ClickHouse（`system.query_log`）、Doris（`__internal_schema.audit_log`）；StarRocks、SQL Server、Oracle、MySQL 未接入。
-- **只追加**：`asset_version`、`column_version`、`definition`、`lineage_edge`、`change_set`、`change_event`、`audit_event`、`metric_version_transition` 及留底自身的表，在資料庫層用觸發器拒絕 UPDATE / DELETE / TRUNCATE。狀態列只能按規則改一次（如 `superseded_at` 由空變為非空），每次變化追加一條 `history_mark`；「最近一次看到」（`last_seen_*`）只能前移，不算曆史內容。
+- **只追加**：`asset_version`、`column_version`、`definition`、`lineage_edge`、`change_set`、`change_event`、`audit_event`、`metric_version_transition` 及留底自身的表，在資料庫層用觸發器拒絕 UPDATE / DELETE / TRUNCATE。狀態列只能按規則改一次（如 `superseded_at` 由空變為非空），每次變化追加一條 `history_mark`；「最近一次看到」（`last_seen_*`）只能前移，不算歷史內容。
 - **雜湊鏈**：一條全域性鏈，提交時由約束觸發器封鏈：`row_hash = sha256(prev_hash | chain_seq | 表名 | 內容摘要)`。只有一把鏈鎖，只在提交階段持有。核驗（`GET /api/history/verify`、`bootstrap verify-history`）報告第一處斷鏈與全部問題。
 - **保留期**：`AVELIS_HISTORY_RETENTION_DAYS`（預設 1095 天）。worker 每天清理一次：先核驗，鏈不完整就不清理；不刪當前版本、被非終態口徑引用的版本、未處理的變更集；刪除只走事務內 `avelis.history_purge = on` 的專用路徑，鏈上留下清理錨點（登記序號空洞及兩端雜湊），剩餘的鏈仍可核驗；清理寫審計。
 
-## 4. 治理規則
+## 治理規則
 
 | 規則 | 預設 | 在哪裡生效 |
 |---|---|---|
@@ -198,7 +198,7 @@ flowchart LR
 | 審計 | 發布、批准、複核、匯入處理、採集、問數（含被拒絕的）、變更記錄匯出、鏈核驗、保留期清理都寫審計 | `audit_event` |
 | 留底 | 歷史表只追加（觸發器）；雜湊鏈可核驗；預設保留 3 年；變更歸因只取資料庫審計裡能唯一確定的使用者 | `history/`、遷移 `0007` |
 
-## 5. 執行
+## 執行
 
 - **程序**：API（`python -m avelis.server`，生產模式下同一埠託管前端）與 worker（`python -m avelis.jobs`）是兩個獨立程序，共用中繼資料庫與 Redis。部署方式見 [deployment.md](deployment.zh-TW.md)，設定見 [configuration.md](configuration.zh-TW.md)。
 - **採集**：worker 按資料來源的採集間隔（預設 15 分鐘）輪詢入隊。也可以在介面或介面裡手動採集。
@@ -209,7 +209,7 @@ flowchart LR
   - worker 在執行中退出時，任務超過 `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS` 會被記為失敗，不會讓該資料來源的定時採集永久停止。
 - **代理會話**：存在 PostgreSQL 模式 `avelis_agent`，服務重啟後能繼續追問。該模式被刪除時自動重建，但原會話的追問狀態不可恢復。
 
-## 6. 已知邊界
+## 已知邊界
 
 - StarRocks 結論只來自本機 Docker 3.5.14 單節點；不連線任何生產庫。
 - 引擎能力只宣告真實聯調過的部分。MySQL 目前只採中繼資料，並作為外部表的追溯目標。後續只接入 SQLGlot 支援方言的引擎。

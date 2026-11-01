@@ -5,12 +5,9 @@
 
 from copy import deepcopy
 from decimal import Decimal
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 
 import pytest
 
-from tests.eval import scoring_v2 as v20
 from tests.eval import scoring_v2_1 as v21
 
 WINDOW = {"start": "2026-09-01", "end": "2026-09-30",
@@ -503,72 +500,6 @@ def test_load_questions_rejects_empty_truth_without_implicit_file_read(monkeypat
         v21.load_questions(truth={})
 
 
-@pytest.fixture(scope="module")
-def rescore_module():
-    """只加载纯函数，不执行会读取评测输入的 main。"""
-    path = Path(__file__).resolve().parents[3] / "experiments" / "agent-v2" / "rescore_v2_1.py"
-    spec = spec_from_file_location("test_rescore_v2_1", path)
-    assert spec is not None and spec.loader is not None
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_rescore_scores_handwritten_e1_and_explains_each_changed_decision(rescore_module):
-    q, run = complete_question_and_run()
-    old_q = deepcopy(q)
-    old_q.pop("mechanism")
-    saved = {"results": [{"scenario": "d02", "condition": "D2", "repeat": 2, "run": run}]}
-    original = deepcopy(saved)
-    result = rescore_module.score_file(saved, "e1:handwritten.json", {"d02": old_q}, {"d02": q}, v20, v21)
-    row = result["rows"][0]
-    assert row["audit_key"] == "d02:D2:2"
-    assert row["v2_0"]["primary_hit"] is False
-    assert row["v2_0"]["key_value_hit"] is False
-    assert row["v2_0"]["mechanism"]["hit"] is None
-    assert row["v2_1"]["primary_hit"] is True
-    assert row["v2_1"]["key_value_hit"] is True
-    assert row["v2_1"]["mechanism"]["alternative"] == 2
-    assert result["summary"]["changed"] == 1
-    assert any("通过" in reason for reason in row["reasons"])
-    assert any("首要原因" in reason for reason in row["reasons"])
-    assert any("关键数值" in reason for reason in row["reasons"])
-    assert saved == original
-
-
 def audit_row(key, hit, source="e1:handwritten.json"):
     return {"audit_key": key, "source": source, "v2_1": {"primary_hit": hit}}
 
-
-def test_rescore_audit_counts_weak_false_fp_fn_and_duplicate_sources(rescore_module):
-    rows = [audit_row("h07:D2:2", True), audit_row("h08:D2:2", False), audit_row("h03:D2:2", True),
-            audit_row("h04:D2:2", None), audit_row("h07:D2:2", True, "eval:handwritten.json"),
-            audit_row("h09:D2:2", False)]
-    audit = {"h07:D2:2": {"original": "weak", "corrected": True, "note": "更正为命中"},
-             "h08:D2:2": {"original": True, "corrected": True, "note": "两次均认定正确"},
-             "h03:D2:2": {"original": True, "corrected": False, "note": "更正为未命中"},
-             "h04:D2:2": {"original": True, "corrected": False, "note": "自动规则未判定"},
-             "h12:D2:2": {"original": False, "corrected": False, "note": "缺少运行"}}
-    result = rescore_module.audit_primary(rows, audit)
-    assert result["matched"] == 4
-    assert result["original"]["scored"] == result["corrected"]["scored"] == 3
-    assert result["original"]["false_positive_count"] == 1
-    assert result["original"]["false_positives"][0]["key"] == "h07:D2:2"
-    assert result["original"]["false_positives"][0]["human"] is False
-    assert result["original"]["false_negative_count"] == 1
-    assert result["original"]["false_negatives"][0]["key"] == "h08:D2:2"
-    assert result["corrected"]["false_positive_count"] == 1
-    assert result["corrected"]["false_positives"][0]["key"] == "h03:D2:2"
-    assert result["corrected"]["false_negative_count"] == 1
-    assert result["corrected"]["false_negatives"][0]["key"] == "h08:D2:2"
-    assert len(result["original"]["false_positives"][0]["sources"]) == 2
-    assert len(result["original"]["unscored"]) == 1
-    assert result["unmatched_audit_keys"] == ["h12:D2:2"]
-    assert result["unreviewed_run_keys"] == ["h09:D2:2"]
-
-
-def test_rescore_audit_rejects_conflicting_duplicate_keys(rescore_module):
-    rows = [audit_row("h07:D2:2", True), audit_row("h07:D2:2", False, "eval:handwritten.json")]
-    audit = {"h07:D2:2": {"original": True, "corrected": True}}
-    with pytest.raises(ValueError, match="重复运行 primary_hit 不一致"):
-        rescore_module.audit_primary(rows, audit)

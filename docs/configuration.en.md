@@ -4,7 +4,7 @@ English | [简体中文](configuration.md) | [繁體中文](configuration.zh-TW.
 
 Avelis can be configured with a **configuration file** (TOML), with **`AVELIS_*` environment variables**, or with a **`.env` file**. Use the configuration file for production deployments; local development keeps using the `.env` file at the repository root.
 
-## 1. Load order
+## Load order
 
 When a setting appears in several places, the value is taken in this order (highest first):
 
@@ -27,7 +27,7 @@ docker compose run --rm app python -m avelis.config check          # Docker depl
 
 The output lists each setting's effective value and source (environment variable / .env / configuration file / default); passwords and keys are shown as `******`. The same validation runs at start-up: a missing required setting or a wrong format prints an explanation (which setting, where its current value comes from, how to fix it) and exits with code 2, without a stack trace.
 
-## 2. Sensitive settings
+## Sensitive settings
 
 Passwords and keys may be written in plain text in the configuration file, but:
 
@@ -42,9 +42,9 @@ Passwords and keys may be written in plain text in the configuration file, but:
 | Plain text environment variable | `AVELIS_DB_PASSWORD=…` |
 | File reference environment variable | `AVELIS_DB_PASSWORD_FILE=/run/secrets/avelis_db_password` |
 
-Settings that accept file references: `AVELIS_SECRET`, `AVELIS_DB_PASSWORD`, `AVELIS_REDIS_PASSWORD`, `AVELIS_INITIAL_ADMIN_PASSWORD`, `AVELIS_MODEL_API_KEY`, `AVELIS_DATABASE_URL`, `AVELIS_REDIS_URL`. Giving both plain text and a file reference in the same layer is an error; across layers the precedence in section 1 applies (for example, the environment variable `AVELIS_DB_PASSWORD_FILE` overrides a plain-text password in the configuration file).
+Settings that accept file references: `AVELIS_SECRET`, `AVELIS_DB_PASSWORD`, `AVELIS_REDIS_PASSWORD`, `AVELIS_INITIAL_ADMIN_PASSWORD`, `AVELIS_MODEL_API_KEY`, `AVELIS_DATABASE_URL`, `AVELIS_REDIS_URL`. Giving both plain text and a file reference in the same layer is an error; across layers the precedence in [Load order](#load-order) applies (for example, the environment variable `AVELIS_DB_PASSWORD_FILE` overrides a plain-text password in the configuration file).
 
-## 3. Settings
+## Settings
 
 The “Configuration file” column is `[section] key` in TOML. “Required” means there is no usable default and the operator must provide a value.
 
@@ -184,7 +184,7 @@ Manage model providers and keys on the **设置 → 模型配置** (Settings →
 | `AVELIS_PG_PORT`, `AVELIS_PG_PASSWORD` | Local demo metadata database (used when `[database]` is not configured) |
 | `AVELIS_DEMO_USER_PASSWORD`, `AVELIS_ADMIN_PASSWORD` | Local demo accounts and the local superuser (development only; see the [development guide](development.en.md)) |
 
-## 4. Compose parameters for Docker deployments
+## Compose parameters for Docker deployments
 
 `deploy/docker/.env` (optional; template `.env.example`) holds only Compose parameters, not application settings:
 
@@ -192,5 +192,5 @@ Manage model providers and keys on the **设置 → 模型配置** (Settings →
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | Published port |
 | `AVELIS_BIND_ADDRESS` | `0.0.0.0` | Bind address; set to `127.0.0.1` behind a reverse proxy |
-| `AVELIS_IMAGE` | `avelis:0.1.0` | Image name |
+| `AVELIS_IMAGE` | `avelis:1.0.0` | Image name |
 | `COMPOSE_FILE` | — | Set to `compose.yaml:compose.external.yaml` when using an external PostgreSQL / Redis |
