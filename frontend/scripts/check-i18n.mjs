@@ -6,7 +6,7 @@
 // 4. 英文包里没有中文，繁体包里没有常见简体字；
 // 5. 业务中立（ADR 0010）：译文里不出现行业业务词（简体原文由后端 test_business_neutral.py 扫描源码覆盖）；
 // 6. t() 的第一个参数必须是字面量，不能拼接或带插值的模板字符串（否则无法抽取）。
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +87,15 @@ for (const [lang, pack] of Object.entries(packs)) {
     const m = value.match(BUSINESS);
     if (m) errors.push(`${lang}: 「${key}」出现业务词“${m[0]}”（ADR 0010）：${value}`);
   }
+}
+
+// --todo <文件>：把缺译文的原文按源码顺序写成 [{ key, plural, where }]，方便补译
+const todoAt = process.argv.indexOf("--todo");
+if (todoAt > 0) {
+  const todo = [...used].filter(([key]) => !(key in packs.en) && !(`${key}_one` in packs.en))
+    .map(([key, info]) => ({ key, plural: info.plural, where: info.where }));
+  writeFileSync(process.argv[todoAt + 1], JSON.stringify(todo, null, 1) + "\n");
+  console.log(`i18n: ${todo.length} 条待译 → ${process.argv[todoAt + 1]}`);
 }
 
 if (errors.length) {

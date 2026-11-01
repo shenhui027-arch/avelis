@@ -74,7 +74,7 @@ const subscribe = (l: () => void) => { i18n.on("languageChanged", l); return () 
 
 /** 当前语言（拿不到本机存储、只在本次切换时，LanguageRoot 靠它重新挂载界面）。 */
 export function useLanguage(): Language {
-  return useSyncExternalStore(subscribe, currentLanguage);
+  return useSyncExternalStore(subscribe, currentLanguage, currentLanguage);
 }
 
 export default i18n;
