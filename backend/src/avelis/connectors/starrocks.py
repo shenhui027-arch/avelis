@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -25,11 +26,14 @@ from avelis.connectors.base import (
     checked_timezone,
     current_timezone_offset,
 )
+from avelis.connectors.ddl import AuditUnavailable, DdlEvent, Token, lex, objects_in
 from avelis.i18n import gettext
 
 IDENT = re.compile(r"^[A-Za-z0-9_\-]+$")
 PROP = re.compile(r'"([A-Za-z0-9_.]+)"\s*=\s*"((?:[^"\\]|\\.)*)"')
 INTERNAL_CATALOG = "default_catalog"
+_AUDIT_IDENT = r"(?:`(?:``|[^`])+`|[\w$-]+)"
+_AUDIT_TABLE = re.compile(rf"\s*({_AUDIT_IDENT})\s*\.\s*({_AUDIT_IDENT})\s*\Z")
 
 
 def quote_ident(name: str) -> str:
@@ -75,14 +79,85 @@ def _set_timezone(cur, name: str | None) -> list[str]:
     return []
 
 
+def _audit_epoch(at: datetime) -> float:
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def _audit_cause(exc: pymysql.MySQLError) -> str:
+    errno = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+    text = str(exc.args[-1] if exc.args else exc).lower()
+    if errno in (1044, 1045, 1142, 1143, 1227) or any(s in text for s in (
+        "access denied", "command denied", "permission denied", "access_denied", "not authorized",
+    )):
+        return "no_permission"
+    if errno in (1054, 1298) or any(s in text for s in (
+        "unknown column", "cannot be resolved", "unknown time zone", "invalid time zone",
+    )) or re.search(r"\bcolumn\b.*(?:does not exist|not found|not exist)", text):
+        return "incompatible"
+    if errno in (1049, 1146) or any(s in text for s in (
+        "unknown database", "unknown table", "does not exist", "doesn't exist", "table not found",
+    )) or re.search(r"\b(?:table|database)\b.*(?:not found|not exist)", text):
+        return "not_enabled"
+    return "error"
+
+
+def _unsupported_ddl_target(toks: list[Token]) -> str | None:
+    """排除其他 Catalog 及共享对象解析器不支持的转义引用；不检查查询或列里的限定名。"""
+    i = next((i + 1 for i, t in enumerate(toks[:5])
+              if t.kind == "ident" and not t.quoted and t.text.upper() in {"TABLE", "VIEW"}), len(toks))
+    while i < len(toks) and not toks[i].quoted and toks[i].text.upper() in {"IF", "NOT", "EXISTS"}:
+        i += 1
+
+    def read_name(i: int) -> tuple[str | None, int]:
+        parts = []
+        while i < len(toks) and toks[i].kind == "ident":
+            parts.append(toks[i].text)
+            i += 1
+            if i < len(toks) and toks[i].kind == "dot":
+                i += 1
+            else:
+                break
+        if len(parts) >= 3 and parts[0] != INTERNAL_CATALOG:
+            return "external", i
+        return ("escaped" if any("`" in part or '"' in part for part in parts) else None), i
+
+    external, i = read_name(i)
+    if toks and toks[0].text.upper() == "RENAME" and i < len(toks) and toks[i].text.upper() == "TO":
+        other, _ = read_name(i + 1)
+        external = external or other
+    elif toks and toks[0].text.upper() == "ALTER" and i < len(toks) and not toks[i].quoted \
+            and toks[i].text.upper() == "RENAME":
+        i += 1
+        if i < len(toks) and not toks[i].quoted and toks[i].text.upper() in {"TO", "AS"}:
+            i += 1
+        other, _ = read_name(i)
+        external = external or other
+    return external
+
+
 class StarRocksConnector:
     kind = "starrocks"
     dialect = "starrocks"
     is_test_adapter = False
+    ddl_identifier_fold = "insensitive"
+    ddl_audit_catalog = INTERNAL_CATALOG
+    # AuditLoader 默认每 60 秒或达到批量大小后导入；不保证这段时间内一定落盘。
+    ddl_effect_lag_seconds = 60
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self._conn_args = dict(host=host, port=port, user=user, password=password)
         self.options = options or {}
+
+    @property
+    def ddl_audit_source(self) -> str | None:
+        value = self.options.get("ddl_audit_table")
+        return f"starrocks:{str(value).strip()}" if value and str(value).strip() else None
+
+    @property
+    def ddl_audit_unbound_reason(self) -> str | None:
+        if self.ddl_audit_source is None:
+            return gettext("未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表")
+        return None
 
     def _connect(self, read_timeout: int = 60) -> pymysql.Connection:
         return pymysql.connect(
@@ -241,6 +316,147 @@ class StarRocksConnector:
                                          "database": key[0], "table": key[1], "via": f"catalog:{catalog}"}},
             ))
         return info, assets
+
+    def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
+        """读取外挂 AuditLoader 表；原文只在内存中用于对象与列匹配。
+
+        外挂插件按 FE JVM 默认时区格式化 timestamp，故在独立连接按 system_time_zone 转 UTC，
+        不使用业务查询的会话时区。前提是所有 FE 的 JVM 默认时区一致。
+        queryType 是日志类别而非 SQL 类型；只保留成功记录，再按 SQL 的 DDL 目标筛选。
+        """
+        value = self.options.get("ddl_audit_table")
+        if self.ddl_audit_source is None:
+            raise AuditUnavailable(self.ddl_audit_unbound_reason or "", "not_enabled")
+        match = _AUDIT_TABLE.fullmatch(value) if isinstance(value, str) else None
+        if match is None:
+            raise AuditUnavailable(gettext("StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"), "incompatible")
+        names = [part[1:-1].replace("``", "`") if part.startswith("`") else part for part in match.groups()]
+        table = ".".join(quote_ident(name) for name in names)
+        conn = None
+        try:
+            conn = self._connect(read_timeout=60)
+            cur = conn.cursor()
+            cur.execute(f"SHOW COLUMNS FROM {table}")
+            fields = {str(r["Field"]).lower(): (str(r["Field"]), str(r["Type"]).lower()) for r in cur.fetchall()}
+            required = {"timestamp", "user", "db", "stmt", "state"}
+            missing = sorted(required - fields.keys())
+            if not {"isquery", "querytype", "stmt_type", "stmttype"} & fields.keys():
+                missing.append("isQuery / queryType / stmt_type / stmtType")
+            if missing:
+                raise AuditUnavailable(gettext("StarRocks 审计表缺少必需字段：{fields}；请核对 AuditLoader 版本和表结构",
+                                               fields=", ".join(missing)), "incompatible")
+            invalid = [name for name in ("user", "db", "stmt", "state")
+                       if not re.match(r"(?:var)?char\b|(?:tiny|medium|long)?text\b|string\b", fields[name][1])]
+            if not re.match(r"datetime\b|timestamp\b", fields["timestamp"][1]):
+                invalid.append("timestamp")
+            for name in {"querytype", "stmt_type", "stmttype"} & fields.keys():
+                if not re.match(r"(?:var)?char\b|(?:tiny|medium|long)?text\b|string\b", fields[name][1]):
+                    invalid.append(name)
+            if "isquery" in fields and not re.match(r"(?:tiny|small|big)?int\b|boolean\b", fields["isquery"][1]):
+                invalid.append("isQuery")
+            if invalid:
+                raise AuditUnavailable(gettext("StarRocks 审计表字段类型不符：{fields}", fields=", ".join(invalid)),
+                                       "incompatible")
+
+            def col(name: str) -> str:
+                return quote_ident(fields[name][0])
+
+            cur.execute("SELECT @@system_time_zone AS zone")
+            zone = (cur.fetchone() or {}).get("zone")
+            if not isinstance(zone, str) or not zone.strip():
+                raise AuditUnavailable(gettext("无法确定 StarRocks FE 默认时区，不能解释审计 timestamp"), "incompatible")
+            cur.execute("SET time_zone = %s", (zone,))
+            select = [f"UNIX_TIMESTAMP({col('timestamp')}) AS ts", f"{col('user')} AS actor",
+                      f"{col('db')} AS db", f"{col('stmt')} AS stmt", f"{col('state')} AS state"]
+            where = [f"{col('timestamp')} >= FROM_UNIXTIME(%s)", f"{col('timestamp')} <= FROM_UNIXTIME(%s)",
+                     f"UPPER({col('state')}) IN ('EOF', 'OK')"]
+            if "isquery" in fields:
+                select.append(f"{col('isquery')} AS is_query")
+                where.append(f"{col('isquery')} = 0")
+            if "querytype" in fields:
+                select.append(f"{col('querytype')} AS query_type")
+                where.append(f"LOWER({col('querytype')}) IN ('query', 'slow_query')")
+            cur.execute(f"SELECT {', '.join(select)} FROM {table} WHERE {' AND '.join(where)} "
+                        f"ORDER BY {col('timestamp')}", (_audit_epoch(since), _audit_epoch(until)))
+            rows = cur.fetchall()
+        except pymysql.MySQLError as exc:
+            cause = _audit_cause(exc)
+            error = str(exc.args[-1] if exc.args else exc)[:300]
+            if cause == "not_enabled":
+                message = gettext("StarRocks 审计表 {table} 不存在；请安装 AuditLoader 插件并绑定审计表（{error}）",
+                                  table=str(value), error=error)
+            elif cause == "no_permission":
+                message = gettext("采集账号无权读取 StarRocks 审计表 {table}；请授予 SELECT 权限（{error}）",
+                                  table=str(value), error=error)
+            else:
+                message = gettext("StarRocks 审计表 {table} 读取失败：{error}", table=str(value), error=error)
+            raise AuditUnavailable(message, cause) from exc
+        except OSError as exc:
+            raise AuditUnavailable(gettext("StarRocks 审计表 {table} 读取失败：{error}", table=str(value),
+                                           error=f"{type(exc).__name__}: {exc}"[:300]), "error") from exc
+        finally:
+            if conn is not None:
+                conn.close()
+
+        length = re.match(r"(?:var)?char\((\d+)\)", fields["stmt"][1])
+        # 外挂插件默认 max_stmt_length=1048576，表列可能更短；自定义更短的插件上限无法从记录中获知。
+        max_bytes = min(int(length.group(1)), 1048576) if length else 1048576
+        databases = set(self.options.get("databases", []))
+        events = []
+        for row in rows:
+            if str(row.get("state", "")).upper() not in {"EOF", "OK"}:
+                continue
+            if "isquery" in fields and str(row.get("is_query")).lower() not in {"0", "false"}:
+                continue
+            if "querytype" in fields and str(row.get("query_type", "")).lower() not in {"query", "slow_query"}:
+                continue
+            statement = row.get("stmt")
+            if not isinstance(statement, str):
+                raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible")
+            parsed = lex(statement)
+            head = parsed.tokens[0] if parsed.tokens else None
+            if head is None or head.kind != "ident" or head.quoted or head.text.upper() not in {
+                "CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE",
+            }:
+                continue
+            depth, balanced = 0, True
+            for token in parsed.tokens:
+                depth += (token.kind == "lparen") - (token.kind == "rparen")
+                balanced = balanced and depth >= 0
+            if not parsed.certain or not balanced or depth or len(statement.encode("utf-8")) >= max_bytes \
+                    or statement.rstrip().endswith("..."):
+                raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible")
+            # 三段目标只覆盖默认 Catalog；共享对象解析器会丢掉 Catalog，先排除其他 Catalog。
+            unsupported = _unsupported_ddl_target(parsed.tokens)
+            if unsupported == "external":
+                continue
+            if unsupported == "escaped":
+                raise AuditUnavailable(gettext("StarRocks 审计记录包含暂不支持的转义对象名称，无法可靠归因"), "incompatible")
+            # 词法结果已去注释和字面量；仅重建对象解析所需的符号，支持迁移工具的前置注释。
+            # 列匹配仍使用原文，且不将重建文本持久化。
+            symbols = {"dot": ".", "semi": ";", "comma": ",", "lparen": "(", "rparen": ")"}
+            target_sql = " ".join(quote_ident(t.text) if t.quoted else t.text if t.kind == "ident"
+                                  else symbols.get(t.kind, "?") for t in parsed.tokens)
+            objects = [obj for obj in objects_in(target_sql, row.get("db") or None)
+                       if not databases or obj[0] in databases]
+            # RENAME COLUMN / INDEX 等不改表名；共享 helper 的第二个对象仅用于改表名。
+            if any(a.text.upper() == "RENAME" and not a.quoted and not b.quoted
+                   and b.text.upper() in {"COLUMN", "INDEX", "PARTITION", "ROLLUP"}
+                   for a, b in zip(parsed.tokens, parsed.tokens[1:])):
+                objects = objects[:1]
+            if not objects:
+                continue
+            actor = row.get("actor")
+            if not isinstance(actor, str) or not actor.strip():
+                raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible")
+            try:
+                at = datetime.fromtimestamp(float(row["ts"]), tz=timezone.utc).replace(tzinfo=None)
+            except (KeyError, ValueError, TypeError, OverflowError, OSError) as exc:
+                raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible") from exc
+            # 原样保留 user：不裁 @host，也不以 authorizedUser 替代，避免合并不同身份。
+            events.append(DdlEvent(at=at, db_user=actor, objects=objects, statement_type=head.text.upper(),
+                                   statement=statement, may_lag=True))
+        return events
 
     # --- 只读执行 ------------------------------------------------------------------
 

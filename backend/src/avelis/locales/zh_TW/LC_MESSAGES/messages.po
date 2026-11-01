@@ -42,9 +42,6 @@ msgstr "format 只能是 pdf、html、md 或 csv"
 msgid "kind 只能是 openai_compatible 或 anthropic"
 msgstr "kind 只能是 openai_compatible 或 anthropic"
 
-msgid "目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
-msgstr "目前只採中繼資料，作為外部資料表 / Catalog 表的追溯目標；檢視表解析與問數執行尚未整合測試"
-
 msgid "{count} 个受影响"
 msgstr "{count} 個受影響"
 
@@ -1790,6 +1787,153 @@ msgstr "column 與 summary 必須且只能填寫一個"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "彙總值不能帶 match 或 exclude"
+
+msgid "DDL 审计表"
+msgstr "DDL 稽核表"
+
+msgid "库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表"
+msgstr "資料庫.資料表，預設表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安裝 AuditLoader 外掛並授予採集帳號 SELECT 權限；留空表示未綁定稽核表"
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
+msgstr "未綁定稽核表：請在資料來源選項 ddl_audit_table 中綁定 AuditLoader 稽核表"
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 MySQL DDL 审计表"
+msgstr "未綁定稽核表：請在資料來源選項 ddl_audit_table 中綁定 MySQL DDL 稽核表"
+
+msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
+msgstr "StarRocks 稽核表名稱無效：請使用資料庫.資料表，可用反引號引用名稱"
+
+msgid "StarRocks 审计表缺少必需字段：{fields}；请核对 AuditLoader 版本和表结构"
+msgstr "StarRocks 稽核表缺少必要欄位：{fields}；請核對 AuditLoader 版本和資料表結構"
+
+msgid "StarRocks 审计表字段类型不符：{fields}"
+msgstr "StarRocks 稽核表欄位類型不符：{fields}"
+
+msgid "无法确定 StarRocks FE 默认时区，不能解释审计 timestamp"
+msgstr "無法確定 StarRocks FE 預設時區，無法解讀稽核 timestamp"
+
+msgid "StarRocks 审计表 {table} 不存在；请安装 AuditLoader 插件并绑定审计表（{error}）"
+msgstr "StarRocks 稽核表 {table} 不存在；請安裝 AuditLoader 外掛並綁定稽核表（{error}）"
+
+msgid "采集账号无权读取 StarRocks 审计表 {table}；请授予 SELECT 权限（{error}）"
+msgstr "採集帳號無權讀取 StarRocks 稽核表 {table}；請授予 SELECT 權限（{error}）"
+
+msgid "StarRocks 审计表 {table} 读取失败：{error}"
+msgstr "StarRocks 稽核表 {table} 讀取失敗：{error}"
+
+msgid "StarRocks 审计记录无效或语句可能被截断，无法可靠归因"
+msgstr "StarRocks 稽核紀錄無效或陳述式可能遭到截斷，無法可靠歸因"
+
+msgid "StarRocks 审计记录包含暂不支持的转义对象名称，无法可靠归因"
+msgstr "StarRocks 稽核紀錄包含暫不支援的跳脫物件名稱，無法可靠歸因"
+
+msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
+msgstr "DDL 稽核來源未涵蓋此 Catalog，無法歸因"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确"
+msgstr "採集帳號需模式上的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體身分；不報告資料新鮮度；2026-11-01 已實機驗證 SQL Server 2022 的 DDL 歸因；需啟用預設追蹤，並授予 ALTER TRACE（相關讀取若需 VIEW SERVER STATE 也須授權）；只採用已提交的物件層級事件；從目前目錄還原的模式僅作候選，無法確證歷史模式或指明欄位時不確定歸因；StartTime 按伺服器本地時間換算 UTC，使用伺服器目前偏移；演示執行個體偏移為 0，本地時間換 UTC 與跨日光節約時間未實機驗證，跨日光節約時間可能不準確"
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取；无记录且无策略的 not_enabled 分支未实机验证"
+msgstr "採集帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體身分；識別字按大寫儲存；不報告資料新鮮度；2026-11-01 已實機驗證 Oracle 23ai Free 的 DDL 歸因，使用自建統一稽核策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 AUDIT_VIEWER；只採用 RETURN_CODE = 0 的成功記錄；優先 EVENT_TIMESTAMP_UTC，舊版 EVENT_TIMESTAMP 在 UTC 稽核工作階段中讀取；無記錄且無策略的 not_enabled 分支未實機驗證"
+
+msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
+msgstr "SQL Server 預設追蹤未啟用（default trace enabled = 0）"
+
+msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
+msgstr "採集帳號缺少 SQL Server 預設追蹤讀取權限（需要 ALTER TRACE；相關讀取可能還需要 VIEW SERVER STATE）"
+
+msgid "无法判断采集账号是否具有 SQL Server 默认跟踪读取权限（ALTER TRACE 权限检查返回 NULL）；请确认相关授权"
+msgstr "無法判斷採集帳號是否具有 SQL Server 預設追蹤讀取權限（ALTER TRACE 權限檢查傳回 NULL）；請確認相關授權"
+
+msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
+msgstr "SQL Server 預設追蹤未執行或沒有可讀取的追蹤檔案"
+
+msgid "SQL Server 默认跟踪配置或服务器时区偏移无法读取"
+msgstr "SQL Server 預設追蹤設定或伺服器時區偏移無法讀取"
+
+msgid "SQL Server 默认跟踪记录结构不符：{error}"
+msgstr "SQL Server 預設追蹤記錄結構不符：{error}"
+
+msgid "SQL Server 默认跟踪读取失败：{error}"
+msgstr "SQL Server 預設追蹤讀取失敗：{error}"
+
+msgid "Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"
+msgstr "Oracle 統一稽核記錄缺少有效的時間、資料庫使用者、操作或物件資訊"
+
+msgid "Oracle 统一审计的 SQL_TEXT 不是文本"
+msgstr "Oracle 統一稽核的 SQL_TEXT 不是文字"
+
+msgid "Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"
+msgstr "Oracle 統一稽核中沒有相關的成功 DDL 記錄，且未啟用記錄這些操作成功結果的稽核策略"
+
+msgid "采集账号无权读取 Oracle 统一审计；请授予 AUDIT_VIEWER 或相应读取权限（{error}）"
+msgstr "採集帳號無權讀取 Oracle 統一稽核；請授予 AUDIT_VIEWER 或相應讀取權限（{error}）"
+
+msgid "Oracle 统一审计来源结构与连接器要求不符（{error}）"
+msgstr "Oracle 統一稽核來源結構與連接器要求不符（{error}）"
+
+msgid "读取 Oracle 统一审计失败（{error}）"
+msgstr "讀取 Oracle 統一稽核失敗（{error}）"
+
+msgid "DDL 审计记录包含 MySQL 可执行注释，无法可靠确定候选"
+msgstr "DDL 稽核紀錄包含 MySQL 可執行註解，無法可靠確認候選"
+
+msgid "DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"
+msgstr "DDL 稽核語句缺少目前資料庫的上下文：存在未限定資料庫名稱的物件，無法可靠確認候選"
+
+msgid "DDL 审计记录包含多条语句，无法可靠确定候选"
+msgstr "DDL 稽核紀錄包含多條語句，無法可靠確認候選"
+
+msgid "超时值必须为正数，未执行"
+msgstr "逾時值必須為正數，未執行"
+
+msgid "DDL 审计候选超过读取上限（{limit} 条），无法完整归因"
+msgstr "DDL 稽核候選超過讀取上限（{limit} 筆），無法完整歸因"
+
+msgid "未绑定 DDL 审计表（options.ddl_audit_table），没有审计来源"
+msgstr "未綁定 DDL 稽核表（options.ddl_audit_table），沒有稽核來源"
+
+msgid "DDL 审计表名称无效：请填写库.表"
+msgstr "DDL 稽核表名稱無效：請填寫資料庫.資料表"
+
+msgid "DDL 审计表 {table} 结构不符：缺少列 {columns}"
+msgstr "DDL 稽核表 {table} 結構不符：缺少欄位 {columns}"
+
+msgid "DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区"
+msgstr "DDL 稽核表 {table} 的 event_time 必須為 TIMESTAMP；不能推測 DATETIME 的時區"
+
+msgid "DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列"
+msgstr "DDL 稽核表 {table} 的 user_host、command_type、argument 必須為文字或二進位欄位"
+
+msgid "DDL 审计表的 {column} 不是有效的 UTF-8 文本"
+msgstr "DDL 稽核表的 {column} 不是有效的 UTF-8 文字"
+
+msgid "MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"
+msgstr "MySQL 通用查詢日誌未寫入資料表：需要 general_log=ON 且 log_output 包含 TABLE"
+
+msgid "读取 DDL 审计表 {table} 失败：{error}"
+msgstr "讀取 DDL 稽核表 {table} 失敗：{error}"
+
+msgid "DDL 审计表的 user_host 无法解析数据库用户名，不能归因"
+msgstr "DDL 稽核表的 user_host 無法解析資料庫使用者名稱，無法歸因"
+
+msgid "DDL 审计表的 event_time 不是有效的时间值"
+msgstr "DDL 稽核表的 event_time 不是有效的時間值"
+
+msgid "查询行数上限不能为负数，未执行"
+msgstr "查詢列數上限不能為負數，未執行"
+
+msgid "MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用"
+msgstr "MySQL 檢視表 {name} 未讀取到定義（需要 SHOW VIEW 權限）；欄位級血緣無法使用"
+
+msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+msgstr "可選擇綁定資料庫.資料表，例如 mysql.general_log；通用日誌需 general_log=ON 且 log_output 包含 TABLE，採集帳號需 SELECT；相容稽核表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；2026-11-01 已实机验证 MySQL 8.4.10；DDL 归因需绑定审计表，未绑定时不支持归因；general_log 实测也记录执行失败的 DDL，只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用唯讀帳號（SELECT 與 SHOW VIEW）；server_uuid 確認執行個體身分；不回報資料新鮮度；2026-11-01 已實機驗證 MySQL 8.4.10；DDL 歸因需綁定稽核表，未綁定時不支援歸因；general_log 實測也記錄執行失敗的 DDL，只作候選證據，與結構變化交叉核對；稽核時間統一以 UTC 讀取"
+
+msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
+msgstr "2026-11-01 已實機驗證 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 歸因需綁定稽核表並授予 SELECT，未綁定時不支援歸因；FE 時區為 UTC，非 UTC 換算未實機驗證；外掛剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配"
 
 #: src/avelis/api/imports.py
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"

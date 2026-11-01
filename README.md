@@ -62,16 +62,18 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 
 | 数据库 | 测试版本 | 采集元数据 | 视图血缘 | 问数查询 | 执行前核对 | 变更归因到用户 |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
+| StarRocks | 3.5.14 + AuditLoader 4.2.2 | ✓ | ✓ | ✓ | ✓ | [✓（2026-11-01 实机验证，需绑定审计表）](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
-| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
+| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 实机验证，需启用默认跟踪） |
+| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 实机验证，需启用统一审计策略） |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
-| MySQL | 8.4 | ✓ | | | | |
+| MySQL | 8.4.10 | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 实机验证，需绑定审计表） |
 
-StarRocks 还能把外部表与 JDBC Catalog 追溯到背后的 MySQL 表；MySQL 目前作为这些外部表的追溯目标采集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支持的引擎，见 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
+StarRocks 还能把外部表与 JDBC Catalog 追溯到背后的 MySQL 表。MySQL 支持视图列级血缘、只读问数与执行前核对；变更归因需绑定 DDL 审计表，例如已开启表输出的 `mysql.general_log`。实测该日志也记录执行失败的 DDL，只作候选证据，需与采集到的结构变化相互印证。MySQL 与 StarRocks 未绑定审计表时，归因状态均为 `unsupported`，原因明确提示“未绑定审计表”。
+
+2026-11-01 的 DDL 实机验证仍有边界：SQL Server 演示实例时区偏移为 0，本地时间换 UTC 与跨夏令时未实机验证；Oracle 使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 `AUDIT_VIEWER`，无记录且无策略的 `not_enabled` 分支未实机验证；StarRocks FE 时区为 UTC，非 UTC 换算未实机验证，AuditLoader 刚安装后的几十秒内可能未记录语句，此时归因为未匹配。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支持的引擎，详情见[引擎核验记录](docs/engines/README.md)与 [ADR 0004](docs/decisions/0004-engine-adapters.md)。
 
 ## 快速开始
 
@@ -166,7 +168,6 @@ pnpm dev
 计划中的方向，不承诺日期：
 
 - 更多引擎的外部 Catalog 与物化视图。
-- StarRocks、SQL Server、Oracle 的变更归因。
 - 问数表达能力：派生指标嵌套、按周 / 月的时间粒度、占比。
 
 版本变化见[更新日志](CHANGELOG.md)。
