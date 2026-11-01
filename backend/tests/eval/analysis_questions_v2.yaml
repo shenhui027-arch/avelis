@@ -1,4 +1,4 @@
-# 评分器 v2 的附加定义（docs/agent-v2/diagnosis.md 第 2 节）：只加 v2 需要的绑定信息，不改 analysis_questions.yaml，
+# 评分器 v2 的附加定义（docs/archive/agent-v2/diagnosis.md 第 2 节）：只加 v2 需要的绑定信息，不改 analysis_questions.yaml，
 # 旧评分器（scoring.py）的输入与历史分数不变。
 #
 # key_bindings：关键数值必须绑定到的语义，与 analysis_questions.yaml 里 key_value 的真值引用一一对应（truth 是列表时按顺序；

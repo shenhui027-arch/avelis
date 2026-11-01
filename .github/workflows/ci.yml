@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - name: 后端
+        working-directory: backend
+        run: uvx ruff@0.17.3 check .
+      - name: 脚本与实验
+        run: uvx ruff@0.17.3 check .
+
+  backend:
+    name: 后端单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - name: 安装中文字体（PDF 导出用，与应用镜像一致）
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-wqy-microhei
+      - name: 安装依赖
+        working-directory: backend
+        run: uv sync --frozen
+      - name: 单元测试（离线，不连数据库与模型）
+        working-directory: backend
+        env:
+          AVELIS_SECRET: offline-unit-test-secret-0123456789
+          AVELIS_ENV_FILE: /nonexistent
+        run: uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
+
+  frontend:
+    name: 前端类型检查与构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11.8.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: 构建
+        working-directory: frontend
+        run: pnpm build

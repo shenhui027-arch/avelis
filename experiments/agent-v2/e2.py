@@ -30,7 +30,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parent), str(ROOT / "scripts"),
                 str(ROOT / "backend"), str(ROOT / "backend" / "src")]
 
 from cost import Ledger, run_cost  # noqa: E402
-from e1 import budget_bounds, plan as _plan  # noqa: E402
+from e1 import budget_bounds  # noqa: E402
+from e1 import plan as _plan  # noqa: E402
 
 SCENARIOS = ("h10", "e01", "h07", "f02", "h09", "d02", "e02", "h05",
              "d06", "f01", "c02", "g01", "d03", "n01", "a02", "h12")
