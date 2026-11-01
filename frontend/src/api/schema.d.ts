@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready */
+        get: operations["ready_api_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/token": {
         parameters: {
             query?: never;
@@ -1263,6 +1280,26 @@ export interface paths {
         };
         /** Export Run */
         get: operations["export_run_api_analysis_runs__run_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analysis/cron/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Cron
+         * @description 按 worker 的业务时区规则预览后续触发时间；表达式错误留给选择器展示。
+         */
+        get: operations["preview_cron_api_analysis_cron_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2696,6 +2733,19 @@ export interface components {
             password: string;
             /** Updated At */
             updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CronPreviewOut */
+        CronPreviewOut: {
+            /** Expr */
+            expr: string;
+            /** Timezone */
+            timezone: string;
+            /** Runs */
+            runs: string[];
+            /** Error */
+            error?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -4324,6 +4374,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    ready_api_health_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -6723,6 +6793,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_cron_api_analysis_cron_preview_get: {
+        parameters: {
+            query: {
+                expr: string;
+                count?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronPreviewOut"];
                 };
             };
             /** @description Validation Error */
