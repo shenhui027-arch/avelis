@@ -6,6 +6,7 @@
 
 **Grounded data Q&A and analysis, built on lineage, governed metrics and change management.**
 
+[![CI](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml/badge.svg)](https://github.com/shenhui027-arch/avelis/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](backend/pyproject.toml)
 [![React](https://img.shields.io/badge/react-19-61DAFB.svg)](frontend/package.json)

@@ -17,7 +17,6 @@ from tests.unit.test_analysis_hitl import reply
 from tests.unit.test_analysis_pipeline import Phased
 from tests.unit.test_join_proposals import state  # noqa: F401
 
-
 SPEC = {"left_asset": "catalog.space.left_records", "left_columns": ["key_a", "key_b"],
         "right_asset": "catalog.space.right_records", "right_columns": ["key_a", "key_b"]}
 TEXT = "space.left_records.key_a = space.right_records.key_a AND space.left_records.key_b = space.right_records.key_b"

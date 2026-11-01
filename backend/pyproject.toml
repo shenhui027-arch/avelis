@@ -57,8 +57,15 @@ addopts = "-m 'not acceptance'"
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.ruff]
+required-version = ">=0.17"
 line-length = 120
 extend-exclude = ["src/avelis/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+# 新代码按 120 列写；存量长行较多，统一格式化前不作为错误，避免与进行中的分支大面积冲突
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest 夹具按参数名注入：从别的测试模块导入夹具后再作为参数出现，会被误报为重复定义
+"tests/**" = ["F811"]

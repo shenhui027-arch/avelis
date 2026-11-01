@@ -17,7 +17,6 @@ from avelis.api.deps import current_user, get_session
 from avelis.governance.errors import GovernanceError
 from avelis.models import User, UserRole
 
-
 NOW = datetime(2026, 11, 1, 23, 30, 45)
 PATH = "/api/analysis/cron/preview"
 

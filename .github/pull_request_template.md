@@ -7,6 +7,7 @@
 <!-- 写实际运行过的命令与结果；没跑的写在“尚未验证”。 -->
 
 - [ ] 后端单元测试：`AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider`
+- [ ] `uvx ruff@0.17.3 check .`（backend 与仓库根目录各一次）
 - [ ] 前端构建：`pnpm build`（frontend）
 - [ ] 界面改动附截图
 

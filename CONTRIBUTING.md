@@ -21,6 +21,7 @@ Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.12), Node.js 
 # Backend
 cd backend
 uv sync
+uvx ruff@0.17.3 check .
 AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
 
 # Frontend
@@ -36,7 +37,7 @@ Unit tests run offline and never call a model or a database. Acceptance tests (`
 1. Fork the repository and create a branch from `main`.
 2. Keep each pull request focused on one change. Separate refactoring from behaviour changes.
 3. Add or update tests. Every bug fix needs a test that fails without the fix.
-4. Make sure the unit tests and `pnpm build` pass.
+4. Make sure `ruff check`, the unit tests and `pnpm build` pass. CI runs the same checks on every pull request.
 5. Update the docs when behaviour, configuration or commands change; follow the [documentation guide](docs/documentation-guide.md).
 6. Fill in the pull request template, including what you verified and what you did not.
 
@@ -69,6 +70,7 @@ By contributing, you agree that your contributions are licensed under the [Apach
 # 后端
 cd backend
 uv sync
+uvx ruff@0.17.3 check .
 AVELIS_SECRET=offline-unit-test-secret-0123456789 AVELIS_ENV_FILE=/nonexistent uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
 
 # 前端
@@ -84,7 +86,7 @@ pnpm build
 1. Fork 仓库，从 `main` 建分支。
 2. 一个 PR 只做一件事；重构与行为变化分开提交。
 3. 补充或更新测试。修复缺陷要有一个“不修就失败”的测试。
-4. 确认单元测试与 `pnpm build` 通过。
+4. 确认 `ruff check`、单元测试与 `pnpm build` 通过；CI 会在每个 PR 上运行同样的检查。
 5. 行为、配置或命令变化时同步更新文档，写法见[文档规范](docs/documentation-guide.md)。
 6. 按 PR 模板填写，写清验证了什么、没验证什么。
 
