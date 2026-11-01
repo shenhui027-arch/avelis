@@ -330,7 +330,9 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
     result = AssistanceResult()
     budget = budget if budget is not None else AssistBudget()
     cached = cached or {}
-    known = _known_tables(schema)
+    # 模型还原的结构只供本文件后续候选使用，不能污染确定性解析的 schema。
+    model_schema = copy.deepcopy(schema)
+    known = _known_tables(model_schema)
     model = resolved if policy.get("send_code") else None
     adapter = model.adapter if model else "demo-rules"
     model_id = (getattr(model.model, "model_name", None) or getattr(model.model, "model", None)
@@ -466,7 +468,8 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
         else:
             operations = ModelOperations.model_validate(raw)
             dropped.extend(raw.get("dropped_operations", []))
-            for operation in operations.operations:
+            # 原文行号决定执行顺序；同一行内保留模型给出的操作顺序。
+            for operation in sorted(operations.operations, key=lambda op: op.line_start):
                 if not block.line_start <= operation.line_start <= operation.line_end <= min(block.line_end, file_end):
                     dropped.append("操作行号不在代码块或文件范围内")
                     continue
@@ -506,7 +509,7 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                 comparison = "conflict" if overlapping else "new"
                 code = "\n".join(content.splitlines()[operation.line_start - 1:operation.line_end])
                 key = f"assist:{len(result.statements)}"
-                parsed = None if missing else parse_statement(sql, dialect=dialect, schema=schema,
+                parsed = None if missing else parse_statement(sql, dialect=dialect, schema=model_schema,
                                                                default_db=operation_db)
                 statement = {
                     "id": key, "seq": len(rule_statements) + len(result.statements) + 1,
@@ -543,6 +546,17 @@ def run_assistance(*, language: str, content: str, rule_statements: list[Any], d
                         })
                 for value in values:
                     add_candidate(value)
+                for write in writes:
+                    if write.status in ("failed", "unsupported", "skipped"):
+                        continue
+                    catalog, db, name = write.target_ref.split(".")
+                    tables = model_schema.setdefault(catalog, {}).setdefault(db, {})
+                    if write.created or name not in tables:
+                        tables[name] = {column: "VARCHAR" for column in write.target_columns}
+                    else:
+                        tables[name].update({column: tables[name].get(column, "VARCHAR")
+                                             for column in write.target_columns})
+                    known[write.target_ref] = set(tables[name])
         if dropped:
             payload["dropped"] = dropped
             result.notes.extend(f"第 {block.line_start} 至 {block.line_end} 行：{problem}" for problem in dropped)
