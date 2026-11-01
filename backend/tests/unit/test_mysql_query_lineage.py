@@ -12,6 +12,7 @@ from avelis.connectors.base import QueryError
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.engines.builtin import MYSQL
 from avelis.lineage.sql import canonical_hash_of, parse_query
+from tests.pymysql_contract import mogrify
 
 
 class Cursor:
@@ -21,6 +22,7 @@ class Cursor:
         self.rows = []
 
     def execute(self, sql, params=None):
+        mogrify(sql, params)
         self.connection.statements.append((sql, params))
         if self.connection.fail_at and self.connection.fail_at in sql:
             raise self.connection.error

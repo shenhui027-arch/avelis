@@ -17,6 +17,7 @@ from avelis.analysis.explore import PROFILES, ExploreRejected
 from avelis.analysis.tools import Budget
 from avelis.connectors.base import QueryError, QueryResult
 from avelis.models import AuditEvent, Datasource
+from tests.pymysql_contract import mogrify
 from tests.unit.test_analysis_explore import resolver as fake_resolver
 from tests.unit.test_analysis_toolbox import make_box
 
@@ -423,7 +424,8 @@ def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_e
         def __init__(self, role):
             self.role = role
 
-        def execute(self, sql):
+        def execute(self, sql, params=None):
+            mogrify(sql, params)
             if self.role == "killer":
                 killed.append(sql)
                 if kill_error == "lost":  # 发 KILL 时通信超时、断连

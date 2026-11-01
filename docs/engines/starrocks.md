@@ -2,7 +2,7 @@
 
 - 环境：本机 Docker，`starrocks/allin1-ubuntu:3.5.14`（`3.5.14-23a56ec`，单 FE + 单 BE），电商维表库 MySQL 8.4.10，见 [ADR 0001](../decisions/0001-demo-environment.md)。
 - 方法：`uv run scripts/demo.py verify` 逐项真实执行（`scripts/sr_probe.py`），原始结果写入 `.demo/sr-verify.json`（不进仓库，口令已替换为 `<redacted>`）。破坏性试验只在临时库 `avelis_probe` 中进行。
-- 日期：2026-10-29。
+- 日期：元数据核验为 2026-10-29；DDL 审计归因补充验证为 2026-11-01，使用 StarRocks 3.5.14 + AuditLoader 4.2.2。
 - 适用范围：以下结论只代表单节点 Docker 环境；多 FE/BE、存算分离、其他版本、生产权限体系仍待验证。
 
 ## 结论速览
@@ -68,15 +68,56 @@ PROPERTIES ("host" = "shop-mysql", "port" = "3306", "user" = "sr_legacy", "passw
 
 ## DDL 变更归因（AuditLoader）
 
-以下是适配器的审计来源约定，与上面的元数据实机核验记录分开。StarRocks 声明可选的 `DDL_AUDIT` 能力：安装并配置官方 AuditLoader 插件、授予采集账号审计表的 `SELECT` 权限后，在数据源选项 `ddl_audit_table` 中填写 `库.表`，名称可用反引号引用。官方示例表名 `starrocks_audit_db__.starrocks_audit_tbl__` 只出现在配置提示中，Avelis 不自动绑定或创建该表；新建数据源时可以留空，留空按 `unsupported` 处理并明确提示“未绑定审计表”，不发起审计读取。
+2026-11-01 已在演示环境的 StarRocks 3.5.14 + AuditLoader 4.2.2 上实机验证 DDL 审计归因。StarRocks 声明可选的 `DDL_AUDIT` 能力：安装并配置官方 AuditLoader 插件、授予采集账号审计表的 `SELECT` 权限后，在数据源选项 `ddl_audit_table` 中填写 `库.表`，名称可用反引号引用。官方示例表名 `starrocks_audit_db__.starrocks_audit_tbl__` 只出现在配置提示中，Avelis 不自动绑定或创建该表；新建数据源时可以留空，留空按 `unsupported` 处理并明确提示“未绑定审计表”，不发起审计读取。
+
+以下建表示例对应 **AuditLoader 4.2.2** 的 Stream Load 列清单，27 列的名称与顺序均须一致；该版本没有 `warehouse` 列。其他插件版本须按其实际列清单核对，不能直接沿用此表。
+
+```sql
+CREATE DATABASE IF NOT EXISTS starrocks_audit_db__;
+CREATE TABLE starrocks_audit_db__.starrocks_audit_tbl__ (
+    `queryId` VARCHAR(48),
+    `timestamp` DATETIME,
+    `queryType` VARCHAR(12),
+    `clientIp` VARCHAR(128),
+    `user` VARCHAR(128),
+    `authorizedUser` VARCHAR(128),
+    `resourceGroup` VARCHAR(128),
+    `catalog` VARCHAR(128),
+    `db` VARCHAR(128),
+    `state` VARCHAR(128),
+    `errorCode` VARCHAR(128),
+    `queryTime` BIGINT,
+    `scanBytes` BIGINT,
+    `scanRows` BIGINT,
+    `returnRows` BIGINT,
+    `cpuCostNs` BIGINT,
+    `memCostBytes` BIGINT,
+    `stmtId` INT,
+    `isQuery` TINYINT,
+    `feIp` VARCHAR(128),
+    `stmt` VARCHAR(1048576),
+    `digest` VARCHAR(32),
+    `planCpuCosts` DOUBLE,
+    `planMemCosts` DOUBLE,
+    `pendingTimeMs` BIGINT,
+    `candidateMVs` VARCHAR(65533),
+    `hitMvs` VARCHAR(65533)
+)
+ENGINE = OLAP
+DUPLICATE KEY(`queryId`, `timestamp`, `queryType`)
+DISTRIBUTED BY HASH(`queryId`) BUCKETS 1
+PROPERTIES ("replication_num" = "1");
+```
+
+此示例使用演示环境的单副本；生产环境的副本数、分桶与保留策略须按集群配置确定。插件写入账号与 Avelis 采集账号分别授权，后者只需读取该表。
 
 版本与字段按实际来源检查，不凭 StarRocks 版本号猜表结构。[StarRocks 3.3 的 AuditLoader 文档](https://docs.starrocks.io/docs/3.3/administration/management/audit_loader/) 给出的 5.0.0 插件示例支持 StarRocks 3.3.11+；[插件仓库的 4.2.1 示例](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/README.md) 写的是 StarRocks 2.5+。这两份示例不构成完整的历史兼容矩阵。适配器要求 `timestamp`、`user`、`db`、`stmt`、`state`，以及 `isQuery`、`queryType`、`stmtType`、`stmt_type` 中至少一列；字段名比较不区分大小写。缺列或基本字段类型不符，降级为 `incompatible` 并说明缺少或不兼容的字段。
 
 只采用 `state` 为 `EOF` 或 `OK` 的成功记录；有 `isQuery` 时要求为 false/0。`queryType` 是审计日志类别，不是 SQL 语句类型：`query`、`slow_query` 可包含 DDL，`connection` 排除，仍须按 SQL 的 `CREATE`、`ALTER`、`DROP`、`RENAME`、`TRUNCATE` 白名单解析对象与列，排除 `SELECT` 和 DML。范围仅限 `default_catalog`，明确指向其他 Catalog 的语句跳过，外部 Catalog 的同名资产归因为 `unsupported`。执行人原样取 `user`，保留可能存在的 `@host`，不裁掉 host，也不改取 `authorizedUser`，以免合并不同身份。对象、列、执行人或时间不能可靠确定时，沿用 [ADR 0008](../decisions/0008-history-integrity.md) 的保守归因规则，保留未知或歧义。
 
-外挂插件使用 FE JVM 默认时区把时间写为无时区的 `timestamp`（见[固定版本源码](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/src/main/java/com/starrocks/plugin/audit/AuditLoaderPlugin.java#L61)）。读取时先取 `@@system_time_zone`，仅在独立的审计连接设置 `time_zone`，再通过 `UNIX_TIMESTAMP(timestamp)` 和 `FROM_UNIXTIME` 按相同设置换算 UTC 时间与查询边界；不沿用业务查询会话的时区。StarRocks 的会话与系统时区含义见[官方时区文档](https://docs.starrocks.io/docs/administration/management/timezone/)。使用前须确保所有 FE 的 JVM 默认时区一致；一次连接的探测不能证明其他 FE 的配置也一致。
+外挂插件使用 FE JVM 默认时区把时间写为无时区的 `timestamp`（见[固定版本源码](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/src/main/java/com/starrocks/plugin/audit/AuditLoaderPlugin.java#L61)）。读取时先取 `@@system_time_zone`，仅在独立的审计连接设置 `time_zone`，再通过 `UNIX_TIMESTAMP(timestamp)` 和 `FROM_UNIXTIME` 按相同设置换算 UTC 时间与查询边界；不沿用业务查询会话的时区。StarRocks 的会话与系统时区含义见[官方时区文档](https://docs.starrocks.io/docs/administration/management/timezone/)。本次实机验证的 FE 时区为 UTC，非 UTC 时区换算未实机验证。使用前须确保所有 FE 的 JVM 默认时区一致；一次连接的探测不能证明其他 FE 的配置也一致。
 
-AuditLoader 批量异步导入审计记录，近期变更可能尚未入表。所有事件设 `may_lag=True`，现有归因规则允许把上次快照前 60 秒内的相关语句纳入边界候选；60 秒是匹配窗口容差，不承诺审计记录在 60 秒内落盘，也不会追写已完成的历史归因。读取成功不能证明审计覆盖完整。
+AuditLoader 批量异步导入审计记录，近期变更可能尚未入表。实机观察到插件刚安装后的几十秒内执行的语句可能没有写入审计表，此时归因为未匹配（`unmatched`）。所有事件设 `may_lag=True`，现有归因规则允许把上次快照前 60 秒内的相关语句纳入边界候选；60 秒是匹配窗口容差，不承诺审计记录在 60 秒内落盘，也不会追写已完成的历史归因。读取成功不能证明审计覆盖完整。
 
 插件会按字节[截断超长 `stmt`](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/src/main/java/com/starrocks/plugin/audit/AuditLoaderPlugin.java#L251)，[默认 `max_stmt_length` 为 1048576](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/src/main/java/com/starrocks/plugin/audit/AuditLoaderPlugin.java#L348)。DDL 的语句字节数达到 `stmt` 的 VARCHAR 长度与该默认上限中较小的一项、词法或括号未闭合、括号不匹配或以 `...` 结束时，按 `incompatible` 处理，不使用可能被截断的语句确定执行人。前置 SQL 注释不会隐藏 DDL；共享解析器无法可靠处理的转义引用对象名也降为 `incompatible`，不把名称前缀当成另一个对象，也不丢弃改名旧对象上的竞争用户。若管理员把插件 `max_stmt_length` 调得更短，且截断后的文本恰好仍是一条完整 SQL，单凭记录无法可靠识别；应保留足够的插件上限与表列长度。
 

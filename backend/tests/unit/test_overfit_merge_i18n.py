@@ -12,6 +12,7 @@ from avelis.connectors import starrocks
 from avelis.connectors.base import QueryError, checked_timezone
 from avelis.governance.errors import Invalid
 from avelis.i18n import Msg, locale_context, translate
+from tests.pymysql_contract import mogrify
 from tests.unit.test_overfit_batch2 import meta_validate
 
 
@@ -84,7 +85,8 @@ def test_starrocks_fixed_offset_warning_translates_and_keeps_timezone_parameters
         def __init__(self):
             self.statements = []
 
-        def execute(self, sql):
+        def execute(self, sql, params=None):
+            mogrify(sql, params)
             self.statements.append(sql)
             if len(self.statements) == 1:
                 raise pymysql.err.OperationalError(1298, "Unknown or incorrect time zone")

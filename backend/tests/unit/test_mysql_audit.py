@@ -11,6 +11,8 @@ from avelis.connectors import mysql_audit
 from avelis.connectors.ddl import AuditUnavailable, column_refs
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.mysql_audit import _objects, _table, audit_source
+from avelis.i18n import locale_context
+from tests.pymysql_contract import mogrify
 from tests.unit.test_history import T0, WINDOW, _asset, _attribute, _event
 
 SCHEMA = [{"Field": name, "Type": kind} for name, kind in (
@@ -34,6 +36,7 @@ class _Cursor:
         self.mode = ""
 
     def execute(self, sql, params=None):
+        mogrify(sql, params)
         self.calls.append((sql, params))
         if self.fail_on and self.fail_on[0] in sql:
             raise self.fail_on[1]
@@ -92,6 +95,37 @@ def test_unbound_is_explicit_without_connecting(monkeypatch, source):
         connector.ddl_events(T0, T0)
     assert caught.value.cause == "not_enabled"
     assert not conn.closed and not cur.calls
+
+
+@pytest.mark.parametrize("source", [None, "", "   "])
+def test_unbound_attribution_is_unsupported_without_connecting(monkeypatch, source):
+    connector, _, cur = _connector(monkeypatch, source=source)
+
+    def forbidden(**_kwargs):
+        pytest.fail("未绑定审计表时不能连接数据库")
+
+    monkeypatch.setattr(connector, "_connect", forbidden)
+    changes = [_event("column_added", "channel"), _event("derivation_changed")]
+    result = _attribute(changes, connector, engine="mysql")
+    assert result["status"] == "unsupported"
+    assert changes[0]["attribution_status"] == "unsupported" and changes[0]["actor_db_user"] is None
+    assert "未绑定审计表" in changes[0]["attribution"]["reason"]
+    assert changes[1]["attribution_status"] == "not_applicable"
+    assert not cur.calls
+
+
+def test_unbound_reason_translates_at_request_time():
+    connector = MySQLMetaConnector("unused", 3306, "collector", "unused", {"databases": ["store"]})
+    reasons = []
+    for locale, needle in (("zh-CN", "未绑定审计表"), ("zh-TW", "未綁定稽核表"), ("en", "audit")):
+        change = _event("column_added", "channel")
+        with locale_context(locale):
+            result = _attribute([change], connector, engine="mysql")
+        assert result["status"] == "unsupported"
+        reason = change["attribution"]["reason"]
+        assert needle in reason and "MySQL" in reason and "ddl_audit_table" in reason
+        reasons.append(reason)
+    assert len(set(reasons)) == 3
 
 
 @pytest.mark.parametrize("source", ["general_log", "mysql.general_log; DROP TABLE store.sales", "a.b.c", [], 1])
@@ -206,7 +240,8 @@ def test_query_and_execute_are_candidates_but_prepare_and_dml_are_not(monkeypatc
     assert all(e.objects == [("store", "sales")] and e.certain is None for e in events)
     assert "command_type IN ('Query', 'Execute')" in cur.calls[-1][0]
     for word in ("CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE"):
-        assert f"LIKE '%{word}%'" in cur.calls[-1][0]
+        assert f"LIKE '%%{word}%%'" in cur.calls[-1][0]
+        assert f"LIKE '%{word}%'" in mogrify(*cur.calls[-1])
     assert "CONVERT(argument USING utf8mb4)" in cur.calls[-1][0]
 
 
@@ -454,6 +489,7 @@ def test_attribution_explains_unbound_instead_of_claiming_no_ddl(monkeypatch):
     connector, _, _ = _connector(monkeypatch, source=None)
     event = _event("column_added", "channel")
     result = _attribute([event], connector, engine="mysql")
-    assert result["status"] == event["attribution_status"] == "unavailable"
-    assert event["attribution"]["cause"] == "not_enabled"
-    assert "未绑定 DDL 审计表" in event["attribution"]["reason"]
+    assert result["status"] == event["attribution_status"] == "unsupported"
+    assert event["actor_db_user"] is None
+    assert event["attribution"]["reason"] == connector.ddl_audit_unbound_reason
+    assert "未绑定审计表" in event["attribution"]["reason"]

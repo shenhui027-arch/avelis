@@ -18,6 +18,7 @@ from sqlglot import exp
 
 from avelis import demo_setup
 from tests.eval import scoring, scoring_v2, scoring_v2_1, scoring_v2_1_1
+from tests.pymysql_contract import mogrify
 
 ROOT = Path(__file__).resolve().parents[3]
 QUESTIONS = ROOT / "backend/tests/eval/analysis_questions_mfg.yaml"
@@ -423,7 +424,8 @@ def test_grant_uses_select_only_for_manufacturing_databases(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def execute(self, sql):
+        def execute(self, sql, params=None):
+            mogrify(sql, params)
             statements.append(sql)
 
     class Connection:

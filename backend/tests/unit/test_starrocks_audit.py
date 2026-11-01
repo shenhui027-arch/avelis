@@ -14,6 +14,7 @@ from avelis.connectors.starrocks import StarRocksConnector
 from avelis.engines import get_engine
 from avelis.engines.base import DDL_AUDIT
 from avelis.i18n import locale_context
+from tests.pymysql_contract import mogrify
 
 AUDIT_TABLE = "starrocks_audit_db__.starrocks_audit_tbl__"
 T0 = datetime(2026, 10, 30, 8)
@@ -108,6 +109,7 @@ class _Cursor:
         self.calls, self.result = [], []
 
     def execute(self, sql, params=None):
+        mogrify(sql, params)
         self.calls.append((sql, params))
         if sql.startswith("SHOW COLUMNS"):
             stage, self.result = "columns", self.columns

@@ -62,16 +62,18 @@ Each database is an engine adapter. Versions are the ones Avelis has been tested
 
 | Database | Tested version | Metadata | View lineage | Q&A queries | Pre-query schema check | DDL attribution |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | [✓ (requires an AuditLoader audit table)](docs/engines/starrocks.md#ddl-变更归因auditloader) |
+| StarRocks | 3.5.14 + AuditLoader 4.2.2 | ✓ | ✓ | ✓ | ✓ | [✓ (live-verified 2026-11-01; audit table required)](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | ✓ (default trace required) |
-| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓ (unified audit policy required) |
+| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | ✓ (live-verified 2026-11-01; default trace required) |
+| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓ (live-verified 2026-11-01; unified audit policy required) |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
-| MySQL | 8.4 | ✓ | ✓ | ✓ | ✓ | ✓ (audit table required) |
+| MySQL | 8.4.10 | ✓ | ✓ | ✓ | ✓ | ✓ (live-verified 2026-11-01; audit table required) |
 
-StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL supports column-level view lineage, read-only Q&A queries and pre-query schema checks. DDL attribution requires a bound audit table, such as `mysql.general_log` with table output enabled; its records are candidate evidence and must agree with collected schema changes. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
+StarRocks also resolves external tables and JDBC catalogs to the MySQL tables behind them. MySQL supports column-level view lineage, read-only Q&A queries and pre-query schema checks. DDL attribution requires a bound audit table, such as `mysql.general_log` with table output enabled. Live testing confirmed that this log also records failed DDL, so its records are candidate evidence and must agree with collected schema changes. For both MySQL and StarRocks, leaving the audit table unbound produces `unsupported` attribution with a reason stating that no audit table is bound.
+
+The DDL validation on 2026-11-01 has these limits: the SQL Server demo instance had a time zone offset of 0, so local-time conversion to UTC and daylight-saving transitions were not live-tested. Oracle used a custom unified audit policy covering CREATE / ALTER / DROP TABLE, CREATE / DROP VIEW, COMMENT, RENAME and TRUNCATE TABLE, with `AUDIT_VIEWER`; the `not_enabled` branch for no records and no policy was not live-tested. The StarRocks FE used UTC, so non-UTC conversion was not live-tested. Statements executed within the first few tens of seconds after AuditLoader installation may be absent from the audit table and remain unmatched. Only engines supported by [SQLGlot](https://github.com/tobymao/sqlglot) are added; see the [engine validation records](docs/engines/README.md) and [ADR 0004](docs/decisions/0004-engine-adapters.md) (Simplified Chinese).
 
 ## Quick start
 
