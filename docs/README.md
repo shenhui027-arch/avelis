@@ -4,6 +4,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [product-tour.md](product-tour.md) | 界面导览：登录、工作台、问数与分析会话、导出、数据集、个人经验、血缘、目录、设置的截图与说明 |
 | [deployment.md](deployment.md) | 部署指南：Docker Compose、外部 PostgreSQL / Redis、不用 Docker 部署、升级、备份、排障 |
 | [configuration.md](configuration.md) | 配置参考：全部 `AVELIS_*` 环境变量、默认值与是否必填 |
 | [development.md](development.md) | 开发指南：后端与前端开发命令、本地演示环境、一条命令复现验收 |
