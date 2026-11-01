@@ -1,0 +1,55 @@
+# Hive 适配器联调环境（独立 Compose 项目 avelis-hive，与共享演示环境 avelis-demo 的容器、网络、数据卷完全隔离）。
+#
+#   hive     HiveServer2 4.1（内嵌 Derby 元数据库，不挂数据卷：重建即清空，由测试重新建库建表）。
+#            认证方式由 HIVE_AUTH 选择：NONE（默认）/ NOSASL / LDAP；开启 ACID 事务管理器，物化视图依赖它。
+#   ldap     OpenLDAP，只在 HIVE_AUTH=LDAP 时被 Hive 用到；用户 DN 为 cn=<账号>,dc=avelis,dc=test，
+#            联调用管理员账号 admin（口令 HIVE_LDAP_PASSWORD）。
+#   meta-pg  只给这组联调用的元数据库（库名以 _test 结尾，测试会清空它），不连共享演示环境的元数据库。
+#
+# 启动（口令只放在环境变量里，不写进仓库）：
+#   HIVE_LDAP_PASSWORD=… HIVE_META_PG_PASSWORD=… docker compose -f deploy/demo/hive/compose.yaml up -d
+#   切换认证方式：HIVE_AUTH=LDAP … docker compose -f deploy/demo/hive/compose.yaml up -d hive
+#   hive 容器不能 restart / start（镜像残留 PID 文件，HiveServer2 报 “running as process 1” 退出），用 up -d --force-recreate hive
+# 联调测试见 backend/tests/metadb/test_hive_collect.py。
+name: avelis-hive
+
+services:
+  hive:
+    image: apache/hive:4.1.0@sha256:b957bb0e698e560d24e162b7549d79f191d58703e92899a886618c317f6e8f30
+    environment:
+      SERVICE_NAME: hiveserver2
+      SERVICE_OPTS: >-
+        -Dhive.server2.authentication=${HIVE_AUTH:-NONE}
+        -Dhive.server2.authentication.ldap.url=ldap://ldap:389
+        -Dhive.server2.authentication.ldap.userDNPattern=cn=%s,dc=avelis,dc=test
+        -Dhive.support.concurrency=true
+        -Dhive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager
+        -Dhive.compactor.initiator.on=false
+    ports:
+      - "127.0.0.1:${HIVE_PORT:-20000}:10000"
+    mem_limit: 3g
+    depends_on:
+      - ldap
+
+  ldap:
+    image: osixia/openldap:1.5.0
+    environment:
+      LDAP_ORGANISATION: Avelis
+      LDAP_DOMAIN: avelis.test
+      LDAP_ADMIN_PASSWORD: ${HIVE_LDAP_PASSWORD:?set HIVE_LDAP_PASSWORD}
+      LDAP_TLS: "false"
+
+  meta-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: avelis_hive_test
+      POSTGRES_USER: avelis
+      POSTGRES_PASSWORD: ${HIVE_META_PG_PASSWORD:?set HIVE_META_PG_PASSWORD}
+    ports:
+      - "127.0.0.1:${HIVE_META_PG_PORT:-25432}:5432"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.240.19.0/24  # 显式子网：本机默认地址池常被占满（与部署编排 10.240.18.0/24 相邻、不重叠）
