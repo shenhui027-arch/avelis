@@ -14,37 +14,145 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
-SECRET_PATTERN = re.compile(
-    r"(?P<prefix>(?<![\w-])(?P<key_quote>['\"]?)(?:[^\W\d][\w-]*?)?"
+_SECRET_KEY = (
+    r"(?:[^\W\d][\w-]*?)?"
     r"(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key)"
-    r"(?P=key_quote)\s*[=:]\s*)"
-    r"(?P<value>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|\"(?:\\[\s\S]|[^\"\\])*\"|"
-    r"'(?:\\[\s\S]|[^'\\])*'|[^\s,;)\]}#]+)"
-    r"|(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-]+:)(?P<password>[^@\s'\"]+)(?=@[\w.\[-])"
+)
+_URL_USER = r"(?<![a-z0-9_.~%+-])(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-]+:)"
+_URL_USER_PATTERN = re.compile(_URL_USER, re.I)
+# 这里只定位行内的键/分隔符，取值另行扫描，避免两组空白相互回溯。
+SECRET_PATTERN = re.compile(
+    rf"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"])?{_SECRET_KEY}"
+    r"(?(key_quote)(?P=key_quote)(?:[ \t]*+\])?)"
+    r"(?(cli)(?:[ \t]*+(?P<cli_separator>[=:])[ \t]*+|[ \t]++(?![=:]))|"
+    r"[ \t]*+(?P<assignment_separator>[=:])[ \t]*+))"
+    # URL 这里只匹配用户名；密码的终点由线性扫描预先定位。
+    rf"|{_URL_USER}"
     r"|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}\b",
     re.I,
 )
+_INLINE_SECRET_VALUE = re.compile(
+    # 连续的引号片段属于同一个值（如 shell 的 foo"bar baz"），不能留下拼接的后半段。
+    r'(?:"(?:\\[^\r\n]|[^"\\\r\n])*+(?:"|$)|'
+    r"'(?:\\[^\r\n]|[^'\\\r\n])*+(?:'|$)|"
+    r"\\[^\r\n]|[^\r\n \t\f\v,;)\]}\"'\\]++)++"
+)
+_CONTINUATION = re.compile(r"\\\r?\n")
+_TRIPLE_QUOTE = re.compile('"""|\'\'\'')
+_URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
+
+
+def _url_password_ends(line: str) -> list[int]:
+    """每个片段只扫描一次，不能为每个冒号重新搜索整段密码。"""
+    ends = [0] * len(line)
+    for part in _URL_PART.finditer(line):
+        end = part.end()
+        if end + 1 < len(line) and line[end] == "@":
+            host_start = line[end + 1]
+            if host_start.isalnum() or host_start in "_.[-":
+                ends[part.start():end] = [end] * (end - part.start())
+    return ends
+
+
+def _logical_text(text: str) -> tuple[str, list[int]]:
+    """只折叠显式续行；保留原文坐标，让未遮蔽的格式逐字不变。"""
+    parts: list[str] = []
+    offsets: list[int] = []
+    start = 0
+    for match in _CONTINUATION.finditer(text):
+        parts.append(text[start:match.start()])
+        offsets.extend(range(start, match.start()))
+        start = match.end()
+    parts.append(text[start:])
+    offsets.extend(range(start, len(text)))
+    offsets.append(len(text))
+    return "".join(parts), offsets
 
 
 def redact(text: str) -> tuple[str, int]:
-    count = 0
+    logical, offsets = _logical_text(text)
+    edits: list[tuple[int, int, str]] = []
 
-    def replace(match: re.Match) -> str:
-        nonlocal count
-        if match.group("prefix") is not None:
-            value = match.group("value")
-            quote = next((q for q in ('\"\"\"', "'''", '\"', "'") if value.startswith(q)), "")
-            replacement = match.group("prefix") + quote + "<redacted>" + quote
-        elif match.group("user") is not None:
-            replacement = match.group("user") + "<redacted>"
-        else:
-            replacement = "<redacted>"
-        if replacement != match.group(0):
-            count += 1
-        return replacement
+    def cover(start: int, end: int, replacement: str = "<redacted>") -> None:
+        original_start = offsets[start]
+        original_end = offsets[end - 1] + 1 if end > start else original_start
+        if text[original_start:original_end] != replacement:
+            edits.append((original_start, original_end, replacement))
 
-    # 一次匹配替换，避免同一个赋值中的 URL 或 API key 被重复计数。
-    return SECRET_PATTERN.sub(replace, text), count
+    def triple_end(start: int) -> int:
+        quote = logical[start:start + 3]
+        closing = logical.find(quote, start + 3)
+        # 不完整的代码片段也不能泄露尚未闭合的多行值。
+        return closing + 3 if closing >= 0 else len(logical)
+
+    start = skip_until = 0
+    pending = False
+    while start < len(logical):
+        newline = logical.find("\n", start)
+        stop = newline if newline >= 0 else len(logical)
+        end = stop - 1 if stop > start and logical[stop - 1] == "\r" else stop
+        if end >= skip_until:
+            line = logical[start:end]
+            position = max(0, skip_until - start)
+            if pending:
+                # 下一条逻辑行无条件整行遮蔽，不猜测它是不是另一条赋值。
+                mask_end = end
+                scan = start
+                while (triple := _TRIPLE_QUOTE.search(logical, scan, mask_end)) is not None:
+                    closing = triple_end(triple.start())
+                    scan = closing
+                    if closing > mask_end:
+                        closing_newline = logical.find("\n", closing)
+                        mask_end = closing_newline if closing_newline >= 0 else len(logical)
+                        if mask_end > closing and logical[mask_end - 1] == "\r":
+                            mask_end -= 1
+                cover(start, mask_end)
+                skip_until = mask_end
+                pending = False
+                position = len(line)
+            url_ends = _url_password_ends(line) if position < len(line) else []
+            while position < len(line):
+                match = SECRET_PATTERN.search(line, position)
+                if match is None:
+                    break
+                position = match.end()
+                if match.group("prefix") is not None:
+                    password_end = url_ends[match.start()]
+                    if password_end > position and _URL_USER_PATTERN.fullmatch(line, match.start(), position):
+                        # 用户名也可能叫 password；按完整 URL 处理才能保留主机且保持幂等。
+                        cover(start + position, start + password_end)
+                        position = password_end
+                    elif position == len(line):
+                        pending = bool(match.group("cli_separator") or match.group("assignment_separator"))
+                    elif logical.startswith(('"""', "'''"), start + position):
+                        value_start = start + position
+                        value_end = triple_end(value_start)
+                        quote = logical[value_start:value_start + 3]
+                        cover(value_start, value_end, quote + "<redacted>" + quote)
+                        skip_until = value_end
+                        position = value_end - start
+                    else:
+                        value = _INLINE_SECRET_VALUE.match(line, position)
+                        if value is not None:
+                            quote = line[position] if line[position] in "\"'" else ""
+                            cover(start + position, start + value.end(), quote + "<redacted>" + quote)
+                            position = value.end()
+                elif match.group("user") is not None:
+                    password_end = url_ends[match.start()]
+                    if password_end > position:
+                        cover(start + position, start + password_end)
+                        position = password_end
+                else:
+                    cover(start + match.start(), start + match.end())
+        start = stop + 1
+
+    parts: list[str] = []
+    cursor = 0
+    for start, end, replacement in edits:
+        parts.extend((text[cursor:start], replacement))
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts), len(edits)
 
 
 @dataclass

@@ -13,7 +13,8 @@ from avelis.importer.extract import extract_python
     ("{'token': 'token-secret'}", ["token-secret"], 1),
     ('password = "space secret"', ["space secret"], 1),
     ("PASSWORD=environment-secret", ["environment-secret"], 1),
-    ('"password" \n : \n "multiline-secret"', ["multiline-secret"], 1),
+    # 普通换行不能连接键和分隔符；保留旧输入，明确验证新的逻辑行边界。
+    ('"password" \n : \n "multiline-secret"', [], 0),
     ("token = '''first-secret\nsecond-secret'''", ["first-secret", "second-secret"], 1),
     ('password = "escaped\\\"secret"', ["escaped", "secret"], 1),
     ('jdbc:mysql://etl_user:connection-secret@host/db', ["connection-secret"], 1),
@@ -28,6 +29,80 @@ def test_redact_common_secret_forms_once(source, secrets, count):
     assert hits == count
     assert cleaned.count("<redacted>") == count
     assert all(secret not in cleaned for secret in secrets)
+    assert redact(cleaned) == (cleaned, 0)
+    if not count:
+        assert cleaned == source
+
+
+@pytest.mark.parametrize("key", ["password", "api-key", "service-api-key"])
+@pytest.mark.parametrize("separator", ["=", ":", " ", "\t", " \t ", " \\\n  ", " \\\r\n\t"])
+@pytest.mark.parametrize("quote", ["", "'", '\"'])
+def test_redact_cli_secret_values_and_preserve_flags(key, separator, quote):
+    source = f'client --{key}{separator}{quote}synthetic-only-secret{quote} --mode=public'
+    expected = f'client --{key}{separator}{quote}<redacted>{quote} --mode=public'
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("trailing_space", ["", " \t"])
+@pytest.mark.parametrize("assignment", ['password = "actual secret"', '"password": "actual secret"'])
+def test_redact_cli_flag_does_not_consume_next_line_assignment(newline, trailing_space, assignment):
+    source = f"# run with --password{trailing_space}{newline}{assignment}{newline}"
+    expected = source.replace("actual secret", "<redacted>")
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["# run with --password", "password"])
+@pytest.mark.parametrize("separator", ["=", ":"])
+@pytest.mark.parametrize("spacing", ["", " \t"])
+@pytest.mark.parametrize("assignment", [
+    'password = "synthetic-only"',
+    '\t"password": "synthetic-only"',
+    'service-api-key = "synthetic-only"',
+    '--auth-token "synthetic-only"',
+])
+def test_redact_separator_at_line_end_masks_entire_next_assignment(
+    newline, prefix, separator, spacing, assignment,
+):
+    source = f"{prefix}{spacing}{separator}{spacing}{newline}{assignment}"
+    # 空值后不识别下一行的键形态，按新规则保守遮蔽整条逻辑行。
+    expected = source[:source.index(newline) + len(newline)] + "<redacted>"
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["client --password", "password"])
+@pytest.mark.parametrize("separator", ["=", ":"])
+@pytest.mark.parametrize("value", ['"s3cret"', "s3cret", "'password literal'"])
+def test_redact_value_on_next_line(newline, prefix, separator, value):
+    source = f"{prefix} \t{separator} \t{newline}    {value}"
+    # 包括缩进、引号在内的下一整行都是遮蔽范围。
+    expected = source[:source.index(newline) + len(newline)] + "<redacted>"
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("separator", ["=", ":"])
+@pytest.mark.parametrize("position", ["before", "after", "both"])
+def test_redact_cli_separator_with_explicit_shell_continuation(newline, separator, position):
+    continuation = f" \\{newline}\t"
+    before = continuation if position in ("before", "both") else " \t"
+    after = continuation if position in ("after", "both") else " \t"
+    source = f'client --password{before}{separator}{after}"synthetic-only" --mode=public'
+    expected = source.replace("synthetic-only", "<redacted>")
+    assert redact(source) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("key", ["--password-policy", "--auth-token-expiry", "public--password-policy"])
+def test_redact_preserves_cli_names_without_a_sensitive_ending(key):
+    source = f'client {key}=public'
+    assert redact(source) == (source, 0)
 
 
 @pytest.mark.parametrize("source,expected", [

@@ -401,7 +401,6 @@ def _previous_data(session: Session, previous: ImportJob | None):
 
 def _persist_prepared(session: Session, actor: User, batch: ImportBatch, prepared: list[PreparedFile], assets: dict,
                       notes: list[str]) -> None:
-    session.scalar(select(Datasource).where(Datasource.id == batch.datasource_id).with_for_update())
     jobs_by_id, statements_by_id, decisions, matched = {}, {}, {}, set()
     totals = Counter()
     old_counts = {}
@@ -727,8 +726,10 @@ def run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None 
         prepared, notes = _prepare(batch, files, contents, schema, dialect, separators,
                                    model_schema, reused_statements)
         with session_scope() as session:
-            live = session.scalar(select(ImportBatch).where(ImportBatch.id == batch_id).with_for_update())
             _check_attempt(session, job_id, attempt)
+            # 复核会在持有数据源锁时刷新引用批次；阶段二也必须先锁数据源，再锁批次。
+            session.scalar(select(Datasource).where(Datasource.id == batch.datasource_id).with_for_update())
+            live = session.scalar(select(ImportBatch).where(ImportBatch.id == batch_id).with_for_update())
             actor = session.get(User, live.created_by)
             _persist_prepared(session, actor, live, prepared, assets, notes)
         # 模型调用逐文件隔离；外发、缓存与校验由 assist 控制。
