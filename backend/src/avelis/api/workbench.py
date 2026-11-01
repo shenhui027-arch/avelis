@@ -186,7 +186,7 @@ def workbench(user: User = Depends(current_user), session: Session = Depends(get
                        events[0] if events else None)
         asset = session.get(Asset, primary.asset_id) if primary and primary.asset_id else None
         recent.append({"id": cs.id, "asset": f"{asset.db_name}.{asset.name}" if asset else "（数据源）",
-                       "kind": EVENT_LABELS.get(primary.kind, primary.kind) if primary else "",
+                       "kind": gettext(EVENT_LABELS.get(primary.kind, primary.kind)) if primary else "",
                        "events": len(events), "impacts": (cs.summary or {}).get("impacts", 0), "status": cs.status,
                        "at": _iso(cs.created_at)})
 

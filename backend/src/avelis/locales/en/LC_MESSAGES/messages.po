@@ -1395,3 +1395,57 @@ msgstr "Plans multi-step analyses, uses context and query tools, and writes repo
 
 msgid "未配置有效的问数理解模型：使用演示模型（规则匹配）"
 msgstr "No valid question understanding model is configured; using the demo model (rule matching)"
+
+msgid "新增"
+msgstr "Added"
+
+msgid "删除"
+msgstr "Dropped"
+
+msgid "改名"
+msgstr "Renamed"
+
+msgid "定义变化"
+msgstr "Definition changed"
+
+msgid "字段推导变化"
+msgstr "Column derivation changed"
+
+msgid "上游缺失"
+msgstr "Upstream missing"
+
+msgid "新增列"
+msgstr "Column added"
+
+msgid "删除列"
+msgstr "Column dropped"
+
+msgid "类型变化"
+msgstr "Type changed"
+
+msgid "改名候选"
+msgstr "Rename candidate"
+
+msgid "粒度变化"
+msgstr "Grain changed"
+
+msgid "同一张表匹配变化"
+msgstr "Same-table match changed"
+
+msgid "外部地址变化"
+msgstr "External address changed"
+
+msgid "注释变化"
+msgstr "Comment changed"
+
+msgid "实例变化"
+msgstr "Instance changed"
+
+msgid "键列推导已变化：{columns}，需重新声明"
+msgstr "Key column derivation changed: {columns}; declare again"
+
+msgid "经身份映射继承他库表的键"
+msgstr "Key inherited from a table in another database via identity mapping"
+
+msgid "透传自 {table}"
+msgstr "Passed through from {table}"

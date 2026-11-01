@@ -1401,3 +1401,56 @@ msgstr "多步分析：規劃、呼叫脈絡與查詢工具、撰寫報告；必
 msgid "未配置有效的问数理解模型：使用演示模型（规则匹配）"
 msgstr "未設定有效的問數理解模型：使用示範模型（規則比對）"
 
+msgid "新增"
+msgstr "新增"
+
+msgid "删除"
+msgstr "刪除"
+
+msgid "改名"
+msgstr "改名"
+
+msgid "定义变化"
+msgstr "定義變化"
+
+msgid "字段推导变化"
+msgstr "欄位推導變化"
+
+msgid "上游缺失"
+msgstr "上游缺失"
+
+msgid "新增列"
+msgstr "新增欄"
+
+msgid "删除列"
+msgstr "刪除欄"
+
+msgid "类型变化"
+msgstr "型別變化"
+
+msgid "改名候选"
+msgstr "改名候選"
+
+msgid "粒度变化"
+msgstr "粒度變化"
+
+msgid "同一张表匹配变化"
+msgstr "同一張表匹配變化"
+
+msgid "外部地址变化"
+msgstr "外部地址變化"
+
+msgid "注释变化"
+msgstr "註解變化"
+
+msgid "实例变化"
+msgstr "例項變化"
+
+msgid "键列推导已变化：{columns}，需重新声明"
+msgstr "鍵欄推導已變化：{columns}，需重新宣告"
+
+msgid "经身份映射继承他库表的键"
+msgstr "經身份對映繼承他庫表的鍵"
+
+msgid "透传自 {table}"
+msgstr "透傳自 {table}"
