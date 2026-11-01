@@ -334,3 +334,12 @@ select option, select optgroup { background-color: var(--bg-base); color: var(--
 /* 复合输入框在外层绘制焦点（审计：输入框取消 outline 后需要可见焦点） */
 .av-composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
 
+
+/* 详情页层级：返回上一级 + 所在位置 */
+.av-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font: 400 12px/18px var(--font-sans); color: var(--text-tertiary); }
+.av-crumbs__back { display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; padding: 1px 6px 1px 2px; border-radius: var(--radius-sm);
+  color: var(--text-secondary); font-weight: 500; text-decoration: none; }
+.av-crumbs__back:hover { background: var(--bg-raised); color: var(--text-primary); }
+.av-crumbs__back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.av-crumbs__item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.av-crumbs__item::before { content: "/"; margin-right: 2px; color: var(--line-strong); }

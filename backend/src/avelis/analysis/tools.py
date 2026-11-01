@@ -598,7 +598,7 @@ class AnalysisToolbox:
             "scanned": {key: f"D{ds.seq}" for key, ds in self._scanned.items()},
             "state": {key: getattr(self, key) for key in self._SNAPSHOT_FIELDS if hasattr(self, key)}}))
 
-    def restore(self, snapshot: dict) -> None:
+    def restore(self, snapshot: dict, *, check_permissions: bool = True) -> None:
         if not snapshot:
             return
         self.budget = Budget.restore(snapshot["budget"])
@@ -611,7 +611,8 @@ class AnalysisToolbox:
         for key, value in (snapshot.get("state") or {}).items():
             if key in self._SNAPSHOT_FIELDS:
                 setattr(self, key, value)
-        self.check_copied_permissions()
+        if check_permissions:
+            self.check_copied_permissions()
 
     def check_resume_permissions(self) -> None:
         """在旧上下文再次交给模型之前核对账号、范围、来源和引用。"""

@@ -1,6 +1,8 @@
 """对话归档与删除的 HTTP、事务和外键范围验证；仅使用离线 SQLite。"""
 
 from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import select
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 from avelis.analysis import service
 from avelis.analysis.conversation_context import refresh_followup_context
 from avelis.api.deps import current_user
+from avelis.ask import agent as ask_agent
 from avelis.db import utcnow
 from avelis.models import (
     AnalysisDataset, AnalysisMessage, AnalysisRun, AnalysisStep, AnalysisTask, AuditEvent,
@@ -20,6 +23,14 @@ from tests.unit.test_analysis_dataset_api import api
 
 
 PATH = "/api/analysis/conversations"
+
+
+@pytest.fixture(autouse=True)
+def checkpointer(monkeypatch):
+    threads = set()
+    saver = SimpleNamespace(threads=threads, delete_thread=Mock(side_effect=threads.discard))
+    monkeypatch.setattr(ask_agent, "checkpointer", lambda: saver)
+    return saver
 
 
 def _finished_followup(api, parent=None):
@@ -219,18 +230,24 @@ def _assert_deleted_scope(session, scope):
     assert session.get(HistoryChainHead, 1).last_hash == "c" * 64
     event = session.scalar(select(AuditEvent).where(AuditEvent.action == "analysis.conversation.delete"))
     assert event is not None and event.object_id == "run" and event.actor_id == "actor"
-    assert event.detail == {"conversation_id": "run", "turn_count": 3, "title": "待删除的对话"}
+    assert event.detail == {"conversation_id": "run", "turn_count": 3, "title": "待删除的对话",
+                            "checkpoint_threads": 3}
 
 
 @pytest.mark.parametrize("archived", [False, True])
-def test_delete_http_commits_full_scope_and_preserves_independent_objects(api, model, archived):
+def test_delete_http_commits_full_scope_and_preserves_independent_objects(api, model, archived, checkpointer):
     scope = _seed_delete_scope(api)
+    threads = {f"analysis:{run_id}" for run_id in scope["deleted_ids"]}
+    checkpointer.threads.update(threads | {f"analysis:{scope['other_id']}"})
     if archived:
         response = api.client.post(f"{PATH}/run/archive")
         assert response.status_code == 200, response.text
     response = api.client.delete(f"{PATH}/run")
     assert response.status_code == 204, response.text
     assert response.content == b""
+    assert {args.args[0] for args in checkpointer.delete_thread.call_args_list} == threads
+    assert checkpointer.delete_thread.call_count == len(threads)
+    assert checkpointer.threads == {f"analysis:{scope['other_id']}"}
     # 新会话读取，证明 HTTP 已提交，而非只在请求的 identity map 中消失。
     with Session(api.session.get_bind()) as independent:
         _assert_deleted_scope(independent, scope)
@@ -239,6 +256,44 @@ def test_delete_http_commits_full_scope_and_preserves_independent_objects(api, m
     assert api.client.get(f"{PATH}/run").status_code == 404
     assert [item["id"] for item in api.client.get(PATH).json()] == [scope["other_id"]]
     assert api.client.get(PATH, params={"archived": "true"}).json() == []
+
+
+def test_delete_never_executed_run_without_checkpoints(api, checkpointer):
+    api.run.status = "stopped"
+    api.run.started_at = None
+    api.run.checkpoint = {}
+    api.session.commit()
+    response = api.client.delete(f"{PATH}/run")
+    assert response.status_code == 204, response.text
+    checkpointer.delete_thread.assert_called_once_with("analysis:run")
+    assert api.session.get(AnalysisRun, "run") is None
+
+
+def test_checkpoint_cleanup_failure_preserves_all_application_data(api, model, checkpointer):
+    scope = _seed_delete_scope(api)
+    checkpointer.threads.update(f"analysis:{run_id}" for run_id in scope["deleted_ids"])
+    models = (AnalysisRun, AnalysisMessage, AnalysisStep, AnalysisDataset, AnalysisTask, Notification, AuditEvent)
+
+    def application_rows(session):
+        return {model: deepcopy([dict(row) for row in session.execute(
+            select(model.__table__).order_by(model.id)).mappings()]) for model in models}
+
+    before = application_rows(api.session)
+
+    def delete_thread(thread_id):
+        if checkpointer.delete_thread.call_count == 2:
+            raise RuntimeError("检查点清理失败")
+        checkpointer.threads.discard(thread_id)
+
+    checkpointer.delete_thread.side_effect = delete_thread
+    with pytest.raises(RuntimeError, match="检查点清理失败"):
+        service.delete_conversation(api.session, api.user, "run")
+    assert checkpointer.delete_thread.call_count == 2
+    assert len(checkpointer.threads) == len(scope["deleted_ids"]) - 1
+    assert application_rows(api.session) == before
+    api.session.rollback()
+    with Session(api.session.get_bind()) as independent:
+        assert application_rows(independent) == before
 
 
 def test_delete_service_remains_one_rollbackable_transaction(api, model):

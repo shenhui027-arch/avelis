@@ -4,7 +4,7 @@ import { Link } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useAssets, useDomains, useMetrics, useUsers } from "../../api/hooks";
-import { Banner, Drawer, Empty, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
+import { Banner, Crumbs, Drawer, Empty, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 
 const ROLE: Record<string, string> = { owner: "负责人", maintainer: "维护者", viewer: "可查询" };
@@ -57,6 +57,7 @@ export function DomainDetail({ domainId }: { domainId: string }) {
       {() => d ? (
         <div className="av-domain-detail">
           <header className="av-domain-detail__header">
+            <Crumbs back={{ label: "业务域", to: "/catalog/domains" }} items={[<span className="av-mono">{d.code}</span>]} />
             <div className="av-pagehd">
               <div className="av-pagehd__title"><h1>{d.name}</h1><span className="av-tag av-mono">{d.code}</span></div>
               <div className="av-actions">

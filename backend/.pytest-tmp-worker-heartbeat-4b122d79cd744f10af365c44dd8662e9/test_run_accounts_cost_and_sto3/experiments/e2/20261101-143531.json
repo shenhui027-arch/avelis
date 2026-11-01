@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "started": "2026-11-01T14:35:31",
+    "git_sha": "unit-sha",
+    "git_dirty": true,
+    "conditions": [
+      "B0",
+      "R"
+    ],
+    "flags": {
+      "B0": {
+        "analysis_retrieval": false,
+        "analysis_investigation": false
+      },
+      "R": {
+        "analysis_retrieval": true,
+        "analysis_investigation": false
+      }
+    },
+    "scenarios": [
+      "h10"
+    ],
+    "repeat": 1,
+    "seed": 20261101,
+    "effort": null,
+    "output_token_cap": null,
+    "tag": "e2",
+    "model_timeout": null,
+    "run_seconds": null,
+    "scorer": "unit-v2.1.3",
+    "scorer_sha256": "403694cbc98e292f4b1b225782495dd65d6dd3005e44b47a0e88ba6b11375ed5",
+    "truth": "E:\\Dev\\Repos\\Active\\Avelis\\.worktrees\\thread\\backend\\.pytest-tmp-worker-heartbeat-4b122d79cd744f10af365c44dd8662e9\\test_run_accounts_cost_and_sto3\\truth.json",
+    "initial_spent_cny": "0"
+  },
+  "ledger": {
+    "cap_cny": "2",
+    "spent_cny": "2.10",
+    "per_run_reserve_cny": "1.5",
+    "remaining_cny": "-0.10",
+    "can_start": false
+  },
+  "stop_reason": "费用预留不足：累计已花 2.10 元 + 每次预留 1.5 元 > 上限 2 元，停止后续运行",
+  "results": [
+    {
+      "scenario": "h10",
+      "condition": "R",
+      "repeat": 1,
+      "flags": {
+        "analysis_retrieval": true,
+        "analysis_investigation": false
+      },
+      "seconds": 0.0,
+      "run_id": "unit-e2-run",
+      "score": {
+        "passed": true
+      },
+      "run": {
+        "id": "unit-e2-run",
+        "status": "succeeded",
+        "steps": [
+          {
+            "kind": "model",
+            "status": "ok",
+            "at": "2026-10-30T10:00:00+08:00",
+            "output": {
+              "input_tokens": 300000,
+              "cache_hit_tokens": 0,
+              "output_tokens": 0
+            }
+          },
+          {
+            "kind": "model",
+            "status": "error",
+            "output": {}
+          }
+        ]
+      },
+      "cost": {
+        "input_tokens": 300000,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 300000,
+        "output_tokens": 0,
+        "missing_usage": 1,
+        "peak_cny": "0.60",
+        "off_peak_cny": "0",
+        "total_cny": "0.60"
+      },
+      "cost_estimated": true,
+      "cost_estimate_reason": "1 个模型步骤缺少用量",
+      "cost_accounted_cny": "2.10",
+      "ledger": {
+        "cap_cny": "2",
+        "spent_cny": "2.10",
+        "per_run_reserve_cny": "1.5",
+        "remaining_cny": "-0.10",
+        "can_start": false
+      }
+    }
+  ]
+}

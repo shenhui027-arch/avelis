@@ -350,7 +350,7 @@ def execute(session: Session, run_id: str, job_id: str, attempt: int,
     if run.stop_requested:
         if toolbox is None:
             toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), budget)
-            toolbox.restore(saved)
+            toolbox.restore(saved, check_permissions=False)
             budget = toolbox.budget
         status, error = "stopped", "用户停止"
         report, verification = _stopped_report(toolbox, notes=report.get("notes"))
@@ -451,6 +451,10 @@ def _stopped_report(toolbox: AnalysisToolbox, *, notes: list[str] | None = None)
     """沿用预算截止的后端未完成报告与核验路径；停止不调用模型、不增加步骤。"""
     toolbox.user_stopped = True
     toolbox.report = None
+    try:
+        toolbox.check_copied_permissions()
+    except PermissionLost:
+        pass  # 停止只记录失权；核验与 run_view 仍按当前权限投影历史证据。
     analysis_agent.verify({}, {"configurable": {"toolbox": toolbox, "model": None}})
     stop_notes = list(notes or [])
     if "分析停止：用户停止" not in stop_notes:
@@ -468,7 +472,7 @@ def stop_run(session: Session, user: User, run_id: str) -> AnalysisRun:
         checkpoint = dict(run.checkpoint or {})
         saved = checkpoint.get("snapshot") or {}
         toolbox = AnalysisToolbox(session, user, run, ask_service.Catalog([], {}), Budget())
-        toolbox.restore(saved)
+        toolbox.restore(saved, check_permissions=False)
         run.report, run.verification = _stopped_report(toolbox, notes=(run.report or {}).get("notes"))
         run.plan = toolbox.plan or run.plan
         run.status, run.error, run.finished_at = "stopped", "用户停止", utcnow()
@@ -735,12 +739,18 @@ def archive_conversation(session: Session, user: User, conversation_id: str, *, 
 
 def delete_conversation(session: Session, user: User, conversation_id: str) -> None:
     """删除运行及其附属内容；治理对象、执行记录与历史审计独立保留。由请求事务统一提交。"""
+    from avelis.ask import agent as ask_agent
+
     root = _owned_conversation(session, user, conversation_id)
     runs = _inactive_conversation_runs(session, root)
     run_ids = [run.id for run in runs]
+    # 检查点独立自动提交，先清理可在失败时保留完整的应用数据供重试。
+    saver = ask_agent.checkpointer()
+    for run_id in run_ids:
+        saver.delete_thread(f"analysis:{run_id}")
     title = root.display_title or run_view(session, root, full=False, user=user)["title"] or root.question
     audit.record(session, user, "analysis.conversation.delete", "analysis_run", root.id,
-                 conversation_id=root.id, turn_count=len(runs), title=title)
+                 conversation_id=root.id, turn_count=len(runs), checkpoint_threads=len(run_ids), title=title)
     session.execute(update(AnalysisTask).where(AnalysisTask.last_run_id.in_(run_ids)).values(last_run_id=None))
     links = [f"/analysis/runs/{run_id}" for run_id in run_ids]
     links.append(f"/analysis/conversations/{root.id}")

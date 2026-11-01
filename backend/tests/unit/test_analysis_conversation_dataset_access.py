@@ -1,18 +1,23 @@
 """续问历史证据在工具读取、计算和暂停恢复时按当前来源权限复核。"""
 
 import json
+from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import JSON, MetaData, create_engine
+from sqlalchemy import JSON, MetaData, create_engine, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
+from avelis.analysis import service
 from avelis.analysis.tools import AnalysisToolbox, Budget, PermissionDenied, PermissionLost
+from avelis.ask import agent as ask_agent
 from avelis.ask.service import Catalog
 from avelis.db import Base
 from avelis.models import (
-    AnalysisDataset, AnalysisRun, Asset, Datasource, Domain, DomainMember, User, UserRole,
+    AnalysisDataset, AnalysisRun, Asset, Datasource, Domain, DomainMember, Job, User, UserRole,
 )
+from tests.unit.test_analysis_conversations import model
+from tests.unit.test_analysis_dataset_api import api
 
 
 @pytest.fixture
@@ -117,3 +122,72 @@ def test_omitted_copies_keep_their_dataset_numbers_reserved_across_resume(copied
     dataset = restored._dataset("context", "本轮新证据", ["value"], [[29]],
                                 meta={"asset_ids": [asset.id]})
     assert dataset.seq == 3 and set(restored.datasets()) == {"D3"}
+
+
+@pytest.fixture
+def waiting_followup(api, model):
+    api.dataset.rows = [["copied-private-row", 17]]
+    run = service.followup_run(api.session, api.user, api.run.id, "继续核对")
+    derived = AnalysisDataset(run_id=run.id, seq=2, kind="calc", title="本轮计算", inputs=["D1"],
+                              columns=["value"], rows=[["derived-private-row"]], meta={"closure": ["D1"]})
+    api.session.add(derived)
+    api.session.flush()
+    box = AnalysisToolbox(api.session, api.user, run, Catalog([], {}), Budget())
+    box._datasets = {f"D{dataset.seq}": dataset for dataset in api.session.scalars(
+        select(AnalysisDataset).where(AnalysisDataset.run_id == run.id))}
+    assert set(box.readable_datasets()) == {"D1", "D2"}
+    run.status = "waiting"
+    run.checkpoint = {**run.checkpoint, "snapshot": box.snapshot(),
+                      "pending": {"kind": "clarify", "question": "继续核对哪个范围？"}}
+    api.session.commit()
+    membership = api.session.scalar(select(DomainMember).where(
+        DomainMember.domain_id == "asset-domain", DomainMember.user_id == api.user.id))
+    api.session.delete(membership)
+    api.session.commit()
+    return api, run
+
+
+def test_waiting_stop_after_copied_access_revocation_allows_archive_and_delete(waiting_followup, monkeypatch):
+    api, run = waiting_followup
+    saver = Mock()
+    monkeypatch.setattr(ask_agent, "checkpointer", lambda: saver)
+    response = api.client.post(f"/api/analysis/runs/{run.id}/stop")
+    assert response.status_code == 200, response.text
+    view = response.json()
+    assert view["status"] == run.status == "stopped" and view["finished_at"]
+    assert view["report"]["incomplete"] and view["report"]["permission"]["lost"]
+    assert "pending" not in run.checkpoint and not run.checkpoint["resume_pending"]
+    assert all(dataset["restricted"] and dataset["rows"] == [] for dataset in view["datasets"])
+    assert "copied-private-row" not in response.text and "derived-private-row" not in response.text
+    detail = api.client.get(f"/api/analysis/runs/{run.id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["report"] == view["report"]
+    assert "copied-private-row" not in detail.text and "derived-private-row" not in detail.text
+    path = f"/api/analysis/conversations/{api.run.id}"
+    response = api.client.post(path + "/archive")
+    assert response.status_code == 200, response.text
+    response = api.client.delete(path)
+    assert response.status_code == 204, response.text
+    assert api.client.get(path).status_code == 404
+
+
+def test_resumed_execution_still_rejects_revoked_copied_evidence(waiting_followup, monkeypatch):
+    from avelis import jobs
+
+    api, run = waiting_followup
+    monkeypatch.setattr(jobs, "_wake", lambda job_id: None)
+    monkeypatch.setattr(service, "warm_up", lambda: None)
+    graph = Mock()
+    monkeypatch.setattr(service, "_graph", graph)
+    response = api.client.post(f"/api/analysis/runs/{run.id}/resume", json={"answer": "继续检查本次范围"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "queued"
+    job = api.session.get(Job, run.budget["job_id"])
+    job.status, job.attempts = "running", 1
+    api.session.commit()
+    outcome = service.execute(api.session, run.id, job.id, 1)
+    assert outcome["status"] == run.status == job.status == "failed"
+    assert "续问继承的数据集已没有访问权限" in run.error
+    assert run.report["permission"]["lost"]
+    assert run.finished_at is not None
+    graph.assert_not_called()

@@ -25,6 +25,24 @@
     }
    }
   },
+  "/api/health/worker": {
+   "get": {
+    "summary": "Worker Health",
+    "operationId": "worker_health_api_health_worker_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WorkerHealthOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/health/ready": {
    "get": {
     "summary": "Ready",
@@ -13747,6 +13765,31 @@
      "recent_changes"
     ],
     "title": "WorkbenchOut"
+   },
+   "WorkerHealthOut": {
+    "properties": {
+     "alive": {
+      "type": "boolean",
+      "title": "Alive"
+     },
+     "last_seen": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Seen"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "alive"
+    ],
+    "title": "WorkerHealthOut"
    }
   },
   "securitySchemes": {

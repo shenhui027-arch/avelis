@@ -1,0 +1,9 @@
+
+[server]
+port = 8123
+cors_origins = ["https://one.example", "https://two.example"]
+[bootstrap]
+auto_migrate = true
+[analysis]
+retrieval = true
+material_change_ratio = 2
