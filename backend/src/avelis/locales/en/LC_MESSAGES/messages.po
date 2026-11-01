@@ -1785,3 +1785,7 @@ msgstr "Specify exactly one of column and summary"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "Summary values cannot use match or exclude"
+
+#: src/avelis/api/imports.py
+msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
+msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
