@@ -13,7 +13,8 @@ from avelis.importer.extract import extract_python
     ("{'token': 'token-secret'}", ["token-secret"], 1),
     ('password = "space secret"', ["space secret"], 1),
     ("PASSWORD=environment-secret", ["environment-secret"], 1),
-    ('"password" \n : \n "multiline-secret"', ["multiline-secret"], 1),
+    # 普通换行不能连接键和分隔符；保留旧输入，明确验证新的逻辑行边界。
+    ('"password" \n : \n "multiline-secret"', [], 0),
     ("token = '''first-secret\nsecond-secret'''", ["first-secret", "second-secret"], 1),
     ('password = "escaped\\\"secret"', ["escaped", "secret"], 1),
     ('jdbc:mysql://etl_user:connection-secret@host/db', ["connection-secret"], 1),
@@ -28,6 +29,9 @@ def test_redact_common_secret_forms_once(source, secrets, count):
     assert hits == count
     assert cleaned.count("<redacted>") == count
     assert all(secret not in cleaned for secret in secrets)
+    assert redact(cleaned) == (cleaned, 0)
+    if not count:
+        assert cleaned == source
 
 
 @pytest.mark.parametrize("key", ["password", "api-key", "service-api-key"])
@@ -60,11 +64,12 @@ def test_redact_cli_flag_does_not_consume_next_line_assignment(newline, trailing
     'service-api-key = "synthetic-only"',
     '--auth-token "synthetic-only"',
 ])
-def test_redact_separator_at_line_end_does_not_consume_next_assignment(
+def test_redact_separator_at_line_end_masks_entire_next_assignment(
     newline, prefix, separator, spacing, assignment,
 ):
     source = f"{prefix}{spacing}{separator}{spacing}{newline}{assignment}"
-    expected = source.replace("synthetic-only", "<redacted>")
+    # 空值后不识别下一行的键形态，按新规则保守遮蔽整条逻辑行。
+    expected = source[:source.index(newline) + len(newline)] + "<redacted>"
     assert redact(source) == (expected, 1)
     assert redact(expected) == (expected, 0)
 
@@ -75,7 +80,8 @@ def test_redact_separator_at_line_end_does_not_consume_next_assignment(
 @pytest.mark.parametrize("value", ['"s3cret"', "s3cret", "'password literal'"])
 def test_redact_value_on_next_line(newline, prefix, separator, value):
     source = f"{prefix} \t{separator} \t{newline}    {value}"
-    expected = source.replace(value.strip("\"'"), "<redacted>")
+    # 包括缩进、引号在内的下一整行都是遮蔽范围。
+    expected = source[:source.index(newline) + len(newline)] + "<redacted>"
     assert redact(source) == (expected, 1)
     assert redact(expected) == (expected, 0)
 
