@@ -4,7 +4,7 @@ English | [简体中文](documentation-guide.md) | [繁體中文](documentation-
 
 This guide sets the structure, languages and style of the README and documentation in the Avelis repository. It follows the practice of open-source data and infrastructure projects such as Apache Superset, DataHub, OpenMetadata, Airbyte, dbt and Metabase, keeping only what suits Avelis today. The Simplified Chinese version is the original.
 
-## 1. What the reference projects have in common
+## What the reference projects have in common
 
 | Practice | Reference projects | How Avelis applies it |
 |---|---|---|
@@ -13,16 +13,16 @@ This guide sets the structure, languages and style of the README and documentati
 | Highlights as a short list or captioned screenshots | Superset (screenshots with bold captions), OpenMetadata | 4–6 highlights, one sentence each; screenshots in a two-column table with captions |
 | A separate section for supported databases | Superset, Metabase | A “Supported databases” table showing how far each engine is supported |
 | Quick start gives only the shortest runnable path and links to details | DataHub, Airbyte, Metabase | One Docker Compose block; external databases, reverse proxy, upgrades and so on link to the deployment guide |
-| Docs grouped by reader: users / administrators / developers | Superset | `docs/README.md` is grouped into using and operating / developing / design decisions / archive |
+| Docs grouped by reader: users / administrators / developers | Superset | `docs/README.md` is grouped into using and operating / developing / design decisions |
 | Separate files for contributing, code of conduct and security, linked from the README | dbt, Airbyte, Metabase | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md` at the repository root |
 | Security issues are not reported in public issues | Airbyte, Metabase | `SECURITY.md` describes the private reporting channel |
 | License as the last section, one or two lines | DataHub, OpenMetadata | Same |
 
-## 2. Files at the repository root
+## Files at the repository root
 
 | File | Language | Contents |
 |---|---|---|
-| `README.md` | Simplified Chinese | Project entry point, structured as in section 3; shown by default on GitHub; **the authoritative source** |
+| `README.md` | Simplified Chinese | Project entry point, structured as in [README structure](#readme-structure); shown by default on GitHub; **the authoritative source** |
 | `README.en.md` | English | Same structure and content as the Simplified Chinese version |
 | `README.zh-TW.md` | Traditional Chinese | Same structure and content as the Simplified Chinese version |
 | `CONTRIBUTING.md` | Three languages, one section each | Development setup, commit conventions, pull request process, testing requirements |
@@ -32,9 +32,9 @@ This guide sets the structure, languages and style of the README and documentati
 | `LICENSE` | English | The Apache License 2.0 text, unchanged |
 | `.github/` | Simplified Chinese + English | Issue templates (bilingual form labels), pull request template, CI |
 
-All three READMEs must change together; see section 5.
+All three READMEs must change together; see [Languages](#languages).
 
-## 3. README structure
+## README structure
 
 In this order; omit sections that have no content:
 
@@ -54,9 +54,9 @@ In this order; omit sections that have no content:
 14. **Security**: link to `SECURITY.md`.
 15. **License**: one line, linking to `LICENSE`.
 
-## 4. The docs directory
+## The docs directory
 
-```
+```text
 docs/
   README.md / README.en.md / README.zh-TW.md     documentation index (grouped by reader)
   product-tour.md (+ .en.md / .zh-TW.md)          users: product tour
@@ -68,15 +68,13 @@ docs/
   engines/                 developers: verification records per database engine (Simplified Chinese only)
   decisions/               design decisions, ADRs (Simplified Chinese only)
   images/                  screenshots used by the README and docs
-  archive/                 internal records: development plan, milestone acceptance, experiments (Simplified Chinese only, read-only)
 ```
 
 - **User and operator docs** answer “how do I use, deploy and configure it”; no implementation details or development history.
 - **Developer docs** answer “how is the code organized, how do I run the tests, why is it designed this way”.
 - **ADRs** record the context, options and consequences of one design decision. After merging, only “status” and “follow-up” are appended; the decision itself is never rewritten.
-- **The archive** holds plans, acceptance logs and experiment records from development. They are kept as traceable evidence and no longer maintained; new documents should not link to process details in the archive except as evidence.
 
-## 5. Languages
+## Languages
 
 The Avelis product and documentation support three languages: Simplified Chinese (`zh-CN`), Traditional Chinese (`zh-TW`) and English (`en`).
 
@@ -86,7 +84,7 @@ The Avelis product and documentation support three languages: Simplified Chinese
 |---|---|---|
 | READMEs, docs index, user / operator / developer docs, this guide | All three | Needed to use, deploy and contribute |
 | `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY` | Three sections in one file | Short; keeping them together makes them easier to keep in sync |
-| ADRs, engine verification records, archive, `CHANGELOG` | Simplified Chinese original only | They are records of a moment in time, and translations would create several “originals”; the English and Traditional Chinese indexes list them and say they are in Simplified Chinese |
+| ADRs, engine verification records, `CHANGELOG` | Simplified Chinese original only | They are records of a moment in time, and translations would create several “originals”; the English and Traditional Chinese indexes list them and say they are in Simplified Chinese |
 
 ### File naming
 
@@ -117,7 +115,7 @@ English | [简体中文](deployment.md) | [繁體中文](deployment.zh-TW.md)
 ### Links
 
 - Links in a translation point to the same language: `deployment.en.md` links to `configuration.en.md`.
-- When the target has no version in that language (ADRs, engine records, archive), link to the original and say so after the link text: “(Simplified Chinese)” in English, “（簡體中文）” in Traditional Chinese.
+- When the target has no version in that language (ADRs, engine records), link to the original and say so after the link text: “(Simplified Chinese)” in English, “（簡體中文）” in Traditional Chinese.
 
 ### Screenshots
 
@@ -164,7 +162,7 @@ This table is the reference for translating terms in all three languages; add ne
 | 数据库用户 | 資料庫使用者 | database user | |
 | worker | worker | worker | |
 
-## 6. Style
+## Style
 
 ### Headings and structure
 
@@ -179,7 +177,7 @@ This table is the reference for translating terms in all three languages; add ne
 - In Chinese, put a space between Chinese and Latin letters or numbers: “支持 StarRocks 3.5”.
 - Chinese text uses full-width punctuation; code, commands, paths and settings go in backticks.
 - Avoid “simply”, “just” and “obviously” (and their Chinese equivalents).
-- Use the terminology table in section 5.
+- Use the [terminology table](#terminology).
 
 ### Links and images
 
@@ -203,7 +201,7 @@ This table is the reference for translating terms in all three languages; add ne
 - When stating a verification result, say its scope: environment, version, what was run.
 - List known limitations separately instead of hiding them in the text.
 
-## 7. Submitting and checking
+## Submitting and checking
 
 - Documentation and code changes may share a pull request, but reorganizations of the README and `docs/` get their own.
 - Before submitting, check that relative links and image paths open, that the three READMEs and three-language docs are in sync, and that no local paths or credentials are included.

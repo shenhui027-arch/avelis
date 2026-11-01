@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="32" viewBox="0 0 120 32" fill="currentColor" role="img" aria-labelledby="avelis-logo-title">
-  <title id="avelis-logo-title">Avelis</title>
-  <g>
-    <path d="M14 5h4l10 22h-4.5L16 10.5 8.5 27H4Z"/>
-    <path d="M10 19h5v2h-5Z"/>
-    <path d="M13 18h4v4h-4Z"/>
-  </g>
-  <text x="40" y="25" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.5">Avelis</text>
-</svg>

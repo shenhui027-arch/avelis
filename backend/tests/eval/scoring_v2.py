@@ -1,4 +1,4 @@
-"""分析评测的判分 v2（docs/archive/agent-v2/diagnosis.md 第 2 节）：纯函数，不调用模型；旧版 scoring.py 保留不改，历史分数不改。
+"""分析评测的判分 v2：纯函数，不调用模型；旧版 scoring.py 保留不改，历史分数不改。
 
 相对 v1 的三处修正（其余判分规则沿用 v1，便于逐项说明差异）：
 1. 权限对抗题（denied_ok）：只有结构化的权限拒绝（运行记录 report.permission 的 denials / lost，来自 PermissionDenied /

@@ -9,7 +9,7 @@ Thanks for your interest in Avelis. Bug reports, documentation fixes, new databa
 ### Before you start
 
 - Search [existing issues](https://github.com/shenhui027-arch/avelis/issues) first. For anything larger than a bug fix, open an issue to discuss the design before writing code.
-- Read the [architecture overview](docs/architecture.en.md) and the [architecture decision records](docs/decisions/). Changes that contradict an accepted ADR need a new ADR.
+- Read the [architecture overview](docs/architecture.en.md) and the [architecture decision records](docs/decisions/) (Simplified Chinese). Changes that contradict an accepted ADR need a new ADR.
 - Product code must stay business-neutral ([ADR 0010](docs/decisions/0010-business-neutral-product.md) (Simplified Chinese)): no table names, metrics or industry rules from the demo datasets in `backend/src` or `frontend/src`.
 - Report security issues privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
 
@@ -111,7 +111,7 @@ pnpm build
 ### 開始之前
 
 - 先搜尋[已有 issue](https://github.com/shenhui027-arch/avelis/issues)。比修缺陷更大的改動，請先開 issue 討論設計再寫程式碼。
-- 閱讀[架構與治理說明](docs/architecture.zh-TW.md)與[架構決策記錄](docs/decisions/)。與已接受的 ADR 相悖的改動需要新的 ADR。
+- 閱讀[架構與治理說明](docs/architecture.zh-TW.md)與[架構決策記錄](docs/decisions/)（簡體中文）。與已接受的 ADR 相悖的改動需要新的 ADR。
 - 產品程式碼保持業務中立（[ADR 0010](docs/decisions/0010-business-neutral-product.md)（簡體中文））：`backend/src` 與 `frontend/src` 裡不寫示範資料集中的表名、指標或行業規則。
 - 安全問題按 [SECURITY.md](SECURITY.md) 私下報告，不要開公開 issue。
 

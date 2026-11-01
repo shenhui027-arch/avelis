@@ -16,11 +16,11 @@
 
 ![登入頁（淺色）](images/zh-TW/login-light.png)
 
-## 工作臺
+## 工作台
 
 登入後的首頁：採集、血緣、變更、口徑、問數五項概況；待辦（待我處理、被攔截的提問）；我負責的指標；各資料來源的採集狀態、採集節奏與最近變更。
 
-![工作臺](images/zh-TW/workbench.png)
+![工作台](images/zh-TW/workbench.png)
 
 ## 問數與分析
 

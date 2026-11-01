@@ -16,7 +16,7 @@ Harassment, insults, personal or political attacks, publishing others' private i
 
 ### Reporting
 
-Report unacceptable behaviour privately to the project maintainer, [@shenhui027-arch](https://github.com/shenhui027-arch), using the contact details on their GitHub profile. All reports are reviewed promptly and handled confidentially. Maintainers follow the Contributor Covenant's enforcement guidelines (correction, warning, temporary ban, permanent ban).
+Report unacceptable behaviour privately to the project maintainer at [shenhui027@gmail.com](mailto:shenhui027@gmail.com). All reports are reviewed promptly and handled confidentially. Maintainers follow the Contributor Covenant's enforcement guidelines (correction, warning, temporary ban, permanent ban).
 
 ## 简体中文
 
@@ -32,7 +32,7 @@ Avelis 采用 [Contributor Covenant 2.1](https://www.contributor-covenant.org/zh
 
 ### 报告
 
-请通过项目维护者 [@shenhui027-arch](https://github.com/shenhui027-arch) GitHub 主页上的联系方式私下报告。所有报告都会及时、保密地处理。维护者按 Contributor Covenant 的执行指南处理（纠正、警告、临时禁止、永久禁止）。
+请发邮件至项目维护者的邮箱 [shenhui027@gmail.com](mailto:shenhui027@gmail.com) 私下报告。所有报告都会及时、保密地处理。维护者按 Contributor Covenant 的执行指南处理（纠正、警告、临时禁止、永久禁止）。
 
 ## 繁體中文
 
@@ -48,4 +48,4 @@ Avelis 採用 [Contributor Covenant 2.1](https://www.contributor-covenant.org/ve
 
 ### 報告
 
-請透過專案維護者 [@shenhui027-arch](https://github.com/shenhui027-arch) GitHub 主頁上的聯絡方式私下報告。所有報告都會及時、保密地處理。維護者按 Contributor Covenant 的執行指南處理（糾正、警告、臨時禁止、永久禁止）。
+請寄信至專案維護者的信箱 [shenhui027@gmail.com](mailto:shenhui027@gmail.com) 私下報告。所有報告都會及時、保密地處理。維護者按 Contributor Covenant 的執行指南處理（糾正、警告、臨時禁止、永久禁止）。

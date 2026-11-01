@@ -4,7 +4,7 @@
 
 # Avelis
 
-[English](README.en.md) · [简体中文](README.md) · **繁體中文**
+[English](README.en.md) | [简体中文](README.md) | 繁體中文
 
 **有依據的智慧問數與分析，建立在血緣、口徑治理與變更管理之上。**
 
@@ -12,9 +12,9 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-0A7BBB?style=flat)](LICENSE)
 [![backend](https://img.shields.io/badge/backend-Python%203.12%20%C2%B7%20FastAPI-3776AB?style=flat&logo=python&logoColor=white)](backend/pyproject.toml)
 [![frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20TypeScript-2F74C0?style=flat&logo=react&logoColor=white)](frontend/package.json)
-[![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
+[![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
-[![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
+[![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
 [![version](https://img.shields.io/badge/version-v1.0.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.0)
 
 [功能亮點](#功能亮點) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
@@ -40,9 +40,9 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 
 ## 截圖
 
-| 資料集主檢視表 | 工作臺 |
+| 資料集主檢視表 | 工作台 |
 |---|---|
-| ![資料集在主區域開啟：圖表、明細、換時間重跑](docs/images/zh-TW/analysis-dataset.png) | ![工作臺：採集、血緣、變更、口徑、問數概況](docs/images/zh-TW/workbench.png) |
+| ![資料集在主區域開啟：圖表、明細、換時間重跑](docs/images/zh-TW/analysis-dataset.png) | ![工作台：採集、血緣、變更、口徑、問數概況](docs/images/zh-TW/workbench.png) |
 | **血緣** | **目錄** |
 | ![血緣：選中表與檢查器](docs/images/zh-TW/lineage.png) | ![指標詳情：版本、表示式、維度與發布檢查](docs/images/zh-TW/catalog.png) |
 
@@ -113,7 +113,7 @@ flowchart LR
 
 ## 設定
 
-部署只需要一份帶中文註釋的 TOML 設定檔 [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml)（複製為 `avelis.toml`）。必填項：
+部署使用一份帶中文註釋的 TOML 設定檔 [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml)（複製為 `avelis.toml`）。必填項：
 
 | 設定 | 說明 |
 |---|---|

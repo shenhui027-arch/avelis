@@ -4,7 +4,7 @@
 
 # Avelis
 
-[English](README.en.md) · **简体中文** · [繁體中文](README.zh-TW.md)
+[English](README.en.md) | 简体中文 | [繁體中文](README.zh-TW.md)
 
 **有依据的智能问数与分析，建立在血缘、口径治理与变更管理之上。**
 
@@ -113,7 +113,7 @@ flowchart LR
 
 ## 配置
 
-部署只需要一份带中文注释的 TOML 配置文件 [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml)（复制为 `avelis.toml`）。必填项：
+部署使用一份带中文注释的 TOML 配置文件 [`deploy/docker/avelis.example.toml`](deploy/docker/avelis.example.toml)（复制为 `avelis.toml`）。必填项：
 
 | 配置 | 说明 |
 |---|---|

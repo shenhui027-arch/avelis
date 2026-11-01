@@ -16,13 +16,13 @@ dependencies = [
 [tool.uv]
 package = false
 
-# 仓库根目录的脚本与实验代码沿用后端的检查规则（ruff 从文件所在目录向上找配置，backend/ 下以 backend/pyproject.toml 为准）
+# 仓库根目录的脚本沿用后端的检查规则（ruff 从文件所在目录向上找配置，backend/ 下以 backend/pyproject.toml 为准）
 [tool.ruff]
 required-version = ">=0.17"
 line-length = 120
 extend-exclude = ["backend", "frontend"]
 # 让导入排序把 avelis、tests 与脚本模块识别为本仓库的模块
-src = ["backend/src", "backend", "scripts", "experiments/agent-v2"]
+src = ["backend/src", "backend", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
