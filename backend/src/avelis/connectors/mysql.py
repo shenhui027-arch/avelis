@@ -37,6 +37,13 @@ class MySQLMetaConnector:
     def ddl_audit_source(self) -> str | None:
         return audit_source(self.options)
 
+    @property
+    def ddl_audit_unbound_reason(self) -> str | None:
+        value = self.options.get("ddl_audit_table")
+        if value is None or isinstance(value, str) and not value.strip():
+            return gettext("未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 MySQL DDL 审计表")
+        return None
+
     def ddl_events(self, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
         return ddl_events(self, since, until, cursors)
 

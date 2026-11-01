@@ -79,6 +79,10 @@ def test_default_trace_commits_source_time_and_query_contract(monkeypatch):
     assert all(e.statement == "" and e.certain is False for e in events)
     assert all(not redefines(e.statement) and column_refs(e.statement, "sales", schema="store").unknown
                for e in events)
+    permission_sql, permission_params = conn.cur.calls[0]
+    assert "HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER TRACE') AS can_read" in permission_sql
+    assert "HAS_PERMS_BY_NAME(NULL, 'SERVER', 'ALTER TRACE')" not in permission_sql
+    assert permission_params is None
     sql, params = conn.cur.calls[-1]
     assert "sys.fn_trace_gettable(%s, DEFAULT)" in sql
     assert "t.EventClass IN (46, 47, 164)" in sql and "t.EventSubClass = 1" in sql
@@ -178,7 +182,7 @@ def test_drop_with_unknown_schema_is_unmatched(monkeypatch):
 @pytest.mark.parametrize(("replies", "cause", "message"), [
     ([_config(enabled=0, can_read=0)], "not_enabled", "default trace enabled = 0"),
     ([_config(can_read=0)], "no_permission", "ALTER TRACE"),
-    ([_config(can_read=None)], "no_permission", "ALTER TRACE"),
+    ([_config(can_read=None)], "no_permission", "无法判断"),
     ([_config(), None], "not_enabled", "未运行"),
     ([_config(), {"status": 0, "path": "trace.trc"}], "not_enabled", "未运行"),
     ([_config(), {"status": 1, "path": None}], "not_enabled", "未运行"),
@@ -192,6 +196,15 @@ def test_disabled_permission_missing_trace_or_bad_config_are_distinct(monkeypatc
         connector.ddl_events(SINCE, UNTIL)
     assert error.value.cause == cause and message in str(error.value)
     assert conn.closed
+
+
+def test_null_permission_result_is_unknown_and_does_not_read_trace(monkeypatch):
+    connector, conn = _connector(monkeypatch, replies=[_config(can_read=None)])
+    with pytest.raises(AuditUnavailable) as error:
+        connector.ddl_events(SINCE, UNTIL)
+    assert error.value.cause == "no_permission"
+    assert "无法判断" in str(error.value) and "ALTER TRACE 权限检查返回 NULL" in str(error.value)
+    assert len(conn.cur.calls) == 1 and conn.closed
 
 
 @pytest.mark.parametrize(("number", "cause"), [

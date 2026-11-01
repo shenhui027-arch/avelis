@@ -1797,6 +1797,9 @@ msgstr "資料庫.資料表，預設表名 starrocks_audit_db__.starrocks_audit_
 msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
 msgstr "未綁定稽核表：請在資料來源選項 ddl_audit_table 中綁定 AuditLoader 稽核表"
 
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 MySQL DDL 审计表"
+msgstr "未綁定稽核表：請在資料來源選項 ddl_audit_table 中綁定 MySQL DDL 稽核表"
+
 msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
 msgstr "StarRocks 稽核表名稱無效：請使用資料庫.資料表，可用反引號引用名稱"
 
@@ -1827,17 +1830,20 @@ msgstr "StarRocks 稽核紀錄包含暫不支援的跳脫物件名稱，無法�
 msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
 msgstr "DDL 稽核來源未涵蓋此 Catalog，無法歸因"
 
-msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；DDL 归因需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移，跨夏令时可能不准确"
-msgstr "採集帳號需模式上的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體身分；不報告資料新鮮度；DDL 歸因需啟用預設追蹤，並授予 ALTER TRACE（相關讀取若需 VIEW SERVER STATE 也須授權）；只採用已提交的物件層級事件；從目前目錄還原的模式僅作候選，無法確證歷史模式或指明欄位時不確定歸因；StartTime 按伺服器本地時間換算 UTC，使用伺服器目前偏移，跨日光節約時間可能不準確"
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确"
+msgstr "採集帳號需模式上的 VIEW DEFINITION；查詢帳號需 SELECT 與 VIEW DEFINITION；object_id 作實體身分；不報告資料新鮮度；2026-11-01 已實機驗證 SQL Server 2022 的 DDL 歸因；需啟用預設追蹤，並授予 ALTER TRACE（相關讀取若需 VIEW SERVER STATE 也須授權）；只採用已提交的物件層級事件；從目前目錄還原的模式僅作候選，無法確證歷史模式或指明欄位時不確定歸因；StartTime 按伺服器本地時間換算 UTC，使用伺服器目前偏移；演示執行個體偏移為 0，本地時間換 UTC 與跨日光節約時間未實機驗證，跨日光節約時間可能不準確"
 
-msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；DDL 归因需启用覆盖 TABLE、VIEW 等 CREATE / ALTER / DROP 的统一审计策略，并授予 AUDIT_VIEWER 或等效读取权限；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取"
-msgstr "採集帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體身分；識別字按大寫儲存；不報告資料新鮮度；DDL 歸因需啟用涵蓋 TABLE、VIEW 等 CREATE / ALTER / DROP 的統一稽核策略，並授予 AUDIT_VIEWER 或等效讀取權限；只採用 RETURN_CODE = 0 的成功記錄；優先 EVENT_TIMESTAMP_UTC，舊版 EVENT_TIMESTAMP 在 UTC 稽核工作階段中讀取"
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取；无记录且无策略的 not_enabled 分支未实机验证"
+msgstr "採集帳號需 SELECT_CATALOG_ROLE；OBJECT_ID 作實體身分；識別字按大寫儲存；不報告資料新鮮度；2026-11-01 已實機驗證 Oracle 23ai Free 的 DDL 歸因，使用自建統一稽核策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 AUDIT_VIEWER；只採用 RETURN_CODE = 0 的成功記錄；優先 EVENT_TIMESTAMP_UTC，舊版 EVENT_TIMESTAMP 在 UTC 稽核工作階段中讀取；無記錄且無策略的 not_enabled 分支未實機驗證"
 
 msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
 msgstr "SQL Server 預設追蹤未啟用（default trace enabled = 0）"
 
 msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
 msgstr "採集帳號缺少 SQL Server 預設追蹤讀取權限（需要 ALTER TRACE；相關讀取可能還需要 VIEW SERVER STATE）"
+
+msgid "无法判断采集账号是否具有 SQL Server 默认跟踪读取权限（ALTER TRACE 权限检查返回 NULL）；请确认相关授权"
+msgstr "無法判斷採集帳號是否具有 SQL Server 預設追蹤讀取權限（ALTER TRACE 權限檢查傳回 NULL）；請確認相關授權"
 
 msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
 msgstr "SQL Server 預設追蹤未執行或沒有可讀取的追蹤檔案"
@@ -1923,5 +1929,8 @@ msgstr "MySQL 檢視表 {name} 未讀取到定義（需要 SHOW VIEW 權限）�
 msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
 msgstr "可選擇綁定資料庫.資料表，例如 mysql.general_log；通用日誌需 general_log=ON 且 log_output 包含 TABLE，採集帳號需 SELECT；相容稽核表需 event_time（TIMESTAMP）、user_host、command_type、argument"
 
-msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；DDL 归因需绑定审计表，日志只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
-msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用唯讀帳號（SELECT 與 SHOW VIEW）；server_uuid 確認執行個體身分；不回報資料新鮮度；DDL 歸因需綁定稽核表，日誌只作候選證據，與結構變化交叉核對；稽核時間統一以 UTC 讀取"
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；2026-11-01 已实机验证 MySQL 8.4.10；DDL 归因需绑定审计表，未绑定时不支持归因；general_log 实测也记录执行失败的 DDL，只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用唯讀帳號（SELECT 與 SHOW VIEW）；server_uuid 確認執行個體身分；不回報資料新鮮度；2026-11-01 已實機驗證 MySQL 8.4.10；DDL 歸因需綁定稽核表，未綁定時不支援歸因；general_log 實測也記錄執行失敗的 DDL，只作候選證據，與結構變化交叉核對；稽核時間統一以 UTC 讀取"
+
+msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
+msgstr "2026-11-01 已實機驗證 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 歸因需綁定稽核表並授予 SELECT，未綁定時不支援歸因；FE 時區為 UTC，非 UTC 換算未實機驗證；外掛剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配"

@@ -2,6 +2,7 @@
 
 - 状态：已采纳
 - 日期：2026-10-29
+- 实机验证补充：2026-11-01，MySQL 8.4.10、SQL Server 2022、Oracle 23ai Free、StarRocks 3.5.14 + AuditLoader 4.2.2。
 
 ## 背景
 
@@ -45,7 +46,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
      - 视图解析记为 `unsupported`，原因写明；
      - 执行类操作返回 409 `CapabilityMissing`。
    - 不降级猜测。
-   - MySQL 声明 `metadata`、`identity_target`、`view_lineage`、`query`、`live_check`、`ddl_audit`；其中 DDL 归因需要显式绑定可读的审计表，离线验证与真实实例验收分开说明。
+   - MySQL 声明 `metadata`、`identity_target`、`view_lineage`、`query`、`live_check`、`ddl_audit`；其中 DDL 归因需要显式绑定可读的审计表，已在 2026-11-01 的 MySQL 8.4.10 演示实例上验证。实机覆盖范围与未覆盖边界见下文。
 4. **统一的资产名**：仍是 `catalog.db.name` 三段。
    - 只有 库.表 两级的引擎（MySQL、Hive、ClickHouse）用适配器给的固定 Catalog 补齐。
      这些引擎的查询不认 Catalog 段：生成 SQL 时省略，执行前校验再按方言的固定 Catalog 补回后比对（M7）。
@@ -66,27 +67,27 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 
 | 引擎 | 版本（演示实例） | 能力 | 要点 |
 |---|---|---|---|
-| StarRocks | 3.5.14 | 元数据、视图血缘、问数、外部表、执行前核对、可选 DDL 审计归因（`DDL_AUDIT`） | M0–M4；审计需安装 AuditLoader、授权采集账号 SELECT，并通过 `options.ddl_audit_table` 绑定审计表；见 [StarRocks 实机核验与审计说明](../engines/starrocks.md) |
-| MySQL | 8.4 | 元数据、视图血缘、问数、执行前核对、DDL 归因、作为外部表的追溯目标 | DDL 审计表可选绑定；来源与证据边界见下 |
+| StarRocks | 3.5.14 + AuditLoader 4.2.2 | 元数据、视图血缘、问数、外部表、执行前核对、可选 DDL 审计归因（`DDL_AUDIT`） | M0–M4；DDL 归因于 2026-11-01 实机验证；需授权采集账号 SELECT，并通过 `options.ddl_audit_table` 绑定审计表；FE 时区为 UTC，非 UTC 换算未实机验证；插件初装可能漏记几十秒内的语句，保留未匹配；见 [StarRocks 实机核验与审计说明](../engines/starrocks.md) |
+| MySQL | 8.4.10 | 元数据、视图血缘、问数、执行前核对、DDL 归因、作为外部表的追溯目标 | 完整适配器于 2026-11-01 实机验证；DDL 审计表可选绑定；`general_log` 实测也记录失败 DDL，来源与候选证据边界见下 |
 | PostgreSQL | 18 | 元数据、视图血缘、问数、执行前核对 | M5；`pg_class.oid` 作物理身份 |
 | ClickHouse | 26.8 LTS | 元数据、视图血缘、问数、执行前核对 | M7，见下 |
-| SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增默认跟踪归因仅离线单元测试验证，见下 |
-| Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；新增统一审计归因仅离线单元测试验证，见下 |
+| SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；默认跟踪归因于 2026-11-01 实机验证；本地时间换 UTC 与跨夏令时未实机验证，见下 |
+| Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；统一审计归因于 2026-11-01 实机验证；无记录且无策略的 `not_enabled` 分支未实机验证，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 | Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
 
 ### MySQL
 
-MySQL 8.4 适配器补齐视图血缘、问数、执行前核对与可选 DDL 归因；新增能力由离线单元测试覆盖，真实实例中的账号权限、超时和审计配置仍需部署方验收。
+MySQL 8.4.10 适配器的视图血缘、问数、执行前核对与可选 DDL 归因已于 2026-11-01 在演示环境真实实例上验证。以下结论限于该版本与演示配置，部署方仍须核对自身账号权限和审计配置。
 
 - 资产名为 `def.库.表`；查询 SQL 只写 `库.表`，执行前核对按固定 Catalog 补回后比较。
 - 视图定义取 `information_schema.VIEWS.VIEW_DEFINITION`。MySQL 会改写定义并补充库名与反引号，直接交给 SQLGlot 的 `mysql` 方言解析列级血缘，保留采集到的定义用于执行前核对。
 - 问数通过 `pymysql` 使用独立的只读账号，设置 `MAX_EXECUTION_TIME`、驱动超时与返回行数上限，并在只读事务内执行。查询账号需要 `SELECT` 与 `SHOW VIEW`，供执行前核对读取涉及对象的结构和视图定义。`information_schema.tables.UPDATE_TIME` 不能可靠代表最近写入时间，因此不报告数据新鲜度。
-- DDL 审计来源通过数据源选项 `ddl_audit_table` 显式绑定，填写 `库.表`，提示值为 `mysql.general_log`；未绑定时没有审计来源，不会自动读取该表。绑定通用查询日志表时，要求 `general_log=ON`、`log_output` 包含 `TABLE` 且不含 `NONE`，采集账号有该表的 `SELECT` 权限（`NONE` 优先于 `TABLE`）。审计插件表需提供兼容的 `event_time`、`user_host`、`command_type`、`argument` 字段；`event_time` 只接受 `TIMESTAMP`（可带精度），不接受没有时区契约的 `DATETIME`，否则报告 `incompatible`。
+- DDL 审计来源通过数据源选项 `ddl_audit_table` 显式绑定，填写 `库.表`，提示值为 `mysql.general_log`；与 StarRocks 一致，未绑定时视为没有审计来源，归因为 `unsupported`，原因明确提示“未绑定审计表”，不会自动读取该表。绑定通用查询日志表时，要求 `general_log=ON`、`log_output` 包含 `TABLE` 且不含 `NONE`，采集账号有该表的 `SELECT` 权限（`NONE` 优先于 `TABLE`）。审计插件表需提供兼容的 `event_time`、`user_host`、`command_type`、`argument` 字段；`event_time` 只接受 `TIMESTAMP`（可带精度），不接受没有时区契约的 `DATETIME`，否则报告 `incompatible`。
 - 审计查询粗筛 `CREATE`、`ALTER`、`DROP`、`RENAME`、`TRUNCATE` 请求，再解析涉及的对象、列以及 `user_host` 中的用户名。候选读取上限为 10000 条；超限时报告 `unavailable` / `error`，明确说明无法完整归因，不截断后继续给出 `matched`。
-- 通用查询日志记录的是服务器**收到**的语句，既不证明执行成功，也不保证与执行顺序一致；记录只作为候选证据，与采集到的结构变化、时间窗口、对象名及可解析的列名、重定义等语法证据共同判断。日志没有可靠的当前库上下文；遇到未带库名的目标、含可能影响采集范围 DDL 的真正多语句请求，或 MySQL 可执行注释时，报告 `unavailable` / `incompatible`，明确提示无法可靠确定候选，避免遗漏候选后错误归因。显式 `TEMPORARY` 对象排除；`CREATE INDEX` / `DROP INDEX` 以 `ON` 后的表作为候选，但保守记为 `ambiguous`。其他能确认目标但无法解析动作的请求也保留候选，保守记为 `ambiguous`。归因状态沿用 ADR 0008。[MySQL 官方文档：通用查询日志](https://dev.mysql.com/doc/refman/8.4/en/query-log.html)
+- 通用查询日志记录的是服务器**收到**的语句，既不证明执行成功，也不保证与执行顺序一致；2026-11-01 实测 `general_log` 同样记录执行失败的 DDL。因此记录只作为候选证据，与采集到的结构变化、时间窗口、对象名及可解析的列名、重定义等语法证据共同判断。日志没有可靠的当前库上下文；遇到未带库名的目标、含可能影响采集范围 DDL 的真正多语句请求，或 MySQL 可执行注释时，报告 `unavailable` / `incompatible`，明确提示无法可靠确定候选，避免遗漏候选后错误归因。显式 `TEMPORARY` 对象排除；`CREATE INDEX` / `DROP INDEX` 以 `ON` 后的表作为候选，但保守记为 `ambiguous`。其他能确认目标但无法解析动作的请求也保留候选，保守记为 `ambiguous`。归因状态沿用 ADR 0008。[MySQL 官方文档：通用查询日志](https://dev.mysql.com/doc/refman/8.4/en/query-log.html)
 - `mysql.general_log.event_time` 为 `TIMESTAMP`，存储时转换为 UTC，读取时按会话 `time_zone` 转换。审计读取会话设为 `+00:00`，统一以 UTC 与结构变更时间比较；`log_timestamps` 只影响文件日志的时间戳，不影响日志表。[MySQL 官方文档：日期时间类型](https://dev.mysql.com/doc/refman/8.4/en/datetime.html)、[通用查询日志时间戳](https://dev.mysql.com/doc/refman/8.4/en/query-log.html)
-- 审计来源不可用时如实区分：未绑定审计表；`not_enabled`（`general_log=OFF`、`log_output` 不含 `TABLE` 或包含 `NONE`）；`no_permission`（采集账号不能读取审计表）；`incompatible`（来源结构不符合要求，或无法可靠确定候选）；`error`（其他读取失败，保留错误摘要）。这些情况不猜测变更人。
+- 已绑定审计表但来源不可用时如实区分：`not_enabled`（`general_log=OFF`、`log_output` 不含 `TABLE` 或包含 `NONE`）；`no_permission`（采集账号不能读取审计表）；`incompatible`（来源结构不符合要求，或无法可靠确定候选）；`error`（其他读取失败，保留错误摘要）。这些情况不猜测变更人。
 
 **ClickHouse**（M7，真实实例联调）：
 
@@ -97,7 +98,7 @@ MySQL 8.4 适配器补齐视图血缘、问数、执行前核对与可选 DDL �
 - 查询账号为 `readonly=2`（只读，可以调整查询设置），每次查询设 `max_execution_time` 与 `max_memory_usage`。错误码归类：159 为超时；60、47、81 为对象无法解析；497、164 为权限。
 - 数据新鲜度：取 `system.parts` 中活动分片的最近修改时间。查询账号只授予这张表的 4 列；未授权时不报告新鲜度，不让问数失败。
 
-**SQL Server**（M7 元数据与查询已真实实例联调；新增 DDL 归因仅离线单元测试验证；用户已确认接受 Developer Edition 的许可条款）：
+**SQL Server**（M7 元数据与查询已真实实例联调；默认跟踪 DDL 归因于 2026-11-01 在 SQL Server 2022 演示实例上实机验证；用户已确认接受 Developer Edition 的许可条款）：
 
 - 资产名 `库.模式.表`，库放在 catalog 段（与 PostgreSQL 相同）；生成的 SQL 用三段名，行数上限写成 `TOP n`。
 - 元数据采集账号只需模式上的 `VIEW DEFINITION`：读 `sys.objects`、`sys.columns`、`sys.indexes`、`sys.sql_modules`，以及 `MS_Description` 扩展属性（列注释）。读不到业务数据。
@@ -115,11 +116,12 @@ MySQL 8.4 适配器补齐视图血缘、问数、执行前核对与可选 DDL �
 - 不报告数据新鲜度：最近写入时间需要 `VIEW SERVER STATE`，默认不授予。
 - 变更归因（`DDL_AUDIT`）直接读取数据库默认跟踪：从 `sys.traces` 中定位 `is_default = 1` 的跟踪，用 `sys.fn_trace_gettable` 读取 `Object:Created`、`Object:Altered`、`Object:Deleted`，只采用 `EventSubClass` 为 Commit 的已生效事件。Begin 事件及回滚事务不能作为变更证据。
 - 客户需要开启 `default trace enabled`，并给采集账号授予 `ALTER TRACE`；相关诊断读取若还要求 `VIEW SERVER STATE`，也须授权。不需要 `ddl_audit_table` 选项。关闭默认跟踪时归因为 `unavailable`，原因为 `not_enabled`；读取权限不足为 `no_permission`，来源结构不符为 `incompatible`，其他读取失败为 `error` 并保留错误摘要。
+- `ALTER TRACE` 的权限检查使用 `HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER TRACE')`，实测授权时为 1、未授权时为 0；第二个参数使用 `'SERVER'` 时会返回 NULL，不能据此判断有权限。检查结果为 NULL 时按无法判断权限处理，不放行审计读取。
 - 跟踪中的 `LoginName`、`DatabaseName`、`ObjectName` 与 `StartTime` 提供对象级证据，没有可用于点名列的语句文本。列级归因沿用 [ADR 0008](0008-history-integrity.md) 的 `redefines` / `column_refs` 规则，证据不足时保留 `unmatched` / `ambiguous`。
 - 默认跟踪没有历史模式名：创建、修改事件仅在当前 `sys.objects` 的对象 ID、名称、类型与创建时间均相符时恢复候选模式。这仍不能排除 `ALTER SCHEMA ... TRANSFER`，所以对象级也只列候选（`ambiguous`），不据此确定执行者；连接器以 `certain=False` 表示无法确认该事件属于目标对象的快照窗口。删除事件或无法恢复候选模式的事件保留空对象列表，归因为 `unmatched`，不猜测模式。
-- `StartTime` 按 SQL Server 服务器本地时间解释，转 UTC 时使用服务器当前时区偏移；跨夏令时切换的历史事件不保证精确换算。
+- `StartTime` 按 SQL Server 服务器本地时间解释，转 UTC 时使用服务器当前时区偏移。本次演示实例的时区偏移为 0，本地时间换 UTC 与跨夏令时均未实机验证；跨夏令时切换的历史事件不保证精确换算。
 
-**Oracle**（M7 元数据与查询已真实实例联调；新增 DDL 归因仅离线单元测试验证；用户已确认接受 Oracle Free 的许可条款）：
+**Oracle**（M7 元数据与查询已真实实例联调；统一审计 DDL 归因于 2026-11-01 在 Oracle 23ai Free 演示实例上实机验证；用户已确认接受 Oracle Free 的许可条款）：
 
 - 资产名 `服务名.模式.表`。查询中不写服务名（`catalog_in_sql = False`），行数上限写成 `FETCH FIRST n ROWS ONLY`，执行前校验同样识别。
 - **标识符大小写**：未加引号的名字在数据字典中存为大写。解析前用 `fold_identifiers("oracle")` 按 Oracle 规则折叠，视图原文的 `store.sales` 才能对上已采集的 `STORE.SALES`。这一规整只挂在 Oracle 方言上，不改变其他引擎的规范化 SQL 与指纹。
@@ -135,8 +137,9 @@ MySQL 8.4 适配器补齐视图血缘、问数、执行前核对与可选 DDL �
   - `NUMBER` 取为 `Decimal`，默认的 float 会让金额产生精度误差；
   - 错误归类：DPY-4024 为超时；ORA-00904、00942 为对象无法解析；ORA-01031、01456、41900 为权限（ORA-41900 是 23ai 起的“缺少某项权限”）。
 - 不报告数据新鲜度：`DBA_TAB_MODIFICATIONS` 依赖统计信息刷新，不能代表最近写入时间。
-- 变更归因（`DDL_AUDIT`）读取 `UNIFIED_AUDIT_TRAIL`，仅采用 `RETURN_CODE = 0` 的成功 DDL；使用 `DBUSERNAME`、`ACTION_NAME`、`OBJECT_SCHEMA`、`OBJECT_NAME`，有 `SQL_TEXT` 时沿用现有解析器识别列级变化，无法确定时保留未知。
+- 变更归因（`DDL_AUDIT`）读取 `UNIFIED_AUDIT_TRAIL`，仅采用 `RETURN_CODE = 0` 的成功 DDL；使用 `DBUSERNAME`、`ACTION_NAME`、`OBJECT_SCHEMA`、`OBJECT_NAME`，有 `SQL_TEXT` 时沿用现有解析器识别列级变化，无法确定时保留未知。23ai 实测 `SQL_TEXT` 会带结尾的空字符（如 `COMMENT ON TABLE ... IS 'verify'\x00`），读取后去掉结尾的 `\x00` 再解析。
 - 客户需要启用覆盖表、视图等对象 `CREATE` / `ALTER` / `DROP` 的统一审计策略，并给采集账号授予 `AUDIT_VIEWER` 等读取权限；不需要 `ddl_audit_table` 选项。没有相关记录且可从 `AUDIT_UNIFIED_ENABLED_POLICIES` 判断相关策略未启用时，原因为 `not_enabled`；无读取权限为 `no_permission`，来源结构不符为 `incompatible`，其他读取失败为 `error` 并保留错误摘要。审计查询成功但没有事件，且不能证明策略未启用时，不据此断言审计已关闭。
+- 本次实机使用自建统一审计策略，覆盖 `CREATE TABLE`、`ALTER TABLE`、`DROP TABLE`、`CREATE VIEW`、`DROP VIEW`、`COMMENT`、`RENAME`、`TRUNCATE TABLE`，并向采集账号授予 `AUDIT_VIEWER`。无记录且无策略的 `not_enabled` 分支未实机验证。
 - 时间优先取 `EVENT_TIMESTAMP_UTC`；只有旧版明确缺少 UTC 列时，才先将审计会话的 `TIME_ZONE` 设为 `+00:00`，回退到该 UTC 会话中的 `EVENT_TIMESTAMP` 并按 UTC 解释。
 
 **Doris**（M7，真实实例联调；all-in-one 镜像，一个 FE 加一个 BE）：

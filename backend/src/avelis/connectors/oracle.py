@@ -267,6 +267,8 @@ class OracleConnector:
                         statement = read_clob()  # python-oracledb 默认把 CLOB 返回为 LOB，不能等连接关闭后读取
                     if statement is not None and not isinstance(statement, str):
                         raise AuditUnavailable(Msg("Oracle 统一审计的 SQL_TEXT 不是文本"), "incompatible")
+                    if statement is not None:
+                        statement = statement.rstrip("\x00")
                     events.append(DdlEvent(at=_utc(at), db_user=user, objects=[(schema, name)],
                                            statement_type=action, statement=statement or ""))
                 if not events:

@@ -225,6 +225,9 @@ class SqlServerConnector:
             offset_minutes = config.get("offset_minutes")
             if config.get("enabled") != 1 or not isinstance(offset_minutes, int) or not -840 <= offset_minutes <= 840:
                 raise AuditUnavailable(gettext("SQL Server 默认跟踪配置或服务器时区偏移无法读取"), "incompatible")
+            if config.get("can_read") is None:
+                raise AuditUnavailable(gettext("无法判断采集账号是否具有 SQL Server 默认跟踪读取权限"
+                                               "（ALTER TRACE 权限检查返回 NULL）；请确认相关授权"), "no_permission")
             if config.get("can_read") != 1:
                 raise AuditUnavailable(gettext("采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；"
                                                "相关读取可能还需要 VIEW SERVER STATE）"), "no_permission")

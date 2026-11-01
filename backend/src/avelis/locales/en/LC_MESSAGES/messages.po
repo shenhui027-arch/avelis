@@ -1792,6 +1792,9 @@ msgstr "database.table; default table: starrocks_audit_db__.starrocks_audit_tbl_
 msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
 msgstr "No audit table is bound: bind an AuditLoader audit table in the data source option ddl_audit_table"
 
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 MySQL DDL 审计表"
+msgstr "No audit table is bound: bind a MySQL DDL audit table in the data source option ddl_audit_table"
+
 msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
 msgstr "Invalid StarRocks audit table name: use database.table; names may be quoted with backticks"
 
@@ -1822,17 +1825,20 @@ msgstr "The StarRocks audit record contains an escaped object name that is not y
 msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
 msgstr "The DDL audit source does not cover this Catalog; attribution is unavailable"
 
-msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；DDL 归因需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移，跨夏令时可能不准确"
-msgstr "The collection account needs VIEW DEFINITION on the schemas; the query account needs SELECT and VIEW DEFINITION; object_id provides physical identity; data freshness is not reported. DDL attribution requires default trace to be enabled and ALTER TRACE to be granted (also grant VIEW SERVER STATE if required by related reads). Only committed object-level events are used. Schemas recovered from the current catalog provide candidates only; no definite attribution is made when the historical schema or affected columns cannot be established. StartTime is converted from server local time to UTC using the server's current offset, which may be inaccurate across daylight saving transitions."
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确"
+msgstr "The collection account needs VIEW DEFINITION on the schemas; the query account needs SELECT and VIEW DEFINITION; object_id provides physical identity; data freshness is not reported. DDL attribution was validated on a real SQL Server 2022 instance on 2026-11-01. Default trace must be enabled and ALTER TRACE granted (also grant VIEW SERVER STATE if required by related reads). Only committed object-level events are used. Schemas recovered from the current catalog provide candidates only; no definite attribution is made when the historical schema or affected columns cannot be established. StartTime is converted from server local time to UTC using the current server offset. The demo instance had an offset of 0; local-time-to-UTC conversion and daylight saving transitions have not been validated on real instances, and conversion across daylight saving transitions may be inaccurate."
 
-msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；DDL 归因需启用覆盖 TABLE、VIEW 等 CREATE / ALTER / DROP 的统一审计策略，并授予 AUDIT_VIEWER 或等效读取权限；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取"
-msgstr "The collection account needs SELECT_CATALOG_ROLE; OBJECT_ID provides physical identity; unquoted identifiers are stored in uppercase; data freshness is not reported. DDL attribution requires an enabled unified audit policy covering CREATE / ALTER / DROP for TABLE, VIEW and other relevant objects, plus AUDIT_VIEWER or equivalent read privileges. Only successful records with RETURN_CODE = 0 are used. EVENT_TIMESTAMP_UTC is preferred; on older versions, EVENT_TIMESTAMP is read in a UTC audit session."
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取；无记录且无策略的 not_enabled 分支未实机验证"
+msgstr "The collection account needs SELECT_CATALOG_ROLE; OBJECT_ID provides physical identity; unquoted identifiers are stored in uppercase; data freshness is not reported. DDL attribution was validated on a real Oracle 23ai Free instance on 2026-11-01 using a custom unified audit policy (CREATE / ALTER / DROP TABLE, CREATE / DROP VIEW, COMMENT, RENAME, TRUNCATE TABLE) and AUDIT_VIEWER. Only successful records with RETURN_CODE = 0 are used. EVENT_TIMESTAMP_UTC is preferred; on older versions, EVENT_TIMESTAMP is read in a UTC audit session. The not_enabled branch with neither records nor an enabled policy has not been validated on real instances."
 
 msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
 msgstr "SQL Server default trace is disabled (default trace enabled = 0)"
 
 msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
 msgstr "The collection account lacks permission to read SQL Server default trace (ALTER TRACE is required; related reads may also require VIEW SERVER STATE)"
+
+msgid "无法判断采集账号是否具有 SQL Server 默认跟踪读取权限（ALTER TRACE 权限检查返回 NULL）；请确认相关授权"
+msgstr "Cannot determine whether the collection account can read SQL Server default trace (the ALTER TRACE permission check returned NULL); verify the required grants"
 
 msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
 msgstr "SQL Server default trace is not running or has no readable trace file"
@@ -1918,5 +1924,8 @@ msgstr "No definition was read for MySQL view {name} (SHOW VIEW is required); co
 msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
 msgstr "Optionally bind database.table, such as mysql.general_log; the general log requires general_log=ON, TABLE in log_output, and SELECT for the collection account; compatible audit tables require event_time (TIMESTAMP), user_host, command_type, and argument"
 
-msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；DDL 归因需绑定审计表，日志只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
-msgstr "The collection account needs metadata visibility and SHOW VIEW; queries use a dedicated read-only account (SELECT and SHOW VIEW); server_uuid identifies the instance; data freshness is not reported; DDL attribution requires an audit table binding and cross-checks log candidates against schema changes; audit timestamps are read in UTC"
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；2026-11-01 已实机验证 MySQL 8.4.10；DDL 归因需绑定审计表，未绑定时不支持归因；general_log 实测也记录执行失败的 DDL，只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "The collection account needs metadata visibility and SHOW VIEW; queries use a dedicated read-only account (SELECT and SHOW VIEW); server_uuid identifies the instance; data freshness is not reported. MySQL 8.4.10 was validated on a real instance on 2026-11-01. DDL attribution requires an audit table binding and is unsupported without one. Real-instance testing confirmed that general_log also records failed DDL, so it provides candidate evidence only, cross-checked against schema changes; audit timestamps are read in UTC."
+
+msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
+msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditLoader 4.2.2; DDL attribution requires a bound audit table and SELECT permission, and is unsupported without a binding. The FE time zone was UTC; conversion from non-UTC time zones has not been validated on real instances. Statements issued within the first tens of seconds after plugin installation may not be recorded and are then unmatched."

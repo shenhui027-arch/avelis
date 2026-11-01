@@ -144,6 +144,24 @@ def test_old_timestamp_falls_back_only_when_utc_column_is_absent(monkeypatch):
     assert binds["since"] == SINCE and binds["until"] == UNTIL
 
 
+@pytest.mark.parametrize("as_clob", [False, True])
+@pytest.mark.parametrize("statement,expected", [
+    ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
+    ("COMMENT ON TABLE APP.ORDERS IS 'verify'\x00\x00", "COMMENT ON TABLE APP.ORDERS IS 'verify'"),
+    ("COMMENT ON TABLE APP.ORDERS IS 'verify' ", "COMMENT ON TABLE APP.ORDERS IS 'verify' "),
+    ("COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'\x00", "COMMENT ON TABLE APP.ORDERS IS 'ver\x00ify'"),
+])
+def test_sql_text_removes_only_trailing_nul_for_text_and_clob(monkeypatch, as_clob, statement, expected):
+    connection = _Connection()
+    value = _Clob(connection, statement) if as_clob else statement
+    connection.records = [_record(value, action="COMMENT")]
+    events = _connector(monkeypatch, connection).ddl_events(SINCE, UNTIL)
+    assert len(events) == 1 and events[0].statement == expected
+    if as_clob:
+        assert value.reads == 1
+    assert connection.closed
+
+
 def test_aware_datetimes_are_normalized_to_utc_without_avelis_host_timezone(monkeypatch):
     offset = timezone(timedelta(hours=8))
     connection = _Connection([_record(at=NOW.replace(tzinfo=timezone.utc).astimezone(offset))])
