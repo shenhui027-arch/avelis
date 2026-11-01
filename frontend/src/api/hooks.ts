@@ -21,9 +21,9 @@ export type Graph = Schemas["GraphOut"];
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     const body = e.body as { blockers?: string[] } | undefined;
-    return body?.blockers?.length ? t("common.withReasons", { message: e.message, reasons: body.blockers.join(t("common.clauseSep")) }) : e.message;
+    return body?.blockers?.length ? t("{{message}}：{{reasons}}", { message: e.message, reasons: body.blockers.join(t("；")) }) : e.message;
   }
-  return e instanceof Error ? e.message : t("common.operationFailed");
+  return e instanceof Error ? e.message : t("操作失败");
 }
 
 export const useAppSettings = () => useQuery({

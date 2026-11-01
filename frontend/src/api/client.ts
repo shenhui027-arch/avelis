@@ -119,7 +119,7 @@ export async function unwrap<T>(promise: Promise<{ data?: T; error?: unknown; re
   const { data, error, response } = await promise;
   if (error !== undefined || !response.ok) {
     const detail = (error as { detail?: unknown })?.detail;
-    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? t("common.invalidInput") : t("common.requestFailed", { status: response.status });
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? t("输入不合法") : t("请求失败（{{status}}）", { status: response.status });
     throw new ApiError(response.status, message, error);
   }
   return data as T;
@@ -131,7 +131,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   const body = new URLSearchParams({ username, password });
   const response = await fetch("/api/auth/token", { method: "POST", body, headers: { "Accept-Language": currentLanguage() } });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(response.status, json.detail ?? t("common.loginFailed"));
+  if (!response.ok) throw new ApiError(response.status, json.detail ?? t("登录失败"));
   token.issue(json);
   return { mustChangePassword: !!json.must_change_password, expiresAt: json.expires_at };
 }
