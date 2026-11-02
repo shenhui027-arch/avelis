@@ -22,13 +22,13 @@ _URL_USER = r"(?<![a-z0-9_.~%+-])(?P<user>(?:[a-z][a-z0-9+.-]*://)?[a-z0-9_.~%+-
 _URL_USER_PATTERN = re.compile(_URL_USER, re.I)
 # 这里只定位行内的键/分隔符，取值另行扫描，避免两组空白相互回溯。
 SECRET_PATTERN = re.compile(
-    rf"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"])?{_SECRET_KEY}"
+    rf"(?P<prefix>(?<![\w-])(?P<cli>--)?(?P<key_quote>['\"])?(?P<key>{_SECRET_KEY})"
     r"(?(key_quote)(?P=key_quote)(?:[ \t]*+\])?)"
     r"(?(cli)(?:[ \t]*+(?P<cli_separator>[=:])[ \t]*+|[ \t]++(?![=:]))|"
     r"[ \t]*+(?P<assignment_separator>[=:])[ \t]*+))"
     # URL 这里只匹配用户名；密码的终点由线性扫描预先定位。
     rf"|{_URL_USER}"
-    r"|(?<![\w-])(?P<sql>identified|password)\b"
+    r"|\b(?P<sql>identified|password)\b"
     r"|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}\b",
     re.I,
 )
@@ -37,7 +37,15 @@ _URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
 _BRACKETS = {"(": ")", "[": "]", "{": "}"}
 _INLINE_SPACE = " \t\f\v"
 _STRING_PREFIXES = {"r", "u", "b", "f", "br", "rb", "fr", "rf"}
-_SQL_LITERAL_START = re.compile(r"(?P<quoted>[ENBX]'|U&'|['\"])|(?P<dollar>\$(?:[^\W\d]\w*)?\$)", re.I)
+_SQL_LITERAL_START = re.compile(
+    r"(?P<quoted>(?P<sql_prefix>[^\W\d]\w*&?)?(?P<host_escape>\\?)(?P<quote>['\"]))"
+    r"|(?P<dollar>\$(?:[^\W\d]\w*)?\$)"
+)
+_SQL_STRUCTURE_WORDS = frozenset(
+    "FROM WHERE AND OR NOT IS NULL AS ON IN LIKE ILIKE BETWEEN ORDER GROUP BY HAVING LIMIT OFFSET ASC DESC "
+    "UNION JOIN LEFT RIGHT INNER OUTER WHEN THEN ELSE END SET VALUES INTO RETURNING DISABLE".split()
+)
+_SQL_STRUCTURE_SYMBOLS = ",);=<>!.+-*/|%:"
 
 
 class _SecretValueReader:
@@ -48,6 +56,27 @@ class _SecretValueReader:
         self.length = len(text)
         self._line_start = 0
         self._line_end = -1
+        self._quote_cursor = 0
+        self._host_quote = ""
+
+    def host_string_end(self, start: int) -> bool:
+        """单向跟踪宿主引号；只有紧跟宿主代码的闭合引号才排除，歧义默认遮蔽。"""
+        while self._quote_cursor < start:
+            cursor = self._quote_cursor
+            if self.text[cursor] == "\\":
+                self._quote_cursor += 2
+            elif self._host_quote and self.text.startswith(self._host_quote, cursor):
+                self._quote_cursor += len(self._host_quote)
+                self._host_quote = ""
+            elif not self._host_quote and (quote := self.quote(cursor)):
+                self._host_quote = quote
+                self._quote_cursor += len(quote)
+            else:
+                self._quote_cursor += 1
+        if not self._host_quote or not self.text.startswith(self._host_quote, start):
+            return False
+        following = self.skip_space(start + len(self._host_quote))
+        return following == self.length or self.text[following] in "+),;\r\n"
 
     def line_end(self, start: int) -> int:
         if self._line_start <= start <= self._line_end:
@@ -204,15 +233,44 @@ class _SecretValueReader:
             cursor += 1
         return self.text[start:cursor].upper(), cursor
 
-    def sql_literal_end(self, start: int) -> int:
-        """读取一个 SQL 字面量；美元标签区分大小写，只有 E 前缀允许反斜杠转义引号。"""
+    def sql_password_end(self, start: int) -> int:
+        """默认读取口令单元；已知分隔符只决定终点，不决定是否遮蔽。"""
         match = _SQL_LITERAL_START.match(self.text, start)
-        assert match is not None
+        if match is None:
+            cursor = start
+            while cursor < self.length:
+                char = self.text[cursor]
+                if char.isspace() or char in ",;)]}":
+                    break
+                if char in "\"'":
+                    if self.host_string_end(cursor):
+                        break
+                    return self.sql_password_end(cursor)
+                if char in _BRACKETS:
+                    cursor = self.bracket_end(cursor)
+                else:
+                    cursor += 1
+            return cursor
         if delimiter := match["dollar"]:
             closing = self.text.find(delimiter, match.end())
             return closing + len(delimiter) if closing >= 0 else self.length
-        quote = match["quoted"][-1]
-        escaped = match["quoted"].upper() == "E'"
+        if match["sql_prefix"] and not match["host_escape"] and self.host_string_end(match.end() - 1):
+            return match.end() - 1
+        if match["host_escape"]:
+            delimiter = "\\" + match["quote"]
+            cursor = match.end()
+            while (closing := self.text.find(delimiter, cursor)) >= 0:
+                cursor = closing + 2
+                # 多层转义不提前闭合；SQL 双写引号仍属于当前值。
+                if self.text[closing - 1] == "\\":
+                    continue
+                if self.text.startswith(delimiter, cursor):
+                    cursor += 2
+                else:
+                    return cursor
+            return self.length
+        quote = match["quote"]
+        escaped = (match["sql_prefix"] or "").upper() == "E"
         cursor = match.end()
         while cursor < self.length:
             char = self.text[cursor]
@@ -236,19 +294,33 @@ class _SecretValueReader:
         return self.value_end(start, indent, shell_quotes=True)
 
     def sql_value_start(self, keyword: str, end: int, line_end: int) -> int | None:
-        """PASSWORD 只接受字面量；IDENTIFIED 保留裸值及插件语法。"""
+        """PASSWORD 排除结构后默认遮蔽；IDENTIFIED 保留裸值及插件语法。"""
+        key_start = end - len(keyword)
+        if key_start >= 2 and self.text[key_start - 2 : key_start] == "--":
+            return None
         cursor = self.skip_space(end)
         if keyword.upper() == "PASSWORD":
             while cursor < self.length and self.text[cursor].isspace():
                 cursor += 1
             if cursor == self.length:
                 return None
-            key_start = end - len(keyword)
             # 必须是关键字自身被同类引号包住；前一个标识符的闭合引号不算。
             quotes = {'"': '"', "'": "'", "`": "`", "[": "]"}
             if key_start > 0 and quotes.get(self.text[key_start - 1]) == self.text[end : end + 1]:
                 return None
-            return cursor if _SQL_LITERAL_START.match(self.text, cursor) else None
+            word, _ = self.word(cursor)
+            if word in _SQL_STRUCTURE_WORDS:
+                return None
+            char = self.text[cursor]
+            # :name / %(name)s 是值；:: 类型转换及独立符号仍属于结构。
+            placeholder = (char == ":" and self.text[cursor + 1 : cursor + 2].isidentifier()) or self.text.startswith(
+                "%(", cursor
+            )
+            if char in _SQL_STRUCTURE_SYMBOLS and not placeholder:
+                return None
+            if char in "\"'" and self.host_string_end(cursor):
+                return None
+            return cursor
         if cursor == end:
             return None
         if keyword.upper() == "IDENTIFIED":
@@ -343,6 +415,12 @@ def redact(text: str) -> tuple[str, int]:
                     break
                 position = match.end()
                 if match.group("prefix") is not None:
+                    if (
+                        match["key"].upper() == "PASSWORD"
+                        and match["assignment_separator"] == ":"
+                        and line[position : position + 1] == ":"
+                    ):
+                        continue
                     password_end = url_ends[match.start()]
                     if password_end > position and _URL_USER_PATTERN.fullmatch(line, match.start(), position):
                         # 用户名也可能叫 password；按完整 URL 处理才能保留主机且保持幂等。
@@ -374,7 +452,7 @@ def redact(text: str) -> tuple[str, int]:
                     elif value_start is not None:
                         password = match["sql"].upper() == "PASSWORD"
                         if password:
-                            closing = reader.sql_literal_end(value_start)
+                            closing = reader.sql_password_end(value_start)
                             quote = logical[value_start] if logical[value_start] in "\"'" else ""
                         else:
                             closing = reader.sql_value_end(value_start, indent)
