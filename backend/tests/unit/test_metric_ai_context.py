@@ -370,6 +370,31 @@ def test_demo_example_fallback_ignores_too_short_question_body():
     assert intent.metric_codes == [] and intent.clarification
 
 
+def test_demo_example_fallback_clarifies_all_matches_independent_of_catalog_order():
+    cards = [
+        MetricCard(
+            code=code,
+            name=name,
+            aliases=[],
+            dimensions=[],
+            ai_context={"examples": ["每日观察情况", "每日观察情况汇总"]},
+        )
+        for code, name in (("metric_a", "指标甲"), ("metric_b", "指标乙"))
+    ]
+    model = DemoIntentModel()
+    question = "2026-01-01 每日观察情况"
+    forward = model.parse(question, cards, today=date(2026, 1, 1))
+    reverse = model.parse(question, cards[::-1], today=date(2026, 1, 1))
+    assert forward == reverse
+    assert forward.clarification == "问题可能指多个指标，请明确是哪一个"
+    assert set(forward.candidates) == {"指标甲", "指标乙"} and len(forward.candidates) == 2
+    assert forward.metric_code is None and forward.metric_codes == []
+
+    cards[1].ai_context = {"examples": ["观察序列乙"]}
+    single = model.parse(question, cards[::-1], today=date(2026, 1, 1))
+    assert single.metric_codes == ["metric_a"] and not single.clarification
+
+
 def test_candidate_examples_capped_and_describe_context_preserved(api, monkeypatch):
     context = {**CONTEXT, "examples": [f"问法{i}" for i in range(5)]}
     assert put(api, context).status_code == 200
@@ -453,6 +478,46 @@ def test_context_pack_keeps_all_core_fields_before_long_hints(api, expression_ch
             assert "…" in json.dumps(packed["ai_context"], ensure_ascii=False)
     else:
         assert "ai_context" not in packed
+
+
+@pytest.mark.parametrize("dimension_name_chars", [0, 300])
+def test_context_pack_long_core_keeps_metric_and_following_evidence(api, dimension_name_chars):
+    catalog = service.visible_catalog(api.session, api.users["owner"], with_values=False)
+    box = AnalysisToolbox(api.session, api.users["owner"], SimpleNamespace(id="run"), catalog, Budget())
+    core = {
+        "code": "metric_a",
+        "name": "指标甲",
+        "kind": "base",
+        "unit": "单位甲",
+        "data_grain": "day",
+        "time_aggregation": "sum",
+    }
+    expression = "SUM(b.value_a)" + " " * (box.PACK_CHARS * 2)
+    dimensions = [{"name": f"dim_{i}" + "x" * dimension_name_chars, "label": "维度甲" * 100} for i in range(80)]
+    box.precheck_metric = {**core, "expression": expression, "dimensions": dimensions, "ai_context": CONTEXT}
+    box._dataset(
+        "calc", "归因甲", ["dimension", "member", "previous", "current", "role"], [["dim_0", "甲", 1, 2, "增加项"]]
+    )
+    box._dataset("governed", "趋势甲", ["period", "value"], [["2026-01-01", 2]])
+    box._dataset("calc", "结果甲", ["value"], [[2]])
+    box.precheck_groups = {"attribution": ["D1"], "trend": ["D2"]}
+    box.precheck_meta = [{"table": "catalog_a.schema_a.records", "columns": [{"name": "value_a"}]}]
+
+    pack = box.context_pack()
+    packed = json.loads(pack.split("\n\n", 1)[0].removeprefix("口径："))
+    assert {k: packed[k] for k in core} == core
+    assert packed["truncated"] is True
+    assert len(pack) <= box.PACK_CHARS
+    assert "D1 归因甲" in pack and '"甲", 1, 2, "增加项"' in pack
+    assert "D2 趋势甲" in pack and "D3 结果甲" in pack
+    assert "来源表 " in pack and "catalog_a.schema_a.records" in pack
+    assert "项放不下" not in pack
+    if dimension_name_chars:
+        assert set(packed) == {*core, "truncated"}
+    else:
+        assert packed["expression"] == expression[:1499] + "…"
+        assert packed["dimensions"] == [d["name"] for d in dimensions[:30]] + ["…"]
+    assert box.precheck_metric["expression"] == expression and box.precheck_metric["dimensions"] == dimensions
 
 
 def test_context_does_not_change_fingerprint_sql_or_real_answer_cache_key(api, monkeypatch):

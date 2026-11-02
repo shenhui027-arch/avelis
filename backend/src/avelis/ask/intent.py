@@ -204,24 +204,25 @@ class DemoIntentModel:
             if card.code not in {c.code for c in ordered}:
                 ordered.append(card)
         if not ordered:
-            # 示例只在没有显式命中时补一个候选，不参与片段过滤；问题主体太短（如只剩“多少”）不做反向包含匹配。
+            # 示例只在没有显式命中时回退，不参与片段过滤；问题主体太短（如只剩“多少”）不做反向包含匹配。
             body = text
             for pattern in DATE_PATTERNS:
                 body = pattern.sub("", body)
             body = re.sub(r"今天|昨天", "", body).strip(" \t\r\n，。？！,.?!至到-~～")
-            candidate = next(
-                (
-                    c
-                    for c in metrics
-                    if any(
-                        example and (example in text or (len(body) >= 3 and body in example))
-                        for example in c.ai_context.get("examples", [])
-                    )
-                ),
-                None,
-            )
-            if candidate:
-                ordered.append(candidate)
+            candidates = [
+                c
+                for c in metrics
+                if any(
+                    example and (example in text or (len(body) >= 3 and body in example))
+                    for example in c.ai_context.get("examples", [])
+                )
+            ]
+            if len(candidates) > 1:
+                return Intent(
+                    clarification="问题可能指多个指标，请明确是哪一个",
+                    candidates=[c.name for c in sorted(candidates, key=lambda c: c.code)],
+                )
+            ordered.extend(candidates)
         if not ordered:
             return Intent(
                 clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标", candidates=[m.name for m in metrics]
