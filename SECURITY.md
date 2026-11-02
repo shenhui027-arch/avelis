@@ -6,11 +6,11 @@
 
 ### Supported versions
 
-This policy covers Avelis v1.0.0. Security fixes are made on the `main` branch.
+This policy covers Avelis v1.0.x. Security fixes are made on the `main` branch.
 
 | Version | Supported |
 |---|---|
-| v1.0.0 | Yes |
+| v1.0.x | Yes |
 | `main` | Yes |
 | Anything else | No |
 
@@ -43,7 +43,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 
 ### 支持的版本
 
-本安全政策适用于 Avelis v1.0.0，安全修复在 `main` 分支进行。
+本安全政策适用于 Avelis v1.0.x，安全修复在 `main` 分支进行。
 
 ### 报告漏洞
 
@@ -74,7 +74,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 
 ### 支援的版本
 
-本安全政策適用於 Avelis v1.0.0，安全修復在 `main` 分支進行。
+本安全政策適用於 Avelis v1.0.x，安全修復在 `main` 分支進行。
 
 ### 報告漏洞
 

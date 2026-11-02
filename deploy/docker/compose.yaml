@@ -15,7 +15,7 @@
 name: avelis
 
 x-avelis: &avelis
-  image: ${AVELIS_IMAGE:-avelis:1.0.0}
+  image: ${AVELIS_IMAGE:-avelis:1.0.1}
   build:
     context: ../..
     dockerfile: Dockerfile
