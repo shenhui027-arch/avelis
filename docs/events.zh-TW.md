@@ -117,11 +117,14 @@ def verify_webhook(secret: str, headers, raw_body: bytes) -> bool:
         return False
     if abs(int(time.time()) - issued_at) > 300:
         return False
-    expected = "sha256=" + hmac.new(
-        secret.encode("utf-8"),
-        timestamp_bytes + b"." + raw_body,
-        hashlib.sha256,
-    ).hexdigest()
+    expected = (
+        "sha256="
+        + hmac.new(
+            secret.encode("utf-8"),
+            timestamp_bytes + b"." + raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
     return hmac.compare_digest(expected.encode("ascii"), signature_bytes)
 ```
 
