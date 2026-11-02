@@ -1,6 +1,6 @@
 # ADR 0017：口径按 Apache Ossie 导入导出，并为口径补充给模型用的语义提示
 
-- 状态：草稿（2026-11-01，待讨论）
+- 状态：部分采纳（2026-11-02，用户确定 1.1 顺序）。§3 口径语义提示作为 1.1 第一项实施；§1、§2 的 Ossie 导入导出排在 1.1 最后，等规范稳定后定稿。
 - 相关：ADR 0005（问数表达力）、0010（业务中立）、0013（准确来自受治理的元数据）、0014（口径时间与量纲）；参考 Apache Gravitino 语义模型设计（`design-docs/gravitino-semantic-model-design.md`，2026-10-30 版）
 
 ## 背景
@@ -31,13 +31,13 @@ Apache Ossie（原 Open Semantic Interchange，OSI）定义了与厂商无关的
 | `unit`、`time_aggregation`、`data_grain`、`polarity` 等 Ossie 没有的字段 | `custom_extensions[]`，`vendor_name = "avelis"` |
 | 新增的语义提示（见 §3） | `ai_context` |
 
-一个业务域导出为一个 Ossie `semantic_model`。
+一个业务域导出为一个 Ossie 语义模型文件。按 `0.2.0.dev0` 规范，单个文件没有 `semantic_model` 包装，`version`、`name`、`datasets`、`relationships`、`metrics` 等直接放在根部；指标可以放在根部，也可以挂在某个数据集下，Avelis 导出时统一放在根部。
 
 ### 2. 导入只生成草稿，必须走现有审核
 
 - 导入时依次做：结构校验 → 模型内部校验（重名、关系两端、列数一致）→ 对照已采集资产校验（源表、列必须存在，按导入人的业务域权限查找，不暴露看不到的资产）。任一层失败整体不写入，并逐条列出原因。
 - 通过后生成 `draft` 口径版本，照常算依赖指纹、走 `pending_review → published`。**导入不能直接发布。**
-- 表达式只取与数据源方言一致的那一条写法；没有时尝试用 sqlglot 从 `ANSI_SQL` 转写，转写结果标为“待人工确认”。
+- 表达式只取与数据源方言一致的那一条写法；没有时尝试用 sqlglot 从 Ossie 规范定义的通用方言 `OSSIE_SQL_2026` 转写，转写结果标为“待人工确认”。Ossie 的 `dialect` 是自由字符串，其他未知方言原样保存、不转写。
 - `custom_extensions` 里非 avelis 的内容原样保存，导出时原样带回，保证往返不丢信息。
 
 ### 3. 口径语义提示（`ai_context`）
@@ -53,10 +53,18 @@ examples?: string[]      典型问法，用于检索与评测
 - 只影响检索与澄清，不进入编译出的 SQL，也不计入依赖指纹。
 - 由口径负责人维护，修改写审计。
 - 内容来自用户和口径负责人，产品代码不预置任何业务词（ADR 0010）。
+- 字段与 Ossie 的 `ai_context` 对象一致（`instructions` / `synonyms` / `examples`），导出时原样映射；Ossie 也允许 `ai_context` 是一段字符串，导入时把字符串当作 `instructions`。
 
 ### 4. 版本锁定
 
 每个 Avelis 版本锁定一个 Ossie 规范提交，写在代码常量和文档里。升级规范需要：改映射、补往返测试、在 CHANGELOG 中写明。
+
+2026-11-02 调研时规范版本为 `0.2.0.dev0`（草案，项目 2026 年 7 月进入 Apache 孵化器，仍在活跃变动），仓库内 `core-spec/spec.yaml`、`ossie-schema.json` 为机器可读定义。
+
+### 5. 实施顺序（2026-11-02 定）
+
+1. 1.1 第一项：只做 §3 口径语义提示（数据模型、编辑界面、问数检索与澄清使用它、审计），不依赖 Ossie。
+2. Ossie 导入导出排在 1.1 最后（MCP 服务与治理事件之后）。届时先按当时锁定的规范版本做导出，导入在规范到 0.2.0 正式版后再做。
 
 ## 不做
 
