@@ -460,17 +460,20 @@ def test_login_failure_threshold_is_emitted_once_when_limit_is_reached(state, mo
     assert len(emitted(state, "auth.login_failure_threshold")) == 1
 
 
-@pytest.mark.parametrize("kind", ["collect", "import"])
-def test_worker_abandonment_finishes_business_object_and_emits_failure_once(state, kind):
+@pytest.mark.parametrize(
+    ("kind", "status"),
+    [("collect", "running"), ("collect", "failed"), ("import", "queued"), ("import", "running"), ("import", "failed")],
+)
+def test_worker_abandonment_emits_failure_only_when_it_fails_business_object(state, kind, status):
     started_at = utcnow() - timedelta(minutes=5)
     if kind == "import":
         imported = create_import(state)
         job = state.session.get(Job, imported.job_id)
-        imported.status = "running"
+        imported.status = status
         object_id, event_type = imported.id, "lineage_import.failed"
     else:
         run = CollectionRun(
-            datasource_id="ds", trigger="manual", status="running", triggered_by="actor", started_at=started_at
+            datasource_id="ds", trigger="manual", status=status, triggered_by="actor", started_at=started_at
         )
         state.session.add(run)
         state.session.flush()
@@ -478,18 +481,71 @@ def test_worker_abandonment_finishes_business_object_and_emits_failure_once(stat
         state.session.add(job)
         object_id, event_type = "ds", "collect.failed"
     job.status, job.started_at = "running", started_at
+    state.session.add(
+        WebhookSubscription(
+            name="abandoned-hook", url="https://example.invalid/hook", secret_enc="unused", event_types=[event_type]
+        )
+    )
     state.session.commit()
     assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
     state.session.expire_all()
-    assert state.session.get(Job, job.id).status == "failed"
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.finished_at is not None and saved.error
+    assert saved.result["abandoned_governance"] == "done"
     if kind == "import":
         assert state.session.get(ImportBatch, object_id).status == "failed"
     else:
         assert state.session.get(CollectionRun, run.id).status == "failed"
-    event = assert_emitted(state, event_type, object_id, outcome="failure")
-    assert event.error.code == "WORKER_ABANDONED"
+    if status != "failed":
+        event = assert_emitted(state, event_type, object_id, outcome="failure")
+        assert event.error.code == "WORKER_ABANDONED"
     assert jobs.abandoned_jobs(older_than_seconds=60) == []
-    assert len(emitted(state, event_type)) == 1
+    expected = 0 if status == "failed" else 1
+    assert len(emitted(state, event_type)) == expected
+    assert len(list(state.session.scalars(select(AuditEvent).where(AuditEvent.action == event_type)))) == expected
+    assert len(list(state.session.scalars(select(EventOutbox)))) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "association"),
+    [
+        ("collect", "legacy"),
+        ("collect", "missing"),
+        ("collect", "mismatched"),
+        ("import", "legacy"),
+        ("import", "missing"),
+    ],
+)
+def test_worker_abandonment_without_exact_business_object_still_emits_failure(state, kind, association):
+    payload = {"datasource_id": "ds"} if kind == "collect" else {}
+    result = {}
+    if association != "legacy":
+        if kind == "collect":
+            result["run_id"] = "missing-run"
+            if association == "mismatched":
+                state.session.add(
+                    Datasource(id="other-ds", name="另一源", kind="postgres", host="offline.invalid", port=1)
+                )
+                state.session.add(
+                    CollectionRun(id="missing-run", datasource_id="other-ds", trigger="manual", status="failed")
+                )
+        else:
+            payload["batch_id"] = "missing-batch"
+    job = Job(kind=kind, payload=payload, result=result, status="running", started_at=utcnow() - timedelta(minutes=5))
+    state.session.add(job)
+    state.session.commit()
+
+    assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
+    assert jobs.abandoned_jobs(older_than_seconds=60) == []
+    state.session.expire_all()
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.result["abandoned_governance"] == "done"
+    event_type = "collect.failed" if kind == "collect" else "lineage_import.failed"
+    failed = assert_emitted(
+        state, event_type, payload.get("datasource_id" if kind == "collect" else "batch_id"), outcome="failure"
+    )
+    assert failed.error.code == "WORKER_ABANDONED" and failed.detail["job_id"] == job.id
+    assert len(list(state.session.scalars(select(AuditEvent).where(AuditEvent.action == event_type)))) == 1
 
 
 @pytest.mark.parametrize("kind", ["collect", "import"])

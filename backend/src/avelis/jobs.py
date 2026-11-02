@@ -241,7 +241,11 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
 
 
 def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: dict | None, reason: str) -> None:
-    """任务状态已提交后，用短事务收尾关联对象并写入受哈希链保护的失败审计。"""
+    """任务状态已提交后，用短事务收尾关联对象并写入受哈希链保护的失败审计。
+
+    谁把关联对象改成 failed，谁写失败事件；已 failed 的对象由正常失败路径的 guard 负责。
+    没有精确关联对象时，仍由回收方记录任务失败。
+    """
     with session_scope() as session:
         job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if (
@@ -264,8 +268,9 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
                     job.status, job.error, job.finished_at = "succeeded", None, run.finished_at
                     job.result = {**(job.result or {}), "run_id": run.id}
                     return
-                if run.status == "running":
-                    run.status, run.finished_at, run.error = "failed", utcnow(), reason
+                if run.status != "running":
+                    return
+                run.status, run.finished_at, run.error = "failed", utcnow(), reason
             event_type, object_type, object_id = "collect.failed", "datasource", datasource_id
         else:
             object_id = payload.get("batch_id")
@@ -277,6 +282,8 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             if imported is not None and imported.status in ("queued", "running"):
                 imported.status, imported.updated_at, imported.error = "failed", utcnow(), reason
                 imported.progress = {**(imported.progress or {}), "phase": "failed", "current_file": None}
+            elif imported is not None:
+                return
             event_type, object_type = "lineage_import.failed", "import_batch"
         events.record_failure(
             session,
