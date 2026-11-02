@@ -9,7 +9,7 @@ import pymysql
 import pytest
 
 from avelis.collect.attribution import Window, attribute
-from avelis.connectors.ddl import AuditUnavailable
+from avelis.connectors.ddl import AuditUnavailable, column_refs
 from avelis.connectors.starrocks import StarRocksConnector
 from avelis.engines import get_engine
 from avelis.engines.base import DDL_AUDIT
@@ -104,6 +104,7 @@ def _columns(classifier="isQuery", **changes):
         "db": "varchar(96)",
         "stmt": "varchar(1048576)",
         "state": "varchar(8)",
+        "catalog": "varchar(128)",
     }
     if classifier:
         fields[classifier] = "tinyint(1)" if classifier.lower() == "isquery" else "varchar(32)"
@@ -116,6 +117,7 @@ def _row(stmt="ALTER TABLE store.sales ADD COLUMN channel VARCHAR(16)", *, at=T0
         "ts": at.replace(tzinfo=timezone.utc).timestamp(),
         "actor": "alice@10.0.0.1",
         "db": "store",
+        "catalog": "default_catalog",
         "stmt": stmt,
         "state": "EOF",
         "is_query": 0,
@@ -461,6 +463,116 @@ def test_empty_async_source_is_unmatched_with_log_delay_explanation(monkeypatch)
     assert connection.closed
 
 
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "CREATE TEMPORARY TABLE store.sales (channel INT)",
+        "CREATE TEMPORARY TABLE IF NOT EXISTS sales (channel INT)",
+        "DROP TEMPORARY TABLE store.sales",
+        "DROP TEMPORARY TABLE IF EXISTS sales",
+        "/* migration */ CREATE /* scoped */ TEMPORARY TABLE `store`.`sales` (channel INT)",
+        "-- migration\nDROP TEMPORARY TABLE `store`.`sales`;",
+    ],
+)
+def test_temporary_table_ddl_never_explains_persistent_table_changes(monkeypatch, statement):
+    connector, connection, _ = _bind(monkeypatch, rows=[_row(statement)])
+    result, changes = _attribute(connector, [_change("comment_changed", None)])
+    assert result["audit_events"] == 0 and changes[0]["attribution_status"] == "unmatched"
+    assert changes[0]["actor_db_user"] is None and connection.closed
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "ALTER TABLE store.sales ADD COLUMN `TEMPORARY` int",
+        "CREATE TABLE store.sales (channel int COMMENT 'TEMPORARY TABLE')",
+    ],
+)
+def test_temporary_word_in_column_or_comment_does_not_hide_persistent_ddl(monkeypatch, statement):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(statement)])
+    assert connector.ddl_events(T0, T0)[0].objects == [("store", "sales")]
+
+
+@pytest.mark.parametrize("field", ["catalog", "CATALOG", "Catalog"])
+@pytest.mark.parametrize("target", ["sales", "store.sales", "`store`.`sales`"])
+def test_session_external_catalog_cannot_explain_same_named_internal_table(monkeypatch, field, target):
+    columns = _columns(catalog=None, **{field: "varchar(128)"}) if field != "catalog" else _columns()
+    connector, _, cursor = _bind(
+        monkeypatch, columns=columns, rows=[_row(f"DROP TABLE {target}", catalog="jdbc_catalog")]
+    )
+    result, changes = _attribute(connector, [_change("removed", None)])
+    assert f"`{field}` AS catalog" in cursor.calls[-1][0]
+    assert result["audit_events"] == 0 and changes[0]["attribution_status"] == "unmatched"
+    assert changes[0]["actor_db_user"] is None
+
+
+@pytest.mark.parametrize("catalog", [None, "", "default_catalog", "jdbc_catalog"])
+@pytest.mark.parametrize("target", ["sales", "store.sales", "default_catalog.store.sales", "jdbc_catalog.store.sales"])
+def test_explicit_catalog_overrides_session_catalog(monkeypatch, catalog, target):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(f"DROP TABLE {target}", catalog=catalog)])
+    expected = target.startswith("default_catalog.") or (
+        target.count(".") < 2 and catalog in {None, "", "default_catalog"}
+    )
+    assert [event.objects for event in connector.ddl_events(T0, T0)] == ([[("store", "sales")]] if expected else [])
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "RENAME TABLE store.sales TO store.archived",
+        "ALTER TABLE default_catalog.store.sales RENAME TO store.archived",
+        "ALTER TABLE store.sales SWAP WITH store.archived",
+        "ALTER MATERIALIZED VIEW default_catalog.store.sales SWAP WITH archived",
+    ],
+)
+def test_external_catalog_is_also_respected_by_rename_and_swap(monkeypatch, statement):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(statement, catalog="jdbc_catalog")])
+    assert connector.ddl_events(T0, T0) == []
+
+
+@pytest.mark.parametrize("member", ["COLUMN", "INDEX", "PARTITION", "ROLLUP"])
+def test_member_rename_does_not_override_explicit_internal_table_catalog(monkeypatch, member):
+    connector, _, _ = _bind(
+        monkeypatch,
+        rows=[
+            _row(
+                f"ALTER TABLE default_catalog.store.sales RENAME {member} old_name TO new_name",
+                catalog="jdbc_catalog",
+            )
+        ],
+    )
+    assert connector.ddl_events(T0, T0)[0].objects == [("store", "sales")]
+
+
+def test_legacy_auditloader_without_catalog_keeps_previous_default_scope(monkeypatch):
+    connector, _, cursor = _bind(
+        monkeypatch, columns=_columns(catalog=None), rows=[_row("DROP TABLE sales", catalog="jdbc_catalog")]
+    )
+    assert connector.ddl_events(T0, T0)[0].objects == [("store", "sales")]
+    assert "AS catalog" not in cursor.calls[-1][0]
+
+
+def test_catalog_column_must_be_text(monkeypatch):
+    connector, connection, _ = _bind(monkeypatch, columns=_columns(catalog="int"))
+    with pytest.raises(AuditUnavailable) as caught:
+        connector.ddl_events(T0, T0)
+    assert caught.value.cause == "incompatible" and "catalog" in str(caught.value) and connection.closed
+
+
+def test_quoted_column_case_from_other_user_remains_ambiguous(monkeypatch):
+    connector, _, _ = _bind(
+        monkeypatch,
+        rows=[
+            _row("ALTER TABLE store.sales MODIFY COLUMN channel INT"),
+            _row("ALTER TABLE store.sales MODIFY COLUMN `CHANNEL` BIGINT", actor="bob@10.0.0.2"),
+        ],
+    )
+    result, changes = _attribute(connector, [_change("column_type_changed")])
+    assert result["audit_events"] == 2
+    assert changes[0]["attribution_status"] == "ambiguous" and changes[0]["actor_db_user"] is None
+    assert changes[0]["attribution"]["candidates"] == ["alice@10.0.0.1", "bob@10.0.0.2"]
+
+
 def test_async_audit_events_match_only_inside_the_certain_window(monkeypatch):
     connector, _, _ = _bind(monkeypatch)
     result, changes = _attribute(connector)
@@ -560,6 +672,91 @@ def test_renaming_a_table_keeps_both_real_object_names(monkeypatch, stmt):
     events = connector.ddl_events(T0, T0)
     assert len(events) == 1 and events[0].objects == [("store", "sales"), ("store", "archived_sales")]
     assert connection.closed
+
+
+@pytest.mark.parametrize("kind", ["MATERIALIZED VIEW", "TABLE"])
+@pytest.mark.parametrize(
+    "left,right,expected",
+    [
+        ("store.mv_b", "mv_a", [("store", "mv_b"), ("store", "mv_a")]),
+        ("store.mv_b", "store.mv_a", [("store", "mv_b"), ("store", "mv_a")]),
+        ("`store`.`mv b`", "`mv a`", [("store", "mv b"), ("store", "mv a")]),
+        ("`store`.`mv``b`", "`mv``a`", [("store", "mv`b"), ("store", "mv`a")]),
+        (
+            "`default_catalog`.`store`.`mv_b`",
+            "`default_catalog`.`store`.`mv_a`",
+            [("store", "mv_b"), ("store", "mv_a")],
+        ),
+        ("store.mv_b", "other.mv_a", [("store", "mv_b")]),
+        ("other.mv_b", "store.mv_a", [("store", "mv_a")]),
+        ("other.mv_b", "mv_a", []),
+        ("store.mv_b", "external.store.mv_a", []),
+        ("external.store.mv_b", "store.mv_a", []),
+        ("`default_catalog`.`store`.`mv_b`", "`external`.`store`.`mv_a`", []),
+    ],
+)
+def test_swap_objects_preserve_database_and_catalog_scope(monkeypatch, kind, left, right, expected):
+    # 会话库故意不同：未限定的右侧必须沿用左侧库。
+    connector, connection, _ = _bind(
+        monkeypatch, rows=[_row(f"ALTER {kind} {left} SWAP WITH {right}", db="session_db")]
+    )
+    events = connector.ddl_events(T0, T0)
+    assert [event.objects for event in events] == ([expected] if expected else [])
+    for event in events:
+        assert event.certain is False and event.may_lag
+        assert event.statement_type == "ALTER"
+        assert all(column_refs(event.statement, name, schema=db).unknown for db, name in event.objects)
+    assert connection.closed
+
+
+@pytest.mark.parametrize("kind", ["MATERIALIZED VIEW", "TABLE"])
+@pytest.mark.parametrize("prefix,suffix", [("", ""), ("/* migration */\n", ";"), ("-- migration\n", " /* done */;")])
+def test_unqualified_swap_uses_session_database_and_accepts_comments(monkeypatch, kind, prefix, suffix):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(f"{prefix}ALTER {kind} sales SWAP WITH archived{suffix}")])
+    events = connector.ddl_events(T0, T0)
+    assert len(events) == 1 and events[0].objects == [("store", "sales"), ("store", "archived")]
+    assert events[0].certain is False
+
+
+@pytest.mark.parametrize("kind", ["MATERIALIZED VIEW", "TABLE"])
+@pytest.mark.parametrize("column", [None, "channel"])
+def test_swap_both_ends_remain_ambiguous_in_attribution(monkeypatch, kind, column):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(f"ALTER {kind} store.sales SWAP WITH archived")])
+    changes = [
+        {**_change("comment_changed" if column is None else "column_type_changed", column), "asset_id": name}
+        for name in ("sales", "archived")
+    ]
+    session = SimpleNamespace(
+        get=lambda _model, name: SimpleNamespace(catalog_name="default_catalog", db_name="store", name=name)
+    )
+    result = attribute(session, get_engine("starrocks"), connector, changes, WINDOW)
+    assert result["status"] == "ok" and result["audit_events"] == 1
+    for change in changes:
+        assert change["attribution_status"] == "ambiguous" and change["actor_db_user"] is None
+        assert change["attribution"]["candidates"] == ["alice@10.0.0.1"]
+        assert change["attribution"]["statements"][0]["certain"] is False
+        if column:
+            assert change["attribution"]["unrecognized"] == 1
+            assert not change["attribution"]["column_match"] and change["attribution"]["redefinitions"] == 0
+
+
+@pytest.mark.parametrize(
+    "suffix", ["SWAP", "SWAP WITH", "SWAP WITH store.", "SWAP WITH a.b.c.d", "SWAP WITH a; SELECT 1"]
+)
+def test_incomplete_or_multiple_statement_swap_is_not_partial_evidence(monkeypatch, suffix):
+    connector, _, _ = _bind(monkeypatch, rows=[_row(f"ALTER TABLE store.sales {suffix}")])
+    with pytest.raises(AuditUnavailable) as captured:
+        connector.ddl_events(T0, T0)
+    assert captured.value.cause == "incompatible"
+
+
+def test_swap_keywords_in_comments_and_quoted_member_names_do_not_add_an_object(monkeypatch):
+    connector, _, _ = _bind(
+        monkeypatch, rows=[_row("ALTER TABLE store.sales ADD COLUMN `SWAP` INT COMMENT 'SWAP WITH private'")]
+    )
+    events = connector.ddl_events(T0, T0)
+    assert len(events) == 1 and events[0].objects == [("store", "sales")]
+    assert events[0].certain is None
 
 
 @pytest.mark.parametrize("prefix", ["/* migration: release 42 */\n", "-- migration: release 42\n"])

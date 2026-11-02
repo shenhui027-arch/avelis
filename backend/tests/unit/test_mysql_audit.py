@@ -8,7 +8,7 @@ import pymysql
 import pytest
 
 from avelis.connectors import mysql_audit
-from avelis.connectors.ddl import AuditUnavailable, column_refs
+from avelis.connectors.ddl import AuditUnavailable, Token, column_refs, same_identifier
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.mysql_audit import _objects, _table, audit_source
 from avelis.i18n import locale_context
@@ -26,6 +26,23 @@ SCHEMA = [
 ]
 
 
+@pytest.mark.parametrize(
+    "fold,name,expected",
+    [
+        ("insensitive", "channel", True),
+        ("insensitive", "Channel", True),
+        ("lower", "channel", False),
+        ("lower", "CHANNEL", True),
+        ("upper", "channel", False),
+        ("upper", "CHANNEL", True),
+        ("exact", "channel", False),
+        ("exact", "CHANNEL", True),
+    ],
+)
+def test_quoted_identifiers_follow_each_engine_folding_rule(fold, name, expected):
+    assert same_identifier(Token("ident", "CHANNEL", quoted=True), name, fold) is expected
+
+
 def _row(
     statement="ALTER TABLE `store`.`sales` ADD COLUMN `channel` varchar(16)",
     *,
@@ -37,7 +54,18 @@ def _row(
 
 
 class _Cursor:
-    def __init__(self, rows, *, schema=None, enabled=1, output="TABLE", offset=0, fail_on=None):
+    def __init__(
+        self,
+        rows,
+        *,
+        schema=None,
+        enabled=1,
+        output="TABLE",
+        offset=0,
+        fail_on=None,
+        table_case=0,
+        directory=(("store", "sales"), ("store", "shops")),
+    ):
         self.rows = rows
         self.schema = SCHEMA if schema is None else schema
         self.settings = {"enabled": enabled, "output": output}
@@ -45,6 +73,7 @@ class _Cursor:
         self.fail_on = fail_on
         self.calls = []
         self.mode = ""
+        self.table_case, self.directory = table_case, directory
 
     def execute(self, sql, params=None):
         mogrify(sql, params)
@@ -53,6 +82,12 @@ class _Cursor:
             raise self.fail_on[1]
         if "@@GLOBAL.general_log" in sql:
             self.mode = "settings"
+        elif "@@lower_case_table_names" in sql:
+            self.mode = "table_case"
+        elif "FROM information_schema.schemata" in sql:
+            self.mode = "databases"
+        elif "FROM information_schema.tables" in sql:
+            self.mode = "tables"
         elif sql.startswith("SHOW COLUMNS"):
             self.mode = "schema"
         elif sql == "SET SESSION time_zone = '+00:00'":
@@ -61,11 +96,17 @@ class _Cursor:
             self.mode = "rows"
 
     def fetchone(self):
+        if self.mode == "table_case":
+            return {"lower_case_table_names": self.table_case}
         return self.settings
 
     def fetchall(self):
         if self.mode == "schema":
             return self.schema
+        if self.mode == "databases":
+            return [{"SCHEMA_NAME": db} for db in sorted({db for db, _ in self.directory})]
+        if self.mode == "tables":
+            return [{"TABLE_SCHEMA": db, "TABLE_NAME": table} for db, table in self.directory]
         assert self.mode == "rows"
         # 模拟 TIMESTAMP：驱动把服务端按会话时区转换后的值作为无时区 datetime 返回。
         return [
@@ -523,6 +564,133 @@ def test_unrecognized_action_from_another_user_prevents_false_single_user_match(
     _attribute([event], connector, engine="mysql")
     assert event["attribution_status"] == "ambiguous" and event["actor_db_user"] is None
     assert event["attribution"]["candidates"] == ["alice", "bob"]
+
+
+def test_quoted_column_case_from_other_user_prevents_false_single_user_match(monkeypatch):
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row("ALTER TABLE store.sales MODIFY COLUMN channel int"),
+            _row("ALTER TABLE store.sales MODIFY COLUMN `CHANNEL` bigint", user="bob[bob] @ host [::1]"),
+        ],
+    )
+    event = _event("column_type_changed", "channel")
+    _attribute([event], connector, engine="mysql")
+    assert event["attribution_status"] == "ambiguous" and event["actor_db_user"] is None
+    assert event["attribution"]["candidates"] == ["alice", "bob"]
+
+
+@pytest.mark.parametrize("table_case", [0, 1, 2])
+@pytest.mark.parametrize("quoted", [False, True])
+def test_table_case_setting_controls_scope_canonical_objects_and_attribution(monkeypatch, table_case, quoted):
+    canonical = ("store", "sales") if table_case == 1 else ("Store", "Sales")
+    db, table = ("sToRe", "sAlEs")
+    if quoted:
+        db, table = f"`{db}`", f"`{table}`"
+    rows = [
+        _row(f"ALTER TABLE {db}.{table} ADD COLUMN channel int"),
+        _row("ALTER TABLE private.sales ADD COLUMN channel int", user="bob[bob] @ host [::1]"),
+    ]
+    connector, conn, cur = _connector(
+        monkeypatch,
+        rows,
+        table_case=table_case,
+        databases=(canonical[0],),
+        directory=(canonical,),
+    )
+    events = connector.ddl_events(T0, T0)
+    assert [event.objects for event in events] == ([] if table_case == 0 else [[canonical]])
+    assert any("@@lower_case_table_names" in sql for sql, _ in cur.calls) and conn.closed
+    assert any("information_schema.tables" in sql for sql, _ in cur.calls) == (table_case != 0)
+    # 配置、目录和语句可有三种写法；匹配仍输出目录中的真实名称。
+    connector, _, _ = _connector(
+        monkeypatch,
+        rows,
+        table_case=table_case,
+        databases=("STORE",),
+        directory=(canonical,),
+    )
+    change = _event("column_added", "channel")
+    _attribute([change], connector, engine="mysql", assets={"a1": _asset(db=canonical[0], name=canonical[1])})
+    assert (change["attribution_status"], change["actor_db_user"]) == (
+        ("unmatched", None) if table_case == 0 else ("matched", "alice")
+    )
+
+
+def test_mode_zero_keeps_case_distinct_tables_separate(monkeypatch):
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row(),
+            _row("ALTER TABLE store.SALES ADD COLUMN channel int", user="bob[bob] @ host [::1]"),
+        ],
+        table_case=0,
+    )
+    change = _event("column_added", "channel")
+    _attribute([change], connector, engine="mysql")
+    assert (change["attribution_status"], change["actor_db_user"]) == ("matched", "alice")
+
+
+@pytest.mark.parametrize("table_case", [1, 2])
+def test_case_variants_from_other_user_are_not_lost(monkeypatch, table_case):
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row(),
+            _row("ALTER TABLE STORE.SALES ADD COLUMN channel int", user="bob[bob] @ host [::1]"),
+        ],
+        table_case=table_case,
+    )
+    change = _event("column_added", "channel")
+    _attribute([change], connector, engine="mysql")
+    assert change["attribution_status"] == "ambiguous" and change["actor_db_user"] is None
+    assert change["attribution"]["candidates"] == ["alice", "bob"]
+
+
+@pytest.mark.parametrize("table_case", [1, 2])
+@pytest.mark.parametrize(
+    "statement,kind",
+    [
+        ("DROP TABLE STORE.OLD", "removed"),
+        ("RENAME TABLE STORE.OLD TO STORE.NEW", "renamed"),
+    ],
+)
+def test_missing_directory_names_still_match_historical_snapshot(monkeypatch, table_case, statement, kind):
+    canonical_db = "store" if table_case == 1 else "Store"
+    connector, _, _ = _connector(
+        monkeypatch,
+        [_row(statement)],
+        table_case=table_case,
+        databases=("STORE",),
+        directory=((canonical_db, "new" if table_case == 1 else "New"),),
+    )
+    event = _event(kind, before={"name": f"def.{canonical_db}.Old"}, after={"name": f"def.{canonical_db}.New"})
+    _attribute([event], connector, engine="mysql", assets={"a1": _asset(db=canonical_db, name="New")})
+    assert (event["attribution_status"], event["actor_db_user"]) == ("matched", "alice")
+
+
+@pytest.mark.parametrize("table_case", [0, 1, 2])
+def test_case_rules_also_apply_to_multistatement_scope_guard(monkeypatch, table_case):
+    connector, _, _ = _connector(
+        monkeypatch,
+        [
+            _row("ALTER TABLE STORE.SALES ADD COLUMN channel int; DROP TABLE STORE.SHOPS"),
+        ],
+        table_case=table_case,
+    )
+    if table_case == 0:
+        assert connector.ddl_events(T0, T0) == []
+    else:
+        with pytest.raises(AuditUnavailable, match="多条语句"):
+            connector.ddl_events(T0, T0)
+
+
+@pytest.mark.parametrize("table_case", [None, "unexpected", 3])
+def test_unknown_table_case_mode_is_incompatible(monkeypatch, table_case):
+    connector, conn, _ = _connector(monkeypatch, table_case=table_case)
+    with pytest.raises(AuditUnavailable) as caught:
+        connector.ddl_events(T0, T0)
+    assert caught.value.cause == "incompatible" and conn.closed
 
 
 @pytest.mark.parametrize(

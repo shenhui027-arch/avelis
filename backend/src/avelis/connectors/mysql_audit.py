@@ -222,12 +222,19 @@ def _executable_comment(statement: str) -> bool:
     return False
 
 
-def _objects(statement: str, databases: set[str] | None = None) -> tuple[str, list[tuple[str, str]]]:
+def _objects(
+    statement: str, databases: set[str] | None = None, *, insensitive: bool = False
+) -> tuple[str, list[tuple[str, str]]]:
     """只取 DDL 的目标，不把 CREATE VIEW / TABLE AS 的上游表误当作被修改对象。
 
     SQLGlot 处理 MySQL 的反引号、DEFINER / ALGORITHM、多个 DROP / RENAME 目标。
     动作不识别时保留可确认的目标；缺当前库、多语句及可执行注释不能可靠确定候选时明确拒绝归因。
     """
+    scope = {db.lower() if insensitive else db for db in databases or ()}
+
+    def in_scope(db: str | None) -> bool:
+        return db is None or not scope or (db.lower() if insensitive else db) in scope
+
     if _executable_comment(statement):
         raise AuditUnavailable(gettext("DDL 审计记录包含 MySQL 可执行注释，无法可靠确定候选"), "incompatible")
     lexed = lex(statement)
@@ -260,15 +267,17 @@ def _objects(statement: str, databases: set[str] | None = None) -> tuple[str, li
                 else:
                     chunks[-1].append(token)
             candidates = [obj for chunk in chunks for obj in _lexical_objects(chunk)[1]]
-            if candidates and (not databases or any(db is None or db in databases for db, _ in candidates)):
+            if candidates and any(in_scope(db) for db, _ in candidates):
                 raise AuditUnavailable(gettext("DDL 审计记录包含多条语句，无法可靠确定候选"), "incompatible") from None
         return checked(head, lexical)
     if len(trees) > 1:
         # 按独立语句识别目标仅用于判断是否影响采集范围，绝不把请求拆成可靠的独立事件。
         candidates = [
-            obj for tree in trees for obj in _objects(tree.sql(dialect="mysql", comments=False), databases)[1]
+            obj
+            for tree in trees
+            for obj in _objects(tree.sql(dialect="mysql", comments=False), databases, insensitive=insensitive)[1]
         ]
-        if candidates and (not databases or any(db in databases for db, _ in candidates)):
+        if candidates and any(in_scope(db) for db, _ in candidates):
             raise AuditUnavailable(gettext("DDL 审计记录包含多条语句，无法可靠确定候选"), "incompatible")
         return "", []
     if not trees:
@@ -335,6 +344,7 @@ def _audit_cause(exc: pymysql.MySQLError) -> str:
 
 def ddl_events(connector, since: datetime, until: datetime, cursors=None) -> list[DdlEvent]:
     db, name, quoted = _table(connector.options)
+    databases = set(connector.options.get("databases", []))
     conn = None
     try:
         conn = connector._connect(read_timeout=60)
@@ -349,6 +359,26 @@ def ddl_events(connector, since: datetime, until: datetime, cursors=None) -> lis
                     gettext("MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"), "not_enabled"
                 )
         _check_structure(cur, quoted)
+        cur.execute("SELECT @@lower_case_table_names AS lower_case_table_names")
+        mode = (cur.fetchone() or {}).get("lower_case_table_names")
+        if str(mode) not in {"0", "1", "2"}:
+            raise AuditUnavailable(gettext("无法确定 MySQL lower_case_table_names，不能可靠解析库表名"), "incompatible")
+        insensitive = str(mode) in {"1", "2"}
+        connector.ddl_object_fold = "insensitive" if insensitive else "exact"
+        canonical_dbs, canonical_tables = {}, {}
+        if insensitive:
+            # 与 snapshot 同取系统目录的名称；模式 2 必须保留目录写法，不能把所有输出转成小写。
+            params = tuple(sorted(database.lower() for database in databases))
+            placeholders = ",".join("%s" for _ in params)
+            db_where = f" WHERE LOWER(SCHEMA_NAME) IN ({placeholders})" if params else ""
+            cur.execute(f"SELECT SCHEMA_NAME FROM information_schema.schemata{db_where}", params)
+            canonical_dbs = {row["SCHEMA_NAME"].lower(): row["SCHEMA_NAME"] for row in cur.fetchall()}
+            table_where = f" WHERE LOWER(TABLE_SCHEMA) IN ({placeholders})" if params else ""
+            cur.execute(f"SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.tables{table_where}", params)
+            canonical_tables = {
+                (row["TABLE_SCHEMA"].lower(), row["TABLE_NAME"].lower()): (row["TABLE_SCHEMA"], row["TABLE_NAME"])
+                for row in cur.fetchall()
+            }
         cur.execute("SET SESSION time_zone = '+00:00'")
         # 任意位置的关键词只作粗筛，保留前导注释；字符串中的噪声仍由客户端解析排除。
         ddl_filter = " OR ".join(f"UPPER(CONVERT(argument USING utf8mb4)) LIKE '%%{word}%%'" for word in _DDL_WORDS)
@@ -371,15 +401,30 @@ def ddl_events(connector, since: datetime, until: datetime, cursors=None) -> lis
     finally:
         if conn is not None:
             conn.close()
-    databases = set(connector.options.get("databases", []))
+    scope = {database.lower() if insensitive else database for database in databases}
     events = []
     for row in rows:
         # Prepare 只准备语句；Query / Execute 才是收到执行请求（仍不代表执行成功）。
         if _text(row["command_type"], "command_type").lower() not in {"query", "execute"}:
             continue
         statement = _text(row["argument"], "argument")
-        kind, objects = _objects(statement, databases)
-        objects = [obj for obj in objects if not databases or obj[0] in databases]
+        kind, objects = _objects(statement, databases, insensitive=insensitive)
+        if insensitive:
+            # DROP / RENAME 的旧名可能已不在目录；模式 1 可确定小写，模式 2 留原文，
+            # 归因索引按 ddl_object_fold 匹配历史快照，避免臆造已消失名称的目录写法。
+            objects = [
+                canonical_tables.get(
+                    (database.lower(), table.lower()),
+                    (
+                        canonical_dbs.get(database.lower(), database.lower() if str(mode) == "1" else database),
+                        table.lower() if str(mode) == "1" else table,
+                    ),
+                )
+                for database, table in objects
+            ]
+        objects = list(
+            dict.fromkeys(obj for obj in objects if not scope or (obj[0].lower() if insensitive else obj[0]) in scope)
+        )
         if not objects:
             continue
         user_host = _text(row["user_host"], "user_host")
