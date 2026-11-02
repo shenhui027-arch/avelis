@@ -24,8 +24,10 @@ from avelis.governance import access, metrics
 from avelis.governance.derived import parse_formula
 from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.governance.joins import effectively_approved
+from avelis.i18n import gettext
 from avelis.models import Asset, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
+from .expressions import equivalent_expressions, fold_filters, physical_column_name
 from .validation import (
     _matching,
     iter_expression_dialects,
@@ -155,7 +157,7 @@ def _catalog(
             node = _tree(text, read)
             refs = list(node.find_all(exp.Column)) if node is not None else []
             for column in refs:
-                name = _matching(column.this, set(columns))
+                name = physical_column_name(column.this, set(columns), dialect)
                 if name is None or (column.table and _matching(column.args["table"], {dataset["name"]}) is None):
                     errors.append(_error("catalog", f"{path}.fields[{field_index}]", "字段表达式引用的源列不存在"))
                 elif isinstance(column.this, exp.Identifier):
@@ -434,6 +436,21 @@ def _plan(
                 warnings.append("引用的字段表达式没有匹配的可解析方言；原文已保留，需人工维护后才能提交")
             if converted:
                 warnings.append("表达式已从 OSSIE_SQL_2026 转写，待人工确认")
+        if options.expression is not None or options.filters:
+            matches = False
+            if not unresolved and options.expression is not None:
+                try:
+                    folded = fold_filters(options.expression, options.filters, target)
+                    matches = equivalent_expressions(folded, expression, target)
+                except (SqlglotError, ValueError):
+                    pass  # An untrusted extension cannot override the executable core.
+            if matches and options.filters:
+                expression = options.expression
+            elif not matches:
+                spec["filters"] = None
+                warnings.append(
+                    gettext("核心表达式与 Avelis 扩展不一致，已采用核心表达式并忽略扩展中的原表达式和固定过滤条件")
+                )
         dimensions, times = [], []
         for name, alias in aliases.items():
             for field in datasets[name]["original"].get("fields", []):

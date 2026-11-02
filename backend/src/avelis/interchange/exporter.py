@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from copy import deepcopy
 from typing import Any
 
 import sqlglot
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlglot import exp
@@ -16,14 +18,60 @@ from sqlglot.errors import SqlglotError
 from avelis.engines import engine_of
 from avelis.governance import access
 from avelis.governance.derived import parse_formula
-from avelis.governance.errors import Forbidden, GovernanceError, NotFound
+from avelis.governance.errors import Forbidden, GovernanceError, Invalid, NotFound
 from avelis.governance.joins import effectively_approved
 from avelis.governance.metrics import metric_ai_context, resolve_joins
-from avelis.i18n import Msg
+from avelis.i18n import Msg, gettext
 from avelis.models import Asset, ColumnVersion, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
 from .constants import OSSIE_SPEC_COMMIT, OSSIE_SPEC_VERSION
-from .validation import _matching, _read_dialect, iter_expression_dialects, validate_structure
+from .expressions import fold_filters, physical_column_name
+from .importer import _catalog, _plan
+from .validation import (
+    _matching,
+    _read_dialect,
+    iter_expression_dialects,
+    iter_metrics,
+    validate_model,
+    validate_structure,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _unique_name(stem: str, reserved: set[str]) -> str:
+    name, suffix = stem, 2
+    while name.casefold() in reserved:
+        name = f"{stem}_{suffix}"
+        suffix += 1
+    reserved.add(name.casefold())
+    return name
+
+
+def _check_reimport(session: Session, actor: User, document: dict[str, Any]) -> None:
+    """Run the importer's read-only checks without write permissions or audit writes."""
+    errors = validate_model(document)
+    if not errors:
+        with session.no_autoflush:
+            datasets, paths = _catalog(session, actor, document, errors)
+            if not errors:
+                for scope, item, path in iter_metrics(document):
+                    if len(item["name"]) > 64 or not re.fullmatch(r"[a-z0-9_]+", item["name"]):
+                        errors.append(
+                            {
+                                "layer": "model",
+                                "path": f"{path}.name",
+                                "reason": gettext("口径编码须为最多 64 个小写字母、数字或下划线"),
+                            }
+                        )
+                        continue
+                    try:
+                        _plan(session, actor, document, scope, item, datasets, paths)
+                    except (ValueError, TypeError, KeyError, GovernanceError, SqlglotError) as exc:
+                        reason = "avelis 扩展或 ai_context 字段无效" if isinstance(exc, ValidationError) else str(exc)
+                        errors.append({"layer": "catalog", "path": path, "reason": gettext(reason)})
+    if errors:
+        raise Invalid(gettext("Ossie 导出结果无法通过再导入校验"), errors=errors)
 
 
 def _extensions(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -71,18 +119,23 @@ def _qualified(asset: Asset) -> str:
 
 
 def _expression(
-    text: str, dialect: str, aliases: dict[str, str], column_fields: dict[str, dict[str, str]] | None = None
+    text: str,
+    dialect: str,
+    aliases: dict[str, str],
+    column_fields: dict[str, dict[str, str]] | None = None,
+    *,
+    default_alias: str | None = "b",
 ) -> str:
     """Rename SQL column aliases using its AST, preserving quoted identifiers."""
     node = sqlglot.parse_one(text, read=dialect)
     if node is None:
         raise ValueError("SQL expression is empty")
     for column in node.find_all(exp.Column):
-        alias = column.table or "b"
+        alias = _matching(column.args["table"], set(aliases)) if column.table else default_alias
         if alias in aliases and not column.db and not column.catalog:
             dataset = aliases[alias]
             fields = (column_fields or {}).get(dataset, {})
-            name = _matching(column.this, set(fields))
+            name = physical_column_name(column.this, set(fields), dialect)
             if name is not None:
                 column.set("this", exp.to_identifier(fields[name], quoted=not fields[name].isidentifier()))
             column.set("table", exp.to_identifier(dataset, quoted=not dataset.isidentifier()))
@@ -117,6 +170,7 @@ def _field_column(dataset: dict[str, Any], field: dict[str, Any], dialect: str) 
         or (column.table and _matching(column.args["table"], {dataset["name"]}) is None)
     ):
         return None
+    column.set("this", sqlglot.Dialect.get_or_raise(dialect).normalize_identifier(column.this.copy()))
     return column
 
 
@@ -277,6 +331,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
     datasets: dict[str, dict[str, Any]] = {}
     dataset_assets: dict[str, Asset] = {}
     source_names: dict[str, str] = {}
+    dataset_names: set[str] = set()
     originals: dict[str, dict[str, Any]] = {}
     originals_by_version: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     versions = {v.id: v for _, v, _ in selected}
@@ -289,7 +344,37 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         if access.can_read_asset(session, actor, a, allowed)
     }
     for version in versions.values():
-        document, original = _metadata(version)
+        document, original = deepcopy(_metadata(version))
+        renamed = {}
+        for dataset in document.get("datasets", []):
+            asset = readable_assets.get(dataset.get("source"))
+            if asset is not None:
+                name = source_names.get(asset.id)
+                if name is None:
+                    name = _unique_name(dataset["name"], dataset_names)
+                    source_names[asset.id] = name
+                renamed[dataset["name"]] = name
+        qualifiers = {old: new for old, new in renamed.items() if old != new}
+        for dataset in document.get("datasets", []):
+            if dataset["name"] in renamed:
+                dataset["name"] = renamed[dataset["name"]]
+            if not qualifiers:
+                continue
+            for field in dataset.get("fields", []):
+                for entry in iter_expression_dialects(field["expression"]):
+                    read = _read_dialect(entry["dialect"])
+                    if read is not None:
+                        try:
+                            text = _expression(entry["expression"], read, qualifiers, default_alias=None)
+                        except (SqlglotError, ValueError):
+                            continue
+                        if entry["dialect"] == "OSSIE_SQL_2026" and "sql" in field["expression"]:
+                            field["expression"]["sql"] = text
+                        else:
+                            entry["expression"] = text
+        for relationship in document.get("relationships", []):
+            for side in ("from", "to"):
+                relationship[side] = renamed.get(relationship[side], relationship[side])
         originals_by_version[version.id] = document, original
         context = document.get("ai_context")
         if context is not None:
@@ -306,8 +391,6 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             if asset is None:
                 continue
             name = dataset["name"]
-            if name in datasets and datasets[name]["source"] != dataset["source"]:
-                raise GovernanceError("所选口径包含同名但不同源的数据集，请分别导出或统一数据集命名", dataset=name)
             if name not in datasets:
                 datasets[name] = deepcopy(dataset)
                 datasets[name].pop("metrics", None)
@@ -356,11 +439,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             stem = re.sub(r"\W+", "_", asset.name).strip("_") or "dataset"
             if not stem[0].isalpha() and stem[0] != "_":
                 stem = f"dataset_{stem}"
-            name = stem
-            suffix = 2
-            while name in datasets:
-                name = f"{stem}_{suffix}"
-                suffix += 1
+            name = _unique_name(stem, dataset_names)
             source_names[asset.id] = name
             datasets[name] = {"name": name, "source": _qualified(asset), "fields": []}
             dataset_assets[name] = asset
@@ -372,13 +451,91 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         aliases_by_version[version_id] = {alias: dataset_name(asset) for alias, asset in aliases.items()}
         paths.update({step["path"].id: step["path"] for step in steps})
 
+    original_relationships = []
+    for relationship in originals.values():
+        left_name, right_name = relationship["from"], relationship["to"]
+        if left_name not in dataset_assets or right_name not in dataset_assets:
+            continue
+        left_asset, right_asset = dataset_assets[left_name], dataset_assets[right_name]
+        left_columns = _physical_columns(
+            datasets[left_name], relationship["from_columns"], _dialect(session, left_asset)
+        )
+        right_columns = _physical_columns(
+            datasets[right_name], relationship["to_columns"], _dialect(session, right_asset)
+        )
+        if left_columns is not None and right_columns is not None:
+            original_relationships.append((relationship, left_asset.id, right_asset.id, left_columns, right_columns))
+    approved_paths = [
+        path
+        for path in session.scalars(select(JoinPath).where(JoinPath.status == "approved"))
+        if path.left_asset_id in source_names
+        and path.right_asset_id in source_names
+        and effectively_approved(session, path)
+    ]
+    originals_for_path = {}
+    for path in approved_paths:
+        original = next(
+            (
+                original
+                for original, left_id, right_id, left_columns, right_columns in original_relationships
+                if (
+                    left_id == path.left_asset_id
+                    and right_id == path.right_asset_id
+                    and sorted(zip(left_columns, right_columns)) == sorted(zip(path.left_columns, path.right_columns))
+                )
+                or (
+                    left_id == path.right_asset_id
+                    and right_id == path.left_asset_id
+                    and sorted(zip(right_columns, left_columns)) == sorted(zip(path.left_columns, path.right_columns))
+                )
+            ),
+            None,
+        )
+        if original is not None:
+            originals_for_path[path.id] = original
+
+    # Retained fields are historical metadata; only the current snapshot is authoritative.
+    used_columns: dict[str, set[str]] = {}
+    for version_id, (aliases, steps) in resolved.items():
+        version = versions[version_id]
+        dialect = _dialect(session, aliases["b"])
+        sql_dialect = sqlglot.Dialect.get_or_raise(dialect)
+        preaggregate_keys = {step["alias"]: set(step["path"].right_columns) for step in steps if step["pre_aggregate"]}
+        for text in [
+            version.expression,
+            version.filters,
+            version.time_column,
+            *(dim.get("column") for dim in version.dimensions or []),
+        ]:
+            if not text:
+                continue
+            try:
+                node = sqlglot.parse_one(text, read=dialect)
+            except (SqlglotError, ValueError):
+                continue
+            for column in node.find_all(exp.Column) if node is not None else []:
+                alias = _matching(column.args["table"], set(aliases)) if column.table else "b"
+                if column.is_star or (alias in preaggregate_keys and column.name not in preaggregate_keys[alias]):
+                    continue
+                asset = aliases.get(alias)
+                if asset is not None:
+                    used_columns.setdefault(asset.id, set()).add(
+                        sql_dialect.normalize_identifier(column.this.copy()).name
+                    )
+        for step in steps:
+            for side in ("left", "right"):
+                path = step["path"]
+                used_columns.setdefault(getattr(path, f"{side}_asset_id"), set()).update(
+                    sql_dialect.normalize_identifier(exp.to_identifier(column, quoted=True)).name
+                    for column in getattr(path, f"{side}_columns")
+                )
+
     # Physical references must not resolve to a retained logical field that transforms that column.
     column_fields: dict[str, dict[str, str]] = {}
-    for name, dataset in datasets.items():
+    for dataset_index, (name, dataset) in enumerate(datasets.items()):
         asset = dataset_assets[name]
         dialect = _dialect(session, asset)
         fields = dataset.setdefault("fields", [])
-        names = {field["name"] for field in fields}
         columns = list(
             session.scalars(
                 select(ColumnVersion)
@@ -386,15 +543,91 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 .order_by(ColumnVersion.ordinal)
             )
         )
+        current = {column.name for column in columns}
+        physical_names = {
+            sqlglot.Dialect.get_or_raise(dialect).normalize_identifier(exp.to_identifier(column, quoted=True)).name
+            for column in current
+        }
+        missing_required = used_columns.get(asset.id, set()) - physical_names
+        if missing_required:
+            raise Invalid(
+                gettext("Ossie 导出结果无法通过再导入校验"),
+                errors=[
+                    {
+                        "layer": "catalog",
+                        "path": f"$.datasets[{dataset_index}].fields",
+                        "reason": gettext(
+                            "导出口径引用了当前资产中不存在的源列：{dataset}.{column}", dataset=name, column=column
+                        ),
+                    }
+                    for column in sorted(missing_required)
+                ],
+            )
+        keys = {key.casefold() for key in dataset.get("primary_key", [])}
+        keys.update(key.casefold() for group in dataset.get("unique_keys", []) for key in group)
+        for relationship in originals_for_path.values():
+            for side in ("from", "to"):
+                if relationship[side] == name:
+                    keys.update(key.casefold() for key in relationship[f"{side}_columns"])
+        for field in fields[:]:
+            dialects = list(iter_expression_dialects(field["expression"]))
+            selected_dialect = next((entry for entry in dialects if entry["dialect"] == dialect), None)
+            if selected_dialect is None:
+                selected_dialect = next(
+                    (entry for entry in dialects if entry["dialect"] in ("OSSIE_SQL_2026", "ANSI_SQL")), None
+                )
+            if selected_dialect is None:
+                continue
+            try:
+                tree = sqlglot.parse_one(selected_dialect["expression"], read=dialect)
+            except (SqlglotError, ValueError):
+                continue
+            refs = list(tree.find_all(exp.Column)) if tree is not None else []
+            missing = [column for column in refs if physical_column_name(column.this, current, dialect) is None]
+            used = (
+                "dimension" in field
+                or field["name"].casefold() in keys
+                or any(
+                    sqlglot.Dialect.get_or_raise(dialect).normalize_identifier(column.this.copy()).name
+                    in used_columns.get(asset.id, set())
+                    for column in missing
+                )
+            )
+            if missing and not used:
+                fields.remove(field)
+                logger.warning(
+                    "%s",
+                    gettext(
+                        "已从导出中移除引用已删除源列的未使用字段：{dataset}.{field}", dataset=name, field=field["name"]
+                    ),
+                )
+        field_names: set[str] = set()
+        renamed_fields = {}
+        for field in fields:
+            previous = field["name"]
+            field["name"] = _unique_name(previous, field_names)
+            renamed_fields[previous] = field["name"]
+        if "primary_key" in dataset:
+            dataset["primary_key"] = [renamed_fields.get(key, key) for key in dataset["primary_key"]]
+        if "unique_keys" in dataset:
+            dataset["unique_keys"] = [
+                [renamed_fields.get(key, key) for key in group] for group in dataset["unique_keys"]
+            ]
+        for relationship in originals.values():
+            for side in ("from", "to"):
+                if relationship[side] == name:
+                    relationship[f"{side}_columns"] = [
+                        renamed_fields.get(key, key) for key in relationship[f"{side}_columns"]
+                    ]
+        names = {field["name"] for field in fields}
         reserved = {value.casefold() for value in names | {column.name for column in columns}}
         for column in columns:
-            field_name = _matching(column.name, names)
+            field_name = column.name if column.name in names else _matching(column.name, names)
             if field_name is not None:
                 field = next(field for field in fields if field["name"] == field_name)
                 physical = _field_column(dataset, field, dialect)
-                if physical is not None and _matching(physical.this, {column.name}) == column.name:
-                    if field_name != column.name:
-                        column_fields.setdefault(name, {})[column.name] = field_name
+                if physical is not None and physical_column_name(physical.this, {column.name}, dialect) == column.name:
+                    column_fields.setdefault(name, {})[column.name] = field_name
                     continue
                 identity = next(
                     (
@@ -402,7 +635,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                         for field in fields
                         if field["name"].isidentifier()
                         and (physical := _field_column(dataset, field, dialect)) is not None
-                        and _matching(physical.this, {column.name}) == column.name
+                        and physical_column_name(physical.this, {column.name}, dialect) == column.name
                     ),
                     None,
                 )
@@ -413,14 +646,11 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 if not stem[0].isalpha() and stem[0] != "_":
                     stem = f"column_{stem}"
                 stem = f"{stem}__column"
-                field_name = stem
-                suffix = 2
-                while field_name.casefold() in reserved:
-                    field_name = f"{stem}_{suffix}"
-                    suffix += 1
+                field_name = _unique_name(stem, reserved)
                 column_fields.setdefault(name, {})[column.name] = field_name
             else:
-                field_name = column.name
+                field_name = _unique_name(column.name, field_names)
+                column_fields.setdefault(name, {})[column.name] = field_name
             if field_name not in names:
                 # Include collected columns without guessing logical datatypes from physical types.
                 field: dict[str, Any] = {
@@ -454,7 +684,12 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             fields = datasets[name]["fields"]
             field_name = dim.get("name") or column.name
             field = next((f for f in fields if f["name"] == field_name), None)
+            if field is not None:
+                physical = _field_column(datasets[name], field, dialect)
+                if physical is None or physical_column_name(physical.this, {column.name}, dialect) is None:
+                    field = None
             if field is None:
+                field_name = _unique_name(field_name, {field["name"].casefold() for field in fields})
                 field = {
                     "name": field_name,
                     "expression": {
@@ -476,68 +711,28 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 if dim.get("label"):
                     field["label"] = dim["label"]
 
-    original_relationships = []
-    for relationship in originals.values():
-        left_name, right_name = relationship["from"], relationship["to"]
-        if left_name not in dataset_assets or right_name not in dataset_assets:
-            continue
-        left_asset, right_asset = dataset_assets[left_name], dataset_assets[right_name]
-        left_columns = _physical_columns(
-            datasets[left_name], relationship["from_columns"], _dialect(session, left_asset)
-        )
-        right_columns = _physical_columns(
-            datasets[right_name], relationship["to_columns"], _dialect(session, right_asset)
-        )
-        if left_columns is not None and right_columns is not None:
-            original_relationships.append((relationship, left_asset.id, right_asset.id, left_columns, right_columns))
-
     relationships: dict[str, dict[str, Any]] = {}
     # Reuse imported relationship metadata only where its current catalogue path remains approved.
-    for path in session.scalars(select(JoinPath).where(JoinPath.status == "approved")):
-        if (
-            path.left_asset_id in source_names
-            and path.right_asset_id in source_names
-            and effectively_approved(session, path)
-        ):
-            original = next(
-                (
-                    original
-                    for original, left_id, right_id, left_columns, right_columns in original_relationships
-                    if (
-                        (
-                            left_id == path.left_asset_id
-                            and right_id == path.right_asset_id
-                            and sorted(zip(left_columns, right_columns))
-                            == sorted(zip(path.left_columns, path.right_columns))
-                        )
-                        or (
-                            left_id == path.right_asset_id
-                            and right_id == path.left_asset_id
-                            and sorted(zip(right_columns, left_columns))
-                            == sorted(zip(path.left_columns, path.right_columns))
-                        )
-                    )
-                ),
-                {},
+    for path in approved_paths:
+        original = originals_for_path.get(path.id, {})
+        if path.id in paths or original:
+            item = deepcopy(original)
+            item.update(
+                {
+                    "name": path.code,
+                    "from": source_names[path.left_asset_id],
+                    "to": source_names[path.right_asset_id],
+                    "from_columns": [
+                        column_fields.get(source_names[path.left_asset_id], {}).get(column, column)
+                        for column in path.left_columns
+                    ],
+                    "to_columns": [
+                        column_fields.get(source_names[path.right_asset_id], {}).get(column, column)
+                        for column in path.right_columns
+                    ],
+                }
             )
-            if path.id in paths or original:
-                item = deepcopy(original)
-                item.update(
-                    {
-                        "name": path.code,
-                        "from": source_names[path.left_asset_id],
-                        "to": source_names[path.right_asset_id],
-                        "from_columns": [
-                            column_fields.get(source_names[path.left_asset_id], {}).get(column, column)
-                            for column in path.left_columns
-                        ],
-                        "to_columns": [
-                            column_fields.get(source_names[path.right_asset_id], {}).get(column, column)
-                            for column in path.right_columns
-                        ],
-                    }
-                )
-                relationships[path.code] = item
+            relationships[path.code] = item
 
     for metric, version, components in selected:
         _, original = originals_by_version[version.id]
@@ -566,7 +761,16 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                     for column in columns
                 ):
                     raise GovernanceError("口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义")
-            expression = _expression(version.expression, dialect, aliases_by_version[version.id], column_fields)
+            try:
+                folded = fold_filters(version.expression, version.filters, dialect)
+            except ValueError as exc:
+                raise Invalid(
+                    str(exc),
+                    errors=[
+                        {"layer": "model", "path": f"$.metrics[{len(out['metrics'])}].expression", "reason": str(exc)}
+                    ],
+                ) from exc
+            expression = _expression(folded, dialect, aliases_by_version[version.id], column_fields)
         original_expression = deepcopy(original.get("expression", {}))
         dataset_scope = (version.publish_check or {}).get("ossie", {}).get("dataset_name")
         if dataset_scope:
@@ -669,9 +873,11 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
     errors = validate_structure(out)
     if errors:
         paths = [error["path"] for error in errors]
-        raise GovernanceError(
+        raise Invalid(
             Msg("{key} 取值无效：{value}", key="Ossie", value=", ".join(paths)),
             spec_commit=OSSIE_SPEC_COMMIT,
             paths=paths,
+            errors=errors,
         )
+    _check_reimport(session, actor, out)
     return out

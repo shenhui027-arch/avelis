@@ -467,7 +467,7 @@ def test_export_merges_foreign_field_metadata_from_separate_imports(catalogue):
     assert field["custom_extensions"] == [foreign("first_field"), foreign("second_field")]
 
 
-def test_export_refuses_to_silently_discard_conflicting_dataset_metadata(catalogue):
+def test_export_renames_conflicting_datasets_without_discarding_metadata(catalogue):
     _, first = metric(catalogue, "measure_a")
     _, second = metric(catalogue, "measure_b", asset="bands")
     first.publish_check = {
@@ -488,9 +488,10 @@ def test_export_refuses_to_silently_discard_conflicting_dataset_metadata(catalog
             }
         }
     }
-    with pytest.raises(GovernanceError, match="同名但不同源") as caught:
-        export_model(catalogue.session, catalogue.actor, "domain")
-    assert caught.value.status_code == 400
+    document = export_model(catalogue.session, catalogue.actor, "domain")
+    validate_official_schema(document)
+    assert [item["name"] for item in document["datasets"]] == ["shared", "shared_2"]
+    assert [item["custom_extensions"] for item in document["datasets"]] == [[foreign("first")], [foreign("second")]]
     document = export_model(catalogue.session, catalogue.actor, "domain", ["measure_b"])
     assert document["datasets"][0]["custom_extensions"] == [foreign("second")]
 

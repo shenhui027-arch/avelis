@@ -2036,3 +2036,44 @@ msgstr "Operation failed"
 
 msgid "后台任务运行超时"
 msgstr "Background task timed out"
+
+#: src/avelis/interchange/exporter.py
+msgid "Ossie 导出结果无法通过再导入校验"
+msgstr "The Ossie export failed re-import validation"
+
+msgid "已从导出中移除引用已删除源列的未使用字段：{dataset}.{field}"
+msgstr "Removed an unused field referencing deleted source columns from the export: {dataset}.{field}"
+
+msgid "固定过滤条件无法安全折入核心表达式：SQL 表达式无法解析"
+msgstr "Fixed filters cannot be safely folded into the core expression: the SQL expression cannot be parsed"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持窗口、有序聚合、聚合过滤或子查询"
+msgstr "Fixed filters cannot be safely folded into the core expression: window functions, ordered aggregates, aggregate filters and subqueries are not supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 SUM、AVG、MIN、MAX、COUNT 聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: only SUM, AVG, MIN, MAX and COUNT aggregates are supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持嵌套聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: nested aggregates are not supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合外引用了源列"
+msgstr "Fixed filters cannot be safely folded into the core expression: source columns are referenced outside aggregates"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合必须只有一个参数"
+msgstr "Fixed filters cannot be safely folded into the core expression: each aggregate must have exactly one argument"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 COUNT(*) 的星号参数"
+msgstr "Fixed filters cannot be safely folded into the core expression: star arguments are supported only in COUNT(*)"
+
+#: src/avelis/interchange/importer.py
+msgid "核心表达式与 Avelis 扩展不一致，已采用核心表达式并忽略扩展中的原表达式和固定过滤条件"
+msgstr "The core expression differs from the Avelis extension; the core expression was used and the extension's original expression and fixed filters were ignored"
+
+msgid "固定过滤条件无法安全折入核心表达式：无法确认自定义函数是否为聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: custom functions cannot be verified as scalar or aggregate"
+
+msgid "导出口径引用了当前资产中不存在的源列：{dataset}.{column}"
+msgstr "The exported metric references a source column missing from the current asset: {dataset}.{column}"
+
+msgid "口径编码须为最多 64 个小写字母、数字或下划线"
+msgstr "Metric codes must contain at most 64 lowercase letters, digits, or underscores"
