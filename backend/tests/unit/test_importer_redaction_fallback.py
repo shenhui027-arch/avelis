@@ -70,12 +70,142 @@ def test_multiline_adjacent_literal_review_regressions(newline, source, expected
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        (
+            "cur.execute('ALTER ROLE r PASSWORD \"'\n            \"A\"\n            'SYNTH42\";')\nnext_call()",
+            "cur.execute('ALTER ROLE r PASSWORD<redacted>\nnext_call()",
+        ),
+        (
+            "sql = ('ALTER ROLE r PASSWORD \"ab'\n       'SYNTH42\"')\nnext_call()",
+            "sql = ('ALTER ROLE r PASSWORD<redacted>\nnext_call()",
+        ),
+    ],
+    ids=["partial-then-adjacent", "partial-two-lines"],
+)
+def test_partial_password_values_extend_through_all_adjacent_literals(newline, source, expected):
+    source = source.replace("\n", newline)
+    expected = expected.replace("\n", newline)
+    for redactor in (_redact_lines, redact):
+        cleaned, count = redactor(source)
+        assert cleaned == expected
+        assert count >= 2
+        assert redactor(cleaned) == (cleaned, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("comment", ["", "  # trailing comment with 'quotes' + \\"])
+@pytest.mark.parametrize("config", [False, True])
+def test_password_dictionary_entries_preserve_following_entries(newline, comment, config):
+    value = 'ConfigKey("AVELIS_REDIS_PASSWORD", str, "SYNTH")' if config else '"SYNTH"'
+    head = f'    "redis.password": {value},{comment}'
+    tail = newline.join(
+        [f'    "redis.option{index}": ConfigKey("AVELIS_OPTION{index}", bool, False),' for index in range(50)]
+        + ["}", "next_call()"]
+    )
+    source = "config = {" + newline + head + newline + tail
+    for redactor in (_redact_lines, redact):
+        cleaned, count = redactor(source)
+        assert "SYNTH" not in cleaned
+        assert cleaned.endswith(newline + tail)
+        assert count >= 1
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("suffix", [",", ")", "]", "}", ";", ":", " + pw"])
+@pytest.mark.parametrize("comment", ["", "  # 'quoted' + \\"])
+@pytest.mark.parametrize("location", ["keyword", "adjacent"])
+def test_adjacent_literal_extension_stops_at_expression_boundaries(newline, suffix, comment, location):
+    head = 'token "head"'
+    if location == "adjacent":
+        head += newline + '"SYNTH"'
+    source = head + suffix + comment + newline + '"public"' + newline + "next_call()"
+    for redactor in (_redact_lines, redact):
+        cleaned, count = redactor(source)
+        assert "SYNTH" not in cleaned
+        assert cleaned.endswith(newline + '"public"' + newline + "next_call()")
+        assert count >= 1
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("tail", ['"', "<redacted>", '" +', '" \\'])
+def test_literal_tails_ignore_comments_but_preserve_hashes_inside_strings(newline, tail):
+    source = 'token "head#value' + tail + "  # comment ends with , ) ] } ; :" + newline
+    source += '"SYNTH#value"  # another comment ending with ,' + newline
+    source += '"SYNTH-tail");' + newline + '"public"' + newline + "next_call()"
+    # A marker is a complete value; do not leave an unmatched quote before it.
+    if tail == "<redacted>":
+        source = source.replace('"head#value<redacted>', "<redacted>")
+    for redactor in (_redact_lines, redact):
+        cleaned, count = redactor(source)
+        assert "SYNTH" not in cleaned
+        assert cleaned.endswith(newline + '"public"' + newline + "next_call()")
+        assert count >= 3
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["", "r", "u", "b", "f", "br", "rb", "fr", "rf", "R", "BR", "RF"])
+@pytest.mark.parametrize("quote", ["'", '"', "'''", '"""'])
+@pytest.mark.parametrize("head", ['token "head"', "token <redacted>", 'password="head"'])
+def test_existing_or_masked_values_extend_through_prefixed_literals(newline, prefix, quote, head):
+    source = (
+        f"{head}{newline} \t{newline}    {prefix}{quote}SYNTH{quote}{newline}"
+        f"{newline}    {prefix}{quote}SYNTH-tail{quote}{newline}){newline}next_call()"
+    )
+    for redactor in (_redact_lines, redact):
+        cleaned, count = redactor(source)
+        assert "SYNTH" not in cleaned
+        assert cleaned.endswith(f"{newline}){newline}next_call()")
+        assert count >= 1
+        assert redactor(cleaned) == (cleaned, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_cached_masked_line_still_checks_its_own_adjacent_literals(newline):
+    source = f'token <redacted>{newline}public=1{newline}token <redacted>{newline}r"SYNTH"{newline}next_call()'
+    expected = f"token <redacted>{newline}public=1{newline}token<redacted>{newline}next_call()"
+    assert_redacted(source, expected, 2)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_masked_value_on_the_next_line_still_extends_through_literals(newline):
+    source = f'password={newline}<redacted>{newline}b"SYNTH"{newline}){newline}next_call()'
+    assert_redacted(source, f"password=<redacted>{newline}){newline}next_call()", 3)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("tail", ["", "public=1", 'raw_value + "SYNTH"', "repr('SYNTH')"])
+def test_existing_value_preserves_blank_lines_without_a_following_literal(newline, tail):
+    source = f"token <redacted>{newline} \t{newline}{tail}"
+    assert_redacted(source, source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_masked_value_does_not_extend_to_a_literal_beyond_the_line_budget(newline):
+    source = f"token <redacted>{newline}" + newline * _FALLBACK_MAX_LINES + 'r"SYNTH"'
+    assert_redacted(source, source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("head", ['token "head"', "token <redacted>"])
+def test_existing_values_cannot_restart_extension_from_a_covered_keyword(newline, head):
+    literals = [f'r"SYNTH-{index}"' for index in range(24)]
+    literals[18] = 'r"token SYNTH"'
+    source = newline.join([head, *literals, ")", "next_call()"])
+    expected = newline.join(["token<redacted>", *literals[19:], ")", "next_call()"])
+    assert redact(source) == (expected, _FALLBACK_MAX_LINES)
+    # 截断后仍有相邻字面量，再次调用按同一通用规则继续遮蔽。
+    assert redact(expected) == (f"token<redacted>{newline}){newline}next_call()", 6)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("quote", ["'", '"'])
-@pytest.mark.parametrize("tail", ["", " +", ",", " \\"])
+@pytest.mark.parametrize("tail", ["", " +", " \\"])
 def test_empty_host_tail_extends_through_adjacent_literals_and_keeps_closing_parenthesis(newline, quote, tail):
     source = (
         f"sql = ({quote}ALTER ROLE r PASSWORD {quote}{tail}{newline}"
-        f"{newline}    {quote}SYNTH{quote} + pw{newline}"
+        f"{newline}    {quote}SYNTH{quote} +{newline}"
         f"    {quote}SYNTH-tail{quote}{newline}){newline}next_call()"
     )
     expected = f"sql = ({quote}ALTER ROLE r PASSWORD<redacted>{newline}){newline}next_call()"
@@ -86,14 +216,14 @@ def test_empty_host_tail_extends_through_adjacent_literals_and_keeps_closing_par
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("key", ["token", "secret", "api_key"])
-def test_empty_bare_key_covers_next_nonblank_line_then_only_literal_lines(newline, key):
+def test_empty_bare_key_stops_after_a_nonliteral_value(newline, key):
     source = f'{key}{newline} \t{newline}SYNTH{newline}"SYNTH-tail"{newline}next_call()'
-    assert_redacted(source, f"{key}<redacted>{newline}next_call()", 4)
+    assert redact(source) == (f'{key}<redacted>{newline}"SYNTH-tail"{newline}next_call()', 3)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("quote", ["'", '"'])
-def test_existing_value_and_variable_concatenation_do_not_extend(newline, quote):
+def test_variable_concatenation_is_preserved_but_existing_values_extend(newline, quote):
     source = f"sql = {quote}ALTER ROLE r PASSWORD {quote} + pw{newline}next_call()"
     assert_redacted(source, source, 0)
     value_quote = '"' if quote == "'" else "'"
@@ -101,16 +231,18 @@ def test_existing_value_and_variable_concatenation_do_not_extend(newline, quote)
         f"sql = {quote}ALTER ROLE r PASSWORD {value_quote}x{value_quote}{quote}{newline}"
         f"{quote}visible{quote}{newline}next_call()"
     )
-    expected = f"sql = {quote}ALTER ROLE r PASSWORD<redacted>{newline}{quote}visible{quote}{newline}next_call()"
-    assert _redact_lines(source) == (expected, 1)
-    assert_redacted(source, expected, 2)
+    expected = f"sql = {quote}ALTER ROLE r PASSWORD<redacted>{newline}next_call()"
+    assert _redact_lines(source) == (expected, 2)
+    assert_redacted(source, expected, 3)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_adjacent_literal_extension_is_bounded_and_covered_lines_cannot_extend_again(newline):
     source = f'"set token "{newline}' + f'"SYNTH"{newline}' * 24 + f"){newline}next_call()"
     expected = f'"set token<redacted>{newline}' + f'"SYNTH"{newline}' * 5 + f"){newline}next_call()"
-    assert_redacted(source, expected, _FALLBACK_MAX_LINES)
+    assert redact(source) == (expected, _FALLBACK_MAX_LINES)
+    # 每次调用仍只延伸 20 行；截断后的残留字面量不再满足幂等条件。
+    assert redact(expected) == (f'"set token<redacted>{newline}){newline}next_call()', 6)
     source = f'"set token "{newline}"other token "{newline}public=1{newline}next_call()'
     assert_redacted(source, f'"set token<redacted>{newline}public=1{newline}next_call()', 2)
 
@@ -293,11 +425,13 @@ def test_corpus_regressions_preserve_all_following_lines(newline, line):
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_keyword_only_string_tail_conservatively_covers_one_following_line(newline):
+def test_keyword_only_string_tail_with_comma_preserves_following_lines(newline):
     source = f'"offline-test-password",{newline}public = "user\'s choice"{newline}result = source.select("id")'
-    expected = f'"offline-test-password<redacted>{newline}result = source.select("id")'
+    expected = (
+        f'"offline-test-password<redacted>{newline}public = "user\'s choice"{newline}result = source.select("id")'
+    )
     for redactor in (_redact_lines, redact):
-        assert redactor(source) == (expected, 2)
+        assert redactor(source) == (expected, 1)
 
 
 @pytest.mark.parametrize("suffix", [")", "]", "}", ",", ";", ")]},;"])

@@ -4,6 +4,7 @@ from time import perf_counter
 
 import pytest
 
+import avelis.importer.candidates as candidates
 from avelis.importer.candidates import _redact_lines, _redact_units, _SecretValueReader, redact
 
 
@@ -21,6 +22,22 @@ def _timed_redact(source: str):
 def assert_redacted(source: str, expected: str, count: int = 1) -> None:
     assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
+
+
+@pytest.fixture
+def block_comment_scans(monkeypatch):
+    pattern = candidates._SQL_BLOCK_COMMENT_MARKER
+    counts = {"scans": 0, "markers": 0}
+
+    class CountingPattern:
+        def finditer(self, text, start):
+            counts["scans"] += 1
+            for marker in pattern.finditer(text, start):
+                counts["markers"] += 1
+                yield marker
+
+    monkeypatch.setattr(candidates, "_SQL_BLOCK_COMMENT_MARKER", CountingPattern())
+    return counts
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -383,7 +400,9 @@ def test_cli_shell_word_boundaries_keep_only_safe_following_lines(newline, separ
     suffix = f'{boundary}"public"; echo public\necho next'.replace("\n", newline)
     source = f"{prefix}foo'bar{newline}SYNTH-tail'" + suffix
     if boundary == "\n":
-        assert_redacted(source, f"{prefix}<redacted>" + suffix)
+        # 单元层保留 shell 换行边界；兜底层继续遮蔽下一行开头的字面量。
+        assert _redact_units(source) == (f"{prefix}<redacted>" + suffix, 1)
+        assert_redacted(source, f"{prefix}<redacted>{newline}echo next", 3)
     elif boundary == "(":
         # 值内未闭合括号由第一层直接读到全文末尾。
         assert_redacted(source, f"{prefix}<redacted>")
@@ -465,18 +484,17 @@ def test_repeated_password_block_comments_finish_quickly(newline, closed):
         )
         actual, elapsed = _timed_redact(source)
         if closed:
-            # 保留 1d3e24e 的逐字输出：兜底每次最多覆盖 20 行。
+            # 一个 */ 只关闭最内层；其余起点未闭合，必须保守按值处理。
             expected = (
                 "sql = '''"
                 + newline
-                + ("ALTER ROLE r PASSWORD<redacted>" + newline) * (size // 20)
-                + "*/"
-                + newline
-                + "'''"
+                + ("ALTER ROLE r PASSWORD <redacted> x" + newline) * (size - 1)
+                + "ALTER ROLE r PASSWORD<redacted>"
                 + newline
             )
-            count = size
+            count = size + 2
         else:
+            # 已有值以 x 结尾，不是相邻字面量拼接；保留宿主的闭合三引号。
             expected = "sql = '''" + newline + ("ALTER ROLE r PASSWORD <redacted> x" + newline) * size + "'''" + newline
             count = size
         assert actual == (expected, count)
@@ -486,66 +504,48 @@ def test_repeated_password_block_comments_finish_quickly(newline, closed):
 
 
 @pytest.mark.parametrize("prefix", ["", "/* closed earlier */ "])
-def test_unclosed_password_block_comments_do_not_search_suffix(prefix):
-    class CountingText(str):
-        closing_searches = 0
-
-        def find(self, sub, start=0, end=None):
-            if sub == "*/":
-                self.closing_searches += 1
-            return super().find(sub, start, len(self) if end is None else end)
-
-    source = CountingText(prefix + "PASSWORD /* x " * 1000)
+def test_unclosed_password_block_comments_do_not_search_suffix(prefix, block_comment_scans):
+    source = prefix + "PASSWORD /* x " * 1000
     reader = _SecretValueReader(source)
     for index in range(1000):
         end = len(prefix) + index * len("PASSWORD /* x ") + len("PASSWORD")
         assert reader.password_value_start(end) == end + 1
-    assert source.closing_searches == 0
+    assert block_comment_scans == {"scans": 0, "markers": 0}
 
 
 @pytest.mark.parametrize("masked_values", [False, True])
-def test_password_block_comments_reuse_the_same_closing_search(masked_values):
-    class CountingText(str):
-        closing_searches = 0
-
-        def find(self, sub, start=0, end=None):
-            if sub == "*/":
-                self.closing_searches += 1
-            return super().find(sub, start, len(self) if end is None else end)
-
-    source = CountingText("PASSWORD /* x " * 1000 + "*/ FROM users")
+def test_password_block_comments_reuse_the_same_closing_search(masked_values, block_comment_scans):
+    source = "PASSWORD /* x " * 1000 + "*/ FROM users"
     reader = _SecretValueReader(source)
     for index in range(1000):
         end = index * len("PASSWORD /* x ") + len("PASSWORD")
-        assert reader.password_value_start(end, masked_values=masked_values) is None
-    assert source.closing_searches == 1
+        # 只有最内层已闭合，外层不能借用它的终点而放过凭据。
+        expected = None if index == 999 else end + 1
+        assert reader.password_value_start(end, masked_values=masked_values) == expected
+    assert block_comment_scans == {"scans": 1, "markers": 1000}
 
 
-def test_block_comment_search_cache_respects_its_interval():
-    class CountingText(str):
-        closing_searches = 0
-
-        def find(self, sub, start=0, end=None):
-            if sub == "*/":
-                self.closing_searches += 1
-            return super().find(sub, start, len(self) if end is None else end)
-
-    source = CountingText("abcde*/fghij*/tail")
+def test_block_comment_search_cache_respects_nested_pairs(block_comment_scans):
+    source = "/*outer /*inner*/ tail*/ /*next*/ /*unclosed"
     reader = _SecretValueReader(source)
+    outer = 2
+    inner = source.index("/*", outer) + 2
+    following = source.index("/*", inner) + 2
+    unclosed = source.index("/*", following) + 2
+    inner_end = source.index("*/")
+    outer_end = source.index("*/", inner_end + 2)
+    next_end = source.index("*/", outer_end + 2)
     for start, expected, searches in (
-        (0, 5, 1),
-        (3, 5, 1),  # 缓存区间的右边界。
-        (4, 5, 2),
-        (5, 5, 3),
-        (6, 12, 4),  # 起点越过前一个闭合符，必须找下一个。
-        (10, 12, 4),
-        (11, 12, 5),
-        (12, 12, 6),
-        (0, 5, 7),  # 起点回退到缓存区间之前。
-        (13, -1, 7),  # 最后一个闭合符之后无需搜索。
+        (outer, outer_end, 1),
+        (inner, inner_end, 1),  # 内层已缓存，不能借用外层终点。
+        (following, next_end, 2),
+        (outer, outer_end, 2),  # 回退到先前起点也不重复扫描。
+        (inner, inner_end, 2),
+        (unclosed, -1, 2),  # 最后一个闭合符之后无需搜索。
     ):
         assert reader.block_comment_end(start) == expected
-        assert source.closing_searches == searches
+        assert block_comment_scans["scans"] == searches
+    assert block_comment_scans["markers"] == 4
 
 
 def test_password_line_comment_end_is_searched_once():

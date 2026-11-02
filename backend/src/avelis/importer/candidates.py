@@ -47,10 +47,13 @@ _SQL_STRUCTURE_WORDS = frozenset(
     "UNION JOIN LEFT RIGHT INNER OUTER WHEN THEN ELSE END SET VALUES INTO RETURNING DISABLE".split()
 )
 _SQL_STRUCTURE_SYMBOLS = ",);=<>!.+-*/|%:"
+_SQL_BLOCK_COMMENT_MARKER = re.compile(r"/\*|\*/")
+_HOST_QUOTE_MARKER = re.compile(r"[\\'\"]")
 _LINE_SECRET_PATTERN = re.compile(rf"{SECRET_PATTERN.pattern}|(?P<bare_key>(?<![\w-]){_SECRET_KEY}(?![\w-]))", re.I)
 _MASKED_VALUE_PATTERN = re.compile(r"(?P<quote>\"\"\"|'''|\"|')?<redacted>(?(quote)(?P=quote))")
 _LINE_SUSPICIOUS_PATTERN = re.compile(r"['\"@]|:\S")
 _FALLBACK_SYNTAX_PATTERN = re.compile(r"""[\\'"#()[\]{}]""")
+_FALLBACK_LITERAL_PATTERN = re.compile(r"""[ \t\f\v\r\n]*(?:r|u|b|f|br|rb|fr|rf)?['"]""", re.I)
 _FALLBACK_MAX_LINES = 20
 
 
@@ -61,7 +64,8 @@ class _SecretValueReader:
         self.text = text
         self.length = len(text)
         self._last_block_comment_end = text.rfind("*/")
-        self._block_comment_search = (0, -1)
+        self._block_comment_ends: dict[int, int] = {}
+        self._sql_trivia_ends: dict[int, int] = {}
         self._line_start = 0
         self._line_end = -1
         self._quote_cursor = 0
@@ -73,6 +77,11 @@ class _SecretValueReader:
     def host_string_end(self, start: int) -> bool:
         """单向跟踪宿主引号；只有紧跟宿主代码的闭合引号才排除，歧义默认遮蔽。"""
         while self._quote_cursor < start:
+            marker = _HOST_QUOTE_MARKER.search(self.text, self._quote_cursor, start)
+            if marker is None:
+                self._quote_cursor = start
+                break
+            self._quote_cursor = marker.start()
             cursor = self._quote_cursor
             if self.text[cursor] == "\\":
                 self._quote_cursor += 2
@@ -247,7 +256,7 @@ class _SecretValueReader:
             elif char == "(":
                 cursor = self.bracket_end(cursor)
                 continue
-            elif char.isspace() or char in ";|&()<>":
+            elif char in " \t\r\n;|&()<>":
                 break
             cursor += 1
         return cursor
@@ -431,13 +440,20 @@ class _SecretValueReader:
     def block_comment_end(self, start: int) -> int:
         if start > self._last_block_comment_end:
             return -1
-        previous_start, closing = self._block_comment_search
-        # 上次扫描到闭合符之前的区间内没有其他 */，可复用该终点。
-        if previous_start <= start <= closing - 2:
+        if (closing := self._block_comment_ends.get(start)) is not None:
             return closing
-        closing = self.text.find("*/", start)
-        self._block_comment_search = (start, closing)
-        return closing
+        openings = [start]
+        for marker in _SQL_BLOCK_COMMENT_MARKER.finditer(self.text, start):
+            if marker[0] == "/*":
+                openings.append(marker.end())
+            else:
+                self._block_comment_ends[openings.pop()] = marker.start()
+                if not openings:
+                    return marker.start()
+        # 内层可以闭合而外层未闭合；每个起点分别缓存，不能复用父层终点。
+        for opening in openings:
+            self._block_comment_ends[opening] = -1
+        return -1
 
     def password_value_start(self, end: int, *, masked_values: bool = False) -> int | None:
         """仅排除列引用结构；宿主引号是否闭合由调用层决定。"""
@@ -445,21 +461,33 @@ class _SecretValueReader:
         if key_start >= 2 and self.text[key_start - 2 : key_start] == "--":
             return None
         cursor = end
+        trivia_starts = []
         while cursor < self.length:
             if self.text[cursor].isspace():
                 cursor += 1
-            elif self.text.startswith("/*", cursor):
-                closing = self.block_comment_end(cursor + 2)
-                if closing < 0:
-                    # 未闭合注释按值处理，不能让 / 被当成列运算符而放过。
-                    return cursor
-                cursor = closing + 2
-            elif self.text.startswith("--", cursor):
-                cursor = self.line_end(cursor)
+            elif self.text.startswith(("/*", "--"), cursor):
+                if (cached := self._sql_trivia_ends.get(cursor)) is not None:
+                    cursor = cached
+                    break
+                trivia_start = cursor
+                if self.text.startswith("/*", cursor):
+                    closing = self.block_comment_end(cursor + 2)
+                    if closing < 0:
+                        break
+                    cursor = closing + 2
+                else:
+                    cursor = self.line_end(cursor)
+                trivia_starts.append(trivia_start)
             else:
                 break
+        # 后续关键字只需读到已缓存的链，不会反复遍历后面的所有注释行。
+        for trivia_start in trivia_starts:
+            self._sql_trivia_ends[trivia_start] = cursor
         if cursor == self.length:
             return None
+        if self.text.startswith("/*", cursor):
+            # 未闭合注释按值处理，不能让 / 被当成列运算符而放过。
+            return cursor
         quotes = {'"': '"', "'": "'", "`": "`", "[": "]"}
         if key_start > 0 and quotes.get(self.text[key_start - 1]) == self.text[end : end + 1]:
             return None
@@ -619,6 +647,7 @@ class _FallbackLexer:
         self.closing: list[tuple[str, int]] = []
 
     def scan(self, text: str, start: int, end: int) -> int:
+        self.content_end = end
         if _FALLBACK_SYNTAX_PATTERN.search(text, start, end) is None:
             return max(self.quote_start, self.closing[-1][1] if self.closing else -1)
         cursor = start
@@ -641,6 +670,7 @@ class _FallbackLexer:
                 self.quote_start = cursor
                 cursor += len(self.quote)
             elif char == "#":
+                self.content_end = cursor
                 break
             elif char in _BRACKETS:
                 self.closing.append((_BRACKETS[char], cursor))
@@ -652,10 +682,11 @@ class _FallbackLexer:
         return max(self.quote_start, self.closing[-1][1] if self.closing else -1, continued)
 
 
-def _fallback_line_contexts(text: str) -> tuple[list[int], list[tuple[str, int]]]:
+def _fallback_line_contexts(text: str) -> tuple[list[int], list[tuple[str, int]], list[bool]]:
     """只为跨行三引号保留行首上下文，普通行不继承别行残留的宿主语法。"""
     ends: list[int] = []
     contexts: list[tuple[str, int]] = []
+    literal_tails: list[bool] = []
     lexer = _FallbackLexer()
     start = 0
     while start <= len(text):
@@ -665,6 +696,8 @@ def _fallback_line_contexts(text: str) -> tuple[list[int], list[tuple[str, int]]
         ends.append(end)
         contexts.append((lexer.quote, lexer.quote_start))
         lexer.scan(text, start, end)
+        content = text[start : lexer.content_end].rstrip(_INLINE_SPACE)
+        literal_tails.append(content.endswith(("'", '"', "<redacted>", "+", "\\")))
         if len(lexer.quote) != 3:
             lexer.quote = ""
             lexer.quote_start = -1
@@ -672,15 +705,16 @@ def _fallback_line_contexts(text: str) -> tuple[list[int], list[tuple[str, int]]
         if newline < 0:
             break
         start = stop + 1
-    return ends, contexts
+    return ends, contexts, literal_tails
 
 
 def _redact_lines(text: str) -> tuple[str, int]:
     """对第一层的剩余文本兜底；遇到歧义遮整行，不再猜测宿主语法。"""
     logical, offsets = _logical_text(text)
     reader = _SecretValueReader(logical)
-    line_ends, contexts = _fallback_line_contexts(text)
+    line_ends, contexts, literal_tails = _fallback_line_contexts(text)
     spans: list[tuple[int, int]] = []
+    safe_masked_line = None
     start = 0
     while start < len(logical):
         end = reader.line_end(start)
@@ -689,6 +723,9 @@ def _redact_lines(text: str) -> tuple[str, int]:
             start = end + (2 if logical.startswith("\r\n", end) else 1)
             continue
         line = logical[start:end]
+        if line == safe_masked_line and _FALLBACK_LITERAL_PATTERN.match(logical, end) is None:
+            start = end + (2 if logical.startswith("\r\n", end) else 1)
+            continue
         position = 0
         url_ends = _url_password_ends(line)
         while match := _LINE_SECRET_PATTERN.search(line, position):
@@ -741,34 +778,62 @@ def _redact_lines(text: str) -> tuple[str, int]:
             unmasked = _MASKED_VALUE_PATTERN.sub("<redacted>", remaining)
             masked = _MASKED_VALUE_PATTERN.match(remaining.lstrip(_INLINE_SPACE)) is not None
             suspicious = _LINE_SUSPICIOUS_PATTERN.search(unmasked) is not None
-            if masked and not suspicious and not any(char in unmasked for char in _BRACKETS):
-                # 已检查第一处关键字后的全部文本，无需为每个后续键重扫同一后缀。
-                break
+            safe_value = masked and not suspicious and not any(char in unmasked for char in _BRACKETS)
+            if safe_value:
+                # 同一条已验证的脱敏行无需重读；SQL 注释可能依赖后文，不缓存。
+                if "/*" not in line and "--" not in line:
+                    safe_masked_line = line
+                if _FALLBACK_LITERAL_PATTERN.match(logical, end) is None:
+                    # 本行已安全且后面没有相邻字面量，无需为后续键重扫同一后缀。
+                    break
             # 词法扫描从行首开始，不能把关键字后的闭合引号当成值的起点。
             physical_line = bisect_left(line_ends, offsets[value_start])
             limit = min(physical_line + _FALLBACK_MAX_LINES - 1, len(line_ends) - 1)
             # 按原文物理行判断，不能让显式续行折叠后的值掩盖本行的空尾部。
-            # 已有遮蔽标记也算本行有值，避免再次脱敏时吞掉后续正常代码。
+            # 已有遮蔽标记也算本行有值；后续相邻字面量独立判断。
             empty_value = not text[offsets[value_start] : line_ends[physical_line]].strip(
                 _INLINE_SPACE + "\"'+,\\()[]{}"
             )
             following = physical_line
-            if empty_value:
-                # 宿主闭合引号不代表凭据结束：至少覆盖下一非空行，再读取紧接的字面量行。
-                found_value = masked_next = False
-                while following < limit:
-                    next_start = line_ends[following] + (2 if text.startswith("\r\n", line_ends[following]) else 1)
-                    content = text[next_start : line_ends[following + 1]].lstrip(_INLINE_SPACE)
-                    if not found_value and content and not remaining.strip() and _MASKED_VALUE_PATTERN.match(content):
-                        masked_next = True
-                        break
-                    if found_value and not content.startswith(('"', "'")):
-                        break
-                    following += 1
-                    found_value = found_value or bool(content)
-                if masked_next:
-                    # 空键的下一行已由单元层处理，保留原有换行与计数。
+            found_value = not empty_value
+            if match["sql"] is not None and match["sql"].upper() == "PASSWORD" and value >= end:
+                # SQL 注释后的首个值在后文，不属于已有值后的相邻字面量。
+                found_value = False
+            masked_next = False
+            candidate_line = following
+            tail_line = following
+            # 空值至少读下一非空行；已有值或遮蔽标记时，只续读相邻字面量。
+            while candidate_line < limit:
+                next_start = line_ends[candidate_line] + (
+                    2 if text.startswith("\r\n", line_ends[candidate_line]) else 1
+                )
+                candidate_line += 1
+                content = text[next_start : line_ends[candidate_line]].lstrip(_INLINE_SPACE)
+                if (
+                    not found_value
+                    and content
+                    and not remaining.strip()
+                    and _MASKED_VALUE_PATTERN.match(content)
+                    and _FALLBACK_LITERAL_PATTERN.match(text, line_ends[candidate_line]) is None
+                ):
+                    masked_next = True
                     break
+                # 相邻字面量之间不能跨过逗号等结构符；空键仍可读取首个值。
+                if not literal_tails[tail_line] and (
+                    found_value or (empty_value and remaining.strip(_INLINE_SPACE + "\"'+\\"))
+                ):
+                    break
+                if found_value and content and _FALLBACK_LITERAL_PATTERN.match(content) is None:
+                    break
+                # 仅在真正读到值时纳入中间空行，不吞掉值之后的空白尾部。
+                if content or not found_value:
+                    following = candidate_line
+                if content:
+                    tail_line = candidate_line
+                found_value = found_value or bool(content)
+            if masked_next or (safe_value and following == physical_line):
+                # 下一行已安全且无相邻字面量，或字面量超出预算时，保留换行与计数。
+                break
             last_line = bisect_left(line_ends, offsets[start])
             lexer = _FallbackLexer(*contexts[last_line])
             scan_start = offsets[start]
@@ -789,7 +854,7 @@ def _redact_lines(text: str) -> tuple[str, int]:
                     break
                 scan_start = line_ends[last_line] + (2 if text.startswith("\r\n", line_ends[last_line]) else 1)
                 last_line += 1
-            if empty_value and found_value:
+            if found_value:
                 last_line = max(last_line, following)
             original_end = line_ends[last_line]
             mask_end = bisect_left(offsets, original_end)
