@@ -327,20 +327,132 @@ def test_candidate_synonyms_have_name_weight_and_examples_have_lower_weight(api,
     assert [c["code"] for c in box.candidate_metrics(term)] == ["b_synonym", "c_alias", "d_name", "a_example"]
 
 
+@pytest.mark.parametrize("label_source", ["name", "alias", "synonym"])
+def test_demo_examples_do_not_suppress_explicit_metrics(label_source):
+    cards = [
+        MetricCard(code="metric_a", name="指标甲", aliases=[], dimensions=[]),
+        MetricCard(code="metric_b", name="指标乙", aliases=[], dimensions=[]),
+    ]
+    if label_source == "alias":
+        cards[1].name, cards[1].aliases = "指标丙", ["指标乙"]
+    elif label_source == "synonym":
+        cards[1].name, cards[1].ai_context = "指标丙", {"synonyms": ["指标乙"]}
+    model = DemoIntentModel()
+    question = "2026-01-01 指标甲和指标乙是多少"
+    before = model.parse(question, cards, today=date(2026, 1, 1))
+    cards[0].ai_context = {"examples": ["指标甲和指标乙是多少"]}
+    after = model.parse(question, cards, today=date(2026, 1, 1))
+    assert before.metric_codes == after.metric_codes == ["metric_a", "metric_b"]
+    assert not before.clarification and not after.clarification
+    # 别的口径仅在示例里命中，也不能加入或替换已有的显式匹配。
+    cards[0].ai_context = {"examples": ["指标乙是多少"]}
+    explicit = model.parse("2026-01-01 指标乙是多少", cards, today=date(2026, 1, 1))
+    assert explicit.metric_codes == ["metric_b"] and not explicit.clarification
+
+
+@pytest.mark.parametrize("body", ["请观察序列丙", "观察序列丙", "序列丙"])
+@pytest.mark.parametrize("period", ["2026-01-01", "2026-01-01 至 2026-01-02", "今天"])
+def test_demo_example_fallback_matches_question_or_question_body(body, period):
+    card = MetricCard(code="metric_a", name="指标甲", aliases=[], dimensions=[], ai_context=CONTEXT)
+    intent = DemoIntentModel().parse(f"{period} {body}", [card], today=date(2026, 1, 1))
+    assert intent.metric_codes == ["metric_a"] and not intent.clarification
+    assert intent.start_date == date(2026, 1, 1)
+    assert intent.end_date == date(2026, 1, 2 if "至" in period else 1)
+    assert DemoIntentModel().parse("2026-01-01", [card], today=date(2026, 1, 1)).clarification
+
+
+def test_demo_example_fallback_ignores_too_short_question_body():
+    # 问题主体只剩两个字时，不反向匹配到恰好包含它的示例问法
+    card = MetricCard(
+        code="metric_a", name="指标甲", aliases=[], dimensions=[], ai_context={"examples": ["观察序列丙是多少"]}
+    )
+    intent = DemoIntentModel().parse("2026-01-01 多少", [card], today=date(2026, 1, 1))
+    assert intent.metric_codes == [] and intent.clarification
+
+
 def test_candidate_examples_capped_and_describe_context_preserved(api, monkeypatch):
     context = {**CONTEXT, "examples": [f"问法{i}" for i in range(5)]}
     assert put(api, context).status_code == 200
     catalog = service.visible_catalog(api.session, api.users["owner"], with_values=False)
     box = AnalysisToolbox(api.session, api.users["owner"], SimpleNamespace(id="run"), catalog, Budget())
-    assert box.candidate_metrics("问法4")[0]["ai_context"] == {**context, "examples": context["examples"][:3]}
+    brief = {**context, "examples": ["问法0", "问法1", "问法2…"]}
+    assert box.candidate_metrics("问法4")[0]["ai_context"] == brief
     metric, version = catalog.versions["metric_a"]
     monkeypatch.setattr(box, "_metric_sources", lambda code: (metric, version, [], {}))
     monkeypatch.setattr("avelis.api.governance.version_view", lambda *args: {})
     detail = json.loads(box.describe_metric("metric_a"))
-    assert detail["ai_context"] == context
+    assert detail["ai_context"] == brief
     box.precheck_metric = detail
     pack = box.context_pack()
-    assert json.loads(pack.removeprefix("口径："))["ai_context"] == context
+    assert json.loads(pack.removeprefix("口径："))["ai_context"] == brief
+
+
+def test_long_context_is_bounded_after_candidate_and_detail_core_fields(api, monkeypatch):
+    context = {
+        "instructions": "适" * 2000,
+        "synonyms": [f"合成词{i}" for i in range(12)],
+        "examples": [f"观察序列{i}" for i in range(5)],
+    }
+    assert put(api, context).status_code == 200
+    catalog = service.visible_catalog(api.session, api.users["owner"], with_values=False)
+    box = AnalysisToolbox(api.session, api.users["owner"], SimpleNamespace(id="run"), catalog, Budget())
+    candidate = box.candidate_metrics("观察序列4")[0]
+    metric, version = catalog.versions["metric_a"]
+    monkeypatch.setattr(box, "_metric_sources", lambda code: (metric, version, [], {}))
+    monkeypatch.setattr("avelis.api.governance.version_view", lambda *args: {})
+    detail = json.loads(box.describe_metric("metric_a"))
+    for value in (candidate, detail):
+        assert list(value)[-1] == "ai_context"
+        brief = value["ai_context"]
+        assert brief["instructions"] == "适" * 299 + "…"
+        assert len(brief["synonyms"]) == 10 and brief["synonyms"][-1].endswith("…")
+        assert len(brief["examples"]) == 3 and brief["examples"][-1].endswith("…")
+        assert value["kind"] == "base" and value["dimensions"] == version.dimensions
+    assert detail["expression"] == version.expression
+    box.precheck_metric = detail
+    packed = json.loads(box.context_pack().removeprefix("口径："))
+    for key in ("code", "name", "kind", "expression", "time_column", "data_grain", "time_aggregation", "dimensions"):
+        assert packed[key] == detail[key]
+    assert api.session.get(Metric, "metric").ai_context == context
+
+
+@pytest.mark.parametrize("expression_chars", [20, 800, 1300])
+def test_context_pack_keeps_all_core_fields_before_long_hints(api, expression_chars):
+    catalog = service.visible_catalog(api.session, api.users["owner"], with_values=False)
+    box = AnalysisToolbox(api.session, api.users["owner"], SimpleNamespace(id="run"), catalog, Budget())
+    core = {
+        "code": "metric_a",
+        "name": "指标甲",
+        "kind": "base",
+        "unit": "单位甲",
+        "expression": "SUM(b.value_a)" + " " * expression_chars,
+        "time_column": "b.day_a",
+        "time_format": "date",
+        "data_grain": "day",
+        "time_aggregation": "sum",
+        "dimensions": [{"name": "dim_a", "label": "维度甲", "column": "b.dim_a"}],
+        "components": [],
+    }
+    # 原始提示与 describe_metric 已压缩过的提示都可能进入预检上下文。
+    box.precheck_metric = {
+        "ai_context": {
+            "instructions": '适用范围"\\\n' * 285 + "适用范围甲",
+            "synonyms": [f"合成词{i}" + "甲" * 50 for i in range(12)],
+            "examples": [f"观察序列{i}" + "乙" * 180 for i in range(5)],
+        },
+        **core,
+    }
+    pack = box.context_pack()
+    packed = json.loads(pack.removeprefix("口径："))
+    assert {k: packed[k] for k in core} == core
+    assert len(pack) <= box.PACK_CHARS
+    if expression_chars < 1300:
+        assert len(pack.removeprefix("口径：")) <= 1200
+        assert list(packed)[-1] == "ai_context"
+        if expression_chars == 20:
+            assert "…" in json.dumps(packed["ai_context"], ensure_ascii=False)
+    else:
+        assert "ai_context" not in packed
 
 
 def test_context_does_not_change_fingerprint_sql_or_real_answer_cache_key(api, monkeypatch):

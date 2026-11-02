@@ -65,8 +65,11 @@ function MetricContent({ metric }: { metric: Metric }) {
   // Saving a draft keeps its id; scope local check results to its server snapshot.
   const versionSnapshot = JSON.stringify(version.data);
   const me = useMe();
-  // 模型提示跟口径走：口径负责人也能改（后端再按负责人、业务域维护者、管理员校验）
-  const canEditHints = canEdit || me.data?.id === metric.owner.id;
+  // 模型提示与后端同一规则：口径负责人、所在业务域的负责人 / 维护者、系统管理员
+  const domain = useDomains().data?.find((d) => d.id === metric.domain_id);
+  const myId = me.data?.id;
+  const canEditHints = !!myId && (roles.has("admin") || myId === metric.owner.id
+    || !!domain?.members.some((m) => m.user_id === myId && (m.role === "maintainer" || m.role === "owner")));
 
   return <div className="av-metric-detail">
     <header className="av-metric-detail__header">
@@ -159,24 +162,28 @@ function AiContextForm({ metricId, value, onCancel, onSaved }: {
   const [examples, setExamples] = useState(value.examples.join("\n"));
   const [message, setMessage] = useMessage();
   const exampleList = [...new Set(examples.split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
+  const splitSynonyms = (raw: string) => raw.split(/[,，、]/).map((x) => x.trim().slice(0, AI_LIMITS.synonym)).filter(Boolean);
+  // 输入框里还没按回车的同义词也算进去：校验和提交都用同一份最终列表
+  const finalSynonyms = [...new Set([...synonyms, ...splitSynonyms(draft)])];
   const errors = [
-    synonyms.length > AI_LIMITS.synonyms ? t("同义词最多 {{n}} 个", { n: AI_LIMITS.synonyms }) : "",
+    finalSynonyms.length > AI_LIMITS.synonyms ? t("同义词最多 {{n}} 个", { n: AI_LIMITS.synonyms }) : "",
     exampleList.length > AI_LIMITS.examples ? t("示例问法最多 {{n}} 条", { n: AI_LIMITS.examples }) : "",
     exampleList.some((x) => x.length > AI_LIMITS.example) ? t("每条示例问法最多 {{n}} 字", { n: AI_LIMITS.example }) : "",
   ].filter(Boolean);
-  const save = useAction(() => unwrap(api.PUT("/api/metrics/{metric_id}/ai-context", {
-    params: { path: { metric_id: metricId } },
-    body: { instructions: instructions.trim() || null, synonyms, examples: exampleList } })), ["metrics"]);
+  const save = useAction((body: AiContext) => unwrap(api.PUT("/api/metrics/{metric_id}/ai-context", {
+    params: { path: { metric_id: metricId } }, body })), ["metrics"]);
   const addSynonym = (raw: string) => {
-    const items = raw.split(/[,，、]/).map((x) => x.trim().slice(0, AI_LIMITS.synonym)).filter(Boolean);
+    const items = splitSynonyms(raw);
     if (items.length) setSynonyms((list) => [...new Set([...list, ...items])]);
     setDraft("");
   };
   return <form className="av-aictx__form" onSubmit={(e) => {
     e.preventDefault();
-    if (draft.trim()) addSynonym(draft);
     if (errors.length || save.isPending) return;
-    save.mutate(undefined, { onSuccess: onSaved, onError: (err) => setMessage({ ok: false, text: errorText(err) }) });
+    setSynonyms(finalSynonyms);
+    setDraft("");
+    save.mutate({ instructions: instructions.trim() || null, synonyms: finalSynonyms, examples: exampleList },
+      { onSuccess: onSaved, onError: (err) => setMessage({ ok: false, text: errorText(err) }) });
   }}>
     <label className="av-field" htmlFor={`${id}-instructions`}><span className="av-label">{t("适用说明")} <Hint text={t("什么时候该用、什么时候不该用；拿不准时模型会据此向提问人确认")} /></span>
       <textarea id={`${id}-instructions`} className="av-textarea" rows={4} maxLength={AI_LIMITS.instructions} value={instructions}
