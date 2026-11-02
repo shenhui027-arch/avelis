@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import socket
 import ssl
+import time
 from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
@@ -175,7 +177,7 @@ def test_url_dns_failure_is_safe(monkeypatch, answer):
     assert "sensitive" not in str(caught.value)
 
 
-def test_signed_payload_is_pinned_with_original_host_sni_and_ten_second_timeout(subscription, outbox, monkeypatch):
+def test_signed_payload_is_pinned_with_original_host_sni_and_five_second_timeout(subscription, outbox, monkeypatch):
     monkeypatch.setattr(delivery.time, "time", lambda: 1793664000)
     requests = []
 
@@ -186,7 +188,10 @@ def test_signed_payload_is_pinned_with_original_host_sni_and_ten_second_timeout(
         assert request.url.raw_path == b"/receive?channel=governance"
         assert request.headers["host"] == "hooks.example.test:8443"
         assert request.extensions["sni_hostname"] == "hooks.example.test"
-        assert request.extensions["timeout"] == dict.fromkeys(("connect", "read", "write", "pool"), 10.0)
+        timeout = request.extensions["timeout"]
+        assert timeout["connect"] == 3.0
+        assert 0 < timeout["read"] <= 5.0
+        assert timeout["read"] == timeout["write"] == timeout["pool"]
         assert request.headers["X-Avelis-Event"] == "metric_version.published"
         assert request.headers["X-Avelis-Delivery"] == outbox.id
         timestamp = request.headers["X-Avelis-Timestamp"]
@@ -202,9 +207,10 @@ def test_signed_payload_is_pinned_with_original_host_sni_and_ten_second_timeout(
 def test_delivery_does_not_follow_redirect_or_consume_response_body(subscription, outbox):
     requests = []
 
-    class UnreadBody(httpx.SyncByteStream):
-        def __iter__(self):
+    class UnreadBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
             pytest.fail("投递不应读取响应正文")
+            yield b""  # pragma: no cover
 
     def receive(request):
         requests.append(request)
@@ -216,18 +222,18 @@ def test_delivery_does_not_follow_redirect_or_consume_response_body(subscription
 
 
 def test_production_transport_connects_to_pinned_ip_and_validates_original_tls_name(subscription, outbox, monkeypatch):
-    from httpcore._backends.sync import SyncBackend
+    from httpcore._backends.anyio import AnyIOBackend
 
     connections, tls_names, written = [], [], []
 
     class Stream:
-        def read(self, max_bytes, timeout=None):
+        async def read(self, max_bytes, timeout=None):
             return b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
 
-        def write(self, buffer, timeout=None):
+        async def write(self, buffer, timeout=None):
             written.append(buffer)
 
-        def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
             assert ssl_context.verify_mode == ssl.CERT_REQUIRED and ssl_context.check_hostname
             tls_names.append(server_hostname)
             return self
@@ -235,33 +241,32 @@ def test_production_transport_connects_to_pinned_ip_and_validates_original_tls_n
         def get_extra_info(self, info):
             return None
 
-        def close(self):
+        async def aclose(self):
             pass
 
-    def connect(self, host, port, timeout=None, local_address=None, socket_options=None):
+    async def connect(self, host, port, timeout=None, local_address=None, socket_options=None):
         connections.append((host, port, timeout))
         return Stream()
 
-    monkeypatch.setattr(SyncBackend, "connect_tcp", connect)
+    monkeypatch.setattr(AnyIOBackend, "connect_tcp", connect)
     delivery.send_webhook(subscription, outbox)
-    assert connections == [(PUBLIC_IP, 8443, 10.0)]
+    assert connections == [(PUBLIC_IP, 8443, 3.0)]
     assert tls_names == ["hooks.example.test"]
     assert b"Host: hooks.example.test:8443\r\n" in b"".join(written)
 
 
 def test_delivery_does_not_use_environment_proxy(subscription, outbox, monkeypatch):
-    original = delivery.httpx.Client
+    original = delivery.httpx.AsyncClient
     options = []
 
     def client(**kwargs):
         options.append(kwargs)
         return original(**kwargs)
 
-    monkeypatch.setattr(delivery.httpx, "Client", client)
+    monkeypatch.setattr(delivery.httpx, "AsyncClient", client)
     delivery.send_webhook(subscription, outbox, transport=httpx.MockTransport(lambda request: httpx.Response(204)))
     assert options[0]["trust_env"] is False
     assert options[0]["follow_redirects"] is False
-    assert options[0]["timeout"] == 10.0
 
 
 def test_dns_rebinding_cannot_change_the_validated_connection(subscription, outbox, monkeypatch):
@@ -289,8 +294,8 @@ def test_connection_failure_falls_back_to_next_validated_ip_with_remaining_budge
 ):
     first, second = "2606:4700:4700::1111", PUBLIC_IP
     monkeypatch.setattr(delivery.socket, "getaddrinfo", lambda *args, **kwargs: dns_results(first, second))
-    ticks = iter([100.0, 103.0])
-    monkeypatch.setattr(delivery.time, "monotonic", lambda: next(ticks))
+    ticks = iter([100.0, 100.0, 100.0, 103.0])
+    monkeypatch.setattr(delivery, "monotonic", lambda: next(ticks))
     requests = []
 
     def receive(request):
@@ -302,8 +307,8 @@ def test_connection_failure_falls_back_to_next_validated_ip_with_remaining_budge
 
     delivery.send_webhook(subscription, outbox, transport=httpx.MockTransport(receive))
     assert len(requests) == 2
-    assert requests[0].extensions["timeout"] == dict.fromkeys(("connect", "read", "write", "pool"), 10.0)
-    assert requests[1].extensions["timeout"] == dict.fromkeys(("connect", "read", "write", "pool"), 7.0)
+    assert requests[0].extensions["timeout"] == {"connect": 3.0, "read": 5.0, "write": 5.0, "pool": 5.0}
+    assert requests[1].extensions["timeout"] == dict.fromkeys(("connect", "read", "write", "pool"), 2.0)
     assert requests[0].content == requests[1].content
     for header in ("Host", "X-Avelis-Event", "X-Avelis-Delivery", "X-Avelis-Signature", "X-Avelis-Timestamp"):
         assert requests[0].headers[header] == requests[1].headers[header]
@@ -312,8 +317,8 @@ def test_connection_failure_falls_back_to_next_validated_ip_with_remaining_budge
 
 def test_connection_fallback_stops_when_shared_budget_is_exhausted(subscription, outbox, monkeypatch):
     monkeypatch.setattr(delivery.socket, "getaddrinfo", lambda *args, **kwargs: dns_results(PUBLIC_IP, "8.8.8.8"))
-    ticks = iter([100.0, 110.0])
-    monkeypatch.setattr(delivery.time, "monotonic", lambda: next(ticks))
+    ticks = iter([100.0, 100.0, 100.0, 105.0])
+    monkeypatch.setattr(delivery, "monotonic", lambda: next(ticks))
     requests = []
 
     def receive(request):
@@ -461,7 +466,7 @@ def test_transaction_failure_is_logged_without_details_and_other_entry_runs(monk
 
 
 def test_due_claim_locks_rows_and_excludes_disabled_not_due_terminal_and_already_handled():
-    statement = delivery._due_statement(utcnow(), {"claimed-id"})
+    statement = delivery._due_statement(utcnow(), {"claimed-id"}, {"blocked-subscription"})
     sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "FOR NO KEY UPDATE SKIP LOCKED" in sql
     assert statement._for_update_arg.key_share is True
@@ -472,7 +477,111 @@ def test_due_claim_locks_rows_and_excludes_disabled_not_due_terminal_and_already
     assert "event_outbox.status = 'pending'" in sql
     assert "event_outbox.next_attempt_at <= " in sql
     assert "event_outbox.id NOT IN ('claimed-id')" in sql
+    assert "event_outbox.subscription_id NOT IN ('blocked-subscription')" in sql
     assert "LIMIT 1" in sql
+
+
+def queue_deliveries(database, subscription, outbox, *, count, healthy=False):
+    with database() as session:
+        session.add(subscription)
+        if healthy:
+            session.add(
+                WebhookSubscription(
+                    id="healthy",
+                    name="healthy",
+                    url="https://healthy.example.test/hook",
+                    secret_enc="unused",
+                    event_types=subscription.event_types,
+                    enabled=True,
+                )
+            )
+        start = utcnow() - timedelta(minutes=1)
+        for index in range(count + int(healthy)):
+            session.add(
+                EventOutbox(
+                    id=f"delivery-{index}",
+                    event_id=f"event-{index}",
+                    payload={**outbox.payload, "id": f"event-{index}"},
+                    subscription_id="healthy" if index == count else subscription.id,
+                    status="pending",
+                    attempts=0,
+                    next_attempt_at=start + timedelta(seconds=index),
+                )
+            )
+
+
+def test_scan_cancels_slow_receiver_at_total_budget_and_resumes_remaining_next_scan(
+    database,
+    monkeypatch,
+    subscription,
+    outbox,
+):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    queue_deliveries(database, subscription, outbox, count=2)
+    received, cancelled = [], []
+
+    async def timeout(request):
+        received.append(request.headers["X-Avelis-Delivery"])
+        assert request.extensions["timeout"]["read"] <= 0.3
+        try:
+            # MockTransport 不会自行执行 HTTPX 超时；真实等待验证外层总期限能取消请求。
+            await asyncio.sleep(10)
+        finally:
+            cancelled.append(True)
+        return httpx.Response(204)
+
+    started = time.monotonic()
+    assert delivery.deliver_due(budget_seconds=0.3, transport=httpx.MockTransport(timeout)) == 1
+    # 给本地数据库提交和高负载调度留小量容差；不能等完请求的 5 秒或模拟接收方的 10 秒。
+    assert time.monotonic() - started < 0.8
+    assert received == ["delivery-0"] and cancelled == [True]
+    with database() as session:
+        attempted = session.get(EventOutbox, "delivery-0")
+        untouched = session.get(EventOutbox, "delivery-1")
+        assert attempted.status == "pending" and attempted.attempts == 1 and attempted.last_error == "timeout"
+        assert untouched.status == "pending" and untouched.attempts == 0
+    success = httpx.MockTransport(lambda request: httpx.Response(204))
+    assert delivery.deliver_due(transport=success) == 1
+    monkeypatch.setattr(delivery, "utcnow", lambda: utcnow() + timedelta(minutes=2))
+    assert delivery.deliver_due(transport=success) == 1
+    with database() as session:
+        assert session.get(EventOutbox, "delivery-0").attempts == 2
+        assert session.get(EventOutbox, "delivery-1").status == "delivered"
+
+
+def test_two_consecutive_timeouts_skip_subscription_without_consuming_other_attempts(
+    database,
+    monkeypatch,
+    subscription,
+    outbox,
+):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    queue_deliveries(database, subscription, outbox, count=4, healthy=True)
+    received = []
+
+    def timeout(request):
+        received.append(request.headers["X-Avelis-Delivery"])
+        if request.headers["host"] != "healthy.example.test":
+            raise httpx.ReadTimeout("unavailable")
+        return httpx.Response(204)
+
+    assert delivery.deliver_due(transport=httpx.MockTransport(timeout)) == 3
+    assert received == ["delivery-0", "delivery-1", "delivery-4"]
+    with database() as session:
+        assert session.get(EventOutbox, "delivery-4").status == "delivered"
+        for identifier in ("delivery-2", "delivery-3"):
+            row = session.get(EventOutbox, identifier)
+            assert row.status == "pending" and row.attempts == 0 and row.last_error is None
+    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(204))) == 2
+
+
+def test_success_resets_consecutive_failure_count(database, monkeypatch, subscription, outbox):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    queue_deliveries(database, subscription, outbox, count=5)
+    statuses = iter([500, 204, 500, 500])
+    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(next(statuses)))) == 4
+    with database() as session:
+        assert session.get(EventOutbox, "delivery-4").attempts == 0
 
 
 def test_persisted_disabled_future_and_terminal_entries_are_not_attempted(database, monkeypatch, subscription, outbox):

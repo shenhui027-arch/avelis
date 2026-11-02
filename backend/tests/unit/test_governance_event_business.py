@@ -30,6 +30,7 @@ from avelis.models import (
     Datasource,
     Domain,
     DomainMember,
+    EventOutbox,
     ImportBatch,
     Job,
     LineageEdge,
@@ -38,6 +39,7 @@ from avelis.models import (
     ReviewTask,
     User,
     UserRole,
+    WebhookSubscription,
 )
 from avelis.security import hash_password
 
@@ -488,6 +490,84 @@ def test_worker_abandonment_finishes_business_object_and_emits_failure_once(stat
     assert event.error.code == "WORKER_ABANDONED"
     assert jobs.abandoned_jobs(older_than_seconds=60) == []
     assert len(emitted(state, event_type)) == 1
+
+
+@pytest.mark.parametrize("kind", ["collect", "import"])
+@pytest.mark.parametrize("failure_at", ["record", "commit"])
+def test_worker_retries_abandoned_governance_atomically_without_duplicate_events(state, monkeypatch, kind, failure_at):
+    started_at = utcnow() - timedelta(minutes=5)
+    if kind == "import":
+        imported = create_import(state)
+        job = state.session.get(Job, imported.job_id)
+        imported.status = "running"
+        model, object_id, event_type = ImportBatch, imported.id, "lineage_import.failed"
+    else:
+        run = CollectionRun(datasource_id="ds", trigger="manual", status="running", started_at=started_at)
+        state.session.add(run)
+        state.session.flush()
+        job = Job(kind="collect", payload={"datasource_id": "ds"}, result={"run_id": run.id})
+        state.session.add(job)
+        model, object_id, event_type = CollectionRun, run.id, "collect.failed"
+    job.status, job.started_at = "running", started_at
+    state.session.add(
+        WebhookSubscription(
+            id="abandoned-hook",
+            name="hook",
+            url="https://example.invalid/hook",
+            secret_enc="unused",
+            event_types=[event_type],
+            enabled=True,
+        )
+    )
+    state.session.commit()
+    original = events.record_failure
+
+    def fail_after_record(session, *args, **kwargs):
+        original(session, *args, **kwargs)
+        session.flush()
+        raise RuntimeError("temporary database failure")
+
+    commits = []
+
+    @contextmanager
+    def fail_second_commit():
+        with state.scope() as session:
+            yield session
+            commits.append(session)
+            if len(commits) == 2:
+                session.flush()
+                raise RuntimeError("temporary commit failure")
+
+    with monkeypatch.context() as patch:
+        if failure_at == "record":
+            patch.setattr(events, "record_failure", fail_after_record)
+        else:
+            patch.setattr(jobs, "session_scope", fail_second_commit)
+        assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
+    state.session.expire_all()
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.result["abandoned_governance"] == "pending"
+    reason = saved.error
+    assert state.session.get(model, object_id).status == "running"
+    assert emitted(state, event_type) == []
+    assert list(state.session.scalars(select(EventOutbox))) == []
+    state.session.rollback()
+
+    # 配置/扫描阈值改变时也必须使用原超时原因重试；返回值仍只报告本次新回收的任务。
+    assert jobs.abandoned_jobs(older_than_seconds=120) == []
+    state.session.expire_all()
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.result["abandoned_governance"] == "done"
+    assert state.session.get(model, object_id).status == "failed"
+    assert len(emitted(state, event_type)) == 1
+    assert len(list(state.session.scalars(select(EventOutbox)))) == 1
+    state.session.rollback()
+
+    # 已拿到待收尾快照的另一轮/worker 重复调用，也不应重复写审计或事件。
+    jobs._record_abandoned_governance(job.id, kind, job.payload, job.result, reason)
+    assert jobs.abandoned_jobs(older_than_seconds=120) == []
+    assert len(emitted(state, event_type)) == 1
+    assert len(list(state.session.scalars(select(EventOutbox)))) == 1
 
 
 @pytest.mark.parametrize("kind", ["collect", "import"])

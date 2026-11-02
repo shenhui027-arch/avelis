@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -10,6 +11,7 @@ import logging
 import socket
 import time
 from datetime import timedelta
+from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
@@ -84,9 +86,14 @@ def validate_url(url: str, *, allow_private: bool | None = None) -> list[str]:
 
 
 def send_webhook(
-    subscription: WebhookSubscription, outbox: EventOutbox, *, transport: httpx.BaseTransport | None = None
+    subscription: WebhookSubscription,
+    outbox: EventOutbox,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    timeout_seconds: float = 5.0,
 ) -> None:
     """每次请求重新检查 URL；连接已验证的 IP，保留 HTTP Host 和 TLS 证书域名。"""
+    deadline = monotonic() + min(5.0, timeout_seconds)
     try:
         addresses = validate_url(subscription.url)
     except ValueError:
@@ -112,18 +119,36 @@ def send_webhook(
             "X-Avelis-Signature": f"sha256={signature}",
             "X-Avelis-Timestamp": timestamp,
         }
-        with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False, transport=transport) as client:
-            started = time.monotonic()
-            timeout = 10.0
+        asyncio.run(_post_webhook(original, addresses, body, headers, deadline, transport))
+    except DeliveryError:
+        raise
+    except (TimeoutError, httpx.TimeoutException):
+        raise DeliveryError("timeout") from None
+    except httpx.HTTPError:
+        raise DeliveryError("network_error") from None
+    except Exception:
+        raise DeliveryError("delivery_error") from None
+
+
+async def _post_webhook(original, addresses, body, headers, deadline, transport):
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise DeliveryError("timeout")
+    # HTTPX 的各阶段超时不等于总耗时；外层取消同时限制连接、TLS、写入和响应头等待。
+    async with asyncio.timeout(remaining):
+        async with httpx.AsyncClient(follow_redirects=False, trust_env=False, transport=transport) as client:
             for index, address in enumerate(addresses):
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise DeliveryError("timeout")
                 try:
-                    # stream 避免读取无限响应体；各地址共享连接重试预算，不把每个地址各等十秒。
-                    with client.stream(
+                    # stream 避免读取无限响应体；所有候选地址共享同一个请求期限。
+                    async with client.stream(
                         "POST",
                         original.copy_with(host=address),
                         content=body,
                         headers=headers,
-                        timeout=timeout,
+                        timeout=httpx.Timeout(min(5.0, remaining), connect=min(3.0, remaining)),
                         extensions={"sni_hostname": original.raw_host.decode("ascii")},
                     ) as response:
                         if not 200 <= response.status_code < 300:
@@ -133,20 +158,9 @@ def send_webhook(
                     # 仅建立连接失败时才换已验证 IP；写出请求后的异常留给发件箱下一次重试。
                     if index + 1 == len(addresses):
                         raise
-                    timeout = 10.0 - (time.monotonic() - started)
-                    if timeout <= 0:
-                        raise DeliveryError("timeout") from None
-    except DeliveryError:
-        raise
-    except httpx.TimeoutException:
-        raise DeliveryError("timeout") from None
-    except httpx.HTTPError:
-        raise DeliveryError("network_error") from None
-    except Exception:
-        raise DeliveryError("delivery_error") from None
 
 
-def _due_statement(now, handled: set[str]):
+def _due_statement(now, handled: set[str], blocked_subscriptions: set[str] | frozenset[str] = frozenset()):
     return (
         select(EventOutbox, WebhookSubscription)
         .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
@@ -155,6 +169,7 @@ def _due_statement(now, handled: set[str]):
             EventOutbox.next_attempt_at <= now,
             WebhookSubscription.enabled.is_(True),
             EventOutbox.id.not_in(handled),
+            EventOutbox.subscription_id.not_in(blocked_subscriptions),
         )
         .order_by(EventOutbox.next_attempt_at, EventOutbox.created_at, EventOutbox.id)
         .limit(1)
@@ -162,24 +177,37 @@ def _due_statement(now, handled: set[str]):
     )
 
 
-def deliver_due(batch_size: int = 50, *, transport: httpx.BaseTransport | None = None) -> int:
+def deliver_due(
+    batch_size: int = 50, *, transport: httpx.AsyncBaseTransport | None = None, budget_seconds: float = 5.0
+) -> int:
     """逐条提交并释放行锁；远端已收而本地未提交时可重复投递，由事件 ID 去重。"""
     settings = get_settings()
+    deadline = monotonic() + budget_seconds
     handled: set[str] = set()
+    failures: dict[str, int] = {}
+    blocked_subscriptions: set[str] = set()
     attempts = 0
     for _ in range(batch_size):
+        if monotonic() >= deadline:
+            break
         try:
             with session_scope() as session:
-                row = session.execute(_due_statement(utcnow(), handled)).first()
+                row = session.execute(_due_statement(utcnow(), handled, blocked_subscriptions)).first()
                 if row is None:
                     break
                 outbox, subscription = row
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
                 handled.add(outbox.id)
                 outbox.attempts += 1
                 attempts += 1
                 try:
-                    send_webhook(subscription, outbox, transport=transport)
+                    send_webhook(subscription, outbox, transport=transport, timeout_seconds=remaining)
                 except DeliveryError as exc:
+                    failures[subscription.id] = failures.get(subscription.id, 0) + 1
+                    if failures[subscription.id] >= 2:
+                        blocked_subscriptions.add(subscription.id)
                     outbox.last_error = str(exc)
                     if outbox.attempts >= settings.webhook_max_attempts:
                         outbox.status = "dead"
@@ -188,6 +216,7 @@ def deliver_due(batch_size: int = 50, *, transport: httpx.BaseTransport | None =
                         minutes = min(2 ** min(outbox.attempts - 1, 30), settings.webhook_retry_max_minutes)
                         outbox.next_attempt_at = utcnow() + timedelta(minutes=minutes)
                 else:
+                    failures[subscription.id] = 0
                     outbox.status = "delivered"
                     outbox.delivered_at = utcnow()
                     outbox.last_error = None

@@ -214,15 +214,27 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
                 from avelis.analysis import service as analysis_service
 
                 analysis_service.reconcile_abandoned(session, session.get(Job, job_id, populate_existing=True), reason)
-    ids = [row[0] for row in rows]
-    for job_id, kind, payload, result in rows:
-        if kind in ("collect", "import"):
-            _guarded(
-                f"记录超时治理任务 {job_id}",
-                lambda job_id=job_id, kind=kind, payload=payload, result=result: _record_abandoned_governance(
-                    job_id, kind, payload, result, reason
-                ),
+            elif kind in ("collect", "import"):
+                job = session.get(Job, job_id)
+                job.result = {**(job.result or {}), "abandoned_governance": "pending"}
+        # 待收尾标记与超时终态一起提交；独立收尾失败后，下轮仍能找到它。
+        pending = list(
+            session.execute(
+                select(Job.id, Job.kind, Job.payload, Job.result, Job.error).where(
+                    Job.status == "failed",
+                    Job.kind.in_(("collect", "import")),
+                    Job.result["abandoned_governance"].as_string() == "pending",
+                )
             )
+        )
+    ids = [row[0] for row in rows]
+    for job_id, kind, payload, result, failure_reason in pending:
+        _guarded(
+            f"记录超时治理任务 {job_id}",
+            lambda job_id=job_id, kind=kind, payload=payload, result=result, reason=failure_reason: (
+                _record_abandoned_governance(job_id, kind, payload, result, reason)
+            ),
+        )
     for job_id in ids:
         log.warning("任务 %s 运行超时，已回收并核对业务终态", job_id)
     return ids
@@ -231,9 +243,16 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
 def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: dict | None, reason: str) -> None:
     """任务状态已提交后，用短事务收尾关联对象并写入受哈希链保护的失败审计。"""
     with session_scope() as session:
-        job = session.get(Job, job_id)
-        if job is None or job.status != "failed" or job.error != reason:
+        job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        if (
+            job is None
+            or job.status != "failed"
+            or job.error != reason
+            or (job.result or {}).get("abandoned_governance") == "done"
+        ):
             return
+        # 行锁串行化并发收尾；标记、业务终态、审计和发件箱必须一起提交或一起回滚。
+        job.result = {**(job.result or {}), "abandoned_governance": "done"}
         if kind == "collect":
             datasource_id = payload.get("datasource_id")
             run_id = (result or job.result or {}).get("run_id")

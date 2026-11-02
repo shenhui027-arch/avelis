@@ -136,6 +136,10 @@ class JobSession:
         return 1
 
     def execute(self, statement):
+        if statement.is_select:
+            if self.job.status == "failed" and self.job.result.get("abandoned_governance") == "pending":
+                return [(self.job.id, self.job.kind, self.job.payload, self.job.result, self.job.error)]
+            return []
         applied = self.apply_update(statement)
         if statement._returning:  # UPDATE ... RETURNING：返回被更新的行
             return [(self.job.id, self.job.kind, self.job.payload, self.job.result)] if applied else []
