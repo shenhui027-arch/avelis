@@ -61,6 +61,7 @@ class _SecretValueReader:
         self.text = text
         self.length = len(text)
         self._last_block_comment_end = text.rfind("*/")
+        self._block_comment_search = (0, -1)
         self._line_start = 0
         self._line_end = -1
         self._quote_cursor = 0
@@ -427,6 +428,17 @@ class _SecretValueReader:
             return cursor
         return cursor if cursor == line_end and keyword.upper() == "IDENTIFIED" else None
 
+    def block_comment_end(self, start: int) -> int:
+        if start > self._last_block_comment_end:
+            return -1
+        previous_start, closing = self._block_comment_search
+        # 上次扫描到闭合符之前的区间内没有其他 */，可复用该终点。
+        if previous_start <= start <= closing - 2:
+            return closing
+        closing = self.text.find("*/", start)
+        self._block_comment_search = (start, closing)
+        return closing
+
     def password_value_start(self, end: int, *, masked_values: bool = False) -> int | None:
         """仅排除列引用结构；宿主引号是否闭合由调用层决定。"""
         key_start = end - len("PASSWORD")
@@ -437,10 +449,10 @@ class _SecretValueReader:
             if self.text[cursor].isspace():
                 cursor += 1
             elif self.text.startswith("/*", cursor):
-                if cursor + 2 > self._last_block_comment_end:
+                closing = self.block_comment_end(cursor + 2)
+                if closing < 0:
                     # 未闭合注释按值处理，不能让 / 被当成列运算符而放过。
                     return cursor
-                closing = self.text.find("*/", cursor + 2)
                 cursor = closing + 2
             elif self.text.startswith("--", cursor):
                 cursor = self.line_end(cursor)
@@ -695,8 +707,11 @@ def _redact_lines(text: str) -> tuple[str, int]:
                     if (
                         value < end
                         and logical[value] in "\"'"
-                        and logical[value + len(reader.quote(value)) : end].lstrip(_INLINE_SPACE).startswith("+")
-                        and not _LINE_SUSPICIOUS_PATTERN.search(logical[value + len(reader.quote(value)) : end])
+                        and (tail := logical[value + len(reader.quote(value)) : end].lstrip(_INLINE_SPACE)).startswith(
+                            "+"
+                        )
+                        and tail[1:].strip(_INLINE_SPACE + "+,\\()[]{}")
+                        and not _LINE_SUSPICIOUS_PATTERN.search(tail)
                     ):
                         continue
                 else:
@@ -722,8 +737,6 @@ def _redact_lines(text: str) -> tuple[str, int]:
             ):
                 # 引号内只有键名而没有值，不把闭合引号变成一个新值。
                 continue
-            if value_start >= end or not logical[value_start:end].strip():
-                continue
             remaining = logical[value_start:end]
             unmasked = _MASKED_VALUE_PATTERN.sub("<redacted>", remaining)
             masked = _MASKED_VALUE_PATTERN.match(remaining.lstrip(_INLINE_SPACE)) is not None
@@ -734,13 +747,35 @@ def _redact_lines(text: str) -> tuple[str, int]:
             # 词法扫描从行首开始，不能把关键字后的闭合引号当成值的起点。
             physical_line = bisect_left(line_ends, offsets[value_start])
             limit = min(physical_line + _FALLBACK_MAX_LINES - 1, len(line_ends) - 1)
+            # 按原文物理行判断，不能让显式续行折叠后的值掩盖本行的空尾部。
+            # 已有遮蔽标记也算本行有值，避免再次脱敏时吞掉后续正常代码。
+            empty_value = not text[offsets[value_start] : line_ends[physical_line]].strip(
+                _INLINE_SPACE + "\"'+,\\()[]{}"
+            )
+            following = physical_line
+            if empty_value:
+                # 宿主闭合引号不代表凭据结束：至少覆盖下一非空行，再读取紧接的字面量行。
+                found_value = masked_next = False
+                while following < limit:
+                    next_start = line_ends[following] + (2 if text.startswith("\r\n", line_ends[following]) else 1)
+                    content = text[next_start : line_ends[following + 1]].lstrip(_INLINE_SPACE)
+                    if not found_value and content and not remaining.strip() and _MASKED_VALUE_PATTERN.match(content):
+                        masked_next = True
+                        break
+                    if found_value and not content.startswith(('"', "'")):
+                        break
+                    following += 1
+                    found_value = found_value or bool(content)
+                if masked_next:
+                    # 空键的下一行已由单元层处理，保留原有换行与计数。
+                    break
             last_line = bisect_left(line_ends, offsets[start])
             lexer = _FallbackLexer(*contexts[last_line])
             scan_start = offsets[start]
             while True:
                 pending = lexer.scan(text, scan_start, line_ends[last_line])
                 # 已处理的值，不能被起点之前的宿主引号/括号重新触发跨行读取。
-                threshold = offsets[value_start] if masked else 0
+                threshold = offsets[value_start] if masked or empty_value else 0
                 if (
                     masked
                     and lexer.quote_start >= threshold
@@ -754,8 +789,12 @@ def _redact_lines(text: str) -> tuple[str, int]:
                     break
                 scan_start = line_ends[last_line] + (2 if text.startswith("\r\n", line_ends[last_line]) else 1)
                 last_line += 1
+            if empty_value and found_value:
+                last_line = max(last_line, following)
             original_end = line_ends[last_line]
             mask_end = bisect_left(offsets, original_end)
+            if mask_end <= value_start:
+                break
             if spans and value_start <= spans[-1][1]:
                 spans[-1] = spans[-1][0], max(spans[-1][1], mask_end)
             else:

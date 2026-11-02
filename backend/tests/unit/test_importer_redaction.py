@@ -157,9 +157,9 @@ def test_pending_multiline_quoted_value_after_blank_lines(newline, quote):
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_bare_cli_flag_and_unrelated_assignments_keep_line_boundaries(newline):
+def test_empty_cli_value_extends_but_populated_assignments_keep_line_boundaries(newline):
     source = f"client --password \t{newline} \t{newline}public = 1{newline}password_policy = 2"
-    assert_redacted(source, source, 0)
+    assert_redacted(source, f"client --password \t<redacted>{newline}password_policy = 2", 3)
     source = f'password=first{newline}public = "second"{newline}token=third'
     assert_redacted(source, f'password=<redacted>{newline}public = "second"{newline}token=<redacted>', 2)
 

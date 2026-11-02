@@ -69,10 +69,14 @@ def test_redact_cli_secret_values_and_preserve_flags(key, separator, quote):
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("trailing_space", ["", " \t"])
 @pytest.mark.parametrize("assignment", ['password = "actual secret"', '"password": "actual secret"'])
-def test_redact_cli_flag_does_not_consume_next_line_assignment(newline, trailing_space, assignment):
+def test_redact_cli_flag_extends_only_when_a_value_separator_is_present(newline, trailing_space, assignment):
     source = f"# run with --password{trailing_space}{newline}{assignment}{newline}"
-    expected = source.replace("actual secret", "<redacted>")
-    assert redact(source) == (expected, 1)
+    if trailing_space:
+        # 空白是 CLI 值分隔符；空值触发兜底，整行遮住下一条赋值。
+        expected, count = f"# run with --password{trailing_space}<redacted>{newline}", 3
+    else:
+        expected, count = source.replace("actual secret", "<redacted>"), 1
+    assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
 
 

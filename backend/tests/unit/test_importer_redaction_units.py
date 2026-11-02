@@ -395,9 +395,12 @@ def test_cli_shell_word_boundaries_keep_only_safe_following_lines(newline, separ
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("flag", ["--password", "--api-key"])
 @pytest.mark.parametrize("space", ["", " ", "\t"])
-def test_bare_cli_flags_do_not_consume_the_next_line(newline, flag, space):
+def test_only_cli_flags_with_a_value_separator_consume_the_next_line(newline, flag, space):
     source = f"client {flag}{space}{newline}echo public"
-    assert_redacted(source, source, 0)
+    if space:
+        assert_redacted(source, f"client {flag}{space}<redacted>", 2)
+    else:
+        assert_redacted(source, source, 0)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -448,13 +451,35 @@ def test_shell_plain_single_quote_does_not_escape_closing_quote(newline, prefix)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_repeated_unclosed_password_block_comments_finish_quickly(newline):
+@pytest.mark.parametrize("closed", [False, True])
+def test_repeated_password_block_comments_finish_quickly(newline, closed):
     timings = []
     for size in (4000, 8000, 20000):
-        source = "sql = '''" + newline + ("ALTER ROLE r PASSWORD /* x" + newline) * size + "'''" + newline
+        source = (
+            "sql = '''"
+            + newline
+            + ("ALTER ROLE r PASSWORD /* x" + newline) * size
+            + ("*/" + newline if closed else "")
+            + "'''"
+            + newline
+        )
         actual, elapsed = _timed_redact(source)
-        expected = "sql = '''" + newline + ("ALTER ROLE r PASSWORD <redacted> x" + newline) * size + "'''" + newline
-        assert actual == (expected, size)
+        if closed:
+            # 保留 1d3e24e 的逐字输出：兜底每次最多覆盖 20 行。
+            expected = (
+                "sql = '''"
+                + newline
+                + ("ALTER ROLE r PASSWORD<redacted>" + newline) * (size // 20)
+                + "*/"
+                + newline
+                + "'''"
+                + newline
+            )
+            count = size
+        else:
+            expected = "sql = '''" + newline + ("ALTER ROLE r PASSWORD <redacted> x" + newline) * size + "'''" + newline
+            count = size
+        assert actual == (expected, count)
         assert elapsed < 0.5, f"{size=}: {elapsed:.6f}s"
         timings.append(elapsed)
     assert timings[1] / max(timings[0], 1e-6) <= 2.3, timings
@@ -476,6 +501,51 @@ def test_unclosed_password_block_comments_do_not_search_suffix(prefix):
         end = len(prefix) + index * len("PASSWORD /* x ") + len("PASSWORD")
         assert reader.password_value_start(end) == end + 1
     assert source.closing_searches == 0
+
+
+@pytest.mark.parametrize("masked_values", [False, True])
+def test_password_block_comments_reuse_the_same_closing_search(masked_values):
+    class CountingText(str):
+        closing_searches = 0
+
+        def find(self, sub, start=0, end=None):
+            if sub == "*/":
+                self.closing_searches += 1
+            return super().find(sub, start, len(self) if end is None else end)
+
+    source = CountingText("PASSWORD /* x " * 1000 + "*/ FROM users")
+    reader = _SecretValueReader(source)
+    for index in range(1000):
+        end = index * len("PASSWORD /* x ") + len("PASSWORD")
+        assert reader.password_value_start(end, masked_values=masked_values) is None
+    assert source.closing_searches == 1
+
+
+def test_block_comment_search_cache_respects_its_interval():
+    class CountingText(str):
+        closing_searches = 0
+
+        def find(self, sub, start=0, end=None):
+            if sub == "*/":
+                self.closing_searches += 1
+            return super().find(sub, start, len(self) if end is None else end)
+
+    source = CountingText("abcde*/fghij*/tail")
+    reader = _SecretValueReader(source)
+    for start, expected, searches in (
+        (0, 5, 1),
+        (3, 5, 1),  # 缓存区间的右边界。
+        (4, 5, 2),
+        (5, 5, 3),
+        (6, 12, 4),  # 起点越过前一个闭合符，必须找下一个。
+        (10, 12, 4),
+        (11, 12, 5),
+        (12, 12, 6),
+        (0, 5, 7),  # 起点回退到缓存区间之前。
+        (13, -1, 7),  # 最后一个闭合符之后无需搜索。
+    ):
+        assert reader.block_comment_end(start) == expected
+        assert source.closing_searches == searches
 
 
 def test_password_line_comment_end_is_searched_once():
@@ -681,9 +751,8 @@ def test_password_at_end_of_host_string_preserves_only_clear_concatenation(newli
         assert_redacted(source, source, 0)
     else:
         expected = f"sql = {quote}ALTER ROLE r PASSWORD<redacted>"
-        if suffix.startswith("\n"):
-            expected += newline + "public = 1"
-        assert_redacted(source, expected)
+        # 关键字后只有宿主闭合引号时，下一非空行也属于保守遮蔽范围。
+        assert_redacted(source, expected, 2 if suffix.startswith("\n") else 1)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
