@@ -1,9 +1,12 @@
-"""确定性回放（ADR 0009 第 5 点）：假模型按轨迹返回消息，驱动真实的分析图（理解 → 预检 → 推理 → 核验 → 修订，ADR 0012）。
+(
+    """确定性回放（ADR 0009 第 5 点）：假模型按轨迹返回消息，"""
+    """驱动真实的分析图（理解 → 预检 → 推理 → 核验 → 修订，ADR 0012）。
 
 轨迹文件按字段白名单保存（见 tests/replay/fake_model.py）。第 2 版从真实模型的运行录制：取数类工具返回冻结的数据集，
 计算工具、核验与修订照常执行，必须得到与真实运行相同的核验结论；第 1 版是手工构造的轨迹，数据夹具在这里冻结。
 固定三条轨迹：首轮通过、修订后通过、修订后仍失败。预算耗尽、中途撤权已有第 2 步的单元测试覆盖。
 """
+)
 
 from __future__ import annotations
 
@@ -31,8 +34,10 @@ def replay(name: str, monkeypatch):
 
     trace = load_trace(name)
     if trace["version"] >= 2 and trace.get("report_schema", 1) != REPORT_SCHEMA:
-        pytest.skip(f"轨迹 {name} 录制于报告模式 v{trace.get('report_schema', 1)}，当前是 v{REPORT_SCHEMA}："
-                    "需要用 scripts/record_replay_traces.py 从新的评测运行重新录制")
+        pytest.skip(
+            f"轨迹 {name} 录制于报告模式 v{trace.get('report_schema', 1)}，当前是 v{REPORT_SCHEMA}："
+            "需要用 scripts/record_replay_traces.py 从新的评测运行重新录制"
+        )
     box = make_box(budget=Budget(), catalog=catalog(), monkeypatch=monkeypatch)
     monkeypatch.setattr(agent.service, "version_sources", lambda session, version: {})  # 取数及来源在旧轨迹中已冻结。
     box.run.window = dict(trace["window"])
@@ -41,13 +46,23 @@ def replay(name: str, monkeypatch):
         pending = replay_fetches(box, trace["fixtures"])
     else:
         version = SimpleNamespace(kind="base", expression="SUM(x)", unit="件", unit_scale=1)
-        box._dataset("governed", "指标甲 按地区 对比期", FIXTURE_COLUMNS, FIXTURE_ROWS,  # 冻结的数据夹具 D1
-                     meta={**governed_meta(box, "指标甲", version=version),
-                           "units": governed_units(FIXTURE_COLUMNS, {"指标甲": version}, "对比期"),
-                           "window": {"start": trace["window"]["start"], "end": trace["window"]["end"]}})
+        box._dataset(
+            "governed",
+            "指标甲 按地区 对比期",
+            FIXTURE_COLUMNS,
+            FIXTURE_ROWS,  # 冻结的数据夹具 D1
+            meta={
+                **governed_meta(box, "指标甲", version=version),
+                "units": governed_units(FIXTURE_COLUMNS, {"指标甲": version}, "对比期"),
+                "window": {"start": trace["window"]["start"], "end": trace["window"]["end"]},
+            },
+        )
     # 原轨迹保留；在理解之后补上 ADR 0013 的空提议，真实执行新增节点且不改变既有取数与核验消息。
-    messages = [trace["messages"][0], {"tool_calls": [{"name": "submit_proposal", "args": {"items": []}}]},
-                *trace["messages"][1:]]
+    messages = [
+        trace["messages"][0],
+        {"tool_calls": [{"name": "submit_proposal", "args": {"items": []}}]},
+        *trace["messages"][1:],
+    ]
     model = ScriptedModel(messages)
     config = {"configurable": {"thread_id": f"replay:{name}", "toolbox": box, "model": model}, "recursion_limit": 50}
     graph = agent.build_graph(MemorySaver())
@@ -91,7 +106,7 @@ def test_revised_pass(monkeypatch):
     assert model.calls == 5 and "第 1 个片段（文字）出现数字“30”" in feedback(model)[0].content
     assert box.report["summary"] == "指标甲较上期下降 100件"
     first, last = model.seen[2], model.seen[-1]  # 修订提示追加在末尾：前缀不变，前缀缓存仍能命中
-    assert last[:len(first)] == first and last[-1].content.startswith("核验发现以下问题")
+    assert last[: len(first)] == first and last[-1].content.startswith("核验发现以下问题")
 
 
 def test_revised_fail(monkeypatch):
@@ -117,9 +132,23 @@ def test_trace_files_follow_the_field_whitelist(tmp_path, monkeypatch):
     with pytest.raises(AssertionError, match="白名单以外的字段"):
         fake_model.load_trace("bad")
     leaky = json.loads((TRACES / "first_pass.json").read_text(encoding="utf-8"))
-    leaky["fixtures"] = [{"tool": "query_metric", "datasets": [{"seq": 1, "kind": "governed", "title": "t", "inputs": [],
-                                                                "columns": [], "rows": [], "truncated": False,
-                                                                "meta": {"sql": "SELECT 1", "units": {}}}]}]
+    leaky["fixtures"] = [
+        {
+            "tool": "query_metric",
+            "datasets": [
+                {
+                    "seq": 1,
+                    "kind": "governed",
+                    "title": "t",
+                    "inputs": [],
+                    "columns": [],
+                    "rows": [],
+                    "truncated": False,
+                    "meta": {"sql": "SELECT 1", "units": {}},
+                }
+            ],
+        }
+    ]
     (tmp_path / "leaky.json").write_text(json.dumps(leaky), encoding="utf-8")
     with pytest.raises(AssertionError, match="meta 含白名单以外的字段"):  # 数据集不保存 SQL
         fake_model.load_trace("leaky")

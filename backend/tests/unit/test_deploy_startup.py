@@ -47,15 +47,18 @@ def test_startup_modules_import_without_reading_settings(monkeypatch, module):
     spec.loader.exec_module(imported)
 
 
-@pytest.mark.parametrize("username, password, message", [
-    ("admin", "", "须为 12–128"),
-    ("admin", "Abcd-123456", "须为 12–128"),
-    ("admin", "Xy9!" * 33, "须为 12–128"),
-    ("admin", "XXaDmIn-123456", "不能包含用户名"),
-    ("Straße", "XXSTRASSE-123456", "不能包含用户名"),
-    ("admin", "aaaaaaaaaaaa", "4 种不同字符"),
-    ("admin", "abcabcabcabc", "4 种不同字符"),
-])
+@pytest.mark.parametrize(
+    "username, password, message",
+    [
+        ("admin", "", "须为 12–128"),
+        ("admin", "Abcd-123456", "须为 12–128"),
+        ("admin", "Xy9!" * 33, "须为 12–128"),
+        ("admin", "XXaDmIn-123456", "不能包含用户名"),
+        ("Straße", "XXSTRASSE-123456", "不能包含用户名"),
+        ("admin", "aaaaaaaaaaaa", "4 种不同字符"),
+        ("admin", "abcabcabcabc", "4 种不同字符"),
+    ],
+)
 def test_initial_admin_password_rejects_invalid_values_without_echoing(username, password, message):
     with pytest.raises(ValueError, match=message) as error:
         bootstrap.validate_initial_admin_password(username, password)
@@ -142,8 +145,10 @@ def test_init_admin_rejects_missing_or_invalid_password_before_database(monkeypa
 
 
 def test_init_admin_uses_configured_username(monkeypatch, settings, admin_session):
-    settings = dataclasses.replace(settings, env={"AVELIS_INITIAL_ADMIN_USERNAME": "deploy-admin",
-                                                 "AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"})
+    settings = dataclasses.replace(
+        settings,
+        env={"AVELIS_INITIAL_ADMIN_USERNAME": "deploy-admin", "AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"},
+    )
     monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
     bootstrap.init_admin()
     assert admin_session[1][0].username == "deploy-admin"
@@ -158,8 +163,7 @@ def test_migrate_locks_upgrade_and_graph_and_invalidates_on_failure(monkeypatch,
     engine.connect.return_value.__enter__.return_value = connection
     monkeypatch.setattr(bootstrap, "get_engine", lambda: MagicMock())
     lock_engines = []
-    monkeypatch.setattr(bootstrap, "create_engine",
-                        lambda url, poolclass: lock_engines.append(poolclass) or engine)
+    monkeypatch.setattr(bootstrap, "create_engine", lambda url, poolclass: lock_engines.append(poolclass) or engine)
     config = object()
     monkeypatch.setattr(bootstrap, "alembic_config", lambda: config)
 
@@ -216,17 +220,28 @@ def test_bootstrap_init_admin_reports_validation_failure_with_exit(monkeypatch):
 
 def test_uvicorn_options_preserve_defaults(settings):
     assert server.uvicorn_options(settings) == {
-        "host": "127.0.0.1", "port": 8000, "workers": 1, "proxy_headers": True,
-        "forwarded_allow_ips": "127.0.0.1", "log_level": "info",
+        "host": "127.0.0.1",
+        "port": 8000,
+        "workers": 1,
+        "proxy_headers": True,
+        "forwarded_allow_ips": "127.0.0.1",
+        "log_level": "info",
     }
 
 
 def test_uvicorn_options_pass_configured_proxy_trust_and_workers(settings):
-    settings = dataclasses.replace(settings, host="0.0.0.0", port=8080, workers=3,
-                                   forwarded_allow_ips="10.0.0.1,10.0.0.2", log_level="warning")
+    settings = dataclasses.replace(
+        settings, host="0.0.0.0", port=8080, workers=3, forwarded_allow_ips="10.0.0.1,10.0.0.2", log_level="warning"
+    )
     options = server.uvicorn_options(settings)
-    assert options == {"host": "0.0.0.0", "port": 8080, "workers": 3, "proxy_headers": True,
-                       "forwarded_allow_ips": "10.0.0.1,10.0.0.2", "log_level": "warning"}
+    assert options == {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "workers": 3,
+        "proxy_headers": True,
+        "forwarded_allow_ips": "10.0.0.1,10.0.0.2",
+        "log_level": "warning",
+    }
 
 
 @pytest.fixture
@@ -249,8 +264,9 @@ def test_server_default_startup_does_not_initialize(startup):
 
 def test_server_initializes_before_serving(monkeypatch, startup):
     settings, migrate, init_admin, run = startup
-    settings = dataclasses.replace(settings, auto_migrate=True, auto_init_admin=True,
-                                   env={"AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"})
+    settings = dataclasses.replace(
+        settings, auto_migrate=True, auto_init_admin=True, env={"AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"}
+    )
     monkeypatch.setattr(server, "get_settings", lambda: settings)
     events = []
     basic_config = Mock(side_effect=lambda **kwargs: events.append("logging"))
@@ -339,12 +355,19 @@ def test_server_missing_admin_password_warns_and_serves(monkeypatch, startup, ca
     run.assert_called_once()
 
 
-@pytest.mark.parametrize("failure", [bootstrap.InitialAdminError("口令不满足初始化策略"),
-                                     ValueError("连接详情-不能泄露"), RuntimeError("连接详情-不能泄露")])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        bootstrap.InitialAdminError("口令不满足初始化策略"),
+        ValueError("连接详情-不能泄露"),
+        RuntimeError("连接详情-不能泄露"),
+    ],
+)
 def test_server_admin_failure_logs_error_without_leaking_connection(monkeypatch, startup, caplog, failure):
     settings, _, init_admin, run = startup
-    settings = dataclasses.replace(settings, auto_init_admin=True,
-                                   env={"AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"})
+    settings = dataclasses.replace(
+        settings, auto_init_admin=True, env={"AVELIS_INITIAL_ADMIN_PASSWORD": "Zebra-2026-key!"}
+    )
     monkeypatch.setattr(server, "get_settings", lambda: settings)
     init_admin.side_effect = failure
     with caplog.at_level(logging.ERROR):
@@ -365,14 +388,16 @@ def test_database_pool_settings_reach_both_engine_and_session_factory(monkeypatc
     try:
         engine, factory = db.get_engine(), db.session_factory()
         assert db.get_engine() is engine and db.session_factory() is factory
-        create_engine.assert_called_once_with(settings.database_url, pool_pre_ping=True, pool_size=5,
-                                              max_overflow=10, pool_recycle=1800, future=True)
+        create_engine.assert_called_once_with(
+            settings.database_url, pool_pre_ping=True, pool_size=5, max_overflow=10, pool_recycle=1800, future=True
+        )
         sessionmaker.assert_called_once_with(bind=engine, expire_on_commit=False, future=True)
         changed = dataclasses.replace(settings, db_pool_size=2, db_max_overflow=0, db_pool_recycle_seconds=90)
         monkeypatch.setattr(db, "get_settings", lambda: changed)
         assert db.get_engine() is not engine and db.session_factory() is not factory
-        create_engine.assert_called_with(settings.database_url, pool_pre_ping=True, pool_size=2,
-                                          max_overflow=0, pool_recycle=90, future=True)
+        create_engine.assert_called_with(
+            settings.database_url, pool_pre_ping=True, pool_size=2, max_overflow=0, pool_recycle=90, future=True
+        )
         assert sessionmaker.call_count == 2
     finally:
         db._engine.cache_clear()

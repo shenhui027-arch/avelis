@@ -24,8 +24,13 @@ jobs:
       - name: 后端
         working-directory: backend
         run: uvx ruff@0.17.3 check .
+      - name: 后端格式
+        working-directory: backend
+        run: uvx ruff@0.17.3 format --check .
       - name: 脚本与实验
         run: uvx ruff@0.17.3 check .
+      - name: 脚本与实验格式
+        run: uvx ruff@0.17.3 format --check .
 
   backend:
     name: 后端单元测试
@@ -69,3 +74,6 @@ jobs:
       - name: 界面语言检查（语言包完整性与三语渲染）
         working-directory: frontend
         run: pnpm check:i18n
+      - name: 前端测试（src 下的 *.test.mjs）
+        working-directory: frontend
+        run: pnpm test

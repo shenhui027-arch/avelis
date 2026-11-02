@@ -28,9 +28,11 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, st
     """只按登记的量纲、分组和时间列构造列契约，不读取行值或猜列名。"""
     units = meta.get("units") or {}
     grouped = set((meta.get("intent") or {}).get("group_by") or [])
-    dimensions = {d["name"]: d.get("label") or d["name"]
-                  for d in (meta.get("dimensions") or (meta.get("export_labels") or {}).get("dimensions") or [])
-                  if d.get("name")}
+    dimensions = {
+        d["name"]: d.get("label") or d["name"]
+        for d in (meta.get("dimensions") or (meta.get("export_labels") or {}).get("dimensions") or [])
+        if d.get("name")
+    }
     dimensions.update(meta.get("dimension_labels") or {})
     measures = meta.get("measure_labels") or {}
     labels = meta.get("column_labels") or {}
@@ -94,8 +96,14 @@ def dataset_meta(session, dataset) -> dict:
                 column_labels[column] = system_column_label(column, metric.name, period)
         for column, direction in measures.governed_polarity(dataset.columns, {metric.name: version}, period).items():
             polarity.setdefault(column, direction)
-    return {**meta, **({"units": units} if units or "units" in meta else {}), "polarity": polarity,
-            "dimension_labels": dimensions, "measure_labels": labels, "column_labels": column_labels}
+    return {
+        **meta,
+        **({"units": units} if units or "units" in meta else {}),
+        "polarity": polarity,
+        "dimension_labels": dimensions,
+        "measure_labels": labels,
+        "column_labels": column_labels,
+    }
 
 
 def report_dimension_labels(session, report: dict, datasets: list) -> dict:
@@ -124,9 +132,12 @@ def report_dimension_labels(session, report: dict, datasets: list) -> dict:
             dataset = known[ref]
             sources.append(dataset)
             pending.extend([*(dataset.inputs or []), *((dataset.meta or {}).get("closure") or [])])
-        ids = {version_id for dataset in sources
-               for metric_code, version_id in ((dataset.meta or {}).get("versions") or {}).items()
-               if metric_code == code}
+        ids = {
+            version_id
+            for dataset in sources
+            for metric_code, version_id in ((dataset.meta or {}).get("versions") or {}).items()
+            if metric_code == code
+        }
         for dataset in sources:
             meta = dataset.meta or {}
             if meta.get("versions"):
@@ -140,8 +151,9 @@ def report_dimension_labels(session, report: dict, datasets: list) -> dict:
         for version_id in ids:
             version = session.get(MetricVersion, version_id)
             if version is not None:
-                labels.update(d.get("label") or dimension for d in version.dimensions or []
-                              if d.get("name") == dimension)
+                labels.update(
+                    d.get("label") or dimension for d in version.dimensions or [] if d.get("name") == dimension
+                )
         entity["dimension_label"] = next(iter(labels)) if len(labels) == 1 else dimension
     return projected
 
@@ -168,18 +180,22 @@ def record_refs(record: dict) -> set[str]:
 def _hide(record: dict) -> None:
     kept = {k: record[k] for k in ("type", "refs", "explicit_refs", "status") if k in record}
     record.clear()
-    record.update(kept, text=RESTRICTED_TEXT, parts=[RESTRICTED_TEXT],
-                  segments=[{"kind": "restricted", "text": RESTRICTED_TEXT}], errors=[], restricted=True)
+    record.update(
+        kept,
+        text=RESTRICTED_TEXT,
+        parts=[RESTRICTED_TEXT],
+        segments=[{"kind": "restricted", "text": RESTRICTED_TEXT}],
+        errors=[],
+        restricted=True,
+    )
 
 
 def _record(record: dict, restricted_refs: set[str]) -> bool:
     if not record_refs(record) & restricted_refs:
         return False
     parts, segments = record.get("parts") or [], record.get("segments") or []
-    hidden_parts = {i for i, part in enumerate(parts, 1)
-                    if isinstance(part, dict) and _ref(part) in restricted_refs}
-    hidden = [i for i, seg in enumerate(segments)
-              if _ref(seg) in restricted_refs or seg.get("part") in hidden_parts]
+    hidden_parts = {i for i, part in enumerate(parts, 1) if isinstance(part, dict) and _ref(part) in restricted_refs}
+    hidden = [i for i, seg in enumerate(segments) if _ref(seg) in restricted_refs or seg.get("part") in hidden_parts]
     if not hidden:
         _hide(record)  # 旧报告缺少可拆分的片段，只能遮蔽整个字段。
         return True
@@ -187,10 +203,10 @@ def _record(record: dict, restricted_refs: set[str]) -> bool:
         segment = segments[i]
         ref = _ref(segment)
         hidden_parts.add(segment.get("part"))
-        segments[i] = {"kind": "restricted", "part": segment.get("part"),
-                       "ref": ref, "text": RESTRICTED_TEXT}
-    record.update(text="".join(seg.get("text") or "" for seg in segments), segments=segments,
-                  errors=[], restricted=True)
+        segments[i] = {"kind": "restricted", "part": segment.get("part"), "ref": ref, "text": RESTRICTED_TEXT}
+    record.update(
+        text="".join(seg.get("text") or "" for seg in segments), segments=segments, errors=[], restricted=True
+    )
     if "parts" in record:
         record["parts"] = [RESTRICTED_TEXT if i in hidden_parts else part for i, part in enumerate(parts, 1)]
     return True
@@ -200,7 +216,9 @@ def restrict_report(report: dict, restricted_refs: set[str], *, lookup_restricte
     """遮蔽受限来源的引用、原值、选行条件与已渲染正文，保留其他来源的片段。"""
     if lookup_restricted:
         return {k: report[k] for k in ("kind", "answer_id", "title") if k in report} | {
-            "summary": RESTRICTED_TEXT, "restricted": True}
+            "summary": RESTRICTED_TEXT,
+            "restricted": True,
+        }
     if not restricted_refs:
         return report
     projected = deepcopy(report)
@@ -226,12 +244,21 @@ def restrict_report(report: dict, restricted_refs: set[str], *, lookup_restricte
         evidence = cause.get("evidence") or raw.get("evidence") or []
         entity = cause.get("entity") or raw.get("entity") or {}
         contribution = cause.get("contribution") or raw.get("contribution") or {}
-        refs = {*evidence, (entity.get("evidence_id") or "").split("#", 1)[0], _ref(contribution),
-                *(_ref(seg) for seg in contribution.get("segments") or [])}
+        refs = {
+            *evidence,
+            (entity.get("evidence_id") or "").split("#", 1)[0],
+            _ref(contribution),
+            *(_ref(seg) for seg in contribution.get("segments") or []),
+        }
         if refs & restricted_refs:
-            projected["causes"][i] = {"type": cause.get("type") or raw.get("type"), "evidence": evidence,
-                                       "entity": {}, "label": RESTRICTED_TEXT, "contribution": None,
-                                       "restricted": True}
+            projected["causes"][i] = {
+                "type": cause.get("type") or raw.get("type"),
+                "evidence": evidence,
+                "entity": {},
+                "label": RESTRICTED_TEXT,
+                "contribution": None,
+                "restricted": True,
+            }
     return projected
 
 
@@ -252,8 +279,11 @@ def restrict_verification(verification: dict, projected_report: dict) -> dict:
                 item["problems"] = []
     records = [*fields.values(), *(projected_report.get("claims") or []), *(projected_report.get("causes") or [])]
     if (projected.get("conclusion") or {}).get("problems") and (
-            projected_report.get("restricted") or any(
-                record.get("restricted") or any(d.get("restricted") for d in (record.get("details") or {}).values())
-                for record in records)):
+        projected_report.get("restricted")
+        or any(
+            record.get("restricted") or any(d.get("restricted") for d in (record.get("details") or {}).values())
+            for record in records
+        )
+    ):
         projected["conclusion"]["problems"] = [RESTRICTED_TEXT] * len(projected["conclusion"]["problems"])
     return projected

@@ -1,8 +1,11 @@
-"""探索查询工具 query_sql / sample_values（ADR 0009 第 6 点）：经统一分发调用，连接器用替身记录每次调用。
+(
+    """探索查询工具 query_sql / sample_values（ADR 0009 第 6 点）：经统一分发调用，连接器用替身记录每次调用。
 
-每个拒绝用例都断言：探索 SQL 没有发到数据库（execute_explore 没被调用）、审计记为 rejected 且 sent_to_database 为 False。
+每个拒绝用例都断言：探索 SQL 没有发到数据库（execute_explore 没被调用）、"""
+    """审计记为 rejected 且 sent_to_database 为 False。
 需要真实引擎的执行与取消测试放在验收（第 5 步）。
 """
+)
 
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ from avelis.analysis.explore import PROFILES, ExploreRejected
 from avelis.analysis.tools import Budget
 from avelis.connectors.base import QueryError, QueryResult
 from avelis.models import AuditEvent, Datasource
+from tests.pymysql_contract import mogrify
 from tests.unit.test_analysis_explore import resolver as fake_resolver
 from tests.unit.test_analysis_toolbox import make_box
 
@@ -32,9 +36,13 @@ class FakeConnector:
             self.on_describe()
         out = {}
         for db, name in objects:
-            cols = {"facts": ["region", "amount", "qty", "event_date", "item_id"], "items": ["item_id", "category"]}[name]
-            out[(db, name)] = {"physical_id": self.physical.get(name, {"facts": "101", "items": "102"}[name]),
-                               "columns": [[c, "x"] for c in cols]}
+            cols = {"facts": ["region", "amount", "qty", "event_date", "item_id"], "items": ["item_id", "category"]}[
+                name
+            ]
+            out[(db, name)] = {
+                "physical_id": self.physical.get(name, {"facts": "101", "items": "102"}[name]),
+                "columns": [[c, "x"] for c in cols],
+            }
         return out
 
     def execute_explore(self, sql, **kwargs):
@@ -57,6 +65,7 @@ def explore_box(monkeypatch, engine="postgres", connector=None, budget=None, rec
     monkeypatch.setattr(exploration, "execution_identity", lambda session, ds: "reader")
     connector = connector or FakeConnector()
     import avelis.engines
+
     monkeypatch.setattr(avelis.engines, "query_connector", lambda session, ds: connector)
     return box, connector
 
@@ -85,15 +94,18 @@ def test_accepted_query_runs_regenerated_sql_and_marks_explore(monkeypatch, engi
 
 
 @pytest.mark.parametrize("engine", ["starrocks", "postgres"])
-@pytest.mark.parametrize("sql, code", [
-    ("DELETE FROM d1.facts", "not_select"),
-    ("SELECT region FROM d1.facts; SELECT 1", "multiple_statements"),
-    ("SELECT region FROM d1.secret", "asset_not_visible"),
-    ("SELECT nope FROM d1.facts", "column_unresolved"),
-    ("SELECT region FROM d1.facts, d1.items", "cartesian"),
-    ("SELECT * FROM d1.facts", "star"),
-    ("SELECT region FROM d1.facts OFFSET 3", "select_clause_not_allowed"),
-])
+@pytest.mark.parametrize(
+    "sql, code",
+    [
+        ("DELETE FROM d1.facts", "not_select"),
+        ("SELECT region FROM d1.facts; SELECT 1", "multiple_statements"),
+        ("SELECT region FROM d1.secret", "asset_not_visible"),
+        ("SELECT nope FROM d1.facts", "column_unresolved"),
+        ("SELECT region FROM d1.facts, d1.items", "cartesian"),
+        ("SELECT * FROM d1.facts", "star"),
+        ("SELECT region FROM d1.facts OFFSET 3", "select_clause_not_allowed"),
+    ],
+)
 def test_rejections_are_audited_and_never_sent(monkeypatch, engine, sql, code):
     box, conn = explore_box(monkeypatch, engine)
     out = json.loads(box.dispatch("query_sql", {"sql": sql, "purpose": "x"}))
@@ -123,6 +135,7 @@ def test_changed_asset_is_rejected_before_execution(monkeypatch):
 def test_revoked_after_planning_or_before_delivery(monkeypatch):
     def revoked(session, user, validated):
         raise ExploreRejected("binding", "access_revoked", "表 d1.facts 当前已无权访问")
+
     box, conn = explore_box(monkeypatch, recheck=revoked)
     out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "access_revoked" and not [c for c in conn.calls if c[0] == "execute"]
@@ -132,6 +145,7 @@ def test_revoked_after_planning_or_before_delivery(monkeypatch):
         calls["n"] += 1
         if calls["n"] > 1:
             raise ExploreRejected("binding", "access_revoked", "表 d1.facts 当前已无权访问")
+
     box, conn = explore_box(monkeypatch, recheck=later)
     out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["sent_to_database"] is True and out["note"] == "结果未交付" and not box.datasets()
@@ -139,7 +153,9 @@ def test_revoked_after_planning_or_before_delivery(monkeypatch):
 
 
 def test_execution_errors_and_timeouts_are_reported(monkeypatch):
-    box, conn = explore_box(monkeypatch, connector=FakeConnector(error=QueryError("timeout", 57014, "canceling statement")))
+    box, conn = explore_box(
+        monkeypatch, connector=FakeConnector(error=QueryError("timeout", 57014, "canceling statement"))
+    )
     out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     assert out["code"] == "timeout" and not box.datasets() and audits(box)[-1]["outcome"] == "failed"
     box, conn = explore_box(monkeypatch)
@@ -166,14 +182,26 @@ def test_fabricated_numbers_and_text_cannot_be_cited_as_facts(monkeypatch):
 
     result = QueryResult(columns=["region", "fake", "up"], rows=[["r1", 42, "R1"]], truncated=False)
     box, _ = explore_box(monkeypatch, connector=FakeConnector(result=result))
-    out = json.loads(box.dispatch("query_sql", {"purpose": "x",
-                                                "sql": "SELECT region, 42 AS fake, CAST(region AS VARCHAR) AS up FROM d1.facts"}))
+    out = json.loads(
+        box.dispatch(
+            "query_sql",
+            {"purpose": "x", "sql": "SELECT region, 42 AS fake, CAST(region AS VARCHAR) AS up FROM d1.facts"},
+        )
+    )
     ds = box.datasets()[out["dataset"]]
-    data = {out["dataset"]: {"kind": ds.kind, "columns": ds.columns, "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
-                             **{k: ds.meta.get(k) for k in ("units", "explore", "column_evidence")}}}
-    claims = [{"type": "fact", "parts": ["数值 ", {"dataset": out["dataset"], "column": "fake", "row": 1}]},
-              {"type": "fact", "parts": [{"dataset": out["dataset"], "label": "up", "row": 1}, " 最高"]},
-              {"type": "fact", "parts": [{"dataset": out["dataset"], "label": "region", "row": 1}, " 最高"]}]
+    data = {
+        out["dataset"]: {
+            "kind": ds.kind,
+            "columns": ds.columns,
+            "rows": [dict(zip(ds.columns, r)) for r in ds.rows],
+            **{k: ds.meta.get(k) for k in ("units", "explore", "column_evidence")},
+        }
+    }
+    claims = [
+        {"type": "fact", "parts": ["数值 ", {"dataset": out["dataset"], "column": "fake", "row": 1}]},
+        {"type": "fact", "parts": [{"dataset": out["dataset"], "label": "up", "row": 1}, " 最高"]},
+        {"type": "fact", "parts": [{"dataset": out["dataset"], "label": "region", "row": 1}, " 最高"]},
+    ]
     rendered, verification = ground_report({"title": "t", "summary": "s", "claims": claims}, data, None)
     first, second, third = verification["claims"]
     assert first["status"] == "unverified" and "假设计算" in first["problems"][0]
@@ -183,18 +211,25 @@ def test_fabricated_numbers_and_text_cannot_be_cited_as_facts(monkeypatch):
 
 
 def test_sample_values_goes_through_the_same_checks(monkeypatch):
-    box, conn = explore_box(monkeypatch, connector=FakeConnector(
-        result=QueryResult(columns=["value", "n"], rows=[["r1", 3]], truncated=False)))
+    box, conn = explore_box(
+        monkeypatch,
+        connector=FakeConnector(result=QueryResult(columns=["value", "n"], rows=[["r1", 3]], truncated=False)),
+    )
     asset = SimpleNamespace(datasource_id="ds1", catalog_name="appdb", db_name="d1", name="facts")
     monkeypatch.setattr(box.session, "scalar", lambda stmt: asset)
     box.session.store[(Datasource, "ds1")] = SimpleNamespace(kind="postgres")
-    out = json.loads(box.dispatch("sample_values", {"asset": "appdb.d1.facts", "column": "region", "keyword": "r'; --"}))
+    out = json.loads(
+        box.dispatch("sample_values", {"asset": "appdb.d1.facts", "column": "region", "keyword": "r'; --"})
+    )
     executed = [c for c in conn.calls if c[0] == "execute"][0]
     assert "LIMIT 21" in executed[1] and "'%r''; --%'" in executed[1]  # 关键字按字面量转义
     # 关键字匹配先转成文本：数值、日期列也能用，不会把 LIKE 用在非文本列上（第 5 步评测里 StarRocks 报错的缺陷）
     assert 'CAST("facts"."region" AS VARCHAR) LIKE' in executed[1]
     qty = json.loads(box.dispatch("sample_values", {"asset": "appdb.d1.facts", "column": "qty", "keyword": "5"}))
-    assert "error" not in qty and 'CAST("facts"."qty" AS VARCHAR) LIKE' in [c for c in conn.calls if c[0] == "execute"][-1][1]
+    assert (
+        "error" not in qty
+        and 'CAST("facts"."qty" AS VARCHAR) LIKE' in [c for c in conn.calls if c[0] == "execute"][-1][1]
+    )
     ds = box.datasets()[out["dataset"]]
     assert ds.meta["preview"] is True and box.budget.used_explore == 2 and "取值预览" in out["note"]
     monkeypatch.setattr(box.session, "scalar", lambda stmt: None)
@@ -205,8 +240,9 @@ def test_sample_values_goes_through_the_same_checks(monkeypatch):
 def test_sources_without_profile_or_switched_off(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     for kind, allow, code in (("mysql", True, "engine_unsupported"), ("postgres", False, "exploration_disabled")):
-        box.session.store[(Datasource, "ds9")] = Datasource(id="ds9", name="源乙", kind=kind, host="h", port=1,
-                                                             options={}, allow_exploration=allow)
+        box.session.store[(Datasource, "ds9")] = Datasource(
+            id="ds9", name="源乙", kind=kind, host="h", port=1, options={}, allow_exploration=allow
+        )
         with pytest.raises(ExploreRejected) as e:
             exploration.explore_source(box.session, "ds9")
         assert e.value.code == code
@@ -220,21 +256,49 @@ def test_real_resolver_binding_rules(monkeypatch):
     from avelis.models import AssetVersion
 
     assets = {
-        ("default_catalog", "d1", "native"): SimpleNamespace(id="a1", kind="table", physical_id="11", current_version_id="v1"),
-        ("default_catalog", "d1", "ext"): SimpleNamespace(id="a2", kind="external_table", physical_id=None, current_version_id="v2"),
+        ("default_catalog", "d1", "native"): SimpleNamespace(
+            id="a1", kind="table", physical_id="11", current_version_id="v1"
+        ),
+        ("default_catalog", "d1", "ext"): SimpleNamespace(
+            id="a2", kind="external_table", physical_id=None, current_version_id="v2"
+        ),
         ("ext_catalog", "d1", "t"): SimpleNamespace(id="a3", kind="table", physical_id=None, current_version_id="v3"),
-        ("default_catalog", "d1", "dup_model_missing"): SimpleNamespace(id="a4", kind="table", physical_id="14", current_version_id="v4"),
-        ("default_catalog", "d1", "v_ok"): SimpleNamespace(id="a5", kind="view", physical_id=None, current_version_id="v5"),
-        ("default_catalog", "d1", "v_hidden"): SimpleNamespace(id="a6", kind="view", physical_id=None, current_version_id="v6"),
-        ("default_catalog", "d1", "v_unknown"): SimpleNamespace(id="a7", kind="view", physical_id=None, current_version_id="v7"),
-        ("default_catalog", "d1", "v_unbound"): SimpleNamespace(id="a9", kind="view", physical_id=None, current_version_id="v9"),
-        ("default_catalog", "d1", "secret"): SimpleNamespace(id="a8", kind="table", physical_id="18", current_version_id="v8"),
+        ("default_catalog", "d1", "dup_model_missing"): SimpleNamespace(
+            id="a4", kind="table", physical_id="14", current_version_id="v4"
+        ),
+        ("default_catalog", "d1", "v_ok"): SimpleNamespace(
+            id="a5", kind="view", physical_id=None, current_version_id="v5"
+        ),
+        ("default_catalog", "d1", "v_hidden"): SimpleNamespace(
+            id="a6", kind="view", physical_id=None, current_version_id="v6"
+        ),
+        ("default_catalog", "d1", "v_unknown"): SimpleNamespace(
+            id="a7", kind="view", physical_id=None, current_version_id="v7"
+        ),
+        ("default_catalog", "d1", "v_unbound"): SimpleNamespace(
+            id="a9", kind="view", physical_id=None, current_version_id="v9"
+        ),
+        ("default_catalog", "d1", "secret"): SimpleNamespace(
+            id="a8", kind="table", physical_id="18", current_version_id="v8"
+        ),
         ("appdb", "public", "plain"): SimpleNamespace(id="b1", kind="table", physical_id="21", current_version_id="w1"),
-        ("appdb", "public", "parted"): SimpleNamespace(id="b2", kind="table", physical_id="22", current_version_id="w2"),
+        ("appdb", "public", "parted"): SimpleNamespace(
+            id="b2", kind="table", physical_id="22", current_version_id="w2"
+        ),
     }
-    versions = {"v1": {"table_model": "DUPLICATE_KEYS"}, "v2": {}, "v3": {"table_model": "x"}, "v4": {"table_model": None},
-                "v5": {}, "v6": {}, "v7": {}, "v8": {"table_model": "x"}, "v9": {},
-                "w1": {"properties": {"relkind": "r"}}, "w2": {"properties": {"relkind": "p"}}}
+    versions = {
+        "v1": {"table_model": "DUPLICATE_KEYS"},
+        "v2": {},
+        "v3": {"table_model": "x"},
+        "v4": {"table_model": None},
+        "v5": {},
+        "v6": {},
+        "v7": {},
+        "v8": {"table_model": "x"},
+        "v9": {},
+        "w1": {"properties": {"relkind": "r"}},
+        "w2": {"properties": {"relkind": "p"}},
+    }
 
     class Session:
         def __init__(self):
@@ -249,8 +313,11 @@ def test_real_resolver_binding_rules(monkeypatch):
 
         def execute(self, stmt):  # 血缘边：(source_asset_id, source_ref)
             target = stmt.compile().params["target_asset_id_1"]
-            return {"a5": [("u1", "d1.native")], "a6": [("up_hidden", "d1.hidden")],
-                    "a9": [("u1", "d1.native"), (None, "d1.unknown_src")]}.get(target, [])
+            return {
+                "a5": [("u1", "d1.native")],
+                "a6": [("up_hidden", "d1.hidden")],
+                "a9": [("u1", "d1.native"), (None, "d1.unknown_src")],
+            }.get(target, [])
 
         def get(self, cls, ident, **kw):
             if cls is AssetVersion:
@@ -263,14 +330,26 @@ def test_real_resolver_binding_rules(monkeypatch):
 
     def node(ident, kind="table"):
         return SimpleNamespace(id=ident, kind=kind, db_name="d1", name=ident, current_version_id=f"ver_{ident}")
+
     monkeypatch.setattr(exploration.access, "domain_ids", lambda s, u: {"dA"})
-    monkeypatch.setattr(exploration.access, "can_read_asset", lambda s, u, a, allowed=None: a.id not in ("a8", "up_hidden"))
-    monkeypatch.setattr(ask_service, "upstream_closure", lambda s, ids: {
-        "a5": {"a5": node("a5", "view"), "u1": node("u1")}, "a6": {"a6": node("a6", "view"), "up": node("up_hidden")},
-        "a7": {"a7": node("a7", "view")}, "a9": {"a9": node("a9", "view"), "u1": node("u1")}}[ids[0]])
+    monkeypatch.setattr(
+        exploration.access, "can_read_asset", lambda s, u, a, allowed=None: a.id not in ("a8", "up_hidden")
+    )
+    monkeypatch.setattr(
+        ask_service,
+        "upstream_closure",
+        lambda s, ids: {
+            "a5": {"a5": node("a5", "view"), "u1": node("u1")},
+            "a6": {"a6": node("a6", "view"), "up": node("up_hidden")},
+            "a7": {"a7": node("a7", "view")},
+            "a9": {"a9": node("a9", "view"), "u1": node("u1")},
+        }[ids[0]],
+    )
 
     def bind(engine, catalog, db, name):
-        source = ExploreSource(SimpleNamespace(id="ds1"), PROFILES[engine], "default_catalog" if engine == "starrocks" else "appdb")
+        source = ExploreSource(
+            SimpleNamespace(id="ds1"), PROFILES[engine], "default_catalog" if engine == "starrocks" else "appdb"
+        )
         return exploration.resolver(Session(), SimpleNamespace(id="u"), source)(catalog, db, name)
 
     def code(engine, catalog, db, name):
@@ -284,11 +363,15 @@ def test_real_resolver_binding_rules(monkeypatch):
     assert code("starrocks", None, "d1", "dup_model_missing") == "kind_not_allowed"  # 看不出是原生内表：拒绝
     assert code("starrocks", None, "d1", "secret") == code("starrocks", None, "d1", "no_such") == "asset_not_visible"
     view = bind("starrocks", None, "d1", "v_ok")
-    assert view.kind == "view" and view.definition == "SELECT c1 FROM d1.native" and view.upstream == (("u1", "ver_u1"),)
+    assert (
+        view.kind == "view" and view.definition == "SELECT c1 FROM d1.native" and view.upstream == (("u1", "ver_u1"),)
+    )
     assert code("starrocks", None, "d1", "v_unbound") == "view_lineage_unresolved"  # #2 上游有未绑定的来源边
     with pytest.raises(ExploreRejected) as unresolved:
         bind("starrocks", None, "d1", "v_unbound")
-    assert "unknown_src" not in unresolved.value.message and "d1.v_unbound" in unresolved.value.message  # 不泄露未授权的名称
+    assert (
+        "unknown_src" not in unresolved.value.message and "d1.v_unbound" in unresolved.value.message
+    )  # 不泄露未授权的名称
     assert "unknown_src" not in json.dumps(unresolved.value.view(), ensure_ascii=False)
     assert code("starrocks", None, "d1", "v_hidden") == "view_upstream_not_visible"
     assert code("starrocks", None, "d1", "v_unknown") == "view_lineage_unknown"
@@ -300,8 +383,18 @@ def test_real_resolver_binding_rules(monkeypatch):
 def _view_validated():
     from avelis.analysis.explore import BoundColumn, BoundTable, Validated
 
-    view = BoundTable("av", "vv1", None, "default_catalog", "d1", "v_sales", "view", (BoundColumn("c1", "int"),),
-                      definition="SELECT c1  FROM d1.base", upstream=(("ab", "vb1"),))
+    view = BoundTable(
+        "av",
+        "vv1",
+        None,
+        "default_catalog",
+        "d1",
+        "v_sales",
+        "view",
+        (BoundColumn("c1", "int"),),
+        definition="SELECT c1  FROM d1.base",
+        upstream=(("ab", "vb1"),),
+    )
     return Validated(sql="SELECT 1", tables=[view], columns=[], limit=10, dialect="starrocks", profile="starrocks/1")
 
 
@@ -327,8 +420,10 @@ def test_recheck_covers_the_view_upstream_closure(monkeypatch):
     from avelis.models import Asset
 
     validated = _view_validated()
-    assets = {"av": SimpleNamespace(id="av", status="active", current_version_id="vv1"),
-              "ab": SimpleNamespace(id="ab", status="active", current_version_id="vb1")}
+    assets = {
+        "av": SimpleNamespace(id="av", status="active", current_version_id="vv1"),
+        "ab": SimpleNamespace(id="ab", status="active", current_version_id="vb1"),
+    }
 
     class Session:
         def get(self, cls, ident, **kw):
@@ -353,26 +448,55 @@ def test_calc_tools_inherit_column_evidence(monkeypatch):
     """#5 假设列经过 derive 仍是假设；#6 CAST 出来的列经过 segment_compare 复制成分组键后，不能重新当作 LabelRef。"""
     from avelis.analysis.verify import ground_report
 
-    result = QueryResult(columns=["region", "label", "fake", "total"], rows=[["r1", "1", 99999, 10], ["r2", "2", 99999, 20]],
-                         truncated=False)
+    result = QueryResult(
+        columns=["region", "label", "fake", "total"],
+        rows=[["r1", "1", 99999, 10], ["r2", "2", 99999, 20]],
+        truncated=False,
+    )
     box, _ = explore_box(monkeypatch, connector=FakeConnector(result=result))
-    out = json.loads(box.dispatch("query_sql", {"purpose": "x", "sql":
-        "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total FROM d1.facts GROUP BY region, qty"}))
+    out = json.loads(
+        box.dispatch(
+            "query_sql",
+            {
+                "purpose": "x",
+                "sql": "SELECT region, CAST(qty AS VARCHAR) AS label, 99999 AS fake, SUM(amount) AS total "
+                "FROM d1.facts GROUP BY region, qty",
+            },
+        )
+    )
     ref = out["dataset"]
     assert box.datasets()[ref].meta["column_evidence"]["fake"]["assumption"] is True
-    derived = json.loads(box.dispatch("derive", {"label": "看似干净", "formula": "a", "values": [
-        {"name": "a", "dataset": ref, "column": "fake", "match": {"region": "r1"}}]}))
+    derived = json.loads(
+        box.dispatch(
+            "derive",
+            {
+                "label": "看似干净",
+                "formula": "a",
+                "values": [{"name": "a", "dataset": ref, "column": "fake", "match": {"region": "r1"}}],
+            },
+        )
+    )
     assert box.datasets()[derived["dataset"]].meta["assumption"] is True  # 不会因为再算一次就不是假设
     grouped = json.loads(box.dispatch("segment_compare", {"dataset": ref, "segment": "label", "measures": ["total"]}))
     seg = box.datasets()[grouped["dataset"]]
     assert seg.meta["column_evidence"]["label"]["label_ok"] is False
-    data = {r: {"kind": d.kind, "columns": d.columns, "rows": [dict(zip(d.columns, x)) for x in d.rows],
-                "summary": d.meta.get("summary"),
-                **{k: d.meta.get(k) for k in ("units", "summary_units", "explore", "assumption", "column_evidence")}}
-            for r, d in box.datasets().items()}
-    claims = [{"type": "calc", "parts": ["结果 ", {"dataset": derived["dataset"], "summary": "value"}]},
-              {"type": "fact", "parts": [{"dataset": grouped["dataset"], "label": "label", "row": 1}, " 最高"]}]
-    _, v = ground_report({"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": claims}, data, None)
+    data = {
+        r: {
+            "kind": d.kind,
+            "columns": d.columns,
+            "rows": [dict(zip(d.columns, x)) for x in d.rows],
+            "summary": d.meta.get("summary"),
+            **{k: d.meta.get(k) for k in ("units", "summary_units", "explore", "assumption", "column_evidence")},
+        }
+        for r, d in box.datasets().items()
+    }
+    claims = [
+        {"type": "calc", "parts": ["结果 ", {"dataset": derived["dataset"], "summary": "value"}]},
+        {"type": "fact", "parts": [{"dataset": grouped["dataset"], "label": "label", "row": 1}, " 最高"]},
+    ]
+    _, v = ground_report(
+        {"title": "t", "summary": "s", "conclusion": "insufficient_evidence", "claims": claims}, data, None
+    )
     assert "假设计算" in v["claims"][0]["problems"][0]
     assert "不是维度列的直接投影" in v["claims"][1]["problems"][0]
 
@@ -384,6 +508,7 @@ def test_timeout_is_rechecked_before_dispatch(monkeypatch):
 
     def slow_check():  # 物理核对用掉了几乎全部剩余时间：之后只剩约 4 秒（4 − 5 < 0）
         box.budget.started -= box.budget.remaining() - 4
+
     conn.on_describe = slow_check
     out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "x"}))
     describe = [c for c in conn.calls if c[0] == "describe"]
@@ -403,13 +528,21 @@ def test_live_check_uses_remaining_time(monkeypatch):
     assert execute and 0 < execute[0][2]["timeout_seconds"] <= 15
 
 
-@pytest.mark.parametrize("kill_error, outcome, words, failure", [
-    (None, "kill_sent", "已向服务端发送取消", None),
-    ((1094, "Unknown thread id"), "already_finished", "服务端查询已结束", None),
-    ((1227, "Access denied"), "cancel_failed", "发送取消失败", "InternalError: (1227, 'Access denied')"),
-    ("lost", "cancel_failed", "发送取消失败", "OperationalError: (2013, 'Lost connection to MySQL server during query')"),
-    ("connect", "cancel_failed", "发送取消失败", "OperationalError: (2003, \"Can't connect to MySQL server\")"),
-])
+@pytest.mark.parametrize(
+    "kill_error, outcome, words, failure",
+    [
+        (None, "kill_sent", "已向服务端发送取消", None),
+        ((1094, "Unknown thread id"), "already_finished", "服务端查询已结束", None),
+        ((1227, "Access denied"), "cancel_failed", "发送取消失败", "InternalError: (1227, 'Access denied')"),
+        (
+            "lost",
+            "cancel_failed",
+            "发送取消失败",
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+        ),
+        ("connect", "cancel_failed", "发送取消失败", 'OperationalError: (2003, "Can\'t connect to MySQL server")'),
+    ],
+)
 def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_error, outcome, words, failure):
     """#9 KILL QUERY 尽力而为：语句被接受记为“已发送取消”（不写成已取消）；目标已结束、发送失败（权限、通信超时、
     断连）如实区分，失败时的异常类别与消息写进审计，不进给模型的消息。"""
@@ -423,7 +556,8 @@ def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_e
         def __init__(self, role):
             self.role = role
 
-        def execute(self, sql):
+        def execute(self, sql, params=None):
+            mogrify(sql, params)
             if self.role == "killer":
                 killed.append(sql)
                 if kill_error == "lost":  # 发 KILL 时通信超时、断连
@@ -454,6 +588,7 @@ def test_starrocks_kill_query_outcome_is_reported_truthfully(monkeypatch, kill_e
         if role == "killer" and kill_error == "connect":  # 取消用的连接建不起来
             raise pymysql.err.OperationalError(2003, "Can't connect to MySQL server")
         return Conn(role)
+
     monkeypatch.setattr(connector, "_connect", connect)
     with pytest.raises(QueryError) as e:
         connector.execute_explore("SELECT region FROM t", timeout_seconds=5, max_rows=10, mem_limit_bytes=1)

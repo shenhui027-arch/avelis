@@ -50,8 +50,11 @@ class _RowPaths:
 def _detail(result: dict, uncertain: dict[str, str] | None = None) -> dict:
     """按引用路径计数，同一路径的多个期间、绑定定义或机制备选只计一次。"""
     uncertain = uncertain or {}
-    return {**result, "uncertain_truncated": len(uncertain),
-            "uncertain_details": [f"{path}：{why}" for path, why in list(uncertain.items())[:5]]}
+    return {
+        **result,
+        "uncertain_truncated": len(uncertain),
+        "uncertain_details": [f"{path}：{why}" for path, why in list(uncertain.items())[:5]],
+    }
 
 
 class RunIndex(v212.RunIndex):
@@ -70,8 +73,9 @@ class RunIndex(v212.RunIndex):
         return (None, why) if why else super().bind(segment, window)
 
 
-def explore_binding(q: dict, run: dict, segment: dict, spec: dict,
-                    periods: list[str]) -> tuple[dict | None, str | None]:
+def explore_binding(
+    q: dict, run: dict, segment: dict, spec: dict, periods: list[str]
+) -> tuple[dict | None, str | None]:
     path = v2.PATH.match(segment.get("path") or "")
     why = _RowPaths(run).reason(path["ds"]) if path else None
     return (None, why) if why else v212.explore_binding(q, run, segment, spec, periods)
@@ -89,14 +93,17 @@ def match_mechanism(cause: dict, run: dict, alternatives: list[dict]) -> dict:
     for i, option in enumerate(alternatives, 1):
         if "factor" in option:
             if entity.get("factor_metric_code") == option["factor"]:
-                return _detail({"hit": True, "alternative": i, "option": option,
-                                "sources": [], "tables": [], "rows": []}, uncertain)
+                return _detail(
+                    {"hit": True, "alternative": i, "option": option, "sources": [], "tables": [], "rows": []},
+                    uncertain,
+                )
             reason = "因子编码不匹配"
         else:
             uncertain[entity["evidence_id"]] = reason = why
         misses.append({"alternative": i, "reason": reason})
-    return _detail({"hit": False, "reason": "；".join(dict.fromkeys(m["reason"] for m in misses)),
-                    "misses": misses}, uncertain)
+    return _detail(
+        {"hit": False, "reason": "；".join(dict.fromkeys(m["reason"] for m in misses)), "misses": misses}, uncertain
+    )
 
 
 def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
@@ -120,9 +127,15 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         got, why = index.bind(segment, q["window"])
         for spec in bindings:
             candidates = spec["truth"] if spec.get("truth") else {"value": Decimal(str(spec["value"]))}
-            matched = [p for p, value in candidates.items()
-                       if v1._within(abs(raw) if key.get("abs") else raw,
-                                     abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)), tolerance)]
+            matched = [
+                p
+                for p, value in candidates.items()
+                if v1._within(
+                    abs(raw) if key.get("abs") else raw,
+                    abs(Decimal(str(value))) if key.get("abs") else Decimal(str(value)),
+                    tolerance,
+                )
+            ]
             if not matched:
                 continue
             sql_only = "explore" in spec and got is not None and got.get("source") == "explore"
@@ -133,15 +146,20 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
             if got is None:
                 misses.append(f"{segment.get('path')}：数值相同但{why}")
             elif spec.get("truth") and got.get("source") != "explore" and got.get("period") not in matched:
-                misses.append(f"{segment.get('path')}：数值等于真值的{'、'.join(matched)}，"
-                              f"但所在列是 {got.get('period')}")
+                misses.append(
+                    f"{segment.get('path')}：数值等于真值的{'、'.join(matched)}，但所在列是 {got.get('period')}"
+                )
             else:
                 problem = v2._binding_ok(spec, got, q)
                 if problem is None:
                     return _detail({"hit": True, "path": segment.get("path"), "binding": v2._plain(got)}, uncertain)
                 misses.append(f"{segment.get('path')}：数值相同但{problem}")
-            if (spec.get("metric") and spec.get("truth") and path is not None
-                    and (segment.get("explore") or v21._is_explore(index, path["ds"]))):
+            if (
+                spec.get("metric")
+                and spec.get("truth")
+                and path is not None
+                and (segment.get("explore") or v21._is_explore(index, path["ds"]))
+            ):
                 explore_candidates.append((segment, spec, matched))
     explore_misses = []
     for segment, spec, periods in explore_candidates:
@@ -149,8 +167,13 @@ def key_value(q: dict, report: dict, run: dict) -> dict[str, Any]:
         if binding is not None:
             return _detail({"hit": True, "path": segment.get("path"), "binding": v2._plain(binding)}, uncertain)
         explore_misses.append(f"{segment.get('path')}：数值相同但{why}")
-    return _detail({"hit": False, "reason": "；".join(dict.fromkeys(explore_misses or misses))[:1200]
-                    or "报告里没有等于真值的数值引用"}, uncertain)
+    return _detail(
+        {
+            "hit": False,
+            "reason": "；".join(dict.fromkeys(explore_misses or misses))[:1200] or "报告里没有等于真值的数值引用",
+        },
+        uncertain,
+    )
 
 
 def score(question: dict, run: dict | None) -> dict[str, Any]:
@@ -163,10 +186,16 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
     detail = None
     if primary and primary.get("entity") and options:
         causes = report.get("causes") or []
-        heads = ([cause for cause in causes[:2] if cause.get("direction") == primary["direction"]]
-                 if report.get("conclusion") == "offsetting" else causes[:1])
-        detail = (match_mechanism(heads[0], run or {}, options) if heads else
-                  _detail({"hit": False, "reason": "没有方向相同的首要原因"}))
+        heads = (
+            [cause for cause in causes[:2] if cause.get("direction") == primary["direction"]]
+            if report.get("conclusion") == "offsetting"
+            else causes[:1]
+        )
+        detail = (
+            match_mechanism(heads[0], run or {}, options)
+            if heads
+            else _detail({"hit": False, "reason": "没有方向相同的首要原因"})
+        )
         primary["entity"] = []
         if not detail["hit"]:
             primary["types"] = []
@@ -179,10 +208,14 @@ def score(question: dict, run: dict | None) -> dict[str, Any]:
         detail = _detail(result["primary_detail"])
     result["primary_detail"] = result["mechanism"] = detail
     key = (question.get("expect") or {}).get("key_value")
-    kv = key_value(question, report, run or {}) if result["completed"] else _detail({
-        "hit": False if key else None, "reason": "运行没有完成"})
+    kv = (
+        key_value(question, report, run or {})
+        if result["completed"]
+        else _detail({"hit": False if key else None, "reason": "运行没有完成"})
+    )
     result["key_value_hit"], result["key_value_detail"] = kv["hit"], kv
-    if result["completed"] and (question["category"] in v1.POSITIVE
-                                or (question["category"] == "adversarial" and primary)):
+    if result["completed"] and (
+        question["category"] in v1.POSITIVE or (question["category"] == "adversarial" and primary)
+    ):
         result["passed"] = bool(result["passed"] and kv["hit"] is not False)
     return result

@@ -31,16 +31,36 @@ def state(monkeypatch):
     metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as session:
         user = User(id="actor", username="actor", display_name="查询用户", password_hash="unused")
-        run = AnalysisRun(id="run", user_id=user.id, question="检查变化", trigger="manual", status="succeeded",
-                          report={"title": "原报告", "datasets": ["D1"]}, verification={"ok": True},
-                          model_adapter="offline-test")
-        intent = {"metric_code": "metric", "metric_codes": ["metric"],
-                  "start_date": "2026-01-01", "end_date": "2026-01-03", "compare": "previous_period"}
-        source = AnalysisDataset(id="source", run_id=run.id, seq=1, kind="governed",
-                                 title="指标 2026-01-01~2026-01-03 对比上一期", columns=["指标"], rows=[[1]],
-                                 meta={"intent": intent, "purpose": "检查变化", "versions": {"metric": "old-version"}})
-        session.add_all([user, run, source,
-                         AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="ok")])
+        run = AnalysisRun(
+            id="run",
+            user_id=user.id,
+            question="检查变化",
+            trigger="manual",
+            status="succeeded",
+            report={"title": "原报告", "datasets": ["D1"]},
+            verification={"ok": True},
+            model_adapter="offline-test",
+        )
+        intent = {
+            "metric_code": "metric",
+            "metric_codes": ["metric"],
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-03",
+            "compare": "previous_period",
+        }
+        source = AnalysisDataset(
+            id="source",
+            run_id=run.id,
+            seq=1,
+            kind="governed",
+            title="指标 2026-01-01~2026-01-03 对比上一期",
+            columns=["指标"],
+            rows=[[1]],
+            meta={"intent": intent, "purpose": "检查变化", "versions": {"metric": "old-version"}},
+        )
+        session.add_all(
+            [user, run, source, AnalysisStep(run_id=run.id, seq=1, kind="tool", tool="query_metric", status="ok")]
+        )
         session.commit()
         metric = SimpleNamespace(name="指标")
         version = SimpleNamespace(id="current-version", kind="base", unit="件", unit_scale=1)
@@ -66,8 +86,9 @@ def state(monkeypatch):
         monkeypatch.setattr(ask, "visible_catalog", visible_catalog)
         monkeypatch.setattr(ask, "fulfil", fulfil)
         event.listen(session, "after_commit", lambda s: commits.append(True))
-        yield SimpleNamespace(session=session, user=user, run=run, source=source, calls=calls,
-                              catalog=catalog, commits=commits)
+        yield SimpleNamespace(
+            session=session, user=user, run=run, source=source, calls=calls, catalog=catalog, commits=commits
+        )
     engine.dispose()
 
 
@@ -119,8 +140,12 @@ def test_sequences_follow_maximum_and_repeated_reruns_append(state):
 
 @pytest.mark.parametrize("status", ["queued", "running", "waiting"])
 def test_busy_run_is_rejected_after_refreshing_locked_status(state, status):
-    state.session.execute(update(AnalysisRun).where(AnalysisRun.id == state.run.id).values(status=status)
-                          .execution_options(synchronize_session=False))
+    state.session.execute(
+        update(AnalysisRun)
+        .where(AnalysisRun.id == state.run.id)
+        .values(status=status)
+        .execution_options(synchronize_session=False)
+    )
     assert state.run.status == "succeeded"
     with pytest.raises(Conflict):
         execute(state)
@@ -149,8 +174,15 @@ def test_only_governed_datasets_with_saved_intent_can_rerun(state, kind, intent)
 
 
 def test_custom_comparison_requires_new_dates_and_replaces_both_ranges(state):
-    state.source.meta = {**state.source.meta, "intent": {**state.source.meta["intent"], "compare": "custom",
-        "compare_start": "2025-12-01", "compare_end": "2025-12-03"}}
+    state.source.meta = {
+        **state.source.meta,
+        "intent": {
+            **state.source.meta["intent"],
+            "compare": "custom",
+            "compare_start": "2025-12-01",
+            "compare_end": "2025-12-03",
+        },
+    }
     state.source.title = "指标 2026-01-01~2026-01-03 对比2025-12-01~2025-12-03"
     with pytest.raises(Invalid, match="compare_start"):
         execute(state)
@@ -160,22 +192,37 @@ def test_custom_comparison_requires_new_dates_and_replaces_both_ranges(state):
 
 
 def test_custom_title_does_not_replace_new_current_window_when_it_matches_old_comparison(state):
-    state.source.meta = {**state.source.meta, "intent": {**state.source.meta["intent"], "compare": "custom",
-        "compare_start": WINDOW["start"], "compare_end": WINDOW["end"]}}
+    state.source.meta = {
+        **state.source.meta,
+        "intent": {
+            **state.source.meta["intent"],
+            "compare": "custom",
+            "compare_start": WINDOW["start"],
+            "compare_end": WINDOW["end"],
+        },
+    }
     state.source.title = "指标 2026-01-01~2026-01-03 对比2026-02-10~2026-02-12"
     new = execute(state, {**WINDOW, "compare_start": "2025-11-01", "compare_end": "2025-11-03"})
     assert new.title == "指标 2026-02-10~2026-02-12 对比2025-11-01~2025-11-03"
 
 
 def test_previous_year_uses_existing_leap_day_rule(state):
-    state.source.meta = {**state.source.meta, "intent": {**state.source.meta["intent"], "compare": "previous_year",
-        "compare_start": "2025-01-01", "compare_end": "2025-01-03"}}
+    state.source.meta = {
+        **state.source.meta,
+        "intent": {
+            **state.source.meta["intent"],
+            "compare": "previous_year",
+            "compare_start": "2025-01-01",
+            "compare_end": "2025-01-03",
+        },
+    }
     new = execute(state, {"start": "2028-02-29", "end": "2028-02-29"})
     assert new.meta["intent"]["compare_start"] == new.meta["intent"]["compare_end"] == "2027-02-28"
 
 
-@pytest.mark.parametrize("window", [{"start": "bad", "end": "2026-02-12"},
-                                    {"start": "2026-03-01", "end": "2026-02-12"}])
+@pytest.mark.parametrize(
+    "window", [{"start": "bad", "end": "2026-02-12"}, {"start": "2026-03-01", "end": "2026-02-12"}]
+)
 def test_invalid_windows_are_rejected_before_query(state, window):
     with pytest.raises(Invalid):
         execute(state, window)
@@ -199,8 +246,9 @@ def test_metric_missing_from_current_catalog_is_forbidden(state):
     assert state.session.scalar(select(Answer)) is None
 
 
-@pytest.mark.parametrize("status,error_code,error", [("denied", "permission", Forbidden),
-                                                     ("error", "db_unavailable", Conflict)])
+@pytest.mark.parametrize(
+    "status,error_code,error", [("denied", "permission", Forbidden), ("error", "db_unavailable", Conflict)]
+)
 def test_failed_query_keeps_answer_and_audit_after_caller_rollback(state, monkeypatch, status, error_code, error):
     def fail(s, user, intent, answer, catalog):
         answer.status, answer.error_code = status, error_code
@@ -242,16 +290,38 @@ def test_real_fulfil_compiles_new_windows_into_cache_keys_and_records_partial_hi
     monkeypatch.setattr(ask, "fulfil", REAL_FULFIL)
     metric, version = state.catalog.versions["metric"]
     metric.code = "metric"
-    for name, value in {"status": "published", "expression": "SUM(b.amount)", "time_column": "b.day",
-                        "timezone": "UTC", "dependency_fingerprint": "unchanged", "dimensions": [],
-                        "filters": None, "grain": [], "joins": [], "version_no": 2}.items():
+    for name, value in {
+        "status": "published",
+        "expression": "SUM(b.amount)",
+        "time_column": "b.day",
+        "timezone": "UTC",
+        "dependency_fingerprint": "unchanged",
+        "dimensions": [],
+        "filters": None,
+        "grain": [],
+        "joins": [],
+        "version_no": 2,
+    }.items():
         setattr(version, name, value)
-    asset = SimpleNamespace(id="asset", datasource_id="datasource", current_version_id="asset-version",
-                            catalog_name="catalog", db_name="database", name="records", kind="table")
+    asset = SimpleNamespace(
+        id="asset",
+        datasource_id="datasource",
+        current_version_id="asset-version",
+        catalog_name="catalog",
+        db_name="database",
+        name="records",
+        kind="table",
+    )
     datasource = SimpleNamespace(id="datasource")
     resolved = {"aliases": {"b": asset}, "steps": [], "dependency": []}
-    monkeypatch.setattr(ask, "describe_version", lambda *args: {name: getattr(version, name) for name in
-        ("expression", "time_column", "timezone", "filters", "dimensions", "grain", "joins")})
+    monkeypatch.setattr(
+        ask,
+        "describe_version",
+        lambda *args: {
+            name: getattr(version, name)
+            for name in ("expression", "time_column", "timezone", "filters", "dimensions", "grain", "joins")
+        },
+    )
     monkeypatch.setattr(ask, "_version_evidence", lambda *args: {"id": version.id})
     monkeypatch.setattr(ask, "dependency_drift", lambda *args: [])
     monkeypatch.setattr(ask, "validate_spec", lambda *args: resolved)
@@ -263,13 +333,17 @@ def test_real_fulfil_compiles_new_windows_into_cache_keys_and_records_partial_hi
     monkeypatch.setattr(ask, "dialect_of", lambda *args: SqlDialect("mysql", "catalog"))
     monkeypatch.setattr(ask, "_live_check", lambda *args: [])
     monkeypatch.setattr(ask, "freshness_boundary", lambda *args: {})
-    monkeypatch.setattr(ask, "_asset_evidence", lambda *args: {"asset_id": asset.id,
-                                                            "qualified": "catalog.database.records"})
+    monkeypatch.setattr(
+        ask, "_asset_evidence", lambda *args: {"asset_id": asset.id, "qualified": "catalog.database.records"}
+    )
     monkeypatch.setattr(ask, "_lineage_evidence", lambda *args: [])
     monkeypatch.setattr(ask, "_dimension_docs", lambda *args: {})
     get = state.session.get
-    monkeypatch.setattr(state.session, "get", lambda model, key, **kwargs:
-                        datasource if model is Datasource else get(model, key, **kwargs))
+    monkeypatch.setattr(
+        state.session,
+        "get",
+        lambda model, key, **kwargs: datasource if model is Datasource else get(model, key, **kwargs),
+    )
     monkeypatch.setattr(state.session, "refresh", lambda *args, **kwargs: None)
     cache, executed = {}, []
     monkeypatch.setattr(ask, "_cache_get", lambda key: cache.get(key))

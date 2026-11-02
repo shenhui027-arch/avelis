@@ -2,7 +2,7 @@
  "openapi": "3.1.0",
  "info": {
   "title": "Avelis API",
-  "version": "1.0.0"
+  "version": "1.0.1"
  },
  "paths": {
   "/api/health": {
@@ -5595,6 +5595,61 @@
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/SqlFunctions"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportSqlFunctionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "导入血缘"
+    ],
+    "summary": "Post Sql Function",
+    "operationId": "post_sql_function_api_imports_sql_functions__datasource_id__post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SqlFunction"
        }
       }
      }
@@ -13964,6 +14019,19 @@
      "note"
     ],
     "title": "SettingsOut"
+   },
+   "SqlFunction": {
+    "properties": {
+     "sql_function": {
+      "type": "string",
+      "title": "Sql Function"
+     }
+    },
+    "type": "object",
+    "required": [
+     "sql_function"
+    ],
+    "title": "SqlFunction"
    },
    "SqlFunctions": {
     "properties": {

@@ -38,6 +38,7 @@ def substitute(text: str, params: dict[str, str]) -> tuple[str, list[str]]:
 
 # --- Python -----------------------------------------------------------------------
 
+
 class _Unknown(Enum):
     VALUE = "uncertain"
 
@@ -58,8 +59,7 @@ def _string_value(node: ast.AST, constants: Bindings) -> str | None:
             if isinstance(v, ast.Constant):
                 parts.append(str(v.value))
             elif isinstance(v, ast.FormattedValue):
-                if any(isinstance(n, ast.Name) and constants.get(n.id) is _Unknown.VALUE
-                       for n in ast.walk(v.value)):
+                if any(isinstance(n, ast.Name) and constants.get(n.id) is _Unknown.VALUE for n in ast.walk(v.value)):
                     return None
                 parts.append("{" + re.sub(r"\W+", "_", ast.unparse(v.value)).strip("_") + "}")
         return "".join(parts)
@@ -69,8 +69,11 @@ def _string_value(node: ast.AST, constants: Bindings) -> str | None:
             return left + right
         return None
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
-        if any(isinstance(n, ast.Name) and constants.get(n.id) is _Unknown.VALUE
-               for value in [*node.args, *(kw.value for kw in node.keywords)] for n in ast.walk(value)):
+        if any(
+            isinstance(n, ast.Name) and constants.get(n.id) is _Unknown.VALUE
+            for value in [*node.args, *(kw.value for kw in node.keywords)]
+            for n in ast.walk(value)
+        ):
             return None
         return _string_value(node.func.value, constants)
     return None
@@ -136,7 +139,9 @@ def _assigned_names(nodes: list[ast.stmt]) -> set[str]:
 
 
 def extract_python(
-    source: str, dialect_name: str = "starrocks", separators: Sequence[str] = (),
+    source: str,
+    dialect_name: str = "starrocks",
+    separators: Sequence[str] = (),
     sql_functions: Sequence[str] = (),
 ) -> tuple[list[Segment], list[str]]:
     try:
@@ -150,8 +155,9 @@ def extract_python(
 
     def binding_value(node: ast.AST, bindings: Bindings) -> str | None | _Unknown:
         value = _string_value(node, bindings)
-        if value is None and any(isinstance(n, ast.Name) and bindings.get(n.id) is _Unknown.VALUE
-                                 for n in ast.walk(node)):
+        if value is None and any(
+            isinstance(n, ast.Name) and bindings.get(n.id) is _Unknown.VALUE for n in ast.walk(node)
+        ):
             return _Unknown.VALUE
         return value
 
@@ -160,8 +166,7 @@ def extract_python(
             return
         if isinstance(node, ast.Lambda):
             local = dict(bindings)
-            args = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs,
-                    node.args.vararg, node.args.kwarg]
+            args = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs, node.args.vararg, node.args.kwarg]
             local.update({arg.arg: None for arg in args if arg is not None})
             expression(node.body, local)
             return
@@ -203,12 +208,19 @@ def extract_python(
         text = _string_value(node.args[0], bindings)
         if text is None:
             notes.append(f"第 {node.lineno} 行的 {_call_name(node.func)}() 参数无法确定，已交给模型候选流程")
-            segments.append(Segment(node.lineno, node.end_lineno or node.lineno, "unrecognized",
-                                    "\n".join(lines[node.lineno - 1:(node.end_lineno or node.lineno)])))
+            segments.append(
+                Segment(
+                    node.lineno,
+                    node.end_lineno or node.lineno,
+                    "unrecognized",
+                    "\n".join(lines[node.lineno - 1 : (node.end_lineno or node.lineno)]),
+                )
+            )
         else:
             for seg in split_sql(text, dialect_name, separators, notes=notes):
-                segments.append(Segment(node.lineno, node.end_lineno or node.lineno, "python_ast", seg.text,
-                                        seg.placeholders))
+                segments.append(
+                    Segment(node.lineno, node.end_lineno or node.lineno, "python_ast", seg.text, seg.placeholders)
+                )
 
     def bind(target: ast.AST, value: str | None | _Unknown, bindings: Bindings) -> None:
         if isinstance(target, ast.Name):
@@ -234,8 +246,13 @@ def extract_python(
                     local.update(dict.fromkeys(_assigned_names(stmt.body), _Unknown.VALUE))
                     for default in [*stmt.args.defaults, *stmt.args.kw_defaults]:
                         expression(default, bindings)
-                    args = [*stmt.args.posonlyargs, *stmt.args.args, *stmt.args.kwonlyargs,
-                            stmt.args.vararg, stmt.args.kwarg]
+                    args = [
+                        *stmt.args.posonlyargs,
+                        *stmt.args.args,
+                        *stmt.args.kwonlyargs,
+                        stmt.args.vararg,
+                        stmt.args.kwarg,
+                    ]
                     local.update({arg.arg: None for arg in args if arg is not None})
                 statements(stmt.body, local)
                 bindings[stmt.name] = None
@@ -315,8 +332,11 @@ def extract_python(
                 expression(stmt.value, bindings)
                 value = _string_value(stmt.target, bindings)
                 right = _string_value(stmt.value, bindings)
-                bind(stmt.target, value + right if isinstance(stmt.op, ast.Add)
-                     and value is not None and right is not None else None, bindings)
+                bind(
+                    stmt.target,
+                    value + right if isinstance(stmt.op, ast.Add) and value is not None and right is not None else None,
+                    bindings,
+                )
             else:
                 expression(stmt, bindings)
                 for name in _assigned_names([stmt]):
@@ -330,7 +350,7 @@ def extract_python(
         def flush() -> None:
             if current:
                 start, end = current[0].lineno, current[-1].end_lineno or current[-1].lineno
-                text = "\n".join(lines[start - 1:end])
+                text = "\n".join(lines[start - 1 : end])
                 if any(marker in text for marker in DATAFRAME_MARKERS):
                     segments.append(Segment(start, end, "unrecognized", text))
             current.clear()
@@ -357,7 +377,9 @@ DASH_E = re.compile(r"""-e\s+(["'])(.*?)(?<!\\)\1""", re.S)
 
 
 def extract_shell(
-    source: str, dialect_name: str = "starrocks", separators: Sequence[str] = (),
+    source: str,
+    dialect_name: str = "starrocks",
+    separators: Sequence[str] = (),
     sql_functions: Sequence[str] = (),
 ) -> tuple[list[Segment], list[str]]:
     lines = source.splitlines()

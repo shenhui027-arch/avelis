@@ -21,8 +21,20 @@ from avelis.governance.metrics import encoded_time_type
 from avelis.i18n import Msg
 from avelis.lineage.sql import SqlDialect
 
-FORBIDDEN = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Command, exp.Into,
-             exp.Merge, exp.TruncateTable, exp.Set, exp.Use)
+FORBIDDEN = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Drop,
+    exp.Create,
+    exp.Alter,
+    exp.Command,
+    exp.Into,
+    exp.Merge,
+    exp.TruncateTable,
+    exp.Set,
+    exp.Use,
+)
 TIME_GRAINS = ("day", "week", "month", "quarter", "year")
 
 
@@ -45,9 +57,18 @@ class ValidationFailed(Exception):
         self.reasons = reasons
 
 
-def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[str, Any]], intent, max_rows: int,
-                         time_type: str, dialect: SqlDialect | str, reserved_names: tuple[str, ...] = (),
-                         bucket_grain: str | None = None) -> CompiledQuery:
+def compile_metric_query(
+    *,
+    version,
+    aliases: dict[str, Any],
+    steps: list[dict[str, Any]],
+    intent,
+    max_rows: int,
+    time_type: str,
+    dialect: SqlDialect | str,
+    reserved_names: tuple[str, ...] = (),
+    bucket_grain: str | None = None,
+) -> CompiledQuery:
     """dialect：执行该查询的数据源的解析方言（SQLGlot 方言名 + 表名是否写 Catalog 段）。
     reserved_names：结果中还会出现的列名（如指标显示名），时间段列避开它们。
     bucket_grain：跨时间合成的内部取数粒度；内部桶与用户期间共同分组，避免跨月的周桶误归期间。"""
@@ -70,8 +91,9 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         raise Invalid(Msg("未知数据粒度 {data_grain}", data_grain=data_grain))
     for grain in (time_grain, bucket_grain):
         if grain and (grain not in TIME_GRAINS or TIME_GRAINS.index(grain) < TIME_GRAINS.index(data_grain)):
-            raise Invalid(Msg("时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细",
-                              grain=grain, data_grain=data_grain))
+            raise Invalid(
+                Msg("时间分组粒度 {grain} 不能比数据粒度 {data_grain} 更细", grain=grain, data_grain=data_grain)
+            )
     t_alias, t_col = column_ref(version.time_column, dialect=dialect, label="时间字段", aliases=names)
     time_column = exp.column(t_col, table=t_alias)
     if time_grain:  # 时间段列：日期按方言格式化；编码键只做确定性的整数除法或字符串截取
@@ -83,17 +105,22 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         group_cols.append(col(dims[name]["column"]))
     bucket_column = None
     if bucket_grain:
-        taken = {*intent.group_by, *reserved_names, "value", period_column(intent.group_by, reserved_names)}
-        bucket_column = "_time_bucket"
+        taken = {
+            name.casefold()
+            for name in (*intent.group_by, *reserved_names, "value", period_column(intent.group_by, reserved_names))
+        }
+        bucket_column = "time_bucket"
         i = 1
-        while bucket_column in taken:
-            bucket_column = f"_time_bucket_{i}"
+        while bucket_column.casefold() in taken:
+            bucket_column = f"time_bucket_{i}"
             i += 1
         bucket = _period_expression(version, time_column.copy(), bucket_grain, time_type, dialect)
-        select = select.select(exp.alias_(bucket, bucket_column))
+        # 内部列以字母开头兼容 Oracle；引用后保留名称大小写，供结果合成按计划精确读取。
+        select = select.select(exp.alias_(bucket, bucket_column, quoted=True))
         group_cols.append(bucket.copy())
-    measure = parse_snippet(version.expression, dialect=dialect, label="表达式", aliases=names,
-                            require_aggregate=True).expression
+    measure = parse_snippet(
+        version.expression, dialect=dialect, label="表达式", aliases=names, require_aggregate=True
+    ).expression
     select = select.select(exp.alias_(measure, "value"))
 
     base = aliases[BASE_ALIAS]
@@ -111,9 +138,12 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
             source = exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(step["alias"])))
         else:
             source = table(_qualified(right), step["alias"])
-        condition = exp.and_(*[
-            exp.EQ(this=exp.column(lc, table=step["from"]), expression=exp.column(rc, table=step["alias"]))
-            for lc, rc in zip(path.left_columns, path.right_columns)])
+        condition = exp.and_(
+            *[
+                exp.EQ(this=exp.column(lc, table=step["from"]), expression=exp.column(rc, table=step["alias"]))
+                for lc, rc in zip(path.left_columns, path.right_columns)
+            ]
+        )
         select = select.join(source, on=condition, join_type="inner")
 
     conditions: list[exp.Expression] = []
@@ -123,8 +153,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         kind = encoded_time_type(time_type)
         if kind is None or (time_format == "yyyy-mm-dd" and kind != "string"):
             raise Invalid("编码日期键的列类型与 time_format 不匹配")
-        if time_format == "yyyymm" and (intent.start_date.day != 1
-                                        or (intent.end_date + timedelta(days=1)).day != 1):
+        if time_format == "yyyymm" and (intent.start_date.day != 1 or (intent.end_date + timedelta(days=1)).day != 1):
             raise Invalid("数据按月编码，窗口必须是整月")
         formats = {"yyyymmdd": "%Y%m%d", "yyyy-mm-dd": "%Y-%m-%d", "yyyymm": "%Y%m"}
         if time_format not in formats:
@@ -133,11 +162,24 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
         bounds = [exp.Literal.number(v) if kind == "integer" else exp.Literal.string(v) for v in (low, high)]
         conditions.append(exp.Between(this=time_column, low=bounds[0], high=bounds[1]))
     else:
-        conditions.extend(time_conditions(time_column, intent.start_date, intent.end_date, data_type=time_type,
-                                           business_timezone=getattr(version, "timezone", None), dialect=sql_dialect))
+        conditions.extend(
+            time_conditions(
+                time_column,
+                intent.start_date,
+                intent.end_date,
+                data_type=time_type,
+                business_timezone=getattr(version, "timezone", None),
+                dialect=sql_dialect,
+            )
+        )
     if version.filters:
-        conditions.append(exp.Paren(this=parse_snippet(version.filters, dialect=dialect, label="过滤条件",
-                                                       aliases=names, require_aggregate=False).expression))
+        conditions.append(
+            exp.Paren(
+                this=parse_snippet(
+                    version.filters, dialect=dialect, label="过滤条件", aliases=names, require_aggregate=False
+                ).expression
+            )
+        )
     for f in intent.filters:
         target = col(dims[f.dimension]["column"])
         if len(f.values) == 1:
@@ -148,8 +190,7 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     if group_cols:
         select = select.group_by(*group_cols)
         if getattr(intent, "order", None) and not bucket_grain:  # 内部桶须完整取回，合成后才能排名
-            select = select.order_by(exp.Ordered(this=exp.column("value"), desc=intent.order == "desc"),
-                                     *group_cols)
+            select = select.order_by(exp.Ordered(this=exp.column("value"), desc=intent.order == "desc"), *group_cols)
         else:
             select = select.order_by(*group_cols)
     limit = None if bucket_grain else getattr(intent, "limit", None)
@@ -163,18 +204,30 @@ def compile_metric_query(*, version, aliases: dict[str, Any], steps: list[dict[s
     except UnsupportedError as exc:
         raise Invalid(Msg("当前方言 {dialect} 不支持该时间分组", dialect=dialect)) from exc
     tables = sorted({_qualified(a) for a in aliases.values()})
-    return CompiledQuery(sql=sql, tables=tables, columns=[*([period_column(intent.group_by, reserved_names)] if time_grain else []), *intent.group_by,
-                                                  *([bucket_column] if bucket_column else []), "value"],
-                         plan={"base": _qualified(base), "joins": [
-                             {"alias": s["alias"], "path": s["path"].code, "pre_aggregate": s["pre_aggregate"]}
-                             for s in steps], "group_by": intent.group_by, "time_grain": time_grain,
-                             **({"bucket_column": bucket_column, "bucket_grain": bucket_grain} if bucket_column else {}),
-                             "time_range": [str(intent.start_date), str(intent.end_date)],
-                             "filters": [f.model_dump() for f in intent.filters]})
+    return CompiledQuery(
+        sql=sql,
+        tables=tables,
+        columns=[
+            *([period_column(intent.group_by, reserved_names)] if time_grain else []),
+            *intent.group_by,
+            *([bucket_column] if bucket_column else []),
+            "value",
+        ],
+        plan={
+            "base": _qualified(base),
+            "joins": [
+                {"alias": s["alias"], "path": s["path"].code, "pre_aggregate": s["pre_aggregate"]} for s in steps
+            ],
+            "group_by": intent.group_by,
+            "time_grain": time_grain,
+            **({"bucket_column": bucket_column, "bucket_grain": bucket_grain} if bucket_column else {}),
+            "time_range": [str(intent.start_date), str(intent.end_date)],
+            "filters": [f.model_dump() for f in intent.filters],
+        },
+    )
 
 
-def _period_expression(version, column: exp.Expression, grain: str, time_type: str,
-                       dialect: str) -> exp.Expression:
+def _period_expression(version, column: exp.Expression, grain: str, time_type: str, dialect: str) -> exp.Expression:
     """期间格式：日/周/季为 YYYY-MM-DD（周一/季初），月为 YYYY-MM，年为 YYYY。"""
     time_format = getattr(version, "time_format", None)
     if time_format:
@@ -187,8 +240,11 @@ def _period_expression(version, column: exp.Expression, grain: str, time_type: s
             column = exp.IntDiv(this=column, expression=exp.Literal.number(100))
         text = exp.Cast(this=column, to=exp.DataType.build("VARCHAR")) if kind == "integer" else column
         if time_format == "yyyy-mm-dd":
-            return text if grain == "day" else exp.Substring(this=text, start=exp.Literal.number(1),
-                                                              length=exp.Literal.number(7))
+            return (
+                text
+                if grain == "day"
+                else exp.Substring(this=text, start=exp.Literal.number(1), length=exp.Literal.number(7))
+            )
         if time_format not in ("yyyymm", "yyyymmdd"):
             raise Invalid(Msg("未知时间编码格式 {time_format}", time_format=time_format))
 
@@ -199,8 +255,9 @@ def _period_expression(version, column: exp.Expression, grain: str, time_type: s
         if grain == "day":
             pieces += [exp.Literal.string("-"), part(7, 2)]
         return exp.Concat(expressions=pieces, safe=True, coalesce=False)
-    return period_expression(column, grain, data_type=time_type,
-                             business_timezone=getattr(version, "timezone", None), dialect=dialect)
+    return period_expression(
+        column, grain, data_type=time_type, business_timezone=getattr(version, "timezone", None), dialect=dialect
+    )
 
 
 def _national(node: exp.Expression) -> exp.Expression:
@@ -213,9 +270,14 @@ def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: Sql
     """维度可选值：SELECT DISTINCT 列 FROM 表 WHERE 列 IS NOT NULL LIMIT n。"""
     d = _dialect(dialect)
     col = exp.column(column, table="t")
-    return (exp.select(col).distinct().from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
-            .where(exp.Not(this=exp.Is(this=col.copy(), expression=exp.Null()))).limit(limit)
-            .sql(dialect=d.name, identify=True))
+    return (
+        exp.select(col)
+        .distinct()
+        .from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
+        .where(exp.Not(this=exp.Is(this=col.copy(), expression=exp.Null())))
+        .limit(limit)
+        .sql(dialect=d.name, identify=True)
+    )
 
 
 def duplicate_key_sql(qualified: str, columns: list[str], *, dialect: SqlDialect | str) -> str:
@@ -223,19 +285,23 @@ def duplicate_key_sql(qualified: str, columns: list[str], *, dialect: SqlDialect
     d = _dialect(dialect)
     dialect = d.name
     keys = [exp.column(c, table="t") for c in columns]
-    return (exp.select(*keys, exp.alias_(exp.Count(this=exp.Star()), "n"))
-            .from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
-            .group_by(*[k.copy() for k in keys]).having(exp.GT(this=exp.Count(this=exp.Star()),
-                                                                 expression=exp.Literal.number(1)))
-            .limit(1).sql(dialect=dialect, identify=True))
+    return (
+        exp.select(*keys, exp.alias_(exp.Count(this=exp.Star()), "n"))
+        .from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
+        .group_by(*[k.copy() for k in keys])
+        .having(exp.GT(this=exp.Count(this=exp.Star()), expression=exp.Literal.number(1)))
+        .limit(1)
+        .sql(dialect=dialect, identify=True)
+    )
 
 
 def _qualified(asset) -> str:
     return f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
 
 
-def validate_sql(sql: str, *, dialect: SqlDialect | str, allowed_tables: set[str], schema: dict[str, set[str]],
-                 max_rows: int) -> None:
+def validate_sql(
+    sql: str, *, dialect: SqlDialect | str, allowed_tables: set[str], schema: dict[str, set[str]], max_rows: int
+) -> None:
     """对实际要执行的 SQL 做确定性校验。schema：表 → 允许的列（表名均为 catalog.db.name 三段）。"""
     sql_dialect = _dialect(dialect)
     dialect = sql_dialect.name

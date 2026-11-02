@@ -4,6 +4,38 @@
 
 ## [未发布]
 
+## [1.0.1] - 2026-11-02
+
+补齐 MySQL 引擎，四个数据库接入 DDL 变更归因，并修复 1.0.0 之后发现的问题。
+
+### 新增
+
+- MySQL 完整引擎：视图列级血缘、只读问数（只读事务、服务端超时与行数上限）、执行前核对（[#66](https://github.com/shenhui027-arch/avelis/pull/66)）。
+- 四个数据库的 DDL 变更归因（[#66](https://github.com/shenhui027-arch/avelis/pull/66)、[#72](https://github.com/shenhui027-arch/avelis/pull/72)）：
+  - MySQL：可选绑定审计表（如 `mysql.general_log`），日志只作候选证据，与采集到的结构变化交叉核对；
+  - SQL Server：读取默认跟踪，只采用已提交的对象事件；
+  - Oracle：读取统一审计，只采用执行成功的记录；
+  - StarRocks：可选绑定 AuditLoader 审计表，只采用执行成功的记录。
+  未绑定审计表时视为没有审计来源；未开启、无权限、结构不符分别如实提示。四库均在真实实例上验证。
+- 批量导入的执行函数规则支持原子追加（`POST /api/imports/sql-functions/{datasource_id}`），“加入规则”不再覆盖已有规则（[#64](https://github.com/shenhui027-arch/avelis/pull/64)，[#51](https://github.com/shenhui027-arch/avelis/issues/51)）。
+
+### 修复
+
+- 代码辅助的凭据脱敏改为按逻辑行扫描：覆盖 `--password` / `--api-key` 等 CLI 参数、带前缀的键、跨行引号值与空白行后的值，病态输入保持线性耗时（[#64](https://github.com/shenhui027-arch/avelis/pull/64)、[#71](https://github.com/shenhui027-arch/avelis/pull/71)，[#49](https://github.com/shenhui027-arch/avelis/issues/49)）。
+- 批量导入的后台阶段与人工复核按同一顺序加锁，消除死锁风险（[#52](https://github.com/shenhui027-arch/avelis/issues/52)）。
+- Oracle 上按期末值 / 平均值合成的时间桶内部列名不合法（[#55](https://github.com/shenhui027-arch/avelis/issues/55)）。
+- DDL 归因：SQL Server 按服务器 collation 比较库名与模式名（[#67](https://github.com/shenhui027-arch/avelis/issues/67)）；StarRocks `SWAP WITH` 两端都保留候选（[#68](https://github.com/shenhui027-arch/avelis/issues/68)）、排除临时表、识别外部 Catalog；MySQL 列名与库表名按服务器规则比较大小写；SQL Server 默认跟踪异步写盘，读取前最多等待 10 秒（[#72](https://github.com/shenhui027-arch/avelis/pull/72)）。
+
+### 工程
+
+- 前端 `*.test.mjs` 纳入 CI（[#40](https://github.com/shenhui027-arch/avelis/issues/40)）；修复在不同 Python 版本上结果不稳定的测试（[#53](https://github.com/shenhui027-arch/avelis/issues/53)）。
+- 全量 `ruff format`，取消超长行豁免，CI 增加格式检查（[#69](https://github.com/shenhui027-arch/avelis/pull/69)，[#39](https://github.com/shenhui027-arch/avelis/issues/39)）。
+
+### 已知局限
+
+- 凭据脱敏仍漏遮四种写法：Python 括号换行、字符串隐式拼接、YAML 折行值、SQL `IDENTIFIED BY`（[#70](https://github.com/shenhui027-arch/avelis/issues/70)）。
+- 归因中尚未实机验证的情况：SQL Server 与 StarRocks 非 UTC 时区的时间换算、Oracle 无审计记录且无策略时的提示、StarRocks 外部 Catalog、MySQL `lower_case_table_names=1/2`（均有离线测试）。
+
 ## [1.0.0] - 2026-11-01
 
 首个公开发布的正式版本。按功能归类，每条后面是对应的 PR。
@@ -70,5 +102,6 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.0...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/shenhui027-arch/avelis/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.0

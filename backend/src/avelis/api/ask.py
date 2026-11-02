@@ -63,13 +63,31 @@ def _answer_result(a: Answer, session: Session | None) -> dict:
 
 
 def answer_view(a: Answer, session: Session | None = None) -> dict:
-    return {"id": a.id, "question": a.question, "asked_by": a.asked_by, "asked_at": a.asked_at.isoformat(),
-            "status": a.status, "message": a.message, "error_code": a.error_code, "model_adapter": a.model_adapter,
-            "intent": a.intent, "plan": a.plan, "sql": a.sql, "metric_version_ids": a.metric_version_ids,
-            "result": _answer_result(a, session), "evidence": a.evidence, "freshness": a.freshness,
-            "executed_at": a.executed_at.isoformat() if a.executed_at else None, "duration_ms": a.duration_ms,
-            "cache_hit": a.cache_hit, "recheck_status": a.recheck_status, "thread_id": a.thread_id,
-            "steps": a.steps, "explanation": a.explanation, "explanation_source": a.explanation_source}
+    return {
+        "id": a.id,
+        "question": a.question,
+        "asked_by": a.asked_by,
+        "asked_at": a.asked_at.isoformat(),
+        "status": a.status,
+        "message": a.message,
+        "error_code": a.error_code,
+        "model_adapter": a.model_adapter,
+        "intent": a.intent,
+        "plan": a.plan,
+        "sql": a.sql,
+        "metric_version_ids": a.metric_version_ids,
+        "result": _answer_result(a, session),
+        "evidence": a.evidence,
+        "freshness": a.freshness,
+        "executed_at": a.executed_at.isoformat() if a.executed_at else None,
+        "duration_ms": a.duration_ms,
+        "cache_hit": a.cache_hit,
+        "recheck_status": a.recheck_status,
+        "thread_id": a.thread_id,
+        "steps": a.steps,
+        "explanation": a.explanation,
+        "explanation_source": a.explanation_source,
+    }
 
 
 @router.post("/ask", response_model=S.AnswerOut)
@@ -79,9 +97,18 @@ def ask(body: Question, user: User = Depends(current_user), session: Session = D
 
 @router.get("/ask/threads", response_model=list[S.ThreadOut])
 def list_threads(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return [{"id": t.id, "title": t.title, "status": t.status, "created_at": t.created_at.isoformat(),
-             "updated_at": t.updated_at.isoformat()} for t in session.scalars(
-        select(AskThread).where(AskThread.user_id == user.id).order_by(AskThread.updated_at.desc()).limit(100))]
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "created_at": t.created_at.isoformat(),
+            "updated_at": t.updated_at.isoformat(),
+        }
+        for t in session.scalars(
+            select(AskThread).where(AskThread.user_id == user.id).order_by(AskThread.updated_at.desc()).limit(100)
+        )
+    ]
 
 
 @router.get("/ask/threads/{thread_id}", response_model=S.ThreadDetailOut)
@@ -94,8 +121,9 @@ def get_thread(thread_id: str, user: User = Depends(current_user), session: Sess
 
 
 @router.get("/answers", response_model=list[S.AnswerOut])
-def list_answers(all_users: bool = False, user: User = Depends(current_user),
-                 session: Session = Depends(get_session)) -> list[dict]:
+def list_answers(
+    all_users: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> list[dict]:
     stmt = select(Answer).order_by(Answer.asked_at.desc()).limit(200)
     if not (all_users and access.is_admin(session, user)):
         stmt = stmt.where(Answer.asked_by == user.id)
@@ -111,8 +139,14 @@ def get_answer(answer_id: str, user: User = Depends(current_user), session: Sess
 
 
 @router.get("/audit", response_model=list[S.AuditOut])
-def list_audit(object_type: str | None = None, object_id: str | None = None, action: str | None = None,
-               limit: int = 200, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def list_audit(
+    object_type: str | None = None,
+    object_id: str | None = None,
+    action: str | None = None,
+    limit: int = 200,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
     # 全量审计只给管理员；按对象查看历史时要求能看到该对象
     if not access.is_admin(session, user):
         if not (object_type and object_id):
@@ -126,6 +160,16 @@ def list_audit(object_type: str | None = None, object_id: str | None = None, act
         stmt = stmt.where(AuditEvent.object_id == object_id)
     if action:
         stmt = stmt.where(AuditEvent.action == action)
-    return [{"id": e.id, "at": e.at.isoformat(), "actor_id": e.actor_id, "actor": e.actor_name, "action": e.action,
-             "object_type": e.object_type, "object_id": e.object_id, "detail": e.detail}
-            for e in session.scalars(stmt)]
+    return [
+        {
+            "id": e.id,
+            "at": e.at.isoformat(),
+            "actor_id": e.actor_id,
+            "actor": e.actor_name,
+            "action": e.action,
+            "object_type": e.object_type,
+            "object_id": e.object_id,
+            "detail": e.detail,
+        }
+        for e in session.scalars(stmt)
+    ]

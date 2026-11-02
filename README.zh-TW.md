@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.0.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.0)
+[![version](https://img.shields.io/badge/version-v1.0.1-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.1)
 
 [功能亮點](#功能亮點) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.0 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.0.1 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
@@ -62,16 +62,18 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 資料庫 | 測試版本 | 採集中繼資料 | 檢視表血緣 | 問數查詢 | 執行前核對 | 變更歸因到使用者 |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| StarRocks | 3.5.14 | ✓ | ✓ | ✓ | ✓ | |
+| StarRocks | 3.5.14 + AuditLoader 4.2.2 | ✓ | ✓ | ✓ | ✓ | [✓（2026-11-01 實機驗證，須綁定稽核表）](docs/engines/starrocks.md#ddl-变更归因auditloader) |
 | PostgreSQL | 18 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ClickHouse | 26.8 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | |
-| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | |
+| SQL Server | 2022 | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 實機驗證，需啟用預設追蹤） |
+| Oracle | 23ai Free | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 實機驗證，需啟用統一稽核原則） |
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
-| MySQL | 8.4 | ✓ | | | | |
+| MySQL | 8.4.10 | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 實機驗證，需綁定稽核表） |
 
-StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表；MySQL 目前作為這些外部表的追溯目標採集。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，見 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
+StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表。MySQL 支援檢視表欄位級血緣、唯讀問數與執行前核對；變更歸因需綁定 DDL 稽核表，例如已開啟表輸出的 `mysql.general_log`。實測該日誌也記錄執行失敗的 DDL，紀錄僅作候選證據，需與採集到的結構變化相互印證。MySQL 與 StarRocks 未綁定稽核表時，歸因狀態均為 `unsupported`，原因明確提示「未綁定稽核表」。
+
+2026-11-01 的 DDL 實機驗證仍有邊界：SQL Server 示範實例時區偏移為 0，本地時間轉換 UTC 與跨日光節約時間未實機驗證；Oracle 使用自建統一稽核原則（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 `AUDIT_VIEWER`，無紀錄且無原則的 `not_enabled` 分支未實機驗證；StarRocks FE 時區為 UTC，非 UTC 換算未實機驗證，AuditLoader 剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，詳情見[引擎核驗紀錄](docs/engines/README.md)與 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
 
 ## 快速開始
 
@@ -166,7 +168,6 @@ pnpm dev
 計劃中的方向，不承諾日期：
 
 - 更多引擎的外部 Catalog 與物化檢視表。
-- StarRocks、SQL Server、Oracle 的變更歸因。
 - 問數表達能力：衍生指標巢狀、按週 / 月的時間粒度、佔比。
 
 版本變化見[更新日誌](CHANGELOG.md)。

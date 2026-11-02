@@ -15,7 +15,7 @@ def _time_type(data_type: str) -> str:
     normalized = data_type.lower().strip()
     for wrapper in ("nullable(", "lowcardinality("):
         if normalized.startswith(wrapper) and normalized.endswith(")"):
-            return _time_type(normalized[len(wrapper):-1])
+            return _time_type(normalized[len(wrapper) : -1])
     return " ".join(normalized.split())
 
 
@@ -26,8 +26,9 @@ def _zoned(data_type: str, dialect: str) -> bool:
     if dialect == "tsql":
         return kind.startswith("datetimeoffset")
     if dialect in ("postgres", "oracle"):
-        return kind.startswith("timestamptz") or (kind.startswith("timestamp") and (
-            "with time zone" in kind or "with local time zone" in kind))
+        return kind.startswith("timestamptz") or (
+            kind.startswith("timestamp") and ("with time zone" in kind or "with local time zone" in kind)
+        )
     return False
 
 
@@ -38,8 +39,15 @@ def _timezone(name: str | None) -> ZoneInfo:
         raise Invalid("带时区的时间列需要有效的业务时区") from exc
 
 
-def time_conditions(column: exp.Expression, start: date, end: date, *, data_type: str,
-                    business_timezone: str | None, dialect: SqlDialect) -> list[exp.Expression]:
+def time_conditions(
+    column: exp.Expression,
+    start: date,
+    end: date,
+    *,
+    data_type: str,
+    business_timezone: str | None,
+    dialect: SqlDialect,
+) -> list[exp.Expression]:
     """日期用闭区间，时间点用 [本地午夜, 次日本地午夜)，分别计算两个边界的夏令时偏移。"""
     if _zoned(data_type, dialect.name):
         zone = _timezone(business_timezone)
@@ -48,28 +56,36 @@ def time_conditions(column: exp.Expression, start: date, end: date, *, data_type
             midnight = datetime.combine(day, time.min, zone)
             if dialect.name == "clickhouse":
                 # SQLGlot 输出带 UTC 类型的 DateTime64；比较双方均为时间点，避免字符串按列时区解释。
-                return exp.TimeStrToTime(this=exp.Literal.string(
-                    midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")),
-                    zone=exp.Literal.string("UTC"))
+                return exp.TimeStrToTime(
+                    this=exp.Literal.string(midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")),
+                    zone=exp.Literal.string("UTC"),
+                )
             if dialect.name == "oracle":
                 # SQLGlot 的 StrToTime 只生成 TO_TIMESTAMP，无法表达 TO_TIMESTAMP_TZ 的格式掩码。
-                return exp.Anonymous(this="TO_TIMESTAMP_TZ", expressions=[
-                    exp.Literal.string(midnight.isoformat(sep=" ")),
-                    exp.Literal.string("YYYY-MM-DD HH24:MI:SSTZH:TZM")])
-            return exp.Cast(this=exp.Literal.string(midnight.isoformat(sep=" ")),
-                            to=exp.DataType.build("TIMESTAMPTZ"))
+                return exp.Anonymous(
+                    this="TO_TIMESTAMP_TZ",
+                    expressions=[
+                        exp.Literal.string(midnight.isoformat(sep=" ")),
+                        exp.Literal.string("YYYY-MM-DD HH24:MI:SSTZH:TZM"),
+                    ],
+                )
+            return exp.Cast(this=exp.Literal.string(midnight.isoformat(sep=" ")), to=exp.DataType.build("TIMESTAMPTZ"))
 
         low, high = bound(start), bound(end + timedelta(days=1))
-    elif (_time_type(data_type).startswith("date") and not _time_type(data_type).startswith("datetime")
-          and not dialect.date_has_time):
+    elif (
+        _time_type(data_type).startswith("date")
+        and not _time_type(data_type).startswith("datetime")
+        and not dialect.date_has_time
+    ):
         return [exp.Between(this=column, low=exp.Literal.string(str(start)), high=exp.Literal.string(str(end)))]
     else:
         low, high = (exp.Literal.string(f"{day} 00:00:00") for day in (start, end + timedelta(days=1)))
     return [exp.GTE(this=column, expression=low), exp.LT(this=column.copy(), expression=high)]
 
 
-def period_expression(column: exp.Expression, grain: str, *, data_type: str,
-                      business_timezone: str | None, dialect: str) -> exp.Expression:
+def period_expression(
+    column: exp.Expression, grain: str, *, data_type: str, business_timezone: str | None, dialect: str
+) -> exp.Expression:
     """原生日期/时间的期间标签；日/周/季为 YYYY-MM-DD，月为 YYYY-MM，年为 YYYY。"""
     if _zoned(data_type, dialect):
         if dialect == "tsql":
@@ -88,10 +104,17 @@ def period_expression(column: exp.Expression, grain: str, *, data_type: str,
             column = exp.TimestampTrunc(this=column, unit=exp.Var(this="ISO_WEEK" if grain == "week" else "QUARTER"))
         elif dialect == "oracle":
             # DateTrunc 会把 Q 规整成 Oracle 不接受的 QUARTER，保留原生 TRUNC 格式符。
-            column = exp.Anonymous(this="TRUNC", expressions=[column, exp.Literal.string("IW" if grain == "week" else "Q")])
+            column = exp.Anonymous(
+                this="TRUNC", expressions=[column, exp.Literal.string("IW" if grain == "week" else "Q")]
+            )
         elif dialect == "mysql" and grain == "week":
-            column = exp.DateSub(this=column, expression=exp.Anonymous(this="WEEKDAY", expressions=[column.copy()]),
-                                 unit=exp.Var(this="DAY"))
+            column = exp.DateSub(
+                this=column,
+                expression=exp.Anonymous(this="WEEKDAY", expressions=[column.copy()]),
+                unit=exp.Var(this="DAY"),
+            )
         else:
             column = exp.DateTrunc(this=column, unit=exp.Literal.string(grain))
-    return exp.TimeToStr(this=column, format=exp.Literal.string({"month": "%Y-%m", "year": "%Y"}.get(grain, "%Y-%m-%d")))
+    return exp.TimeToStr(
+        this=column, format=exp.Literal.string({"month": "%Y-%m", "year": "%Y"}.get(grain, "%Y-%m-%d"))
+    )

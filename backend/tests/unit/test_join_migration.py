@@ -26,8 +26,9 @@ def test_join_source_migration_compiles_postgresql_upgrade_and_downgrade():
     assert migration.revision == "0015"
     assert migration.down_revision == "0014"
     ddl = io.StringIO()
-    context = MigrationContext.configure(dialect_name="postgresql", opts={
-        "as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata})
+    context = MigrationContext.configure(
+        dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata}
+    )
     with Operations.context(context):
         migration.upgrade()
         migration.downgrade()
@@ -43,10 +44,13 @@ def test_join_source_migration_preserves_rows_and_json_on_sqlite(monkeypatch):
     monkeypatch.setattr(migration, "JsonType", JSON())
     engine = create_engine("sqlite://")
     metadata = MetaData()
-    original = Table("join_path", metadata,
-                     Column("id", String(32), primary_key=True),
-                     Column("code", String(64), nullable=False),
-                     Column("status", String(16), nullable=False))
+    original = Table(
+        "join_path",
+        metadata,
+        Column("id", String(32), primary_key=True),
+        Column("code", String(64), nullable=False),
+        Column("status", String(16), nullable=False),
+    )
     metadata.create_all(engine)
     with engine.begin() as connection:
         connection.execute(original.insert(), {"id": "existing", "code": "existing_path", "status": "approved"})
@@ -58,7 +62,11 @@ def test_join_source_migration_preserves_rows_and_json_on_sqlite(monkeypatch):
         assert isinstance(columns["source"]["type"], JSON)
         upgraded = Table("join_path", MetaData(), autoload_with=connection)
         assert connection.execute(select(upgraded)).mappings().one() == {
-            "id": "existing", "code": "existing_path", "status": "approved", "source": None}
+            "id": "existing",
+            "code": "existing_path",
+            "status": "approved",
+            "source": None,
+        }
         source = {"run_id": "run-1", "checkpoint": "proposal", "text": "按标识关联"}
         connection.execute(update(upgraded).values(source=source))
         assert connection.scalar(select(upgraded.c.source)) == source
@@ -67,5 +75,8 @@ def test_join_source_migration_preserves_rows_and_json_on_sqlite(monkeypatch):
         assert "source" not in {column["name"] for column in inspect(connection).get_columns("join_path")}
         restored = Table("join_path", MetaData(), autoload_with=connection)
         assert connection.execute(select(restored)).mappings().one() == {
-            "id": "existing", "code": "existing_path", "status": "approved"}
+            "id": "existing",
+            "code": "existing_path",
+            "status": "approved",
+        }
     engine.dispose()

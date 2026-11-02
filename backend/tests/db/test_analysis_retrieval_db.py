@@ -71,9 +71,18 @@ def world(factory, monkeypatch):
 
         def version(asset, columns, *, number=1, comment="当前注释", key_columns=None, unique_keys=None):
             observed = AssetVersion(
-                asset_id=asset.id, version_no=number, observed_run_id=run.id, last_seen_run_id=run.id,
-                kind=asset.kind, catalog_name=asset.catalog_name, db_name=asset.db_name, name=asset.name,
-                comment=comment, key_columns=key_columns or [], unique_keys=unique_keys or [], content_hash="a" * 64,
+                asset_id=asset.id,
+                version_no=number,
+                observed_run_id=run.id,
+                last_seen_run_id=run.id,
+                kind=asset.kind,
+                catalog_name=asset.catalog_name,
+                db_name=asset.db_name,
+                name=asset.name,
+                comment=comment,
+                key_columns=key_columns or [],
+                unique_keys=unique_keys or [],
+                content_hash="a" * 64,
             )
             session.add(observed)
             session.flush()
@@ -81,18 +90,31 @@ def world(factory, monkeypatch):
                 column = AssetColumn(asset_id=asset.id, name=name)
                 session.add(column)
                 session.flush()
-                session.add(ColumnVersion(
-                    asset_version_id=observed.id, column_id=column.id, ordinal=ordinal, name=name,
-                    data_type=data_type, is_key=is_key, comment=f"{name} 注释",
-                ))
+                session.add(
+                    ColumnVersion(
+                        asset_version_id=observed.id,
+                        column_id=column.id,
+                        ordinal=ordinal,
+                        name=name,
+                        data_type=data_type,
+                        is_key=is_key,
+                        comment=f"{name} 注释",
+                    )
+                )
             asset.current_version_id = observed.id
             session.flush()
             return observed
 
-        def asset(name, columns=(("n", "BIGINT", False),), *, hidden=False, status="active", kind="table",
-                  **kwargs):
-            obj = Asset(datasource_id=source.id, catalog_name="catalog", db_name=f"g{tag}", name=name,
-                        kind=kind, status=status, domain_id=other.id if hidden else mine.id)
+        def asset(name, columns=(("n", "BIGINT", False),), *, hidden=False, status="active", kind="table", **kwargs):
+            obj = Asset(
+                datasource_id=source.id,
+                catalog_name="catalog",
+                db_name=f"g{tag}",
+                name=name,
+                kind=kind,
+                status=status,
+                domain_id=other.id if hidden else mine.id,
+            )
             session.add(obj)
             session.flush()
             version(obj, columns, **kwargs)
@@ -100,23 +122,37 @@ def world(factory, monkeypatch):
 
         def edge(left, right, *, relation="value_direct", status="active", left_column="n", right_column="n"):
             obj = LineageEdge(
-                origin="manual", source_asset_id=left.id, source_ref=qualified(left), source_column=left_column,
-                target_asset_id=right.id, target_asset_version_id=right.current_version_id,
-                target_column=right_column, relation=relation, status=status,
+                origin="manual",
+                source_asset_id=left.id,
+                source_ref=qualified(left),
+                source_column=left_column,
+                target_asset_id=right.id,
+                target_asset_version_id=right.current_version_id,
+                target_column=right_column,
+                relation=relation,
+                status=status,
             )
             session.add(obj)
             session.flush()
             return obj
 
         def metric(base, *, name="发布口径", status="published", description="口径说明"):
-            obj = Metric(code=f"m{uuid.uuid4().hex[:12]}", name=name, domain_id=mine.id,
-                         owner_id=owner, created_by=owner)
+            obj = Metric(
+                code=f"m{uuid.uuid4().hex[:12]}", name=name, domain_id=mine.id, owner_id=owner, created_by=owner
+            )
             session.add(obj)
             session.flush()
             published = MetricVersion(
-                metric_id=obj.id, version_no=1, status=status, description=description, base_asset_id=base.id,
-                expression="SUM(b.n)", time_column="d", timezone="UTC",
-                dimensions=[{"name": "分类", "column": "b.category"}], created_by=owner,
+                metric_id=obj.id,
+                version_no=1,
+                status=status,
+                description=description,
+                base_asset_id=base.id,
+                expression="SUM(b.n)",
+                time_column="d",
+                timezone="UTC",
+                dimensions=[{"name": "分类", "column": "b.category"}],
+                created_by=owner,
             )
             session.add(published)
             session.flush()
@@ -131,8 +167,18 @@ def world(factory, monkeypatch):
             session.flush()
             return MetadataGraph(session, user, allowed, metric_sources=box._metric_sources)
 
-        yield SimpleNamespace(session=session, tag=tag, asset=asset, version=version, edge=edge, metric=metric,
-                              graph=graph, owner=owner, values=values, reads=reads)
+        yield SimpleNamespace(
+            session=session,
+            tag=tag,
+            asset=asset,
+            version=version,
+            edge=edge,
+            metric=metric,
+            graph=graph,
+            owner=owner,
+            values=values,
+            reads=reads,
+        )
 
 
 def qualified(asset):
@@ -173,8 +219,15 @@ def test_hidden_asset_cannot_be_a_neighbor_or_a_path_bridge(world):
 
 
 def test_all_edge_types_are_backed_by_metadata_and_cached_values(world):
-    base = world.asset("base", columns=(("n", "BIGINT", False), ("d", "DATE", False),
-                                        ("code", "VARCHAR(32)", True), ("category", "VARCHAR(30)", False)))
+    base = world.asset(
+        "base",
+        columns=(
+            ("n", "BIGINT", False),
+            ("d", "DATE", False),
+            ("code", "VARCHAR(32)", True),
+            ("category", "VARCHAR(30)", False),
+        ),
+    )
     upstream = world.asset("upstream")
     approved = world.asset("approved", columns=(("ref", "BIGINT", False),))
     observed = world.asset("observed")
@@ -182,17 +235,27 @@ def test_all_edge_types_are_backed_by_metadata_and_cached_values(world):
     shared_value = world.asset("shared_value", columns=(("label", "TEXT", False),))
     world.edge(upstream, base)
     world.edge(base, observed, relation="join_key")
-    world.session.add(JoinPath(
-        code=f"j{world.tag}", name="批准路径", left_asset_id=base.id, left_columns=["n"],
-        right_asset_id=approved.id, right_columns=["ref"], cardinality="n1", status="approved",
-        created_by=world.owner,
-    ))
+    world.session.add(
+        JoinPath(
+            code=f"j{world.tag}",
+            name="批准路径",
+            left_asset_id=base.id,
+            left_columns=["n"],
+            right_asset_id=approved.id,
+            right_columns=["ref"],
+            cardinality="n1",
+            status="approved",
+            created_by=world.owner,
+        )
+    )
     metric = world.metric(base)
     world.values[f"avelis:dimvals:{base.id}:{base.current_version_id}:category"] = "甲\x1f乙"
     world.values[f"avelis:dimvals:{shared_value.id}:{shared_value.current_version_id}:label"] = "乙\x1f丙"
     result = world.graph().neighbors(node(base), depth=1)
-    by_type = {kind: [e for e in result["edges"] if e["type"] == kind] for kind in
-               ("lineage", "metric_column", "join_key", "shared_key", "shared_value")}
+    by_type = {
+        kind: [e for e in result["edges"] if e["type"] == kind]
+        for kind in ("lineage", "metric_column", "join_key", "shared_key", "shared_value")
+    }
     assert all(by_type.values())
     assert any(node(approved) in (e["from"], e["to"]) for e in by_type["join_key"])
     assert any(node(observed) in (e["from"], e["to"]) for e in by_type["join_key"])
@@ -207,8 +270,7 @@ def test_all_edge_types_are_backed_by_metadata_and_cached_values(world):
 @pytest.mark.parametrize("key", ["is_key", "key_columns", "unique_keys"])
 def test_shared_key_accepts_each_existing_key_source_and_normalizes_type(world, key):
     kwargs = {key: ["code"]} if key == "key_columns" else {"unique_keys": [["code"]]} if key == "unique_keys" else {}
-    base = world.asset("base", columns=(("code", "VARCHAR(32)", key == "is_key"),
-                                        ("plain", "BIGINT", False)), **kwargs)
+    base = world.asset("base", columns=(("code", "VARCHAR(32)", key == "is_key"), ("plain", "BIGINT", False)), **kwargs)
     same = world.asset("same", columns=(("code", "varchar", False), ("plain", "BIGINT", False)))
     world.asset("wrong_type", columns=(("code", "BIGINT", False),))
     result = world.graph().neighbors(node(base), relation="shared_key")
@@ -246,6 +308,8 @@ def test_path_returns_at_most_three_shortest_paths_from_real_edges(world):
     world.edge(second, end)
     result = world.graph().path(node(start), node(end))
     assert len(result["paths"]) == 3
-    assert all(len(path["edges"]) == 2 and path["nodes"][0] == node(start) and path["nodes"][-1] == node(end)
-               for path in result["paths"])
+    assert all(
+        len(path["edges"]) == 2 and path["nodes"][0] == node(start) and path["nodes"][-1] == node(end)
+        for path in result["paths"]
+    )
     assert result["truncated"] is True and result["omitted"] >= 1

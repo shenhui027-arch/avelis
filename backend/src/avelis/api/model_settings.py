@@ -51,7 +51,8 @@ class Target(BaseModel):
     provider_id: str
     model_id: str
     reasoning_effort: Literal["off", "low", "medium", "high", "max"] | None = Field(
-        default=None, description="思考强度；不写时按该用途的默认档位")
+        default=None, description="思考强度；不写时按该用途的默认档位"
+    )
 
 
 class EffortOut(BaseModel):
@@ -153,18 +154,28 @@ def list_providers(user: User = Depends(current_user), session: Session = Depend
 
 
 @router.post("/model-providers", status_code=201, response_model=ProviderOut)
-def create_provider(body: ProviderCreate, user: User = Depends(current_user),
-                    session: Session = Depends(get_session)) -> dict:
+def create_provider(
+    body: ProviderCreate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "admin")
-    p = modelcfg.create_provider(session, user, code=body.code, preset=body.preset, name=body.name, kind=body.kind,
-                                 base_url=body.base_url, api_key=body.api_key,
-                                 models=[m.model_dump() for m in body.models])
+    p = modelcfg.create_provider(
+        session,
+        user,
+        code=body.code,
+        preset=body.preset,
+        name=body.name,
+        kind=body.kind,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        models=[m.model_dump() for m in body.models],
+    )
     return modelcfg.provider_view(p)
 
 
 @router.patch("/model-providers/{provider_id}", response_model=ProviderOut)
-def update_provider(provider_id: str, body: ProviderUpdate, user: User = Depends(current_user),
-                    session: Session = Depends(get_session)) -> dict:
+def update_provider(
+    provider_id: str, body: ProviderUpdate, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "admin")
     changes = body.model_dump(exclude_none=True)
     if body.models is not None:
@@ -173,8 +184,9 @@ def update_provider(provider_id: str, body: ProviderUpdate, user: User = Depends
 
 
 @router.delete("/model-providers/{provider_id}", status_code=204)
-def delete_provider(provider_id: str, user: User = Depends(current_user),
-                    session: Session = Depends(get_session)) -> None:
+def delete_provider(
+    provider_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> None:
     access.require_role(session, user, "admin")
     modelcfg.delete_provider(session, user, provider_id)
 
@@ -186,8 +198,9 @@ def fetch_models(provider_id: str, user: User = Depends(current_user), session: 
 
 
 @router.post("/model-providers/{provider_id}/check", response_model=CheckOut)
-def check(provider_id: str, body: CheckBody, user: User = Depends(current_user),
-          session: Session = Depends(get_session)) -> dict:
+def check(
+    provider_id: str, body: CheckBody, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "admin")
     return modelcfg.check(session, user, provider_id, body.model_id)
 
@@ -198,8 +211,9 @@ def get_settings_view(user: User = Depends(current_user), session: Session = Dep
 
 
 @router.put("/model-settings", response_model=SettingsOut)
-def save_settings(body: SettingsBody, user: User = Depends(current_user),
-                  session: Session = Depends(get_session)) -> dict:
+def save_settings(
+    body: SettingsBody, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
     access.require_role(session, user, "admin")
     assignments = {k: (v.model_dump() if v else None) for k, v in body.assignments.items()}
     return modelcfg.save_settings(session, user, assignments, body.policy)

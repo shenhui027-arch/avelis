@@ -57,8 +57,10 @@ def load_env() -> dict[str, str]:
         dotenv.sources.update(dict.fromkeys(dotenv, ".env"))
     except (OSError, ValueError):
         dotenv.problem("AVELIS_ENV_FILE", f"无法读取 .env 文件 {env_file()}", source="环境变量")
-    process = ConfigValues({k: v for k, v in os.environ.items() if k.startswith(("AVELIS_", "SR_", "SHOP_"))},
-                           config_path=config.config_path)
+    process = ConfigValues(
+        {k: v for k, v in os.environ.items() if k.startswith(("AVELIS_", "SR_", "SHOP_"))},
+        config_path=config.config_path,
+    )
     return merge_layers(resolve_files(config), resolve_files(dotenv), resolve_files(process))
 
 
@@ -135,8 +137,10 @@ def _database_url(env: dict[str, str]) -> str:
         if sslmode:
             url += f"?sslmode={sslmode}"
     if not url:
-        url = (f"postgresql+psycopg://avelis:{quote_plus(env.get('AVELIS_PG_PASSWORD', ''))}"
-               f"@127.0.0.1:{env.get('AVELIS_PG_PORT', '15432')}/avelis")
+        url = (
+            f"postgresql+psycopg://avelis:{quote_plus(env.get('AVELIS_PG_PASSWORD', ''))}"
+            f"@127.0.0.1:{env.get('AVELIS_PG_PORT', '15432')}/avelis"
+        )
     if not url.startswith("postgresql"):
         raise ValueError("元数据库只支持 PostgreSQL（AVELIS_DATABASE_URL 须以 postgresql 开头）")
     return url
@@ -256,8 +260,9 @@ def _build_settings(env: dict[str, str]) -> Settings:
         query_mem_limit_bytes=_positive_int(env, "AVELIS_QUERY_MEM_LIMIT_BYTES", Settings.query_mem_limit_bytes),
         query_max_rows=_positive_int(env, "AVELIS_QUERY_MAX_ROWS", Settings.query_max_rows),
         answer_cache_seconds=_positive_int(env, "AVELIS_ANSWER_CACHE_SECONDS", Settings.answer_cache_seconds),
-        collect_interval_minutes=_bounded_int(env, "AVELIS_COLLECT_INTERVAL_MINUTES",
-                                             Settings.collect_interval_minutes, 1440),
+        collect_interval_minutes=_bounded_int(
+            env, "AVELIS_COLLECT_INTERVAL_MINUTES", Settings.collect_interval_minutes, 1440
+        ),
         unassigned_asset_policy=env.get("AVELIS_UNASSIGNED_ASSET_POLICY", "deny").strip().lower(),
         login_max_failures=int(env.get("AVELIS_LOGIN_MAX_FAILURES", "5")),
         login_lock_minutes=int(env.get("AVELIS_LOGIN_LOCK_MINUTES", "15")),
@@ -269,8 +274,9 @@ def _build_settings(env: dict[str, str]) -> Settings:
         analysis_retrieval=env.get("AVELIS_ANALYSIS_RETRIEVAL", "false").strip().lower() in ("1", "true", "yes"),
         analysis_investigation=env.get("AVELIS_ANALYSIS_INVESTIGATION", "false").strip().lower()
         in ("1", "true", "yes"),
-        analysis_uniform_tolerance=_unit_interval(env, "AVELIS_ANALYSIS_UNIFORM_TOLERANCE",
-                                                 Settings.analysis_uniform_tolerance),
+        analysis_uniform_tolerance=_unit_interval(
+            env, "AVELIS_ANALYSIS_UNIFORM_TOLERANCE", Settings.analysis_uniform_tolerance
+        ),
         analysis_spike_share=_unit_interval(env, "AVELIS_ANALYSIS_SPIKE_SHARE", Settings.analysis_spike_share),
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
@@ -284,15 +290,17 @@ def _build_settings(env: dict[str, str]) -> Settings:
         workers=_positive_int(env, "AVELIS_WORKERS", Settings.workers),
         public_url=public_url,
         forwarded_allow_ips=_nonempty_string(env, "AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips),
-        log_level=_enum(env, "AVELIS_LOG_LEVEL", Settings.log_level,
-                        ("critical", "error", "warning", "info", "debug", "trace")),
+        log_level=_enum(
+            env, "AVELIS_LOG_LEVEL", Settings.log_level, ("critical", "error", "warning", "info", "debug", "trace")
+        ),
         frontend_dir=_frontend_directory(env),
         auto_migrate=_boolean(env, "AVELIS_AUTO_MIGRATE", Settings.auto_migrate),
         auto_init_admin=_boolean(env, "AVELIS_AUTO_INIT_ADMIN", Settings.auto_init_admin),
         db_pool_size=_nonnegative_int(env, "AVELIS_DB_POOL_SIZE", Settings.db_pool_size),
         db_max_overflow=_nonnegative_int(env, "AVELIS_DB_MAX_OVERFLOW", Settings.db_max_overflow),
-        db_pool_recycle_seconds=_nonnegative_int(env, "AVELIS_DB_POOL_RECYCLE_SECONDS",
-                                                Settings.db_pool_recycle_seconds),
+        db_pool_recycle_seconds=_nonnegative_int(
+            env, "AVELIS_DB_POOL_RECYCLE_SECONDS", Settings.db_pool_recycle_seconds
+        ),
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
         import_max_batch_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BATCH_BYTES", Settings.import_max_batch_bytes),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
@@ -321,16 +329,29 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
     if not isinstance(values, ConfigValues):
         values = ConfigValues(values)
     positive = {
-        "AVELIS_ACCESS_TOKEN_MINUTES", "AVELIS_SESSION_MAX_HOURS", "AVELIS_QUERY_TIMEOUT_SECONDS",
-        "AVELIS_QUERY_MEM_LIMIT_BYTES", "AVELIS_QUERY_MAX_ROWS", "AVELIS_ANSWER_CACHE_SECONDS", "AVELIS_WORKERS",
-        "AVELIS_IMPORT_MAX_BYTES", "AVELIS_IMPORT_MAX_BATCH_BYTES", "AVELIS_ASK_MAX_TOOL_ROUNDS",
+        "AVELIS_ACCESS_TOKEN_MINUTES",
+        "AVELIS_SESSION_MAX_HOURS",
+        "AVELIS_QUERY_TIMEOUT_SECONDS",
+        "AVELIS_QUERY_MEM_LIMIT_BYTES",
+        "AVELIS_QUERY_MAX_ROWS",
+        "AVELIS_ANSWER_CACHE_SECONDS",
+        "AVELIS_WORKERS",
+        "AVELIS_IMPORT_MAX_BYTES",
+        "AVELIS_IMPORT_MAX_BATCH_BYTES",
+        "AVELIS_ASK_MAX_TOOL_ROUNDS",
         "AVELIS_ANALYSIS_TOOL_CALLS",
-        "AVELIS_ANALYSIS_SECONDS", "AVELIS_ANALYSIS_EXPLORE_LIMIT", "AVELIS_ANALYSIS_MODEL_REQUESTS",
+        "AVELIS_ANALYSIS_SECONDS",
+        "AVELIS_ANALYSIS_EXPLORE_LIMIT",
+        "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
     }
     nonnegative = {
-        "AVELIS_DB_POOL_SIZE", "AVELIS_DB_MAX_OVERFLOW", "AVELIS_DB_POOL_RECYCLE_SECONDS",
-        "AVELIS_ANALYSIS_INPUT_TOKENS", "AVELIS_ANALYSIS_OUTPUT_TOKENS", "AVELIS_REDIS_DB",
+        "AVELIS_DB_POOL_SIZE",
+        "AVELIS_DB_MAX_OVERFLOW",
+        "AVELIS_DB_POOL_RECYCLE_SECONDS",
+        "AVELIS_ANALYSIS_INPUT_TOKENS",
+        "AVELIS_ANALYSIS_OUTPUT_TOKENS",
+        "AVELIS_REDIS_DB",
     }
     bounded = {"AVELIS_PORT": 65535, "AVELIS_DB_PORT": 65535, "AVELIS_COLLECT_INTERVAL_MINUTES": 1440}
     for spec in CONFIG_KEYS.values():
@@ -361,13 +382,14 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                     except ValueError:
                         raise ValueError(f"{key} 必须为数值") from None
             elif spec.kind is bool and key in (
-                "AVELIS_AUTO_MIGRATE", "AVELIS_AUTO_INIT_ADMIN", "AVELIS_REDIS_SSL",
+                "AVELIS_AUTO_MIGRATE",
+                "AVELIS_AUTO_INIT_ADMIN",
+                "AVELIS_REDIS_SSL",
             ):
                 _boolean(values, key, default)
         except ValueError as exc:
             values.problem(key, str(exc))
-    for key, default in (("AVELIS_HOST", Settings.host),
-                         ("AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips)):
+    for key, default in (("AVELIS_HOST", Settings.host), ("AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips)):
         try:
             _nonempty_string(values, key, default)
         except ValueError as exc:
@@ -377,8 +399,9 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
     except ValueError as exc:
         values.problem("AVELIS_NUMBER_STYLE", str(exc))
     try:
-        _enum(values, "AVELIS_LOG_LEVEL", Settings.log_level,
-              ("critical", "error", "warning", "info", "debug", "trace"))
+        _enum(
+            values, "AVELIS_LOG_LEVEL", Settings.log_level, ("critical", "error", "warning", "info", "debug", "trace")
+        )
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
     try:
@@ -387,7 +410,9 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         values.problem("AVELIS_REPLY_LANGUAGE", str(exc))
     if values.get("AVELIS_DB_SSLMODE", "").strip():
         try:
-            _enum(values, "AVELIS_DB_SSLMODE", "", ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"))
+            _enum(
+                values, "AVELIS_DB_SSLMODE", "", ("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
+            )
         except ValueError as exc:
             values.problem("AVELIS_DB_SSLMODE", str(exc))
     try:
@@ -417,8 +442,9 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("check", help="检查并显示脱敏后的生效配置")
     export = commands.add_parser("export-service-secrets", help="导出内置 PostgreSQL 和 Redis 的口令文件")
     export.add_argument("directory", type=Path)
-    export.add_argument("--services", default="postgres,redis",
-                        help="要导出口令的内置服务，逗号分隔；使用外部服务时留空，只校验配置")
+    export.add_argument(
+        "--services", default="postgres,redis", help="要导出口令的内置服务，逗号分隔；使用外部服务时留空，只校验配置"
+    )
     args = parser.parse_args(argv)
     try:
         settings = build_settings()
@@ -426,8 +452,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "check":
             print(f"配置文件路径：{values.config_path}")
             for path, spec in CONFIG_KEYS.items():
-                value = getattr(settings, spec.env.removeprefix("AVELIS_").lower(),
-                                values.get(spec.env, spec.default))
+                value = getattr(settings, spec.env.removeprefix("AVELIS_").lower(), values.get(spec.env, spec.default))
                 if value is None:
                     value = values.get(spec.env, spec.default)
                 if spec.env == "AVELIS_REDIS_PORT" and values.get("AVELIS_REDIS_HOST") and spec.env not in values:
@@ -451,13 +476,19 @@ def main(argv: list[str] | None = None) -> None:
             wanted = {name.strip() for name in args.services.split(",") if name.strip()}
             unknown = wanted - {"postgres", "redis"}
             if unknown:
-                raise ConfigError([f"--services 只支持 postgres、redis，收到：{', '.join(sorted(unknown))}"],
-                                  values.config_path)
-            secrets = {"postgres": ("postgres_password", "[database] password", settings.database_url),
-                       "redis": ("redis_password", "[redis] password", settings.redis_url)}
-            missing = [f"{secrets[name][1]}：使用内置 {name} 服务时必填（用于初始化 / 启动该服务），当前为空。"
-                       f"请在配置文件 {values.config_path} 填写，或在连接串里带上口令"
-                       for name in sorted(wanted) if not urlsplit(secrets[name][2]).password]
+                raise ConfigError(
+                    [f"--services 只支持 postgres、redis，收到：{', '.join(sorted(unknown))}"], values.config_path
+                )
+            secrets = {
+                "postgres": ("postgres_password", "[database] password", settings.database_url),
+                "redis": ("redis_password", "[redis] password", settings.redis_url),
+            }
+            missing = [
+                f"{secrets[name][1]}：使用内置 {name} 服务时必填（用于初始化 / 启动该服务），当前为空。"
+                f"请在配置文件 {values.config_path} 填写，或在连接串里带上口令"
+                for name in sorted(wanted)
+                if not urlsplit(secrets[name][2]).password
+            ]
             if missing:
                 raise ConfigError(missing, values.config_path)
             try:
@@ -471,8 +502,9 @@ def main(argv: list[str] | None = None) -> None:
                     target.chmod(0o644)
                     print(f"已写入 {target}")
             except (OSError, ValueError):
-                raise ConfigError([f"无法向目录 {args.directory} 写入口令文件，请检查路径与写入权限"],
-                                  values.config_path) from None
+                raise ConfigError(
+                    [f"无法向目录 {args.directory} 写入口令文件，请检查路径与写入权限"], values.config_path
+                ) from None
     except ConfigError as exc:
         report_config_error(exc)
         raise SystemExit(2) from None

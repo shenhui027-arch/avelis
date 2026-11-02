@@ -20,12 +20,18 @@ def selection(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     session, user = LiveSession.replace(box.session), box.user
     user.username = "unit-user"
-    provider = ModelProvider(id="selected-provider", code="deepseek-unit", name="DeepSeek",
-                             kind="openai_compatible", preset="deepseek", base_url="https://unit.invalid/v1",
-                             api_key_enc="encrypted-test-key", enabled=True,
-                             models=[{"id": name, "enabled": True} for name in ("chosen", "other")],
-                             last_check={"models": {name: {"ok": True, "tool_calling": True}
-                                                    for name in ("chosen", "other")}})
+    provider = ModelProvider(
+        id="selected-provider",
+        code="deepseek-unit",
+        name="DeepSeek",
+        kind="openai_compatible",
+        preset="deepseek",
+        base_url="https://unit.invalid/v1",
+        api_key_enc="encrypted-test-key",
+        enabled=True,
+        models=[{"id": name, "enabled": True} for name in ("chosen", "other")],
+        last_check={"models": {name: {"ok": True, "tool_calling": True} for name in ("chosen", "other")}},
+    )
     session.store[(ModelProvider, provider.id)] = provider
     model = Phased([])
     built = []
@@ -41,19 +47,28 @@ def selection(monkeypatch):
 
 
 def default_assignment(session, provider, *, model_id="other", effort="low"):
-    assignment = ModelAssignment(purpose="ask", provider_id=provider.id, model_id=model_id,
-                                 reasoning_effort=effort)
+    assignment = ModelAssignment(purpose="ask", provider_id=provider.id, model_id=model_id, reasoning_effort=effort)
     session.store[(ModelAssignment, assignment.purpose)] = assignment
 
 
 def test_selected_model_is_saved_and_used_before_and_after_checkpoint_resume(monkeypatch, selection):
     session, user, provider, model, built = selection
     choice = {"provider_id": provider.id, "model_id": "chosen", "reasoning_effort": "high"}
-    run = service.create_run(session, user, "检查指标变化", None,
-                             model={"provider_id": provider.id, "model_id": "chosen"}, reasoning_effort="high")
+    run = service.create_run(
+        session,
+        user,
+        "检查指标变化",
+        None,
+        model={"provider_id": provider.id, "model_id": "chosen"},
+        reasoning_effort="high",
+    )
     assert run.model_choice == choice  # 没有默认指派，显式选择仍可发起。
-    model.replies[:] = [clarify_reply("请确认地区？"), scope_reply(),
-                        reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+    model.replies[:] = [
+        clarify_reply("请确认地区？"),
+        scope_reply(),
+        reply("submit_proposal", {"items": []}, "proposal"),
+        report_reply(),
+    ]
     graph = agent.build_graph(MemorySaver())
     monkeypatch.setattr(service, "_graph", lambda: graph)
 
@@ -62,8 +77,7 @@ def test_selected_model_is_saved_and_used_before_and_after_checkpoint_resume(mon
         return [f"D{governed(current, ['值'], [['7']]).seq}"]
 
     monkeypatch.setattr(tools.AnalysisToolbox, "precheck", precheck)
-    job = Job(id="first-job", kind="analysis_run", status="running", attempts=1,
-              payload={"run_id": run.id}, result={})
+    job = Job(id="first-job", kind="analysis_run", status="running", attempts=1, payload={"run_id": run.id}, result={})
     session.add(job)
     session.flush()
     first = service.execute(session, run.id, job.id, 1)
@@ -73,8 +87,9 @@ def test_selected_model_is_saved_and_used_before_and_after_checkpoint_resume(mon
 
     # 暂停期间默认指派变化；恢复仍须使用运行保存的选择。
     default_assignment(session, provider, model_id="other", effort="max")
-    resumed = Job(id="resumed-job", kind="analysis_run", status="queued", attempts=1,
-                  payload={"run_id": run.id}, result={})
+    resumed = Job(
+        id="resumed-job", kind="analysis_run", status="queued", attempts=1, payload={"run_id": run.id}, result={}
+    )
     session.add(resumed)
     monkeypatch.setattr(jobs, "_enqueue", lambda *args, **kwargs: resumed.id)
     service.resume_run(session, user, run.id, {"answer": "华东"})
@@ -98,32 +113,48 @@ def test_run_without_choice_keeps_default_assignment_and_null_choice(selection, 
     assert service.run_view(session, run, full=False)["model_choice"] is None
 
 
-@pytest.mark.parametrize("selection_kwargs,expected_model,expected_effort", [
-    ({}, "chosen", "high"),
-    ({"reasoning_effort": "max"}, "chosen", "max"),
-    ({"model": {"provider_id": "selected-provider", "model_id": "other"}}, "other", "low"),
-    ({"model": {"provider_id": "selected-provider", "model_id": "other"},
-      "reasoning_effort": "off"}, "other", "off"),
-])
+@pytest.mark.parametrize(
+    "selection_kwargs,expected_model,expected_effort",
+    [
+        ({}, "chosen", "high"),
+        ({"reasoning_effort": "max"}, "chosen", "max"),
+        ({"model": {"provider_id": "selected-provider", "model_id": "other"}}, "other", "low"),
+        (
+            {"model": {"provider_id": "selected-provider", "model_id": "other"}, "reasoning_effort": "off"},
+            "other",
+            "off",
+        ),
+    ],
+)
 def test_followup_inherits_or_replaces_user_choice(selection, selection_kwargs, expected_model, expected_effort):
     session, user, provider, _, _ = selection
-    parent = service.create_run(session, user, "检查指标变化", None,
-                                model={"provider_id": provider.id, "model_id": "chosen"}, reasoning_effort="high")
+    parent = service.create_run(
+        session,
+        user,
+        "检查指标变化",
+        None,
+        model={"provider_id": provider.id, "model_id": "chosen"},
+        reasoning_effort="high",
+    )
     parent.status = "succeeded"
     parent.plan, parent.report, parent.verification = {}, {}, {}
     original = dict(parent.model_choice)
     child = service.followup_run(session, user, parent.id, "继续核对", **selection_kwargs)
     assert child.parent_run_id == parent.id
-    assert child.model_choice == {"provider_id": provider.id, "model_id": expected_model,
-                                  "reasoning_effort": expected_effort}
+    assert child.model_choice == {
+        "provider_id": provider.id,
+        "model_id": expected_model,
+        "reasoning_effort": expected_effort,
+    }
     assert parent.model_choice == original
 
 
 def test_followup_preserves_model_only_choice_without_verified_efforts(selection):
     session, user, provider, _, _ = selection
     provider.preset = None
-    parent = service.create_run(session, user, "检查指标变化", None,
-                                model={"provider_id": provider.id, "model_id": "chosen"})
+    parent = service.create_run(
+        session, user, "检查指标变化", None, model={"provider_id": provider.id, "model_id": "chosen"}
+    )
     parent.status = "succeeded"
     parent.plan, parent.report, parent.verification = {}, {}, {}
     assert modelcfg.effort_options(provider, "chosen") == []
@@ -139,8 +170,9 @@ def test_followup_preserves_model_only_choice_without_verified_efforts(selection
 
 def test_followup_rejects_inherited_choice_that_is_no_longer_available(selection):
     session, user, provider, _, _ = selection
-    parent = service.create_run(session, user, "检查指标变化", None,
-                                model={"provider_id": provider.id, "model_id": "chosen"})
+    parent = service.create_run(
+        session, user, "检查指标变化", None, model={"provider_id": provider.id, "model_id": "chosen"}
+    )
     parent.status = "succeeded"
     parent.plan, parent.report, parent.verification = {}, {}, {}
     provider.enabled = False
@@ -149,11 +181,14 @@ def test_followup_rejects_inherited_choice_that_is_no_longer_available(selection
     assert exc.value.status_code == 400
 
 
-@pytest.mark.parametrize("selection_kwargs", [
-    {"model": {"provider_id": "missing", "model_id": "chosen"}},
-    {"model": {"provider_id": "selected-provider", "model_id": "disabled"}},
-    {"model": {"provider_id": "selected-provider", "model_id": "chosen"}, "reasoning_effort": "unknown"},
-])
+@pytest.mark.parametrize(
+    "selection_kwargs",
+    [
+        {"model": {"provider_id": "missing", "model_id": "chosen"}},
+        {"model": {"provider_id": "selected-provider", "model_id": "disabled"}},
+        {"model": {"provider_id": "selected-provider", "model_id": "chosen"}, "reasoning_effort": "unknown"},
+    ],
+)
 def test_invalid_choice_is_rejected_before_run_is_added(selection, selection_kwargs):
     session, user, _, _, built = selection
     with pytest.raises(GovernanceError) as exc:

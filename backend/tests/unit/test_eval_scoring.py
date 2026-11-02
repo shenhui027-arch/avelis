@@ -39,43 +39,76 @@ def seg(raw, kind="value"):
 
 
 def run(conclusion="ranked_reasons", causes=None, claims=None, verification=None, status="succeeded"):
-    return {"status": status, "report": {"conclusion": conclusion, "causes": causes or [], "claims": claims or [],
-                                         "fields": {}},
-            "verification": verification or {"unverified": 0, "unverified_fields": 0, "unverified_causes": 0}}
+    return {
+        "status": status,
+        "report": {"conclusion": conclusion, "causes": causes or [], "claims": claims or [], "fields": {}},
+        "verification": verification or {"unverified": 0, "unverified_fields": 0, "unverified_causes": 0},
+    }
 
 
-FUTIAN = {"type": "member", "entity": {"dimension": "门店", "member": "深圳福田中心店"}, "direction": "down",
-          "status": "verified", "contribution": {"segments": [seg("-144658.42")]}}
+FUTIAN = {
+    "type": "member",
+    "entity": {"dimension": "门店", "member": "深圳福田中心店"},
+    "direction": "down",
+    "status": "verified",
+    "contribution": {"segments": [seg("-144658.42")]},
+}
 
 
 def test_positive_run_hits_primary_and_key_value():
     out = score(Q["d01"], run(conclusion=D01, causes=[FUTIAN]))
-    assert out == {**out, "completed": True, "conclusion_ok": True, "primary_hit": True, "key_value_hit": True,
-                   "sources_failed": 0, "forbidden": [], "passed": True}
+    assert out == {
+        **out,
+        "completed": True,
+        "conclusion_ok": True,
+        "primary_hit": True,
+        "key_value_hit": True,
+        "sources_failed": 0,
+        "forbidden": [],
+        "passed": True,
+    }
     near = {**FUTIAN, "contribution": {"segments": [seg("-145900")]}}  # 相对误差 0.86% < 1%
     assert score(Q["d01"], run(conclusion=D01, causes=[near]))["key_value_hit"] is True
     far = {**FUTIAN, "contribution": {"segments": [seg("-160000")]}}
     assert score(Q["d01"], run(conclusion=D01, causes=[far]))["passed"] is False
     claim = {"type": "fact", "segments": [seg("144658.42")]}  # abs：按绝对值比较，结论里的数值也算
-    assert score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "contribution": None}], claims=[claim]))["key_value_hit"] is True
+    assert (
+        score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "contribution": None}], claims=[claim]))["key_value_hit"]
+        is True
+    )
     guess = {"type": "inference", "segments": [seg("-144658.42")]}  # 推断里的数字不算
-    assert score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "contribution": None}], claims=[guess]))["key_value_hit"] is False
+    assert (
+        score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "contribution": None}], claims=[guess]))["key_value_hit"]
+        is False
+    )
 
 
 def test_primary_must_be_first_verified_right_type_and_direction():
-    other = {"type": "member", "entity": {"dimension": "门店", "member": "深圳二号店"}, "direction": "down",
-             "status": "verified", "contribution": {"segments": [seg("-1")]}}
+    other = {
+        "type": "member",
+        "entity": {"dimension": "门店", "member": "深圳二号店"},
+        "direction": "down",
+        "status": "verified",
+        "contribution": {"segments": [seg("-1")]},
+    }
     assert score(Q["d01"], run(conclusion=D01, causes=[other, FUTIAN]))["primary_hit"] is False  # 只看第一项
     assert score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "direction": "up"}]))["primary_hit"] is False
     assert score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "type": "factor"}]))["primary_hit"] is False
     assert score(Q["d01"], run(conclusion=D01, causes=[{**FUTIAN, "status": "unverified"}]))["primary_hit"] is False
-    calendar = {"type": "calendar", "entity": {}, "direction": "down", "status": "verified",
-                "contribution": {"segments": [seg("-1251.77")]}}
+    calendar = {
+        "type": "calendar",
+        "entity": {},
+        "direction": "down",
+        "status": "verified",
+        "contribution": {"segments": [seg("-1251.77")]},
+    }
     assert score(Q["c01"], run(causes=[calendar]))["passed"] is True  # 日历原因不比对实体
 
 
 def test_failures_forbidden_causes_and_incomplete_runs_do_not_pass():
-    bad = run(conclusion=D01, causes=[FUTIAN], verification={"unverified": 1, "unverified_fields": 0, "unverified_causes": 1})
+    bad = run(
+        conclusion=D01, causes=[FUTIAN], verification={"unverified": 1, "unverified_fields": 0, "unverified_causes": 1}
+    )
     out = score(Q["d01"], bad)
     assert out["sources_failed"] == 2 and out["passed"] is False
     douyin = {**FUTIAN, "entity": {"dimension": "渠道", "member": "抖音"}}
@@ -91,8 +124,13 @@ def test_negative_and_adversarial_questions():
     assert score(Q["n01"], run(conclusion=N01))["passed"] is True
     assert score(Q["n01"], run(conclusion="ranked_reasons", causes=[FUTIAN]))["passed"] is False
     assert score(Q["n03"], run(conclusion="insufficient_evidence"))["passed"] is True
-    douyin = {"type": "member", "entity": {"dimension": "投放渠道", "member": "抖音"}, "direction": "down",
-              "status": "verified", "contribution": {"segments": [seg("-1412")]}}
+    douyin = {
+        "type": "member",
+        "entity": {"dimension": "投放渠道", "member": "抖音"},
+        "direction": "down",
+        "status": "verified",
+        "contribution": {"segments": [seg("-1412")]},
+    }
     logistics = {**douyin, "entity": {"dimension": "原因", "member": "物流停运"}}
     assert score(Q["a01"], run(causes=[douyin]))["passed"] is True
     assert score(Q["a01"], run(causes=[douyin, logistics]))["passed"] is False  # 跟着注入的说法写了原因
@@ -103,8 +141,12 @@ def test_negative_and_adversarial_questions():
 
 
 def test_summary_and_markdown():
-    results = [score(Q["d01"], run(conclusion=D01, causes=[FUTIAN])), score(Q["d01"], run(status="failed")),
-               score(Q["n01"], run(conclusion=N01)), score(Q["n01"], run(conclusion=N01))]
+    results = [
+        score(Q["d01"], run(conclusion=D01, causes=[FUTIAN])),
+        score(Q["d01"], run(status="failed")),
+        score(Q["n01"], run(conclusion=N01)),
+        score(Q["n01"], run(conclusion=N01)),
+    ]
     summary = summarize(results)
     assert summary["overall"] == {"runs": 4, "hits": 3, "rate": 0.75}
     assert summary["primary_hit"] == {"runs": 2, "hits": 1, "rate": 0.5}
@@ -130,24 +172,46 @@ def test_why_change_questions_accept_both_periods_and_the_change():
     assert [round(float(v), 4) for v in d05["any_of"]] == [68.6969, 41.6801, 27.0167] and d05["tolerance"] == 0.01
     assert f01["any_of"] == ["10998", "12897", "-1899"] and f01["tolerance"] == 0
     assert Q["d03"]["expect"]["key_value"]["any_of"] == ["494", "494"]  # 7 月未开业：0 不列入
-    southwest = {"type": "member", "entity": {"dimension": "区域", "member": "西南"}, "direction": "up",
-                 "status": "verified", "contribution": {"segments": [seg("4.77")]}}
+    southwest = {
+        "type": "member",
+        "entity": {"dimension": "区域", "member": "西南"},
+        "direction": "up",
+        "status": "verified",
+        "contribution": {"segments": [seg("4.77")]},
+    }
     for raw, hit in (("68.6969", True), ("41.68", True), ("27.0168", True), ("46.2564", False)):
         claim = {"type": "fact", "segments": [seg(raw)]}
         assert score(Q["d05"], run(causes=[southwest], claims=[claim]))["key_value_hit"] is hit, raw
-    orders = {"type": "factor", "entity": {"factor_metric_code": "ec_orders"}, "direction": "down", "status": "verified",
-              "contribution": {"segments": [seg("-1146871.42")]}}
+    orders = {
+        "type": "factor",
+        "entity": {"factor_metric_code": "ec_orders"},
+        "direction": "down",
+        "status": "verified",
+        "contribution": {"segments": [seg("-1146871.42")]},
+    }
     for raw, hit in (("12897", True), ("10998", True), ("1899", True), ("1675", False)):
-        assert score(Q["f01"], run(causes=[orders], claims=[{"type": "fact", "segments": [seg(raw)]}]))[
-            "key_value_hit"] is hit, raw
+        assert (
+            score(Q["f01"], run(causes=[orders], claims=[{"type": "fact", "segments": [seg(raw)]}]))["key_value_hit"]
+            is hit
+        ), raw
 
 
 def test_required_in_causes_must_be_a_verified_cause_not_just_the_summary():
     """d06：首要原因可以是物流类工单（同一事件的另一个维度），但根因“西南”必须列为通过核验的原因。"""
-    logistics = {"type": "member", "entity": {"dimension": "ticket_category", "member": "物流"}, "direction": "up",
-                 "status": "verified", "contribution": {"segments": [seg("126")]}}
-    southwest = {"type": "member", "entity": {"dimension": "region", "member": "西南"}, "direction": "up",
-                 "status": "verified", "contribution": {"segments": [seg("94")]}}
+    logistics = {
+        "type": "member",
+        "entity": {"dimension": "ticket_category", "member": "物流"},
+        "direction": "up",
+        "status": "verified",
+        "contribution": {"segments": [seg("126")]},
+    }
+    southwest = {
+        "type": "member",
+        "entity": {"dimension": "region", "member": "西南"},
+        "direction": "up",
+        "status": "verified",
+        "contribution": {"segments": [seg("94")]},
+    }
     summary_only = run(causes=[logistics])
     summary_only["report"]["fields"] = {"summary": {"text": "西南的物流类工单增加", "segments": [seg("94")]}}
     out = score(Q["d06"], summary_only)
@@ -160,13 +224,27 @@ def test_required_in_causes_must_be_a_verified_cause_not_just_the_summary():
 
 def test_primary_cause_is_matched_by_codes():
     """原因实体按编码比对（ADR 0009 第 7 点）：因子看指标编码，显示名不算；证据行按核验解析出的行内容比对。"""
+
     def factor(entity, label=None):
-        return {"type": "factor", "entity": entity, "label": label, "direction": "down", "status": "verified",
-                "contribution": {"segments": [seg("-1146871.42")]}}
+        return {
+            "type": "factor",
+            "entity": entity,
+            "label": label,
+            "direction": "down",
+            "status": "verified",
+            "contribution": {"segments": [seg("-1146871.42")]},
+        }
+
     assert score(Q["f01"], run(causes=[factor({"factor_metric_code": "ec_orders"}, "订单数")]))["primary_hit"] is True
     assert score(Q["f01"], run(causes=[factor({"factor_metric_code": "ec_aov"}, "客单价")]))["primary_hit"] is False
-    event = {"type": "factor", "entity": {"evidence_id": "D7#1"}, "label": "家电焕新季 · 品类节 · 家电", "direction": "down",
-             "status": "verified", "contribution": {"segments": [seg("-1")]}}
+    event = {
+        "type": "factor",
+        "entity": {"evidence_id": "D7#1"},
+        "label": "家电焕新季 · 品类节 · 家电",
+        "direction": "down",
+        "status": "verified",
+        "contribution": {"segments": [seg("-1")]},
+    }
     assert score(Q["e02"], run(causes=[event]))["primary_hit"] is True
 
 
@@ -190,19 +268,28 @@ def test_expected_conclusions_come_from_truth_and_the_product_threshold():
     from tests.eval.scoring import expected_conclusion, load_truth
 
     assert "conclusion_from" in Q["d01"]["expect"] and D01 == "offsetting" and N01 == "offsetting"
-    assert Q["n02"]["expect"]["conclusion"] == ["no_material_change"] and Q["d02"]["expect"]["conclusion"] == ["ranked_reasons"]
+    assert Q["n02"]["expect"]["conclusion"] == ["no_material_change"] and Q["d02"]["expect"]["conclusion"] == [
+        "ranked_reasons"
+    ]
     assert Q["n03"]["expect"]["conclusion"] == ["insufficient_evidence"]  # 本期没有数据
     assert Q["e01"]["expect"]["conclusion"] == ["ranked_reasons"] and "conclusion_from" not in Q["e01"]["expect"]
     truth, d04 = load_truth(), Q["d04"]
     assert expected_conclusion(truth, d04["expect"]["conclusion_from"], d04["window"]) == "ranked_reasons"
-    assert expected_conclusion(truth, d04["expect"]["conclusion_from"], d04["window"],
-                               threshold=Decimal("0.9")) == "no_material_change"  # 阈值是产品参数
+    assert (
+        expected_conclusion(truth, d04["expect"]["conclusion_from"], d04["window"], threshold=Decimal("0.9"))
+        == "no_material_change"
+    )  # 阈值是产品参数
 
 
 def test_offsetting_primary_is_the_largest_item_in_the_expected_direction():
     """相互抵消时前两项（最大的减少项与增加项）都是首要原因：取与预期方向相同的那一项比对。"""
-    up = {"type": "member", "entity": {"dimension": "门店", "member": "深圳二号店"}, "direction": "up",
-          "status": "verified", "contribution": {"segments": [seg("1")]}}
+    up = {
+        "type": "member",
+        "entity": {"dimension": "门店", "member": "深圳二号店"},
+        "direction": "up",
+        "status": "verified",
+        "contribution": {"segments": [seg("1")]},
+    }
     assert score(Q["d01"], run(conclusion="offsetting", causes=[up, FUTIAN]))["primary_hit"] is True
     assert score(Q["d01"], run(conclusion="ranked_reasons", causes=[up, FUTIAN]))["primary_hit"] is False
     assert score(Q["d01"], run(conclusion="offsetting", causes=[up]))["primary_hit"] is False
@@ -210,11 +297,13 @@ def test_offsetting_primary_is_the_largest_item_in_the_expected_direction():
 
 def test_latency_summary_reports_median_and_p90_of_model_calls_and_seconds():
     """ADR 0012 度量：评测汇总给出每次运行的模型调用次数与总耗时的中位数和 P90。"""
+
     def timed(qid, calls, seconds):
         r = run(conclusion=Q[qid]["expect"]["conclusion"][0])
         r["steps"] = [{"kind": "model"}] * calls + [{"kind": "tool"}]
         r["budget"] = {"used": {"seconds": seconds}}
         return score(Q[qid], r)
+
     results = [timed("d02", c, s) for c, s in ((4, 30.0), (6, 50.0), (8, 90.0), (5, 40.0))]
     assert results[0]["model_calls"] == 4 and results[0]["seconds"] == 30.0
     lat = summarize(results)["latency"]

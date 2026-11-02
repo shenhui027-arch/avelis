@@ -1,4 +1,5 @@
-"""从真实模型的分析运行录制回放轨迹（ADR 0009 第 5 点）：写到 backend/tests/replay/traces/<名称>.json。
+(
+    """从真实模型的分析运行录制回放轨迹（ADR 0009 第 5 点）：写到 backend/tests/replay/traces/<名称>.json。
 
   uv run --project backend python scripts/record_replay_traces.py --eval .demo/eval/<时间>.json   从评测结果里各挑一条：
                                                          首轮通过、修订后通过、修订后仍失败
@@ -6,13 +7,15 @@
 
 在跑过分析的元数据库上运行（与评测相同，AVELIS_DATABASE_URL 可指向单独的库）。按字段白名单保存
 （见 backend/tests/replay/fake_model.py）：
-- messages：模型每次回复的 content 与 tool_calls（name、args），取自 LangGraph checkpoint，不含模型元数据与工具结果原文；
+- messages：模型每次回复的 content 与 tool_calls（name、args），取自 LangGraph checkpoint，"""
+    """不含模型元数据与工具结果原文；
 - fixtures：取数类工具（受治理查询、自动归因、探索查询、元数据上下文）产生的数据集，只保留列、行与量纲等核验需要的字段，
   不保存 SQL、数据源与资产编号；计算类工具不保存产出，回放时用冻结的数据重新计算；
 - expect：真实运行的核验结论（status、ok、revised、conclusion），回放必须得到同样的结论。
 只录评测集里的题目（合成数据上的运行，不把生产运行转成回放）；写盘前检查轨迹不含 .env 里的口令与密钥、连接串。
 找不到某一类运行时跳过它（保留原有轨迹文件），并打印原因。
 """
+)
 
 from __future__ import annotations
 
@@ -39,7 +42,9 @@ def pick(eval_path: Path) -> dict[str, list[str]]:
         v = run.get("verification") or {}
         if run.get("status") != "succeeded" or not run.get("id") or v.get("ok") is None:
             continue
-        kind = ("revised_pass" if v["ok"] else "revised_fail") if v.get("revised") else ("first_pass" if v["ok"] else None)
+        kind = (
+            ("revised_pass" if v["ok"] else "revised_fail") if v.get("revised") else ("first_pass" if v["ok"] else None)
+        )
         if kind:
             chosen.setdefault(kind, []).append(run["id"])
     return chosen
@@ -70,8 +75,13 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
             return f"运行 {run_id} 不存在"
         if run.question not in eval_questions:
             return "不是评测集里的题目：只录合成数据上的评测运行"
-        steps = list(session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run_id, AnalysisStep.kind == "tool")
-                                     .order_by(AnalysisStep.seq)))
+        steps = list(
+            session.scalars(
+                select(AnalysisStep)
+                .where(AnalysisStep.run_id == run_id, AnalysisStep.kind == "tool")
+                .order_by(AnalysisStep.seq)
+            )
+        )
         datasets = {d.id: d for d in session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run_id))}
         by_seq = {d.seq: d for d in datasets.values()}
         if any(s.status == "denied" for s in steps):
@@ -84,7 +94,9 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
             return "模型回复里有参数无法解析的工具调用，假模型无法原样回放"
         messages = []
         for m in replies:
-            message = {"content": m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False)}
+            message = {
+                "content": m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False)
+            }
             if m.tool_calls:
                 message["tool_calls"] = [{"name": c["name"], "args": c["args"]} for c in m.tool_calls]
             messages.append(message)
@@ -103,11 +115,21 @@ def record(name: str, run_id: str, env: dict[str, str]) -> str | None:
         v = run.verification or {}
         from avelis.analysis.tools import REPORT_SCHEMA
 
-        trace = {"version": 2, "report_schema": REPORT_SCHEMA, "name": name, "question": run.question,
-                 "window": run.window, "messages": messages,
-                 "fixtures": fixtures,
-                 "expect": {"status": v.get("status"), "ok": v.get("ok"), "revised": v.get("revised"),
-                            "conclusion": (run.report or {}).get("conclusion")}}
+        trace = {
+            "version": 2,
+            "report_schema": REPORT_SCHEMA,
+            "name": name,
+            "question": run.question,
+            "window": run.window,
+            "messages": messages,
+            "fixtures": fixtures,
+            "expect": {
+                "status": v.get("status"),
+                "ok": v.get("ok"),
+                "revised": v.get("revised"),
+                "conclusion": (run.report or {}).get("conclusion"),
+            },
+        }
     text = json.dumps(trace, ensure_ascii=False, indent=2, default=str) + "\n"
     leaked = leaks(text, env)
     if leaked:

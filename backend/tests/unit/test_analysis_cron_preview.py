@@ -61,9 +61,16 @@ def test_preview_returns_increasing_times_matching_cron(api):
     assert len(runs) == 6
     assert runs[0] == datetime(2026, 11, 2, 8, 5, tzinfo=timezone.utc)
     assert all(before < after for before, after in zip([NOW.replace(tzinfo=timezone.utc), *runs], runs))
-    assert all(run.month == 11 and run.weekday() < 5 and run.hour in {8, 10}
-               and run.minute in {5, 35} and run.second == 0 and run.microsecond == 0
-               and run.utcoffset() == timedelta(0) for run in runs)
+    assert all(
+        run.month == 11
+        and run.weekday() < 5
+        and run.hour in {8, 10}
+        and run.minute in {5, 35}
+        and run.second == 0
+        and run.microsecond == 0
+        and run.utcoffset() == timedelta(0)
+        for run in runs
+    )
 
 
 @pytest.mark.parametrize("count,expected", [(None, 5), (1, 1), (10, 10)])
@@ -77,8 +84,7 @@ def test_preview_default_count_and_inclusive_limits(api, count, expected):
     data = response.json()
     assert data["error"] is None
     runs = [datetime.fromisoformat(value) for value in data["runs"]]
-    assert runs == [datetime(2026, 11, 1, 23, 31, tzinfo=timezone.utc) + timedelta(minutes=i)
-                    for i in range(expected)]
+    assert runs == [datetime(2026, 11, 1, 23, 31, tzinfo=timezone.utc) + timedelta(minutes=i) for i in range(expected)]
 
 
 @pytest.mark.parametrize("timezone_name,offset", [("UTC", 0), ("Asia/Shanghai", 8)])
@@ -90,16 +96,18 @@ def test_preview_uses_business_timezone_across_utc_date_boundary(api, timezone_n
     data = response.json()
     assert data["timezone"] == timezone_name and data["error"] is None
     expected_offset = timezone(timedelta(hours=offset))
-    assert data["runs"] == [datetime(2026, 11, day, 9, tzinfo=expected_offset).isoformat()
-                            for day in (2, 3, 4)]
+    assert data["runs"] == [datetime(2026, 11, day, 9, tzinfo=expected_offset).isoformat() for day in (2, 3, 4)]
 
 
-@pytest.mark.parametrize("expr,error", [
-    ("", "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"),
-    ("* * * *", "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"),
-    ("60 9 * * *", "cron 表达式无效：60 9 * * *"),
-    ("0 9 30 2 *", "cron 表达式不会触发（日期不存在，如 2 月 30 日）：0 9 30 2 *"),
-])
+@pytest.mark.parametrize(
+    "expr,error",
+    [
+        ("", "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"),
+        ("* * * *", "cron 需要 5 段：分 时 日 月 周（如 0 9 1 * * 表示每月 1 日 9:00）"),
+        ("60 9 * * *", "cron 表达式无效：60 9 * * *"),
+        ("0 9 30 2 *", "cron 表达式不会触发（日期不存在，如 2 月 30 日）：0 9 30 2 *"),
+    ],
+)
 def test_preview_invalid_or_impossible_cron_is_successful_response_with_error(api, expr, error):
     client, _, _ = api
     response = client.get(PATH, params={"expr": expr})
@@ -115,8 +123,9 @@ def test_preview_rejects_out_of_range_count(api, count):
     assert response.json()["detail"][0]["loc"] == ["query", "count"]
 
 
-@pytest.mark.parametrize("role,expected", [("analyst", 200), ("steward", 200), ("reviewer", 200),
-                                           ("admin", 200), ("viewer", 403)])
+@pytest.mark.parametrize(
+    "role,expected", [("analyst", 200), ("steward", 200), ("reviewer", 200), ("admin", 200), ("viewer", 403)]
+)
 def test_preview_requires_analysis_task_creation_role(api, role, expected):
     client, session, _ = api
     session.scalar(select(UserRole)).role = role
@@ -130,7 +139,8 @@ def test_preview_openapi_exports_response_and_count_constraints(api):
     document = client.get("/openapi.json").json()
     operation = document["paths"][PATH]["get"]
     assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/CronPreviewOut"}
+        "$ref": "#/components/schemas/CronPreviewOut"
+    }
     schema = document["components"]["schemas"]["CronPreviewOut"]["properties"]
     assert set(schema) == {"expr", "timezone", "runs", "error"}
     assert schema["runs"]["type"] == "array" and schema["runs"]["items"]["type"] == "string"

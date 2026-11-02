@@ -126,14 +126,16 @@ MATERIALIZED = [
 ]
 
 # SHOW CREATE TABLE store.city_daily_sales 的输出（每行一条记录）
-SHOW_CREATE_VIEW = "\n".join([
-    "CREATE VIEW `store`.`city_daily_sales` AS SELECT `s`.`sale_date`, `h`.`city`,",
-    "       SUM(`s`.`amount`) AS `sales_amount`",
-    "FROM `store`.`sales` `s`",
-    "JOIN `store`.`shops` `h` ON `h`.`shop_id` = `s`.`shop_id`",
-    "WHERE `s`.`status` <> 'void'",
-    "GROUP BY `s`.`sale_date`, `h`.`city`",
-])
+SHOW_CREATE_VIEW = "\n".join(
+    [
+        "CREATE VIEW `store`.`city_daily_sales` AS SELECT `s`.`sale_date`, `h`.`city`,",
+        "       SUM(`s`.`amount`) AS `sales_amount`",
+        "FROM `store`.`sales` `s`",
+        "JOIN `store`.`shops` `h` ON `h`.`shop_id` = `s`.`shop_id`",
+        "WHERE `s`.`status` <> 'void'",
+        "GROUP BY `s`.`sale_date`, `h`.`city`",
+    ]
+)
 
 
 def test_partitioned_table_columns_comments_and_storage():
@@ -146,8 +148,12 @@ def test_partitioned_table_columns_comments_and_storage():
     assert (a.catalog, a.kind, a.table_model, a.physical_id) == (CATALOG, "table", "EXTERNAL_TABLE", None)
     # 分区列排在普通列之后，序号连续；类型保留 Hive 原样
     assert [(c.name, c.data_type, c.ordinal, c.comment) for c in a.columns] == [
-        ("sale_id", "bigint", 1, "销售单 ID"), ("shop_id", "bigint", 2, None), ("status", "varchar(16)", 3, None),
-        ("amount", "decimal(18,2)", 4, "金额"), ("sale_date", "date", 5, "销售日期")]
+        ("sale_id", "bigint", 1, "销售单 ID"),
+        ("shop_id", "bigint", 2, None),
+        ("status", "varchar(16)", 3, None),
+        ("amount", "decimal(18,2)", 4, "金额"),
+        ("sale_date", "date", 5, "销售日期"),
+    ]
     assert all(c.nullable for c in a.columns) and not a.key_columns and not a.unique_keys
     assert a.properties["partition_columns"] == ["sale_date"]
     assert a.properties["location"] == "file:/opt/hive/data/warehouse/store.db/sales"
@@ -157,8 +163,11 @@ def test_partitioned_table_columns_comments_and_storage():
 def test_complex_types_constraints_and_escaped_comment():
     shops = observed("store", "shops", parse_described(SHOPS), None)
     assert shops.table_model == "MANAGED_TABLE" and shops.comment == "门店"
-    assert [c.data_type for c in shops.columns][2:] == ["array<string>", "map<string,int>",
-                                                        "struct<street:string,zip:int>"]
+    assert [c.data_type for c in shops.columns][2:] == [
+        "array<string>",
+        "map<string,int>",
+        "struct<street:string,zip:int>",
+    ]
     cons = parse_described(CONSTRAINED)
     assert cons.comment == "multi\nline comment" and cons.primary_key == ["id"] and cons.not_null == {"id"}
     a = observed("probe", "cons", cons, None)
@@ -182,9 +191,22 @@ def test_hive_types_map_into_lineage_schema():
     nested = exp.DataType.build(_sqlglot_type("struct<a:decimal(10,2),b:int>"), dialect="hive")
     assert nested.sql("hive") == "STRUCT<A: DECIMAL, B: INT>"
     hive = get_engine("hive").sql
-    types = ["bigint", "decimal(18,2)", "varchar(16)", "date", "timestamp", "string", "binary", "boolean",
-             "array<string>", "map<string,int>", "struct<street:string,zip:int>", "struct<a:decimal(10,2),b:int>",
-             "array<decimal(10,2)>", "uniontype<int,string>"]
+    types = [
+        "bigint",
+        "decimal(18,2)",
+        "varchar(16)",
+        "date",
+        "timestamp",
+        "string",
+        "binary",
+        "boolean",
+        "array<string>",
+        "map<string,int>",
+        "struct<street:string,zip:int>",
+        "struct<a:decimal(10,2),b:int>",
+        "array<decimal(10,2)>",
+        "uniontype<int,string>",
+    ]
     schema = {"hive": {"probe": {"t": {f"c{i}": _sqlglot_type(t) for i, t in enumerate(types)}}}}
     columns = ", ".join(f"c{i}" for i in range(len(types)))
     for sql in (f"SELECT {columns} FROM probe.t", "SELECT * FROM probe.t"):
@@ -198,8 +220,9 @@ def test_view_and_materialized_view_definitions():
     view = parse_described(VIEW)
     assert view.table_type == "VIRTUAL_VIEW" and view.comment == "城市日销售"
     # 展开文本多行：续行在第三列，右侧补齐的空白去掉
-    assert view.expanded_query == ("SELECT `s`.`sale_date`, `h`.`city`,\n       SUM(`s`.`amount`) AS `sales_amount`\n"
-                                   "FROM `store`.`sales` `s`")
+    assert view.expanded_query == (
+        "SELECT `s`.`sale_date`, `h`.`city`,\n       SUM(`s`.`amount`) AS `sales_amount`\nFROM `store`.`sales` `s`"
+    )
     # 视图定义取 SHOW CREATE TABLE 中 AS 之后的原文（不经 SQLGlot 重新生成）
     query = view_query(SHOW_CREATE_VIEW)
     assert query.startswith("SELECT `s`.`sale_date`, `h`.`city`,\n       SUM(") and query.endswith("`h`.`city`")
@@ -217,9 +240,17 @@ def test_view_lineage_with_hive_dialect():
     hive = get_engine("hive").dialect_for({"databases": ["store"]})
     assert hive.name == "hive" and hive.default_catalog == "hive" and not hive.catalog_in_sql
     tables = {"sales": SALES, "shops": SHOPS}
-    schema = {"hive": {"store": {name: {c.name: _sqlglot_type(c.data_type) for c in
-                                        observed("store", name, parse_described(rows), None).columns}
-                                 for name, rows in tables.items()}}}
+    schema = {
+        "hive": {
+            "store": {
+                name: {
+                    c.name: _sqlglot_type(c.data_type)
+                    for c in observed("store", name, parse_described(rows), None).columns
+                }
+                for name, rows in tables.items()
+            }
+        }
+    }
     parsed = parse_query(view_query(SHOW_CREATE_VIEW), dialect=hive, schema=schema)
     assert parsed.status == "ok", parsed.reason
     assert sorted(parsed.tables) == ["hive.store.sales", "hive.store.shops"]
@@ -230,8 +261,11 @@ def test_view_lineage_with_hive_dialect():
         "sales_amount": {("hive.store.sales", "amount", "value_aggregated")},
     }
     influences = {(i.ref.table, i.ref.column, i.relation) for i in parsed.influences}
-    assert {("hive.store.sales", "status", "filter"), ("hive.store.sales", "shop_id", "join_key"),
-            ("hive.store.shops", "shop_id", "join_key")} <= influences
+    assert {
+        ("hive.store.sales", "status", "filter"),
+        ("hive.store.sales", "shop_id", "join_key"),
+        ("hive.store.shops", "shop_id", "join_key"),
+    } <= influences
     assert parsed.group_outputs == ["sale_date", "city"]
 
 
@@ -261,8 +295,9 @@ def test_collect_connector_without_credential_for_none_auth():
     assert conn._conn_args["auth_mechanism"] == "PLAIN" and conn._conn_args["user"] == "avelis"
     from avelis.engines import CredentialMissing
 
-    ldap = Datasource(name="数仓", kind="hive", host="hs2", port=10000,
-                      options={"databases": ["store"], "auth": "LDAP"})
+    ldap = Datasource(
+        name="数仓", kind="hive", host="hs2", port=10000, options={"databases": ["store"], "auth": "LDAP"}
+    )
     with pytest.raises(CredentialMissing):
         collect_connector(_NoCredential(), ldap)
 

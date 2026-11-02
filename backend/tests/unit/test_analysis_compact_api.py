@@ -17,8 +17,13 @@ def test_compact_accepts_live_run_and_only_records_request(live_api, status):
     assert response.json()["status"] == status
     assert run.compact_requested is True
     assert run.checkpoint == checkpoint and queued == []
-    assert any(isinstance(event, AuditEvent) and event.action == "analysis.compact"
-               and event.actor_id == user.id and event.object_id == run.id for event in session.added)
+    assert any(
+        isinstance(event, AuditEvent)
+        and event.action == "analysis.compact"
+        and event.actor_id == user.id
+        and event.object_id == run.id
+        for event in session.added
+    )
 
 
 @pytest.mark.parametrize("is_admin", [False, True])

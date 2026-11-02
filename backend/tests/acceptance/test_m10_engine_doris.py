@@ -22,14 +22,18 @@ class Doris(EngineProfile):
     grain_sql_name = "`internal`.`store`.`returns`"
     sales_unique_key = True  # UNIQUE KEY 模型
     rename = ("ALTER TABLE store.returns RENAME refunds",)
-    recreate = ("DROP TABLE store.refunds FORCE",
-                "CREATE TABLE store.refunds (return_id BIGINT NOT NULL, sale_id BIGINT NOT NULL, "
-                "return_date DATE NOT NULL, amount DECIMAL(18, 2) NOT NULL) UNIQUE KEY (return_id) "
-                "DISTRIBUTED BY HASH(return_id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")")
-    replace_view = ("ALTER VIEW store.city_daily_sales AS "
-                    "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
-                    "FROM store.sales s INNER JOIN store.shops h ON h.shop_id = s.shop_id "
-                    "GROUP BY s.sale_date, h.city",)
+    recreate = (
+        "DROP TABLE store.refunds FORCE",
+        "CREATE TABLE store.refunds (return_id BIGINT NOT NULL, sale_id BIGINT NOT NULL, "
+        "return_date DATE NOT NULL, amount DECIMAL(18, 2) NOT NULL) UNIQUE KEY (return_id) "
+        'DISTRIBUTED BY HASH(return_id) BUCKETS 1 PROPERTIES ("replication_num" = "1")',
+    )
+    replace_view = (
+        "ALTER VIEW store.city_daily_sales AS "
+        "SELECT s.sale_date, h.city, SUM(s.amount) AS sales_amount, COUNT(DISTINCT s.sale_id) AS sales_count "
+        "FROM store.sales s INNER JOIN store.shops h ON h.shop_id = s.shop_id "
+        "GROUP BY s.sale_date, h.city",
+    )
     sleep_sql = "SELECT sleep(5)"
     write_sql = "INSERT INTO store.sales VALUES (9999, '2026-09-15', 1, 'paid', 1.00)"
 

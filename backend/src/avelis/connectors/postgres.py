@@ -54,8 +54,9 @@ class PostgresConnector:
 
     def _connect(self) -> psycopg.Connection:
         # 空 search_path：系统函数输出的对象名全部带模式
-        return psycopg.connect(**self._conn_args, connect_timeout=5, autocommit=True,
-                               options="-c search_path= -c lock_timeout=5000")
+        return psycopg.connect(
+            **self._conn_args, connect_timeout=5, autocommit=True, options="-c search_path= -c lock_timeout=5000"
+        )
 
     # --- 采集 ---------------------------------------------------------------------
 
@@ -66,10 +67,13 @@ class PostgresConnector:
     def _server_identity(self, conn: psycopg.Connection) -> dict[str, Any]:
         identity: dict[str, Any] = {
             "version": conn.execute("SELECT current_setting('server_version')").fetchone()[0],
-            "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}", "database": self.database}
+            "endpoint": f"{self._conn_args['host']}:{self._conn_args['port']}",
+            "database": self.database,
+        }
         try:
-            identity["system_identifier"] = str(conn.execute(
-                "SELECT system_identifier FROM pg_catalog.pg_control_system()").fetchone()[0])
+            identity["system_identifier"] = str(
+                conn.execute("SELECT system_identifier FROM pg_catalog.pg_control_system()").fetchone()[0]
+            )
         except psycopg.Error:
             identity["system_identifier"] = None  # PG 18 默认 PUBLIC 可执行；被收回权限时读不到
         if identity["system_identifier"]:
@@ -87,23 +91,28 @@ class PostgresConnector:
             # 元数据在同一个可重复读只读事务里读，并记下这个事务快照：归因据此判断 DDL 事务在不在两次快照之间
             with conn.transaction():
                 conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-                cursor = {"pg_snapshot": conn.execute("SELECT pg_catalog.pg_current_snapshot()::text").fetchone()[0],
-                          "instance": instance}
+                cursor = {
+                    "pg_snapshot": conn.execute("SELECT pg_catalog.pg_current_snapshot()::text").fetchone()[0],
+                    "instance": instance,
+                }
                 relations = conn.execute(
                     "SELECT c.oid, n.nspname, c.relname, c.relkind, pg_catalog.obj_description(c.oid, 'pg_class') "
                     "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
                     "WHERE n.nspname = ANY(%s) AND c.relkind = ANY(%s) ORDER BY n.nspname, c.relname",
-                    (schemas, list(KINDS))).fetchall()
+                    (schemas, list(KINDS)),
+                ).fetchall()
                 oids = [r[0] for r in relations]
                 columns = self._columns(conn, oids, with_comments=True)
                 keys: dict[int, dict[str, list[list[str]]]] = {}
                 for oid, contype, names in conn.execute(
-                        "SELECT con.conrelid, con.contype, array_agg(a.attname ORDER BY k.ord) "
-                        "FROM pg_catalog.pg_constraint con "
-                        "CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) "
-                        "JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum "
-                        "WHERE con.conrelid = ANY(%s) AND con.contype IN ('p', 'u') "
-                        "GROUP BY con.oid, con.conrelid, con.contype", (oids,)).fetchall():
+                    "SELECT con.conrelid, con.contype, array_agg(a.attname ORDER BY k.ord) "
+                    "FROM pg_catalog.pg_constraint con "
+                    "CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) "
+                    "JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum "
+                    "WHERE con.conrelid = ANY(%s) AND con.contype IN ('p', 'u') "
+                    "GROUP BY con.oid, con.conrelid, con.contype",
+                    (oids,),
+                ).fetchall():
                     keys.setdefault(oid, {"p": [], "u": []})[contype].append(list(names))
                 definitions = self._definitions(conn, [r[0] for r in relations if r[3] in ("v", "m")])
         assets = []
@@ -115,14 +124,26 @@ class PostgresConnector:
             if kind in ("view", "materialized_view") and definition is None:
                 warnings.append(f"视图 {schema}.{name} 未读到定义")
             pk_set = set(pk)
-            assets.append(ObservedAsset(
-                catalog=self.database, db=schema, name=name, kind=kind,
-                columns=[ObservedColumn(name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4],
-                                        is_key=c[0] in pk_set) for c in columns.get(oid, [])],
-                physical_id=str(oid), key_columns=pk,
-                unique_keys=sorted(unique), comment=comment, definition=definition,
-                properties={"relkind": relkind},
-            ))
+            assets.append(
+                ObservedAsset(
+                    catalog=self.database,
+                    db=schema,
+                    name=name,
+                    kind=kind,
+                    columns=[
+                        ObservedColumn(
+                            name=c[0], data_type=c[1], ordinal=c[2], nullable=c[3], comment=c[4], is_key=c[0] in pk_set
+                        )
+                        for c in columns.get(oid, [])
+                    ],
+                    physical_id=str(oid),
+                    key_columns=pk,
+                    unique_keys=sorted(unique),
+                    comment=comment,
+                    definition=definition,
+                    properties={"relkind": relkind},
+                )
+            )
         return Snapshot(server_identity=identity, assets=assets, warnings=warnings, audit_cursor=cursor)
 
     @staticmethod
@@ -132,10 +153,11 @@ class PostgresConnector:
             return out
         comment = "pg_catalog.col_description(a.attrelid, a.attnum)" if with_comments else "NULL"
         for oid, name, data_type, ordinal, nullable, col_comment in conn.execute(
-                "SELECT a.attrelid, a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnum, "
-                f"NOT a.attnotnull, {comment} FROM pg_catalog.pg_attribute a "
-                "WHERE a.attrelid = ANY(%s) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attrelid, a.attnum",
-                (oids,)).fetchall():
+            "SELECT a.attrelid, a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnum, "
+            f"NOT a.attnotnull, {comment} FROM pg_catalog.pg_attribute a "
+            "WHERE a.attrelid = ANY(%s) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attrelid, a.attnum",
+            (oids,),
+        ).fetchall():
             out.setdefault(oid, []).append((name, data_type, int(ordinal), bool(nullable), col_comment))
         return out
 
@@ -143,14 +165,17 @@ class PostgresConnector:
     def _definitions(conn: psycopg.Connection, oids: list[int]) -> dict[int, str]:
         if not oids:
             return {}
-        rows = conn.execute("SELECT c.oid, pg_catalog.pg_get_viewdef(c.oid, true) FROM pg_catalog.pg_class c "
-                            "WHERE c.oid = ANY(%s)", (oids,)).fetchall()
+        rows = conn.execute(
+            "SELECT c.oid, pg_catalog.pg_get_viewdef(c.oid, true) FROM pg_catalog.pg_class c WHERE c.oid = ANY(%s)",
+            (oids,),
+        ).fetchall()
         return {oid: definition.strip().rstrip(";") for oid, definition in rows if definition}
 
     # --- 只读执行 ------------------------------------------------------------------
 
-    def execute_select(self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int,
-                       max_rows: int, timezone: str | None = None) -> QueryResult:
+    def execute_select(
+        self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult:
         """只读事务内执行；PostgreSQL 没有单查询内存上限，靠 statement_timeout 与行数上限约束。"""
         try:
             with self._connect() as conn:
@@ -160,8 +185,9 @@ class PostgresConnector:
                     if timezone is not None:
                         # LOCAL 随事务结束恢复，即使连接以后改由池管理也不会泄漏。
                         conn.execute(sql.SQL("SET LOCAL TIME ZONE {}").format(sql.Literal(checked_timezone(timezone))))
-                    conn.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(
-                        sql.Literal(f"{int(timeout_seconds)}s")))
+                    conn.execute(
+                        sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(f"{int(timeout_seconds)}s"))
+                    )
                     cur = conn.execute(sql_text)
                     rows = cur.fetchmany(max_rows + 1)
                     columns = [d.name for d in cur.description or []]
@@ -169,8 +195,16 @@ class PostgresConnector:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
-    def execute_explore(self, sql_text: str, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int = 0,
-                        work_mem: str = "16MB", timezone: str | None = None) -> QueryResult:
+    def execute_explore(
+        self,
+        sql_text: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        work_mem: str = "16MB",
+        timezone: str | None = None,
+    ) -> QueryResult:
         """执行校验后重新生成的探索查询（ADR 0009 第 6 点）：只读事务，statement_timeout 由服务端取消超时的查询，
         lock_timeout、较低的 work_mem、关闭并行；出错时按数据库错误报出，不返回部分结果。"""
         if timeout_seconds <= 0:  # 0 在数据库里表示不限时：一律拒绝
@@ -182,8 +216,9 @@ class PostgresConnector:
                     conn.execute("SET TRANSACTION READ ONLY")
                     if timezone is not None:
                         conn.execute(sql.SQL("SET LOCAL TIME ZONE {}").format(sql.Literal(checked_timezone(timezone))))
-                    conn.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(
-                        sql.Literal(f"{int(timeout_seconds)}s")))
+                    conn.execute(
+                        sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(f"{int(timeout_seconds)}s"))
+                    )
                     conn.execute("SET LOCAL lock_timeout = '2s'")
                     conn.execute(sql.SQL("SET LOCAL work_mem = {}").format(sql.Literal(work_mem)))
                     conn.execute("SET LOCAL max_parallel_workers_per_gather = 0")
@@ -203,9 +238,11 @@ class PostgresConnector:
         previous, current = cursors or (None, None)
         p_snap = (previous or {}).get("pg_snapshot")
         c_snap = (current or {}).get("pg_snapshot")
-        select = ("SELECT extract(epoch FROM at), db_user, command_tag, object_names, statement, xid::text "
-                  f"FROM {AUDIT_TABLE} WHERE object_type = ANY(%s) AND object_names[1] = ANY(%s) "
-                  "AND array_length(object_names, 1) >= 2 AND ")
+        select = (
+            "SELECT extract(epoch FROM at), db_user, command_tag, object_names, statement, xid::text "
+            f"FROM {AUDIT_TABLE} WHERE object_type = ANY(%s) AND object_names[1] = ANY(%s) "
+            "AND array_length(object_names, 1) >= 2 AND "
+        )
         try:
             with self._connect() as conn:
                 self._check_audit_triggers(conn)
@@ -218,18 +255,33 @@ class PostgresConnector:
                         select + "xid >= pg_catalog.pg_snapshot_xmin(%s::pg_snapshot) "
                         "AND pg_catalog.pg_visible_in_snapshot(xid, %s::pg_snapshot) "
                         "AND NOT pg_catalog.pg_visible_in_snapshot(xid, %s::pg_snapshot) ORDER BY at, id",
-                        (list(AUDIT_OBJECT_TYPES), schemas, p_snap, c_snap, p_snap)).fetchall()
+                        (list(AUDIT_OBJECT_TYPES), schemas, p_snap, c_snap, p_snap),
+                    ).fetchall()
                 else:
-                    rows = conn.execute(select + "at >= %s AND at <= %s ORDER BY at, id",
-                                        (list(AUDIT_OBJECT_TYPES), schemas, since.replace(tzinfo=timezone.utc),
-                                         until.replace(tzinfo=timezone.utc))).fetchall()
+                    rows = conn.execute(
+                        select + "at >= %s AND at <= %s ORDER BY at, id",
+                        (
+                            list(AUDIT_OBJECT_TYPES),
+                            schemas,
+                            since.replace(tzinfo=timezone.utc),
+                            until.replace(tzinfo=timezone.utc),
+                        ),
+                    ).fetchall()
         except psycopg.Error as exc:
             raise AuditUnavailable(_message(exc), _audit_cause(exc)) from exc
         by_transaction = bool(p_snap and c_snap)
-        return [DdlEvent(at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None), db_user=user,
-                         objects=[(names[0], names[1])], statement_type=tag, statement=statement or "",
-                         certain=by_transaction, xid=xid)  # 没有两次游标时只能按时间取，结果一律不确定
-                for ts, user, tag, names, statement, xid in rows]
+        return [
+            DdlEvent(
+                at=datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None),
+                db_user=user,
+                objects=[(names[0], names[1])],
+                statement_type=tag,
+                statement=statement or "",
+                certain=by_transaction,
+                xid=xid,
+            )  # 没有两次游标时只能按时间取，结果一律不确定
+            for ts, user, tag, names, statement, xid in rows
+        ]
 
     def _instance_key(self, conn: psycopg.Connection, identity: dict[str, Any] | None = None) -> str | None:
         """事务号只在同一个实例、同一条时间线、同一次启动内可比。
@@ -244,7 +296,8 @@ class PostgresConnector:
         try:
             start, db_oid = conn.execute(
                 "SELECT extract(epoch FROM pg_catalog.pg_postmaster_start_time())::text, d.oid::text "
-                "FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()").fetchone()
+                "FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()"
+            ).fetchone()
         except psycopg.Error:
             return None
         timeline = None
@@ -259,9 +312,14 @@ class PostgresConnector:
 
     @staticmethod
     def _check_audit_triggers(conn: psycopg.Connection) -> None:
-        found = {name: (enabled, func) for name, enabled, func in conn.execute(
-            "SELECT e.evtname, e.evtenabled, e.evtfoid::regprocedure::text FROM pg_catalog.pg_event_trigger e "
-            "WHERE e.evtname = ANY(%s)", (list(AUDIT_TRIGGERS),)).fetchall()}
+        found = {
+            name: (enabled, func)
+            for name, enabled, func in conn.execute(
+                "SELECT e.evtname, e.evtenabled, e.evtfoid::regprocedure::text FROM pg_catalog.pg_event_trigger e "
+                "WHERE e.evtname = ANY(%s)",
+                (list(AUDIT_TRIGGERS),),
+            ).fetchall()
+        }
         for name, func in AUDIT_TRIGGERS.items():
             if name not in found:
                 raise AuditUnavailable(f"事件触发器 {name} 不存在", "not_enabled")
@@ -275,13 +333,15 @@ class PostgresConnector:
         """PostgreSQL 不记录表的最近修改时间，不报告新鲜度（不以统计信息冒充）。"""
         return {}
 
-    def describe_objects(self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
-                         ) -> dict[tuple[str, str], dict[str, Any]]:
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）与视图定义；对象不存在时列为空。
         timeout_seconds：探索查询传入剩余时间，作为 statement_timeout。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
-        out: dict[tuple[str, str], dict[str, Any]] = {k: {"columns": [], "definition": None, "physical_id": None}
-                                                      for k in names}
+        out: dict[tuple[str, str], dict[str, Any]] = {
+            k: {"columns": [], "definition": None, "physical_id": None} for k in names
+        }
         if not names:
             return out
         try:
@@ -292,14 +352,16 @@ class PostgresConnector:
                     "SELECT c.oid, n.nspname, c.relname, c.relkind FROM pg_catalog.pg_class c "
                     "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
                     "WHERE (n.nspname, c.relname) IN (SELECT * FROM unnest(%s::text[], %s::text[]))",
-                    ([s for s, _ in names], [n for _, n in names])).fetchall()
+                    ([s for s, _ in names], [n for _, n in names]),
+                ).fetchall()
                 by_oid = {oid: (schema, name) for oid, schema, name, _ in rows}
                 for oid, key in by_oid.items():
                     out[key]["physical_id"] = str(oid)
                 for oid, cols in self._columns(conn, list(by_oid)).items():
                     out[by_oid[oid]]["columns"] = [[c[0], c[1]] for c in cols]
                 for oid, definition in self._definitions(
-                        conn, [oid for oid, _, _, kind in rows if kind in ("v", "m")]).items():
+                    conn, [oid for oid, _, _, kind in rows if kind in ("v", "m")]
+                ).items():
                     out[by_oid[oid]]["definition"] = definition
         except psycopg.Error as exc:
             raise QueryError(_classify(exc), exc.sqlstate, _message(exc)) from exc

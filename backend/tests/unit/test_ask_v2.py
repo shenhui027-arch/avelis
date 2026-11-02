@@ -14,14 +14,28 @@ from avelis.governance.errors import Invalid
 TODAY = date(2026, 10, 29)
 REGION = [{"name": "region", "column": "region", "label": "区域"}]
 CARDS = [
-    MetricCard(code="paid_sales", name="实付销售额", aliases=[], dimensions=REGION,
-               dimension_values={"region": ["华东", "华北", "华南"]}),
-    MetricCard(code="orders_cnt", name="订单数", aliases=[], dimensions=REGION,
-               dimension_values={"region": ["华东", "华北", "华南"]}),
+    MetricCard(
+        code="paid_sales",
+        name="实付销售额",
+        aliases=[],
+        dimensions=REGION,
+        dimension_values={"region": ["华东", "华北", "华南"]},
+    ),
+    MetricCard(
+        code="orders_cnt",
+        name="订单数",
+        aliases=[],
+        dimensions=REGION,
+        dimension_values={"region": ["华东", "华北", "华南"]},
+    ),
     MetricCard(code="net_sales", name="退款后净销售额", aliases=["净销售额"], dimensions=REGION),
     MetricCard(code="aov", name="客单价", aliases=[], dimensions=REGION),
-    MetricCard(code="category_sales", name="类目销售额", aliases=[],
-               dimensions=[{"name": "category", "column": "c.category_name", "label": "类目"}]),
+    MetricCard(
+        code="category_sales",
+        name="类目销售额",
+        aliases=[],
+        dimensions=[{"name": "category", "column": "c.category_name", "label": "类目"}],
+    ),
 ]
 
 
@@ -45,12 +59,18 @@ def test_formula_evaluation_is_null_safe():
 
 
 def test_comparison_ranges():
-    assert comparison_range(date(2026, 9, 16), date(2026, 9, 16), "previous_period") == (date(2026, 9, 15),
-                                                                                         date(2026, 9, 15))
-    assert comparison_range(date(2026, 9, 1), date(2026, 9, 30), "previous_period") == (date(2026, 8, 2),
-                                                                                        date(2026, 8, 31))
-    assert comparison_range(date(2028, 2, 29), date(2028, 2, 29), "previous_year") == (date(2027, 2, 28),
-                                                                                      date(2027, 2, 28))
+    assert comparison_range(date(2026, 9, 16), date(2026, 9, 16), "previous_period") == (
+        date(2026, 9, 15),
+        date(2026, 9, 15),
+    )
+    assert comparison_range(date(2026, 9, 1), date(2026, 9, 30), "previous_period") == (
+        date(2026, 8, 2),
+        date(2026, 8, 31),
+    )
+    assert comparison_range(date(2028, 2, 29), date(2028, 2, 29), "previous_year") == (
+        date(2027, 2, 28),
+        date(2027, 2, 28),
+    )
 
 
 def test_demo_rules_multi_metric_ranking_and_compare():

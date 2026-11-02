@@ -110,9 +110,14 @@ class EngineSuite:
         self.ctx["apis"] = {u: Api(client, u, pw) for u in ("zhang", "li", "wang")}
         engine = {e["kind"]: e for e in admin.get("/api/engines")}[p.kind]
         assert {"metadata", "view_lineage", "query", "live_check"} <= set(engine["capabilities"])
-        base = {"name": f"门店库（{p.label} 验收）", "kind": p.kind, "host": "127.0.0.1", "port": int(env[p.port_key]),
-                "collect": {"username": p.collect_keys[0], "password": env[p.collect_keys[1]]},
-                "query": {"username": p.query_keys[0], "password": env[p.query_keys[1]]}}
+        base = {
+            "name": f"门店库（{p.label} 验收）",
+            "kind": p.kind,
+            "host": "127.0.0.1",
+            "port": int(env[p.port_key]),
+            "collect": {"username": p.collect_keys[0], "password": env[p.collect_keys[1]]},
+            "query": {"username": p.query_keys[0], "password": env[p.query_keys[1]]},
+        }
         bad, label = p.missing_option
         assert label in admin.post("/api/datasources", {**base, "options": bad}, expect=422)["detail"]
         ds = admin.post("/api/datasources", {**base, "options": p.options}, expect=201)
@@ -144,8 +149,7 @@ class EngineSuite:
         assert docs[n("amount")]["status"] == "ok" and docs[n("amount")]["comment"] == "成交金额"
         assert docs[n("status")]["status"] == "missing"
         graph = admin.get("/api/lineage/graph", params={"asset_id": ids["city_daily_sales"]})
-        edge = next(e for e in graph["edges"]
-                    if e["source"] == ids["sales"] and e["target"] == ids["city_daily_sales"])
+        edge = next(e for e in graph["edges"] if e["source"] == ids["sales"] and e["target"] == ids["city_daily_sales"])
         rel = {(c["target_column"], c["source_column"]): c["relation"] for c in edge["columns"]}
         assert rel[(n("sales_amount"), n("amount"))] == "value_aggregated"
         assert rel[(None, n("status"))] == "filter" and rel[(None, n("shop_id"))] == "join_key"
@@ -155,13 +159,23 @@ class EngineSuite:
     def test_02_publish_and_ask_in_engine_dialect(self, admin: Api):
         p, n = self.profile, self.profile.ident
         zhang, li, wang = (self.ctx["apis"][u] for u in ("zhang", "li", "wang"))
-        m = zhang.post("/api/metrics", {"code": f"store_sales_{p.kind}", "name": f"{p.label}门店销售额",
-                                        "domain_id": self.ctx["trade"]}, expect=201)
-        v = zhang.post(f"/api/metrics/{m['id']}/versions", {
-            "description": "门店成交金额按日期、城市汇总（不含作废单）", "base_asset_id": self.ctx["ids"]["city_daily_sales"],
-            "expression": f"SUM({n('sales_amount')})", "time_column": n("sale_date"),
-            "dimensions": [{"name": "city", "column": n("city"), "label": "城市"}],
-            "grain": [n("sale_date"), n("city")]}, expect=201)
+        m = zhang.post(
+            "/api/metrics",
+            {"code": f"store_sales_{p.kind}", "name": f"{p.label}门店销售额", "domain_id": self.ctx["trade"]},
+            expect=201,
+        )
+        v = zhang.post(
+            f"/api/metrics/{m['id']}/versions",
+            {
+                "description": "门店成交金额按日期、城市汇总（不含作废单）",
+                "base_asset_id": self.ctx["ids"]["city_daily_sales"],
+                "expression": f"SUM({n('sales_amount')})",
+                "time_column": n("sale_date"),
+                "dimensions": [{"name": "city", "column": n("city"), "label": "城市"}],
+                "grain": [n("sale_date"), n("city")],
+            },
+            expect=201,
+        )
         zhang.post(f"/api/metric-versions/{v['id']}/submit")
         assert li.post(f"/api/metric-versions/{v['id']}/approve", {"note": f"{p.label} 验收"})["status"] == "published"
         self.ctx["v1"] = v["id"]
@@ -174,8 +188,11 @@ class EngineSuite:
 
     def test_03_grain_verify(self, admin: Api):
         zhang = self.ctx["apis"]["zhang"]
-        bad = zhang.post(f"/api/assets/{self.ctx['ids']['returns']}/grains",
-                         {"columns": [self.profile.ident("sale_id")], "reason": "错误声明"}, expect=201)
+        bad = zhang.post(
+            f"/api/assets/{self.ctx['ids']['returns']}/grains",
+            {"columns": [self.profile.ident("sale_id")], "reason": "错误声明"},
+            expect=201,
+        )
         checked = zhang.post(f"/api/grains/{bad['id']}/verify")
         assert checked["status"] == "violated" and checked["verify_detail"]["duplicate_example"][0] == "9002"
         assert self.profile.grain_sql_name in checked["verify_detail"]["sql"]

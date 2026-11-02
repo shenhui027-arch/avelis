@@ -42,15 +42,36 @@ def fake_ask(monkeypatch, box, *, status="answered", explanation="指标甲的�
     for obj in (source, metric, version):
         box.session.store[(type(obj), obj.id)] = obj
     upstream_closure = ask_service.upstream_closure
-    monkeypatch.setattr(ask_service, "upstream_closure", lambda session, ids:
-                        {source.id: source} if set(ids) == {source.id} else upstream_closure(session, ids))
-    answer = Answer(id="answer-a", question=box.run.question, asked_by=box.user.id, asked_at=utcnow(),
-                    status=status, model_adapter="fake-ask", intent={"metric_codes": ["m_a"]}, plan={},
-                    sql="SELECT SUM(value) FROM metric_a", metric_version_ids=["metric-v1"],
-                    result={"columns": ["指标甲"], "rows": [["7"]], "row_count": 1, "truncated": False},
-                    evidence={"sources": []}, freshness={}, message="受治理查询返回指标甲为七", error_code=None,
-                    executed_at=utcnow(), duration_ms=3, cache_hit=False, recheck_status=None,
-                    thread_id="ask-thread-a", steps=[], explanation=explanation, explanation_source="template")
+    monkeypatch.setattr(
+        ask_service,
+        "upstream_closure",
+        lambda session, ids: {source.id: source} if set(ids) == {source.id} else upstream_closure(session, ids),
+    )
+    answer = Answer(
+        id="answer-a",
+        question=box.run.question,
+        asked_by=box.user.id,
+        asked_at=utcnow(),
+        status=status,
+        model_adapter="fake-ask",
+        intent={"metric_codes": ["m_a"]},
+        plan={},
+        sql="SELECT SUM(value) FROM metric_a",
+        metric_version_ids=["metric-v1"],
+        result={"columns": ["指标甲"], "rows": [["7"]], "row_count": 1, "truncated": False},
+        evidence={"sources": []},
+        freshness={},
+        message="受治理查询返回指标甲为七",
+        error_code=None,
+        executed_at=utcnow(),
+        duration_ms=3,
+        cache_hit=False,
+        recheck_status=None,
+        thread_id="ask-thread-a",
+        steps=[],
+        explanation=explanation,
+        explanation_source="template",
+    )
     calls = []
 
     def start_answer(session, user, question, adapter, thread_id):
@@ -75,6 +96,7 @@ def fake_ask(monkeypatch, box, *, status="answered", explanation="指标甲的�
 
 def answer_scalar(session, answer):
     """让内存会话执行 Answer 的身份过滤；缺少 owner 条件也会被测试发现。"""
+
     def scalar(statement):
         params = statement.compile().params
         if params.get("id_1") == answer.id and params.get("asked_by_1") == answer.asked_by:
@@ -89,14 +111,26 @@ def test_lookup_runs_ask_once_and_finishes_without_analysis(monkeypatch, trigger
     box, model, _, _, prechecks = configured(monkeypatch, [scope_reply()], unattended=trigger == "schedule")
     session, user = box.session, box.user
     user.username = "user-a"
-    run = AnalysisRun(id="lookup-run", user_id=user.id, question="指标甲是多少？", status="queued", trigger=trigger,
-                      confirmation_mode="always", window=dict(WINDOW), budget=box.budget.view(), checkpoint={},
-                      plan={}, report={}, verification={}, stop_requested=False, created_at=utcnow())
+    run = AnalysisRun(
+        id="lookup-run",
+        user_id=user.id,
+        question="指标甲是多少？",
+        status="queued",
+        trigger=trigger,
+        confirmation_mode="always",
+        window=dict(WINDOW),
+        budget=box.budget.view(),
+        checkpoint={},
+        plan={},
+        report={},
+        verification={},
+        stop_requested=False,
+        created_at=utcnow(),
+    )
     box.run = run
     session.store[(AnalysisRun, run.id)] = run
     session.rollback = lambda: None
-    job = Job(id="lookup-job", status="running", attempts=1, kind="analysis_run", result={},
-              payload={"run_id": run.id})
+    job = Job(id="lookup-job", status="running", attempts=1, kind="analysis_run", result={}, payload={"run_id": run.id})
     answer, ask_calls = fake_ask(monkeypatch, box, explanation=explanation)
     session.scalar = lambda statement: job if job.status == "running" else None
 
@@ -154,8 +188,9 @@ def test_lookup_runs_ask_once_and_finishes_without_analysis(monkeypatch, trigger
 
 @pytest.mark.parametrize("status", ["clarify", "blocked", "denied", "error"])
 def test_unanswered_lookup_falls_back_to_full_analysis(monkeypatch, status):
-    box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    box, model, config, state, prechecks = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+    )
     answer, calls = fake_ask(monkeypatch, box, status=status)
     final = agent.build_graph(MemorySaver()).invoke(state, config)
     assert final["phase"] == "done" and not final.get("__interrupt__")
@@ -173,9 +208,11 @@ def test_analysis_question_keeps_existing_path(monkeypatch, question_type):
     report = report_reply()
     if question_type == "change":
         report.tool_calls[0]["args"]["scope"] = {"metric_code": "m_a"}
-    box, model, config, state, prechecks = configured(monkeypatch,
-        [scope_reply(question_type, metric_codes=["m_a"]),
-         reply("submit_proposal", {"items": []}, "proposal"), report], catalog=pipeline_catalog())
+    box, model, config, state, prechecks = configured(
+        monkeypatch,
+        [scope_reply(question_type, metric_codes=["m_a"]), reply("submit_proposal", {"items": []}, "proposal"), report],
+        catalog=pipeline_catalog(),
+    )
     if question_type == "change":
         # 替身预检只有单期值：明确登记自动归因不适用，报告保留“证据不足”。
         box.explanations[scope_key("m_a", [], WINDOW)] = "unsupported"
@@ -189,8 +226,9 @@ def test_analysis_question_keeps_existing_path(monkeypatch, question_type):
 
 @pytest.mark.parametrize("cutoff", ["deadline", "tool_calls", "queries"])
 def test_lookup_does_not_call_ask_after_budget_cutoff(monkeypatch, cutoff):
-    box, model, config, state, _ = configured(monkeypatch, [scope_reply(),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    box, model, config, state, _ = configured(
+        monkeypatch, [scope_reply(), reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+    )
     _, calls = fake_ask(monkeypatch, box)
     invoke = model.invoke
 
@@ -214,8 +252,9 @@ def test_lookup_does_not_call_ask_after_budget_cutoff(monkeypatch, cutoff):
 def test_lookup_clarification_uses_the_existing_checkpoint_before_ask(monkeypatch, unattended):
     question = "请确认查询范围？"
     filters = [{"dimension": "地区", "values": ["华东"]}]
-    box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(clarification=question),
-        scope_reply(filters=filters)], unattended=unattended)
+    box, model, config, state, prechecks = configured(
+        monkeypatch, [scope_reply(clarification=question), scope_reply(filters=filters)], unattended=unattended
+    )
     monkeypatch.setattr(ask_service, "version_sources", lambda session, version: {})
     _, calls = fake_ask(monkeypatch, box)
     graph = agent.build_graph(MemorySaver())
@@ -241,10 +280,15 @@ def test_lookup_clarification_answers_refresh_and_keep_metric_candidates(monkeyp
     catalog.versions["m_sales"][0].name = "营业收入"
     questions = ["要分析哪个指标？", "请确认查询地区？"]
     filters = [{"dimension": "地区", "values": ["华东"]}]
-    box, model, config, state, prechecks = configured(monkeypatch, [
-        scope_reply(metric_codes=[], clarification=questions[0]),
-        scope_reply(metric_codes=["m_sales"], clarification=questions[1]),
-        scope_reply(metric_codes=["m_sales"], filters=filters)], catalog=catalog)
+    box, model, config, state, prechecks = configured(
+        monkeypatch,
+        [
+            scope_reply(metric_codes=[], clarification=questions[0]),
+            scope_reply(metric_codes=["m_sales"], clarification=questions[1]),
+            scope_reply(metric_codes=["m_sales"], filters=filters),
+        ],
+        catalog=catalog,
+    )
     box.run.question = state["question"] = "为什么下降？"
     assert len(catalog.cards) > box.ALL_CANDIDATES
     bare_candidates = box.candidate_metrics(box.run.question)
@@ -261,8 +305,10 @@ def test_lookup_clarification_answers_refresh_and_keep_metric_candidates(monkeyp
     final = graph.invoke(Command(resume={"answer": "华东"}), config)
 
     assert final["phase"] == "done" and not final.get("__interrupt__")
-    assert final["clarifications"] == [{"question": questions[0], "answer": "营业收入"},
-                                       {"question": questions[1], "answer": "华东"}]
+    assert final["clarifications"] == [
+        {"question": questions[0], "answer": "营业收入"},
+        {"question": questions[1], "answer": "华东"},
+    ]
     assert box.scope.metric_codes == ["m_sales"] and box.clarification is None
     assert box.report["kind"] == "lookup" and prechecks == [] and len(calls) == 1
     assert calls[0].metric_codes == ["m_sales"]
@@ -270,8 +316,9 @@ def test_lookup_clarification_answers_refresh_and_keep_metric_candidates(monkeyp
     assert len(model.seen) == box.budget.used_model_requests == 3
     for messages in model.seen[1:]:
         prompt = next(message.content for message in messages if isinstance(message, HumanMessage))
-        candidates = json.loads(next(line.removeprefix("候选口径：") for line in prompt.splitlines()
-                                     if line.startswith("候选口径：")))
+        candidates = json.loads(
+            next(line.removeprefix("候选口径：") for line in prompt.splitlines() if line.startswith("候选口径："))
+        )
         assert "m_sales" in {candidate["code"] for candidate in candidates}
 
 
@@ -279,11 +326,20 @@ def test_lookup_clarification_answers_refresh_and_keep_metric_candidates(monkeyp
 @pytest.mark.parametrize("scope_window", [False, True])
 def test_lookup_maps_understood_window_and_ranking_to_intent(monkeypatch, order, scope_window):
     window = {"start": "2026-10-05", "end": "2026-10-12"}
-    dates = {"start_date": "2026-07-01", "end_date": "2026-07-31",
-             "compare_start": "2026-06-01", "compare_end": "2026-06-30"} if scope_window else {}
+    dates = (
+        {
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
+            "compare_start": "2026-06-01",
+            "compare_end": "2026-06-30",
+        }
+        if scope_window
+        else {}
+    )
     filters = [{"dimension": "渠道", "values": ["直营", "加盟"]}]
-    box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(
-        dimensions=["地区"], filters=filters, order=order, limit=3, **dates)])
+    box, model, config, state, prechecks = configured(
+        monkeypatch, [scope_reply(dimensions=["地区"], filters=filters, order=order, limit=3, **dates)]
+    )
     box.run.window = window
     state["context"]["window"] = window
     _, calls = fake_ask(monkeypatch, box)
@@ -306,11 +362,14 @@ def test_lookup_maps_understood_window_and_ranking_to_intent(monkeypatch, order,
     assert len(model.seen) == box.budget.used_model_requests == box.budget.used_queries == 1
 
 
-@pytest.mark.parametrize("question,time_grain", [
-    ("9 月每天的产量", "day"),
-    ("今年每月的产量", "month"),
-    ("9 月的产量", None),
-])
+@pytest.mark.parametrize(
+    "question,time_grain",
+    [
+        ("9 月每天的产量", "day"),
+        ("今年每月的产量", "month"),
+        ("9 月的产量", None),
+    ],
+)
 def test_lookup_maps_understood_time_grain_to_intent(monkeypatch, question, time_grain):
     scope = {"time_grain": time_grain} if time_grain else {}
     box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(**scope)])
@@ -327,15 +386,18 @@ def test_lookup_maps_understood_time_grain_to_intent(monkeypatch, question, time
     assert len(model.seen) == box.budget.used_model_requests == box.budget.used_queries == 1
 
 
-@pytest.mark.parametrize("scope,error", [
-    ({"compare_start": "2026-08-31", "compare_end": "2026-08-01"}, "compare_start"),
-    ({"time_grain": "day", "compare_start": "2026-08-01", "compare_end": "2026-08-31"},
-     "按时间分组时不能同时"),
-    ({"metric_codes": []}, "取数范围没有指标"),
-])
+@pytest.mark.parametrize(
+    "scope,error",
+    [
+        ({"compare_start": "2026-08-31", "compare_end": "2026-08-01"}, "compare_start"),
+        ({"time_grain": "day", "compare_start": "2026-08-01", "compare_end": "2026-08-31"}, "按时间分组时不能同时"),
+        ({"metric_codes": []}, "取数范围没有指标"),
+    ],
+)
 def test_invalid_lookup_intent_falls_back_without_asking_or_spending_a_query(monkeypatch, scope, error):
-    box, model, config, state, prechecks = configured(monkeypatch, [scope_reply(**scope),
-        reply("submit_proposal", {"items": []}, "proposal"), report_reply()])
+    box, model, config, state, prechecks = configured(
+        monkeypatch, [scope_reply(**scope), reply("submit_proposal", {"items": []}, "proposal"), report_reply()]
+    )
     _, calls = fake_ask(monkeypatch, box)
 
     final = agent.build_graph(MemorySaver()).invoke(state, config)
@@ -408,25 +470,35 @@ def test_run_view_handles_a_missing_lookup_answer(monkeypatch):
 
 
 @pytest.mark.parametrize("scope_location", ["scope", "window", "missing"])
-@pytest.mark.parametrize("text,start,end,region,dimensions", [
-    ("改查 2026 年 8 月华南", "2026-08-01", "2026-08-31", "华南", []),
-    ("那华南呢", "2026-09-01", "2026-09-30", "华南", []),
-    ("按产线拆开", "2026-09-01", "2026-09-30", "华东", ["产线"]),
-])
+@pytest.mark.parametrize(
+    "text,start,end,region,dimensions",
+    [
+        ("改查 2026 年 8 月华南", "2026-08-01", "2026-08-31", "华南", []),
+        ("那华南呢", "2026-09-01", "2026-09-30", "华南", []),
+        ("按产线拆开", "2026-09-01", "2026-09-30", "华东", ["产线"]),
+    ],
+)
 def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
-        monkeypatch, scope_location, text, start, end, region, dimensions):
+    monkeypatch, scope_location, text, start, end, region, dimensions
+):
     session, user, parent, _ = waiting_run(monkeypatch)
     parent.question = "2026 年 9 月华东订单量"
     previous_window = {"start": "2026-09-01", "end": "2026-09-30"}
-    understood = {"question_type": "lookup", "metric_codes": ["m_a"], "dimensions": [],
-                  "filters": [{"dimension": "地区", "values": ["华东"]}]}
+    understood = {
+        "question_type": "lookup",
+        "metric_codes": ["m_a"],
+        "dimensions": [],
+        "filters": [{"dimension": "地区", "values": ["华东"]}],
+    }
     if scope_location == "scope":
         understood.update(start_date=previous_window["start"], end_date=previous_window["end"])
     parent.window = {} if scope_location == "scope" else previous_window
     parent.status, parent.report = "succeeded", {"kind": "lookup", "answer_id": "original-answer"}
     parent.plan = {"scope": understood} if scope_location != "missing" else {}
-    parent.checkpoint = {"confirmed_scope": {"question_type": "change", "metric_codes": []},
-                         "confirmed_items": [{"id": "P1", "content": "上一轮已确认项"}]}
+    parent.checkpoint = {
+        "confirmed_scope": {"question_type": "change", "metric_codes": []},
+        "confirmed_items": [{"id": "P1", "content": "上一轮已确认项"}],
+    }
     monkeypatch.setattr(service, "require_analysis_model", lambda s: SimpleNamespace(adapter="fake"))
     monkeypatch.setattr(service.access, "require_role", lambda *a: None)
     child = service.followup_run(session, user, parent.id, text)
@@ -435,13 +507,17 @@ def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
     inherited = child.checkpoint["inherited"]
     expected_scope = understood if scope_location != "missing" else {}
     assert {key: value for key, value in inherited.items() if key != "conversation"} == {
-        "user_text": text, "previous_question": parent.question,
-        "previous_scope": expected_scope, "previous_window": parent.window}
+        "user_text": text,
+        "previous_question": parent.question,
+        "previous_scope": expected_scope,
+        "previous_window": parent.window,
+    }
     assert inherited["conversation"]["id"] == parent.id
 
     filters = [{"dimension": "地区", "values": [region]}]
-    box, model, config, _, prechecks = configured(monkeypatch, [scope_reply(
-        start_date=start, end_date=end, filters=filters, dimensions=dimensions)])
+    box, model, config, _, prechecks = configured(
+        monkeypatch, [scope_reply(start_date=start, end_date=end, filters=filters, dimensions=dimensions)]
+    )
     box.run.question = child.question
     box.run.window = child.window
     box.run.parent_run_id = child.parent_run_id
@@ -457,8 +533,7 @@ def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
 
     monkeypatch.setattr(box, "candidate_metrics", candidates)
     _, calls = fake_ask(monkeypatch, box)
-    state = agent.initial_state(child.question, "2026-10-31", "UTC", child.window,
-                                inherited=inherited)
+    state = agent.initial_state(child.question, "2026-10-31", "UTC", child.window, inherited=inherited)
     final = agent.build_graph(MemorySaver()).invoke(state, config)
     assert final["phase"] == "done" and box.report["kind"] == "lookup" and prechecks == []
     assert len(calls) == 1 and calls[0].metric_codes == ["m_a"]
@@ -480,17 +555,27 @@ def test_lookup_followup_inherits_understood_scope_or_understands_new_question(
 
 def test_lookup_followup_keeps_metric_candidates_across_short_questions(monkeypatch):
     filters = [{"dimension": "地区", "values": ["华南"]}]
-    previous_scope = {"question_type": "lookup", "metric_codes": ["m_units"], "filters": filters,
-                      "start_date": "2026-09-01", "end_date": "2026-09-30"}
-    box, model, config, _, prechecks = configured(monkeypatch,
-        [scope_reply(**previous_scope, dimensions=["产线"])], catalog=big_catalog(40))
+    previous_scope = {
+        "question_type": "lookup",
+        "metric_codes": ["m_units"],
+        "filters": filters,
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30",
+    }
+    box, model, config, _, prechecks = configured(
+        monkeypatch, [scope_reply(**previous_scope, dimensions=["产线"])], catalog=big_catalog(40)
+    )
     box.run.question, box.run.window = "按产线拆开", {}
     bare_candidates = box.candidate_metrics(f"那华南呢\n{box.run.question}")
     assert len(bare_candidates) == box.CANDIDATES
     assert "m_units" not in {candidate["code"] for candidate in bare_candidates}
     _, calls = fake_ask(monkeypatch, box)
-    inherited = {"user_text": box.run.question, "previous_question": "那华南呢",
-                 "previous_scope": previous_scope, "previous_window": {}}
+    inherited = {
+        "user_text": box.run.question,
+        "previous_question": "那华南呢",
+        "previous_scope": previous_scope,
+        "previous_window": {},
+    }
     state = agent.initial_state(box.run.question, "2026-10-31", "UTC", box.run.window, inherited=inherited)
 
     final = agent.build_graph(MemorySaver()).invoke(state, config)
@@ -499,8 +584,9 @@ def test_lookup_followup_keeps_metric_candidates_across_short_questions(monkeypa
     assert box.report["kind"] == "lookup" and box.clarification is None and prechecks == []
     assert len(model.seen) == box.budget.used_model_requests == 1
     prompt = next(message.content for message in model.seen[0] if isinstance(message, HumanMessage))
-    candidates = json.loads(next(line.removeprefix("候选口径：") for line in prompt.splitlines()
-                                 if line.startswith("候选口径：")))
+    candidates = json.loads(
+        next(line.removeprefix("候选口径：") for line in prompt.splitlines() if line.startswith("候选口径："))
+    )
     assert "m_units" in {candidate["code"] for candidate in candidates}
     assert len(calls) == 1
     intent = calls[0]
@@ -514,11 +600,18 @@ def test_lookup_followup_does_not_reuse_previous_scope_without_a_model_call(monk
     box, model, config, _, prechecks = configured(monkeypatch, [])
     box.run.question, box.run.window = "那华南呢", {}
     _, calls = fake_ask(monkeypatch, box)
-    inherited = {"user_text": box.run.question, "previous_question": "2026 年 9 月华东订单量",
-                 "previous_scope": {"question_type": "lookup", "metric_codes": ["m_a"],
-                                    "filters": [{"dimension": "地区", "values": ["华东"]}],
-                                    "start_date": "2026-09-01", "end_date": "2026-09-30"},
-                 "previous_window": {}}
+    inherited = {
+        "user_text": box.run.question,
+        "previous_question": "2026 年 9 月华东订单量",
+        "previous_scope": {
+            "question_type": "lookup",
+            "metric_codes": ["m_a"],
+            "filters": [{"dimension": "地区", "values": ["华东"]}],
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-30",
+        },
+        "previous_window": {},
+    }
     state = agent.initial_state(box.run.question, "2026-10-31", "UTC", box.run.window, inherited=inherited)
     if cutoff == "deadline":
         box.budget.started -= box.budget.seconds + 1

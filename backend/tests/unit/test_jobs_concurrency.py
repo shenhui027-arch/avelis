@@ -152,8 +152,16 @@ class JobSession:
 @pytest.fixture
 def job_session(monkeypatch):
     now = [datetime(2026, 10, 29, 12)]
-    job = Job(id="job-id", kind="collect", payload={"datasource_id": "source"}, created_by="actor",
-              status="queued", attempts=3, result={}, error=None)
+    job = Job(
+        id="job-id",
+        kind="collect",
+        payload={"datasource_id": "source"},
+        created_by="actor",
+        status="queued",
+        attempts=3,
+        result={},
+        error=None,
+    )
     session = JobSession(job)
 
     @contextmanager
@@ -193,7 +201,10 @@ def test_run_job_does_not_execute_unclaimed_job(monkeypatch, job_session):
 @pytest.mark.parametrize("new_state", ["abandoned", "reclaimed", "finished"])
 @pytest.mark.parametrize("collection_fails", [False, True])
 def test_slow_worker_cannot_overwrite_abandoned_or_newer_attempt(
-    monkeypatch, job_session, new_state, collection_fails,
+    monkeypatch,
+    job_session,
+    new_state,
+    collection_fails,
 ):
     session, now = job_session
     protected = {}
@@ -208,8 +219,7 @@ def test_slow_worker_cannot_overwrite_abandoned_or_newer_attempt(
         else:
             session.job.status = "succeeded"
             session.job.result = {"new_attempt": "finished"}
-        protected.update({field: getattr(session.job, field)
-                          for field in ("status", "attempts", "result", "error")})
+        protected.update({field: getattr(session.job, field) for field in ("status", "attempts", "result", "error")})
         if collection_fails:
             raise ValueError("旧 worker 的迟到失败")
         return "late-run"
@@ -273,11 +283,14 @@ class ScheduleSession:
 def test_schedule_locks_before_pending_check_and_wakes_only_after_commit(monkeypatch, redis_fails):
     now = datetime(2026, 10, 29, 12)
     events = []
-    session = ScheduleSession(events, {
-        "due": {"last": None, "pending": None},
-        "pending": {"last": None, "pending": "existing-job"},
-        "recent": {"last": now - timedelta(minutes=1), "pending": None},
-    })
+    session = ScheduleSession(
+        events,
+        {
+            "due": {"last": None, "pending": None},
+            "pending": {"last": None, "pending": "existing-job"},
+            "recent": {"last": now - timedelta(minutes=1), "pending": None},
+        },
+    )
 
     @contextmanager
     def scope():
@@ -297,9 +310,21 @@ def test_schedule_locks_before_pending_check_and_wakes_only_after_commit(monkeyp
     monkeypatch.setattr(jobs, "enqueue", lambda *args, **kwargs: pytest.fail("调度不得另开事务入队"))
     assert jobs.schedule_due() == ["job-1"]
     assert events == [
-        "begin", "sources", "lock:due", "last:due", "pending:due", "add:due", "flush:due",
-        "lock:pending", "last:pending", "pending:pending", "lock:recent", "last:recent", "pending:recent",
-        "commit", "redis",
+        "begin",
+        "sources",
+        "lock:due",
+        "last:due",
+        "pending:due",
+        "add:due",
+        "flush:due",
+        "lock:pending",
+        "last:pending",
+        "pending:pending",
+        "lock:recent",
+        "last:recent",
+        "pending:recent",
+        "commit",
+        "redis",
     ]
     assert len(session.created) == 1
     assert session.created[0].status == "queued"

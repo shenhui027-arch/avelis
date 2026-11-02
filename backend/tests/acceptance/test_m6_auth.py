@@ -23,8 +23,11 @@ def bearer(token: str) -> dict:
 
 def test_00_first_login_must_change_password(stack, admin: Api):
     client, env, _ = stack
-    created = admin.post("/api/users", {"username": "zhou", "display_name": "周雪", "password": "Init-pass-2026",
-                                        "roles": ["analyst"]}, expect=201)
+    created = admin.post(
+        "/api/users",
+        {"username": "zhou", "display_name": "周雪", "password": "Init-pass-2026", "roles": ["analyst"]},
+        expect=201,
+    )
     assert created["must_change_password"] is True  # 管理员创建的账号默认首次登录必须改口令
     resp = login(client, "zhou", "Init-pass-2026")
     assert resp.status_code == 200 and resp.json()["must_change_password"] is True
@@ -38,16 +41,24 @@ def test_01_change_password_ends_other_sessions(stack):
     client, _, _ = stack
     old = ctx["old"]
     other = login(client, "zhou", "Init-pass-2026").json()["access_token"]  # 另一处登录
-    wrong = client.post("/api/me/password", headers=bearer(old),
-                        json={"current_password": "nope-nope", "new_password": "Brand-new-2026"})
+    wrong = client.post(
+        "/api/me/password",
+        headers=bearer(old),
+        json={"current_password": "nope-nope", "new_password": "Brand-new-2026"},
+    )
     assert wrong.status_code == 403
-    same_as_user = client.post("/api/me/password", headers=bearer(old),
-                               json={"current_password": "Init-pass-2026", "new_password": "zhouzhou"})
+    same_as_user = client.post(
+        "/api/me/password", headers=bearer(old), json={"current_password": "Init-pass-2026", "new_password": "zhouzhou"}
+    )
     assert same_as_user.status_code == 422
     import time
+
     time.sleep(1.1)  # 令牌 iat 精确到秒：确保两次登录与改口令不在同一秒
-    done = client.post("/api/me/password", headers=bearer(old),
-                       json={"current_password": "Init-pass-2026", "new_password": "Brand-new-2026"})
+    done = client.post(
+        "/api/me/password",
+        headers=bearer(old),
+        json={"current_password": "Init-pass-2026", "new_password": "Brand-new-2026"},
+    )
     assert done.status_code == 200 and done.json()["must_change_password"] is False
     fresh = done.json()["access_token"]
     for stale in (old, other):
@@ -104,8 +115,11 @@ def test_04_admin_self_protection_and_permissions(stack, admin: Api):
     admin.patch(f"/api/users/{me['id']}", {"is_active": False}, expect=409)
     admin.patch(f"/api/users/{me['id']}", {"roles": ["steward"]}, expect=409)
     pw = env["AVELIS_DEMO_USER_PASSWORD"]
-    admin.post("/api/users", {"username": "wu", "display_name": "吴", "password": pw, "roles": ["steward"],
-                              "must_change_password": False}, expect=201)
+    admin.post(
+        "/api/users",
+        {"username": "wu", "display_name": "吴", "password": pw, "roles": ["steward"], "must_change_password": False},
+        expect=201,
+    )
     wu = Api(client, "wu", pw)
     wu.patch(f"/api/users/{ctx['zhou']}", {"is_active": True}, expect=403)
     wu.post(f"/api/users/{ctx['zhou']}/password", {"new_password": "Steward-try-1"}, expect=403)

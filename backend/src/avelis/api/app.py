@@ -44,7 +44,7 @@ class _FrontendRoute(APIRoute):
         path = scope.get("path", "")
         root = scope.get("root_path", "")
         if root and path.startswith(root):  # 与 Starlette 路由一致：挂在路径前缀下时按去掉前缀后的路径判断
-            path = path[len(root):]
+            path = path[len(root) :]
         if path == "/api" or path.startswith("/api/"):
             return Match.NONE, {}
         return super().matches(scope)
@@ -58,11 +58,16 @@ def create_app() -> FastAPI:
         index = frontend_dir / "index.html"
         if not frontend_dir.is_dir() or not index.is_file() or not index.resolve().is_relative_to(frontend_dir):
             raise ValueError(f"前端目录必须存在且包含目录内的 index.html：{frontend_dir}")
-    app = FastAPI(title="Avelis API", version="1.0.0", openapi_url="/api/openapi.json", docs_url="/api/docs",
-                  redoc_url=None)
-    app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=False,
-                       allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-                       allow_headers=["Authorization", "Content-Type", "Accept-Language"])
+    app = FastAPI(
+        title="Avelis API", version="1.0.1", openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url=None
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "Accept-Language"],
+    )
     app.add_middleware(LocaleMiddleware)
 
     @app.exception_handler(GovernanceError)
@@ -71,8 +76,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):
-        return await http_exception_handler(request, StarletteHTTPException(
-            exc.status_code, translate(exc.detail), headers=exc.headers))
+        return await http_exception_handler(
+            request, StarletteHTTPException(exc.status_code, translate(exc.detail), headers=exc.headers)
+        )
 
     @app.exception_handler(CredentialMissing)
     async def credential_missing(_: Request, exc: CredentialMissing) -> JSONResponse:
@@ -120,11 +126,23 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "error", "failed": failed})
         return JSONResponse(content={"status": "ok"})
 
-    for module in (auth, datasources, catalog, governance, history, ask, analysis, model_settings, system_settings,
-                   imports, workbench):
+    for module in (
+        auth,
+        datasources,
+        catalog,
+        governance,
+        history,
+        ask,
+        analysis,
+        model_settings,
+        system_settings,
+        imports,
+        workbench,
+    ):
         app.include_router(module.router)
 
     if frontend_dir is not None:
+
         def frontend(path: str) -> FileResponse:
             try:
                 target = (frontend_dir / path).resolve()
@@ -141,8 +159,13 @@ def create_app() -> FastAPI:
                 headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return FileResponse(target, headers=headers)
 
-        app.router.add_api_route("/{path:path}", frontend, methods=["GET", "HEAD"], include_in_schema=False,
-                                 route_class_override=_FrontendRoute)
+        app.router.add_api_route(
+            "/{path:path}",
+            frontend,
+            methods=["GET", "HEAD"],
+            include_in_schema=False,
+            route_class_override=_FrontendRoute,
+        )
     return app
 
 

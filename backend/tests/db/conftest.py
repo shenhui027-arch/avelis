@@ -28,8 +28,15 @@ def meta_db():
     except Exception as exc:  # noqa: BLE001 - 没有 .env 等
         pytest.skip(f"没有元数据库配置：{type(exc).__name__}")
     try:
-        with psycopg.connect(host=base.host, port=base.port, user=base.username, password=base.password,
-                             dbname="postgres", autocommit=True, connect_timeout=3) as conn:
+        with psycopg.connect(
+            host=base.host,
+            port=base.port,
+            user=base.username,
+            password=base.password,
+            dbname="postgres",
+            autocommit=True,
+            connect_timeout=3,
+        ) as conn:
             conn.execute(f"DROP DATABASE IF EXISTS {TEST_DB} WITH (FORCE)")
             conn.execute(f"CREATE DATABASE {TEST_DB}")
     except psycopg.OperationalError:
@@ -57,8 +64,7 @@ def factory(meta_db):
         @staticmethod
         def user(roles=("analyst",), active=True) -> str:
             with session_scope() as s:
-                u = User(username=f"u{uuid.uuid4().hex[:10]}", display_name="测试", password_hash="x",
-                         is_active=active)
+                u = User(username=f"u{uuid.uuid4().hex[:10]}", display_name="测试", password_hash="x", is_active=active)
                 s.add(u)
                 s.flush()
                 for r in roles:
@@ -74,8 +80,13 @@ def factory(meta_db):
                 s.flush()
                 if member_id:
                     s.add(DomainMember(domain_id=d.id, user_id=member_id, role="viewer"))
-                m = Metric(code=f"m{uuid.uuid4().hex[:8]}", name="测试指标", domain_id=d.id, owner_id=owner_id,
-                           created_by=owner_id)
+                m = Metric(
+                    code=f"m{uuid.uuid4().hex[:8]}",
+                    name="测试指标",
+                    domain_id=d.id,
+                    owner_id=owner_id,
+                    created_by=owner_id,
+                )
                 s.add(m)
                 return m.code
 

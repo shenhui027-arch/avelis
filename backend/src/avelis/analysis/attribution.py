@@ -43,6 +43,7 @@ def q(value: Decimal | None, places: int = 4) -> Decimal | None:
 
 # --- 适用范围 ---------------------------------------------------------------------------
 
+
 def _single_call(text: str) -> bool:
     """整个表达式是一次函数调用：第一个左括号与最后一个字符的右括号配对（SUM(a) - SUM(b) 不是）。"""
     depth = 0
@@ -77,14 +78,18 @@ def applicability(version: Any, components: dict[str, Any]) -> dict[str, Any]:
         comp = components.get(code)
         if comp is None:
             return {"algorithm": None, "reason": f"组成指标 {code} 没有锁定的版本"}
-        ok, reason = base_additive(comp.expression) if getattr(comp, "kind", "base") != "derived" else (
-            False, f"组成指标 {code} 本身是派生指标")
+        ok, reason = (
+            base_additive(comp.expression)
+            if getattr(comp, "kind", "base") != "derived"
+            else (False, f"组成指标 {code} 本身是派生指标")
+        )
         if not ok:
             return {"algorithm": None, "reason": f"比率的组成指标 {code} 不可加：{reason}"}
     return {"algorithm": "ratio", "reason": "", "numerator": numerator, "denominator": denominator}
 
 
 # --- 对账与成员 -------------------------------------------------------------------------
+
 
 def reconciles(parts: list[Decimal], total: Decimal | None) -> bool:
     total = total or Decimal(0)
@@ -96,6 +101,7 @@ def member_name(key: tuple) -> str:
 
 
 # --- 分布变化强度 -----------------------------------------------------------------------
+
 
 def js_divergence(before: list[Decimal], after: list[Decimal]) -> float | None:
     """两期份额分布的 JS 散度（以 2 为底，0–1）；只对非负、总量为正的分布计算，否则返回 None（不偷偷取绝对值）。"""
@@ -116,6 +122,7 @@ def js_divergence(before: list[Decimal], after: list[Decimal]) -> float | None:
 
 # --- 单个维度 ---------------------------------------------------------------------------
 
+
 @dataclass
 class Dimension:
     name: str
@@ -134,14 +141,25 @@ def additive_members(values: dict[tuple, tuple[Decimal | None, Decimal | None]],
         status = "新增" if prev is None and cur is not None else "退出" if cur is None and prev is not None else ""
         p, c = prev or Decimal(0), cur or Decimal(0)
         change = c - p
-        rows.append({"member": member_name(key), "previous": p, "current": c, "member_change": change,
-                     "contribution": change, "ep": q(change / total_change) if total_change else None,
-                     "structure_effect": None, "rate_effect": None, "change_type": status})
+        rows.append(
+            {
+                "member": member_name(key),
+                "previous": p,
+                "current": c,
+                "member_change": change,
+                "contribution": change,
+                "ep": q(change / total_change) if total_change else None,
+                "structure_effect": None,
+                "rate_effect": None,
+                "change_type": status,
+            }
+        )
     return rows
 
 
-def ratio_members(values: dict[tuple, tuple], totals: tuple[Decimal, Decimal, Decimal, Decimal],
-                  total_change: Decimal) -> tuple[list[dict], Decimal]:
+def ratio_members(
+    values: dict[tuple, tuple], totals: tuple[Decimal, Decimal, Decimal, Decimal], total_change: Decimal
+) -> tuple[list[dict], Decimal]:
     """比率指标：values：成员 → (a0, b0, a1, b1)（None 表示该期没有这个成员）；totals：(A0, B0, A1, B1)。
     返回（成员行，Σ贡献）。成员比率变化与对总体比率的贡献分两列。"""
     _, b0_total, _, b1_total = totals
@@ -153,10 +171,17 @@ def ratio_members(values: dict[tuple, tuple], totals: tuple[Decimal, Decimal, De
         w1 = b1 / b1_total if b1_total else None
         r0 = a0 / b0 if b0 else None
         r1 = a1 / b1 if b1 else None
-        row = {"member": member_name(key), "previous": q(r0), "current": q(r1),
-               "member_change": q(r1 - r0) if r0 is not None and r1 is not None else None,
-               "structure_effect": None, "rate_effect": None, "contribution": None, "ep": None,
-               "change_type": "新增" if new else "退出" if gone else ""}
+        row = {
+            "member": member_name(key),
+            "previous": q(r0),
+            "current": q(r1),
+            "member_change": q(r1 - r0) if r0 is not None and r1 is not None else None,
+            "structure_effect": None,
+            "rate_effect": None,
+            "contribution": None,
+            "ep": None,
+            "change_type": "新增" if new else "退出" if gone else "",
+        }
         if new and w1 is not None and r1 is not None:  # 新增成员：只有结构效应，不补零、不估算比率
             row["structure_effect"] = row["contribution"] = w1 * r1
         elif gone and w0 is not None and r0 is not None:
@@ -179,8 +204,9 @@ def immaterial(total_previous: Decimal, total_change: Decimal, threshold: Decima
     return total_change == 0 or abs(total_change) < threshold * abs(total_previous)
 
 
-def judge(dim: Dimension, total_previous: Decimal, total_change: Decimal, top_k: int,
-          threshold: Decimal = MIN_CHANGE_RATIO) -> Dimension:
+def judge(
+    dim: Dimension, total_previous: Decimal, total_change: Decimal, top_k: int, threshold: Decimal = MIN_CHANGE_RATIO
+) -> Dimension:
     """维度内的判定与截取（ADR 0009 第 4 点的判定顺序）：先看成员变动 Σ|c_i|，未达阈值为变化不明显；达到阈值而
     |ΔT| 低于阈值或 |ΔT| / Σ|c_i| < 0.2 为相互抵消。这两种不排名，分别列出增加项与减少项（最大的减少项与增加项是首要
     原因）；否则按 |EP| 取到累计 ≥ 0.67 或 top_k。"""

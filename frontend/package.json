@@ -1,7 +1,7 @@
 {
   "name": "avelis-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "typecheck": "tsc -b",
     "gen:tokens": "node scripts/gen-tokens.mjs",
     "check:i18n": "node scripts/check-i18n.mjs && node src/i18n/render.test.mjs",
+    "test": "node scripts/run-tests.mjs",
     "gen:api": "cd ../backend && uv run python -m avelis.bootstrap openapi ../frontend/src/api/openapi.json && cd ../frontend && openapi-typescript src/api/openapi.json -o src/api/schema.d.ts --default-non-nullable false"
   },
   "dependencies": {

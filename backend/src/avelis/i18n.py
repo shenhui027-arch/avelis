@@ -72,8 +72,9 @@ class LocaleMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        header = ",".join(value.decode("latin-1") for key, value in scope.get("headers", ())
-                          if key.lower() == b"accept-language")
+        header = ",".join(
+            value.decode("latin-1") for key, value in scope.get("headers", ()) if key.lower() == b"accept-language"
+        )
         with locale_context(negotiate_locale(header)):
             await self.app(scope, receive, send)
 
@@ -96,9 +97,15 @@ def _messages(locale: str) -> dict[str, str]:
             catalog = read_po(stream)
     except FileNotFoundError:
         return {}
-    return {message.id: message.string for message in catalog
-            if isinstance(message.id, str) and message.id and isinstance(message.string, str) and message.string
-            and "fuzzy" not in message.flags}
+    return {
+        message.id: message.string
+        for message in catalog
+        if isinstance(message.id, str)
+        and message.id
+        and isinstance(message.string, str)
+        and message.string
+        and "fuzzy" not in message.flags
+    }
 
 
 def gettext(msgid: str, **params: Any) -> str:
@@ -120,12 +127,18 @@ def translate(message: Any) -> Any:
 def reply_language_instruction(locale: str) -> str:
     """只追加到每次运行的用户上下文，系统提示保持稳定以复用前缀缓存。"""
     if locale == "en":
-        return ("Write user-facing text in English. Keep metric names, dimension members, field names, data values, "
-                "and quoted metadata in their original language. Do not translate them. "
-                "Verification and citation rules remain unchanged.")
+        return (
+            "Write user-facing text in English. Keep metric names, dimension members, field names, data values, "
+            "and quoted metadata in their original language. Do not translate them. "
+            "Verification and citation rules remain unchanged."
+        )
     if locale == "zh-TW":
-        return ("請用繁體中文（台灣）撰寫給使用者看的文字；指標名稱、維度成員、欄位名稱、資料值及引用的中繼資料"
-                "保持原文，不要翻譯；核驗與引用規則不變。")
+        return (
+            "請用繁體中文（台灣）撰寫給使用者看的文字；指標名稱、維度成員、欄位名稱、資料值及引用的中繼資料"
+            "保持原文，不要翻譯；核驗與引用規則不變。"
+        )
     # 简体也给出明确指令：固定 reply_language = "zh-CN" 或从其他语言切回简体时，模型不会沿用上一轮的语言
-    return ("请用简体中文撰写给用户看的文字；指标名称、维度成员、字段名称、数据取值及引用的元数据"
-            "保持原文，不要翻译；核验与引用规则不变。")
+    return (
+        "请用简体中文撰写给用户看的文字；指标名称、维度成员、字段名称、数据取值及引用的元数据"
+        "保持原文，不要翻译；核验与引用规则不变。"
+    )

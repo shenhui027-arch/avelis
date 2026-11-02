@@ -95,18 +95,37 @@ def _with(query: exp.Query, owner: exp.Expression) -> exp.Query:
     return query
 
 
-def _query_write(target_node: exp.Expression, query: exp.Query, columns: list[str], *,
-                 dialect: SqlDialect, schema: dict, default_db: str | None,
-                 temporary: bool = False, created: bool = False, preserve_self: bool = False) -> Write:
+def _query_write(
+    target_node: exp.Expression,
+    query: exp.Query,
+    columns: list[str],
+    *,
+    dialect: SqlDialect,
+    schema: dict,
+    default_db: str | None,
+    temporary: bool = False,
+    created: bool = False,
+    preserve_self: bool = False,
+) -> Write:
     if not isinstance(target_node, exp.Table):
         raise ValueError("目标不是表")
     target = _qualify(target_node, dialect.default_catalog, default_db)
     if target is None:
         raise ValueError(f"目标表 {target_node.name} 缺少库名，且没有默认库")
-    parsed = parse_query(query.sql(dialect=dialect.name), dialect=dialect, schema=schema,
-                         default_catalog=dialect.default_catalog, default_db=default_db)
-    write = Write(target, temporary=temporary, created=created,
-                  status="parsed" if parsed.status == "ok" else parsed.status, reason=parsed.reason)
+    parsed = parse_query(
+        query.sql(dialect=dialect.name),
+        dialect=dialect,
+        schema=schema,
+        default_catalog=dialect.default_catalog,
+        default_db=default_db,
+    )
+    write = Write(
+        target,
+        temporary=temporary,
+        created=created,
+        status="parsed" if parsed.status == "ok" else parsed.status,
+        reason=parsed.reason,
+    )
     if parsed.status in ("failed", "unsupported"):
         write.edges = [StatementEdge(t, None, None, "table", None) for t in parsed.tables if t != target]
         return write
@@ -130,22 +149,23 @@ def _query_write(target_node: exp.Expression, query: exp.Query, columns: list[st
         for src in column.sources:
             if not preserve_self and src.ref.table == target and src.ref.column == target_column:
                 continue
-            write.edges.append(StatementEdge(src.ref.table, src.ref.column, target_column, src.relation,
-                                              column.expression))
+            write.edges.append(
+                StatementEdge(src.ref.table, src.ref.column, target_column, src.relation, column.expression)
+            )
     for inf in parsed.influences:
         write.edges.append(StatementEdge(inf.ref.table, inf.ref.column, None, inf.relation, inf.expression))
     # 标量子查询的列级展开超出 parse_query 当前能力，至少保留其表级来源。
     if any(p.find(exp.Subquery) for p in query.selects):
         known_sources = {e.source_ref for e in write.edges}
-        write.edges.extend(StatementEdge(t, None, None, "table", None)
-                           for t in parsed.tables if t != target and t not in known_sources)
+        write.edges.extend(
+            StatementEdge(t, None, None, "table", None) for t in parsed.tables if t != target and t not in known_sources
+        )
     return write
 
 
 def _select(expressions: list[exp.Expression]) -> exp.Select:
     # 固定别名只用于按位置取回投影，目标列仍来自 SET / INSERT 的列清单。
-    return exp.Select(expressions=[exp.alias_(item.copy(), f"_import_{i}")
-                                   for i, item in enumerate(expressions)])
+    return exp.Select(expressions=[exp.alias_(item.copy(), f"_import_{i}") for i, item in enumerate(expressions)])
 
 
 def _set_parts(update: exp.Update) -> tuple[list[str], list[exp.Expression]]:
@@ -173,9 +193,18 @@ def _update_query(tree: exp.Update) -> tuple[exp.Expression, list[str], exp.Sele
     target = tree.this
     from_ = tree.args.get("from_")
     # UPDATE alias ... FROM 实表 alias：目标必须取 FROM 中的实体表。
-    bound_target = next((t for t in from_.find_all(exp.Table)
-                         if isinstance(target, exp.Table) and not target.db
-                         and t.alias_or_name == target.name), None) if from_ else None
+    bound_target = (
+        next(
+            (
+                t
+                for t in from_.find_all(exp.Table)
+                if isinstance(target, exp.Table) and not target.db and t.alias_or_name == target.name
+            ),
+            None,
+        )
+        if from_
+        else None
+    )
     if bound_target is not None:
         target = bound_target.copy()
         _from(query, from_.this)
@@ -193,9 +222,15 @@ def _update_query(tree: exp.Update) -> tuple[exp.Expression, list[str], exp.Sele
     return target, columns, _with(query, tree)
 
 
-def _insert_write(tree: exp.Insert, *, dialect: SqlDialect, schema: dict,
-                  default_db: str | None, shared: exp.Expression | None = None,
-                  condition: exp.Expression | None = None) -> Write | None:
+def _insert_write(
+    tree: exp.Insert,
+    *,
+    dialect: SqlDialect,
+    schema: dict,
+    default_db: str | None,
+    shared: exp.Expression | None = None,
+    condition: exp.Expression | None = None,
+) -> Write | None:
     target, columns = _target(tree.this)
     query = tree.expression
     if isinstance(query, exp.Values):
@@ -211,14 +246,25 @@ def _insert_write(tree: exp.Insert, *, dialect: SqlDialect, schema: dict,
         raise ValueError("INSERT 的来源尚不支持")
     if condition is not None and isinstance(query, exp.Select):
         query = query.where(condition.copy())
-    return _query_write(target, _with(query, tree), columns, dialect=dialect, schema=schema,
-                        default_db=default_db, preserve_self=bool(tree.args.get("overwrite")))
+    return _query_write(
+        target,
+        _with(query, tree),
+        columns,
+        dialect=dialect,
+        schema=schema,
+        default_db=default_db,
+        preserve_self=bool(tree.args.get("overwrite")),
+    )
 
 
 def _insert_reset_refs(tree: exp.Insert, *, dialect: SqlDialect, default_db: str | None) -> list[str]:
     target, _ = _target(tree.this)
-    if (tree.args.get("overwrite") and isinstance(target, exp.Table)
-            and not target.args.get("partition") and not tree.args.get("partition")):
+    if (
+        tree.args.get("overwrite")
+        and isinstance(target, exp.Table)
+        and not target.args.get("partition")
+        and not tree.args.get("partition")
+    ):
         ref = _qualify(target, dialect.default_catalog, default_db)
         return [ref] if ref else []
     return []
@@ -227,18 +273,25 @@ def _insert_reset_refs(tree: exp.Insert, *, dialect: SqlDialect, default_db: str
 def _unrestricted_target(tree: exp.Update | exp.Delete) -> exp.Table | None:
     """无行范围限制时返回实体目标；仅绑定目标别名的 FROM 不限制范围。"""
     target = tree.this
-    if (not isinstance(target, exp.Table)
-            or any(tree.args.get(key) for key in ("where", "using", "limit", "joins"))
-            or target.args.get("partition")
-            or target.find(exp.Join) is not None):
+    if (
+        not isinstance(target, exp.Table)
+        or any(tree.args.get(key) for key in ("where", "using", "limit", "joins"))
+        or target.args.get("partition")
+        or target.find(exp.Join) is not None
+    ):
         return None
     from_ = tree.args.get("from_")
     if from_:
         source = from_.this
-        if (not isinstance(source, exp.Table) or target.db or target.catalog
-                or source.alias_or_name != target.name
-                or source.args.get("partition") or source.args.get("sample")
-                or source.find(exp.Join) is not None):
+        if (
+            not isinstance(source, exp.Table)
+            or target.db
+            or target.catalog
+            or source.alias_or_name != target.name
+            or source.args.get("partition")
+            or source.args.get("sample")
+            or source.find(exp.Join) is not None
+        ):
             return None
         target = source
     return target
@@ -253,9 +306,11 @@ def _delete_reset_target(tree: exp.Delete) -> exp.Table | None:
         if len(targets) != 1 or not isinstance(targets[0], exp.Table):
             return None
         explicit = targets[0]
-        if (explicit.name not in (target.name, target.alias_or_name)
-                or (explicit.db and explicit.db != target.db)
-                or (explicit.catalog and explicit.catalog != target.catalog)):
+        if (
+            explicit.name not in (target.name, target.alias_or_name)
+            or (explicit.db and explicit.db != target.db)
+            or (explicit.catalog and explicit.catalog != target.catalog)
+        ):
             return None
     return target
 
@@ -277,13 +332,15 @@ def _merge_writes(tree: exp.Merge, *, dialect: SqlDialect, schema: dict, default
         query.append("joins", exp.Join(this=tree.args["using"].copy(), on=tree.args["on"].copy()))
         if when.args.get("condition") is not None:
             query = query.where(when.args["condition"].copy())
-        writes.append(_query_write(tree.this, _with(query, tree), columns,
-                                   dialect=dialect, schema=schema, default_db=default_db))
+        writes.append(
+            _query_write(tree.this, _with(query, tree), columns, dialect=dialect, schema=schema, default_db=default_db)
+        )
     return writes
 
 
-def _rename_writes(tree: exp.Alter, *, dialect: SqlDialect, schema: dict,
-                   default_db: str | None) -> tuple[list[Write], list[str]]:
+def _rename_writes(
+    tree: exp.Alter, *, dialect: SqlDialect, schema: dict, default_db: str | None
+) -> tuple[list[Write], list[str]]:
     if not isinstance(tree.this, exp.Table):
         raise ValueError("改名的目标不是表")
     old = _qualify(tree.this, dialect.default_catalog, default_db)
@@ -304,8 +361,11 @@ def _rename_writes(tree: exp.Alter, *, dialect: SqlDialect, schema: dict,
     writes = []
     for source, target in pairs:
         columns = _schema_columns(schema, source) or []
-        edges = ([StatementEdge(source, c, c, "value_direct", None, {"op": op}) for c in columns]
-                 if columns else [StatementEdge(source, None, None, "table", None, {"op": op})])
+        edges = (
+            [StatementEdge(source, c, c, "value_direct", None, {"op": op}) for c in columns]
+            if columns
+            else [StatementEdge(source, None, None, "table", None, {"op": op})]
+        )
         writes.append(Write(target, columns, edges, attributes={"op": op}))
     return writes, [source for source, _ in pairs]
 
@@ -332,8 +392,9 @@ def _code_block(sql: str, dialect: SqlDialect) -> bool:
     return False
 
 
-def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
-                    default_db: str | None = None, line_start: int = 1) -> ParsedStatement:
+def parse_statement(
+    sql: str, *, dialect: SqlDialect, schema: dict, default_db: str | None = None, line_start: int = 1
+) -> ParsedStatement:
     if _code_block(sql, dialect):
         return ParsedStatement("unsupported", "BLOCK", reason="存储过程 / 代码块，本期不展开内部语句")
     try:
@@ -342,8 +403,10 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
         error = exc.errors[0] if isinstance(exc, ParseError) and exc.errors else None
         if error and all(error.get(key) is not None for key in ("description", "line", "col", "highlight")):
             description = error["description"].split("but got <Token", 1)[0].rstrip()
-            reason = (f"SQL 无法解析：第 {line_start + error['line'] - 1} 行第 {error['col']} 列附近"
-                      f"（{error['highlight']}）：{description}")
+            reason = (
+                f"SQL 无法解析：第 {line_start + error['line'] - 1} 行第 {error['col']} 列附近"
+                f"（{error['highlight']}）：{description}"
+            )
         else:
             reason = "SQL 无法解析：" + (str(exc).splitlines() or [""])[0][:200]
         return ParsedStatement("failed", None, reason=reason)
@@ -354,16 +417,20 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
     tree = dialect.prepare(trees[0])
     kind = tree.key.upper()
     if isinstance(tree, exp.Use):
-        return ParsedStatement("skipped", "USE", use_db=tree.this.name if tree.this else None,
-                               reason="切换默认库，不产生数据流")
+        return ParsedStatement(
+            "skipped", "USE", use_db=tree.this.name if tree.this else None, reason="切换默认库，不产生数据流"
+        )
     kwargs = {"dialect": dialect, "schema": schema, "default_db": default_db}
     try:
         if isinstance(tree, exp.Insert):
             kind = "INSERT OVERWRITE" if tree.args.get("overwrite") else "INSERT"
             write = _insert_write(tree, **kwargs)
             resets = _insert_reset_refs(tree, dialect=dialect, default_db=default_db)
-            return (_result(kind, [write], reset_refs=resets) if write else
-                    ParsedStatement("skipped", kind, reset_refs=resets, reason="没有来源表"))
+            return (
+                _result(kind, [write], reset_refs=resets)
+                if write
+                else ParsedStatement("skipped", kind, reset_refs=resets, reason="没有来源表")
+            )
         if isinstance(tree, exp.MultitableInserts):
             writes = []
             resets = []
@@ -382,8 +449,11 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
                 if write:
                     writes.append(write)
             resets = list(dict.fromkeys(resets))
-            return (_result("MULTITABLE INSERT", writes, reset_refs=resets) if writes else
-                    ParsedStatement("skipped", "MULTITABLE INSERT", reset_refs=resets, reason="没有来源表"))
+            return (
+                _result("MULTITABLE INSERT", writes, reset_refs=resets)
+                if writes
+                else ParsedStatement("skipped", "MULTITABLE INSERT", reset_refs=resets, reason="没有来源表")
+            )
         if isinstance(tree, exp.Update):
             target, columns, query = _update_query(tree)
             # 只有每一行都被赋值时才是整列替换；部分行更新时，没匹配到的行仍保留旧来源
@@ -395,8 +465,11 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             return _result("UPDATE", [write])
         if isinstance(tree, exp.Merge):
             writes = _merge_writes(tree, **kwargs)
-            return (_result("MERGE", writes) if writes else
-                    ParsedStatement("skipped", "MERGE", reason="没有产生数据流的写入分支"))
+            return (
+                _result("MERGE", writes)
+                if writes
+                else ParsedStatement("skipped", "MERGE", reason="没有产生数据流的写入分支")
+            )
         if isinstance(tree, exp.RenameTable):
             # RENAME TABLE a TO b[, c TO d]：每一对与 ALTER TABLE … RENAME 相同，来源都取语句执行前的状态
             writes, removed = [], []
@@ -407,8 +480,11 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             return _result("RENAME TABLE", writes, removed_refs=removed)
         if isinstance(tree, exp.Alter):
             writes, removed = _rename_writes(tree, **kwargs)
-            return _result("ALTER TABLE SWAP" if writes[0].attributes["op"] == "swap" else "ALTER TABLE RENAME",
-                           writes, removed_refs=removed)
+            return _result(
+                "ALTER TABLE SWAP" if writes[0].attributes["op"] == "swap" else "ALTER TABLE RENAME",
+                writes,
+                removed_refs=removed,
+            )
         if isinstance(tree, exp.Create) and tree.args.get("kind", "").upper() in ("TABLE", "VIEW"):
             target, columns = _target(tree.this)
             if not isinstance(target, exp.Table):
@@ -419,8 +495,14 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             kind = "CREATE MATERIALIZED VIEW" if materialized else f"CREATE {tree.args['kind'].upper()}"
             if isinstance(tree.expression, exp.Query):
                 kind = kind if materialized else kind + " AS"
-                return _result(kind, [_query_write(target, _with(tree.expression, tree), columns,
-                                                   temporary=temporary, created=True, **kwargs)])
+                return _result(
+                    kind,
+                    [
+                        _query_write(
+                            target, _with(tree.expression, tree), columns, temporary=temporary, created=True, **kwargs
+                        )
+                    ],
+                )
             ref = _qualify(target, dialect.default_catalog, default_db)
             if ref is None:
                 raise ValueError(f"目标表 {target.name} 缺少库名，且没有默认库")
@@ -428,22 +510,31 @@ def parse_statement(sql: str, *, dialect: SqlDialect, schema: dict,
             if like and isinstance(like.this, exp.Table):
                 source = _qualify(like.this, dialect.default_catalog, default_db)
                 columns = (_schema_columns(schema, source) or []) if source else []
-                write = Write(ref, columns, temporary=temporary, created=True,
-                              reason="只复制表结构，不产生数据流" if columns else "来源表结构未知，未登记目标列")
+                write = Write(
+                    ref,
+                    columns,
+                    temporary=temporary,
+                    created=True,
+                    reason="只复制表结构，不产生数据流" if columns else "来源表结构未知，未登记目标列",
+                )
                 return _result("CREATE TABLE LIKE", [write])
-            return _result(kind, [Write(ref, columns, temporary=temporary, created=True,
-                                        reason="只登记表结构，不产生数据流")])
+            return _result(
+                kind, [Write(ref, columns, temporary=temporary, created=True, reason="只登记表结构，不产生数据流")]
+            )
         if isinstance(tree, exp.Drop) and tree.args.get("kind", "").upper() == "TABLE":
-            refs = [ref for t in tree.find_all(exp.Table)
-                    if (ref := _qualify(t, dialect.default_catalog, default_db))]
+            refs = [ref for t in tree.find_all(exp.Table) if (ref := _qualify(t, dialect.default_catalog, default_db))]
             return ParsedStatement("skipped", "DROP TABLE", dropped_refs=refs, reason="删除表，不产生数据流")
         delete_target = _delete_reset_target(tree) if isinstance(tree, exp.Delete) else None
-        if ((isinstance(tree, exp.TruncateTable) and not tree.args.get("is_database"))
-                or delete_target is not None):
-            targets = (tree.expressions if isinstance(tree, exp.TruncateTable)
-                       else [delete_target])
-            refs = list(dict.fromkeys(ref for t in targets if isinstance(t, exp.Table)
-                                      if (ref := _qualify(t, dialect.default_catalog, default_db))))
+        if (isinstance(tree, exp.TruncateTable) and not tree.args.get("is_database")) or delete_target is not None:
+            targets = tree.expressions if isinstance(tree, exp.TruncateTable) else [delete_target]
+            refs = list(
+                dict.fromkeys(
+                    ref
+                    for t in targets
+                    if isinstance(t, exp.Table)
+                    if (ref := _qualify(t, dialect.default_catalog, default_db))
+                )
+            )
             kind = "TRUNCATE TABLE" if isinstance(tree, exp.TruncateTable) else "DELETE"
             return ParsedStatement("skipped", kind, reset_refs=refs, reason="清空表数据，之前的来源不再传递")
         if isinstance(tree, (exp.Delete, exp.TruncateTable, exp.Set, exp.Transaction, exp.Commit, exp.Rollback)):

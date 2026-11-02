@@ -1670,7 +1670,8 @@ export interface paths {
         get: operations["get_sql_functions_api_imports_sql_functions__datasource_id__get"];
         /** Put Sql Functions */
         put: operations["put_sql_functions_api_imports_sql_functions__datasource_id__put"];
-        post?: never;
+        /** Post Sql Function */
+        post: operations["post_sql_function_api_imports_sql_functions__datasource_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4516,6 +4517,11 @@ export interface components {
             mode: "configured" | "demo";
             /** Note */
             note: string | null;
+        };
+        /** SqlFunction */
+        SqlFunction: {
+            /** Sql Function */
+            sql_function: string;
         };
         /** SqlFunctions */
         SqlFunctions: {
@@ -8273,6 +8279,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SqlFunctions"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSqlFunctionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_sql_function_api_imports_sql_functions__datasource_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SqlFunction"];
             };
         };
         responses: {

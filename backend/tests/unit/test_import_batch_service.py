@@ -54,8 +54,15 @@ class MemorySession:
         for name in ("created_at", "updated_at"):
             if hasattr(type(obj), name) and getattr(obj, name) is None:
                 setattr(obj, name, datetime.now(UTC))
-        for name, value in (("stats", {}), ("options", {}), ("params", {}), ("evidence", {}),
-                            ("attributes", {}), ("modified", {}), ("model_payload", [])):
+        for name, value in (
+            ("stats", {}),
+            ("options", {}),
+            ("params", {}),
+            ("evidence", {}),
+            ("attributes", {}),
+            ("modified", {}),
+            ("model_payload", []),
+        ):
             if hasattr(type(obj), name) and getattr(obj, name) is None:
                 setattr(obj, name, copy.deepcopy(value))
         table = self.rows.setdefault(type(obj), [])
@@ -118,8 +125,11 @@ def memory(monkeypatch):
 
     monkeypatch.setattr(batch, "session_scope", scope)
     monkeypatch.setattr(batch, "build_schema", lambda *_: copy.deepcopy(SCHEMA))
-    monkeypatch.setattr(batch, "get_settings", lambda: SimpleNamespace(
-        import_max_bytes=20 * 1024**2, import_max_batch_bytes=100 * 1024**2))
+    monkeypatch.setattr(
+        batch,
+        "get_settings",
+        lambda: SimpleNamespace(import_max_bytes=20 * 1024**2, import_max_batch_bytes=100 * 1024**2),
+    )
     monkeypatch.setattr(service, "require_import_access", lambda *_: None)
     monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": False})
     monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: pytest.fail("离线测试不能请求真实模型"))
@@ -127,8 +137,9 @@ def memory(monkeypatch):
 
 
 def create(memory, content, filename="pipeline.sql", **options):
-    return batch.create_batch(memory.session, memory.actor, datasource_id="ds",
-                              files=[ImportFile(filename, content, "sql")], **options)[0]
+    return batch.create_batch(
+        memory.session, memory.actor, datasource_id="ds", files=[ImportFile(filename, content, "sql")], **options
+    )[0]
 
 
 def candidates(memory, job_id):
@@ -138,15 +149,18 @@ def candidates(memory, job_id):
 def test_assistance_uses_persisted_database_after_use_for_unrecognized_candidate(memory, monkeypatch):
     from tests.unit.test_import_assist import FakeImportModel, edge
 
-    source = ('spark.sql("USE a")\nspark.sql("USE b")\n'
-              'df = spark.table("events")\ndf.write.saveAsTable("summary")')
+    source = 'spark.sql("USE a")\nspark.sql("USE b")\ndf = spark.table("events")\ndf.write.saveAsTable("summary")'
     fake = FakeImportModel({"edges": [edge(source_table="events", target_table="summary", line=4)]})
-    monkeypatch.setattr(batch, "build_schema", lambda *_: {
-        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {"default_catalog": {"b": {"events": {"id": "INT"}}}})
     monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
     monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
-                                      files=[ImportFile("pipeline.py", source, "python")])
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        default_db="fallback",
+        files=[ImportFile("pipeline.py", source, "python")],
+    )
     batch.run_import(imported.id)
     job = memory.rows[ImportJob][0]
     context = job.stats["statement_contexts"][-1]
@@ -163,12 +177,17 @@ def test_assistance_restored_sql_uses_operation_database_inside_block_with_use(m
     sql = "INSERT INTO summary (id) SELECT id FROM events"
     source = f'spark.sql("USE a")\nspark.sql("USE b")\nrun_sql("{sql}")'
     fake = FakeImportModel({"operations": [operation(sql=sql, start=3, end=3)]})
-    monkeypatch.setattr(batch, "build_schema", lambda *_: {
-        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {"default_catalog": {"b": {"events": {"id": "INT"}}}})
     monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
     monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
-                                      files=[ImportFile("pipeline.py", source, "python")], model_assist={"code": True})
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        default_db="fallback",
+        files=[ImportFile("pipeline.py", source, "python")],
+        model_assist={"code": True},
+    )
     batch.run_import(imported.id)
     job = memory.rows[ImportJob][0]
     assert "第 2 行之后默认数据库为 b" in fake.prompts[0]
@@ -183,13 +202,17 @@ def test_assistance_database_context_preserves_same_line_statement_order(memory,
 
     source = 'spark.sql("USE a; USE b; ANALYZE events")'
     fake = FakeImportModel({"edges": [edge(source_table="events", target_table="events")]})
-    monkeypatch.setattr(batch, "build_schema", lambda *_: {
-        "default_catalog": {"b": {"events": {"id": "INT"}}}})
+    monkeypatch.setattr(batch, "build_schema", lambda *_: {"default_catalog": {"b": {"events": {"id": "INT"}}}})
     monkeypatch.setattr(batch.modelcfg, "policy", lambda *_: {"send_code": True})
     monkeypatch.setattr(batch.modelcfg, "resolve", lambda *_: batch.modelcfg.Resolved(fake, "test:fake"))
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", default_db="fallback",
-                                      files=[ImportFile("pipeline.py", source, "python")],
-                                      model_assist={"failed_sql": True})
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        default_db="fallback",
+        files=[ImportFile("pipeline.py", source, "python")],
+        model_assist={"failed_sql": True},
+    )
     batch.run_import(imported.id)
     job = memory.rows[ImportJob][0]
     assert [c["default_db"] for c in job.stats["statement_contexts"]] == ["fallback", "a", "b"]
@@ -218,8 +241,9 @@ def test_identical_current_content_returns_original_batch_across_filenames(memor
     content = "CREATE TABLE dw.summary AS SELECT id FROM src.events;"
     first = create(memory, content)
     batch.run_import(first.id)
-    repeated, created = batch.create_batch(memory.session, memory.actor, datasource_id="ds",
-                                           files=[ImportFile("renamed.sql", content, "sql")])
+    repeated, created = batch.create_batch(
+        memory.session, memory.actor, datasource_id="ds", files=[ImportFile("renamed.sql", content, "sql")]
+    )
     assert repeated.id == first.id and not created
     assert len(memory.rows[ImportJob]) == 1
 
@@ -304,35 +328,57 @@ def test_params_create_whole_batch_revision_and_keep_previous_history(memory):
 
 
 def test_cross_file_dependency_sorting_and_folding_use_one_shared_schema(memory):
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("second.sql", "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;", "sql"),
-        ImportFile("first.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;", "sql"),
-    ])
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[
+            ImportFile("second.sql", "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;", "sql"),
+            ImportFile("first.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;", "sql"),
+        ],
+    )
     batch.run_import(imported.id)
     active = [e for e in memory.rows[LineageEdge] if e.status == "active"]
     intermediate = [e for e in memory.rows[LineageEdge] if e.status == "intermediate"]
     assert [(e.source_ref, e.target_ref) for e in active] == [
-        ("default_catalog.src.events", "default_catalog.dw.summary")]
+        ("default_catalog.src.events", "default_catalog.dw.summary")
+    ]
     assert len(intermediate) == 2
     assert active[0].attributes["via"] == ["default_catalog.dw.stage"]
     assert set(active[0].attributes["hops"]) == {e.id for e in intermediate}
-    assert all(c.status == "intermediate" for c in memory.rows[CandidateEdge]
-               if c.lineage_edge_id in {e.id for e in intermediate})
+    assert all(
+        c.status == "intermediate"
+        for c in memory.rows[CandidateEdge]
+        if c.lineage_edge_id in {e.id for e in intermediate}
+    )
 
 
 @pytest.mark.parametrize("change_producer", [False, True])
 def test_duplicate_file_participates_in_cross_file_folding_without_new_file_revision(memory, change_producer):
     producer = "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
     consumer = "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;"
-    first, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("first.sql", producer, "sql"), ImportFile("second.sql", consumer, "sql")])
+    first, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[ImportFile("first.sql", producer, "sql"), ImportFile("second.sql", consumer, "sql")],
+    )
     batch.run_import(first.id)
     first_jobs = {j.filename: j for j in memory.rows[ImportJob]}
-    retained = {e.id: {c.name: copy.deepcopy(getattr(e, c.name)) for c in LineageEdge.__table__.columns}
-                for e in memory.rows[LineageEdge] if e.status == "intermediate"}
-    second, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("second.sql", consumer if change_producer else consumer + "SELECT 1;", "sql"),
-        ImportFile("first.sql", producer + "SELECT 1;" if change_producer else producer, "sql")])
+    retained = {
+        e.id: {c.name: copy.deepcopy(getattr(e, c.name)) for c in LineageEdge.__table__.columns}
+        for e in memory.rows[LineageEdge]
+        if e.status == "intermediate"
+    }
+    second, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[
+            ImportFile("second.sql", consumer if change_producer else consumer + "SELECT 1;", "sql"),
+            ImportFile("first.sql", producer + "SELECT 1;" if change_producer else producer, "sql"),
+        ],
+    )
     batch.run_import(second.id)
     active = [e for e in memory.rows[LineageEdge] if e.status == "active"]
     assert len(active) == 1
@@ -360,9 +406,15 @@ def test_reused_statement_and_file_counts_follow_current_batch_context(memory, m
     old_reason = stmt.reason
     original_id, original_hash = stmt.id, stmt.text_hash
     assert job.stats["statements"] == {"partial": 1}
-    second, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("consumer.sql", consumer, "sql"),
-        ImportFile("producer.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id, value FROM src.events;", "sql")])
+    second, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[
+            ImportFile("consumer.sql", consumer, "sql"),
+            ImportFile("producer.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id, value FROM src.events;", "sql"),
+        ],
+    )
     phase_two = []
 
     def inspect_persisted(*_args, **_kwargs):
@@ -387,8 +439,10 @@ def test_progress_counts_reused_files_once_at_every_phase(memory, monkeypatch, r
     content = "CREATE TABLE dw.stage AS SELECT id FROM src.events;"
     first = create(memory, content, filename="producer.sql")
     batch.run_import(first.id)
-    files = [ImportFile("producer.sql", content, "sql"),
-             ImportFile("consumer.sql", "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;", "sql")]
+    files = [
+        ImportFile("producer.sql", content, "sql"),
+        ImportFile("consumer.sql", "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;", "sql"),
+    ]
     if repeat_duplicate:
         files.append(ImportFile("copy.sql", content, "sql"))
     second, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=files)
@@ -416,13 +470,18 @@ def test_parse_failure_reason_uses_statement_location_in_file(memory):
 
 
 def test_reimport_retains_intermediate_rows_and_replaces_only_active_edges(memory):
-    content = ("CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
-               "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;")
+    content = (
+        "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
+        "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;"
+    )
     first = create(memory, content)
     batch.run_import(first.id)
     previous_job = memory.rows[ImportJob][0]
-    retained = {e.id: {c.name: copy.deepcopy(getattr(e, c.name)) for c in LineageEdge.__table__.columns}
-                for e in memory.rows[LineageEdge] if e.status == "intermediate"}
+    retained = {
+        e.id: {c.name: copy.deepcopy(getattr(e, c.name)) for c in LineageEdge.__table__.columns}
+        for e in memory.rows[LineageEdge]
+        if e.status == "intermediate"
+    }
     old_active = next(e for e in memory.rows[LineageEdge] if e.status == "active")
     second = create(memory, content + "SELECT 1;")
     batch.run_import(second.id)
@@ -442,10 +501,13 @@ def test_reused_consumer_remaps_every_folded_path_when_active_becomes_intermedia
     batch.run_import(first.id)
     old_active = list(memory.rows[LineageEdge])
     assert old_active and all(e.status == "active" for e in old_active)
-    producer = ("CREATE TEMPORARY TABLE dw.stage AS SELECT id, value FROM src.events "
-                "WHERE value > 0;")
-    second, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("consumer.sql", consumer, "sql"), ImportFile("producer.sql", producer, "sql")])
+    producer = "CREATE TEMPORARY TABLE dw.stage AS SELECT id, value FROM src.events WHERE value > 0;"
+    second, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[ImportFile("consumer.sql", consumer, "sql"), ImportFile("producer.sql", producer, "sql")],
+    )
     batch.run_import(second.id)
     assert all(e.status == "superseded" for e in old_active)
     active = [e for e in memory.rows[LineageEdge] if e.status == "active"]
@@ -455,8 +517,11 @@ def test_reused_consumer_remaps_every_folded_path_when_active_becomes_intermedia
         assert edge.attributes["hops"] == edge.attributes["paths"][0]
         for path in edge.attributes["paths"]:
             assert all(memory.session.get(LineageEdge, hop).status == "intermediate" for hop in path)
-    assert all(c.status == "intermediate" for c in memory.rows[CandidateEdge]
-               if memory.session.get(LineageEdge, c.lineage_edge_id).status == "intermediate")
+    assert all(
+        c.status == "intermediate"
+        for c in memory.rows[CandidateEdge]
+        if memory.session.get(LineageEdge, c.lineage_edge_id).status == "intermediate"
+    )
     assert second.stats["files"] == 2 and len(memory.rows[ImportJob]) == 2
 
 
@@ -477,8 +542,10 @@ def test_duplicate_direct_expression_keeps_every_path_queryable(memory):
 @pytest.mark.parametrize("decision", ["reject", "modify"])
 def test_folded_decision_is_inherited_by_normalized_statement_and_signature(memory, monkeypatch, decision):
     monkeypatch.setattr(service, "resolve_qualified", lambda *_: None)
-    content = ("CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
-               "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;")
+    content = (
+        "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
+        "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;"
+    )
     first = create(memory, content)
     batch.run_import(first.id)
     previous = next(c for c in memory.rows[CandidateEdge] if c.origin == "folded")
@@ -501,13 +568,17 @@ def test_folded_decision_is_inherited_by_normalized_statement_and_signature(memo
 
 
 def test_dependency_prescan_substitutes_supplied_params_and_rename_targets(memory):
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", params={"schema": "dw"},
-                                     files=[ImportFile("consumer.sql", "CREATE TABLE dw.summary AS SELECT id FROM "
-                                                       "${schema}.renamed;", "sql"),
-                                            ImportFile("rename.sql", "ALTER TABLE dw.stage RENAME TO "
-                                                       "dw.renamed;", "sql"),
-                                            ImportFile("producer.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id "
-                                                       "FROM src.events;", "sql")])
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        params={"schema": "dw"},
+        files=[
+            ImportFile("consumer.sql", "CREATE TABLE dw.summary AS SELECT id FROM ${schema}.renamed;", "sql"),
+            ImportFile("rename.sql", "ALTER TABLE dw.stage RENAME TO dw.renamed;", "sql"),
+            ImportFile("producer.sql", "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;", "sql"),
+        ],
+    )
     batch.run_import(imported.id)
     active = [e for e in memory.rows[LineageEdge] if e.status == "active"]
     assert len(active) == 1 and active[0].source_ref == "default_catalog.src.events"
@@ -533,11 +604,19 @@ def test_progress_transactions_are_separate_and_throttled(memory):
 
 def test_normalized_hash_and_signature_are_stable_but_expression_sensitive():
     assert batch.normalized_text_hash("select id from src.events", "postgres") == batch.normalized_text_hash(
-        "SELECT id\nFROM src.events", "postgres")
+        "SELECT id\nFROM src.events", "postgres"
+    )
     assert batch.normalized_text_hash("SELECT id FROM src.events", "postgres") != batch.normalized_text_hash(
-        "SELECT id+1 FROM src.events", "postgres")
-    edge = dict(source_ref="c.src.events", source_column="id", target_ref="c.dw.summary", target_column="id",
-                relation="value_direct", expression="id")
+        "SELECT id+1 FROM src.events", "postgres"
+    )
+    edge = dict(
+        source_ref="c.src.events",
+        source_column="id",
+        target_ref="c.dw.summary",
+        target_column="id",
+        relation="value_direct",
+        expression="id",
+    )
     assert batch.edge_signature(edge) == batch.edge_signature(SimpleNamespace(**edge))
 
 
@@ -549,12 +628,22 @@ def test_model_cache_and_accepted_decision_are_reused_in_new_revision(memory, mo
     def fake_assistance(**kwargs):
         calls.append(bool(kwargs["cached"]))
         statement = kwargs["rule_statements"][0]
-        return assist.AssistanceResult(candidates=[{
-            "statement_id": statement.id, "origin": "model", "source_ref": "default_catalog.src.events",
-            "source_column": "id", "target_ref": "default_catalog.dw.summary", "target_column": "id",
-            "relation": "value_direct", "evidence": {"lines": [1]},
-        }], payloads=[{"statement_id": statement.id, "text": "脱敏片段", "reused": bool(kwargs["cached"])}],
-            cache={"fragment": {"result": "validated"}})
+        return assist.AssistanceResult(
+            candidates=[
+                {
+                    "statement_id": statement.id,
+                    "origin": "model",
+                    "source_ref": "default_catalog.src.events",
+                    "source_column": "id",
+                    "target_ref": "default_catalog.dw.summary",
+                    "target_column": "id",
+                    "relation": "value_direct",
+                    "evidence": {"lines": [1]},
+                }
+            ],
+            payloads=[{"statement_id": statement.id, "text": "脱敏片段", "reused": bool(kwargs["cached"])}],
+            cache={"fragment": {"result": "validated"}},
+        )
 
     monkeypatch.setattr(assist, "run_assistance", fake_assistance)
     first = create(memory, "ANALYZE src.events;", model_assist={"failed_sql": True})
@@ -562,9 +651,14 @@ def test_model_cache_and_accepted_decision_are_reused_in_new_revision(memory, mo
     previous = memory.rows[CandidateEdge][0]
     old_job = memory.rows[ImportJob][0]
     stmt = memory.rows[ExtractedStatement][0]
-    edge = batch._new_edge(memory.actor, old_job, stmt, {k: getattr(previous, k)
-                                                       for k in (*batch.EDGE_FIELDS, "expression")}, {},
-                           origin="model_confirmed")
+    edge = batch._new_edge(
+        memory.actor,
+        old_job,
+        stmt,
+        {k: getattr(previous, k) for k in (*batch.EDGE_FIELDS, "expression")},
+        {},
+        origin="model_confirmed",
+    )
     memory.session.add(edge)
     previous.status, previous.lineage_edge_id = "accepted", edge.id
     previous.decided_by, previous.decided_at, previous.reason = memory.actor.id, datetime.now(UTC), "确认来源"
@@ -576,8 +670,9 @@ def test_model_cache_and_accepted_decision_are_reused_in_new_revision(memory, mo
     assert inherited.status == "accepted" and current_edge.origin == "model_confirmed"
     assert current_edge.attributes["carried_from"] == edge.id
     assert second.stats["invalidated_decisions"] == 0
-    model_audit = [e for e in memory.rows[AuditEvent] if e.action == "import.revision"
-                   and e.detail.get("phase") == "model"]
+    model_audit = [
+        e for e in memory.rows[AuditEvent] if e.action == "import.revision" and e.detail.get("phase") == "model"
+    ]
     assert model_audit[0].detail["inherited_decisions_total"] == 1
 
 
@@ -585,14 +680,33 @@ def test_model_virtual_statement_ids_are_replaced_in_candidates_and_payloads(mem
     from avelis.importer import assist
 
     def fake_assistance(**_kwargs):
-        return assist.AssistanceResult(statements=[{
-            "id": "assist:0", "seq": 2, "line_start": 1, "line_end": 1, "method": "model_sql",
-            "raw_text": "source_code()", "sql_text": "SELECT 1", "status": "parsed",
-        }], candidates=[{
-            "statement_id": "assist:0", "origin": "model_sql", "source_ref": "default_catalog.src.events",
-            "source_column": "id", "target_ref": "default_catalog.dw.summary", "target_column": "id",
-            "relation": "value_direct", "evidence": {"lines": [1]},
-        }], payloads=[{"statement_id": "assist:0", "text": "source_code()"}])
+        return assist.AssistanceResult(
+            statements=[
+                {
+                    "id": "assist:0",
+                    "seq": 2,
+                    "line_start": 1,
+                    "line_end": 1,
+                    "method": "model_sql",
+                    "raw_text": "source_code()",
+                    "sql_text": "SELECT 1",
+                    "status": "parsed",
+                }
+            ],
+            candidates=[
+                {
+                    "statement_id": "assist:0",
+                    "origin": "model_sql",
+                    "source_ref": "default_catalog.src.events",
+                    "source_column": "id",
+                    "target_ref": "default_catalog.dw.summary",
+                    "target_column": "id",
+                    "relation": "value_direct",
+                    "evidence": {"lines": [1]},
+                }
+            ],
+            payloads=[{"statement_id": "assist:0", "text": "source_code()"}],
+        )
 
     monkeypatch.setattr(assist, "run_assistance", fake_assistance)
     imported = create(memory, "SELECT 1;")
@@ -615,8 +729,12 @@ def test_model_failure_in_one_file_does_not_prevent_following_files(memory, monk
         return assist.AssistanceResult()
 
     monkeypatch.setattr(assist, "run_assistance", fake_assistance)
-    imported, _ = batch.create_batch(memory.session, memory.actor, datasource_id="ds", files=[
-        ImportFile("a.sql", "SELECT 1;", "sql"), ImportFile("b.sql", "SELECT 2;", "sql")])
+    imported, _ = batch.create_batch(
+        memory.session,
+        memory.actor,
+        datasource_id="ds",
+        files=[ImportFile("a.sql", "SELECT 1;", "sql"), ImportFile("b.sql", "SELECT 2;", "sql")],
+    )
     batch.run_import(imported.id)
     assert calls == ["SELECT 1;", "SELECT 2;"]
     stored = memory.session.get(ImportBatch, imported.id)
@@ -686,13 +804,20 @@ def test_lost_attempt_cannot_append_model_failure_notes(memory, monkeypatch):
 
 @pytest.mark.parametrize("decision", ["accept", "reject", "modify"])
 def test_intermediate_decisions_are_rejected_without_changing_any_rows(memory, decision):
-    imported = create(memory, "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
-                              "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;")
+    imported = create(
+        memory,
+        "CREATE TEMPORARY TABLE dw.stage AS SELECT id FROM src.events;"
+        "CREATE TABLE dw.summary AS SELECT id FROM dw.stage;",
+    )
     batch.run_import(imported.id)
     candidate = next(c for c in memory.rows[CandidateEdge] if c.target_ref.endswith(".stage"))
     assert candidate.status == "intermediate"
-    original = {kind: [{c.name: copy.deepcopy(getattr(row, c.name)) for c in kind.__table__.columns}
-                       for row in memory.rows[kind]] for kind in (CandidateEdge, LineageEdge)}
+    original = {
+        kind: [
+            {c.name: copy.deepcopy(getattr(row, c.name)) for c in kind.__table__.columns} for row in memory.rows[kind]
+        ]
+        for kind in (CandidateEdge, LineageEdge)
+    }
     with pytest.raises(batch.Conflict, match="中间段只用于查证，请处理折叠后的边"):
         service.decide(memory.session, memory.actor, candidate, decision, "确认修订", {"source_column": "value"})
     for kind, rows in original.items():
@@ -704,10 +829,18 @@ def test_accepting_model_sql_uses_model_confirmed_origin(memory, monkeypatch):
     imported = create(memory, "SELECT 1;")
     batch.run_import(imported.id)
     job = memory.rows[ImportJob][0]
-    candidate = CandidateEdge(job_id=job.id, statement_id=memory.rows[ExtractedStatement][0].id,
-                              origin="model_sql", source_ref="default_catalog.src.events", source_column="id",
-                              target_ref="default_catalog.dw.summary", target_column="id", relation="value_direct",
-                              status="pending", evidence={"via": ["default_catalog.dw.stage"], "hops": ["trace-id"]})
+    candidate = CandidateEdge(
+        job_id=job.id,
+        statement_id=memory.rows[ExtractedStatement][0].id,
+        origin="model_sql",
+        source_ref="default_catalog.src.events",
+        source_column="id",
+        target_ref="default_catalog.dw.summary",
+        target_column="id",
+        relation="value_direct",
+        status="pending",
+        evidence={"via": ["default_catalog.dw.stage"], "hops": ["trace-id"]},
+    )
     memory.session.add(candidate)
     service.decide(memory.session, memory.actor, candidate, "accept", "确认模型还原", {})
     edge = memory.session.get(LineageEdge, candidate.lineage_edge_id)

@@ -38,7 +38,6 @@ class DdlEvent:
     xid: str | None = None  # 审计来源记下的事务号（PostgreSQL xid8），随结构化信息落库
 
 
-
 class AuditUnavailable(Exception):
     """审计来源读取失败。message 保留数据库原始报错；cause 见模块说明。"""
 
@@ -48,6 +47,7 @@ class AuditUnavailable(Exception):
 
 
 # --- 词法 -------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Token:
@@ -83,8 +83,9 @@ def lex(statement: str) -> Lexed:
                 else:
                     i += 1
             certain = certain and depth == 0
-        elif c == "'" or (c in "Ee" and i + 1 < n and s[i + 1] == "'" and (i == 0 or not (s[i - 1].isalnum()
-                                                                                         or s[i - 1] in "_$"))):
+        elif c == "'" or (
+            c in "Ee" and i + 1 < n and s[i + 1] == "'" and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] in "_$"))
+        ):
             backslash = c in "Ee"
             i += 2 if backslash else 1
             closed = False
@@ -107,7 +108,7 @@ def lex(statement: str) -> Lexed:
             certain = certain and j >= 0
             i = n if j < 0 else j + len(tag)
             out.append(Token("other"))
-        elif c in "\"`":  # 方括号不当作引用：PostgreSQL 的 ARRAY[…]、下标都用它
+        elif c in '"`':  # 方括号不当作引用：PostgreSQL 的 ARRAY[…]、下标都用它
             close = c
             j, buf, closed = i + 1, [], False
             while j < n:
@@ -158,15 +159,20 @@ def is_batch(statement: str) -> bool:
 
 # --- 列的语法位置 ------------------------------------------------------------------
 
+
 def _kw(t: Token | None, *words: str) -> bool:
     return t is not None and t.kind == "ident" and not t.quoted and t.text.upper() in words
 
 
 def _same(token: Token, name: str, fold: str) -> bool:
+    if fold == "insensitive":  # MySQL / StarRocks：引用列名同样不区分大小写
+        return token.text.lower() == name.lower()
     if token.quoted or fold == "exact":
         return token.text == name
     if fold == "lower":  # PostgreSQL：不带引号的标识符折成小写
         return token.text.lower() == name
+    if fold == "upper":  # Oracle：不带引号的标识符折成大写，不能匹配带引号的混合大小写名称
+        return token.text.upper() == name
     return token.text.lower() == name.lower()  # 不区分大小写的引擎
 
 
@@ -214,15 +220,52 @@ def _actions(toks: list[Token]) -> list[list[Token]]:
     return out
 
 
-_NO_COLUMN_ADD = {"CHECK", "UNIQUE", "FOREIGN", "EXCLUDE", "INDEX", "KEY", "PARTITION", "PARTITIONS", "ROLLUP",
-                  "PROJECTION", "STATISTICS", "TEMPORARY"}
-_NO_COLUMN_MODIFY = {"COMMENT", "ORDER", "TTL", "SETTING", "SETTINGS", "ENGINE", "PROPERTIES", "DISTRIBUTION",
-                     "SAMPLE", "PARTITION"}
+_NO_COLUMN_ADD = {
+    "CHECK",
+    "UNIQUE",
+    "FOREIGN",
+    "EXCLUDE",
+    "INDEX",
+    "KEY",
+    "PARTITION",
+    "PARTITIONS",
+    "ROLLUP",
+    "PROJECTION",
+    "STATISTICS",
+    "TEMPORARY",
+}
+_NO_COLUMN_MODIFY = {
+    "COMMENT",
+    "ORDER",
+    "TTL",
+    "SETTING",
+    "SETTINGS",
+    "ENGINE",
+    "PROPERTIES",
+    "DISTRIBUTION",
+    "SAMPLE",
+    "PARTITION",
+}
 UNKNOWN = None  # 识别不了：可能涉及任何一列
 # 确定不改变采集字段（列名、类型、可空性、注释、键）的 ALTER TABLE 动作（PostgreSQL、MySQL 系、ClickHouse 的写法）
 # 会级联影响其他表的动作（分区挂接 / 摘除、继承、改约束可继承性）不在这里：它们算识别不出，见 _cascades
-_NO_COLUMN_VERBS = {"OWNER", "SET", "RESET", "CLUSTER", "REPLICA", "OF", "DEPENDS", "ALGORITHM", "LOCK", "ENGINE",
-                    "AUTO_INCREMENT", "CHARSET", "COLLATE", "ROW_FORMAT", "KEY_BLOCK_SIZE"}
+_NO_COLUMN_VERBS = {
+    "OWNER",
+    "SET",
+    "RESET",
+    "CLUSTER",
+    "REPLICA",
+    "OF",
+    "DEPENDS",
+    "ALGORITHM",
+    "LOCK",
+    "ENGINE",
+    "AUTO_INCREMENT",
+    "CHARSET",
+    "COLLATE",
+    "ROW_FORMAT",
+    "KEY_BLOCK_SIZE",
+}
 _NO_COLUMN_TOGGLES = {"TRIGGER", "RULE", "ROW", "REPLICA", "ALWAYS", "FORCE", "KEYS"}
 
 
@@ -282,7 +325,7 @@ def _action_columns(a: list[Token]) -> list[Token] | None:
         return [a[i]] if i < len(a) and a[i].kind == "ident" else UNKNOWN
     if verb == "CHANGE":  # MySQL：CHANGE [COLUMN] old new type
         i = _skip(a, 1, "COLUMN")
-        cols = [t for t in a[i:i + 2] if t.kind == "ident"]
+        cols = [t for t in a[i : i + 2] if t.kind == "ident"]
         return cols if len(cols) == 2 else UNKNOWN
     if verb == "RENAME":
         if _kw(nxt, "TO", "AS") or _kw(nxt, "CONSTRAINT", "INDEX", "PARTITION", "ROLLUP"):
@@ -308,8 +351,27 @@ class ColumnRefs:
 
 _ALTERABLE = (("TABLE",), ("VIEW",), ("MATERIALIZED", "VIEW"), ("FOREIGN", "TABLE"))
 # 确定不会改表结构、也不会经触发器或函数执行 DDL 的语句：事务控制、会话设置、授权、加锁、通知
-_HARMLESS = {"BEGIN", "START", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE", "SET", "RESET", "SHOW", "GRANT",
-             "REVOKE", "LOCK", "NOTIFY", "LISTEN", "UNLISTEN", "DISCARD", "CHECKPOINT", "USE"}
+_HARMLESS = {
+    "BEGIN",
+    "START",
+    "COMMIT",
+    "END",
+    "ROLLBACK",
+    "SAVEPOINT",
+    "RELEASE",
+    "SET",
+    "RESET",
+    "SHOW",
+    "GRANT",
+    "REVOKE",
+    "LOCK",
+    "NOTIFY",
+    "LISTEN",
+    "UNLISTEN",
+    "DISCARD",
+    "CHECKPOINT",
+    "USE",
+}
 # 其余语句一律识别不出：DML（INSERT / UPDATE / DELETE / MERGE / COPY / TRUNCATE）可能经触发器执行 DDL；
 # CALL / SELECT / DO / EXECUTE 等可能经函数或动态 SQL 执行 DDL；VACUUM / ANALYZE / REFRESH 等会执行表达式里的函数
 
@@ -359,8 +421,10 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive", sch
         if _cascades(st, head):
             unknown = True  # 级联影响：请求涉及的每个对象都可能被改到任意列
         if head == "ALTER":
-            kind = next((k for k in _ALTERABLE if all(_kw(st[1 + n] if len(st) > 1 + n else None, w)
-                                                       for n, w in enumerate(k))), None)
+            kind = next(
+                (k for k in _ALTERABLE if all(_kw(st[1 + n] if len(st) > 1 + n else None, w) for n, w in enumerate(k))),
+                None,
+            )
             if kind is None:
                 continue  # ALTER INDEX / ROLE / SEQUENCE … 不改表的列
             i = _skip(st, 1 + len(kind), "IF", "EXISTS")
@@ -392,8 +456,10 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive", sch
             i = _skip(st, 1, "OR", "REPLACE")
             i = _skip(st, i, "TEMPORARY")
             i = _skip(st, i, "TEMP")
-            kind = next((k for k in _ALTERABLE if all(_kw(st[i + n] if len(st) > i + n else None, w)
-                                                       for n, w in enumerate(k))), None)
+            kind = next(
+                (k for k in _ALTERABLE if all(_kw(st[i + n] if len(st) > i + n else None, w) for n, w in enumerate(k))),
+                None,
+            )
             if kind is not None:
                 j = _skip(st, i + len(kind), "IF", "NOT", "EXISTS")
                 j = _skip(st, j, "IF", "EXISTS")
@@ -402,15 +468,17 @@ def column_refs(statement: str, object_name: str, fold: str = "insensitive", sch
                     targeted, unknown = True, True  # 重建了这个对象：任何一列都可能变
         elif head in _HARMLESS:
             # 不改结构的语句：点名了该对象（如 GRANT … ON 该表）就算认得出、且不涉及任何列
-            targeted = targeted or any(_targets(_name(st, k)[0], schema, object_name, fold)
-                                       for k in range(len(st)) if st[k].kind == "ident")
+            targeted = targeted or any(
+                _targets(_name(st, k)[0], schema, object_name, fold) for k in range(len(st)) if st[k].kind == "ident"
+            )
         else:
             unknown = True  # DO / EXECUTE / CALL / SELECT …，以及认不出的语句：内部可能执行任意 DDL
     return ColumnRefs(found, unknown or not targeted)
 
 
-def mentions_column(statement: str, column: str, object_name: str | None = None, fold: str = "insensitive",
-                    schema: str | None = None) -> bool:
+def mentions_column(
+    statement: str, column: str, object_name: str | None = None, fold: str = "insensitive", schema: str | None = None
+) -> bool:
     """语句是否在列的语法位置上点名了该列。"""
     if object_name is None:
         return False
@@ -424,14 +492,16 @@ _NAME = rf"{_IDENT}(?:\s*\.\s*{_IDENT}){{0,2}}"
 _OBJECT = re.compile(
     rf"^\s*(?:CREATE|ALTER|DROP|TRUNCATE)\s+(?:OR\s+REPLACE\s+)?(?:TEMPORARY\s+|EXTERNAL\s+)?"
     rf"(?:TABLE|VIEW|MATERIALIZED\s+VIEW)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?P<name>{_NAME})"
-    rf"(?P<rest>.*)$", re.IGNORECASE | re.DOTALL)
+    rf"(?P<rest>.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
 _RENAME = re.compile(rf"^\s*RENAME\s+(?:TO\s+)?(?P<name>{_NAME})", re.IGNORECASE)
 _RENAME_TABLE = re.compile(rf"^\s*RENAME\s+TABLE\s+(?P<a>{_NAME})\s+TO\s+(?P<b>{_NAME})", re.IGNORECASE)
 
 
 def _unquote(part: str) -> str:
     part = part.strip()
-    if part[:1] in "`\"[" and len(part) > 1:
+    if part[:1] in '`"[' and len(part) > 1:
         return part[1:-1]
     return part
 

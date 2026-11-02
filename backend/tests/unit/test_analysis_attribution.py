@@ -21,12 +21,17 @@ WINDOW = {"start": "2026-09-01", "end": "2026-09-30", "compare_start": "2026-08-
 
 # --- 纯计算 ----------------------------------------------------------------------------
 
+
 def test_applicability_from_expression():
     base = lambda expr: SimpleNamespace(kind="base", expression=expr)  # noqa: E731
     assert attribution.applicability(base("SUM(amount)"), {})["algorithm"] == "additive"
     assert attribution.applicability(base("count(*)"), {})["algorithm"] == "additive"
-    for expr, word in (("COUNT(DISTINCT user_id)", "COUNT(DISTINCT"), ("AVG(price)", "AVG"), ("MAX(x)", "MAX"),
-                       ("SUM(DISTINCT x)", "SUM(DISTINCT")):
+    for expr, word in (
+        ("COUNT(DISTINCT user_id)", "COUNT(DISTINCT"),
+        ("AVG(price)", "AVG"),
+        ("MAX(x)", "MAX"),
+        ("SUM(DISTINCT x)", "SUM(DISTINCT"),
+    ):
         rule = attribution.applicability(base(expr), {})
         assert rule["algorithm"] is None and "不可加" in rule["reason"] or "无法确定" in rule["reason"], expr
     assert "无法确定可加性" in attribution.applicability(base("SUM(a) - SUM(b)"), {})["reason"]
@@ -34,12 +39,13 @@ def test_applicability_from_expression():
     rule = attribution.applicability(derived, {"num": base("SUM(a)"), "den": base("COUNT(*)")})
     assert rule == {"algorithm": "ratio", "reason": "", "numerator": "num", "denominator": "den"}
     assert "不可加" in attribution.applicability(derived, {"num": base("SUM(a)"), "den": base("AVG(b)")})["reason"]
-    assert "不是 a / b" in attribution.applicability(SimpleNamespace(kind="derived", expression="num - den"), {})["reason"]
+    assert (
+        "不是 a / b" in attribution.applicability(SimpleNamespace(kind="derived", expression="num - den"), {})["reason"]
+    )
 
 
 def test_additive_members_signed_ep_and_new_exit():
-    rows = attribution.additive_members({("a",): (D(100), D(40)), ("b",): (None, D(30)), ("c",): (D(20), None)},
-                                        D(-50))
+    rows = attribution.additive_members({("a",): (D(100), D(40)), ("b",): (None, D(30)), ("c",): (D(20), None)}, D(-50))
     by = {r["member"]: r for r in rows}
     assert by["a"]["contribution"] == D(-60) and by["a"]["ep"] == D("1.2000")  # 可以超过 100%
     assert by["b"]["change_type"] == "新增" and by["b"]["previous"] == 0 and by["b"]["ep"] == D("-0.6000")
@@ -48,12 +54,20 @@ def test_additive_members_signed_ep_and_new_exit():
 
 def test_ratio_members_structure_and_rate_effects_add_up():
     # 成员 a：b 份额 0.5 → 0.25；成员 b 只在本期出现（新增）；成员 c 只在对比期（退出）
-    values = {("a",): (D(50), D(10), D(30), D(10)), ("b",): (None, None, D(60), D(20)), ("c",): (D(40), D(10), None, None)}
+    values = {
+        ("a",): (D(50), D(10), D(30), D(10)),
+        ("b",): (None, None, D(60), D(20)),
+        ("c",): (D(40), D(10), None, None),
+    }
     totals = (D(90), D(20), D(90), D(30))  # R0 = 4.5，R1 = 3
     rows, covered = attribution.ratio_members(values, totals, D(-1.5))
     by = {r["member"]: r for r in rows}
     a = by["a"]  # w0 = .5, w1 = 1/3, r0 = 5, r1 = 3：结构 (1/3 − .5)·5，比率 1/3·(3 − 5)
-    assert a["structure_effect"] == D("-0.8333") and a["rate_effect"] == D("-0.6667") and a["member_change"] == D("-2.0000")
+    assert (
+        a["structure_effect"] == D("-0.8333")
+        and a["rate_effect"] == D("-0.6667")
+        and a["member_change"] == D("-2.0000")
+    )
     assert by["b"]["structure_effect"] == D("2.0000") and by["b"]["rate_effect"] is None  # w1·r1 = 2/3·3
     assert by["c"]["structure_effect"] == D("-2.0000") and by["c"]["change_type"] == "退出"  # −w0·r0 = −.5·4
     assert abs(covered - D(-1.5)) < D("1e-20")  # Σ贡献 = R1 − R0
@@ -97,12 +111,14 @@ def test_judge_ranks_until_threshold_or_top_k_and_detects_offsetting():
     assert attribution.verdict([], False, total_immaterial=True, candidates=False) == "no_material_change"
     assert attribution.verdict([], False, total_immaterial=False, candidates=False) == "ranked_reasons"
     assert attribution.verdict([], False, total_immaterial=False) == "insufficient_evidence"  # 有候选维度却没扫成
-    ties = attribution.rank([attribution.Dimension("B", js=0.2), attribution.Dimension("A", js=0.2),
-                             attribution.Dimension("C", js=None)])
+    ties = attribution.rank(
+        [attribution.Dimension("B", js=0.2), attribution.Dimension("A", js=0.2), attribution.Dimension("C", js=None)]
+    )
     assert [x.name for x in ties] == ["A", "B", "C"]  # 并列按维度名，不可计算的排最后
 
 
 # --- 工具 ------------------------------------------------------------------------------
+
 
 class FakeQueries:
     """受治理查询替身：scenario[维度] = [(成员, 对比期值, 本期值), …]；比率指标为 (成员, a0, b0, a1, b1)。"""
@@ -151,15 +167,23 @@ class FakeQueries:
                         continue
                     row = list(key) + [None if p is None else str(p) for p, _ in pairs]
                 rows.append(row)
-        ds = box._dataset("governed", f"替身 {dim or '总量'}", cols, rows, truncated=dim in self.truncated,
-                          meta={"units": {}})
+        ds = box._dataset(
+            "governed", f"替身 {dim or '总量'}", cols, rows, truncated=dim in self.truncated, meta={"units": {}}
+        )
         return box._view(f"D{ds.seq}", ds), ds, "ok"
 
 
 def additive_box(monkeypatch, scenario, budget=None, **fake):
     metric = SimpleNamespace(id="m1", name="指标甲", domain_id="dA")
-    version = SimpleNamespace(id="v1", kind="base", expression="SUM(amount)", unit="件", unit_scale=1,
-                              dimensions=[{"name": n} for n in scenario if "×" not in n], components=None)
+    version = SimpleNamespace(
+        id="v1",
+        kind="base",
+        expression="SUM(amount)",
+        unit="件",
+        unit_scale=1,
+        dimensions=[{"name": n} for n in scenario if "×" not in n],
+        components=None,
+    )
     box = make_box(budget=budget, monkeypatch=monkeypatch)
     box.run.window = dict(WINDOW)
     monkeypatch.setattr(box, "_metric_sources", lambda code: (metric, version, [version], {}))
@@ -183,7 +207,12 @@ def test_explain_change_additive_ranks_dimensions_and_registers_units(monkeypatc
     assert summary["verdict"] == "ranked_reasons" and summary["primary_dimension"] == "维度A"
     assert summary["partial"] is False and summary["scanned"] == ["维度A", "维度B"]
     first = dict(zip(ds.columns, ds.rows[0]))
-    assert first["dimension"] == "维度A" and first["member"] == "a1" and first["ep"] == "1.0000" and first["role"] == "原因"
+    assert (
+        first["dimension"] == "维度A"
+        and first["member"] == "a1"
+        and first["ep"] == "1.0000"
+        and first["role"] == "原因"
+    )
     assert summary["threshold_met"] is True and summary["cumulative_ep"] == "1.0000"
     js = {d["dimension"]: d["js"] for d in summary["dimensions"]}
     assert js["维度A"] > js["维度B"]
@@ -232,6 +261,7 @@ def test_explain_change_filters_apply_to_every_subquery_and_key_the_verdict(monk
     def record(qa):
         seen.append([f.model_dump() for f in qa.filters])
         return original(qa)
+
     monkeypatch.setattr(box, "_run_query", record)
     region = [{"dimension": "维度B", "values": ["b2", "b1", "b1"]}]
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x", "filters": region}))
@@ -276,6 +306,7 @@ def test_explain_change_revoked_midway_stops(monkeypatch):
     def revoke(n):
         if n == 1:
             monkeypatch.setattr(tools.access, "roles_of", lambda s, u: set())
+
     box, queries = additive_box(monkeypatch, SCENARIO, on_query=revoke)
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     assert out["status"] == "denied" and "没有查询角色" in out["error"] and box.permission_lost
@@ -290,10 +321,20 @@ def test_explain_change_permission_denied_on_closure(monkeypatch):
         calls["n"] += 1
         if calls["n"] > 2:
             box._deny("来源资产当前无权访问", metric_code=code)
-        return SimpleNamespace(name="指标甲"), SimpleNamespace(kind="base", expression="SUM(x)", unit=None,
-                                                             unit_scale=1, dimensions=[{"name": "维度A"},
-                                                                                       {"name": "维度B"}],
-                                                             components=None), [], {}
+        return (
+            SimpleNamespace(name="指标甲"),
+            SimpleNamespace(
+                kind="base",
+                expression="SUM(x)",
+                unit=None,
+                unit_scale=1,
+                dimensions=[{"name": "维度A"}, {"name": "维度B"}],
+                components=None,
+            ),
+            [],
+            {},
+        )
+
     monkeypatch.setattr(box, "_metric_sources", sources)
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     assert out["status"] == "denied" and box.denials[-1]["message"] == "来源资产当前无权访问"  # 按 ADR 0007 暂停任务
@@ -316,9 +357,16 @@ def test_explain_change_rejects_non_additive_and_unknown_dimensions(monkeypatch)
 
 
 def test_explain_change_depth_two_combines_top_dimensions(monkeypatch):
-    scenario = {**SCENARIO,
-                "维度A×维度B": [("a1 / b1", D(300), D(100)), ("a1 / b2", D(200), D(100)), ("a2 / b2", D(300), D(310)),
-                              ("a3 / b1", D(100), D(200)), ("a3 / b2", D(100), D(-10))]}
+    scenario = {
+        **SCENARIO,
+        "维度A×维度B": [
+            ("a1 / b1", D(300), D(100)),
+            ("a1 / b2", D(200), D(100)),
+            ("a2 / b2", D(300), D(310)),
+            ("a3 / b1", D(100), D(200)),
+            ("a3 / b2", D(100), D(-10)),
+        ],
+    }
     box, queries = additive_box(monkeypatch, scenario)
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x", "depth": 2}))
     summary = box.datasets()[out["dataset"]].meta["summary"]
@@ -330,26 +378,51 @@ def test_explain_change_depth_two_combines_top_dimensions(monkeypatch):
 
 def test_explain_change_ratio_metric_uses_numerator_and_denominator(monkeypatch):
     metric = SimpleNamespace(id="mr", name="比率丙", domain_id="dA")
-    num, den = SimpleNamespace(id="vn", kind="base", expression="SUM(a)"), SimpleNamespace(id="vd", kind="base",
-                                                                                           expression="COUNT(*)")
-    version = SimpleNamespace(id="vr", kind="derived", expression="num / den", unit="元", unit_scale=1,
-                              dimensions=[{"name": "维度A"}],
-                              components=[{"metric_code": "num", "metric_id": "mn", "version_id": "vn"},
-                                          {"metric_code": "den", "metric_id": "md", "version_id": "vd"}])
+    num, den = (
+        SimpleNamespace(id="vn", kind="base", expression="SUM(a)"),
+        SimpleNamespace(id="vd", kind="base", expression="COUNT(*)"),
+    )
+    version = SimpleNamespace(
+        id="vr",
+        kind="derived",
+        expression="num / den",
+        unit="元",
+        unit_scale=1,
+        dimensions=[{"name": "维度A"}],
+        components=[
+            {"metric_code": "num", "metric_id": "mn", "version_id": "vn"},
+            {"metric_code": "den", "metric_id": "md", "version_id": "vd"},
+        ],
+    )
     box = make_box(monkeypatch=monkeypatch, objects=[])
-    box.session.store.update({(MetricVersion, "vn"): num, (MetricVersion, "vd"): den,
-                              (Metric, "mn"): SimpleNamespace(name="分子"), (Metric, "md"): SimpleNamespace(name="分母")})
+    box.session.store.update(
+        {
+            (MetricVersion, "vn"): num,
+            (MetricVersion, "vd"): den,
+            (Metric, "mn"): SimpleNamespace(name="分子"),
+            (Metric, "md"): SimpleNamespace(name="分母"),
+        }
+    )
     box.run.window = dict(WINDOW)
     monkeypatch.setattr(box, "_metric_sources", lambda code: (metric, version, [num, den], {}))
-    scenario = {"维度A": [("a", D(50), D(10), D(30), D(10)), ("b", None, None, D(60), D(20)),
-                         ("c", D(40), D(10), None, None), ("z", D(0), D(0), D(0), D(0))]}
+    scenario = {
+        "维度A": [
+            ("a", D(50), D(10), D(30), D(10)),
+            ("b", None, None, D(60), D(20)),
+            ("c", D(40), D(10), None, None),
+            ("z", D(0), D(0), D(0), D(0)),
+        ]
+    }
     queries = FakeQueries(box, ["分子", "分母"], scenario)
     monkeypatch.setattr(box, "_run_query", queries)
     out = json.loads(box.dispatch("explain_change", {"metric_code": "r", "top_k": 20}))
     ds = box.datasets()[out["dataset"]]
     summary = ds.meta["summary"]
-    assert summary["algorithm"] == "ratio" and summary["total"] == {"previous": "4.5000", "current": "3.0000",
-                                                                     "change": "-1.5000"}
+    assert summary["algorithm"] == "ratio" and summary["total"] == {
+        "previous": "4.5000",
+        "current": "3.0000",
+        "change": "-1.5000",
+    }
     rows = {r[1]: dict(zip(ds.columns, r)) for r in ds.rows}
     assert rows["a"]["structure_effect"] == "-0.8333" and rows["a"]["rate_effect"] == "-0.6667"
     assert rows["a"]["member_change"] == "-2.0000"  # 成员比率变化与对总体比率的贡献分两列
@@ -361,6 +434,7 @@ def test_explain_change_ratio_metric_uses_numerator_and_denominator(monkeypatch)
 
 # --- ADR 0009 第 7 点：结论类型由 explain_change 判定；分子属于已发布比率口径时自动给出因子拆解 ----------------------
 
+
 def test_material_change_threshold_is_a_per_metric_setting(monkeypatch):
     """变化显著性阈值是产品参数（默认 1%），口径版本可以单独配置；判定写进 explanations，报告的结论类型据此核对。"""
     box, _ = additive_box(monkeypatch, SCENARIO)  # 总量 1000 → 700，变化 30%
@@ -369,15 +443,25 @@ def test_material_change_threshold_is_a_per_metric_setting(monkeypatch):
     assert summary["conclusion"] == "ranked_reasons" and summary["material_change_ratio"] == "0.01"
     key = scope_key("x", [], summary["scope"])
     assert box.explanations == {key: "ranked_reasons"} and "scope 照抄 summary.scope" in out["conclusion_note"]
-    assert summary["scope"] == {"metric_code": "x", "filters": [], "start_date": WINDOW["start"], "end_date": WINDOW["end"],
-                                "compare_start": WINDOW["compare_start"], "compare_end": WINDOW["compare_end"]}
-    assert box.datasets()[out["dataset"]].meta["summary_units"]["material_change_ratio"]["kind"] == "share"  # 阈值可引用
+    assert summary["scope"] == {
+        "metric_code": "x",
+        "filters": [],
+        "start_date": WINDOW["start"],
+        "end_date": WINDOW["end"],
+        "compare_start": WINDOW["compare_start"],
+        "compare_end": WINDOW["compare_end"],
+    }
+    assert (
+        box.datasets()[out["dataset"]].meta["summary_units"]["material_change_ratio"]["kind"] == "share"
+    )  # 阈值可引用
     strict, _ = additive_box(monkeypatch, SCENARIO)
     strict._metric_sources("x")[1].material_change_ratio = D("0.5")  # 这个指标 50% 以内都算不显著
     out = json.loads(strict.dispatch("explain_change", {"metric_code": "x"}))
     summary = strict.datasets()[out["dataset"]].meta["summary"]
-    assert summary["verdict"] == summary["conclusion"] == "no_material_change" and \
-        strict.explanations[scope_key("x", [], summary["scope"])] == summary["verdict"]
+    assert (
+        summary["verdict"] == summary["conclusion"] == "no_material_change"
+        and strict.explanations[scope_key("x", [], summary["scope"])] == summary["verdict"]
+    )
 
 
 def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):
@@ -394,9 +478,15 @@ def test_numerator_of_a_published_ratio_gets_lmdi_factors(monkeypatch):
     def with_denominator(qa):
         if qa.metric_codes == ["y"]:  # 分母：两期 50 → 70
             box.budget.used_queries += 1
-            return {}, box._dataset("governed", "指标乙", ["指标乙", "指标乙·对比期"], [["70", "50"]],
-                                    meta={"metric_codes": ["y"]}), "ok"
+            return (
+                {},
+                box._dataset(
+                    "governed", "指标乙", ["指标乙", "指标乙·对比期"], [["70", "50"]], meta={"metric_codes": ["y"]}
+                ),
+                "ok",
+            )
         return run_query(qa)
+
     monkeypatch.setattr(box, "_run_query", with_denominator)
     out = json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     factor = box.datasets()[out["dataset"]].meta["summary"]["factor_decomposition"]
@@ -418,7 +508,8 @@ def test_dimension_scans_are_registered_for_reuse(monkeypatch):
     box, _ = additive_box(monkeypatch, SCENARIO)
     json.loads(box.dispatch("explain_change", {"metric_code": "x"}))
     base = dict(metric_codes=["x"], start_date=WINDOW["start"], end_date=WINDOW["end"], group_by=["维度A"], purpose="p")
-    with_compare = QueryArgs(**base, compare="custom", compare_start=WINDOW["compare_start"],
-                             compare_end=WINDOW["compare_end"])
+    with_compare = QueryArgs(
+        **base, compare="custom", compare_start=WINDOW["compare_start"], compare_end=WINDOW["compare_end"]
+    )
     assert _scan_key(with_compare) in box._scanned and _scan_key(QueryArgs(**base)) not in box._scanned
     assert _scan_key(QueryArgs(**{**base, "group_by": ["维度C"]})) not in box._scanned

@@ -1312,9 +1312,6 @@ msgstr "Databases to collect"
 msgid "只接 JDBC MySQL Catalog"
 msgstr "Supports JDBC MySQL Catalog only"
 
-msgid "目前只采元数据，作为外部表 / Catalog 表的追溯目标；视图解析与问数执行尚未联调"
-msgstr "Currently collects metadata only and serves as a tracing target for external or Catalog tables. View parsing and question answering execution have not been integration tested"
-
 msgid "库"
 msgstr "Database"
 
@@ -1785,3 +1782,157 @@ msgstr "Specify exactly one of column and summary"
 
 msgid "汇总值不能带 match 或 exclude"
 msgstr "Summary values cannot use match or exclude"
+
+msgid "DDL 审计表"
+msgstr "DDL audit table"
+
+msgid "库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表"
+msgstr "database.table; default table: starrocks_audit_db__.starrocks_audit_tbl__. Install the AuditLoader plugin and grant SELECT to the collection account. Leave blank if no audit table is bound."
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 AuditLoader 审计表"
+msgstr "No audit table is bound: bind an AuditLoader audit table in the data source option ddl_audit_table"
+
+msgid "未绑定审计表：请在数据源选项 ddl_audit_table 中绑定 MySQL DDL 审计表"
+msgstr "No audit table is bound: bind a MySQL DDL audit table in the data source option ddl_audit_table"
+
+msgid "StarRocks 审计表名称无效：请使用库.表，可用反引号引用名称"
+msgstr "Invalid StarRocks audit table name: use database.table; names may be quoted with backticks"
+
+msgid "StarRocks 审计表缺少必需字段：{fields}；请核对 AuditLoader 版本和表结构"
+msgstr "The StarRocks audit table is missing required fields: {fields}; check the AuditLoader version and table schema"
+
+msgid "StarRocks 审计表字段类型不符：{fields}"
+msgstr "The StarRocks audit table has incompatible field types: {fields}"
+
+msgid "无法确定 StarRocks FE 默认时区，不能解释审计 timestamp"
+msgstr "Cannot determine the default StarRocks FE time zone or interpret the audit timestamp"
+
+msgid "StarRocks 审计表 {table} 不存在；请安装 AuditLoader 插件并绑定审计表（{error}）"
+msgstr "StarRocks audit table {table} does not exist; install the AuditLoader plugin and bind the audit table ({error})"
+
+msgid "采集账号无权读取 StarRocks 审计表 {table}；请授予 SELECT 权限（{error}）"
+msgstr "The collection account cannot read StarRocks audit table {table}; grant SELECT permission ({error})"
+
+msgid "StarRocks 审计表 {table} 读取失败：{error}"
+msgstr "Failed to read StarRocks audit table {table}: {error}"
+
+msgid "StarRocks 审计记录无效或语句可能被截断，无法可靠归因"
+msgstr "The StarRocks audit record is invalid or its statement may be truncated; reliable attribution is unavailable"
+
+msgid "StarRocks 审计记录包含暂不支持的转义对象名称，无法可靠归因"
+msgstr "The StarRocks audit record contains an escaped object name that is not yet supported; reliable attribution is unavailable"
+
+msgid "DDL 审计来源不覆盖此 Catalog，无法归因"
+msgstr "The DDL audit source does not cover this Catalog; attribution is unavailable"
+
+msgid "采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；object_id 作物理身份；不报告数据新鲜度；2026-11-01 已实机验证 SQL Server 2022 的 DDL 归因；需启用默认跟踪，并授予 ALTER TRACE（相关读取若需 VIEW SERVER STATE 也须授权）；默认跟踪异步写盘：实机 DDL 后约 2 秒内可能缺记录、6 秒后稳定；采集后最多等待 10 秒再读取默认跟踪，以本次快照读取开始时间加 10 秒为等待截止，等待不是落盘保证；只采用已提交的对象级事件；当前目录恢复的模式仅作候选，无法确证历史模式或点名列时不确定归因；StartTime 按服务器本地时间换算 UTC，使用服务器当前偏移；演示实例偏移为 0，本地时间换 UTC 与跨夏令时未实机验证，跨夏令时可能不准确"
+msgstr "The collection account needs VIEW DEFINITION on the schemas; the query account needs SELECT and VIEW DEFINITION; object_id provides physical identity; data freshness is not reported. DDL attribution was validated on a real SQL Server 2022 instance on 2026-11-01. Default trace must be enabled and ALTER TRACE granted (also grant VIEW SERVER STATE if required by related reads). Default trace writes asynchronously: real-instance observations found records could be missing within about 2 seconds after DDL and appeared reliably after 6 seconds. After collection, wait up to 10 seconds before reading default trace, with the deadline set to 10 seconds after the current snapshot read starts. Waiting does not guarantee records have reached disk. Only committed object-level events are used. Schemas recovered from the current catalog provide candidates only; no definite attribution is made when the historical schema or affected columns cannot be established. StartTime is converted from server local time to UTC using the current server offset. The demo instance had an offset of 0; local-time-to-UTC conversion and daylight saving transitions have not been validated on real instances, and conversion across daylight saving transitions may be inaccurate."
+
+msgid "无法确定 MySQL lower_case_table_names，不能可靠解析库表名"
+msgstr "Cannot determine MySQL lower_case_table_names; database and table names cannot be resolved reliably"
+
+msgid "采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 AUDIT_VIEWER；只采用 RETURN_CODE = 0 的成功记录；优先 EVENT_TIMESTAMP_UTC，旧版 EVENT_TIMESTAMP 在 UTC 审计会话中读取；无记录且无策略的 not_enabled 分支未实机验证"
+msgstr "The collection account needs SELECT_CATALOG_ROLE; OBJECT_ID provides physical identity; unquoted identifiers are stored in uppercase; data freshness is not reported. DDL attribution was validated on a real Oracle 23ai Free instance on 2026-11-01 using a custom unified audit policy (CREATE / ALTER / DROP TABLE, CREATE / DROP VIEW, COMMENT, RENAME, TRUNCATE TABLE) and AUDIT_VIEWER. Only successful records with RETURN_CODE = 0 are used. EVENT_TIMESTAMP_UTC is preferred; on older versions, EVENT_TIMESTAMP is read in a UTC audit session. The not_enabled branch with neither records nor an enabled policy has not been validated on real instances."
+
+msgid "SQL Server 默认跟踪未开启（default trace enabled = 0）"
+msgstr "SQL Server default trace is disabled (default trace enabled = 0)"
+
+msgid "采集账号缺少 SQL Server 默认跟踪读取权限（需要 ALTER TRACE；相关读取可能还需要 VIEW SERVER STATE）"
+msgstr "The collection account lacks permission to read SQL Server default trace (ALTER TRACE is required; related reads may also require VIEW SERVER STATE)"
+
+msgid "无法判断采集账号是否具有 SQL Server 默认跟踪读取权限（ALTER TRACE 权限检查返回 NULL）；请确认相关授权"
+msgstr "Cannot determine whether the collection account can read SQL Server default trace (the ALTER TRACE permission check returned NULL); verify the required grants"
+
+msgid "SQL Server 默认跟踪未运行或没有可读取的跟踪文件"
+msgstr "SQL Server default trace is not running or has no readable trace file"
+
+msgid "SQL Server 默认跟踪配置或服务器时区偏移无法读取"
+msgstr "SQL Server default trace configuration or the server's time zone offset could not be read"
+
+msgid "SQL Server 默认跟踪记录结构不符：{error}"
+msgstr "SQL Server default trace records have an incompatible structure: {error}"
+
+msgid "SQL Server 默认跟踪读取失败：{error}"
+msgstr "Failed to read SQL Server default trace: {error}"
+
+msgid "Oracle 统一审计记录缺少有效的时间、数据库用户、操作或对象信息"
+msgstr "Oracle unified audit record is missing a valid timestamp, database user, action or object"
+
+msgid "Oracle 统一审计的 SQL_TEXT 不是文本"
+msgstr "SQL_TEXT in Oracle unified audit is not text"
+
+msgid "Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"
+msgstr "Oracle unified audit has no relevant successful DDL records, and no enabled audit policy records successful outcomes of these operations"
+
+msgid "采集账号无权读取 Oracle 统一审计；请授予 AUDIT_VIEWER 或相应读取权限（{error}）"
+msgstr "The collection account cannot read Oracle unified audit; grant AUDIT_VIEWER or the corresponding read privileges ({error})"
+
+msgid "Oracle 统一审计来源结构与连接器要求不符（{error}）"
+msgstr "The Oracle unified audit source structure does not meet the connector's requirements ({error})"
+
+msgid "读取 Oracle 统一审计失败（{error}）"
+msgstr "Failed to read Oracle unified audit ({error})"
+
+msgid "DDL 审计记录包含 MySQL 可执行注释，无法可靠确定候选"
+msgstr "The DDL audit record contains MySQL executable comments; candidates cannot be determined reliably"
+
+msgid "DDL 审计语句缺少当前库上下文：存在未限定库名的对象，无法可靠确定候选"
+msgstr "The DDL audit statement lacks current database context: an object has no database qualifier, so candidates cannot be determined reliably"
+
+msgid "DDL 审计记录包含多条语句，无法可靠确定候选"
+msgstr "The DDL audit record contains multiple statements; candidates cannot be determined reliably"
+
+msgid "超时值必须为正数，未执行"
+msgstr "The timeout must be positive; nothing was executed"
+
+msgid "DDL 审计候选超过读取上限（{limit} 条），无法完整归因"
+msgstr "DDL audit candidates exceed the read limit ({limit} rows); complete attribution is unavailable"
+
+msgid "未绑定 DDL 审计表（options.ddl_audit_table），没有审计来源"
+msgstr "No DDL audit table is bound (options.ddl_audit_table); there is no audit source"
+
+msgid "DDL 审计表名称无效：请填写库.表"
+msgstr "Invalid DDL audit table name: enter database.table"
+
+msgid "DDL 审计表 {table} 结构不符：缺少列 {columns}"
+msgstr "DDL audit table {table} has an incompatible schema: missing columns {columns}"
+
+msgid "DDL 审计表 {table} 的 event_time 必须为 TIMESTAMP；不能推测 DATETIME 的时区"
+msgstr "event_time in DDL audit table {table} must be TIMESTAMP; the time zone of DATETIME cannot be inferred"
+
+msgid "DDL 审计表 {table} 的 user_host、command_type、argument 必须为文本或二进制列"
+msgstr "user_host, command_type, and argument in DDL audit table {table} must be text or binary columns"
+
+msgid "DDL 审计表的 {column} 不是有效的 UTF-8 文本"
+msgstr "{column} in the DDL audit table is not valid UTF-8 text"
+
+msgid "MySQL 通用查询日志未写入表：需要 general_log=ON 且 log_output 包含 TABLE"
+msgstr "The MySQL general query log is not writing to a table: general_log=ON and TABLE in log_output are required"
+
+msgid "读取 DDL 审计表 {table} 失败：{error}"
+msgstr "Failed to read DDL audit table {table}: {error}"
+
+msgid "DDL 审计表的 user_host 无法解析数据库用户名，不能归因"
+msgstr "The database username cannot be parsed from user_host in the DDL audit table; attribution is unavailable"
+
+msgid "DDL 审计表的 event_time 不是有效的时间值"
+msgstr "event_time in the DDL audit table is not a valid timestamp"
+
+msgid "查询行数上限不能为负数，未执行"
+msgstr "The query row limit must not be negative; nothing was executed"
+
+msgid "MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用"
+msgstr "No definition was read for MySQL view {name} (SHOW VIEW is required); column-level lineage is unavailable"
+
+msgid "可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument"
+msgstr "Optionally bind database.table, such as mysql.general_log; the general log requires general_log=ON, TABLE in log_output, and SELECT for the collection account; compatible audit tables require event_time (TIMESTAMP), user_host, command_type, and argument"
+
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；不报告数据新鲜度；2026-11-01 已实机验证 MySQL 8.4.10；DDL 归因需绑定审计表，未绑定时不支持归因；general_log 实测也记录执行失败的 DDL，只作候选证据，与结构变化交叉核对；审计时间统一按 UTC 读取"
+msgstr "The collection account needs metadata visibility and SHOW VIEW; queries use a dedicated read-only account (SELECT and SHOW VIEW); server_uuid identifies the instance; data freshness is not reported. MySQL 8.4.10 was validated on a real instance on 2026-11-01. DDL attribution requires an audit table binding and is unsupported without one. Real-instance testing confirmed that general_log also records failed DDL, so it provides candidate evidence only, cross-checked against schema changes; audit timestamps are read in UTC."
+
+msgid "2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；FE 时区为 UTC，非 UTC 换算未实机验证；插件刚安装后的几十秒内可能未记录语句，此时归因为未匹配"
+msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditLoader 4.2.2; DDL attribution requires a bound audit table and SELECT permission, and is unsupported without a binding. The FE time zone was UTC; conversion from non-UTC time zones has not been validated on real instances. Statements issued within the first tens of seconds after plugin installation may not be recorded and are then unmatched."
+
+#: src/avelis/api/imports.py
+msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
+msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
