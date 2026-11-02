@@ -1936,3 +1936,65 @@ msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditL
 #: src/avelis/api/imports.py
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
+
+#: src/avelis/api/interchange.py
+msgid "Ossie 导入请求无效"
+msgstr "Invalid Ossie import request"
+
+msgid "Ossie 导入校验未通过"
+msgstr "Ossie import validation failed"
+
+msgid "导入文件超过 5 MiB"
+msgstr "The import request exceeds 5 MiB"
+
+msgid "导入内容必须是 UTF-8 文本"
+msgstr "Import content must be UTF-8 text"
+
+msgid "导入内容不是有效的 JSON 或 YAML"
+msgstr "Import content is not valid JSON or YAML"
+
+msgid "导入内容必须是 JSON 对象"
+msgstr "Import content must be a JSON object"
+
+msgid "导入内容包含重复键"
+msgstr "Import content contains duplicate keys"
+
+msgid "导入内容只允许 JSON 值"
+msgstr "Import content may only contain JSON values"
+
+msgid "导入内容嵌套过深或过于复杂"
+msgstr "Import content is nested too deeply or is too complex"
+
+msgid "缺少目标业务域 domain_id"
+msgstr "The target business domain_id is required"
+
+msgid "dry_run 必须是布尔值"
+msgstr "dry_run must be a boolean"
+
+msgid "必须上传一个 file 文件"
+msgstr "Exactly one file must be uploaded in the file field"
+
+msgid "不支持的导入内容类型"
+msgstr "Unsupported import content type"
+
+#: src/avelis/interchange/exporter.py
+msgid "无权导出该业务域的口径"
+msgstr "You do not have permission to export metrics from this business domain"
+
+msgid "没有可导出的已发布口径"
+msgstr "There are no published metrics available for export"
+
+msgid "所选口径来自语义提示不同的模型，请分别导出或统一模型语义提示"
+msgstr "The selected metrics belong to models with different AI contexts; export them separately or align the model AI contexts"
+
+msgid "所选口径包含同名但不同源的数据集，请分别导出或统一数据集命名"
+msgstr "The selected metrics contain datasets with the same name but different sources; export them separately or align the dataset names"
+
+msgid "所选口径包含同名但定义不同的字段，请分别导出或统一字段定义"
+msgstr "The selected metrics contain fields with the same name but different definitions; export them separately or align the field definitions"
+
+msgid "口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"
+msgstr "The metric uses the same asset in multiple relationship roles and cannot be exported safely; adjust the relationships or define separate metrics"
+
+msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
+msgstr "The metric expression references virtual fields produced by pre-aggregation and cannot be exported safely; adjust the metric definition"

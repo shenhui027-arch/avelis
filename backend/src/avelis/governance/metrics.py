@@ -263,7 +263,9 @@ def create_metric(
     return metric
 
 
-def create_version(session: Session, actor: User, metric: Metric, spec: dict[str, Any]) -> MetricVersion:
+def create_version(
+    session: Session, actor: User, metric: Metric, spec: dict[str, Any], *, defer_validation: bool = False
+) -> MetricVersion:
     access.require_domain_maintainer(session, actor, metric.domain_id)
     number = (
         session.scalar(select(func.max(MetricVersion.version_no)).where(MetricVersion.metric_id == metric.id)) or 0
@@ -283,7 +285,12 @@ def create_version(session: Session, actor: User, metric: Metric, spec: dict[str
     if kind == "derived":
         version.time_column = ""
         version.base_asset_id = None
-    resolved = validate_spec(session, version)
+    # Ossie 先做结构、模型引用及目录校验；执行语义仍在提交时按正常发布流程检查。
+    resolved = (
+        {"dependency": [], "dimensions": spec.get("dimensions", [])}
+        if defer_validation
+        else validate_spec(session, version)
+    )
     if kind == "derived":
         version.dimensions = resolved["dimensions"]
     version.dependency = resolved["dependency"]
@@ -311,6 +318,12 @@ def update_draft(session: Session, actor: User, version: MetricVersion, spec: di
             if key == "timezone" and not value:
                 value = get_settings().business_timezone
             setattr(version, key, value)
+    if "expression" in spec and (metadata := (version.publish_check or {}).get("ossie")):
+        version.publish_check = {
+            **version.publish_check,
+            "ossie": {**metadata, "unresolved_dialect": False, "warnings": []},
+            "warnings": [w for w in version.publish_check.get("warnings", []) if w not in metadata.get("warnings", [])],
+        }
     if version.status == "rejected":
         transition_rejected_to_draft(session, version, actor)
     resolved = validate_spec(session, version)
@@ -413,8 +426,24 @@ def derived_components(session: Session, version: MetricVersion) -> list[dict[st
             raise Invalid(Msg("公式引用了不存在的指标 {code}", code=code))
         if metric.id == own.id:
             raise Invalid("派生指标不能引用自身")
-        current = latest_governed_version(session, metric)
-        out.append({"metric": metric, "version": current})
+        pinned = (version.publish_check or {}).get("ossie", {}).get("components", [])
+        pin = next((c for c in pinned if c.get("metric_code") == code), None)
+        current = (
+            session.scalar(
+                select(MetricVersion).where(
+                    MetricVersion.metric_id == metric.id, MetricVersion.version_no == pin["version_no"]
+                )
+            )
+            if pin
+            else latest_governed_version(session, metric)
+        )
+        component = {"metric": metric, "version": current}
+        if pin and current is None:
+            component["version"] = latest_governed_version(session, metric)
+            component["warning"] = (
+                f"组成口径 {code} 锁定的本环境版本 V{pin['version_no']} 已不存在，已回退到本环境当前受治理版本"
+            )
+        out.append(component)
     return out
 
 
@@ -603,9 +632,25 @@ def dependency_drift(session: Session, version: MetricVersion) -> list[dict[str,
 def publish_check(session: Session, version: MetricVersion, viewer: User) -> dict[str, Any]:
     """发布前检查：依赖证据完整、关联路径已批准、关联不放大可加度量、粒度说明。
     viewer：查看（或提交、批准）的人；注释缺口提示中只沿用他能看到的上游注释。"""
+    ossie = (version.publish_check or {}).get("ossie")
+    if ossie and ossie.get("unresolved_dialect"):
+        return _with_ossie(
+            version,
+            {
+                "ok": False,
+                "blockers": ["导入表达式没有匹配的数据源方言，请维护者填写表达式后再提交"],
+                "warnings": [],
+                "dependency": version.dependency or [],
+                "joins": [],
+                "base_grains": [],
+                "fan_out": [],
+                "fingerprints": 0,
+                "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
+            },
+        )
     resolved = validate_spec(session, version)
     if version.kind == "derived":
-        return _derived_check(resolved)
+        return _with_ossie(version, _derived_check(resolved))
     blockers: list[str] = []
     warnings: list[str] = []
     for dep in resolved["dependency"]:
@@ -677,17 +722,34 @@ def publish_check(session: Session, version: MetricVersion, viewer: User) -> dic
         warnings.append("未填写统计粒度")
     if version.joins and not version.dedupe_basis:
         warnings.append("涉及关联但未说明避免重复计数的依据")
-    return {
-        "ok": not blockers,
-        "blockers": blockers,
-        "fan_out": fan_out,
-        "warnings": warnings,
-        "joins": joins_report,
-        "base_grains": base_grains,
-        "dependency": resolved["dependency"],
-        "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
-        "fingerprints": len(fps),
-    }
+    return _with_ossie(
+        version,
+        {
+            "ok": not blockers,
+            "blockers": blockers,
+            "fan_out": fan_out,
+            "warnings": warnings,
+            "joins": joins_report,
+            "base_grains": base_grains,
+            "dependency": resolved["dependency"],
+            "checked_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
+            "fingerprints": len(fps),
+        },
+    )
+
+
+def _with_ossie(version: MetricVersion, check: dict[str, Any]) -> dict[str, Any]:
+    """交换附加信息不参与指纹，也不能在提交或复核时随检查报告丢失。"""
+    metadata = (version.publish_check or {}).get("ossie")
+    if metadata:
+        check["ossie"] = metadata
+        check["warnings"].extend(metadata.get("warnings", []))
+    return check
+
+
+def public_publish_check(check: dict[str, Any] | None) -> dict[str, Any]:
+    """原交换文档只供互通服务使用，不能随口径详情暴露其未使用的跨域目录。"""
+    return {key: value for key, value in (check or {}).items() if key != "ossie"}
 
 
 def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
@@ -695,6 +757,8 @@ def _derived_check(resolved: dict[str, Any]) -> dict[str, Any]:
     blockers, warnings, pinned = [], [], []
     for c in resolved["components"]:
         metric, cv = c["metric"], c["version"]
+        if c.get("warning"):
+            warnings.append(c["warning"])
         if cv is None or cv.status != "published":
             blockers.append(
                 f"组成指标 {metric.name}（{metric.code}）当前没有已发布版本"
@@ -754,7 +818,7 @@ def submit(session: Session, actor: User, version: MetricVersion) -> MetricVersi
         audit.record(
             session, actor, "metric_version.submit_blocked", "metric_version", version.id, blockers=check["blockers"]
         )
-        raise Conflict("发布前检查未通过", blockers=check["blockers"], check=check)
+        raise Conflict("发布前检查未通过", blockers=check["blockers"], check=public_publish_check(check))
     version.dependency_fingerprint = dependency_fingerprint(version, check["dependency"])
     if version.kind == "derived":
         version.components = check["components"]
@@ -925,7 +989,7 @@ def describe_version(session: Session, version: MetricVersion) -> dict[str, Any]
         "dependency": version.dependency,
         "dependency_fingerprint": version.dependency_fingerprint,
         "asset_versions": version.asset_versions,
-        "publish_check": version.publish_check,
+        "publish_check": public_publish_check(version.publish_check),
         "created_by": version.created_by,
         "submitted_by": version.submitted_by,
         "reviewed_by": version.reviewed_by,

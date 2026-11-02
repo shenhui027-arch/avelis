@@ -23,6 +23,7 @@ from avelis.api import (
     governance,
     history,
     imports,
+    interchange,
     model_settings,
     workbench,
 )
@@ -137,6 +138,7 @@ def create_app() -> FastAPI:
         model_settings,
         system_settings,
         imports,
+        interchange,
         workbench,
     ):
         app.include_router(module.router)

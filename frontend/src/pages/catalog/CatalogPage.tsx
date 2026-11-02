@@ -9,6 +9,7 @@ import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
 import { JoinPaths } from "./JoinPaths";
 import { MetricDetail, NewMetric } from "./MetricDetail";
+import { OssieImportDrawer } from "./OssieInterchange";
 import { t } from "../../i18n";
 
 const SECTIONS = [
@@ -44,7 +45,10 @@ export function CatalogPage() {
   const excluded = !!id && !!term && currentQuery.isSuccess && currentQuery.data.some((item) => item.id === id)
     && !filteredIds.some((item) => item.id === id);
   const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setQueries({ ...queries, [section]: "" })}>{t("清除搜索")}</button>;
-  const createMetric = canCreateMetric ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("新建指标")}</button> : null;
+  const [importing, setImporting] = useState(false);
+  const createMetric = canCreateMetric ? <>
+    <button type="button" className="av-btn av-btn--secondary" onClick={() => setImporting(true)}><Icon name="upload" />{t("导入 Ossie")}</button>
+    <button type="button" className="av-btn av-btn--primary" onClick={() => setCreating(true)}><Icon name="plus" />{t("新建指标")}</button></> : null;
   const createDomain = roles.has("admin") ? <button type="button" className="av-btn av-btn--primary" onClick={() => setCreatingDomain(true)}><Icon name="plus" />{t("新建业务域")}</button> : null;
   const closeMetric = () => {
     setCreating(false);
@@ -133,6 +137,7 @@ export function CatalogPage() {
       {creatingDomain && roles.has("admin") ? <NewDomain onClose={() => setCreatingDomain(false)} onCreated={(did) => { setCreatingDomain(false); navigate(`/catalog/domains/${did}`); }} /> : null}
       {(creating || (section === "metrics" && searchParams.get("create") === "1")) && canCreateMetric
         ? <NewMetric onClose={closeMetric} onCreated={(mid) => { closeMetric(); navigate(`/catalog/metrics/${mid}`); }} /> : null}
+      {importing && canCreateMetric ? <OssieImportDrawer onClose={() => setImporting(false)} /> : null}
     </div>
   );
 }

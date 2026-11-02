@@ -32,6 +32,8 @@ dependencies = [
     "json-repair>=0.50",
     "impyla>=0.24",
     "babel>=2.18.0",
+    "jsonschema==4.25.1",
+    "pyyaml==6.0.3",
 ]
 
 [dependency-groups]

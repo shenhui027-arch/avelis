@@ -6369,6 +6369,244 @@
     }
    }
   },
+  "/api/interchange/ossie/export": {
+   "get": {
+    "tags": [
+     "Ossie"
+    ],
+    "summary": "Export Ossie",
+    "operationId": "export_ossie_api_interchange_ossie_export_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "metric_ids",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Metric Ids"
+      }
+     },
+     {
+      "name": "format",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "yaml",
+        "json"
+       ],
+       "type": "string",
+       "default": "yaml",
+       "title": "Format"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/yaml": {
+        "schema": {
+         "type": "string"
+        }
+       },
+       "application/json": {}
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/interchange/ossie/import": {
+   "post": {
+    "tags": [
+     "Ossie"
+    ],
+    "summary": "Import Ossie",
+    "operationId": "import_ossie_api_interchange_ossie_import_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "dry_run",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "title": "Dry Run"
+      },
+      "description": "true（默认）只校验；false 创建草稿"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OssieImportReport"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OssieImportReport"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OssieImportReport"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "description": "JSON 包装请求；也接受以查询参数指定选项的根模型和上传文件。",
+          "properties": {
+           "domain_id": {
+            "title": "Domain Id",
+            "type": "string"
+           },
+           "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+           },
+           "document": {
+            "anyOf": [
+             {
+              "additionalProperties": true,
+              "type": "object"
+             },
+             {
+              "type": "string"
+             }
+            ],
+            "title": "Document"
+           }
+          },
+          "required": [
+           "domain_id",
+           "document"
+          ],
+          "title": "OssieImportRequest",
+          "type": "object"
+         },
+         {
+          "type": "object",
+          "additionalProperties": true
+         }
+        ]
+       }
+      },
+      "application/yaml": {
+       "schema": {
+        "type": "string"
+       }
+      },
+      "multipart/form-data": {
+       "schema": {
+        "type": "object",
+        "required": [
+         "file"
+        ],
+        "properties": {
+         "file": {
+          "type": "string",
+          "format": "binary"
+         },
+         "domain_id": {
+          "type": "string"
+         },
+         "dry_run": {
+          "type": "boolean",
+          "default": true
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/workbench": {
    "get": {
     "tags": [
@@ -13399,6 +13637,194 @@
      "created_at"
     ],
     "title": "NotificationOut"
+   },
+   "OssieImportCounts": {
+    "properties": {
+     "created": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "Created",
+      "default": 0
+     },
+     "new_version": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "New Version",
+      "default": 0
+     },
+     "skipped": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "Skipped",
+      "default": 0
+     },
+     "failed": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "Failed",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "OssieImportCounts"
+   },
+   "OssieImportError": {
+    "properties": {
+     "layer": {
+      "type": "string",
+      "title": "Layer"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "layer",
+     "path",
+     "reason"
+    ],
+    "title": "OssieImportError"
+   },
+   "OssieImportReport": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "dry_run": {
+      "type": "boolean",
+      "title": "Dry Run"
+     },
+     "results": {
+      "items": {
+       "$ref": "#/components/schemas/OssieImportResult"
+      },
+      "type": "array",
+      "title": "Results"
+     },
+     "errors": {
+      "items": {
+       "$ref": "#/components/schemas/OssieImportError"
+      },
+      "type": "array",
+      "title": "Errors"
+     },
+     "warnings": {
+      "items": {
+       "$ref": "#/components/schemas/OssieImportWarning"
+      },
+      "type": "array",
+      "title": "Warnings"
+     },
+     "counts": {
+      "$ref": "#/components/schemas/OssieImportCounts"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ok",
+     "dry_run"
+    ],
+    "title": "OssieImportReport"
+   },
+   "OssieImportResult": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "created",
+       "new_version",
+       "skipped",
+       "failed"
+      ],
+      "title": "Action"
+     },
+     "metric_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Metric Id"
+     },
+     "version_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version Id"
+     },
+     "version_no": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version No"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "name",
+     "action"
+    ],
+    "title": "OssieImportResult"
+   },
+   "OssieImportWarning": {
+    "properties": {
+     "metric": {
+      "type": "string",
+      "title": "Metric"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "metric",
+     "path",
+     "reason"
+    ],
+    "title": "OssieImportWarning"
    },
    "OwnerRef": {
     "properties": {

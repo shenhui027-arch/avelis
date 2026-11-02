@@ -1,6 +1,6 @@
 # ADR 0017：口径按 Apache Ossie 导入导出，并为口径补充给模型用的语义提示
 
-- 状态：部分采纳（2026-11-02，用户确定 1.1 顺序）。§3 口径语义提示已实现（1.1 第一项，迁移 0019，`PUT /api/metrics/{id}/ai-context`）；§1、§2 的 Ossie 导入导出排在 1.1 最后，等规范稳定后定稿。
+- 状态：已采纳（2026-11-03）。§3 口径语义提示已实现（迁移 0019，`PUT /api/metrics/{id}/ai-context`）；§1、§2 的 Ossie 导出与导入已实现（`GET /api/interchange/ossie/export`、`POST /api/interchange/ossie/import`），锁定规范提交 `48da55a`（见 §4）。原计划“导入等 0.2.0 正式版后再做”调整为：按锁定提交一并实现，规范升级时按 §4 跟进。
 - 相关：ADR 0005（问数表达力）、0010（业务中立）、0013（准确来自受治理的元数据）、0014（口径时间与量纲）；参考 Apache Gravitino 语义模型设计（`design-docs/gravitino-semantic-model-design.md`，2026-10-30 版）
 
 ## 背景
@@ -59,7 +59,9 @@ examples?: string[]      典型问法，用于检索与评测
 
 每个 Avelis 版本锁定一个 Ossie 规范提交，写在代码常量和文档里。升级规范需要：改映射、补往返测试、在 CHANGELOG 中写明。
 
-2026-11-02 调研时规范版本为 `0.2.0.dev0`（草案，项目 2026 年 7 月进入 Apache 孵化器，仍在活跃变动），仓库内 `core-spec/spec.yaml`、`ossie-schema.json` 为机器可读定义。Gravitino（2026-10-30 版）锁定的是 Ossie 提交 `88e0011`，对应同一规范版本。
+**锁定提交：`48da55a`**（`48da55a07e4e8c3a11a662b14727557f6342536d`，2026-11-01，core-spec 最新；schema 最后一次实质改动为 `a498fce`，2026-10-26）。规范版本字符串仍是 `0.2.0.dev0`（草案，项目 2026 年 7 月进入 Apache 孵化器，仍在活跃变动；仓库已改名 `apache/ossie`，机器可读定义为 `core-spec/ossie-schema.json`）。导出严格按该提交的 schema 原文校验，内置副本不做任何改写。
+
+**2026-11-03 更正**：本 ADR 起草时把 Ossie main 分支的形态（根部 `version` / `name` / `datasets` / `metrics`、方言为自由字符串并定义 `OSSIE_SQL_2026`、数据集作用域指标、`ai_context` 对象）当成了 Gravitino 锁定的 `88e0011`。实际上 `88e0011`（2026-07-31）是 `{version, semantic_model: [ … ]}` 包装、方言为枚举（`ANSI_SQL`、`SNOWFLAKE` 等）的旧格式，两者版本号相同、内容不同。端到端验证时发现导出文件不符合 `88e0011` 的 schema，因此改锁到与本 ADR 描述一致的 `48da55a`。为兼容 Gravitino 等仍按 `88e0011` 导出的工具，导入时识别旧的 `semantic_model` 包装：先按 `88e0011` 的 schema 原文校验，再转成新形态走同样的三层校验，并在导入报告里提示按旧格式读取。
 
 映射细节（参考 Gravitino 的做法）：
 
@@ -86,8 +88,8 @@ examples?: string[]      典型问法，用于检索与评测
 - 代价：要维护一份映射和一组往返测试；Ossie 仍在 0.x 阶段，规范变动时需要跟进。
 - 风险：导入的表达式可能在方言转写上出错。所以转写结果默认待确认，并且必须经过审核才能发布。
 
-## 待讨论
+## 原待讨论项的决定（2026-11-03）
 
-1. 导出粒度按业务域还是按选中的口径？
-2. 派生口径（`kind = derived`）的 `components` 在 Ossie 里怎么表达：展开成表达式，还是放进 `custom_extensions`？
-3. `ai_context.examples` 是否同时作为评测题的来源？
+1. **导出粒度**：按业务域导出，可选只导出其中部分口径（`metric_ids`）；只含当前用户可见的已发布版本。
+2. **派生口径**：`expression` 里给出基于组成口径的公式写法，同时在 `custom_extensions`（`vendor_name = "avelis"`）里保留结构化的组成口径（编码、导出方版本号、表达式）。导入时按编码在本环境找到组成口径并锁定**本环境当前受治理的版本**；导出方版本号只作参考，定义不同时给出提醒，不阻止导入。
+3. **`ai_context.examples` 与评测**：首版不作为评测题来源，避免评测集被提示内容污染；以后需要时另行讨论。

@@ -1941,3 +1941,65 @@ msgstr "2026-11-01 已實機驗證 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL �
 #: src/avelis/api/imports.py
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"
+
+#: src/avelis/api/interchange.py
+msgid "Ossie 导入请求无效"
+msgstr "Ossie 匯入請求無效"
+
+msgid "Ossie 导入校验未通过"
+msgstr "Ossie 匯入校驗未通過"
+
+msgid "导入文件超过 5 MiB"
+msgstr "匯入請求超過 5 MiB"
+
+msgid "导入内容必须是 UTF-8 文本"
+msgstr "匯入內容必須是 UTF-8 文字"
+
+msgid "导入内容不是有效的 JSON 或 YAML"
+msgstr "匯入內容不是有效的 JSON 或 YAML"
+
+msgid "导入内容必须是 JSON 对象"
+msgstr "匯入內容必須是 JSON 物件"
+
+msgid "导入内容包含重复键"
+msgstr "匯入內容包含重複鍵"
+
+msgid "导入内容只允许 JSON 值"
+msgstr "匯入內容只允許 JSON 值"
+
+msgid "导入内容嵌套过深或过于复杂"
+msgstr "匯入內容巢狀層級過深或過於複雜"
+
+msgid "缺少目标业务域 domain_id"
+msgstr "缺少目標業務域 domain_id"
+
+msgid "dry_run 必须是布尔值"
+msgstr "dry_run 必須是布林值"
+
+msgid "必须上传一个 file 文件"
+msgstr "必須在 file 欄位上傳一個檔案"
+
+msgid "不支持的导入内容类型"
+msgstr "不支援的匯入內容類型"
+
+#: src/avelis/interchange/exporter.py
+msgid "无权导出该业务域的口径"
+msgstr "無權匯出此業務域的口徑"
+
+msgid "没有可导出的已发布口径"
+msgstr "沒有可匯出的已發布口徑"
+
+msgid "所选口径来自语义提示不同的模型，请分别导出或统一模型语义提示"
+msgstr "所選口徑來自語義提示不同的模型，請分別匯出或統一模型語義提示"
+
+msgid "所选口径包含同名但不同源的数据集，请分别导出或统一数据集命名"
+msgstr "所選口徑包含同名但不同來源的資料集，請分別匯出或統一資料集命名"
+
+msgid "所选口径包含同名但定义不同的字段，请分别导出或统一字段定义"
+msgstr "所選口徑包含同名但定義不同的欄位，請分別匯出或統一欄位定義"
+
+msgid "口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"
+msgstr "口徑包含同一資產的多個關聯角色，無法安全匯出；請調整關聯或分別定義口徑"
+
+msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
+msgstr "口徑運算式引用預先彙總產生的虛擬欄位，無法安全匯出；請調整口徑定義"
