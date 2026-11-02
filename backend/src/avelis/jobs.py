@@ -243,7 +243,8 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
 def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: dict | None, reason: str) -> None:
     """任务状态已提交后，用短事务收尾关联对象并写入受哈希链保护的失败审计。
 
-    谁把关联对象改成 failed，谁写失败事件；已 failed 的对象由正常失败路径的 guard 负责。
+    谁把关联对象改成 failed，谁在同一事务写失败事件；guard 只兜底。
+    已 failed 表示状态和事件已一起提交，回收方只核对 Job 终态与收尾标记。
     没有精确关联对象时，仍由回收方记录任务失败。
     """
     with session_scope() as session:
@@ -262,19 +263,27 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             datasource_id = payload.get("datasource_id")
             run_id = (result or job.result or {}).get("run_id")
             # 旧任务没有精确关联时只记任务失败，不能按同源/同操作者猜测并终结新任务的运行。
-            run = session.get(CollectionRun, run_id) if run_id else None
+            run = (
+                session.scalar(select(CollectionRun).where(CollectionRun.id == run_id).with_for_update())
+                if run_id
+                else None
+            )
             if run is not None and run.datasource_id == datasource_id:
                 if run.status == "succeeded":
                     job.status, job.error, job.finished_at = "succeeded", None, run.finished_at
                     job.result = {**(job.result or {}), "run_id": run.id}
                     return
-                if run.status != "running":
+                if run.status not in ("queued", "running"):
                     return
                 run.status, run.finished_at, run.error = "failed", utcnow(), reason
             event_type, object_type, object_id = "collect.failed", "datasource", datasource_id
         else:
             object_id = payload.get("batch_id")
-            imported = session.get(ImportBatch, object_id) if object_id else None
+            imported = (
+                session.scalar(select(ImportBatch).where(ImportBatch.id == object_id).with_for_update())
+                if object_id
+                else None
+            )
             if imported is not None and imported.status not in ("queued", "running", "failed"):
                 job.status, job.error, job.finished_at = "succeeded", None, imported.updated_at
                 job.result = {**(job.result or {}), "batch_id": imported.id, "status": imported.status}

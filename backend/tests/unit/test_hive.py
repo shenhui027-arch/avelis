@@ -391,7 +391,12 @@ def test_invisible_database_leaves_catalog_untouched(monkeypatch):
         def get(self, model, key):
             return ds if model is Datasource else run
 
-        def scalar(self, _):
+        def scalar(self, statement):
+            if (
+                statement._for_update_arg is not None
+                and statement.column_descriptions[0]["entity"] is service.CollectionRun
+            ):
+                return run
             return None
 
         def add(self, obj):
@@ -409,6 +414,7 @@ def test_invisible_database_leaves_catalog_untouched(monkeypatch):
     monkeypatch.setattr(service, "session_scope", _scope)
     monkeypatch.setattr(service, "collect_connector", lambda session, d: connector)
     monkeypatch.setattr(service, "_apply_snapshot", lambda *a, **k: applied.append(a))
-    with pytest.raises(service.CollectionFailed, match="配置的库 store"):
+    with pytest.raises(service.CollectionFailed, match="配置的库 store") as caught:
         service.run_collection("ds-1", trigger="manual")
     assert applied == [] and run.status == "failed" and "配置的库 store" in run.error
+    assert caught.value.failure_event_recorded is True

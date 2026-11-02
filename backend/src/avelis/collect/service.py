@@ -73,11 +73,13 @@ class RunContext:
 
 
 class CollectionFailed(Exception):
-    pass
+    failure_event_recorded = False
 
 
 class CollectionAbandoned(CollectionFailed):
     """超时回收已留下失败事件，本次迟到的结果必须回滚。"""
+
+    failure_event_recorded = True
 
 
 def run_collection(
@@ -88,13 +90,8 @@ def run_collection(
     job_id: str | None = None,
     attempt: int | None = None,
 ) -> str:
-    abandoned = None
-    with events.failure_guard("collect.failed", actor_id, "datasource", datasource_id, trigger=trigger):
-        try:
-            return _run_collection(datasource_id, trigger=trigger, actor_id=actor_id, job_id=job_id, attempt=attempt)
-        except CollectionAbandoned as exc:
-            abandoned = exc  # 回收事务已经写了失败事件，不为同一次执行再写一条
-    raise abandoned
+    with events.failure_guard("collect.failed", actor_id, "datasource", datasource_id, trigger=trigger, job_id=job_id):
+        return _run_collection(datasource_id, trigger=trigger, actor_id=actor_id, job_id=job_id, attempt=attempt)
 
 
 def _run_collection(
@@ -105,7 +102,7 @@ def _run_collection(
     job_id: str | None = None,
     attempt: int | None = None,
 ) -> str:
-    """执行一次采集并返回 run_id。失败时 run 记为 failed 并保留原始错误。"""
+    """执行采集；谁把 run 改为 failed，谁同事务写失败事件，外层 guard 只兜底。"""
     with session_scope() as session:
         execution = None
         if job_id:
@@ -181,21 +178,38 @@ def _run_collection(
         raise
     except Exception as exc:  # 记录失败原因（不含口令：连接器异常只含库返回的错误）
         log.exception("采集失败 %s", datasource_id)
+        failure = CollectionFailed(str(exc))
         try:
             with session_scope() as session:
                 if job_id:
                     execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
                     if execution is None or execution.status != "running" or execution.attempts != attempt:
                         raise CollectionAbandoned("采集任务已被回收或执行权已变更，本次结果未写入") from exc
-                run = session.get(CollectionRun, run_id)
-                run.status = "failed"
-                run.finished_at = utcnow()
-                run.error = f"{type(exc).__name__}: {exc}"[:4000]
+                run = session.scalar(select(CollectionRun).where(CollectionRun.id == run_id).with_for_update())
+                if run is not None:
+                    if run.status not in ("queued", "running"):
+                        raise CollectionAbandoned("采集运行已终结，本次失败未写入") from exc
+                    run.status = "failed"
+                    run.finished_at = utcnow()
+                    run.error = f"{type(exc).__name__}: {exc}"[:4000]
+                    events.record_failure(
+                        session,
+                        actor_id,
+                        "collect.failed",
+                        "datasource",
+                        datasource_id,
+                        error_code=type(failure).__name__,
+                        run_id=run_id,
+                        job_id=job_id,
+                        trigger=trigger,
+                    )
+            # 只有 failed 与失败事件都已成功提交，才能阻止 guard 独立兜底。
+            failure.failure_event_recorded = run is not None
         except CollectionAbandoned:
             raise
         except Exception:  # 留底不可用不能替换原采集错误；外层 guard 仍会尝试独立审计
             log.error("采集失败状态未能写入 %s", datasource_id)
-        raise CollectionFailed(str(exc)) from exc
+        raise failure from exc
     return run_id
 
 

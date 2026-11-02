@@ -299,7 +299,7 @@ def record_failure(
     error_reason: str = "操作失败",
     **detail: Any,
 ) -> AuditEvent:
-    """调用方已结束业务事务时，在自己的短事务里记录终态；不接受异常原文作为外部原因。"""
+    """在调用方事务中记录失败；对象改为 failed 时必须同事务调用，不接受异常原文作为外部原因。"""
     from avelis import audit
 
     if isinstance(actor, str):
@@ -333,12 +333,14 @@ def failure_guard(
     session: Session | None = None,
     **detail: Any,
 ) -> Iterator[None]:
-    """包在业务事务/commit 外层；异常时先回滚，再独立留底，始终重新抛出原异常。"""
+    """只为未记录事件的异常独立兜底；谁把对象改为 failed，谁在同一事务写失败事件。"""
     actor_id = actor.id if isinstance(actor, User) else actor
     actor_name = actor.username if isinstance(actor, User) else None
     try:
         yield
     except Exception as original:
+        if getattr(original, "failure_event_recorded", False) is True:
+            raise
         try:
             if session is not None:
                 session.rollback()

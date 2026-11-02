@@ -156,6 +156,8 @@ def test_failure_guard_rolls_back_business_and_commits_failure_with_original_ide
 
 
 def test_failure_guard_handles_commit_error(database, monkeypatch):
+    with database() as session:
+        subscription(session, types=[EventType.COLLECT_FAILED], outcomes=["failure"])
     original = RuntimeError("commit failed")
     with database() as business:
 
@@ -166,14 +168,44 @@ def test_failure_guard_handles_commit_error(database, monkeypatch):
             patch.setattr(business, "commit", reject_commit)
             with events.failure_guard(EventType.COLLECT_FAILED, "actor", "datasource", "ds", session=business):
                 business.add(User(id="rollback", username="rollback", display_name="rollback", password_hash="unused"))
+                events.record_failure(business, "actor", EventType.COLLECT_FAILED, "datasource", "ds")
                 business.flush()
+                assert len(list(business.scalars(select(EventOutbox)))) == 1
                 business.commit()
         assert caught.value is original
     with database() as session:
         assert session.get(User, "rollback") is None
-        row = session.scalar(select(AuditEvent))
+        rows = list(session.scalars(select(AuditEvent)))
+        assert len(rows) == 1
+        row = rows[0]
         assert row.actor_id == "actor"
         assert row.detail["_governance"]["outcome"] == "failure"
+        outbox = list(session.scalars(select(EventOutbox)))
+        assert len(outbox) == 1 and outbox[0].event_id == row.id
+
+
+def test_failure_guard_skips_failure_already_committed_with_state(database, monkeypatch):
+    from avelis.collect.service import CollectionFailed
+
+    with database() as session:
+        subscription(session, types=[EventType.COLLECT_FAILED], outcomes=["failure"])
+        events.record_failure(session, "actor", EventType.COLLECT_FAILED, "datasource", "ds", run_id="run")
+
+    def unexpected():
+        pytest.fail("recorded failure opened another failure transaction")
+
+    monkeypatch.setattr(events, "session_scope", unexpected)
+    original = CollectionFailed("failure already committed")
+    original.failure_event_recorded = True
+    with pytest.raises(CollectionFailed) as caught:
+        with events.failure_guard(EventType.COLLECT_FAILED, "actor", "datasource", "ds"):
+            raise original
+    assert caught.value is original
+    with database() as session:
+        rows = list(session.scalars(select(AuditEvent)))
+        outbox = list(session.scalars(select(EventOutbox)))
+        assert len(rows) == len(outbox) == 1
+        assert outbox[0].event_id == rows[0].id
 
 
 def test_failure_recording_error_never_masks_original_or_logs_its_contents(monkeypatch, caplog):
