@@ -385,8 +385,8 @@ def test_cli_shell_word_boundaries_keep_only_safe_following_lines(newline, separ
     if boundary == "\n":
         assert_redacted(source, f"{prefix}<redacted>" + suffix)
     elif boundary == "(":
-        # 兜底遇到未闭合括号时继续遮蔽后续行。
-        assert_redacted(source, f"{prefix}<redacted>", 3)
+        # 值内未闭合括号由第一层直接读到全文末尾。
+        assert_redacted(source, f"{prefix}<redacted>")
     else:
         # 第一层留下同一行的引号内容，兜底将该行剩余内容一并遮蔽。
         assert_redacted(source, f"{prefix}<redacted>{newline}echo next", 2)
@@ -415,6 +415,149 @@ def test_bare_cli_flags_do_not_consume_the_next_line(newline, flag, space):
 def test_cli_shell_quotes_and_escapes_preserve_later_commands(newline, value):
     source = f"client --password {value}; echo public\necho next".replace("\n", newline)
     assert_redacted(source, f"client --password <redacted>; echo public{newline}echo next")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["password=", "client --password=", "client --password "])
+@pytest.mark.parametrize("closed", [True, False])
+def test_shell_ansi_c_escaped_quote_masks_complete_value(newline, prefix, closed):
+    value = "$'first" + chr(92) + "'" + newline + "SYNTH"
+    suffix = "' --other x" if closed else " --other x"
+    source = prefix + value + suffix
+    expected = prefix + "<redacted>" + (" --other x" if closed else "")
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["password=", "client --password=", "client --password "])
+def test_shell_ansi_c_escaped_backslash_closes_normally(newline, prefix):
+    source = prefix + "$'a" + chr(92) * 2 + "b' --other x" + newline + "echo next"
+    expected = prefix + "<redacted> --other x" + newline + "echo next"
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["client --password=", "client --password "])
+def test_shell_plain_single_quote_does_not_escape_closing_quote(newline, prefix):
+    source = prefix + "'a" + chr(92) + "' --other x" + newline + "echo next"
+    expected = prefix + "'<redacted>' --other x" + newline + "echo next"
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_repeated_unclosed_password_block_comments_finish_quickly(newline):
+    timings = []
+    for size in (4000, 8000, 20000):
+        source = "sql = '''" + newline + ("ALTER ROLE r PASSWORD /* x" + newline) * size + "'''" + newline
+        actual, elapsed = _timed_redact(source)
+        expected = "sql = '''" + newline + ("ALTER ROLE r PASSWORD <redacted> x" + newline) * size + "'''" + newline
+        assert actual == (expected, size)
+        assert elapsed < 0.5, f"{size=}: {elapsed:.6f}s"
+        timings.append(elapsed)
+    assert timings[1] / max(timings[0], 1e-6) <= 2.3, timings
+
+
+@pytest.mark.parametrize("prefix", ["", "/* closed earlier */ "])
+def test_unclosed_password_block_comments_do_not_search_suffix(prefix):
+    class CountingText(str):
+        closing_searches = 0
+
+        def find(self, sub, start=0, end=None):
+            if sub == "*/":
+                self.closing_searches += 1
+            return super().find(sub, start, len(self) if end is None else end)
+
+    source = CountingText(prefix + "PASSWORD /* x " * 1000)
+    reader = _SecretValueReader(source)
+    for index in range(1000):
+        end = len(prefix) + index * len("PASSWORD /* x ") + len("PASSWORD")
+        assert reader.password_value_start(end) == end + 1
+    assert source.closing_searches == 0
+
+
+def test_password_line_comment_end_is_searched_once():
+    class CountingText(str):
+        newline_searches = 0
+
+        def find(self, sub, start=0, end=None):
+            if sub == chr(10):
+                self.newline_searches += 1
+            return super().find(sub, start, len(self) if end is None else end)
+
+    source = CountingText("PASSWORD -- x " * 1000 + chr(10) + "FROM users")
+    reader = _SecretValueReader(source)
+    for index in range(1000):
+        assert reader.password_value_start(index * len("PASSWORD -- x ") + len("PASSWORD")) is None
+    assert source.newline_searches == 1
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("filler", [0, 18, 19, 25])
+@pytest.mark.parametrize("key, separator", [("password", "="), ("client --password", "="), ("client --password", " ")])
+def test_shell_command_substitution_is_complete_without_line_fallback(newline, filler, key, separator):
+    prefix = key + separator
+    value = "$(\n" + "# filler\n" * filler + "printf '%s' 'synthetic-tail'\n)"
+    source = (prefix + value + "; echo public").replace("\n", newline)
+    expected = f"{prefix}<redacted>; echo public"
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("key, separator", [("password", "="), ("client --api-key", "="), ("client --password", "\t")])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "${name:-\n" + "# filler\n" * 25 + "'synthetic-tail }'\n}",
+        "`printf '%s'\n" + "# filler\n" * 25 + r"synthetic\`tail" + "\n`",
+        "pre$(printf '%s' ')'; printf '%s' \"escaped\\\" )\")tail",
+        "pre${name:-'}'}$(printf '%s' ')')`printf tail`post",
+        "pre(\n'quoted )'\n(escaped\\) synthetic-tail)\n)post",
+        'pre"$(printf "%s" "quoted )")"post',
+        "pre$(printf `echo )`\nsynthetic-tail)post",
+    ],
+    ids=["parameter", "backtick", "quoted-closers", "concatenated", "parentheses", "double-quoted", "inner-backtick"],
+)
+def test_shell_paired_units_and_suffixes_are_one_word(newline, key, separator, value):
+    prefix = key + separator
+    source = f"{prefix}{value}; echo public\necho next".replace("\n", newline)
+    expected = f"{prefix}<redacted>; echo public{newline}echo next"
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("key, separator", [("password", "="), ("client --password", "="), ("client --password", " ")])
+@pytest.mark.parametrize("opening", ["$(", "${", "`", "pre("])
+def test_unclosed_shell_units_cover_the_remaining_text(newline, key, separator, opening):
+    prefix = key + separator
+    source = f"{prefix}{opening}{newline}synthetic-tail{newline}echo next"
+    expected = f"{prefix}<redacted>"
+    assert _redact_units(source) == (expected, 1)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("kind", ["nested", "lines"])
+@pytest.mark.parametrize("closed", [True, False])
+def test_large_shell_substitutions_finish_quickly(newline, kind, closed):
+    timings = []
+    for size in (10000, 20000):
+        value = "(" * size + "'synthetic-tail'" if kind == "nested" else f"# filler{newline}" * size
+        suffix = ")" * size if kind == "nested" else ""
+        prefix = "client --password" + "="
+        source = prefix + "$(" + value
+        if closed:
+            source += suffix + "); echo public"
+        expected = "client --password=<redacted>" + ("; echo public" if closed else "")
+        actual, elapsed = _timed_redact(source)
+        assert actual == (expected, 1)
+        assert elapsed < 0.5, f"{kind}, {closed=}, {size=}: {elapsed:.6f}s"
+        timings.append(elapsed)
+    assert timings[1] / max(timings[0], 1e-6) < 2.6, timings
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])

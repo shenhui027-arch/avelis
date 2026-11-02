@@ -50,6 +50,7 @@ _SQL_STRUCTURE_SYMBOLS = ",);=<>!.+-*/|%:"
 _LINE_SECRET_PATTERN = re.compile(rf"{SECRET_PATTERN.pattern}|(?P<bare_key>(?<![\w-]){_SECRET_KEY}(?![\w-]))", re.I)
 _MASKED_VALUE_PATTERN = re.compile(r"(?P<quote>\"\"\"|'''|\"|')?<redacted>(?(quote)(?P=quote))")
 _LINE_SUSPICIOUS_PATTERN = re.compile(r"['\"@]|:\S")
+_FALLBACK_SYNTAX_PATTERN = re.compile(r"""[\\'"#()[\]{}]""")
 _FALLBACK_MAX_LINES = 20
 
 
@@ -59,6 +60,7 @@ class _SecretValueReader:
     def __init__(self, text: str, *, cache_pairs: bool = False):
         self.text = text
         self.length = len(text)
+        self._last_block_comment_end = text.rfind("*/")
         self._line_start = 0
         self._line_end = -1
         self._quote_cursor = 0
@@ -134,6 +136,8 @@ class _SecretValueReader:
             char = self.text[cursor]
             if char in "\"'":
                 cursor = self.quote_end(cursor)
+            elif char == "`":
+                cursor = self.backtick_end(cursor)
             elif char == "\\":
                 cursor += 2
             elif char == "#":
@@ -200,20 +204,48 @@ class _SecretValueReader:
                 return end
         return None
 
-    def shell_value_end(self, start: int) -> int:
-        """CLI 值读取一个 shell 词；引号内可跨行，单引号内的反斜杠是普通字符。"""
-        cursor = start
-        quote = ""
+    def backtick_end(self, start: int) -> int:
+        cursor = start + 1
         while cursor < self.length:
             char = self.text[cursor]
-            if char == "\\" and quote != "'":
+            if char == "\\":
+                cursor += 2
+            elif char == "`":
+                return cursor + 1
+            else:
+                cursor += 1
+        return self.length
+
+    def shell_value_end(self, start: int) -> int:
+        """读取完整 shell 词；ANSI-C 单引号允许转义，普通单引号按 POSIX 规则读取。"""
+        cursor = start
+        quote = ""
+        ansi_c = False
+        while cursor < self.length:
+            char = self.text[cursor]
+            if char == "\\" and (quote != "'" or ansi_c):
                 cursor = min(cursor + 2, self.length)
+                continue
+            if quote != "'" and self.text.startswith(("$(", "${"), cursor):
+                cursor = self.bracket_end(cursor + 1)
+                continue
+            if quote != "'" and char == "`":
+                cursor = self.backtick_end(cursor)
                 continue
             if quote:
                 if char == quote:
                     quote = ""
+                    ansi_c = False
+            elif self.text.startswith("$'", cursor):
+                quote = "'"
+                ansi_c = True
+                cursor += 2
+                continue
             elif char in "\"'":
                 quote = char
+            elif char == "(":
+                cursor = self.bracket_end(cursor)
+                continue
             elif char.isspace() or char in ";|&()<>":
                 break
             cursor += 1
@@ -224,6 +256,8 @@ class _SecretValueReader:
         if self.text[start] in ">|" and (end := self.yaml_end(start, indent)) is not None:
             return end
         literal_quote = self.literal_quote(start)
+        if shell_quotes and literal_quote is None and self.text[start] not in _BRACKETS:
+            return self.shell_value_end(start)
         if literal_quote is not None:
             cursor = literal_quote
         quoted = False
@@ -242,6 +276,8 @@ class _SecretValueReader:
                     limit = self.line_end(cursor)
                 cursor = self.quote_end(cursor, limit)
                 quoted = True
+            elif char == "`":
+                cursor = self.backtick_end(cursor)
             elif char in _BRACKETS:
                 cursor = self.bracket_end(cursor)
             elif char == "\\":
@@ -401,10 +437,10 @@ class _SecretValueReader:
             if self.text[cursor].isspace():
                 cursor += 1
             elif self.text.startswith("/*", cursor):
-                closing = self.text.find("*/", cursor + 2)
-                if closing < 0:
+                if cursor + 2 > self._last_block_comment_end:
                     # 未闭合注释按值处理，不能让 / 被当成列运算符而放过。
                     return cursor
+                closing = self.text.find("*/", cursor + 2)
                 cursor = closing + 2
             elif self.text.startswith("--", cursor):
                 cursor = self.line_end(cursor)
@@ -434,6 +470,8 @@ class _SecretValueReader:
 def _url_password_ends(line: str) -> list[int]:
     """每个片段只扫描一次，不能为每个冒号重新搜索整段密码。"""
     ends = [0] * len(line)
+    if "@" not in line:
+        return ends
     for part in _URL_PART.finditer(line):
         end = part.end()
         if end + 1 < len(line) and line[end] == "@":
@@ -569,6 +607,8 @@ class _FallbackLexer:
         self.closing: list[tuple[str, int]] = []
 
     def scan(self, text: str, start: int, end: int) -> int:
+        if _FALLBACK_SYNTAX_PATTERN.search(text, start, end) is None:
+            return max(self.quote_start, self.closing[-1][1] if self.closing else -1)
         cursor = start
         continued = -1
         while cursor < end:
