@@ -131,6 +131,7 @@ class MetricCard:
     dimension_values: dict[str, list[str]] = field(default_factory=dict)
     description: str = ""
     status: str = "published"
+    ai_context: dict[str, Any] = field(default_factory=dict)
 
 
 class IntentModel(Protocol):
@@ -176,15 +177,15 @@ class DemoIntentModel:
         text = question.strip()
         spans: list[tuple[int, int, MetricCard]] = []  # (起点, 终点, 指标)
         for card in metrics:
-            for label in [card.name, *card.aliases]:
+            for label in [
+                card.name,
+                *card.aliases,
+                *card.ai_context.get("synonyms", []),
+            ]:
                 start = text.find(label) if label else -1
                 while start >= 0:
                     spans.append((start, start + len(label), card))
                     start = text.find(label, start + 1)
-        if not spans:
-            return Intent(
-                clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标", candidates=[m.name for m in metrics]
-            )
         # 被更长的匹配完全包含的短匹配不算（如“<指标甲>净额”包含“<指标甲>”）
         spans = [
             s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0]) for o in spans)
@@ -202,6 +203,30 @@ class DemoIntentModel:
             card = next(iter(cards.values()))
             if card.code not in {c.code for c in ordered}:
                 ordered.append(card)
+        if not ordered:
+            # 示例只在没有显式命中时回退，不参与片段过滤；问题主体太短（如只剩“多少”）不做反向包含匹配。
+            body = text
+            for pattern in DATE_PATTERNS:
+                body = pattern.sub("", body)
+            body = re.sub(r"今天|昨天", "", body).strip(" \t\r\n，。？！,.?!至到-~～")
+            candidates = [
+                c
+                for c in metrics
+                if any(
+                    example and (example in text or (len(body) >= 3 and body in example))
+                    for example in c.ai_context.get("examples", [])
+                )
+            ]
+            if len(candidates) > 1:
+                return Intent(
+                    clarification="问题可能指多个指标，请明确是哪一个",
+                    candidates=[c.name for c in sorted(candidates, key=lambda c: c.code)],
+                )
+            ordered.extend(candidates)
+        if not ordered:
+            return Intent(
+                clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标", candidates=[m.name for m in metrics]
+            )
         if len(ordered) > MAX_METRICS:
             return Intent(
                 clarification=f"一次最多比较 {MAX_METRICS} 个指标，请缩小范围", candidates=[c.name for c in ordered]

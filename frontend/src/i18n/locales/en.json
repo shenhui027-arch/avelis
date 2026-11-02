@@ -1464,5 +1464,20 @@
   "没有影响口径、关联路径或历史回答": "No impact on metric definitions, join paths or past answers",
   "首次采集清单": "First-collection list",
   "处理复核": "Review",
-  "复核结论": "Review outcome"
+  "复核结论": "Review outcome",
+  "模型提示": "Model hints",
+  "给模型的提示": "Hints for the model",
+  "问数时用来找到这个口径、判断是否适用；不进入 SQL，修改不生成新版本，会记入审计": "Used by Ask to find this metric and decide whether it applies. Not part of the SQL; edits create no new version and are audited",
+  "添加提示": "Add hints",
+  "还没有提示。写下适用范围、常见叫法和典型问法，问数更容易选对口径": "No hints yet. Describe when it applies, what people call it and how they ask, so Ask picks the right metric",
+  "适用说明": "When to use",
+  "同义词": "Synonyms",
+  "示例问法": "Example questions",
+  "同义词最多 {{n}} 个": "At most {{n}} synonyms",
+  "示例问法最多 {{n}} 条": "At most {{n}} example questions",
+  "每条示例问法最多 {{n}} 字": "Each example question can have at most {{n}} characters",
+  "什么时候该用、什么时候不该用；拿不准时模型会据此向提问人确认": "When to use it and when not to; when unsure, the model asks the person based on this",
+  "回车或逗号添加；与别名一起参与检索": "Press Enter or type a comma to add; searched together with aliases",
+  "移除同义词 {{name}}": "Remove synonym {{name}}",
+  "每行一条，写提问人通常会怎么问": "One per line, phrased the way people usually ask"
 }

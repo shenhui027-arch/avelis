@@ -199,6 +199,7 @@ UNDERSTAND_PROMPT = (
 - question_type：只问一个或一组数值、排名、明细或对比，不问原因、关系、建议时写 lookup；
   为什么变化 / 是否变化写 change；什么关系、怎么分布、哪些更好写 relation；其余写 other；
 - metric_codes：所问的指标编码，只能取自候选口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
+- 候选口径的 ai_context.instructions 写明适用与不适用的情况；按它判断是否选用该口径，拿不准时据此向用户澄清；
 - filters：问题限定的范围，写成指标维度名与取值（取值照问题里的写法，例如某个地区名）；不要把问题没提到的范围写进来；
 - dimensions：取数时的分组或关系类问题要对比的维度名（取自该指标的维度）；
 - time_grain：只在问题要求按日、周、月、季或年列出时填写 day、week、month、quarter、year；"""

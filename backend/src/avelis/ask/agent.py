@@ -127,7 +127,17 @@ class Toolbox:
         cards = [
             c
             for c in self.catalog.cards
-            if not keyword or keyword in c.name or any(keyword in a for a in c.aliases) or keyword in c.code
+            if not keyword
+            or any(
+                keyword in text
+                for text in (
+                    c.name,
+                    c.code,
+                    *c.aliases,
+                    *c.ai_context.get("synonyms", []),
+                    *c.ai_context.get("examples", []),
+                )
+            )
         ]
         return json.dumps(
             [
@@ -135,6 +145,8 @@ class Toolbox:
                     "code": c.code,
                     "name": c.name,
                     "aliases": c.aliases,
+                    "synonyms": c.ai_context.get("synonyms", []),
+                    "instructions": c.ai_context.get("instructions"),
                     "description": c.description,
                     "status": c.status,
                     "dimensions": [{"name": d["name"], "label": d.get("label")} for d in c.dimensions],
@@ -272,6 +284,7 @@ SYSTEM_PROMPT = (
 2. 你不写 SQL。确定指标、日期范围、维度过滤和分组后调用 submit_intent，由后端校验与执行。
 3. 维度过滤值必须先用 match_dimension_values 核对。
 4. 指标不确定、问题可能对应多个指标、或没有可推断的日期时，调用 ask_user 追问并给出候选项，不要猜。
+   口径的 instructions 写明适用与不适用的情况；按它判断是否选用该口径，拿不准时据此向用户澄清。
    用户明确要同时看几个指标时（如“<指标甲>和<指标乙>”），把它们都放进 metric_codes。
 5. 排名、前 N 用 order 与 limit（需要分组维度）；环比用 compare=previous_period，同比用 compare=previous_year。
    上一自然期用 compare=previous_calendar，本期必须是整月、整季或整年；"""
