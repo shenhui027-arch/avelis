@@ -17,7 +17,19 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import false as sa_false
 from sqlalchemy import text as sa_text
 from sqlalchemy import true as sa_true
@@ -578,6 +590,54 @@ class AuditEvent(Chained, Base):
     object_type: Mapped[str] = mapped_column(String(32), nullable=False)
     object_id: Mapped[str | None] = mapped_column(IdType)
     detail: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+
+
+class WebhookSubscription(Base):
+    """管理员配置的治理事件订阅；签名密钥只存密文。"""
+
+    __tablename__ = "webhook_subscription"
+    id: Mapped[str] = pk()
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    event_types: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    outcomes: Mapped[list[str] | None] = mapped_column(JsonType)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true(), nullable=False)
+    secret_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str | None] = fk("app_user.id", nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, onupdate=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+
+class EventOutbox(Base):
+    """与审计同事务写入的投递快照；不引用审计行，避免阻碍历史保留期清理。"""
+
+    __tablename__ = "event_outbox"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "event_id"),
+        CheckConstraint("status IN ('pending', 'delivered', 'dead')", name="status"),
+        CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
+        Index("ix_event_outbox_due", "status", "next_attempt_at"),
+    )
+    id: Mapped[str] = pk()
+    event_id: Mapped[str] = mapped_column(IdType, nullable=False)
+    subscription_id: Mapped[str] = mapped_column(
+        IdType, ForeignKey("webhook_subscription.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    payload: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending", nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class HistoryChainHead(Base):

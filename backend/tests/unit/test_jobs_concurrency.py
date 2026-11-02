@@ -170,6 +170,8 @@ def job_session(monkeypatch):
 
     monkeypatch.setattr(jobs, "session_scope", scope)
     monkeypatch.setattr(jobs, "utcnow", lambda: now[0])
+    # 这里仅验证 Job 的条件更新；关联对象收尾与事件使用独立真实会话测试覆盖。
+    monkeypatch.setattr(jobs, "_record_abandoned_governance", lambda *_: None)
     return session, now
 
 
@@ -178,7 +180,12 @@ def test_run_job_claims_and_finishes_only_its_running_attempt(monkeypatch, job_s
 
     def collect(datasource_id, **kwargs):
         assert session.job.status == "running" and session.job.attempts == 4
-        assert datasource_id == "source" and kwargs == {"trigger": "manual", "actor_id": "actor"}
+        assert datasource_id == "source" and kwargs == {
+            "trigger": "manual",
+            "actor_id": "actor",
+            "job_id": "job-id",
+            "attempt": 4,
+        }
         return "run-id"
 
     monkeypatch.setattr(jobs, "collect_now", collect)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from sqlglot import exp
 from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 
-from avelis import audit, jobs, modelcfg
+from avelis import audit, events, jobs, modelcfg
 from avelis.collect.service import build_schema
 from avelis.config import get_settings
 from avelis.connectors.base import sha256_text
@@ -44,6 +45,11 @@ from avelis.models import (
 
 MAX_STATEMENT_BYTES = 1024 * 1024
 EDGE_FIELDS = ("source_ref", "source_column", "target_ref", "target_column", "relation")
+log = logging.getLogger(__name__)
+
+
+class ImportAbandoned(Conflict):
+    """已经失去执行权的尝试不得覆盖终态，也不重复已留底的失败事件。"""
 
 
 def _file_order(batch: ImportBatch) -> dict[str, int]:
@@ -977,10 +983,23 @@ def _check_attempt(session: Session, job_id: str | None, attempt: int | None) ->
         return
     job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if job is None or job.status != "running" or (attempt is not None and job.attempts != attempt):
-        raise Conflict("后台导入任务已经结束或执行权已变更，本次结果未写入")
+        raise ImportAbandoned("后台导入任务已经结束或执行权已变更，本次结果未写入")
 
 
 def run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None = None) -> dict[str, Any]:
+    with session_scope() as session:
+        imported = session.get(ImportBatch, batch_id)
+        actor_id = imported.created_by if imported is not None else None
+    abandoned = None
+    with events.failure_guard("lineage_import.failed", actor_id, "import_batch", batch_id):
+        try:
+            return _run_import(batch_id, job_id=job_id, attempt=attempt)
+        except ImportAbandoned as exc:
+            abandoned = exc
+    raise abandoned
+
+
+def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None = None) -> dict[str, Any]:
     """worker 入口；模型失败不会回滚已经提交的确定性结果。"""
     try:
         with session_scope() as session:
@@ -1044,16 +1063,34 @@ def run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None 
                 "phase": "failed" if live.status == "failed" else "done",
                 "current_file": None,
             }
+            if live.status != "failed":
+                audit.record(
+                    session,
+                    session.get(User, live.created_by) if live.created_by else None,
+                    "import.completed",
+                    "import_batch",
+                    live.id,
+                    status=live.status,
+                    files=(live.stats or {}).get("files", 0),
+                    statements=(live.stats or {}).get("statement_count", 0),
+                    edges=(live.stats or {}).get("edges", 0),
+                    failed=(live.stats or {}).get("statements", {}).get("failed", 0),
+                )
             return {"batch_id": live.id, "status": live.status}
+    except ImportAbandoned:
+        raise
     except Exception as exc:
-        with session_scope() as session:
-            failed = session.get(ImportBatch, batch_id)
-            execution = session.get(Job, job_id) if job_id else None
-            owns_attempt = execution is None or attempt is None or execution.attempts == attempt
-            if failed is not None and owns_attempt:
-                failed.status, failed.updated_at = "failed", utcnow()
-                failed.error = modelcfg.redact_error(f"{type(exc).__name__}: {exc}", limit=500)
-                failed.progress = {**(failed.progress or {}), "phase": "failed", "current_file": None}
+        try:
+            with session_scope() as session:
+                failed = session.get(ImportBatch, batch_id)
+                execution = session.get(Job, job_id) if job_id else None
+                owns_attempt = execution is None or attempt is None or execution.attempts == attempt
+                if failed is not None and owns_attempt:
+                    failed.status, failed.updated_at = "failed", utcnow()
+                    failed.error = modelcfg.redact_error(f"{type(exc).__name__}: {exc}", limit=500)
+                    failed.progress = {**(failed.progress or {}), "phase": "failed", "current_file": None}
+        except Exception:  # 不让状态收尾失败掩盖原异常；外层 guard 仍会尝试独立审计
+            log.error("导入失败状态未能写入 %s", batch_id)
         raise
 
 

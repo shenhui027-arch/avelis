@@ -20,6 +20,7 @@ from avelis.api import (
     auth,
     catalog,
     datasources,
+    events,
     governance,
     history,
     imports,
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
     for module in (
         auth,
         datasources,
+        events,
         catalog,
         governance,
         history,

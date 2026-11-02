@@ -1936,3 +1936,39 @@ msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditL
 #: src/avelis/api/imports.py
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook 订阅不存在"
+msgstr "Webhook subscription not found"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "订阅字段不能为空"
+msgstr "Subscription fields must not be null"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "只有投递终止的条目可以重投"
+msgstr "Only dead deliveries can be retried"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook URL 无效、无法解析或指向受限地址"
+msgstr "Webhook URL is invalid, cannot be resolved, or points to a restricted address"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "测试事件"
+msgstr "Test event"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "登录失败次数超过阈值"
+msgstr "Login failures reached the threshold"
+
+msgid "发件箱条目不存在"
+msgstr "Outbox entry not found"
+
+msgid "Webhook 订阅已停用"
+msgstr "Webhook subscription is disabled"
+
+msgid "操作失败"
+msgstr "Operation failed"
+
+msgid "后台任务运行超时"
+msgstr "Background task timed out"
