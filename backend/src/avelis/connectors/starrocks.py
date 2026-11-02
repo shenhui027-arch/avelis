@@ -138,7 +138,7 @@ def _audit_cause(exc: pymysql.MySQLError) -> str:
     return "error"
 
 
-def _unsupported_ddl_target(toks: list[Token]) -> str | None:
+def _unsupported_ddl_target(toks: list[Token], catalog: str = INTERNAL_CATALOG) -> str | None:
     """排除其他 Catalog 及共享对象解析器不支持的转义引用；不检查查询或列里的限定名。"""
     i = next(
         (
@@ -160,7 +160,7 @@ def _unsupported_ddl_target(toks: list[Token]) -> str | None:
                 i += 1
             else:
                 break
-        if len(parts) >= 3 and parts[0] != INTERNAL_CATALOG:
+        if parts and (parts[0] if len(parts) >= 3 else catalog) != INTERNAL_CATALOG:
             return "external", i
         return ("escaped" if any("`" in part or '"' in part for part in parts) else None), i
 
@@ -176,11 +176,57 @@ def _unsupported_ddl_target(toks: list[Token]) -> str | None:
         and toks[i].text.upper() == "RENAME"
     ):
         i += 1
+        if i < len(toks) and not toks[i].quoted and toks[i].text.upper() in {"COLUMN", "INDEX", "PARTITION", "ROLLUP"}:
+            return external  # 改列或其他成员的名称不按会话 Catalog 解析成第二个表。
         if i < len(toks) and not toks[i].quoted and toks[i].text.upper() in {"TO", "AS"}:
             i += 1
         other, _ = read_name(i)
         external = external or other
     return external
+
+
+def _swap_objects(
+    toks: list[Token], default_db: str | None, catalog: str = INTERNAL_CATALOG
+) -> list[tuple[str, str]] | None:
+    """识别完整的 ALTER TABLE / MATERIALIZED VIEW … SWAP WITH …，两端保留各自的库。"""
+
+    def keyword(i: int, word: str) -> bool:
+        return i < len(toks) and toks[i].kind == "ident" and not toks[i].quoted and toks[i].text.upper() == word
+
+    if not keyword(0, "ALTER"):
+        return None
+    if keyword(1, "TABLE"):
+        i = 2
+    elif keyword(1, "MATERIALIZED") and keyword(2, "VIEW"):
+        i = 3
+    else:
+        return None
+
+    def read_name(i: int) -> tuple[list[str], int]:
+        parts = []
+        while i < len(toks) and toks[i].kind == "ident":
+            parts.append(toks[i].text)
+            i += 1
+            if i >= len(toks) or toks[i].kind != "dot":
+                return parts, i
+            i += 1
+        return [], i  # 缺少点号后的名称，不接受已有前缀。
+
+    left, i = read_name(i)
+    if not keyword(i, "SWAP"):
+        return None
+    right, end = read_name(i + 2)
+    if end < len(toks) and toks[end].kind == "semi":
+        end += 1
+    if not keyword(i + 1, "WITH") or not 1 <= len(left) <= 3 or not 1 <= len(right) <= 3 or end != len(toks):
+        raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible")
+    # 与其他 DDL 一致：任一目标带其他 Catalog 时整条排除，不丢掉 Catalog 后误认内表。
+    if any((parts[0] if len(parts) == 3 else catalog) != INTERNAL_CATALOG for parts in (left, right)):
+        return []
+    database = left[-2] if len(left) >= 2 else default_db
+    if not database:
+        return []
+    return [(database, left[-1]), (right[-2] if len(right) >= 2 else database, right[-1])]
 
 
 class StarRocksConnector:
@@ -458,7 +504,7 @@ class StarRocksConnector:
                 )
             invalid = [
                 name
-                for name in ("user", "db", "stmt", "state")
+                for name in ("user", "db", "stmt", "state", *({"catalog"} & fields.keys()))
                 if not re.match(r"(?:var)?char\b|(?:tiny|medium|long)?text\b|string\b", fields[name][1])
             ]
             if not re.match(r"datetime\b|timestamp\b", fields["timestamp"][1]):
@@ -490,6 +536,8 @@ class StarRocksConnector:
                 f"{col('stmt')} AS stmt",
                 f"{col('state')} AS state",
             ]
+            if "catalog" in fields:
+                select.append(f"{col('catalog')} AS catalog")
             where = [
                 f"{col('timestamp')} >= FROM_UNIXTIME(%s)",
                 f"{col('timestamp')} <= FROM_UNIXTIME(%s)",
@@ -580,8 +628,19 @@ class StarRocksConnector:
                 or statement.rstrip().endswith("...")
             ):
                 raise AuditUnavailable(gettext("StarRocks 审计记录无效或语句可能被截断，无法可靠归因"), "incompatible")
-            # 三段目标只覆盖默认 Catalog；共享对象解析器会丢掉 Catalog，先排除其他 Catalog。
-            unsupported = _unsupported_ddl_target(parsed.tokens)
+            # 临时表可遮蔽同名正式表，不能解释持久元数据变化；词法结果已去掉注释。
+            target_start = 3 if [t.text.upper() for t in parsed.tokens[1:3]] == ["OR", "REPLACE"] else 1
+            if (
+                head.text.upper() in {"CREATE", "DROP"}
+                and len(parsed.tokens) > target_start + 1
+                and all(not t.quoted and t.kind == "ident" for t in parsed.tokens[target_start : target_start + 2])
+                and [t.text.upper() for t in parsed.tokens[target_start : target_start + 2]] == ["TEMPORARY", "TABLE"]
+            ):
+                continue
+            # 一、二段目标沿用 AuditLoader 记录的会话 Catalog；旧表缺列时保持原有默认值。
+            catalog = (row.get("catalog") or INTERNAL_CATALOG) if "catalog" in fields else INTERNAL_CATALOG
+            swap_objects = _swap_objects(parsed.tokens, row.get("db") or None, catalog)
+            unsupported = _unsupported_ddl_target(parsed.tokens, catalog) if swap_objects is None else None
             if unsupported == "external":
                 continue
             if unsupported == "escaped":
@@ -596,7 +655,9 @@ class StarRocksConnector:
                 for t in parsed.tokens
             )
             objects = [
-                obj for obj in objects_in(target_sql, row.get("db") or None) if not databases or obj[0] in databases
+                obj
+                for obj in (swap_objects if swap_objects is not None else objects_in(target_sql, row.get("db") or None))
+                if not databases or obj[0] in databases
             ]
             # RENAME COLUMN / INDEX 等不改表名；共享 helper 的第二个对象仅用于改表名。
             if any(
@@ -626,6 +687,8 @@ class StarRocksConnector:
                     objects=objects,
                     statement_type=head.text.upper(),
                     statement=statement,
+                    # SWAP 改变两端身份；审计语句不能独自确认快照中的具体变化来自哪一端。
+                    certain=False if swap_objects is not None else None,
                     may_lag=True,
                 )
             )

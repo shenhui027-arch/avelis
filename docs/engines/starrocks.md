@@ -115,6 +115,10 @@ PROPERTIES ("replication_num" = "1");
 
 只采用 `state` 为 `EOF` 或 `OK` 的成功记录；有 `isQuery` 时要求为 false/0。`queryType` 是审计日志类别，不是 SQL 语句类型：`query`、`slow_query` 可包含 DDL，`connection` 排除，仍须按 SQL 的 `CREATE`、`ALTER`、`DROP`、`RENAME`、`TRUNCATE` 白名单解析对象与列，排除 `SELECT` 和 DML。范围仅限 `default_catalog`，明确指向其他 Catalog 的语句跳过，外部 Catalog 的同名资产归因为 `unsupported`。执行人原样取 `user`，保留可能存在的 `@host`，不裁掉 host，也不改取 `authorizedUser`，以免合并不同身份。对象、列、执行人或时间不能可靠确定时，沿用 [ADR 0008](../decisions/0008-history-integrity.md) 的保守归因规则，保留未知或歧义。
 
+审计表有 `catalog` 列时，按实际字段名读取（字段发现不区分大小写），一、二段对象名按该行的会话 Catalog 解释。`catalog` 非空且不是 `default_catalog` 时，这些目标排除；显式三段名以语句中的 Catalog 为准。这样 `SET CATALOG` 到外部 Catalog 后的 `DROP TABLE sales` 不会成为内表同名资产的候选。`catalog` 为空或旧版 AuditLoader 表没有此列时，保持按 `default_catalog` 解释的兼容行为；**缺少此列就无法区分外部会话中的一、二段目标，仍可能误纳入同名内表的候选**，应使用包含并正确写入 `catalog` 的审计表。
+
+`CREATE TEMPORARY TABLE` 与 `DROP TEMPORARY TABLE` 排除，不用临时表 DDL 解释同名正式表的持久元数据变化（已在 StarRocks 3.5.14 实机验证）。列名依 StarRocks 规则不区分大小写，包括反引号引用的列名；不同用户对 `channel` 与 `` `CHANNEL` `` 的操作都保留为竞争候选。
+
 外挂插件使用 FE JVM 默认时区把时间写为无时区的 `timestamp`（见[固定版本源码](https://github.com/StarRocks/fe-plugins-auditloader/blob/b98cfa246bb8c437ecf14caf3ff576810084003f/src/main/java/com/starrocks/plugin/audit/AuditLoaderPlugin.java#L61)）。读取时先取 `@@system_time_zone`，仅在独立的审计连接设置 `time_zone`，再通过 `UNIX_TIMESTAMP(timestamp)` 和 `FROM_UNIXTIME` 按相同设置换算 UTC 时间与查询边界；不沿用业务查询会话的时区。StarRocks 的会话与系统时区含义见[官方时区文档](https://docs.starrocks.io/docs/administration/management/timezone/)。本次实机验证的 FE 时区为 UTC，非 UTC 时区换算未实机验证。使用前须确保所有 FE 的 JVM 默认时区一致；一次连接的探测不能证明其他 FE 的配置也一致。
 
 AuditLoader 批量异步导入审计记录，近期变更可能尚未入表。实机观察到插件刚安装后的几十秒内执行的语句可能没有写入审计表，此时归因为未匹配（`unmatched`）。所有事件设 `may_lag=True`，现有归因规则允许把上次快照前 60 秒内的相关语句纳入边界候选；60 秒是匹配窗口容差，不承诺审计记录在 60 秒内落盘，也不会追写已完成的历史归因。读取成功不能证明审计覆盖完整。
