@@ -145,6 +145,8 @@ def test_retained_logical_field_cannot_hide_a_deleted_physical_column(catalogue,
         version.expression = "SUM(B.value_b)"
     elif usage == "filters":
         version.filters = "b.value_b > 0"
+        version.dimensions = []
+        version.time_column = ""
     else:
         path = approved_path(catalogue)
         path.left_columns = ["value_b"]
@@ -279,6 +281,8 @@ def test_export_rejects_deleted_column_when_still_used(catalogue, usage):
         version.expression = "SUM(b.value_b)"
     elif usage == "filters":
         version.filters = "b.value_b > 0"
+        version.dimensions = []
+        version.time_column = ""
     elif usage == "dimension":
         version.dimensions = [{"name": "old_field", "column": "b.value_b"}]
     elif usage == "time":

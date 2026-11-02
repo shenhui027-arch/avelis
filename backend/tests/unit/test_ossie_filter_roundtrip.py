@@ -16,6 +16,13 @@ from tests.unit.test_ossie_export import approved_path, avelis, metric, validate
 from tests.unit.test_ossie_export import catalogue as catalogue
 
 
+def scalar_metric(catalogue, **changes):
+    model, version = metric(catalogue, **changes)
+    version.dimensions = []
+    version.time_column = ""
+    return model, version
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -64,14 +71,14 @@ def test_folded_aggregate_has_the_same_sql_result_as_where(expression, filters):
     ],
 )
 def test_export_refuses_aggregates_that_cannot_safely_fold_filters(catalogue, expression):
-    _, version = metric(catalogue, filters="b.band_id = 1")
+    _, version = scalar_metric(catalogue, filters="b.band_id = 1")
     version.expression = expression
     with pytest.raises(GovernanceError, match="固定过滤条件无法安全折入核心表达式"):
         export_model(catalogue.session, catalogue.actor, "domain")
 
 
 def test_export_filters_every_aggregate_and_round_trip_preserves_original_strings(catalogue):
-    _, version = metric(catalogue, filters="b.band_id = 1")
+    _, version = scalar_metric(catalogue, filters="b.band_id = 1")
     version.expression = "sum( b.value_a ) + COUNT(DISTINCT b.value_b) + COUNT(*)"
     original_expression, original_filters = version.expression, version.filters
     exported = export_model(catalogue.session, catalogue.actor, "domain")
@@ -91,7 +98,8 @@ def test_export_filters_every_aggregate_and_round_trip_preserves_original_string
         ).fetchone()[0]
     assert value == 33
     report, roundtripped = _import(catalogue, exported)
-    assert report["ok"] and not report["warnings"]
+    assert report["ok"]
+    assert all("未确定唯一时间字段" in warning["reason"] for warning in report["warnings"])
     assert roundtripped.expression == original_expression
     assert roundtripped.filters == original_filters
 
@@ -104,7 +112,7 @@ def _import(catalogue, document):
 
 
 def test_import_changed_core_discards_extension_expression_and_filter(catalogue):
-    metric(catalogue, filters="b.band_id = 1")
+    scalar_metric(catalogue, filters="b.band_id = 1")
     exported = export_model(catalogue.session, catalogue.actor, "domain")
     exported["metrics"][0]["expression"]["dialects"][0]["expression"] = "SUM(records.value_b)"
     report, version = _import(catalogue, exported)
@@ -115,7 +123,7 @@ def test_import_changed_core_discards_extension_expression_and_filter(catalogue)
 
 @pytest.mark.parametrize("original", ["SUM(b.missing)", "SUM(b.value_a); SELECT 1", "SUM("])
 def test_import_untrusted_extension_cannot_override_core(catalogue, original):
-    metric(catalogue, filters="b.band_id = 1")
+    scalar_metric(catalogue, filters="b.band_id = 1")
     exported = export_model(catalogue.session, catalogue.actor, "domain")
     item = exported["metrics"][0]
     data = avelis(item)
@@ -129,18 +137,18 @@ def test_import_untrusted_extension_cannot_override_core(catalogue, original):
 
 
 def test_normalized_core_keeps_filter_and_original_expression(catalogue):
-    _, original = metric(catalogue, filters="b.band_id = 1")
+    _, original = scalar_metric(catalogue, filters="b.band_id = 1")
     exported = export_model(catalogue.session, catalogue.actor, "domain")
     exported["metrics"][0]["expression"]["dialects"][0]["expression"] = (
         'sum((case when (records."band_id" = 1) then (records."value_a") end))'
     )
     report, version = _import(catalogue, exported)
-    assert not report["warnings"]
+    assert all("未确定唯一时间字段" in warning["reason"] for warning in report["warnings"])
     assert version.expression == original.expression and version.filters == original.filters
 
 
 def test_filter_roundtrip_maps_logical_fields_and_join_aliases(catalogue):
-    _, original = metric(catalogue, filters="b.band_id = 1 AND r.value_b > 0")
+    _, original = scalar_metric(catalogue, filters="b.band_id = 1 AND r.value_b > 0")
     approved_path(catalogue)
     original.expression = "SUM(r.value_a)"
     original.joins = [{"join_path_id": "path", "alias": "r"}]
@@ -165,7 +173,7 @@ def test_filter_roundtrip_maps_logical_fields_and_join_aliases(catalogue):
     core = exported["metrics"][0]["expression"]["dialects"][0]["expression"]
     assert "records.band_id__column" in core and "bands.value_a__column" in core
     report, version = _import(catalogue, exported)
-    assert not report["warnings"]
+    assert all("未确定唯一时间字段" in warning["reason"] for warning in report["warnings"])
     assert version.expression == original.expression and version.filters == original.filters
     assert version.joins[0]["alias"] == "r"
 
@@ -174,3 +182,23 @@ def test_equivalence_preserves_quoted_identifier_semantics():
     assert equivalent_expressions('SUM(((b."value_a")))', "sum(value_a)", "postgres")
     assert not equivalent_expressions('SUM(b."VALUE_A")', "SUM(b.value_a)", "postgres")
     assert not equivalent_expressions("SUM(b.value_a); SELECT 1", "SUM(b.value_a)", "postgres")
+
+
+@pytest.mark.parametrize("grouping", ["dimension", "time"])
+def test_export_refuses_fixed_filters_that_would_leave_excluded_groups(catalogue, grouping):
+    _, version = scalar_metric(catalogue, filters="b.band_id = 1")
+    if grouping == "dimension":
+        version.dimensions = [{"name": "band", "column": "b.band_id"}]
+    else:
+        version.time_column = "b.observed_at"
+    with sqlite3.connect(":memory:") as database:
+        database.execute("CREATE TABLE records(value_a NUMERIC, band_id INTEGER)")
+        database.executemany("INSERT INTO records VALUES (?, ?)", [(10, 1), (100, 2)])
+        expected = database.execute(
+            "SELECT band_id, COUNT(*) FROM records AS b WHERE b.band_id = 1 GROUP BY band_id"
+        ).fetchall()
+        folded = fold_filters("COUNT(*)", version.filters, "postgres")
+        actual = database.execute(f"SELECT band_id, {folded} FROM records AS b GROUP BY band_id").fetchall()
+    assert expected == [(1, 1)] and actual == [(1, 1), (2, 0)]
+    with pytest.raises(GovernanceError, match="固定过滤条件无法在 Ossie 核心模型中保持分组结果"):
+        export_model(catalogue.session, catalogue.actor, "domain")

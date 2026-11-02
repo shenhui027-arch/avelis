@@ -2157,3 +2157,26 @@ msgstr "匯出口徑引用了目前資產中不存在的來源欄位：{dataset}
 
 msgid "口径编码须为最多 64 个小写字母、数字或下划线"
 msgstr "口徑編碼須為最多 64 個小寫字母、數字或底線"
+
+#: src/avelis/interchange/exporter.py
+msgid "预聚合关联无法在 Ossie 核心模型中等价表达"
+msgstr "預先彙總關聯無法在 Ossie 核心模型中等價表達"
+
+msgid "跨时间聚合方式 {method} 无法在 Ossie 核心模型中等价表达"
+msgstr "跨時間彙總方式 {method} 無法在 Ossie 核心模型中等價表達"
+
+msgid "派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"
+msgstr "衍生口徑的組成口徑未共用相同的資料列集合，無法在 Ossie 核心模型中等價表達"
+
+msgid "派生口径公式无法在 Ossie 核心模型中等价表达"
+msgstr "衍生口徑公式無法在 Ossie 核心模型中等價表達"
+
+msgid "固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组"
+msgstr "固定篩選條件無法在 Ossie 核心模型中保留分組結果；請使用已篩選的資料集，或取消分組維度與時間分組"
+
+#: src/avelis/interchange/importer.py
+msgid "无法推断指标基础数据集，以下数据集沿关系方向不可达：{datasets}"
+msgstr "無法推斷指標的基礎資料集，以下資料集沿關聯方向無法到達：{datasets}"
+
+msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
+msgstr "關聯 {relationship} 符合多條已核准的關聯路徑，已選擇 {selected}（候選：{candidates}）"

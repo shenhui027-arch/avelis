@@ -129,7 +129,11 @@ def _tree(text: str, read: str | None) -> exp.Expression | None:
 
 
 def _catalog(
-    session: Session, actor: User, document: dict[str, Any], errors: list[dict[str, str]]
+    session: Session,
+    actor: User,
+    document: dict[str, Any],
+    errors: list[dict[str, str]],
+    warnings: list[dict[str, str]] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, JoinPath]]:
     allowed = access.domain_ids(session, actor)
     visible = [
@@ -190,24 +194,108 @@ def _catalog(
             if not all(isinstance(node, exp.Column) for node in mapped):
                 errors.append(_error("catalog", f"$.relationships[{index}]", "关联键必须映射到源列"))
             columns.append([node.name if isinstance(node, exp.Column) else "" for node in mapped])
-        match = next(
-            (
-                p
-                for p in candidates
-                if p.left_asset_id == left["asset"].id
-                and p.right_asset_id == right["asset"].id
-                and p.left_columns == columns[0]
-                and p.right_columns == columns[1]
-            ),
-            None,
-        )
-        if match is None:
+        matching = [
+            p
+            for p in candidates
+            if p.left_asset_id == left["asset"].id
+            and p.right_asset_id == right["asset"].id
+            and p.left_columns == columns[0]
+            and p.right_columns == columns[1]
+        ]
+        approved = [p for p in matching if effectively_approved(session, p)]
+        match = next((p for p in approved if p.code == relationship["name"]), approved[0] if approved else None)
+        if not matching:
             errors.append(_error("catalog", f"$.relationships[{index}]", "需要先建关联路径"))
-        elif not effectively_approved(session, match):
+        elif match is None:
             errors.append(_error("catalog", f"$.relationships[{index}]", "需要先批准关联路径"))
         else:
             paths[relationship["name"]] = match
+            if len(approved) > 1 and warnings is not None:
+                warnings.append(
+                    {
+                        "metric": "",
+                        "path": f"$.relationships[{index}]",
+                        "reason": gettext(
+                            "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）",
+                            relationship=relationship["name"],
+                            selected=match.code,
+                            candidates=", ".join(p.code for p in approved),
+                        ),
+                    }
+                )
     return datasets, paths
+
+
+def _relationship_paths(document: dict[str, Any], base: str) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    outgoing: dict[str, list[dict[str, Any]]] = {}
+    for relationship in document.get("relationships", []):
+        outgoing.setdefault(relationship["from"], []).append(relationship)
+    previous = {}
+    distances = {base: 0}
+    pending = deque([base])
+    while pending:
+        left = pending.popleft()
+        for relationship in outgoing.get(left, []):
+            right = relationship["to"]
+            if right not in distances:
+                previous[right] = relationship
+                distances[right] = distances[left] + 1
+                pending.append(right)
+    return previous, distances
+
+
+def _extension_datasets(options: _Options, aliases: dict[str, str], dialect: str) -> set[str]:
+    required = set()
+    for text in [*(d.get("column") for d in options.dimensions or []), options.time_column, options.filters]:
+        node = _tree(text, dialect) if text else None
+        if node is not None:
+            for column in node.find_all(exp.Column):
+                name = next((name for name, alias in aliases.items() if alias == column.table), None)
+                if name is not None:
+                    required.add(name)
+    return required
+
+
+def _infer_base(
+    document: dict[str, Any], item: dict[str, Any], datasets: dict[str, dict[str, Any]], options: _Options
+) -> str | None:
+    required = set()
+    for dialect in iter_expression_dialects(item["expression"]):
+        node = _tree(dialect["expression"], _read(dialect["dialect"]))
+        if node is not None:
+            required.update(
+                name
+                for column in node.find_all(exp.Column)
+                if column.table and (name := _matching(column.args["table"], set(datasets))) is not None
+            )
+    if not required:
+        return next(iter(datasets)) if len(datasets) == 1 else None
+    reachable = {name for base in required for name in _relationship_paths(document, base)[1]}
+    if options.dimensions is None:
+        required.update(
+            name
+            for name in reachable
+            if any("dimension" in field for field in datasets[name]["original"].get("fields", []))
+        )
+    candidates = []
+    unreachable = []
+    for base in sorted(required):
+        previous, distances = _relationship_paths(document, base)
+        aliases = {base: "b", **{name: f"j{i}" for i, name in enumerate(previous, 1)}}
+        needed = required | _extension_datasets(options, aliases, datasets[base]["dialect"])
+        missing = needed - distances.keys()
+        if missing:
+            unreachable.append(f"{base} -> {', '.join(sorted(missing))}")
+        else:
+            candidates.append((sum(distances[name] for name in needed), base))
+    if not candidates:
+        raise ValueError(
+            gettext(
+                "无法推断指标基础数据集，以下数据集沿关系方向不可达：{datasets}",
+                datasets="; ".join(unreachable),
+            )
+        )
+    return min(candidates)[1]
 
 
 def _joins(
@@ -246,17 +334,7 @@ def _joins(
                 }
             )
     else:
-        outgoing: dict[str, list[dict[str, Any]]] = {}
-        for relationship in document.get("relationships", []):
-            outgoing.setdefault(relationship["from"], []).append(relationship)
-        previous = {}
-        pending = deque([base])
-        while pending:
-            for relationship in outgoing.get(pending.popleft(), []):
-                right = relationship["to"]
-                if right != base and right not in previous:
-                    previous[right] = relationship
-                    pending.append(right)
+        previous, _ = _relationship_paths(document, base)
         inferred_aliases = {base: "b", **{name: f"j{i}" for i, name in enumerate(previous, 1)}}
         if options.dimensions is None:
             required.update(
@@ -265,13 +343,7 @@ def _joins(
                 if any("dimension" in field for field in datasets[name]["original"].get("fields", []))
             )
         # 扩展中的维度、时间与过滤表达式使用内部别名；裁剪路径时保留这些别名。
-        for text in [*(d.get("column") for d in options.dimensions or []), options.time_column, options.filters]:
-            node = _tree(text, datasets[base]["dialect"]) if text else None
-            if node is not None:
-                for column in node.find_all(exp.Column):
-                    name = next((name for name, alias in inferred_aliases.items() if alias == column.table), None)
-                    if name is not None:
-                        required.add(name)
+        required.update(_extension_datasets(options, inferred_aliases, datasets[base]["dialect"]))
         needed = {base}
         for name in required:
             while name != base and name not in needed:
@@ -402,16 +474,7 @@ def _plan(
     else:
         base = options.base_dataset or scope
         if base is None:
-            refs = []
-            for dialect in iter_expression_dialects(item["expression"]):
-                node = _tree(dialect["expression"], _read(dialect["dialect"]))
-                if node is not None:
-                    refs.extend(
-                        name
-                        for column in node.find_all(exp.Column)
-                        if column.table and (name := _matching(column.args["table"], set(datasets))) is not None
-                    )
-            base = next(iter(refs), None) or (next(iter(datasets)) if len(datasets) == 1 else None)
+            base = _infer_base(document, item, datasets, options)
         if base not in datasets:
             raise ValueError("无法确定指标基础数据集，请声明 base_dataset 或使用数据集限定的字段引用")
         target = datasets[base]["dialect"]
@@ -610,7 +673,7 @@ def import_model(
     report["errors"] = validate_model(document)
     if report["errors"]:
         _reject(report)
-    datasets, paths = _catalog(session, actor, document, report["errors"])
+    datasets, paths = _catalog(session, actor, document, report["errors"], report["warnings"])
     if report["errors"]:
         _reject(report)
     plans = []

@@ -545,10 +545,8 @@ def test_export_derived_pins_components_and_expands_only_shared_row_sets(catalog
         {"metric_code": "measure_b", "version_no": 1, "expression": second.expression},
     ]
     first.filters = "b.band_id = 1"
-    document = export_model(session, catalogue.actor, "domain", ["ratio_a"])
-    assert document["metrics"][0]["expression"]["dialects"] == [
-        {"dialect": "postgres", "expression": derived.expression}
-    ]
+    with pytest.raises(GovernanceError, match="组成口径不共享相同的行集"):
+        export_model(session, catalogue.actor, "domain", ["ratio_a"])
     right.domain_id = "hidden"
     session.flush()
     no_export(catalogue, ["ratio_a"])
@@ -678,7 +676,7 @@ def test_export_preserves_relationship_extensions_for_logical_join_fields(catalo
     ]
 
 
-def test_export_derived_with_preaggregate_preserves_formula_and_virtual_column_boundary(catalogue):
+def test_export_refuses_preaggregate_dependencies_of_selected_derived_metric(catalogue):
     left, first = metric(catalogue, "measure_a")
     right, second = metric(catalogue, "measure_b")
     approved_path(catalogue)
@@ -693,24 +691,23 @@ def test_export_derived_with_preaggregate_preserves_formula_and_virtual_column_b
         {"metric_code": left.code, "version_id": first.id, "version_no": first.version_no},
         {"metric_code": right.code, "version_id": second.id, "version_no": second.version_no},
     ]
-    document = export_model(catalogue.session, catalogue.actor, "domain", ["ratio_a"])
-    item = document["metrics"][0]
-    assert item["expression"]["dialects"] == [{"dialect": "postgres", "expression": "measure_a / measure_b"}]
-    assert avelis(item)["formula"] == derived.expression
-    assert len(avelis(item)["components"]) == 2
-    assert all(field["name"] != "row_count" for dataset in document["datasets"] for field in dataset["fields"])
+    with pytest.raises(GovernanceError, match="预聚合关联无法在 Ossie 核心模型中等价表达"):
+        export_model(catalogue.session, catalogue.actor, "domain", ["ratio_a"])
 
 
-def test_export_refuses_selected_base_metric_referencing_preaggregate_virtual_column(catalogue):
+@pytest.mark.parametrize("expression", ["SUM(r.row_count)", "COUNT(r.band_id)", "SUM(b.value_a)"])
+def test_export_refuses_every_preaggregate_join_even_with_only_physical_or_unused_columns(catalogue, expression):
     _, version = metric(catalogue)
     approved_path(catalogue)
     version.joins = [{"join_path_id": "path", "alias": "r", "pre_aggregate": True}]
-    version.expression = "SUM(r.row_count)"
-    with pytest.raises(GovernanceError, match="预聚合生成的虚拟字段") as caught:
+    version.expression = expression
+    with pytest.raises(GovernanceError, match="预聚合关联无法在 Ossie 核心模型中等价表达") as caught:
         export_model(catalogue.session, catalogue.actor, "domain", ["measure_a"])
     assert caught.value.status_code == 400
+    version.joins = [{"join_path_id": "path", "alias": "r", "pre_aggregate": False}]
     version.expression = "COUNT(r.band_id)"
     document = export_model(catalogue.session, catalogue.actor, "domain", ["measure_a"])
+    validate_official_schema(document)
     assert document["metrics"][0]["expression"]["dialects"] == [
         {"dialect": "postgres", "expression": "COUNT(bands.band_id)"}
     ]

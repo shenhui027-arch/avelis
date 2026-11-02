@@ -211,40 +211,78 @@ def _components(session: Session, version: MetricVersion) -> list[tuple[Metric, 
     return result
 
 
+def _check_core_semantics(
+    version: MetricVersion,
+    *,
+    aliases: dict[str, Asset] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    dialect: str = "",
+    components: list[tuple[Metric, MetricVersion]] | None = None,
+    expression_path: str,
+) -> str:
+    """Rewrite executable semantics into the core, refusing extension-only behavior.
+
+    - Fixed filters are folded into scalar aggregate arguments, including derived
+      components. With grouping, CASE cannot remove groups excluded by WHERE.
+    - Every pre-aggregated join changes the row set, even when its alias is unused.
+      Dataset.source accepts queries in 48da55a, but this adapter has no safe query
+      dataset/catalogue mapping; a plain relationship cannot preserve the grouping.
+    - Non-sum time aggregation requires Avelis's bucket-and-compose execution.
+    - Repeated asset roles cannot be represented by one core dataset qualifier.
+    - Derived aggregates must share a row set before they can be inlined.
+
+    JoinPath and the compiler support key equalities only, with no extra join
+    predicate. Metric grain/dedupe_basis are governance evidence, not executable
+    grouping/deduplication; actual DISTINCT remains in the SQL expression.
+    """
+    if version.kind == "derived":
+        components = components or []
+        same_row_set = ("base_asset_id", "joins", "filters", "time_column", "timezone", "time_format", "data_grain")
+        if not components or any(
+            component.kind != "base"
+            or any(getattr(component, key) != getattr(components[0][1], key) for key in same_row_set)
+            for _, component in components
+        ):
+            raise GovernanceError(gettext("派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"))
+        try:
+            if set(parse_formula(version.expression)) != {metric.code for metric, _ in components}:
+                raise ValueError("Component references do not match")
+        except (GovernanceError, ValueError) as exc:
+            raise GovernanceError(gettext("派生口径公式无法在 Ossie 核心模型中等价表达")) from exc
+        return version.expression
+
+    if any(step["pre_aggregate"] for step in steps or []):
+        raise GovernanceError(gettext("预聚合关联无法在 Ossie 核心模型中等价表达"))
+    if (version.time_aggregation or "sum") != "sum":
+        raise GovernanceError(
+            gettext("跨时间聚合方式 {method} 无法在 Ossie 核心模型中等价表达", method=version.time_aggregation)
+        )
+    if aliases is not None and len({asset.id for asset in aliases.values()}) != len(aliases):
+        raise GovernanceError(gettext("口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"))
+    if version.filters and (version.dimensions or version.time_column):
+        raise GovernanceError(
+            gettext("固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组")
+        )
+    try:
+        return fold_filters(version.expression, version.filters, dialect)
+    except ValueError as exc:
+        raise Invalid(str(exc), errors=[{"layer": "model", "path": expression_path, "reason": str(exc)}]) from exc
+
+
 def _expand_derived(
     session: Session,
     version: MetricVersion,
     components: list[tuple[Metric, MetricVersion]],
     aliases_by_version: dict[str, dict[str, str]],
     column_fields: dict[str, dict[str, str]],
+    core_expressions: dict[str, str],
 ) -> tuple[str, str]:
-    """Expand only aggregates sharing one governed row set; otherwise keep the formula."""
-    dialects = {
-        _dialect(session, session.get(Asset, component.base_asset_id))
-        for _, component in components
-        if component.base_asset_id
-    }
-    dialect = next(iter(dialects)) if len(dialects) == 1 else "OSSIE_SQL_2026"
-    if not components or len(dialects) != 1:
-        return dialect, version.expression
-    first = components[0][1]
-    same_row_set = ("base_asset_id", "joins", "filters", "time_column", "timezone", "time_format", "data_grain")
-    if any(
-        c.kind != "base"
-        or c.filters
-        or any(join.get("pre_aggregate") for join in c.joins or [])
-        or (c.time_aggregation or "sum") != "sum"
-        or any(getattr(c, key) != getattr(first, key) for key in same_row_set)
-        for _, c in components
-    ):
-        return dialect, version.expression
+    """Inline already checked components, including their folded fixed filters."""
+    dialect = _dialect(session, session.get(Asset, components[0][1].base_asset_id))
     try:
-        codes = set(parse_formula(version.expression))
-        if codes != {metric.code for metric, _ in components}:
-            return dialect, version.expression
         replacement = {
             metric.code: sqlglot.parse_one(
-                _expression(component.expression, dialect, aliases_by_version[component.id], column_fields),
+                _expression(core_expressions[component.id], dialect, aliases_by_version[component.id], column_fields),
                 read=dialect,
             )
             for metric, component in components
@@ -265,8 +303,8 @@ def _expand_derived(
             )
             division.set("expression", exp.Nullif(this=division.expression.copy(), expression=exp.Literal.number(0)))
         return dialect, formula.sql(dialect=dialect)
-    except (SqlglotError, GovernanceError, KeyError, ValueError):
-        return dialect, version.expression
+    except (SqlglotError, GovernanceError, KeyError, ValueError) as exc:
+        raise GovernanceError(gettext("派生口径公式无法在 Ossie 核心模型中等价表达")) from exc
 
 
 def export_model(session: Session, actor: User, domain_id: str, metric_ids: list[str] | None = None) -> dict[str, Any]:
@@ -294,8 +332,6 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             return False
         if not all(effectively_approved(session, step["path"]) for step in steps):
             return False
-        if len({asset.id for asset in aliases.values()}) != len(aliases):
-            raise GovernanceError("口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径")
         resolved[version.id] = aliases, steps
         return True
 
@@ -338,6 +374,21 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
     for _, _, components in selected:
         versions.update({v.id: v for _, v in components})
     resolved = {key: value for key, value in resolved.items() if key in versions}
+    core_expressions = {}
+    for index, (_, version, components) in enumerate(selected):
+        expression_path = f"$.metrics[{index}].expression"
+        for current in [version, *(component for _, component in components)]:
+            if current.id in core_expressions:
+                continue
+            aliases, steps = resolved.get(current.id, ({}, []))
+            core_expressions[current.id] = _check_core_semantics(
+                current,
+                aliases=aliases,
+                steps=steps,
+                dialect=_dialect(session, aliases["b"]) if aliases else "",
+                components=components if current.kind == "derived" else None,
+                expression_path=expression_path,
+            )
     readable_assets = {
         _qualified(a): a
         for a in session.scalars(select(Asset).where(Asset.status == "active"))
@@ -500,7 +551,6 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         version = versions[version_id]
         dialect = _dialect(session, aliases["b"])
         sql_dialect = sqlglot.Dialect.get_or_raise(dialect)
-        preaggregate_keys = {step["alias"]: set(step["path"].right_columns) for step in steps if step["pre_aggregate"]}
         for text in [
             version.expression,
             version.filters,
@@ -515,7 +565,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 continue
             for column in node.find_all(exp.Column) if node is not None else []:
                 alias = _matching(column.args["table"], set(aliases)) if column.table else "b"
-                if column.is_star or (alias in preaggregate_keys and column.name not in preaggregate_keys[alias]):
+                if column.is_star:
                     continue
                 asset = aliases.get(alias)
                 if asset is not None:
@@ -745,32 +795,15 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         item["ai_context"].update(metric_ai_context(metric))
         item["ai_context"] = {k: v for k, v in item["ai_context"].items() if v is not None}
         if version.kind == "derived":
-            dialect, expression = _expand_derived(session, version, components, aliases_by_version, column_fields)
+            dialect, expression = _expand_derived(
+                session, version, components, aliases_by_version, column_fields, core_expressions
+            )
         else:
             asset = resolved[version.id][0]["b"]
             dialect = _dialect(session, asset)
-            preaggregate_keys = {
-                step["alias"]: set(step["path"].right_columns)
-                for step in resolved[version.id][1]
-                if step["pre_aggregate"]
-            }
-            if preaggregate_keys:
-                columns = sqlglot.parse_one(version.expression, read=dialect).find_all(exp.Column)
-                if any(
-                    column.table in preaggregate_keys and column.name not in preaggregate_keys[column.table]
-                    for column in columns
-                ):
-                    raise GovernanceError("口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义")
-            try:
-                folded = fold_filters(version.expression, version.filters, dialect)
-            except ValueError as exc:
-                raise Invalid(
-                    str(exc),
-                    errors=[
-                        {"layer": "model", "path": f"$.metrics[{len(out['metrics'])}].expression", "reason": str(exc)}
-                    ],
-                ) from exc
-            expression = _expression(folded, dialect, aliases_by_version[version.id], column_fields)
+            expression = _expression(
+                core_expressions[version.id], dialect, aliases_by_version[version.id], column_fields
+            )
         original_expression = deepcopy(original.get("expression", {}))
         dataset_scope = (version.publish_check or {}).get("ossie", {}).get("dataset_name")
         if dataset_scope:

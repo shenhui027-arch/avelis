@@ -32,6 +32,7 @@ from avelis.models import (
     Datasource,
     Domain,
     DomainMember,
+    Grain,
     JoinPath,
     JoinPathApproval,
     Metric,
@@ -1034,6 +1035,93 @@ def test_inferred_joins_include_selected_remote_dimension_path(catalog, dimensio
     assert any(dimension["column"] == "j2.group_a" for dimension in version.dimensions)
 
 
+def test_base_inference_is_independent_of_operand_order(catalog):
+    model = relationship_document()
+    approve_relationships(catalog, model)
+    model["metrics"][0]["custom_extensions"] = [extension(timezone="UTC")]
+    imported = []
+    for expression in ("records.value_a + records_b.value_a", "records_b.value_a + records.value_a"):
+        model["metrics"][0]["expression"] = {"sql": f"SUM({expression})"}
+        assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+        version = latest_version(catalog)
+        imported.append((version.base_asset_id, version.joins, version.dimensions, version.dependency))
+    assert imported[0] == imported[1]
+    assert imported[0][0] == "asset"
+    assert imported[0][1] == [{"join_path_id": "path_a", "alias": "j1", "from": "b", "pre_aggregate": False}]
+
+
+def test_base_inference_does_not_select_upstream_dataset_for_its_dimensions(catalog):
+    model = relationship_document()
+    approve_relationships(catalog, model)
+    model["metrics"][0]["custom_extensions"] = [extension(timezone="UTC")]
+    model["metrics"][0]["expression"] = {"sql": "SUM(records_b.value_a)"}
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    version = latest_version(catalog)
+    assert version.base_asset_id == "asset_b" and version.joins == []
+    assert version.expression == "SUM(b.value_a)"
+    assert version.dimensions == [{"name": "group_a", "column": "b.group_a", "label": "group_a"}]
+
+
+@pytest.mark.parametrize("base_extension", [False, True])
+def test_explicit_base_or_dataset_scope_still_takes_precedence(catalog, base_extension):
+    model = relationship_document()
+    approve_relationships(catalog, model)
+    model["metrics"][0]["expression"] = {"sql": "SUM(records_b.value_a)"}
+    model["metrics"][0]["custom_extensions"] = [
+        extension(**({"base_dataset": "records"} if base_extension else {}), timezone="UTC", dimensions=[])
+    ]
+    if not base_extension:
+        model["metrics"][0]["expression"] = {"sql": "SUM(value_a)"}
+        model["datasets"][1]["metrics"] = model.pop("metrics")
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    version = latest_version(catalog)
+    if base_extension:
+        assert version.base_asset_id == "asset" and version.joins[0]["join_path_id"] == "path_a"
+    else:
+        assert version.base_asset_id == "asset_b" and version.joins == []
+
+
+def test_base_inference_reports_each_unreachable_required_dataset(catalog):
+    model = relationship_document()
+    model.pop("relationships")
+    model["metrics"][0]["custom_extensions"] = [extension(timezone="UTC")]
+    model["metrics"][0]["expression"] = {"sql": "SUM(records_b.value_a + records.value_a)"}
+    report = rejected(catalog, model)
+    assert report["errors"][0]["reason"] == (
+        "无法推断指标基础数据集，以下数据集沿关系方向不可达：records -> records_b; records_b -> records"
+    )
+
+
+@pytest.mark.parametrize("shorter_dimension_base", [False, True])
+def test_base_inference_uses_shortest_total_distance_then_dataset_name(catalog, shorter_dimension_base):
+    model = relationship_document()
+    model["metrics"][0]["custom_extensions"] = [extension(timezone="UTC")]
+    model["metrics"][0]["expression"] = {"sql": "SUM(records_b.value_a + records.value_a)"}
+    if shorter_dimension_base:
+        third = deepcopy(model["datasets"][0])
+        third.update(name="records_c", source="catalog.schema_a.records_c")
+        model["datasets"].append(third)
+        catalog.session.get(Asset, "hidden_asset").domain_id = "visible"
+        edges = [
+            ("records", "records_c"),
+            ("records_b", "records_c"),
+            ("records_c", "records"),
+            ("records_c", "records_b"),
+        ]
+    else:
+        edges = [("records", "records_b"), ("records_b", "records")]
+    model["relationships"] = [
+        {"name": f"path_{i}", "from": left, "to": right, "from_columns": ["group_a"], "to_columns": ["group_a"]}
+        for i, (left, right) in enumerate(edges)
+    ]
+    # Selection must also be independent of the dataset and relationship array order.
+    model["datasets"].reverse()
+    model["relationships"].reverse()
+    approve_relationships(catalog, model)
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    assert latest_version(catalog).base_asset_id == ("hidden_asset" if shorter_dimension_base else "asset")
+
+
 @pytest.mark.parametrize("status", [None, "pending", "approved"])
 def test_relationships_require_an_existing_approved_path_without_creating_or_approving(catalog, status):
     if status:
@@ -1070,6 +1158,137 @@ def test_relationships_require_an_existing_approved_path_without_creating_or_app
     assert len(paths) == bool(status)
     if paths:
         assert paths[0].status == status
+
+
+@pytest.mark.parametrize("relationship_name", ["external_path", "a_pending", "z_approved"])
+def test_relationship_matching_skips_pending_even_when_its_name_matches(catalog, relationship_name):
+    model = relationship_document()
+    model["relationships"][0]["name"] = "z_approved"
+    approve_relationships(catalog, model)
+    approved = catalog.session.get(JoinPath, "z_approved")
+    approved.cardinality = "n1"
+    catalog.session.add(
+        JoinPath(
+            id="pending",
+            code="a_pending",
+            name="pending",
+            left_asset_id="asset",
+            left_columns=["group_a"],
+            right_asset_id="asset_b",
+            right_columns=["group_a"],
+            cardinality="n1",
+            status="pending",
+            created_by=catalog.actor.id,
+        )
+    )
+    catalog.session.commit()
+    model["relationships"][0]["name"] = relationship_name
+    model["metrics"][0]["expression"] = {"sql": "SUM(records.value_a + records_b.value_a)"}
+    model["metrics"][0]["custom_extensions"] = [extension(base_dataset="records", timezone="UTC")]
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    assert latest_version(catalog).joins[0]["join_path_id"] == "z_approved"
+
+
+def test_relationship_matching_uses_effective_approval_not_status_alone(catalog):
+    model = relationship_document()
+    model["relationships"][0]["name"] = "z_approved"
+    approve_relationships(catalog, model)
+    approved = catalog.session.get(JoinPath, "z_approved")
+    approved.cardinality = "n1"
+    catalog.session.add(
+        JoinPath(
+            id="stale",
+            code="a_stale",
+            name="stale",
+            left_asset_id="asset",
+            left_columns=["group_a"],
+            right_asset_id="asset_b",
+            right_columns=["group_a"],
+            cardinality="n1",
+            status="approved",
+            created_by=catalog.actor.id,
+        )
+    )
+    catalog.session.commit()
+    model["relationships"][0]["name"] = "a_stale"
+    model["metrics"][0]["expression"] = {"sql": "SUM(records.value_a + records_b.value_a)"}
+    model["metrics"][0]["custom_extensions"] = [extension(base_dataset="records", timezone="UTC")]
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    assert latest_version(catalog).joins[0]["join_path_id"] == "z_approved"
+
+
+def test_multiple_approved_relationship_candidates_are_deterministic_and_warn(catalog):
+    model = relationship_document()
+    model["relationships"][0]["name"] = "z_approved"
+    approve_relationships(catalog, model)
+    other = deepcopy(model)
+    other["relationships"][0]["name"] = "a_approved"
+    approve_relationships(catalog, other)
+    model["relationships"][0]["name"] = "external_path"
+    model["metrics"][0]["expression"] = {"sql": "SUM(records.value_a + records_b.value_a)"}
+    model["metrics"][0]["custom_extensions"] = [extension(base_dataset="records", timezone="UTC")]
+    report = import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)
+    assert report["ok"] and latest_version(catalog).joins[0]["join_path_id"] == "a_approved"
+    assert {
+        "metric": "",
+        "path": "$.relationships[0]",
+        "reason": "关系 external_path 匹配多条已批准的关联路径，已选择 a_approved（候选：a_approved, z_approved）",
+    } in report["warnings"]
+
+
+def test_all_matching_relationship_candidates_still_need_approval(catalog):
+    model = relationship_document()
+    model["relationships"][0]["name"] = "z_pending"
+    approve_relationships(catalog, model)
+    other = deepcopy(model)
+    other["relationships"][0]["name"] = "a_pending"
+    approve_relationships(catalog, other)
+    for path in catalog.session.scalars(select(JoinPath)):
+        path.status = "pending"
+    catalog.session.commit()
+    report = rejected(catalog, model)
+    assert report["errors"][0]["reason"] == "需要先批准关联路径"
+
+
+def test_exported_relationship_name_selects_same_approved_path_on_reimport(catalog):
+    model = relationship_document()
+    model["relationships"][0]["name"] = "z_approved"
+    approve_relationships(catalog, model)
+    other = deepcopy(model)
+    other["relationships"][0]["name"] = "a_approved"
+    approve_relationships(catalog, other)
+    for path in catalog.session.scalars(select(JoinPath)):
+        path.cardinality = "n1"
+    # A unique key is needed to publish this ordinary n1 join.
+    catalog.session.add(
+        Grain(
+            id="grain_b",
+            asset_id="asset_b",
+            asset_version_id="asset_b_v1",
+            columns=["group_a"],
+            origin="observed",
+            status="verified",
+        )
+    )
+    catalog.session.commit()
+    model["metrics"][0]["custom_extensions"] = [
+        extension(
+            base_dataset="records",
+            timezone="UTC",
+            time_column="b.observed_on",
+            joins=[{"relationship": "z_approved", "alias": "r", "from": "b"}],
+            dimensions=[],
+        )
+    ]
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    assert latest_version(catalog).joins[0]["join_path_id"] == "z_approved"
+    check = metrics.publish_check(catalog.session, latest_version(catalog), catalog.actor)
+    assert check["ok"], check["blockers"]
+    publish(catalog)
+    exported = export_model(catalog.session, catalog.actor, "visible")
+    assert exported["relationships"][0]["name"] == "z_approved"
+    assert import_model(catalog.session, catalog.actor, exported, "visible", dry_run=False)["ok"]
+    assert latest_version(catalog).joins[0]["join_path_id"] == "z_approved"
 
 
 def test_relationship_extensions_survive_reuse_and_roundtrip(catalog):

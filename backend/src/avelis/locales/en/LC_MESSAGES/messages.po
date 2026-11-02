@@ -2152,3 +2152,26 @@ msgstr "The exported metric references a source column missing from the current 
 
 msgid "口径编码须为最多 64 个小写字母、数字或下划线"
 msgstr "Metric codes must contain at most 64 lowercase letters, digits, or underscores"
+
+#: src/avelis/interchange/exporter.py
+msgid "预聚合关联无法在 Ossie 核心模型中等价表达"
+msgstr "Pre-aggregated joins cannot be represented equivalently in the Ossie core model"
+
+msgid "跨时间聚合方式 {method} 无法在 Ossie 核心模型中等价表达"
+msgstr "Time aggregation method {method} cannot be represented equivalently in the Ossie core model"
+
+msgid "派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"
+msgstr "The derived metric's components do not share the same row set and cannot be represented equivalently in the Ossie core model"
+
+msgid "派生口径公式无法在 Ossie 核心模型中等价表达"
+msgstr "The derived metric formula cannot be represented equivalently in the Ossie core model"
+
+msgid "固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组"
+msgstr "Fixed filters cannot preserve grouped results in the Ossie core model; use a pre-filtered dataset or remove grouping dimensions and time grouping"
+
+#: src/avelis/interchange/importer.py
+msgid "无法推断指标基础数据集，以下数据集沿关系方向不可达：{datasets}"
+msgstr "Cannot infer the metric's base dataset; the following datasets are unreachable along the relationship direction: {datasets}"
+
+msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
+msgstr "Relationship {relationship} matches multiple approved join paths; selected {selected} (candidates: {candidates})"
