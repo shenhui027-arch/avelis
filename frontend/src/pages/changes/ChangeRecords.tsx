@@ -16,8 +16,8 @@ type Verify = Schemas["HistoryVerifyOut"];
 
 export const EVENT_LABEL: { [kind: string]: string } = {
   definition_changed: t("定义变化"), derivation_changed: t("字段推导变化"), upstream_broken: t("上游缺失"), column_added: t("新增列"),
-  column_removed: t("删除列"), column_type_changed: t("类型变化"), column_rename_candidate: t("改名候选"), added: t("新增"),
-  deleted: t("删除"), renamed: t("改名"), rename_candidate: t("改名候选"), grain_changed: t("粒度变化"),
+  column_removed: t("删除列"), column_type_changed: t("类型变化"), column_rename_candidate: t("改名候选"), added: t("新增对象"),
+  deleted: t("删除对象"), renamed: t("改名"), rename_candidate: t("改名候选"), grain_changed: t("粒度变化"),
   identity_link_changed: t("同一张表匹配变化"), external_ref_changed: t("外部地址变化"), comment_changed: t("注释变化"),
   column_comment_changed: t("列注释变化"), server_identity_changed: t("实例变化"),
 };

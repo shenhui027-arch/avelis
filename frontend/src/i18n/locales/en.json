@@ -894,7 +894,6 @@
   "删除列": "Column dropped",
   "类型变化": "Type changed",
   "改名候选": "Rename candidate",
-  "新增": "Added",
   "删除": "Dropped",
   "改名": "Renamed",
   "粒度变化": "Grain changed",
@@ -1446,5 +1445,14 @@
   "已脱敏 {{n}} 处": "{{n}} redactions",
   "复用上次结果": "Reused previous result",
   "已丢弃：": "Dropped: ",
-  "等 {{n}} 条": "and {{n}} more"
+  "等 {{n}} 条": "and {{n}} more",
+  "新增对象": "Object added",
+  "删除对象": "Object dropped",
+  "数据源 {{id}}": "Data source {{id}}",
+  "登记": "Registered",
+  "打开数据源": "Open data source",
+  "首次采集：登记数据源里已有的 {{count}} 个对象，不是新发生的变化，也不对应 DDL 操作_one": "First collection: registered {{count}} existing object in this data source. This is not a new change and does not correspond to a DDL operation",
+  "首次采集：登记数据源里已有的 {{count}} 个对象，不是新发生的变化，也不对应 DDL 操作_other": "First collection: registered {{count}} existing objects in this data source. These are not new changes and do not correspond to DDL operations",
+  "没有影响口径、关联路径或历史回答": "No impact on metric definitions, join paths or past answers",
+  "首次采集清单": "First-collection list"
 }

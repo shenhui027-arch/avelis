@@ -4,15 +4,23 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
-  errorText, useAction, useAssets, useChangeSet, useChangeSets, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
+  errorText, useAction, useAssets, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Empty, Hint, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DiffCode, Dot, Empty, Hint, KIND_LABEL, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
 import { t } from "../../i18n";
 
 const OBJECT: Record<string, string> = { metric_version: t("指标版本"), asset: t("资产"), join_path: t("关联路径"), answer: t("历史回答") };
+
+/** 没有上一次成功采集：这组事件是对已有对象的首次登记，不是观察到的变化，也不对应 DDL。 */
+const isFirstCollection = (c: ChangeSet) => !c.effective_window.after;
+
+function useDatasourceName() {
+  const sources = useDatasources();
+  return (id: string) => sources.data?.find((d) => d.id === id)?.name ?? t("数据源 {{id}}", { id: id.slice(0, 8) });
+}
 
 export function ChangesPage() {
   const { id } = useParams();
@@ -68,16 +76,18 @@ export function ChangesPage() {
 
 function ChangeRow({ c, active, onClick }: { c: ChangeSet; active: boolean; onClick: () => void }) {
   const tz = useTimeZone();
+  const datasourceName = useDatasourceName();
   const summary = c.summary as Record<string, number>;
   const kinds = Object.entries(summary).filter(([k]) => k.startsWith("event:")).map(([k, v]) => `${EVENT[k.slice(6)] ?? k.slice(6)} ${v}`);
   const impacts = summary.impacts ?? 0;
+  const lead = isFirstCollection(c) ? t("首次采集") : impacts ? t("{{count}} 项影响", { count: impacts }) : t("无影响口径");
   return (
     <button type="button" className={`av-row${active ? " is-active" : ""}`} onClick={onClick}
       style={{ "--row-cols": "8px minmax(0, 1fr) auto", minHeight: 58, width: "100%", border: "none", borderBottom: "1px solid var(--line-subtle)", background: active ? "var(--bg-active)" : "transparent", textAlign: "left", cursor: "pointer" } as React.CSSProperties}>
       <Dot tone={c.status === "resolved" ? (impacts ? "ok" : "") : impacts ? "danger" : "warn"} />
       <span className="av-row__main">
-        <span className="av-row__title">{impacts ? t("{{count}} 项影响", { count: impacts }) : t("无影响口径")}</span>
-        <span className="av-row__meta">{kinds.slice(0, 3).join(" · ")}</span>
+        <span className="av-row__title">{datasourceName(c.datasource_id)}</span>
+        <span className="av-row__meta">{[lead, ...kinds.slice(0, 2)].join(" · ")}</span>
       </span>
       <span className="av-row__meta av-mono">{formatClock(c.created_at, tz)}</span>
     </button>
@@ -89,9 +99,12 @@ function Detail({ id }: { id: string }) {
   const cs = useChangeSet(id);
   const metrics = useMetrics();
   const assets = useAssets();
+  const datasourceName = useDatasourceName();
+  const [expanded, setExpanded] = useState(false);
   const assetName = (id: string) => shortName(assets.data?.find((a) => a.id === id)?.qualified) || id.slice(0, 8);
   const c = cs.data;
   if (!c) return <section className="av-pane" />;
+  const first = isFirstCollection(c);
   const events = c.events ?? [];
   const def = events.find((e) => e.kind === "definition_changed");
   const direct = events.filter((e) => !["derivation_changed", "upstream_broken", "identity_link_changed"].includes(e.kind));
@@ -106,6 +119,9 @@ function Detail({ id }: { id: string }) {
     return null;
   };
   const task = (c.tasks ?? []).find((item) => item.status === "open") ?? (c.tasks ?? [])[0];
+  const rows = [...direct, ...identity, ...derived];
+  // 首次采集的登记清单通常很长且不需要处理，默认收起
+  const shown = first && !expanded ? [] : rows;
 
   return (
     <>
@@ -115,17 +131,28 @@ function Detail({ id }: { id: string }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span className="av-caption av-mono">{t("变更集 {{id}} · 批次 {{run}}", { id: c.id.slice(0, 8), run: c.run_id.slice(0, 8) })}</span>
               <div className="av-pagehd"><div className="av-pagehd__title">
-                <h1 className="av-mono">{def?.asset ? shortName(def.asset) : direct[0]?.asset ? shortName(direct[0].asset) : t("变更")}</h1>
-                {(c.impacts ?? []).some((i) => i.object_type === "metric_version") ? <Pill tone="danger">{t("影响口径")}</Pill> : <Pill>{t("不影响口径")}</Pill>}
+                <h1>{datasourceName(c.datasource_id)}</h1>
+                {first ? <Pill>{t("首次采集")}</Pill>
+                  : (c.impacts ?? []).some((i) => i.object_type === "metric_version") ? <Pill tone="danger">{t("影响口径")}</Pill> : <Pill>{t("不影响口径")}</Pill>}
                 <Status value={c.status} />
               </div>
-                {def?.asset_id ? <div className="av-actions"><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
-                  <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></div> : null}
+                <div className="av-actions">
+                  <Link className="av-btn av-btn--secondary av-btn--sm" to={`/settings/datasources/${c.datasource_id}`}>{t("打开数据源")}</Link>
+                  {def?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
+                    <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></> : null}
+                </div>
               </div>
+              {first ? (
+                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                  {t("首次采集：登记数据源里已有的 {{count}} 个对象，不是新发生的变化，也不对应 DDL 操作", { count: events.filter((e) => e.kind === "added").length })}
+                </span>
+              ) : null}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 20, fontSize: 12, color: "var(--text-tertiary)" }}>
                 <span>{t("发现")} <span className="av-mono" style={{ color: "var(--text-secondary)" }}>{formatTime(c.created_at, tz)}</span></span>
-                <span>{t("生效于")} <span className="av-mono" style={{ color: "var(--text-secondary)" }}>{formatTime(String(c.effective_window.after ?? ""), tz) || t("首次采集")} – {formatClock(String(c.effective_window.before), tz)}</span> <Hint text={String(c.effective_window.note ?? "")} /></span>
-                <span>{t("结构")} <span style={{ color: "var(--text-secondary)" }}>{events.some((e) => e.kind.startsWith("column_")) ? t("有变化") : t("无变化")}</span></span>
+                {first ? null : <>
+                  <span>{t("生效于")} <span className="av-mono" style={{ color: "var(--text-secondary)" }}>{formatTime(String(c.effective_window.after ?? ""), tz)} – {formatClock(String(c.effective_window.before), tz)}</span> <Hint text={String(c.effective_window.note ?? "")} /></span>
+                  <span>{t("结构")} <span style={{ color: "var(--text-secondary)" }}>{events.some((e) => e.kind.startsWith("column_")) ? t("有变化") : t("无变化")}</span></span>
+                </>}
               </div>
             </div>
 
@@ -137,22 +164,27 @@ function Detail({ id }: { id: string }) {
             ) : null}
 
             <section className="av-panel">
-              <div className="av-panel__hd"><h2 className="av-panel__title">{t("变化")} <Count n={events.length} /></h2></div>
-              <table className="av-table">
-                <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th><th>{t("数据库用户")}</th></tr></thead>
-                <tbody>{[...direct, ...identity, ...derived].map((e) => (
-                  <tr key={e.id}>
-                    <td className="av-mono" style={{ paddingLeft: 16 }}>{shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
-                    <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={EVENT[e.kind] ?? e.kind} /></td>
-                    <td className="av-caption" style={{ whiteSpace: "normal" }}>{eventDetail(e)}</td>
-                    <td><Actor e={e} /></td>
-                  </tr>))}</tbody>
-              </table>
+              <div className="av-panel__hd">
+                <h2 className="av-panel__title">{first ? t("首次采集清单") : t("变化")} <Count n={events.length} /></h2>
+                {first ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>{expanded ? t("收起") : t("展开")}</button> : null}
+              </div>
+              {shown.length ? (
+                <table className="av-table">
+                  <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th>{first ? null : <th>{t("数据库用户")}</th>}</tr></thead>
+                  <tbody>{shown.map((e) => (
+                    <tr key={e.id}>
+                      <td className="av-mono" style={{ paddingLeft: 16 }}>{shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
+                      <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={first && e.kind === "added" ? t("登记") : EVENT[e.kind] ?? e.kind} /></td>
+                      <td className="av-caption" style={{ whiteSpace: "normal" }}>{eventDetail(e)}</td>
+                      {first ? null : <td><Actor e={e} /></td>}
+                    </tr>))}</tbody>
+                </table>
+              ) : null}
             </section>
 
             <section className="av-panel">
               <div className="av-panel__hd"><h2 className="av-panel__title">{t("影响范围")} <Count n={c.impacts?.length ?? 0} /></h2></div>
-              <table className="av-table">
+              {c.impacts?.length ? <table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("原因")}</th><th>{t("状态")}</th><th className="end" /></tr></thead>
                 <tbody>{(c.impacts ?? []).map((i) => {
                   const m = i.object_type === "metric_version" ? metricName(i.object_id) : null;
@@ -164,7 +196,7 @@ function Detail({ id }: { id: string }) {
                       <td className="end">{m ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/metrics/${m.id}`}>{t("查看")}</Link> : null}</td>
                     </tr>);
                 })}</tbody>
-              </table>
+              </table> : <Empty compact text={t("没有影响口径、关联路径或历史回答")} />}
             </section>
           </div>
         </div>
@@ -184,6 +216,8 @@ function assetFromPath(path: unknown[]): string {
 function eventDetail(e: { kind: string; before: Record<string, unknown>; after: Record<string, unknown>; column?: string | null }): string {
   switch (e.kind) {
     case "column_type_changed": return `${String(e.before.data_type)} → ${String(e.after.data_type)}`;
+    case "added": return KIND_LABEL[String(e.after.kind)] ?? String(e.after.kind ?? "");
+    case "deleted": return KIND_LABEL[String(e.before.kind)] ?? String(e.before.kind ?? "");
     case "column_added": return String(e.after.data_type ?? "");
     case "column_removed": return String(e.before.data_type ?? "");
     case "column_comment_changed": case "comment_changed": return `${String(e.before.comment ?? t("（无）"))} → ${String(e.after.comment ?? t("（无）"))}`;
