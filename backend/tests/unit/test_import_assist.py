@@ -610,12 +610,50 @@ def test_cli_credentials_are_redacted_in_model_prompt_and_persisted_payload(key,
 
     assert len(fake.prompts) == len(result.payloads) == 2
     assert not result.notes
-    expected = f"--{key}{separator}{quote}<redacted>{quote}"
+    # SQL 参数中的残余引号触发整行兜底，连同凭据值的引号一起覆盖。
+    expected = f"client --{key}{separator}<redacted>"
     assert expected in fake.prompts[0]
     assert result.payloads[0]["prompt"] == fake.prompts[0]
-    assert expected in result.payloads[0]["text"]
-    assert result.payloads[0]["redactions"] == 1
+    assert result.payloads[0]["text"] == expected
+    assert result.payloads[0]["redactions"] == 2
     assert all(secret not in prompt for prompt in fake.prompts)
+    assert secret not in str(result.payloads)
+
+
+@pytest.mark.parametrize(
+    "source,language,expected,count,secret",
+    [
+        (
+            'cur.execute("CREATE ROLE r PASSWORD " "\'SYNTH1\';")',
+            "python",
+            'cur.execute("CREATE ROLE r PASSWORD<redacted>',
+            2,
+            "SYNTH1",
+        ),
+        (
+            "# user's account\ncur.execute(\"CREATE ROLE r PASSWORD ')SYNTH2';\")",
+            "python",
+            "# user's account\ncur.execute(\"CREATE ROLE r PASSWORD<redacted>",
+            1,
+            "SYNTH2",
+        ),
+        ("password: :SYNTH3", "shell", "password: <redacted>", 1, "SYNTH3"),
+        ('connect("password::SYNTH4@db")', "python", 'connect("password:<redacted>', 1, "SYNTH4"),
+    ],
+    ids=["adjacent-host-literals", "comment-apostrophe", "yaml-colon-value", "connection-colon-password"],
+)
+def test_line_fallback_protects_model_prompt_and_persisted_payload(source, language, expected, count, secret):
+    fake = FakeImportModel({"operations": []})
+    result = run(source, fake, language=language)
+
+    assert len(fake.prompts) == len(result.payloads) == 1
+    assert not result.notes
+    payload = result.payloads[0]
+    assert payload["text"] == expected
+    assert payload["redactions"] == count
+    assert expected in fake.prompts[0]
+    assert payload["prompt"] == fake.prompts[0]
+    assert secret not in fake.prompts[0]
     assert secret not in str(result.payloads)
 
 
