@@ -75,6 +75,25 @@ pnpm gen:tokens     # regenerate tokens.css after design token changes
 
 All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, and component styles are in `src/styles/avelis-ui.css`.
 
+### Form controls
+
+Every control with a popup uses the components in `src/components/controls.tsx` (import them from `components/ui`), never the browser's native controls. Native popups are drawn by the operating system and turn white or system-styled in the dark glass UI; this has already happened in the Ask composer and in change records.
+
+| Need | Use | Don't use |
+|---|---|---|
+| Dropdown | `Select` (children stay `<option value>`, read as data only) | `<select>` |
+| Date | `DateInput` (value is `YYYY-MM-DD`) | `type="date"` and other date/time inputs |
+| Time | two `Select`s (hour, minute) | `type="time"` |
+| Free text with suggestions | `SuggestInput` | `<datalist>` / `list=` |
+| Confirmation | `ConfirmDialog` | `confirm()` / `alert()` / `prompt()` |
+| A few options, all visible at once | `Seg` / `Tabs` | — |
+
+These popups are mounted on `body` and positioned from their trigger, so panel scrolling and clipping never hide them, and they work with the keyboard (arrows, Enter, Esc, type-ahead). A custom popup menu that closes on outside clicks must treat clicks inside `.av-float-root` as inside.
+
+Any custom arrow-key or Enter handling on a text input must first skip IME composition (`e.nativeEvent.isComposing` or `keyCode === 229`); otherwise picking a candidate in a Chinese input method is taken as a confirmation.
+
+`pnpm check:ui` fails if the source uses anything in the "Don't use" column; CI runs it too.
+
 ## Demo environment
 
 For local development and acceptance only. Every port binds to `127.0.0.1`, and all data is synthetic e-commerce data with fixed dates:

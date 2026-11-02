@@ -8,7 +8,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { api, unwrap, type Schemas } from "../api/client";
 import { errorText, useTimeZone } from "../api/hooks";
 import { Icon } from "../components/Icon";
-import { Empty } from "../components/ui";
+import { ConfirmDialog, Empty } from "../components/ui";
 import { formatTime } from "../format";
 import { t } from "../i18n";
 
@@ -43,33 +43,6 @@ function useConversationActions() {
     remove: (id: string) => call(unwrap(api.DELETE("/api/analysis/conversations/{conversation_id}", {
       params: { path: { conversation_id: id } } }))),
   };
-}
-
-/** 二次确认对话框：挂到 body，Esc 或点遮罩取消。 */
-function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCancel }: {
-  title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => Promise<void> | void; onCancel: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [onCancel]);
-  return createPortal(
-    <div className="av-root av-dialog__scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
-        <h2>{title}</h2>
-        <p>{body}</p>
-        {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-        <div className="av-actions">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onCancel} disabled={busy}>{t("取消")}</button>
-          <button type="button" className={`av-btn av-btn--sm ${danger ? "av-btn--danger" : "av-btn--primary"}`} autoFocus disabled={busy}
-            onClick={async () => { setBusy(true); try { await onConfirm(); } catch (e) { setError(errorText(e)); setBusy(false); } }}>
-            {busy ? t("处理中…") : confirm}</button>
-        </div>
-      </div>
-    </div>, document.body);
 }
 
 type Menu = { c: Conversation; x: number; y: number };

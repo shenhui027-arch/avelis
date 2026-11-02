@@ -9,7 +9,7 @@ import {
   useTimeZone, useUsers, type Metric, type MetricVersion,
 } from "../../api/hooks";
 import {
-  Banner, CARD_LABEL, Code, Crumbs, Drawer, Empty, Hint, Icon, Pill, QueryState, Select, Status, Switch, shortName, useMessage,
+  Banner, CARD_LABEL, Code, Crumbs, Drawer, Empty, Hint, Icon, Pill, QueryState, Select, Status, SuggestInput, Switch, shortName, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe, useRoles } from "../../layout/Shell";
@@ -469,7 +469,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
         <input required className="av-input av-mono" placeholder="SUM(measure_col)" value={form.expression} onChange={(e) => setForm({ ...form, expression: e.target.value })} /></label>
       <div className="av-metric-form__columns">
         <label className="av-field"><span className="av-label">{t("时间字段")}</span>
-          <input required className="av-input av-mono" list={`${editorId}-cols`} value={form.time_column} onChange={(e) => setForm({ ...form, time_column: e.target.value })} /></label>
+          <SuggestInput required className="av-input av-mono" suggestions={columns} value={form.time_column} onChange={(v) => setForm({ ...form, time_column: v })} /></label>
         <label className="av-field"><span className="av-label">{t("业务时区")} <Hint text={t("留空时使用系统业务时区；查询的日期边界与按时间分组都按它解释")} /></span>
           <input className="av-input av-mono" placeholder={businessTz} value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} /></label>
       </div>
@@ -485,7 +485,6 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
             {TIME_AGGREGATIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</Select></label>
       </div>
       {form.base_asset_id ? <QueryState query={asset} rows={1}>{() => null}</QueryState> : null}
-      <datalist id={`${editorId}-cols`}>{columns.map((c) => <option key={c} value={c} />)}</datalist>
       <label className="av-field"><span className="av-label">{t("过滤条件（可选）")}</span>
         <input className="av-input av-mono" placeholder="status_col = 'value'" value={form.filters} onChange={(e) => setForm({ ...form, filters: e.target.value })} /></label>
       <section className="av-metric-form__group" aria-label={t("允许维度")}>
@@ -496,9 +495,9 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
             <label className="av-field"><span className="av-label">{t("名称")}</span><input className="av-input av-mono" value={d.name}
               aria-invalid={attempted && !d.name.trim()} aria-describedby={attempted && !d.name.trim() ? `${editorId}-dim-${i}-error` : undefined}
               onChange={(e) => updateDim(i, { name: e.target.value })} /></label>
-            <label className="av-field"><span className="av-label">{t("字段")}</span><input className="av-input av-mono" list={`${editorId}-cols`} value={d.column}
-              aria-invalid={attempted && !d.column.trim()} aria-describedby={attempted && !d.column.trim() ? `${editorId}-dim-${i}-error` : undefined}
-              onChange={(e) => updateDim(i, { column: e.target.value })} /></label>
+            <label className="av-field"><span className="av-label">{t("字段")}</span><SuggestInput className="av-input av-mono" suggestions={columns} value={d.column}
+              invalid={attempted && !d.column.trim()} describedBy={attempted && !d.column.trim() ? `${editorId}-dim-${i}-error` : undefined}
+              onChange={(v) => updateDim(i, { column: v })} /></label>
             <label className="av-field"><span className="av-label">{t("显示名（可选）")}</span><input className="av-input" value={d.label} onChange={(e) => updateDim(i, { label: e.target.value })} /></label>
             <button type="button" className="av-btn av-btn--ghost av-btn--icon" aria-label={t("移除维度 {{v1}}", { v1: i + 1 })} onClick={() => setDims(dims.filter((_, j) => j !== i))}><Icon name="close" small /></button>
           </div>

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { api, unwrap } from "../../api/client";
-import { Seg } from "../../components/ui";
+import { Seg, Select } from "../../components/ui";
 import { currentLanguage, t } from "../../i18n";
 
 type Mode = "none" | "hourly" | "daily" | "weekly" | "monthly" | "custom";
@@ -81,9 +81,14 @@ export function CronPicker({ value, onChange }: { value: string; onChange: (expr
   const expr = buildCron(s);
   const preview = useCronPreview(expr);
   const time = (
-    <label className="av-cron__field"><span>{t("时间")}</span>
-      <input type="time" className="av-input" value={`${pad(s.hour)}:${pad(s.minute)}`}
-        onChange={(e) => { const [h, m] = e.target.value.split(":").map(Number); if (!Number.isNaN(h)) set({ hour: h, minute: m || 0 }); }} /></label>
+    <div className="av-cron__field"><span>{t("时间")}</span>
+      <div className="av-cron__time">
+        <Select label={t("小时")} value={String(s.hour)} onChange={(v) => set({ hour: Number(v) })}>
+          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{pad(h)}</option>)}</Select>
+        <span aria-hidden="true">:</span>
+        <Select label={t("分钟")} value={String(s.minute)} onChange={(v) => set({ minute: Number(v) })}>
+          {Array.from({ length: 60 }, (_, m) => <option key={m} value={m}>{pad(m)}</option>)}</Select>
+      </div></div>
   );
   return (
     <div className="av-cron">
@@ -92,8 +97,8 @@ export function CronPicker({ value, onChange }: { value: string; onChange: (expr
         { value: "weekly", label: t("每周") }, { value: "monthly", label: t("每月") }, { value: "custom", label: t("自定义") }]} />
 
       {s.mode === "hourly" ? <label className="av-cron__field"><span>{t("第几分钟")}</span>
-        <select className="av-input" value={s.minute} onChange={(e) => set({ minute: Number(e.target.value) })}>
-          {Array.from({ length: 60 }, (_, m) => <option key={m} value={m}>{t("{{count}} 分", { count: m })}</option>)}</select></label> : null}
+        <Select label={t("第几分钟")} value={String(s.minute)} onChange={(v) => set({ minute: Number(v) })}>
+          {Array.from({ length: 60 }, (_, m) => <option key={m} value={m}>{t("{{count}} 分", { count: m })}</option>)}</Select></label> : null}
       {s.mode === "daily" ? time : null}
       {s.mode === "weekly" ? <>
         <div className="av-cron__field"><span>{t("星期")}</span>
@@ -108,8 +113,8 @@ export function CronPicker({ value, onChange }: { value: string; onChange: (expr
       </> : null}
       {s.mode === "monthly" ? <>
         <label className="av-cron__field"><span>{t("日期")}</span>
-          <select className="av-input" value={s.day} onChange={(e) => set({ day: Number(e.target.value) })}>
-            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{t("每月 {{count}} 日", { count: d })}</option>)}</select></label>
+          <Select label={t("日期")} value={String(s.day)} onChange={(v) => set({ day: Number(v) })}>
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{t("每月 {{count}} 日", { count: d })}</option>)}</Select></label>
         {time}
       </> : null}
       {s.mode === "custom" ? <label className="av-cron__field"><span>{t("cron 表达式")}</span>

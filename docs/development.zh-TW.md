@@ -75,6 +75,25 @@ pnpm gen:tokens     # 設計權杖變化後重新生成 tokens.css
 
 樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`。
 
+### 介面控制項
+
+帶彈出層的控制項一律用 `src/components/controls.tsx` 裡的元件（從 `components/ui` 匯入），不用瀏覽器原生控制項。原生彈出層由作業系統繪製，在深色玻璃介面裡會變成白底或系統風格；問數輸入框和變更記錄都出過這個問題。
+
+| 需要 | 用 | 不用 |
+|---|---|---|
+| 下拉選擇 | `Select`（子元素照常寫 `<option value>`，只當資料讀取） | `<select>` |
+| 日期 | `DateInput`（值是 `YYYY-MM-DD`） | `type="date"` 等日期時間輸入 |
+| 時間 | 兩個 `Select`（時、分） | `type="time"` |
+| 可自由輸入、帶候選 | `SuggestInput` | `<datalist>` / `list=` |
+| 二次確認 | `ConfirmDialog` | `confirm()` / `alert()` / `prompt()` |
+| 選項少、要一眼看全 | `Seg` / `Tabs` | — |
+
+這些浮層掛到 `body` 並依觸發器位置定位，面板的捲動和裁切不會遮住它們；鍵盤可操作（方向鍵、Enter、Esc、首字母跳轉）。自己寫的彈出選單若要判斷「點到外面」，要把 `.av-float-root` 裡的點擊算作裡面。
+
+文字輸入上自行處理方向鍵、Enter 等按鍵時，先跳過輸入法組字狀態（`e.nativeEvent.isComposing` 或 `keyCode === 229`），否則中文輸入法選字會被當成確認。
+
+`pnpm check:ui` 檢查原始碼裡沒有上表「不用」一欄的寫法，CI 裡同樣會跑。
+
 ## 示範環境
 
 只用於本地開發與驗收，所有埠只綁 `127.0.0.1`，資料全部是固定日期的合成電商資料：

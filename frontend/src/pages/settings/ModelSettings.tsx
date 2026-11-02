@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api, ApiError, unwrap, type Schemas } from "../../api/client";
 import { Hint, Icon } from "../../components/Icon";
-import { Banner, Drawer, Empty, QueryState, Select, Switch } from "../../components/ui";
+import { Banner, ConfirmDialog, Drawer, Empty, QueryState, Select, Switch } from "../../components/ui";
 import { formatTime } from "../../format";
 import { SettingsTabs, useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
@@ -161,6 +161,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
     },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
   });
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation({
     mutationFn: () => unwrap(api.DELETE("/api/model-providers/{provider_id}", { params: { path: { provider_id: provider.id } } })),
     onSuccess: onChanged,
@@ -208,11 +209,14 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
           <Switch label={t("启用提供方 {{name}}", { name: provider.name })} checked={provider.enabled} disabled={disabled}
             onChange={(v) => { if (!disabled) patch.mutate({ enabled: v }); }} />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("删除提供方 {{name}}", { name: provider.name })}
-            disabled={disabled} onClick={() => { if (!disabled && confirm(t("删除提供方 {{name}}？", { name: provider.name }))) remove.mutate(); }}>
+            disabled={disabled} onClick={() => { if (!disabled) setConfirmDelete(true); }}>
             <Icon name="trash" />
           </button>
         </div>
       </div>
+      {confirmDelete ? <ConfirmDialog title={t("删除提供方 {{name}}？", { name: provider.name })} danger confirm={t("删除")}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={async () => { await remove.mutateAsync(); setConfirmDelete(false); }} /> : null}
       <div className="av-stack">
         <ModelFeedback message={message} busy={patch.isPending || remove.isPending} />
         <form className="av-models__connection" aria-label={t("连接配置")} aria-busy={patch.isPending}

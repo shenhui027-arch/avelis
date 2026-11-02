@@ -34,8 +34,33 @@
 .av-label { font: 500 12px/16px var(--font-sans); color: var(--text-secondary); }
 .av-input, .av-select, .av-textarea { width: 100%; height: var(--size-control-md); padding: 0 10px; border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-primary); font: 400 13px/20px var(--font-sans); }
 .av-select { appearance: none; padding-right: 28px; }
-/* 下拉选项由浏览器原生绘制：玻璃底是半透明的，选项列表会退回白底，所以给选项实色底和正文色 */
-select option, select optgroup { background-color: var(--bg-base); color: var(--text-primary); }
+/* 下拉、日期等弹出层一律用 controls.tsx 的组件（浮层挂到 body、fixed 定位），不用浏览器原生弹出层 */
+.av-select--button { display: flex; align-items: center; text-align: left; cursor: pointer; }
+.av-select--button:disabled { opacity: .55; cursor: not-allowed; }
+.av-select__value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-select__placeholder { color: var(--text-tertiary); }
+.av-select--button[aria-invalid="true"] { border-color: var(--danger); }
+.av-menu.av-popover { position: fixed; top: auto; right: auto; z-index: 90; max-width: min(480px, calc(100vw - 16px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.av-listbox { gap: 1px; }
+.av-menu__item.av-listbox__item { flex: none; height: auto; min-height: 32px; padding: 6px var(--space-3) 6px var(--space-2); line-height: 18px; }
+.av-listbox__item.is-active { background: var(--bg-active); color: var(--text-primary); }
+.av-listbox__item[aria-selected="true"] { color: var(--text-primary); }
+.av-listbox__item[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.av-listbox__check { display: inline-flex; flex: none; width: 16px; color: var(--accent-text); }
+.av-listbox__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-menu.av-datepick { width: 280px; padding: var(--space-2); gap: var(--space-2); }
+.av-datepick__hd { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.av-datepick__title { color: var(--text-primary); font: 600 13px/20px var(--font-sans); }
+.av-datepick__next .av-icon { transform: scaleX(-1); }
+.av-datepick__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.av-datepick__wd { display: grid; place-items: center; height: 24px; color: var(--text-tertiary); font: 500 11px/16px var(--font-sans); }
+.av-datepick__day { height: 30px; min-width: 0; padding: 0; border: none; border-radius: var(--radius-sm); background: none; color: var(--text-secondary); font: 400 12px/1 var(--font-mono); cursor: pointer; }
+.av-datepick__day:hover { background: var(--bg-active); color: var(--text-primary); }
+.av-datepick__day:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.av-datepick__day.is-outside { color: var(--text-disabled, var(--text-tertiary)); opacity: .55; }
+.av-datepick__day.is-today { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.av-datepick__day[aria-pressed="true"] { background: var(--accent); color: #fff; opacity: 1; }
+.av-datepick__ft { display: flex; justify-content: space-between; border-top: 1px solid var(--line-subtle); padding-top: var(--space-2); }
 .av-select-wrap { position: relative; display: inline-flex; align-items: center; min-width: 0; }
 .av-select-wrap .av-icon { position: absolute; right: 8px; color: var(--text-tertiary); pointer-events: none; }
 .av-textarea { height: auto; padding: 6px 10px; resize: vertical; }

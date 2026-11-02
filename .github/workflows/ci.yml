@@ -74,6 +74,9 @@ jobs:
       - name: 界面语言检查（语言包完整性与三语渲染）
         working-directory: frontend
         run: pnpm check:i18n
+      - name: 界面控件检查（不用浏览器原生下拉、日期与对话框）
+        working-directory: frontend
+        run: pnpm check:ui
       - name: 前端测试（src 下的 *.test.mjs）
         working-directory: frontend
         run: pnpm test

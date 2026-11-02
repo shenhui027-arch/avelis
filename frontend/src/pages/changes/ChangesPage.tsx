@@ -6,7 +6,7 @@ import { api, unwrap } from "../../api/client";
 import {
   errorText, useAction, useAssets, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, Seg, Select, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
@@ -282,10 +282,10 @@ function ReviewPanel({ task }: { task: Task }) {
               </fieldset>
               {resolution === "new_version" ? (
                 <label className="av-field"><span className="av-label">{t("承接的口径")}</span>
-                  <select className="av-select" value={linked} onChange={(e) => setLinked(e.target.value)}>
+                  <Select label={t("承接的口径")} value={linked} onChange={setLinked}>
                     <option value="">{t("选择已发布的指标版本")}</option>
                     {published.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select></label>
+                  </Select></label>
               ) : null}
               <label className="av-field"><span className="av-label">{t("理由（必填）")}</span>
                 <textarea className="av-textarea" rows={3} value={note} disabled={!mine} onChange={(e) => setNote(e.target.value)} /></label>

@@ -167,14 +167,14 @@ function NewPath({ onClose, onCreated }: { onClose: () => void; onCreated: (path
           const detail = side === "left" ? left : right;
           return <fieldset key={side} className="av-join-side" disabled={create.isPending}><legend>{side === "left" ? t("左侧（明细侧）") : t("右侧（被关联）")}</legend>
             <label className="av-field" htmlFor={`join-${side}-asset`}><span className="av-label">{t("资产 *")}</span>
-              <select id={`join-${side}-asset`} className="av-select" required value={form[assetKey]} aria-invalid={submitted && !!errors[assetKey]} aria-describedby={submitted && errors[assetKey] ? `join-error-${assetKey}` : undefined} onChange={(e) => setForm({ ...form, [assetKey]: e.target.value, [columnsKey]: [] })}>
+              <Select id={`join-${side}-asset`} value={form[assetKey]} invalid={submitted && !!errors[assetKey]} describedBy={submitted && errors[assetKey] ? `join-error-${assetKey}` : undefined} onChange={(v) => setForm({ ...form, [assetKey]: v, [columnsKey]: [] })}>
                 <option value="">{t("选择资产")}</option>{options.map((a) => <option key={a.id} value={a.id}>{a.qualified}</option>)}
-              </select>{fieldError(assetKey)}</label>
+              </Select>{fieldError(assetKey)}</label>
             {form[assetKey] ? <QueryState query={detail}>{(asset) => <>
               <label className="av-field" htmlFor={`join-${side}-columns`}><span className="av-label">{t("关联字段 *（按对应顺序添加）")}</span>
-                <select id={`join-${side}-columns`} className="av-select av-mono" value="" aria-invalid={submitted && !!errors[columnsKey]} aria-describedby={submitted && errors[columnsKey] ? `join-error-${columnsKey}` : undefined} onChange={(e) => { if (e.target.value) setForm({ ...form, [columnsKey]: [...form[columnsKey], e.target.value] }); }}>
+                <Select id={`join-${side}-columns`} className="av-mono" value="" invalid={submitted && !!errors[columnsKey]} describedBy={submitted && errors[columnsKey] ? `join-error-${columnsKey}` : undefined} onChange={(v) => { if (v) setForm({ ...form, [columnsKey]: [...form[columnsKey], v] }); }}>
                   <option value="">{t("选择字段")}</option>{asset.columns.filter((c) => !form[columnsKey].includes(c.name)).map((c) => <option key={c.name} value={c.name}>{c.name} · {c.data_type}</option>)}
-                </select>{fieldError(columnsKey)}</label>
+                </Select>{fieldError(columnsKey)}</label>
               <div className="av-join-column-list">{form[columnsKey].map((name, i) => <button type="button" key={name} className="av-btn av-btn--secondary av-btn--sm av-mono" aria-label={t("移除{{v1}}侧字段 {{name}}", { v1: side === "left" ? t("左") : t("右"), name })} onClick={() => setForm({ ...form, [columnsKey]: form[columnsKey].filter((c) => c !== name) })}>{i + 1}. {name}<Icon name="close" small /></button>)}</div>
               <span className="av-caption">{t("粒度：")}{asset.grains.map((g) => g.columns.join(", ")).join(" / ") || t("未知")}</span>
             </>}</QueryState> : fieldError(columnsKey)}
