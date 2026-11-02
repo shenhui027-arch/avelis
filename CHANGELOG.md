@@ -6,6 +6,7 @@
 
 ### 新增
 
+- MCP 服务（ADR 0019）：外部 AI 工具（Claude、Cursor 等）可通过 `/mcp` 使用受治理的口径与血缘，工具为 `search_metrics`、`get_metric`、`ask_metric`（结构化问数，不接受 SQL）、`lineage_neighbors`、`list_changes`。鉴权为 Avelis 内置 OAuth 2.1（授权码 + PKCE S256、资源绑定、可吊销），首次连接在 Avelis 里登录并确认授权；“设置 → MCP 接入”可查看连接地址、撤销授权，管理员可禁用客户端。每次调用记审计。默认关闭，`AVELIS_MCP_ENABLED=true` 开启。
 - 口径语义提示 `ai_context`：口径详情页“模型提示”可写适用说明、同义词、示例问法，问数与分析检索时一起匹配，拿不准时按适用说明澄清；修改不生成新版本、写审计，不进入 SQL 与依赖指纹（ADR 0017 §3）。
 
 ## [1.0.1] - 2026-11-02
