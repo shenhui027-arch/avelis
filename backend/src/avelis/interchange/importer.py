@@ -27,7 +27,7 @@ from avelis.governance.joins import effectively_approved
 from avelis.i18n import gettext
 from avelis.models import Asset, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
-from .expressions import equivalent_expressions, fold_filters, physical_column_name
+from .expressions import equivalent_expressions, expand_derived_formula, fold_filters, physical_column_name
 from .validation import (
     _matching,
     iter_expression_dialects,
@@ -434,6 +434,61 @@ def _pins(
     return pinned, warnings
 
 
+def _check_derived_expression(
+    session: Session,
+    actor: User,
+    item: dict[str, Any],
+    datasets: dict[str, dict[str, Any]],
+    paths: dict[str, JoinPath],
+    formula: str,
+    versions: list[dict[str, Any]],
+) -> None:
+    # Export self-checks call _plan too, so import the shared semantic guard lazily.
+    from .exporter import _check_core_semantics
+
+    try:
+        components = [(entry["metric"], entry["version"]) for entry in versions]
+        _check_core_semantics(
+            MetricVersion(kind="derived", expression=formula), components=components, expression_path=""
+        )
+        replacements = {}
+        aliases = {}
+        target = ""
+        base = None
+        for metric, version in components:
+            resolved, steps = metrics.resolve_joins(session, version)
+            if (
+                any(not access.can_read_asset(session, actor, asset) for asset in resolved.values())
+                or any(
+                    not effectively_approved(session, step["path"])
+                    or step["path"].id not in {path.id for path in paths.values()}
+                    for step in steps
+                )
+                or any(not any(d["asset"].id == asset.id for d in datasets.values()) for asset in resolved.values())
+            ):
+                raise ValueError(gettext("组成口径的资产或关联不可访问、未批准或未在文档中声明"))
+            base = next(name for name, data in datasets.items() if data["asset"].id == version.base_asset_id)
+            target = datasets[base]["dialect"]
+            aliases = {
+                name: alias
+                for name, data in datasets.items()
+                for alias, asset in resolved.items()
+                if data["asset"].id == asset.id
+            }
+            replacements[metric.code] = _check_core_semantics(
+                version, aliases=resolved, steps=steps, dialect=target, expression_path=""
+            )
+        text, read, _ = _choose(item, target)
+        if read is None:
+            raise ValueError(gettext("派生口径核心表达式没有可匹配的可解析方言"))
+        expression = _mapped_expression(text, read, target, base, datasets, aliases)
+        expanded = expand_derived_formula(formula, replacements, target)
+    except (GovernanceError, SqlglotError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(gettext("无法按本环境锁定的组成口径展开派生公式：{reason}", reason=str(exc))) from exc
+    if not equivalent_expressions(expanded, expression, target):
+        raise ValueError(gettext("核心表达式与扩展中的派生公式不一致，需人工处理"))
+
+
 def _plan(
     session: Session,
     actor: User,
@@ -469,6 +524,7 @@ def _plan(
             {"metric": session.get(Metric, c["metric_id"]), "version": session.get(MetricVersion, c["version_id"])}
             for c in pins
         ]
+        _check_derived_expression(session, actor, item, datasets, paths, formula, versions)
         spec["dimensions"] = metrics._shared_dimensions(versions)
         aliases = {}
     else:

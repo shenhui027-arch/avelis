@@ -1,4 +1,4 @@
-"""Keep fixed metric filters executable in consumers without Avelis extensions."""
+"""Keep metric semantics executable in consumers without Avelis extensions."""
 
 from __future__ import annotations
 
@@ -33,6 +33,23 @@ def _parse(text: str, dialect: str) -> exp.Expression:
     if len(statements) != 1 or not isinstance(statements[0], exp.Condition):
         raise ValueError("Expected one SQL expression")
     return statements[0]
+
+
+def expand_derived_formula(formula: str, replacements: dict[str, str], dialect: str) -> str:
+    """Apply derived division rules before inlining executable component subtrees."""
+    node = _parse(formula, dialect)
+    # Rewrite innermost divisions first so outer copies retain those protections.
+    for division in reversed(list(node.find_all(exp.Div))):
+        division.set("this", exp.Paren(this=exp.Mul(this=division.this.copy(), expression=exp.Literal.number("1.0"))))
+        division.set("expression", exp.Nullif(this=division.expression.copy(), expression=exp.Literal.number(0)))
+    components = {code: _parse(text, dialect) for code, text in replacements.items()}
+    return node.transform(
+        lambda part: (
+            exp.Paren(this=components[part.name].copy())
+            if isinstance(part, exp.Column) and not part.table and part.name in components
+            else part
+        )
+    ).sql(dialect=dialect, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
 def fold_filters(expression: str, filters: str | None, dialect: str) -> str:

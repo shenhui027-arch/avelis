@@ -151,6 +151,7 @@ def test_retained_logical_field_cannot_hide_a_deleted_physical_column(catalogue,
         path = approved_path(catalogue)
         path.left_columns = ["value_b"]
         version.joins = [{"join_path_id": "path", "alias": "r"}]
+        version.dimensions = [{"name": "band", "column": "r.band_id"}]
     catalogue.session.delete(
         catalogue.session.scalar(
             select(ColumnVersion).where(ColumnVersion.asset_version_id == "records-v1", ColumnVersion.name == "value_b")
@@ -295,6 +296,7 @@ def test_export_rejects_deleted_column_when_still_used(catalogue, usage):
         path = approved_path(catalogue)
         path.left_columns = ["value_b"]
         version.joins = [{"join_path_id": "path", "alias": "r"}]
+        version.dimensions = [{"name": "band", "column": "r.band_id"}]
     session.delete(
         session.scalar(
             select(ColumnVersion).where(ColumnVersion.asset_version_id == "records-v1", ColumnVersion.name == "value_b")

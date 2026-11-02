@@ -25,7 +25,7 @@ from avelis.i18n import Msg, gettext
 from avelis.models import Asset, ColumnVersion, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
 from .constants import OSSIE_SPEC_COMMIT, OSSIE_SPEC_VERSION
-from .expressions import fold_filters, physical_column_name
+from .expressions import expand_derived_formula, fold_filters, physical_column_name
 from .importer import _catalog, _plan
 from .validation import (
     _matching,
@@ -259,6 +259,26 @@ def _check_core_semantics(
         )
     if aliases is not None and len({asset.id for asset in aliases.values()}) != len(aliases):
         raise GovernanceError(gettext("口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"))
+    if steps:
+        referenced = {"b"}
+        for text in [
+            version.expression,
+            version.filters,
+            version.time_column,
+            *(dimension.get("column") for dimension in version.dimensions or []),
+        ]:
+            if not text:
+                continue
+            node = sqlglot.parse_one(text, read=dialect)
+            for column in node.find_all(exp.Column) if node is not None else []:
+                if column.table and (alias := _matching(column.args["table"], set(aliases or {}))) is not None:
+                    referenced.add(alias)
+        # A referenced target needs every preceding relationship on its path.
+        for step in reversed(steps):
+            if step["alias"] in referenced:
+                referenced.add(step["from"])
+        if any(step["alias"] not in referenced for step in steps):
+            raise GovernanceError(gettext("关联仅用于过滤行，Ossie 核心模型无法表达必须内连接的语义"))
     if version.filters and (version.dimensions or version.time_column):
         raise GovernanceError(
             gettext("固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组")
@@ -281,28 +301,12 @@ def _expand_derived(
     dialect = _dialect(session, session.get(Asset, components[0][1].base_asset_id))
     try:
         replacement = {
-            metric.code: sqlglot.parse_one(
-                _expression(core_expressions[component.id], dialect, aliases_by_version[component.id], column_fields),
-                read=dialect,
+            metric.code: _expression(
+                core_expressions[component.id], dialect, aliases_by_version[component.id], column_fields
             )
             for metric, component in components
         }
-        formula = sqlglot.parse_one(version.expression, read=dialect)
-        formula = formula.transform(
-            lambda node: (
-                exp.Paren(this=replacement[node.name].copy())
-                if isinstance(node, exp.Column) and not node.table and node.name in replacement
-                else node
-            )
-        )
-        # Avelis derived evaluation yields NULL on division by zero.
-        for division in formula.find_all(exp.Div):
-            # Decimal literal prevents integer division for integral aggregate values.
-            division.set(
-                "this", exp.Paren(this=exp.Mul(this=division.this.copy(), expression=exp.Literal.number("1.0")))
-            )
-            division.set("expression", exp.Nullif(this=division.expression.copy(), expression=exp.Literal.number(0)))
-        return dialect, formula.sql(dialect=dialect)
+        return dialect, expand_derived_formula(version.expression, replacement, dialect)
     except (SqlglotError, GovernanceError, KeyError, ValueError) as exc:
         raise GovernanceError(gettext("派生口径公式无法在 Ossie 核心模型中等价表达")) from exc
 

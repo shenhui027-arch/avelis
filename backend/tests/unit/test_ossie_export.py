@@ -395,6 +395,7 @@ def test_export_requires_actual_join_approvals_and_preserves_relationship_metada
     )
     session.add(path)
     version.joins = [{"join_path_id": "path", "alias": "band_ref"}]
+    version.expression = "SUM(b.value_a + band_ref.value_b)"
     session.flush()
     no_export(catalogue)
     session.add(JoinPathApproval(join_path_id="path", domain_id="domain", user_id="actor", decision="approved"))
@@ -613,6 +614,7 @@ def test_export_preserves_relationship_extensions_for_logical_join_fields(catalo
     _, version = metric(catalogue)
     approved_path(catalogue)
     version.joins = [{"join_path_id": "path", "alias": "r"}]
+    version.expression = "SUM(b.value_a + r.value_b)"
     relationship = {
         "name": "imported_relation",
         "from": "records",

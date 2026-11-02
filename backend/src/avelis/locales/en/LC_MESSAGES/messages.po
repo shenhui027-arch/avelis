@@ -2175,3 +2175,20 @@ msgstr "Cannot infer the metric's base dataset; the following datasets are unrea
 
 msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
 msgstr "Relationship {relationship} matches multiple approved join paths; selected {selected} (candidates: {candidates})"
+
+#: src/avelis/interchange/exporter.py
+msgid "关联仅用于过滤行，Ossie 核心模型无法表达必须内连接的语义"
+msgstr "The join only filters rows; the Ossie core model cannot express a mandatory inner join"
+
+#: src/avelis/interchange/importer.py
+msgid "组成口径的资产或关联不可访问、未批准或未在文档中声明"
+msgstr "A component metric's assets or joins are inaccessible, unapproved or not declared in the document"
+
+msgid "派生口径核心表达式没有可匹配的可解析方言"
+msgstr "The derived metric's core expression has no matching parseable dialect"
+
+msgid "无法按本环境锁定的组成口径展开派生公式：{reason}"
+msgstr "Cannot expand the derived formula using the component metrics pinned in this environment: {reason}"
+
+msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
+msgstr "The core expression differs from the derived formula in the extension; manual resolution is required"

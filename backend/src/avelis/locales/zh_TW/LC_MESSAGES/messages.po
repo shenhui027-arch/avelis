@@ -2180,3 +2180,20 @@ msgstr "無法推斷指標的基礎資料集，以下資料集沿關聯方向無
 
 msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
 msgstr "關聯 {relationship} 符合多條已核准的關聯路徑，已選擇 {selected}（候選：{candidates}）"
+
+#: src/avelis/interchange/exporter.py
+msgid "关联仅用于过滤行，Ossie 核心模型无法表达必须内连接的语义"
+msgstr "關聯僅用於篩選資料列，Ossie 核心模型無法表達必須內部聯結的語意"
+
+#: src/avelis/interchange/importer.py
+msgid "组成口径的资产或关联不可访问、未批准或未在文档中声明"
+msgstr "組成口徑的資產或關聯無法存取、未核准或未在文件中宣告"
+
+msgid "派生口径核心表达式没有可匹配的可解析方言"
+msgstr "衍生口徑的核心運算式沒有相符且可解析的方言"
+
+msgid "无法按本环境锁定的组成口径展开派生公式：{reason}"
+msgstr "無法依本環境鎖定的組成口徑展開衍生公式：{reason}"
+
+msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
+msgstr "核心運算式與擴充內容中的衍生公式不一致，需人工處理"

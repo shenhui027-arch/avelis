@@ -860,6 +860,10 @@ def test_derived_import_locks_local_current_version_instead_of_source_number(cat
     model = derived_document(
         {"metric_code": "metric_a", "version_no": source_number, "expression": original.expression}
     )
+    detail = rejected(catalog, model)
+    assert all(error["layer"] == "catalog" for error in detail["errors"])
+    assert any("核心表达式与扩展中的派生公式不一致" in error["reason"] for error in detail["errors"])
+    model["metrics"][0]["expression"]["dialects"][0]["expression"] = "(SUM(records.value_a) * 3) * 2"
     expected = "组成口径 metric_a 在本环境的版本与导出方不同，已按本环境当前版本锁定"
     dry = import_model(catalog.session, catalog.actor, model, "visible")
     applied = import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)
@@ -1277,7 +1281,7 @@ def test_exported_relationship_name_selects_same_approved_path_on_reimport(catal
             timezone="UTC",
             time_column="b.observed_on",
             joins=[{"relationship": "z_approved", "alias": "r", "from": "b"}],
-            dimensions=[],
+            dimensions=[{"name": "group_a", "column": "r.group_a"}],
         )
     ]
     assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
