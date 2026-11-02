@@ -175,6 +175,25 @@ class _SecretValueReader:
                 return end
         return None
 
+    def shell_value_end(self, start: int) -> int:
+        """CLI 值读取一个 shell 词；引号内可跨行，单引号内的反斜杠是普通字符。"""
+        cursor = start
+        quote = ""
+        while cursor < self.length:
+            char = self.text[cursor]
+            if char == "\\" and quote != "'":
+                cursor = min(cursor + 2, self.length)
+                continue
+            if quote:
+                if char == quote:
+                    quote = ""
+            elif char in "\"'":
+                quote = char
+            elif char.isspace() or char in ";|&()<>":
+                break
+            cursor += 1
+        return cursor
+
     def value_end(self, start: int, indent: int, *, shell_quotes: bool = False) -> int:
         cursor = start
         if self.text[start] in ">|" and (end := self.yaml_end(start, indent)) is not None:
@@ -431,14 +450,16 @@ def redact(text: str) -> tuple[str, int]:
                         pending_indent = indent
                     else:
                         value_start = start + position
-                        separator_group = "cli_separator" if match["cli"] else "assignment_separator"
-                        separator = match.start(separator_group)
-                        shell_quotes = (
-                            match[separator_group] == "="
-                            and match.end() == separator + 1
-                            and line[separator - 1] not in _INLINE_SPACE
-                        )
-                        closing = reader.value_end(value_start, indent, shell_quotes=shell_quotes)
+                        if match["cli"]:
+                            closing = reader.shell_value_end(value_start)
+                        else:
+                            separator = match.start("assignment_separator")
+                            shell_quotes = (
+                                match["assignment_separator"] == "="
+                                and match.end() == separator + 1
+                                and line[separator - 1] not in _INLINE_SPACE
+                            )
+                            closing = reader.value_end(value_start, indent, shell_quotes=shell_quotes)
                         if closing > value_start:
                             quote = reader.quote(value_start)
                             cover(value_start, closing, quote + "<redacted>" + quote)

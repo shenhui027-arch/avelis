@@ -291,9 +291,83 @@ def test_compact_assignments_with_unclosed_inner_quotes_mask_to_end(newline: str
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("flag", ["--password", "--api-key"])
+@pytest.mark.parametrize("separator", [" ", "\t", "=", " = ", "\t=\t"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+@pytest.mark.parametrize("tail", ["", "suffix"])
+def test_cli_inner_quotes_mask_complete_multiline_values(newline, flag, separator, quote, tail):
+    prefix = f"client {flag}{separator}"
+    source = f"{prefix}foo{quote}bar{newline}SYNTH-tail{quote}{tail}; echo public{newline}echo next"
+    assert_redacted(source, f"{prefix}<redacted>; echo public{newline}echo next")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("flag", ["--password", "--api-key"])
+@pytest.mark.parametrize("separator", [" ", "\t", "=", " = ", "\t=\t"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_cli_unclosed_inner_quotes_mask_to_end(newline, flag, separator, quote):
+    prefix = f"client {flag}{separator}"
+    assert_redacted(f"{prefix}foo{quote}bar{newline}SYNTH-tail; echo public", f"{prefix}<redacted>")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("separator", [" ", "\t", "=", " = "])
+@pytest.mark.parametrize("boundary", [" ", "\t", "\n", ";", "|", "&", ")", "(", "<", ">"])
+def test_cli_shell_word_boundaries_preserve_following_text(newline, separator, boundary):
+    prefix = f"client --api-key{separator}"
+    suffix = f'{boundary}"public"; echo public\necho next'.replace("\n", newline)
+    source = f"{prefix}foo'bar{newline}SYNTH-tail'" + suffix
+    assert_redacted(source, f"{prefix}<redacted>" + suffix)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("flag", ["--password", "--api-key"])
+@pytest.mark.parametrize("space", ["", " ", "\t"])
+def test_bare_cli_flags_do_not_consume_the_next_line(newline, flag, space):
+    source = f"client {flag}{space}{newline}echo public"
+    assert_redacted(source, source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "foo'bar\nSYNTH-tail'",
+        'foo"bar\nSYNTH-tail"',
+        "foo'bar\\'tail",
+        'foo"bar\\"\nSYNTH-tail"',
+        "foo\\;bar'\nSYNTH-tail'",
+        "foo,bar'\nSYNTH-tail'",
+    ],
+)
+def test_cli_shell_quotes_and_escapes_preserve_later_commands(newline, value):
+    source = f"client --password {value}; echo public\necho next".replace("\n", newline)
+    assert_redacted(source, f"client --password <redacted>; echo public{newline}echo next")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("kind", ["repeated-quotes", "unclosed-quote", "repeated-values"])
+def test_cli_shell_values_finish_quickly(newline, kind):
+    if kind == "repeated-quotes":
+        source = "client --password " + "a'a'" * 20000 + f"; echo public{newline}echo next"
+        expected, count = f"client --password <redacted>; echo public{newline}echo next", 1
+    elif kind == "unclosed-quote":
+        source = "client --password foo'" + f"SYNTH{newline}" * 20000
+        expected, count = "client --password <redacted>", 1
+    else:
+        source = f"client --password foo'first{newline}SYNTH'; echo public{newline}" * 2000
+        expected = f"client --password <redacted>; echo public{newline}" * 2000
+        count = 2000
+    actual, elapsed = _timed_redact(source)
+    assert elapsed < 0.5, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
+    assert actual == (expected, count)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize(
     "prefix",
-    ["# password: ", "password:", "password = ", "password= ", "password =", "password\t=\t", "--password = "],
+    ["# password: ", "password:", "password = ", "password= ", "password =", "password\t=\t"],
 )
 def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline: str, prefix: str) -> None:
     assert_redacted(f"{prefix}user's choice{newline}import os", f"{prefix}<redacted>{newline}import os")
