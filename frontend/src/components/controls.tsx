@@ -29,7 +29,7 @@ function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, float
     if (!open) { setPlace(null); return; }
     const update = (e?: Event) => {
       // 浮层自己的列表滚动不影响位置；位置没变时保留原对象，避免依赖 place 的效果反复把列表滚回选中项
-      if (e && floating.current?.contains(e.target as Node)) return;
+      if (e?.type === "scroll" && e.target instanceof Node && floating.current?.contains(e.target)) return;
       const r = anchor.current?.getBoundingClientRect();
       if (!r) return;
       const below = window.innerHeight - r.bottom - GAP * 2;
@@ -314,14 +314,30 @@ export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCance
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  const cancel = useRef(onCancel);
+  cancel.current = onCancel;
+  // 首次渲染时记下触发者：autoFocus 在 effect 之前就把焦点移进了对话框
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  // 模态：Tab 只在对话框内循环，Esc 取消，关闭后焦点回到打开它的按钮（与 Drawer 一致）
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [onCancel]);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { cancel.current(); return; }
+      if (e.key !== "Tab") return;
+      const items = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ?? [])
+        .filter((el) => !el.hasAttribute("disabled"));
+      if (!items.length) { e.preventDefault(); return; }
+      const first = items[0], last = items[items.length - 1];
+      const inside = dialog.current?.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
+  }, [opener]);
   return createPortal(
     <div className="av-root av-dialog__scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
+      <div ref={dialog} className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         {body ? <p>{body}</p> : null}
         {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
