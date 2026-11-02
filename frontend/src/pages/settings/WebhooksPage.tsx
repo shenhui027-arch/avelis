@@ -93,7 +93,9 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
   const [offset, setOffset] = useState(0);
   const [confirm, setConfirm] = useState<"delete" | "rotate" | null>(null);
   const PAGE = 50;
+  // 投递由 worker 异步完成：有待投递条目时每 5 秒刷新，否则每 30 秒，页面开着就能看到结果和新事件
   const outbox = useQuery({ queryKey: ["event-outbox", sub.id, status, offset],
+    refetchInterval: (query) => (query.state.data?.items.some((d) => d.status === "pending") ? 5_000 : 30_000),
     queryFn: () => unwrap(api.GET("/api/event-outbox", { params: { query: {
       subscription_id: sub.id, ...(status ? { status: status as "pending" | "delivered" | "dead" } : {}), limit: PAGE, offset } } })) });
   const toggle = useAction((enabled: boolean) => unwrap(api.PATCH("/api/webhook-subscriptions/{subscription_id}",
