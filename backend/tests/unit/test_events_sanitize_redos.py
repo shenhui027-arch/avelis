@@ -102,3 +102,16 @@ def test_sanitize_adversarial_text_has_bounded_linear_runtime(text):
             assert result == {"message": value[:2000]}
     assert max(short_times + long_times) < 0.05
     assert median(long_times) / max(median(short_times), 0.010) <= 4.0
+
+
+def test_sanitize_keeps_short_identifier_keys_but_drops_secret_values():
+    detail = {
+        "token_id": "tok-123",
+        "client_id": "client-a",
+        "grant_id": 7,
+        "token": "raw-access-token",
+        "api_key": "k",
+        "secret_id": "Bearer abc",
+        "credential_id": "x" * 200,
+    }
+    assert sanitize_detail(detail) == {"token_id": "tok-123", "client_id": "client-a", "grant_id": 7}

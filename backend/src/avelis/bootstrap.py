@@ -290,12 +290,16 @@ def main(argv: list[str]) -> None:
                 print("已按 .env 登记模型提供方（密钥加密存储，未打印）")
         elif cmd == "openapi":
             import json
+            from dataclasses import replace
             from pathlib import Path
 
             from avelis.api.app import create_app
 
             target = Path(argv[1])
-            spec = json.dumps(create_app().openapi(), ensure_ascii=False, indent=1)
+            # 离线契约包含可选模块，避免默认关闭 MCP 时删除前端管理页面所需类型。
+            # 只覆盖本次导出的工厂参数，不改变运行配置，也不启动子应用 lifespan。
+            schema_settings = replace(get_settings(), mcp_enabled=True, public_url="https://avelis.invalid")
+            spec = json.dumps(create_app(settings=schema_settings).openapi(), ensure_ascii=False, indent=1)
             target.write_text(spec + chr(10), encoding="utf-8")
             print(f"已导出 {target}")
         elif cmd == "model":

@@ -1986,6 +1986,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/oauth/consent/{ticket}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consent */
+        get: operations["consent_api_oauth_consent__ticket__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/consent/{ticket}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_api_oauth_consent__ticket__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/consent/{ticket}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deny */
+        post: operations["deny_api_oauth_consent__ticket__deny_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/authorizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Authorizations */
+        get: operations["authorizations_api_oauth_authorizations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/authorizations/{authorization_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Authorization */
+        delete: operations["revoke_authorization_api_oauth_authorizations__authorization_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clients */
+        get: operations["clients_api_oauth_clients_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/oauth/clients/{client_record_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Client */
+        post: operations["disable_client_api_oauth_clients__client_record_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2761,6 +2880,28 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AuthorizationOut */
+        AuthorizationOut: {
+            /** Id */
+            id: string;
+            /** Client Id */
+            client_id: string;
+            /** Client Name */
+            client_name: string;
+            /** Source */
+            source: string;
+            /** Scopes */
+            scopes: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+        };
         /** Body_login_api_auth_token_post */
         Body_login_api_auth_token_post: {
             /** Grant Type */
@@ -3036,6 +3177,30 @@ export interface components {
             /** Checked At */
             checked_at?: string | null;
         };
+        /** ClientOut */
+        ClientOut: {
+            /** Id */
+            id: string;
+            /** Client Id */
+            client_id: string;
+            /** Client Name */
+            client_name: string;
+            /** Source */
+            source: string;
+            /** Scopes */
+            scopes: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Disabled At */
+            disabled_at: string | null;
+            /** Authorization Count */
+            authorization_count: number;
+        };
         /** CollectOut */
         CollectOut: {
             /** Id */
@@ -3214,6 +3379,35 @@ export interface components {
             note?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** ConsentDomainOut */
+        ConsentDomainOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+        };
+        /** ConsentOut */
+        ConsentOut: {
+            /** Client Name */
+            client_name: string;
+            /** Client Id */
+            client_id: string;
+            /** Source */
+            source: string;
+            /** Scopes */
+            scopes: components["schemas"]["ConsentScopeOut"][];
+            /** Domains */
+            domains: components["schemas"]["ConsentDomainOut"][];
+        };
+        /** ConsentScopeOut */
+        ConsentScopeOut: {
+            /** Scope */
+            scope: string;
+            /** Description */
+            description: string;
         };
         /** ConversationPatch */
         ConversationPatch: {
@@ -4492,6 +4686,11 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** OkOut */
+        OkOut: {
+            /** Ok */
+            ok: boolean;
+        };
         /** OutboxOut */
         OutboxOut: {
             /** Id */
@@ -4720,6 +4919,11 @@ export interface components {
              * @description 继续已有会话（含回答追问）；为空则新建会话
              */
             thread_id?: string | null;
+        };
+        /** RedirectOut */
+        RedirectOut: {
+            /** Redirect To */
+            redirect_to: string;
         };
         /** Resolve */
         Resolve: {
@@ -9327,6 +9531,201 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkbenchOut"];
+                };
+            };
+        };
+    };
+    consent_api_oauth_consent__ticket__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_api_oauth_consent__ticket__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedirectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deny_api_oauth_consent__ticket__deny_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedirectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorizations_api_oauth_authorizations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorizationOut"][];
+                };
+            };
+        };
+    };
+    revoke_authorization_api_oauth_authorizations__authorization_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                authorization_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clients_api_oauth_clients_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOut"][];
+                };
+            };
+        };
+    };
+    disable_client_api_oauth_clients__client_record_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

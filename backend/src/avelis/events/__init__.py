@@ -109,6 +109,15 @@ _PRIVATE_KEY = re.compile(
     r"^(?:sql|sql_text|statement|statement_text|query|query_text|rows?|records?|raw_text|expression)$",
     re.I,
 )
+
+
+def _identifier(key: str, value: Any) -> bool:
+    """token_id 之类是记录的内部标识，不是机密本身；只放行短的字符串或整数值。"""
+    return key.lower().endswith("_id") and (
+        (type(value) is int) or (isinstance(value, str) and len(value) <= 128 and not _PRIVATE_TEXT.search(value))
+    )
+
+
 # URL 固定第一个冒号，避免两个可匹配冒号的量词重叠；/ 和空白隔开各起点。
 _PRIVATE_TEXT = re.compile(
     r"\b(?:insert\s+into|delete\s+from|"
@@ -143,7 +152,11 @@ def sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
                 str(k): clean(v, depth + 1)
                 for k, v in value.items()
                 if k != "_governance"
-                and (not _PRIVATE_KEY.search(str(k)) or (str(k) in {"rows", "records"} and type(v) is int and v >= 0))
+                and (
+                    not _PRIVATE_KEY.search(str(k))
+                    or (str(k) in {"rows", "records"} and type(v) is int and v >= 0)
+                    or _identifier(str(k), v)
+                )
             }
         if isinstance(value, (list, tuple)):
             return [clean(v, depth + 1) for v in value[:200]]

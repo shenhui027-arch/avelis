@@ -96,11 +96,39 @@ Redis 協議服務（Redis、Valkey 均可）。優先順序：`url` → 分項�
 | `host` | `AVELIS_HOST` | `127.0.0.1`（映像內 `0.0.0.0`） | 監聽地址 |
 | `port` | `AVELIS_PORT` | `8000` | 監聽埠（Docker 對外埠在 Compose 裡設定） |
 | `workers` | `AVELIS_WORKERS` | `1` | 程序數（uvicorn workers） |
-| `public_url` | `AVELIS_PUBLIC_URL` | 空 | 對外存取地址，如 `http://10.0.0.5:8080`；用於啟動日誌並加入跨域白名單 |
+| `public_url` | `AVELIS_PUBLIC_URL` | 空（啟用 MCP 時**必填**） | 對外存取地址，如 `http://10.0.0.5:8080`；用於啟動日誌並加入跨域白名單；啟用 MCP 時同時作為 OAuth issuer，詳見下節 |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | 空（映像內 `/app/frontend/dist`） | 建置好的前端目錄；設定後同一埠託管前端，SPA 路由回退到 `index.html`。相對路徑按儲存庫根目錄解析 |
 | `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | 信任哪些代理傳來的 `X-Forwarded-For`（逗號分隔，`*` 為全部） |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`、`http://localhost:5173` | 跨域白名單（設定檔裡寫陣列，環境變數逗號分隔）；同一埠存取時不需要 |
+
+### MCP 服務 `[mcp]`
+
+MCP 與 Avelis 後端在同一程序執行，預設關閉。關閉時 `/mcp`、OAuth 協定端點與 `/api/oauth/*` 管理介面均回傳 404，即使設定了前端 SPA 託管也不會回退到前端頁面。
+
+| 設定檔 | 環境變數 | 預設值 | 說明 |
+|---|---|---|---|
+| `enabled` | `AVELIS_MCP_ENABLED` | `false` | 啟用 MCP 服務與內建 OAuth 授權伺服器 |
+| `access_token_seconds` | `AVELIS_MCP_ACCESS_TOKEN_SECONDS` | `900` | OAuth 存取權杖有效期，秒（15 分鐘），須為正整數 |
+| `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth 更新權杖有效期，秒（30 天），須為正整數；每次更新輪替權杖 |
+| `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD 用戶端中繼資料快取有效期，秒；到期後重新擷取，須為正整數 |
+| `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | 本機開發 CIMD 地址的精確允許清單（設定檔裡寫陣列，環境變數逗號分隔）；只接受完整的 `http(s)://127.0.0.1:PORT/path`，不允許任意私網地址或萬用字元 |
+
+啟用前須設定 `[server] public_url`（`AVELIS_PUBLIC_URL`）為用戶端實際存取的 HTTP(S) 基礎地址，不能含帳密、查詢參數或片段。OAuth `issuer` 使用該地址的精確字串，資源 URI 為該字串直接串接 `/mcp`，不移除結尾斜線；用戶端在授權、兌換授權碼與更新權杖時提交的 `resource` 必須與資源 URI 完全一致。正式環境應使用 HTTPS，並確保反向代理保留這些公開路徑。
+
+正式環境必須使用 HTTPS；`public_url` 須對應用戶端存取的外部 URL，反向代理還須正確傳遞請求通訊協定（scheme）與轉送標頭，並依 `[server] forwarded_allow_ips` 設定受信任的代理地址。本機 HTTP 開發或測試若遇到 Authlib 拒絕不安全傳輸，須明確設定 `AUTHLIB_INSECURE_TRANSPORT=1`。這是 Authlib 的標準環境變數，僅用於本機開發與測試，不是 `AVELIS_*` 設定項；服務不會無條件關閉該安全檢查。
+
+啟用後提供以下路徑：
+
+- `/mcp`：無狀態 Streamable HTTP，要求 `Mcp-Protocol-Version: 2026-07-28`。
+- `/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource/mcp`：授權伺服器與受保護資源中繼資料。
+- `/oauth/authorize`、`/oauth/token`、`/oauth/revoke`、`/oauth/register`：授權、兌換授權碼與更新權杖、權杖撤銷，以及相容舊用戶端的動態註冊。
+- `/api/oauth/consent/{ticket}` 及其 `/approve`、`/deny`：使用現有 Avelis Bearer 登入權杖讀取並確認授權；`/oauth/authorize` 將用戶端請求轉到前端 `/oauth/consent?ticket=…`，確認票據有效期為 5 分鐘且只能使用一次。
+- `/api/oauth/authorizations`、`/api/oauth/authorizations/{id}`：檢視、撤銷目前使用者自己的授權；`/api/oauth/clients`、`/api/oauth/clients/{id}/revoke`：管理員檢視、停用用戶端。
+
+CIMD 預設只擷取 HTTPS 文件，所有解析地址都須為公網地址，並固定連線到已檢查的 IP；總逾時 3 秒，文件上限 5 KiB，拒絕重新導向、壓縮與代理。`cimd_allowed_urls` 只為列出的本機開發地址放行 HTTP 與回環地址，不放寬其他擷取限制。授權碼、確認票據與權杖在資料庫中只儲存雜湊；授權撤銷、用戶端停用或偵測到授權碼／更新權杖重放後，相應權杖失效。
+
+MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權的 `metrics:read`、`lineage:read`、`ask:execute` 範圍約束。`ask_metric` 複用頁面問數的編譯器、查詢逾時與行數上限，預設最多回傳 200 行；遵循現有資料外送設定（`[model] send_results` / `AVELIS_MODEL_SEND_RESULTS`），關閉時只回傳口徑定義與編譯後的查詢說明，不回傳資料行。
 
 ### 初始化 `[bootstrap]`
 

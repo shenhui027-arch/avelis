@@ -6832,6 +6832,301 @@
      }
     ]
    }
+  },
+  "/api/oauth/consent/{ticket}": {
+   "get": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Consent",
+    "operationId": "consent_api_oauth_consent__ticket__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "ticket",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ticket"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConsentOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/oauth/consent/{ticket}/approve": {
+   "post": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Approve",
+    "operationId": "approve_api_oauth_consent__ticket__approve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "ticket",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ticket"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RedirectOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/oauth/consent/{ticket}/deny": {
+   "post": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Deny",
+    "operationId": "deny_api_oauth_consent__ticket__deny_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "ticket",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ticket"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RedirectOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/oauth/authorizations": {
+   "get": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Authorizations",
+    "operationId": "authorizations_api_oauth_authorizations_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AuthorizationOut"
+         },
+         "type": "array",
+         "title": "Response Authorizations Api Oauth Authorizations Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/oauth/authorizations/{authorization_id}": {
+   "delete": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Revoke Authorization",
+    "operationId": "revoke_authorization_api_oauth_authorizations__authorization_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "authorization_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Authorization Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OkOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/oauth/clients": {
+   "get": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Clients",
+    "operationId": "clients_api_oauth_clients_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ClientOut"
+         },
+         "type": "array",
+         "title": "Response Clients Api Oauth Clients Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/oauth/clients/{client_record_id}/revoke": {
+   "post": {
+    "tags": [
+     "OAuth"
+    ],
+    "summary": "Disable Client",
+    "operationId": "disable_client_api_oauth_clients__client_record_id__revoke_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "client_record_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Client Record Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OkOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -9150,6 +9445,74 @@
     ],
     "title": "AuditOut"
    },
+   "AuthorizationOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "client_id": {
+      "type": "string",
+      "title": "Client Id"
+     },
+     "client_name": {
+      "type": "string",
+      "title": "Client Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "scopes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Scopes"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "client_id",
+     "client_name",
+     "source",
+     "scopes",
+     "created_at",
+     "last_used_at",
+     "revoked_at"
+    ],
+    "title": "AuthorizationOut"
+   },
    "Body_login_api_auth_token_post": {
     "properties": {
      "grant_type": {
@@ -10049,6 +10412,79 @@
     "type": "object",
     "title": "CheckOut"
    },
+   "ClientOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "client_id": {
+      "type": "string",
+      "title": "Client Id"
+     },
+     "client_name": {
+      "type": "string",
+      "title": "Client Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "scopes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Scopes"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "disabled_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Disabled At"
+     },
+     "authorization_count": {
+      "type": "integer",
+      "title": "Authorization Count"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "client_id",
+     "client_name",
+     "source",
+     "scopes",
+     "created_at",
+     "last_used_at",
+     "disabled_at",
+     "authorization_count"
+    ],
+    "title": "ClientOut"
+   },
    "CollectOut": {
     "properties": {
      "id": {
@@ -10584,6 +11020,86 @@
      "valid"
     ],
     "title": "ConfirmationOut"
+   },
+   "ConsentDomainOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name"
+    ],
+    "title": "ConsentDomainOut"
+   },
+   "ConsentOut": {
+    "properties": {
+     "client_name": {
+      "type": "string",
+      "title": "Client Name"
+     },
+     "client_id": {
+      "type": "string",
+      "title": "Client Id"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "scopes": {
+      "items": {
+       "$ref": "#/components/schemas/ConsentScopeOut"
+      },
+      "type": "array",
+      "title": "Scopes"
+     },
+     "domains": {
+      "items": {
+       "$ref": "#/components/schemas/ConsentDomainOut"
+      },
+      "type": "array",
+      "title": "Domains"
+     }
+    },
+    "type": "object",
+    "required": [
+     "client_name",
+     "client_id",
+     "source",
+     "scopes",
+     "domains"
+    ],
+    "title": "ConsentOut"
+   },
+   "ConsentScopeOut": {
+    "properties": {
+     "scope": {
+      "type": "string",
+      "title": "Scope"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     }
+    },
+    "type": "object",
+    "required": [
+     "scope",
+     "description"
+    ],
+    "title": "ConsentScopeOut"
    },
    "ConversationPatch": {
     "properties": {
@@ -14063,6 +14579,19 @@
     ],
     "title": "NotificationOut"
    },
+   "OkOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ok"
+    ],
+    "title": "OkOut"
+   },
    "OutboxOut": {
     "properties": {
      "id": {
@@ -14709,6 +15238,19 @@
      "question"
     ],
     "title": "Question"
+   },
+   "RedirectOut": {
+    "properties": {
+     "redirect_to": {
+      "type": "string",
+      "title": "Redirect To"
+     }
+    },
+    "type": "object",
+    "required": [
+     "redirect_to"
+    ],
+    "title": "RedirectOut"
    },
    "Resolve": {
     "properties": {

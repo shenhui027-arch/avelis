@@ -1937,6 +1937,81 @@ msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditL
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
 
+#: src/avelis/config.py
+msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
+msgstr "Enabling MCP requires a public HTTP(S) URL without credentials, query parameters, or a fragment"
+
+#: src/avelis/oauth/router.py
+msgid "授权确认票据无效或已过期"
+msgstr "The consent ticket is invalid or has expired"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 客户端已停用"
+msgstr "The OAuth client has been disabled"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 授权请求无效"
+msgstr "Invalid OAuth authorization request"
+
+#: src/avelis/oauth/router.py
+msgid "授权记录不存在"
+msgstr "Authorization not found"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 客户端不存在"
+msgstr "OAuth client not found"
+
+#: src/avelis/oauth/router.py
+msgid "检索与读取已发布口径定义 / Read published metric definitions"
+msgstr "Search and read published metric definitions"
+
+#: src/avelis/oauth/router.py
+msgid "读取可访问资产的血缘与变更 / Read permitted lineage and changes"
+msgstr "Read lineage and changes for permitted assets"
+
+#: src/avelis/oauth/router.py
+msgid "按受治理的口径查询数据 / Query data through governed metrics"
+msgstr "Query data through governed metrics"
+
+#: src/avelis/mcp/tools.py
+msgid "口径依赖存在循环"
+msgstr "Metric dependencies contain a cycle"
+
+#: src/avelis/mcp/tools.py
+msgid "口径来源不存在或无权访问"
+msgstr "A metric source was not found or access is denied"
+
+#: src/avelis/mcp/tools.py
+msgid "limit 必须在 1 到 100 之间"
+msgstr "limit must be between 1 and 100"
+
+#: src/avelis/mcp/tools.py
+msgid "结果行数不能超过页面问数上限"
+msgstr "The result row count must not exceed the page query limit"
+
+#: src/avelis/mcp/tools.py
+msgid "开始日期晚于结束日期"
+msgstr "The start date is after the end date"
+
+#: src/avelis/mcp/tools.py
+msgid "字段不存在或无权访问"
+msgstr "Column not found or access denied"
+
+#: src/avelis/mcp/tools.py
+msgid "depth 必须在 1 到 5 之间"
+msgstr "depth must be between 1 and 5"
+
+#: src/avelis/mcp/tools.py
+msgid "未知血缘方向"
+msgstr "Unknown lineage direction"
+
+#: src/avelis/mcp/tools.py
+msgid "未知对象类型"
+msgstr "Unknown object type"
+
+#: src/avelis/ask/service.py
+msgid "数据外发已关闭，仅提供口径定义与编译后的查询说明"
+msgstr "Data sharing is disabled; only the metric definition and compiled query explanation are provided"
 #: src/avelis/api/events.py src/avelis/events
 msgid "Webhook 订阅不存在"
 msgstr "Webhook subscription not found"
