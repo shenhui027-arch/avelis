@@ -1,4 +1,7 @@
-"""批量导入：解析在内存中进行，确定性结果与旧版本替换在同一事务提交。"""
+"""批量导入：解析在内存中进行，确定性结果与旧版本替换在同一事务提交。
+
+谁把批次从 queued/running 改成 failed，谁在同一事务写失败事件；failure_guard 只兜底。
+"""
 
 from __future__ import annotations
 
@@ -50,6 +53,8 @@ log = logging.getLogger(__name__)
 
 class ImportAbandoned(Conflict):
     """已经失去执行权的尝试不得覆盖终态，也不重复已留底的失败事件。"""
+
+    failure_event_recorded = True
 
 
 def _file_order(batch: ImportBatch) -> dict[str, int]:
@@ -990,13 +995,10 @@ def run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None 
     with session_scope() as session:
         imported = session.get(ImportBatch, batch_id)
         actor_id = imported.created_by if imported is not None else None
-    abandoned = None
-    with events.failure_guard("lineage_import.failed", actor_id, "import_batch", batch_id):
-        try:
-            return _run_import(batch_id, job_id=job_id, attempt=attempt)
-        except ImportAbandoned as exc:
-            abandoned = exc
-    raise abandoned
+    with events.failure_guard(
+        "lineage_import.failed", actor_id, "import_batch", batch_id, job_id=job_id, attempt=attempt
+    ):
+        return _run_import(batch_id, job_id=job_id, attempt=attempt)
 
 
 def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None = None) -> dict[str, Any]:
@@ -1081,14 +1083,50 @@ def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None
     except ImportAbandoned:
         raise
     except Exception as exc:
+        failure_event_recorded = False
         try:
             with session_scope() as session:
                 _check_attempt(session, job_id, attempt)
-                failed = session.get(ImportBatch, batch_id)
-                if failed is not None:
+                failure_job_id = job_id
+                if job_id is None:
+                    # 同步调用没有 attempt fence，仍按关联 Job → ImportBatch 的顺序加锁。
+                    associated_job_id = session.scalar(select(ImportBatch.job_id).where(ImportBatch.id == batch_id))
+                    if associated_job_id:
+                        session.scalar(select(Job).where(Job.id == associated_job_id).with_for_update())
+                    failure_job_id = associated_job_id
+                execution = session.get(Job, failure_job_id) if failure_job_id else None
+                failure_attempt = (
+                    attempt if attempt is not None else execution.attempts if execution is not None else None
+                )
+                failed = session.scalar(
+                    select(ImportBatch)
+                    .where(ImportBatch.id == batch_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if failed is not None and failed.status in ("queued", "running"):
                     failed.status, failed.updated_at = "failed", utcnow()
                     failed.error = modelcfg.redact_error(f"{type(exc).__name__}: {exc}", limit=500)
                     failed.progress = {**(failed.progress or {}), "phase": "failed", "current_file": None}
+                    if not events.failure_already_recorded(
+                        session, "lineage_import.failed", batch_id, job_id, failure_attempt
+                    ):
+                        events.record_failure(
+                            session,
+                            failed.created_by,
+                            "lineage_import.failed",
+                            "import_batch",
+                            batch_id,
+                            error_code=type(exc).__name__,
+                            batch_id=batch_id,
+                            job_id=failure_job_id,
+                            attempt=failure_attempt,
+                            status="failed",
+                        )
+                failure_event_recorded = failed is not None and failed.status == "failed"
+            # 只有状态与事件成功提交后才通知 guard；事务失败仍由它独立留底。
+            if failure_event_recorded:
+                exc.failure_event_recorded = True
         except ImportAbandoned:
             raise
         except Exception:  # 不让状态收尾失败掩盖原异常；外层 guard 仍会尝试独立审计
@@ -1156,12 +1194,46 @@ def batch_or_404(session: Session, batch_id: str) -> ImportBatch:
 
 
 def reconcile_batch(session: Session, batch: ImportBatch) -> None:
+    """调用方事务负责提交（含 GET 的 get_session）；谁改 failed，谁同事务写事件。
+
+    健康 Job 只读；已失败才按 Job → 批次加锁并重检，避免旧快照重复转移。
+    """
     if batch.status not in ("queued", "running") or not batch.job_id:
         return
-    job = session.get(Job, batch.job_id)
+    status = session.scalar(select(Job.status).where(Job.id == batch.job_id).execution_options(autoflush=False))
+    if status != "failed":
+        return
+    job = session.scalar(
+        select(Job)
+        .where(Job.id == batch.job_id)
+        .with_for_update()
+        .execution_options(autoflush=False, populate_existing=True)
+    )
     if job is not None and job.status == "failed":
+        batch = session.scalar(
+            select(ImportBatch)
+            .where(ImportBatch.id == batch.id)
+            .with_for_update()
+            .execution_options(autoflush=False, populate_existing=True)
+        )
+        if batch is None or batch.status not in ("queued", "running") or batch.job_id != job.id:
+            return
         batch.status, batch.updated_at = "failed", utcnow()
         batch.error = modelcfg.redact_error(job.error or "后台导入任务失败", limit=500)
+        batch.progress = {**(batch.progress or {}), "phase": "failed", "current_file": None}
+        if not events.failure_already_recorded(session, "lineage_import.failed", batch.id, job.id, job.attempts):
+            events.record_failure(
+                session,
+                batch.created_by,
+                "lineage_import.failed",
+                "import_batch",
+                batch.id,
+                error_code="WORKER_FAILED",
+                batch_id=batch.id,
+                job_id=job.id,
+                attempt=job.attempts,
+                status="failed",
+            )
 
 
 def batch_view(session: Session, batch: ImportBatch) -> dict[str, Any]:

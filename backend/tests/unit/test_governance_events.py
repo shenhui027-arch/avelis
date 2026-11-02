@@ -14,7 +14,16 @@ from sqlalchemy.orm import Session
 from avelis import audit, events
 from avelis.db import Base
 from avelis.events import EventType, GovernanceEvent
-from avelis.models import AuditEvent, EventOutbox, User, WebhookSubscription
+from avelis.models import (
+    AuditEvent,
+    CollectionRun,
+    Datasource,
+    EventOutbox,
+    ImportBatch,
+    Job,
+    User,
+    WebhookSubscription,
+)
 
 
 @pytest.fixture
@@ -156,6 +165,8 @@ def test_failure_guard_rolls_back_business_and_commits_failure_with_original_ide
 
 
 def test_failure_guard_handles_commit_error(database, monkeypatch):
+    with database() as session:
+        subscription(session, types=[EventType.COLLECT_FAILED], outcomes=["failure"])
     original = RuntimeError("commit failed")
     with database() as business:
 
@@ -166,14 +177,188 @@ def test_failure_guard_handles_commit_error(database, monkeypatch):
             patch.setattr(business, "commit", reject_commit)
             with events.failure_guard(EventType.COLLECT_FAILED, "actor", "datasource", "ds", session=business):
                 business.add(User(id="rollback", username="rollback", display_name="rollback", password_hash="unused"))
+                events.record_failure(business, "actor", EventType.COLLECT_FAILED, "datasource", "ds")
                 business.flush()
+                assert len(list(business.scalars(select(EventOutbox)))) == 1
                 business.commit()
         assert caught.value is original
     with database() as session:
         assert session.get(User, "rollback") is None
-        row = session.scalar(select(AuditEvent))
+        rows = list(session.scalars(select(AuditEvent)))
+        assert len(rows) == 1
+        row = rows[0]
         assert row.actor_id == "actor"
         assert row.detail["_governance"]["outcome"] == "failure"
+        outbox = list(session.scalars(select(EventOutbox)))
+        assert len(outbox) == 1 and outbox[0].event_id == row.id
+
+
+def test_failure_guard_skips_failure_already_committed_with_state(database, monkeypatch):
+    from avelis.collect.service import CollectionFailed
+
+    with database() as session:
+        subscription(session, types=[EventType.COLLECT_FAILED], outcomes=["failure"])
+        events.record_failure(session, "actor", EventType.COLLECT_FAILED, "datasource", "ds", run_id="run")
+
+    def unexpected():
+        pytest.fail("recorded failure opened another failure transaction")
+
+    monkeypatch.setattr(events, "session_scope", unexpected)
+    original = CollectionFailed("failure already committed")
+    original.failure_event_recorded = True
+    with pytest.raises(CollectionFailed) as caught:
+        with events.failure_guard(EventType.COLLECT_FAILED, "actor", "datasource", "ds"):
+            raise original
+    assert caught.value is original
+    with database() as session:
+        rows = list(session.scalars(select(AuditEvent)))
+        outbox = list(session.scalars(select(EventOutbox)))
+        assert len(rows) == len(outbox) == 1
+        assert outbox[0].event_id == rows[0].id
+
+
+@pytest.mark.parametrize(
+    ("event_type", "object_id", "job_id", "attempt", "expected"),
+    [
+        (EventType.LINEAGE_IMPORT_FAILED, "batch", "job", 1, True),
+        (EventType.COLLECT_FAILED, "batch", "job", 1, False),
+        (EventType.LINEAGE_IMPORT_FAILED, "other-batch", "job", 1, False),
+        (EventType.LINEAGE_IMPORT_FAILED, "batch", "other-job", 1, False),
+        (EventType.LINEAGE_IMPORT_FAILED, "batch", "job", 2, False),
+        (EventType.LINEAGE_IMPORT_FAILED, "batch", None, 1, False),
+        (EventType.LINEAGE_IMPORT_FAILED, "batch", "job", None, False),
+    ],
+)
+def test_failure_deduplication_requires_the_complete_execution_key(
+    database, event_type, object_id, job_id, attempt, expected
+):
+    with database() as session:
+        events.record_failure(
+            session,
+            "actor",
+            EventType.LINEAGE_IMPORT_FAILED,
+            "import_batch",
+            "batch",
+            job_id="job",
+            attempt=1,
+        )
+    # A new session must find the committed audit, rather than process-local state.
+    with database() as session:
+        assert events.failure_already_recorded(session, event_type, object_id, job_id, attempt) is expected
+
+
+def test_failure_guard_without_job_id_does_not_deduplicate_synchronous_calls(database):
+    with database() as session:
+        subscription(session, types=[EventType.COLLECT_FAILED], outcomes=["failure"])
+    for _ in range(2):
+        original = RuntimeError("synchronous collection failed")
+        with pytest.raises(RuntimeError) as caught:
+            with events.failure_guard(EventType.COLLECT_FAILED, "actor", "datasource", "ds"):
+                raise original
+        assert caught.value is original
+    with database() as session:
+        assert len(list(session.scalars(select(AuditEvent)))) == 2
+        assert len(list(session.scalars(select(EventOutbox)))) == 2
+
+
+def seed_guard_execution(database, kind, *, status="running"):
+    event_type = EventType.LINEAGE_IMPORT_FAILED if kind == "import" else EventType.COLLECT_FAILED
+    with database() as session:
+        session.add(Datasource(id="ds", name="source", kind="postgres", host="offline.invalid", port=5432))
+        job = Job(
+            id="job",
+            kind=kind,
+            status="running",
+            attempts=1,
+            created_by="actor",
+            payload={"batch_id": "batch"} if kind == "import" else {"datasource_id": "ds"},
+            result={} if kind == "import" else {"run_id": "run"},
+        )
+        session.add(job)
+        if kind == "import":
+            session.add(ImportBatch(id="batch", datasource_id="ds", created_by="actor", job_id=job.id, status=status))
+        else:
+            session.add(
+                CollectionRun(id="run", datasource_id="ds", triggered_by="actor", trigger="manual", status=status)
+            )
+        subscription(session, types=[event_type], outcomes=["failure"])
+    return (
+        event_type,
+        "import_batch" if kind == "import" else "datasource",
+        "batch" if kind == "import" else "ds",
+        ImportBatch if kind == "import" else CollectionRun,
+        "batch" if kind == "import" else "run",
+    )
+
+
+@pytest.mark.parametrize("kind", ["import", "collect"])
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_failure_guard_commits_object_failure_and_one_event_per_attempt(database, kind, status):
+    event_type, object_type, object_id, model, model_id = seed_guard_execution(database, kind, status=status)
+    for attempt in (1, 2):
+        if attempt == 2:
+            with database() as session:
+                session.get(Job, "job").attempts = attempt
+                session.get(model, model_id).status = "running"
+        for _ in range(2):
+            original = RuntimeError("business failure")
+            with pytest.raises(RuntimeError) as caught:
+                # Omitting attempt must resolve the current persisted Job.attempts.
+                with events.failure_guard(event_type, "actor", object_type, object_id, job_id="job"):
+                    raise original
+            assert caught.value is original
+        with database() as session:
+            assert session.get(model, model_id).status == "failed"
+            audits = list(session.scalars(select(AuditEvent).order_by(AuditEvent.at, AuditEvent.id)))
+            assert sorted(row.detail["attempt"] for row in audits) == list(range(1, attempt + 1))
+            assert all(row.detail["job_id"] == "job" for row in audits)
+            assert len(list(session.scalars(select(EventOutbox)))) == attempt
+
+
+@pytest.mark.parametrize("kind", ["import", "collect"])
+def test_failure_guard_object_write_error_rolls_back_only_transition_and_preserves_original(database, kind):
+    event_type, object_type, object_id, model, model_id = seed_guard_execution(database, kind)
+    statements = []
+
+    def fail_object_update(_conn, _cursor, statement, _params, _context, _many):
+        if statement.startswith(f"UPDATE {model.__tablename__} SET"):
+            statements.append(statement)
+            raise RuntimeError("object transition unavailable")
+
+    with database() as session:
+        engine = session.get_bind()
+    sa_event.listen(engine, "before_cursor_execute", fail_object_update)
+    original = ValueError("original business failure")
+    try:
+        with pytest.raises(ValueError) as caught:
+            with events.failure_guard(event_type, "actor", object_type, object_id, job_id="job", attempt=1):
+                raise original
+        assert caught.value is original
+    finally:
+        sa_event.remove(engine, "before_cursor_execute", fail_object_update)
+    assert len(statements) == 1
+    with database() as session:
+        assert session.get(model, model_id).status == "running"
+        assert session.get(Job, "job").status == "running"
+        audits = list(session.scalars(select(AuditEvent)))
+        assert len(audits) == 1
+        assert audits[0].detail["job_id"] == "job" and audits[0].detail["attempt"] == 1
+        assert len(list(session.scalars(select(EventOutbox)))) == 1
+
+
+@pytest.mark.parametrize("kind", ["import", "collect"])
+def test_failure_guard_from_old_attempt_cannot_fail_current_attempt_object(database, kind):
+    event_type, object_type, object_id, model, model_id = seed_guard_execution(database, kind)
+    with database() as session:
+        session.get(Job, "job").attempts = 2
+    for attempt in (1, 1, 2):
+        with pytest.raises(RuntimeError):
+            with events.failure_guard(event_type, "actor", object_type, object_id, job_id="job", attempt=attempt):
+                raise RuntimeError("attempt failed")
+        with database() as session:
+            assert session.get(model, model_id).status == ("running" if attempt == 1 else "failed")
+            audits = list(session.scalars(select(AuditEvent)))
+            assert sorted(row.detail["attempt"] for row in audits) == ([1] if attempt == 1 else [1, 2])
 
 
 def test_failure_recording_error_never_masks_original_or_logs_its_contents(monkeypatch, caplog):

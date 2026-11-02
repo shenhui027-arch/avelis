@@ -5,19 +5,20 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from sqlalchemy import JSON, MetaData, create_engine, event, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from avelis import cache, events, jobs
-from avelis.api import auth
+from avelis.api import auth, deps, imports
 from avelis.collect import service as collect
 from avelis.config import build_settings
 from avelis.connectors.base import ObservedAsset, ObservedColumn, Snapshot
 from avelis.connectors.ddl import AuditUnavailable
 from avelis.db import Base, utcnow
 from avelis.governance import changes, joins, metrics
+from avelis.governance.errors import Conflict, Forbidden
 from avelis.importer import batch
 from avelis.importer.archive import ImportFile
 from avelis.models import (
@@ -118,6 +119,50 @@ def assert_emitted(state, event_type, object_id, *, outcome="success"):
     assert matching[0].id
     assert matching[0].at.utcoffset() == timedelta(0)
     return matching[0]
+
+
+def subscribe_failure(state, event_type):
+    subscription = WebhookSubscription(
+        id="failure-hook",
+        name="failure hook",
+        url="https://example.invalid/hook",
+        secret_enc="unused",
+        event_types=[event_type],
+        enabled=True,
+    )
+    state.session.add(subscription)
+    state.session.commit()
+    return subscription.id
+
+
+def assert_failure_delivery(session, event_type, object_id, subscription_id="failure-hook"):
+    session.flush()
+    audits = list(
+        session.scalars(select(AuditEvent).where(AuditEvent.action == event_type, AuditEvent.object_id == object_id))
+    )
+    assert len(audits) == 1
+    outbox = list(session.scalars(select(EventOutbox).where(EventOutbox.subscription_id == subscription_id)))
+    assert len(outbox) == 1
+    assert outbox[0].event_id == audits[0].id
+    assert outbox[0].payload["type"] == event_type
+    assert outbox[0].payload["outcome"] == "failure"
+    return events.event_from_audit(audits[0])
+
+
+def trace_failed_transaction(state, monkeypatch, module, model, event_type, object_id):
+    """在提交 failed 的会话内断言审计与发件箱，避免事后 guard 掩盖事务空档。"""
+    observed = []
+
+    @contextmanager
+    def scope():
+        with state.scope() as session:
+            yield session
+            session.flush()
+            if session.scalar(select(model).where(model.status == "failed")) is not None:
+                observed.append(assert_failure_delivery(session, event_type, object_id))
+
+    monkeypatch.setattr(module, "session_scope", scope)
+    return observed
 
 
 def metric_version(state, *, version_no=1):
@@ -294,6 +339,8 @@ def test_collection_completion_schema_change_and_attribution_from_real_snapshot(
 
 
 def test_collection_failure_rolls_back_snapshot_and_emits_failure(state, monkeypatch):
+    subscribe_failure(state, "collect.failed")
+    observed = trace_failed_transaction(state, monkeypatch, collect, CollectionRun, "collect.failed", "ds")
     connector = SnapshotConnector()
     monkeypatch.setattr(collect, "collect_connector", lambda *_: connector)
     apply = collect._apply_snapshot
@@ -307,6 +354,8 @@ def test_collection_failure_rolls_back_snapshot_and_emits_failure(state, monkeyp
     with pytest.raises(collect.CollectionFailed) as caught:
         collect.run_collection("ds", trigger="manual", actor_id="actor")
     assert caught.value.__cause__ is original
+    assert caught.value.failure_event_recorded is True
+    assert len(observed) == 1
     state.session.expire_all()
     assert list(state.session.scalars(select(Asset))) == []
     assert state.session.scalar(select(CollectionRun)).status == "failed"
@@ -314,26 +363,42 @@ def test_collection_failure_rolls_back_snapshot_and_emits_failure(state, monkeyp
     assert emitted(state, "collect.schema_changed") == []
     failed = assert_emitted(state, "collect.failed", "ds", outcome="failure")
     assert failed.error.code
+    assert_failure_delivery(state.session, "collect.failed", "ds")
 
 
-def fail_status_commit(state, monkeypatch, module):
+def fail_status_transaction(state, monkeypatch, module, failure_at):
     fault = SimpleNamespace(armed=False, attempts=0)
+    record_failure = events.record_failure
+
+    def record(session, *args, **kwargs):
+        row = record_failure(session, *args, **kwargs)
+        if fault.armed and failure_at == "record" and fault.attempts == 0:
+            fault.attempts += 1
+            session.flush()
+            raise RuntimeError("failed event transaction unavailable")
+        return row
 
     @contextmanager
     def scope():
         with state.scope() as session:
             yield session
-            if fault.armed:
+            if fault.armed and failure_at == "commit":
                 fault.attempts += 1
+                session.flush()
                 raise RuntimeError("failed status transaction unavailable")
 
+    monkeypatch.setattr(events, "record_failure", record)
     monkeypatch.setattr(module, "session_scope", scope)
     return fault
 
 
-def test_collection_status_failure_does_not_mask_business_failure_or_block_event(state, monkeypatch, caplog):
+@pytest.mark.parametrize("failure_at", ["record", "commit"])
+def test_collection_status_failure_does_not_mask_business_failure_or_block_event(
+    state, monkeypatch, caplog, failure_at
+):
+    subscribe_failure(state, "collect.failed")
     monkeypatch.setattr(collect, "collect_connector", lambda *_: SnapshotConnector())
-    fault = fail_status_commit(state, monkeypatch, collect)
+    fault = fail_status_transaction(state, monkeypatch, collect, failure_at)
     apply = collect._apply_snapshot
     original = ValueError("snapshot validation failed")
 
@@ -347,11 +412,13 @@ def test_collection_status_failure_does_not_mask_business_failure_or_block_event
         collect.run_collection("ds", trigger="manual", actor_id="actor")
     assert caught.value.__cause__ is original
     assert str(caught.value) == str(original)
+    assert not getattr(caught.value, "failure_event_recorded", False)
     assert fault.attempts == 1
     state.session.expire_all()
     assert list(state.session.scalars(select(Asset))) == []
     assert state.session.scalar(select(CollectionRun)).status == "running"
     assert_emitted(state, "collect.failed", "ds", outcome="failure")
+    assert_failure_delivery(state.session, "collect.failed", "ds")
     assert "采集失败状态未能写入" in caplog.text
 
 
@@ -381,6 +448,8 @@ def test_lineage_import_completion_emits_from_parser_and_persistence(state):
 def test_lineage_import_failure_rolls_back_edges_and_preserves_original_error(state, monkeypatch):
     seed_asset(state, "events")
     imported = create_import(state)
+    subscribe_failure(state, "lineage_import.failed")
+    observed = trace_failed_transaction(state, monkeypatch, batch, ImportBatch, "lineage_import.failed", imported.id)
     persist = batch._persist_edge
     original = RuntimeError("edge transaction interrupted")
 
@@ -392,17 +461,22 @@ def test_lineage_import_failure_rolls_back_edges_and_preserves_original_error(st
     with pytest.raises(RuntimeError) as caught:
         batch.run_import(imported.id)
     assert caught.value is original
+    assert caught.value.failure_event_recorded is True
+    assert len(observed) == 1
     state.session.expire_all()
     assert state.session.get(ImportBatch, imported.id).status == "failed"
     assert list(state.session.scalars(select(LineageEdge))) == []
     assert emitted(state, "lineage_import.completed") == []
     assert_emitted(state, "lineage_import.failed", imported.id, outcome="failure")
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
 
 
-def test_import_status_failure_does_not_mask_business_failure_or_block_event(state, monkeypatch, caplog):
+@pytest.mark.parametrize("failure_at", ["record", "commit"])
+def test_import_status_failure_does_not_mask_business_failure_or_block_event(state, monkeypatch, caplog, failure_at):
     seed_asset(state, "events")
     imported = create_import(state)
-    fault = fail_status_commit(state, monkeypatch, batch)
+    subscribe_failure(state, "lineage_import.failed")
+    fault = fail_status_transaction(state, monkeypatch, batch, failure_at)
     persist = batch._persist_edge
     original = ValueError("edge persistence interrupted")
 
@@ -415,12 +489,181 @@ def test_import_status_failure_does_not_mask_business_failure_or_block_event(sta
     with pytest.raises(ValueError) as caught:
         batch.run_import(imported.id)
     assert caught.value is original
+    assert not getattr(caught.value, "failure_event_recorded", False)
     assert fault.attempts == 1
     state.session.expire_all()
     assert state.session.get(ImportBatch, imported.id).status == "running"
     assert list(state.session.scalars(select(LineageEdge))) == []
     assert_emitted(state, "lineage_import.failed", imported.id, outcome="failure")
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
     assert "导入失败状态未能写入" in caplog.text
+
+
+@pytest.mark.parametrize("permitted", [True, False], ids=["running_conflict", "forbidden"])
+def test_import_params_request_failure_never_fails_running_worker_object(state, permitted):
+    imported = create_import(state)
+    imported.status = "running"
+    job = state.session.get(Job, imported.job_id)
+    job.status, job.attempts = "running", 1
+    state.session.commit()
+    actor = state.actor if permitted else state.reviewer
+    with pytest.raises(Conflict if permitted else Forbidden):
+        imports.set_params(
+            imported.id,
+            imports.ParamsBody(params={"partition": "20261103"}),
+            Response(),
+            user=actor,
+            session=state.session,
+        )
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "running"
+    assert state.session.get(Job, imported.job_id).status == "running"
+    assert state.session.get(Job, imported.job_id).attempts == 1
+
+
+@pytest.mark.parametrize("failure_at", ["record", "commit"])
+@pytest.mark.parametrize("guard_transition_fails", [False, True])
+@pytest.mark.parametrize("followup", ["reconcile", "reclaim"])
+def test_import_guard_event_survives_failed_finalization_without_duplicate_on_recovery(
+    state, monkeypatch, failure_at, guard_transition_fails, followup
+):
+    seed_asset(state, "events")
+    imported = create_import(state)
+    subscribe_failure(state, "lineage_import.failed")
+    fault = fail_status_transaction(state, monkeypatch, batch, failure_at)
+    original = ValueError("edge persistence interrupted")
+    persist = batch._persist_edge
+
+    def interrupted(*args, **kwargs):
+        persist(*args, **kwargs)
+        fault.armed = True
+        raise original
+
+    monkeypatch.setattr(batch, "_persist_edge", interrupted)
+    if guard_transition_fails:
+
+        def reject_transition(*_args, **_kwargs):
+            raise RuntimeError("guard object transition unavailable")
+
+        monkeypatch.setattr(events, "_fail_guarded_object", reject_transition)
+    guarded_run = batch.run_import
+    before_worker_finish = []
+
+    def observe_guard_before_job_failure(*args, **kwargs):
+        try:
+            return guarded_run(*args, **kwargs)
+        except ValueError as exc:
+            assert exc is original
+            with state.scope() as session:
+                job = session.get(Job, imported.job_id)
+                assert job.status == "running" and job.attempts == 1
+                live = session.get(ImportBatch, imported.id)
+                assert live.status == ("running" if guard_transition_fails else "failed")
+                failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+                assert failed.detail["job_id"] == job.id and failed.detail["attempt"] == 1
+                before_worker_finish.append(failed.id)
+                if followup == "reclaim":
+                    job.started_at = utcnow() - timedelta(minutes=5)
+            if followup == "reclaim":
+                assert jobs.abandoned_jobs(older_than_seconds=60) == [imported.job_id]
+            raise
+
+    monkeypatch.setattr(batch, "run_import", observe_guard_before_job_failure)
+    jobs.run_job(imported.job_id)
+    assert fault.attempts == 1 and len(before_worker_finish) == 1
+    state.session.expire_all()
+    saved_job = state.session.get(Job, imported.job_id)
+    assert saved_job.status == "failed" and saved_job.attempts == 1
+    if followup == "reclaim":
+        assert saved_job.result["abandoned_governance"] == "done"
+    state.session.rollback()
+    with state.scope() as session:
+        # Exercise both request read paths after run_job has committed Job=failed.
+        assert imports.get_import(imported.id, user=session.get(User, "actor"), session=session)["status"] == "failed"
+        listed = imports.list_imports(user=session.get(User, "actor"), session=session)
+        assert next(item for item in listed if item["id"] == imported.id)["status"] == "failed"
+        failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+        assert failed.id == before_worker_finish[0]
+    assert jobs.abandoned_jobs(older_than_seconds=60) == []
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "failed"
+    assert list(state.session.scalars(select(LineageEdge))) == []
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+@pytest.mark.parametrize("read", ["get", "list", "view"])
+def test_import_reads_commit_reconciled_failure_and_only_emit_once(state, monkeypatch, status, read):
+    imported = create_import(state)
+    imported.status = status
+    job = state.session.get(Job, imported.job_id)
+    job.status, job.error = "failed", "worker failed with password=must-not-escape"
+    subscribe_failure(state, "lineage_import.failed")
+    monkeypatch.setattr(deps, "session_factory", lambda: sessionmaker(state.engine, expire_on_commit=False))
+
+    def read_import(session):
+        actor = session.get(User, "actor")
+        if read == "get":
+            return imports.get_import(imported.id, user=actor, session=session)
+        if read == "list":
+            return next(item for item in imports.list_imports(user=actor, session=session) if item["id"] == imported.id)
+        return batch.batch_view(session, session.get(ImportBatch, imported.id))
+
+    request = deps.get_session()
+    session = next(request)
+    with job_write_trace(state.engine) as trace:
+        assert read_import(session)["status"] == "failed"
+        # GET 依赖尚未退出：状态、审计和发件箱已经同处请求事务。
+        failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+        assert failed.error.code == "WORKER_FAILED"
+        assert failed.actor.id == imported.created_by
+        assert failed.detail["job_id"] == imported.job_id
+        assert "must-not-escape" not in failed.model_dump_json()
+        assert read_import(session)["status"] == "failed"
+        assert_failure_delivery(session, "lineage_import.failed", imported.id)
+        assert trace[0] == "job_lock" and "import_batch" in trace
+        with pytest.raises(StopIteration):
+            next(request)  # 执行真实 get_session 的请求结束 commit。
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "failed"
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_reconcile_between_abandonment_transactions_keeps_exactly_one_failure(state, monkeypatch, status):
+    imported = create_import(state)
+    imported.status = status
+    job = state.session.get(Job, imported.job_id)
+    job.status, job.attempts = "running", 1
+    job.started_at = utcnow() - timedelta(minutes=5)
+    subscribe_failure(state, "lineage_import.failed")
+    finish = jobs._record_abandoned_governance
+    reconciled = []
+
+    def reconcile_before_finish(job_id, kind, payload, result, reason):
+        with state.scope() as session:
+            saved = session.get(Job, job_id)
+            assert saved.status == "failed" and saved.result["abandoned_governance"] == "pending"
+            live = session.get(ImportBatch, imported.id)
+            assert live.status == status
+            batch.reconcile_batch(session, live)
+            failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+            assert failed.error.code == "WORKER_FAILED"
+            reconciled.append(failed.id)
+        finish(job_id, kind, payload, result, reason)
+
+    monkeypatch.setattr(jobs, "_record_abandoned_governance", reconcile_before_finish)
+    assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
+    assert len(reconciled) == 1
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "failed"
+    assert state.session.get(Job, job.id).result["abandoned_governance"] == "done"
+    failed = assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
+    assert failed.id == reconciled[0]
+    assert jobs.abandoned_jobs(older_than_seconds=60) == []
+    with pytest.raises(batch.ImportAbandoned):
+        batch.run_import(imported.id, job_id=job.id, attempt=1)
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
 
 
 def test_login_failure_threshold_is_emitted_once_when_limit_is_reached(state, monkeypatch):
@@ -460,17 +703,20 @@ def test_login_failure_threshold_is_emitted_once_when_limit_is_reached(state, mo
     assert len(emitted(state, "auth.login_failure_threshold")) == 1
 
 
-@pytest.mark.parametrize("kind", ["collect", "import"])
-def test_worker_abandonment_finishes_business_object_and_emits_failure_once(state, kind):
+@pytest.mark.parametrize(
+    ("kind", "status"),
+    [("collect", "running"), ("collect", "failed"), ("import", "queued"), ("import", "running"), ("import", "failed")],
+)
+def test_worker_abandonment_emits_failure_only_when_it_fails_business_object(state, monkeypatch, kind, status):
     started_at = utcnow() - timedelta(minutes=5)
     if kind == "import":
         imported = create_import(state)
         job = state.session.get(Job, imported.job_id)
-        imported.status = "running"
+        imported.status = status
         object_id, event_type = imported.id, "lineage_import.failed"
     else:
         run = CollectionRun(
-            datasource_id="ds", trigger="manual", status="running", triggered_by="actor", started_at=started_at
+            datasource_id="ds", trigger="manual", status=status, triggered_by="actor", started_at=started_at
         )
         state.session.add(run)
         state.session.flush()
@@ -478,18 +724,80 @@ def test_worker_abandonment_finishes_business_object_and_emits_failure_once(stat
         state.session.add(job)
         object_id, event_type = "ds", "collect.failed"
     job.status, job.started_at = "running", started_at
-    state.session.commit()
+    subscribe_failure(state, event_type)
+    if status == "failed":
+        # failed 对象来自此前已原子写入失败事件的路径；回收只补 Job 收尾标记。
+        events.record_failure(
+            state.session,
+            "actor",
+            event_type,
+            "import_batch" if kind == "import" else "datasource",
+            object_id,
+            error_code="PREVIOUS_FAILURE",
+            job_id=job.id,
+        )
+        state.session.commit()
+    else:
+        observed = trace_failed_transaction(
+            state, monkeypatch, jobs, ImportBatch if kind == "import" else CollectionRun, event_type, object_id
+        )
     assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
     state.session.expire_all()
-    assert state.session.get(Job, job.id).status == "failed"
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.finished_at is not None and saved.error
+    assert saved.result["abandoned_governance"] == "done"
     if kind == "import":
         assert state.session.get(ImportBatch, object_id).status == "failed"
     else:
         assert state.session.get(CollectionRun, run.id).status == "failed"
     event = assert_emitted(state, event_type, object_id, outcome="failure")
-    assert event.error.code == "WORKER_ABANDONED"
+    assert event.error.code == ("PREVIOUS_FAILURE" if status == "failed" else "WORKER_ABANDONED")
+    if status != "failed":
+        assert len(observed) == 1
     assert jobs.abandoned_jobs(older_than_seconds=60) == []
-    assert len(emitted(state, event_type)) == 1
+    assert_failure_delivery(state.session, event_type, object_id)
+
+
+@pytest.mark.parametrize(
+    ("kind", "association"),
+    [
+        ("collect", "legacy"),
+        ("collect", "missing"),
+        ("collect", "mismatched"),
+        ("import", "legacy"),
+        ("import", "missing"),
+    ],
+)
+def test_worker_abandonment_without_exact_business_object_still_emits_failure(state, kind, association):
+    payload = {"datasource_id": "ds"} if kind == "collect" else {}
+    result = {}
+    if association != "legacy":
+        if kind == "collect":
+            result["run_id"] = "missing-run"
+            if association == "mismatched":
+                state.session.add(
+                    Datasource(id="other-ds", name="另一源", kind="postgres", host="offline.invalid", port=1)
+                )
+                state.session.add(
+                    CollectionRun(id="missing-run", datasource_id="other-ds", trigger="manual", status="failed")
+                )
+        else:
+            payload["batch_id"] = "missing-batch"
+    job = Job(kind=kind, payload=payload, result=result, status="running", started_at=utcnow() - timedelta(minutes=5))
+    state.session.add(job)
+    state.session.commit()
+
+    assert jobs.abandoned_jobs(older_than_seconds=60) == [job.id]
+    assert jobs.abandoned_jobs(older_than_seconds=60) == []
+    state.session.expire_all()
+    saved = state.session.get(Job, job.id)
+    assert saved.status == "failed" and saved.result["abandoned_governance"] == "done"
+    event_type = "collect.failed" if kind == "collect" else "lineage_import.failed"
+    failed = assert_emitted(
+        state, event_type, payload.get("datasource_id" if kind == "collect" else "batch_id"), outcome="failure"
+    )
+    assert failed.error.code == "WORKER_ABANDONED" and failed.detail["job_id"] == job.id
+    assert len(list(state.session.scalars(select(AuditEvent).where(AuditEvent.action == event_type)))) == 1
 
 
 @pytest.mark.parametrize("kind", ["collect", "import"])
