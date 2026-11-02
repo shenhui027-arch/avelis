@@ -27,7 +27,9 @@ def test_postgresql_ddl_and_revision_chain():
     migration = load_migration()
     assert migration.revision == "0019_metric_ai_context"
     assert migration.down_revision == "0018_import_batches"
-    assert ScriptDirectory(str(VERSIONS.parent)).get_current_head() == migration.revision
+    scripts = ScriptDirectory(str(VERSIONS.parent))
+    assert scripts.get_revision("0021_mcp_oauth").down_revision == migration.revision
+    assert scripts.get_current_head() == "0021_mcp_oauth"
     ddl = io.StringIO()
     context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl})
     with Operations.context(context):

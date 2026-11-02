@@ -96,11 +96,39 @@ Any Redis-protocol service (Redis or Valkey). Precedence: `url` → individual f
 | `host` | `AVELIS_HOST` | `127.0.0.1` (`0.0.0.0` in the image) | Listen address |
 | `port` | `AVELIS_PORT` | `8000` | Listen port (the published Docker port is set in Compose) |
 | `workers` | `AVELIS_WORKERS` | `1` | Number of processes (uvicorn workers) |
-| `public_url` | `AVELIS_PUBLIC_URL` | empty | Address users open, such as `http://10.0.0.5:8080`; shown in the start-up log and added to the CORS allow list |
+| `public_url` | `AVELIS_PUBLIC_URL` | empty (**required** when MCP is enabled) | Address users open, such as `http://10.0.0.5:8080`; shown in the start-up log and added to the CORS allow list; also serves as the OAuth issuer when MCP is enabled, as described below |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | empty (`/app/frontend/dist` in the image) | Directory of the built frontend; when set, the same port serves the frontend and SPA routes fall back to `index.html`. Relative paths are resolved against the repository root |
 | `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies whose `X-Forwarded-For` is trusted (comma-separated, `*` for all) |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`, `http://localhost:5173` | CORS allow list (an array in the configuration file, comma-separated in the environment variable); not needed when the frontend is served from the same port |
+
+### MCP service `[mcp]`
+
+MCP runs in the same process as the Avelis backend and is disabled by default. When disabled, `/mcp`, OAuth protocol endpoints, and `/api/oauth/*` management endpoints all return 404, including when frontend SPA hosting is configured; they do not fall back to a frontend page.
+
+| Configuration file | Environment variable | Default | Description |
+|---|---|---|---|
+| `enabled` | `AVELIS_MCP_ENABLED` | `false` | Enable the MCP service and built-in OAuth authorization server |
+| `access_token_seconds` | `AVELIS_MCP_ACCESS_TOKEN_SECONDS` | `900` | OAuth access token lifetime, seconds (15 minutes); must be a positive integer |
+| `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth refresh token lifetime, seconds (30 days); must be a positive integer; each refresh rotates the token |
+| `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD client metadata cache lifetime, seconds; fetch again after expiry; must be a positive integer |
+| `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | Exact allow list of local development CIMD URLs (an array in the configuration file, comma-separated in the environment variable); accepts only complete `http(s)://127.0.0.1:PORT/path` URLs, with no arbitrary private addresses or wildcards |
+
+Before enabling MCP, set `[server] public_url` (`AVELIS_PUBLIC_URL`) to the HTTP(S) base address clients actually use, without credentials, query parameters, or a fragment. The OAuth `issuer` is that exact string; the resource URI is that string with `/mcp` appended, without removing a trailing slash. The `resource` submitted during authorization, code exchange, and refresh must match this resource URI exactly. Use HTTPS in production and ensure the reverse proxy preserves these public paths.
+
+HTTPS is required in production. `public_url` must match the external URL clients use, and the reverse proxy must correctly forward the request scheme and forwarded headers, with trusted proxy addresses configured through `[server] forwarded_allow_ips`. If Authlib rejects insecure transport during local HTTP development or testing, explicitly set `AUTHLIB_INSECURE_TRANSPORT=1`. This is a standard Authlib environment variable for local development and testing only, not an `AVELIS_*` setting; the service does not unconditionally disable the transport check.
+
+Enabling MCP exposes these paths:
+
+- `/mcp`: stateless Streamable HTTP, requiring `Mcp-Protocol-Version: 2026-07-28`.
+- `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp`: authorization server and protected resource metadata.
+- `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`, and `/oauth/register`: authorization, code exchange and refresh, token revocation, and dynamic registration for older clients.
+- `/api/oauth/consent/{ticket}` and its `/approve` and `/deny` endpoints: read and confirm consent using an existing Avelis Bearer sign-in token; `/oauth/authorize` sends the client request to the frontend `/oauth/consent?ticket=…` route with a ticket valid for 5 minutes and one use.
+- `/api/oauth/authorizations` and `/api/oauth/authorizations/{id}`: view and revoke the current user's grants; `/api/oauth/clients` and `/api/oauth/clients/{id}/revoke`: administrators view and disable clients.
+
+By default, CIMD fetches only HTTPS documents whose resolved addresses are all public, pinning connections to a checked IP. The total timeout is 3 seconds, the document limit is 5 KiB, and redirects, compression, and proxies are rejected. `cimd_allowed_urls` permits HTTP and loopback access only for the listed local development URLs; all other fetch limits still apply. Authorization codes, consent tickets, and tokens are stored only as hashes in the database. Revoking a grant, disabling a client, or detecting authorization code or refresh token replay invalidates the corresponding tokens.
+
+MCP tools use the represented user's existing business domain permissions, restricted by the granted `metrics:read`, `lineage:read`, and `ask:execute` scopes. `ask_metric` uses the same compiler, query timeout, and row limit as the Ask page, returning at most 200 rows by default. It follows the existing data egress setting (`[model] send_results` / `AVELIS_MODEL_SEND_RESULTS`); when disabled, it returns only the metric definition and compiled query explanation, without data rows.
 
 ### Bootstrap `[bootstrap]`
 

@@ -1,0 +1,108 @@
+"""MCP SDK 无状态 HTTP 子应用；宿主负责根挂载并进入本应用 lifespan。"""
+
+from __future__ import annotations
+
+import inspect
+from functools import wraps
+from typing import get_type_hints
+from urllib.parse import urlsplit
+
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.routes import create_protected_resource_routes
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import RequestBodyLimitMiddleware, TransportSecuritySettings
+from pydantic import AnyHttpUrl
+from starlette.middleware import Middleware
+
+from avelis import db
+from avelis.governance.errors import GovernanceError
+from avelis.i18n import gettext, translate
+from avelis.mcp.auth import MAX_BODY_BYTES, SCOPES, TOOL_SCOPES, StoredTokenVerifier, ToolScopeGate
+from avelis.mcp.tools import ToolService
+from avelis.models import User
+
+DESCRIPTIONS = {
+    "search_metrics": "检索有权访问的已发布口径摘要。Search published metric metadata.",
+    "get_metric": "读取口径完整定义、版本与依赖资产。Read a governed metric definition.",
+    "ask_metric": (
+        "按结构化意图编译并执行受治理的问数，默认最多 200 行且不超过页面上限。"
+        "Execute a governed metric query; SQL input is not accepted."
+    ),
+    "lineage_neighbors": "读取有权访问的资产或列的上下游血缘。Read authorized lineage neighbors.",
+    "list_changes": "读取资产或口径近期的结构变化与影响。Read authorized structural changes and impacts.",
+}
+
+
+def protected_resource_routes(settings):
+    return create_protected_resource_routes(
+        resource_url=AnyHttpUrl(settings.public_url + "/mcp"),
+        authorization_servers=[settings.public_url],
+        scopes_supported=list(SCOPES),
+    )
+
+
+def create_mcp_app(settings, session_maker=None):
+    session_maker = session_maker or (lambda: db.session_factory()())
+    server = MCPServer(
+        "Avelis",
+        version="1.0.1",
+        subscriptions=False,
+        token_verifier=StoredTokenVerifier(session_maker, settings),
+        auth=AuthSettings(
+            issuer_url=settings.public_url,
+            resource_server_url=settings.public_url + "/mcp",
+            validate_token_resource=True,
+            required_scopes=[],
+        ),
+    )
+    tool_arguments = {}
+
+    def register(name):
+        method = getattr(ToolService, name)
+        signature = inspect.signature(method, eval_str=True)
+        parameters = [p for key, p in signature.parameters.items() if key != "self"]
+        tool_arguments[name] = {p.name for p in parameters}
+
+        @wraps(method)
+        def invoke(**arguments):
+            token = get_access_token()
+            if token is None:
+                raise ToolError("OAuth authentication context missing")
+            with session_maker() as session:
+                user = session.get(User, token.subject)
+                if user is None or not user.is_active:
+                    raise ToolError(gettext("用户不存在或已停用"))
+                try:
+                    result = getattr(ToolService(session, user, settings), name)(**arguments)
+                    session.commit()
+                    return result
+                except GovernanceError as exc:
+                    session.rollback()
+                    raise ToolError(translate(exc.message)) from exc
+
+        invoke.__signature__ = signature.replace(parameters=parameters)
+        invoke.__annotations__ = get_type_hints(method)
+        server.add_tool(invoke, name=name, description=DESCRIPTIONS[name], annotations={"readOnlyHint": True})
+
+    for name in TOOL_SCOPES:
+        register(name)
+    origin = urlsplit(settings.public_url)
+    app = server.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        max_request_body_size=MAX_BODY_BYTES,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=[origin.netloc], allowed_origins=[f"{origin.scheme}://{origin.netloc}"]
+        ),
+    )
+    app.user_middleware.extend(
+        [
+            Middleware(RequestBodyLimitMiddleware, max_body_size=MAX_BODY_BYTES),
+            Middleware(ToolScopeGate, settings=settings, session_maker=session_maker, tool_arguments=tool_arguments),
+        ]
+    )
+    app.state.mcp_server = server
+    return app

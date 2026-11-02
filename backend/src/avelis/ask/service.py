@@ -145,16 +145,30 @@ def finish_answer(session: Session, user: User, answer: Answer, started: float) 
     return answer
 
 
-def fulfil(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog) -> None:
+def fulfil(
+    session: Session,
+    user: User,
+    intent: Intent,
+    answer: Answer,
+    catalog: Catalog,
+    *,
+    settings=None,
+    execute: bool = True,
+) -> None:
     """意图已由模型（或演示规则）给出：其余全部是确定性的治理、编译、校验与执行。
     单指标、无对比：整条下推为一条 SQL。多个指标、对比期、派生指标：展开为执行计划（见 _fulfil_plan）。"""
+    settings = settings or get_settings()
     try:
         version = catalog.versions.get(intent.metric_code or "", (None, None))[1]
         simple = intent.is_simple and (version is None or version.kind != "derived")
         if simple:
-            _fulfil(session, user, intent, answer, catalog.versions, get_settings())
+            _fulfil(
+                session, user, intent, answer, catalog.versions, settings, **({"execute": False} if not execute else {})
+            )
         else:
-            _fulfil_plan(session, user, intent, answer, catalog, get_settings())
+            _fulfil_plan(
+                session, user, intent, answer, catalog, settings, **({"execute": False} if not execute else {})
+            )
         if answer.status == "answered":
             requested = (
                 [catalog.versions[intent.metric_code]]
@@ -175,6 +189,8 @@ def _fulfil(
     answer: Answer,
     versions: dict[str, tuple[Metric, MetricVersion]],
     settings,
+    *,
+    execute: bool = True,
 ) -> None:
     answer.intent = intent.model_dump(mode="json")
     if intent.metric_code not in versions:
@@ -202,7 +218,7 @@ def _fulfil(
     if version.status != "published":
         answer.status = "blocked"
         answer.error_code = f"metric_{version.status}"
-        answer.message = _blocked_message(session, metric, version)
+        answer.message = _blocked_message(session, metric, version, user)
         return
     drift = dependency_drift(session, version)
     if drift:
@@ -299,6 +315,12 @@ def _fulfil(
         answer.status = "denied"
         answer.error_code = "validation"
         answer.message = "SQL 校验未通过：" + "；".join(exc.reasons)
+        return
+
+    if not execute:
+        # 外部客户端禁发数据时仍走相同治理、编译与 SQL 校验；不读取缓存、鲜度或业务数据。
+        answer.status = "compiled"
+        answer.message = gettext("数据外发已关闭，仅提供口径定义与编译后的查询说明")
         return
 
     connector = query_connector(session, ds)
@@ -702,7 +724,16 @@ def _sort_time_rows(rows: list[list[Any]], intent: Intent) -> list[list[Any]]:
     return rows
 
 
-def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, catalog: Catalog, settings) -> None:
+def _fulfil_plan(
+    session: Session,
+    user: User,
+    intent: Intent,
+    answer: Answer,
+    catalog: Catalog,
+    settings,
+    *,
+    execute: bool = True,
+) -> None:
     """执行计划：把问题展开为若干“指标 × 时间段”的子查询，每个子查询都经过完整的单指标治理管线
     （两条状态线、来源权限、执行前核对、只读执行）。任何一个没有通过，整个答案就按它的原因拦截或报错；
     全部通过后在后端按维度键对齐，计算派生公式与对比列，最后排序、取前 N。模型只给出意图，不参与计算。"""
@@ -741,7 +772,7 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
             continue
         if version.status != "published":  # 派生指标自身也有两条状态线
             answer.status, answer.error_code = "blocked", f"metric_{version.status}"
-            answer.message = _blocked_message(session, metric, version)
+            answer.message = _blocked_message(session, metric, version, user)
             answer.evidence["metric_version"] = _version_evidence(session, metric, version)
             return
         for c in version.components:
@@ -789,7 +820,15 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                 group_by=intent.group_by,
                 time_grain=intent.time_grain,
             )
-            _fulfil(session, user, sub_intent, sub, {code: (metric, version)}, settings)
+            _fulfil(
+                session,
+                user,
+                sub_intent,
+                sub,
+                {code: (metric, version)},
+                settings,
+                **({"execute": False} if not execute else {}),
+            )
             plan.append(
                 {
                     "metric_code": code,
@@ -806,12 +845,14 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
             if sub.sql:
                 head = f"-- {metric.name} V{version.version_no} · {PERIOD_LABEL[label]} {start} ~ {end}"
                 sqls.append(head + chr(10) + sub.sql)
-            if sub.status != "answered":
+            if sub.status != ("answered" if execute else "compiled"):
                 answer.status, answer.error_code = sub.status, sub.error_code
                 answer.message = f"{metric.name}（{PERIOD_LABEL[label]}）：{sub.message}"
                 answer.sql = (chr(10) * 2).join(sqls) or None
                 answer.evidence = {**sub.evidence, "plan": plan}
                 return
+            if not execute:
+                continue
             rows = {tuple(r[:-1]): _decimal(r[-1]) for r in sub.result.get("rows", [])}
             values[(code, label)] = rows
             if label == "current":
@@ -827,6 +868,12 @@ def _fulfil_plan(session: Session, user: User, intent: Intent, answer: Answer, c
                 answer.freshness = sub.freshness
             if label == "current" and "limits" in sub.evidence:
                 answer.evidence["limits"] = sub.evidence["limits"]
+    if not execute:
+        answer.status = "compiled"
+        answer.message = gettext("数据外发已关闭，仅提供口径定义与编译后的查询说明")
+        answer.sql = (chr(10) * 2).join(sqls)
+        answer.plan = {"kind": "plan", "subqueries": plan, "compare": intent.compare}
+        return
     keys += [k for k in comparison_keys if k not in keys]
 
     def value(code: str, label: str, key: tuple) -> Decimal | None:
@@ -1003,7 +1050,7 @@ def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dic
     )
 
 
-def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -> str:
+def _blocked_message(session: Session, metric: Metric, version: MetricVersion, user: User) -> str:
     if version.status == "affected":
         task = session.scalar(
             select(ReviewTask).where(
@@ -1028,8 +1075,9 @@ def _blocked_message(session: Session, metric: Metric, version: MetricVersion) -
         hint = ""
         if task and task.linked_metric_version_id:
             linked = session.get(MetricVersion, task.linked_metric_version_id)
-            linked_metric = session.get(Metric, linked.metric_id)
-            hint = f"。负责人已发布新口径“{linked_metric.name}”V{linked.version_no}，如需该口径请直接询问"
+            linked_metric = session.get(Metric, linked.metric_id) if linked else None
+            if linked_metric and access.can_see_object(session, user, "metric", linked_metric.id):
+                hint = f"。负责人已发布新口径“{linked_metric.name}”V{linked.version_no}，如需该口径请直接询问"
         return f"指标“{metric.name}”V{version.version_no} 已停用：{version.status_reason}{hint}"
     return f"指标“{metric.name}”当前没有可用的已发布版本"
 

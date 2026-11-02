@@ -101,8 +101,9 @@ def test_metric_time_migration_and_model_defaults(monkeypatch):
 def test_metric_time_migration_is_the_single_head_after_conversations():
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
-    # 语义提示接在批量导入之后，迁移链仍只有一个 head
-    assert scripts.get_heads() == ["0019_metric_ai_context"]
+    # MCP OAuth 接在语义提示之后，迁移链仍只有一个 head。
+    assert scripts.get_heads() == ["0021_mcp_oauth"]
+    assert scripts.get_revision("0021_mcp_oauth").down_revision == "0019_metric_ai_context"
     assert scripts.get_revision("0019_metric_ai_context").down_revision == "0018_import_batches"
     assert scripts.get_revision("0018_import_batches").down_revision == "0017_metric_time"
     assert scripts.get_revision("0017_metric_time").down_revision == "0016_conversation"

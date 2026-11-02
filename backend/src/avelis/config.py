@@ -102,6 +102,11 @@ class Settings:
     port: int = 8000
     workers: int = 1
     public_url: str = ""
+    mcp_enabled: bool = False
+    mcp_access_token_seconds: int = 900
+    mcp_refresh_token_seconds: int = 30 * 24 * 3600
+    mcp_cimd_cache_ttl_seconds: int = 3600
+    mcp_cimd_allowed_urls: tuple[str, ...] = ()
     forwarded_allow_ips: str = "127.0.0.1"
     log_level: str = "info"
     frontend_dir: Path | None = None
@@ -242,10 +247,15 @@ def _build_settings(env: dict[str, str]) -> Settings:
     redis_url = _redis_url(env)
     secret = env.get("AVELIS_SECRET", "")
     origins = env.get("AVELIS_CORS_ORIGINS")
-    public_url = env.get("AVELIS_PUBLIC_URL", "").strip().rstrip("/")
+    mcp_enabled = _boolean(env, "AVELIS_MCP_ENABLED", Settings.mcp_enabled)
+    public_url = env.get("AVELIS_PUBLIC_URL", "").strip()
+    if not mcp_enabled:
+        public_url = public_url.rstrip("/")
     cors_origins = tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins
-    if public_url and public_url not in cors_origins:
-        cors_origins += (public_url,)
+    parsed_public = urlsplit(public_url)
+    public_origin = f"{parsed_public.scheme}://{parsed_public.netloc}" if mcp_enabled and public_url else public_url
+    if public_origin and public_origin not in cors_origins:
+        cors_origins += (public_origin,)
     return Settings(
         database_url=_database_url(env),
         redis_url=redis_url,
@@ -289,6 +299,19 @@ def _build_settings(env: dict[str, str]) -> Settings:
         port=_bounded_int(env, "AVELIS_PORT", Settings.port, 65535),
         workers=_positive_int(env, "AVELIS_WORKERS", Settings.workers),
         public_url=public_url,
+        mcp_enabled=mcp_enabled,
+        mcp_access_token_seconds=_positive_int(
+            env, "AVELIS_MCP_ACCESS_TOKEN_SECONDS", Settings.mcp_access_token_seconds
+        ),
+        mcp_refresh_token_seconds=_positive_int(
+            env, "AVELIS_MCP_REFRESH_TOKEN_SECONDS", Settings.mcp_refresh_token_seconds
+        ),
+        mcp_cimd_cache_ttl_seconds=_positive_int(
+            env, "AVELIS_MCP_CIMD_CACHE_TTL_SECONDS", Settings.mcp_cimd_cache_ttl_seconds
+        ),
+        mcp_cimd_allowed_urls=tuple(
+            u.strip() for u in env.get("AVELIS_MCP_CIMD_ALLOWED_URLS", "").split(",") if u.strip()
+        ),
         forwarded_allow_ips=_nonempty_string(env, "AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips),
         log_level=_enum(
             env, "AVELIS_LOG_LEVEL", Settings.log_level, ("critical", "error", "warning", "info", "debug", "trace")
@@ -344,6 +367,9 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_ANALYSIS_EXPLORE_LIMIT",
         "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
+        "AVELIS_MCP_ACCESS_TOKEN_SECONDS",
+        "AVELIS_MCP_REFRESH_TOKEN_SECONDS",
+        "AVELIS_MCP_CIMD_CACHE_TTL_SECONDS",
     }
     nonnegative = {
         "AVELIS_DB_POOL_SIZE",
@@ -385,6 +411,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 "AVELIS_AUTO_MIGRATE",
                 "AVELIS_AUTO_INIT_ADMIN",
                 "AVELIS_REDIS_SSL",
+                "AVELIS_MCP_ENABLED",
             ):
                 _boolean(values, key, default)
         except ValueError as exc:
@@ -419,6 +446,24 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         _frontend_directory(values)
     except ValueError as exc:
         values.problem("AVELIS_FRONTEND_DIR", str(exc))
+    try:
+        if _boolean(values, "AVELIS_MCP_ENABLED", Settings.mcp_enabled):
+            public_url = values.get("AVELIS_PUBLIC_URL", "").strip()
+            parsed = urlsplit(public_url)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or any(c.isspace() for c in public_url)
+                or "\\" in public_url
+            ):
+                raise ValueError("启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址")
+            parsed.port  # 校验非法端口
+    except ValueError as exc:
+        values.problem("AVELIS_PUBLIC_URL", str(exc))
     if len(values.get("AVELIS_SECRET", "")) < 16:
         values.problem("AVELIS_SECRET", "必填，至少 16 个字符，当前为空或长度不足")
     if values.get("AVELIS_DATABASE_URL") and not values["AVELIS_DATABASE_URL"].startswith("postgresql"):

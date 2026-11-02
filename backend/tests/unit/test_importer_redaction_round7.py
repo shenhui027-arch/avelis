@@ -84,9 +84,11 @@ def _timed_comment_chain(size, newline):
     source = "sql = '''" + newline + ("-- PASSWORD" + newline) * size + "SELECT 1;" + newline + "'''" + newline
     best = float("inf")
     for _ in range(3):
+        # 批次平均降低 Windows 短样本的调度噪声；每次调用的阈值保持不变。
         started = perf_counter()
-        actual = redact(source)
-        best = min(best, perf_counter() - started)
+        for _ in range(5):
+            actual = redact(source)
+        best = min(best, (perf_counter() - started) / 5)
         # Existing fallback covers pairs of empty PASSWORD lines, then SELECT.
         expected = (
             "sql = '''"

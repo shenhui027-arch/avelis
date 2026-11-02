@@ -1028,3 +1028,16 @@
 .av-fieldcheck__more { font-size: 12px; opacity: .8; text-decoration: underline; text-underline-offset: 2px; }
 .av-fieldcheck[open] .av-fieldcheck__more { display: none; }
 .av-fieldcheck ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 18px; color: var(--text-secondary); }
+
+/* MCP 授权确认与接入设置（ADR 0019） */
+.av-auth .av-auth__card.av-consent { max-width: 480px; }
+.av-consent__kv { grid-template-columns: 64px minmax(0, 1fr); font: var(--type-body-compact); }
+.av-consent__client { color: var(--text-primary); font-weight: 600; }
+.av-consent__id, .av-mcp__id { display: block; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-consent__scopes { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.av-consent__domains { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.av-mcp { display: flex; flex-direction: column; gap: var(--space-4); overflow: auto; }
+.av-mcp > .av-pane { flex: none; }
+.av-mcp__body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.av-mcp__endpoint { display: flex; align-items: center; gap: var(--space-2); }
+.av-mcp__endpoint .av-code { padding: 6px 10px; }

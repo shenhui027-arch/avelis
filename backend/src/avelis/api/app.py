@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
@@ -32,7 +33,7 @@ from avelis.api import (
 from avelis.api.schemas import WorkerHealthOut
 from avelis.cache import WORKER_HEARTBEAT, LockBusy
 from avelis.cache import client as cache_client
-from avelis.config import get_settings
+from avelis.config import Settings, get_settings
 from avelis.db import get_engine
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
 from avelis.governance.errors import GovernanceError
@@ -47,11 +48,30 @@ class _FrontendRoute(APIRoute):
             path = path[len(root) :]
         if path == "/api" or path.startswith("/api/"):
             return Match.NONE, {}
+        # 协议地址不能被 SPA 的 index.html 回退吞掉，关闭模块时仍须返回 404。
+        if (
+            path == "/mcp"
+            or path.startswith("/mcp/")
+            or path.startswith("/.well-known/")
+            or (path.startswith("/oauth/") and path != "/oauth/consent")
+        ):
+            return Match.NONE, {}
         return super().matches(scope)
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+def create_app(*, settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    mcp_app = None
+
+    @asynccontextmanager
+    async def lifespan(application):
+        if mcp_app is None:
+            yield
+        else:
+            # ASGI mount 不会自动进入子应用 lifespan；SDK 的 session manager 在此启动。
+            async with mcp_app.router.lifespan_context(mcp_app):
+                yield
+
     frontend_dir = settings.frontend_dir
     if frontend_dir is not None:
         frontend_dir = frontend_dir.resolve()
@@ -59,7 +79,12 @@ def create_app() -> FastAPI:
         if not frontend_dir.is_dir() or not index.is_file() or not index.resolve().is_relative_to(frontend_dir):
             raise ValueError(f"前端目录必须存在且包含目录内的 index.html：{frontend_dir}")
     app = FastAPI(
-        title="Avelis API", version="1.0.1", openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url=None
+        title="Avelis API",
+        version="1.0.1",
+        openapi_url="/api/openapi.json",
+        docs_url="/api/docs",
+        redoc_url=None,
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -141,6 +166,14 @@ def create_app() -> FastAPI:
     ):
         app.include_router(module.router)
 
+    if settings.mcp_enabled:
+        from avelis.mcp.server import create_mcp_app, protected_resource_routes
+        from avelis.oauth.router import create_oauth_router
+
+        app.include_router(create_oauth_router(settings))
+        app.router.routes.extend(protected_resource_routes(settings))
+        mcp_app = create_mcp_app(settings)
+
     if frontend_dir is not None:
 
         def frontend(path: str) -> FileResponse:
@@ -166,6 +199,8 @@ def create_app() -> FastAPI:
             include_in_schema=False,
             route_class_override=_FrontendRoute,
         )
+    if mcp_app is not None:
+        app.mount("/", mcp_app)
     return app
 
 

@@ -990,3 +990,151 @@ class ExperienceVersion(Base):
     confirmed_by: Mapped[str] = fk("app_user.id", index=False)
     confirmed_at: Mapped[datetime] = created()
     superseded_by: Mapped[str | None] = fk("experience_version.id", nullable=True)
+
+
+# --- MCP OAuth -------------------------------------------------------------------
+
+
+class OAuthClient(Base):
+    """OAuth 客户端；回调地址保留原文，凭据只存摘要。"""
+
+    __tablename__ = "oauth_client"
+    id: Mapped[str] = pk()
+    client_id: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), default="dynamic", nullable=False)
+    client_name: Mapped[str] = mapped_column(String(256), default="OAuth client", nullable=False)
+    redirect_uris: Mapped[list] = mapped_column(JsonType, nullable=False)
+    scope: Mapped[str] = mapped_column(String(256), nullable=False)
+    grant_types: Mapped[list] = mapped_column(JsonType, nullable=False)
+    response_types: Mapped[list] = mapped_column(JsonType, nullable=False)
+    token_endpoint_auth_method: Mapped[str] = mapped_column(String(32), default="none", nullable=False)
+    secret_hash: Mapped[str | None] = mapped_column(String(64))
+    secret_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    metadata_hash: Mapped[str | None] = mapped_column(String(64))
+    metadata_fetched_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    metadata_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = created()
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+    def get_client_id(self):
+        return self.client_id
+
+    def get_default_redirect_uri(self):
+        return self.redirect_uris[0] if self.redirect_uris else None
+
+    def get_allowed_scope(self, scope):
+        return self.scope if scope is None else (scope if set(scope.split()) <= set(self.scope.split()) else None)
+
+    def check_redirect_uri(self, redirect_uri):
+        return redirect_uri in self.redirect_uris
+
+    def check_client_secret(self, client_secret):
+        import hmac
+
+        from avelis.oauth.repository import aware, credential_hash, now
+
+        return bool(
+            self.secret_hash
+            and (self.secret_expires_at is None or now() < aware(self.secret_expires_at))
+            and hmac.compare_digest(self.secret_hash, credential_hash(client_secret))
+        )
+
+    def check_endpoint_auth_method(self, method, endpoint):
+        return method == self.token_endpoint_auth_method
+
+    def check_response_type(self, response_type):
+        return response_type in self.response_types
+
+    def check_grant_type(self, grant_type):
+        return grant_type in self.grant_types
+
+
+class OAuthGrant(Base):
+    __tablename__ = "oauth_grant"
+    id: Mapped[str] = pk()
+    client_record_id: Mapped[str] = fk("oauth_client.id")
+    user_id: Mapped[str] = fk("app_user.id")
+    scope: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = created()
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class OAuthConsentTicket(Base):
+    __tablename__ = "oauth_consent_ticket"
+    id: Mapped[str] = pk()
+    ticket_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    client_record_id: Mapped[str] = fk("oauth_client.id")
+    parameters: Mapped[list] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = created()
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class OAuthAuthorizationCode(Base):
+    __tablename__ = "oauth_authorization_code"
+    id: Mapped[str] = pk()
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    client_record_id: Mapped[str] = fk("oauth_client.id")
+    client_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    user_id: Mapped[str] = fk("app_user.id")
+    grant_id: Mapped[str] = fk("oauth_grant.id")
+    redirect_uri: Mapped[str] = mapped_column(String(2048), nullable=False)
+    scope: Mapped[str] = mapped_column(String(256), nullable=False)
+    resource: Mapped[str] = mapped_column(String(2048), nullable=False)
+    code_challenge: Mapped[str] = mapped_column(String(128), nullable=False)
+    code_challenge_method: Mapped[str] = mapped_column(String(8), nullable=False)
+    family_id: Mapped[str] = mapped_column(IdType, nullable=False, index=True)
+    issued_at: Mapped[datetime] = created()
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+    def get_redirect_uri(self):
+        return self.redirect_uri
+
+    def get_scope(self):
+        return self.scope
+
+
+class OAuthToken(Base):
+    __tablename__ = "oauth_token"
+    id: Mapped[str] = pk()
+    access_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    refresh_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    client_record_id: Mapped[str] = fk("oauth_client.id")
+    client_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    user_id: Mapped[str] = fk("app_user.id")
+    grant_id: Mapped[str] = fk("oauth_grant.id")
+    family_id: Mapped[str] = mapped_column(IdType, nullable=False, index=True)
+    parent_token_id: Mapped[str | None] = fk("oauth_token.id", nullable=True)
+    scope: Mapped[str] = mapped_column(String(256), nullable=False)
+    resource: Mapped[str] = mapped_column(String(2048), nullable=False)
+    issued_at: Mapped[datetime] = created()
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    access_revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    refresh_revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revocation_reason: Mapped[str | None] = mapped_column(String(32))
+
+    def check_client(self, client):
+        return self.client_record_id == client.id
+
+    def get_scope(self):
+        return self.scope
+
+    def get_expires_in(self):
+        from avelis.oauth.repository import aware
+
+        return int((aware(self.expires_at) - aware(self.issued_at)).total_seconds())
+
+    def is_expired(self):
+        from avelis.oauth.repository import aware, now
+
+        return now() >= aware(self.expires_at)
+
+    def is_revoked(self):
+        return self.access_revoked_at is not None
+
+    def get_user(self):
+        return self.user_id
