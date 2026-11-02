@@ -90,6 +90,8 @@ pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
 
 这些浮层挂到 `body` 并按触发器位置定位，面板的滚动和裁剪不会遮住它们；键盘可操作（方向键、Enter、Esc、首字母跳转）。自己写的弹出菜单若要判断“点到外面”，要把 `.av-float-root` 里的点击算作里面。
 
+文本输入上自己处理方向键、Enter 等按键时，先跳过输入法组合态（`e.nativeEvent.isComposing` 或 `keyCode === 229`），否则中文输入法选词会被当成确认。
+
 `pnpm check:ui` 检查源码里没有上表“不用”一列的写法，CI 里同样会跑。
 
 ## 演示环境

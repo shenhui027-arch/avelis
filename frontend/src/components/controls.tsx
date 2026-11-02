@@ -285,6 +285,8 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
         aria-activedescendant={visible && active >= 0 ? `${listId}-${active}` : undefined} autoComplete="off"
         onFocus={() => { setOpen(true); setActive(-1); }} onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); }}
         onKeyDown={(e) => {
+          // 输入法组合中（选词、上屏）的方向键和 Enter 交给输入法，不当作候选导航或选择
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
           else if (e.key === "Enter" && visible && active >= 0 && active < items.length) { e.preventDefault(); pick(items[active]); }

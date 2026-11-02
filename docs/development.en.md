@@ -90,6 +90,8 @@ Every control with a popup uses the components in `src/components/controls.tsx` 
 
 These popups are mounted on `body` and positioned from their trigger, so panel scrolling and clipping never hide them, and they work with the keyboard (arrows, Enter, Esc, type-ahead). A custom popup menu that closes on outside clicks must treat clicks inside `.av-float-root` as inside.
 
+Any custom arrow-key or Enter handling on a text input must first skip IME composition (`e.nativeEvent.isComposing` or `keyCode === 229`); otherwise picking a candidate in a Chinese input method is taken as a confirmation.
+
 `pnpm check:ui` fails if the source uses anything in the "Don't use" column; CI runs it too.
 
 ## Demo environment

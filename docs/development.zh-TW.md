@@ -90,6 +90,8 @@ pnpm gen:tokens     # 設計權杖變化後重新生成 tokens.css
 
 這些浮層掛到 `body` 並依觸發器位置定位，面板的捲動和裁切不會遮住它們；鍵盤可操作（方向鍵、Enter、Esc、首字母跳轉）。自己寫的彈出選單若要判斷「點到外面」，要把 `.av-float-root` 裡的點擊算作裡面。
 
+文字輸入上自行處理方向鍵、Enter 等按鍵時，先跳過輸入法組字狀態（`e.nativeEvent.isComposing` 或 `keyCode === 229`），否則中文輸入法選字會被當成確認。
+
 `pnpm check:ui` 檢查原始碼裡沒有上表「不用」一欄的寫法，CI 裡同樣會跑。
 
 ## 示範環境
