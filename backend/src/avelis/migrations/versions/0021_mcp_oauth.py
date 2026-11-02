@@ -10,7 +10,7 @@ from alembic import op
 from avelis.db import JsonType, UTCDateTime
 
 revision = "0021_mcp_oauth"
-down_revision = "0019_metric_ai_context"
+down_revision = "0020_governance_events"
 branch_labels = None
 depends_on = None
 

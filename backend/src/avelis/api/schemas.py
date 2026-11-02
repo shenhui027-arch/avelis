@@ -647,6 +647,9 @@ class AuditOut(Out):
     object_type: str
     object_id: str | None = None
     detail: Json
+    outcome: Literal["success", "failure"] = "success"
+    event_type: str | None = None
+    error: Json | None = None
 
 
 # --- 导入血缘 ---------------------------------------------------------------------

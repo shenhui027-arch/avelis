@@ -2017,3 +2017,38 @@ msgstr "未知的物件類型"
 #: src/avelis/ask/service.py
 msgid "数据外发已关闭，仅提供口径定义与编译后的查询说明"
 msgstr "資料外傳已關閉，僅提供口徑定義與編譯後的查詢說明"
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook 订阅不存在"
+msgstr "Webhook 訂閱不存在"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "订阅字段不能为空"
+msgstr "訂閱欄位不能為空"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "只有投递终止的条目可以重投"
+msgstr "只有投遞終止的項目可以重投"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook URL 无效、无法解析或指向受限地址"
+msgstr "Webhook URL 無效、無法解析或指向受限位址"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "测试事件"
+msgstr "測試事件"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "登录失败次数超过阈值"
+msgstr "登入失敗次數達到門檻"
+
+msgid "发件箱条目不存在"
+msgstr "寄件匣項目不存在"
+
+msgid "Webhook 订阅已停用"
+msgstr "Webhook 訂閱已停用"
+
+msgid "操作失败"
+msgstr "操作失敗"
+
+msgid "后台任务运行超时"
+msgstr "背景工作執行逾時"

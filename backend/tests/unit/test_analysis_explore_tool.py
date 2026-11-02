@@ -88,7 +88,8 @@ def test_accepted_query_runs_regenerated_sql_and_marks_explore(monkeypatch, engi
     assert ds.meta["units"] == {"total": {"kind": "level"}} and ds.meta["column_evidence"]["region"]["label_ok"]
     assert ds.meta["tables"][0]["asset_version_id"] == "v1" and "探索查询（未经口径审核）" in out["note"]
     log = audits(box)[-1]
-    assert log["outcome"] == "ok" and log["sent_to_database"] is True and log["sql"] == out["sql"]
+    assert log["outcome"] == "ok" and log["sent_to_database"] is True
+    assert "sql" not in log  # 审计不得落 SQL 原文；工具执行与受权限保护的数据集仍保留执行证据。
     assert log["execution_identity"] == "reader" and log["digest"] and log["limits"]["max_rows"] == 1000
     assert box.budget.used_explore == 1
 

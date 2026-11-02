@@ -1041,3 +1041,20 @@
 .av-mcp__body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
 .av-mcp__endpoint { display: flex; align-items: center; gap: var(--space-2); }
 .av-mcp__endpoint .av-code { padding: 6px 10px; }
+/* 通知订阅（ADR 0018） */
+.av-webhooks { display: grid; flex: 1; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--space-4); min-height: 0; }
+.av-webhooks__list, .av-webhooks__detail { display: flex; flex-direction: column; min-height: 0; }
+.av-webhooks__list > .av-pane__body { overflow: auto; }
+.av-webhooks__body { display: flex; flex: 1; flex-direction: column; gap: var(--space-4); min-height: 0; padding: var(--space-4); overflow: auto; }
+.av-webhooks__kv { grid-template-columns: 64px minmax(0, 1fr); font: var(--type-body-compact); }
+.av-webhooks__kv dd { overflow-wrap: anywhere; }
+.av-webhooks__tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.av-webhooks__records-hd { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.av-webhooks__records-hd h3 { margin: 0; font: 600 14px/20px var(--font-sans); }
+.av-webhooks__pager { justify-content: flex-end; align-items: center; }
+.av-webhooks__form { display: flex; flex-direction: column; gap: var(--space-4); }
+.av-webhooks__types { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; border: none; }
+.av-webhooks__group { display: flex; flex-direction: column; gap: var(--space-1); }
+.av-webhooks__check { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font: var(--type-body-compact); cursor: pointer; }
+.av-webhooks__secretrow { display: flex; align-items: center; gap: var(--space-2); }
+.av-webhooks__secret { flex: 1; min-width: 0; padding: 6px 10px; overflow-wrap: anywhere; user-select: all; }

@@ -172,6 +172,8 @@ MCP tools use the represented user's existing business domain permissions, restr
 | `[history] export_max_rows` | `AVELIS_HISTORY_EXPORT_MAX_ROWS` | `50000` | Maximum rows per change-record export |
 | `[import] max_bytes` | `AVELIS_IMPORT_MAX_BYTES` | `2097152` | Size limit for one uploaded file or pasted text when importing lineage, bytes |
 
+Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Webhook delivery shares a fixed 5-second budget per scan, with at most 5 seconds per request and 3 seconds for connecting. Two consecutive failures skip the subscription's remaining items for that scan. This budget currently has no environment variable or TOML setting; see [delivery rules](events.en.md#delivery-and-signature-verification).
+
 ### Analysis agent `[analysis]`
 
 Budget per analysis; when any limit is reached, the agent stops fetching data and finishes the report.

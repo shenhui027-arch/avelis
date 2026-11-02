@@ -31,7 +31,7 @@ def api(monkeypatch):
     from avelis.api import auth
     from avelis.api.deps import get_session
     from avelis.config import build_settings
-    from avelis.models import AuditEvent, Domain, DomainMember, User, UserRole
+    from avelis.models import AuditEvent, Domain, DomainMember, EventOutbox, User, UserRole, WebhookSubscription
 
     class Clock(datetime):
         moment = datetime.now(timezone.utc).replace(microsecond=0)
@@ -87,7 +87,7 @@ def api(monkeypatch):
     monkeypatch.setattr(cache, "client", lambda: state.store)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     metadata = MetaData()
-    for model in (User, UserRole, Domain, DomainMember, AuditEvent):
+    for model in (User, UserRole, Domain, DomainMember, AuditEvent, WebhookSubscription, EventOutbox):
         table = model.__table__.to_metadata(metadata)
         for column in table.columns:
             if isinstance(column.type, JSONB):

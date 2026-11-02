@@ -21,7 +21,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from avelis import audit
+from avelis import audit, events
 from avelis.collect.attribution import Window, attribute
 from avelis.connectors.base import ObservedAsset, sha256_json
 from avelis.db import session_scope, utcnow
@@ -43,6 +43,7 @@ from avelis.models import (
     EndpointAlias,
     Grain,
     IdentityLink,
+    Job,
     LineageEdge,
     ParseResult,
     User,
@@ -75,9 +76,42 @@ class CollectionFailed(Exception):
     pass
 
 
-def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = None) -> str:
+class CollectionAbandoned(CollectionFailed):
+    """超时回收已留下失败事件，本次迟到的结果必须回滚。"""
+
+
+def run_collection(
+    datasource_id: str,
+    *,
+    trigger: str,
+    actor_id: str | None = None,
+    job_id: str | None = None,
+    attempt: int | None = None,
+) -> str:
+    abandoned = None
+    with events.failure_guard("collect.failed", actor_id, "datasource", datasource_id, trigger=trigger):
+        try:
+            return _run_collection(datasource_id, trigger=trigger, actor_id=actor_id, job_id=job_id, attempt=attempt)
+        except CollectionAbandoned as exc:
+            abandoned = exc  # 回收事务已经写了失败事件，不为同一次执行再写一条
+    raise abandoned
+
+
+def _run_collection(
+    datasource_id: str,
+    *,
+    trigger: str,
+    actor_id: str | None = None,
+    job_id: str | None = None,
+    attempt: int | None = None,
+) -> str:
     """执行一次采集并返回 run_id。失败时 run 记为 failed 并保留原始错误。"""
     with session_scope() as session:
+        execution = None
+        if job_id:
+            execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+            if execution is None or execution.status != "running" or execution.attempts != attempt:
+                raise CollectionAbandoned("采集任务已被回收或执行权已变更，本次结果未写入")
         ds = session.get(Datasource, datasource_id)
         if ds is None:
             raise CollectionFailed("数据源不存在")
@@ -97,6 +131,8 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
         session.add(run)
         session.flush()
         run_id = run.id
+        if execution is not None:
+            execution.result = {**(execution.result or {}), "run_id": run_id}
     try:
         with session_scope() as session:
             ds = session.get(Datasource, datasource_id)
@@ -118,6 +154,17 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
                 snapshot_window=(snapshot_started, utcnow()),
                 audit_cursor=cursor,
             )
+            # 与超时回收统一为 Job → CollectionRun；快照写入中的 flush 也会锁住 run。
+            with session.no_autoflush:
+                if job_id:
+                    execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+                    if execution is None or execution.status != "running" or execution.attempts != attempt:
+                        raise CollectionAbandoned("采集任务已被回收或执行权已变更，本次结果未写入")
+                status = session.scalar(
+                    select(CollectionRun.status).where(CollectionRun.id == run_id).with_for_update()
+                )
+                if status != "running":
+                    raise CollectionAbandoned("采集运行已被回收，本次结果未写入")
             _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
@@ -130,13 +177,24 @@ def run_collection(datasource_id: str, *, trigger: str, actor_id: str | None = N
             audit.record(
                 session, actor, "collect", "datasource", ds.id, run_id=run.id, trigger=trigger, stats=run.stats
             )
+    except CollectionAbandoned:
+        raise
     except Exception as exc:  # 记录失败原因（不含口令：连接器异常只含库返回的错误）
         log.exception("采集失败 %s", datasource_id)
-        with session_scope() as session:
-            run = session.get(CollectionRun, run_id)
-            run.status = "failed"
-            run.finished_at = utcnow()
-            run.error = f"{type(exc).__name__}: {exc}"[:4000]
+        try:
+            with session_scope() as session:
+                if job_id:
+                    execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+                    if execution is None or execution.status != "running" or execution.attempts != attempt:
+                        raise CollectionAbandoned("采集任务已被回收或执行权已变更，本次结果未写入") from exc
+                run = session.get(CollectionRun, run_id)
+                run.status = "failed"
+                run.finished_at = utcnow()
+                run.error = f"{type(exc).__name__}: {exc}"[:4000]
+        except CollectionAbandoned:
+            raise
+        except Exception:  # 留底不可用不能替换原采集错误；外层 guard 仍会尝试独立审计
+            log.error("采集失败状态未能写入 %s", datasource_id)
         raise CollectionFailed(str(exc)) from exc
     return run_id
 
@@ -263,6 +321,20 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
 
         previous = session.get(CollectionRun, run.previous_run_id) if run.previous_run_id else None
         audit_window = attribute(session, engine_of(ds), ctx.connector, ctx.events, _audit_window(previous, ctx))
+        if audit_window.get("status") == "unavailable" and audit_window.get("cause") in (
+            "no_permission",
+            "not_enabled",
+        ):
+            audit.record(
+                session,
+                None,
+                "attribution.unavailable",
+                "datasource",
+                ds.id,
+                run_id=run.id,
+                cause=audit_window["cause"],
+                source=audit_window.get("source"),
+            )
         change_set = ChangeSet(
             run_id=run.id,
             datasource_id=ds.id,
@@ -277,6 +349,16 @@ def _apply_snapshot(session: Session, ds: Datasource, snapshot, ctx: RunContext)
             session.add(ChangeEvent(change_set_id=change_set.id, **e))
         session.flush()
         analyze_change_set(session, change_set, fp_changes)
+        audit.record(
+            session,
+            session.get(User, run.triggered_by) if run.triggered_by else None,
+            "collect.schema_changed",
+            "datasource",
+            ds.id,
+            run_id=run.id,
+            change_set_id=change_set.id,
+            changes={k.removeprefix("event:"): v for k, v in ctx.stats.items() if k.startswith("event:")},
+        )
 
 
 def _audit_window(previous: CollectionRun | None, ctx: RunContext) -> Window | None:

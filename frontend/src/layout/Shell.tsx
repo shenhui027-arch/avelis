@@ -260,8 +260,8 @@ export function Shell() {
   );
 }
 
-export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" | "calendar" | "mcp" }) {
-  const items = [["datasources", t("数据源")], ["models", t("模型配置")], ["users", t("用户")], ["calendar", t("业务日历")], ["mcp", t("MCP 接入")]] as const;
+export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" | "calendar" | "webhooks" | "mcp" }) {
+  const items = [["datasources", t("数据源")], ["models", t("模型配置")], ["users", t("用户")], ["calendar", t("业务日历")], ["webhooks", t("通知订阅")], ["mcp", t("MCP 接入")]] as const;
   // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (
     <nav className="av-seg" aria-label={t("设置分区")}>

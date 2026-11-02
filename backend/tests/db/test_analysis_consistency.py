@@ -34,6 +34,7 @@ class ScriptedGraph:
     def invoke(self, state, config):
         self.calls += 1
         self.script(config["configurable"]["toolbox"])
+        return {}  # 与 LangGraph 一致：invoke 返回状态字典，中断时带 __interrupt__
 
     def get_state(self, config):
         return SimpleNamespace(values={"notes": []})

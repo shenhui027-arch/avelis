@@ -24,7 +24,7 @@ def load_migration():
 def test_oauth_migration_revision_and_postgresql_ddl():
     migration = load_migration()
     assert migration.revision == "0021_mcp_oauth"
-    assert migration.down_revision == "0019_metric_ai_context"
+    assert migration.down_revision == "0020_governance_events"
     ddl = io.StringIO()
     context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl})
     with Operations.context(context):

@@ -95,6 +95,17 @@ def login(
             username=form.username,
             failures=failures,
         )
+        if failures == settings.login_max_failures:
+            audit.record(
+                session,
+                None,
+                "auth.login_failure_threshold",
+                "user",
+                user.id if user else None,
+                username=form.username,
+                failures=failures,
+                threshold=settings.login_max_failures,
+            )
         session.commit()
         left = settings.login_max_failures - failures
         raise HTTPException(
