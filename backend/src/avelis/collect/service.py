@@ -90,7 +90,9 @@ def run_collection(
     job_id: str | None = None,
     attempt: int | None = None,
 ) -> str:
-    with events.failure_guard("collect.failed", actor_id, "datasource", datasource_id, trigger=trigger, job_id=job_id):
+    with events.failure_guard(
+        "collect.failed", actor_id, "datasource", datasource_id, trigger=trigger, job_id=job_id, attempt=attempt
+    ):
         return _run_collection(datasource_id, trigger=trigger, actor_id=actor_id, job_id=job_id, attempt=attempt)
 
 
@@ -192,17 +194,22 @@ def _run_collection(
                     run.status = "failed"
                     run.finished_at = utcnow()
                     run.error = f"{type(exc).__name__}: {exc}"[:4000]
-                    events.record_failure(
-                        session,
-                        actor_id,
-                        "collect.failed",
-                        "datasource",
-                        datasource_id,
-                        error_code=type(failure).__name__,
-                        run_id=run_id,
-                        job_id=job_id,
-                        trigger=trigger,
-                    )
+                    failure_attempt = attempt if attempt is not None else execution.attempts if job_id else None
+                    if not events.failure_already_recorded(
+                        session, "collect.failed", datasource_id, job_id, failure_attempt
+                    ):
+                        events.record_failure(
+                            session,
+                            actor_id,
+                            "collect.failed",
+                            "datasource",
+                            datasource_id,
+                            error_code=type(failure).__name__,
+                            run_id=run_id,
+                            job_id=job_id,
+                            attempt=failure_attempt,
+                            trigger=trigger,
+                        )
             # 只有 failed 与失败事件都已成功提交，才能阻止 guard 独立兜底。
             failure.failure_event_recorded = run is not None
         except CollectionAbandoned:

@@ -292,7 +292,8 @@ def list_imports(user: User = Depends(current_user), session: Session = Depends(
     imported = list(session.scalars(select(ImportBatch).order_by(ImportBatch.created_at.desc()).limit(100)))
     if not imported:
         return []
-    for item in imported:
+    # 请求会持锁到结束；多个失败 Job 必须按同一顺序协调，返回顺序仍为新到旧。
+    for item in sorted(imported, key=lambda item: (item.job_id or "", item.id)):
         batch.reconcile_batch(session, item)
     duplicate_ids = {file_id for item in imported for file_id in (item.options or {}).get("duplicate_file_ids", [])}
     files = list(

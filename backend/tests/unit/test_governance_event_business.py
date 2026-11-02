@@ -5,7 +5,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from sqlalchemy import JSON, MetaData, create_engine, event, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, sessionmaker
@@ -18,6 +18,7 @@ from avelis.connectors.base import ObservedAsset, ObservedColumn, Snapshot
 from avelis.connectors.ddl import AuditUnavailable
 from avelis.db import Base, utcnow
 from avelis.governance import changes, joins, metrics
+from avelis.governance.errors import Conflict, Forbidden
 from avelis.importer import batch
 from avelis.importer.archive import ImportFile
 from avelis.models import (
@@ -496,6 +497,98 @@ def test_import_status_failure_does_not_mask_business_failure_or_block_event(sta
     assert_emitted(state, "lineage_import.failed", imported.id, outcome="failure")
     assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
     assert "导入失败状态未能写入" in caplog.text
+
+
+@pytest.mark.parametrize("permitted", [True, False], ids=["running_conflict", "forbidden"])
+def test_import_params_request_failure_never_fails_running_worker_object(state, permitted):
+    imported = create_import(state)
+    imported.status = "running"
+    job = state.session.get(Job, imported.job_id)
+    job.status, job.attempts = "running", 1
+    state.session.commit()
+    actor = state.actor if permitted else state.reviewer
+    with pytest.raises(Conflict if permitted else Forbidden):
+        imports.set_params(
+            imported.id,
+            imports.ParamsBody(params={"partition": "20261103"}),
+            Response(),
+            user=actor,
+            session=state.session,
+        )
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "running"
+    assert state.session.get(Job, imported.job_id).status == "running"
+    assert state.session.get(Job, imported.job_id).attempts == 1
+
+
+@pytest.mark.parametrize("failure_at", ["record", "commit"])
+@pytest.mark.parametrize("guard_transition_fails", [False, True])
+@pytest.mark.parametrize("followup", ["reconcile", "reclaim"])
+def test_import_guard_event_survives_failed_finalization_without_duplicate_on_recovery(
+    state, monkeypatch, failure_at, guard_transition_fails, followup
+):
+    seed_asset(state, "events")
+    imported = create_import(state)
+    subscribe_failure(state, "lineage_import.failed")
+    fault = fail_status_transaction(state, monkeypatch, batch, failure_at)
+    original = ValueError("edge persistence interrupted")
+    persist = batch._persist_edge
+
+    def interrupted(*args, **kwargs):
+        persist(*args, **kwargs)
+        fault.armed = True
+        raise original
+
+    monkeypatch.setattr(batch, "_persist_edge", interrupted)
+    if guard_transition_fails:
+
+        def reject_transition(*_args, **_kwargs):
+            raise RuntimeError("guard object transition unavailable")
+
+        monkeypatch.setattr(events, "_fail_guarded_object", reject_transition)
+    guarded_run = batch.run_import
+    before_worker_finish = []
+
+    def observe_guard_before_job_failure(*args, **kwargs):
+        try:
+            return guarded_run(*args, **kwargs)
+        except ValueError as exc:
+            assert exc is original
+            with state.scope() as session:
+                job = session.get(Job, imported.job_id)
+                assert job.status == "running" and job.attempts == 1
+                live = session.get(ImportBatch, imported.id)
+                assert live.status == ("running" if guard_transition_fails else "failed")
+                failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+                assert failed.detail["job_id"] == job.id and failed.detail["attempt"] == 1
+                before_worker_finish.append(failed.id)
+                if followup == "reclaim":
+                    job.started_at = utcnow() - timedelta(minutes=5)
+            if followup == "reclaim":
+                assert jobs.abandoned_jobs(older_than_seconds=60) == [imported.job_id]
+            raise
+
+    monkeypatch.setattr(batch, "run_import", observe_guard_before_job_failure)
+    jobs.run_job(imported.job_id)
+    assert fault.attempts == 1 and len(before_worker_finish) == 1
+    state.session.expire_all()
+    saved_job = state.session.get(Job, imported.job_id)
+    assert saved_job.status == "failed" and saved_job.attempts == 1
+    if followup == "reclaim":
+        assert saved_job.result["abandoned_governance"] == "done"
+    state.session.rollback()
+    with state.scope() as session:
+        # Exercise both request read paths after run_job has committed Job=failed.
+        assert imports.get_import(imported.id, user=session.get(User, "actor"), session=session)["status"] == "failed"
+        listed = imports.list_imports(user=session.get(User, "actor"), session=session)
+        assert next(item for item in listed if item["id"] == imported.id)["status"] == "failed"
+        failed = assert_failure_delivery(session, "lineage_import.failed", imported.id)
+        assert failed.id == before_worker_finish[0]
+    assert jobs.abandoned_jobs(older_than_seconds=60) == []
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "failed"
+    assert list(state.session.scalars(select(LineageEdge))) == []
+    assert_failure_delivery(state.session, "lineage_import.failed", imported.id)
 
 
 @pytest.mark.parametrize("status", ["queued", "running"])

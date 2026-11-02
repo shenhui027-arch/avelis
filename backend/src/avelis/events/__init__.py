@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis.db import new_id, session_scope, utcnow
-from avelis.models import AuditEvent, EventOutbox, User, WebhookSubscription
+from avelis.models import AuditEvent, CollectionRun, EventOutbox, ImportBatch, Job, User, WebhookSubscription
 
 log = logging.getLogger(__name__)
 
@@ -164,6 +164,7 @@ _EXTERNAL_FIELDS = frozenset(
         "run_id",
         "batch_id",
         "job_id",
+        "attempt",
         "trigger",
         "dependency_fingerprint",
         "change_set_id",
@@ -323,6 +324,68 @@ def record_failure(
     return row
 
 
+_FAILURE_OBJECT_TYPES = {EventType.COLLECT_FAILED: "datasource", EventType.LINEAGE_IMPORT_FAILED: "import_batch"}
+
+
+def failure_already_recorded(
+    session: Session,
+    event_type: EventType | str,
+    object_id: str | None,
+    job_id: str | None,
+    attempt: int | None,
+) -> bool:
+    """调用方持有 Job 锁，按执行尝试查持久失败审计；同步调用没有去重键。"""
+    if not job_id or attempt is None:
+        return False
+    kind = EventType(event_type)
+    return (
+        session.scalar(
+            select(AuditEvent.id)
+            .where(
+                AuditEvent.action.in_([action for action, mapped in ACTION_EVENT_TYPES.items() if mapped == kind]),
+                # 带上 object_type 才能命中 ix_audit_object(object_type, object_id)
+                AuditEvent.object_type == _FAILURE_OBJECT_TYPES[kind],
+                AuditEvent.object_id == object_id,
+                AuditEvent.detail["job_id"].as_string() == job_id,
+                AuditEvent.detail["attempt"].as_integer() == attempt,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _fail_guarded_object(
+    session: Session, object_type: str, object_id: str | None, job: Job | None, attempt: int | None
+) -> None:
+    # 迟到的旧 attempt 不能终结新 attempt 正在使用的对象。
+    if job is not None and attempt is not None and job.attempts != attempt:
+        return
+    if object_type == "import_batch":
+        model, target_id = ImportBatch, object_id
+    elif object_type == "datasource" and job is not None and job.kind == "collect":
+        model, target_id = CollectionRun, (job.result or {}).get("run_id")
+    else:
+        return
+    if not target_id:
+        return
+    target = session.scalar(
+        select(model).where(model.id == target_id).with_for_update().execution_options(populate_existing=True)
+    )
+    if target is None or target.status not in ("queued", "running"):
+        return
+    if isinstance(target, ImportBatch):
+        if job is not None and target.job_id != job.id:
+            return
+        target.updated_at = utcnow()
+        target.progress = {**(target.progress or {}), "phase": "failed", "current_file": None}
+    else:
+        if target.datasource_id != object_id:
+            return
+        target.finished_at = utcnow()
+    target.status, target.error = "failed", "操作失败"
+
+
 @contextmanager
 def failure_guard(
     event_type: EventType | str,
@@ -345,17 +408,36 @@ def failure_guard(
             if session is not None:
                 session.rollback()
             with session_scope() as failure_session:
-                row = record_failure(
-                    failure_session,
-                    actor_id,
-                    event_type,
-                    object_type,
-                    object_id,
-                    error_code=type(original).__name__,
-                    **detail,
-                )
-                if actor_id and actor_name:
-                    row.actor_id, row.actor_name = actor_id, actor_name
+                failure_detail = dict(detail)
+                job_id = failure_detail.get("job_id")
+                # 和正常收尾、reconcile、回收一样，先 Job 再对象；这把锁也串行化去重查询与写入。
+                job = failure_session.scalar(select(Job).where(Job.id == job_id).with_for_update()) if job_id else None
+                if job_id and failure_detail.get("attempt") is None and job is not None:
+                    failure_detail["attempt"] = job.attempts
+                # 无执行 Job 的同步调用及 API 校验异常只留事件，不能终结健康后台任务。
+                if job is not None:
+                    try:
+                        # 对象收尾失败只回滚保存点，仍在同一短事务中尝试留下事件。
+                        with failure_session.begin_nested():
+                            _fail_guarded_object(
+                                failure_session, object_type, object_id, job, failure_detail.get("attempt")
+                            )
+                    except Exception:
+                        log.error("治理失败对象未能转为 failed；继续尝试写入失败事件")
+                if not failure_already_recorded(
+                    failure_session, event_type, object_id, job_id, failure_detail.get("attempt")
+                ):
+                    row = record_failure(
+                        failure_session,
+                        actor_id,
+                        event_type,
+                        object_type,
+                        object_id,
+                        error_code=type(original).__name__,
+                        **failure_detail,
+                    )
+                    if actor_id and actor_name:
+                        row.actor_id, row.actor_name = actor_id, actor_name
         except Exception:
             # 不输出异常原文或 traceback：失败可能来自带 SQL/连接串的数据库异常。
             log.error("治理失败事件未能写入；原业务异常将继续抛出")

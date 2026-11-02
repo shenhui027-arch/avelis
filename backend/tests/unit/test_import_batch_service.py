@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import operators
 from sqlalchemy.sql.elements import BooleanClauseList
 
@@ -32,7 +33,10 @@ SCHEMA = {"default_catalog": {"src": {"events": {"id": "INT", "value": "INT"}}}}
 def matches(obj, criterion):
     if isinstance(criterion, BooleanClauseList):
         return all(matches(obj, c) for c in criterion.clauses)
-    left = getattr(obj, criterion.left.key)
+    if hasattr(criterion.left, "operator") and criterion.left.operator is operators.json_getitem_op:
+        left = getattr(obj, criterion.left.left.key).get(criterion.left.right.value)
+    else:
+        left = getattr(obj, criterion.left.key)
     right = criterion.right.value
     if criterion.operator is operators.eq:
         return left == right
@@ -758,6 +762,27 @@ def test_failed_background_job_reconciles_batch_and_attempt_fence_prevents_phase
     stored = batch.batch_or_404(memory.session, imported.id)
     assert stored.status == "failed"
     assert not memory.rows.get(LineageEdge) and not memory.rows.get(ExtractedStatement)
+
+
+def test_reconcile_healthy_running_job_never_acquires_for_update_lock(memory, monkeypatch):
+    imported = create(memory, "SELECT 1;")
+    imported.status = "running"
+    job = memory.session.get(Job, imported.job_id)
+    job.status, job.attempts = "running", 1
+    audits_before = list(memory.rows.get(AuditEvent, []))
+    queries = []
+    scalar = memory.session.scalar
+
+    def trace(query):
+        queries.append(query)
+        return scalar(query)
+
+    monkeypatch.setattr(memory.session, "scalar", trace)
+    batch.reconcile_batch(memory.session, imported)
+    assert queries and any(item.column_descriptions[0]["entity"] is Job for item in queries)
+    assert all("FOR UPDATE" not in str(item.compile(dialect=postgresql.dialect())) for item in queries)
+    assert imported.status == "running" and job.status == "running"
+    assert memory.rows.get(AuditEvent, []) == audits_before
 
 
 def test_old_attempt_cannot_mark_new_attempt_batch_failed(memory):

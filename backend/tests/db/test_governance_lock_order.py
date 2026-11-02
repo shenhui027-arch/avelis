@@ -205,8 +205,7 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
         session.flush()
         subscription_id = subscription.id
 
-    failure_ready, worker_locked, worker_attempt, reclaim_locked, reclaim_attempt = (Event() for _ in range(5))
-    reclaim_committed = Event()
+    failure_ready, worker_locked, worker_attempt, reclaim_locked, reclaim_scanned = (Event() for _ in range(5))
     thread = local()
     engine = get_engine()
     failure_writers = []
@@ -216,8 +215,6 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
         if role == "worker" and getattr(thread, "failing", False):
             if "FROM job" in statement and "FOR UPDATE" in statement:
                 worker_attempt.set()
-        if role == "reclaim" and statement.startswith("UPDATE job SET"):
-            reclaim_attempt.set()
         if role == "reclaim" or (role == "worker" and getattr(thread, "failing", False)):
             if statement.startswith(("UPDATE collection_run SET", "UPDATE import_batch SET")):
                 assert getattr(thread, "locked_job", False), "必须先锁 Job 再修改失败对象"
@@ -230,10 +227,11 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
                 thread.locked_job = True
                 worker_locked.set()
                 if winner == "worker":
-                    assert reclaim_attempt.wait(10), "回收方未尝试更新 Job"
-        if role == "reclaim" and statement.startswith("UPDATE job SET"):
+                    assert reclaim_scanned.wait(10), "回收方未完成 SKIP LOCKED 扫描"
+        if role == "reclaim" and "FROM job" in statement and "FOR UPDATE" in statement:
             thread.locked_job = True
             reclaim_locked.set()
+            reclaim_scanned.set()
             if winner == "reclaim":
                 assert worker_attempt.wait(10), "正常失败未尝试锁 Job"
 
@@ -258,33 +256,6 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
             assert worker_locked.wait(10), "正常失败未取得 Job 锁"
         return jobs.abandoned_jobs(older_than_seconds=60)
 
-    if winner == "worker":
-        run_operation = collect._run_collection if kind == "collect" else importer._run_import
-        record_abandoned = jobs._record_abandoned_governance
-
-        def wait_before_job_finishes(*args, **kwargs):
-            try:
-                return run_operation(*args, **kwargs)
-            except Exception as exc:
-                assert exc.failure_event_recorded is True
-                # 正常失败事务已提交；让回收首事务完成后再交给 run_job 终结 Job。
-                assert reclaim_committed.wait(10), "回收首事务未提交"
-                raise
-
-        def confirm_reclaim_commit(current_job_id, *args):
-            if current_job_id == job_id:
-                # abandoned_jobs 已退出首事务，独立连接也必须看到 pending 终态。
-                with session_scope() as session:
-                    execution = session.get(Job, job_id)
-                    assert execution.status == "failed"
-                    assert execution.result["abandoned_governance"] == "pending"
-                reclaim_committed.set()
-            return record_abandoned(current_job_id, *args)
-
-        module, name = (collect, "_run_collection") if kind == "collect" else (importer, "_run_import")
-        monkeypatch.setattr(module, name, wait_before_job_finishes)
-        monkeypatch.setattr(jobs, "_record_abandoned_governance", confirm_reclaim_commit)
-
     if kind == "collect":
         monkeypatch.setattr(collect, "collect_connector", lambda *_: SimpleNamespace(snapshot=fail_work))
     else:
@@ -296,7 +267,8 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
             worker = executor.submit(run_worker)
             reclaimer = executor.submit(run_reclaim)
             worker.result(timeout=30)
-            assert job_id in reclaimer.result(timeout=30)
+            reclaimed = reclaimer.result(timeout=30)
+            assert (job_id in reclaimed) == (winner == "reclaim")
     finally:
         event.remove(engine, "before_cursor_execute", before_statement)
         event.remove(engine, "after_cursor_execute", after_statement)
@@ -307,7 +279,8 @@ def test_normal_failure_and_reclaimer_lock_job_first_and_emit_once(factory, monk
     with session_scope() as session:
         execution = session.get(Job, job_id)
         assert execution.status == "failed" and execution.finished_at is not None
-        assert execution.result["abandoned_governance"] == "done"
+        if winner == "reclaim":
+            assert execution.result["abandoned_governance"] == "done"
         if kind == "collect":
             failed_object = session.get(CollectionRun, execution.result["run_id"])
             assert failed_object.finished_at is not None
@@ -354,7 +327,7 @@ def test_collection_and_reclaimer_lock_job_first_without_deadlock(factory, monke
         session.flush()
         subscription_id = subscription.id
 
-    snapshot_ready, reclaim_locked, collect_lock_attempt, reclaim_update = (Event() for _ in range(4))
+    snapshot_ready, reclaim_locked, collect_lock_attempt, reclaim_scanned = (Event() for _ in range(4))
     thread = local()
     engine = get_engine()
     apply = collect._apply_snapshot
@@ -364,16 +337,18 @@ def test_collection_and_reclaimer_lock_job_first_without_deadlock(factory, monke
         if role == "collect" and getattr(thread, "finishing", False):
             if "FROM job" in statement and "FOR UPDATE" in statement:
                 collect_lock_attempt.set()
-        if role == "reclaim" and statement.startswith("UPDATE job SET"):
-            reclaim_update.set()
 
     def after_statement(_conn, _cursor, statement, _params, _context, _many):
-        if winner == "reclaim" and getattr(thread, "role", None) == "reclaim":
+        if getattr(thread, "role", None) == "reclaim":
             if "FROM job" in statement and "FOR UPDATE" in statement:
-                reclaim_locked.set()  # 回收方持有 Job，等采集尝试取得同一把锁。
-                assert collect_lock_attempt.wait(10), "采集未尝试锁 Job"
+                reclaim_scanned.set()
+                if winner == "reclaim":
+                    reclaim_locked.set()  # 回收方持有 Job，等采集尝试取得同一把锁。
+                    assert collect_lock_attempt.wait(10), "采集未尝试锁 Job"
 
     def snapshot():
+        with session_scope() as session:
+            session.get(Job, job_id).started_at = utcnow() - timedelta(minutes=5)
         thread.finishing = True
         snapshot_ready.set()
         if winner == "reclaim":
@@ -397,7 +372,7 @@ def test_collection_and_reclaimer_lock_job_first_without_deadlock(factory, monke
 
     def apply_snapshot(*args):
         if winner == "collect":
-            assert reclaim_update.wait(10), "回收方未尝试更新 Job"
+            assert reclaim_scanned.wait(10), "回收方未完成 SKIP LOCKED 扫描"
         return apply(*args)
 
     def run_collect():
@@ -407,8 +382,6 @@ def test_collection_and_reclaimer_lock_job_first_without_deadlock(factory, monke
     def run_reclaim():
         thread.role = "reclaim"
         assert snapshot_ready.wait(10), "采集未读取快照"
-        with session_scope() as session:
-            session.get(Job, job_id).started_at = utcnow() - timedelta(minutes=5)
         return jobs.abandoned_jobs(older_than_seconds=60)
 
     monkeypatch.setattr(

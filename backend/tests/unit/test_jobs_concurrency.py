@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from avelis import db, jobs
 from avelis.cache import LockBusy
@@ -120,14 +121,27 @@ class JobSession:
     def __init__(self, job):
         self.job = job
         self.statements = []
+        self.selects = []
+
+    def matches(self, statement):
+        for predicate in statement._where_criteria:
+            actual = getattr(self.job, predicate.left.name)
+            if predicate.operator is operator.eq:
+                matched = actual == predicate.right.value
+            elif predicate.operator is operator.lt:
+                matched = actual < predicate.right.value
+            else:
+                assert predicate.operator.__name__ == "in_op"
+                matched = actual in predicate.right.value
+            if not matched:
+                return False
+        return True
 
     def apply_update(self, statement):
         self.statements.append(statement)
         compiled = statement.compile()
-        for predicate in statement._where_criteria:
-            assert predicate.operator in (operator.eq, operator.lt)
-            if not predicate.operator(getattr(self.job, predicate.left.name), predicate.right.value):
-                return 0
+        if not self.matches(statement):
+            return 0
         for field in ("status", "started_at", "finished_at", "error", "result"):
             if field in compiled.params:
                 setattr(self.job, field, compiled.params[field])
@@ -146,7 +160,9 @@ class JobSession:
         return SimpleNamespace(rowcount=applied)
 
     def scalars(self, statement):
-        return [self.job.id] if self.apply_update(statement) else []
+        assert statement.is_select
+        self.selects.append(statement)
+        return [self.job.id] if self.matches(statement) else []
 
     def get(self, kind, job_id):
         assert kind is Job and job_id == self.job.id
@@ -241,17 +257,23 @@ def test_slow_worker_cannot_overwrite_abandoned_or_newer_attempt(
     assert session.job.result != {"run_id": "late-run"}
 
 
-def test_abandoned_jobs_uses_single_conditional_update(job_session):
+def test_abandoned_jobs_locks_in_id_order_before_conditional_update(job_session):
     session, now = job_session
     session.job.status = "running"
     session.job.started_at = now[0] - timedelta(seconds=60)
     assert jobs.abandoned_jobs(older_than_seconds=30) == ["job-id"]
     assert len(session.statements) == 1 and session.job.status == "failed"
+    locked = session.selects[0].compile(dialect=postgresql.dialect())
+    assert "ORDER BY job.id FOR UPDATE SKIP LOCKED" in str(locked)
+    assert locked.params["status_1"] == "running"
+    assert locked.params["started_at_1"] == now[0] - timedelta(seconds=30)
     compiled = session.statements[0].compile()
     assert str(compiled).startswith("UPDATE job SET ") and "RETURNING job.id" in str(compiled)
+    assert compiled.params["id_1"] == ["job-id"]
     assert compiled.params["status_1"] == "running"
     assert compiled.params["started_at_1"] == now[0] - timedelta(seconds=30)
     assert jobs.abandoned_jobs(older_than_seconds=30) == []
+    assert len(session.statements) == 1
 
 
 class ScheduleSession:

@@ -201,13 +201,26 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
     cutoff = utcnow() - timedelta(seconds=older_than_seconds)
     reason = f"运行超过 {older_than_seconds} 秒未结束，执行它的 worker 可能已退出；未自动重跑"
     with session_scope() as session:
-        rows = list(
-            session.execute(
-                update(Job)
+        # 先按固定顺序锁定超时任务；跳过其他收尾事务持有的 Job，下一轮再回收。
+        locked_ids = list(
+            session.scalars(
+                select(Job.id)
                 .where(Job.status == "running", Job.started_at < cutoff)
-                .values(status="failed", finished_at=utcnow(), error=reason)
-                .returning(Job.id, Job.kind, Job.payload, Job.result)
+                .order_by(Job.id)
+                .with_for_update(skip_locked=True)
             )
+        )
+        rows = (
+            list(
+                session.execute(
+                    update(Job)
+                    .where(Job.id.in_(locked_ids), Job.status == "running", Job.started_at < cutoff)
+                    .values(status="failed", finished_at=utcnow(), error=reason)
+                    .returning(Job.id, Job.kind, Job.payload, Job.result)
+                )
+            )
+            if locked_ids
+            else []
         )
         for job_id, kind, _, _ in rows:  # 关联的分析运行一并处理：未结束的终结，已结束的按运行终态修正 Job
             if kind in ANALYSIS_KINDS:
@@ -220,11 +233,13 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
         # 待收尾标记与超时终态一起提交；独立收尾失败后，下轮仍能找到它。
         pending = list(
             session.execute(
-                select(Job.id, Job.kind, Job.payload, Job.result, Job.error).where(
+                select(Job.id, Job.kind, Job.payload, Job.result, Job.error)
+                .where(
                     Job.status == "failed",
                     Job.kind.in_(("collect", "import")),
                     Job.result["abandoned_governance"].as_string() == "pending",
                 )
+                .order_by(Job.id)
             )
         )
     ids = [row[0] for row in rows]
@@ -258,6 +273,8 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             return
         # 与采集/导入统一先锁 Job，再写 CollectionRun/ImportBatch，避免反向加锁死锁。
         # 标记、业务终态、审计和发件箱必须一起提交或一起回滚。
+        # pending 快照可能来自较早一次扫描，关联对象必须以加锁后的 Job 为准。
+        kind, payload, result = job.kind, job.payload, job.result
         job.result = {**(job.result or {}), "abandoned_governance": "done"}
         if kind == "collect":
             datasource_id = payload.get("datasource_id")
@@ -294,6 +311,8 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             elif imported is not None:
                 return
             event_type, object_type = "lineage_import.failed", "import_batch"
+        if events.failure_already_recorded(session, event_type, object_id, job_id, job.attempts):
+            return
         events.record_failure(
             session,
             job.created_by,
@@ -303,6 +322,7 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             error_code="WORKER_ABANDONED",
             error_reason="后台任务运行超时",
             job_id=job_id,
+            attempt=job.attempts,
         )
 
 
