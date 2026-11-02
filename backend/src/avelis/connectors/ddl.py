@@ -165,6 +165,8 @@ def _kw(t: Token | None, *words: str) -> bool:
 
 
 def _same(token: Token, name: str, fold: str) -> bool:
+    if fold == "insensitive":  # MySQL / StarRocks：引用列名同样不区分大小写
+        return token.text.lower() == name.lower()
     if token.quoted or fold == "exact":
         return token.text == name
     if fold == "lower":  # PostgreSQL：不带引号的标识符折成小写

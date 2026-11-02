@@ -11,13 +11,15 @@
 确定在窗口内 = 生效时间在 (P_done + 容差, C_start − 容差)；
 落在两次快照读取期间（± 容差）的语句只算“边界候选”；
 可能异步生效的语句（may_lag）在上次快照前 lag 秒内也算。连接器能按事务可见性判断的（PostgreSQL 记录了
-两次快照），以连接器的判断为准。对象名按数据库目录的真实写法精确匹配（区分大小写）。
+两次快照），以连接器的判断为准。对象名默认按数据库目录写法精确匹配；
+连接器明确声明库表名不区分大小写时，归因索引遵从该规则，列名另按引擎规则比较。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from time import monotonic, sleep
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -119,7 +121,8 @@ def _attribute(
         return {"status": "unavailable", "source": source, "cause": "instance_changed", "reason": reason}
     slack = timedelta(seconds=get_settings().ddl_audit_slack_seconds)
     lag = timedelta(seconds=getattr(connector, "ddl_effect_lag_seconds", 0))
-    since, until = window.previous_start - slack - lag, window.current_done + slack
+    audit_lag = timedelta(seconds=getattr(connector, "ddl_audit_lag_seconds", 0))
+    since, until = window.previous_start - slack - max(lag, audit_lag), window.current_done + slack
     certain_from, certain_to = window.previous_done + slack, window.current_start - slack
     basis_window = {
         "since": since.isoformat(),
@@ -128,10 +131,27 @@ def _attribute(
         "certain_to": certain_to.isoformat(),
         "slack_seconds": int(slack.total_seconds()),
         "effect_lag_seconds": int(lag.total_seconds()),
+        "audit_lag_seconds": int(audit_lag.total_seconds()),
+        "audit_wait_seconds": 0.0,
         "source": source,
         "by_transaction": bool(window.previous_cursor and window.current_cursor),
     }
     try:
+        if audit_lag > timedelta(0):
+            # 确定窗口截止于 current_start − slack；等窗口内最后一条 DDL 写盘，不从快照完成时重新计时。
+            wait_seconds = min(
+                audit_lag.total_seconds(),
+                max(
+                    0.0,
+                    (
+                        window.current_start + audit_lag - datetime.now(timezone.utc).replace(tzinfo=None)
+                    ).total_seconds(),
+                ),
+            )
+            if wait_seconds > 0:
+                started = monotonic()
+                sleep(wait_seconds)
+                basis_window["audit_wait_seconds"] = monotonic() - started
         audit_events = connector.ddl_events(since, until, cursors=(window.previous_cursor, window.current_cursor))
     except Exception as exc:  # noqa: BLE001 - 读取审计失败只影响归因，不让采集失败
         cause = exc.cause if isinstance(exc, AuditUnavailable) else "error"
@@ -170,10 +190,11 @@ def _attribute(
         return placement(a) == "certain"
 
     fold = getattr(connector, "ddl_identifier_fold", "exact")
+    object_fold = getattr(connector, "ddl_object_fold", "exact")
     by_object: dict[tuple[str, str], list[DdlEvent]] = {}
     for a in audit_events:
         for db, name in a.objects:
-            by_object.setdefault((db or "", name or ""), []).append(a)
+            by_object.setdefault(_object_key(db or "", name or "", object_fold), []).append(a)
     for e in events:
         if e["kind"] in DERIVED:
             _set(e, "not_applicable", reason="推导出的变化，不是对该对象执行的 DDL")
@@ -185,7 +206,7 @@ def _attribute(
             if asset is not None and asset.catalog_name != audit_catalog:
                 _set(e, "unsupported", source=source, reason=gettext("DDL 审计来源不覆盖此 Catalog，无法归因"))
                 continue
-            _attribute_one(session, e, by_object, source, basis_window, fold, certain)
+            _attribute_one(session, e, by_object, source, basis_window, fold, certain, object_fold)
         except Exception as exc:  # noqa: BLE001 - 单个事件归因出错：如实记为未知，不影响其他事件与采集
             _set(
                 e,
@@ -198,6 +219,10 @@ def _attribute(
     return {"status": "ok", "source": source, "window": basis_window, "audit_events": len(audit_events)}
 
 
+def _object_key(db: str, name: str, fold: str) -> tuple[str, str]:
+    return (db.lower(), name.lower()) if fold == "insensitive" else (db, name)
+
+
 def _attribute_one(
     session: Session,
     e: dict[str, Any],
@@ -206,11 +231,15 @@ def _attribute_one(
     basis_window: dict[str, Any],
     fold: str,
     certain,
+    object_fold: str = "exact",
 ) -> None:
     """一个直接变更事件的归因。"""
     asset = session.get(Asset, e["asset_id"]) if e.get("asset_id") else None
     names = _names_of(e, asset)
-    candidates = sorted({id(a): a for n in names for a in by_object.get(n, [])}.values(), key=lambda a: a.at)
+    candidates = sorted(
+        {id(a): a for db, name in names for a in by_object.get(_object_key(db, name, object_fold), [])}.values(),
+        key=lambda a: a.at,
+    )
     basis: dict[str, Any] = {"source": source, "window": basis_window, "objects": sorted(".".join(n) for n in names)}
     if not candidates:
         _set(

@@ -85,6 +85,8 @@ class SqlServerConnector:
     is_test_adapter = False
     ddl_audit_source = "sqlserver:default_trace"
     ddl_identifier_fold = "exact"
+    # 默认跟踪先缓冲再写盘；实机约 2 秒仍可能缺记录、6 秒后稳定，读取前最多等 10 秒（非保证）。
+    ddl_audit_lag_seconds = 10
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -240,9 +242,11 @@ class SqlServerConnector:
 
         对象事件没有 SQL 文本，statement 留空：沿用 column_refs 的 unknown，列归因为 ambiguous。
         当前目录只能恢复候选模式，不能确认对象在事件发生时属于该模式（ALTER SCHEMA TRANSFER 不换对象 ID）。
-        因此有候选对象时也不能确认归因；尤其 DROP、改名或 ID 已复用时不映射对象，归因会 unmatched。
+        因此有候选对象时也不能确认归因；尤其 DROP、改名或 ID 已复用时不映射对象，
+        超出写盘滞后容差后无候选归因为 unmatched。
         """
-        schemas = set(_checked(list(self.options.get("schemas", [])), "模式"))
+        schemas = _checked(list(self.options.get("schemas", [])), "模式")
+        schema_filter = f"s.name IN ({_in_list(schemas)})" if schemas else "1 = 0"
         conn = None
         try:
             conn = self._connect(timeout=60)
@@ -288,7 +292,7 @@ class SqlServerConnector:
                 "LEFT JOIN sys.objects AS o ON t.EventClass <> 47 AND o.object_id = t.ObjectID "
                 "AND o.name = t.ObjectName AND o.create_date <= t.StartTime "
                 "AND ((t.ObjectType = 8277 AND o.type = 'U') OR (t.ObjectType = 8278 AND o.type = 'V')) "
-                "LEFT JOIN sys.schemas AS s ON s.schema_id = o.schema_id "
+                f"LEFT JOIN sys.schemas AS s ON s.schema_id = o.schema_id AND {schema_filter} "
                 "WHERE t.EventClass IN (46, 47, 164) AND t.EventSubClass = 1 "
                 "AND t.ObjectType IN (8277, 8278) AND t.DatabaseName = %s "
                 "AND t.StartTime >= %s AND t.StartTime <= %s ORDER BY t.StartTime",
@@ -306,12 +310,12 @@ class SqlServerConnector:
         events = []
         try:
             for row in rows:
-                # SQL 已过滤；再次防守，避免任何非 Commit、其他库或非表/视图事件进入归因。
+                # 库名和模式名由 SQL 按服务器 collation 过滤；Python 不再精确比较配置名。
+                # 保留对非 Commit 和非表/视图事件的防守。
                 if (
                     row["event_subclass"] != 1
                     or row["event_class"] not in (46, 47, 164)
                     or row["object_type"] not in (8277, 8278)
-                    or row["database_name"] != self.database
                 ):
                     continue
                 at, user, name = row["at_local"], row["db_user"], row["object_name"]
@@ -321,7 +325,7 @@ class SqlServerConnector:
                 if not since <= at <= until:
                     continue
                 schema = row["schema_name"] if row["event_class"] != 47 else None
-                objects = [(schema, name)] if schema and schema in schemas else []
+                objects = [(schema, name)] if schema else []
                 # Commit 只证明 DDL 已生效，不能证明历史模式成员关系。当前目录恢复的模式仅作候选：
                 # 沿用 certain=False 的保守路径阻止对象级 matched，at 仍保留来源事件的真实 UTC 时间。
                 # 此处的不确定性来自历史对象身份，不能把它解释为事件一定发生在时间窗口边界。
