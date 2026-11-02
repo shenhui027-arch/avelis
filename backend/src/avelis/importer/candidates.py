@@ -37,6 +37,11 @@ _URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
 _BRACKETS = {"(": ")", "[": "]", "{": "}"}
 _INLINE_SPACE = " \t\f\v"
 _STRING_PREFIXES = {"r", "u", "b", "f", "br", "rb", "fr", "rf"}
+_SQL_CONTEXT_TOKEN = re.compile(
+    r"--[^\r\n]*|/\*.*?(?:\*/|\Z)|'(?:''|[^'])*(?:'|\Z)|\"(?:\"\"|[^\"])*(?:\"|\Z)"
+    r"|\$\$.*?(?:\$\$|\Z)|[\w]+|[^\s]",
+    re.S,
+)
 
 
 class _SecretValueReader:
@@ -47,6 +52,8 @@ class _SecretValueReader:
         self.length = len(text)
         self._line_start = 0
         self._line_end = -1
+        self._sql_cursor = 0
+        self._sql_head: list[str] = []
 
     def line_end(self, start: int) -> int:
         if self._line_start <= start <= self._line_end:
@@ -145,7 +152,7 @@ class _SecretValueReader:
                 return end
         return None
 
-    def value_end(self, start: int, indent: int) -> int:
+    def value_end(self, start: int, indent: int, *, shell_quotes: bool = False) -> int:
         cursor = start
         if self.text[start] in ">|" and (end := self.yaml_end(start, indent)) is not None:
             return end
@@ -156,9 +163,15 @@ class _SecretValueReader:
         while cursor < self.length:
             char = self.text[cursor]
             if char in "\"'":
-                # foo'bar baz' 仍是 shell 拼接；user's choice 的撇号不能开启跨行值。
+                # 紧邻 = 的赋值允许 shell 跨行拼接；说明文字中的词内撇号只读本行。
                 limit = None
-                if char == "'" and cursor != literal_quote and cursor > start and self.text[cursor - 1].isalnum():
+                if (
+                    not shell_quotes
+                    and char == "'"
+                    and cursor != literal_quote
+                    and cursor > start
+                    and self.text[cursor - 1].isalnum()
+                ):
                     limit = self.line_end(cursor)
                 cursor = self.quote_end(cursor, limit)
                 quoted = True
@@ -197,9 +210,58 @@ class _SecretValueReader:
             cursor += 1
         return self.text[start:cursor].upper(), cursor
 
+    def sql_password_context(self, start: int) -> bool:
+        """增量读取语句头，避免每遇到 PASSWORD 都重新扫描整段 SQL。"""
+        for match in _SQL_CONTEXT_TOKEN.finditer(self.text, self._sql_cursor, start):
+            token = match[0]
+            if token.startswith(("--", "/*")):
+                continue
+            if token == ";":
+                self._sql_head.clear()
+            elif len(self._sql_head) < 2:
+                self._sql_head.append(token.upper())
+        self._sql_cursor = start
+        return (
+            len(self._sql_head) == 2
+            and self._sql_head[0] in {"CREATE", "ALTER"}
+            and self._sql_head[1] in {"USER", "ROLE"}
+        )
+
+    def sql_value_end(self, start: int, indent: int) -> int:
+        if self.text.startswith("$$", start):
+            closing = self.text.find("$$", start + 2)
+            return closing + 2 if closing >= 0 else self.length
+        # PostgreSQL E'...' 的引号也可跨行，不能按说明文字中的撇号处理。
+        return self.value_end(start, indent, shell_quotes=True)
+
     def sql_value_start(self, keyword: str, end: int, line_end: int) -> int | None:
         """SQL 关键字只确定值的入口，值本身仍由同一读取器处理。"""
         cursor = self.skip_space(end)
+        if keyword.upper() == "PASSWORD":
+            while cursor < self.length and self.text[cursor].isspace():
+                cursor += 1
+            if cursor == self.length:
+                return None
+            key_start = end - len(keyword)
+            # 引号包围的键和列名不是 SQL PASSWORD 关键字。
+            if key_start > 0 and self.text[key_start - 1] in "\"'":
+                return None
+            preceding = key_start
+            while preceding > 0 and self.text[preceding - 1] in _INLINE_SPACE:
+                preceding -= 1
+            word, _ = self.word(cursor)
+            if word == "NULL" or (preceding > 0 and self.text[preceding - 1] == "."):
+                return None
+            literal = (
+                self.text[cursor] in "\"'"
+                or self.text[cursor : cursor + 2].upper() == "E'"
+                or self.text.startswith("$$", cursor)
+            )
+            if not literal and (
+                cursor == end or self.text[cursor] in "=<>!:,;)]}" or not self.sql_password_context(key_start)
+            ):
+                return None
+            return cursor
         if cursor == end:
             return None
         if keyword.upper() == "IDENTIFIED":
@@ -305,7 +367,14 @@ def redact(text: str) -> tuple[str, int]:
                         pending_indent = indent
                     else:
                         value_start = start + position
-                        closing = reader.value_end(value_start, indent)
+                        separator_group = "cli_separator" if match["cli"] else "assignment_separator"
+                        separator = match.start(separator_group)
+                        shell_quotes = (
+                            match[separator_group] == "="
+                            and match.end() == separator + 1
+                            and line[separator - 1] not in _INLINE_SPACE
+                        )
+                        closing = reader.value_end(value_start, indent, shell_quotes=shell_quotes)
                         if closing > value_start:
                             quote = reader.quote(value_start)
                             cover(value_start, closing, quote + "<redacted>" + quote)
@@ -317,7 +386,7 @@ def redact(text: str) -> tuple[str, int]:
                         pending = True
                         pending_indent = indent
                     elif value_start is not None:
-                        closing = reader.value_end(value_start, indent)
+                        closing = reader.sql_value_end(value_start, indent)
                         if closing > value_start:
                             quote = reader.quote(value_start)
                             cover(value_start, closing, quote + "<redacted>" + quote)

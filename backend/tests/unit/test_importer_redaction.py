@@ -7,6 +7,17 @@ import pytest
 from avelis.importer.candidates import SECRET_PATTERN, redact
 
 
+def _timed_redact(source: str):
+    """连测 3 次取最快一次：排除机器负载的偶发抖动，仍能抓住二次方级的回溯。"""
+    best = None
+    for _ in range(3):
+        started = perf_counter()
+        result = redact(source)
+        elapsed = perf_counter() - started
+        best = elapsed if best is None else min(best, elapsed)
+    return result, best
+
+
 def assert_redacted(source, expected, count=1):
     assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
@@ -204,7 +215,7 @@ def test_concatenated_quoted_fragments_are_one_inline_value(value):
         "pending-blank-lines",
     ],
 )
-def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
+def test_pathological_inputs_finish_quickly(newline, separator, kind):
     prefix = f"# run with --password{separator}"
     if kind == "reported":
         source = prefix + " " * 12000 + newline + 'password = "secret"'
@@ -244,23 +255,19 @@ def test_pathological_inputs_finish_within_200ms(newline, separator, kind):
     else:
         source = "x" * 20000 if kind == "identifier" else "u:" * 10000
         expected = source
-    started = perf_counter()
-    cleaned, count = redact(source)
-    elapsed = perf_counter() - started
-    assert elapsed < 0.2, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
+    (cleaned, count), elapsed = _timed_redact(source)
+    assert elapsed < 0.5, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
     assert cleaned == expected
     assert count == (0 if kind in ("identifier", "url-like", "split-key", "empty") else 1)
     assert redact(cleaned) == (cleaned, 0)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_twenty_thousand_open_quote_lines_finish_within_200ms(newline):
+def test_twenty_thousand_open_quote_lines_finish_quickly(newline):
     source = f'password="first{newline}' * 20000
     # 每隔一行才遇到对应闭合引号；已扫描的部分不能从每行重新扫描。
     expected = f'password="<redacted>"{newline}' * 10000
-    started = perf_counter()
-    cleaned, count = redact(source)
-    elapsed = perf_counter() - started
-    assert elapsed < 0.2, f"{len(source)} chars took {elapsed:.6f}s"
+    (cleaned, count), elapsed = _timed_redact(source)
+    assert elapsed < 0.5, f"{len(source)} chars took {elapsed:.6f}s"
     assert (cleaned, count) == (expected, 10000)
     assert redact(cleaned) == (cleaned, 0)

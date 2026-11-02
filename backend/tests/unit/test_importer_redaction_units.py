@@ -7,6 +7,17 @@ import pytest
 from avelis.importer.candidates import redact
 
 
+def _timed_redact(source: str):
+    """连测 3 次取最快一次：排除机器负载的偶发抖动，仍能抓住二次方级的回溯。"""
+    best = None
+    for _ in range(3):
+        started = perf_counter()
+        result = redact(source)
+        elapsed = perf_counter() - started
+        best = elapsed if best is None else min(best, elapsed)
+    return result, best
+
+
 def assert_redacted(source: str, expected: str, count: int = 1) -> None:
     assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
@@ -235,7 +246,7 @@ def test_pending_values_expand_through_the_complete_syntax_unit(newline: str, va
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("kind", ["brackets", "yaml", "apostrophe", "repeated-apostrophes"])
-def test_pathological_syntax_units_finish_within_100ms(newline: str, kind: str) -> None:
+def test_pathological_syntax_units_finish_quickly(newline: str, kind: str) -> None:
     if kind == "brackets":
         source = "password = " + "(" * 20000 + f'{newline}"SYNTH"{newline}' + ")" * 20000
         source += f"{newline}public = 1"
@@ -249,20 +260,114 @@ def test_pathological_syntax_units_finish_within_100ms(newline: str, kind: str) 
     else:
         source = "password=" + "a'a'" * 20000 + f"{newline}public = 1"
         expected = f"password=<redacted>{newline}public = 1"
-    started = perf_counter()
-    actual = redact(source)
-    elapsed = perf_counter() - started
+    actual, elapsed = _timed_redact(source)
     assert elapsed < 0.5, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
     assert actual == (expected, 1)
     assert redact(expected) == (expected, 0)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_repeated_malformed_sql_plugins_finish_within_100ms(newline: str) -> None:
+def test_repeated_malformed_sql_plugins_finish_quickly(newline: str) -> None:
     source = "IDENTIFIED WITH (" * 2000 + f"{newline}SELECT 1;"
-    started = perf_counter()
-    actual = redact(source)
-    elapsed = perf_counter() - started
+    actual, elapsed = _timed_redact(source)
     assert elapsed < 0.5, f"{len(source)} chars took {elapsed:.6f}s"
     assert actual == (source, 0)
     assert redact(source) == (source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["password=", "TOKEN=", "--password=", "client --api-key="])
+@pytest.mark.parametrize("value", ["foo'bar\nSYNTH'", 'abc"x\nSYNTH"', "foo-'bar\nSYNTH'", "foo'bar\nSYNTH'tail"])
+def test_compact_assignments_mask_complete_multiline_shell_values(newline: str, prefix: str, value: str) -> None:
+    source = f"{prefix}{value}; public = 1\necho next".replace("\n", newline)
+    assert_redacted(source, f"{prefix}<redacted>; public = 1{newline}echo next")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("prefix", ["password=", "TOKEN=", "--password="])
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_compact_assignments_with_unclosed_inner_quotes_mask_to_end(newline: str, prefix: str, quote: str) -> None:
+    assert_redacted(f"{prefix}abc{quote}first{newline}SYNTH{newline}echo next", f"{prefix}<redacted>")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "prefix",
+    ["# password: ", "password:", "password = ", "password= ", "password =", "password\t=\t", "--password = "],
+)
+def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline: str, prefix: str) -> None:
+    assert_redacted(f"{prefix}user's choice{newline}import os", f"{prefix}<redacted>{newline}import os")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "SELECT password FROM users;",
+        "SELECT u.password, name FROM t WHERE password IS NOT NULL;",
+        "SELECT password IS NULL FROM users;",
+        "ORDER BY password",
+        "GROUP BY password",
+        "SELECT password > 1, password < 2, password != 3 FROM users;",
+        "SELECT password_hash, u.password_hash FROM users;",
+        'SELECT u.password "display_name" FROM users;',
+        'SELECT u. password "display_name" FROM users;',
+        'SELECT "password" FROM users;',
+        '"password" \n : \n "public"',
+        "PASSWORD NULL;",
+        "CREATE ROLE r PASSWORD NULL;",
+        "ALTER USER u WITH UNENCRYPTED PASSWORD NULL;",
+        "PASSWORD\nSELECT 1;",
+        "SELECT 1; PASSWORD SYNTH;",
+        "CREATE ROLE r; SELECT password FROM users;",
+        "-- CREATE ROLE r\nSELECT password FROM users;",
+        "SELECT 'CREATE ROLE r;'; PASSWORD SYNTH;",
+    ],
+)
+def test_sql_password_columns_and_null_are_preserved(newline: str, source: str) -> None:
+    source = source.replace("\n", newline)
+    assert_redacted(source, source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    ("clause", "expected"),
+    [
+        ("CREATE ROLE r PASSWORD 'SYNTH'", "CREATE ROLE r PASSWORD '<redacted>'"),
+        ("ALTER ROLE r WITH ENCRYPTED PASSWORD 'SYNTH'", "ALTER ROLE r WITH ENCRYPTED PASSWORD '<redacted>'"),
+        ("ALTER USER u PASSWORD 'SYNTH'", "ALTER USER u PASSWORD '<redacted>'"),
+        ("PASSWORD 'SYNTH'", "PASSWORD '<redacted>'"),
+        ("PASSWORD'SYNTH'", "PASSWORD'<redacted>'"),
+        ('PASSWORD "SYNTH"', 'PASSWORD "<redacted>"'),
+        ('PASSWORD"SYNTH"', 'PASSWORD"<redacted>"'),
+        ("PASSWORD E'SYNTH with space'", "PASSWORD <redacted>"),
+        ("PASSWORD e'first\nSYNTH'", "PASSWORD <redacted>"),
+        ("PASSWORD $$SYNTH with space$$", "PASSWORD <redacted>"),
+        ("PASSWORD$$SYNTH with space$$", "PASSWORD<redacted>"),
+        ("PASSWORD $$first\nSYNTH$$", "PASSWORD <redacted>"),
+        ("PASSWORD\n  'SYNTH'", "PASSWORD\n  '<redacted>'"),
+        ("CREATE ROLE r PASSWORD SYNTH", "CREATE ROLE r PASSWORD <redacted>"),
+        ("ALTER USER u WITH UNENCRYPTED PASSWORD SYNTH", "ALTER USER u WITH UNENCRYPTED PASSWORD <redacted>"),
+        (
+            "CREATE\nROLE r WITH LOGIN ENCRYPTED PASSWORD SYNTH",
+            "CREATE\nROLE r WITH LOGIN ENCRYPTED PASSWORD <redacted>",
+        ),
+        ('ALTER ROLE "name;quoted" WITH PASSWORD SYNTH', 'ALTER ROLE "name;quoted" WITH PASSWORD <redacted>'),
+        ("/* heading; */ ALTER USER u PASSWORD SYNTH", "/* heading; */ ALTER USER u PASSWORD <redacted>"),
+        ("UPDATE users SET password = 'SYNTH'", "UPDATE users SET password = '<redacted>'"),
+        ("ALTER USER u IDENTIFIED BY SYNTH", "ALTER USER u IDENTIFIED BY <redacted>"),
+        ("ALTER USER u IDENTIFIED WITH plugin BY SYNTH", "ALTER USER u IDENTIFIED WITH plugin BY <redacted>"),
+    ],
+)
+def test_sql_password_credentials_remain_redacted(newline: str, clause: str, expected: str) -> None:
+    source = f"{clause};\nSELECT password FROM users;".replace("\n", newline)
+    expected = f"{expected};\nSELECT password FROM users;".replace("\n", newline)
+    assert_redacted(source, expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_repeated_sql_password_columns_keep_linear_context_scanning(newline: str) -> None:
+    source = f"SELECT password FROM users;{newline}" * 2000
+    actual, elapsed = _timed_redact(source)
+    assert elapsed < 0.5, f"{len(source)} chars took {elapsed:.6f}s"
+    assert actual == (source, 0)
