@@ -27,7 +27,14 @@ export function McpPage() {
     { params: { path: { client_record_id: id } } })), ["oauth-authorizations", "oauth-clients"]);
   // 服务未开启时 OAuth 与 MCP 端点都返回 404
   const disabled = mine.error instanceof ApiError && mine.error.status === 404;
-  const endpoint = `${window.location.origin}/mcp`;
+  // 连接地址以服务端声明的资源 URI 为准（RFC 9728 元数据里的 resource，即对外地址 + /mcp）；令牌只接受这个精确地址
+  const resource = useQuery({ queryKey: ["mcp-resource"], enabled: !disabled, retry: false, staleTime: Infinity,
+    queryFn: async () => {
+      const resp = await fetch("/.well-known/oauth-protected-resource/mcp");
+      if (!resp.ok) throw new Error(String(resp.status));
+      return (await resp.json()) as { resource: string };
+    } });
+  const endpoint = resource.data?.resource ?? `${window.location.origin}/mcp`;
 
   return (
     <div className="av-fill">
