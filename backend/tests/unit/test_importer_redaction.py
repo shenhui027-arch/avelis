@@ -164,22 +164,22 @@ def test_bare_cli_flag_and_unrelated_assignments_keep_line_boundaries(newline):
     assert_redacted(source, f'password=<redacted>{newline}public = "second"{newline}token=<redacted>', 2)
 
 
-def test_url_and_standalone_keys_keep_existing_rules_and_counts():
+def test_url_and_standalone_keys_count_syntax_redactions_and_line_fallback():
     source = (
         'jdbc:mysql://user:one@host/db /user:two@host "user:three@host" '
         "AKIA1234567890ABCDEF sk-1234567890abcdefghijklmnop"
     )
-    expected = 'jdbc:<redacted>@host/db /user:<redacted>@host "user:<redacted>@host" <redacted> <redacted>'
-    assert_redacted(source, expected, 5)
+    # 第一层命中五次；剩余 URL 的 @ 触发兜底，再按整行计一次。
+    assert_redacted(source, "jdbc:<redacted>", 6)
 
 
 @pytest.mark.parametrize("prefix", ["", ":", "::", "/", "//", "text: ", "=", "("])
-def test_url_credentials_keep_arbitrary_surrounding_text(prefix):
-    assert_redacted(prefix + "user:credential@host", prefix + "user:<redacted>@host")
+def test_url_credentials_keep_prefix_and_mask_the_remaining_line(prefix):
+    assert_redacted(prefix + "user:credential@host", prefix + "user:<redacted>", 2)
 
 
 def test_secret_named_url_user_is_idempotent():
-    assert_redacted("password:#credential@host", "password:<redacted>@host")
+    assert_redacted("password:#credential@host", "password:<redacted>", 2)
 
 
 @pytest.mark.parametrize(

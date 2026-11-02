@@ -404,7 +404,7 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
             <Switch label={t("发送查询结果")} checked={policy.send_results} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_results: v })} />
           </div>
           <div className="av-toggle-row">
-            <span className="av-toggle-row__text"><span>{t("发送代码片段")} <Hint text={t("未能解析的脱敏代码发给导入血缘推断模型；关闭时使用演示规则")} /></span></span>
+            <span className="av-toggle-row__text"><span>{t("发送代码片段")} <Hint text={t("未能解析的代码脱敏后发给导入血缘推断模型；脱敏是尽力而为，敏感环境请使用本地模型；关闭时使用演示规则")} /></span></span>
             <Switch label={t("发送代码片段")} checked={policy.send_code} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_code: v })} />
           </div>
           <p className="av-caption av-models__policy-note"><Icon name="shield" small />{t("默认发送查询结果与代码片段，分析模式需要它们；需保密请接入本地模型（OpenAI 兼容接口）")}</p>

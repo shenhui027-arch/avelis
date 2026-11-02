@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -46,18 +47,25 @@ _SQL_STRUCTURE_WORDS = frozenset(
     "UNION JOIN LEFT RIGHT INNER OUTER WHEN THEN ELSE END SET VALUES INTO RETURNING DISABLE".split()
 )
 _SQL_STRUCTURE_SYMBOLS = ",);=<>!.+-*/|%:"
+_LINE_SECRET_PATTERN = re.compile(rf"{SECRET_PATTERN.pattern}|(?P<bare_key>(?<![\w-]){_SECRET_KEY}(?![\w-]))", re.I)
+_MASKED_VALUE_PATTERN = re.compile(r"(?P<quote>\"\"\"|'''|\"|')?<redacted>(?(quote)(?P=quote))")
+_LINE_SUSPICIOUS_PATTERN = re.compile(r"['\"@]|:\S")
+_FALLBACK_MAX_LINES = 20
 
 
 class _SecretValueReader:
     """只读取值的语法边界；游标单向推进，嵌套括号不用递归。"""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, *, cache_pairs: bool = False):
         self.text = text
         self.length = len(text)
         self._line_start = 0
         self._line_end = -1
         self._quote_cursor = 0
         self._host_quote = ""
+        self._quote_ends: dict[tuple[int, int], int] | None = {} if cache_pairs else None
+        self._bracket_ends: dict[int, int] | None = {} if cache_pairs else None
+        self._pending_ends: dict[tuple[int, int, int, bool], int] | None = {} if cache_pairs else None
 
     def host_string_end(self, start: int) -> bool:
         """单向跟踪宿主引号；只有紧跟宿主代码的闭合引号才排除，歧义默认遮蔽。"""
@@ -98,19 +106,29 @@ class _SecretValueReader:
     def quote_end(self, start: int, limit: int | None = None) -> int:
         quote = self.quote(start)
         stop = self.length if limit is None else limit
+        if self._quote_ends is not None and (end := self._quote_ends.get((start, stop))) is not None:
+            return end
         cursor = start + len(quote)
         while cursor < stop:
             if self.text[cursor] == "\\":
                 cursor = min(cursor + 2, stop)
             elif self.text.startswith(quote, cursor):
-                return cursor + len(quote)
+                end = cursor + len(quote)
+                if self._quote_ends is not None:
+                    self._quote_ends[start, stop] = end
+                return end
             else:
                 cursor += 1
         # 未闭合的起始引号覆盖到全文末尾；词内撇号只读本行。
+        if self._quote_ends is not None:
+            self._quote_ends[start, stop] = stop
         return stop
 
     def bracket_end(self, start: int) -> int:
+        if self._bracket_ends is not None and (end := self._bracket_ends.get(start)) is not None:
+            return end
         closing = [_BRACKETS[self.text[start]]]
+        openings = [start]
         cursor = start + 1
         while cursor < self.length:
             char = self.text[cursor]
@@ -122,14 +140,21 @@ class _SecretValueReader:
                 cursor = self.line_end(cursor)
             elif char in _BRACKETS:
                 closing.append(_BRACKETS[char])
+                openings.append(cursor)
                 cursor += 1
             elif char == closing[-1]:
                 closing.pop()
+                opening = openings.pop()
                 cursor += 1
+                if self._bracket_ends is not None:
+                    self._bracket_ends[opening] = cursor
                 if not closing:
                     return cursor
             else:
                 cursor += 1
+        if self._bracket_ends is not None:
+            for opening in openings:
+                self._bracket_ends[opening] = self.length
         return self.length
 
     def yaml_end(self, start: int, indent: int) -> int | None:
@@ -234,16 +259,26 @@ class _SecretValueReader:
                 cursor += 1
         return cursor
 
-    def pending_end(self, start: int, end: int, indent: int) -> int:
+    def pending_end(self, start: int, end: int, indent: int, *, shell_quotes: bool = False) -> int:
         """空赋值后的整行遮蔽延伸到该行所有跨行单元的闭合行。"""
         cursor = start
+        states = []
         while cursor < end:
+            if self._pending_ends is not None:
+                state = cursor, end, indent, shell_quotes
+                if (cached := self._pending_ends.get(state)) is not None:
+                    end = cached
+                    break
+                states.append(state)
             if self.text[cursor] in _INLINE_SPACE + ",;)]}":
                 cursor += 1
                 continue
-            cursor = max(cursor + 1, self.value_end(cursor, indent))
+            cursor = max(cursor + 1, self.value_end(cursor, indent, shell_quotes=shell_quotes))
             if cursor > end:
                 end = self.line_end(cursor)
+        if self._pending_ends is not None:
+            for state in states:
+                self._pending_ends[state] = end
         return end
 
     def word(self, start: int) -> tuple[str, int]:
@@ -319,24 +354,10 @@ class _SecretValueReader:
             return None
         cursor = self.skip_space(end)
         if keyword.upper() == "PASSWORD":
-            while cursor < self.length and self.text[cursor].isspace():
-                cursor += 1
-            if cursor == self.length:
-                return None
-            # 必须是关键字自身被同类引号包住；前一个标识符的闭合引号不算。
-            quotes = {'"': '"', "'": "'", "`": "`", "[": "]"}
-            if key_start > 0 and quotes.get(self.text[key_start - 1]) == self.text[end : end + 1]:
-                return None
-            word, _ = self.word(cursor)
-            if word in _SQL_STRUCTURE_WORDS:
+            cursor = self.password_value_start(end)
+            if cursor is None:
                 return None
             char = self.text[cursor]
-            # :name / %(name)s 是值；:: 类型转换及独立符号仍属于结构。
-            placeholder = (char == ":" and self.text[cursor + 1 : cursor + 2].isidentifier()) or self.text.startswith(
-                "%(", cursor
-            )
-            if char in _SQL_STRUCTURE_SYMBOLS and not placeholder:
-                return None
             if char in "\"'" and self.host_string_end(cursor):
                 return None
             return cursor
@@ -370,6 +391,34 @@ class _SecretValueReader:
             return cursor
         return cursor if cursor == line_end and keyword.upper() == "IDENTIFIED" else None
 
+    def password_value_start(self, end: int, *, masked_values: bool = False) -> int | None:
+        """仅排除列引用结构；宿主引号是否闭合由调用层决定。"""
+        key_start = end - len("PASSWORD")
+        if key_start >= 2 and self.text[key_start - 2 : key_start] == "--":
+            return None
+        cursor = end
+        while cursor < self.length and self.text[cursor].isspace():
+            cursor += 1
+        if cursor == self.length:
+            return None
+        quotes = {'"': '"', "'": "'", "`": "`", "[": "]"}
+        if key_start > 0 and quotes.get(self.text[key_start - 1]) == self.text[end : end + 1]:
+            return None
+        if masked_values and _MASKED_VALUE_PATTERN.match(self.text, cursor):
+            return cursor
+        return None if self.sql_structure(cursor) else cursor
+
+    def sql_structure(self, start: int) -> bool:
+        """两层共用 PASSWORD 的结构排除规则；占位参数仍按凭据处理。"""
+        word, _ = self.word(start)
+        if word in _SQL_STRUCTURE_WORDS:
+            return True
+        char = self.text[start]
+        placeholder = (char == ":" and self.text[start + 1 : start + 2].isidentifier()) or self.text.startswith(
+            "%(", start
+        )
+        return char in _SQL_STRUCTURE_SYMBOLS and not placeholder
+
 
 def _url_password_ends(line: str) -> list[int]:
     """每个片段只扫描一次，不能为每个冒号重新搜索整段密码。"""
@@ -398,7 +447,7 @@ def _logical_text(text: str) -> tuple[str, list[int]]:
     return "".join(parts), offsets
 
 
-def redact(text: str) -> tuple[str, int]:
+def _redact_units(text: str) -> tuple[str, int]:
     logical, offsets = _logical_text(text)
     reader = _SecretValueReader(logical)
     edits: list[tuple[int, int, str]] = []
@@ -498,6 +547,188 @@ def redact(text: str) -> tuple[str, int]:
         cursor = end
     parts.append(text[cursor:])
     return "".join(parts), len(edits)
+
+
+class _FallbackLexer:
+    """单向读取完整行；引号内的括号和注释中的标点不参与配对。"""
+
+    def __init__(self, quote: str = "", quote_start: int = -1):
+        self.quote = quote
+        self.quote_start = quote_start
+        self.closing: list[tuple[str, int]] = []
+
+    def scan(self, text: str, start: int, end: int) -> int:
+        cursor = start
+        continued = -1
+        while cursor < end:
+            char = text[cursor]
+            if char == "\\":
+                if cursor + 1 == end:
+                    continued = cursor
+                cursor += 2
+            elif self.quote:
+                if text.startswith(self.quote, cursor):
+                    cursor += len(self.quote)
+                    self.quote = ""
+                    self.quote_start = -1
+                else:
+                    cursor += 1
+            elif char in "\"'":
+                self.quote = char * 3 if text.startswith(char * 3, cursor) else char
+                self.quote_start = cursor
+                cursor += len(self.quote)
+            elif char == "#":
+                break
+            elif char in _BRACKETS:
+                self.closing.append((_BRACKETS[char], cursor))
+                cursor += 1
+            else:
+                if self.closing and char == self.closing[-1][0]:
+                    self.closing.pop()
+                cursor += 1
+        return max(self.quote_start, self.closing[-1][1] if self.closing else -1, continued)
+
+
+def _fallback_line_contexts(text: str) -> tuple[list[int], list[tuple[str, int]]]:
+    """只为跨行三引号保留行首上下文，普通行不继承别行残留的宿主语法。"""
+    ends: list[int] = []
+    contexts: list[tuple[str, int]] = []
+    lexer = _FallbackLexer()
+    start = 0
+    while start <= len(text):
+        newline = text.find("\n", start)
+        stop = newline if newline >= 0 else len(text)
+        end = stop - 1 if stop > start and text[stop - 1] == "\r" else stop
+        ends.append(end)
+        contexts.append((lexer.quote, lexer.quote_start))
+        lexer.scan(text, start, end)
+        if len(lexer.quote) != 3:
+            lexer.quote = ""
+            lexer.quote_start = -1
+        lexer.closing.clear()
+        if newline < 0:
+            break
+        start = stop + 1
+    return ends, contexts
+
+
+def _redact_lines(text: str) -> tuple[str, int]:
+    """对第一层的剩余文本兜底；遇到歧义遮整行，不再猜测宿主语法。"""
+    logical, offsets = _logical_text(text)
+    reader = _SecretValueReader(logical)
+    line_ends, contexts = _fallback_line_contexts(text)
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while start < len(logical):
+        end = reader.line_end(start)
+        if spans and end <= spans[-1][1]:
+            # 已覆盖的行不另起一次延伸，避免重叠范围把 20 行上限串成全文。
+            start = end + (2 if logical.startswith("\r\n", end) else 1)
+            continue
+        line = logical[start:end]
+        position = 0
+        url_ends = _url_password_ends(line)
+        while match := _LINE_SECRET_PATTERN.search(line, position):
+            position = match.end()
+            value_start = start + position
+            if match["user"] is not None:
+                if url_ends[match.start()] <= position:
+                    continue
+            elif match["sql"] is not None:
+                keyword = match["sql"]
+                if keyword.upper() == "PASSWORD":
+                    value = reader.password_value_start(value_start, masked_values=True)
+                    if value is None:
+                        continue
+                    # 仅保留明确的宿主拼接结构；不使用会被注释污染的全局引号状态。
+                    if (
+                        value < end
+                        and logical[value] in "\"'"
+                        and logical[value + len(reader.quote(value)) : end].lstrip(_INLINE_SPACE).startswith("+")
+                        and not _LINE_SUSPICIOUS_PATTERN.search(logical[value + len(reader.quote(value)) : end])
+                    ):
+                        continue
+                else:
+                    value = reader.sql_value_start(keyword, value_start, end)
+                    if value is None:
+                        continue
+                    value_start = value
+            elif match["prefix"] is not None:
+                # password::text 是列转换；password: :value 则是 YAML 值。
+                if (
+                    match["key"].upper() == "PASSWORD"
+                    and match["assignment_separator"] == ":"
+                    and line[position : position + 1] == ":"
+                    and match.end() == match.start("assignment_separator") + 1
+                    and url_ends[match.start()] <= position
+                ):
+                    continue
+            elif (
+                match["bare_key"] is not None
+                and match.start() > 0
+                and line[match.start() - 1] in "\"'"
+                and line[position:].strip() == line[match.start() - 1]
+            ):
+                # 引号内只有键名而没有值，不把闭合引号变成一个新值。
+                continue
+            if value_start >= end or not logical[value_start:end].strip():
+                continue
+            remaining = logical[value_start:end]
+            unmasked = _MASKED_VALUE_PATTERN.sub("<redacted>", remaining)
+            masked = _MASKED_VALUE_PATTERN.match(remaining.lstrip(_INLINE_SPACE)) is not None
+            suspicious = _LINE_SUSPICIOUS_PATTERN.search(unmasked) is not None
+            if masked and not suspicious and not any(char in unmasked for char in _BRACKETS):
+                # 已检查第一处关键字后的全部文本，无需为每个后续键重扫同一后缀。
+                break
+            # 词法扫描从行首开始，不能把关键字后的闭合引号当成值的起点。
+            physical_line = bisect_left(line_ends, offsets[value_start])
+            limit = min(physical_line + _FALLBACK_MAX_LINES - 1, len(line_ends) - 1)
+            last_line = bisect_left(line_ends, offsets[start])
+            lexer = _FallbackLexer(*contexts[last_line])
+            scan_start = offsets[start]
+            while True:
+                pending = lexer.scan(text, scan_start, line_ends[last_line])
+                # 已处理的值，不能被起点之前的宿主引号/括号重新触发跨行读取。
+                threshold = offsets[value_start] if masked else 0
+                if (
+                    masked
+                    and lexer.quote_start >= threshold
+                    and not text[lexer.quote_start + len(lexer.quote) : line_ends[last_line]].strip(
+                        _INLINE_SPACE + ")]},;"
+                    )
+                ):
+                    # 已遮蔽值后的空引号及闭合标点可能是第一层留下的宿主结尾。
+                    pending = lexer.closing[-1][1] if lexer.closing else -1
+                if last_line >= physical_line and (pending < threshold or last_line >= limit):
+                    break
+                scan_start = line_ends[last_line] + (2 if text.startswith("\r\n", line_ends[last_line]) else 1)
+                last_line += 1
+            original_end = line_ends[last_line]
+            mask_end = bisect_left(offsets, original_end)
+            if spans and value_start <= spans[-1][1]:
+                spans[-1] = spans[-1][0], max(spans[-1][1], mask_end)
+            else:
+                spans.append((value_start, mask_end))
+            break
+        if spans and spans[-1][1] == len(logical):
+            break
+        start = end + (2 if logical.startswith("\r\n", end) else 1)
+    parts: list[str] = []
+    original_cursor = count = 0
+    for start, end in spans:
+        original_start = offsets[start]
+        original_end = offsets[end - 1] + 1
+        parts.extend((text[original_cursor:original_start], "<redacted>"))
+        original_cursor = original_end
+        count += logical.count("\n", start, end) + (logical[end - 1] != "\n")
+    parts.append(text[original_cursor:])
+    return "".join(parts), count
+
+
+def redact(text: str) -> tuple[str, int]:
+    cleaned, count = _redact_units(text)
+    cleaned, lines = _redact_lines(cleaned)
+    return cleaned, count + lines
 
 
 @dataclass

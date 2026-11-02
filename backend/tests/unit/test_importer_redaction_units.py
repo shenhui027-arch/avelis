@@ -313,11 +313,18 @@ def test_cli_unclosed_inner_quotes_mask_to_end(newline, flag, separator, quote):
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("separator", [" ", "\t", "=", " = "])
 @pytest.mark.parametrize("boundary", [" ", "\t", "\n", ";", "|", "&", ")", "(", "<", ">"])
-def test_cli_shell_word_boundaries_preserve_following_text(newline, separator, boundary):
+def test_cli_shell_word_boundaries_keep_only_safe_following_lines(newline, separator, boundary):
     prefix = f"client --api-key{separator}"
     suffix = f'{boundary}"public"; echo public\necho next'.replace("\n", newline)
     source = f"{prefix}foo'bar{newline}SYNTH-tail'" + suffix
-    assert_redacted(source, f"{prefix}<redacted>" + suffix)
+    if boundary == "\n":
+        assert_redacted(source, f"{prefix}<redacted>" + suffix)
+    elif boundary == "(":
+        # 兜底遇到未闭合括号时继续遮蔽后续行。
+        assert_redacted(source, f"{prefix}<redacted>", 3)
+    else:
+        # 第一层留下同一行的引号内容，兜底将该行剩余内容一并遮蔽。
+        assert_redacted(source, f"{prefix}<redacted>{newline}echo next", 2)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -398,7 +405,6 @@ def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline
         "SELECT PASSWORD <> other, PASSWORD IS NULL FROM t;",
         "PASSWORD ORDER BY name;",
         "PASSWORD GROUP BY name;",
-        "myPASSWORD 'public'; PASSWORD_hash 'public';",
         "SELECT password, name FROM users;",
         "SELECT password::text FROM users;",
         "ALTER ROLE r PASSWORD DISABLE;",
@@ -407,6 +413,13 @@ def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline
 def test_sql_password_columns_and_null_are_preserved(newline: str, source: str) -> None:
     source = source.replace("\n", newline)
     assert_redacted(source, source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_bare_secret_key_family_with_quoted_tail_triggers_line_fallback(newline: str) -> None:
+    # 完整键名族包含 myPASSWORD；同一行的引号内容由整行兜底遮蔽。
+    source = "myPASSWORD 'public'; PASSWORD_hash 'public';"
+    assert_redacted(source.replace("\n", newline), "myPASSWORD<redacted>")
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -446,16 +459,23 @@ def test_host_escaped_sql_password_quotes_are_complete_units(newline, host_quote
     prefix = f"cur.execute({host_quote}{command} ROLE r PASSWORD "
     suffix = f";{host_quote}); token=next\nSELECT 1;"
     source = prefix + "\\" + quote + value + "\\" + quote + suffix
-    expected = prefix + "<redacted>" + suffix.replace("next", "<redacted>")
-    assert_redacted(source.replace("\n", newline), expected.replace("\n", newline), 2)
+    # 第一层遮住口令与 token；兜底只补遮当前行，保留下一条 SQL。
+    expected = f"cur.execute({host_quote}{command} ROLE r PASSWORD<redacted>{newline}SELECT 1;"
+    assert_redacted(source.replace("\n", newline), expected, 3)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("quote", ["'", '"', "'''", '"""'])
 @pytest.mark.parametrize("suffix", [" + pw", ")", ", pw)", "", "\npublic = 1"])
-def test_password_at_end_of_host_string_preserves_host_code(newline, quote, suffix):
+def test_password_at_end_of_host_string_preserves_only_clear_concatenation(newline, quote, suffix):
     source = f"sql = {quote}ALTER ROLE r PASSWORD {quote}{suffix}".replace("\n", newline)
-    assert_redacted(source, source, 0)
+    if suffix == " + pw":
+        assert_redacted(source, source, 0)
+    else:
+        expected = f"sql = {quote}ALTER ROLE r PASSWORD<redacted>"
+        if suffix.startswith("\n"):
+            expected += newline + "public = 1"
+        assert_redacted(source, expected)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -467,7 +487,11 @@ def test_sql_literal_punctuation_is_not_a_host_string_end(newline, quote, value)
     clause = f"ALTER ROLE r PASSWORD {quote}{value}{quote};"
     expected = f"ALTER ROLE r PASSWORD {quote}<redacted>{quote};"
     for wrapper in ("{}", f"cur.execute({host_quote}{{}}{host_quote})"):
-        assert_redacted(wrapper.format(clause) + newline, wrapper.format(expected) + newline)
+        source = wrapper.format(clause) + newline
+        if wrapper == "{}":
+            assert_redacted(source, expected + newline)
+        else:
+            assert_redacted(source, f"cur.execute({host_quote}ALTER ROLE r PASSWORD<redacted>{newline}", 2)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -518,8 +542,12 @@ def test_password_type_cast_is_not_an_assignment(newline, space):
 )
 def test_password_bare_values_variables_and_unknown_prefixes_are_redacted(newline, value, replacement):
     source = f"cur.execute('ALTER ROLE r PASSWORD {value};'){newline}SELECT 1;"
-    expected = f"cur.execute('ALTER ROLE r PASSWORD {replacement};'){newline}SELECT 1;"
-    assert_redacted(source, expected)
+    # 首值已经遮蔽时仍检查行内剩余内容，后续 SQL 原样保留。
+    if replacement == ":<redacted>":
+        expected = "cur.execute('ALTER ROLE r PASSWORD :<redacted>"
+    else:
+        expected = "cur.execute('ALTER ROLE r PASSWORD<redacted>"
+    assert_redacted(source, expected + newline + "SELECT 1;", 2)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -541,12 +569,10 @@ def test_password_uses_word_boundaries_and_preserves_bare_cli_flag(newline):
 def test_default_password_units_finish_quickly(newline, kind):
     if kind == "escaped-literal":
         source = f"cur.execute('CREATE ROLE r PASSWORD \\'SYNTH\\';'){newline}" * 2000
-        expected = f"cur.execute('CREATE ROLE r PASSWORD <redacted>;'){newline}" * 2000
-        count = 2000
+        expected, count = f"cur.execute('CREATE ROLE r PASSWORD<redacted>{newline}" * 2000, 4000
     elif kind == "bare-value":
         source = f"cur.execute('ALTER ROLE r PASSWORD SYNTH'){newline}" * 2000
-        expected = f"cur.execute('ALTER ROLE r PASSWORD <redacted>'){newline}" * 2000
-        count = 2000
+        expected, count = f"cur.execute('ALTER ROLE r PASSWORD<redacted>{newline}" * 2000, 4000
     elif kind == "host-end":
         source = f"sql = 'ALTER ROLE r PASSWORD ' + pw{newline}" * 2000
         expected, count = source, 0
@@ -637,7 +663,15 @@ def test_sql_password_literals_are_redacted_inside_any_wrapper(
 ) -> None:
     source = wrapper.format(f"CREATE ROLE reporting {keyword} {literal};") + "\nSELECT 1;"
     expected = wrapper.format(f"CREATE ROLE reporting {keyword} {replacement};") + "\nSELECT 1;"
-    assert_redacted(source.replace("\n", newline), expected.replace("\n", newline))
+    if wrapper != "{}":
+        # 剩余宿主语法只影响当前行，不能让下一条 SQL 消失。
+        if wrapper == 'psql -c "{}"':
+            expected = f'psql -c "CREATE ROLE reporting {keyword}<redacted>'
+        else:
+            expected = f'cur.execute("CREATE ROLE reporting {keyword}<redacted>'
+        assert_redacted(source.replace("\n", newline), expected + newline + "SELECT 1;", 2)
+    else:
+        assert_redacted(source.replace("\n", newline), expected.replace("\n", newline))
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -652,6 +686,13 @@ def test_sql_password_literal_boundaries_preserve_surrounding_text(newline: str,
     if not space and literal.startswith(("U", "N")):
         # PASSWORDU / PASSWORDN 没有词边界，不是独立关键字。
         assert_redacted(source.replace("\n", newline), source.replace("\n", newline), 0)
+        return
+    if space != "\n  ":
+        assert_redacted(
+            source.replace("\n", newline),
+            'cur.execute("ALTER ROLE "reporting"PASSWORD<redacted>' + newline + "SELECT 1;",
+            2,
+        )
         return
     assert_redacted(source.replace("\n", newline), expected.replace("\n", newline))
 
@@ -700,8 +741,7 @@ def test_sql_password_literals_finish_quickly(newline: str, kind: str) -> None:
         expected, count = "PASSWORD <redacted>", 1
     else:
         source = f'cur.execute("ALTER ROLE r PASSWORD $pw$SYNTH$pw$"){newline}' * 2000
-        expected = f'cur.execute("ALTER ROLE r PASSWORD <redacted>"){newline}' * 2000
-        count = 2000
+        expected, count = f'cur.execute("ALTER ROLE r PASSWORD<redacted>{newline}' * 2000, 4000
     actual, elapsed = _timed_redact(source)
     assert elapsed < 0.5, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
     assert actual == (expected, count)

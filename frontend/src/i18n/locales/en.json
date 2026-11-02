@@ -1232,7 +1232,7 @@
   "发送查询结果": "Send query results",
   "问数结果发给结果解释模型与分析模型；关闭时使用模板解释，分析模式不可用": "Ask results go to the result-explanation and analysis models; when off, template explanations are used and analysis is unavailable",
   "发送代码片段": "Send code snippets",
-  "未能解析的脱敏代码发给导入血缘推断模型；关闭时使用演示规则": "Redacted code that couldn't be parsed goes to the lineage-inference model; when off, demo rules are used",
+  "未能解析的代码脱敏后发给导入血缘推断模型；脱敏是尽力而为，敏感环境请使用本地模型；关闭时使用演示规则": "Code that couldn't be parsed is redacted and sent to the lineage-inference model. Redaction is best effort; use a local model for sensitive environments. When off, demo rules are used",
   "默认发送查询结果与代码片段，分析模式需要它们；需保密请接入本地模型（OpenAI 兼容接口）": "Query results and code snippets are sent by default and analysis needs them; for confidentiality, connect a local model (OpenAI-compatible API)",
   "还原": "Revert",
   "保存配置": "Save settings",
