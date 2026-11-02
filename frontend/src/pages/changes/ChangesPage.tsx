@@ -6,7 +6,7 @@ import { api, unwrap } from "../../api/client";
 import {
   errorText, useAction, useAssets, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Empty, Hint, KIND_LABEL, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, Seg, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
@@ -43,7 +43,7 @@ export function ChangesPage() {
   const openCount = (sets.data ?? []).filter((c) => c.status === "open").length;
 
   return (
-    <div className="av-main" style={{ height: "calc(100vh - 48px)", display: "grid", gridTemplateColumns: "320px minmax(0, 1fr) 360px", gridTemplateRows: "minmax(0, 1fr)" }}>
+    <div className="av-main" style={{ height: "calc(100vh - 48px)", display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)" }}>
       <section className="av-pane av-pane--rail" style={{ borderRight: "1px solid var(--line-subtle)" }} aria-label={t("变更列表")}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "16px 16px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -101,6 +101,8 @@ function Detail({ id }: { id: string }) {
   const assets = useAssets();
   const datasourceName = useDatasourceName();
   const [expanded, setExpanded] = useState(false);
+  // 复核面板不常驻：只有这组变化带复核任务时才给入口，点开后以抽屉显示
+  const [reviewing, setReviewing] = useState(false);
   const assetName = (id: string) => shortName(assets.data?.find((a) => a.id === id)?.qualified) || id.slice(0, 8);
   const c = cs.data;
   if (!c) return <section className="av-pane" />;
@@ -137,6 +139,8 @@ function Detail({ id }: { id: string }) {
                 <Status value={c.status} />
               </div>
                 <div className="av-actions">
+                  {task ? <button type="button" className={`av-btn av-btn--sm ${task.status === "open" ? "av-btn--primary" : "av-btn--secondary"}`} onClick={() => setReviewing(true)}>
+                    {task.status === "open" ? t("处理复核") : t("复核结论")}</button> : null}
                   <Link className="av-btn av-btn--secondary av-btn--sm" to={`/settings/datasources/${c.datasource_id}`}>{t("打开数据源")}</Link>
                   {def?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
                     <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></> : null}
@@ -201,9 +205,11 @@ function Detail({ id }: { id: string }) {
           </div>
         </div>
       </section>
-      <aside className="av-pane" style={{ borderLeft: "1px solid var(--line-subtle)", background: "var(--bg-surface)" }} aria-label={t("复核")}>
-        {task ? <ReviewPanel key={task.id} task={task} /> : <Empty text={t("这组变化不需要复核")} />}
-      </aside>
+      {task && reviewing ? (
+        <Drawer title={t("复核")} width={400} onClose={() => setReviewing(false)}>
+          <ReviewPanel key={task.id} task={task} />
+        </Drawer>
+      ) : null}
     </>
   );
 }

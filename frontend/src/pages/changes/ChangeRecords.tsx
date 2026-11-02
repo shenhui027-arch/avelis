@@ -99,7 +99,7 @@ export function ChangeRecords() {
   const data = records.data;
   const dsAssets = assetsOfDatasource(assets.data ?? [], filters.datasource_id);
   return (
-    <section className="av-pane" aria-label={t("变更记录")} style={{ gridColumn: "2 / span 2" }}>
+    <section className="av-pane" aria-label={t("变更记录")} style={{ gridColumn: "2 / -1" }}>
       <div className="av-pane__body">
         <div className="av-page">
           <div className="av-pagehd">
