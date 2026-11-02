@@ -310,9 +310,11 @@ def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline
         "GROUP BY password",
         "SELECT password > 1, password < 2, password != 3 FROM users;",
         "SELECT password_hash, u.password_hash FROM users;",
-        'SELECT u.password "display_name" FROM users;',
-        'SELECT u. password "display_name" FROM users;',
         'SELECT "password" FROM users;',
+        "SELECT \"password\" 'public' FROM users;",
+        "SELECT `password` 'public' FROM users;",
+        "SELECT [password] 'public' FROM users;",
+        "SELECT 'password' 'public' FROM users;",
         '"password" \n : \n "public"',
         "PASSWORD NULL;",
         "CREATE ROLE r PASSWORD NULL;",
@@ -322,6 +324,19 @@ def test_prose_apostrophes_keep_following_code_with_non_shell_separators(newline
         "CREATE ROLE r; SELECT password FROM users;",
         "-- CREATE ROLE r\nSELECT password FROM users;",
         "SELECT 'CREATE ROLE r;'; PASSWORD SYNTH;",
+        # PASSWORD 后只有字面量才遮蔽，不再根据 CREATE / ALTER 语境接受裸值。
+        "CREATE ROLE r PASSWORD SYNTH;",
+        "ALTER USER u WITH UNENCRYPTED PASSWORD SYNTH;",
+        "CREATE\nROLE r WITH LOGIN ENCRYPTED PASSWORD SYNTH;",
+        'ALTER ROLE "name;quoted" WITH PASSWORD SYNTH;',
+        "/* heading; */ ALTER USER u PASSWORD SYNTH;",
+        "SELECT PASSWORD <> other, PASSWORD IS NULL FROM t;",
+        "PASSWORD ORDER BY name;",
+        "PASSWORD GROUP BY name;",
+        "PASSWORD $1tag$public$1tag$;",
+        "PASSWORD $tag-name$public$tag-name$;",
+        "PASSWORD Q'public';",
+        "myPASSWORD 'public'; PASSWORD_hash 'public';",
     ],
 )
 def test_sql_password_columns_and_null_are_preserved(newline: str, source: str) -> None:
@@ -346,14 +361,13 @@ def test_sql_password_columns_and_null_are_preserved(newline: str, source: str) 
         ("PASSWORD$$SYNTH with space$$", "PASSWORD<redacted>"),
         ("PASSWORD $$first\nSYNTH$$", "PASSWORD <redacted>"),
         ("PASSWORD\n  'SYNTH'", "PASSWORD\n  '<redacted>'"),
-        ("CREATE ROLE r PASSWORD SYNTH", "CREATE ROLE r PASSWORD <redacted>"),
-        ("ALTER USER u WITH UNENCRYPTED PASSWORD SYNTH", "ALTER USER u WITH UNENCRYPTED PASSWORD <redacted>"),
+        # 双引号跟在独立 PASSWORD 后面时按字面量处理，不再判断列引用语境。
+        ('SELECT u.password "display_name" FROM users', 'SELECT u.password "<redacted>" FROM users'),
+        ('SELECT u. password "display_name" FROM users', 'SELECT u. password "<redacted>" FROM users'),
         (
-            "CREATE\nROLE r WITH LOGIN ENCRYPTED PASSWORD SYNTH",
-            "CREATE\nROLE r WITH LOGIN ENCRYPTED PASSWORD <redacted>",
+            "CREATE ROLE \"reporting\"PASSWORD 'SYNTH'",
+            "CREATE ROLE \"reporting\"PASSWORD '<redacted>'",
         ),
-        ('ALTER ROLE "name;quoted" WITH PASSWORD SYNTH', 'ALTER ROLE "name;quoted" WITH PASSWORD <redacted>'),
-        ("/* heading; */ ALTER USER u PASSWORD SYNTH", "/* heading; */ ALTER USER u PASSWORD <redacted>"),
         ("UPDATE users SET password = 'SYNTH'", "UPDATE users SET password = '<redacted>'"),
         ("ALTER USER u IDENTIFIED BY SYNTH", "ALTER USER u IDENTIFIED BY <redacted>"),
         ("ALTER USER u IDENTIFIED WITH plugin BY SYNTH", "ALTER USER u IDENTIFIED WITH plugin BY <redacted>"),
@@ -366,8 +380,114 @@ def test_sql_password_credentials_remain_redacted(newline: str, clause: str, exp
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_repeated_sql_password_columns_keep_linear_context_scanning(newline: str) -> None:
+def test_repeated_sql_password_columns_finish_quickly(newline: str) -> None:
     source = f"SELECT password FROM users;{newline}" * 2000
     actual, elapsed = _timed_redact(source)
     assert elapsed < 0.5, f"{len(source)} chars took {elapsed:.6f}s"
     assert actual == (source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("wrapper", ["{}", 'psql -c "{}"', 'cur.execute("{}")'])
+@pytest.mark.parametrize("keyword", ["PASSWORD", "pAsSwOrD"])
+@pytest.mark.parametrize(
+    ("literal", "replacement"),
+    [
+        ("'SYNTH'", "'<redacted>'"),
+        ('"SYNTH"', '"<redacted>"'),
+        ("E'first\\'SYNTH\nlast'", "<redacted>"),
+        ("e'first\\\\'", "<redacted>"),
+        ("U&'first\\0061SYNTH\nlast'", "<redacted>"),
+        ("u&'SYNTH'", "<redacted>"),
+        ("N'SYNTH'", "<redacted>"),
+        ("n'SYNTH'", "<redacted>"),
+        ("B'010101'", "<redacted>"),
+        ("b'010101'", "<redacted>"),
+        ("X'ABCD'", "<redacted>"),
+        ("x'ABCD'", "<redacted>"),
+        ("$$first\nSYNTH$$", "<redacted>"),
+        ("$pw$SYNTH$pw$", "<redacted>"),
+        ("$tag_1$first\nSYNTH$tag_1$", "<redacted>"),
+        ("$_标签1$first$other$SYNTH$_标签1$", "<redacted>"),
+        ("'first''SYNTH\nlast'", "'<redacted>'"),
+        ('"first""SYNTH\nlast"', '"<redacted>"'),
+        ("U&'first''SYNTH'", "<redacted>"),
+        ("N'first''SYNTH'", "<redacted>"),
+        ("'SYNTH\\'", "'<redacted>'"),
+        ('"SYNTH\\"', '"<redacted>"'),
+    ],
+)
+def test_sql_password_literals_are_redacted_inside_any_wrapper(
+    newline: str, wrapper: str, keyword: str, literal: str, replacement: str
+) -> None:
+    source = wrapper.format(f"CREATE ROLE reporting {keyword} {literal};") + "\nSELECT 1;"
+    expected = wrapper.format(f"CREATE ROLE reporting {keyword} {replacement};") + "\nSELECT 1;"
+    assert_redacted(source.replace("\n", newline), expected.replace("\n", newline))
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("literal", ["'SYNTH'", "U&'SYNTH'", "N'SYNTH'", "$$SYNTH$$", "$tag$SYNTH$tag$"])
+@pytest.mark.parametrize("space", ["", " \t", "\n  "])
+def test_sql_password_literal_boundaries_preserve_surrounding_text(newline: str, literal: str, space: str) -> None:
+    # 前一个角色名的闭合引号不应把 PASSWORD 误判成引号标识符。
+    prefix = f'cur.execute("ALTER ROLE "reporting"PASSWORD{space}'
+    replacement = "'<redacted>'" if literal.startswith("'") else "<redacted>"
+    source = prefix + literal + '); PUBLIC;"  # visible\nSELECT 1;'
+    expected = prefix + replacement + '); PUBLIC;"  # visible\nSELECT 1;'
+    if not space and literal.startswith(("U", "N")):
+        # PASSWORDU / PASSWORDN 没有词边界，不是独立关键字。
+        assert_redacted(source.replace("\n", newline), source.replace("\n", newline), 0)
+        return
+    assert_redacted(source.replace("\n", newline), expected.replace("\n", newline))
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    ("literal", "replacement"),
+    [
+        ("'first\nSYNTH", "'<redacted>'"),
+        ('"first\nSYNTH', '"<redacted>"'),
+        ("E'first\\'\nSYNTH", "<redacted>"),
+        ("U&'first\nSYNTH", "<redacted>"),
+        ("N'first\nSYNTH", "<redacted>"),
+        ("B'0101\n0101", "<redacted>"),
+        ("X'ABCD\nABCD", "<redacted>"),
+        ("$$first\nSYNTH", "<redacted>"),
+        ("$pw$first\nSYNTH", "<redacted>"),
+        ("$Tag$SYNTH$tag$", "<redacted>"),
+    ],
+)
+def test_unclosed_sql_password_literals_cover_to_end(newline: str, literal: str, replacement: str) -> None:
+    source = 'cur.execute("ALTER ROLE r PASSWORD ' + literal + "\nremaining input"
+    expected = 'cur.execute("ALTER ROLE r PASSWORD ' + replacement
+    assert_redacted(source.replace("\n", newline), expected)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_sql_literal_closing_resumes_redaction_on_the_same_line(newline: str) -> None:
+    source = "PASSWORD E'first\\'SYNTH'; PASSWORD $pw$second$pw$; token=third;\nSELECT 1;"
+    expected = "PASSWORD <redacted>; PASSWORD <redacted>; token=<redacted>;\nSELECT 1;"
+    assert_redacted(source.replace("\n", newline), expected.replace("\n", newline), 3)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("kind", ["doubled-quotes", "dollar-body", "long-tag", "repeated-literals"])
+def test_sql_password_literals_finish_quickly(newline: str, kind: str) -> None:
+    if kind == "doubled-quotes":
+        source = "PASSWORD '" + "''" * 20000 + "SYNTH'"
+        expected, count = "PASSWORD '<redacted>'", 1
+    elif kind == "dollar-body":
+        source = "PASSWORD $pw$" + (f"$other$SYNTH{newline}" * 20000) + "$pw$"
+        expected, count = "PASSWORD <redacted>", 1
+    elif kind == "long-tag":
+        delimiter = "$" + "t" * 20000 + "$"
+        source = "PASSWORD " + delimiter + "SYNTH" + delimiter
+        expected, count = "PASSWORD <redacted>", 1
+    else:
+        source = f'cur.execute("ALTER ROLE r PASSWORD $pw$SYNTH$pw$"){newline}' * 2000
+        expected = f'cur.execute("ALTER ROLE r PASSWORD <redacted>"){newline}' * 2000
+        count = 2000
+    actual, elapsed = _timed_redact(source)
+    assert elapsed < 0.5, f"{kind}: {len(source)} chars took {elapsed:.6f}s"
+    assert actual == (expected, count)
+    assert redact(expected) == (expected, 0)
