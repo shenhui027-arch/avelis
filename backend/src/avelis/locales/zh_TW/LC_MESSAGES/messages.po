@@ -1942,6 +1942,70 @@ msgstr "2026-11-01 已實機驗證 StarRocks 3.5.14 + AuditLoader 4.2.2；DDL �
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "執行函式名稱必須是有效的識別字或點分名稱，且不超過 128 個字元"
 
+#: src/avelis/api/interchange.py
+msgid "Ossie 导入请求无效"
+msgstr "Ossie 匯入請求無效"
+
+msgid "Ossie 导入校验未通过"
+msgstr "Ossie 匯入校驗未通過"
+
+msgid "导入文件超过 5 MiB"
+msgstr "匯入請求超過 5 MiB"
+
+msgid "导入内容必须是 UTF-8 文本"
+msgstr "匯入內容必須是 UTF-8 文字"
+
+msgid "导入内容不是有效的 JSON 或 YAML"
+msgstr "匯入內容不是有效的 JSON 或 YAML"
+
+msgid "导入内容必须是 JSON 对象"
+msgstr "匯入內容必須是 JSON 物件"
+
+msgid "导入内容包含重复键"
+msgstr "匯入內容包含重複鍵"
+
+msgid "导入内容只允许 JSON 值"
+msgstr "匯入內容只允許 JSON 值"
+
+msgid "导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"
+msgstr "匯入內容只允許 JSON 值（不支援 YAML 錨點、別名與合併鍵）"
+
+msgid "导入内容嵌套过深或过于复杂"
+msgstr "匯入內容巢狀層級過深或過於複雜"
+
+msgid "缺少目标业务域 domain_id"
+msgstr "缺少目標業務域 domain_id"
+
+msgid "dry_run 必须是布尔值"
+msgstr "dry_run 必須是布林值"
+
+msgid "必须上传一个 file 文件"
+msgstr "必須在 file 欄位上傳一個檔案"
+
+msgid "不支持的导入内容类型"
+msgstr "不支援的匯入內容類型"
+
+#: src/avelis/interchange/exporter.py
+msgid "无权导出该业务域的口径"
+msgstr "無權匯出此業務域的口徑"
+
+msgid "没有可导出的已发布口径"
+msgstr "沒有可匯出的已發布口徑"
+
+msgid "所选口径来自语义提示不同的模型，请分别导出或统一模型语义提示"
+msgstr "所選口徑來自語義提示不同的模型，請分別匯出或統一模型語義提示"
+
+msgid "所选口径包含同名但不同源的数据集，请分别导出或统一数据集命名"
+msgstr "所選口徑包含同名但不同來源的資料集，請分別匯出或統一資料集命名"
+
+msgid "所选口径包含同名但定义不同的字段，请分别导出或统一字段定义"
+msgstr "所選口徑包含同名但定義不同的欄位，請分別匯出或統一欄位定義"
+
+msgid "口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"
+msgstr "口徑包含同一資產的多個關聯角色，無法安全匯出；請調整關聯或分別定義口徑"
+
+msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
+msgstr "口徑運算式引用預先彙總產生的虛擬欄位，無法安全匯出；請調整口徑定義"
 #: src/avelis/config.py
 msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
 msgstr "啟用 MCP 時須填寫不含憑證、查詢參數或片段的 HTTP(S) 公開網址"
@@ -2052,3 +2116,84 @@ msgstr "操作失敗"
 
 msgid "后台任务运行超时"
 msgstr "背景工作執行逾時"
+
+#: src/avelis/interchange/exporter.py
+msgid "Ossie 导出结果无法通过再导入校验"
+msgstr "Ossie 匯出結果無法通過重新匯入驗證"
+
+msgid "已从导出中移除引用已删除源列的未使用字段：{dataset}.{field}"
+msgstr "已從匯出中移除參照已刪除來源欄位的未使用欄位：{dataset}.{field}"
+
+msgid "固定过滤条件无法安全折入核心表达式：SQL 表达式无法解析"
+msgstr "固定篩選條件無法安全併入核心運算式：無法解析 SQL 運算式"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持窗口、有序聚合、聚合过滤或子查询"
+msgstr "固定篩選條件無法安全併入核心運算式：不支援視窗函數、有序彙總、彙總篩選或子查詢"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 SUM、AVG、MIN、MAX、COUNT 聚合"
+msgstr "固定篩選條件無法安全併入核心運算式：僅支援 SUM、AVG、MIN、MAX、COUNT 彙總"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持嵌套聚合"
+msgstr "固定篩選條件無法安全併入核心運算式：不支援巢狀彙總"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合外引用了源列"
+msgstr "固定篩選條件無法安全併入核心運算式：在彙總外參照了來源欄位"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合必须只有一个参数"
+msgstr "固定篩選條件無法安全併入核心運算式：彙總必須只有一個參數"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 COUNT(*) 的星号参数"
+msgstr "固定篩選條件無法安全併入核心運算式：僅支援 COUNT(*) 的星號參數"
+
+#: src/avelis/interchange/importer.py
+msgid "核心表达式与 Avelis 扩展不一致，已采用核心表达式并忽略扩展中的原表达式和固定过滤条件"
+msgstr "核心運算式與 Avelis 擴充內容不一致，已採用核心運算式並忽略擴充內容中的原始運算式與固定篩選條件"
+
+msgid "固定过滤条件无法安全折入核心表达式：无法确认自定义函数是否为聚合"
+msgstr "固定篩選條件無法安全折入核心運算式：無法確認自訂函式是否為彙總"
+
+msgid "导出口径引用了当前资产中不存在的源列：{dataset}.{column}"
+msgstr "匯出口徑引用了目前資產中不存在的來源欄位：{dataset}.{column}"
+
+msgid "口径编码须为最多 64 个小写字母、数字或下划线"
+msgstr "口徑編碼須為最多 64 個小寫字母、數字或底線"
+
+#: src/avelis/interchange/exporter.py
+msgid "预聚合关联无法在 Ossie 核心模型中等价表达"
+msgstr "預先彙總關聯無法在 Ossie 核心模型中等價表達"
+
+msgid "跨时间聚合方式 {method} 无法在 Ossie 核心模型中等价表达"
+msgstr "跨時間彙總方式 {method} 無法在 Ossie 核心模型中等價表達"
+
+msgid "派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"
+msgstr "衍生口徑的組成口徑未共用相同的資料列集合，無法在 Ossie 核心模型中等價表達"
+
+msgid "派生口径公式无法在 Ossie 核心模型中等价表达"
+msgstr "衍生口徑公式無法在 Ossie 核心模型中等價表達"
+
+msgid "固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组"
+msgstr "固定篩選條件無法在 Ossie 核心模型中保留分組結果；請使用已篩選的資料集，或取消分組維度與時間分組"
+
+#: src/avelis/interchange/importer.py
+msgid "无法推断指标基础数据集，以下数据集沿关系方向不可达：{datasets}"
+msgstr "無法推斷指標的基礎資料集，以下資料集沿關聯方向無法到達：{datasets}"
+
+msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
+msgstr "關聯 {relationship} 符合多條已核准的關聯路徑，已選擇 {selected}（候選：{candidates}）"
+
+#: src/avelis/interchange/exporter.py
+msgid "关联仅用于过滤行，Ossie 核心模型无法表达必须内连接的语义"
+msgstr "關聯僅用於篩選資料列，Ossie 核心模型無法表達必須內部聯結的語意"
+
+#: src/avelis/interchange/importer.py
+msgid "组成口径的资产或关联不可访问、未批准或未在文档中声明"
+msgstr "組成口徑的資產或關聯無法存取、未核准或未在文件中宣告"
+
+msgid "派生口径核心表达式没有可匹配的可解析方言"
+msgstr "衍生口徑的核心運算式沒有相符且可解析的方言"
+
+msgid "无法按本环境锁定的组成口径展开派生公式：{reason}"
+msgstr "無法依本環境鎖定的組成口徑展開衍生公式：{reason}"
+
+msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
+msgstr "核心運算式與擴充內容中的衍生公式不一致，需人工處理"

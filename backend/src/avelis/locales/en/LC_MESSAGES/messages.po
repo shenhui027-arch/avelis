@@ -1937,6 +1937,70 @@ msgstr "Validated on real instances on 2026-11-01 with StarRocks 3.5.14 + AuditL
 msgid "执行函数名必须是有效的标识符或点分名称，且不超过 128 个字符"
 msgstr "Execution function names must be valid identifiers or dotted names, with at most 128 characters"
 
+#: src/avelis/api/interchange.py
+msgid "Ossie 导入请求无效"
+msgstr "Invalid Ossie import request"
+
+msgid "Ossie 导入校验未通过"
+msgstr "Ossie import validation failed"
+
+msgid "导入文件超过 5 MiB"
+msgstr "The import request exceeds 5 MiB"
+
+msgid "导入内容必须是 UTF-8 文本"
+msgstr "Import content must be UTF-8 text"
+
+msgid "导入内容不是有效的 JSON 或 YAML"
+msgstr "Import content is not valid JSON or YAML"
+
+msgid "导入内容必须是 JSON 对象"
+msgstr "Import content must be a JSON object"
+
+msgid "导入内容包含重复键"
+msgstr "Import content contains duplicate keys"
+
+msgid "导入内容只允许 JSON 值"
+msgstr "Import content may only contain JSON values"
+
+msgid "导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"
+msgstr "Import content may only contain JSON values (YAML anchors, aliases and merge keys are not supported)"
+
+msgid "导入内容嵌套过深或过于复杂"
+msgstr "Import content is nested too deeply or is too complex"
+
+msgid "缺少目标业务域 domain_id"
+msgstr "The target business domain_id is required"
+
+msgid "dry_run 必须是布尔值"
+msgstr "dry_run must be a boolean"
+
+msgid "必须上传一个 file 文件"
+msgstr "Exactly one file must be uploaded in the file field"
+
+msgid "不支持的导入内容类型"
+msgstr "Unsupported import content type"
+
+#: src/avelis/interchange/exporter.py
+msgid "无权导出该业务域的口径"
+msgstr "You do not have permission to export metrics from this business domain"
+
+msgid "没有可导出的已发布口径"
+msgstr "There are no published metrics available for export"
+
+msgid "所选口径来自语义提示不同的模型，请分别导出或统一模型语义提示"
+msgstr "The selected metrics belong to models with different AI contexts; export them separately or align the model AI contexts"
+
+msgid "所选口径包含同名但不同源的数据集，请分别导出或统一数据集命名"
+msgstr "The selected metrics contain datasets with the same name but different sources; export them separately or align the dataset names"
+
+msgid "所选口径包含同名但定义不同的字段，请分别导出或统一字段定义"
+msgstr "The selected metrics contain fields with the same name but different definitions; export them separately or align the field definitions"
+
+msgid "口径包含同一资产的多个关联角色，无法安全导出；请调整关联或分别定义口径"
+msgstr "The metric uses the same asset in multiple relationship roles and cannot be exported safely; adjust the relationships or define separate metrics"
+
+msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
+msgstr "The metric expression references virtual fields produced by pre-aggregation and cannot be exported safely; adjust the metric definition"
 #: src/avelis/config.py
 msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
 msgstr "Enabling MCP requires a public HTTP(S) URL without credentials, query parameters, or a fragment"
@@ -2047,3 +2111,84 @@ msgstr "Operation failed"
 
 msgid "后台任务运行超时"
 msgstr "Background task timed out"
+
+#: src/avelis/interchange/exporter.py
+msgid "Ossie 导出结果无法通过再导入校验"
+msgstr "The Ossie export failed re-import validation"
+
+msgid "已从导出中移除引用已删除源列的未使用字段：{dataset}.{field}"
+msgstr "Removed an unused field referencing deleted source columns from the export: {dataset}.{field}"
+
+msgid "固定过滤条件无法安全折入核心表达式：SQL 表达式无法解析"
+msgstr "Fixed filters cannot be safely folded into the core expression: the SQL expression cannot be parsed"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持窗口、有序聚合、聚合过滤或子查询"
+msgstr "Fixed filters cannot be safely folded into the core expression: window functions, ordered aggregates, aggregate filters and subqueries are not supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 SUM、AVG、MIN、MAX、COUNT 聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: only SUM, AVG, MIN, MAX and COUNT aggregates are supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：不支持嵌套聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: nested aggregates are not supported"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合外引用了源列"
+msgstr "Fixed filters cannot be safely folded into the core expression: source columns are referenced outside aggregates"
+
+msgid "固定过滤条件无法安全折入核心表达式：聚合必须只有一个参数"
+msgstr "Fixed filters cannot be safely folded into the core expression: each aggregate must have exactly one argument"
+
+msgid "固定过滤条件无法安全折入核心表达式：仅支持 COUNT(*) 的星号参数"
+msgstr "Fixed filters cannot be safely folded into the core expression: star arguments are supported only in COUNT(*)"
+
+#: src/avelis/interchange/importer.py
+msgid "核心表达式与 Avelis 扩展不一致，已采用核心表达式并忽略扩展中的原表达式和固定过滤条件"
+msgstr "The core expression differs from the Avelis extension; the core expression was used and the extension's original expression and fixed filters were ignored"
+
+msgid "固定过滤条件无法安全折入核心表达式：无法确认自定义函数是否为聚合"
+msgstr "Fixed filters cannot be safely folded into the core expression: custom functions cannot be verified as scalar or aggregate"
+
+msgid "导出口径引用了当前资产中不存在的源列：{dataset}.{column}"
+msgstr "The exported metric references a source column missing from the current asset: {dataset}.{column}"
+
+msgid "口径编码须为最多 64 个小写字母、数字或下划线"
+msgstr "Metric codes must contain at most 64 lowercase letters, digits, or underscores"
+
+#: src/avelis/interchange/exporter.py
+msgid "预聚合关联无法在 Ossie 核心模型中等价表达"
+msgstr "Pre-aggregated joins cannot be represented equivalently in the Ossie core model"
+
+msgid "跨时间聚合方式 {method} 无法在 Ossie 核心模型中等价表达"
+msgstr "Time aggregation method {method} cannot be represented equivalently in the Ossie core model"
+
+msgid "派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"
+msgstr "The derived metric's components do not share the same row set and cannot be represented equivalently in the Ossie core model"
+
+msgid "派生口径公式无法在 Ossie 核心模型中等价表达"
+msgstr "The derived metric formula cannot be represented equivalently in the Ossie core model"
+
+msgid "固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组"
+msgstr "Fixed filters cannot preserve grouped results in the Ossie core model; use a pre-filtered dataset or remove grouping dimensions and time grouping"
+
+#: src/avelis/interchange/importer.py
+msgid "无法推断指标基础数据集，以下数据集沿关系方向不可达：{datasets}"
+msgstr "Cannot infer the metric's base dataset; the following datasets are unreachable along the relationship direction: {datasets}"
+
+msgid "关系 {relationship} 匹配多条已批准的关联路径，已选择 {selected}（候选：{candidates}）"
+msgstr "Relationship {relationship} matches multiple approved join paths; selected {selected} (candidates: {candidates})"
+
+#: src/avelis/interchange/exporter.py
+msgid "关联仅用于过滤行，Ossie 核心模型无法表达必须内连接的语义"
+msgstr "The join only filters rows; the Ossie core model cannot express a mandatory inner join"
+
+#: src/avelis/interchange/importer.py
+msgid "组成口径的资产或关联不可访问、未批准或未在文档中声明"
+msgstr "A component metric's assets or joins are inaccessible, unapproved or not declared in the document"
+
+msgid "派生口径核心表达式没有可匹配的可解析方言"
+msgstr "The derived metric's core expression has no matching parseable dialect"
+
+msgid "无法按本环境锁定的组成口径展开派生公式：{reason}"
+msgstr "Cannot expand the derived formula using the component metrics pinned in this environment: {reason}"
+
+msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
+msgstr "The core expression differs from the derived formula in the extension; manual resolution is required"

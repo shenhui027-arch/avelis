@@ -1969,6 +1969,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interchange/ossie/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Ossie */
+        get: operations["export_ossie_api_interchange_ossie_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interchange/ossie/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Ossie */
+        post: operations["import_ossie_api_interchange_ossie_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workbench": {
         parameters: {
             query?: never;
@@ -4690,6 +4724,83 @@ export interface components {
         OkOut: {
             /** Ok */
             ok: boolean;
+        };
+        /** OssieImportCounts */
+        OssieImportCounts: {
+            /**
+             * Created
+             * @default 0
+             */
+            created?: number;
+            /**
+             * New Version
+             * @default 0
+             */
+            new_version?: number;
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped?: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed?: number;
+        };
+        /** OssieImportError */
+        OssieImportError: {
+            /** Layer */
+            layer: string;
+            /** Path */
+            path: string;
+            /** Reason */
+            reason: string;
+        };
+        /** OssieImportReport */
+        OssieImportReport: {
+            /** Ok */
+            ok: boolean;
+            /** Dry Run */
+            dry_run: boolean;
+            /** Results */
+            results?: components["schemas"]["OssieImportResult"][];
+            /** Errors */
+            errors?: components["schemas"]["OssieImportError"][];
+            /** Warnings */
+            warnings?: components["schemas"]["OssieImportWarning"][];
+            counts?: components["schemas"]["OssieImportCounts"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** OssieImportResult */
+        OssieImportResult: {
+            /** Name */
+            name: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "created" | "new_version" | "skipped" | "failed";
+            /** Metric Id */
+            metric_id?: string | null;
+            /** Version Id */
+            version_id?: string | null;
+            /** Version No */
+            version_no?: number | null;
+            /** Reason */
+            reason?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** OssieImportWarning */
+        OssieImportWarning: {
+            /** Metric */
+            metric: string;
+            /** Path */
+            path: string;
+            /** Reason */
+            reason: string;
         };
         /** OutboxOut */
         OutboxOut: {
@@ -9502,6 +9613,117 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportBatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_ossie_api_interchange_ossie_export_get: {
+        parameters: {
+            query: {
+                domain_id: string;
+                metric_ids?: string[] | null;
+                format?: "yaml" | "json";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_ossie_api_interchange_ossie_import_post: {
+        parameters: {
+            query?: {
+                domain_id?: string | null;
+                /** @description true（默认）只校验；false 创建草稿 */
+                dry_run?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Domain Id */
+                    domain_id: string;
+                    /**
+                     * Dry Run
+                     * @default true
+                     */
+                    dry_run?: boolean;
+                    /** Document */
+                    document: {
+                        [key: string]: unknown;
+                    } | string;
+                } | {
+                    [key: string]: unknown;
+                };
+                "application/yaml": string;
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    domain_id?: string;
+                    /** @default true */
+                    dry_run?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OssieImportReport"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OssieImportReport"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OssieImportReport"];
                 };
             };
             /** @description Validation Error */

@@ -7,6 +7,7 @@ import { errorText, useAction, useAssets, useDomains, useMetrics, useUsers } fro
 import { Banner, Crumbs, Drawer, Empty, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
+import { OssieExportButton } from "./OssieInterchange";
 
 const ROLE: Record<string, string> = { owner: t("负责人"), maintainer: t("维护者"), viewer: t("可查询") };
 const TABS = [{ value: "metrics", label: t("指标") }, { value: "assets", label: t("资产") }, { value: "members", label: t("成员") }] as const;
@@ -63,6 +64,7 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               <div className="av-pagehd__title"><h1>{d.name}</h1><span className="av-tag av-mono">{d.code}</span></div>
               <div className="av-actions">
                 {canMaintain ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditingExamples(true)}>{t("示例问题")}</button> : null}
+                <OssieExportButton domainId={d.id} />
                 <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?domains=${d.id}`}><Icon name="lineage" small />{t("域血缘")}</Link></div>
             </div>
             <dl className="av-domain-detail__summary">
