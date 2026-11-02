@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from datetime import date
 from typing import Literal
 
@@ -163,7 +162,7 @@ class ToolService:
             intent,
             answer,
             catalog,
-            settings=replace(self.settings, query_max_rows=min(limit, self.settings.query_max_rows)),
+            settings=self.settings,
             execute=allowed,
         )
         response = {

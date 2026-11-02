@@ -245,7 +245,12 @@ def create_oauth_router(settings: Settings) -> APIRouter:
                 expires_at=now() + timedelta(seconds=300),
             )
         )
-        return finish(session, RedirectResponse("/oauth/consent?" + urlencode({"ticket": raw_ticket}), status_code=302))
+        return finish(
+            session,
+            RedirectResponse(
+                settings.public_url + "/oauth/consent?" + urlencode({"ticket": raw_ticket}), status_code=302
+            ),
+        )
 
     @router.post("/oauth/token", include_in_schema=False)
     async def token(request: Request, session: Session = Depends(get_session)):

@@ -30,7 +30,7 @@ TOOL_SCOPES = {
 
 
 @pytest.fixture
-def resource_app():
+def resource_app(request):
     from avelis.mcp.server import create_mcp_app, protected_resource_routes
 
     settings = Settings(
@@ -82,8 +82,8 @@ def resource_app():
     app.router.routes.extend(protected_resource_routes(settings))
     app.mount("/", child)
     try:
-        with TestClient(app, base_url=BASE) as client:
-            yield SimpleNamespace(client=client, maker=maker, settings=settings)
+        with TestClient(app, base_url=BASE, root_path=getattr(request, "param", "")) as client:
+            yield SimpleNamespace(client=client, maker=maker, settings=settings, child=child)
     finally:
         engine.dispose()
 
@@ -240,6 +240,104 @@ def test_each_tool_rejects_other_scopes_with_http_challenge(resource_app, name, 
     assert 'error="insufficient_scope"' in challenge
     assert f'scope="{required}"' in challenge
     assert f'resource_metadata="{BASE}/.well-known/oauth-protected-resource/mcp"' in challenge
+
+
+@pytest.mark.parametrize("resource_app", ["/prefix"], indirect=True)
+@pytest.mark.parametrize("name,required", TOOL_SCOPES.items())
+def test_prefixed_tool_scope_rejection_is_audited(resource_app, name, required):
+    seed_token(resource_app, scope=" ".join(scope for scope in SCOPES if scope != required))
+    response = resource_app.client.post(
+        "/prefix/mcp",
+        json=modern_message("tools/call", name=name),
+        headers=request_headers("tools/call", name=name),
+    )
+    assert response.status_code == 403, response.text
+    assert response.json() == {"error": "insufficient_scope", "error_description": f"Required scope: {required}"}
+    assert f'scope="{required}"' in response.headers["www-authenticate"]
+    with resource_app.maker() as session:
+        events = list(session.scalars(select(AuditEvent)))
+        assert len(events) == 1
+        assert events[0].action == "mcp." + name
+        assert events[0].actor_id == "boundary-user"
+        assert events[0].detail["token_id"] == "boundary-token"
+
+
+@pytest.mark.parametrize("resource_app", ["/prefix"], indirect=True)
+@pytest.mark.parametrize("name,scope", TOOL_SCOPES.items())
+def test_prefixed_tool_call_succeeds_and_is_audited_once(resource_app, monkeypatch, name, scope):
+    from avelis.mcp.tools import ToolService
+
+    seen = []
+
+    def stub(self, **kwargs):
+        seen.append(self.user.id)
+        return [] if name in ("search_metrics", "list_changes") else {}
+
+    arguments = {
+        "search_metrics": {},
+        "get_metric": {"metric": "boundary-code"},
+        "ask_metric": {"metric": "boundary-code", "start_date": "2026-01-01", "end_date": "2026-01-02"},
+        "lineage_neighbors": {"asset_id": "boundary-asset"},
+        "list_changes": {"object_type": "asset", "object_id": "boundary-asset"},
+    }[name]
+    seed_token(resource_app, scope=scope)
+    monkeypatch.setattr(ToolService, name, stub)
+    response = resource_app.client.post(
+        "/prefix/mcp",
+        json=modern_message("tools/call", name=name, arguments=arguments),
+        headers=request_headers("tools/call", name=name),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["isError"] is False, response.text
+    assert seen == ["boundary-user"]
+    with resource_app.maker() as session:
+        events = list(session.scalars(select(AuditEvent)))
+        assert len(events) == 1
+        assert events[0].action == "mcp." + name
+
+
+@pytest.mark.parametrize("name,required", TOOL_SCOPES.items())
+@pytest.mark.parametrize("allowed", [False, True])
+async def test_direct_tool_wrapper_checks_scope_and_audits(resource_app, monkeypatch, name, required, allowed):
+    import json
+
+    from mcp.server.auth.middleware.auth_context import auth_context_var
+    from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from avelis.mcp.auth import StoredTokenVerifier, audited_tool_call
+    from avelis.mcp.tools import ToolService
+
+    seed_token(resource_app, scope=required if allowed else " ".join(s for s in SCOPES if s != required))
+    token = await StoredTokenVerifier(resource_app.maker, resource_app.settings).verify_token(RAW_TOKEN)
+    seen = []
+    monkeypatch.setattr(ToolService, name, lambda self, **kwargs: seen.append(kwargs) or [])
+    wrapper = resource_app.child.state.mcp_server._tool_manager.get_tool(name).fn
+    context = auth_context_var.set(AuthenticatedUser(token))
+    try:
+        assert audited_tool_call.get() is None
+        if allowed:
+            assert wrapper(keyword="private-marker") == []
+            assert seen == [{"keyword": "private-marker"}]
+        else:
+            with pytest.raises(ToolError) as error:
+                wrapper(keyword="private-marker")
+            assert json.loads(str(error.value)) == {
+                "error": "insufficient_scope",
+                "error_description": f"Required scope: {required}",
+            }
+            assert seen == []
+    finally:
+        auth_context_var.reset(context)
+    with resource_app.maker() as session:
+        events = list(session.scalars(select(AuditEvent)))
+        assert len(events) == 1
+        assert events[0].action == "mcp." + name
+        assert events[0].actor_id == "boundary-user"
+        assert events[0].detail["client_id"] == "boundary-client"
+        assert events[0].detail["token_id"] == "boundary-token"
+        assert "private-marker" not in repr(events[0].detail)
+        assert RAW_TOKEN not in repr(events[0].detail)
 
 
 @pytest.mark.parametrize("name,scope", TOOL_SCOPES.items())

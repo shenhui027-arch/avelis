@@ -133,8 +133,12 @@ def database_token(factory, raw):
 
 
 @pytest.mark.parametrize("registration", ["cimd", "dcr"])
-async def test_real_sdk_oauth_discover_call_refresh_revoke(registration, sdk_database, monkeypatch, tmp_path):
+@pytest.mark.parametrize("trailing_slash", [False, True])
+async def test_real_sdk_oauth_discover_call_refresh_revoke(
+    registration, trailing_slash, sdk_database, monkeypatch, tmp_path
+):
     from avelis.api.app import create_app
+    from avelis.config import build_settings
     from avelis.models import AuditEvent, OAuthAuthorizationCode, OAuthClient, OAuthConsentTicket, OAuthToken
     from avelis.oauth import router as oauth_router
     from avelis.oauth.repository import credential_hash
@@ -181,10 +185,15 @@ async def test_real_sdk_oauth_discover_call_refresh_revoke(registration, sdk_dat
         cimd_url = fixture_url + "/client.json"
 
         def host_factory(base_url):
+            configured = build_settings(
+                {
+                    "AVELIS_SECRET": "test-secret-mcp-sdk-e2e",
+                    "AVELIS_MCP_ENABLED": "true",
+                    "AVELIS_PUBLIC_URL": base_url + ("/" if trailing_slash else ""),
+                }
+            )
             sdk_database.settings = replace(
-                sdk_database.settings,
-                public_url=base_url,
-                mcp_enabled=True,
+                configured,
                 mcp_cimd_allowed_urls=(cimd_url,),
                 frontend_dir=None,
             )

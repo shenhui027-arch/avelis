@@ -5,6 +5,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
+import sqlglot
 from sqlalchemy import JSON, MetaData, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -217,12 +218,77 @@ def test_ask_uses_same_compiler_executor_limits_and_freshness(toolbox):
     result = toolbox.tool.ask_metric("metric_a", START, END, dimensions=["dim_a"])
     assert result["status"] == "answered", result
     assert result["metric"] == {"code": "metric_a", "version_id": "metric-v1", "version_no": 1}
-    assert "LIMIT 201" in result["sql"]
+    assert f"LIMIT {toolbox.settings.query_max_rows + 1}" in result["sql"]
     assert result["max_rows"] == result["result"]["row_count"] == 200
     assert result["freshness"]["tables"]["as_of"] == "2026-01-31T00:00:00Z"
-    assert toolbox.calls[0]["max_rows"] == 200
+    assert toolbox.calls[0]["max_rows"] == toolbox.settings.query_max_rows
     assert toolbox.calls[0]["timeout_seconds"] == toolbox.settings.query_timeout_seconds
     assert toolbox.calls[0]["mem_limit_bytes"] == toolbox.settings.query_mem_limit_bytes
+
+
+@pytest.mark.parametrize("method,expected", [("last", 30), ("avg", 20), ("sum", 60)])
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("time_grain", [None, "month"])
+def test_client_limit_is_applied_after_time_aggregation(toolbox, monkeypatch, method, expected, grouped, time_grain):
+    version = toolbox.session.get(MetricVersion, "metric-v1")
+    version.time_aggregation = method
+    version.data_grain = "day"
+
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            toolbox.calls.append({"sql": sql, **kwargs})
+            query = sqlglot.parse_one(sql, read="postgres")
+            columns = query.named_selects
+            rows = []
+            for dimension, factor in (("a", 1), ("b", 10)) if grouped else ((None, 1),):
+                prefix = (["2026-01"] if time_grain else []) + ([dimension] if grouped else [])
+                values = [10 * factor, 20 * factor, 30 * factor]
+                if "time_bucket" in columns:
+                    rows.extend([*prefix, f"2026-01-0{day}", value] for day, value in enumerate(values, 1))
+                else:
+                    rows.append([*prefix, sum(values)])
+            sql_limit = int(query.args["limit"].expression.this)
+            rows = rows[:sql_limit]
+            return QueryResult(
+                columns=columns, rows=rows[: kwargs["max_rows"]], truncated=len(rows) > kwargs["max_rows"]
+            )
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    response = toolbox.tool.ask_metric(
+        "metric_a", START, END, dimensions=["dim_a"] if grouped else [], time_grain=time_grain, limit=1
+    )
+    assert response["status"] == "answered", response
+    result = response["result"]
+    assert result["row_count"] == response["max_rows"] == len(result["rows"]) == 1
+    assert float(result["rows"][0][-1]) == expected
+    assert result["truncated"] is grouped
+    assert "time_bucket" not in result["columns"]
+    assert toolbox.calls[0]["max_rows"] == toolbox.settings.query_max_rows
+    assert f"LIMIT {toolbox.settings.query_max_rows + 1}" in response["sql"]
+
+
+@pytest.mark.parametrize("method", ["last", "avg", "sum"])
+def test_execution_truncation_is_preserved_when_client_result_fits(toolbox, monkeypatch, method):
+    version = toolbox.session.get(MetricVersion, "metric-v1")
+    version.time_aggregation = method
+
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            columns = sqlglot.parse_one(sql, read="postgres").named_selects
+            row = ["2026-01-01", 10] if "time_bucket" in columns else [10]
+            return QueryResult(columns=columns, rows=[row], truncated=True)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    response = toolbox.tool.ask_metric("metric_a", START, END, limit=1)
+    assert response["status"] == "answered", response
+    assert response["result"]["row_count"] == 1
+    assert response["result"]["truncated"] is True
 
 
 def test_default_clamps_to_lower_page_limit_but_explicit_excess_is_rejected(toolbox):
@@ -267,7 +333,7 @@ def test_data_policy_compiles_without_connection_cache_freshness_or_rows(toolbox
     monkeypatch.setattr(service, "freshness_boundary", forbidden)
     result = toolbox.tool.ask_metric("metric_a", START, END, dimensions=["dim_a"])
     assert result["status"] == "compiled", result
-    assert "LIMIT 201" in result["sql"]
+    assert f"LIMIT {toolbox.settings.query_max_rows + 1}" in result["sql"]
     assert result["definition"]["expression"] == "SUM(b.value_a)"
     assert result["data_returned"] is False and "result" not in result and "rows" not in result
     assert result["freshness"] == {}

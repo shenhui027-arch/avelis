@@ -21,13 +21,24 @@ def test_mcp_defaults_are_disabled_and_short_lived():
     assert value.mcp_cimd_allowed_urls == ()
 
 
-def test_mcp_preserves_public_url_exactly():
-    value = settings(AVELIS_MCP_ENABLED="true", AVELIS_PUBLIC_URL="https://avelis.example/")
-    assert value.public_url == "https://avelis.example/"
-    assert value.public_url + "/mcp" == "https://avelis.example//mcp"
+@pytest.mark.parametrize("enabled", ["true", "false"])
+@pytest.mark.parametrize("suffix", ["", "/", "///", "/avelis/", "/avelis///"])
+def test_public_url_is_normalized_once(enabled, suffix):
+    value = settings(AVELIS_MCP_ENABLED=enabled, AVELIS_PUBLIC_URL="https://avelis.example" + suffix)
+    expected = "https://avelis.example" + suffix.rstrip("/")
+    assert value.public_url == expected
+    assert value.mcp_resource_url == expected + "/mcp"
+    if enabled == "false":
+        return
     assert "https://avelis.example" in value.cors_origins
     assert "https://avelis.example/" not in value.cors_origins
-    assert settings(AVELIS_PUBLIC_URL="https://avelis.example/").public_url == "https://avelis.example"
+
+
+@pytest.mark.parametrize("enabled", ["true", "false"])
+@pytest.mark.parametrize("suffix", ["?a=1", "#fragment", "?", "#", "/avelis/?a=1", "/avelis/#fragment"])
+def test_public_url_rejects_query_and_fragment_at_startup(enabled, suffix):
+    with pytest.raises(ConfigError, match="AVELIS_PUBLIC_URL"):
+        settings(AVELIS_MCP_ENABLED=enabled, AVELIS_PUBLIC_URL="https://avelis.example" + suffix)
 
 
 @pytest.mark.parametrize(

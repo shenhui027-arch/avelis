@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from functools import wraps
 from typing import get_type_hints
 from urllib.parse import urlsplit
@@ -19,7 +20,15 @@ from starlette.middleware import Middleware
 from avelis import db
 from avelis.governance.errors import GovernanceError
 from avelis.i18n import gettext, translate
-from avelis.mcp.auth import MAX_BODY_BYTES, SCOPES, TOOL_SCOPES, StoredTokenVerifier, ToolScopeGate
+from avelis.mcp.auth import (
+    MAX_BODY_BYTES,
+    SCOPES,
+    TOOL_SCOPES,
+    StoredTokenVerifier,
+    ToolScopeGate,
+    audit_tool_call,
+    audited_tool_call,
+)
 from avelis.mcp.tools import ToolService
 from avelis.models import User
 
@@ -37,7 +46,7 @@ DESCRIPTIONS = {
 
 def protected_resource_routes(settings):
     return create_protected_resource_routes(
-        resource_url=AnyHttpUrl(settings.public_url + "/mcp"),
+        resource_url=AnyHttpUrl(settings.mcp_resource_url),
         authorization_servers=[settings.public_url],
         scopes_supported=list(SCOPES),
     )
@@ -52,7 +61,7 @@ def create_mcp_app(settings, session_maker=None):
         token_verifier=StoredTokenVerifier(session_maker, settings),
         auth=AuthSettings(
             issuer_url=settings.public_url,
-            resource_server_url=settings.public_url + "/mcp",
+            resource_server_url=settings.mcp_resource_url,
             validate_token_resource=True,
             required_scopes=[],
         ),
@@ -70,6 +79,13 @@ def create_mcp_app(settings, session_maker=None):
             token = get_access_token()
             if token is None:
                 raise ToolError("OAuth authentication context missing")
+            if audited_tool_call.get() != (token, name):
+                audit_tool_call(session_maker, token, name, arguments)
+            required = TOOL_SCOPES[name]
+            if required not in token.scopes:
+                raise ToolError(
+                    json.dumps({"error": "insufficient_scope", "error_description": f"Required scope: {required}"})
+                )
             with session_maker() as session:
                 user = session.get(User, token.subject)
                 if user is None or not user.is_active:

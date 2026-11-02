@@ -43,11 +43,11 @@ class ResourceBinding:
         grant.register_hook("after_validate_token_request", self.token)
 
     def authorize(self, grant, redirect_uri):
-        require_resource(grant.request, grant.server.settings.public_url + "/mcp")
+        require_resource(grant.request, grant.server.settings.mcp_resource_url)
 
     def token(self, grant, result):
         require_resource(
-            grant.request, grant.server.settings.public_url + "/mcp", grant.request.authorization_code.resource
+            grant.request, grant.server.settings.mcp_resource_url, grant.request.authorization_code.resource
         )
 
 
@@ -113,7 +113,7 @@ class RefreshGrant(RefreshTokenGrant):
 
     def validate_token_request(self):
         super().validate_token_request()
-        require_resource(self.request, self.server.settings.public_url + "/mcp", self.request.refresh_token.resource)
+        require_resource(self.request, self.server.settings.mcp_resource_url, self.request.refresh_token.resource)
         if self.request.refresh_token.refresh_revoked_at is not None:
             self.server.repository.record_replay(self.request.refresh_token)
             raise InvalidGrantError("Refresh token has already been consumed.")

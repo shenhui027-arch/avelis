@@ -27,6 +27,7 @@ SCOPES = "metrics:read lineage:read ask:execute"
 @pytest.fixture
 def oauth_api():
     from avelis.api.deps import current_user, get_session
+    from avelis.config import build_settings
     from avelis.governance.errors import GovernanceError
     from avelis.models import (
         AuditEvent,
@@ -43,13 +44,8 @@ def oauth_api():
     from avelis.oauth.repository import Repository
     from avelis.oauth.router import create_oauth_router
 
-    settings = SimpleNamespace(
-        public_url=BASE,
-        mcp_enabled=True,
-        mcp_access_token_seconds=900,
-        mcp_refresh_token_seconds=30 * 24 * 3600,
-        mcp_cimd_cache_ttl_seconds=3600,
-        mcp_cimd_allowed_urls=(),
+    settings = build_settings(
+        {"AVELIS_SECRET": "test-secret-mcp-x", "AVELIS_MCP_ENABLED": "true", "AVELIS_PUBLIC_URL": BASE}
     )
     models = (
         User,

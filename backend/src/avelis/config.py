@@ -128,6 +128,10 @@ class Settings:
     model_timeout_seconds: int = 60
     env: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
 
+    @property
+    def mcp_resource_url(self) -> str:
+        return self.public_url + "/mcp"
+
 
 def _database_url(env: dict[str, str]) -> str:
     """元数据库只支持 PostgreSQL（ADR 0003）。"""
@@ -248,9 +252,7 @@ def _build_settings(env: dict[str, str]) -> Settings:
     secret = env.get("AVELIS_SECRET", "")
     origins = env.get("AVELIS_CORS_ORIGINS")
     mcp_enabled = _boolean(env, "AVELIS_MCP_ENABLED", Settings.mcp_enabled)
-    public_url = env.get("AVELIS_PUBLIC_URL", "").strip()
-    if not mcp_enabled:
-        public_url = public_url.rstrip("/")
+    public_url = env.get("AVELIS_PUBLIC_URL", "").strip().rstrip("/")
     cors_origins = tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins
     parsed_public = urlsplit(public_url)
     public_origin = f"{parsed_public.scheme}://{parsed_public.netloc}" if mcp_enabled and public_url else public_url
@@ -447,6 +449,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
     except ValueError as exc:
         values.problem("AVELIS_FRONTEND_DIR", str(exc))
     try:
+        if any(c in values.get("AVELIS_PUBLIC_URL", "") for c in "?#"):
+            raise ValueError("AVELIS_PUBLIC_URL 不支持查询参数或片段")
         if _boolean(values, "AVELIS_MCP_ENABLED", Settings.mcp_enabled):
             public_url = values.get("AVELIS_PUBLIC_URL", "").strip()
             parsed = urlsplit(public_url)
