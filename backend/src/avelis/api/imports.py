@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from avelis import audit, jobs
+from avelis import audit, events, jobs
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
@@ -136,6 +136,21 @@ def _run(session: Session, imported: ImportBatch, *, wait: bool, created: bool =
 
 
 def _created(
+    session: Session,
+    user: User,
+    *,
+    wait: bool = False,
+    files: list[ImportFile] | None = None,
+    notes: list[str] | None = None,
+    **kwargs,
+) -> dict:
+    with events.failure_guard(
+        "lineage_import.failed", user, "import_batch", session=session, datasource_id=kwargs.get("datasource_id")
+    ):
+        return _create_batch(session, user, wait=wait, files=files, notes=notes, **kwargs)
+
+
+def _create_batch(
     session: Session,
     user: User,
     *,
@@ -632,10 +647,11 @@ def set_params(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    service.require_import_access(session, user)
-    imported = batch.set_params(session, user, batch.batch_or_404(session, batch_id), body.params)
-    response.status_code = 200 if wait else 202
-    return _run(session, imported, wait=wait)
+    with events.failure_guard("lineage_import.failed", user, "import_batch", batch_id, session=session):
+        service.require_import_access(session, user)
+        imported = batch.set_params(session, user, batch.batch_or_404(session, batch_id), body.params)
+        response.status_code = 200 if wait else 202
+        return _run(session, imported, wait=wait)
 
 
 def _decision_problem(session: Session, candidate: CandidateEdge, decision: str) -> str | None:

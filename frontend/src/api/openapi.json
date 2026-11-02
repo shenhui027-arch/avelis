@@ -881,6 +881,444 @@
     }
    }
   },
+  "/api/events/types": {
+   "get": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "List Event Types",
+    "operationId": "list_event_types_api_events_types_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/EventTypeOut"
+         },
+         "type": "array",
+         "title": "Response List Event Types Api Events Types Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/webhook-subscriptions": {
+   "get": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "List Subscriptions",
+    "operationId": "list_subscriptions_api_webhook_subscriptions_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/SubscriptionOut"
+         },
+         "type": "array",
+         "title": "Response List Subscriptions Api Webhook Subscriptions Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Create Subscription",
+    "operationId": "create_subscription_api_webhook_subscriptions_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SubscriptionCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SubscriptionSecretOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/webhook-subscriptions/{subscription_id}": {
+   "patch": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Update Subscription",
+    "operationId": "update_subscription_api_webhook_subscriptions__subscription_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "subscription_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Subscription Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SubscriptionUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SubscriptionOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Delete Subscription",
+    "operationId": "delete_subscription_api_webhook_subscriptions__subscription_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "subscription_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Subscription Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/webhook-subscriptions/{subscription_id}/rotate-secret": {
+   "post": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Rotate Secret",
+    "operationId": "rotate_secret_api_webhook_subscriptions__subscription_id__rotate_secret_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "subscription_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Subscription Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SubscriptionSecretOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/webhook-subscriptions/{subscription_id}/test": {
+   "post": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Test Subscription",
+    "operationId": "test_subscription_api_webhook_subscriptions__subscription_id__test_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "subscription_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Subscription Id"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OutboxOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/event-outbox": {
+   "get": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "List Outbox",
+    "operationId": "list_outbox_api_event_outbox_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "subscription_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Subscription Id"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "pending",
+          "delivered",
+          "dead"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OutboxPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/event-outbox/{delivery_id}/redeliver": {
+   "post": {
+    "tags": [
+     "治理事件与 Webhook"
+    ],
+    "summary": "Redeliver",
+    "operationId": "redeliver_api_event_outbox__delivery_id__redeliver_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "delivery_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Delivery Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OutboxOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/domains": {
    "get": {
     "tags": [
@@ -8904,6 +9342,38 @@
       "additionalProperties": true,
       "type": "object",
       "title": "Detail"
+     },
+     "outcome": {
+      "type": "string",
+      "enum": [
+       "success",
+       "failure"
+      ],
+      "title": "Outcome",
+      "default": "success"
+     },
+     "event_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Event Type"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
      }
     },
     "additionalProperties": true,
@@ -11168,6 +11638,113 @@
     ],
     "title": "EngineOut"
    },
+   "EventActor": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "EventActor"
+   },
+   "EventError": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "code",
+     "reason"
+    ],
+    "title": "EventError"
+   },
+   "EventObject": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Id"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "type",
+     "id"
+    ],
+    "title": "EventObject"
+   },
+   "EventType": {
+    "type": "string",
+    "enum": [
+     "metric_version.submitted",
+     "metric_version.published",
+     "metric_version.rejected",
+     "metric_version.affected",
+     "metric_version.invalidated",
+     "join_path.approved",
+     "join_path.affected",
+     "collect.completed",
+     "collect.failed",
+     "collect.schema_changed",
+     "lineage_import.completed",
+     "lineage_import.failed",
+     "attribution.unavailable",
+     "auth.login_failure_threshold"
+    ],
+    "title": "EventType"
+   },
+   "EventTypeOut": {
+    "properties": {
+     "type": {
+      "$ref": "#/components/schemas/EventType"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type"
+    ],
+    "title": "EventTypeOut"
+   },
    "ExampleQuestion": {
     "properties": {
      "text": {
@@ -11521,6 +12098,92 @@
      "models"
     ],
     "title": "FetchedOut"
+   },
+   "GovernanceEvent": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "type": {
+      "$ref": "#/components/schemas/GovernanceEventType"
+     },
+     "outcome": {
+      "type": "string",
+      "enum": [
+       "success",
+       "failure"
+      ],
+      "title": "Outcome"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "actor": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/EventActor"
+       },
+       {
+        "type": "string",
+        "const": "system"
+       }
+      ],
+      "title": "Actor"
+     },
+     "object": {
+      "$ref": "#/components/schemas/EventObject"
+     },
+     "detail": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Detail"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/EventError"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "type",
+     "outcome",
+     "at",
+     "actor",
+     "object"
+    ],
+    "title": "GovernanceEvent"
+   },
+   "GovernanceEventType": {
+    "type": "string",
+    "enum": [
+     "metric_version.submitted",
+     "metric_version.published",
+     "metric_version.rejected",
+     "metric_version.affected",
+     "metric_version.invalidated",
+     "join_path.approved",
+     "join_path.affected",
+     "collect.completed",
+     "collect.failed",
+     "collect.schema_changed",
+     "lineage_import.completed",
+     "lineage_import.failed",
+     "attribution.unavailable",
+     "auth.login_failure_threshold",
+     "webhook.test"
+    ],
+    "title": "GovernanceEventType"
    },
    "GrainDeclare": {
     "properties": {
@@ -13826,6 +14489,116 @@
     ],
     "title": "OssieImportWarning"
    },
+   "OutboxOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "event_id": {
+      "type": "string",
+      "title": "Event Id"
+     },
+     "subscription_id": {
+      "type": "string",
+      "title": "Subscription Id"
+     },
+     "payload": {
+      "$ref": "#/components/schemas/GovernanceEvent"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "delivered",
+       "dead"
+      ],
+      "title": "Status"
+     },
+     "attempts": {
+      "type": "integer",
+      "title": "Attempts"
+     },
+     "next_attempt_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Next Attempt At"
+     },
+     "last_error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Error"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "delivered_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Delivered At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "event_id",
+     "subscription_id",
+     "payload",
+     "status",
+     "attempts",
+     "next_attempt_at",
+     "last_error",
+     "created_at",
+     "delivered_at"
+    ],
+    "title": "OutboxOut"
+   },
+   "OutboxPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/OutboxOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     }
+    },
+    "type": "object",
+    "required": [
+     "items",
+     "total",
+     "limit",
+     "offset"
+    ],
+    "title": "OutboxPage"
+   },
    "OwnerRef": {
     "properties": {
      "id": {
@@ -14782,6 +15555,308 @@
      "raw_text"
     ],
     "title": "StatementOut"
+   },
+   "SubscriptionCreate": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "url": {
+      "type": "string",
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Url"
+     },
+     "event_types": {
+      "items": {
+       "$ref": "#/components/schemas/EventType"
+      },
+      "type": "array",
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Event Types"
+     },
+     "outcomes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "enum": [
+          "success",
+          "failure"
+         ]
+        },
+        "type": "array",
+        "maxItems": 2,
+        "minItems": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Outcomes"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "url",
+     "event_types"
+    ],
+    "title": "SubscriptionCreate"
+   },
+   "SubscriptionOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "url": {
+      "type": "string",
+      "title": "Url"
+     },
+     "event_types": {
+      "items": {
+       "$ref": "#/components/schemas/EventType"
+      },
+      "type": "array",
+      "title": "Event Types"
+     },
+     "outcomes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "enum": [
+          "success",
+          "failure"
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Outcomes"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "created_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created By"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "url",
+     "event_types",
+     "outcomes",
+     "enabled",
+     "created_by",
+     "created_at",
+     "updated_at"
+    ],
+    "title": "SubscriptionOut"
+   },
+   "SubscriptionSecretOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "url": {
+      "type": "string",
+      "title": "Url"
+     },
+     "event_types": {
+      "items": {
+       "$ref": "#/components/schemas/EventType"
+      },
+      "type": "array",
+      "title": "Event Types"
+     },
+     "outcomes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "enum": [
+          "success",
+          "failure"
+         ]
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Outcomes"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "created_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created By"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Updated At"
+     },
+     "secret": {
+      "type": "string",
+      "title": "Secret",
+      "description": "签名密钥，仅创建或轮换时返回一次"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "url",
+     "event_types",
+     "outcomes",
+     "enabled",
+     "created_by",
+     "created_at",
+     "updated_at",
+     "secret"
+    ],
+    "title": "SubscriptionSecretOut"
+   },
+   "SubscriptionUpdate": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2048,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Url"
+     },
+     "event_types": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/EventType"
+        },
+        "type": "array",
+        "maxItems": 100,
+        "minItems": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Event Types"
+     },
+     "outcomes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "enum": [
+          "success",
+          "failure"
+         ]
+        },
+        "type": "array",
+        "maxItems": 2,
+        "minItems": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Outcomes"
+     },
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "SubscriptionUpdate"
    },
    "Target": {
     "properties": {

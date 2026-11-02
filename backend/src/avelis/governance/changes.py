@@ -351,6 +351,16 @@ def _resolve_metric(
             raise Invalid("新口径不能是受影响的版本本身")
     action = "改用新口径" if resolution == "new_version" else "停用"
     transition(session, version, "retired", actor, f"复核：{action}。{note}")
+    audit.record(
+        session,
+        actor,
+        "metric_version.invalidated",
+        "metric_version",
+        version.id,
+        resolution=resolution,
+        review_task_id=task.id,
+        replacement_version_id=linked_id,
+    )
 
 
 def _resolve_join_path(session: Session, task: ReviewTask, resolution: str) -> None:

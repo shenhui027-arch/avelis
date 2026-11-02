@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from avelis import events
 from avelis.api import schemas as S
 from avelis.api.catalog import qualified
 from avelis.api.deps import current_user, get_session
@@ -234,31 +235,40 @@ def check_version(version_id: str, user: User = Depends(current_user), session: 
 
 @router.post("/metric-versions/{version_id}/submit", response_model=S.MetricVersionOut)
 def submit_version(version_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    version = _visible_version(session, user, version_id)
-    try:
-        metrics.submit(session, user, version)
-    except metrics.Conflict:
-        session.commit()  # 保留检查结果与审计
-        raise
-    return version_view(session, version)
+    with events.failure_guard("metric_version.submitted", user, "metric_version", version_id, session=session):
+        version = _visible_version(session, user, version_id)
+        try:
+            metrics.submit(session, user, version)
+        except metrics.Conflict:
+            session.commit()  # 保留现有的检查结果与 submit_blocked 审计；失败事件另行提交
+            raise
+        result = version_view(session, version)
+        session.commit()
+        return result
 
 
 @router.post("/metric-versions/{version_id}/approve", response_model=S.MetricVersionOut)
 def approve_version(
     version_id: str, body: Note, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
-    version = _visible_version(session, user, version_id)
-    return version_view(session, metrics.approve(session, user, version, body.note))
+    with events.failure_guard("metric_version.published", user, "metric_version", version_id, session=session):
+        version = _visible_version(session, user, version_id)
+        result = version_view(session, metrics.approve(session, user, version, body.note))
+        session.commit()
+        return result
 
 
 @router.post("/metric-versions/{version_id}/reject", response_model=S.MetricVersionOut)
 def reject_version(
     version_id: str, body: Note, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
-    if not body.note:
-        raise HTTPException(422, "驳回必须填写理由")
-    version = _visible_version(session, user, version_id)
-    return version_view(session, metrics.reject(session, user, version, body.note))
+    with events.failure_guard("metric_version.rejected", user, "metric_version", version_id, session=session):
+        if not body.note:
+            raise HTTPException(422, "驳回必须填写理由")
+        version = _visible_version(session, user, version_id)
+        result = version_view(session, metrics.reject(session, user, version, body.note))
+        session.commit()
+        return result
 
 
 @router.post("/metric-versions/{version_id}/archive", response_model=S.MetricVersionOut)
@@ -342,8 +352,14 @@ def create_join_path(
 def decide_join_path(
     path_id: str, body: Decision, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
-    path = joins.path_or_404(session, path_id)
-    return join_path_view(session, joins.decide(session, user, path, body.domain_id, body.decision, body.note))
+    if body.decision != "approved":
+        path = joins.path_or_404(session, path_id)
+        return join_path_view(session, joins.decide(session, user, path, body.domain_id, body.decision, body.note))
+    with events.failure_guard("join_path.approved", user, "join_path", path_id, session=session):
+        path = joins.path_or_404(session, path_id)
+        result = join_path_view(session, joins.decide(session, user, path, body.domain_id, body.decision, body.note))
+        session.commit()
+        return result
 
 
 # --- 变更、影响、复核 ---------------------------------------------------------------
@@ -499,5 +515,13 @@ def resolve_task(
     task_id: str, body: Resolve, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
     task = changes.task_or_404(session, task_id)
+    if task.object_type == "metric_version" and body.resolution in ("new_version", "retired"):
+        with events.failure_guard(
+            "metric_version.invalidated", user, "metric_version", task.object_id, session=session
+        ):
+            changes.resolve_task(session, user, task, body.resolution, body.note, body.linked_metric_version_id)
+            result = task_view(session, task)
+            session.commit()
+            return result
     changes.resolve_task(session, user, task, body.resolution, body.note, body.linked_metric_version_id)
     return task_view(session, task)

@@ -2001,3 +2001,38 @@ msgstr "The metric uses the same asset in multiple relationship roles and cannot
 
 msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
 msgstr "The metric expression references virtual fields produced by pre-aggregation and cannot be exported safely; adjust the metric definition"
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook 订阅不存在"
+msgstr "Webhook subscription not found"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "订阅字段不能为空"
+msgstr "Subscription fields must not be null"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "只有投递终止的条目可以重投"
+msgstr "Only dead deliveries can be retried"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook URL 无效、无法解析或指向受限地址"
+msgstr "Webhook URL is invalid, cannot be resolved, or points to a restricted address"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "测试事件"
+msgstr "Test event"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "登录失败次数超过阈值"
+msgstr "Login failures reached the threshold"
+
+msgid "发件箱条目不存在"
+msgstr "Outbox entry not found"
+
+msgid "Webhook 订阅已停用"
+msgstr "Webhook subscription is disabled"
+
+msgid "操作失败"
+msgstr "Operation failed"
+
+msgid "后台任务运行超时"
+msgstr "Background task timed out"

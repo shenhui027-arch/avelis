@@ -2006,3 +2006,38 @@ msgstr "口徑包含同一資產的多個關聯角色，無法安全匯出；請
 
 msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
 msgstr "口徑運算式引用預先彙總產生的虛擬欄位，無法安全匯出；請調整口徑定義"
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook 订阅不存在"
+msgstr "Webhook 訂閱不存在"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "订阅字段不能为空"
+msgstr "訂閱欄位不能為空"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "只有投递终止的条目可以重投"
+msgstr "只有投遞終止的項目可以重投"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "Webhook URL 无效、无法解析或指向受限地址"
+msgstr "Webhook URL 無效、無法解析或指向受限位址"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "测试事件"
+msgstr "測試事件"
+
+#: src/avelis/api/events.py src/avelis/events
+msgid "登录失败次数超过阈值"
+msgstr "登入失敗次數達到門檻"
+
+msgid "发件箱条目不存在"
+msgstr "寄件匣項目不存在"
+
+msgid "Webhook 订阅已停用"
+msgstr "Webhook 訂閱已停用"
+
+msgid "操作失败"
+msgstr "操作失敗"
+
+msgid "后台任务运行超时"
+msgstr "背景工作執行逾時"

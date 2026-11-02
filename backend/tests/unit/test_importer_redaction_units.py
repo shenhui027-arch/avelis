@@ -627,7 +627,8 @@ def test_large_shell_substitutions_finish_quickly(newline, kind, closed):
         assert actual == (expected, 1)
         assert elapsed < 0.5, f"{kind}, {closed=}, {size=}: {elapsed:.6f}s"
         timings.append(elapsed)
-    assert timings[1] / max(timings[0], 1e-6) < 2.6, timings
+    # 小样本只有几毫秒，比值会被机器负载放大；分母设 10ms 下限，真正的二次方回溯在 20000 时是秒级，照样能抓住
+    assert timings[1] / max(timings[0], 0.01) < 2.6, timings
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])

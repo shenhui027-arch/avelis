@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from avelis.api import schemas as S
@@ -148,12 +148,17 @@ def list_audit(
     session: Session = Depends(get_session),
 ):
     # 全量审计只给管理员；按对象查看历史时要求能看到该对象
-    if not access.is_admin(session, user):
+    admin = access.is_admin(session, user)
+    if not admin:
         if not (object_type and object_id):
             raise HTTPException(403, "只有管理员可以查看全部审计")
         if not access.can_see_object(session, user, object_type, object_id):
             raise HTTPException(404, "对象不存在或无权访问")
     stmt = select(AuditEvent).order_by(AuditEvent.at.desc()).limit(min(limit, 1000))
+    if not admin:
+        stmt = stmt.where(
+            func.coalesce(AuditEvent.detail["_governance"]["outcome"].as_string(), "success") != "failure"
+        )
     if object_type:
         stmt = stmt.where(AuditEvent.object_type == object_type)
     if object_id:
@@ -170,6 +175,9 @@ def list_audit(
             "object_type": e.object_type,
             "object_id": e.object_id,
             "detail": e.detail,
+            "outcome": (e.detail.get("_governance") or {}).get("outcome", "success"),
+            "event_type": (e.detail.get("_governance") or {}).get("type"),
+            "error": (e.detail.get("_governance") or {}).get("error"),
         }
         for e in session.scalars(stmt)
     ]
