@@ -8,6 +8,7 @@ import { t } from "../i18n";
 import { Icon } from "./Icon";
 
 export { Hint, Icon } from "./Icon";
+export { ConfirmDialog, DateInput, Select, SuggestInput } from "./controls";
 
 // --- 状态：状态点 + 两三个字（文字取自语言包 status.*） ----------------------------------
 
@@ -113,19 +114,6 @@ export function Tabs<T extends string>({ value, options, onChange }: {
           onClick={() => onChange(o.value)}>{o.label}</button>
       ))}
     </div>
-  );
-}
-
-export function Select({ value, onChange, children, disabled, label, style }: {
-  value: string; onChange: (v: string) => void; children: ReactNode; disabled?: boolean; label?: string;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <span className="av-select-wrap" style={{ width: "100%", ...style }}>
-      <select className="av-select" value={value} disabled={disabled} aria-label={label}
-        onChange={(e) => onChange(e.target.value)}>{children}</select>
-      <Icon name="chevron" small />
-    </span>
   );
 }
 

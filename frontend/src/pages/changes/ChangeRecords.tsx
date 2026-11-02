@@ -5,7 +5,7 @@ import { Link } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAssets, useDatasources, useTimeZone } from "../../api/hooks";
-import { Banner, Count, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DateInput, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { assetsOfDatasource, recordQuery, type RecordFilters } from "./recordFilters";
@@ -137,8 +137,8 @@ export function ChangeRecords() {
               <option value="matched">{t("已确认用户")}</option>
               <option value="ambiguous,unmatched,unavailable,unsupported">{t("未知或不确定")}</option>
             </Select>
-            <input className="av-input" type="date" aria-label={t("起始日期（业务时区）")} value={filters.since} aria-invalid={invalid.includes("since")} title={invalid.includes("since") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={(e) => set("since")(e.target.value)} />
-            <input className="av-input" type="date" aria-label={t("截止日期（不含，业务时区）")} value={filters.until} aria-invalid={invalid.includes("until")} title={invalid.includes("until") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={(e) => set("until")(e.target.value)} />
+            <DateInput label={t("起始日期（业务时区）")} placeholder={t("起始日期")} value={filters.since} invalid={invalid.includes("since")} title={invalid.includes("since") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={set("since")} />
+            <DateInput label={t("截止日期（不含，业务时区）")} placeholder={t("截止日期")} value={filters.until} invalid={invalid.includes("until")} title={invalid.includes("until") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={set("until")} />
           </div>
 
           <section className="av-panel">

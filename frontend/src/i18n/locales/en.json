@@ -1446,5 +1446,14 @@
   "已脱敏 {{n}} 处": "{{n}} redactions",
   "复用上次结果": "Reused previous result",
   "已丢弃：": "Dropped: ",
-  "等 {{n}} 条": "and {{n}} more"
+  "等 {{n}} 条": "and {{n}} more",
+  "选择日期": "Pick a date",
+  "上个月": "Previous month",
+  "下个月": "Next month",
+  "今天": "Today",
+  "清除": "Clear",
+  "小时": "Hour",
+  "分钟": "Minute",
+  "起始日期": "Start date",
+  "截止日期": "End date"
 }

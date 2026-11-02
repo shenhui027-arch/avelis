@@ -75,6 +75,23 @@ pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
 
 样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`。
 
+### 界面控件
+
+带弹出层的控件一律用 `src/components/controls.tsx` 里的组件（从 `components/ui` 导入），不用浏览器原生控件。原生弹出层由操作系统绘制，在深色玻璃界面里会变成白底或系统风格；问数输入框和变更记录都出过这个问题。
+
+| 需要 | 用 | 不用 |
+|---|---|---|
+| 下拉选择 | `Select`（子元素照常写 `<option value>`，只当数据读取） | `<select>` |
+| 日期 | `DateInput`（值是 `YYYY-MM-DD`） | `type="date"` 等日期时间输入 |
+| 时间 | 两个 `Select`（时、分） | `type="time"` |
+| 可自由输入、带候选 | `SuggestInput` | `<datalist>` / `list=` |
+| 二次确认 | `ConfirmDialog` | `confirm()` / `alert()` / `prompt()` |
+| 选项少、要一眼看全 | `Seg` / `Tabs` | — |
+
+这些浮层挂到 `body` 并按触发器位置定位，面板的滚动和裁剪不会遮住它们；键盘可操作（方向键、Enter、Esc、首字母跳转）。自己写的弹出菜单若要判断“点到外面”，要把 `.av-float-root` 里的点击算作里面。
+
+`pnpm check:ui` 检查源码里没有上表“不用”一列的写法，CI 里同样会跑。
+
 ## 演示环境
 
 只用于本地开发与验收，所有端口只绑 `127.0.0.1`，数据全部是固定日期的合成电商数据：

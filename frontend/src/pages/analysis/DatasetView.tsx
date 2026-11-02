@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
-import { Code, Drawer, Empty, Icon, Pill } from "../../components/ui";
+import { Code, DateInput, Drawer, Empty, Icon, Pill } from "../../components/ui";
 import { BarChart, LineChart } from "./charts";
 import { t } from "../../i18n";
 
@@ -176,7 +176,7 @@ function RerunDrawer({ runId, d, onClose, onDone }: { runId: string; d: Detail; 
   const ready = form.start && form.end && form.start <= form.end && (!custom || (form.cs && form.ce));
   const field = (key: keyof typeof form, label: string) => (
     <label className="av-field"><span className="av-label">{label}</span>
-      <input className="av-input" type="date" value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></label>
+      <DateInput label={label} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} /></label>
   );
   return (
     <Drawer title={t("换时间重跑 {{ref}}", { ref: d.ref })} onClose={onClose} footer={<div className="av-actions">
