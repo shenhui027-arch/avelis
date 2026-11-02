@@ -249,7 +249,23 @@ def test_outbox_subscription_selection_protects_against_concurrent_delete(databa
 
 
 def test_failure_event_requires_error_and_all_event_names_are_append_only(database):
-    assert len(EventType) == 14
+    assert [item.value for item in EventType] == [
+        "metric_version.submitted",
+        "metric_version.published",
+        "metric_version.rejected",
+        "metric_version.affected",
+        "metric_version.invalidated",
+        "join_path.approved",
+        "join_path.affected",
+        "collect.completed",
+        "collect.failed",
+        "collect.schema_changed",
+        "lineage_import.completed",
+        "lineage_import.failed",
+        "attribution.unavailable",
+        "auth.login_failure_threshold",
+        "webhook.test",
+    ]
     with database() as session:
         row = audit.record(session, None, "collect", "datasource", "ds", run_id="r")
         payload = events.event_payload(events.event_from_audit(row))

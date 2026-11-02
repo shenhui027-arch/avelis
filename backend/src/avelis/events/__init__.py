@@ -21,7 +21,7 @@ from avelis.models import AuditEvent, EventOutbox, User, WebhookSubscription
 log = logging.getLogger(__name__)
 
 
-class EventType(StrEnum):
+class GovernanceEventType(StrEnum):
     METRIC_VERSION_SUBMITTED = "metric_version.submitted"
     METRIC_VERSION_PUBLISHED = "metric_version.published"
     METRIC_VERSION_REJECTED = "metric_version.rejected"
@@ -36,12 +36,17 @@ class EventType(StrEnum):
     LINEAGE_IMPORT_FAILED = "lineage_import.failed"
     ATTRIBUTION_UNAVAILABLE = "attribution.unavailable"
     AUTH_LOGIN_FAILURE_THRESHOLD = "auth.login_failure_threshold"
+    WEBHOOK_TEST = "webhook.test"
 
 
+EventType = GovernanceEventType
 EVENT_TYPES = tuple(EventType)
+SUBSCRIBABLE_EVENT_TYPES = tuple(t for t in EventType if t != EventType.WEBHOOK_TEST)
+# 保留客户端 EventType 的可订阅契约；完整事件类型使用 GovernanceEventType。
+SubscribableEventType = StrEnum("EventType", {t.name: t.value for t in SUBSCRIBABLE_EVENT_TYPES})
 # 仅显式映射的 action 才产生外部事件；枚举值也用作失败留底的 action。
 ACTION_EVENT_TYPES: dict[str, EventType] = {
-    **{t.value: t for t in EventType},
+    **{t.value: t for t in SUBSCRIBABLE_EVENT_TYPES},
     "metric_version.submit": EventType.METRIC_VERSION_SUBMITTED,
     "metric_version.approve": EventType.METRIC_VERSION_PUBLISHED,
     "metric_version.reject": EventType.METRIC_VERSION_REJECTED,
@@ -249,20 +254,17 @@ def _audit_outbox(session: Session, _flush_context, _instances) -> None:
 
 
 def enqueue_test(session: Session, subscription: WebhookSubscription, actor: User) -> EventOutbox:
-    event_type = EventType(subscription.event_types[0])
-    outcome = (subscription.outcomes or ["failure" if event_type in FAILURE_TYPES else "success"])[0]
     return enqueue_event(
         session,
         subscription,
         GovernanceEvent(
             id=new_id(),
-            type=event_type,
-            outcome=outcome,
+            type=EventType.WEBHOOK_TEST,
+            outcome="success",
             at=datetime.now(timezone.utc),
             actor=EventActor(id=actor.id, name=actor.username),
-            object=EventObject(type="webhook_subscription", id=subscription.id),
+            object=EventObject(type="webhook_subscription", id=subscription.id, name=subscription.name),
             detail={"test": True},
-            error=EventError(code="TEST", reason="测试事件") if outcome == "failure" else None,
         ),
     )
 

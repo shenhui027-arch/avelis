@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from avelis import audit, events
 from avelis.api.deps import current_user, get_session
 from avelis.db import utcnow
-from avelis.events import EventType, GovernanceEvent
+from avelis.events import GovernanceEvent, SubscribableEventType
 from avelis.events.delivery import validate_url
 from avelis.governance import access
 from avelis.models import EventOutbox, User, WebhookSubscription
@@ -27,7 +27,7 @@ OutboxStatus = Literal["pending", "delivered", "dead"]
 
 
 class EventTypeOut(BaseModel):
-    type: EventType
+    type: SubscribableEventType
 
 
 class SubscriptionCreate(BaseModel):
@@ -35,7 +35,7 @@ class SubscriptionCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=128)
     url: str = Field(min_length=1, max_length=2048)
-    event_types: list[EventType] = Field(min_length=1, max_length=100)
+    event_types: list[SubscribableEventType] = Field(min_length=1, max_length=100)
     outcomes: list[Outcome] | None = Field(default=None, min_length=1, max_length=2)
     enabled: bool = True
 
@@ -53,7 +53,7 @@ class SubscriptionUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=128)
     url: str | None = Field(default=None, min_length=1, max_length=2048)
-    event_types: list[EventType] | None = Field(default=None, min_length=1, max_length=100)
+    event_types: list[SubscribableEventType] | None = Field(default=None, min_length=1, max_length=100)
     outcomes: list[Outcome] | None = Field(default=None, min_length=1, max_length=2)
     enabled: bool | None = None
 
@@ -69,7 +69,7 @@ class SubscriptionOut(BaseModel):
     id: str
     name: str
     url: str
-    event_types: list[EventType]
+    event_types: list[SubscribableEventType]
     outcomes: list[Outcome] | None
     enabled: bool
     created_by: str | None
@@ -126,7 +126,7 @@ def _secret_view(subscription: WebhookSubscription, secret: str) -> dict:
 @router.get("/events/types", response_model=list[EventTypeOut])
 def list_event_types(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
     access.require_role(session, user, "admin")
-    return [{"type": item} for item in EventType]
+    return [{"type": item} for item in events.SUBSCRIBABLE_EVENT_TYPES]
 
 
 @router.get("/webhook-subscriptions", response_model=list[SubscriptionOut])

@@ -6,7 +6,7 @@ This document follows the [`EventType` and action mapping](../backend/src/avelis
 
 ## Event types and audit mapping
 
-Types are append-only and must not be renamed. The table shows the outcome on the normal trigger path. A guarded write that raises an exception keeps its operation type with outcome `failure`. Unmapped audit actions remain in the audit log without producing external events. Every enum value also maps to the identically named event for explicit recording and failure capture.
+Types are append-only and must not be renamed. The table shows the outcome on the normal trigger path. A guarded write that raises an exception keeps its operation type with outcome `failure`. Unmapped audit actions remain in the audit log without producing external events. Every subscribable enum value also maps to the identically named event for explicit recording and failure capture. `webhook.test` is excluded from audit projection and cannot be subscribed to.
 
 | Event type | Audit action | Normal outcome | Trigger |
 |---|---|---|---|
@@ -24,6 +24,7 @@ Types are append-only and must not be renamed. The table shows the outcome on th
 | `lineage_import.failed` | `import.failed`; the same-name action is used by failure guards | `failure` | Import creation, parameter updates, or a background import raises an exception, or the worker recovers a timed-out import job. |
 | `attribution.unavailable` | `attribution.unavailable` | `success` | Collection attribution is unavailable with cause `no_permission` or `not_enabled`. Success means the unavailability fact was recorded, not that attribution succeeded. Other unavailable causes do not emit this type. |
 | `auth.login_failure_threshold` | `auth.login_failure_threshold` | `failure` | The failure count for “username + source address” first reaches the configured threshold. Further requests during lockout do not repeat the threshold event. object.id can be `null` for an unknown account. |
+| `webhook.test` | None (queued directly; the operation is audited as `webhook_subscription.test`) | `success` | Produced only by “Send test” and delivered only to the tested subscription, bypassing its event_types and outcomes filters. It cannot be subscribed to; receivers can ignore test events by this type. |
 
 ## Contract and redaction
 
@@ -143,7 +144,7 @@ All endpoints use existing Bearer authentication and require administrators. Exa
 
 | Method and path | Request | Success response |
 |---|---|---|
-| `GET /api/events/types` | None | `200`, `[{"type":"metric_version.submitted"}, ...]`, all 14 types. |
+| `GET /api/events/types` | None | `200`, `[{"type":"metric_version.submitted"}, ...]`, only the 14 subscribable types, excluding `webhook.test`. |
 | `GET /api/webhook-subscriptions` | None | `200`, subscription array without secret. |
 | `POST /api/webhook-subscriptions` | name, url, nonempty event_types; optional outcomes and enabled | `201`, subscription and one-time secret. |
 | `PATCH /api/webhook-subscriptions/{id}` | Partial update of the same fields; outcomes=null clears filtering | `200`, subscription without secret. |
@@ -186,7 +187,7 @@ Content-Type: application/json
 
 event_types must be nonempty and is deduplicated. Missing or null outcomes disables outcome filtering. For example, `PATCH /api/webhook-subscriptions/subscription_001` with `{"enabled":false,"outcomes":null}` returns updated subscription fields without secret. Rotation returns the same shape with a new secret. Missing subscriptions return `404`; invalid URLs or fields return `422`; testing or redelivering a disabled subscription, or redelivering a non-dead item, returns `409`.
 
-A test event uses the subscription's first event type and first outcome, or that type's default outcome if outcomes is absent. It has a new event ID, points object to the subscription, and contains detail `{"test":true}`. Failure tests also contain `{"code":"TEST","reason":"测试事件"}`. Test and redelivery responses are single outbox objects. A list returns the same objects in items, for example `GET /api/event-outbox?subscription_id=subscription_001&status=pending&limit=50&offset=0`:
+A test event always uses `type="webhook.test"`, `outcome="success"`, and a new event ID. Its object contains the subscription's type, id, and name, and detail is `{"test":true}`. It bypasses event_types and outcomes filters and is delivered only to the tested subscription; receivers can ignore test events by type. Creating or updating a subscription with `webhook.test` in event_types returns `422`. Test and redelivery responses are single outbox objects. A list returns the same objects in items, for example `GET /api/event-outbox?subscription_id=subscription_001&status=pending&limit=50&offset=0`:
 
 ```json
 {
@@ -196,11 +197,11 @@ A test event uses the subscription's first event type and first outcome, or that
     "subscription_id": "subscription_001",
     "payload": {
       "id": "event_test_001",
-      "type": "metric_version.published",
+      "type": "webhook.test",
       "outcome": "success",
       "at": "2026-11-03T08:02:00Z",
       "actor": {"id":"user_001","name":"admin"},
-      "object": {"type":"webhook_subscription","id":"subscription_001","name":null},
+      "object": {"type":"webhook_subscription","id":"subscription_001","name":"Governance alerts"},
       "detail": {"test":true},
       "error": null
     },

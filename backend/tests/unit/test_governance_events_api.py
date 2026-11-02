@@ -103,7 +103,9 @@ def test_every_event_management_endpoint_requires_admin(api, method, path, body)
 def test_event_types_list_matches_the_finite_contract(api):
     response = api.client.get("/api/events/types")
     assert response.status_code == 200, response.text
-    assert {item["type"] for item in response.json()} == {item.value for item in EventType}
+    types = [item["type"] for item in response.json()]
+    assert len(types) == 14
+    assert types == [item.value for item in EventType if item != EventType.WEBHOOK_TEST]
 
 
 def test_subscription_crud_encrypts_and_returns_secret_only_on_create_and_rotation(api):
@@ -150,6 +152,8 @@ def test_subscription_crud_encrypts_and_returns_secret_only_on_create_and_rotati
     "changes",
     [
         {"event_types": ["metric_version.unknown"]},
+        {"event_types": ["webhook.test"]},
+        {"event_types": ["metric_version.published", "webhook.test"]},
         {"event_types": []},
         {"outcomes": ["unknown"]},
         {"outcomes": []},
@@ -183,11 +187,24 @@ def test_subscription_patch_does_not_clear_required_fields(api, field):
     assert api.client.get("/api/webhook-subscriptions").json()[0]["enabled"] is True
 
 
-def test_test_delivery_is_queued_and_audited_without_exposing_signing_secret(api):
-    subscription = _create(api.client)
+@pytest.mark.parametrize("event_type", ["metric_version.submitted", "collect.failed"])
+@pytest.mark.parametrize("outcomes", [None, ["failure"], ["success"]])
+def test_test_delivery_is_queued_and_audited_without_exposing_signing_secret(api, event_type, outcomes):
+    subscription = _create(api.client, event_types=[event_type], outcomes=outcomes)
+    _create(api.client, name="另一个接收器", event_types=[event_type], outcomes=outcomes)
     item = _enqueue_test(api.client, subscription["id"])
     assert item["subscription_id"] == subscription["id"] and item["status"] == "pending"
     assert item["attempts"] == 0 and item["event_id"] == item["payload"]["id"]
+    assert item["payload"]["type"] == "webhook.test"
+    assert item["payload"]["outcome"] == "success"
+    assert item["payload"]["object"] == {
+        "type": "webhook_subscription",
+        "id": subscription["id"],
+        "name": subscription["name"],
+    }
+    assert item["payload"]["detail"] == {"test": True}
+    assert item["payload"]["error"] is None
+    assert [row.subscription_id for row in api.session.scalars(select(EventOutbox))] == [subscription["id"]]
     assert set(item["payload"]) <= {"id", "type", "outcome", "at", "actor", "object", "detail", "error"}
     assert subscription["secret"] not in repr(item)
     stored = api.session.get(EventOutbox, item["id"])
@@ -195,6 +212,16 @@ def test_test_delivery_is_queued_and_audited_without_exposing_signing_secret(api
     assert stored.payload == GovernanceEvent.model_validate(item["payload"]).model_dump(mode="json", exclude_none=True)
     event = api.session.scalar(select(AuditEvent).where(AuditEvent.action == "webhook_subscription.test"))
     assert event is not None and event.detail["delivery_id"] == item["id"]
+
+
+@pytest.mark.parametrize("event_types", [["webhook.test"], ["metric_version.published", "webhook.test"]])
+def test_subscription_patch_rejects_test_event_type_without_changing_subscription(api, event_types):
+    subscription = _create(api.client)
+    response = api.client.patch(f"/api/webhook-subscriptions/{subscription['id']}", json={"event_types": event_types})
+    assert response.status_code == 422, response.text
+    stored = api.session.get(WebhookSubscription, subscription["id"])
+    assert stored.event_types == ["metric_version.published"]
+    assert api.session.scalar(select(AuditEvent).where(AuditEvent.action == "webhook_subscription.update")) is None
 
 
 def test_outbox_filters_are_applied_before_pagination(api):

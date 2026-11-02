@@ -311,8 +311,9 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
 // --- 二次确认 -----------------------------------------------------------------------
 
 /** 二次确认对话框（替代 window.confirm）：挂到 body，Esc 或点遮罩取消。 */
-export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCancel }: {
+export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCancel, children }: {
   title: string; body?: string; confirm: string; danger?: boolean; onConfirm: () => Promise<void> | void; onCancel: () => void;
+  children?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -342,6 +343,7 @@ export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCance
       <div ref={dialog} className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         {body ? <p>{body}</p> : null}
+        {children}
         {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
         <div className="av-actions">
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onCancel} disabled={busy}>{t("取消")}</button>

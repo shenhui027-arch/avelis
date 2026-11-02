@@ -3699,7 +3699,7 @@ export interface components {
         GovernanceEvent: {
             /** Id */
             id: string;
-            type: components["schemas"]["EventType"];
+            type: components["schemas"]["GovernanceEventType"];
             /**
              * Outcome
              * @enum {string}
@@ -3719,6 +3719,11 @@ export interface components {
             };
             error?: components["schemas"]["EventError"] | null;
         };
+        /**
+         * GovernanceEventType
+         * @enum {string}
+         */
+        GovernanceEventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold" | "webhook.test";
         /** GrainDeclare */
         GrainDeclare: {
             /** Columns */

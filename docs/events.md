@@ -6,7 +6,7 @@
 
 ## 事件类型与审计映射
 
-类型只追加，不改名。下表的 outcome 是正常触发路径的值；被失败守卫覆盖的写操作发生异常时，仍使用该操作类型，但 outcome 为 `failure`。未映射的审计 action 继续留底，不生成外部事件；每个枚举值本身也映射到同名事件，供明确记录和失败留底使用。
+类型只追加，不改名。下表的 outcome 是正常触发路径的值；被失败守卫覆盖的写操作发生异常时，仍使用该操作类型，但 outcome 为 `failure`。未映射的审计 action 继续留底，不生成外部事件；可订阅的枚举值本身也映射到同名事件，供明确记录和失败留底使用。`webhook.test` 不参与审计投影，也不可订阅。
 
 | 事件类型 | 审计 action | 正常 outcome | 触发条件 |
 |---|---|---|---|
@@ -24,6 +24,7 @@
 | `lineage_import.failed` | `import.failed`；同名 action 用于失败守卫 | `failure` | 创建导入、补参或导入后台任务抛出异常，或 worker 回收运行超时的导入任务。 |
 | `attribution.unavailable` | `attribution.unavailable` | `success` | 采集归因不可用，且原因是 `no_permission` 或 `not_enabled`。这里的 success 表示成功记录了“归因不可用”这一事实，不表示归因成功。其他归因不可用原因不产生此类型。 |
 | `auth.login_failure_threshold` | `auth.login_failure_threshold` | `failure` | 按“用户名 + 来源地址”计数，失败次数首次达到配置阈值。锁定期间后续请求不重复发阈值事件；账号不存在时 object.id 可为 `null`。 |
+| `webhook.test` | 无（直接入箱；操作审计为 `webhook_subscription.test`） | `success` | 只由“发送测试”产生，仅投递给被测试的订阅，不受其 event_types 或 outcomes 过滤。不可订阅，接收方可按此类型忽略测试事件。 |
 
 ## 事件契约与脱敏
 
@@ -143,7 +144,7 @@ URL 只接受 http/https，不接受 URL 用户名/口令、片段、控制字�
 
 | 方法与路径 | 请求 | 成功响应 |
 |---|---|---|
-| `GET /api/events/types` | 无 | `200`，`[{"type":"metric_version.submitted"}, ...]`，返回全部 14 种。 |
+| `GET /api/events/types` | 无 | `200`，`[{"type":"metric_version.submitted"}, ...]`，仅返回可订阅的 14 种，不含 `webhook.test`。 |
 | `GET /api/webhook-subscriptions` | 无 | `200`，订阅数组，不含 secret。 |
 | `POST /api/webhook-subscriptions` | name、url、非空 event_types；可选 outcomes、enabled | `201`，订阅对象及一次性 secret。 |
 | `PATCH /api/webhook-subscriptions/{id}` | 部分更新同上字段；outcomes=null 清除 outcome 过滤 | `200`，订阅对象，不含 secret。 |
@@ -186,7 +187,7 @@ Content-Type: application/json
 
 `event_types` 非空且去重，outcomes 省略或为 null 表示不过滤结果。修改示例为 `PATCH /api/webhook-subscriptions/subscription_001`，请求 `{"enabled":false,"outcomes":null}`；返回上述订阅对象的新值，但无 secret。轮换接口返回相同形状且带新 secret。订阅不存在为 `404`，非法 URL 或字段为 `422`，停用订阅的测试或重投、非 dead 条目的重投为 `409`。
 
-测试事件选用订阅 event_types 的第一个类型，以及 outcomes 的第一个值；未指定 outcomes 时使用该类型的默认 outcome。它使用新的事件 ID，object 指向订阅，detail 为 `{"test":true}`。失败测试另带 `{"code":"TEST","reason":"测试事件"}`。测试响应和重投响应都是单个发件箱对象；列表用相同对象组成 items，例如 `GET /api/event-outbox?subscription_id=subscription_001&status=pending&limit=50&offset=0`：
+测试事件固定使用 `type="webhook.test"`、`outcome="success"` 和新的事件 ID，object 包含订阅的 type、id 与 name，detail 为 `{"test":true}`。它不受 event_types 或 outcomes 过滤，只投递给被测试的这一个订阅；接收方可根据 type 忽略测试事件。创建或修改订阅时，event_types 中包含 `webhook.test` 返回 `422`。测试响应和重投响应都是单个发件箱对象；列表用相同对象组成 items，例如 `GET /api/event-outbox?subscription_id=subscription_001&status=pending&limit=50&offset=0`：
 
 ```json
 {
@@ -196,11 +197,11 @@ Content-Type: application/json
     "subscription_id": "subscription_001",
     "payload": {
       "id": "event_test_001",
-      "type": "metric_version.published",
+      "type": "webhook.test",
       "outcome": "success",
       "at": "2026-11-03T08:02:00Z",
       "actor": {"id":"user_001","name":"admin"},
-      "object": {"type":"webhook_subscription","id":"subscription_001","name":null},
+      "object": {"type":"webhook_subscription","id":"subscription_001","name":"Governance alerts"},
       "detail": {"test":true},
       "error": null
     },
