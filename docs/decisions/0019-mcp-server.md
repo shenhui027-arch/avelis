@@ -45,6 +45,7 @@ MCP（Model Context Protocol）是这类工具接入外部能力的通用协议�
 | `lineage_neighbors` | 一个资产或列的上下游 | `lineage:read` |
 | `list_changes` | 某资产或口径近期的结构变化和影响 | `lineage:read` |
 
+- `search_metrics` 只返回标识和检索所需的摘要，`get_metric` 才返回完整定义（与 Gravitino 指标发现接口的“列表只给标识、加载才给全文”一致），控制单次返回给模型的体量。
 - **调用方不能传 SQL。** `ask_metric` 只接受结构化意图，和页面问数走同一个编译器。模型永远不直接写查询，这一点和现在一致。
 - 口径状态不是 `published`（例如 `affected`）时拒绝查询，并说明原因，和页面行为一致。
 - 结果行数和超时沿用问数的限制。数据发往外部模型的开关（数据外发设置）同样生效：关闭时只返回口径定义，不返回数据行。
