@@ -41,6 +41,7 @@ from avelis.governance import access
 from avelis.governance.business_calendar import get_business_calendar
 from avelis.governance.derived import parse_formula
 from avelis.governance.errors import GovernanceError
+from avelis.governance.metrics import metric_ai_context
 from avelis.i18n import Msg, gettext, translate
 from avelis.models import (
     AnalysisDataset,
@@ -1496,9 +1497,12 @@ class AnalysisToolbox:
             if domain_id not in domains:
                 domain = self.session.get(Domain, domain_id) if domain_id else None
                 domains[domain_id] = getattr(domain, "name", None)
+            context = getattr(c, "ai_context", None) or {}
             fields = [
                 (3, c.name),
                 *((3, a) for a in c.aliases or []),
+                *((3, s) for s in context.get("synonyms", [])),
+                *((2, e) for e in context.get("examples", [])),
                 (1, c.code),
                 (1, c.description or ""),
                 *((1, f"{d.get('name') or ''} {d.get('label') or ''}") for d in c.dimensions),
@@ -1513,6 +1517,11 @@ class AnalysisToolbox:
                         "name": c.name,
                         "domain": domains[domain_id],
                         "aliases": list(c.aliases or []),
+                        "ai_context": {
+                            "instructions": context.get("instructions"),
+                            "synonyms": context.get("synonyms", []),
+                            "examples": context.get("examples", [])[:3],
+                        },
                         "description": c.description or None,
                         "dimensions": [{"name": d["name"], "label": d.get("label")} for d in c.dimensions],
                         "unit": getattr(version, "unit", None),
@@ -1806,6 +1815,7 @@ class AnalysisToolbox:
                 for k in (
                     "code",
                     "name",
+                    "ai_context",
                     "kind",
                     "unit",
                     "expression",
@@ -1959,7 +1969,18 @@ class AnalysisToolbox:
             self.catalog = service.visible_catalog(self.session, self.user, with_values=False)  # 列表本身需要全量
             out = []
             for c in self.catalog.cards:
-                if keyword and not any(keyword in s for s in (c.name, c.code, c.description or "", *(c.aliases or []))):
+                context = getattr(c, "ai_context", None) or {}
+                if keyword and not any(
+                    keyword in s
+                    for s in (
+                        c.name,
+                        c.code,
+                        c.description or "",
+                        *(c.aliases or []),
+                        *context.get("synonyms", []),
+                        *context.get("examples", []),
+                    )
+                ):
                     continue
                 metric, version = self.catalog.versions[c.code]
                 out.append(
@@ -1969,6 +1990,7 @@ class AnalysisToolbox:
                         "kind": version.kind,
                         "status": c.status,
                         "description": c.description,
+                        "ai_context": context,
                         "formula": version.expression if version.kind == "derived" else None,
                         "dimensions": [{"name": d["name"], "label": d.get("label")} for d in c.dimensions],
                     }
@@ -1999,6 +2021,7 @@ class AnalysisToolbox:
                 {
                     "code": code,
                     "name": metric.name,
+                    "ai_context": metric_ai_context(metric),
                     "version_no": version.version_no,
                     "status": version.status,
                     "kind": version.kind,

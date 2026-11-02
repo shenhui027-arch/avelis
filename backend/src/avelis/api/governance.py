@@ -40,6 +40,7 @@ class MetricCreate(BaseModel):
     domain_id: str
     owner_id: str | None = None
     aliases: list[str] = Field(default_factory=list)
+    ai_context: metrics.MetricAIContext | None = None
 
 
 class Dimension(BaseModel):
@@ -116,6 +117,7 @@ def metric_view(session: Session, metric: Metric) -> dict:
         "code": metric.code,
         "name": metric.name,
         "aliases": metric.aliases,
+        "ai_context": metrics.metric_ai_context(metric),
         "domain_id": metric.domain_id,
         "owner": {"id": owner.id, "display_name": owner.display_name},
         "versions": [
@@ -174,6 +176,7 @@ def create_metric(body: MetricCreate, user: User = Depends(current_user), sessio
         domain_id=body.domain_id,
         owner_id=body.owner_id,
         aliases=body.aliases,
+        ai_context=body.ai_context.model_dump() if body.ai_context is not None else None,
     )
     return metric_view(session, m)
 
@@ -181,6 +184,17 @@ def create_metric(body: MetricCreate, user: User = Depends(current_user), sessio
 @router.get("/metrics/{metric_id}", response_model=S.MetricOut)
 def get_metric(metric_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return metric_view(session, _visible_metric(session, user, metric_id))
+
+
+@router.put("/metrics/{metric_id}/ai-context", response_model=S.MetricOut)
+def update_metric_ai_context(
+    metric_id: str,
+    body: metrics.MetricAIContext,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    metric = _visible_metric(session, user, metric_id)
+    return metric_view(session, metrics.update_ai_context(session, user, metric, body.model_dump()))
 
 
 @router.post("/metrics/{metric_id}/versions", status_code=201, response_model=S.MetricVersionOut)

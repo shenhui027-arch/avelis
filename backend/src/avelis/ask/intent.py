@@ -131,6 +131,7 @@ class MetricCard:
     dimension_values: dict[str, list[str]] = field(default_factory=dict)
     description: str = ""
     status: str = "published"
+    ai_context: dict[str, Any] = field(default_factory=dict)
 
 
 class IntentModel(Protocol):
@@ -176,7 +177,12 @@ class DemoIntentModel:
         text = question.strip()
         spans: list[tuple[int, int, MetricCard]] = []  # (起点, 终点, 指标)
         for card in metrics:
-            for label in [card.name, *card.aliases]:
+            for label in [
+                card.name,
+                *card.aliases,
+                *card.ai_context.get("synonyms", []),
+                *card.ai_context.get("examples", []),
+            ]:
                 start = text.find(label) if label else -1
                 while start >= 0:
                     spans.append((start, start + len(label), card))
