@@ -1,6 +1,6 @@
 [project]
 name = "avelis"
-version = "1.0.0"
+version = "1.0.1"
 description = "Avelis 后端：采集、血缘、粒度、口径治理、变更复核与受约束问数"
 requires-python = ">=3.12,<3.13"
 dependencies = [

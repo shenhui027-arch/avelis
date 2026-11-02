@@ -192,5 +192,5 @@ Redis 協議服務（Redis、Valkey 均可）。優先順序：`url` → 分項�
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | 對外埠 |
 | `AVELIS_BIND_ADDRESS` | `0.0.0.0` | 繫結地址；前面有反向代理時改為 `127.0.0.1` |
-| `AVELIS_IMAGE` | `avelis:1.0.0` | 映像名 |
+| `AVELIS_IMAGE` | `avelis:1.0.1` | 映像名 |
 | `COMPOSE_FILE` | — | 使用外部 PostgreSQL / Redis 時設為 `compose.yaml:compose.external.yaml` |
