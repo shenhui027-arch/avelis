@@ -251,7 +251,8 @@ def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: 
             or (job.result or {}).get("abandoned_governance") == "done"
         ):
             return
-        # 行锁串行化并发收尾；标记、业务终态、审计和发件箱必须一起提交或一起回滚。
+        # 与采集/导入统一先锁 Job，再写 CollectionRun/ImportBatch，避免反向加锁死锁。
+        # 标记、业务终态、审计和发件箱必须一起提交或一起回滚。
         job.result = {**(job.result or {}), "abandoned_governance": "done"}
         if kind == "collect":
             datasource_id = payload.get("datasource_id")

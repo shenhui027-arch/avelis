@@ -109,12 +109,29 @@ _PRIVATE_KEY = re.compile(
     r"^(?:sql|sql_text|statement|statement_text|query|query_text|rows?|records?|raw_text|expression)$",
     re.I,
 )
+# URL 固定第一个冒号，避免两个可匹配冒号的量词重叠；/ 和空白隔开各起点。
 _PRIVATE_TEXT = re.compile(
-    r"\b(?:select\s+.+\s+from|insert\s+into|update\s+.+\s+set|delete\s+from|"
+    r"\b(?:insert\s+into|delete\s+from|"
     r"(?:create|alter|drop)\s+(?:table|view)|bearer\s+\S+|"
-    r"(?:password|passwd|secret|token|api[_-]?key)\s*[:=])|://[^/\s]*:[^/\s]*@",
-    re.I | re.S,
+    r"(?:password|passwd|secret|token|api[_-]?key)\s*[:=])|://[^/\s:]*:[^/\s]*@",
+    re.I,
 )
+_PRIVATE_SQL = (
+    (re.compile(r"\bselect\s", re.I), re.compile(r"\sfrom", re.I)),
+    (re.compile(r"\bupdate\s", re.I), re.compile(r"\sset", re.I)),
+)
+_MAX_TEXT_SCAN_CHARS = 64 * 1024
+
+
+def _contains_private_text(value: str) -> bool:
+    if _PRIVATE_TEXT.search(value):
+        return True
+    for start, end in _PRIVATE_SQL:
+        first = start.search(value)
+        # 最早起点已覆盖所有后续配对；+1 保留原 .+ 至少一个字符的语义。
+        if first is not None and end.search(value, first.end() + 1):
+            return True
+    return False
 
 
 def sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +148,9 @@ def sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, (list, tuple)):
             return [clean(v, depth + 1) for v in value[:200]]
         if isinstance(value, str):
-            return "[redacted]" if _PRIVATE_TEXT.search(value) else value[:2000]
+            if len(value) > _MAX_TEXT_SCAN_CHARS or _contains_private_text(value):
+                return "[redacted]"
+            return value[:2000]
         if value is None or isinstance(value, (int, float, bool)):
             return value
         return None

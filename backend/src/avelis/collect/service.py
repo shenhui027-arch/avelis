@@ -154,7 +154,7 @@ def _run_collection(
                 snapshot_window=(snapshot_started, utcnow()),
                 audit_cursor=cursor,
             )
-            _apply_snapshot(session, ds, snapshot, ctx)
+            # 与超时回收统一为 Job → CollectionRun；快照写入中的 flush 也会锁住 run。
             with session.no_autoflush:
                 if job_id:
                     execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -165,6 +165,7 @@ def _run_collection(
                 )
                 if status != "running":
                     raise CollectionAbandoned("采集运行已被回收，本次结果未写入")
+            _apply_snapshot(session, ds, snapshot, ctx)
             run.status = "succeeded"
             run.finished_at = utcnow()
             run.stats = {
@@ -182,10 +183,16 @@ def _run_collection(
         log.exception("采集失败 %s", datasource_id)
         try:
             with session_scope() as session:
+                if job_id:
+                    execution = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+                    if execution is None or execution.status != "running" or execution.attempts != attempt:
+                        raise CollectionAbandoned("采集任务已被回收或执行权已变更，本次结果未写入") from exc
                 run = session.get(CollectionRun, run_id)
                 run.status = "failed"
                 run.finished_at = utcnow()
                 run.error = f"{type(exc).__name__}: {exc}"[:4000]
+        except CollectionAbandoned:
+            raise
         except Exception:  # 留底不可用不能替换原采集错误；外层 guard 仍会尝试独立审计
             log.error("采集失败状态未能写入 %s", datasource_id)
         raise CollectionFailed(str(exc)) from exc

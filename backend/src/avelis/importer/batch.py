@@ -1003,8 +1003,8 @@ def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None
     """worker 入口；模型失败不会回滚已经提交的确定性结果。"""
     try:
         with session_scope() as session:
-            batch = batch_or_404(session, batch_id)
             _check_attempt(session, job_id, attempt)
+            batch = batch_or_404(session, batch_id)
             if batch.status not in ("queued", "running"):
                 return {"batch_id": batch.id, "status": batch.status}
             batch.status, batch.updated_at = "running", utcnow()
@@ -1054,9 +1054,10 @@ def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None
                 live = session.get(ImportBatch, batch_id)
                 live.notes = [*(live.notes or []), f"模型辅助失败：{modelcfg.redact_error(str(exc), limit=200)}"]
         with session_scope() as session:
+            # batch_or_404 会协调失败状态；必须在它可能写批次之前锁住 Job。
+            _check_attempt(session, job_id, attempt)
             live = batch_or_404(session, batch_id)
             if live.status != "failed":
-                _check_attempt(session, job_id, attempt)
                 refresh_status(session, live)
             live.progress = {
                 **live.progress,
@@ -1082,13 +1083,14 @@ def _run_import(batch_id: str, *, job_id: str | None = None, attempt: int | None
     except Exception as exc:
         try:
             with session_scope() as session:
+                _check_attempt(session, job_id, attempt)
                 failed = session.get(ImportBatch, batch_id)
-                execution = session.get(Job, job_id) if job_id else None
-                owns_attempt = execution is None or attempt is None or execution.attempts == attempt
-                if failed is not None and owns_attempt:
+                if failed is not None:
                     failed.status, failed.updated_at = "failed", utcnow()
                     failed.error = modelcfg.redact_error(f"{type(exc).__name__}: {exc}", limit=500)
                     failed.progress = {**(failed.progress or {}), "phase": "failed", "current_file": None}
+        except ImportAbandoned:
+            raise
         except Exception:  # 不让状态收尾失败掩盖原异常；外层 guard 仍会尝试独立审计
             log.error("导入失败状态未能写入 %s", batch_id)
         raise

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException, Request
-from sqlalchemy import JSON, MetaData, create_engine, select
+from sqlalchemy import JSON, MetaData, create_engine, event, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -595,7 +595,8 @@ def test_worker_reconciles_completed_business_instead_of_emitting_false_failure(
     assert emitted(state, event_type) == []
 
 
-def test_abandoned_collection_cannot_commit_late_snapshot_or_duplicate_failure(state, monkeypatch):
+@pytest.mark.parametrize("snapshot_fails", [False, True])
+def test_abandoned_collection_cannot_commit_late_snapshot_or_duplicate_failure(state, monkeypatch, snapshot_fails):
     clock = [utcnow()]
     monkeypatch.setattr(jobs, "utcnow", lambda: clock[0])
     monkeypatch.setattr(jobs, "advisory_lock", lambda _key: nullcontext())
@@ -607,6 +608,8 @@ def test_abandoned_collection_cannot_commit_late_snapshot_or_duplicate_failure(s
             assert session.get(Job, job_id).result["run_id"] == session.scalar(select(CollectionRun.id))
         clock[0] += timedelta(seconds=60)
         assert jobs.abandoned_jobs(older_than_seconds=30) == [job_id]
+        if snapshot_fails:
+            raise RuntimeError("snapshot failed after timeout")
         return SnapshotConnector().snapshot()
 
     monkeypatch.setattr(collect, "collect_connector", lambda *_: SimpleNamespace(snapshot=snapshot_after_abandonment))
@@ -619,6 +622,93 @@ def test_abandoned_collection_cannot_commit_late_snapshot_or_duplicate_failure(s
     assert emitted(state, "collect.schema_changed") == []
     failed = assert_emitted(state, "collect.failed", "ds", outcome="failure")
     assert failed.error.code == "WORKER_ABANDONED"
+
+
+@contextmanager
+def job_write_trace(engine):
+    """SQLite 不执行 FOR UPDATE；在 ORM 层记录锁语句，在引擎层记录真实 UPDATE。"""
+    trace = []
+
+    def lock_statement(state):
+        statement = state.statement
+        if getattr(statement, "_for_update_arg", None) is not None and any(
+            column.get("entity") is Job for column in statement.column_descriptions
+        ):
+            trace.append("job_lock")
+
+    def write_statement(_conn, _cursor, statement, _params, _context, _many):
+        for table in ("collection_run", "import_batch"):
+            if statement.startswith(f"UPDATE {table} SET"):
+                trace.append(table)
+
+    event.listen(Session, "do_orm_execute", lock_statement)
+    event.listen(engine, "before_cursor_execute", write_statement)
+    try:
+        yield trace
+    finally:
+        event.remove(Session, "do_orm_execute", lock_statement)
+        event.remove(engine, "before_cursor_execute", write_statement)
+
+
+@pytest.mark.parametrize("apply_fails", [False, True])
+def test_collection_locks_job_before_snapshot_or_failure_writes(state, monkeypatch, apply_fails):
+    job = Job(kind="collect", payload={"datasource_id": "ds"}, status="running", attempts=1)
+    state.session.add(job)
+    state.session.commit()
+    connector = SnapshotConnector()
+    monkeypatch.setattr(collect, "collect_connector", lambda *_: connector)
+    apply = collect._apply_snapshot
+
+    with job_write_trace(state.engine) as trace:
+
+        def snapshot():
+            trace.clear()  # 只观察快照返回后的事务，不让创建 run 时的 Job 锁掩盖问题。
+            return SnapshotConnector().snapshot()
+
+        monkeypatch.setattr(connector, "snapshot", snapshot)
+
+        def apply_snapshot(*args):
+            apply(*args)
+            if apply_fails:
+                raise RuntimeError("snapshot persistence failed")
+
+        monkeypatch.setattr(collect, "_apply_snapshot", apply_snapshot)
+        expected = pytest.raises(collect.CollectionFailed) if apply_fails else nullcontext()
+        with expected:
+            collect.run_collection("ds", trigger="manual", job_id=job.id, attempt=1)
+        assert "collection_run" in trace
+        assert trace[0] == "job_lock", trace
+        if apply_fails:
+            assert trace.count("job_lock") == 2  # 失败收尾也先锁 Job。
+
+
+@pytest.mark.parametrize("phase", ["start", "finish", "failure"])
+def test_abandoned_import_cannot_reconcile_or_write_duplicate_failure(state, monkeypatch, phase):
+    imported = create_import(state)
+    with state.scope() as session:
+        job = session.get(Job, imported.job_id)
+        job.status, job.attempts = "running", 1
+        job.started_at = utcnow() - timedelta(minutes=5)
+
+    def abandon(*_args, **_kwargs):
+        assert jobs.abandoned_jobs(older_than_seconds=60) == [imported.job_id]
+        if phase == "failure":
+            raise RuntimeError("model failed after timeout")
+
+    if phase == "start":
+        abandon()
+    else:
+        monkeypatch.setattr(batch, "_assist", abandon)
+    with job_write_trace(state.engine) as trace:
+        with pytest.raises(batch.ImportAbandoned):
+            batch.run_import(imported.id, job_id=imported.job_id, attempt=1)
+    state.session.expire_all()
+    assert state.session.get(ImportBatch, imported.id).status == "failed"
+    failed = assert_emitted(state, "lineage_import.failed", imported.id, outcome="failure")
+    assert failed.error.code == "WORKER_ABANDONED"
+    assert emitted(state, "lineage_import.completed") == []
+    if phase == "start":
+        assert trace == ["job_lock"]  # 失去执行权后不写批次。
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["bound_run", "legacy_without_run_id"])
