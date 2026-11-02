@@ -28,13 +28,208 @@ SECRET_PATTERN = re.compile(
     r"[ \t]*+(?P<assignment_separator>[=:])[ \t]*+))"
     # URL 这里只匹配用户名；密码的终点由线性扫描预先定位。
     rf"|{_URL_USER}"
+    r"|(?<![\w-])(?P<sql>identified|password)\b"
     r"|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}\b",
     re.I,
 )
-_UNQUOTED_SECRET_VALUE = re.compile(r"(?:\\[^\r\n]|[^\r\n \t\f\v,;)\]}\"'\\]++)++")
 _CONTINUATION = re.compile(r"\\\r?\n")
-_VALUE_QUOTE = re.compile("\"\"\"|'''|[\"']")
 _URL_PART = re.compile(r"[^@\r\n \t\f\v'\"]+")
+_BRACKETS = {"(": ")", "[": "]", "{": "}"}
+_INLINE_SPACE = " \t\f\v"
+_STRING_PREFIXES = {"r", "u", "b", "f", "br", "rb", "fr", "rf"}
+
+
+class _SecretValueReader:
+    """只读取值的语法边界；游标单向推进，嵌套括号不用递归。"""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.length = len(text)
+        self._line_start = 0
+        self._line_end = -1
+
+    def line_end(self, start: int) -> int:
+        if self._line_start <= start <= self._line_end:
+            return self._line_end
+        stop = self.text.find("\n", start)
+        if stop < 0:
+            stop = self.length
+        elif stop > start and self.text[stop - 1] == "\r":
+            stop -= 1
+        self._line_start, self._line_end = start, stop
+        return stop
+
+    def quote(self, start: int) -> str:
+        char = self.text[start]
+        if char not in "\"'":
+            return ""
+        return char * 3 if self.text.startswith(char * 3, start) else char
+
+    def quote_end(self, start: int, limit: int | None = None) -> int:
+        quote = self.quote(start)
+        stop = self.length if limit is None else limit
+        cursor = start + len(quote)
+        while cursor < stop:
+            if self.text[cursor] == "\\":
+                cursor = min(cursor + 2, stop)
+            elif self.text.startswith(quote, cursor):
+                return cursor + len(quote)
+            else:
+                cursor += 1
+        # 未闭合的起始引号覆盖到全文末尾；词内撇号只读本行。
+        return stop
+
+    def bracket_end(self, start: int) -> int:
+        closing = [_BRACKETS[self.text[start]]]
+        cursor = start + 1
+        while cursor < self.length:
+            char = self.text[cursor]
+            if char in "\"'":
+                cursor = self.quote_end(cursor)
+            elif char == "\\":
+                cursor += 2
+            elif char == "#":
+                cursor = self.line_end(cursor)
+            elif char in _BRACKETS:
+                closing.append(_BRACKETS[char])
+                cursor += 1
+            elif char == closing[-1]:
+                closing.pop()
+                cursor += 1
+                if not closing:
+                    return cursor
+            else:
+                cursor += 1
+        return self.length
+
+    def yaml_end(self, start: int, indent: int) -> int | None:
+        """块头只识别语法标记；内容以键所在行的缩进为边界。"""
+        header_end = self.line_end(start)
+        cursor = start + 1
+        chomp = explicit_indent = False
+        while cursor < header_end:
+            char = self.text[cursor]
+            if char in "+-" and not chomp:
+                chomp = True
+            elif char in "123456789" and not explicit_indent:
+                explicit_indent = True
+            else:
+                break
+            cursor += 1
+        cursor = self.skip_space(cursor)
+        if cursor < header_end and self.text[cursor] != "#":
+            return None
+        mask_end = header_end
+        newline = self.text.find("\n", header_end)
+        cursor = newline + 1 if newline >= 0 else self.length
+        while cursor < self.length:
+            end = self.line_end(cursor)
+            content = self.skip_space(cursor)
+            if content < end and content - cursor <= indent:
+                break
+            mask_end = end
+            cursor = end + (2 if self.text.startswith("\r\n", end) else 1)
+        return mask_end
+
+    def skip_space(self, start: int) -> int:
+        while start < self.length and self.text[start] in _INLINE_SPACE:
+            start += 1
+        return start
+
+    def literal_quote(self, start: int) -> int | None:
+        if self.text[start] in "\"'":
+            return start
+        for size in (1, 2):
+            end = start + size
+            if end < self.length and self.text[end] in "\"'" and self.text[start:end].lower() in _STRING_PREFIXES:
+                return end
+        return None
+
+    def value_end(self, start: int, indent: int) -> int:
+        cursor = start
+        if self.text[start] in ">|" and (end := self.yaml_end(start, indent)) is not None:
+            return end
+        literal_quote = self.literal_quote(start)
+        if literal_quote is not None:
+            cursor = literal_quote
+        quoted = False
+        while cursor < self.length:
+            char = self.text[cursor]
+            if char in "\"'":
+                # foo'bar baz' 仍是 shell 拼接；user's choice 的撇号不能开启跨行值。
+                limit = None
+                if char == "'" and cursor != literal_quote and cursor > start and self.text[cursor - 1].isalnum():
+                    limit = self.line_end(cursor)
+                cursor = self.quote_end(cursor, limit)
+                quoted = True
+            elif char in _BRACKETS:
+                cursor = self.bracket_end(cursor)
+            elif char == "\\":
+                cursor = min(cursor + 2, self.length)
+            elif char in _INLINE_SPACE:
+                following = self.skip_space(cursor)
+                # Python 同行相邻字面量属于同一个值，普通换行仍是边界。
+                if quoted and following < self.length and (quote := self.literal_quote(following)) is not None:
+                    literal_quote = cursor = quote
+                else:
+                    break
+            elif char in "\r\n,;)]}":
+                break
+            else:
+                cursor += 1
+        return cursor
+
+    def pending_end(self, start: int, end: int, indent: int) -> int:
+        """空赋值后的整行遮蔽延伸到该行所有跨行单元的闭合行。"""
+        cursor = start
+        while cursor < end:
+            if self.text[cursor] in _INLINE_SPACE + ",;)]}":
+                cursor += 1
+                continue
+            cursor = max(cursor + 1, self.value_end(cursor, indent))
+            if cursor > end:
+                end = self.line_end(cursor)
+        return end
+
+    def word(self, start: int) -> tuple[str, int]:
+        cursor = start
+        while cursor < self.length and (self.text[cursor].isalnum() or self.text[cursor] == "_"):
+            cursor += 1
+        return self.text[start:cursor].upper(), cursor
+
+    def sql_value_start(self, keyword: str, end: int, line_end: int) -> int | None:
+        """SQL 关键字只确定值的入口，值本身仍由同一读取器处理。"""
+        cursor = self.skip_space(end)
+        if cursor == end:
+            return None
+        if keyword.upper() == "IDENTIFIED":
+            word, cursor = self.word(cursor)
+            if word == "WITH":
+                plugin = self.skip_space(cursor)
+                if plugin == cursor or plugin >= line_end:
+                    return None
+                # 插件名是一个标识符，不能按括号表达式反复扫描后续全文。
+                if self.text[plugin] in "\"'":
+                    cursor = self.quote_end(plugin, line_end)
+                else:
+                    _, cursor = self.word(plugin)
+                    if cursor == plugin:
+                        return None
+                word, cursor = self.word(self.skip_space(cursor))
+            if word != "BY":
+                return None
+            value = self.skip_space(cursor)
+            if value == cursor and value < line_end:
+                return None
+            cursor = value
+            # Oracle 的 VALUES 后面仍是口令哈希，不能只遮掉修饰词。
+            word, end = self.word(cursor)
+            if word == "VALUES":
+                cursor = self.skip_space(end)
+        if cursor < line_end and self.text[cursor] not in "=:,;)]}":
+            return cursor
+        # 裸 PASSWORD 与裸 CLI flag 一样，不吞下一条普通语句。
+        return cursor if cursor == line_end and keyword.upper() == "IDENTIFIED" else None
 
 
 def _url_password_ends(line: str) -> list[int]:
@@ -66,6 +261,7 @@ def _logical_text(text: str) -> tuple[str, list[int]]:
 
 def redact(text: str) -> tuple[str, int]:
     logical, offsets = _logical_text(text)
+    reader = _SecretValueReader(logical)
     edits: list[tuple[int, int, str]] = []
 
     def cover(start: int, end: int, replacement: str = "<redacted>") -> None:
@@ -74,57 +270,20 @@ def redact(text: str) -> tuple[str, int]:
         if text[original_start:original_end] != replacement:
             edits.append((original_start, original_end, replacement))
 
-    def triple_end(start: int) -> int:
-        quote = logical[start : start + 3]
-        closing = logical.find(quote, start + 3)
-        # 不完整的代码片段也不能泄露尚未闭合的多行值。
-        return closing + 3 if closing >= 0 else len(logical)
-
-    def quote_end(start: int) -> int:
-        quote = logical[start]
-        cursor = start + 1
-        while cursor < len(logical):
-            char = logical[cursor]
-            cursor += 1
-            if char == "\\":
-                cursor = min(cursor + 1, len(logical))
-            elif char == quote:
-                return cursor
-        return cursor
-
-    def secret_value_end(start: int) -> int:
-        # 拼接片段仍算一个值；只有引号内部允许跨普通换行。
-        cursor = start
-        while cursor < len(logical):
-            if logical[cursor] in "\"'":
-                cursor = quote_end(cursor)
-            elif (part := _UNQUOTED_SECRET_VALUE.match(logical, cursor)) is not None:
-                cursor = part.end()
-            else:
-                break
-        return cursor
-
     start = skip_until = 0
     pending = False
+    pending_indent = 0
     while start < len(logical):
         newline = logical.find("\n", start)
         stop = newline if newline >= 0 else len(logical)
         end = stop - 1 if stop > start and logical[stop - 1] == "\r" else stop
         if end >= skip_until:
             line = logical[start:end]
+            indent = len(line) - len(line.lstrip(" \t"))
             position = max(0, skip_until - start)
             if pending and line.strip():
-                # 空白行原样保留；下一条非空逻辑行整行遮蔽，含跨行引号值。
-                mask_end = end
-                scan = start
-                while (quote := _VALUE_QUOTE.search(logical, scan, mask_end)) is not None:
-                    closing = triple_end(quote.start()) if len(quote[0]) == 3 else quote_end(quote.start())
-                    scan = closing
-                    if closing > mask_end:
-                        closing_newline = logical.find("\n", closing)
-                        mask_end = closing_newline if closing_newline >= 0 else len(logical)
-                        if mask_end > closing and logical[mask_end - 1] == "\r":
-                            mask_end -= 1
+                # 空白行原样保留；下一条非空逻辑行连同跨行语法单元遮蔽。
+                mask_end = reader.pending_end(start, end, pending_indent)
                 cover(start, mask_end)
                 skip_until = mask_end
                 pending = False
@@ -143,18 +302,24 @@ def redact(text: str) -> tuple[str, int]:
                         position = password_end
                     elif position == len(line):
                         pending = bool(match.group("cli_separator") or match.group("assignment_separator"))
-                    elif logical.startswith(('"""', "'''"), start + position):
-                        value_start = start + position
-                        value_end = triple_end(value_start)
-                        quote = logical[value_start : value_start + 3]
-                        cover(value_start, value_end, quote + "<redacted>" + quote)
-                        skip_until = value_end
-                        position = value_end - start
+                        pending_indent = indent
                     else:
                         value_start = start + position
-                        closing = secret_value_end(value_start)
+                        closing = reader.value_end(value_start, indent)
                         if closing > value_start:
-                            quote = line[position] if line[position] in "\"'" else ""
+                            quote = reader.quote(value_start)
+                            cover(value_start, closing, quote + "<redacted>" + quote)
+                            skip_until = closing
+                            position = closing - start
+                elif match.group("sql") is not None:
+                    value_start = reader.sql_value_start(match["sql"], start + position, end)
+                    if value_start == end:
+                        pending = True
+                        pending_indent = indent
+                    elif value_start is not None:
+                        closing = reader.value_end(value_start, indent)
+                        if closing > value_start:
+                            quote = reader.quote(value_start)
                             cover(value_start, closing, quote + "<redacted>" + quote)
                             skip_until = closing
                             position = closing - start
