@@ -936,6 +936,104 @@ def relationship_document():
     return model
 
 
+def approve_relationships(catalog, model):
+    assets = {asset.name: asset for asset in catalog.session.scalars(select(Asset))}
+    datasets = {dataset["name"]: assets[dataset["source"].rsplit(".", 1)[1]] for dataset in model["datasets"]}
+    for relationship in model["relationships"]:
+        name = relationship["name"]
+        catalog.session.add_all(
+            [
+                JoinPath(
+                    id=name,
+                    code=name,
+                    name=name,
+                    left_asset_id=datasets[relationship["from"]].id,
+                    left_columns=relationship["from_columns"],
+                    right_asset_id=datasets[relationship["to"]].id,
+                    right_columns=relationship["to_columns"],
+                    cardinality="1n",
+                    status="approved",
+                    created_by=catalog.actor.id,
+                ),
+                JoinPathApproval(join_path_id=name, domain_id="visible", user_id="maintainer", decision="approved"),
+            ]
+        )
+    catalog.session.commit()
+
+
+def path_selection_document(catalog, *, shortcut=True):
+    model = relationship_document()
+    third = deepcopy(model["datasets"][1])
+    third.update(name="records_c", source="catalog.schema_a.records_c")
+    model["datasets"].append(third)
+    catalog.session.get(Asset, "hidden_asset").domain_id = "visible"
+    for dataset in model["datasets"][1:]:
+        for field in dataset["fields"]:
+            field.pop("dimension", None)
+        dataset["fields"][1]["datatype"] = "Date"
+    model["metrics"][0]["custom_extensions"] = [deepcopy(THIRD_PARTY)]
+    model["relationships"].append(
+        {
+            "name": "path_b",
+            "from": "records_b",
+            "to": "records_c",
+            "from_columns": ["group_a"],
+            "to_columns": ["group_a"],
+        }
+    )
+    if shortcut:
+        model["relationships"].append(
+            {
+                "name": "path_c",
+                "from": "records",
+                "to": "records_c",
+                "from_columns": ["group_a"],
+                "to_columns": ["group_a"],
+            }
+        )
+    approve_relationships(catalog, model)
+    return model
+
+
+def test_third_party_base_only_metric_does_not_join_available_relationships_and_can_publish(catalog):
+    model = path_selection_document(catalog)
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    version = latest_version(catalog)
+    assert version.expression == "SUM(b.value_a)"
+    assert version.joins == []
+    assert version.dimensions == [{"name": "group_a", "column": "b.group_a", "label": "group_a"}]
+    assert version.time_column == "b.observed_on"
+    check = metrics.publish_check(catalog.session, version, catalog.actor)
+    assert check["ok"] and check["joins"] == [] and check["fan_out"] == []
+
+
+@pytest.mark.parametrize("shortcut", [False, True])
+def test_third_party_expression_joins_only_its_shortest_path(catalog, shortcut):
+    model = path_selection_document(catalog, shortcut=shortcut)
+    model["metrics"][0]["expression"]["dialects"][0]["expression"] = "SUM(records.value_a + records_c.value_a)"
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    version = latest_version(catalog)
+    assert [join["join_path_id"] for join in version.joins] == (["path_c"] if shortcut else ["path_a", "path_b"])
+    assert version.expression == "SUM(b.value_a + j2.value_a)"
+    assert version.joins[-1]["from"] == ("b" if shortcut else "j1")
+
+
+@pytest.mark.parametrize("dimension_source", ["field", "extension"])
+def test_inferred_joins_include_selected_remote_dimension_path(catalog, dimension_source):
+    model = path_selection_document(catalog)
+    if dimension_source == "field":
+        model["datasets"][2]["fields"][2]["dimension"] = {"is_time": False}
+    else:
+        model["metrics"][0]["custom_extensions"].append(
+            extension(time_column="b.observed_on", dimensions=[{"name": "remote_group", "column": "j2.group_a"}])
+        )
+    assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
+    version = latest_version(catalog)
+    assert version.expression == "SUM(b.value_a)"
+    assert version.joins == [{"join_path_id": "path_c", "alias": "j2", "from": "b", "pre_aggregate": False}]
+    assert any(dimension["column"] == "j2.group_a" for dimension in version.dimensions)
+
+
 @pytest.mark.parametrize("status", [None, "pending", "approved"])
 def test_relationships_require_an_existing_approved_path_without_creating_or_approving(catalog, status):
     if status:

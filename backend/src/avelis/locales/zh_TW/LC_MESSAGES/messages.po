@@ -1967,6 +1967,9 @@ msgstr "匯入內容包含重複鍵"
 msgid "导入内容只允许 JSON 值"
 msgstr "匯入內容只允許 JSON 值"
 
+msgid "导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"
+msgstr "匯入內容只允許 JSON 值（不支援 YAML 錨點、別名與合併鍵）"
+
 msgid "导入内容嵌套过深或过于复杂"
 msgstr "匯入內容巢狀層級過深或過於複雜"
 

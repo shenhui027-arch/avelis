@@ -18,7 +18,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from avelis import audit
 from avelis.api.deps import current_user, get_session
-from avelis.governance.errors import GovernanceError
+from avelis.governance import access
+from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.i18n import gettext
 from avelis.interchange import exporter, importer
 from avelis.interchange.schemas import OssieImportReport, OssieImportRequest
@@ -34,7 +35,32 @@ class _DocumentError(ValueError):
     pass
 
 
+def _yaml_reference_error() -> _DocumentError:
+    return _DocumentError(gettext("导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"))
+
+
 class _UniqueSafeLoader(yaml.SafeLoader):
+    def __init__(self, stream):
+        super().__init__(stream)
+        self._document_values = 0
+        self._document_depth = -1
+
+    def compose_node(self, parent, index):
+        event = self.peek_event()
+        if isinstance(event, yaml.AliasEvent) or event.anchor is not None or event.tag == "tag:yaml.org,2002:merge":
+            raise _yaml_reference_error()
+        self._document_values += 1
+        self._document_depth += 1
+        if self._document_values > MAX_DOCUMENT_VALUES or self._document_depth > MAX_DOCUMENT_DEPTH:
+            raise _DocumentError(gettext("导入内容嵌套过深或过于复杂"))
+        try:
+            node = super().compose_node(parent, index)
+        finally:
+            self._document_depth -= 1
+        if node.tag == "tag:yaml.org,2002:merge":
+            raise _yaml_reference_error()
+        return node
+
     def construct_mapping(self, node, deep=False):
         if not isinstance(node, yaml.MappingNode):
             raise _DocumentError(gettext("导入内容只允许 JSON 值"))
@@ -64,7 +90,7 @@ def _invalid_constant(_):
 
 
 def _json_values(document: Any) -> None:
-    """限制展开后的节点数，并拒绝 YAML 循环、时间戳、集合与非有限数。"""
+    """限制 JSON 值的数量和深度，并拒绝时间戳、集合与非有限数。"""
     active: set[int] = set()
     remaining = MAX_DOCUMENT_VALUES
 
@@ -145,6 +171,25 @@ def _parse_error(reason: str, dry_run: bool) -> GovernanceError:
         warnings=[],
         counts={"created": 0, "new_version": 0, "skipped": 0, "failed": 0},
     )
+
+
+def _check_domain_write(session: Session, user: User, domain_id: Any, dry_run: bool) -> None:
+    if not isinstance(domain_id, str) or not domain_id.strip():
+        raise _DocumentError(gettext("缺少目标业务域 domain_id"))
+    try:
+        access.require_domain_maintainer(session, user, domain_id)
+    except Forbidden as exc:
+        raise importer.ImportRejected(
+            {
+                "ok": False,
+                "dry_run": dry_run,
+                "results": [],
+                "errors": [{"layer": "catalog", "path": "$.domain_id", "reason": "需要目标业务域的负责人或维护者身份"}],
+                "warnings": [],
+                "counts": {"created": 0, "new_version": 0, "skipped": 0, "failed": 0},
+            },
+            forbidden=True,
+        ) from exc
 
 
 async def _body(request: Request) -> bytes:
@@ -254,6 +299,8 @@ async def import_ossie(
     preview = True
     try:
         preview = _dry_run(dry_run)
+        if domain_id is not None:
+            _check_domain_write(session, user, domain_id, preview)
         content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
         if content_type == "multipart/form-data":
             # 先流式限制整个请求，再交给 Starlette 解析，避免无界读取上传内容。
@@ -264,6 +311,7 @@ async def import_ossie(
                     raise _DocumentError(gettext("必须上传一个 file 文件"))
                 domain_id = domain_id if domain_id is not None else form.get("domain_id")
                 preview = _dry_run(dry_run if dry_run is not None else form.get("dry_run"))
+                _check_domain_write(session, user, domain_id, preview)
                 document = _document(await uploads[0].read(MAX_IMPORT_BYTES + 1))
         else:
             raw = await _body(request)

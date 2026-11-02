@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 import sqlglot
 from jsonschema import Draft202012Validator
-from sqlalchemy import JSON, MetaData, create_engine
+from sqlalchemy import JSON, MetaData, create_engine, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from avelis.db import Base
 from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.interchange.exporter import export_model
+from avelis.interchange.importer import import_model
 from avelis.models import (
     Asset,
     ColumnVersion,
@@ -251,11 +252,130 @@ def test_export_preserves_foreign_extensions_unknown_dialects_and_explicit_datat
     assert item["datatype"] == "Decimal" and item["custom_extensions"][0] == foreign("metric")
     assert item["ai_context"]["vendor_hint"] == {"scope": "alpha"}
     assert item["ai_context"]["instructions"] == "先核对观察范围"
-    assert item["expression"]["dialects"] == original["metrics"][0]["expression"]["dialects"]
+    assert item["expression"]["dialects"] == [
+        {"dialect": "postgres", "expression": "SUM(observations_a.value_a__column)"},
+        *original["metrics"][0]["expression"]["dialects"][1:],
+    ]
+    assert avelis(item)["original_expression"] == original["metrics"][0]["expression"]
     assert avelis(item)["future_option"] == [1, 2]
     assert avelis(item)["unknown_dialects"] == [{"dialect": "OTHER_DIALECT", "expression": "OpaqueExpression"}]
     assert avelis(item)["base_dataset"] == "observations_a"
     assert version.publish_check["ossie"]["document"] == original
+
+
+@pytest.mark.parametrize(
+    ("column_name", "field_sql", "occupied", "identity_name"),
+    [
+        ("value_a", "value_a * 2", False, "value_a__column"),
+        ("value_a", "value_a", False, None),
+        ("value_a", "records.value_a", False, None),
+        ("value_a", "VALUE_A", False, None),
+        ("value_a", "value_a * 2", True, "value_a__column_2"),
+        ("value a", '"value a" * 2', False, "value_a__column"),
+        ("a²", '"a²" * 2', False, "a__column"),
+        (
+            "value_a",
+            [
+                {"dialect": "ANSI_SQL", "expression": "value_a * 2"},
+                {"dialect": "OSSIE_SQL_2026", "expression": "value_a"},
+            ],
+            False,
+            "value_a__column",
+        ),
+        (
+            "value_a",
+            [
+                {"dialect": "OSSIE_SQL_2026", "expression": "value_a"},
+                {"dialect": "ANSI_SQL", "expression": "value_a * 2"},
+            ],
+            False,
+            None,
+        ),
+        (
+            "value_a",
+            [
+                {"dialect": "ANSI_SQL", "expression": "value_a * 2"},
+                {"dialect": "postgres", "expression": "value_a"},
+            ],
+            False,
+            None,
+        ),
+        (
+            "value_a",
+            [
+                {"dialect": "OSSIE_SQL_2026", "expression": "value_a"},
+                {"dialect": "postgres", "expression": "value_a * 2"},
+            ],
+            False,
+            "value_a__column",
+        ),
+    ],
+)
+def test_export_import_preserves_physical_column_semantics(catalogue, column_name, field_sql, occupied, identity_name):
+    session = catalogue.session
+    session.scalar(select(DomainMember).where(DomainMember.domain_id == "domain")).role = "maintainer"
+    _, version = metric(catalogue)
+    column = session.scalar(select(ColumnVersion).where(ColumnVersion.column_id == "records-value_a"))
+    column.name = column_name
+    dialects = field_sql if isinstance(field_sql, list) else [{"dialect": "postgres", "expression": field_sql}]
+    field = {"name": column_name, "expression": {"dialects": dialects}}
+    fields = [
+        field,
+        {"name": "observed_at", "expression": {"sql": "observed_at"}, "dimension": {"is_time": True}},
+    ]
+    if occupied:
+        fields.append({"name": "VALUE_A__COLUMN", "expression": {"sql": "value_b"}})
+    reference = sqlglot.exp.column(column_name, table="records", quoted=not column_name.isidentifier()).sql(
+        dialect="postgres"
+    )
+    source = {
+        "version": "0.2.0.dev0",
+        "name": "logical_fields",
+        "datasets": [{"name": "records", "source": "catalog.public.records", "fields": fields}],
+        "metrics": [
+            {
+                "name": "measure_a",
+                "expression": {"dialects": [{"dialect": "postgres", "expression": f"SUM({reference})"}]},
+            }
+        ],
+    }
+    report = import_model(session, catalogue.actor, source, "domain", dry_run=False)
+    imported = session.get(MetricVersion, report["results"][0]["version_id"])
+    imported.status = "published"
+    version.status = "archived"
+    original_expression = imported.expression
+
+    for _ in range(2):
+        exported = export_model(session, catalogue.actor, "domain")
+        validate_official_schema(exported)
+        exported_fields = {item["name"]: item for item in exported["datasets"][0]["fields"]}
+        assert exported_fields[column_name] == field
+        if identity_name:
+            assert identity_name.isidentifier()
+            assert exported_fields[identity_name]["expression"]["dialects"] == [
+                {
+                    "dialect": "postgres",
+                    "expression": sqlglot.exp.column(column_name, quoted=True).sql(dialect="postgres"),
+                }
+            ]
+            assert len([name for name in exported_fields if "__column" in name.casefold()]) == 1 + occupied
+            expression = exported["metrics"][0]["expression"]["dialects"][0]["expression"]
+            assert (
+                next(sqlglot.parse_one(expression, read="postgres").find_all(sqlglot.exp.Column)).name == identity_name
+            )
+        else:
+            assert all("__column" not in name for name in exported_fields)
+        report = import_model(session, catalogue.actor, exported, "domain", dry_run=False)
+        roundtripped = session.get(MetricVersion, report["results"][0]["version_id"])
+        before = sqlglot.parse_one(original_expression, read="postgres")
+        after = sqlglot.parse_one(roundtripped.expression, read="postgres")
+        for tree in (before, after):
+            for identifier in tree.find_all(sqlglot.exp.Identifier):
+                identifier.set("quoted", False)
+        assert after == before
+        imported.status = "archived"
+        roundtripped.status = "published"
+        imported = roundtripped
 
 
 def test_export_requires_actual_join_approvals_and_preserves_relationship_metadata(catalogue):
@@ -375,10 +495,26 @@ def test_export_refuses_to_silently_discard_conflicting_dataset_metadata(catalog
     assert document["datasets"][0]["custom_extensions"] == [foreign("second")]
 
 
-def test_export_derived_pins_components_and_expands_only_shared_row_sets(catalogue):
+@pytest.mark.parametrize("transformed", [False, True])
+def test_export_derived_pins_components_and_expands_only_shared_row_sets(catalogue, transformed):
     session = catalogue.session
     left, first = metric(catalogue, "measure_a")
     right, second = metric(catalogue, "measure_b")
+    if transformed:
+        first.expression = "SUM(b.value_a * 2)"
+        first.publish_check = {
+            "ossie": {
+                "document": {
+                    "datasets": [
+                        {
+                            "name": "records",
+                            "source": "catalog.public.records",
+                            "fields": [{"name": "value_a", "expression": {"sql": "value_a * 2"}}],
+                        }
+                    ]
+                }
+            }
+        }
     second.expression = "COUNT(b.value_b)"
     _, derived = metric(catalogue, "ratio_a", kind="derived")
     derived.base_asset_id = None
@@ -392,16 +528,15 @@ def test_export_derived_pins_components_and_expands_only_shared_row_sets(catalog
     assert [m["name"] for m in document["metrics"]] == ["ratio_a"]
     item = document["metrics"][0]
     text = item["expression"]["dialects"][0]["expression"]
-    assert "SUM(records.value_a)" in text and "COUNT(records.value_b)" in text and "NULLIF" in text
+    physical = "value_a__column" if transformed else "value_a"
+    assert f"SUM(records.{physical}{' * 2' if transformed else ''})" in text
+    assert "COUNT(records.value_b)" in text and "NULLIF" in text
     sqlite_expression = sqlglot.transpile(text, read="postgres", write="sqlite")[0]
-    assert (
-        session.execute(
-            sql_text(
-                f"WITH records(value_a, value_b) AS (VALUES (1, 1), (0, 1)) SELECT {sqlite_expression} FROM records"
-            )
-        ).scalar_one()
-        == 0.5
-    )
+    assert session.execute(
+        sql_text(
+            f"WITH records({physical}, value_b) AS (VALUES (1, 1), (0, 1)) SELECT {sqlite_expression} FROM records"
+        )
+    ).scalar_one() == (1.0 if transformed else 0.5)
     data = avelis(item)
     assert data["formula"] == "measure_a / measure_b" and data["expression"] == derived.expression
     assert data["components"] == [
@@ -436,6 +571,41 @@ def approved_path(catalogue, right="bands"):
     )
     catalogue.session.flush()
     return path
+
+
+def test_export_import_preserves_physical_join_keys_with_transformed_logical_fields(catalogue):
+    session = catalogue.session
+    session.scalar(select(DomainMember).where(DomainMember.domain_id == "domain")).role = "maintainer"
+    _, version = metric(catalogue)
+    approved_path(catalogue)
+    version.joins = [{"join_path_id": "path", "alias": "r"}]
+    version.expression = "SUM(r.value_a * 2)"
+    version.publish_check = {
+        "ossie": {
+            "document": {
+                "datasets": [
+                    {
+                        "name": name,
+                        "source": f"catalog.public.{name}",
+                        "fields": [
+                            {"name": column, "expression": {"sql": f"{column} * 2"}}
+                            for column in ("band_id", "value_a")
+                        ],
+                    }
+                    for name in ("records", "bands")
+                ]
+            }
+        }
+    }
+    exported = export_model(session, catalogue.actor, "domain")
+    validate_official_schema(exported)
+    relationship = exported["relationships"][0]
+    assert relationship["from_columns"] == relationship["to_columns"] == ["band_id__column"]
+    assert exported["metrics"][0]["expression"]["dialects"][0]["expression"] == "SUM(bands.value_a__column * 2)"
+    report = import_model(session, catalogue.actor, exported, "domain", dry_run=False)
+    roundtripped = session.get(MetricVersion, report["results"][0]["version_id"])
+    assert roundtripped.expression == 'SUM(r."value_a" * 2)'
+    assert [(join["join_path_id"], join["alias"]) for join in roundtripped.joins] == [("path", "r")]
 
 
 @pytest.mark.parametrize("portable", ["postgres", "ANSI_SQL", "OSSIE_SQL_2026", "sql"])

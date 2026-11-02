@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -213,6 +214,7 @@ def _joins(
     paths: dict[str, JoinPath],
     base: str,
     options: _Options,
+    required: set[str],
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     aliases = {base: "b"}
     joins = []
@@ -242,26 +244,51 @@ def _joins(
                 }
             )
     else:
-        pending = list(document.get("relationships", []))
+        outgoing: dict[str, list[dict[str, Any]]] = {}
+        for relationship in document.get("relationships", []):
+            outgoing.setdefault(relationship["from"], []).append(relationship)
+        previous = {}
+        pending = deque([base])
         while pending:
-            progressed = False
-            for relationship in pending[:]:
-                left, right = relationship["from"], relationship["to"]
-                if left in aliases and right not in aliases:
-                    alias = f"j{len(joins) + 1}"
-                    aliases[right] = alias
-                    joins.append(
-                        {
-                            "join_path_id": paths[relationship["name"]].id,
-                            "alias": alias,
-                            "from": aliases[left],
-                            "pre_aggregate": False,
-                        }
-                    )
-                    pending.remove(relationship)
-                    progressed = True
-            if not progressed:
-                break
+            for relationship in outgoing.get(pending.popleft(), []):
+                right = relationship["to"]
+                if right != base and right not in previous:
+                    previous[right] = relationship
+                    pending.append(right)
+        inferred_aliases = {base: "b", **{name: f"j{i}" for i, name in enumerate(previous, 1)}}
+        if options.dimensions is None:
+            required.update(
+                name
+                for name in inferred_aliases
+                if any("dimension" in field for field in datasets[name]["original"].get("fields", []))
+            )
+        # 扩展中的维度、时间与过滤表达式使用内部别名；裁剪路径时保留这些别名。
+        for text in [*(d.get("column") for d in options.dimensions or []), options.time_column, options.filters]:
+            node = _tree(text, datasets[base]["dialect"]) if text else None
+            if node is not None:
+                for column in node.find_all(exp.Column):
+                    name = next((name for name, alias in inferred_aliases.items() if alias == column.table), None)
+                    if name is not None:
+                        required.add(name)
+        needed = {base}
+        for name in required:
+            while name != base and name not in needed:
+                relationship = previous.get(name)
+                if relationship is None:
+                    raise ValueError("指标或选用维度的数据集没有从基础数据集出发的关联路径")
+                needed.add(name)
+                name = relationship["from"]
+        for right, relationship in previous.items():
+            if right in needed:
+                aliases[right] = inferred_aliases[right]
+                joins.append(
+                    {
+                        "join_path_id": paths[relationship["name"]].id,
+                        "alias": aliases[right],
+                        "from": aliases[relationship["from"]],
+                        "pre_aggregate": False,
+                    }
+                )
     return joins, aliases
 
 
@@ -386,8 +413,14 @@ def _plan(
         if base not in datasets:
             raise ValueError("无法确定指标基础数据集，请声明 base_dataset 或使用数据集限定的字段引用")
         target = datasets[base]["dialect"]
-        joins, aliases = _joins(document, datasets, paths, base, options)
         text, read, converted = _choose(item, target)
+        node = _tree(text, read)
+        required = {
+            name
+            for column in (node.find_all(exp.Column) if node is not None else [])
+            if column.table and (name := _matching(column.args["table"], set(datasets))) is not None
+        }
+        joins, aliases = _joins(document, datasets, paths, base, options, required)
         unresolved = read is None
         if unresolved:
             expression = text

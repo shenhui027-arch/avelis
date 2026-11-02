@@ -1,6 +1,8 @@
 """Ossie HTTP 契约：下载、上传解析、结果类型、原子错误与审计摘要。"""
 
 import json
+import tracemalloc
+from time import perf_counter
 from types import SimpleNamespace
 from urllib.parse import unquote
 
@@ -62,7 +64,13 @@ def api(monkeypatch):
     monkeypatch.setattr(interchange.importer, "import_model", import_model)
     with Session(engine, expire_on_commit=False) as session:
         actor = User(id="actor", username="actor", display_name="维护者", password_hash="unused")
-        session.add_all([actor, Domain(id="domain_a", code="domain_a", name='域甲/"\r\n', owner_id="actor")])
+        session.add_all(
+            [
+                actor,
+                Domain(id="domain_a", code="domain_a", name='域甲/"\r\n', owner_id="actor"),
+                DomainMember(domain_id="domain_a", user_id="actor", role="maintainer"),
+            ]
+        )
         session.commit()
         app.dependency_overrides[current_user] = lambda: actor
 
@@ -222,14 +230,137 @@ def test_yaml_alias_expansion_and_nesting_are_bounded(api, monkeypatch):
     assert not api.calls
 
 
-def test_nonrecursive_yaml_alias_is_data(api):
+def _merge_bomb():
+    lines = ["a: &a {name: neutral_model}"]
+    for previous, current in zip("abcdefghijklmnopqr", "bcdefghijklmnopqrs", strict=True):
+        lines.append(f"{current}: &{current} {{<<: [*{previous}, *{previous}]}}")
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _merge_bomb(),
+        "name: *missing",
+        "name: &name neutral_model",
+        "<<: [{name: neutral_model}, {description: demo}]",
+        "!!merge 'name': neutral_model",
+    ],
+    ids=["merge_bomb", "alias", "anchor", "implicit_merge", "explicit_merge"],
+)
+def test_yaml_references_are_rejected_before_construction_with_bounded_cost(monkeypatch, raw):
+    def unexpected_construction(*args):
+        pytest.fail("YAML references must be rejected before object construction or merge expansion")
+
+    monkeypatch.setattr(interchange._UniqueSafeLoader, "construct_document", unexpected_construction)
+    monkeypatch.setattr(interchange._UniqueSafeLoader, "flatten_mapping", unexpected_construction)
+    tracemalloc.start()
+    try:
+        started = perf_counter()
+        with pytest.raises(
+            interchange._DocumentError, match="导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"
+        ):
+            interchange._document(raw)
+        elapsed = perf_counter() - started
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert elapsed < 0.1
+    assert peak < 512 * 1024
+
+
+@pytest.mark.parametrize(
+    "limit,value,raw",
+    [("MAX_DOCUMENT_VALUES", 5, "a: [1, 2, 3]"), ("MAX_DOCUMENT_DEPTH", 3, "a: [[[0]]]")],
+)
+def test_yaml_node_and_depth_limits_apply_before_construction(monkeypatch, limit, value, raw):
+    def unexpected_construction(*args):
+        pytest.fail("YAML limits must apply before object construction")
+
+    monkeypatch.setattr(interchange, limit, value)
+    monkeypatch.setattr(interchange._UniqueSafeLoader, "construct_document", unexpected_construction)
+    with pytest.raises(interchange._DocumentError, match="导入内容嵌套过深或过于复杂"):
+        interchange._document(raw)
+
+
+def test_yaml_compose_node_limit_includes_mapping_keys(monkeypatch):
+    monkeypatch.setattr(interchange, "MAX_DOCUMENT_VALUES", 5)
+    assert interchange._document("a: [1, 2]") == {"a": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    "language,reason",
+    [
+        ("zh-CN", "导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"),
+        ("zh-TW", "匯入內容只允許 JSON 值（不支援 YAML 錨點、別名與合併鍵）"),
+        (
+            "en",
+            "Import content may only contain JSON values (YAML anchors, aliases and merge keys are not supported)",
+        ),
+    ],
+)
+def test_nonrecursive_yaml_alias_is_rejected(api, language, reason):
     response = api.client.post(
         "/api/interchange/ossie/import?domain_id=domain_a",
         content="name: &name neutral_model\ndescription: *name",
+        headers={"Content-Type": "application/yaml", "Accept-Language": language},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["errors"][0]["reason"] == reason
+    assert not api.calls
+
+
+def test_plain_yaml_with_quoted_merge_key_is_json_data(api):
+    response = api.client.post(
+        "/api/interchange/ossie/import?domain_id=domain_a",
+        content="name: neutral_model\n'<<': literal\n=: equals\nvalues: [1, true, null]",
         headers={"Content-Type": "application/yaml"},
     )
     assert response.status_code == 200, response.text
-    assert api.calls[-1][2] == {"name": "neutral_model", "description": "neutral_model"}
+    assert api.calls[-1][2] == {"name": "neutral_model", "<<": "literal", "=": "equals", "values": [1, True, None]}
+
+
+@pytest.mark.parametrize("kind", ["query_yaml", "query_json", "multipart"])
+def test_target_domain_write_permission_is_checked_before_document_parsing(api, monkeypatch, kind):
+    member = api.session.scalar(select(DomainMember).where(DomainMember.user_id == "actor"))
+    member.role = "viewer"
+    api.session.commit()
+
+    def unexpected_parse(*args, **kwargs):
+        pytest.fail("Known target domain must be authorized before document parsing")
+
+    monkeypatch.setattr(interchange, "_document", unexpected_parse)
+    url = "/api/interchange/ossie/import"
+    if kind == "multipart":
+        response = api.client.post(
+            url,
+            data={"domain_id": "domain_a", "dry_run": "false"},
+            files={"file": ("model.yaml", _merge_bomb(), "application/yaml")},
+        )
+    else:
+        response = api.client.post(
+            url + "?domain_id=domain_a&dry_run=false",
+            content=_merge_bomb() if kind == "query_yaml" else '{"document": invalid}',
+            headers={"Content-Type": "application/yaml" if kind == "query_yaml" else "application/json"},
+        )
+    assert response.status_code == 403, response.text
+    report = response.json()
+    assert not report["ok"] and not report["dry_run"]
+    assert report["errors"] == [
+        {"layer": "catalog", "path": "$.domain_id", "reason": "需要目标业务域的负责人或维护者身份"}
+    ]
+    assert not api.calls and api.session.scalar(select(AuditEvent.id)) is None
+
+
+def test_domain_from_json_body_is_still_parsed_before_authorization(api):
+    response = api.client.post(
+        "/api/interchange/ossie/import",
+        content='{"domain_id":"domain_a","document": invalid}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["errors"][0]["layer"] == "structure"
+    assert not api.calls
 
 
 @pytest.mark.parametrize("filename", ["../../neutral.yaml", r"C:\Windows\neutral.yaml", "absolute"])
@@ -344,9 +475,10 @@ def test_unknown_dialect_draft_publish_check_returns_blocker_without_losing_meta
             "document": {"datasets": [{"name": "hidden_dataset", "source": hidden_source}]},
         }
     }
+    member = api.session.scalar(select(DomainMember).where(DomainMember.user_id == "actor"))
+    member.role = "viewer"
     api.session.add_all(
         [
-            DomainMember(domain_id="domain_a", user_id="actor", role="viewer"),
             Metric(
                 id="metric_a",
                 code="metric_a",

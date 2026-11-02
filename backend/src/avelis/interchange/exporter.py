@@ -23,7 +23,7 @@ from avelis.i18n import Msg
 from avelis.models import Asset, ColumnVersion, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
 from .constants import OSSIE_SPEC_COMMIT, OSSIE_SPEC_VERSION
-from .validation import _read_dialect, iter_expression_dialects, validate_structure
+from .validation import _matching, _read_dialect, iter_expression_dialects, validate_structure
 
 
 def _extensions(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -70,7 +70,9 @@ def _qualified(asset: Asset) -> str:
     return f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
 
 
-def _expression(text: str, dialect: str, aliases: dict[str, str]) -> str:
+def _expression(
+    text: str, dialect: str, aliases: dict[str, str], column_fields: dict[str, dict[str, str]] | None = None
+) -> str:
     """Rename SQL column aliases using its AST, preserving quoted identifiers."""
     node = sqlglot.parse_one(text, read=dialect)
     if node is None:
@@ -78,7 +80,12 @@ def _expression(text: str, dialect: str, aliases: dict[str, str]) -> str:
     for column in node.find_all(exp.Column):
         alias = column.table or "b"
         if alias in aliases and not column.db and not column.catalog:
-            column.set("table", exp.to_identifier(aliases[alias], quoted=not aliases[alias].isidentifier()))
+            dataset = aliases[alias]
+            fields = (column_fields or {}).get(dataset, {})
+            name = _matching(column.this, set(fields))
+            if name is not None:
+                column.set("this", exp.to_identifier(fields[name], quoted=not fields[name].isidentifier()))
+            column.set("table", exp.to_identifier(dataset, quoted=not dataset.isidentifier()))
     return node.sql(dialect=dialect)
 
 
@@ -91,31 +98,38 @@ def _same_expression(text: str, read: str, current: str, target: str) -> bool:
         return False
 
 
+def _field_column(dataset: dict[str, Any], field: dict[str, Any], dialect: str) -> exp.Column | None:
+    """Recognize identity fields using the same executable dialect selected on import."""
+    dialects = list(iter_expression_dialects(field["expression"]))
+    selected = next((entry for entry in dialects if entry["dialect"] == dialect), None)
+    if selected is None:
+        selected = next((entry for entry in dialects if entry["dialect"] in ("OSSIE_SQL_2026", "ANSI_SQL")), None)
+    if selected is None:
+        return None
+    try:
+        column = sqlglot.parse_one(selected["expression"], read=dialect if selected["dialect"] == dialect else None)
+    except (SqlglotError, ValueError):
+        return None
+    if (
+        not isinstance(column, exp.Column)
+        or column.db
+        or column.catalog
+        or (column.table and _matching(column.args["table"], {dataset["name"]}) is None)
+    ):
+        return None
+    return column
+
+
 def _physical_columns(dataset: dict[str, Any], names: list[str], dialect: str) -> list[str] | None:
     """Resolve relationship field names to the direct physical columns they declare."""
     fields = {field["name"]: field for field in dataset.get("fields", [])}
     result = []
     for name in names:
-        field = fields.get(name)
-        if field is None:
+        if name not in fields:
             result.append(name)
             continue
-        dialects = list(iter_expression_dialects(field["expression"]))
-        selected = next((entry for entry in dialects if entry["dialect"] == dialect), None)
-        if selected is None:
-            selected = next((entry for entry in dialects if entry["dialect"] in ("OSSIE_SQL_2026", "ANSI_SQL")), None)
-        if selected is None:
-            return None
-        try:
-            column = sqlglot.parse_one(selected["expression"], read=dialect if selected["dialect"] == dialect else None)
-        except (SqlglotError, ValueError):
-            return None
-        if (
-            not isinstance(column, exp.Column)
-            or column.db
-            or column.catalog
-            or column.table not in ("", dataset["name"])
-        ):
+        column = _field_column(dataset, fields[name], dialect)
+        if column is None:
             return None
         result.append(column.name)
     return result
@@ -148,6 +162,7 @@ def _expand_derived(
     version: MetricVersion,
     components: list[tuple[Metric, MetricVersion]],
     aliases_by_version: dict[str, dict[str, str]],
+    column_fields: dict[str, dict[str, str]],
 ) -> tuple[str, str]:
     """Expand only aggregates sharing one governed row set; otherwise keep the formula."""
     dialects = {
@@ -175,7 +190,8 @@ def _expand_derived(
             return dialect, version.expression
         replacement = {
             metric.code: sqlglot.parse_one(
-                _expression(component.expression, dialect, aliases_by_version[component.id]), read=dialect
+                _expression(component.expression, dialect, aliases_by_version[component.id], column_fields),
+                read=dialect,
             )
             for metric, component in components
         }
@@ -356,20 +372,59 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         aliases_by_version[version_id] = {alias: dataset_name(asset) for alias, asset in aliases.items()}
         paths.update({step["path"].id: step["path"] for step in steps})
 
-    # Include each collected column, but never guess logical datatype from its physical type.
+    # Physical references must not resolve to a retained logical field that transforms that column.
+    column_fields: dict[str, dict[str, str]] = {}
     for name, dataset in datasets.items():
         asset = dataset_assets[name]
         dialect = _dialect(session, asset)
         fields = dataset.setdefault("fields", [])
         names = {field["name"] for field in fields}
-        for column in session.scalars(
-            select(ColumnVersion)
-            .where(ColumnVersion.asset_version_id == asset.current_version_id)
-            .order_by(ColumnVersion.ordinal)
-        ):
-            if column.name not in names:
+        columns = list(
+            session.scalars(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == asset.current_version_id)
+                .order_by(ColumnVersion.ordinal)
+            )
+        )
+        reserved = {value.casefold() for value in names | {column.name for column in columns}}
+        for column in columns:
+            field_name = _matching(column.name, names)
+            if field_name is not None:
+                field = next(field for field in fields if field["name"] == field_name)
+                physical = _field_column(dataset, field, dialect)
+                if physical is not None and _matching(physical.this, {column.name}) == column.name:
+                    if field_name != column.name:
+                        column_fields.setdefault(name, {})[column.name] = field_name
+                    continue
+                identity = next(
+                    (
+                        field["name"]
+                        for field in fields
+                        if field["name"].isidentifier()
+                        and (physical := _field_column(dataset, field, dialect)) is not None
+                        and _matching(physical.this, {column.name}) == column.name
+                    ),
+                    None,
+                )
+                if identity is not None:
+                    column_fields.setdefault(name, {})[column.name] = identity
+                    continue
+                stem = re.sub(r"[^A-Za-z0-9_]+", "_", column.name).strip("_") or "column"
+                if not stem[0].isalpha() and stem[0] != "_":
+                    stem = f"column_{stem}"
+                stem = f"{stem}__column"
+                field_name = stem
+                suffix = 2
+                while field_name.casefold() in reserved:
+                    field_name = f"{stem}_{suffix}"
+                    suffix += 1
+                column_fields.setdefault(name, {})[column.name] = field_name
+            else:
+                field_name = column.name
+            if field_name not in names:
+                # Include collected columns without guessing logical datatypes from physical types.
                 field: dict[str, Any] = {
-                    "name": column.name,
+                    "name": field_name,
                     "expression": {
                         "dialects": [
                             {
@@ -382,7 +437,8 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 if column.comment:
                     field["description"] = column.comment
                 fields.append(field)
-                names.add(column.name)
+                names.add(field_name)
+                reserved.add(field_name.casefold())
 
     for version_id, (aliases, _) in resolved.items():
         version = versions[version_id]
@@ -471,8 +527,14 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                         "name": path.code,
                         "from": source_names[path.left_asset_id],
                         "to": source_names[path.right_asset_id],
-                        "from_columns": path.left_columns,
-                        "to_columns": path.right_columns,
+                        "from_columns": [
+                            column_fields.get(source_names[path.left_asset_id], {}).get(column, column)
+                            for column in path.left_columns
+                        ],
+                        "to_columns": [
+                            column_fields.get(source_names[path.right_asset_id], {}).get(column, column)
+                            for column in path.right_columns
+                        ],
                     }
                 )
                 relationships[path.code] = item
@@ -488,7 +550,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         item["ai_context"].update(metric_ai_context(metric))
         item["ai_context"] = {k: v for k, v in item["ai_context"].items() if v is not None}
         if version.kind == "derived":
-            dialect, expression = _expand_derived(session, version, components, aliases_by_version)
+            dialect, expression = _expand_derived(session, version, components, aliases_by_version, column_fields)
         else:
             asset = resolved[version.id][0]["b"]
             dialect = _dialect(session, asset)
@@ -504,7 +566,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                     for column in columns
                 ):
                     raise GovernanceError("口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义")
-            expression = _expression(version.expression, dialect, aliases_by_version[version.id])
+            expression = _expression(version.expression, dialect, aliases_by_version[version.id], column_fields)
         original_expression = deepcopy(original.get("expression", {}))
         dataset_scope = (version.publish_check or {}).get("ossie", {}).get("dataset_name")
         if dataset_scope:
@@ -530,6 +592,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 stale_alternatives = True
                 continue
             if entry["dialect"] == dialect:
+                stale_alternatives |= not _same_expression(entry["expression"], dialect, expression, dialect)
                 continue
             read = _read_dialect(entry["dialect"])
             if read is None or _same_expression(entry["expression"], read, expression, dialect):

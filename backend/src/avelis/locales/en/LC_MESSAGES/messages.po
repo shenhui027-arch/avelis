@@ -1962,6 +1962,9 @@ msgstr "Import content contains duplicate keys"
 msgid "导入内容只允许 JSON 值"
 msgstr "Import content may only contain JSON values"
 
+msgid "导入内容只允许 JSON 值（不支持 YAML 锚点、别名与合并键）"
+msgstr "Import content may only contain JSON values (YAML anchors, aliases and merge keys are not supported)"
+
 msgid "导入内容嵌套过深或过于复杂"
 msgstr "Import content is nested too deeply or is too complex"
 
