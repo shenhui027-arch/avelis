@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
-import { Code, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
+import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
@@ -162,7 +162,7 @@ function Composer() {
             {kind === "fixed" ? <div className="av-chip__dates">
               {([["start", t("本期起")], ["end", t("本期止")], ["cs", t("对比起")], ["ce", t("对比止")]] as const).map(([k, label]) => (
                 <label key={k}><span>{label}</span>
-                  <input type="date" value={fixed[k]} onChange={(e) => setFixed({ ...fixed, [k]: e.target.value })} /></label>))}
+                  <DateInput label={label} value={fixed[k]} clearable={false} onChange={(v) => setFixed({ ...fixed, [k]: v })} /></label>))}
             </div> : null}
           </ChipMenu>
           <ChipMenu down icon="shield" title={t("确认依据")} value={mode} onChange={setMode}

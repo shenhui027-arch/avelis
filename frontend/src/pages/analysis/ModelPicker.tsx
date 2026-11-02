@@ -59,7 +59,9 @@ export function usePopover() {
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent | KeyboardEvent) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+      // 菜单里的日期、下拉等浮层挂在 body 上（.av-float-root），点它们不算点到菜单外
+      const inside = (t: EventTarget | null) => ref.current?.contains(t as Node) || !!(t as Element | null)?.closest?.(".av-float-root");
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !inside(e.target)) setOpen(false);
     };
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", close);
