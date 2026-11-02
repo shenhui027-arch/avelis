@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -182,8 +183,52 @@ def transition(session: Session, version: MetricVersion, to_status: str, actor: 
 # --- 指标 -------------------------------------------------------------------------
 
 
+class MetricAIContext(BaseModel):
+    """口径级语义提示；只用于检索和澄清，不参与版本与执行语义。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instructions: str | None = Field(default=None, max_length=2000)
+    synonyms: list[Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)]] = Field(
+        default_factory=list, max_length=30
+    )
+    examples: list[Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
+
+    @field_validator("synonyms", "examples", mode="before")
+    @classmethod
+    def clean_terms(cls, value):
+        if isinstance(value, list):
+            # 非字符串仍交给 Pydantic 拒绝，不做隐式转换。
+            if all(isinstance(v, str) for v in value):
+                return list(dict.fromkeys(v.strip() for v in value if v.strip()))
+        return value
+
+
+def metric_ai_context(metric: Metric) -> dict[str, Any]:
+    return MetricAIContext.model_validate(getattr(metric, "ai_context", None) or {}).model_dump()
+
+
+def update_ai_context(session: Session, actor: User, metric: Metric, context: dict[str, Any]) -> Metric:
+    if actor.id != metric.owner_id:
+        access.require_domain_maintainer(session, actor, metric.domain_id)
+    before = metric_ai_context(metric)
+    metric.ai_context = MetricAIContext.model_validate(context).model_dump()
+    audit.record(session, actor, "metric.ai_context", "metric", metric.id, before=before, after=metric.ai_context)
+    return metric
+
+
 def create_metric(
-    session: Session, actor: User, *, code: str, name: str, domain_id: str, owner_id: str | None, aliases: list[str]
+    session: Session,
+    actor: User,
+    *,
+    code: str,
+    name: str,
+    domain_id: str,
+    owner_id: str | None,
+    aliases: list[str],
+    ai_context: dict[str, Any] | None = None,
 ) -> Metric:
     access.require_role(session, actor, "steward")
     if session.get(Domain, domain_id) is None:
@@ -192,10 +237,29 @@ def create_metric(
     if session.scalar(select(Metric.id).where(Metric.code == code)):
         raise Conflict(Msg("指标编码 {code} 已存在", code=code))
     owner_id = owner_id or session.get(Domain, domain_id).owner_id
-    metric = Metric(code=code, name=name, domain_id=domain_id, owner_id=owner_id, aliases=aliases, created_by=actor.id)
+    context = MetricAIContext.model_validate(ai_context or {}).model_dump()
+    metric = Metric(
+        code=code,
+        name=name,
+        domain_id=domain_id,
+        owner_id=owner_id,
+        aliases=aliases,
+        ai_context=context,
+        created_by=actor.id,
+    )
     session.add(metric)
     session.flush()
     audit.record(session, actor, "metric.create", "metric", metric.id, code=code, name=name, owner_id=owner_id)
+    if ai_context is not None:
+        audit.record(
+            session,
+            actor,
+            "metric.ai_context",
+            "metric",
+            metric.id,
+            before=MetricAIContext().model_dump(),
+            after=context,
+        )
     return metric
 
 

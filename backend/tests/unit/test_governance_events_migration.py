@@ -26,7 +26,7 @@ def test_governance_events_migration_compiles_postgresql_upgrade_and_downgrade()
     migration = load_migration()
     assert migration.revision == "0020_governance_events"
     # PR #81 已使用 0019；按约定合并前由整合分支调整实际 head。
-    assert migration.down_revision == "0018_import_batches"
+    assert migration.down_revision == "0019_metric_ai_context"
     ddl = io.StringIO()
     context = MigrationContext.configure(
         dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl, "target_metadata": Base.metadata}

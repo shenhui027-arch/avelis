@@ -401,11 +401,18 @@ class VersionBrief(Out):
     published_at: str | None = None
 
 
+class MetricAIContextOut(BaseModel):
+    instructions: str | None
+    synonyms: list[str]
+    examples: list[str]
+
+
 class MetricOut(Out):
     id: str
     code: str
     name: str
     aliases: list[str]
+    ai_context: MetricAIContextOut
     domain_id: str
     owner: OwnerRef
     versions: list[VersionBrief]

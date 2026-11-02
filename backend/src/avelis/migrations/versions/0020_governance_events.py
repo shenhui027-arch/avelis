@@ -1,9 +1,9 @@
 """治理事件订阅与事务发件箱。
 
 Revision ID: 0020_governance_events
-Revises: 0018_import_batches
+Revises: 0019_metric_ai_context
 
-0019_metric_ai_context 已由 PR #81 使用；合并前按实际 head 调整 down_revision。
+接在 0019_metric_ai_context（口径语义提示）之后。
 不修改 audit_event 的列或历史链摘要，避免改变既有历史行的哈希。
 """
 
@@ -13,7 +13,7 @@ from alembic import op
 from avelis.db import JsonType, UTCDateTime
 
 revision = "0020_governance_events"
-down_revision = "0018_import_batches"
+down_revision = "0019_metric_ai_context"
 branch_labels = None
 depends_on = None
 

@@ -2184,6 +2184,63 @@
     }
    }
   },
+  "/api/metrics/{metric_id}/ai-context": {
+   "put": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Update Metric Ai Context",
+    "operationId": "update_metric_ai_context_api_metrics__metric_id__ai_context_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "metric_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Metric Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MetricAIContext"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MetricOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/metrics/{metric_id}/versions": {
    "post": {
     "tags": [
@@ -13253,6 +13310,80 @@
     ],
     "title": "MemberSet"
    },
+   "MetricAIContext": {
+    "properties": {
+     "instructions": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Instructions"
+     },
+     "synonyms": {
+      "items": {
+       "type": "string",
+       "maxLength": 64
+      },
+      "type": "array",
+      "maxItems": 30,
+      "title": "Synonyms"
+     },
+     "examples": {
+      "items": {
+       "type": "string",
+       "maxLength": 200
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Examples"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "MetricAIContext",
+    "description": "口径级语义提示；只用于检索和澄清，不参与版本与执行语义。"
+   },
+   "MetricAIContextOut": {
+    "properties": {
+     "instructions": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Instructions"
+     },
+     "synonyms": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Synonyms"
+     },
+     "examples": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Examples"
+     }
+    },
+    "type": "object",
+    "required": [
+     "instructions",
+     "synonyms",
+     "examples"
+    ],
+    "title": "MetricAIContextOut"
+   },
    "MetricCreate": {
     "properties": {
      "code": {
@@ -13289,6 +13420,16 @@
       },
       "type": "array",
       "title": "Aliases"
+     },
+     "ai_context": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/MetricAIContext"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "type": "object",
@@ -13320,6 +13461,9 @@
       "type": "array",
       "title": "Aliases"
      },
+     "ai_context": {
+      "$ref": "#/components/schemas/MetricAIContextOut"
+     },
      "domain_id": {
       "type": "string",
       "title": "Domain Id"
@@ -13342,6 +13486,7 @@
      "code",
      "name",
      "aliases",
+     "ai_context",
      "domain_id",
      "owner",
      "versions"

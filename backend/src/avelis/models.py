@@ -389,6 +389,7 @@ class Metric(Base):
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     aliases: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
+    ai_context: Mapped[dict] = mapped_column(JsonType, default=dict, server_default="{}", nullable=False)
     domain_id: Mapped[str] = fk("domain.id")
     owner_id: Mapped[str] = fk("app_user.id")
     created_by: Mapped[str] = fk("app_user.id", index=False)

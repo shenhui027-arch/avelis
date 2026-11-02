@@ -81,7 +81,7 @@ def audit_columns(connection):
 
 def test_events_migration_preserves_old_hash_and_independent_failure_is_sealed(isolated_event_schema, monkeypatch):
     engine = isolated_event_schema
-    migrate(engine, "0018_import_batches")
+    migrate(engine, "0019_metric_ai_context")
     with Session(engine) as session:
         session.add(
             AuditEvent(
@@ -105,7 +105,7 @@ def test_events_migration_preserves_old_hash_and_independent_failure_is_sealed(i
     with engine.connect() as connection:
         assert audit_columns(connection) == old_columns
         assert {"event_outbox", "webhook_subscription"} <= set(inspect(connection).get_table_names())
-    migrate(engine, "0018_import_batches", downgrade=True)
+    migrate(engine, "0019_metric_ai_context", downgrade=True)
     assert_history(engine, old_hash)
     with engine.connect() as connection:
         assert {"event_outbox", "webhook_subscription"}.isdisjoint(inspect(connection).get_table_names())

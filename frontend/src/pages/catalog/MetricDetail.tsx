@@ -16,7 +16,8 @@ import { useMe, useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
 
 const ROLE_LABEL: Record<string, string> = { measure: t("度量"), time: t("时间"), dimension: t("维度"), filter: t("过滤"), join_key: t("关联键") };
-const METRIC_TABS = [{ id: "definition", label: t("口径") }, { id: "dependency", label: t("依赖") }, { id: "history", label: t("历史") }] as const;
+const METRIC_TABS = [{ id: "definition", label: t("口径") }, { id: "dependency", label: t("依赖") }, { id: "history", label: t("历史") },
+  { id: "ai", label: t("模型提示") }] as const;
 type MetricTab = typeof METRIC_TABS[number]["id"];
 type Spec = Schemas["VersionSpec"];
 // 口径的时间与量纲语义（ADR 0014）：默认值与原行为一致
@@ -63,6 +64,12 @@ function MetricContent({ metric }: { metric: Metric }) {
   const versions = [...metric.versions].reverse();
   // Saving a draft keeps its id; scope local check results to its server snapshot.
   const versionSnapshot = JSON.stringify(version.data);
+  const me = useMe();
+  // 模型提示与后端同一规则：口径负责人、所在业务域的负责人 / 维护者、系统管理员
+  const domain = useDomains().data?.find((d) => d.id === metric.domain_id);
+  const myId = me.data?.id;
+  const canEditHints = !!myId && (roles.has("admin") || myId === metric.owner.id
+    || !!domain?.members.some((m) => m.user_id === myId && (m.role === "maintainer" || m.role === "owner")));
 
   return <div className="av-metric-detail">
     <header className="av-metric-detail__header">
@@ -103,7 +110,8 @@ function MetricContent({ metric }: { metric: Metric }) {
         }}>{item.label}</button>)}
     </div>
     <div className="av-metric-detail__body" role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${tab}`} tabIndex={0}>
-      {!current ? <Empty text={t("还没有版本")} compact action={canEdit
+      {tab === "ai" ? <AiContextPanel key={metric.id} metric={metric} canEdit={canEditHints} />
+        : !current ? <Empty text={t("还没有版本")} compact action={canEdit
         ? <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("新建版本")}</button> : undefined} />
         : version.isError && version.error instanceof ApiError && version.error.status === 404
           ? <Empty text={t("版本不存在")} compact action={<button type="button" className="av-btn av-btn--secondary" onClick={() => setVersionId(undefined)}>{t("返回当前版本")}</button>} />
@@ -112,6 +120,90 @@ function MetricContent({ metric }: { metric: Metric }) {
     {editing && canEdit ? <VersionEditor metricId={metric.id} base={version.data} mode={editing}
       onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); setVersionId(id); setTab("definition"); }} /> : null}
   </div>;
+}
+
+type AiContext = Schemas["MetricAIContextOut"];
+const AI_LIMITS = { instructions: 2000, synonyms: 30, synonym: 64, examples: 20, example: 200 };
+
+/** 给模型的提示（ADR 0017 §3）：适用说明、同义词、示例问法。只影响问数检索与澄清，不进入 SQL、不生成新版本。 */
+function AiContextPanel({ metric, canEdit }: { metric: Metric; canEdit: boolean }) {
+  const ctx: AiContext = metric.ai_context ?? { instructions: null, synonyms: [], examples: [] };
+  const [editing, setEditing] = useState(false);
+  const [message, setMessage] = useMessage();
+  const empty = !ctx.instructions && !ctx.synonyms.length && !ctx.examples.length;
+  return <section className="av-panel">
+    <div className="av-panel__hd av-metric-panel__header">
+      <h2 className="av-panel__title">{t("给模型的提示")} <Hint text={t("问数时用来找到这个口径、判断是否适用；不进入 SQL，修改不生成新版本，会记入审计")} /></h2>
+      {canEdit && !editing ? <div className="av-actions av-metric-detail__actions">
+        <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{empty ? t("添加提示") : t("编辑")}</button>
+      </div> : null}
+    </div>
+    <div className="av-panel__bd">
+      <Banner message={message} />
+      {editing ? <AiContextForm metricId={metric.id} value={ctx} onCancel={() => setEditing(false)}
+        onSaved={() => { setEditing(false); setMessage({ ok: true, text: t("已保存") }); }} />
+        : empty ? <Empty compact text={t("还没有提示。写下适用范围、常见叫法和典型问法，问数更容易选对口径")} />
+        : <dl className="av-kv av-metric-detail__kv">
+          <dt>{t("适用说明")}</dt><dd className="av-aictx__text">{ctx.instructions || "—"}</dd>
+          <dt>{t("同义词")}</dt><dd className="av-metric-detail__tags">{ctx.synonyms.length ? ctx.synonyms.map((x) => <span key={x} className="av-tag">{x}</span>) : "—"}</dd>
+          <dt>{t("示例问法")}</dt><dd>{ctx.examples.length ? <ul className="av-aictx__examples">{ctx.examples.map((x) => <li key={x}>{x}</li>)}</ul> : "—"}</dd>
+        </dl>}
+    </div>
+  </section>;
+}
+
+function AiContextForm({ metricId, value, onCancel, onSaved }: {
+  metricId: string; value: AiContext; onCancel: () => void; onSaved: () => void;
+}) {
+  const id = useId();
+  const [instructions, setInstructions] = useState(value.instructions ?? "");
+  const [synonyms, setSynonyms] = useState<string[]>(value.synonyms);
+  const [draft, setDraft] = useState("");
+  const [examples, setExamples] = useState(value.examples.join("\n"));
+  const [message, setMessage] = useMessage();
+  const exampleList = [...new Set(examples.split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
+  const splitSynonyms = (raw: string) => raw.split(/[,，、]/).map((x) => x.trim().slice(0, AI_LIMITS.synonym)).filter(Boolean);
+  // 输入框里还没按回车的同义词也算进去：校验和提交都用同一份最终列表
+  const finalSynonyms = [...new Set([...synonyms, ...splitSynonyms(draft)])];
+  const errors = [
+    finalSynonyms.length > AI_LIMITS.synonyms ? t("同义词最多 {{n}} 个", { n: AI_LIMITS.synonyms }) : "",
+    exampleList.length > AI_LIMITS.examples ? t("示例问法最多 {{n}} 条", { n: AI_LIMITS.examples }) : "",
+    exampleList.some((x) => x.length > AI_LIMITS.example) ? t("每条示例问法最多 {{n}} 字", { n: AI_LIMITS.example }) : "",
+  ].filter(Boolean);
+  const save = useAction((body: AiContext) => unwrap(api.PUT("/api/metrics/{metric_id}/ai-context", {
+    params: { path: { metric_id: metricId } }, body })), ["metrics"]);
+  const addSynonym = (raw: string) => {
+    const items = splitSynonyms(raw);
+    if (items.length) setSynonyms((list) => [...new Set([...list, ...items])]);
+    setDraft("");
+  };
+  return <form className="av-aictx__form" onSubmit={(e) => {
+    e.preventDefault();
+    if (errors.length || save.isPending) return;
+    setSynonyms(finalSynonyms);
+    setDraft("");
+    save.mutate({ instructions: instructions.trim() || null, synonyms: finalSynonyms, examples: exampleList },
+      { onSuccess: onSaved, onError: (err) => setMessage({ ok: false, text: errorText(err) }) });
+  }}>
+    <label className="av-field" htmlFor={`${id}-instructions`}><span className="av-label">{t("适用说明")} <Hint text={t("什么时候该用、什么时候不该用；拿不准时模型会据此向提问人确认")} /></span>
+      <textarea id={`${id}-instructions`} className="av-textarea" rows={4} maxLength={AI_LIMITS.instructions} value={instructions}
+        onChange={(e) => setInstructions(e.target.value)} /></label>
+    <div className="av-field"><label className="av-label" htmlFor={`${id}-synonyms`}>{t("同义词")} <Hint text={t("回车或逗号添加；与别名一起参与检索")} /></label>
+      {synonyms.length ? <div className="av-metric-detail__tags">{synonyms.map((x) => (
+        <button type="button" key={x} className="av-btn av-btn--secondary av-btn--sm" aria-label={t("移除同义词 {{name}}", { name: x })}
+          onClick={() => setSynonyms(synonyms.filter((y) => y !== x))}>{x}<Icon name="close" small /></button>))}</div> : null}
+      <input id={`${id}-synonyms`} className="av-input" value={draft} maxLength={AI_LIMITS.synonym * 4}
+        onChange={(e) => { if (/[,，、]/.test(e.target.value)) addSynonym(e.target.value); else setDraft(e.target.value); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); addSynonym(draft); } }} /></div>
+    <label className="av-field" htmlFor={`${id}-examples`}><span className="av-label">{t("示例问法")} <Hint text={t("每行一条，写提问人通常会怎么问")} /></span>
+      <textarea id={`${id}-examples`} className="av-textarea" rows={4} value={examples} onChange={(e) => setExamples(e.target.value)} /></label>
+    {errors.length ? <div className="av-banner av-banner--danger">{errors.join(t("；"))}</div> : null}
+    <Banner message={message} />
+    <div className="av-actions av-aictx__actions">
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={save.isPending} onClick={onCancel}>{t("取消")}</button>
+      <button type="submit" className="av-btn av-btn--primary av-btn--sm" disabled={save.isPending || errors.length > 0}>{save.isPending ? t("保存中…") : t("保存")}</button>
+    </div>
+  </form>;
 }
 
 function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: MetricTab; canEdit: boolean; onEdit: () => void }) {

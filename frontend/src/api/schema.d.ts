@@ -729,6 +729,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metrics/{metric_id}/ai-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Metric Ai Context */
+        put: operations["update_metric_ai_context_api_metrics__metric_id__ai_context_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metrics/{metric_id}/versions": {
         parameters: {
             query?: never;
@@ -4227,6 +4244,27 @@ export interface components {
             /** Role */
             role: string;
         };
+        /**
+         * MetricAIContext
+         * @description 口径级语义提示；只用于检索和澄清，不参与版本与执行语义。
+         */
+        MetricAIContext: {
+            /** Instructions */
+            instructions?: string | null;
+            /** Synonyms */
+            synonyms?: string[];
+            /** Examples */
+            examples?: string[];
+        };
+        /** MetricAIContextOut */
+        MetricAIContextOut: {
+            /** Instructions */
+            instructions: string | null;
+            /** Synonyms */
+            synonyms: string[];
+            /** Examples */
+            examples: string[];
+        };
         /** MetricCreate */
         MetricCreate: {
             /** Code */
@@ -4239,6 +4277,7 @@ export interface components {
             owner_id?: string | null;
             /** Aliases */
             aliases?: string[];
+            ai_context?: components["schemas"]["MetricAIContext"] | null;
         };
         /** MetricOut */
         MetricOut: {
@@ -4250,6 +4289,7 @@ export interface components {
             name: string;
             /** Aliases */
             aliases: string[];
+            ai_context: components["schemas"]["MetricAIContextOut"];
             /** Domain Id */
             domain_id: string;
             owner: components["schemas"]["OwnerRef"];
@@ -6614,6 +6654,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_metric_ai_context_api_metrics__metric_id__ai_context_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                metric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricAIContext"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

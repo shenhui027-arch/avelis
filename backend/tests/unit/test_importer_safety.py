@@ -9,31 +9,47 @@ from avelis.importer.extract import extract_python
 
 
 @pytest.mark.parametrize(
-    "source,secrets,count",
+    "source,expected,secrets,count,marker_count",
     [
-        ('{"password": "json secret", "api_key": "second-secret"}', ["json secret", "second-secret"], 2),
-        ("{'token': 'token-secret'}", ["token-secret"], 1),
-        ('password = "space secret"', ["space secret"], 1),
-        ("PASSWORD=environment-secret", ["environment-secret"], 1),
-        # 普通换行不能连接键和分隔符；保留旧输入，明确验证新的逻辑行边界。
-        ('"password" \n : \n "multiline-secret"', [], 0),
-        ("token = '''first-secret\nsecond-secret'''", ["first-secret", "second-secret"], 1),
-        ('password = "escaped\\"secret"', ["escaped", "secret"], 1),
-        ("jdbc:mysql://etl_user:connection-secret@host/db", ["connection-secret"], 1),
-        ("user:bare-secret@host", ["bare-secret"], 1),
-        ('password="postgres://user:nested-secret@host/db"', ["nested-secret"], 1),
-        ('token="sk-1234567890abcdefghijklmnop"', ["sk-1234567890abcdefghijklmnop"], 1),
+        (
+            '{"password": "json secret", "api_key": "second-secret"}',
+            '{"password": <redacted>',
+            ["json secret", "second-secret"],
+            3,
+            1,
+        ),
+        ("{'token': 'token-secret'}", "{'token': '<redacted>'}", ["token-secret"], 1, 1),
+        ('password = "space secret"', 'password = "<redacted>"', ["space secret"], 1, 1),
+        ("PASSWORD=environment-secret", "PASSWORD=<redacted>", ["environment-secret"], 1, 1),
+        # 普通换行不连接键和分隔符；引号列名与无值的裸键仍保持原样。
+        ('"password" \n : \n "multiline-secret"', '"password" \n : \n "multiline-secret"', [], 0, 0),
+        (
+            "token = '''first-secret\nsecond-secret'''",
+            "token = '''<redacted>'''",
+            ["first-secret", "second-secret"],
+            1,
+            1,
+        ),
+        ('password = "escaped\\"secret"', 'password = "<redacted>"', ["escaped", "secret"], 1, 1),
+        ("jdbc:mysql://etl_user:connection-secret@host/db", "jdbc:<redacted>", ["connection-secret"], 2, 1),
+        ("user:bare-secret@host", "user:<redacted>", ["bare-secret"], 2, 1),
+        ('password="postgres://user:nested-secret@host/db"', 'password="<redacted>"', ["nested-secret"], 1, 1),
+        ('token="sk-1234567890abcdefghijklmnop"', 'token="<redacted>"', ["sk-1234567890abcdefghijklmnop"], 1, 1),
         (
             'key = "sk-1234567890abcdefghijklmnop"; AKIA1234567890ABCDEF',
+            'key = "<redacted>"; <redacted>',
             ["sk-1234567890abcdefghijklmnop", "AKIA1234567890ABCDEF"],
+            2,
             2,
         ),
     ],
 )
-def test_redact_common_secret_forms_once(source, secrets, count):
+def test_redact_common_secret_forms_once(source, expected, secrets, count, marker_count):
     cleaned, hits = redact(source)
+    assert cleaned == expected
     assert hits == count
-    assert cleaned.count("<redacted>") == count
+    # 兜底会合并第一层的占位符，累计次数与最终占位符数分别验证。
+    assert cleaned.count("<redacted>") == marker_count
     assert all(secret not in cleaned for secret in secrets)
     assert redact(cleaned) == (cleaned, 0)
     if not count:
@@ -53,10 +69,14 @@ def test_redact_cli_secret_values_and_preserve_flags(key, separator, quote):
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("trailing_space", ["", " \t"])
 @pytest.mark.parametrize("assignment", ['password = "actual secret"', '"password": "actual secret"'])
-def test_redact_cli_flag_does_not_consume_next_line_assignment(newline, trailing_space, assignment):
+def test_redact_cli_flag_extends_only_when_a_value_separator_is_present(newline, trailing_space, assignment):
     source = f"# run with --password{trailing_space}{newline}{assignment}{newline}"
-    expected = source.replace("actual secret", "<redacted>")
-    assert redact(source) == (expected, 1)
+    if trailing_space:
+        # 空白是 CLI 值分隔符；空值触发兜底，整行遮住下一条赋值。
+        expected, count = f"# run with --password{trailing_space}<redacted>{newline}", 3
+    else:
+        expected, count = source.replace("actual secret", "<redacted>"), 1
+    assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
 
 
@@ -181,8 +201,8 @@ def test_redact_preserves_identifiers_with_non_sensitive_suffix(key):
 def test_redaction_count_is_idempotent_and_preserves_other_code():
     source = 'password = "first secret"\nconfig = {"token": "second-secret"}\nurl = "u:third-secret@host"'
     cleaned, count = redact(source)
-    assert count == 3
-    assert cleaned == 'password = "<redacted>"\nconfig = {"token": "<redacted>"}\nurl = "u:<redacted>@host"'
+    assert count == 4
+    assert cleaned == 'password = "<redacted>"\nconfig = {"token": "<redacted>"}\nurl = "u:<redacted>'
     assert redact(cleaned) == (cleaned, 0)
     assert redact('password_policy = "public"\nspark.sql("SELECT 1")')[1] == 0
 
@@ -414,4 +434,11 @@ def test_dataframe_blocks_still_reach_model_candidates():
     assert len(segments) == 1 and segments[0].method == "unrecognized"
     assert 'spark.table("shop.orders")' in segments[0].text
     cleaned, count = redact(segments[0].text)
-    assert "dummy-secret" not in cleaned and count == 1
+    # 兜底补遮 URL 所在行，保留用于推断血缘的 DataFrame 读取和写入。
+    assert cleaned == (
+        '    jdbc_url = "jdbc:<redacted>\n'
+        '    rows = spark.table("shop.orders")\n'
+        '    rows.write.saveAsTable("ads.orders")'
+    )
+    assert "dummy-secret" not in cleaned and count == 2
+    assert redact(cleaned) == (cleaned, 0)
