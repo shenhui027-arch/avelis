@@ -4,7 +4,7 @@ from time import perf_counter
 
 import pytest
 
-from avelis.importer.candidates import redact
+from avelis.importer.candidates import _redact_lines, _redact_units, _SecretValueReader, redact
 
 
 def _timed_redact(source: str):
@@ -21,6 +21,71 @@ def _timed_redact(source: str):
 def assert_redacted(source: str, expected: str, count: int = 1) -> None:
     assert redact(source) == (expected, count)
     assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            """cur.execute("CREATE ROLE r PASSWORD /**/'SYNTH';")""",
+            """cur.execute("CREATE ROLE r PASSWORD /**/'<redacted>';")""",
+        ),
+        ("ALTER ROLE r PASSWORD /* x */ 'SYNTH';", "ALTER ROLE r PASSWORD /* x */ '<redacted>';"),
+        ("ALTER ROLE r PASSWORD -- c\n 'SYNTH';", "ALTER ROLE r PASSWORD -- c\n '<redacted>';"),
+        ("ALTER ROLE r PASSWORD 'first\\'SYNTH\nlast';", "ALTER ROLE r PASSWORD '<redacted>';"),
+        (
+            "sql = r'''ALTER ROLE r PASSWORD 'first\\'SYNTH\nlast';'''",
+            "sql = r'''ALTER ROLE r PASSWORD '<redacted>';'''",
+        ),
+    ],
+    ids=["empty-block-comment", "block-comment", "line-comment", "plain-escape", "raw-host-escape"],
+)
+def test_sql_password_comments_and_plain_backslash_escapes(newline: str, source: str, expected: str) -> None:
+    source = source.replace("\n", newline)
+    expected = expected.replace("\n", newline)
+    # 第一层必须读完整个值；兜底处理之后也不能留下原始口令。
+    assert _redact_units(source) == (expected, 1)
+    cleaned, count = redact(source)
+    assert "SYNTH" not in cleaned
+    assert count >= 1
+    assert redact(cleaned) == (cleaned, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("comments", ["/**/", " /* x */ -- c\n /* y */ ", "-- c\n\t"])
+def test_sql_password_skips_repeated_comments_before_the_value(newline: str, comments: str) -> None:
+    prefix = ("ALTER ROLE r PASSWORD " + comments).replace("\n", newline)
+    source = prefix + "'SYNTH';" + newline + "SELECT 1;"
+    assert _redact_units(source) == (prefix + "'<redacted>';" + newline + "SELECT 1;", 1)
+    assert "SYNTH" not in redact(source)[0]
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("suffix", ["/*SYNTH", "/* x SYNTH", "/*\n 'SYNTH';"])
+def test_unclosed_sql_password_comments_are_values(newline: str, suffix: str) -> None:
+    source = ("ALTER ROLE r PASSWORD " + suffix).replace("\n", newline)
+    reader = _SecretValueReader(source)
+    for masked_values in (False, True):
+        assert reader.password_value_start(len("ALTER ROLE r PASSWORD"), masked_values=masked_values) == source.index(
+            "/*"
+        )
+    assert _redact_units(source)[1] == 1
+    assert _redact_lines(source)[1] >= 1
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("structure", ["FROM users;", "::text FROM users;", "+ 1 FROM users;"])
+def test_sql_password_structure_is_checked_after_comments(newline: str, structure: str) -> None:
+    source = ("SELECT password /* x */ -- c\n /**/ " + structure).replace("\n", newline)
+    for redactor in (_redact_units, _redact_lines, redact):
+        assert redactor(source) == (source, 0)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_line_fallback_does_not_treat_sql_comments_as_column_operators(newline: str) -> None:
+    source = "ALTER ROLE r PASSWORD /* x */ 'SYNTH';" + newline + "SELECT 1;"
+    assert _redact_lines(source) == ("ALTER ROLE r PASSWORD<redacted>" + newline + "SELECT 1;", 1)
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -663,6 +728,14 @@ def test_sql_password_literals_are_redacted_inside_any_wrapper(
 ) -> None:
     source = wrapper.format(f"CREATE ROLE reporting {keyword} {literal};") + "\nSELECT 1;"
     expected = wrapper.format(f"CREATE ROLE reporting {keyword} {replacement};") + "\nSELECT 1;"
+    if literal in ("'SYNTH\\'", '"SYNTH\\"'):
+        # 末尾引号被反斜杠转义：没有后续同类引号时覆盖到全文末尾。
+        expected = wrapper.split("{}")[0] + f"CREATE ROLE reporting {keyword} {replacement}"
+        if literal.startswith('"') and wrapper != "{}":
+            # 双引号宿主的闭合引号成为 SQL 值终点，后续行仍然保留。
+            expected += (")" if wrapper == 'cur.execute("{}")' else "") + newline + "SELECT 1;"
+        assert_redacted(source.replace("\n", newline), expected)
+        return
     if wrapper != "{}":
         # 剩余宿主语法只影响当前行，不能让下一条 SQL 消失。
         if wrapper == 'psql -c "{}"':

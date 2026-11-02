@@ -324,11 +324,11 @@ class _SecretValueReader:
                     return cursor
             return self.length
         quote = match["quote"]
-        escaped = (match["sql_prefix"] or "").upper() == "E"
         cursor = match.end()
         while cursor < self.length:
             char = self.text[cursor]
-            if escaped and char == "\\":
+            # 普通字面量也可能启用反斜杠转义；歧义时采用更长的读取范围。
+            if char == "\\":
                 cursor = min(cursor + 2, self.length)
             elif char == quote:
                 cursor += 1
@@ -397,8 +397,19 @@ class _SecretValueReader:
         if key_start >= 2 and self.text[key_start - 2 : key_start] == "--":
             return None
         cursor = end
-        while cursor < self.length and self.text[cursor].isspace():
-            cursor += 1
+        while cursor < self.length:
+            if self.text[cursor].isspace():
+                cursor += 1
+            elif self.text.startswith("/*", cursor):
+                closing = self.text.find("*/", cursor + 2)
+                if closing < 0:
+                    # 未闭合注释按值处理，不能让 / 被当成列运算符而放过。
+                    return cursor
+                cursor = closing + 2
+            elif self.text.startswith("--", cursor):
+                cursor = self.line_end(cursor)
+            else:
+                break
         if cursor == self.length:
             return None
         quotes = {'"': '"', "'": "'", "`": "`", "[": "]"}
