@@ -27,16 +27,20 @@ function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, float
   const [place, setPlace] = useState<Place | null>(null);
   useLayoutEffect(() => {
     if (!open) { setPlace(null); return; }
-    const update = () => {
+    const update = (e?: Event) => {
+      // 浮层自己的列表滚动不影响位置；位置没变时保留原对象，避免依赖 place 的效果反复把列表滚回选中项
+      if (e && floating.current?.contains(e.target as Node)) return;
       const r = anchor.current?.getBoundingClientRect();
       if (!r) return;
       const below = window.innerHeight - r.bottom - GAP * 2;
       const above = r.top - GAP * 2;
       const width = Math.max(r.width, minWidth);
       const left = Math.max(GAP, Math.min(r.left, window.innerWidth - width - GAP));
-      setPlace(below >= height || below >= above
+      const next: Place = below >= height || below >= above
         ? { top: r.bottom + GAP, left, minWidth: width, maxHeight: Math.min(height, below) }
-        : { bottom: window.innerHeight - r.top + GAP, left, minWidth: width, maxHeight: Math.min(height, above) });
+        : { bottom: window.innerHeight - r.top + GAP, left, minWidth: width, maxHeight: Math.min(height, above) };
+      setPlace((prev) => (prev && prev.top === next.top && prev.bottom === next.bottom && prev.left === next.left
+        && prev.minWidth === next.minWidth && prev.maxHeight === next.maxHeight ? prev : next));
     };
     update();
     window.addEventListener("resize", update);
@@ -213,6 +217,8 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
       PageUp: () => month(-1), PageDown: () => month(1),
       Escape: () => { setOpen(false); anchor.current?.focus(); },
     };
+    // 日历挂在 body 上，Tab 会跑出所在抽屉：收起日历、焦点回到触发按钮，再由浏览器按顺序移到下一个控件
+    if (e.key === "Tab") { anchor.current?.focus(); setOpen(false); return; }
     if (moves[e.key]) { e.preventDefault(); e.stopPropagation(); moves[e.key](); }
   };
 
