@@ -94,6 +94,9 @@ class Settings:
     worker_schedule_seconds: int = 60
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
+    webhook_allow_private_urls: bool = False
+    webhook_max_attempts: int = 8
+    webhook_retry_max_minutes: int = 60
     history_retention_days: int = 1095
     history_purge_interval_hours: int = 24
     history_export_max_rows: int = 50000
@@ -281,6 +284,13 @@ def _build_settings(env: dict[str, str]) -> Settings:
         worker_schedule_seconds=int(env.get("AVELIS_WORKER_SCHEDULE_SECONDS", "60")),
         worker_stale_seconds=int(env.get("AVELIS_WORKER_STALE_SECONDS", "30")),
         worker_running_timeout_seconds=int(env.get("AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS", "3600")),
+        webhook_allow_private_urls=_boolean(
+            env, "AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS", Settings.webhook_allow_private_urls
+        ),
+        webhook_max_attempts=_positive_int(env, "AVELIS_WEBHOOK_MAX_ATTEMPTS", Settings.webhook_max_attempts),
+        webhook_retry_max_minutes=_positive_int(
+            env, "AVELIS_WEBHOOK_RETRY_MAX_MINUTES", Settings.webhook_retry_max_minutes
+        ),
         history_retention_days=int(env.get("AVELIS_HISTORY_RETENTION_DAYS", "1095")),
         history_purge_interval_hours=int(env.get("AVELIS_HISTORY_PURGE_INTERVAL_HOURS", "24")),
         history_export_max_rows=int(env.get("AVELIS_HISTORY_EXPORT_MAX_ROWS", "50000")),
@@ -344,6 +354,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_ANALYSIS_EXPLORE_LIMIT",
         "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
+        "AVELIS_WEBHOOK_MAX_ATTEMPTS",
+        "AVELIS_WEBHOOK_RETRY_MAX_MINUTES",
     }
     nonnegative = {
         "AVELIS_DB_POOL_SIZE",
@@ -385,6 +397,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 "AVELIS_AUTO_MIGRATE",
                 "AVELIS_AUTO_INIT_ADMIN",
                 "AVELIS_REDIS_SSL",
+                "AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS",
             ):
                 _boolean(values, key, default)
         except ValueError as exc:

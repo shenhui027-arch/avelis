@@ -368,6 +368,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Event Types */
+        get: operations["list_event_types_api_events_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhook-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Subscriptions */
+        get: operations["list_subscriptions_api_webhook_subscriptions_get"];
+        put?: never;
+        /** Create Subscription */
+        post: operations["create_subscription_api_webhook_subscriptions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhook-subscriptions/{subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Subscription */
+        delete: operations["delete_subscription_api_webhook_subscriptions__subscription_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Subscription */
+        patch: operations["update_subscription_api_webhook_subscriptions__subscription_id__patch"];
+        trace?: never;
+    };
+    "/api/webhook-subscriptions/{subscription_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Secret */
+        post: operations["rotate_secret_api_webhook_subscriptions__subscription_id__rotate_secret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhook-subscriptions/{subscription_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Subscription */
+        post: operations["test_subscription_api_webhook_subscriptions__subscription_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/event-outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Outbox */
+        get: operations["list_outbox_api_event_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/event-outbox/{delivery_id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeliver */
+        post: operations["redeliver_api_event_outbox__delivery_id__redeliver_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/domains": {
         parameters: {
             query?: never;
@@ -2625,6 +2746,18 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+            /**
+             * Outcome
+             * @default success
+             * @enum {string}
+             */
+            outcome?: "success" | "failure";
+            /** Event Type */
+            event_type?: string | null;
+            /** Error */
+            error?: {
+                [key: string]: unknown;
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -3387,6 +3520,38 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** EventActor */
+        EventActor: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** EventError */
+        EventError: {
+            /** Code */
+            code: string;
+            /** Reason */
+            reason: string;
+        };
+        /** EventObject */
+        EventObject: {
+            /** Type */
+            type: string;
+            /** Id */
+            id: string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
+         * EventType
+         * @enum {string}
+         */
+        EventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold";
+        /** EventTypeOut */
+        EventTypeOut: {
+            type: components["schemas"]["EventType"];
+        };
         /** ExampleQuestion */
         ExampleQuestion: {
             /** Text */
@@ -3530,6 +3695,35 @@ export interface components {
             /** Models */
             models: string[];
         };
+        /** GovernanceEvent */
+        GovernanceEvent: {
+            /** Id */
+            id: string;
+            type: components["schemas"]["GovernanceEventType"];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "success" | "failure";
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Actor */
+            actor: components["schemas"]["EventActor"] | "system";
+            object: components["schemas"]["EventObject"];
+            /** Detail */
+            detail?: {
+                [key: string]: unknown;
+            };
+            error?: components["schemas"]["EventError"] | null;
+        };
+        /**
+         * GovernanceEventType
+         * @enum {string}
+         */
+        GovernanceEventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold" | "webhook.test";
         /** GrainDeclare */
         GrainDeclare: {
             /** Columns */
@@ -4298,6 +4492,48 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** OutboxOut */
+        OutboxOut: {
+            /** Id */
+            id: string;
+            /** Event Id */
+            event_id: string;
+            /** Subscription Id */
+            subscription_id: string;
+            payload: components["schemas"]["GovernanceEvent"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "delivered" | "dead";
+            /** Attempts */
+            attempts: number;
+            /**
+             * Next Attempt At
+             * Format: date-time
+             */
+            next_attempt_at: string;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivered At */
+            delivered_at: string | null;
+        };
+        /** OutboxPage */
+        OutboxPage: {
+            /** Items */
+            items: components["schemas"]["OutboxOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** OwnerRef */
         OwnerRef: {
             /** Id */
@@ -4619,6 +4855,94 @@ export interface components {
             }[];
         } & {
             [key: string]: unknown;
+        };
+        /** SubscriptionCreate */
+        SubscriptionCreate: {
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: components["schemas"]["EventType"][];
+            /** Outcomes */
+            outcomes?: ("success" | "failure")[] | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled?: boolean;
+        };
+        /** SubscriptionOut */
+        SubscriptionOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: components["schemas"]["EventType"][];
+            /** Outcomes */
+            outcomes: ("success" | "failure")[] | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SubscriptionSecretOut */
+        SubscriptionSecretOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: components["schemas"]["EventType"][];
+            /** Outcomes */
+            outcomes: ("success" | "failure")[] | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Secret
+             * @description 签名密钥，仅创建或轮换时返回一次
+             */
+            secret: string;
+        };
+        /** SubscriptionUpdate */
+        SubscriptionUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Event Types */
+            event_types?: components["schemas"]["EventType"][] | null;
+            /** Outcomes */
+            outcomes?: ("success" | "failure")[] | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** Target */
         Target: {
@@ -5571,6 +5895,270 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_event_types_api_events_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventTypeOut"][];
+                };
+            };
+        };
+    };
+    list_subscriptions_api_webhook_subscriptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionOut"][];
+                };
+            };
+        };
+    };
+    create_subscription_api_webhook_subscriptions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionSecretOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_subscription_api_webhook_subscriptions__subscription_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_subscription_api_webhook_subscriptions__subscription_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_secret_api_webhook_subscriptions__subscription_id__rotate_secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionSecretOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_subscription_api_webhook_subscriptions__subscription_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_outbox_api_event_outbox_get: {
+        parameters: {
+            query?: {
+                subscription_id?: string | null;
+                status?: ("pending" | "delivered" | "dead") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    redeliver_api_event_outbox__delivery_id__redeliver_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxOut"];
                 };
             };
             /** @description Validation Error */

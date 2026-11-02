@@ -25,11 +25,11 @@ from typing import Any
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
-from avelis import cache
+from avelis import cache, events
 from avelis.collect.service import CollectionFailed, run_collection
 from avelis.config import get_settings
 from avelis.db import advisory_lock, session_scope, utcnow
-from avelis.models import CollectionRun, Datasource, Job
+from avelis.models import CollectionRun, Datasource, ImportBatch, Job
 
 log = logging.getLogger("avelis.worker")
 
@@ -91,7 +91,11 @@ def run_job(job_id: str) -> None:
         if kind == "collect":
             result = {
                 "run_id": collect_now(
-                    payload["datasource_id"], trigger=payload.get("trigger", "manual"), actor_id=actor
+                    payload["datasource_id"],
+                    trigger=payload.get("trigger", "manual"),
+                    actor_id=actor,
+                    job_id=job_id,
+                    attempt=attempt,
                 )
             }
         elif kind == "import":
@@ -132,9 +136,21 @@ def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, A
                 analysis_service.reconcile_abandoned(session, job, error)
 
 
-def collect_now(datasource_id: str, *, trigger: str, actor_id: str | None) -> str:
+def collect_now(
+    datasource_id: str,
+    *,
+    trigger: str,
+    actor_id: str | None,
+    job_id: str | None = None,
+    attempt: int | None = None,
+) -> str:
     with advisory_lock(f"collect:{datasource_id}"):
-        return run_collection(datasource_id, trigger=trigger, actor_id=actor_id)
+        return run_collection(
+            datasource_id,
+            trigger=trigger,
+            actor_id=actor_id,
+            **({"job_id": job_id, "attempt": attempt} if job_id else {}),
+        )
 
 
 def schedule_due() -> list[str]:
@@ -198,10 +214,80 @@ def abandoned_jobs(older_than_seconds: int | None = None) -> list[str]:
                 from avelis.analysis import service as analysis_service
 
                 analysis_service.reconcile_abandoned(session, session.get(Job, job_id, populate_existing=True), reason)
+            elif kind in ("collect", "import"):
+                job = session.get(Job, job_id)
+                job.result = {**(job.result or {}), "abandoned_governance": "pending"}
+        # 待收尾标记与超时终态一起提交；独立收尾失败后，下轮仍能找到它。
+        pending = list(
+            session.execute(
+                select(Job.id, Job.kind, Job.payload, Job.result, Job.error).where(
+                    Job.status == "failed",
+                    Job.kind.in_(("collect", "import")),
+                    Job.result["abandoned_governance"].as_string() == "pending",
+                )
+            )
+        )
     ids = [row[0] for row in rows]
+    for job_id, kind, payload, result, failure_reason in pending:
+        _guarded(
+            f"记录超时治理任务 {job_id}",
+            lambda job_id=job_id, kind=kind, payload=payload, result=result, reason=failure_reason: (
+                _record_abandoned_governance(job_id, kind, payload, result, reason)
+            ),
+        )
     for job_id in ids:
-        log.warning("任务 %s 运行超时，已记为失败", job_id)
+        log.warning("任务 %s 运行超时，已回收并核对业务终态", job_id)
     return ids
+
+
+def _record_abandoned_governance(job_id: str, kind: str, payload: dict, result: dict | None, reason: str) -> None:
+    """任务状态已提交后，用短事务收尾关联对象并写入受哈希链保护的失败审计。"""
+    with session_scope() as session:
+        job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        if (
+            job is None
+            or job.status != "failed"
+            or job.error != reason
+            or (job.result or {}).get("abandoned_governance") == "done"
+        ):
+            return
+        # 与采集/导入统一先锁 Job，再写 CollectionRun/ImportBatch，避免反向加锁死锁。
+        # 标记、业务终态、审计和发件箱必须一起提交或一起回滚。
+        job.result = {**(job.result or {}), "abandoned_governance": "done"}
+        if kind == "collect":
+            datasource_id = payload.get("datasource_id")
+            run_id = (result or job.result or {}).get("run_id")
+            # 旧任务没有精确关联时只记任务失败，不能按同源/同操作者猜测并终结新任务的运行。
+            run = session.get(CollectionRun, run_id) if run_id else None
+            if run is not None and run.datasource_id == datasource_id:
+                if run.status == "succeeded":
+                    job.status, job.error, job.finished_at = "succeeded", None, run.finished_at
+                    job.result = {**(job.result or {}), "run_id": run.id}
+                    return
+                if run.status == "running":
+                    run.status, run.finished_at, run.error = "failed", utcnow(), reason
+            event_type, object_type, object_id = "collect.failed", "datasource", datasource_id
+        else:
+            object_id = payload.get("batch_id")
+            imported = session.get(ImportBatch, object_id) if object_id else None
+            if imported is not None and imported.status not in ("queued", "running", "failed"):
+                job.status, job.error, job.finished_at = "succeeded", None, imported.updated_at
+                job.result = {**(job.result or {}), "batch_id": imported.id, "status": imported.status}
+                return
+            if imported is not None and imported.status in ("queued", "running"):
+                imported.status, imported.updated_at, imported.error = "failed", utcnow(), reason
+                imported.progress = {**(imported.progress or {}), "phase": "failed", "current_file": None}
+            event_type, object_type = "lineage_import.failed", "import_batch"
+        events.record_failure(
+            session,
+            job.created_by,
+            event_type,
+            object_type,
+            object_id,
+            error_code="WORKER_ABANDONED",
+            error_reason="后台任务运行超时",
+            job_id=job_id,
+        )
 
 
 def purge_history_if_due() -> None:
@@ -228,6 +314,7 @@ def _guarded(name: str, fn, default=None):
 def scan_once() -> None:
     """一轮定时扫描：回收超时任务、入队到期任务、执行排队过久的任务、清理超期历史。每一项单独容错。"""
     from avelis.analysis import service as analysis_service
+    from avelis.events.delivery import deliver_due
 
     _guarded("回收超时任务", abandoned_jobs)
     due = [
@@ -238,6 +325,7 @@ def scan_once() -> None:
     for job_id in due:
         _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
     _guarded("清理超期历史", purge_history_if_due)
+    _guarded("投递治理事件", deliver_due)
 
 
 def main() -> None:
