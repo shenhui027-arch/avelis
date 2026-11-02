@@ -15,12 +15,15 @@ import { Icon } from "./Icon";
 
 const GAP = 4;
 const MAX_LIST_HEIGHT = 320;
+/** 日历整体高度（标题、星期、6 行日期、底栏与内边距），用于决定向上还是向下展开。 */
+const DATEPICK_HEIGHT = 360;
 
 type Place = { top?: number; bottom?: number; left: number; minWidth: number; maxHeight: number };
 
-/** 浮层贴着触发器：下方放得下就向下，否则向上；滚动与窗口变化时跟随，点外部关闭。 */
+/** 浮层贴着触发器：下方放得下整个浮层（最高 height）就向下，否则放在空间更大的一侧并限高滚动；
+ *  滚动与窗口变化时跟随，点外部关闭。 */
 function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, floating: RefObject<HTMLElement | null>,
-  onClose: () => void, minWidth = 0): Place | null {
+  onClose: () => void, minWidth = 0, height = MAX_LIST_HEIGHT): Place | null {
   const [place, setPlace] = useState<Place | null>(null);
   useLayoutEffect(() => {
     if (!open) { setPlace(null); return; }
@@ -31,15 +34,15 @@ function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, float
       const above = r.top - GAP * 2;
       const width = Math.max(r.width, minWidth);
       const left = Math.max(GAP, Math.min(r.left, window.innerWidth - width - GAP));
-      setPlace(below >= Math.min(MAX_LIST_HEIGHT, 200) || below >= above
-        ? { top: r.bottom + GAP, left, minWidth: width, maxHeight: Math.min(MAX_LIST_HEIGHT, below) }
-        : { bottom: window.innerHeight - r.top + GAP, left, minWidth: width, maxHeight: Math.min(MAX_LIST_HEIGHT, above) });
+      setPlace(below >= height || below >= above
+        ? { top: r.bottom + GAP, left, minWidth: width, maxHeight: Math.min(height, below) }
+        : { bottom: window.innerHeight - r.top + GAP, left, minWidth: width, maxHeight: Math.min(height, above) });
     };
     update();
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
-  }, [open, anchor, minWidth]);
+  }, [open, anchor, minWidth, height]);
   useEffect(() => {
     if (!open) return;
     const outside = (e: MouseEvent) => {
@@ -104,7 +107,8 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
   };
   const show = () => { if (disabled || !options.length) return; setActive(enabled(selected) ? selected : step(-1, 1)); setOpen(true); };
   const pick = (i: number) => { if (!enabled(i)) return; setOpen(false); anchor.current?.focus(); if (options[i].value !== value) onChange(options[i].value); };
-  useEffect(() => { if (open) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [open, active]);
+  // 列表挂载（place 就绪）后再滚到选中项，长列表打开时选中项可见
+  useEffect(() => { if (open && place) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [open, place, active]);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (disabled) return;
@@ -184,7 +188,7 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
   const anchor = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const close = useMemo(() => () => setOpen(false), []);
-  const place = useFloating(open, anchor, panel, close, 280);
+  const place = useFloating(open, anchor, panel, close, 280, DATEPICK_HEIGHT);
   const lang = currentLanguage();
   const monthTitle = new Intl.DateTimeFormat(lang, { year: "numeric", month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(focus.y, focus.m, 1)));
   // 周一开头
@@ -265,19 +269,19 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
   const items = suggestions.filter((s) => s.toLowerCase().includes(needle) && s !== value).slice(0, 50);
   const visible = open && items.length > 0;
   const place = useFloating(visible, anchor, list, close);
-  const pick = (s: string) => { onChange(s); setOpen(false); };
-  useEffect(() => { if (visible) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [visible, active]);
+  const pick = (s: string) => { onChange(s); setOpen(false); setActive(-1); };
+  useEffect(() => { if (visible && place) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [visible, place, active]);
 
   return (
     <>
       <input ref={anchor} className={className ?? "av-input"} value={value} required={required} placeholder={placeholder} disabled={disabled}
         aria-label={label} aria-invalid={invalid || undefined} aria-describedby={describedBy} role="combobox" aria-autocomplete="list" aria-expanded={visible} aria-controls={visible ? listId : undefined}
         aria-activedescendant={visible && active >= 0 ? `${listId}-${active}` : undefined} autoComplete="off"
-        onFocus={() => setOpen(true)} onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); }}
+        onFocus={() => { setOpen(true); setActive(-1); }} onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-          else if (e.key === "Enter" && visible && active >= 0) { e.preventDefault(); pick(items[active]); }
+          else if (e.key === "Enter" && visible && active >= 0 && active < items.length) { e.preventDefault(); pick(items[active]); }
           else if (e.key === "Escape" && visible) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
           else if (e.key === "Tab") setOpen(false);
         }} />
