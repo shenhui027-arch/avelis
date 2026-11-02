@@ -1038,6 +1038,18 @@
 .av-ossie__path { max-width: 180px; overflow-wrap: anywhere; white-space: normal; }
 .av-ossie__warnings { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding-left: var(--space-4); font: var(--type-body-compact); }
 .av-ossie__toast { position: absolute; right: var(--space-6); margin-top: 40px; z-index: 5; max-width: 360px; }
+/* MCP 授权确认与接入设置（ADR 0019） */
+.av-auth .av-auth__card.av-consent { max-width: 480px; }
+.av-consent__kv { grid-template-columns: 64px minmax(0, 1fr); font: var(--type-body-compact); }
+.av-consent__client { color: var(--text-primary); font-weight: 600; }
+.av-consent__id, .av-mcp__id { display: block; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-consent__scopes { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.av-consent__domains { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.av-mcp { display: flex; flex-direction: column; gap: var(--space-4); overflow: auto; }
+.av-mcp > .av-pane { flex: none; }
+.av-mcp__body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.av-mcp__endpoint { display: flex; align-items: center; gap: var(--space-2); }
+.av-mcp__endpoint .av-code { padding: 6px 10px; }
 /* 通知订阅（ADR 0018） */
 .av-webhooks { display: grid; flex: 1; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--space-4); min-height: 0; }
 .av-webhooks__list, .av-webhooks__detail { display: flex; flex-direction: column; min-height: 0; }

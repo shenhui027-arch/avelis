@@ -2006,6 +2006,81 @@ msgstr "口徑包含同一資產的多個關聯角色，無法安全匯出；請
 
 msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
 msgstr "口徑運算式引用預先彙總產生的虛擬欄位，無法安全匯出；請調整口徑定義"
+#: src/avelis/config.py
+msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
+msgstr "啟用 MCP 時須填寫不含憑證、查詢參數或片段的 HTTP(S) 公開網址"
+
+#: src/avelis/oauth/router.py
+msgid "授权确认票据无效或已过期"
+msgstr "授權確認票據無效或已過期"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 客户端已停用"
+msgstr "OAuth 用戶端已停用"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 授权请求无效"
+msgstr "OAuth 授權請求無效"
+
+#: src/avelis/oauth/router.py
+msgid "授权记录不存在"
+msgstr "授權紀錄不存在"
+
+#: src/avelis/oauth/router.py
+msgid "OAuth 客户端不存在"
+msgstr "OAuth 用戶端不存在"
+
+#: src/avelis/oauth/router.py
+msgid "检索与读取已发布口径定义 / Read published metric definitions"
+msgstr "檢索與讀取已發佈的口徑定義 / Read published metric definitions"
+
+#: src/avelis/oauth/router.py
+msgid "读取可访问资产的血缘与变更 / Read permitted lineage and changes"
+msgstr "讀取可存取資產的血緣與變更 / Read permitted lineage and changes"
+
+#: src/avelis/oauth/router.py
+msgid "按受治理的口径查询数据 / Query data through governed metrics"
+msgstr "依受治理的口徑查詢資料 / Query data through governed metrics"
+
+#: src/avelis/mcp/tools.py
+msgid "口径依赖存在循环"
+msgstr "口徑相依關係存在循環"
+
+#: src/avelis/mcp/tools.py
+msgid "口径来源不存在或无权访问"
+msgstr "口徑來源不存在或無權存取"
+
+#: src/avelis/mcp/tools.py
+msgid "limit 必须在 1 到 100 之间"
+msgstr "limit 必須介於 1 到 100 之間"
+
+#: src/avelis/mcp/tools.py
+msgid "结果行数不能超过页面问数上限"
+msgstr "結果列數不能超過頁面問數上限"
+
+#: src/avelis/mcp/tools.py
+msgid "开始日期晚于结束日期"
+msgstr "開始日期晚於結束日期"
+
+#: src/avelis/mcp/tools.py
+msgid "字段不存在或无权访问"
+msgstr "欄位不存在或無權存取"
+
+#: src/avelis/mcp/tools.py
+msgid "depth 必须在 1 到 5 之间"
+msgstr "depth 必須介於 1 到 5 之間"
+
+#: src/avelis/mcp/tools.py
+msgid "未知血缘方向"
+msgstr "未知的血緣方向"
+
+#: src/avelis/mcp/tools.py
+msgid "未知对象类型"
+msgstr "未知的物件類型"
+
+#: src/avelis/ask/service.py
+msgid "数据外发已关闭，仅提供口径定义与编译后的查询说明"
+msgstr "資料外傳已關閉，僅提供口徑定義與編譯後的查詢說明"
 #: src/avelis/api/events.py src/avelis/events
 msgid "Webhook 订阅不存在"
 msgstr "Webhook 訂閱不存在"
