@@ -1,7 +1,7 @@
 // 登录：满屏极光背景 + 流动的血缘星图；左侧讲清产品（标题、三个价值点、一张“带依据的答案”预览），右侧玻璃登录卡。
 // 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { api, ApiError, login, token, unwrap } from "../api/client";
@@ -93,6 +93,9 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
   const [form, setForm] = useState({ username: "", current: "", next: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 表单离开后，迟到的响应不能再清除、改写之后建立的会话，也不能再跳转
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
 
@@ -103,19 +106,22 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
     setError(null);
     try {
       await login(form.username, form.current);
+      let issued;
       try {
-        token.issue(await unwrap(api.POST("/api/me/password", {
-          body: { current_password: form.current, new_password: form.next } })));
+        issued = await unwrap(api.POST("/api/me/password", {
+          body: { current_password: form.current, new_password: form.next } }));
       } catch (e) {
-        token.clear();  // 改密没成功就不留下刚才的登录凭证
+        if (alive.current) token.clear();  // 改密没成功就不留下刚才的登录凭证
         throw e;
       }
+      if (!alive.current) return;
+      token.issue(issued);
       queryClient.clear();
       navigate(target, { replace: true });  // 与登录一致：回到登录前想去的页面（如 MCP 授权确认页）
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : errorText(e));
+      if (alive.current) setError(e instanceof ApiError ? e.message : errorText(e));
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   }
 
@@ -153,7 +159,7 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
         disabled={busy || !form.username || !form.current || form.next.length < 8 || form.next !== form.confirm}>
         {busy ? t("保存中…") : <>{t("保存并登录")}<Icon name="arrow" small /></>}
       </button>
-      <p className="av-login__foot"><button type="button" className="av-login__switch" onClick={onBack}>{t("返回登录")}</button></p>
+      <p className="av-login__foot"><button type="button" className="av-login__switch" disabled={busy} onClick={onBack}>{t("返回登录")}</button></p>
     </form>
   );
 }
@@ -246,7 +252,7 @@ export function Login() {
               {busy ? t("登录中…") : <>{t("登录")}<Icon name="arrow" small /></>}
             </button>
             <p className="av-login__foot">
-              <button type="button" className="av-login__switch" onClick={() => setChanging(true)}>{t("修改密码")}</button>
+              <button type="button" className="av-login__switch" disabled={busy} onClick={() => setChanging(true)}>{t("修改密码")}</button>
               <span aria-hidden="true"> · </span>{t("忘记密码请联系管理员重置")}
             </p>
           </form>
