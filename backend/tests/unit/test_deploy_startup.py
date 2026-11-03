@@ -16,6 +16,7 @@ import pytest
 from avelis import bootstrap, db, jobs, server
 from avelis.config import ConfigError, build_settings
 from avelis.models import AuditEvent, User, UserRole
+from avelis.security import hash_password, verify_password
 
 
 @pytest.fixture
@@ -101,12 +102,13 @@ def admin_session(monkeypatch, settings):
     return session, writes
 
 
-def test_init_admin_creates_only_admin_role_with_forced_password_change_and_audit(admin_session, capsys):
+def test_init_admin_creates_only_admin_role_with_forced_password_change_and_audit(admin_session, capsys, caplog):
     session, writes = admin_session
     assert bootstrap.init_admin() == "initial-admin-id"
     user, role, event = writes
     assert isinstance(user, User) and user.username == "admin" and user.is_active is True
     assert user.password_hash == "hashed-password" and user.must_change_password is True
+    bootstrap.hash_password.assert_called_once_with("Zebra-2026-key!")
     assert isinstance(role, UserRole) and role.user_id == user.id and role.role == "admin"
     assert isinstance(event, AuditEvent) and event.actor_id is None and event.actor_name == "system"
     assert event.action == "user.create" and event.object_type == "user" and event.object_id == user.id
@@ -116,18 +118,28 @@ def test_init_admin_creates_only_admin_role_with_forced_password_change_and_audi
     assert statement.compile().params["role_1"] == "admin"
     assert "pg_advisory_xact_lock" in str(session.execute.call_args.args[0])
     assert "Zebra-2026-key!" not in capsys.readouterr().out
+    assert not caplog.records
 
 
-def test_init_admin_skips_any_existing_enabled_admin_without_writing(admin_session, capsys):
+@pytest.mark.parametrize("password", [None, "", "short", "Zebra-2026-key!"])
+def test_init_admin_skips_any_existing_enabled_admin_without_writing(
+    monkeypatch, settings, admin_session, capsys, caplog, password
+):
+    env = {} if password is None else {"AVELIS_INITIAL_ADMIN_PASSWORD": password}
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: dataclasses.replace(settings, env=env))
     session, writes = admin_session
     session.scalar.side_effect = ["another-admin-id"]
     assert bootstrap.init_admin() is None
     assert writes == [] and session.scalar.call_count == 1
     bootstrap.hash_password.assert_not_called()
     assert capsys.readouterr().out.strip() == "已存在管理员，跳过"
+    assert not caplog.records
 
 
-def test_init_admin_refuses_existing_same_name_without_modifying_it(admin_session):
+@pytest.mark.parametrize("password", [None, "Zebra-2026-key!"])
+def test_init_admin_refuses_existing_same_name_without_modifying_it(monkeypatch, settings, admin_session, password):
+    env = {} if password is None else {"AVELIS_INITIAL_ADMIN_PASSWORD": password}
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: dataclasses.replace(settings, env=env))
     session, writes = admin_session
     session.scalar.side_effect = [None, "existing-user-id"]
     with pytest.raises(ValueError, match="同名用户已存在"):
@@ -136,12 +148,50 @@ def test_init_admin_refuses_existing_same_name_without_modifying_it(admin_sessio
     bootstrap.hash_password.assert_not_called()
 
 
-@pytest.mark.parametrize("password, message", [("", "未配置"), ("short", "须为 12–128")])
-def test_init_admin_rejects_missing_or_invalid_password_before_database(monkeypatch, settings, password, message):
+@pytest.mark.parametrize("password", ["123456", "short", "Xy9!" * 33, "XXaDmIn-123456", "abcabcabcabc"])
+def test_init_admin_rejects_explicit_invalid_password_without_writing(monkeypatch, settings, admin_session, password):
     settings = dataclasses.replace(settings, env={"AVELIS_INITIAL_ADMIN_PASSWORD": password})
     monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(bootstrap.InitialAdminError, match="AVELIS_INITIAL_ADMIN_PASSWORD") as error:
         bootstrap.init_admin()
+    assert password not in str(error.value)
+    assert admin_session[1] == []
+    bootstrap.hash_password.assert_not_called()
+
+
+@pytest.mark.parametrize("password", [None, ""])
+@pytest.mark.parametrize("username", [None, "deploy-admin"])
+def test_init_admin_default_password_is_verifiable_without_forced_change(
+    monkeypatch, settings, admin_session, caplog, capsys, password, username
+):
+    env = {} if password is None else {"AVELIS_INITIAL_ADMIN_PASSWORD": password}
+    if username is not None:
+        env["AVELIS_INITIAL_ADMIN_USERNAME"] = username
+    settings = dataclasses.replace(settings, env=env, database_url="postgresql+psycopg://avelis@db.example/avelis")
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
+    monkeypatch.setattr(bootstrap, "hash_password", hash_password)
+    monkeypatch.setattr(bootstrap, "_connection_is_local", Mock(side_effect=AssertionError("不得限制数据库位置")))
+    with caplog.at_level(logging.WARNING):
+        assert bootstrap.init_admin() == "initial-admin-id"
+    user, role, event = admin_session[1]
+    assert user.username == (username or "admin") and user.is_active is True
+    assert user.must_change_password is False
+    assert verify_password("123456", user.password_hash)
+    assert isinstance(role, UserRole) and role.user_id == user.id and role.role == "admin"
+    assert isinstance(event, AuditEvent) and event.action == "user.create"
+    assert len(caplog.records) == 1 and caplog.records[0].levelno == logging.WARNING
+    assert f"使用默认初始管理员 {user.username}，默认口令请登录后在界面修改" in caplog.text
+    assert "必须修改密码" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("username", ["", "   "])
+def test_init_admin_default_password_still_rejects_empty_username(monkeypatch, settings, admin_session, username):
+    settings = dataclasses.replace(settings, env={"AVELIS_INITIAL_ADMIN_USERNAME": username})
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
+    with pytest.raises(bootstrap.InitialAdminError, match="AVELIS_INITIAL_ADMIN_USERNAME 不能为空"):
+        bootstrap.init_admin()
+    assert admin_session[1] == []
+    bootstrap.hash_password.assert_not_called()
 
 
 def test_init_admin_uses_configured_username(monkeypatch, settings, admin_session):
@@ -344,13 +394,24 @@ def test_server_migration_failure_prevents_startup(monkeypatch, startup):
     run.assert_not_called()
 
 
-def test_server_missing_admin_password_warns_and_serves(monkeypatch, startup, caplog):
+@pytest.mark.parametrize("password", [None, ""])
+def test_server_missing_admin_password_creates_default_admin_and_serves(
+    monkeypatch, startup, admin_session, caplog, password
+):
     settings, _, init_admin, run = startup
-    monkeypatch.setattr(server, "get_settings", lambda: dataclasses.replace(settings, auto_init_admin=True))
+    env = {} if password is None else {"AVELIS_INITIAL_ADMIN_PASSWORD": password}
+    settings = dataclasses.replace(settings, auto_init_admin=True, env=env)
+    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
+    monkeypatch.setattr(bootstrap, "hash_password", hash_password)
+    init_admin.side_effect = bootstrap.init_admin
     with caplog.at_level(logging.WARNING):
         server.main()
-    init_admin.assert_not_called()
-    assert "AVELIS_INITIAL_ADMIN_PASSWORD" in caplog.text
+    init_admin.assert_called_once_with()
+    user = admin_session[1][0]
+    assert user.username == "admin" and user.must_change_password is False
+    assert verify_password("123456", user.password_hash)
+    assert "使用默认初始管理员 admin" in caplog.text
     assert caplog.records[-1].levelno == logging.WARNING
     run.assert_called_once()
 

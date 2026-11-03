@@ -2,7 +2,7 @@
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
   uv run python -m avelis.bootstrap init-admin     创建首个启用的管理员（AVELIS_INITIAL_ADMIN_USERNAME 默认 admin，
-                                                   密码取自 AVELIS_INITIAL_ADMIN_PASSWORD，首次登录必须改密）
+                                                   未配置密码时使用 123456；显式配置密码时首次登录必须改密）
   uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from alembic import command
@@ -36,6 +37,7 @@ from avelis.security import hash_password, session_cutoff_now, verify_password
 AUTOMATION_ADMIN = "ops_admin"
 SUPERADMIN = "admin"
 MIGRATION_LOCK_KEY = "avelis:bootstrap:migrate"
+logger = logging.getLogger(__name__)
 
 
 class InitialAdminError(ValueError):
@@ -81,9 +83,7 @@ def init_admin() -> str | None:
     env = get_settings().env
     username = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "admin")
     password = env.get("AVELIS_INITIAL_ADMIN_PASSWORD", "")
-    if not password:
-        raise InitialAdminError("未配置 AVELIS_INITIAL_ADMIN_PASSWORD，未创建初始管理员")
-    validate_initial_admin_password(username, password)
+    must_change_password = bool(password)
     with session_scope() as session:
         session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "avelis:bootstrap:init-admin"}
@@ -99,19 +99,27 @@ def init_admin() -> str | None:
             return None
         if session.scalar(select(User.id).where(User.username == username)) is not None:
             raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
+        if not username.strip():
+            raise InitialAdminError("AVELIS_INITIAL_ADMIN_USERNAME 不能为空")
+        if must_change_password:
+            validate_initial_admin_password(username, password)
         user = User(
             username=username,
             display_name="管理员",
-            password_hash=hash_password(password),
+            password_hash=hash_password(password or "123456"),
             is_active=True,
-            must_change_password=True,
+            must_change_password=must_change_password,
         )
         session.add(user)
         session.flush()
         session.add(UserRole(user_id=user.id, role="admin"))
         audit.record(session, None, "user.create", "user", user.id, username=username, roles=["admin"], via="cli")
         user_id = user.id
-    print("初始管理员已创建，首次登录必须修改密码")
+    if must_change_password:
+        print("初始管理员已创建，首次登录必须修改密码")
+    else:
+        logger.warning("使用默认初始管理员 %s，默认口令请登录后在界面修改", username)
+        print("初始管理员已创建")
     return user_id
 
 

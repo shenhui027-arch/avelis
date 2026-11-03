@@ -135,9 +135,11 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 | 設定檔 | 環境變數 | 預設值 | 說明 |
 |---|---|---|---|
 | `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `false`（Docker 樣例為 `true`） | `avelis.server` 啟動時自動遷移中繼資料庫（PostgreSQL 諮詢鎖序列） |
-| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false`（Docker 樣例為 `true`） | 啟動時建立首個管理員（庫裡已有管理員時跳過） |
+| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false`（Docker 樣例為 `true`） | 啟動時建立首個管理員（庫裡已有啟用的管理員時跳過） |
 | `initial_admin_username` | `AVELIS_INITIAL_ADMIN_USERNAME` | `admin` | 首個管理員帳號 |
-| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（首次啟動**必填**） | 初始密碼：≥ 12 個字元、不含帳號、至少 4 種不同字元；首次登入必須修改 |
+| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（使用 `123456`） | 選填；未設定或留空時使用預設密碼 `123456`，不校驗強度、不強制改密，請登入後在介面修改。明確填寫時須為 12–128 個字元、不含帳號、至少 4 種不同字元，首次登入強制改密 |
+
+啟用自動初始化時，任何部署均使用上述規則，不區分環境或中繼資料庫是否位於本機。預設帳號為 `admin`，可透過 `initial_admin_username` 修改。已有啟用的管理員時跳過，不修改已有帳號；同名非管理員使用者已存在時仍報錯，不修改該使用者。
 
 ### 業務 `[business]`
 

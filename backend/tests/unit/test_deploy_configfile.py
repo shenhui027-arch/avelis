@@ -59,6 +59,16 @@ def test_missing_implicit_config_preserves_existing_defaults():
     assert value.port == 8000 and value.public_url == ""
 
 
+@pytest.mark.parametrize("password_line", ["", 'initial_admin_password = ""\n'])
+def test_auto_init_admin_password_is_optional_in_config_check(monkeypatch, tmp_path, capsys, password_line):
+    write_toml(monkeypatch, tmp_path, f"[bootstrap]\nauto_init_admin = true\n{password_line}")
+    value = config.build_settings()
+    assert value.auto_init_admin is True
+    assert not value.env.get("AVELIS_INITIAL_ADMIN_PASSWORD")
+    config.main(["check"])
+    assert "配置有误" not in capsys.readouterr().err
+
+
 def test_existing_implicit_config_is_loaded(monkeypatch, tmp_path):
     path = tmp_path / "default.toml"
     path.write_text("[server]\nport = 8110\n", encoding="utf-8")

@@ -85,14 +85,14 @@ cd avelis/deploy/docker
 cp avelis.example.toml avelis.toml
 ```
 
-编辑 `avelis.toml`，填写四个必填项：`[security] secret`、`[database] password`、`[redis] password`、`[bootstrap] initial_admin_password`。然后启动：
+编辑 `avelis.toml`，填写三个必填项：`[security] secret`、`[database] password`、`[redis] password`。初始管理员口令可留空。然后启动：
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-等 `app` 显示 `healthy` 后，浏览器打开 `http://<服务器 IP>:8080`，用 `admin` 和初始密码登录；首次登录需要修改密码。
+等 `app` 显示 `healthy` 后，浏览器打开 `http://<服务器 IP>:8080`。初始口令未配置或留空时，用默认 `admin` / `123456` 登录，不强制改密，请登录后在界面修改口令；显式配置了初始口令时，用该口令登录并按提示改密。
 
 这套编排包含应用（接口 + 前端）、worker、PostgreSQL 与 Redis（Valkey），数据保存在 Docker 数据卷。接下来在 **设置 → 数据源** 添加数据源，在 **设置 → 模型配置** 配置模型。使用外部数据库、反向代理与 HTTPS、不用 Docker 部署、升级与备份，见[部署指南](docs/deployment.md)。
 
@@ -130,7 +130,8 @@ flowchart LR
 | `[security] secret` | 主密钥（至少 16 个字符），加密数据源口令与模型密钥、签发登录令牌；上线后不要更换 |
 | `[database] password` | PostgreSQL 元数据库口令；使用外部库时同时填 host、port、name、user |
 | `[redis] password` | Redis 口令 |
-| `[bootstrap] initial_admin_password` | 首个管理员的初始密码 |
+
+`[bootstrap] initial_admin_password` 可选，留空使用默认口令 `123456`，不校验强度、不强制改密，请登录后在界面修改。显式填写时须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。用户名默认 `admin`，可通过 `initial_admin_username` 修改；已有启用的管理员时跳过，不修改已有账号。
 
 优先级：环境变量 `AVELIS_*` > `.env` 文件 > 配置文件 > 内置默认值；口令也可以从文件读取（`password_file` / `AVELIS_*_FILE`）。启动时校验配置，出错会指出哪一项、怎么改。全部配置项见[配置参考](docs/configuration.md)。
 

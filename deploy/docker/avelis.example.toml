@@ -89,10 +89,11 @@ log_level = "info"                # AVELIS_LOG_LEVEL
 [bootstrap]
 # 启动时自动迁移元数据库（多副本时用数据库锁串行执行）
 auto_migrate = true               # AVELIS_AUTO_MIGRATE
-# 启动时创建首个管理员：只在库里还没有任何管理员时创建，首次登录必须修改密码
+# 启动时创建首个管理员：只在库里还没有启用的管理员时创建
 auto_init_admin = true            # AVELIS_AUTO_INIT_ADMIN
 initial_admin_username = "admin"  # AVELIS_INITIAL_ADMIN_USERNAME
-# 【首次启动必填】初始密码：12–128 个字符、不包含用户名、至少 4 种不同字符。管理员创建后不再使用，可以清空
+# 初始密码（可选）：留空则使用默认口令 123456，不强制改密，请登录后在界面修改
+# 填写则须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。管理员创建后不再使用，可以清空
 initial_admin_password = ""       # AVELIS_INITIAL_ADMIN_PASSWORD
 
 # ============================================================

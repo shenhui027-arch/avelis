@@ -62,14 +62,15 @@ cp avelis.example.toml avelis.toml
 
 ### 2.3 Fill in the configuration
 
-Open `avelis.toml` in a text editor and fill in the four values marked 【必填】 (required). To generate random values: `openssl rand -hex 32`.
+Open `avelis.toml` in a text editor and fill in the three values marked 【必填】 (required). To generate random values: `openssl rand -hex 32`.
 
 | Setting | Description |
 |---|---|
 | `[security] secret` | Master key, at least 16 characters. Encrypts data source passwords and model keys and signs sign-in tokens. **Do not change it after going live**, or saved passwords and keys can no longer be decrypted |
 | `[database] password` | Metadata database password. The built-in postgres initializes itself with it on first start |
 | `[redis] password` | Redis password. The built-in redis starts with it |
-| `[bootstrap] initial_admin_password` | Initial password of the first administrator `admin`: 12–128 characters, must not contain the username, at least 4 distinct characters; must be changed on first sign-in |
+
+`[bootstrap] initial_admin_password` is optional. When unset or empty, the first administrator defaults to `admin` / `123456`, without a strength check or forced password change. Change the password in the UI after signing in. An explicitly supplied password must be 12–128 characters, must not contain the username, and must have at least 4 distinct characters; it must be changed on first sign-in. Use `initial_admin_username` to change the username.
 
 Everything else (business time zone, session length, query timeout and row limit, analysis budget, log level, automatic migration, and so on) has a default; change it as needed. `avelis.toml` contains passwords: restrict who can read it, and make sure the container user (UID 10001) can:
 
@@ -96,7 +97,7 @@ docker compose logs config
 
 ### 2.5 Open in a browser
 
-Open `http://<server-ip>:8080`, sign in as `admin` with the initial password and change it when prompted. Then, in the UI: configure a model (**设置 → 模型配置**, Settings → Models) → register a data source and collect it → create business domains and users → publish metric definitions.
+Open `http://<server-ip>:8080`. If no initial password was configured, sign in with the default `admin` / `123456` and change the password in the UI. If an initial password was explicitly configured, sign in with it and change it when prompted. Then, in the UI: configure a model (**设置 → 模型配置**, Settings → Models) → register a data source and collect it → create business domains and users → publish metric definitions.
 
 ### 2.6 Common operations
 
@@ -245,7 +246,7 @@ docker compose start app worker
 | `docker compose up` reports `bind source path does not exist: …avelis.toml` | The sample has not been copied yet: run `cp avelis.example.toml avelis.toml` |
 | `service "config" didn't complete successfully` | The configuration is wrong: `docker compose logs config` lists each problem and how to fix it |
 | app never becomes `healthy` | `docker compose logs app`; `/api/health/ready` reports whether the metadata database or Redis is unreachable |
-| The sign-in page opens but there is no administrator | `initial_admin_password` was empty or invalid on first start (the app log explains why). Fill it in, then run `docker compose exec app python -m avelis.bootstrap init-admin` |
+| The sign-in page opens but there is no administrator | Check the app log: verify that `auto_init_admin` is enabled and check for an invalid explicitly configured initial password, a username conflict or a metadata database error. Fix the cause, then run `docker compose exec app python -m avelis.bootstrap init-admin`; an empty initial password uses the default `123456` |
 | The built-in postgres rejects the password | The built-in postgres uses the password only on **first** initialization; if you changed `[database] password` later, run `ALTER USER avelis PASSWORD '…'` in the database first |
 | Collection or Ask cannot reach a database | The data source address is resolved from inside the container; see 2.7 |
 | Data sources report wrong passwords after changing `secret` | Saved passwords cannot be decrypted with the new key: restore the old key, or re-enter the passwords in each data source's details |

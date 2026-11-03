@@ -63,14 +63,15 @@ cp avelis.example.toml avelis.toml
 
 ### 2.3 填写配置
 
-用文本编辑器打开 `avelis.toml`，填写标为【必填】的 4 项（生成随机值：`openssl rand -hex 32`）：
+用文本编辑器打开 `avelis.toml`，填写标为【必填】的 3 项（生成随机值：`openssl rand -hex 32`）：
 
 | 配置 | 说明 |
 |---|---|
 | `[security] secret` | 主密钥，至少 16 个字符。加密数据源口令、模型密钥并签发登录令牌。**上线后不要更换**，否则已保存的口令与密钥无法解密 |
 | `[database] password` | 元数据库口令。使用内置 postgres 时，它首次启动就用这个口令初始化 |
 | `[redis] password` | Redis 口令。使用内置 redis 时，它用这个口令启动 |
-| `[bootstrap] initial_admin_password` | 首个管理员 `admin` 的初始密码：12–128 个字符、不包含用户名、至少 4 种不同字符；首次登录后必须修改 |
+
+`[bootstrap] initial_admin_password` 可选：未配置或留空时，首个管理员默认使用 `admin` / `123456`，不校验口令强度、不强制改密，请登录后在界面修改口令。显式填写时须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。用户名可通过 `initial_admin_username` 修改。
 
 其余各项（业务时区、登录时长、查询超时与行数上限、分析预算、日志级别、是否自动迁移等）都有默认值，按需修改。`avelis.toml` 含口令，请限制读取权限，并确保容器用户（UID 10001）能读到：
 
@@ -97,7 +98,7 @@ docker compose logs config
 
 ### 2.5 浏览器访问
 
-浏览器打开 `http://<服务器 IP>:8080`，用 `admin` 和初始密码登录，按提示修改密码。之后在界面里依次：配置模型（设置 → 模型配置）→ 登记数据源并采集 → 建业务域与用户 → 发布口径。
+浏览器打开 `http://<服务器 IP>:8080`。未配置初始口令时，用默认 `admin` / `123456` 登录后在界面修改口令；显式配置了初始口令时，用该口令登录并按提示改密。之后在界面里依次：配置模型（设置 → 模型配置）→ 登记数据源并采集 → 建业务域与用户 → 发布口径。
 
 ### 2.6 常用操作
 
@@ -246,7 +247,7 @@ docker compose start app worker
 | `docker compose up` 报 `bind source path does not exist: …avelis.toml` | 还没有复制配置样例，执行 `cp avelis.example.toml avelis.toml` |
 | `service "config" didn't complete successfully` | 配置有误：`docker compose logs config` 列出每一项问题与修改方法 |
 | app 一直不是 `healthy` | `docker compose logs app`；`/api/health/ready` 会给出元数据库或 Redis 哪一项不通 |
-| 登录页能打开但没有管理员 | 首次启动时没填 `initial_admin_password` 或密码不合规（app 日志里有说明）。补上后执行 `docker compose exec app python -m avelis.bootstrap init-admin` |
+| 登录页能打开但没有管理员 | 查看 app 日志：检查 `auto_init_admin` 是否启用、显式配置的初始口令是否合规、是否有同名用户冲突或元数据库错误。修正后执行 `docker compose exec app python -m avelis.bootstrap init-admin`；初始口令留空时使用默认 `123456` |
 | 内置 postgres 报口令错误 | 内置 postgres 只在**首次**初始化时使用口令；之后改了 `[database] password`，需要先在库里 `ALTER USER avelis PASSWORD '…'` |
 | 采集或问数连不上数据库 | 数据源地址是从容器里连接的，见 2.7 |
 | 更换 `secret` 后数据源报口令错误 | 已保存的口令无法用新密钥解密：换回原密钥，或在数据源详情里重新填写口令 |

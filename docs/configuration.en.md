@@ -135,9 +135,11 @@ MCP tools use the represented user's existing business domain permissions, restr
 | Configuration file | Environment variable | Default | Description |
 |---|---|---|---|
 | `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `false` (`true` in the Docker sample) | Migrate the metadata database when `avelis.server` starts (serialized by a PostgreSQL advisory lock) |
-| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false` (`true` in the Docker sample) | Create the first administrator on start (skipped when one exists) |
+| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false` (`true` in the Docker sample) | Create the first administrator on start (skipped when an enabled administrator exists) |
 | `initial_admin_username` | `AVELIS_INITIAL_ADMIN_USERNAME` | `admin` | First administrator's username |
-| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | empty (**required** on first start) | Initial password: at least 12 characters, must not contain the username, at least 4 distinct characters; must be changed on first sign-in |
+| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | empty (uses `123456`) | Optional; when unset or empty, uses the default password `123456` without a strength check or forced password change. Change it in the UI after signing in. An explicitly supplied password must be 12–128 characters, must not contain the username, and must have at least 4 distinct characters; it must be changed on first sign-in |
+
+With automatic initialization enabled, these rules apply to every deployment, regardless of environment or whether the metadata database is local. The default username is `admin`; use `initial_admin_username` to change it. If an enabled administrator already exists, initialization is skipped without changing any account. An existing non-administrator with the same username causes an error and is left unchanged.
 
 ### Business `[business]`
 

@@ -62,14 +62,15 @@ cp avelis.example.toml avelis.toml
 
 ### 2.3 填寫設定
 
-用文字編輯器開啟 `avelis.toml`，填寫標為【必填】的 4 項（生成隨機值：`openssl rand -hex 32`）：
+用文字編輯器開啟 `avelis.toml`，填寫標為【必填】的 3 項（生成隨機值：`openssl rand -hex 32`）：
 
 | 設定 | 說明 |
 |---|---|
 | `[security] secret` | 主金鑰，至少 16 個字元。加密資料來源密碼、模型金鑰並簽發登入權杖。**上線後不要更換**，否則已儲存的密碼與金鑰無法解密 |
 | `[database] password` | 中繼資料庫密碼。使用內建 postgres 時，它首次啟動就用這個密碼初始化 |
 | `[redis] password` | Redis 密碼。使用內建 redis 時，它用這個密碼啟動 |
-| `[bootstrap] initial_admin_password` | 首個管理員 `admin` 的初始密碼：12–128 個字元、不包含使用者名稱、至少 4 種不同字元；首次登入後必須修改 |
+
+`[bootstrap] initial_admin_password` 選填：未設定或留空時，首個管理員預設使用 `admin` / `123456`，不校驗密碼強度、不強制改密，請登入後在介面修改密碼。明確填寫時須為 12–128 個字元、不包含使用者名稱、至少 4 種不同字元，首次登入強制改密。使用者名稱可透過 `initial_admin_username` 修改。
 
 其餘各項（業務時區、登入時長、查詢超時與行數上限、分析預算、日誌級別、是否自動遷移等）都有預設值，按需修改。`avelis.toml` 含密碼，請限制讀取權限，並確保容器使用者（UID 10001）能讀到：
 
@@ -96,7 +97,7 @@ docker compose logs config
 
 ### 2.5 瀏覽器存取
 
-瀏覽器開啟 `http://<伺服器 IP>:8080`，用 `admin` 和初始密碼登入，按提示修改密碼。之後在介面裡依次：設定模型（設定 → 模型設定）→ 登記資料來源並採集 → 建業務域與使用者 → 發布口徑。
+瀏覽器開啟 `http://<伺服器 IP>:8080`。未設定初始密碼時，用預設 `admin` / `123456` 登入後在介面修改密碼；明確設定了初始密碼時，用該密碼登入並按提示改密。之後在介面裡依次：設定模型（設定 → 模型設定）→ 登記資料來源並採集 → 建業務域與使用者 → 發布口徑。
 
 ### 2.6 常用操作
 
@@ -245,7 +246,7 @@ docker compose start app worker
 | `docker compose up` 報 `bind source path does not exist: …avelis.toml` | 還沒有複製設定樣例，執行 `cp avelis.example.toml avelis.toml` |
 | `service "config" didn't complete successfully` | 設定有誤：`docker compose logs config` 列出每一項問題與修改方法 |
 | app 一直不是 `healthy` | `docker compose logs app`；`/api/health/ready` 會給出中繼資料庫或 Redis 哪一項不通 |
-| 登入頁能開啟但沒有管理員 | 首次啟動時沒填 `initial_admin_password` 或密碼不合規（app 日誌裡有說明）。補上後執行 `docker compose exec app python -m avelis.bootstrap init-admin` |
+| 登入頁能開啟但沒有管理員 | 查看 app 日誌：檢查 `auto_init_admin` 是否啟用、明確設定的初始密碼是否合規、是否有同名使用者衝突或中繼資料庫錯誤。修正後執行 `docker compose exec app python -m avelis.bootstrap init-admin`；初始密碼留空時使用預設 `123456` |
 | 內建 postgres 報密碼錯誤 | 內建 postgres 只在**首次**初始化時使用密碼；之後改了 `[database] password`，需要先在庫裡 `ALTER USER avelis PASSWORD '…'` |
 | 採集或問數連不上資料庫 | 資料來源地址是從容器裡連線的，見 2.7 |
 | 更換 `secret` 後資料來源報密碼錯誤 | 已儲存的密碼無法用新金鑰解密：換回原金鑰，或在資料來源詳情裡重新填寫密碼 |
