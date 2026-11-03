@@ -2,14 +2,37 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.0.2] - 2026-11-03
+
+新增 MCP 服务、治理事件与 Webhook、口径与 Apache Ossie 互通、口径语义提示四项功能，部署改为开箱即用。以下新功能都从 v1.0.2 开始提供，v1.0.1 及更早版本不包含。
 
 ### 新增
 
-- 口径与 Apache Ossie 互通（ADR 0017）：按业务域导出已发布口径为 Ossie 语义模型（锁定规范提交 `48da55a`，`0.2.0.dev0`，导出严格按官方 schema 校验）；导入做结构、模型内部、对照已采集资产三层校验，任一层失败整体不写入，通过后只生成草稿、走复核发布；兼容旧版（`88e0011`）的 `semantic_model` 包装格式；非 Avelis 的 `custom_extensions` 往返保留。业务域详情页“导出 Ossie”，口径目录“导入 Ossie”。
-- MCP 服务（ADR 0019）：外部 AI 工具（Claude、Cursor 等）可通过 `/mcp` 使用受治理的口径与血缘，工具为 `search_metrics`、`get_metric`、`ask_metric`（结构化问数，不接受 SQL）、`lineage_neighbors`、`list_changes`。鉴权为 Avelis 内置 OAuth 2.1（授权码 + PKCE S256、资源绑定、可吊销），首次连接在 Avelis 里登录并确认授权；“设置 → MCP 接入”可查看连接地址、撤销授权，管理员可禁用客户端。每次调用记审计。默认关闭，`AVELIS_MCP_ENABLED=true` 开启。
-- 治理事件与 Webhook（ADR 0018）：14 种治理事件（口径提交 / 发布 / 驳回 / 受影响 / 失效、关联路径批准 / 受影响、采集完成 / 失败 / 结构变化、血缘导入完成 / 失败、变更归因不可用、登录失败超阈值）写入审计并推送到订阅地址；失败事件在业务回滚后独立留底；发件箱至少一次投递、退避重试、死信可重投；HMAC-SHA256 签名，密钥只显示一次。“设置 → 通知订阅”管理，事件表见 docs/events.md。
-- 口径语义提示 `ai_context`：口径详情页“模型提示”可写适用说明、同义词、示例问法，问数与分析检索时一起匹配，拿不准时按适用说明澄清；修改不生成新版本、写审计，不进入 SQL 与依赖指纹（ADR 0017 §3）。
+- MCP 服务（ADR 0019，[#83](https://github.com/shenhui027-arch/avelis/pull/83)）：外部 AI 工具（Claude、Cursor 等）可通过 `/mcp` 使用受治理的口径与血缘，工具为 `search_metrics`、`get_metric`、`ask_metric`（结构化问数，不接受 SQL）、`lineage_neighbors`、`list_changes`。鉴权为 Avelis 内置 OAuth 2.1（授权码 + PKCE S256、资源绑定、可吊销，支持动态注册与客户端元数据文档），首次连接在 Avelis 里登录并确认授权；“设置 → MCP 接入”可查看连接地址、撤销授权，管理员可禁用客户端。每次调用记审计。默认开启；未配置对外地址时按访问地址自动推导（[#89](https://github.com/shenhui027-arch/avelis/pull/89)）。
+- 治理事件与 Webhook（ADR 0018，[#82](https://github.com/shenhui027-arch/avelis/pull/82)、[#86](https://github.com/shenhui027-arch/avelis/pull/86)）：14 种治理事件（口径提交 / 发布 / 驳回 / 受影响 / 失效、关联路径批准 / 受影响、采集完成 / 失败 / 结构变化、血缘导入完成 / 失败、变更归因不可用、登录失败超阈值）写入审计并推送到订阅地址；失败事件与失败状态在同一事务写入，同一次执行只记一条；发件箱至少一次投递、退避重试、死信可重投；HMAC-SHA256 签名，密钥只显示一次。“设置 → 通知订阅”管理，事件表见 docs/events.md。
+- 口径与 Apache Ossie 互通（ADR 0017，[#85](https://github.com/shenhui027-arch/avelis/pull/85)）：按业务域导出已发布口径为 Ossie 语义模型（锁定规范提交 `48da55a`，`0.2.0.dev0`，导出按官方 schema 校验，并先用导入校验自检，导不回来就不导出）；导入做结构、模型内部、对照已采集资产三层校验，任一层失败整体不写入，通过后只生成草稿、走复核发布；兼容旧版（`88e0011`）的 `semantic_model` 包装格式。业务域详情页“导出 Ossie”，口径目录“导入 Ossie”。
+- 口径语义提示 `ai_context`（ADR 0017 §3，[#81](https://github.com/shenhui027-arch/avelis/pull/81)）：口径详情页“模型提示”可写适用说明、同义词、示例问法，问数与分析检索时一起匹配，拿不准时按适用说明澄清；修改不生成新版本、写审计，不进入 SQL 与依赖指纹。
+- 登录页可直接修改密码：填账号、当前密码与新密码，改完回到原先要去的页面（[#90](https://github.com/shenhui027-arch/avelis/pull/90)）。
+
+### 变更
+
+- 部署开箱即用（[#89](https://github.com/shenhui027-arch/avelis/pull/89)）：
+  - 未配置初始口令时，首次启动创建管理员 `admin` / `123456`，不强制改密；配置了初始口令则仍须满足强度要求、首次登录强制改密。上线后请立即修改默认口令，见 SECURITY.md。
+  - 自动迁移、自动创建管理员、MCP 服务、分析的元数据图证据发现与证据解释默认开启，均可在配置里关闭。
+- Docker Compose 默认只监听 `127.0.0.1`；需要从其他机器访问时，先修改管理员口令，再把 `AVELIS_BIND_ADDRESS` 设为对外地址（[#90](https://github.com/shenhui027-arch/avelis/pull/90)）。
+- 前端统一使用自有表单控件，不再出现浏览器原生下拉、日期选择与确认框，CI 检查（[#79](https://github.com/shenhui027-arch/avelis/pull/79)）。
+- 变更页按数据源标识变更集，首次采集单独说明（[#78](https://github.com/shenhui027-arch/avelis/pull/78)）。
+- 演示脚本可用 `AVELIS_DEMO_SOURCE_HOST` 指定演示库主机，便于在 Docker 部署里灌入演示数据（[#90](https://github.com/shenhui027-arch/avelis/pull/90)）。
+
+### 修复
+
+- 代码辅助的凭据脱敏改为按值的语法单元读取，并在其上加整行兜底，修复 v1.0.1 已知局限中的四种漏遮写法（[#76](https://github.com/shenhui027-arch/avelis/pull/76)、[#77](https://github.com/shenhui027-arch/avelis/pull/77)，[#70](https://github.com/shenhui027-arch/avelis/issues/70)）。
+- 联想输入框在输入法组合时不再截获方向键与回车（[#80](https://github.com/shenhui027-arch/avelis/issues/80)）。
+
+### 已知局限
+
+- Ossie 导出：Ossie 核心模型表达不了的语义（预聚合关联、仅用于过滤行的关联、带分组的固定过滤、跨时间期末值 / 平均值等）会拒绝导出该口径并说明原因（ADR 0017 第 6 节）；派生口径的两个边界尚未处理（[#88](https://github.com/shenhui027-arch/avelis/issues/88)）。
+- 默认管理员口令 `123456` 是公开已知的，改密前不要把服务开放到不受信任的网络。
 
 ## [1.0.1] - 2026-11-02
 
