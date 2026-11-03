@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 
@@ -62,7 +63,13 @@ def recommend(
 
     def cell(row, column):
         index = indices[column]
-        return row[index] if index < len(row) else None
+        raw = row[index] if index < len(row) else None
+        # 探索结果可能保留数组、JSON 等原生值：转成稳定的文本，才能作类目与分组键。
+        if isinstance(raw, (list, dict, tuple, set)):
+            return json.dumps(
+                sorted(raw) if isinstance(raw, set) else raw, ensure_ascii=False, sort_keys=True, default=str
+            )
+        return raw
 
     def value(row, column):
         return _number(cell(row, column))
@@ -119,10 +126,13 @@ def recommend(
     dimensions = by_role["dimension"]
     dimension = next(iter(dimensions), None)
 
-    def category(row):
-        if len(dimensions) >= 2 and not time:
+    def member_key(row):
+        # 两个及以上维度时用全部维度值的组合，不按第一个维度合并。
+        if len(dimensions) >= 2:
             return " / ".join(str(cell(row, column)) for column in dimensions)
         return cell(row, dimension)
+
+    category = member_key
 
     if not time and not dimension and len(rows) == 1:
         comparisons = {group[0]: group for group in groups}
@@ -169,14 +179,14 @@ def recommend(
         )
         return [default, candidate]
 
-    def pivot(x_column, split_column, column):
+    def pivot(x_column, split, column):
         categories = list(dict.fromkeys(cell(row, x_column) for row in rows))
-        members = list(dict.fromkeys(cell(row, split_column) for row in rows))
+        keys = list(dict.fromkeys(split(row) for row in rows))
         cells = defaultdict(list)
         for row in rows:
-            cells[cell(row, x_column), cell(row, split_column)].append(value(row, column))
+            cells[cell(row, x_column), split(row)].append(value(row, column))
         values = {key: _sum(items) if additive(column) else items[0] for key, items in cells.items()}
-        return categories, members, values
+        return categories, keys, values
 
     def multi(x, categories, values, *, temporal=False):
         same_unit = (
@@ -234,7 +244,7 @@ def recommend(
         if len(periods) >= 2:
             if dimension:
                 column = measures[0]
-                _, members, values = pivot(time, dimension, column)
+                _, members, values = pivot(time, member_key, column)
                 merged, dropped = None, 0
                 selected = members
                 if len(members) > 8:

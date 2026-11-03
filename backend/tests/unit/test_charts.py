@@ -426,3 +426,18 @@ def test_column_roles_time_labels_grain_and_explicit_override(grain, label):
     assert roles["r"]["additive"] is False
     meta["column_labels"] = {"t": "指定时间"}
     assert build_column_roles(columns, meta)["t"]["label"] == "指定时间"
+
+
+def test_time_series_split_by_every_dimension():
+    rows = [["01", "甲", "a", 1], ["01", "甲", "b", 2], ["02", "甲", "a", 3], ["02", "甲", "b", 4]]
+    default = charts(["period", "d1", "d2", "value"], rows, dimensions=("d1", "d2"), time="period")[0]
+    assert default["kind"] == "line"
+    assert [s["name"] for s in default["series"]] == ["甲 / a", "甲 / b"]
+    assert [s["values"] for s in default["series"]] == [[1.0, 3.0], [2.0, 4.0]]
+
+
+def test_structured_dimension_values_become_stable_text_keys():
+    rows = [[["x", "y"], 3], [{"k": 1}, 2], [["x", "y"], 1]]
+    default = charts(["d", "value"], rows, dimensions=("d",))[0]
+    assert default["categories"] == ['["x", "y"]', '{"k": 1}']
+    assert default["series"][0]["values"] == [4.0, 2.0]
