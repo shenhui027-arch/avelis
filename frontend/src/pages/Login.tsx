@@ -87,7 +87,7 @@ function AnswerPreview() {
 }
 
 /** 登录卡片上的改密：先用当前密码登录，再改密并换用新凭证；不需要先进入系统。 */
-function PasswordForm({ onBack }: { onBack: () => void }) {
+function PasswordForm({ target, onBack }: { target: string; onBack: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({ username: "", current: "", next: "", confirm: "" });
@@ -111,7 +111,7 @@ function PasswordForm({ onBack }: { onBack: () => void }) {
         throw e;
       }
       queryClient.clear();
-      navigate("/", { replace: true });
+      navigate(target, { replace: true });  // 与登录一致：回到登录前想去的页面（如 MCP 授权确认页）
     } catch (e) {
       setError(e instanceof ApiError ? e.message : errorText(e));
     } finally {
@@ -164,6 +164,7 @@ export function Login() {
   const [params] = useSearchParams();
   // 回到登录前想去的页面；直接打开登录页时进工作台
   const from = (useLocation().state as { from?: string } | null)?.from ?? params.get("from") ?? "/";
+  const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
   const expired = params.get("reason") === "expired";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -179,7 +180,6 @@ export function Login() {
     try {
       const result = await login(username, password);
       queryClient.clear();  // 换账号登录：丢弃上一个会话的缓存
-      const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
       navigate(result.mustChangePassword ? "/account/password" : target,
         { replace: true, state: result.mustChangePassword ? { from: target } : undefined });
     } catch (e) {
@@ -215,7 +215,7 @@ export function Login() {
           <AnswerPreview />
         </section>
         <section className="av-login__panel">
-          {changing ? <PasswordForm onBack={() => setChanging(false)} /> : (
+          {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
           <form className="av-login__card" onSubmit={submit} noValidate>
             <div className="av-login__card-hd">
               <LogoMark size={44} />
