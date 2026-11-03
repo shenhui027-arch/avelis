@@ -2,12 +2,6 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
-
-### 修复
-
-- Ossie 派生口径导出按已校验的 Python AST 构造核心表达式，保留关键字口径编码、连续减号与括号的计算语义；组成口径的同名维度映射到不同列时拒绝内联，避免改变分组结果（[#88](https://github.com/shenhui027-arch/avelis/issues/88)）。
-
 ## [1.0.2] - 2026-11-03
 
 新增 MCP 服务、治理事件与 Webhook、口径与 Apache Ossie 互通、口径语义提示四项功能，部署改为开箱即用。以下新功能都从 v1.0.2 开始提供，v1.0.1 及更早版本不包含。
@@ -34,10 +28,11 @@
 
 - 代码辅助的凭据脱敏改为按值的语法单元读取，并在其上加整行兜底，修复 v1.0.1 已知局限中的四种漏遮写法（[#76](https://github.com/shenhui027-arch/avelis/pull/76)、[#77](https://github.com/shenhui027-arch/avelis/pull/77)，[#70](https://github.com/shenhui027-arch/avelis/issues/70)）。
 - 联想输入框在输入法组合时不再截获方向键与回车（[#80](https://github.com/shenhui027-arch/avelis/issues/80)）。
+- Ossie 派生口径导出按已校验的 Python AST 构造核心表达式，保留关键字口径编码、连续减号与括号的计算语义；组成口径的同名维度映射到不同列时拒绝内联，避免改变分组结果（[#88](https://github.com/shenhui027-arch/avelis/issues/88)）。
 
 ### 已知局限
 
-- Ossie 导出：Ossie 核心模型表达不了的语义（预聚合关联、仅用于过滤行的关联、带分组的固定过滤、跨时间期末值 / 平均值等）会拒绝导出该口径并说明原因（ADR 0017 第 6 节）；派生口径的两个边界尚未处理（[#88](https://github.com/shenhui027-arch/avelis/issues/88)）。
+- Ossie 导出：Ossie 核心模型表达不了的语义（预聚合关联、仅用于过滤行的关联、带分组的固定过滤、跨时间期末值 / 平均值等）会拒绝导出该口径并说明原因（ADR 0017 第 6 节）。
 - 默认管理员口令 `123456` 是公开已知的，改密前不要把服务开放到不受信任的网络。
 
 ## [1.0.1] - 2026-11-02
