@@ -38,6 +38,8 @@ DEMO = ROOT / "deploy" / "demo"
 # AVELIS_ENV_FILE 的相对路径按仓库根目录解析（与后端 config.env_file 一致），子进程在任何工作目录下读到同一个文件
 ENV_FILE = ROOT / Path(os.environ.get("AVELIS_ENV_FILE") or ".env")
 ENV_EXAMPLE = ROOT / ".env.example"
+# 演示库所在主机；在 Docker 部署的容器里灌演示数据时设为 host.docker.internal
+SOURCE_HOST = os.environ.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1")
 STATE = ROOT / ".demo"
 DRIVER_LOCK = DEMO / "drivers.lock"
 SEED_DIR = DEMO / "starrocks" / "seed"
@@ -73,9 +75,12 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 
 def load_env() -> dict[str, str]:
-    if not ENV_FILE.exists():
-        sys.exit("缺少 .env，先运行：uv run scripts/demo.py init-env")
-    return read_env_file(ENV_FILE)
+    if ENV_FILE.exists():
+        return read_env_file(ENV_FILE)
+    # Docker 部署里给演示环境灌数据时没有 .env 文件，演示库配置经环境变量传入
+    if os.environ.get("AVELIS_DEMO_USER_PASSWORD"):
+        return dict(os.environ)
+    sys.exit("缺少 .env，先运行：uv run scripts/demo.py init-env")
 
 
 def init_env() -> None:
@@ -159,7 +164,7 @@ def sr_connect(env: dict[str, str], user: str = "root", password: str | None = N
     if password is None:
         password = env["SR_ROOT_PASSWORD"] if user == "root" else env[SR_USERS[user]]
     return pymysql.connect(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SR_QUERY_PORT"]),
         user=user,
         password=password,
@@ -175,7 +180,7 @@ def mysql_connect(env: dict[str, str], user: str = "root") -> pymysql.Connection
     """Connect to the demo dimension database (shop-mysql)."""
     password = env["SHOP_MYSQL_ROOT_PASSWORD"] if user == "root" else env["SHOP_MYSQL_COLLECTOR_PASSWORD"]
     return pymysql.connect(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SHOP_MYSQL_PORT"]),
         user=user,
         password=password,
@@ -194,7 +199,7 @@ def pg_connect(env: dict[str, str], user: str = "postgres") -> psycopg.Connectio
         "avelis_reader": "SHOP_PG_READER_PASSWORD",
     }[user]
     return psycopg.connect(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SHOP_PG_PORT"]),
         user=user,
         password=env[password],
@@ -212,7 +217,7 @@ def ch_connect(env: dict[str, str], user: str = "default"):
         "avelis_reader": "SHOP_CH_READER_PASSWORD",
     }[user]
     return clickhouse_connect.get_client(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SHOP_CH_HTTP_PORT"]),
         username=user,
         password=env[password],
@@ -229,7 +234,7 @@ def mssql_connect(env: dict[str, str], user: str = "sa", database: str = "stored
         "avelis_reader": "SHOP_MSSQL_READER_PASSWORD",
     }[user]
     return pymssql.connect(
-        server="127.0.0.1",
+        server=SOURCE_HOST,
         port=env["SHOP_MSSQL_PORT"],
         user=user,
         password=env[password],
@@ -250,7 +255,7 @@ def oracle_connect(env: dict[str, str], user: str = "system") -> oracledb.Connec
     return oracledb.connect(
         user=user,
         password=env[password],
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SHOP_ORACLE_PORT"]),
         service_name="FREEPDB1",
         tcp_connect_timeout=5,
@@ -265,7 +270,7 @@ def doris_connect(env: dict[str, str], user: str = "root", password: str | None 
         "avelis_reader": "SHOP_DORIS_READER_PASSWORD",
     }[user]
     return pymysql.connect(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["SHOP_DORIS_QUERY_PORT"]),
         user=user,
         password=env[key] if password is None else password,
@@ -289,7 +294,7 @@ def _sr_ready(env: dict[str, str]) -> bool:
     """Ready once the BE is alive. The image's own director registers the BE as
     root with an empty password on first start, so the root password is only
     set after that registration has finished."""
-    with urllib.request.urlopen(f"http://127.0.0.1:{env['SR_HTTP_PORT']}/api/health", timeout=3) as resp:
+    with urllib.request.urlopen(f"http://{SOURCE_HOST}:{env['SR_HTTP_PORT']}/api/health", timeout=3) as resp:
         if resp.status != 200:
             return False
     try:
@@ -313,7 +318,7 @@ def _sr_ready(env: dict[str, str]) -> bool:
 
 def _meta_pg_ready(env: dict[str, str]) -> bool:
     with psycopg.connect(
-        host="127.0.0.1",
+        host=SOURCE_HOST,
         port=int(env["AVELIS_PG_PORT"]),
         user="avelis",
         password=env["AVELIS_PG_PASSWORD"],
