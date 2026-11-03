@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import ast
+
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 from sqlglot.optimizer.normalize import normalize
 from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 
+from avelis.governance.derived import parse_formula
 from avelis.i18n import gettext
 
 _AGGREGATES = (exp.Sum, exp.Avg, exp.Min, exp.Max, exp.Count)
@@ -36,20 +39,34 @@ def _parse(text: str, dialect: str) -> exp.Expression:
 
 
 def expand_derived_formula(formula: str, replacements: dict[str, str], dialect: str) -> str:
-    """Apply derived division rules before inlining executable component subtrees."""
-    node = _parse(formula, dialect)
-    # Rewrite innermost divisions first so outer copies retain those protections.
-    for division in reversed(list(node.find_all(exp.Div))):
-        division.set("this", exp.Paren(this=exp.Mul(this=division.this.copy(), expression=exp.Literal.number("1.0"))))
-        division.set("expression", exp.Nullif(this=division.expression.copy(), expression=exp.Literal.number(0)))
+    """Build SQL from validated Python syntax, protecting only formula divisions."""
+    for code in parse_formula(formula):
+        if code not in replacements:
+            raise ValueError(gettext("公式引用了不存在的指标 {code}", code=code))
+    tree = ast.parse(formula.strip(), mode="eval")
     components = {code: _parse(text, dialect) for code, text in replacements.items()}
-    return node.transform(
-        lambda part: (
-            exp.Paren(this=components[part.name].copy())
-            if isinstance(part, exp.Column) and not part.table and part.name in components
-            else part
-        )
-    ).sql(dialect=dialect, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    operators = {ast.Add: exp.Add, ast.Sub: exp.Sub, ast.Mult: exp.Mul, ast.Div: exp.Div}
+
+    def operand(node: ast.AST) -> exp.Expression:
+        value = convert(node)
+        return exp.Paren(this=value) if isinstance(node, (ast.BinOp, ast.UnaryOp)) else value
+
+    def convert(node: ast.AST) -> exp.Expression:
+        if isinstance(node, ast.Name):
+            return exp.Paren(this=components[node.id].copy())
+        if isinstance(node, ast.Constant):
+            return exp.Literal.number(str(node.value))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return exp.Neg(this=operand(node.operand))
+        if isinstance(node, ast.BinOp):
+            left, right = operand(node.left), operand(node.right)
+            if isinstance(node.op, ast.Div):
+                left = exp.Paren(this=exp.Mul(this=left, expression=exp.Literal.number("1.0")))
+                right = exp.Nullif(this=right, expression=exp.Literal.number(0))
+            return operators[type(node.op)](this=left, expression=right)
+        raise ValueError("Unsupported formula syntax")
+
+    return convert(tree.body).sql(dialect=dialect, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
 def fold_filters(expression: str, filters: str | None, dialect: str) -> str:

@@ -25,7 +25,7 @@ from avelis.i18n import Msg, gettext
 from avelis.models import Asset, ColumnVersion, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
 from .constants import OSSIE_SPEC_COMMIT, OSSIE_SPEC_VERSION
-from .expressions import expand_derived_formula, fold_filters, physical_column_name
+from .expressions import equivalent_expressions, expand_derived_formula, fold_filters, physical_column_name
 from .importer import _catalog, _plan
 from .validation import (
     _matching,
@@ -229,7 +229,7 @@ def _check_core_semantics(
       dataset/catalogue mapping; a plain relationship cannot preserve the grouping.
     - Non-sum time aggregation requires Avelis's bucket-and-compose execution.
     - Repeated asset roles cannot be represented by one core dataset qualifier.
-    - Derived aggregates must share a row set before they can be inlined.
+    - Derived aggregates must share a row set and mappings for same-name dimensions.
 
     JoinPath and the compiler support key equalities only, with no extra join
     predicate. Metric grain/dedupe_basis are governance evidence, not executable
@@ -244,6 +244,13 @@ def _check_core_semantics(
             for _, component in components
         ):
             raise GovernanceError(gettext("派生口径的组成口径不共享相同的行集，无法在 Ossie 核心模型中等价表达"))
+        dimensions: dict[str, str] = {}
+        for _, component in components:
+            for dimension in component.dimensions or []:
+                name, column = dimension["name"], dimension["column"]
+                if name in dimensions and not equivalent_expressions(dimensions[name], column, dialect):
+                    raise GovernanceError(gettext("组成口径的同名维度映射到不同的列，内联后无法保持分组语义"))
+                dimensions[name] = column
         try:
             if set(parse_formula(version.expression)) != {metric.code for metric, _ in components}:
                 raise ValueError("Component references do not match")
@@ -389,7 +396,9 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
                 current,
                 aliases=aliases,
                 steps=steps,
-                dialect=_dialect(session, aliases["b"]) if aliases else "",
+                dialect=_dialect(
+                    session, aliases["b"] if aliases else session.get(Asset, components[0][1].base_asset_id)
+                ),
                 components=components if current.kind == "derived" else None,
                 expression_path=expression_path,
             )
