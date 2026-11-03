@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useExampleQuestions, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
+import { errorText, useAction, useExampleQuestions, useNumberStyle, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatClock, formatShortTime, formatTime } from "../../format";
-import { changeTone, columnRole, dateRange, PERIOD_LABEL, planQueries, resultCell, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
+import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 import { t } from "../../i18n";
 
 const STEP_LABEL: Record<string, string> = { understand: t("理解"), clarify: t("追问"), govern: t("版本与权限"), explain: t("解释") };
@@ -125,6 +125,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
 }) {
   const result = a.result as AskResult;
   const intent = a.intent as AskIntent;
+  const style = useNumberStyle();
   const queries = planQueries(a);
   const mv = a.evidence?.metric_version as { metric_code?: string; metric_name?: string; version_no?: number } | undefined;
   const clarification = a.evidence?.clarification as { question?: string; options?: string[] } | undefined;
@@ -157,7 +158,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       ) : null}
       {single ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{resultCell(result.rows![0][0], result.columns![0], false, columnRole(result, result.columns![0]))}</span>
+          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
           <span className="av-caption">{a.message}</span>
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
@@ -193,27 +194,50 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
 }
 
 export function ResultTable({ result, dimensions }: { result: AskResult; dimensions: string[] }) {
+  const style = useNumberStyle();
   const columns = result.columns ?? [];
-  const rows = result.rows ?? [];
+  const [sort, setSort] = useState<{ index: number; desc: boolean } | null>(null);
+  const rows = sortedRows(result.rows ?? [], sort);
   return (
     <div className={`av-panel av-answer-result${rows.length > 20 ? " av-answer-result--scroll" : ""}`}
       role="region" aria-label={t("问数结果")} tabIndex={0}>
       <table className="av-table av-answer-table">
-        <thead><tr>{columns.map((column, index) => <th key={`${column}-${index}`} scope="col"
-          className={index < dimensions.length ? "av-answer-table__dimension" : "av-answer-table__number"}><span className="av-answer-table__head">{column === "value" ? t("值") : column}</span>
-          {index < dimensions.length ? <CommentDoc doc={result.column_docs?.[column]} /> : null}</th>)}</tr></thead>
+        <thead><tr>{columns.map((column, index) => {
+          const dimension = index < dimensions.length;
+          const order = sort?.index === index ? (sort.desc ? "descending" : "ascending") : "none";
+          return <th key={`${column}-${index}`} scope="col" aria-sort={order}
+            className={dimension ? "av-answer-table__dimension" : "av-answer-table__number"}>
+            <button type="button" className="av-answer-table__sort" title={t("按此列排序")}
+              onClick={() => setSort(sort?.index === index ? (sort.desc ? { index, desc: false } : null) : { index, desc: !dimension })}>
+              <span className="av-answer-table__head">{columnLabel(result, column)}</span>
+              {order !== "none" ? <span aria-hidden="true">{order === "descending" ? "↓" : "↑"}</span> : null}
+            </button>
+            {dimension ? <CommentDoc doc={result.column_docs?.[column]} /> : null}</th>;
+        })}</tr></thead>
         <tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column, columnIndex) => {
           const dimension = columnIndex < dimensions.length;
           const value = row[columnIndex];
           const role = columnRole(result, column);
           const tone = !dimension && (role === "change" || role === "rate") ? changeTone(value, result.polarity?.[column]) : "";
           return <td key={columnIndex} className={`${dimension ? "av-answer-table__dimension" : "av-answer-table__number"}${tone ? ` av-answer-change--${tone}` : ""}`}>
-            {resultCell(value, column, dimension, role)}
+            {cellText(result, column, value, dimension, style)}
           </td>;
         })}</tr>)}</tbody>
       </table>
     </div>
   );
+}
+
+/** 点表头排序：数值列按数值，其余按文字；再点一次反向，第三次恢复原顺序。 */
+function sortedRows(rows: unknown[][], sort: { index: number; desc: boolean } | null): unknown[][] {
+  if (!sort) return rows;
+  const key = (v: unknown) => (v == null ? null : typeof v === "number" ? v : Number.isFinite(Number(v)) && String(v).trim() !== "" ? Number(v) : String(v));
+  return [...rows].sort((a, b) => {
+    const x = key(a[sort.index]), y = key(b[sort.index]);
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+    return sort.desc ? -c : c;
+  });
 }
 
 export function Evidence({ a }: { a: Answer }) {

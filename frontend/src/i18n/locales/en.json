@@ -1606,5 +1606,7 @@
   "MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），删掉这项或改为 true 即可恢复": "The MCP service is turned off in the deployment config (AVELIS_MCP_ENABLED=false); remove it or set it to true to turn it back on",
   "服务已关闭": "Service is off",
   "保存并登录": "Save and sign in",
-  "返回登录": "Back to sign in"
+  "返回登录": "Back to sign in",
+  "个百分点": " pp",
+  "按此列排序": "Sort by this column"
 }

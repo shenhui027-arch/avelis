@@ -5,14 +5,14 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useTimeZone, type Answer } from "../../api/hooks";
+import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useNumberStyle, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
-import { columnRole, resultCell, type AskIntent, type AskResult } from "../ask/presentation";
+import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
 import { ArchivedConversations } from "../../layout/Conversations";
-import { DatasetChart, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
+import { DatasetChart, datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
@@ -322,9 +322,10 @@ function LookupAnswer({ a }: { a: Answer }) {
   const result = (a.result ?? {}) as AskResult;
   const intent = (a.intent ?? {}) as AskIntent;
   const single = result.rows?.length === 1 && result.columns?.length === 1;
+  const style = useNumberStyle();
   return (
     <section className="av-doc__section" aria-label={t("结果")}>
-      {single ? <div className="av-lookup__value"><span>{resultCell(result.rows![0][0], result.columns![0], false, columnRole(result, result.columns![0]))}</span>
+      {single ? <div className="av-lookup__value"><span>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
       {!single && result.rows?.length ? <ResultTable result={result} dimensions={intent.group_by ?? []} /> : null}
@@ -503,6 +504,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
 /** 证据面板：数据集默认收起，点报告里的编号会展开并定位。 */
 function Datasets({ id }: { id: string }) {
   const run = useRun(id);
+  const style = useNumberStyle();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   // 证据链接经路由跳转（不触发 hashchange），按路由的 hash 展开并滚到对应数据集
@@ -539,8 +541,8 @@ function Datasets({ id }: { id: string }) {
               : isOpen ? <div className="av-dataset__bd">
               <DatasetChart d={d} />
               <div className="av-table-wrap"><table className="av-table av-dataset__table">
-                <thead><tr>{d.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-                <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className="av-mono">{v == null ? "—" : String(v)}</td>)}</tr>)}</tbody>
+                <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
+                <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
               </table></div>
               <div className="av-dataset__ft">
                 <span className="av-caption">{t("{{count}} 行", { count: d.row_count })}{d.inputs?.length ? t(" · 输入 {{v1}}", { v1: d.inputs.join(t("、")) }) : ""}</span>

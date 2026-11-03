@@ -558,6 +558,11 @@
 .av-coldoc--gap span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .av-answer-table th { vertical-align: bottom; }
 .av-answer-table__head { display: block; }
+/* 表头即排序按钮：外观与表头文字一致，数值列右对齐 */
+.av-answer-table__sort { display: inline-flex; align-items: baseline; gap: var(--space-1); max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.av-answer-table__number .av-answer-table__sort { justify-content: flex-end; width: 100%; }
+.av-answer-table__sort:hover { color: var(--text-secondary); }
+.av-answer-table__sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 .av-coverage__gaps { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 /* 问数：对话 | 证据（新建、最近对话、经验与定时任务在应用侧边栏） */

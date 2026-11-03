@@ -5,10 +5,11 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction } from "../../api/hooks";
+import { errorText, useAction, useNumberStyle } from "../../api/hooks";
 import { Code, DateInput, Drawer, Empty, Icon, Pill } from "../../components/ui";
 import { BarChart, LineChart } from "./charts";
 import { t } from "../../i18n";
+import { formatValue, type NumberStyle, type UnitMeta } from "../../numbers";
 
 type Detail = Schemas["AnalysisDatasetDetailOut"];
 type Chartable = { columns: string[]; rows: unknown[][]; time_column?: string | null;
@@ -77,6 +78,21 @@ function RoleChart({ d, roles, limit }: { d: Chartable; roles: Record<string, { 
   return bars.length > 1 ? <BarChart bars={bars} label={label} /> : null;
 }
 
+type Labelled = { column_roles?: Record<string, { role: string; label?: string }> | null; units?: Record<string, unknown> | null };
+
+/** 数据集列标题：列契约里的显示名（含“成交额·本期”这类系统翻译过的期间名），没有时用列名。 */
+export function datasetLabel(d: Labelled, column: string): string {
+  return d.column_roles?.[column]?.label ?? column;
+}
+
+/** 数据集单元格：有量纲的数值列按量纲格式化，其余原样。 */
+export function datasetCell(d: Labelled, column: string, value: unknown, style: NumberStyle): string {
+  if (value == null) return "—";
+  const role = d.column_roles?.[column]?.role;
+  const unit = d.units?.[column] as UnitMeta | undefined;
+  return unit && role !== "time" && role !== "dimension" ? formatValue(value, unit, style) : String(value);
+}
+
 /** 证据编号：带上它所属的那一轮。续问会复制并重新编号数据集，同一个 D 编号在不同轮次里指向不同的数据。 */
 export function EvidenceLink({ runId, refId }: { runId: string; refId: string }) {
   return <Link className="av-tag av-mono" to={{ pathname: `/analysis/runs/${runId}`, hash: `dataset-${refId}` }}>{refId}</Link>;
@@ -109,6 +125,7 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
   const [offset, setOffset] = useState(0);
   const [rerun, setRerun] = useState(false);
   const detail = useDetail(runId, refId, offset);
+  const style = useNumberStyle();
   const d = detail.data;
   const forbidden = detail.isError && (detail.error as { status?: number }).status === 403;
   const [label, tone]: [string, "ok" | "warn" | "info"] = d ? DATASET_KIND[d.kind] ?? [d.kind, "info"] : ["", "info"];
@@ -144,8 +161,8 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
         {d.purpose ? <p className="av-dsview__purpose">{d.purpose}</p> : null}
         {offset === 0 ? <div className="av-dsview__chart"><DatasetChart d={d} limit={20} /></div> : null}
         <div className="av-table-wrap av-dsview__table"><table className="av-table">
-          <thead><tr>{d.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-          <tbody>{d.rows.map((row, i) => <tr key={offset + i}>{row.map((v, j) => <td key={j} className="av-mono">{v == null ? "—" : String(v)}</td>)}</tr>)}</tbody>
+          <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
+          <tbody>{d.rows.map((row, i) => <tr key={offset + i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
         </table></div>
         {pages > 1 ? <div className="av-dsview__pager">
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(offset - PAGE)}>{t("上一页")}</button>
