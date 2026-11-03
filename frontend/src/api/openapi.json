@@ -7736,6 +7736,13 @@
       "type": "object",
       "title": "Column Roles"
      },
+     "charts": {
+      "items": {
+       "$ref": "#/components/schemas/ChartSpec"
+      },
+      "type": "array",
+      "title": "Charts"
+     },
      "summary_units": {
       "additionalProperties": true,
       "type": "object",
@@ -8041,6 +8048,13 @@
       },
       "type": "object",
       "title": "Column Roles"
+     },
+     "charts": {
+      "items": {
+       "$ref": "#/components/schemas/ChartSpec"
+      },
+      "type": "array",
+      "title": "Charts"
      }
     },
     "additionalProperties": true,
@@ -10563,6 +10577,344 @@
     ],
     "title": "ChangeSetOut"
    },
+   "ChartKpi": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "unit": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Unit"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "previous": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Previous"
+     },
+     "change": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Change"
+     },
+     "rate": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rate"
+     },
+     "previous_label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Previous Label"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "label",
+     "column",
+     "unit",
+     "polarity",
+     "value",
+     "previous",
+     "change",
+     "rate",
+     "previous_label"
+    ],
+    "title": "ChartKpi"
+   },
+   "ChartOthers": {
+    "properties": {
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "count"
+    ],
+    "title": "ChartOthers"
+   },
+   "ChartSeries": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "axis": {
+      "type": "integer",
+      "enum": [
+       0,
+       1,
+       2,
+       3
+      ],
+      "title": "Axis"
+     },
+     "mark": {
+      "type": "string",
+      "enum": [
+       "bar",
+       "line"
+      ],
+      "title": "Mark"
+     },
+     "other": {
+      "type": "boolean",
+      "title": "Other",
+      "default": false
+     },
+     "unit": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Unit"
+     },
+     "polarity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up_good",
+         "down_good"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Polarity"
+     },
+     "values": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Values"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "name",
+     "column",
+     "label",
+     "axis",
+     "mark",
+     "unit",
+     "polarity",
+     "values"
+    ],
+    "title": "ChartSeries"
+   },
+   "ChartSpec": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "kpi",
+       "line",
+       "bar",
+       "grouped_bar",
+       "stacked_bar",
+       "diverging_bar",
+       "donut",
+       "multiples"
+      ],
+      "title": "Kind"
+     },
+     "orientation": {
+      "type": "string",
+      "enum": [
+       "vertical",
+       "horizontal"
+      ],
+      "title": "Orientation"
+     },
+     "reason": {
+      "type": "string",
+      "enum": [
+       "kpi",
+       "time_series",
+       "time_by_dimension",
+       "ranking",
+       "composition",
+       "comparison",
+       "change",
+       "multi_measure"
+      ],
+      "title": "Reason"
+     },
+     "x": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChartX"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "categories": {
+      "items": {},
+      "type": "array",
+      "title": "Categories"
+     },
+     "series": {
+      "items": {
+       "$ref": "#/components/schemas/ChartSeries"
+      },
+      "type": "array",
+      "title": "Series"
+     },
+     "kpis": {
+      "items": {
+       "$ref": "#/components/schemas/ChartKpi"
+      },
+      "type": "array",
+      "title": "Kpis"
+     },
+     "others": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChartOthers"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "dropped_series": {
+      "type": "integer",
+      "title": "Dropped Series"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "kind",
+     "orientation",
+     "reason",
+     "x",
+     "categories",
+     "series",
+     "kpis",
+     "others",
+     "dropped_series"
+    ],
+    "title": "ChartSpec"
+   },
+   "ChartX": {
+    "properties": {
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "time",
+       "dimension"
+      ],
+      "title": "Role"
+     },
+     "grain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grain"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "column",
+     "label",
+     "role",
+     "grain"
+    ],
+    "title": "ChartX"
+   },
    "CheckBody": {
     "properties": {
      "model_id": {
@@ -11010,6 +11362,28 @@
      "label": {
       "type": "string",
       "title": "Label"
+     },
+     "grain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grain"
+     },
+     "additive": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Additive"
      }
     },
     "additionalProperties": true,
