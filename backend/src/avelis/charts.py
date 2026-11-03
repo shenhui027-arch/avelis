@@ -107,6 +107,8 @@ def _recommend(
     }
     if not rows or not (by_role["measure"] or by_role["change"]):
         return []
+    if len(set(columns)) != len(columns):
+        return []  # 列名重复（如两个业务域的同名口径）时按列名取值会张冠李戴，不出图，界面保留表格。
     indices = {column: index for index, column in enumerate(columns)}
 
     def cell(row, column):
