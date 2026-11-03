@@ -441,3 +441,10 @@ def test_structured_dimension_values_become_stable_text_keys():
     default = charts(["d", "value"], rows, dimensions=("d",))[0]
     assert default["categories"] == ['["x", "y"]', '{"k": 1}']
     assert default["series"][0]["values"] == [4.0, 2.0]
+
+
+def test_dimension_combinations_with_separator_text_do_not_collide():
+    rows = [["a / b", "c", 10], ["a", "b / c", 30]]
+    default = charts(["d1", "d2", "value"], rows, dimensions=("d1", "d2"))[0]
+    assert default["categories"] == ["a / b / c", "a / b / c"]
+    assert default["series"][0]["values"] == [30.0, 10.0]
