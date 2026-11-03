@@ -491,11 +491,26 @@ class ViewDatasetArgs(BaseModel):
     limit: int = Field(MODEL_ROWS, ge=1, le=MODEL_ROWS, description="本页最多返回的行数")
 
 
+# 图题里允许的期间写法（“9 月”“2026 年”“第 3 季度”“2026-09”）；其余数字一律不收。
+_TITLE_PERIOD = re.compile(
+    r"\d{4}\s*年|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?|\d{4}-\d{2}(?:-\d{2})?|第?\s*[1-4]\s*季度|Q[1-4]"
+    r"|\d{1,2}\s*[日号]|第?\s*\d{1,2}\s*周"
+)
+
+
 class ChartArgs(BaseModel):
     dataset: str = Field(description="本次运行可读的数据集编号，如 D3")
     kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
-    title: str = Field(max_length=40, description="一句结论式标题")
+    title: str = Field(max_length=40, description="一句结论式标题，不写数字（期间写法如“9 月”可以）")
     top_n: int | None = Field(None, ge=2, le=20, strict=True)
+
+    @field_validator("title")
+    @classmethod
+    def _no_quantities(cls, value: str) -> str:
+        # 图题不经过数字来源核验（ADR 0009），所以不能写数量；数字写进带引用的结论里。
+        if re.search(r"\d", _TITLE_PERIOD.sub("", value)):
+            raise ValueError("图题不写数字：数字只能出现在带数据集引用的结论里（期间写法如“9 月”可以）")
+        return value
 
 
 class ExplainArgs(BaseModel):
@@ -3719,7 +3734,7 @@ class AnalysisToolbox:
                 self.chart,
                 ChartArgs,
                 "把一个数据集作为图放进报告正文：只在图比表格更能说明结论时用，每份报告最多 4 张；"
-                "kind 必须是该数据集可画的图（可先用 view_dataset 看列）；title 写这张图要说明的结论。",
+                "kind 必须是该数据集可画的图（可先用 view_dataset 看列）；title 写这张图要说明的结论，不写数字。",
             ),
             t(
                 self.view_dataset,

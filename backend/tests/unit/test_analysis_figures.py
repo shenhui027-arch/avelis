@@ -337,3 +337,37 @@ def test_markdown_multi_series_line_falls_back_to_table():
     spec = deepcopy(all_specs()["line"])
     spec["series"] = [spec["series"][0], {**spec["series"][0], "name": "另一个系列"}]
     assert export._mermaid_chart({"chart": spec, "title": "结论"}) == []
+
+
+@pytest.mark.parametrize(
+    ("title", "ok"),
+    [
+        ("华东贡献几乎全部降幅", True),
+        ("9 月华东下滑最多", True),
+        ("2026-09 线上回落", True),
+        ("第 3 季度持平", True),
+        ("收入增长999%", False),
+        ("前四均超108万元", False),
+    ],
+)
+def test_chart_title_rejects_quantities(title, ok):
+    from pydantic import ValidationError
+
+    from avelis.analysis.tools import ChartArgs
+
+    if ok:
+        assert ChartArgs(dataset="D1", kind="bar", title=title).title == title
+    else:
+        with pytest.raises(ValidationError):
+            ChartArgs(dataset="D1", kind="bar", title=title)
+
+
+def test_explicit_export_selection_overrides_saved_figures():
+    from avelis.analysis.figures import report_figures
+    from tests.unit.test_analysis_export import sample_view
+
+    view = sample_view()
+    view["report"]["figures"] = [{"dataset": "D4", "kind": "bar", "title": "已选", "top_n": None}]
+    assert [f["ref"] for f in report_figures(view, ["D5"])] == ["D5"]
+    assert report_figures(view, []) == []
+    assert [f["ref"] for f in report_figures(view)] == ["D4"]

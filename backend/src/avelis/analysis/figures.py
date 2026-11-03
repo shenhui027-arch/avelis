@@ -113,19 +113,27 @@ def key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
 
 
 def report_figures(view: dict, datasets: list[str] | None = None) -> list[dict]:
-    """显式插图优先；旧报告或空列表退回引用最多的两个可画数据集。"""
-    saved = (view.get("report") or {}).get("figures")
+    """调用方显式指定数据集（导出的 datasets）时以指定为准；否则用模型选的插图，
+    旧报告或空列表退回引用最多的两个可画数据集。指定的数据集若正是模型选过的插图，沿用它的图类型与标题。"""
+    saved = (view.get("report") or {}).get("figures") or []
+    if datasets is None and saved:
+        requests = saved
+    else:
+        chosen = {figure.get("dataset"): figure for figure in saved}
+        requests = [
+            chosen.get(d["ref"]) or {"dataset": d["ref"], "title": d.get("title")} for d in key_datasets(view, datasets)
+        ]
     known = {d["ref"]: d for d in view.get("datasets") or []}
-    requests = saved or [{"dataset": d["ref"], "title": d.get("title")} for d in key_datasets(view, datasets)]
     result = {}
     for request in requests:
         ref = request.get("dataset")
         dataset = known.get(ref)
         if dataset is None or dataset.get("restricted"):
             continue
-        preference = {k: request[k] for k in ("kind", "title", "top_n") if k in request} if saved else None
+        explicit = "kind" in request
+        preference = {k: request[k] for k in ("kind", "title", "top_n") if k in request} if explicit else None
         options = dataset_charts(dataset, preference)
-        if not options or (saved and (request.get("kind") == "kpi" or options[0]["kind"] != request.get("kind"))):
+        if not options or (explicit and (request.get("kind") == "kpi" or options[0]["kind"] != request.get("kind"))):
             continue
         result[ref] = {"ref": ref, "title": request.get("title"), "chart": options[0]}
         if len(result) == 4:
