@@ -95,7 +95,10 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
   const [busy, setBusy] = useState(false);
   // 表单离开后，迟到的响应不能再清除、改写之后建立的会话，也不能再跳转
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    alive.current = true;  // StrictMode 会先卸载再挂载一次，重新挂载时要恢复
+    return () => { alive.current = false; };
+  }, []);
   const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
 
