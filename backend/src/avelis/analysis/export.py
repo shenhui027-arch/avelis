@@ -1372,7 +1372,8 @@ def _display_figure(figure: dict, dataset: dict, *, brief: bool) -> dict:
 
 def _mermaid_chart(figure: dict) -> list[str]:
     spec = figure["chart"]
-    if spec["kind"] not in ("line", "bar") or not spec["series"]:
+    # xychart-beta 没有图例：多个系列画出来分不清是谁，只在单系列时输出图，否则保留表格。
+    if spec["kind"] not in ("line", "bar") or len(spec["series"]) != 1:
         return []
     # Mermaid 不能表示缺测值；保留表格，避免将缺测值画成零。
     values = spec["series"][0]["values"]

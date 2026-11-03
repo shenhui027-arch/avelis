@@ -241,6 +241,7 @@ def test_pdf_html_render_each_materialized_kind(monkeypatch, kind, audience):
 )
 def test_markdown_only_line_and_bar_use_raw_values(kind):
     spec = all_specs()[kind]
+    spec = {**spec, "series": spec["series"][:1]}  # 多系列没有图例可表达，另有用例覆盖回退
     lines = export._mermaid_chart({"chart": spec, "title": "结论"})
     if kind in ("line", "bar"):
         assert "xychart-beta" in lines
@@ -330,3 +331,9 @@ def test_mermaid_missing_values_keep_table_and_escape_code_fences():
     assert "\\u0060" in "\n".join(export._mermaid_chart(figure))
     spec["series"][0]["values"][0] = None
     assert export._mermaid_chart(figure) == []
+
+
+def test_markdown_multi_series_line_falls_back_to_table():
+    spec = deepcopy(all_specs()["line"])
+    spec["series"] = [spec["series"][0], {**spec["series"][0], "name": "另一个系列"}]
+    assert export._mermaid_chart({"chart": spec, "title": "结论"}) == []
