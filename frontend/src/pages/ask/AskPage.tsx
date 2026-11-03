@@ -163,6 +163,8 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
           <span className="av-caption">{a.message}</span>
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
+      {a.explanation && a.explanation_source === "model" ? <p className="av-answer-insight" title={t("模型对结果的说明，只引用上面的数值")}>
+        <Icon name="analysis" small />{a.explanation}</p> : null}
       {result?.rows && !single && result.rows.length ? (
         <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
           <ResultTable result={result} dimensions={intent.group_by ?? []} />
@@ -177,7 +179,6 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
           ))}
         </div>
       ) : null}
-      {a.explanation && a.explanation_source === "model" ? <span className="av-caption">{t("模型解释：")}{a.explanation}</span> : null}
       {a.status === "blocked" && a.error_code === "metric_affected" ? (
         <div className="av-row" style={{ "--row-cols": "minmax(0, 1fr) auto", minHeight: 0, padding: 0, border: "none", background: "none" } as React.CSSProperties}>
           <span className="av-row__meta">{partiallyCompleted ? t("部分子查询已完成，后续查询已拦截") : t("后端已拦截，未执行查询")}</span>

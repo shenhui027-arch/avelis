@@ -8,7 +8,7 @@ export type ChartSeries = { name: string; column: string; label: string; axis: n
 type Polarity = ChartSeries["polarity"];
 export type ChartKpi = { label: string; column: string; unit: UnitMeta; polarity: "up_good" | "down_good" | null;
   value: number | null; previous: number | null; change: number | null; rate: number | null; previous_label: string | null };
-export type ChartSpec = { kind: ChartKind; orientation: "vertical" | "horizontal"; reason: string;
+export type ChartSpec = { kind: ChartKind; orientation: "vertical" | "horizontal"; reason: string; title?: string | null;
   x: { column: string; label: string; role: "time" | "dimension"; grain: string | null } | null;
   categories: (string | number | null)[]; series: ChartSeries[]; kpis: ChartKpi[]; others: { count: number } | null; dropped_series: number };
 
@@ -123,7 +123,8 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
         itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined })) };
   }
 
-  const grid = { left: 8, right: horizontal ? 64 : 16, top, bottom: many ? 48 : 8, containLabel: true };
+  const negative = spec.series.some((s) => s.values.some((v) => v != null && v < 0));
+  const grid = { left: horizontal && negative ? 64 : 8, right: horizontal ? 64 : 16, top, bottom: many ? 48 : 8, containLabel: true };
   const cats = categoryAxis(spec, theme, horizontal ? { inverse: true } : { boundaryGap: spec.kind !== "line" });
   const vals = valueAxis(unit, style, theme);
   const dataZoom = many && !horizontal ? [{ type: "inside" }, { type: "slider", height: 18, bottom: 8, borderColor: theme.grid,
@@ -141,7 +142,8 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
     const diverging = spec.kind === "diverging_bar";
     return { type: "bar", name: s.name, barMaxWidth: BAR, stack: spec.kind === "stacked_bar" ? "total" : undefined,
       color, emphasis: { focus: "series" },
-      data: s.values.map((v) => ({ value: v, itemStyle: {
+      // 数值标注放在条形末端外侧：负值在左（或下），正值在右（或上）
+      data: s.values.map((v) => ({ value: v, label: labelled ? { position: v != null && v < 0 ? (horizontal ? "left" : "bottom") : (horizontal ? "right" : "top") } : undefined, itemStyle: {
         color: diverging ? changeColor(v, s.polarity, theme) : color,
         borderRadius: diverging && v != null && v < 0 ? (horizontal ? [4, 0, 0, 4] : [0, 0, 4, 4]) : spec.kind === "stacked_bar" ? 0 : radius,
         borderColor: spec.kind === "stacked_bar" ? theme.surface : undefined, borderWidth: spec.kind === "stacked_bar" ? 1 : 0 } })),

@@ -1072,3 +1072,23 @@
 .av-webhooks__check { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font: var(--type-body-compact); cursor: pointer; }
 .av-webhooks__secretrow { display: flex; align-items: center; gap: var(--space-2); }
 .av-webhooks__secret { flex: 1; min-width: 0; padding: 6px 10px; overflow-wrap: anywhere; user-select: all; }
+
+/* 问数结果的图：图 / 表 / 候选图切换在左，导出在右；图表画布不加卡片外框，直接坐在回答卡片里 */
+.av-chartpanel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.av-chartpanel__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.av-chartpanel__title { margin: var(--space-1) 0 0; color: var(--text-primary); font: var(--type-body-strong); }
+.av-chartpanel__note { margin: 0; }
+.av-chartpanel__loading { height: 240px; border-radius: var(--radius-md); background: var(--bg-raised); }
+.av-echart { width: 100%; min-width: 0; }
+/* 模型对结果的一句话说明：正文字号，不是灰色脚注 */
+.av-answer-insight { display: flex; gap: var(--space-2); align-items: baseline; margin: 0; color: var(--text-secondary); font: var(--type-body-compact); max-width: 72ch; }
+.av-answer-insight .av-icon { flex: none; color: var(--accent-text); transform: translateY(2px); }
+/* 指标卡：本期值为主，变化按期望方向着色，未知时中性 */
+.av-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
+.av-kpi { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-raised); min-width: 0; }
+.av-kpi__label { color: var(--text-tertiary); font: var(--type-caption); }
+.av-kpi__value { color: var(--text-primary); font: 500 26px/34px var(--font-sans); }
+.av-kpi__delta { display: flex; flex-wrap: wrap; gap: 4px var(--space-3); font: var(--type-caption); color: var(--text-secondary); }
+.av-kpi__delta .is-ok { color: var(--ok); }
+.av-kpi__delta .is-danger { color: var(--danger); }
+.av-kpi__prev { color: var(--text-tertiary); }
