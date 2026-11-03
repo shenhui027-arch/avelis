@@ -316,7 +316,7 @@ def preference_inputs(kind="level", size=30):
         ["d", "v"],
         [[str(i), i] for i in range(size)],
         {"d": {"role": "dimension"}, "v": {"role": "measure"}},
-        {"v": {"kind": kind}},
+        {"v": {"kind": kind, "additive": kind in {"level", "count", "delta", "share"}}},
         {},
     )
 
@@ -375,7 +375,7 @@ def test_multi_measure_top_n_aggregates_only_additive_displayed_series(kind):
     columns, rows, roles, units, polarity = preference_inputs(size=30)
     columns.append("second")
     roles["second"] = {"role": "measure"}
-    units["second"] = {"kind": "level" if kind == "grouped_bar" else "ratio"}
+    units["second"] = {"kind": "level", "additive": True} if kind == "grouped_bar" else {"kind": "ratio"}
     rows = [[*row, row[1] * 2] for row in rows]
     args = (columns, rows, roles, units, polarity)
     default = recommend(*args)
@@ -400,7 +400,10 @@ def test_comparison_top_n_merges_tail_only_when_additive(kind, unit_kind):
         for c, role in zip(columns, ["dimension", "measure", "measure", "change", "rate"], strict=True)
     }
     units = {
-        c: {"kind": unit_kind if role["role"] == "measure" else "delta" if unit_kind == "level" else "ratio"}
+        c: {
+            "kind": unit_kind if role["role"] == "measure" else "delta" if unit_kind == "level" else "ratio",
+            "additive": unit_kind == "level" and role["role"] != "rate",
+        }
         for c, role in roles.items()
     }
     rows = [[str(i), i, i * 2, -i, -0.5] for i in range(30)]
