@@ -6,12 +6,11 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics.shapes import Circle, Drawing, Rect, String
 from reportlab.lib.colors import HexColor
 
 from avelis.analysis import export, grounding
-from tests.unit.test_analysis_export import _pdf_story, _value, sample_view
+from tests.unit.test_analysis_export import _pdf_story, _value, draw_dataset, sample_view
 
 
 @pytest.mark.parametrize(
@@ -180,16 +179,15 @@ def test_trend_series_have_distinct_colors_matching_their_legends():
         ],
     }
 
-    chart = export._chart(dataset, font)
-    plot = next(item for item in chart.contents if isinstance(item, LinePlot))
-    colors = [plot.lines[i].strokeColor for i in range(len(plot.data))]
+    chart = draw_dataset(dataset, font)
+    colors = list(dict.fromkeys(item.fillColor for item in chart.contents if isinstance(item, Circle)))
     legends = {item.text: item.fillColor for item in chart.contents if isinstance(item, String)}
 
     assert len(colors) == 3 and len({color.hexval() for color in colors}) == 3
     assert [legends[name] for name in names] == colors
 
 
-def test_non_trend_bars_keep_negative_and_positive_colors():
+def test_ordinary_bars_use_categorical_palette_for_both_signs():
     font, _ = export.pdf_font()
     dataset = {
         "columns": ["member", "value"],
@@ -197,9 +195,9 @@ def test_non_trend_bars_keep_negative_and_positive_colors():
         "meta": {"units": {"value": {"kind": "delta", "unit": "元"}}},
     }
 
-    chart = export._chart(dataset, font)
+    chart = draw_dataset(dataset, font)
 
     assert [item.fillColor for item in chart.contents if isinstance(item, Rect)] == [
-        HexColor(export.NEGATIVE),
-        HexColor(export.POSITIVE),
+        HexColor(export.VIZ_PALETTE[0]),
+        HexColor(export.VIZ_PALETTE[0]),
     ]

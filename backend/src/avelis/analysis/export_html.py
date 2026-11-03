@@ -140,6 +140,7 @@ def to_html(
     datasets: list[str] | None = None,
 ) -> str:
     view = content._export_view(view)
+    figures = content.report_figures(view, datasets)
     brief = content.resolve_audience(audience, appendix) == "brief"
     notes = content._brief_footer(view, datasets) if brief else []
     if brief:
@@ -253,15 +254,16 @@ def to_html(
             *["<li>" + _text(item.strip()) + "</li>" for item in unexplained.split("；") if item.strip()],
             "</ul></section>",
         ]
-    selected = content._key_datasets(view, datasets)
+    selected = content._figure_datasets(view, figures)
     if selected:
         parts += ["<section><h2>" + _text(gettext("关键数据")) + "</h2>"]
-        for dataset in selected:
+        for dataset, figure in zip(selected, figures, strict=True):
             dataset = content._brief_dataset(dataset, view) if brief else dataset
+            figure = content._display_figure(figure, dataset, brief=brief)
             name = content._dataset_title(dataset) if brief else f"{dataset['ref']} {dataset['title']}"
             parts += [
                 '<article class="dataset"><h3>' + _text(name) + "</h3>",
-                chart(content._chart(dataset, font, brief=brief)),
+                chart(content._spec_chart(figure["chart"], font, title=figure["title"])),
                 _table(content._table_data(dataset, brief=brief)),
                 '<p class="note">' + _text(content._row_note(dataset)) + "</p></article>",
             ]

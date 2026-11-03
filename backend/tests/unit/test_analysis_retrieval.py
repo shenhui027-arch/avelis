@@ -24,6 +24,7 @@ BASE_TOOLS = [
     "changes",
     "data_health",
     "query_metric",
+    "chart",  # 第 3 阶段的固定工具，不受 retrieval / investigation 开关影响。
     "view_dataset",
     "explain_change",
     "contribution",

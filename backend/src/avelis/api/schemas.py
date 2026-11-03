@@ -992,6 +992,7 @@ class ChartOthers(Out):
 
 class ChartSpec(Out):
     kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
+    title: str | None = None
     orientation: Literal["vertical", "horizontal"]
     reason: Literal[
         "kpi", "time_series", "time_by_dimension", "ranking", "composition", "comparison", "change", "multi_measure"
@@ -1002,6 +1003,12 @@ class ChartSpec(Out):
     kpis: list[ChartKpi]
     others: ChartOthers | None
     dropped_series: int
+
+
+class ReportFigure(Out):
+    ref: str
+    title: str | None = None
+    chart: ChartSpec
 
 
 class AnalysisDatasetOut(Out):
@@ -1119,6 +1126,7 @@ class AnalysisRunOut(Out):
     task_id: str | None = None
     plan: Json | None = None
     report: Json | None = None
+    figures: list[ReportFigure] = Field(default_factory=list)
     answer: Json | None = None
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None

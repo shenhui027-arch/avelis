@@ -41,6 +41,8 @@ assert.equal(formatValue("成员甲", yuan, "cn"), "成员甲");
 assert.equal(formatAxis(20000000, yuan, "cn"), "2000万");
 assert.equal(formatAxis(0.065, { kind: "ratio" }, "cn"), "6.5%");
 assert.equal(formatAxis(-5000, yuan, "intl"), "−5000");
+assert.equal(formatAxis(0.05, { kind: "delta", of_ratio: true }, "cn"), "5个百分点");
+assert.equal(formatAxis(-0.002, { kind: "delta", of_ratio: true }, "cn"), "−0.2个百分点");
 assert.equal(unitLabel(yuan), "元");
 assert.equal(unitLabel({ kind: "ratio" }), "");
 assert.equal(toNumber(""), null);

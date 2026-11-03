@@ -33,6 +33,7 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
         json.dumps(spec, allow_nan=False)
         assert set(spec) == {
             "kind",
+            "title",
             "orientation",
             "reason",
             "x",
@@ -476,3 +477,9 @@ def test_unregistered_additivity_does_not_merge_others_or_offer_donut():
     result = charts(["d", "value"], rows, dimensions=("d",), units=units)
     assert [chart["kind"] for chart in result] == ["bar"]
     assert result[0]["others"] is None and len(result[0]["categories"]) == 20
+
+
+def test_duplicate_column_names_do_not_chart():
+    roles = {"订单数": {"role": "measure", "label": "订单数"}}
+    units = {"订单数": {"kind": "count", "additive": True}}
+    assert recommend(["订单数", "订单数"], [[10, 25]], roles, units, {}) == []

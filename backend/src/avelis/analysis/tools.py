@@ -491,6 +491,28 @@ class ViewDatasetArgs(BaseModel):
     limit: int = Field(MODEL_ROWS, ge=1, le=MODEL_ROWS, description="本页最多返回的行数")
 
 
+# 图题里允许的期间写法（“9 月”“2026 年”“第 3 季度”“2026-09”）；其余数字一律不收。
+_TITLE_PERIOD = re.compile(
+    r"\d{4}\s*年|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?|\d{4}-\d{2}(?:-\d{2})?|第?\s*[1-4]\s*季度|Q[1-4]"
+    r"|\d{1,2}\s*[日号]|第?\s*\d{1,2}\s*周"
+)
+
+
+class ChartArgs(BaseModel):
+    dataset: str = Field(description="本次运行可读的数据集编号，如 D3")
+    kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
+    title: str = Field(max_length=40, description="一句结论式标题，不写数字（期间写法如“9 月”可以）")
+    top_n: int | None = Field(None, ge=2, le=20, strict=True)
+
+    @field_validator("title")
+    @classmethod
+    def _no_quantities(cls, value: str) -> str:
+        # 图题不经过数字来源核验（ADR 0009），所以不能写数量；数字写进带引用的结论里。
+        if re.search(r"\d", _TITLE_PERIOD.sub("", value)):
+            raise ValueError("图题不写数字：数字只能出现在带数据集引用的结论里（期间写法如“9 月”可以）")
+        return value
+
+
 class ExplainArgs(BaseModel):
     metric_code: str = Field(description="指标编码")
     filters: list[DimensionFilter] = Field(
@@ -711,6 +733,7 @@ class AnalysisToolbox:
         self.plan: dict | None = None  # 理解阶段的 scope（运行记录里的 plan）
         self.scope: Scope | None = None
         self.report: dict | None = None
+        self.figures: list[dict] = []
         self.permission_lost: str | None = None  # 发起人失去权限的原因：之后一律拒绝，分析停止
         self.denials: list[dict] = []  # 明确的权限拒绝（口径或来源无权访问）
         self._seq = 0
@@ -1317,6 +1340,27 @@ class AnalysisToolbox:
             return out, None, "ok"
 
         return self._guard("view_dataset", {"ref": ref, "offset": offset, "limit": limit}, run)
+
+    def chart(self, dataset: str, kind: str, title: str, top_n: int | None = None) -> str:
+        def run():
+            from avelis.analysis.dataset_access import can_read_dataset
+            from avelis.analysis.dataset_projection import dataset_meta
+            from avelis.analysis.figures import dataset_charts
+
+            choice = ChartArgs(dataset=dataset, kind=kind, title=title, top_n=top_n).model_dump()
+            ds, _ = self._rows(dataset)
+            if not can_read_dataset(self.session, self.user, ds, self._datasets):
+                self._deny("你已没有该数据的访问权限", dataset=dataset)
+            options = dataset_charts({"columns": ds.columns, "rows": ds.rows, "meta": dataset_meta(self.session, ds)})
+            kinds = [option["kind"] for option in options if option["kind"] != "kpi"]
+            if kind not in kinds:
+                raise calc.CalcError(f"{dataset} 不支持 {kind}；可选 kind：{'、'.join(kinds) or '无'}")
+            if len(self.figures) >= 4 and not any(f["dataset"] == dataset for f in self.figures):
+                raise calc.CalcError("每份报告最多 4 张图")
+            self.figures = [f for f in self.figures if f["dataset"] != dataset] + [choice]
+            return {"ok": True}, ds, "ok"
+
+        return self._guard("chart", {"dataset": dataset, "kind": kind, "title": title, "top_n": top_n}, run)
 
     # -- 授权 --
     def _expire_governed(self) -> None:
@@ -1977,6 +2021,7 @@ class AnalysisToolbox:
             "scope": scope_view,
             "scope_key": key,
             "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []],
+            "figures": [dict(figure) for figure in self.figures],
         }
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})
@@ -3685,6 +3730,12 @@ class AnalysisToolbox:
             t(self.changes, Window, "时间窗口内的元数据变更与口径版本流转（排查“是不是口径或数据本身变了”）"),
             t(self.data_health, Health, "指标来源的数据源采集情况与新鲜度"),
             t(self.query_metric, QueryArgs, "受治理查询：按已发布口径取数，产生数据集 Dn（权限与执行前核对照常生效）"),
+            t(
+                self.chart,
+                ChartArgs,
+                "把一个数据集作为图放进报告正文：只在图比表格更能说明结论时用，每份报告最多 4 张；"
+                "kind 必须是该数据集可画的图（可先用 view_dataset 看列）；title 写这张图要说明的结论，不写数字。",
+            ),
             t(
                 self.view_dataset,
                 ViewDatasetArgs,
