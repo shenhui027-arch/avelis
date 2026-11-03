@@ -334,7 +334,7 @@ def test_dataset_meta_reads_locked_version_and_does_not_mutate_saved_metadata(so
     original = deepcopy(meta)
     projected = dataset_projection.dataset_meta(session, dataset)
     assert projected["units"]["指标甲"]["kind"] == "ratio"
-    assert projected["units"]["指标甲·变化"] == {"kind": "delta", "of_ratio": True}
+    assert projected["units"]["指标甲·变化"] == {"kind": "delta", "of_ratio": True, "additive": False}
     assert projected["polarity"] == {column: "down_good" for column in columns[1:]}
     assert projected["dimension_labels"] == {"dimension_a": "维度甲", "dimension_b": "dimension_b"}
     assert projected["measure_labels"] == {column: "指标甲" for column in columns[1:]}
@@ -476,7 +476,7 @@ def test_ask_simple_result_contract_labels_numeric_dimensions_and_time(time_grai
     projected = ask_service._result_contract(
         result, intent, [(_metric(), _version(value_kind="count"))], value_column="value"
     )
-    assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲"}
+    assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲", "additive": True}
     assert projected["polarity"] == {"value": "down_good"}
     assert projected["column_roles"]["dimension_a"] == {"role": "dimension", "label": "维度甲"}
     assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}

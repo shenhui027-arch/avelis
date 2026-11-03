@@ -181,7 +181,7 @@ def test_answer_templates_format_measures_without_changing_wording(template, val
 def test_comparison_template_uses_governed_units_and_number_style(monkeypatch, settings, style, expected):
     monkeypatch.setattr(grounding, "get_settings", lambda: replace(settings, number_style=style))
     metric = SimpleNamespace(name="成交额")
-    version = SimpleNamespace(version_no=1, value_kind="level", unit="元", dimensions=[])
+    version = SimpleNamespace(version_no=1, value_kind="level", unit="元", expression="SUM(amount)", dimensions=[])
     intent = Intent(
         metric_code="amount", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), compare="previous_period"
     )

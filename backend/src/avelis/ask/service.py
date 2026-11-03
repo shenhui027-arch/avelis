@@ -637,7 +637,7 @@ def _result_contract(
     if value_column is not None:
         metric, version = requested[0]
         # 单指标 SQL 的结果别名固定为 value，按编译契约映射，不从列名或值推断。
-        units = {value_column: measures.metric_unit(version)} if value_column in columns else {}
+        units = measures.governed_units(columns, {value_column: version}, None)
         directions = measures.governed_polarity([metric.name], {metric.name: version}, period_label)
         polarity = (
             {value_column: directions[metric.name]} if value_column in columns and metric.name in directions else {}

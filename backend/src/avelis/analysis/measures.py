@@ -13,6 +13,8 @@ import ast
 from decimal import Decimal
 from typing import Any
 
+from avelis.analysis.attribution import base_additive
+
 UNKNOWN = {"kind": "unknown"}
 # 0 是中性常量；其余用于比例、数量级与时间单位换算，探索查询共用此白名单。
 CONSTANTS = {Decimal(value) for value in (0, 1, 24, 60, 100, 1000, 3600, 10000, 1000000, 100000000, 1000000000)}
@@ -59,13 +61,18 @@ def governed_units(columns: list[str], metrics: dict[str, Any], period_label: st
     units: dict[str, dict] = {}
     for name, version in metrics.items():
         base = metric_unit(version)
+        base["additive"] = (
+            getattr(version, "kind", "base") != "derived"
+            and base["kind"] in {"level", "count"}
+            and base_additive(version.expression)[0]
+        )
         declared = [(name, base)]
         if period_label is not None:
             declared.extend(
                 (
                     (f"{name}·{period_label}", base),
-                    (f"{name}·变化", like(base, "delta")),
-                    (f"{name}·变化率", {"kind": "rate_change"}),
+                    (f"{name}·变化", like(base, "delta", additive=base["additive"])),
+                    (f"{name}·变化率", {"kind": "rate_change", "additive": False}),
                 )
             )
         for column, meta in declared:

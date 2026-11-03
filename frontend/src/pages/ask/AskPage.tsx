@@ -212,7 +212,7 @@ export function ResultTable({ result, dimensions }: { result: AskResult; dimensi
           return <th key={`${column}-${index}`} scope="col" aria-sort={order}
             className={dimension ? "av-answer-table__dimension" : "av-answer-table__number"}>
             <button type="button" className="av-answer-table__sort" title={t("按此列排序")}
-              onClick={() => setSort(sort?.index === index ? (sort.desc ? { index, desc: false } : null) : { index, desc: !dimension })}>
+              onClick={() => setSort(nextSort(sort, index, !dimension))}>
               <span className="av-answer-table__head">{columnLabel(result, column)}</span>
               {order !== "none" ? <span aria-hidden="true">{order === "descending" ? "↓" : "↑"}</span> : null}
             </button>
@@ -232,7 +232,13 @@ export function ResultTable({ result, dimensions }: { result: AskResult; dimensi
   );
 }
 
-/** 点表头排序：数值列按数值，其余按文字；再点一次反向，第三次恢复原顺序。 */
+/** 表头的排序循环：数值列先降序、维度列先升序；再点一次反向，第三次恢复原顺序。 */
+function nextSort(sort: { index: number; desc: boolean } | null, index: number, firstDesc: boolean) {
+  if (sort?.index !== index) return { index, desc: firstDesc };
+  return sort.desc === firstDesc ? { index, desc: !firstDesc } : null;
+}
+
+/** 点表头排序：数值列按数值，其余按文字。 */
 function sortedRows(rows: unknown[][], sort: { index: number; desc: boolean } | null): unknown[][] {
   if (!sort) return rows;
   const key = (v: unknown) => (v == null ? null : typeof v === "number" ? v : Number.isFinite(Number(v)) && String(v).trim() !== "" ? Number(v) : String(v));
