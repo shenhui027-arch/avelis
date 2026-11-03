@@ -6,12 +6,22 @@ import re
 from copy import deepcopy
 
 import pytest
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import Drawing, String
+from reportlab.graphics.shapes import Circle, Drawing, String
 from reportlab.lib.colors import HexColor
 from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Table
 
 from avelis.analysis import export
+from avelis.analysis.figures import dataset_charts, key_datasets
+
+
+def draw_dataset(dataset, font, *, brief=False):
+    specs = dataset_charts(dataset)
+    if not specs:
+        return None
+    figure = export._display_figure(
+        {"ref": dataset.get("ref", "D1"), "title": None, "chart": specs[0]}, dataset, brief=brief
+    )
+    return export._spec_chart(figure["chart"], font)
 
 
 def _value(ref: str, column: str, raw: str, text: str, measure: str = "delta", *, row: int = 1) -> dict:
@@ -449,55 +459,45 @@ def test_context_checks_are_summarized_without_repeating_context_only_claims(mon
 def test_key_datasets_only_deduplicate_first_evidence_with_matching_chart_members():
     view = sample_view()
     view["report"]["causes"] = [view["report"]["causes"][0]]
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D3", "D4"])] == ["D3", "D4"]
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D3", "D4"]
     view["report"]["causes"][0]["entity"]["member"] = "未入图的成员"
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
     view["report"]["causes"][0]["entity"]["member"] = "成员甲"
     view["report"]["causes"][0]["entity"]["dimension"] = "another_dimension"
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
     view["report"]["causes"][0]["entity"]["dimension"] = "dimension_code"
     view["report"]["causes"][0]["evidence"] = ["D3", "D2"]
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [["dimension_code", f"其他成员{i}", i + 1] for i in range(10)] + [["dimension_code", "成员甲", -5]],
-        [["dimension_code", "成员甲", None], ["dimension_code", "成员乙", -10], ["dimension_code", "成员丙", 20]],
-    ],
-)
-def test_key_datasets_keep_member_views_when_cause_member_is_not_actually_drawn(rows):
+def test_key_datasets_deduplicate_members_present_in_materialized_spec():
     view = sample_view()
     view["report"]["causes"] = [view["report"]["causes"][0]]
     dataset = view["datasets"][1]
-    dataset["rows"] = rows
-    dataset["row_count"] = len(rows)
-    font, _ = export.pdf_font()
-    chart = export._chart(dataset, font)
-    assert "成员甲" not in [item.text for item in chart.contents if isinstance(item, String)]
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D3", "D4"])] == ["D2", "D3"]
+    dataset["rows"] = [["dimension_code", "成员甲", None], ["dimension_code", "成员乙", -10]]
+    assert dataset_charts(dataset)[0]["kind"] == "grouped_bar"
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D3", "D4"]
 
 
 @pytest.mark.parametrize(
     ("values", "kind", "expected_chart"),
     [
-        ([100, 100], "level", False),
-        ([100, 109], "level", False),
-        ([0, 0], "level", False),
+        ([100, 100], "level", True),
+        ([100, 109], "level", True),
+        ([0, 0], "level", True),
         ([100, 150], "level", True),
         ([-100, 100], "level", True),
-        ([-100, -109], "level", False),
+        ([-100, -109], "level", True),
         ([100, 109], "delta", True),
     ],
 )
-def test_two_nearby_levels_use_only_table(values, kind, expected_chart, monkeypatch):
+def test_two_nearby_levels_follow_recommendation(values, kind, expected_chart, monkeypatch):
     view = sample_view()
     selected = view["datasets"][4]
     selected["rows"] = [["本期", values[0]], ["上期", values[1]]]
     selected["units"]["指标丙"]["kind"] = kind
     font, _ = export.pdf_font()
-    assert (export._chart(selected, font) is not None) is expected_chart
+    assert (draw_dataset(selected, font) is not None) is expected_chart
     story = _pdf_story(monkeypatch, view, appendix=False, datasets=["D5"])
     key_block = next(item for item in story if isinstance(item, KeepTogether))
     assert sum(isinstance(item, Drawing) for item in key_block._content) == int(expected_chart)
@@ -704,17 +704,17 @@ def test_markdown_has_executive_sections_and_separate_appendix():
         assert f"SELECT {seq} AS saved_dataset" not in queries
     assert "已保存范围内未发现变更" in text and "已保存的采集记录均成功，无口径漂移" in text
     assert "共 25 行，显示前 10 行" in text and "结果被截断" in text
-    assert "—" in text  # 指标乙保存的空值
+    assert "—" in export.to_markdown(view, datasets=["D4"])  # 表格仍保留空值
 
 
 def test_key_datasets_use_saved_units_references_and_limit():
     view = sample_view()
-    chosen = export._key_datasets(view, None)
-    assert [d["ref"] for d in chosen] == ["D3", "D4"]  # 原因图使用的 D2 不重复，顺延到下一项。
+    chosen = key_datasets(view, None)
+    assert [d["ref"] for d in chosen] == ["D3", "D1"]  # 单行总量的 KPI 也是合法默认规格。
     assert not any(d["kind"] == "context" for d in chosen)
-    assert not {"D1", "D6", "D7", "D8", "D9", "D10", "D11"} & {d["ref"] for d in chosen}
-    assert [d["ref"] for d in export._key_datasets(view, ["D5", "D4"])] == ["D5", "D4"]
-    assert [d["ref"] for d in export._key_datasets(view, ["D2", "D5", "D5", "D4", "D3"])] == ["D5", "D4"]
+    assert not {"D6", "D7", "D8", "D9", "D10", "D11"} & {d["ref"] for d in chosen}
+    assert [d["ref"] for d in key_datasets(view, ["D5", "D4"])] == ["D5", "D4"]
+    assert [d["ref"] for d in key_datasets(view, ["D2", "D5", "D5", "D4", "D3"])] == ["D5", "D4"]
     text = export.to_markdown(view, audience="full", datasets=["D5"]).split("## 附录", 1)[0]
     assert "另一个可选指标" in text and "指标甲分组对比" not in text
     assert "SELECT " not in text and "用到的数据" not in text and "sample_step" not in text
@@ -802,44 +802,33 @@ def test_unchecked_inference_reference_errors_remain_visible_in_body(monkeypatch
         assert reason in "\n".join(_story_text(captured[-1]))
 
 
-def test_chart_skips_null_and_height_tracks_visible_rows():
+def test_chart_preserves_materialized_categories_and_missing_values():
     font, _ = export.pdf_font()
-    d = sample_view()["datasets"][1]
-    chart = export._chart(
-        {
-            **d,
-            "rows": [
-                ["dimension_code", "成员甲", "-5"],
-                ["dimension_code", "空值成员", None],
-                ["dimension_code", "成员乙", "3"],
-            ],
-        },
-        font,
-    )
-    labels = [c.text for c in chart.contents if isinstance(c, String)]
-    assert "成员甲" in labels and "成员乙" in labels and "空值成员" not in labels
-    assert all("dimension_code" not in label for label in labels)
-    longer = export._chart({**d, "rows": [["dimension_code", f"成员{i}", i] for i in range(10)]}, font)
-    assert 80 <= chart.height < longer.height
-
-
-def test_trend_count_columns_do_not_split_series_and_null_values_are_skipped():
-    font, _ = export.pdf_font()
-    units = {"rows": {"kind": "count"}, "value": {"kind": "level", "unit": "元"}}
-    d = {
-        "columns": ["at", "member", "rows", "value"],
-        "time_column": "at",
-        "meta": {"units": units},
-        "rows": [
-            ["2026-09-01", "成员甲", 2, "10"],
-            ["2026-09-02", "成员甲", 5, None],
-            ["2026-09-03", "成员甲", 8, "30"],
-        ],
+    dataset = {
+        "columns": ["member", "value"],
+        "rows": [["成员甲", -5], ["空值成员", None], ["成员乙", 3]],
+        "meta": {"units": {"value": {"kind": "level", "unit": "元"}}},
     }
-    chart = export._chart(d, font)
-    line = next(item for item in chart.contents if isinstance(item, LinePlot))
-    assert len(line.data) == 1
-    assert line.data[0] == [(0, 10), (2, 30)]
+    specs = dataset_charts(dataset)
+    chart = export._spec_chart(specs[0], font)
+    labels = [c.text for c in chart.contents if isinstance(c, String)]
+    assert {"成员甲", "成员乙", "空值成员"} <= set(labels)
+    assert specs[0]["series"][0]["values"] == [3, -5, None]
+
+
+def test_trend_counts_are_measures_and_missing_values_leave_gaps():
+    font, _ = export.pdf_font()
+    dataset = {
+        "columns": ["at", "rows", "value"],
+        "time_column": "at",
+        "units": {"rows": {"kind": "count"}, "value": {"kind": "level", "unit": "元"}},
+        "rows": [["2026-09-01", 2, 10], ["2026-09-02", 5, None], ["2026-09-03", 8, 30]],
+    }
+    spec = dataset_charts(dataset)[0]
+    assert spec["kind"] == "multiples" and len(spec["series"]) == 2
+    assert spec["series"][1]["values"] == [10, None, 30]
+    chart = export._spec_chart({**spec, "kind": "line", "series": [spec["series"][1]]}, font)
+    assert len([item for item in chart.contents if isinstance(item, Circle)]) == 2
 
 
 def test_pdf_generates_compact_body_and_appendix_starts_with_page_break(monkeypatch):
@@ -867,4 +856,4 @@ def test_pdf_generates_compact_body_and_appendix_starts_with_page_break(monkeypa
     compact = export.to_pdf(sample_view(), appendix=False)
     assert not any(isinstance(item, PageBreak) for item in captured[-1])
     assert "附录" not in list(_story_text(captured[-1]))
-    assert len(re.findall(rb"/Type\s*/Page\b", compact)) <= 2
+    assert len(re.findall(rb"/Type\s*/Page\b", compact)) <= 3

@@ -76,6 +76,7 @@ SYSTEM_PROMPT = (
    维度、窗口与筛选会直接返回已有数据集）；预检足以回答时直接提交报告，只对需要解释的成员或日期细查。
 2. 报告里的每个数字都必须来自工具返回的数据集（D1、D2……）。数据只能用 query_metric 按已发布口径获取；
    差额拆解、因子拆解、日历折算、相关性、行数与缺失期间（coverage）等一律调用计算工具，不要自己心算或数行数。
+   结论依赖趋势、排名或构成时，用 chart 把关键数据集放进报告。
    分析窗口给了对比期时，query_metric 用 compare=custom 并传 compare_start、compare_end；"""
     """previous_period 是紧邻的同长度区间，
    previous_calendar 取上一自然期，只适用于整月、整季或整年。

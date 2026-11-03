@@ -15,14 +15,16 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
-from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from avelis.analysis.figures import reference_counts as _reference_counts
+from avelis.analysis.figures import report_figures
 from avelis.analysis.grounding import _unit, compact, display, number
 from avelis.i18n import gettext
 
@@ -225,7 +227,7 @@ def _brief_footer(view: dict, datasets: list[str] | None = None) -> list[str]:
         )
     )
     saved = {d["ref"]: d for d in view.get("datasets") or []}
-    pending = [*_reference_counts(report), *(d["ref"] for d in _key_datasets(view, datasets))]
+    pending = [*_reference_counts(report), *(f["ref"] for f in report_figures(view, datasets))]
     seen = set()
     while pending:
         ref = pending.pop()
@@ -397,13 +399,6 @@ def _column_roles(d: dict) -> dict | None:
     return _meta(d).get("column_roles")
 
 
-def _time_column(d: dict) -> str | None:
-    roles = _column_roles(d)
-    if roles is not None:
-        return next((c for c in d.get("columns") or [] if (roles.get(c) or {}).get("role") == "time"), None)
-    return d.get("time_column") or _meta(d).get("time_column")
-
-
 def _export_labels(d: dict, view: dict) -> dict:
     """计算结果沿输入继承显示元数据，固定列名另由产品映射；不改原始结果列。"""
     saved = {item["ref"]: item for item in view.get("datasets") or []}
@@ -479,100 +474,6 @@ def _dataset_title(d: dict) -> str:
 
 def _brief_dataset(d: dict, view: dict) -> dict:
     return {**d, "meta": {**_meta(d), "export_labels": _export_labels(d, view)}}
-
-
-def _reference_counts(report: dict) -> Counter:
-    counts: Counter = Counter()
-    for claim in report.get("claims") or []:
-        refs = set(claim.get("refs") or [])
-        refs.update(s.get("ref") for s in claim.get("segments") or [])
-        for detail in (claim.get("details") or {}).values():
-            refs.update(s.get("ref") for s in detail.get("segments") or [])
-        counts.update(r for r in refs if r and REF.fullmatch(r))
-    for cause in report.get("causes") or []:
-        refs = set(cause.get("evidence") or [])
-        refs.update(s.get("ref") for s in (cause.get("contribution") or {}).get("segments") or [])
-        counts.update(r for r in refs if r and REF.fullmatch(r))
-    counts.update(s.get("ref") for _, _, s in _segments(report) if REF.fullmatch(s.get("ref") or ""))
-    return counts
-
-
-METRIC_KINDS = {"level", "delta", "ratio", "rate_change", "share"}
-
-
-def _metric_columns(d: dict) -> list[int]:
-    roles = _column_roles(d)
-    if roles is not None:
-        return [
-            i
-            for i, c in enumerate(d.get("columns") or [])
-            if (roles.get(c) or {}).get("role") in ("measure", "change", "rate")
-        ]
-    units = _units(d)
-    return [i for i, c in enumerate(d.get("columns") or []) if (units.get(c) or {}).get("kind") in METRIC_KINDS]
-
-
-def _chart_value(d: dict, numeric: list[int]) -> int:
-    cols, roles = d.get("columns") or [], _column_roles(d)
-    if roles is not None:
-        return next((i for i in numeric if (roles.get(cols[i]) or {}).get("role") == "change"), numeric[0])
-    return next((i for i in numeric if (_units(d).get(cols[i]) or {}).get("kind") == "delta"), numeric[0])
-
-
-def _key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
-    report = view.get("report") or {}
-    counts = _reference_counts(report)
-    eligible = {
-        d["ref"]: d
-        for d in view.get("datasets") or []
-        if not d.get("restricted")
-        and d.get("kind") != "context"
-        and len(d.get("rows") or []) >= 2
-        and any(number(row[i]) is not None for i in _metric_columns(d) for row in d["rows"])
-        and not _duplicates_cause_chart(d, report)
-    }
-    if datasets is not None:
-        return [eligible[r] for r in dict.fromkeys(datasets) if r in eligible][:2]
-    return sorted((d for r, d in eligible.items() if counts[r]), key=lambda d: -counts[d["ref"]])[:2]
-
-
-def _chart_labels(d: dict, numeric: list[int]) -> list[int]:
-    cols, meta = d.get("columns") or [], _meta(d)
-    roles = _column_roles(d)
-    if roles is not None:
-        return [i for i, c in enumerate(cols) if (roles.get(c) or {}).get("role") in ("dimension", "time")]
-    keys = (meta.get("args") or {}).get("keys") or (meta.get("intent") or {}).get("group_by") or []
-    if "member" in cols:
-        keys = ["member"]
-    return [cols.index(c) for c in keys if c in cols] or [
-        i for i in range(len(cols)) if i not in numeric and cols[i] not in _units(d)
-    ][:2]
-
-
-def _duplicates_cause_chart(d: dict, report: dict) -> bool:
-    """仅跳过主要原因已画出的成员视图；同一证据的其他维度或趋势仍可入选。"""
-    cols, rows = d.get("columns") or [], d.get("rows") or []
-    numeric = _metric_columns(d)
-    if not numeric or (_time_column(d) in cols and len(rows) > 2):
-        return False
-    value = _chart_value(d, numeric)
-    rows = [r for r in rows if number(r[value]) is not None][:10]
-    labels = [cols[i] for i in _chart_labels(d, numeric)]
-    for cause in report.get("causes") or []:
-        evidence, entity = cause.get("evidence") or [], cause.get("entity") or {}
-        if cause.get("type") != "member" or not evidence or evidence[0] != d["ref"] or _cause_value(cause)[0] is None:
-            continue
-        dimension, member = entity.get("dimension"), entity.get("member")
-        if not dimension or member is None:
-            continue
-        if labels == ["member"] and "dimension" in cols:
-            if any(r[cols.index("dimension")] != dimension for r in rows):
-                continue
-        elif labels != [dimension]:
-            continue
-        if any(r[cols.index(labels[0])] == member for r in rows):
-            return True
-    return False
 
 
 def _formatted(value: Any, meta: dict | None = None) -> str:
@@ -967,6 +868,7 @@ def to_markdown(
     view: dict, *, audience: Audience | None = None, appendix: bool | None = None, datasets: list[str] | None = None
 ) -> str:
     view = _export_view(view)
+    figures = report_figures(view, datasets)
     brief = resolve_audience(audience, appendix) == "brief"
     notes = _brief_footer(view, datasets) if brief else []
     if brief:
@@ -1008,13 +910,22 @@ def to_markdown(
     if unexplained := _field(report, "unexplained"):
         lines += ["", "## " + gettext("还没查清"), ""]
         lines += ["> - " + item.strip() for item in unexplained.split("；") if item.strip()]
-    selected = _key_datasets(view, datasets)
+    selected = _figure_datasets(view, figures)
     if selected:
         lines += ["", "## " + gettext("关键数据"), ""]
-        for d in selected:
+        for d, figure in zip(selected, figures, strict=True):
             d = _brief_dataset(d, view) if brief else d
+            figure = _display_figure(figure, d, brief=brief)
             title = _dataset_title(d) if brief else f"{d['ref']} {d['title']}"
-            lines += [f"### {title}", "", *_markdown_table(_table_data(d, brief=brief)), "", _row_note(d), ""]
+            lines += [
+                f"### {title}",
+                "",
+                *_mermaid_chart(figure),
+                *_markdown_table(_table_data(d, brief=brief)),
+                "",
+                _row_note(d),
+                "",
+            ]
     if brief:
         lines += ["", *[f'<small style="color: {GRAY}">{note}</small>' for note in notes], ""]
     if not brief:
@@ -1151,11 +1062,6 @@ BLUE, NEGATIVE, POSITIVE, GRAY, LINE = "#2F6FEB", "#D92D20", "#12B76A", "#667085
 DARK = "#101828"
 
 
-def _num(v: Any) -> float | None:
-    n = number(v)
-    return float(n) if n is not None else None
-
-
 def _ellipsis(text: str, font: str, size: float, width: float) -> str:
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
@@ -1221,98 +1127,239 @@ def _bar_chart(
     return drawing
 
 
-def _chart(d: dict, font: str, *, brief: bool = False):
-    """按列契约选轴；旧结果没有契约时沿用原有推断，空值始终跳过。"""
-    from reportlab.graphics.charts.lineplots import LinePlot
-    from reportlab.graphics.shapes import Drawing, String
+# 浅色主题图表令牌；测试核对 tokens.json，运行时不依赖前端文件。
+VIZ_PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
+VIZ_NEUTRAL = "#9aa3b5"
+
+
+def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float = 468):
+    """只渲染已物化规格，不排序、不聚合、不另选数据。"""
+    import math
+
+    from reportlab.graphics.shapes import Circle, Drawing, Line, Polygon, Rect, String
     from reportlab.lib.colors import HexColor
 
-    if d.get("restricted"):
-        return None
-    cols, rows = d.get("columns") or [], d.get("rows") or []
-    if not rows or len(cols) < 2:
-        return None
-    units, roles = _units(d), _column_roles(d)
-    numeric = _metric_columns(d)
-    if roles is None and not numeric and not units:
-        numeric = [
-            i
-            for i in range(len(cols))
-            if any(_num(r[i]) is not None for r in rows) and all(r[i] is None or _num(r[i]) is not None for r in rows)
+    kind, series = spec["kind"], spec["series"]
+    title = title if title is not None else spec.get("title")
+    header = 22 if title else 0
+    if kind == "multiples":
+        panels = [
+            _spec_chart({**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"], width=width)
+            for s in series
         ]
-    if not numeric:
-        return None
-    value = _chart_value(d, numeric)
-    if len(rows) == 2 and (units.get(cols[value]) or {}).get("kind") == "level":
-        a, b = (number(r[value]) for r in rows)
-        # 两行水平值的差距不超过绝对最大值的 10% 时，表格已能直接表达对比。
-        if a is not None and b is not None and a * b >= 0 and abs(a - b) <= max(abs(a), abs(b)) * Decimal("0.1"):
-            return None
-    time_column = _time_column(d)
-    if time_column in cols and len(rows) > 2:
-        ti = cols.index(time_column)
-        periods = sorted({str(r[ti]) for r in rows})
-        index = {p: i for i, p in enumerate(periods)}
-        dimensions = (
-            [i for i, c in enumerate(cols) if (roles.get(c) or {}).get("role") == "dimension"]
-            if roles is not None
-            else [i for i in range(len(cols)) if i != ti and cols[i] not in units and i not in numeric]
-        )
-        series: dict[str, list] = {}
-        for r in rows:
-            n = _num(r[value])
-            if n is None:
-                continue
-            key = " / ".join(str(r[i]) for i in dimensions if r[i] is not None) or (
-                _column_label(d, cols[value]) if brief else cols[value]
-            )
-            key = _brief_text(key) if brief else key
-            series.setdefault(key, []).append((index[str(r[ti])], n))
-        if not series:
-            return None
-        drawing = Drawing(468, 115)
-        lp = LinePlot()
-        lp.x, lp.y, lp.width, lp.height = 48, 22, 404, 70
-        lp.data = [sorted(points) for points in list(series.values())[:6]]
-        palette = ("#2F6BEA", "#E5484D", "#30A46C", "#F5A524", "#8E4EC6", "#12A594")
-        for i in range(len(lp.data)):
-            lp.lines[i].strokeColor = HexColor(palette[i % len(palette)])
-        lp.xValueAxis.valueSteps = list(range(0, len(periods), max(1, len(periods) // 6)))
-        lp.xValueAxis.labelTextFormat = lambda x: periods[int(x)][-5:] if 0 <= int(x) < len(periods) else ""
-        lp.yValueAxis.labelTextFormat = lambda x: _axis(x * float(_unit(units.get(cols[value]))["scale"]))
-        for axis in (lp.xValueAxis, lp.yValueAxis):
-            axis.labels.fontName, axis.labels.fontSize = font, 7
-            axis.labels.fillColor, axis.strokeColor = HexColor(GRAY), HexColor(LINE)
-        drawing.add(lp)
-        for i, name in enumerate(list(series)[:6]):
-            drawing.add(
-                String(
-                    48 + i * 70,
-                    105,
-                    _ellipsis(name, font, 7, 65),
-                    fontName=font,
-                    fontSize=7,
-                    fillColor=lp.lines[i].strokeColor,
-                )
+        height = sum(panel.height for panel in panels) + header
+        drawing = Drawing(width, height)
+        offset = height - header
+        for panel in panels:
+            offset -= panel.height
+            panel.translate(0, offset)
+            drawing.add(panel)
+    else:
+        horizontal = spec["orientation"] == "horizontal" and kind != "line"
+        height = (max(100, len(spec["categories"]) * 19 + 60) if horizontal and kind != "donut" else 190) + header
+        if kind == "kpi":
+            height = max(45, len(spec["kpis"]) * 22 + 10) + header
+        drawing = Drawing(width, height)
+
+    def text(x, y, value, *, color=GRAY, size=7, anchor="start", limit=None):
+        value = str(value)
+        if limit:
+            value = _ellipsis(value, font, size, limit)
+        drawing.add(String(x, y, value, fontName=font, fontSize=size, fillColor=HexColor(color), textAnchor=anchor))
+
+    if title:
+        text(0, height - 14, title, color=DARK, size=10, limit=width)
+    if kind == "multiples":
+        return drawing
+    if kind == "kpi":
+        for i, kpi in enumerate(spec["kpis"]):
+            text(
+                0,
+                height - header - 20 - i * 22,
+                f"{kpi['label']}  {_formatted(kpi['value'], kpi['unit'])}",
+                size=10,
+                color=DARK,
             )
         return drawing
-    labels = _chart_labels(d, numeric)
-    data = []
-    for n, r in enumerate(rows):
-        raw = _num(r[value])
-        if raw is None:
-            continue
-        label = " / ".join(str(r[i]) for i in labels if r[i] is not None) or str(n + 1)
-        if brief:
-            if d.get("kind") == "calc" and [cols[i] for i in labels] == ["period"]:
-                label = gettext(CALC_PERIOD_LABELS[label]) if label in CALC_PERIOD_LABELS else label
-            label = _brief_text(label)
-        data.append(
-            (label, raw * float(_unit(units.get(cols[value]))["scale"]), _formatted(r[value], units.get(cols[value])))
+    categories = spec["categories"]
+    if not categories or not series:
+        return drawing
+    colors = [VIZ_NEUTRAL if s.get("other") else VIZ_PALETTE[i % len(VIZ_PALETTE)] for i, s in enumerate(series)]
+    if kind == "donut":
+        values = series[0]["values"]
+        total = sum(v or 0 for v in values)
+        angle, cx, cy, radius = 90, 90, (height - header) / 2, 67
+        for i, (category, value) in enumerate(zip(categories, values, strict=True)):
+            color = (
+                VIZ_NEUTRAL if spec.get("others") and i == len(categories) - 1 else VIZ_PALETTE[i % len(VIZ_PALETTE)]
+            )
+            if value is not None and value > 0 and total > 0:
+                end = angle + 360 * value / total
+                steps = max(2, math.ceil((end - angle) / 4))
+                points = [cx, cy]
+                for step in range(steps + 1):
+                    radians = math.radians(angle + (end - angle) * step / steps)
+                    points.extend([cx + radius * math.cos(radians), cy + radius * math.sin(radians)])
+                drawing.add(Polygon(points, fillColor=HexColor(color), strokeColor=None))
+                angle = end
+            text(
+                180,
+                height - header - 22 - i * 19,
+                f"{category}  {_formatted(value, series[0]['unit'])}",
+                color=color,
+                limit=width - 180,
+            )
+        drawing.add(Circle(cx, cy, radius * 0.57, fillColor=HexColor("#ffffff"), strokeColor=None))
+        return drawing
+    # 所有值保持规格的原始单位；刻度与标注统一交给 grounding.display 换算。
+    values = [v for s in series for v in s["values"] if v is not None]
+    lo, hi = min([0, *values]), max([0, *values])
+    if kind == "stacked_bar":
+        lo = min([0, *(sum(min(0, s["values"][i] or 0) for s in series) for i in range(len(categories)))])
+        hi = max([0, *(sum(max(0, s["values"][i] or 0) for s in series) for i in range(len(categories)))])
+    if lo == hi:
+        hi = lo + 1
+    left, right, bottom, top = (105 if horizontal else 64), width - 65, 45, height - header - 25
+    span = hi - lo
+
+    def coordinate(value):
+        return (left if horizontal else bottom) + (value - lo) / span * (
+            (right - left) if horizontal else (top - bottom)
         )
-        if len(data) == 10:
-            break
-    return _bar_chart(data, font)
+
+    for tick in sorted({lo, 0, (lo + hi) / 2, hi}):
+        pos = coordinate(tick)
+        label = _formatted(tick, series[0]["unit"])
+        if horizontal:
+            drawing.add(Line(pos, bottom, pos, top, strokeColor=HexColor(LINE), strokeWidth=0.4))
+            text(pos, bottom - 14, label, anchor="middle")
+        else:
+            drawing.add(Line(left, pos, right, pos, strokeColor=HexColor(LINE), strokeWidth=0.4))
+            text(left - 5, pos - 2, label, anchor="end")
+    band = ((top - bottom) if horizontal else (right - left)) / len(categories)
+    for i, category in enumerate(categories):
+        center = top - band * (i + 0.5) if horizontal else left + band * (i + 0.5)
+        if horizontal:
+            text(left - 7, center - 2, category, anchor="end", limit=left - 10)
+        else:
+            # 保留数据点，密集类目仅稀疏显示轴标签。
+            if i % max(1, math.ceil(len(categories) / 8)) == 0:
+                text(center, bottom - 13, category, anchor="middle", limit=55)
+        positive = negative = 0
+        for j, s in enumerate(series):
+            value = s["values"][i]
+            if value is None:
+                continue
+            color = colors[j]
+            if kind == "diverging_bar":
+                polarity = s.get("polarity")
+                good = (value >= 0) == (polarity == "up_good")
+                color = (POSITIVE if good else NEGATIVE) if polarity else VIZ_NEUTRAL
+            if kind == "line":
+                x, y = center, coordinate(value)
+                if i and s["values"][i - 1] is not None:
+                    drawing.add(
+                        Line(
+                            x - band, coordinate(s["values"][i - 1]), x, y, strokeColor=HexColor(color), strokeWidth=1.5
+                        )
+                    )
+                drawing.add(Circle(x, y, 2, fillColor=HexColor(color), strokeColor=None))
+                text(x, y + 5, _formatted(value, s["unit"]), color=color, anchor="middle", size=6)
+                continue
+            start = 0
+            if kind == "stacked_bar":
+                start = positive if value >= 0 else negative
+                if value >= 0:
+                    positive += value
+                else:
+                    negative += value
+                breadth, position = band * 0.65, center - band * 0.325
+            else:
+                breadth = band * 0.7 / len(series)
+                position = center - band * 0.35 + j * breadth
+            a, b = coordinate(start), coordinate(start + value)
+            if horizontal:
+                drawing.add(
+                    Rect(min(a, b), position, abs(b - a), breadth * 0.9, fillColor=HexColor(color), strokeColor=None)
+                )
+                text(
+                    b + (3 if value >= 0 else -3),
+                    position + 2,
+                    _formatted(value, s["unit"]),
+                    color=color,
+                    anchor="start" if value >= 0 else "end",
+                    size=6,
+                )
+            else:
+                drawing.add(
+                    Rect(position, min(a, b), breadth * 0.9, abs(b - a), fillColor=HexColor(color), strokeColor=None)
+                )
+                text(
+                    position + breadth / 2,
+                    b + (3 if value >= 0 else -8),
+                    _formatted(value, s["unit"]),
+                    color=color,
+                    anchor="middle",
+                    size=6,
+                )
+    for i, s in enumerate(series):
+        column, row = i % 4, i // 4
+        text(left + column * 96, 19 - row * 10, s["name"], color=colors[i], limit=92)
+    return drawing
+
+
+def _figure_datasets(view: dict, figures: list[dict]) -> list[dict]:
+    known = {d["ref"]: d for d in view.get("datasets") or []}
+    return [known[f["ref"]] for f in figures]
+
+
+def _display_figure(figure: dict, dataset: dict, *, brief: bool) -> dict:
+    """仅沿用导出的可读标签处理，不改变规格的行、数值或图种。"""
+    if not brief:
+        return figure
+    spec = figure["chart"]
+    title = _brief_text(figure["title"]) if spec.get("title") and figure.get("title") else _dataset_title(dataset)
+    categories = spec["categories"]
+    if dataset.get("kind") == "calc" and (spec.get("x") or {}).get("column") == "period":
+        categories = [gettext(CALC_PERIOD_LABELS.get(c, c)) for c in categories]
+    return {
+        **figure,
+        "title": title,
+        "chart": {
+            **spec,
+            "categories": categories,
+            "series": [
+                {
+                    **s,
+                    "name": _column_label(dataset, s["column"])
+                    if s["name"] in (s["column"], s["label"])
+                    else s["name"],
+                }
+                for s in spec["series"]
+            ],
+            "kpis": [{**k, "label": _column_label(dataset, k["column"])} for k in spec["kpis"]],
+        },
+    }
+
+
+def _mermaid_chart(figure: dict) -> list[str]:
+    spec = figure["chart"]
+    if spec["kind"] not in ("line", "bar") or not spec["series"]:
+        return []
+    # Mermaid 不能表示缺测值；保留表格，避免将缺测值画成零。
+    values = spec["series"][0]["values"]
+    if not values or any(value is None for value in values):
+        return []
+
+    def quote(value):
+        return json.dumps(str(value), ensure_ascii=False).replace("`", "\\u0060").replace("<", "\\u003c")
+
+    result = ["```mermaid", "xychart-beta"]
+    if figure.get("title"):
+        result.append("    title " + quote(figure["title"]))
+    result.append("    x-axis [" + ", ".join(quote(c) for c in spec["categories"]) + "]")
+    result.append("    " + spec["kind"] + " [" + ", ".join(str(v) for v in values) + "]")
+    return [*result, "```", ""]
 
 
 def to_pdf(
@@ -1328,6 +1375,7 @@ def to_pdf(
     from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     view = _export_view(view)
+    figures = report_figures(view, datasets)
     brief = resolve_audience(audience, appendix) == "brief"
     notes = _brief_footer(view, datasets) if brief else []
     if brief:
@@ -1548,18 +1596,30 @@ def to_pdf(
             )
         )
         story.append(unresolved)
-    selected = _key_datasets(view, datasets)
+    selected = _figure_datasets(view, figures)
     if selected:
-        for i, d in enumerate(selected):
+        for i, (d, figure) in enumerate(zip(selected, figures, strict=True)):
             d = _brief_dataset(d, view) if brief else d
-            chart = _chart(d, font, brief=brief)
+            figure = _display_figure(figure, d, brief=brief)
+            chart = _spec_chart(figure["chart"], font, title=figure["title"])
             block = ([heading("关键数据")] if i == 0 else []) + [
                 p(_dataset_title(d) if brief else f"{d['ref']} {d['title']}")
             ]
-            if chart is not None:
+            if figure["chart"]["kind"] == "multiples":
+                spec = figure["chart"]
+                if figure["title"]:
+                    block.append(p(figure["title"]))
+                block.extend(
+                    _spec_chart({**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"])
+                    for s in spec["series"]
+                )
+            elif chart is not None:
                 block.append(chart)
             block += [table(_table_data(d, brief=brief)), p(_row_note(d), small), Spacer(1, 3)]
-            story.append(KeepTogether(block))
+            if figure["chart"]["kind"] == "multiples":
+                story.extend(block)
+            else:
+                story.append(KeepTogether(block))
     story += [Spacer(1, 7)]
     if brief:
         story += [p(note, small) for note in notes]

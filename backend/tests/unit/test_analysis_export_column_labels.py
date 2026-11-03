@@ -86,7 +86,7 @@ def _assert_headers(format, kind, columns, meta, headers):
         "kind": kind,
         "title": "比较结果",
         "columns": columns,
-        "rows": [[20, 10, 10, 1], [30, 20, 10, 0.5]],
+        "rows": [[20, 10, 10, 1]],  # 无维度的比较结果采用单行 KPI 规格。
         "meta": meta,
         "column_roles": dataset_projection.build_column_roles(columns, meta),
     }

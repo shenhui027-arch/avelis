@@ -12,7 +12,8 @@ from reportlab.lib.colors import HexColor
 from reportlab.platypus import PageBreak, Paragraph
 
 from avelis.analysis import export
-from tests.unit.test_analysis_export import _flowables, _pdf_story, _story_text, sample_view
+from avelis.analysis.figures import key_datasets
+from tests.unit.test_analysis_export import _flowables, _pdf_story, _story_text, draw_dataset, sample_view
 
 APPROVED_FOOTER = "报告中的数字均来自系统内已审核的指标口径，可在 Avelis 中查看计算依据。"
 EXPLORE_FOOTER = "部分数字来自临时查询，尚未经过指标口径审核。"
@@ -28,10 +29,13 @@ def _drawing_text(item):
 
 
 def _pdf_text(story):
-    texts = list(_story_text(story))
-    for item in _flowables(story):
-        if isinstance(item, Drawing):
-            texts.extend(_drawing_text(item))
+    # 图形文字按其正文位置插入，避免被误认为附录内容。
+    texts = []
+    for item in story:
+        texts.extend(_story_text([item]))
+        for flowable in _flowables([item]):
+            if isinstance(flowable, Drawing):
+                texts.extend(_drawing_text(flowable))
     return "\n".join(texts)
 
 
@@ -136,9 +140,9 @@ def test_restricted_datasets_are_ineligible_for_charts_tables_and_core_metrics()
         dataset["restricted"] = True
     font, _ = export.pdf_font()
 
-    assert export._key_datasets(view) == []
+    assert key_datasets(view) == []
     assert export._core_metrics(view) == []
-    assert export._chart(view["datasets"][2], font) is None
+    assert draw_dataset(view["datasets"][2], font) is None
     assert export._table_data(view["datasets"][2]) == []
 
 
@@ -444,7 +448,7 @@ def test_brief_chart_translates_only_fixed_period_values(column, expected):
         "meta": {"units": {"value": {"kind": "level"}}},
     }
     font, _ = export.pdf_font()
-    chart = export._chart(dataset, font, brief=True)
+    chart = draw_dataset(dataset, font, brief=True)
     labels = list(_drawing_text(chart))
     assert all(label in labels for label in expected)
     excluded = ["本期", "对比期"] if column == "member" else ["current", "previous"]

@@ -1,0 +1,129 @@
+"""报告插图的公共投影：页面与导出使用同一套完整数据和选图规格。"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from avelis.analysis.dataset_projection import build_column_roles
+from avelis.analysis.grounding import number
+from avelis.charts import recommend
+
+
+def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:
+    if dataset.get("restricted"):
+        return []
+    meta = {**(dataset.get("meta") or {})}
+    for key in ("units", "polarity", "intent", "time_column"):
+        if key in dataset:
+            meta[key] = dataset[key]
+    columns = dataset.get("columns") or []
+    roles = dataset.get("column_roles")
+    if roles is None:
+        roles = meta.get("column_roles")
+    if roles is None:
+        roles = build_column_roles(columns, meta)
+    return recommend(
+        columns,
+        dataset.get("rows") or [],
+        roles,
+        meta.get("units") or {},
+        meta.get("polarity") or {},
+        meta.get("intent"),
+        preference=preference,
+    )
+
+
+def reference_counts(report: dict) -> Counter:
+    counts: Counter = Counter()
+    records = list((report.get("fields") or {}).values())
+    for claim in report.get("claims") or []:
+        details = list((claim.get("details") or {}).values())
+        refs = set(claim.get("refs") or [])
+        refs.update(s.get("ref") for r in [claim, *details] for s in r.get("segments") or [])
+        counts.update(r for r in refs if r and re.fullmatch(r"D[1-9]\d*", r))
+        records.extend([claim, *details])
+    for cause in report.get("causes") or []:
+        contribution = cause.get("contribution") or {}
+        refs = set(cause.get("evidence") or [])
+        refs.update(s.get("ref") for s in contribution.get("segments") or [])
+        counts.update(r for r in refs if r and re.fullmatch(r"D[1-9]\d*", r))
+        records.append(contribution)
+    counts.update(
+        s["ref"]
+        for r in records
+        for s in r.get("segments") or []
+        if s.get("kind") in ("value", "count", "label", "window") and re.fullmatch(r"D[1-9]\d*", s.get("ref") or "")
+    )
+    return counts
+
+
+def _duplicates_cause_chart(dataset: dict, report: dict, chart: dict) -> bool:
+    """仅排除原因图已展示的成员；其他维度与时间趋势仍可入选。"""
+    x = chart.get("x") or {}
+    if x.get("role") != "dimension":
+        return False
+    columns, rows = dataset.get("columns") or [], dataset.get("rows") or []
+    dimension = x.get("column")
+    for cause in report.get("causes") or []:
+        evidence, entity = cause.get("evidence") or [], cause.get("entity") or {}
+        contribution = cause.get("contribution") or {}
+        raw = number(contribution.get("raw"))
+        if raw is None:
+            raw = next(
+                (number(s.get("raw")) for s in contribution.get("segments") or [] if number(s.get("raw")) is not None),
+                None,
+            )
+        if cause.get("type") != "member" or not evidence or evidence[0] != dataset["ref"] or raw is None:
+            continue
+        member = entity.get("member")
+        if "member" in columns and "dimension" in columns:
+            if any(r[columns.index("dimension")] != entity.get("dimension") for r in rows):
+                continue
+            members = [r[columns.index("member")] for r in rows]
+            if member in members and (
+                member in chart["categories"] or any(s["name"] == str(member) for s in chart["series"])
+            ):
+                return True
+            continue
+        if dimension != entity.get("dimension"):
+            continue
+        if member is not None and member in chart["categories"]:
+            return True
+    return False
+
+
+def key_datasets(view: dict, datasets: list[str] | None = None) -> list[dict]:
+    report = view.get("report") or {}
+    counts = reference_counts(report)
+    eligible = {}
+    for dataset in view.get("datasets") or []:
+        if dataset.get("restricted") or dataset.get("kind") == "context":
+            continue
+        options = dataset_charts(dataset)
+        if options and not _duplicates_cause_chart(dataset, report, options[0]):
+            eligible[dataset["ref"]] = dataset
+    if datasets is not None:
+        return [eligible[r] for r in dict.fromkeys(datasets) if r in eligible][:2]
+    return sorted((d for r, d in eligible.items() if counts[r]), key=lambda d: -counts[d["ref"]])[:2]
+
+
+def report_figures(view: dict, datasets: list[str] | None = None) -> list[dict]:
+    """显式插图优先；旧报告或空列表退回引用最多的两个可画数据集。"""
+    saved = (view.get("report") or {}).get("figures")
+    known = {d["ref"]: d for d in view.get("datasets") or []}
+    requests = saved or [{"dataset": d["ref"], "title": d.get("title")} for d in key_datasets(view, datasets)]
+    result = {}
+    for request in requests:
+        ref = request.get("dataset")
+        dataset = known.get(ref)
+        if dataset is None or dataset.get("restricted"):
+            continue
+        preference = {k: request[k] for k in ("kind", "title", "top_n") if k in request} if saved else None
+        options = dataset_charts(dataset, preference)
+        if not options or (saved and (request.get("kind") == "kpi" or options[0]["kind"] != request.get("kind"))):
+            continue
+        result[ref] = {"ref": ref, "title": request.get("title"), "chart": options[0]}
+        if len(result) == 4:
+            break
+    return list(result.values())
