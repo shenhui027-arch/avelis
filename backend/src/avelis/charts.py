@@ -48,10 +48,49 @@ def _comparison_groups(columns: list[str], roles: dict) -> list[tuple[str, str, 
 
 
 def recommend(
-    columns: list[str], rows: list[list], roles: dict, units: dict, polarity: dict, intent: dict | None = None
+    columns: list[str],
+    rows: list[list],
+    roles: dict,
+    units: dict,
+    polarity: dict,
+    intent: dict | None = None,
+    preference: dict | None = None,
+) -> list[dict]:
+    """校验可选展示偏好；非法偏好整体忽略，原始查询结果不变。"""
+    specs = _recommend(columns, rows, roles, units, polarity, intent)
+    if not isinstance(preference, dict) or set(preference) - {"kind", "title", "top_n"}:
+        return specs
+    kind, title, top_n = (preference.get(key) for key in ("kind", "title", "top_n"))
+    selected = next((s for s in specs if s["kind"] == kind and kind != "kpi"), None)
+    if (
+        selected is None
+        or (title is not None and (not isinstance(title, str) or len(title) > 40))
+        or (top_n is not None and (type(top_n) is not int or not 2 <= top_n <= 20))
+    ):
+        return specs
+    if top_n is not None and (
+        (selected["orientation"] == "horizontal" and kind in ("bar", "grouped_bar", "diverging_bar"))
+        or (kind == "multiples" and selected["x"] and selected["x"]["role"] == "dimension")
+    ):
+        tuned = _recommend(columns, rows, roles, units, polarity, intent, top_n=top_n)
+        selected = next(s for s in tuned if s["kind"] == kind)
+    selected = {**selected, "title": title}
+    return [selected, *(s for s in specs if s["kind"] != kind)]
+
+
+def _recommend(
+    columns: list[str],
+    rows: list[list],
+    roles: dict,
+    units: dict,
+    polarity: dict,
+    intent: dict | None = None,
+    *,
+    top_n: int | None = None,
 ) -> list[dict]:
     """返回默认图及同数据候选的已物化规格；没有合适图表时返回空列表。"""
     intent = intent or {}
+    limit = top_n or 20
     by_role = {
         role: [c for c in columns if roles.get(c, {}).get("role") == role]
         for role in ("time", "dimension", "measure", "change")
@@ -87,6 +126,7 @@ def recommend(
     def spec(kind, reason, x, categories, series_list, *, orientation="vertical", others=None, dropped=0, kpis=None):
         return {
             "kind": kind,
+            "title": None,
             "orientation": orientation,
             "reason": reason,
             "x": {
@@ -139,26 +179,42 @@ def recommend(
 
     if groups and dimension and len(rows) >= 2:
         current, previous, change, _ = groups[0]
-        ranked = ordered(rows, lambda row: value(row, change))[:20]
+
+        def comparison_data(sort_column, columns):
+            ranked = ordered(rows, lambda row: value(row, sort_column))
+            kept, tail = ranked[:limit], ranked[limit:]
+            categories = [cell(row, dimension) for row in kept]
+            values = [[value(row, column) for row in kept] for column in columns]
+            merged = None
+            if top_n is not None and tail and all(additive(c) for c in columns):
+                merged = {"count": len(tail)}
+                categories.append(gettext("其他"))
+                for column, items in zip(columns, values, strict=True):
+                    items.append(_sum(value(row, column) for row in tail))
+            return categories, values, merged
+
+        categories, values, merged = comparison_data(change, [change])
         default = spec(
             "diverging_bar",
             "change",
             dimension,
-            [cell(row, dimension) for row in ranked],
-            [series(change, [value(row, change) for row in ranked], direction=current)],
+            categories,
+            [series(change, values[0], direction=current)],
             orientation="horizontal",
+            others=merged,
         )
-        ranked = ordered(rows, lambda row: value(row, current))[:20]
+        categories, values, merged = comparison_data(current, [current, previous])
         candidate = spec(
             "grouped_bar",
             "comparison",
             dimension,
-            [cell(row, dimension) for row in ranked],
+            categories,
             [
-                series(current, [value(row, current) for row in ranked], name=gettext("本期")),
-                series(previous, [value(row, previous) for row in ranked], name=gettext(previous.rsplit("·", 1)[1])),
+                series(current, values[0], name=gettext("本期")),
+                series(previous, values[1], name=gettext(previous.rsplit("·", 1)[1])),
             ],
             orientation="horizontal",
+            others=merged,
         )
         return [default, candidate]
 
@@ -288,11 +344,19 @@ def recommend(
         for category, items in grouped.items()
     }
     categories = ordered(list(grouped), lambda category: values[category][0], asc=intent.get("order") == "asc")
-    tail = categories[20:]
-    categories = categories[:20]
+    tail = categories[limit:]
+    categories = categories[:limit]
     materialized = [[values[category][index] for category in categories] for index in range(len(measures))]
     if len(measures) >= 2:
-        return multi(dimension, categories, materialized)
+        result = multi(dimension, categories, materialized)
+        for chart in result:
+            if top_n is not None and tail and all(additive(s["column"]) for s in chart["series"]):
+                chart["others"] = {"count": len(tail)}
+                chart["categories"] = [*categories, gettext("其他")]
+                for s in chart["series"]:
+                    index = measures.index(s["column"])
+                    s["values"] = [*s["values"], _sum(values[category][index] for category in tail)]
+        return result
     column = measures[0]
     merged = None
     if tail and additive(column):

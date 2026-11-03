@@ -992,6 +992,7 @@ class ChartOthers(Out):
 
 class ChartSpec(Out):
     kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
+    title: str | None = None
     orientation: Literal["vertical", "horizontal"]
     reason: Literal[
         "kpi", "time_series", "time_by_dimension", "ranking", "composition", "comparison", "change", "multi_measure"

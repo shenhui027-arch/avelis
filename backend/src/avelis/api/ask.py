@@ -36,6 +36,7 @@ def _answer_result(a: Answer, session: Session | None) -> dict:
                 result.get("units") or {},
                 result.get("polarity") or {},
                 getattr(a, "intent", None),
+                preference=(a.evidence or {}).get("chart"),
             ),
         }
     return result

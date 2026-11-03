@@ -2218,3 +2218,9 @@ msgstr "無法依本環境鎖定的組成口徑展開衍生公式：{reason}"
 
 msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
 msgstr "核心運算式與擴充內容中的衍生公式不一致，需人工處理"
+msgid "查询数据源失败：{error}"
+msgstr "查詢資料來源失敗：{error}"
+
+msgid "模型调用失败：{error}"
+msgstr "模型呼叫失敗：{error}"
+

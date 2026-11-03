@@ -53,6 +53,7 @@ from avelis.models import (
     ColumnVersion,
     Datasource,
     Definition,
+    Domain,
     Impact,
     Job,
     LineageEdge,
@@ -79,15 +80,20 @@ def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catal
     access.require_role(session, user, "analyst", "steward", "reviewer")
     settings = get_settings()
     cards, versions = [], {}
+    domains = {}
     for metric in visible_metrics(session, user):
         version = latest_governed_version(session, metric)
         if version is None:
             continue
         versions[metric.code] = (metric, version)
+        if metric.domain_id not in domains:
+            domain = session.get(Domain, metric.domain_id)
+            domains[metric.domain_id] = domain.name if domain else ""
         cards.append(
             MetricCard(
                 code=metric.code,
                 name=metric.name,
+                domain=domains[metric.domain_id],
                 aliases=metric.aliases or [],
                 ai_context=metric_ai_context(metric),
                 dimensions=version.dimensions or [],

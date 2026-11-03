@@ -30,6 +30,7 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
         json.dumps(spec, allow_nan=False)
         assert set(spec) == {
             "kind",
+            "title",
             "orientation",
             "reason",
             "x",
