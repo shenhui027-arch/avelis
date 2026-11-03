@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import ValidationError
 
+from avelis import config as app_config
 from avelis.analysis import agent, service, tools
 from avelis.analysis.tools import Budget, PermissionDenied, PermissionLost
 from avelis.api.schemas import AnalysisResumeIn, AnalysisRunOut
@@ -371,6 +372,14 @@ def test_always_mode_does_not_pause_without_proposal_items(monkeypatch):
 
 
 def test_followup_precheck_keeps_the_original_calendar_dataset(monkeypatch):
+    settings = app_config.build_settings(
+        {
+            "AVELIS_SECRET": "unit-test-secret-only",
+            "AVELIS_ANALYSIS_RETRIEVAL": "false",
+            "AVELIS_ANALYSIS_INVESTIGATION": "false",
+        }
+    )
+    monkeypatch.setattr(tools, "get_settings", lambda: settings)
     cat = pipeline_catalog()
     cat.versions["m_a"][1].id, cat.versions["m_a"][1].version_no = "metric-v1", 1
     scope = {"question_type": "change", "metric_codes": ["m_a"]}

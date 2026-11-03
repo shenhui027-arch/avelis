@@ -304,7 +304,7 @@ def main(argv: list[str]) -> None:
             from avelis.api.app import create_app
 
             target = Path(argv[1])
-            # 离线契约包含可选模块，避免默认关闭 MCP 时删除前端管理页面所需类型。
+            # 离线契约包含可选模块，避免显式关闭 MCP 时删除前端管理页面所需类型。
             # 只覆盖本次导出的工厂参数，不改变运行配置，也不启动子应用 lifespan。
             schema_settings = replace(get_settings(), mcp_enabled=True, public_url="https://avelis.invalid")
             spec = json.dumps(create_app(settings=schema_settings).openapi(), ensure_ascii=False, indent=1)

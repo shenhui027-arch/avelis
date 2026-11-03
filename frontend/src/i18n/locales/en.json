@@ -1538,7 +1538,6 @@
   "重投": "Redeliver",
   "测试事件": "Test event",
   "MCP 接入": "MCP access",
-  "MCP 服务未开启：管理员需在部署配置中设置 AVELIS_MCP_ENABLED=true 并配置对外地址": "The MCP service is off: an admin needs to set AVELIS_MCP_ENABLED=true and the public URL in the deployment config",
   "元数据文档": "Metadata document",
   "全部客户端": "All clients",
   "动态注册": "Dynamic registration",
@@ -1562,8 +1561,6 @@
   "授权请求无效：缺少票据": "Invalid authorization request: missing ticket",
   "撤销对 {{name}} 的授权？": "Revoke access for {{name}}?",
   "最近使用": "Last used",
-  "服务未开启": "Service is off",
-  "未开启": "Off",
   "查看已发布的口径定义": "View published metric definitions",
   "查看资产血缘与结构变化": "View asset lineage and schema changes",
   "注册方式": "Registration",
@@ -1605,5 +1602,7 @@
   "目标业务域": "Target domain",
   "错误": "Errors",
   "支持 Apache Ossie 0.2.0.dev0（提交 48da55a）的 YAML 或 JSON，也能读取旧版（提交 88e0011）的文件。导入只生成草稿版本，必须经过复核才能发布；关联路径不会自动创建。": "Accepts YAML or JSON in Apache Ossie 0.2.0.dev0 (commit 48da55a), and can also read files in the older format (commit 88e0011). Import only creates draft versions, which must be reviewed before publishing; join paths are not created automatically.",
-  "可导入": "Ready to import"
+  "可导入": "Ready to import",
+  "MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），删掉这项或改为 true 即可恢复": "The MCP service is turned off in the deployment config (AVELIS_MCP_ENABLED=false); remove it or set it to true to turn it back on",
+  "服务已关闭": "Service is off"
 }

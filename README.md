@@ -133,6 +133,8 @@ flowchart LR
 
 `[bootstrap] initial_admin_password` 可选，留空使用默认口令 `123456`，不校验强度、不强制改密，请登录后在界面修改。显式填写时须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。用户名默认 `admin`，可通过 `initial_admin_username` 修改；已有启用的管理员时跳过，不修改已有账号。
 
+自动迁移与首个管理员初始化默认开启，即使未写 `[bootstrap]` 段也会执行。MCP 同样默认开启，可直接使用 **设置 → MCP 接入**；未配置 `AVELIS_PUBLIC_URL` 时按本次请求的 scheme、Host 与 ASGI `root_path` 推导对外地址。反向代理后请正确设置 `AVELIS_FORWARDED_ALLOW_IPS` 并保留 Host，或直接配置 `AVELIS_PUBLIC_URL`；不需要 MCP 时可设 `AVELIS_MCP_ENABLED=false`。分析的元数据图证据发现与证据解释也默认开启（仍属实验特性），没有模型或元数据图时跳过额外证据；可分别用 `AVELIS_ANALYSIS_RETRIEVAL=false`、`AVELIS_ANALYSIS_INVESTIGATION=false` 关闭。
+
 优先级：环境变量 `AVELIS_*` > `.env` 文件 > 配置文件 > 内置默认值；口令也可以从文件读取（`password_file` / `AVELIS_*_FILE`）。启动时校验配置，出错会指出哪一项、怎么改。全部配置项见[配置参考](docs/configuration.md)。
 
 ## 开发

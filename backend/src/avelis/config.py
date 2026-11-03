@@ -87,8 +87,8 @@ class Settings:
     require_column_comments: bool = False
     material_change_ratio: float = 0.01  # 变化显著性阈值（相对对比期，ADR 0009 第 7 点）：口径版本未单独配置时使用
     analysis_query_limit: int = 20  # 一次分析里查询类工具共用的额度（ADR 0009 第 7 点第 7 条）
-    analysis_retrieval: bool = False  # 元数据图证据发现（P1 R）
-    analysis_investigation: bool = False  # 证据解释（P1 H），本阶段只定义开关
+    analysis_retrieval: bool = True  # 元数据图证据发现（P1 R）
+    analysis_investigation: bool = True  # 证据解释（P1 H）
     analysis_uniform_tolerance: float = 0.5  # 成员变化率相对总体变化率的均匀容差
     analysis_spike_share: float = 0.5  # 最大单日偏差占总偏差的时间集中度阈值
     worker_schedule_seconds: int = 60
@@ -105,7 +105,7 @@ class Settings:
     port: int = 8000
     workers: int = 1
     public_url: str = ""
-    mcp_enabled: bool = False
+    mcp_enabled: bool = True
     mcp_access_token_seconds: int = 900
     mcp_refresh_token_seconds: int = 30 * 24 * 3600
     mcp_cimd_cache_ttl_seconds: int = 3600
@@ -113,8 +113,8 @@ class Settings:
     forwarded_allow_ips: str = "127.0.0.1"
     log_level: str = "info"
     frontend_dir: Path | None = None
-    auto_migrate: bool = False
-    auto_init_admin: bool = False
+    auto_migrate: bool = True
+    auto_init_admin: bool = True
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800
@@ -286,8 +286,11 @@ def _build_settings(env: dict[str, str]) -> Settings:
         in ("1", "true", "yes"),
         material_change_ratio=float(env.get("AVELIS_MATERIAL_CHANGE_RATIO", "0.01")),
         analysis_query_limit=int(env.get("AVELIS_ANALYSIS_QUERY_LIMIT", "20")),
-        analysis_retrieval=env.get("AVELIS_ANALYSIS_RETRIEVAL", "false").strip().lower() in ("1", "true", "yes"),
-        analysis_investigation=env.get("AVELIS_ANALYSIS_INVESTIGATION", "false").strip().lower()
+        analysis_retrieval=env.get("AVELIS_ANALYSIS_RETRIEVAL", str(Settings.analysis_retrieval)).strip().lower()
+        in ("1", "true", "yes"),
+        analysis_investigation=env.get("AVELIS_ANALYSIS_INVESTIGATION", str(Settings.analysis_investigation))
+        .strip()
+        .lower()
         in ("1", "true", "yes"),
         analysis_uniform_tolerance=_unit_interval(
             env, "AVELIS_ANALYSIS_UNIFORM_TOLERANCE", Settings.analysis_uniform_tolerance
@@ -464,8 +467,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
     try:
         if any(c in values.get("AVELIS_PUBLIC_URL", "") for c in "?#"):
             raise ValueError("AVELIS_PUBLIC_URL 不支持查询参数或片段")
-        if _boolean(values, "AVELIS_MCP_ENABLED", Settings.mcp_enabled):
-            public_url = values.get("AVELIS_PUBLIC_URL", "").strip()
+        if public_url := values.get("AVELIS_PUBLIC_URL", "").strip():
             parsed = urlsplit(public_url)
             if (
                 parsed.scheme not in ("http", "https")
@@ -477,7 +479,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 or any(c.isspace() for c in public_url)
                 or "\\" in public_url
             ):
-                raise ValueError("启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址")
+                raise ValueError("AVELIS_PUBLIC_URL 须为无凭据、查询参数或片段的 HTTP(S) 公开地址")
             parsed.port  # 校验非法端口
     except ValueError as exc:
         values.problem("AVELIS_PUBLIC_URL", str(exc))

@@ -12,9 +12,11 @@ def settings(**values):
     return build_settings({"AVELIS_SECRET": SECRET, **values})
 
 
-def test_mcp_defaults_are_disabled_and_short_lived():
+def test_mcp_defaults_are_enabled_and_short_lived():
     value = settings()
-    assert not value.mcp_enabled
+    assert value.mcp_enabled
+    assert value.public_url == ""
+    assert CONFIG_KEYS["mcp.enabled"].default is True
     assert value.mcp_access_token_seconds == 900
     assert value.mcp_refresh_token_seconds == 2592000
     assert value.mcp_cimd_cache_ttl_seconds == 3600
@@ -44,7 +46,6 @@ def test_public_url_rejects_query_and_fragment_at_startup(enabled, suffix):
 @pytest.mark.parametrize(
     "url",
     [
-        "",
         "relative",
         "ftp://avelis.example",
         "https://user:pass@avelis.example",
@@ -54,7 +55,7 @@ def test_public_url_rejects_query_and_fragment_at_startup(enabled, suffix):
         "https://avelis.example/has space",
     ],
 )
-def test_enabled_mcp_requires_valid_public_url(url):
+def test_configured_public_url_must_be_valid(url):
     with pytest.raises(ConfigError, match="AVELIS_PUBLIC_URL"):
         settings(AVELIS_MCP_ENABLED="true", AVELIS_PUBLIC_URL=url)
 

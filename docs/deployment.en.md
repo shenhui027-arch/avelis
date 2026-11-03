@@ -72,6 +72,8 @@ Open `avelis.toml` in a text editor and fill in the three values marked 【必�
 
 `[bootstrap] initial_admin_password` is optional. When unset or empty, the first administrator defaults to `admin` / `123456`, without a strength check or forced password change. Change the password in the UI after signing in. An explicitly supplied password must be 12–128 characters, must not contain the username, and must have at least 4 distinct characters; it must be changed on first sign-in. Use `initial_admin_username` to change the username.
 
+`bootstrap.auto_migrate` and `bootstrap.auto_init_admin` both default to `true`; migration and administrator initialization run even with no `[bootstrap]` section. MCP is enabled by default, so **Settings → MCP access**, `/mcp`, `/oauth/*`, and `/.well-known/*` are ready after deployment without setting `AVELIS_MCP_ENABLED=true` or supplying a public address first. Without `AVELIS_PUBLIC_URL`, the backend derives issuer and resource addresses from the request's scheme after uvicorn processing, Host, and ASGI `root_path`. Keep the same hostname throughout authorization and resource access. Set `AVELIS_MCP_ENABLED=false` explicitly if MCP is not needed.
+
 Everything else (business time zone, session length, query timeout and row limit, analysis budget, log level, automatic migration, and so on) has a default; change it as needed. `avelis.toml` contains passwords: restrict who can read it, and make sure the container user (UID 10001) can:
 
 ```bash
@@ -150,18 +152,18 @@ docker run -d --name avelis-worker --no-healthcheck \
   avelis:1.0.1 python -m avelis.jobs
 ```
 
-The image reads `/etc/avelis/avelis.toml` by default. Its built-in health check targets the API, so the worker container disables it with `--no-healthcheck`. Point `[database]` and `[redis]` at the external services and keep `[bootstrap] auto_migrate` and `auto_init_admin` set to `true` (the sample defaults). You can also skip the configuration file and pass everything as `-e AVELIS_*` environment variables.
+The image reads `/etc/avelis/avelis.toml` by default. Its built-in health check targets the API, so the worker container disables it with `--no-healthcheck`. Point `[database]` and `[redis]` at the external services; `[bootstrap] auto_migrate` and `auto_init_admin` both default to `true` and may be omitted. You can also skip the configuration file and pass everything as `-e AVELIS_*` environment variables.
 
 ## 5. Reverse proxy and HTTPS
 
-In production, put a reverse proxy (Nginx, Caddy, a cloud load balancer) in front to terminate HTTPS, and set `AVELIS_BIND_ADDRESS` to `127.0.0.1` in `.env` so that only the proxy can connect. Sign-in rate limiting counts failures per account and client address, so the proxy must send `X-Forwarded-For`, and the proxy's address must be listed in `[server] forwarded_allow_ips` in `avelis.toml` (list trusted proxies only; `"*"` trusts everyone). Set `[server] public_url` to the address users actually open (for example `https://avelis.example.com`).
+In production, put a reverse proxy (Nginx, Caddy, a cloud load balancer) in front to terminate HTTPS, and set `AVELIS_BIND_ADDRESS` to `127.0.0.1` in `.env` so that only the proxy can connect. Sign-in rate limiting counts failures per account and client address; MCP also needs the correct external scheme and Host when no public address is configured. The proxy must preserve Host (including its port), send `X-Forwarded-For` and `X-Forwarded-Proto`, and have its address listed in `[server] forwarded_allow_ips` in `avelis.toml` (or `AVELIS_FORWARDED_ALLOW_IPS`; list trusted proxies only, as `"*"` trusts everyone). Alternatively, set `[server] public_url` (`AVELIS_PUBLIC_URL`) directly to the address users open (for example `https://avelis.example.com`). The backend does not add trust for `X-Forwarded-Host` or other forwarded headers. For a path prefix, set ASGI `root_path` correctly and preserve the corresponding public paths in the proxy.
 
 Nginx example (the synchronous analysis endpoint can wait up to about 7 minutes, so allow a long read timeout):
 
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8080;
-    proxy_set_header Host $host;
+    proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 600s;

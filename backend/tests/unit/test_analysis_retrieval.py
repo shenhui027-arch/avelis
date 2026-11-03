@@ -193,15 +193,15 @@ def injected_graph(monkeypatch, names, edges, *, hidden=(), columns=None, upstre
     return result
 
 
-def test_settings_are_opt_in_and_independent():
+def test_settings_are_enabled_by_default_and_independently_disabled():
     defaults = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only"})
-    assert defaults.analysis_retrieval is False and defaults.analysis_investigation is False
-    enabled = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_RETRIEVAL": "true"})
-    assert enabled.analysis_retrieval is True and enabled.analysis_investigation is False
+    assert defaults.analysis_retrieval is True and defaults.analysis_investigation is True
+    disabled = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_RETRIEVAL": "false"})
+    assert disabled.analysis_retrieval is False and disabled.analysis_investigation is True
     investigation = config.build_settings(
-        {"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_INVESTIGATION": "true"}
+        {"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_INVESTIGATION": "false"}
     )
-    assert investigation.analysis_retrieval is False and investigation.analysis_investigation is True
+    assert investigation.analysis_retrieval is True and investigation.analysis_investigation is False
 
 
 def test_disabled_tool_names_match_original_snapshot(monkeypatch):
@@ -649,6 +649,74 @@ def test_shared_value_cache_failure_is_empty_without_connectors(monkeypatch):
     monkeypatch.setattr(retrieval.cache, "client", failed_cache)
     monkeypatch.setattr(engines, "query_connector", lambda *a, **k: pytest.fail("缓存缺失不能补扫源库"))
     assert list(value._shared_value_edges({"a"})) == []
+
+
+def test_default_enabled_empty_metadata_does_not_access_graph_or_cache(monkeypatch):
+    defaults = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only"})
+    assert defaults.analysis_retrieval and defaults.analysis_investigation
+    assert not defaults.env.get("AVELIS_MODEL_PROVIDER")
+    value = graph(monkeypatch)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("空来源闭包不应扫描元数据、缓存或源库")
+
+    monkeypatch.setattr(value, "_expand", unexpected)
+    monkeypatch.setattr(value, "_rows", unexpected)
+    monkeypatch.setattr(retrieval.cache, "client", unexpected)
+    monkeypatch.setattr(engines, "query_connector", unexpected)
+    assert retrieval.reference_tables(value, [], {}) == []
+
+
+def test_reference_tables_with_assets_but_no_graph_edges_does_not_access_cache(monkeypatch):
+    value = graph(monkeypatch, [asset("source"), asset("unrelated")])
+    expanded = []
+    candidates = value._candidate_edges
+
+    def counted(frontier, relation):
+        expanded.append(relation)
+        yield from candidates(frontier, relation)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("没有可用图边的自动预检不应等待 Redis 或查询源库")
+
+    monkeypatch.setattr(value, "_candidate_edges", counted)
+    monkeypatch.setattr(retrieval.cache, "client", unexpected)
+    monkeypatch.setattr(engines, "query_connector", unexpected)
+    assert (
+        retrieval.reference_tables(value, [SimpleNamespace(base_asset_id="source")], {"source": value._asset("source")})
+        == []
+    )
+    assert expanded == ["join_key", "shared_key", "lineage"]
+
+
+@pytest.mark.parametrize("relation", ["join_key", "shared_key", "lineage"])
+def test_reference_tables_with_graph_edges_retains_shared_value_discovery(monkeypatch, relation):
+    value = injected_graph(
+        monkeypatch,
+        ["source", "linked", "values"],
+        [edge("source", "linked", relation), edge("source", "values", "shared_value")],
+    )
+    candidates = value._candidate_edges
+
+    def first_lineage_only(frontier, kind):
+        for item in candidates(frontier, kind):
+            yield item
+            if kind == "lineage":
+                pytest.fail("自动预检只需首条已授权血缘边，不应继续扫描血缘候选")
+
+    monkeypatch.setattr(value, "_candidate_edges", first_lineage_only)
+    refs = retrieval.reference_tables(
+        value, [SimpleNamespace(base_asset_id="source")], {"source": value._asset("source")}
+    )
+    found = next(item for item in refs if item["table"] == "cat.db.values")
+    assert found["via"] == [{"type": "shared_value", "columns": [{"from": "key_0", "to": "key_0"}], "clue": True}]
+
+
+def test_explicit_shared_value_neighbors_can_discover_without_structural_graph_edges(monkeypatch):
+    value = injected_graph(monkeypatch, ["source", "values"], [edge("source", "values", "shared_value")])
+    found = value.neighbors("asset:cat.db.source", relation="shared_value")
+    assert [item["type"] for item in found["edges"]] == ["shared_value"]
+    assert {item["qualified"] for item in found["nodes"]} == {"cat.db.source", "cat.db.values"}
 
 
 def test_reference_tables_sort_outside_then_columns_then_name_and_only_direct_neighbors(monkeypatch):

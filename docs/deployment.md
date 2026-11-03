@@ -73,6 +73,8 @@ cp avelis.example.toml avelis.toml
 
 `[bootstrap] initial_admin_password` 可选：未配置或留空时，首个管理员默认使用 `admin` / `123456`，不校验口令强度、不强制改密，请登录后在界面修改口令。显式填写时须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。用户名可通过 `initial_admin_username` 修改。
 
+`bootstrap.auto_migrate` 与 `bootstrap.auto_init_admin` 默认均为 `true`，不写 `[bootstrap]` 段也会自动迁移并初始化管理员。MCP 默认开启，部署后可直接使用“设置 → MCP 接入”及 `/mcp`、`/oauth/*`、`/.well-known/*`，无需设置 `AVELIS_MCP_ENABLED=true` 或先填写对外地址。未配置 `AVELIS_PUBLIC_URL` 时，后端用请求经 uvicorn 处理后的 scheme、Host 与 ASGI `root_path` 推导 issuer 和资源地址；在完整授权与访问流程中保持同一主机名。若不需要 MCP，可显式设置 `AVELIS_MCP_ENABLED=false`。
+
 其余各项（业务时区、登录时长、查询超时与行数上限、分析预算、日志级别、是否自动迁移等）都有默认值，按需修改。`avelis.toml` 含口令，请限制读取权限，并确保容器用户（UID 10001）能读到：
 
 ```bash
@@ -151,18 +153,18 @@ docker run -d --name avelis-worker --no-healthcheck \
   avelis:1.0.1 python -m avelis.jobs
 ```
 
-镜像默认读取 `/etc/avelis/avelis.toml`；镜像自带的健康检查针对 API，worker 容器用 `--no-healthcheck` 关闭。`[database]`、`[redis]` 写外部服务的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 保持 `true`（样例的默认值）。也可以不挂载配置文件，全部用 `-e AVELIS_*` 环境变量传入。
+镜像默认读取 `/etc/avelis/avelis.toml`；镜像自带的健康检查针对 API，worker 容器用 `--no-healthcheck` 关闭。`[database]`、`[redis]` 写外部服务的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 默认均为 `true`，可省略。也可以不挂载配置文件，全部用 `-e AVELIS_*` 环境变量传入。
 
 ## 5. 反向代理与 HTTPS
 
-生产环境建议在前面放一个反向代理（Nginx、Caddy、云负载均衡）终止 HTTPS，并在 `.env` 把 `AVELIS_BIND_ADDRESS` 改为 `127.0.0.1` 只让代理访问。登录失败限流按“账号 + 来源地址”计数，代理需要传 `X-Forwarded-For`，并把代理地址写进 `avelis.toml` 的 `[server] forwarded_allow_ips`（只写可信代理，`"*"` 表示全部信任）。`[server] public_url` 填用户实际访问的地址（如 `https://avelis.example.com`）。
+生产环境建议在前面放一个反向代理（Nginx、Caddy、云负载均衡）终止 HTTPS，并在 `.env` 把 `AVELIS_BIND_ADDRESS` 改为 `127.0.0.1` 只让代理访问。登录失败限流按“账号 + 来源地址”计数；MCP 未配置对外地址时还要使用正确的外部 scheme 与 Host。代理须保留 Host（含端口），传递 `X-Forwarded-For` 与 `X-Forwarded-Proto`，并把代理地址写进 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只写可信代理，`"*"` 表示全部信任）。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）设为用户实际访问的地址（如 `https://avelis.example.com`）。后端不额外信任 `X-Forwarded-Host` 等转发头；使用路径前缀时须正确设置 ASGI `root_path` 并让代理保留相应公开路径。
 
 Nginx 示例（同步分析接口最长等待约 7 分钟，读超时要留足）：
 
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8080;
-    proxy_set_header Host $host;
+    proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 600s;

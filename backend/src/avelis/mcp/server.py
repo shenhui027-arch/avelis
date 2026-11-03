@@ -8,14 +8,16 @@ from functools import wraps
 from typing import get_type_hints
 from urllib.parse import urlsplit
 
+from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.routes import create_protected_resource_routes
-from mcp.server.auth.settings import AuthSettings
+from mcp.server.auth.routes import build_resource_metadata_url, cors_middleware
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import RequestBodyLimitMiddleware, TransportSecuritySettings
+from mcp.shared.auth import ProtectedResourceMetadata
 from pydantic import AnyHttpUrl
 from starlette.middleware import Middleware
+from starlette.routing import Route
 
 from avelis import db
 from avelis.governance.errors import GovernanceError
@@ -24,13 +26,14 @@ from avelis.mcp.auth import (
     MAX_BODY_BYTES,
     SCOPES,
     TOOL_SCOPES,
-    StoredTokenVerifier,
+    RequestAuthMiddleware,
     ToolScopeGate,
     audit_tool_call,
     audited_tool_call,
 )
 from avelis.mcp.tools import ToolService
 from avelis.models import User
+from avelis.oauth.urls import request_settings
 
 DESCRIPTIONS = {
     "search_metrics": "检索有权访问的已发布口径摘要。Search published metric metadata.",
@@ -45,11 +48,22 @@ DESCRIPTIONS = {
 
 
 def protected_resource_routes(settings):
-    return create_protected_resource_routes(
-        resource_url=AnyHttpUrl(settings.mcp_resource_url),
-        authorization_servers=[settings.public_url],
-        scopes_supported=list(SCOPES),
+    async def metadata(request):
+        current = request_settings(settings, request)
+        return await ProtectedResourceMetadataHandler(
+            ProtectedResourceMetadata(
+                resource=current.mcp_resource_url,
+                authorization_servers=[current.public_url],
+                scopes_supported=list(SCOPES),
+            )
+        ).handle(request)
+
+    path = (
+        urlsplit(str(build_resource_metadata_url(AnyHttpUrl(settings.mcp_resource_url)))).path
+        if settings.public_url
+        else "/.well-known/oauth-protected-resource/mcp"
     )
+    return [Route(path, endpoint=cors_middleware(metadata, ["GET", "OPTIONS"]), methods=["GET", "OPTIONS"])]
 
 
 def create_mcp_app(settings, session_maker=None):
@@ -58,13 +72,6 @@ def create_mcp_app(settings, session_maker=None):
         "Avelis",
         version="1.0.1",
         subscriptions=False,
-        token_verifier=StoredTokenVerifier(session_maker, settings),
-        auth=AuthSettings(
-            issuer_url=settings.public_url,
-            resource_server_url=settings.mcp_resource_url,
-            validate_token_resource=True,
-            required_scopes=[],
-        ),
     )
     tool_arguments = {}
 
@@ -104,19 +111,18 @@ def create_mcp_app(settings, session_maker=None):
 
     for name in TOOL_SCOPES:
         register(name)
-    origin = urlsplit(settings.public_url)
     app = server.streamable_http_app(
         streamable_http_path="/mcp",
         stateless_http=True,
         json_response=True,
         max_request_body_size=MAX_BODY_BYTES,
-        transport_security=TransportSecuritySettings(
-            allowed_hosts=[origin.netloc], allowed_origins=[f"{origin.scheme}://{origin.netloc}"]
-        ),
+        # 地址和 Origin 在 RequestAuthMiddleware 中逐请求校验，SDK 仍检查协议和 Content-Type。
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     app.user_middleware.extend(
         [
             Middleware(RequestBodyLimitMiddleware, max_body_size=MAX_BODY_BYTES),
+            Middleware(RequestAuthMiddleware, settings=settings, session_maker=session_maker),
             Middleware(ToolScopeGate, settings=settings, session_maker=session_maker, tool_arguments=tool_arguments),
         ]
     )

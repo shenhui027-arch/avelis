@@ -586,8 +586,15 @@ def reference_tables(
     ordered = sorted(sources)
     for offset in range(0, len(ordered), NODE_LIMIT):
         batch = set(ordered[offset : offset + NODE_LIMIT])
+        graph_evidence = False
         for relation in ("join_key", "shared_key", "shared_value"):
+            if relation == "shared_value" and not graph_evidence:
+                # 自动预检没有可用图边时不启动可选缓存发现；血缘只取首条，显式 shared_value 不受此限制。
+                graph_evidence = next(graph._candidate_edges(batch, "lineage"), None) is not None
+                if not graph_evidence:
+                    continue
             edges, _ = graph._expand(batch, relation, "both")
+            graph_evidence = graph_evidence or bool(edges)
             for edge in edges:
                 for here, there in ((edge["from"], edge["to"]), (edge["to"], edge["from"])):
                     if here not in batch or not there.startswith("asset:"):

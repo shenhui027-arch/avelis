@@ -72,6 +72,8 @@ cp avelis.example.toml avelis.toml
 
 `[bootstrap] initial_admin_password` 選填：未設定或留空時，首個管理員預設使用 `admin` / `123456`，不校驗密碼強度、不強制改密，請登入後在介面修改密碼。明確填寫時須為 12–128 個字元、不包含使用者名稱、至少 4 種不同字元，首次登入強制改密。使用者名稱可透過 `initial_admin_username` 修改。
 
+`bootstrap.auto_migrate` 與 `bootstrap.auto_init_admin` 預設均為 `true`，不寫 `[bootstrap]` 區段也會自動遷移並初始化管理員。MCP 預設開啟，部署後可直接使用「設定 → MCP 接入」及 `/mcp`、`/oauth/*`、`/.well-known/*`，無須設定 `AVELIS_MCP_ENABLED=true` 或先填寫對外地址。未設定 `AVELIS_PUBLIC_URL` 時，後端用請求經 uvicorn 處理後的 scheme、Host 與 ASGI `root_path` 推導 issuer 和資源地址；在完整授權與存取流程中保持同一主機名稱。若不需要 MCP，可明確設定 `AVELIS_MCP_ENABLED=false`。
+
 其餘各項（業務時區、登入時長、查詢超時與行數上限、分析預算、日誌級別、是否自動遷移等）都有預設值，按需修改。`avelis.toml` 含密碼，請限制讀取權限，並確保容器使用者（UID 10001）能讀到：
 
 ```bash
@@ -150,18 +152,18 @@ docker run -d --name avelis-worker --no-healthcheck \
   avelis:1.0.1 python -m avelis.jobs
 ```
 
-映像預設讀取 `/etc/avelis/avelis.toml`；映像自帶的健康檢查針對 API，worker 容器用 `--no-healthcheck` 關閉。`[database]`、`[redis]` 寫外部服務的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 保持 `true`（樣例的預設值）。也可以不掛載設定檔，全部用 `-e AVELIS_*` 環境變數傳入。
+映像預設讀取 `/etc/avelis/avelis.toml`；映像自帶的健康檢查針對 API，worker 容器用 `--no-healthcheck` 關閉。`[database]`、`[redis]` 寫外部服務的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 預設均為 `true`，可省略。也可以不掛載設定檔，全部用 `-e AVELIS_*` 環境變數傳入。
 
 ## 5. 反向代理與 HTTPS
 
-生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並在 `.env` 把 `AVELIS_BIND_ADDRESS` 改為 `127.0.0.1` 只讓代理存取。登入失敗限流按「帳號 + 來源地址」計數，代理需要傳 `X-Forwarded-For`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（只寫可信代理，`"*"` 表示全部信任）。`[server] public_url` 填使用者實際存取的地址（如 `https://avelis.example.com`）。
+生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並在 `.env` 把 `AVELIS_BIND_ADDRESS` 改為 `127.0.0.1` 只讓代理存取。登入失敗限流按「帳號 + 來源地址」計數；MCP 未設定對外地址時還要使用正確的外部 scheme 與 Host。代理須保留 Host（含埠），傳遞 `X-Forwarded-For` 與 `X-Forwarded-Proto`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只寫可信代理，`"*"` 表示全部信任）。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）設為使用者實際存取的地址（如 `https://avelis.example.com`）。後端不額外信任 `X-Forwarded-Host` 等轉送標頭；使用路徑前綴時須正確設定 ASGI `root_path` 並讓代理保留相應公開路徑。
 
 Nginx 示例（同步分析介面最長等待約 7 分鐘，讀超時要留足）：
 
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8080;
-    proxy_set_header Host $host;
+    proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 600s;

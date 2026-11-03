@@ -46,7 +46,7 @@ class _FrontendRoute(APIRoute):
     def matches(self, scope):
         path = scope.get("path", "")
         root = scope.get("root_path", "")
-        if root and path.startswith(root):  # 与 Starlette 路由一致：挂在路径前缀下时按去掉前缀后的路径判断
+        if root and (path == root or path.startswith(root + "/")):  # 与 Starlette 一致：只剥除完整路径段
             path = path[len(root) :]
         if path == "/api" or path.startswith("/api/"):
             return Match.NONE, {}
@@ -204,7 +204,8 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             route_class_override=_FrontendRoute,
         )
     if mcp_app is not None:
-        app.mount("/", mcp_app)
+        # 只交给 SDK 处理协议路径，避免根 mount 接走主应用的 JSON 404/405。
+        app.add_route("/mcp", mcp_app, methods=["GET", "POST", "DELETE"])
     return app
 
 

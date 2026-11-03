@@ -10,7 +10,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage
 
-from avelis.analysis import agent
+from avelis import config
+from avelis.analysis import agent, tools
 from avelis.analysis.tools import Budget, Scope
 from avelis.ask import service as ask_service
 from tests.unit.test_analysis_toolbox import governed, make_box
@@ -104,6 +105,14 @@ def test_understand_failure_does_not_stop_the_analysis(monkeypatch):
 def test_precheck_runs_the_fixed_change_sequence_with_the_scope_filters(monkeypatch):
     """变化类预检：口径详情 → 变更 → 数据健康 → explain_change（带筛选）→ 日历折算 → 两期日趋势 → 覆盖度
     → 来源闭包的元数据与血缘；某一步失败只记下。"""
+    value = config.build_settings(
+        {
+            "AVELIS_SECRET": "unit-test-secret-only",
+            "AVELIS_ANALYSIS_RETRIEVAL": "false",
+            "AVELIS_ANALYSIS_INVESTIGATION": "false",
+        }
+    )
+    monkeypatch.setattr(tools, "get_settings", lambda: value)
     cat = catalog()
     box = make_box(budget=Budget(), catalog=cat, monkeypatch=monkeypatch)
     box.catalog = cat

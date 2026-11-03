@@ -304,8 +304,18 @@ def startup(monkeypatch, settings):
     return settings, migrate, init_admin, run
 
 
-def test_server_default_startup_does_not_initialize(startup):
+def test_server_default_startup_initializes_before_serving(startup):
     settings, migrate, init_admin, run = startup
+    server.main()
+    migrate.assert_called_once_with()
+    init_admin.assert_called_once_with()
+    run.assert_called_once_with("avelis.api.app:app", **server.uvicorn_options(settings))
+
+
+def test_server_explicitly_disabled_bootstrap_does_not_initialize(monkeypatch, startup):
+    settings, migrate, init_admin, run = startup
+    settings = dataclasses.replace(settings, auto_migrate=False, auto_init_admin=False)
+    monkeypatch.setattr(server, "get_settings", lambda: settings)
     server.main()
     migrate.assert_not_called()
     init_admin.assert_not_called()
