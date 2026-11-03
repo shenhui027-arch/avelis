@@ -47,7 +47,7 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
         <Suspense fallback={<div className="av-chartpanel__loading" />}>
           <EChart ref={canvas} spec={spec} style={style} label={title} />
         </Suspense>
-        <ChartNote spec={spec} />
+        <ChartNote spec={spec} fullTable={children != null} />
       </>}
     </section>
   );
@@ -65,10 +65,12 @@ export function SpecTable({ spec }: { spec: ChartSpec }) {
   );
 }
 
-function ChartNote({ spec }: { spec: ChartSpec }) {
+/** fullTable：表格视图是否为完整结果（问数结果表）；报告插图的表格只含图里的系列，未画出的要去数据集里看。 */
+function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean }) {
   const notes = [
     spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
-    spec.dropped_series ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series }) : "",
+    spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
+      : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
 }
