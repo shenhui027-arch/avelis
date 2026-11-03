@@ -6,6 +6,24 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "其他"
+msgstr "其他"
+
+msgid "日期"
+msgstr "日期"
+
+msgid "周"
+msgstr "週"
+
+msgid "月份"
+msgstr "月份"
+
+msgid "季度"
+msgstr "季度"
+
+msgid "年"
+msgstr "年"
+
 msgid " · 按{dimensions}"
 msgstr " · 按{dimensions}"
 
@@ -2200,3 +2218,9 @@ msgstr "無法依本環境鎖定的組成口徑展開衍生公式：{reason}"
 
 msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
 msgstr "核心運算式與擴充內容中的衍生公式不一致，需人工處理"
+msgid "查询数据源失败：{error}"
+msgstr "查詢資料來源失敗：{error}"
+
+msgid "模型调用失败：{error}"
+msgstr "模型呼叫失敗：{error}"
+

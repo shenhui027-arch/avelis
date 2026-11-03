@@ -951,6 +951,64 @@ class AnalysisStepOut(Out):
 class ColumnRole(Out):
     role: Literal["time", "dimension", "measure", "change", "rate"]
     label: str
+    grain: str | None = None
+    additive: bool | None = None
+
+
+class ChartX(Out):
+    column: str
+    label: str
+    role: Literal["time", "dimension"]
+    grain: str | None
+
+
+class ChartSeries(Out):
+    name: str
+    column: str
+    label: str
+    axis: Literal[0, 1, 2, 3]
+    mark: Literal["bar", "line"]
+    other: bool = False
+    unit: Json
+    polarity: Literal["up_good", "down_good"] | None
+    values: list[float | None]
+
+
+class ChartKpi(Out):
+    label: str
+    column: str
+    unit: Json
+    polarity: Literal["up_good", "down_good"] | None
+    value: float | None
+    previous: float | None
+    change: float | None
+    rate: float | None
+    previous_label: str | None
+
+
+class ChartOthers(Out):
+    count: int
+
+
+class ChartSpec(Out):
+    kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
+    title: str | None = None
+    orientation: Literal["vertical", "horizontal"]
+    reason: Literal[
+        "kpi", "time_series", "time_by_dimension", "ranking", "composition", "comparison", "change", "multi_measure"
+    ]
+    x: ChartX | None
+    categories: list[Any]
+    series: list[ChartSeries]
+    kpis: list[ChartKpi]
+    others: ChartOthers | None
+    dropped_series: int
+
+
+class ReportFigure(Out):
+    ref: str
+    title: str | None = None
+    chart: ChartSpec
 
 
 class AnalysisDatasetOut(Out):
@@ -971,6 +1029,7 @@ class AnalysisDatasetOut(Out):
     units: Json = Field(default_factory=dict)
     polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
     column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
+    charts: list[ChartSpec] = Field(default_factory=list)
 
 
 class AnalysisDatasetLegacyOut(Out):
@@ -1009,6 +1068,7 @@ class AnalysisDatasetDetailOut(Out):
     units: Json
     polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
     column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
+    charts: list[ChartSpec] = Field(default_factory=list)
     summary_units: Json
     purpose: str | None
     answer_id: str | None
@@ -1066,6 +1126,7 @@ class AnalysisRunOut(Out):
     task_id: str | None = None
     plan: Json | None = None
     report: Json | None = None
+    figures: list[ReportFigure] = Field(default_factory=list)
     answer: Json | None = None
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None

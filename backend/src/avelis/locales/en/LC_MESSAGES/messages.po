@@ -4,6 +4,24 @@ msgstr ""
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "其他"
+msgstr "Other"
+
+msgid "日期"
+msgstr "Date"
+
+msgid "周"
+msgstr "Week"
+
+msgid "月份"
+msgstr "Month"
+
+msgid "季度"
+msgstr "Quarter"
+
+msgid "年"
+msgstr "Year"
+
 msgid "数据源不存在"
 msgstr "Data source not found"
 
@@ -2195,3 +2213,9 @@ msgstr "Cannot expand the derived formula using the component metrics pinned in 
 
 msgid "核心表达式与扩展中的派生公式不一致，需人工处理"
 msgstr "The core expression differs from the derived formula in the extension; manual resolution is required"
+msgid "查询数据源失败：{error}"
+msgstr "Data source query failed: {error}"
+
+msgid "模型调用失败：{error}"
+msgstr "Model invocation failed: {error}"
+

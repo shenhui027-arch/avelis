@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from avelis import charts
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask import agent
@@ -24,6 +25,24 @@ class Question(BaseModel):
 
 
 def _answer_result(a: Answer, session: Session | None) -> dict:
+    result = _answer_contract(a, session)
+    if a.status == "answered" and isinstance(result, dict) and "column_roles" in result:
+        return {
+            **result,
+            "charts": charts.recommend(
+                result.get("columns") or [],
+                result.get("rows") or [],
+                result["column_roles"],
+                result.get("units") or {},
+                result.get("polarity") or {},
+                getattr(a, "intent", None),
+                preference=(getattr(a, "evidence", None) or {}).get("chart"),
+            ),
+        }
+    return result
+
+
+def _answer_contract(a: Answer, session: Session | None) -> dict:
     """旧答案只按已锁定版本补展示字段，不改持久化结果，不查询最新口径。"""
     result = a.result
     if session is None or a.status != "answered" or not isinstance(result, dict) or "column_roles" in result:

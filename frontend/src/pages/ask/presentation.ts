@@ -1,18 +1,37 @@
 import type { Answer } from "../../api/hooks";
 import { t } from "../../i18n";
+import type { ChartSpec } from "../../components/charts/chartOption";
+import { formatValue, type NumberStyle, type UnitMeta } from "../../numbers";
 
-export type ColumnRole = { role: "time" | "dimension" | "measure" | "change" | "rate"; label?: string };
+export type ColumnRole = { role: "time" | "dimension" | "measure" | "change" | "rate"; label?: string; grain?: string | null; additive?: boolean | null };
 export type Polarity = "up_good" | "down_good";
 export type AskResult = { columns?: string[]; rows?: unknown[][]; row_count?: number; truncated?: boolean;
   column_docs?: Record<string, import("../../components/ui").ColumnDoc>;
   // 列契约（ADR 0014）：角色与期望方向来自后端元数据；旧答案没有时退回按列名后缀判断
-  column_roles?: Record<string, ColumnRole>; polarity?: Record<string, Polarity> };
+  column_roles?: Record<string, ColumnRole>; polarity?: Record<string, Polarity>; units?: Record<string, UnitMeta>;
+  // 图表规格（后端 charts.recommend）：第一个为默认图，其余为同一份数据的候选
+  charts?: ChartSpec[] };
 
 /** 列的角色：有列契约时只读契约（契约里没有的列不猜）；没有契约的旧答案按“·变化 / ·变化率”后缀判断。 */
 export function columnRole(result: AskResult, column: string): ColumnRole["role"] | undefined {
   if (result.column_roles) return result.column_roles[column]?.role;
   return column.endsWith("·变化率") ? "rate" : column.endsWith("·变化") ? "change" : undefined;
 }
+/** 列标题：时间、维度用契约里的显示名；单指标的值列（value）用指标名；其余度量列名本身已可读（如“<指标>·上一期”）。 */
+export function columnLabel(result: AskResult, column: string): string {
+  const role = result.column_roles?.[column];
+  if (role?.label && (role.role === "time" || role.role === "dimension" || column === "value")) return role.label;
+  return column === "value" ? t("值") : column;
+}
+
+/** 单元格文字：有量纲时按量纲格式化（与报告正文一致）；旧答案没有量纲时沿用原规则。 */
+export function cellText(result: AskResult, column: string, value: unknown, dimension: boolean, style: NumberStyle): string {
+  const role = columnRole(result, column);
+  if (dimension || role === "time" || role === "dimension") return value == null ? "—" : String(value);
+  const unit = result.units?.[column];
+  return unit ? formatValue(value, unit, style) : resultCell(value, column, dimension, role);
+}
+
 export type AskIntent = {
   group_by?: string[];
   metric_code?: string;

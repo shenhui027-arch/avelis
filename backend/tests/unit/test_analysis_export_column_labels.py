@@ -74,7 +74,11 @@ def test_explicit_column_labels_win_over_metric_names_and_default_calculation_la
         "column_labels": {"current": "指标甲·当月"},
     }
     roles = dataset_projection.build_column_roles(["current"], meta)
-    assert roles["current"] == {"role": "measure", "label": "指标甲·当月"}
+    assert roles["current"] == {
+        "role": "measure",
+        "label": "指标甲·当月",
+        "additive": False,
+    }  # 计算数据集没有登记可加性
     assert export._column_label({"kind": "calc", "meta": meta, "column_roles": roles}, "current") == "指标甲·当月"
     meta["column_labels"]["current"] = "current"
     assert export._column_label({"kind": "calc", "meta": meta, "column_roles": roles}, "current") == "current"
@@ -86,7 +90,7 @@ def _assert_headers(format, kind, columns, meta, headers):
         "kind": kind,
         "title": "比较结果",
         "columns": columns,
-        "rows": [[20, 10, 10, 1], [30, 20, 10, 0.5]],
+        "rows": [[20, 10, 10, 1]],  # 无维度的比较结果采用单行 KPI 规格。
         "meta": meta,
         "column_roles": dataset_projection.build_column_roles(columns, meta),
     }

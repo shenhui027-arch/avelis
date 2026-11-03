@@ -153,6 +153,9 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
     response = api.client.get("/api/analysis/runs/run/datasets/D1")
     assert response.status_code == 200, response.text
     data = response.json()
+    chart_specs = data["charts"]
+    assert chart_specs[0]["kind"] == "line"
+    assert len(chart_specs[0]["categories"]) == len(api.dataset.rows)
     assert data == {
         "ref": "D1",
         "kind": "governed",
@@ -166,12 +169,13 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "metric_codes": ["measure"],
         "window": {"start": "2026-01-01", "end": "2026-01-03"},
         "time_column": "period",
-        "units": {"指标": {"kind": "level", "unit": "件"}},
+        "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
         "polarity": {},
         "column_roles": {
-            "period": {"role": "time", "label": "period"},
-            "指标": {"role": "measure", "label": "指标·本期"},
+            "period": {"role": "time", "label": "period", "grain": None, "additive": None},
+            "指标": {"role": "measure", "label": "指标·本期", "grain": None, "additive": True},
         },
+        "charts": chart_specs,
         "summary_units": {"total": {"kind": "level", "unit": "件"}},
         "purpose": "检查变化",
         "answer_id": None,
@@ -183,6 +187,7 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "source": None,
         "meta": {
             **api.dataset.meta,
+            "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
             "polarity": {},
             "dimension_labels": {},
             "measure_labels": {"指标": "指标"},
@@ -204,6 +209,7 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "truncated": True,
         "meta": {
             **api.dataset.meta,
+            "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
             "polarity": {},
             "dimension_labels": {},
             "measure_labels": {"指标": "指标"},
@@ -212,12 +218,14 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "inputs": [],
         "answer_id": None,
         "column_roles": {
-            "period": {"role": "time", "label": "period"},
-            "指标": {"role": "measure", "label": "指标·本期"},
+            "period": {"role": "time", "label": "period", "grain": None, "additive": None},
+            "指标": {"role": "measure", "label": "指标·本期", "grain": None, "additive": True},
         },
     }
     view = api.client.get("/api/analysis/runs/run").json()
     assert view["datasets"][0]["rows"] == api.dataset.rows[:50]
+    assert view["datasets"][0]["charts"] == chart_specs
+    assert "charts" not in api.dataset.meta
 
 
 @pytest.mark.parametrize("offset,limit,size", [(100, 1000, 1000), (1200, 100, 5), (2000, 100, 0)])
@@ -228,6 +236,8 @@ def test_detail_paginates_saved_rows(api, offset, limit, size):
     assert data["rows"] == api.dataset.rows[offset : offset + limit]
     assert len(data["rows"]) == size
     assert (data["offset"], data["limit"], data["total"]) == (offset, limit, 1205)
+    assert data["charts"][0]["kind"] == "line"
+    assert len(data["charts"][0]["categories"]) == 1205
 
 
 @pytest.mark.parametrize("query", ["offset=-1", "limit=0", "limit=1001"])

@@ -558,6 +558,11 @@
 .av-coldoc--gap span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .av-answer-table th { vertical-align: bottom; }
 .av-answer-table__head { display: block; }
+/* 表头即排序按钮：外观与表头文字一致，数值列右对齐 */
+.av-answer-table__sort { display: inline-flex; align-items: baseline; gap: var(--space-1); max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.av-answer-table__number .av-answer-table__sort { justify-content: flex-end; width: 100%; }
+.av-answer-table__sort:hover { color: var(--text-secondary); }
+.av-answer-table__sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 .av-coverage__gaps { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 /* 问数：对话 | 证据（新建、最近对话、经验与定时任务在应用侧边栏） */
@@ -782,11 +787,6 @@
 .av-experience > .av-pill { justify-self: start; }
 .av-analysis__experiences-hd { margin-top: calc(var(--size-control-sm) * -1 - var(--space-4)); }
 .av-experience .av-actions { justify-content: flex-end; }
-.av-chart { width: 100%; height: auto; }
-.av-chart__label { fill: var(--text-secondary); font: 500 10px var(--font-sans); }
-.av-chart__tick { fill: var(--text-tertiary); font: 400 9px var(--font-sans); }
-.av-chart__value { fill: var(--text-secondary); font: 400 9px var(--font-mono); }
-.av-chart__axis { stroke: var(--line-strong); stroke-width: 1; }
 .av-datasources__switch { display: flex; align-items: center; gap: var(--space-2); }
 
 /* 分析过程流（像对话一样实时展开每一步；运行中可插话、可停止） */
@@ -1067,3 +1067,28 @@
 .av-webhooks__check { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font: var(--type-body-compact); cursor: pointer; }
 .av-webhooks__secretrow { display: flex; align-items: center; gap: var(--space-2); }
 .av-webhooks__secret { flex: 1; min-width: 0; padding: 6px 10px; overflow-wrap: anywhere; user-select: all; }
+
+/* 问数结果的图：图 / 表 / 候选图切换在左，导出在右；图表画布不加卡片外框，直接坐在回答卡片里 */
+.av-chartpanel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.av-chartpanel__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.av-chartpanel__title { margin: var(--space-1) 0 0; color: var(--text-primary); font: var(--type-body-strong); }
+.av-chartpanel__note { margin: 0; }
+.av-chartpanel__loading { height: 240px; border-radius: var(--radius-md); background: var(--bg-raised); }
+.av-echart { width: 100%; min-width: 0; }
+/* 模型对结果的一句话说明：正文字号，不是灰色脚注 */
+.av-answer-insight { display: flex; gap: var(--space-2); align-items: baseline; margin: 0; color: var(--text-secondary); font: var(--type-body-compact); max-width: 72ch; }
+.av-answer-insight .av-icon { flex: none; color: var(--accent-text); transform: translateY(2px); }
+/* 指标卡：本期值为主，变化按期望方向着色，未知时中性 */
+.av-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
+.av-kpi { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-raised); min-width: 0; }
+.av-kpi__label { color: var(--text-tertiary); font: var(--type-caption); }
+.av-kpi__value { color: var(--text-primary); font: 500 26px/34px var(--font-sans); }
+.av-kpi__delta { display: flex; flex-wrap: wrap; gap: 4px var(--space-3); font: var(--type-caption); color: var(--text-secondary); }
+.av-kpi__delta .is-ok { color: var(--ok); }
+.av-kpi__delta .is-danger { color: var(--danger); }
+.av-kpi__prev { color: var(--text-tertiary); }
+/* 报告插图：一张图一个块，图题在上、数据来源编号在下 */
+.av-figures { display: flex; flex-direction: column; gap: var(--space-5); }
+.av-figure { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; min-width: 0; }
+.av-figure figcaption { display: flex; align-items: center; gap: var(--space-2); }
+.av-spec-table .av-spec-table__num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

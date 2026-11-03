@@ -1160,6 +1160,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         restrict_report,
         restrict_verification,
     )
+    from avelis.charts import recommend
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
     checkpoint = run.checkpoint or {}
@@ -1349,10 +1350,49 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 "units": metadata[d.id].get("units", {}) if d.id in readable else {},
                 "polarity": metadata[d.id].get("polarity", {}) if d.id in readable else {},
                 "column_roles": build_column_roles(d.columns, metadata[d.id]) if d.id in readable else {},
+                "charts": recommend(
+                    d.columns,
+                    d.rows,
+                    build_column_roles(d.columns, metadata[d.id]),
+                    metadata[d.id].get("units") or {},
+                    metadata[d.id].get("polarity") or {},
+                    metadata[d.id].get("intent"),
+                )
+                if d.id in readable
+                else [],
             }
             for d in datasets
         ],
     )
+    from avelis.analysis.figures import report_figures
+
+    data["figures"] = report_figures(
+        {
+            "report": report,
+            "datasets": [
+                {
+                    "ref": f"D{d.seq}",
+                    "kind": d.kind,
+                    "title": d.title,
+                    "columns": d.columns,
+                    "rows": d.rows,
+                    "meta": metadata[d.id],
+                }
+                for d in datasets
+                if d.id in readable
+            ],
+        }
+    )
+    if "figures" in report:
+        refs = {figure["ref"] for figure in data["figures"]}
+        # 保留显式选择的存在性，避免全部失效时被导出当作旧报告重新选图。
+        data["report"] = {
+            **report,
+            "figures": [
+                f if f.get("dataset") in refs else {"dataset": f.get("dataset"), "kind": f.get("kind")}
+                for f in report["figures"]
+            ],
+        }
     return data
 
 

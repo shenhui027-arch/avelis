@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -132,6 +133,7 @@ class MetricCard:
     description: str = ""
     status: str = "published"
     ai_context: dict[str, Any] = field(default_factory=dict)
+    domain: str = ""
 
 
 class IntentModel(Protocol):
@@ -175,13 +177,29 @@ class DemoIntentModel:
 
     def parse(self, question: str, metrics: list[MetricCard], *, today: date) -> Intent:
         text = question.strip()
+        duplicate_names = {name for name, count in Counter(c.name for c in metrics).items() if count > 1}
+
+        def candidate(card):
+            return f"{card.name}（{card.domain}）" if card.name in duplicate_names else card.name
+
+        # 追问原文会与最初问题拼接；明确选择带域名称后，排除该同名口径的其他候选。
+        # 同一名称可以明确选了多个业务域（“订单数（甲）和订单数（乙）”），按编码记录，不互相覆盖。
+        selected: dict[str, set[str]] = {}
+        for c in metrics:
+            if c.domain and f"{c.name}（{c.domain}）" in text:
+                selected.setdefault(c.name, set()).add(c.code)
         spans: list[tuple[int, int, MetricCard]] = []  # (起点, 终点, 指标)
         for card in metrics:
-            for label in [
-                card.name,
-                *card.aliases,
-                *card.ai_context.get("synonyms", []),
-            ]:
+            if card.name in selected and card.code not in selected[card.name]:
+                continue
+            qualified = f"{card.name}（{card.domain}）" if card.domain else ""
+            # 明确选过的口径只按“名称（业务域）”匹配，裸名称会同时命中同名的其他选择。
+            labels = (
+                [qualified]
+                if card.name in selected
+                else [qualified, card.name, *card.aliases, *card.ai_context.get("synonyms", [])]
+            )
+            for label in labels:
                 start = text.find(label) if label else -1
                 while start >= 0:
                     spans.append((start, start + len(label), card))
@@ -196,7 +214,8 @@ class DemoIntentModel:
         ambiguous = [cards for cards in by_position.values() if len(cards) > 1]
         if ambiguous:  # 同一段文字对应多个指标（同名或同别名）：追问
             return Intent(
-                clarification="问题可能指多个指标，请明确是哪一个", candidates=[c.name for c in ambiguous[0].values()]
+                clarification="问题可能指多个指标，请明确是哪一个",
+                candidates=[candidate(c) for c in ambiguous[0].values()],
             )
         ordered: list[MetricCard] = []
         for _, cards in sorted(by_position.items()):
@@ -220,16 +239,18 @@ class DemoIntentModel:
             if len(candidates) > 1:
                 return Intent(
                     clarification="问题可能指多个指标，请明确是哪一个",
-                    candidates=[c.name for c in sorted(candidates, key=lambda c: c.code)],
+                    candidates=[candidate(c) for c in sorted(candidates, key=lambda c: c.code)],
                 )
             ordered.extend(candidates)
         if not ordered:
             return Intent(
-                clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标", candidates=[m.name for m in metrics]
+                clarification="没有找到与问题匹配的已发布指标，请说明要查询的指标",
+                candidates=[candidate(m) for m in metrics],
             )
         if len(ordered) > MAX_METRICS:
             return Intent(
-                clarification=f"一次最多比较 {MAX_METRICS} 个指标，请缩小范围", candidates=[c.name for c in ordered]
+                clarification=f"一次最多比较 {MAX_METRICS} 个指标，请缩小范围",
+                candidates=[candidate(c) for c in ordered],
             )
         card = ordered[0]
 

@@ -779,13 +779,17 @@ def test_lmdi_treats_only_computation_precision_as_rounding():
 
 
 def test_pdf_chart_uses_saved_time_column():
-    from reportlab.graphics.charts.lineplots import LinePlot
+    from avelis.analysis.figures import dataset_charts
 
     rows = [[f"2026-09-0{i}", "A", i * 10] for i in range(1, 6)]
-    d = {"columns": ["时间段", "period", "成交额"], "rows": rows, "time_column": "时间段"}
-    font, _ = export.pdf_font()
-    assert any(isinstance(c, LinePlot) for c in export._chart(d, font).contents)
-    assert not any(isinstance(c, LinePlot) for c in export._chart({**d, "time_column": None}, font).contents)
+    dataset = {
+        "columns": ["时间段", "period", "成交额"],
+        "rows": rows,
+        "time_column": "时间段",
+        "units": {"成交额": {"kind": "level"}},
+    }
+    assert dataset_charts(dataset)[0]["kind"] == "line"
+    assert dataset_charts({**dataset, "time_column": None})[0]["kind"] != "line"
 
 
 # --- 第三轮复核 -------------------------------------------------------------------------
@@ -904,7 +908,7 @@ def test_tools_register_units_and_summary_paths(monkeypatch):
     """ADR 0009：受治理查询、差额拆解、derive 登记量纲与单位；汇总路径登记后才能引用。"""
     box = make_box(monkeypatch=monkeypatch)
     units_dataset(box)
-    assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元"}
+    assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元", "additive": True}
     contribution = json.loads(
         box.dispatch(
             "contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"}

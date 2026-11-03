@@ -24,6 +24,7 @@ from sqlglot import exp
 from avelis import audit, cache
 from avelis.analysis import measures
 from avelis.analysis.dataset_projection import build_column_roles
+from avelis.analysis.grounding import _unit, display, number
 from avelis.ask.compiler import TIME_GRAINS, ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
 from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
@@ -53,6 +54,7 @@ from avelis.models import (
     ColumnVersion,
     Datasource,
     Definition,
+    Domain,
     Impact,
     Job,
     LineageEdge,
@@ -79,15 +81,20 @@ def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catal
     access.require_role(session, user, "analyst", "steward", "reviewer")
     settings = get_settings()
     cards, versions = [], {}
+    domains = {}
     for metric in visible_metrics(session, user):
         version = latest_governed_version(session, metric)
         if version is None:
             continue
         versions[metric.code] = (metric, version)
+        if metric.domain_id not in domains:
+            domain = session.get(Domain, metric.domain_id)
+            domains[metric.domain_id] = domain.name if domain else ""
         cards.append(
             MetricCard(
                 code=metric.code,
                 name=metric.name,
+                domain=domains[metric.domain_id],
                 aliases=metric.aliases or [],
                 ai_context=metric_ai_context(metric),
                 dimensions=version.dimensions or [],
@@ -630,7 +637,7 @@ def _result_contract(
     if value_column is not None:
         metric, version = requested[0]
         # 单指标 SQL 的结果别名固定为 value，按编译契约映射，不从列名或值推断。
-        units = {value_column: measures.metric_unit(version)} if value_column in columns else {}
+        units = measures.governed_units(columns, {value_column: version}, None)
         directions = measures.governed_polarity([metric.name], {metric.name: version}, period_label)
         polarity = (
             {value_column: directions[metric.name]} if value_column in columns and metric.name in directions else {}
@@ -971,13 +978,24 @@ def _fulfil_plan(
     answer.cache_hit = bool(cache_hits) and all(cache_hits)
     if truncated and (intent.order or intent.limit):
         answer.evidence["warning"] = "子查询结果超过行数上限被截断，排名可能不完整"
-    answer.message = _explain_plan(requested, intent, answer.result)
+    # 模板句按量纲显示数值，先用锁定口径补齐展示契约（调用方之后再补一次是幂等的）。
+    contracted = _result_contract(answer.result, intent, [(metric, version) for _, metric, version in requested])
+    answer.message = _explain_plan(requested, intent, contracted)
 
 
 def _answer_text(template: str, **params) -> str:
     language = getattr(get_settings(), "reply_language", "auto")
     with locale_context(current_locale() if language == "auto" else language):
         return gettext(template, **params)
+
+
+def _display_measure(value: Any, column: str | None, result: dict[str, Any]) -> Any:
+    meta = _unit((result.get("units") or {}).get(column))
+    role = (result.get("column_roles") or {}).get(column, {}).get("role")
+    parsed = number(value)
+    if role not in ("time", "dimension") and meta["kind"] != "unknown" and parsed is not None:
+        return display(parsed, meta)
+    return value
 
 
 def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
@@ -997,7 +1015,10 @@ def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
         return _answer_text(
             "{head}：{value}",
             head=head,
-            value="；".join(f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()),
+            value="；".join(
+                f"{k} {_answer_text('无数据') if v is None else _display_measure(v, k, result)}"
+                for k, v in cells.items()
+            ),
         )
     rank = (
         _answer_text(
@@ -1040,6 +1061,8 @@ def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dic
         return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         value = result["rows"][0][-1]
+        columns = result.get("columns") or []
+        value = _display_measure(value, columns[-1] if columns else None, result)
         return _answer_text("{head}：{value}", head=head, value=value if value is not None else _answer_text("无数据"))
     return _answer_text(
         "{head}：共 {row_count} 行{rank}{truncated}",

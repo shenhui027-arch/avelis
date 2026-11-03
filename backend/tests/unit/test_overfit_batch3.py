@@ -7,12 +7,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import String
+from reportlab.graphics.shapes import Circle, String
 
 from avelis import config, configfile
 from avelis.analysis import calc, dataset_access, dataset_projection, explore, export, grounding, measures
 from avelis.analysis import service as analysis_service
+from avelis.analysis.figures import dataset_charts, report_figures
 from avelis.api import analysis as analysis_api
 from avelis.api import ask as ask_api
 from avelis.api import auth, schemas
@@ -263,26 +263,26 @@ def test_column_roles_follow_registered_semantics_and_labels():
         "units": {
             "time_a": {"kind": "count"},
             "dimension_a": {"kind": "count"},
-            "列·变化率": {"kind": "level"},
+            "列·变化率": {"kind": "level", "additive": True},
             "count_a": {"kind": "count"},
             "ratio_a": {"kind": "ratio"},
             "share_a": {"kind": "share"},
-            "delta_a": {"kind": "delta"},
+            "delta_a": {"kind": "delta", "additive": True},
             "rate_a": {"kind": "rate_change"},
             "unknown_a": {"kind": "unknown"},
         },
     }
     original = deepcopy(meta)
     roles = dataset_projection.build_column_roles(columns, meta)
-    assert roles["time_a"] == {"role": "time", "label": "time_a"}
+    assert roles["time_a"] == {"role": "time", "label": "time_a", "grain": None}
     assert roles["dimension_a"] == {"role": "dimension", "label": "维度甲"}
     assert roles["dimension_b"] == {"role": "dimension", "label": "dimension_b"}
     assert roles["期间"]["role"] == "dimension"  # 没有 time_column，不凭名字猜时间列。
     assert roles["其他键"]["role"] == "dimension"
-    assert roles["列·变化率"] == {"role": "measure", "label": "指标甲"}
+    assert roles["列·变化率"] == {"role": "measure", "label": "指标甲", "additive": True}
     assert all(roles[column]["role"] == "measure" for column in ("count_a", "ratio_a", "share_a"))
-    assert roles["delta_a"] == {"role": "change", "label": "指标甲"}
-    assert roles["rate_a"] == {"role": "rate", "label": "指标甲"}
+    assert roles["delta_a"] == {"role": "change", "label": "指标甲", "additive": True}
+    assert roles["rate_a"] == {"role": "rate", "label": "指标甲", "additive": False}
     assert "unknown_a" not in roles and meta == original
 
 
@@ -294,7 +294,7 @@ def test_column_roles_do_not_invent_dimensions_when_units_are_missing():
         "dimensions": [{"name": "dimension_b", "label": "维度乙"}],
     }
     assert dataset_projection.build_column_roles(columns, meta) == {
-        "time_a": {"role": "time", "label": "time_a"},
+        "time_a": {"role": "time", "label": "time_a", "grain": None},
         "dimension_a": {"role": "dimension", "label": "dimension_a"},
         "dimension_b": {"role": "dimension", "label": "维度乙"},
     }
@@ -305,19 +305,19 @@ def test_registered_measure_role_wins_over_unused_dimension_with_same_name():
     roles = dataset_projection.build_column_roles(
         ["value"],
         {
-            "units": {"value": {"kind": "count"}},
+            "units": {"value": {"kind": "count", "additive": True}},
             "dimensions": version.dimensions,
             "measure_labels": {"value": "指标甲"},
         },
     )
-    assert roles["value"] == {"role": "measure", "label": "指标甲"}
+    assert roles["value"] == {"role": "measure", "label": "指标甲", "additive": True}
     result = ask_service._result_contract(
         {"columns": ["value"], "rows": [[40]]},
         Intent(metric_code="metric_a"),
         [(_metric(), version)],
         value_column="value",
     )
-    assert result["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+    assert result["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
 
 
 @pytest.mark.parametrize("source", ["versions", "metric_version_ids"])
@@ -334,7 +334,7 @@ def test_dataset_meta_reads_locked_version_and_does_not_mutate_saved_metadata(so
     original = deepcopy(meta)
     projected = dataset_projection.dataset_meta(session, dataset)
     assert projected["units"]["指标甲"]["kind"] == "ratio"
-    assert projected["units"]["指标甲·变化"] == {"kind": "delta", "of_ratio": True}
+    assert projected["units"]["指标甲·变化"] == {"kind": "delta", "of_ratio": True, "additive": False}
     assert projected["polarity"] == {column: "down_good" for column in columns[1:]}
     assert projected["dimension_labels"] == {"dimension_a": "维度甲", "dimension_b": "dimension_b"}
     assert projected["measure_labels"] == {column: "指标甲" for column in columns[1:]}
@@ -414,7 +414,7 @@ def test_dataset_detail_and_schema_keep_column_contract(kind):
     meta = {
         "time_column": "time_a",
         "intent": {"group_by": ["dimension_a"]},
-        "units": {"指标甲": {"kind": "count"}},
+        "units": {"指标甲": {"kind": "count", "additive": True}},
         "dimension_labels": {"dimension_a": "维度甲"},
         "measure_labels": {"指标甲": "指标甲"},
         "polarity": {"指标甲": "down_good"},
@@ -424,9 +424,9 @@ def test_dataset_detail_and_schema_keep_column_contract(kind):
     detail = analysis_api._dataset_detail(dataset, session=_Session())
     serialized = schemas.AnalysisDatasetDetailOut.model_validate(detail).model_dump(mode="json")
     assert serialized["column_roles"] == {
-        "time_a": {"role": "time", "label": "time_a"},
-        "dimension_a": {"role": "dimension", "label": "维度甲"},
-        "指标甲": {"role": "measure", "label": "指标甲"},
+        "time_a": {"role": "time", "label": "time_a", "grain": None, "additive": None},
+        "dimension_a": {"role": "dimension", "label": "维度甲", "grain": None, "additive": None},
+        "指标甲": {"role": "measure", "label": "指标甲", "grain": None, "additive": True},
     }
     assert serialized["polarity"] == {"指标甲": "down_good"}
     assert serialized["rows"] == [[202603, 3, 40]]
@@ -464,6 +464,7 @@ def test_run_view_restricted_dataset_does_not_leak_column_labels_or_polarity(mon
     projected = view["datasets"][0]
     assert projected["restricted"] and projected["rows"] == []
     assert projected["units"] == projected["polarity"] == projected["column_roles"] == {}
+    assert projected["charts"] == []
 
 
 @pytest.mark.parametrize("time_grain", [None, "month"])
@@ -475,10 +476,10 @@ def test_ask_simple_result_contract_labels_numeric_dimensions_and_time(time_grai
     projected = ask_service._result_contract(
         result, intent, [(_metric(), _version(value_kind="count"))], value_column="value"
     )
-    assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲"}
+    assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲", "additive": True}
     assert projected["polarity"] == {"value": "down_good"}
     assert projected["column_roles"]["dimension_a"] == {"role": "dimension", "label": "维度甲"}
-    assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+    assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
     if time_grain:
         assert projected["column_roles"]["time_a"]["role"] == "time"
     assert projected["rows"] == result["rows"] and result == original
@@ -519,8 +520,8 @@ def test_no_comparison_metric_name_suffix_does_not_overwrite_another_metric_cont
     assert result["units"][first.name]["kind"] == "count"
     assert result["units"]["指标甲"]["kind"] == "ratio"
     assert result["column_roles"] == {
-        first.name: {"role": "measure", "label": first.name},
-        "指标甲": {"role": "measure", "label": "指标甲"},
+        first.name: {"role": "measure", "label": first.name, "additive": True},
+        "指标甲": {"role": "measure", "label": "指标甲", "additive": False},
     }
     assert result["polarity"] == {first.name: "up_good", "指标甲": "down_good"}
 
@@ -552,7 +553,7 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
     assert answer.result["column_roles"] and answer.result["polarity"]
     assert answer.result is not shared and shared == original
     if not planned:
-        assert answer.result["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+        assert answer.result["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
         assert answer.result["units"]["value"]["kind"] == "count"
         assert answer.result["polarity"] == {"value": "down_good"}
     if scenario == "inconsistent":
@@ -560,7 +561,7 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
             status="answered", result=shared, intent=intent.model_dump(mode="json"), metric_version_ids=["version_a"]
         )
         projected = ask_api._answer_result(historical, _Session(_version(value_kind="count")))
-        assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+        assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
         assert projected["units"]["value"]["kind"] == "count"
 
 
@@ -578,6 +579,8 @@ def test_historical_answer_contract_uses_locked_version_without_mutating_saved_r
     assert projected["units"]["value"]["kind"] == "count"
     assert projected["polarity"] == {"value": "down_good"}
     assert answer.result is result and "column_roles" not in result
+    assert projected["charts"][0]["kind"] == "bar"
+    assert "charts" not in result
     assert (MetricVersion, "latest_a") not in session.reads
 
 
@@ -613,7 +616,11 @@ def test_historical_answer_preserves_existing_or_unavailable_contract(case):
     elif case == "blocked":
         answer.status = "blocked"
     session = _Session() if case != "no_session" else None
-    assert ask_api._answer_result(answer, session) is result
+    projected = ask_api._answer_result(answer, session)
+    if case == "existing_contract":
+        assert projected == {**result, "charts": []} and "charts" not in result
+    else:
+        assert projected is result
     assert session is None or session.reads == []
 
 
@@ -626,21 +633,36 @@ def test_export_contract_uses_numeric_dimensions_and_rate_without_suffix():
             "value_a": {"role": "rate", "label": "指标甲"},
         },
     }
-    assert export._metric_columns(dataset) == [1]
-    assert export._chart_labels(dataset, [1]) == [0]
-    assert export._column_label(dataset, "value_a") == "指标甲"
-    chart = export._chart(dataset, "Helvetica")
+    # rate 不再单独成图，见 test_charts.py::test_empty_or_no_measure_and_unsupported_shapes。
+    assert dataset_charts(dataset) == []
+    dataset["column_roles"]["value_a"]["role"] = "measure"
+    spec = dataset_charts(dataset)[0]
+    assert spec["x"] == {"column": "dimension_a", "role": "dimension", "label": "维度甲", "grain": None}
+    assert spec["categories"] == [102, 101]
+    assert [(s["column"], s["label"], s["values"]) for s in spec["series"]] == [("value_a", "指标甲", [0.3, 0.2])]
+    chart = export._spec_chart(spec, "Helvetica")
     labels = [item.text for item in chart.contents if isinstance(item, String)]
     assert "101" in labels and "102" in labels
 
 
 def test_export_empty_and_partial_contracts_do_not_guess_numeric_columns():
-    dataset = {"columns": ["dimension_a", "value_a"], "rows": [[101, 1], [102, 3]], "column_roles": {}}
-    assert export._metric_columns(dataset) == [] and export._chart(dataset, "Helvetica") is None
-    dataset["column_roles"] = {"dimension_a": {"role": "dimension", "label": "维度甲"}}
-    assert export._chart(dataset, "Helvetica") is None
+    dataset = {
+        "ref": "D1",
+        "columns": ["dimension_a", "value_a"],
+        "rows": [[101, 1], [102, 3]],
+        "column_roles": {},
+    }
+    view = {"datasets": [dataset], "report": {"claims": [{"refs": ["D1"]}]}}
+    for roles in ({}, {"dimension_a": {"role": "dimension", "label": "维度甲"}}):
+        dataset["column_roles"] = roles
+        assert dataset_charts(dataset) == []
+        assert report_figures(view) == []
+        assert report_figures(view, ["D1"]) == []
     dataset.pop("column_roles")
-    assert export._chart(dataset, "Helvetica") is not None  # 没有契约的旧运行保留数值兼容路径。
+    # 旧运行也必须由元数据恢复契约，不再按单元格数值猜列。
+    assert dataset_charts(dataset) == [] and report_figures(view) == []
+    dataset["meta"] = {"units": {"value_a": {"kind": "count"}}}
+    assert report_figures(view)[0]["chart"]["series"][0]["column"] == "value_a"
 
 
 def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_keys():
@@ -654,17 +676,21 @@ def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_ke
             "value_a": {"role": "measure", "label": "指标甲"},
         },
     }
-    chart = export._chart(dataset, "Helvetica")
-    line = next(item for item in chart.contents if isinstance(item, LinePlot))
-    assert list(line.data) == [[(0, 10), (1, 20), (2, 30)]]
-    assert export._time_column(dataset) == "time_a"
+    spec = dataset_charts(dataset)[0]
+    assert spec["kind"] == "line" and spec["x"]["column"] == "time_a"
+    assert spec["categories"] == ["2026-01", "2026-02", "2026-03"]
+    assert [(s["column"], s["name"], s["values"]) for s in spec["series"]] == [("value_a", "101", [10.0, 20.0, 30.0])]
+    chart = export._spec_chart(spec, "Helvetica")
+    assert len([item for item in chart.contents if isinstance(item, Circle)]) == 3
+    assert set(spec["categories"]) <= {item.text for item in chart.contents if isinstance(item, String)}
     dataset["meta"] = {"column_roles": dataset.pop("column_roles")}
-    assert export._time_column(dataset) == "time_a"
+    assert dataset_charts(dataset)[0] == spec
 
 
 def test_export_change_axis_comes_from_contract_instead_of_unit_or_column_name():
     dataset = {
         "columns": ["dimension_a", "列·变化", "value_a"],
+        "rows": [[101, 900, -7], [102, 800, 3]],
         "column_roles": {
             "dimension_a": {"role": "dimension", "label": "维度甲"},
             "列·变化": {"role": "measure", "label": "指标甲"},
@@ -672,7 +698,19 @@ def test_export_change_axis_comes_from_contract_instead_of_unit_or_column_name()
         },
         "units": {"列·变化": {"kind": "delta"}, "value_a": {"kind": "level"}},
     }
-    assert export._chart_value(dataset, export._metric_columns(dataset)) == 2
+    # 普通图不再一律优先 change；完整对比组的变化图由
+    # test_charts.py::test_comparison_dimension_precedes_time_and_sorts_each_chart_independently 覆盖。
+    spec = dataset_charts(dataset)[0]
+    assert spec["x"]["column"] == "dimension_a"
+    assert [(s["column"], s["values"]) for s in spec["series"]] == [("列·变化", [900.0, 800.0])]
+    # 去掉 measure 契约后才使用 change，不能由单位或“·变化”后缀决定系列。
+    del dataset["column_roles"]["列·变化"]
+    spec = dataset_charts(dataset)[0]
+    assert spec["categories"] == [102, 101]
+    assert [(s["column"], s["values"]) for s in spec["series"]] == [("value_a", [3.0, -7.0])]
+    chart = export._spec_chart(spec, "Helvetica")
+    labels = {item.text for item in chart.contents if isinstance(item, String)}
+    assert {"101", "102", "-7"} <= labels
 
 
 @pytest.mark.parametrize("render", [export.to_markdown, export.to_html])
