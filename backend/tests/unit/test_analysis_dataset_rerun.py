@@ -63,7 +63,7 @@ def state(monkeypatch):
         )
         session.commit()
         metric = SimpleNamespace(name="指标")
-        version = SimpleNamespace(id="current-version", kind="base", unit="件", unit_scale=1)
+        version = SimpleNamespace(id="current-version", kind="base", unit="件", unit_scale=1, expression="SUM(b.amount)")
         catalog = ask.Catalog([], {"metric": (metric, version)})
         calls, commits = [], []
         monkeypatch.setattr(dataset_access, "require_dataset_access", lambda *args: calls.append("access"))
@@ -112,7 +112,7 @@ def test_previous_period_creates_next_dataset_and_step_without_changing_report(s
     assert new.meta["original_intent"] == state.source.meta["intent"]
     assert new.meta["window"] == WINDOW and new.meta["versions"] == {"metric": "current-version"}
     assert new.meta["metric_version_ids"] == ["current-version"]
-    assert new.meta["units"] == {"指标": {"kind": "level", "unit": "件"}}
+    assert new.meta["units"] == {"指标": {"kind": "level", "unit": "件", "additive": True}}
     assert new.meta["root_kinds"] == ["governed"] and new.meta["closure"] == []
     assert not new.meta["cached"] and new.meta["executed_at"]
     answer = state.session.get(Answer, new.answer_id)

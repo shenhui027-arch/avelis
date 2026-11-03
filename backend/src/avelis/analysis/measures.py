@@ -64,7 +64,7 @@ def governed_units(columns: list[str], metrics: dict[str, Any], period_label: st
         base["additive"] = (
             getattr(version, "kind", "base") != "derived"
             and base["kind"] in {"level", "count"}
-            and base_additive(version.expression)[0]
+            and base_additive(getattr(version, "expression", None) or "")[0]
         )
         declared = [(name, base)]
         if period_label is not None:
