@@ -475,7 +475,7 @@ def test_key_datasets_deduplicate_members_present_in_materialized_spec():
     view["report"]["causes"] = [view["report"]["causes"][0]]
     dataset = view["datasets"][1]
     dataset["rows"] = [["dimension_code", "成员甲", None], ["dimension_code", "成员乙", -10]]
-    assert dataset_charts(dataset)[0]["kind"] == "grouped_bar"
+    assert dataset_charts(dataset)[0]["kind"] == "bar"  # 两个维度合成一个类目
     assert [d["ref"] for d in key_datasets(view, ["D2", "D3", "D4"])] == ["D3", "D4"]
 
 

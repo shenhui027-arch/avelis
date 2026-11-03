@@ -58,6 +58,12 @@ def reference_counts(report: dict) -> Counter:
     return counts
 
 
+def _shows(chart: dict, member) -> bool:
+    """图里是否画了这个成员：类目或系列名等于它，或是含它的多维度组合（“甲 / 乙”）。"""
+    names = [*chart["categories"], *(s["name"] for s in chart["series"])]
+    return any(name == member or str(name) == str(member) or str(member) in str(name).split(" / ") for name in names)
+
+
 def _duplicates_cause_chart(dataset: dict, report: dict, chart: dict) -> bool:
     """仅排除原因图已展示的成员；其他维度与时间趋势仍可入选。"""
     x = chart.get("x") or {}
@@ -81,14 +87,12 @@ def _duplicates_cause_chart(dataset: dict, report: dict, chart: dict) -> bool:
             if any(r[columns.index("dimension")] != entity.get("dimension") for r in rows):
                 continue
             members = [r[columns.index("member")] for r in rows]
-            if member in members and (
-                member in chart["categories"] or any(s["name"] == str(member) for s in chart["series"])
-            ):
+            if member in members and _shows(chart, member):
                 return True
             continue
         if dimension != entity.get("dimension"):
             continue
-        if member is not None and member in chart["categories"]:
+        if member is not None and _shows(chart, member):
             return True
     return False
 
