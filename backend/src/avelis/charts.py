@@ -107,7 +107,8 @@ def _recommend(
         return _number(cell(row, column))
 
     def additive(column):
-        return (units.get(column) or {}).get("kind") in ADDITIVE_KINDS
+        unit = units.get(column) or {}
+        return unit.get("additive", unit.get("kind") in ADDITIVE_KINDS)
 
     def series(column, values, *, name=None, mark="bar", axis=0, direction=None, other=False):
         label = roles[column].get("label") or column
@@ -157,6 +158,12 @@ def _recommend(
     time = next(iter(by_role["time"]), None)
     dimensions = by_role["dimension"]
     dimension = next(iter(dimensions), None)
+
+    def category(row):
+        if len(dimensions) >= 2 and not time:
+            return " / ".join(str(cell(row, column)) for column in dimensions)
+        return cell(row, dimension)
+
     if not time and not dimension and len(rows) == 1:
         comparisons = {group[0]: group for group in groups}
         kpis = []
@@ -183,7 +190,7 @@ def _recommend(
         def comparison_data(sort_column, columns):
             ranked = ordered(rows, lambda row: value(row, sort_column))
             kept, tail = ranked[:limit], ranked[limit:]
-            categories = [cell(row, dimension) for row in kept]
+            categories = [category(row) for row in kept]
             values = [[value(row, column) for row in kept] for column in columns]
             merged = None
             if top_n is not None and tail and all(additive(c) for c in columns):
@@ -229,7 +236,16 @@ def _recommend(
 
     def multi(x, categories, values, *, temporal=False):
         same_unit = (
-            len({((units.get(c) or {}).get("kind", "unknown"), (units.get(c) or {}).get("unit")) for c in measures})
+            len(
+                {
+                    (
+                        (units.get(c) or {}).get("kind", "unknown"),
+                        (units.get(c) or {}).get("unit"),
+                        str((units.get(c) or {}).get("scale") or 1),
+                    )
+                    for c in measures
+                }
+            )
             == 1
         )
         reason = "multi_measure" if len(measures) > 1 else "time_series"
@@ -315,27 +331,9 @@ def _recommend(
 
     if not dimension:
         return []
-    if len(dimensions) >= 2 and len(measures) == 1:
-        column = measures[0]
-        categories, members, values = pivot(dimension, dimensions[1], column)
-        if len(members) <= 6:
-            chart = spec(
-                "grouped_bar",
-                "composition",
-                dimension,
-                categories,
-                [
-                    series(column, [values.get((category, member)) for category in categories], name=str(member))
-                    for member in members
-                ],
-            )
-            return [chart, alternate(chart, "stacked_bar", "bar")] if additive(column) else [chart]
-
-    flatten = len(dimensions) >= 2 and len(measures) == 1
     grouped = defaultdict(list)
     for row in rows:
-        category = " / ".join(str(cell(row, c)) for c in dimensions) if flatten else cell(row, dimension)
-        grouped[category].append(row)
+        grouped[category(row)].append(row)
     values = {
         category: [
             _sum(value(row, column) for row in items) if additive(column) else value(items[0], column)

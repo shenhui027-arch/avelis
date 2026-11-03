@@ -68,7 +68,7 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict]:
         if role == "time":
             roles[column]["grain"] = grain
         elif role in {"measure", "change", "rate"}:
-            roles[column]["additive"] = kind in {"level", "count", "delta", "share"}
+            roles[column]["additive"] = units[column].get("additive", kind in {"level", "count", "delta", "share"})
     return roles
 
 
@@ -103,6 +103,7 @@ def dataset_meta(session, dataset) -> dict:
                 units[column] = unit  # 旧运行可能仍登记了表达式推断值，显式声明优先。
             else:
                 units.setdefault(column, unit)
+            units[column] = {**units[column], "additive": unit["additive"]}
             labels.setdefault(column, metric.name)
             saved_label = column_labels.get(column)
             generated_label = f"{metric.name}·本期" if period and column == metric.name else column

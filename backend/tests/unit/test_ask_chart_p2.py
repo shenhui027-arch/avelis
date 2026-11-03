@@ -3,6 +3,7 @@
 import json
 import logging
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -10,16 +11,17 @@ from unittest.mock import Mock
 
 import psycopg
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from sqlalchemy.exc import OperationalError
 
 from avelis import config, modelcfg
 from avelis.analysis import grounding
 from avelis.api.ask import _answer_result
 from avelis.ask import agent, service
-from avelis.ask.intent import DemoIntentModel, MetricCard
+from avelis.ask.intent import DemoIntentModel, Intent, MetricCard
 from avelis.charts import recommend
 from avelis.i18n import locale_context
+from avelis.llm_protocol import ReasoningRoundTripChatOpenAI
 from avelis.models import AskThread, Domain, ModelProvider
 
 
@@ -67,8 +69,11 @@ def answer_for(rows=None):
 
 def explain(monkeypatch, answer, reply=None, *, support=True, send=True, configured=True):
     model = Mock()
-    model.invoke.return_value = reply if reply is not None else AIMessage("结果解释")
-    model.bind_tools.return_value = model
+    if isinstance(reply, list):
+        model.invoke.side_effect = reply
+    else:
+        model.invoke.return_value = reply if reply is not None else AIMessage("结果解释")
+    model.bind_tools.return_value = Mock(invoke=Mock(side_effect=model.invoke))
     assignment = SimpleNamespace(provider_id="provider", model_id="model")
     provider = SimpleNamespace(last_check={"models": {"model": {"tool_calling": support}}})
     session = Mock()
@@ -130,6 +135,86 @@ def test_summary_handles_null_values_and_missing_time(monkeypatch):
     assert payload(model)["metric"] == {}
 
 
+@pytest.mark.parametrize("template", ["single", "plan"])
+@pytest.mark.parametrize(
+    "value,meta,expected",
+    [
+        ("91622215.01", {"kind": "level", "unit": "元"}, "9162.22万元"),
+        ("1.2345", {"kind": "level", "unit": "元", "scale": "10000"}, "1.23万元"),
+        ("0.06612345", {"kind": "ratio"}, "6.6%"),
+        ("0.06612345", {"kind": "delta", "of_ratio": True}, "+6.6个百分点"),
+        ("0", {"kind": "count", "unit": "单"}, "0单"),
+        (None, {"kind": "level", "unit": "元"}, "无数据"),
+        ("91622215.0100", {"kind": "unknown"}, "91622215.0100"),
+        ("91622215.0100", {"kind": "unexpected"}, "91622215.0100"),
+        ("91622215.0100", None, "91622215.0100"),
+        ("文本原值", {"kind": "level", "unit": "元"}, "文本原值"),
+    ],
+)
+def test_answer_templates_format_measures_without_changing_wording(template, value, meta, expected):
+    metric, version = SimpleNamespace(name="成交额"), SimpleNamespace(version_no=1)
+    intent = Intent(metric_code="amount", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30))
+    result = {
+        "columns": ["成交额"],
+        "rows": [[value]],
+        "units": {"成交额": meta} if meta is not None else {},
+        "column_roles": {"成交额": {"role": "measure"}},
+    }
+    before = deepcopy(result)
+    with locale_context("zh-CN"):
+        if template == "single":
+            text = service._explain(metric, version, intent, result)
+        else:
+            text = service._explain_plan([("amount", metric, version)], intent, result)
+            expected = "成交额 " + expected
+    assert text == f"2026-09-01 至 2026-09-30 成交额（V1）：{expected}"
+    assert result == before
+
+
+@pytest.mark.parametrize(
+    "style,expected",
+    [
+        ("cn", "成交额 672.99万元；成交额·上一期 734.93万元；成交额·变化 -61.94万元；成交额·变化率 -8.4%"),
+        ("intl", "成交额 6.73M元；成交额·上一期 7.35M元；成交额·变化 -619.44K元；成交额·变化率 -8.4%"),
+    ],
+)
+def test_comparison_template_uses_governed_units_and_number_style(monkeypatch, settings, style, expected):
+    monkeypatch.setattr(grounding, "get_settings", lambda: replace(settings, number_style=style))
+    metric = SimpleNamespace(name="成交额")
+    version = SimpleNamespace(version_no=1, value_kind="level", unit="元", expression="SUM(amount)", dimensions=[])
+    intent = Intent(
+        metric_code="amount", start_date=date(2026, 9, 1), end_date=date(2026, 9, 30), compare="previous_period"
+    )
+    result = service._result_contract(
+        {
+            "columns": ["成交额", "成交额·上一期", "成交额·变化", "成交额·变化率"],
+            "rows": [["6729908.70", "7349347.75", "-619439.05", "-0.0843"]],
+        },
+        intent,
+        [(metric, version)],
+    )
+    with locale_context("zh-CN"):
+        assert service._explain_plan([("amount", metric, version)], intent, result) == (
+            "2026-09-01 至 2026-09-30 成交额（V1）：" + expected
+        )
+
+
+@pytest.mark.parametrize("role", ["dimension", "time"])
+def test_template_preserves_numeric_dimension_and_time(role):
+    metric, version = SimpleNamespace(name="成交额"), SimpleNamespace(version_no=1)
+    intent = Intent(metric_code="amount", start_date=date(2026, 9, 1), end_date=date(2026, 9, 1))
+    result = {
+        "columns": ["编码", "成交额"],
+        "rows": [["20260901", "12"]],
+        "units": {"编码": {"kind": "count"}, "成交额": {"kind": "level", "unit": "元"}},
+        "column_roles": {"编码": {"role": role}, "成交额": {"role": "measure"}},
+    }
+    with locale_context("zh-CN"):
+        assert service._explain_plan([("amount", metric, version)], intent, result) == (
+            "2026-09-01 成交额（V1）：编码 20260901；成交额 12元"
+        )
+
+
 def chart_reply(kind="bar", text="", **args):
     return AIMessage(
         text,
@@ -137,13 +222,13 @@ def chart_reply(kind="bar", text="", **args):
     )
 
 
-@pytest.mark.parametrize("text,source", [("", "template"), ("华东成交额最高。", "model")])
-def test_chart_choice_saved_and_model_invoked_once(monkeypatch, text, source):
+def test_chart_choice_with_text_saved_and_model_invoked_once(monkeypatch):
     answer = answer_for()
+    text = "华东成交额最高。"
     model, _ = explain(monkeypatch, answer, chart_reply(text=text, top_n=2))
     assert answer.evidence["chart"] == {"kind": "bar", "title": "华东成交额最高", "top_n": 2}
-    assert answer.explanation == (text or "模板解释")
-    assert answer.explanation_source == source
+    assert answer.explanation == text
+    assert answer.explanation_source == "model"
     assert model.invoke.call_count == 1
     tool = model.bind_tools.call_args.args[0][0]
     assert tool.name == "chart" and tool.args_schema is agent.ChartArgs
@@ -151,15 +236,57 @@ def test_chart_choice_saved_and_model_invoked_once(monkeypatch, text, source):
     assert payload(model)["chart_options"] == ["multiples", "bar"]
 
 
+def test_chart_only_reply_gets_unbound_second_round_and_preserves_reasoning(monkeypatch):
+    answer = answer_for()
+    first = chart_reply(top_n=2)
+    first.additional_kwargs["reasoning_content"] = "private reasoning"
+    model, outcome = explain(monkeypatch, answer, [first, AIMessage("华东成交额最高。")])
+    assert answer.explanation == "华东成交额最高。"
+    assert answer.explanation_source == "model"
+    assert answer.evidence["chart"] == {"kind": "bar", "title": "华东成交额最高", "top_n": 2}
+    assert model.invoke.call_count == 2
+    model.bind_tools.assert_called_once()
+    model.bind_tools.return_value.invoke.assert_called_once()
+    messages = model.invoke.call_args.args[0]
+    assert messages[:2] == model.invoke.call_args_list[0].args[0]
+    assert messages[2] is first
+    assert isinstance(messages[3], ToolMessage)
+    assert messages[3].tool_call_id == "selection"
+    assert messages[3].content == "已按 bar 生成图：华东成交额最高"
+    wire = ReasoningRoundTripChatOpenAI(model="deepseek", api_key="test")._get_request_payload(messages)
+    assert "tools" not in wire
+    assert wire["messages"][2]["reasoning_content"] == "private reasoning"
+    assert wire["messages"][3]["tool_call_id"] == "selection"
+    assert "private reasoning" not in json.dumps(outcome, default=str)
+
+
+@pytest.mark.parametrize("second", [AIMessage(""), chart_reply("bar")])
+def test_explain_stops_after_two_rounds_when_second_has_no_text(monkeypatch, second):
+    answer = answer_for()
+    model, _ = explain(monkeypatch, answer, [chart_reply(), second])
+    assert model.invoke.call_count == 2
+    assert answer.explanation == "模板解释"
+    assert answer.explanation_source == "template"
+
+
+def test_empty_reply_without_tool_does_not_request_second_round(monkeypatch):
+    answer = answer_for()
+    model, _ = explain(monkeypatch, answer, AIMessage(" \n "))
+    assert model.invoke.call_count == 1
+    assert answer.explanation_source == "template"
+
+
 @pytest.mark.parametrize(
     "kind,args", [("line", {}), ("unknown", {}), ("bar", {"top_n": 21}), ("bar", {"title": "长" * 41})]
 )
-def test_invalid_chart_choice_is_rejected_without_retry(monkeypatch, kind, args):
+def test_invalid_chart_choice_returns_options_then_gets_explanation(monkeypatch, kind, args):
     answer = answer_for()
-    model, outcome = explain(monkeypatch, answer, chart_reply(kind, **args))
+    model, outcome = explain(monkeypatch, answer, [chart_reply(kind, **args), AIMessage("华东成交额最高。")])
     assert "chart" not in answer.evidence
     assert {"node": "explain", "chart": "rejected", "kind": kind} in outcome["steps"]
-    assert model.invoke.call_count == 1
+    assert model.invoke.call_count == 2
+    assert model.invoke.call_args.args[0][-1].content == "该图不可用，可选：multiples、bar"
+    assert answer.explanation == "华东成交额最高。"
 
 
 @pytest.mark.parametrize("support", [False, None])
@@ -303,10 +430,15 @@ def test_only_first_chart_call_is_processed(monkeypatch):
     answer = answer_for()
     reply = chart_reply("line")
     reply.tool_calls.extend(chart_reply("bar").tool_calls)
-    model, outcome = explain(monkeypatch, answer, reply)
+    reply.tool_calls[1]["id"] = "extra-selection"
+    model, outcome = explain(monkeypatch, answer, [reply, AIMessage("结果解释")])
     assert "chart" not in answer.evidence
     assert {"node": "explain", "chart": "rejected", "kind": "line"} in outcome["steps"]
-    assert model.invoke.call_count == 1
+    assert model.invoke.call_count == 2
+    assert [message.tool_call_id for message in model.invoke.call_args.args[0][3:]] == [
+        "selection",
+        "extra-selection",
+    ]
 
 
 @pytest.mark.parametrize(

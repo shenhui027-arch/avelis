@@ -908,7 +908,7 @@ def test_tools_register_units_and_summary_paths(monkeypatch):
     """ADR 0009：受治理查询、差额拆解、derive 登记量纲与单位；汇总路径登记后才能引用。"""
     box = make_box(monkeypatch=monkeypatch)
     units_dataset(box)
-    assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元"}
+    assert box.datasets()["D1"].meta["units"]["成交额·变化"] == {"kind": "delta", "unit": "元", "additive": True}
     contribution = json.loads(
         box.dispatch(
             "contribution", {"dataset": "D1", "keys": ["区域"], "current": "成交额", "previous": "成交额·对比期"}
