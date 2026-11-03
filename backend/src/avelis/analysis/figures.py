@@ -133,7 +133,17 @@ def report_figures(view: dict, datasets: list[str] | None = None) -> list[dict]:
         explicit = "kind" in request
         preference = {k: request[k] for k in ("kind", "title", "top_n") if k in request} if explicit else None
         options = dataset_charts(dataset, preference)
-        if not options or (explicit and (request.get("kind") == "kpi" or options[0]["kind"] != request.get("kind"))):
+        requested_kind = request.get("kind")
+        if (
+            options
+            and requested_kind in ("line", "stacked_bar", "grouped_bar")
+            and options[0]["kind"] == "multiples"
+            and options[0]["reason"] == "time_by_dimension"
+        ):
+            # 旧报告曾保存只含首个指标的图种；沿用新分图并保留标题，避免升级后整张插图消失。
+            requested_kind = "multiples"
+            options = dataset_charts(dataset, {**preference, "kind": requested_kind})
+        if not options or (explicit and (requested_kind == "kpi" or options[0]["kind"] != requested_kind)):
             continue
         result[ref] = {"ref": ref, "title": request.get("title"), "chart": options[0]}
         if len(result) == 4:

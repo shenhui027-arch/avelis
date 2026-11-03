@@ -315,6 +315,34 @@ def _recommend(
         periods = sorted(dict.fromkeys(cell(row, time) for row in rows), key=str)
         if len(periods) >= 2:
             if dimension:
+                if len(measures) > 1:
+                    # 现有分图契约每个系列一个面板；分别物化各指标，再按“指标 / 成员”分图。
+                    charts = []
+                    for column in measures:
+                        selected_columns = [time, *dimensions, column]
+                        selected_rows = [
+                            [row[indices[c]] if indices[c] < len(row) else None for c in selected_columns]
+                            for row in rows
+                        ]
+                        charts.append(
+                            _recommend(selected_columns, selected_rows, roles, units, polarity, intent, top_n=top_n)[0]
+                        )
+                    panels = [
+                        {**s, "name": f"{s['label']} / {s['name']}", "axis": index}
+                        for index, s in enumerate(s for chart in charts for s in chart["series"])
+                    ]
+                    merged_count = sum((chart["others"] or {}).get("count", 0) for chart in charts)
+                    return [
+                        spec(
+                            "multiples",
+                            "time_by_dimension",
+                            time,
+                            periods,
+                            panels,
+                            others={"count": merged_count} if merged_count else None,
+                            dropped=sum(chart["dropped_series"] for chart in charts),
+                        )
+                    ]
                 column = measures[0]
                 _, members, values = pivot(time, member_key, column)
                 merged, dropped = None, 0

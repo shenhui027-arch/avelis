@@ -1088,8 +1088,10 @@ def _nice_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
 
 
 def _axis_label(value: float, unit: dict | None) -> str:
-    """坐标轴刻度：与界面一致，按量纲换算、去掉多余的零、不带单位。"""
+    """坐标轴刻度按量纲换算；比率之差复用数据标注的换算与百分点文案。"""
     meta = _unit(unit)
+    if meta["kind"] == "delta" and meta["of_ratio"] and not meta["unit"]:
+        return display(number(value), meta).removeprefix("+")
     if meta["kind"] in ("rate_change", "share") or (meta["kind"] == "ratio" and not meta["unit"]):
         return compact(number(value) * 100, 1, strip=True) + "%"
     return compact(number(value) * (meta["scale"] if meta["kind"] != "ratio" else 1), 2, strip=True)
