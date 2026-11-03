@@ -2002,8 +2002,8 @@ msgstr "The metric uses the same asset in multiple relationship roles and cannot
 msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
 msgstr "The metric expression references virtual fields produced by pre-aggregation and cannot be exported safely; adjust the metric definition"
 #: src/avelis/config.py
-msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
-msgstr "Enabling MCP requires a public HTTP(S) URL without credentials, query parameters, or a fragment"
+msgid "AVELIS_PUBLIC_URL 须为无凭据、查询参数或片段的 HTTP(S) 公开地址"
+msgstr "AVELIS_PUBLIC_URL must be a public HTTP(S) URL without credentials, query parameters, or a fragment"
 
 #: src/avelis/oauth/router.py
 msgid "授权确认票据无效或已过期"

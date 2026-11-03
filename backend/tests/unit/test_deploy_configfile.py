@@ -57,6 +57,30 @@ def test_explicit_environment_is_an_independent_input(monkeypatch, tmp_path):
 def test_missing_implicit_config_preserves_existing_defaults():
     value = config.build_settings()
     assert value.port == 8000 and value.public_url == ""
+    assert value.auto_migrate is True and value.auto_init_admin is True
+    assert value.mcp_enabled is True
+    assert value.analysis_retrieval is True and value.analysis_investigation is True
+
+
+def test_toml_without_bootstrap_or_analysis_uses_enabled_defaults(monkeypatch, tmp_path):
+    write_toml(monkeypatch, tmp_path, "[server]\nport = 8101\n")
+    value = config.build_settings()
+    assert value.auto_migrate is True and value.auto_init_admin is True
+    assert value.analysis_retrieval is True and value.analysis_investigation is True
+    assert configfile.CONFIG_KEYS["bootstrap.auto_migrate"].default is True
+    assert configfile.CONFIG_KEYS["bootstrap.auto_init_admin"].default is True
+    assert configfile.CONFIG_KEYS["analysis.retrieval"].default is True
+    assert configfile.CONFIG_KEYS["analysis.investigation"].default is True
+
+
+@pytest.mark.parametrize("password_line", ["", 'initial_admin_password = ""\n'])
+def test_auto_init_admin_password_is_optional_in_config_check(monkeypatch, tmp_path, capsys, password_line):
+    write_toml(monkeypatch, tmp_path, f"[bootstrap]\nauto_init_admin = true\n{password_line}")
+    value = config.build_settings()
+    assert value.auto_init_admin is True
+    assert not value.env.get("AVELIS_INITIAL_ADMIN_PASSWORD")
+    config.main(["check"])
+    assert "配置有误" not in capsys.readouterr().err
 
 
 def test_existing_implicit_config_is_loaded(monkeypatch, tmp_path):

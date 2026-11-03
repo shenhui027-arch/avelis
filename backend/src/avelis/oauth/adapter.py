@@ -39,8 +39,13 @@ class RequestPayload(OAuth2Payload):
 
 
 class FastAPIOAuth2Request(OAuth2Request):
-    def __init__(self, request: Request, form: FormData | None = None):
-        super().__init__(request.method, str(request.url), headers=request.headers)
+    def __init__(self, request: Request, form: FormData | None = None, *, allow_http: bool = False):
+        uri = str(request.url)
+        # 请求推导模式按部署实际的 HTTP(S) 工作（包括内网 HTTP）。Authlib 构造器
+        # 固定要求 HTTPS/loopback，故仅绕过这一步检查，随后仍保留真实 uri。
+        checked_uri = str(request.url.replace(scheme="https")) if allow_http and request.url.scheme == "http" else uri
+        super().__init__(request.method, checked_uri, headers=request.headers)
+        self.uri = uri
         self._args = request.query_params
         self._form = form or FormData()
         self.payload = RequestPayload(QueryParams([*self._args.multi_items(), *self._form.multi_items()]))

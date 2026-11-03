@@ -31,6 +31,7 @@ from .cimd import CIMDError, fetch_client_metadata
 from .endpoints import RegistrationEndpoint, RevokeEndpoint, authorization_metadata
 from .grants import CodeGrant, RefreshGrant, ResourceBinding, S256CodeChallenge
 from .repository import Repository, aware, credential_hash, now
+from .urls import request_settings
 
 SCOPE_DESCRIPTIONS = {
     "metrics:read": "检索与读取已发布口径定义 / Read published metric definitions",
@@ -151,21 +152,34 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         if name == "authlib" or name.startswith("authlib."):
             logging.getLogger(name).setLevel(logging.INFO)
     logging.getLogger("authlib").setLevel(logging.INFO)
-    metadata = authorization_metadata(settings)
-    router = APIRouter(tags=["OAuth"])
+    # Authlib 的元数据校验要求 issuer 必须是 https；内网 http 部署与按请求推导一样跳过这项校验，不能让整个应用起不来。
+    configured_metadata = (
+        authorization_metadata(settings, validate=urlsplit(settings.public_url).scheme == "https")
+        if settings.public_url
+        else None
+    )
+
+    def external_settings(request: Request):
+        return request_settings(settings, request)
+
+    router = APIRouter(tags=["OAuth"], dependencies=[Depends(external_settings)])
 
     class Issuer(IssuerParameter):
-        def get_issuer(self):
-            return settings.public_url
+        def __init__(self, issuer):
+            self.issuer = issuer
 
-    def server_for(session):
-        server = FastAPIAuthorizationServer(Repository(session), settings)
-        server.metadata = metadata
+        def get_issuer(self):
+            return self.issuer
+
+    def server_for(session, request):
+        current = request_settings(settings, request)
+        server = FastAPIAuthorizationServer(Repository(session), current)
+        server.metadata = configured_metadata or authorization_metadata(current, validate=False)
         server.register_grant(CodeGrant, [S256CodeChallenge(required=True), ResourceBinding()])
         server.register_grant(RefreshGrant)
         server.register_endpoint(RevokeEndpoint)
         server.register_endpoint(RegistrationEndpoint)
-        server.register_extension(Issuer())
+        server.register_extension(Issuer(current.public_url))
         return server
 
     def finish(session, response):
@@ -180,21 +194,19 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             raise HTTPException(400, "授权确认票据无效或已过期")
         return row
 
-    def restore_request(row):
+    def restore_request(row, current_request):
         pairs = [tuple(pair) for pair in row.parameters]
         query = urlencode(pairs)
         request = Request(
             {
-                "type": "http",
+                **current_request.scope,
                 "method": "GET",
-                "scheme": "https",
-                "server": ("localhost", 443),
-                "path": "/oauth/authorize",
+                "path": current_request.scope.get("root_path", "") + "/oauth/authorize",
                 "query_string": query.encode(),
-                "headers": [],
             }
         )
-        adapted = FastAPIOAuth2Request(request)
+        # 原授权请求已经过传输校验；这里仅恢复内部票据，保持确认 API 原有的 HTTP 兼容性。
+        adapted = FastAPIOAuth2Request(request, allow_http=True)
         adapted._args = QueryParams(pairs)
         return adapted
 
@@ -211,13 +223,13 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             raise HTTPException(400, error.description) from error
 
     @router.get("/.well-known/oauth-authorization-server", include_in_schema=False)
-    def discovery():
-        return dict(metadata)
+    def discovery(request: Request):
+        return dict(configured_metadata or authorization_metadata(request_settings(settings, request), validate=False))
 
     @router.get("/oauth/authorize", include_in_schema=False)
     async def authorize(request: Request, session: Session = Depends(get_session)):
-        server = server_for(session)
-        adapted = FastAPIOAuth2Request(request)
+        server = server_for(session, request)
+        adapted = FastAPIOAuth2Request(request, allow_http=not settings.public_url)
         try:
             adapted.reject_duplicate_parameters()
             if adapted.payload.client_id:
@@ -231,7 +243,7 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             server.get_consent_grant(adapted, end_user=None)
         except OAuth2Error as error:
             response = server.handle_error_response(adapted, error)
-            Issuer().add_issuer_parameter(server, response)
+            Issuer(server.settings.public_url).add_issuer_parameter(server, response)
             return finish(session, response)
         raw_ticket = generate_token(48)
         # 冻结实际解析的 scope；客户端默认权限随后扩大不能改变待确认票据。
@@ -248,14 +260,14 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         return finish(
             session,
             RedirectResponse(
-                settings.public_url + "/oauth/consent?" + urlencode({"ticket": raw_ticket}), status_code=302
+                server.settings.public_url + "/oauth/consent?" + urlencode({"ticket": raw_ticket}), status_code=302
             ),
         )
 
     @router.post("/oauth/token", include_in_schema=False)
     async def token(request: Request, session: Session = Depends(get_session)):
-        server = server_for(session)
-        adapted = FastAPIOAuth2Request(request, await request.form())
+        server = server_for(session, request)
+        adapted = FastAPIOAuth2Request(request, await request.form(), allow_http=not settings.public_url)
         try:
             adapted.reject_duplicate_parameters()
             if adapted.payload.client_id:
@@ -266,8 +278,8 @@ def create_oauth_router(settings: Settings) -> APIRouter:
 
     @router.post("/oauth/revoke", include_in_schema=False)
     async def revoke(request: Request, session: Session = Depends(get_session)):
-        server = server_for(session)
-        adapted = FastAPIOAuth2Request(request, await request.form())
+        server = server_for(session, request)
+        adapted = FastAPIOAuth2Request(request, await request.form(), allow_http=not settings.public_url)
         try:
             adapted.reject_duplicate_parameters()
         except OAuth2Error as error:
@@ -282,17 +294,19 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
-        server = server_for(session)
+        server = server_for(session, request)
         return finish(
             session, server.create_endpoint_response("client_registration", FastAPIJsonRequest(request, body))
         )
 
     @router.get("/api/oauth/consent/{ticket}", response_model=ConsentOut)
-    def consent(ticket: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    def consent(
+        ticket: str, request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)
+    ):
         row = ticket_row(session, ticket)
         client = client_for_ticket(session, row)
-        adapted = restore_request(row)
-        consent_grant(server_for(session), adapted, user)
+        adapted = restore_request(row, request)
+        consent_grant(server_for(session, request), adapted, user)
         scopes = (adapted.scope if adapted.scope is not None else client.scope).split()
         domains = session.scalars(
             select(Domain).where(Domain.id.in_(access.domain_ids(session, user))).order_by(Domain.code)
@@ -305,11 +319,11 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             "domains": [{"id": d.id, "name": d.name, "code": d.code} for d in domains],
         }
 
-    def decide(ticket, user, session, approve):
+    def decide(ticket, user, session, approve, request):
         row = ticket_row(session, ticket)
         client_for_ticket(session, row)
-        server = server_for(session)
-        adapted = restore_request(row)
+        server = server_for(session, request)
+        adapted = restore_request(row, request)
         # 与签发/撤销共用客户端锁，不能在撤销后签发授权码。
         grant = consent_grant(server, adapted, user)
         consumed = session.execute(
@@ -352,12 +366,16 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         return {"redirect_to": response.headers["location"]}
 
     @router.post("/api/oauth/consent/{ticket}/approve", response_model=RedirectOut)
-    def approve(ticket: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
-        return decide(ticket, user, session, True)
+    def approve(
+        ticket: str, request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)
+    ):
+        return decide(ticket, user, session, True, request)
 
     @router.post("/api/oauth/consent/{ticket}/deny", response_model=RedirectOut)
-    def deny(ticket: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
-        return decide(ticket, user, session, False)
+    def deny(
+        ticket: str, request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)
+    ):
+        return decide(ticket, user, session, False, request)
 
     @router.get("/api/oauth/authorizations", response_model=list[AuthorizationOut])
     def authorizations(user: User = Depends(current_user), session: Session = Depends(get_session)):

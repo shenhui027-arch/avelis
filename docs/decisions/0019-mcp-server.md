@@ -1,6 +1,6 @@
 # ADR 0019：MCP 服务，向外部 AI 工具提供受治理的口径与血缘
 
-- 状态：已采纳（2026-11-03）。已实现：内置 OAuth 2.1 授权服务器、`/mcp` 资源服务器与五个工具、授权确认页与“设置 → MCP 接入”（迁移 0021，配置 `AVELIS_MCP_ENABLED` 默认关闭）。依赖锁定 `mcp==2.3.0`、`authlib==1.9.2`（与 `fastapi==0.162.0` 共存，Starlette 1.10.0），经技术验证后确定，见下方“实施记录”。
+- 状态：已采纳（2026-11-03）。已实现：内置 OAuth 2.1 授权服务器、`/mcp` 资源服务器与五个工具、授权确认页与“设置 → MCP 接入”（迁移 0021，配置 `AVELIS_MCP_ENABLED` 默认开启；见下方“2026-11-03 补充：默认开启”）。依赖锁定 `mcp==2.3.0`、`authlib==1.9.2`（与 `fastapi==0.162.0` 共存，Starlette 1.10.0），经技术验证后确定，见下方“实施记录”。
 - 相关：ADR 0002（后端基础与选型原则）、0005（问数表达力）、0008（审计）、0013（准确来自受治理的元数据）、0017（口径语义提示）、0018（治理事件）；参考 Apache Gravitino `mcp-server/`（独立的 Python 服务，工具按对象分组，每次调用记审计）
 
 ## 背景
@@ -19,7 +19,7 @@ MCP（Model Context Protocol）是这类工具接入外部能力的通用协议�
 
 ### 1. 形态
 
-- 作为后端的一个可选模块，挂在 `/mcp`，使用 Streamable HTTP 传输，按 `2026-07-28` 规范无状态运行。同一个镜像，配置开关默认关闭。
+- 作为后端的一个模块，挂在 `/mcp`，使用 Streamable HTTP 传输，按 `2026-07-28` 规范无状态运行。同一个镜像，配置开关默认开启，可显式关闭。
 - 所有工具按令牌所代表用户的业务域权限执行，**和他在页面上能看到、能做的完全一致**。
 
 ### 2. 鉴权：Avelis 内置 OAuth 2.1 授权服务器
@@ -82,5 +82,13 @@ MCP（Model Context Protocol）是这类工具接入外部能力的通用协议�
 - **技术验证**：在独立项目里用 FastAPI + Authlib + MCP SDK 跑通授权码 + PKCE（只 S256）、RFC 8707 资源绑定（授权、换码、刷新三处）、RFC 9207 `iss`、RFC 7009 吊销、CIMD 与动态注册，并用 SDK 自带的 `OAuthClientProvider` 走完端到端（118 项测试）。确认 SDK 2.x 使用 `MCPServer`、`httpx2`、`ClientSession.discover()`；Authlib 默认允许 PKCE plain、SDK 默认不校验 resource 且会归一化 URL，正式实现都已显式收紧。
 - **确认页不用 Cookie**：`GET /oauth/authorize` 校验后生成 5 分钟单次票据并跳到前端 `/oauth/consent?ticket=…`；前端用现有登录（Bearer）调用 `/api/oauth/consent/{ticket}/approve|deny`，后端返回带 `code` / `state` / `iss` 的回调地址。没有 Cookie，因此不存在跨站请求伪造面。
 - **存储**：客户端、授权关系、确认票据、授权码、令牌五张表；票据、授权码、令牌、客户端密钥只存摘要；授权码或刷新令牌重放时，在 Authlib 校验通过后吊销整个令牌家族。
-- **对外地址**：复用已有的 `AVELIS_PUBLIC_URL`；issuer 为它，资源 URI 为它 + `/mcp`（精确字符串比较）。
+- **对外地址**：配置 `AVELIS_PUBLIC_URL` 时沿用现有规范化逻辑；未配置时按请求推导。issuer 与资源 URI 的具体规则见下方补充，资源绑定仍使用精确字符串比较。
 - **权限边界**：工具内部用令牌所代表的用户走现有业务域权限；血缘不返回可能夹带隐藏来源的整列表达式，变更事件不外发历史 SQL，影响原因含隐藏依赖时只给出“已隐去”，被拦截时只在有权限时提示替代口径名。`ask_metric` 严格拒绝 `sql` 等未知参数；数据外发关闭时在建立业务连接之前退出，只返回口径定义。
+
+## 2026-11-03 补充：默认开启
+
+用户决定：“MCP 那些，都要在部署时默认启动，不应该再打开开关之类的。”因此 `mcp.enabled` / `AVELIS_MCP_ENABLED` 默认改为 `true`，部署后 `/mcp`、OAuth 与发现端点，以及“设置 → MCP 接入”直接可用。不需要时仍可显式设为 `false` 关闭。`public_url` 不再是开启条件，避免没有固定域名的部署必须补填地址才能启动；保留已配置地址不能含凭据、查询串或片段的校验。
+
+配置 `AVELIS_PUBLIC_URL` 时继续沿用现有规范化结果作为 issuer，资源为 issuer + `/mcp`。未配置时，使用经 uvicorn 代理头处理后的请求 scheme 与合法 Host（含可选端口）组成 origin，加 ASGI `root_path` 得到本次请求的 issuer，资源为 issuer + `/mcp`。Host 仅允许合法主机名或 IP 与可选端口；路径、用户信息与非法字符返回 400。仅遵守现有 `AVELIS_FORWARDED_ALLOW_IPS` 代理信任规则，不额外读取或信任 `X-Forwarded-Host` 等头；反向代理须保留 Host 并正确信任代理，或直接配置 `AVELIS_PUBLIC_URL`。
+
+RFC 8414 的各端点、RFC 9728 的 `resource` 与 `authorization_servers`、授权响应 `iss`、授权确认页跳转与 `WWW-Authenticate` 的 `resource_metadata` 都从本次请求的同一地址推导，保留空路径等现有 URL 字符串处理。授权码、刷新与资源访问均逐字校验 resource；令牌绑定签发时的资源地址，因此同一主机名访问一致，换主机名访问被拒绝。这是预期的地址隔离。开发用 Vite MCP 代理的 `changeOrigin: false` 保留浏览器 Host，5173 → 8000 时可直接推导浏览器地址；若改为 `true`，应显式设置浏览器实际访问的 `AVELIS_PUBLIC_URL`。

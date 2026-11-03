@@ -1,4 +1,4 @@
-"""P1 H：用中性假数据验证分布特征、证据修订与默认关闭，不连接数据库或模型。"""
+"""P1 H：用中性假数据验证分布特征、证据修订与显式关闭，不连接数据库或模型。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,13 @@ FEEDBACK = "变化在成员之间分布均匀；请用已有的记录类数据�
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch):
     """所有设置只来自显式字典，避免测试读取本机配置。"""
-    value = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only"})
+    value = config.build_settings(
+        {
+            "AVELIS_SECRET": "unit-test-secret-only",
+            "AVELIS_ANALYSIS_RETRIEVAL": "false",
+            "AVELIS_ANALYSIS_INVESTIGATION": "false",
+        }
+    )
     monkeypatch.setattr(config, "get_settings", lambda: value)
     monkeypatch.setattr(tools, "get_settings", lambda: value)
     monkeypatch.setattr(agent, "get_settings", lambda: value)
@@ -36,7 +42,11 @@ def isolated_settings(monkeypatch):
 
 def settings(monkeypatch, enabled):
     value = config.build_settings(
-        {"AVELIS_SECRET": "unit-test-secret-only", "AVELIS_ANALYSIS_INVESTIGATION": str(enabled).lower()}
+        {
+            "AVELIS_SECRET": "unit-test-secret-only",
+            "AVELIS_ANALYSIS_RETRIEVAL": "false",
+            "AVELIS_ANALYSIS_INVESTIGATION": str(enabled).lower(),
+        }
     )
     monkeypatch.setattr(config, "get_settings", lambda: value)
     monkeypatch.setattr(tools, "get_settings", lambda: value)
@@ -255,6 +265,26 @@ def test_distribution_block_is_short_and_describes_rates_not_causes():
     assert len(investigation.distribution_block(value, limit=150)) <= 150
     missing = investigation.distribution(None, None)
     assert "不可计算" in investigation.distribution_block(missing)
+
+
+def test_default_enabled_without_evidence_does_not_query_or_request_revision(monkeypatch):
+    value = config.build_settings({"AVELIS_SECRET": "unit-test-secret-only"})
+    assert value.analysis_investigation and value.analysis_retrieval
+    assert not value.env.get("AVELIS_MODEL_PROVIDER")
+    monkeypatch.setattr(agent, "get_settings", lambda: value)
+    monkeypatch.setattr(tools, "get_settings", lambda: value)
+    box = make_box(monkeypatch=monkeypatch)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("证据缺失时不应补查元数据或请求模型")
+
+    monkeypatch.setattr(box.session, "get", unexpected)
+    monkeypatch.setattr(agent, "_model_for", unexpected)
+    box.precheck_distribution = investigation.distribution(None, None, {})
+    assert box.precheck_distribution["total_change"] is None
+    assert box.precheck_distribution["dimensions"] == {}
+    assert agent._investigation_feedback(box) is None
+    assert box.budget.used_model_requests == 0
 
 
 @pytest.mark.parametrize("value", ["2026-09-02", "2026-09-02T12:30:00", date(2026, 9, 2), datetime(2026, 9, 2, 12, 30)])

@@ -97,7 +97,7 @@ class RegistrationEndpoint(ClientRegistrationEndpoint):
         return row
 
 
-def authorization_metadata(settings):
+def authorization_metadata(settings, *, validate=True):
     base = settings.public_url
     metadata = AuthorizationServerMetadata(
         issuer=base,
@@ -115,5 +115,7 @@ def authorization_metadata(settings):
         authorization_response_iss_parameter_supported=True,
         client_id_metadata_document_supported=True,
     )
-    metadata.validate()
+    # 请求推导模式的 HTTP(S)/Host 已由 urls.request_settings 校验；允许部署的内网 HTTP。
+    if validate:
+        metadata.validate()
     return metadata

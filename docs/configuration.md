@@ -96,29 +96,33 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `host` | `AVELIS_HOST` | `127.0.0.1`（镜像内 `0.0.0.0`） | 监听地址 |
 | `port` | `AVELIS_PORT` | `8000` | 监听端口（Docker 对外端口在 Compose 里设置） |
 | `workers` | `AVELIS_WORKERS` | `1` | 进程数（uvicorn workers） |
-| `public_url` | `AVELIS_PUBLIC_URL` | 空（启用 MCP 时**必填**） | 对外访问地址，如 `http://10.0.0.5:8080`；用于启动日志并加入跨域白名单；启用 MCP 时同时作为 OAuth issuer，详见下节 |
+| `public_url` | `AVELIS_PUBLIC_URL` | 空（按请求推导 MCP 对外地址） | 对外访问地址，如 `http://10.0.0.5:8080`；配置后用于启动日志、跨域白名单与 OAuth issuer，详见下节 |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | 空（镜像内 `/app/frontend/dist`） | 构建好的前端目录；设置后同一端口托管前端，SPA 路由回退到 `index.html`。相对路径按仓库根目录解析 |
-| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | 信任哪些代理传来的 `X-Forwarded-For`（逗号分隔，`*` 为全部） |
+| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 信任的代理地址，用于处理 `X-Forwarded-For` 与 `X-Forwarded-Proto`（逗号分隔，`*` 为全部） |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`、`http://localhost:5173` | 跨域白名单（配置文件里写数组，环境变量逗号分隔）；同一端口访问时不需要 |
 
 ### MCP 服务 `[mcp]`
 
-MCP 与 Avelis 后端在同一进程运行，默认关闭。关闭时 `/mcp`、OAuth 协议端点和 `/api/oauth/*` 管理接口均返回 404，即使配置了前端 SPA 托管也不会回退到前端页面。
+MCP 与 Avelis 后端在同一进程运行，默认开启，部署后可直接使用“设置 → MCP 接入”，无需另开开关。不需要时可显式设置 `AVELIS_MCP_ENABLED=false`（或 `[mcp] enabled = false`）关闭；此时 `/mcp`、OAuth 协议端点和 `/api/oauth/*` 管理接口均返回 404，即使配置了前端 SPA 托管也不会回退到前端页面。
 
 | 配置文件 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
-| `enabled` | `AVELIS_MCP_ENABLED` | `false` | 启用 MCP 服务及内置 OAuth 授权服务器 |
+| `enabled` | `AVELIS_MCP_ENABLED` | `true` | 启用 MCP 服务及内置 OAuth 授权服务器；显式设为 `false` 可关闭 |
 | `access_token_seconds` | `AVELIS_MCP_ACCESS_TOKEN_SECONDS` | `900` | OAuth 访问令牌有效期，秒（15 分钟），须为正整数 |
 | `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth 刷新令牌有效期，秒（30 天），须为正整数；每次刷新轮换令牌 |
 | `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD 客户端元数据缓存有效期，秒；过期后重新拉取，须为正整数 |
 | `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | 本地开发 CIMD 地址的精确允许列表（配置文件里写数组，环境变量逗号分隔）；只接受完整的 `http(s)://127.0.0.1:PORT/path`，不允许任意私网地址或通配符 |
 
-启用前须设置 `[server] public_url`（`AVELIS_PUBLIC_URL`）为客户端实际访问的 HTTP(S) 基础地址，不能含凭据、查询参数或片段。OAuth `issuer` 使用该地址的精确字符串，资源 URI 为该字符串直接拼接 `/mcp`，不去掉末尾斜杠；客户端在授权、换码和刷新时提交的 `resource` 必须与资源 URI 完全一致。生产环境应使用 HTTPS，并确保反向代理保留这些公开路径。
+`[server] public_url`（`AVELIS_PUBLIC_URL`）可选。配置时沿用现有规范化规则，不能含凭据、查询参数或片段；OAuth `issuer` 使用规范化后的地址，资源 URI 为它直接拼接 `/mcp`，不额外去掉末尾斜杠。未配置时，每次请求从经 uvicorn 代理头处理后的 scheme 与合法的 Host（含可选端口）组成 origin，再加 ASGI `root_path` 得到 `issuer`；资源 URI 为 `issuer + "/mcp"`。例如 `http://avelis.test:8080` 与 `root_path = "/avelis"` 得到 issuer `http://avelis.test:8080/avelis`、resource `http://avelis.test:8080/avelis/mcp`。包含路径、用户信息或非法字符的 Host 返回 400。
 
-生产环境必须使用 HTTPS；`public_url` 须对应客户端访问的外部 URL，反向代理还须正确传递请求协议（scheme）与转发头，并按 `[server] forwarded_allow_ips` 配置信任的代理地址。本机 HTTP 开发或测试若遇到 Authlib 拒绝不安全传输，须显式设置 `AUTHLIB_INSECURE_TRANSPORT=1`。这是 Authlib 的标准环境变量，仅用于本机开发与测试，不是 `AVELIS_*` 配置项；服务不会无条件关闭该安全检查。
+AS 元数据、受保护资源元数据（PRM）、授权响应的 `iss`、前端确认页地址与 `WWW-Authenticate` 的 `resource_metadata` 均使用本次请求的同一组地址。授权、换码、刷新时提交的 `resource` 必须逐字匹配；令牌仍绑定签发时的 resource，换用其他主机名访问会被拒绝，应在完整流程中保持同一访问地址。
 
-启用后提供以下路径：
+生产环境必须使用 HTTPS。反向代理须保留客户端的 Host（含端口）及公开路径，并正确传递协议；用 `[server] forwarded_allow_ips`（`AVELIS_FORWARDED_ALLOW_IPS`）配置可信代理，或直接配置客户端实际访问的 `AVELIS_PUBLIC_URL`。后端只使用 uvicorn 按现有信任规则处理后的 scheme，不额外信任 `X-Forwarded-Host` 等转发头。本机 HTTP 开发或测试若遇到 Authlib 拒绝不安全传输，须显式设置 `AUTHLIB_INSECURE_TRANSPORT=1`。这是 Authlib 的标准环境变量，仅用于本机开发与测试，不是 `AVELIS_*` 配置项；服务不会无条件关闭该安全检查。
+
+开发环境的 `frontend/vite.config.ts` 为 `/mcp`、OAuth 协议端点及 `/.well-known` 设置 `changeOrigin: false`，5173 → 8000 代理保留浏览器的 Host，因此未配置 `public_url` 时会推导为浏览器看到的 `http://127.0.0.1:5173`（或实际使用的主机名）。若自行改为 `changeOrigin: true`，Host 会变成后端地址，建议显式设置 `AVELIS_PUBLIC_URL` 为浏览器访问的地址。
+
+默认提供以下路径：
 
 - `/mcp`：无状态 Streamable HTTP，要求 `Mcp-Protocol-Version: 2026-07-28`。
 - `/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource/mcp`：授权服务器与受保护资源元数据。
@@ -134,10 +138,12 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 
 | 配置文件 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
-| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `false`（Docker 样例为 `true`） | `avelis.server` 启动时自动迁移元数据库（PostgreSQL 咨询锁串行） |
-| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false`（Docker 样例为 `true`） | 启动时创建首个管理员（库里已有管理员时跳过） |
+| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `true` | `avelis.server` 启动时自动迁移元数据库（PostgreSQL 咨询锁串行）；显式设为 `false` 可关闭 |
+| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `true` | 启动时创建首个管理员（库里已有启用的管理员时跳过）；显式设为 `false` 可关闭 |
 | `initial_admin_username` | `AVELIS_INITIAL_ADMIN_USERNAME` | `admin` | 首个管理员账号 |
-| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（首次启动**必填**） | 初始密码：≥ 12 个字符、不含账号、至少 4 种不同字符；首次登录必须修改 |
+| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（使用 `123456`） | 可选；未配置或留空时使用默认口令 `123456`，不校验强度、不强制改密，请登录后在界面修改。显式填写时须为 12–128 个字符、不含账号、至少 4 种不同字符，首次登录强制改密 |
+
+自动迁移与管理员初始化默认开启，即使未写 `[bootstrap]` 段也使用上述规则，不区分环境或元数据库是否位于本机。默认账号为 `admin`，可通过 `initial_admin_username` 修改。已有启用的管理员时跳过，不修改已有账号；同名非管理员用户已存在时仍报错，不修改该用户。
 
 ### 业务 `[business]`
 
@@ -191,10 +197,12 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 | `input_tokens` | `AVELIS_ANALYSIS_INPUT_TOKENS` | `552321` | 累计输入 token 上限，`0` 为不限 |
 | `output_tokens` | `AVELIS_ANALYSIS_OUTPUT_TOKENS` | `30716` | 累计输出 token 上限（含推理），`0` 为不限 |
 | `material_change_ratio` | `AVELIS_MATERIAL_CHANGE_RATIO` | `0.01` | 变化显著性阈值（口径未单独设置时） |
-| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | 元数据图证据发现（实验特性） |
-| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | 证据解释（实验特性，本阶段只定义开关） |
+| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `true` | 元数据图证据发现（实验特性）；显式设为 `false` 可关闭 |
+| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `true` | 证据解释（实验特性）；显式设为 `false` 可关闭 |
 | `uniform_tolerance` | `AVELIS_ANALYSIS_UNIFORM_TOLERANCE` | `0.5` | 均匀容差，有限数值，范围 `(0, 1]`；至少三个正基数成员的变化率都在总体变化率的 ±此比例以内，才判为均匀 |
 | `spike_share` | `AVELIS_ANALYSIS_SPIKE_SHARE` | `0.5` | 时间集中度阈值，有限数值，范围 `(0, 1]`；最大单日绝对偏差占总偏差绝对值达到此比例，判为集中在某个时间点 |
+
+这两项实验特性默认开启；未配置模型或没有可用元数据图时，直接跳过额外证据发现与解释，不影响原有问数与分析流程。
 
 ### 智能体 `[agent]`
 

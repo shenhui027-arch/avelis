@@ -85,14 +85,14 @@ cd avelis/deploy/docker
 cp avelis.example.toml avelis.toml
 ```
 
-編輯 `avelis.toml`，填寫四個必填項：`[security] secret`、`[database] password`、`[redis] password`、`[bootstrap] initial_admin_password`。然後啟動：
+編輯 `avelis.toml`，填寫三個必填項：`[security] secret`、`[database] password`、`[redis] password`。初始管理員密碼可留空。然後啟動：
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-等 `app` 顯示 `healthy` 後，瀏覽器開啟 `http://<伺服器 IP>:8080`，用 `admin` 和初始密碼登入；首次登入需要修改密碼。
+等 `app` 顯示 `healthy` 後，瀏覽器開啟 `http://<伺服器 IP>:8080`。初始密碼未設定或留空時，用預設 `admin` / `123456` 登入，不強制改密，請登入後在介面修改密碼；明確設定了初始密碼時，用該密碼登入並按提示改密。
 
 這套編排包含應用（介面 + 前端）、worker、PostgreSQL 與 Redis（Valkey），資料儲存在 Docker 資料卷。接下來在 **設定 → 資料來源** 新增資料來源，在 **設定 → 模型設定** 設定模型。使用外部資料庫、反向代理與 HTTPS、不用 Docker 部署、升級與備份，見[部署指南](docs/deployment.zh-TW.md)。
 
@@ -130,7 +130,10 @@ flowchart LR
 | `[security] secret` | 主金鑰（至少 16 個字元），加密資料來源密碼與模型金鑰、簽發登入權杖；上線後不要更換 |
 | `[database] password` | PostgreSQL 中繼資料庫密碼；使用外部庫時同時填 host、port、name、user |
 | `[redis] password` | Redis 密碼 |
-| `[bootstrap] initial_admin_password` | 首個管理員的初始密碼 |
+
+`[bootstrap] initial_admin_password` 選填，留空使用預設密碼 `123456`，不校驗強度、不強制改密，請登入後在介面修改。明確填寫時須為 12–128 個字元、不包含使用者名稱、至少 4 種不同字元，首次登入強制改密。使用者名稱預設為 `admin`，可透過 `initial_admin_username` 修改；已有啟用的管理員時跳過，不修改已有帳號。
+
+自動遷移與首個管理員初始化預設開啟，即使未寫 `[bootstrap]` 區段也會執行。MCP 同樣預設開啟，可直接使用 **設定 → MCP 接入**；未設定 `AVELIS_PUBLIC_URL` 時依本次請求的 scheme、Host 與 ASGI `root_path` 推導對外地址。反向代理後請正確設定 `AVELIS_FORWARDED_ALLOW_IPS` 並保留 Host，或直接設定 `AVELIS_PUBLIC_URL`；不需要 MCP 時可設 `AVELIS_MCP_ENABLED=false`。分析的中繼資料圖證據發現與證據解釋也預設開啟（仍屬實驗特性），沒有模型或中繼資料圖時跳過額外證據；可分別用 `AVELIS_ANALYSIS_RETRIEVAL=false`、`AVELIS_ANALYSIS_INVESTIGATION=false` 關閉。
 
 優先順序：環境變數 `AVELIS_*` > `.env` 檔案 > 設定檔 > 內建預設值；密碼也可以從檔案讀取（`password_file` / `AVELIS_*_FILE`）。啟動時校驗設定，出錯會指出哪一項、怎麼改。全部設定項見[設定參考](docs/configuration.zh-TW.md)。
 

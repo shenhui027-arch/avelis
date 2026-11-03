@@ -44,10 +44,10 @@ export function McpPage() {
       <div className="av-workspace av-mcp">
         <section className="av-pane">
           <PaneHeader title={<>{t("连接地址")} <Hint text={t("在支持 MCP 的 AI 工具里添加远程服务器，填入这个地址；首次连接会跳到这里登录并确认授权")} /></>}>
-            {disabled ? <Pill tone="warn">{t("未开启")}</Pill> : mine.isSuccess ? <Pill tone="ok">{t("已开启")}</Pill> : null}
+            {disabled ? <Pill tone="warn">{t("已关闭")}</Pill> : mine.isSuccess ? <Pill tone="ok">{t("已开启")}</Pill> : null}
           </PaneHeader>
           <div className="av-pane__body av-mcp__body">
-            {disabled ? <Banner message={{ ok: false, text: t("MCP 服务未开启：管理员需在部署配置中设置 AVELIS_MCP_ENABLED=true 并配置对外地址") }} /> : null}
+            {disabled ? <Banner message={{ ok: false, text: t("MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），删掉这项或改为 true 即可恢复") }} /> : null}
             <div className="av-mcp__endpoint">
               <code className="av-code av-mono">{endpoint}</code>
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => {
@@ -62,7 +62,7 @@ export function McpPage() {
         <section className="av-pane">
           <PaneHeader title={t("我授权的应用")} count={mine.data?.length} />
           <div className="av-pane__body">
-            {disabled ? <Empty compact text={t("服务未开启")} /> : <QueryState query={mine} isEmpty={(d) => !d.length} emptyText={t("还没有授权过任何应用")}>
+            {disabled ? <Empty compact text={t("服务已关闭")} /> : <QueryState query={mine} isEmpty={(d) => !d.length} emptyText={t("还没有授权过任何应用")}>
               {(items) => <table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>{t("应用")}</th><th>{t("权限")}</th><th>{t("授权时间")}</th><th>{t("最近使用")}</th><th className="end" /></tr></thead>
                 <tbody>{items.map((a) => <tr key={a.id}>

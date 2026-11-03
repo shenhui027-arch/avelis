@@ -12,9 +12,11 @@ def settings(**values):
     return build_settings({"AVELIS_SECRET": SECRET, **values})
 
 
-def test_mcp_defaults_are_disabled_and_short_lived():
+def test_mcp_defaults_are_enabled_and_short_lived():
     value = settings()
-    assert not value.mcp_enabled
+    assert value.mcp_enabled
+    assert value.public_url == ""
+    assert CONFIG_KEYS["mcp.enabled"].default is True
     assert value.mcp_access_token_seconds == 900
     assert value.mcp_refresh_token_seconds == 2592000
     assert value.mcp_cimd_cache_ttl_seconds == 3600
@@ -44,7 +46,6 @@ def test_public_url_rejects_query_and_fragment_at_startup(enabled, suffix):
 @pytest.mark.parametrize(
     "url",
     [
-        "",
         "relative",
         "ftp://avelis.example",
         "https://user:pass@avelis.example",
@@ -54,7 +55,7 @@ def test_public_url_rejects_query_and_fragment_at_startup(enabled, suffix):
         "https://avelis.example/has space",
     ],
 )
-def test_enabled_mcp_requires_valid_public_url(url):
+def test_configured_public_url_must_be_valid(url):
     with pytest.raises(ConfigError, match="AVELIS_PUBLIC_URL"):
         settings(AVELIS_MCP_ENABLED="true", AVELIS_PUBLIC_URL=url)
 
@@ -83,3 +84,18 @@ def test_mcp_toml_and_environment_share_configuration_mapping(tmp_path):
     assert value.mcp_refresh_token_seconds == 3600 and value.mcp_cimd_cache_ttl_seconds == 60
     assert value.mcp_cimd_allowed_urls == ("http://127.0.0.1:9876/client.json",)
     assert flatten(CONFIG_KEYS["mcp.cimd_allowed_urls"].default) == ""
+
+
+@pytest.mark.parametrize("public_url", ["http://10.0.0.5:8080", "http://avelis.internal", "https://avelis.example"])
+def test_explicit_http_or_https_public_url_does_not_block_startup(public_url):
+    """MCP 默认开启后，已有的内网 http 对外地址部署不能因 Authlib 的 https 校验而整体起不来。"""
+    from starlette.testclient import TestClient
+
+    from avelis.api.app import create_app
+
+    value = settings(AVELIS_PUBLIC_URL=public_url, AVELIS_DATABASE_URL="postgresql+psycopg://u:p@127.0.0.1:1/x")
+    client = TestClient(create_app(settings=value))
+    metadata = client.get("/.well-known/oauth-authorization-server")
+    assert metadata.status_code == 200
+    assert metadata.json()["issuer"] == public_url
+    assert client.get("/.well-known/oauth-protected-resource/mcp").json()["resource"] == public_url + "/mcp"

@@ -96,29 +96,33 @@ Any Redis-protocol service (Redis or Valkey). Precedence: `url` → individual f
 | `host` | `AVELIS_HOST` | `127.0.0.1` (`0.0.0.0` in the image) | Listen address |
 | `port` | `AVELIS_PORT` | `8000` | Listen port (the published Docker port is set in Compose) |
 | `workers` | `AVELIS_WORKERS` | `1` | Number of processes (uvicorn workers) |
-| `public_url` | `AVELIS_PUBLIC_URL` | empty (**required** when MCP is enabled) | Address users open, such as `http://10.0.0.5:8080`; shown in the start-up log and added to the CORS allow list; also serves as the OAuth issuer when MCP is enabled, as described below |
+| `public_url` | `AVELIS_PUBLIC_URL` | empty (derive MCP public addresses from each request) | Address users open, such as `http://10.0.0.5:8080`; when configured, used for the start-up log, CORS allow list, and OAuth issuer, as described below |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | empty (`/app/frontend/dist` in the image) | Directory of the built frontend; when set, the same port serves the frontend and SPA routes fall back to `index.html`. Relative paths are resolved against the repository root |
-| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies whose `X-Forwarded-For` is trusted (comma-separated, `*` for all) |
+| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy addresses uvicorn trusts when processing `X-Forwarded-For` and `X-Forwarded-Proto` (comma-separated, `*` for all) |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`, `http://localhost:5173` | CORS allow list (an array in the configuration file, comma-separated in the environment variable); not needed when the frontend is served from the same port |
 
 ### MCP service `[mcp]`
 
-MCP runs in the same process as the Avelis backend and is disabled by default. When disabled, `/mcp`, OAuth protocol endpoints, and `/api/oauth/*` management endpoints all return 404, including when frontend SPA hosting is configured; they do not fall back to a frontend page.
+MCP runs in the same process as the Avelis backend and is enabled by default. **Settings → MCP access** is ready after deployment, without another switch. Set `AVELIS_MCP_ENABLED=false` (or `[mcp] enabled = false`) explicitly to disable it; `/mcp`, OAuth protocol endpoints, and `/api/oauth/*` management endpoints then return 404, including when frontend SPA hosting is configured, without falling back to a frontend page.
 
 | Configuration file | Environment variable | Default | Description |
 |---|---|---|---|
-| `enabled` | `AVELIS_MCP_ENABLED` | `false` | Enable the MCP service and built-in OAuth authorization server |
+| `enabled` | `AVELIS_MCP_ENABLED` | `true` | Enable the MCP service and built-in OAuth authorization server; set explicitly to `false` to disable |
 | `access_token_seconds` | `AVELIS_MCP_ACCESS_TOKEN_SECONDS` | `900` | OAuth access token lifetime, seconds (15 minutes); must be a positive integer |
 | `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth refresh token lifetime, seconds (30 days); must be a positive integer; each refresh rotates the token |
 | `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD client metadata cache lifetime, seconds; fetch again after expiry; must be a positive integer |
 | `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | Exact allow list of local development CIMD URLs (an array in the configuration file, comma-separated in the environment variable); accepts only complete `http(s)://127.0.0.1:PORT/path` URLs, with no arbitrary private addresses or wildcards |
 
-Before enabling MCP, set `[server] public_url` (`AVELIS_PUBLIC_URL`) to the HTTP(S) base address clients actually use, without credentials, query parameters, or a fragment. The OAuth `issuer` is that exact string; the resource URI is that string with `/mcp` appended, without removing a trailing slash. The `resource` submitted during authorization, code exchange, and refresh must match this resource URI exactly. Use HTTPS in production and ensure the reverse proxy preserves these public paths.
+`[server] public_url` (`AVELIS_PUBLIC_URL`) is optional. When configured, it follows the existing normalization rules and must not contain credentials, query parameters, or a fragment. The OAuth `issuer` is the normalized address; the resource URI appends `/mcp` without removing a trailing slash. When unset, each request uses the scheme after uvicorn's proxy-header processing and a valid Host (including an optional port) to form the origin, then appends the ASGI `root_path` for the `issuer`; the resource URI is `issuer + "/mcp"`. For example, `http://avelis.test:8080` with `root_path = "/avelis"` produces issuer `http://avelis.test:8080/avelis` and resource `http://avelis.test:8080/avelis/mcp`. A Host containing a path, user information, or illegal characters returns 400.
 
-HTTPS is required in production. `public_url` must match the external URL clients use, and the reverse proxy must correctly forward the request scheme and forwarded headers, with trusted proxy addresses configured through `[server] forwarded_allow_ips`. If Authlib rejects insecure transport during local HTTP development or testing, explicitly set `AUTHLIB_INSECURE_TRANSPORT=1`. This is a standard Authlib environment variable for local development and testing only, not an `AVELIS_*` setting; the service does not unconditionally disable the transport check.
+AS metadata, protected resource metadata (PRM), the authorization response's `iss`, the frontend consent URL, and `resource_metadata` in `WWW-Authenticate` all use the same addresses for the current request. The `resource` submitted during authorization, code exchange, and refresh must match exactly. Tokens remain bound to the resource used at issuance, so access through a different hostname is rejected; use the same address throughout the flow.
 
-Enabling MCP exposes these paths:
+HTTPS is required in production. A reverse proxy must preserve the client's Host (including its port) and public paths and correctly forward the scheme. Configure trusted proxies through `[server] forwarded_allow_ips` (`AVELIS_FORWARDED_ALLOW_IPS`), or set `AVELIS_PUBLIC_URL` directly to the address clients use. The backend uses only the scheme uvicorn processed under the existing trust rules; it does not add trust for `X-Forwarded-Host` or other forwarded headers. If Authlib rejects insecure transport during local HTTP development or testing, explicitly set `AUTHLIB_INSECURE_TRANSPORT=1`. This is a standard Authlib environment variable for local development and testing only, not an `AVELIS_*` setting; the service does not unconditionally disable the transport check.
+
+For development, `frontend/vite.config.ts` sets `changeOrigin: false` for `/mcp`, OAuth protocol endpoints, and `/.well-known`. The 5173 → 8000 proxy preserves the browser's Host, so an unset `public_url` derives `http://127.0.0.1:5173` (or the hostname actually used) as seen in the browser. If you change it to `changeOrigin: true`, Host becomes the backend address; set `AVELIS_PUBLIC_URL` explicitly to the browser's address.
+
+These paths are exposed by default:
 
 - `/mcp`: stateless Streamable HTTP, requiring `Mcp-Protocol-Version: 2026-07-28`.
 - `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp`: authorization server and protected resource metadata.
@@ -134,10 +138,12 @@ MCP tools use the represented user's existing business domain permissions, restr
 
 | Configuration file | Environment variable | Default | Description |
 |---|---|---|---|
-| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `false` (`true` in the Docker sample) | Migrate the metadata database when `avelis.server` starts (serialized by a PostgreSQL advisory lock) |
-| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false` (`true` in the Docker sample) | Create the first administrator on start (skipped when one exists) |
+| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `true` | Migrate the metadata database when `avelis.server` starts (serialized by a PostgreSQL advisory lock); set explicitly to `false` to disable |
+| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `true` | Create the first administrator on start (skipped when an enabled administrator exists); set explicitly to `false` to disable |
 | `initial_admin_username` | `AVELIS_INITIAL_ADMIN_USERNAME` | `admin` | First administrator's username |
-| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | empty (**required** on first start) | Initial password: at least 12 characters, must not contain the username, at least 4 distinct characters; must be changed on first sign-in |
+| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | empty (uses `123456`) | Optional; when unset or empty, uses the default password `123456` without a strength check or forced password change. Change it in the UI after signing in. An explicitly supplied password must be 12–128 characters, must not contain the username, and must have at least 4 distinct characters; it must be changed on first sign-in |
+
+Automatic migration and administrator initialization are enabled by default, even with no `[bootstrap]` section. These rules apply to every deployment, regardless of environment or whether the metadata database is local. The default username is `admin`; use `initial_admin_username` to change it. If an enabled administrator already exists, initialization is skipped without changing any account. An existing non-administrator with the same username causes an error and is left unchanged.
 
 ### Business `[business]`
 
@@ -188,8 +194,10 @@ Budget per analysis; when any limit is reached, the agent stops fetching data an
 | `input_tokens` | `AVELIS_ANALYSIS_INPUT_TOKENS` | `552321` | Cumulative input token limit; `0` for no limit |
 | `output_tokens` | `AVELIS_ANALYSIS_OUTPUT_TOKENS` | `30716` | Cumulative output token limit (including reasoning); `0` for no limit |
 | `material_change_ratio` | `AVELIS_MATERIAL_CHANGE_RATIO` | `0.01` | Threshold for a material change (when a metric definition does not set its own) |
-| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | Evidence discovery over the metadata graph (experimental) |
-| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | Evidence interpretation (experimental; only the switch is defined so far) |
+| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `true` | Evidence discovery over the metadata graph (experimental); set explicitly to `false` to disable |
+| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `true` | Evidence interpretation (experimental); set explicitly to `false` to disable |
+
+Both experimental features are enabled by default. When no model is configured or no metadata graph is available, additional evidence discovery and interpretation are skipped, preserving the existing Ask and analysis flow.
 
 ### Model `[model]`
 

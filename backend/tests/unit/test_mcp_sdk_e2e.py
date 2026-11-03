@@ -133,9 +133,9 @@ def database_token(factory, raw):
 
 
 @pytest.mark.parametrize("registration", ["cimd", "dcr"])
-@pytest.mark.parametrize("trailing_slash", [False, True])
+@pytest.mark.parametrize("public_url_mode", ["request", "configured", "configured_trailing_slash"])
 async def test_real_sdk_oauth_discover_call_refresh_revoke(
-    registration, trailing_slash, sdk_database, monkeypatch, tmp_path
+    registration, public_url_mode, sdk_database, monkeypatch, tmp_path
 ):
     from avelis.api.app import create_app
     from avelis.config import build_settings
@@ -185,13 +185,12 @@ async def test_real_sdk_oauth_discover_call_refresh_revoke(
         cimd_url = fixture_url + "/client.json"
 
         def host_factory(base_url):
-            configured = build_settings(
-                {
-                    "AVELIS_SECRET": "test-secret-mcp-sdk-e2e",
-                    "AVELIS_MCP_ENABLED": "true",
-                    "AVELIS_PUBLIC_URL": base_url + ("/" if trailing_slash else ""),
-                }
-            )
+            environment = {"AVELIS_SECRET": "test-secret-mcp-sdk-e2e"}
+            if public_url_mode != "request":
+                environment["AVELIS_PUBLIC_URL"] = base_url + (
+                    "/" if public_url_mode == "configured_trailing_slash" else ""
+                )
+            configured = build_settings(environment)
             sdk_database.settings = replace(
                 configured,
                 mcp_cimd_allowed_urls=(cimd_url,),
@@ -221,6 +220,7 @@ async def test_real_sdk_oauth_discover_call_refresh_revoke(
                     authorization_response = await browser.get(url)
                     assert authorization_response.status_code == 302, authorization_response.text
                     consent_url = urlsplit(authorization_response.headers["location"])
+                    assert consent_url.scheme + "://" + consent_url.netloc == base_url
                     assert consent_url.path == "/oauth/consent"
                     ticket = parse_qs(consent_url.query)["ticket"][0]
                     tickets.append(ticket)

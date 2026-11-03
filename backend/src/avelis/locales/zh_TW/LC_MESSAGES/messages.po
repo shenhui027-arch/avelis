@@ -2007,8 +2007,8 @@ msgstr "口徑包含同一資產的多個關聯角色，無法安全匯出；請
 msgid "口径表达式引用预聚合生成的虚拟字段，无法安全导出；请调整口径定义"
 msgstr "口徑運算式引用預先彙總產生的虛擬欄位，無法安全匯出；請調整口徑定義"
 #: src/avelis/config.py
-msgid "启用 MCP 时须填写无凭据、查询参数或片段的 HTTP(S) 公开地址"
-msgstr "啟用 MCP 時須填寫不含憑證、查詢參數或片段的 HTTP(S) 公開網址"
+msgid "AVELIS_PUBLIC_URL 须为无凭据、查询参数或片段的 HTTP(S) 公开地址"
+msgstr "AVELIS_PUBLIC_URL 須為不含憑證、查詢參數或片段的 HTTP(S) 公開網址"
 
 #: src/avelis/oauth/router.py
 msgid "授权确认票据无效或已过期"

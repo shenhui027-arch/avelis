@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 from contextvars import ContextVar
+from urllib.parse import urlsplit
 
-from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, RequireAuthMiddleware
+from fastapi import HTTPException
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, get_access_token
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import AccessToken, TokenVerifier
-from pydantic import AnyHttpUrl
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from sqlalchemy import update
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -17,6 +20,7 @@ from avelis import audit
 from avelis.db import utcnow
 from avelis.models import OAuthClient, OAuthGrant, User
 from avelis.oauth.repository import Repository
+from avelis.oauth.urls import request_settings, resource_metadata_url
 
 PROTOCOL_VERSION = "2026-07-28"
 MAX_BODY_BYTES = 1024 * 1024
@@ -73,6 +77,45 @@ class StoredTokenVerifier(TokenVerifier):
             )
 
 
+class RequestAuthMiddleware:
+    """复用 SDK 认证中间件，但令资源校验与 challenge 使用当前请求的地址。"""
+
+    def __init__(self, app, settings, session_maker):
+        self.app, self.settings, self.session_maker = app, settings, session_maker
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path, root = scope.get("path", ""), scope.get("root_path", "")
+        if root and (path == root or path.startswith(root + "/")):
+            path = path[len(root) :]
+        if path != "/mcp":
+            return await self.app(scope, receive, send)
+        request = Request(scope)
+        try:
+            current = request_settings(self.settings, request)
+        except HTTPException as error:
+            return await JSONResponse({"detail": error.detail}, status_code=error.status_code)(scope, receive, send)
+        # 与显式配置时相同的 Origin 检查；推导模式允许合法 Host，但 Origin 必须同源。
+        origin = urlsplit(current.public_url)
+        security = TransportSecurityMiddleware(
+            TransportSecuritySettings(
+                allowed_hosts=[origin.netloc if self.settings.public_url else request.headers["host"]],
+                allowed_origins=[f"{origin.scheme}://{origin.netloc}"],
+            )
+        )
+        rejected = await security.validate_request(request)
+        if rejected is not None:
+            return await rejected(scope, receive, send)
+        protected = RequireAuthMiddleware(self.app, [], resource_metadata_url(self.settings, request))
+        authenticated = AuthenticationMiddleware(
+            AuthContextMiddleware(protected),
+            # Repository 执行逐字 resource 比对；不重复 SDK 的宽松 URL 比对。
+            backend=BearerAuthBackend(StoredTokenVerifier(self.session_maker, current)),
+        )
+        return await authenticated(scope, receive, send)
+
+
 def argument_summary(arguments) -> dict:
     """不存值：过滤值和自由文本可能包含敏感数据，未知字段名也可能被用来夹带凭据。"""
     if not isinstance(arguments, dict):
@@ -118,7 +161,7 @@ class ToolScopeGate:
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         root = scope.get("root_path", "")
-        if root and path.startswith(root):
+        if root and (path == root or path.startswith(root + "/")):
             path = path[len(root) :]
         if scope["type"] != "http" or path != "/mcp" or not isinstance(scope.get("user"), AuthenticatedUser):
             return await self.app(scope, receive, send)
@@ -175,7 +218,7 @@ class ToolScopeGate:
                 return await RequireAuthMiddleware(
                     self.app,
                     [required],
-                    AnyHttpUrl(self.settings.public_url + "/.well-known/oauth-protected-resource/mcp"),
+                    resource_metadata_url(self.settings, request),
                 )(scope, replay, challenge_send)
             finally:
                 audited_tool_call.reset(context)

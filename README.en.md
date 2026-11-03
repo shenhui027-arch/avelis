@@ -85,14 +85,14 @@ cd avelis/deploy/docker
 cp avelis.example.toml avelis.toml
 ```
 
-Edit `avelis.toml` and fill in the four required values: `[security] secret`, `[database] password`, `[redis] password` and `[bootstrap] initial_admin_password`. Then start the stack:
+Edit `avelis.toml` and fill in the three required values: `[security] secret`, `[database] password` and `[redis] password`. The initial administrator password can be left empty. Then start the stack:
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-When `app` shows `healthy`, open `http://<server-ip>:8080` and sign in as `admin` with the initial password. You will be asked to change it on first sign-in.
+When `app` shows `healthy`, open `http://<server-ip>:8080`. If the initial password is unset or empty, sign in with the default `admin` / `123456`. A password change is not forced; change it in the UI after signing in. If an initial password was explicitly configured, sign in with it and change it when prompted.
 
 The stack runs the app (API + web UI), a worker, PostgreSQL and Redis (Valkey), with data in Docker volumes. Next steps: add a data source under **设置 → 数据源** (Settings → Data sources) and configure a model under **设置 → 模型配置** (Settings → Models). For external databases, reverse proxy and HTTPS, running without Docker, upgrades and backups, see the [deployment guide](docs/deployment.en.md).
 
@@ -130,7 +130,10 @@ A deployment is configured by one commented TOML file, [`deploy/docker/avelis.ex
 | `[security] secret` | Master key (at least 16 characters). Encrypts data source passwords and model keys and signs sign-in tokens. Do not change it after going live. |
 | `[database] password` | Password of the PostgreSQL metadata database. For an external database, also set host, port, name and user. |
 | `[redis] password` | Redis password. |
-| `[bootstrap] initial_admin_password` | Initial password of the first administrator. |
+
+`[bootstrap] initial_admin_password` is optional. Leave it empty to use the default password `123456`, without a strength check or forced password change; change it in the UI after signing in. An explicitly supplied password must be 12–128 characters, must not contain the username, and must have at least 4 distinct characters; it must be changed on first sign-in. The default username is `admin`; use `initial_admin_username` to change it. If an enabled administrator already exists, initialization is skipped without changing any account.
+
+Automatic migration and first-administrator initialization are enabled by default, even with no `[bootstrap]` section. MCP is also enabled by default, with **Settings → MCP access** ready to use. Without `AVELIS_PUBLIC_URL`, public addresses are derived from the current request's scheme, Host, and ASGI `root_path`. Behind a reverse proxy, configure `AVELIS_FORWARDED_ALLOW_IPS` correctly and preserve Host, or set `AVELIS_PUBLIC_URL` directly. Set `AVELIS_MCP_ENABLED=false` to disable MCP. Metadata graph evidence discovery and evidence interpretation for analysis are also enabled by default (still experimental); extra evidence is skipped when no model or metadata graph is available. Disable them individually with `AVELIS_ANALYSIS_RETRIEVAL=false` and `AVELIS_ANALYSIS_INVESTIGATION=false`.
 
 Precedence: `AVELIS_*` environment variables > `.env` file > configuration file > built-in defaults. Passwords can also be read from files (`password_file` / `AVELIS_*_FILE`). The configuration is validated at startup and errors name the setting to fix. All settings are listed in the [configuration reference](docs/configuration.en.md).
 

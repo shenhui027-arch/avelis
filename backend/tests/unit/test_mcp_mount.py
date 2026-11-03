@@ -31,7 +31,7 @@ PROTOCOL_ENDPOINTS = [
 
 @pytest.mark.parametrize("with_frontend", [False, True])
 def test_disabled_endpoints_are_404_and_not_in_schema(monkeypatch, tmp_path, with_frontend):
-    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x"})
+    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x", "AVELIS_MCP_ENABLED": "false"})
     if with_frontend:
         (tmp_path / "index.html").write_text("<html>Avelis</html>", encoding="utf-8")
         settings = replace(settings, frontend_dir=tmp_path)
@@ -47,22 +47,17 @@ def test_disabled_endpoints_are_404_and_not_in_schema(monkeypatch, tmp_path, wit
             assert client.get("/account").status_code == 200
 
 
-def test_enabled_metadata_and_mcp_have_no_trailing_slash_redirect(monkeypatch, tmp_path):
+def test_default_enabled_metadata_and_mcp_have_no_trailing_slash_redirect(monkeypatch, tmp_path):
     (tmp_path / "index.html").write_text("<html>Avelis</html>", encoding="utf-8")
-    settings = build_settings(
-        {
-            "AVELIS_SECRET": "test-secret-mcp-x",
-            "AVELIS_MCP_ENABLED": "true",
-            "AVELIS_PUBLIC_URL": "https://avelis.example",
-        }
-    )
+    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x"})
     monkeypatch.setattr(api_app, "get_settings", lambda: replace(settings, frontend_dir=tmp_path))
     application = api_app.create_app()
     assert "/api/oauth/consent/{ticket}" in application.openapi()["paths"]
-    with TestClient(application, base_url=settings.public_url) as client:
-        assert client.get("/.well-known/oauth-authorization-server").json()["issuer"] == settings.public_url
+    origin = "http://avelis.test:8080"
+    with TestClient(application, base_url=origin) as client:
+        assert client.get("/.well-known/oauth-authorization-server").json()["issuer"] == origin
         resource = client.get("/.well-known/oauth-protected-resource/mcp")
-        assert resource.json()["resource"] == settings.public_url + "/mcp"
+        assert resource.json()["resource"] == origin + "/mcp"
         response = client.post("/mcp", json={}, follow_redirects=False)
         assert response.status_code == 401
         assert "resource_metadata=" in response.headers["www-authenticate"]
@@ -73,7 +68,7 @@ def test_enabled_metadata_and_mcp_have_no_trailing_slash_redirect(monkeypatch, t
 def test_offline_openapi_exports_optional_contract_without_enabling_runtime(monkeypatch, tmp_path):
     from avelis import bootstrap
 
-    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x"})
+    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x", "AVELIS_MCP_ENABLED": "false"})
     monkeypatch.setattr(bootstrap, "get_settings", lambda: settings)
     monkeypatch.setattr(api_app, "get_settings", lambda: settings)
     target = tmp_path / "openapi.json"
@@ -86,3 +81,29 @@ def test_offline_openapi_exports_optional_contract_without_enabling_runtime(monk
     assert "/api/oauth/consent/{ticket}" not in application.openapi()["paths"]
     with TestClient(application) as client:
         assert client.get("/api/oauth/authorizations").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "avelis.test/path",
+        "user@avelis.test",
+        "avelis.test?query",
+        "avelis.test#fragment",
+        "avelis.test:invalid",
+        "avelis.test:65536",
+        "[not-ipv6]",
+        "bad host",
+        "bad\\host",
+        "avelis.test,proxy.test",
+    ],
+)
+def test_invalid_host_is_rejected_before_metadata_or_mcp(monkeypatch, host):
+    settings = build_settings({"AVELIS_SECRET": "test-secret-mcp-x"})
+    monkeypatch.setattr(api_app, "get_settings", lambda: settings)
+    with TestClient(api_app.create_app(), base_url="http://avelis.test:8080") as client:
+        for method, path in PROTOCOL_ENDPOINTS[:2] + [("POST", "/mcp")]:
+            response = client.request(method, path, headers={"Host": host})
+            assert response.status_code == 400, (method, path, host, response.text)
+            assert "issuer" not in response.json()
+            assert "resource" not in response.json()

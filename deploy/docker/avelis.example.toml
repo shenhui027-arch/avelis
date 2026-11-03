@@ -69,11 +69,12 @@ ssl = false                       # AVELIS_REDIS_SSL
 # 服务
 # ============================================================
 [server]
-# 对外访问地址（浏览器里输入的地址），用于启动日志与跨域白名单，例如 "http://10.0.0.5:8080"。可选
+# 对外访问地址（浏览器里输入的地址），用于启动日志、跨域白名单与 MCP OAuth issuer，例如 "http://10.0.0.5:8080"。可选
+# 留空时 MCP 从请求的 scheme + Host + ASGI root_path 推导；反向代理须保留 Host 并正确配置信任地址，或直接填写本项
 public_url = ""                   # AVELIS_PUBLIC_URL
 # 进程数（uvicorn workers）
 workers = 1                       # AVELIS_WORKERS
-# 信任哪些反向代理传来的 X-Forwarded-For（逗号分隔，"*" 表示全部信任），用于登录限流识别真实来源地址
+# uvicorn 信任的代理地址，用于处理 X-Forwarded-For 与 X-Forwarded-Proto（逗号分隔，"*" 表示全部信任）
 forwarded_allow_ips = "127.0.0.1" # AVELIS_FORWARDED_ALLOW_IPS
 # 日志级别：critical / error / warning / info / debug
 log_level = "info"                # AVELIS_LOG_LEVEL
@@ -84,15 +85,22 @@ log_level = "info"                # AVELIS_LOG_LEVEL
 # frontend_dir = "frontend/dist"  # AVELIS_FRONTEND_DIR
 
 # ============================================================
+# MCP 接入：默认开启，部署后直接可用；不需要时显式设为 false
+# ============================================================
+[mcp]
+enabled = true                   # AVELIS_MCP_ENABLED
+
+# ============================================================
 # 初始化
 # ============================================================
 [bootstrap]
-# 启动时自动迁移元数据库（多副本时用数据库锁串行执行）
+# 默认在启动时自动迁移元数据库（多副本时用数据库锁串行执行）；未写本段也默认开启
 auto_migrate = true               # AVELIS_AUTO_MIGRATE
-# 启动时创建首个管理员：只在库里还没有任何管理员时创建，首次登录必须修改密码
+# 默认在启动时创建首个管理员：只在库里还没有启用的管理员时创建
 auto_init_admin = true            # AVELIS_AUTO_INIT_ADMIN
 initial_admin_username = "admin"  # AVELIS_INITIAL_ADMIN_USERNAME
-# 【首次启动必填】初始密码：12–128 个字符、不包含用户名、至少 4 种不同字符。管理员创建后不再使用，可以清空
+# 初始密码（可选）：留空则使用默认口令 123456，不强制改密，请登录后在界面修改
+# 填写则须为 12–128 个字符、不包含用户名、至少 4 种不同字符，首次登录强制改密。管理员创建后不再使用，可以清空
 initial_admin_password = ""       # AVELIS_INITIAL_ADMIN_PASSWORD
 
 # ============================================================
@@ -156,6 +164,9 @@ model_requests = 16               # 模型请求次数上限。AVELIS_ANALYSIS_M
 input_tokens = 552321             # 累计输入 token 上限，0 = 不限。AVELIS_ANALYSIS_INPUT_TOKENS
 output_tokens = 30716             # 累计输出 token 上限（含推理），0 = 不限。AVELIS_ANALYSIS_OUTPUT_TOKENS
 material_change_ratio = 0.01      # 变化显著性阈值（口径未单独设置时）。AVELIS_MATERIAL_CHANGE_RATIO
+# 实验特性默认开启；未配置模型或没有元数据图时跳过额外证据，不影响问数与分析；可显式设为 false 关闭
+retrieval = true                 # 元数据图证据发现。AVELIS_ANALYSIS_RETRIEVAL
+investigation = true             # 证据解释。AVELIS_ANALYSIS_INVESTIGATION
 uniform_tolerance = 0.5          # 均匀容差，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_UNIFORM_TOLERANCE
 spike_share = 0.5                # 时间集中度阈值，范围 (0, 1]，不接受 nan / inf。AVELIS_ANALYSIS_SPIKE_SHARE
 

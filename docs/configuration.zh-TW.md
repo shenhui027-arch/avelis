@@ -96,29 +96,33 @@ Redis 協議服務（Redis、Valkey 均可）。優先順序：`url` → 分項�
 | `host` | `AVELIS_HOST` | `127.0.0.1`（映像內 `0.0.0.0`） | 監聽地址 |
 | `port` | `AVELIS_PORT` | `8000` | 監聽埠（Docker 對外埠在 Compose 裡設定） |
 | `workers` | `AVELIS_WORKERS` | `1` | 程序數（uvicorn workers） |
-| `public_url` | `AVELIS_PUBLIC_URL` | 空（啟用 MCP 時**必填**） | 對外存取地址，如 `http://10.0.0.5:8080`；用於啟動日誌並加入跨域白名單；啟用 MCP 時同時作為 OAuth issuer，詳見下節 |
+| `public_url` | `AVELIS_PUBLIC_URL` | 空（依請求推導 MCP 對外地址） | 對外存取地址，如 `http://10.0.0.5:8080`；設定後用於啟動日誌、跨域白名單與 OAuth issuer，詳見下節 |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | 空（映像內 `/app/frontend/dist`） | 建置好的前端目錄；設定後同一埠託管前端，SPA 路由回退到 `index.html`。相對路徑按儲存庫根目錄解析 |
-| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | 信任哪些代理傳來的 `X-Forwarded-For`（逗號分隔，`*` 為全部） |
+| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 信任的代理地址，用於處理 `X-Forwarded-For` 與 `X-Forwarded-Proto`（逗號分隔，`*` 為全部） |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`、`http://localhost:5173` | 跨域白名單（設定檔裡寫陣列，環境變數逗號分隔）；同一埠存取時不需要 |
 
 ### MCP 服務 `[mcp]`
 
-MCP 與 Avelis 後端在同一程序執行，預設關閉。關閉時 `/mcp`、OAuth 協定端點與 `/api/oauth/*` 管理介面均回傳 404，即使設定了前端 SPA 託管也不會回退到前端頁面。
+MCP 與 Avelis 後端在同一程序執行，預設開啟，部署後可直接使用「設定 → MCP 接入」，無須另開開關。不需要時可明確設定 `AVELIS_MCP_ENABLED=false`（或 `[mcp] enabled = false`）關閉；此時 `/mcp`、OAuth 協定端點與 `/api/oauth/*` 管理介面均回傳 404，即使設定了前端 SPA 託管也不會回退到前端頁面。
 
 | 設定檔 | 環境變數 | 預設值 | 說明 |
 |---|---|---|---|
-| `enabled` | `AVELIS_MCP_ENABLED` | `false` | 啟用 MCP 服務與內建 OAuth 授權伺服器 |
+| `enabled` | `AVELIS_MCP_ENABLED` | `true` | 啟用 MCP 服務與內建 OAuth 授權伺服器；明確設為 `false` 可關閉 |
 | `access_token_seconds` | `AVELIS_MCP_ACCESS_TOKEN_SECONDS` | `900` | OAuth 存取權杖有效期，秒（15 分鐘），須為正整數 |
 | `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth 更新權杖有效期，秒（30 天），須為正整數；每次更新輪替權杖 |
 | `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD 用戶端中繼資料快取有效期，秒；到期後重新擷取，須為正整數 |
 | `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | 本機開發 CIMD 地址的精確允許清單（設定檔裡寫陣列，環境變數逗號分隔）；只接受完整的 `http(s)://127.0.0.1:PORT/path`，不允許任意私網地址或萬用字元 |
 
-啟用前須設定 `[server] public_url`（`AVELIS_PUBLIC_URL`）為用戶端實際存取的 HTTP(S) 基礎地址，不能含帳密、查詢參數或片段。OAuth `issuer` 使用該地址的精確字串，資源 URI 為該字串直接串接 `/mcp`，不移除結尾斜線；用戶端在授權、兌換授權碼與更新權杖時提交的 `resource` 必須與資源 URI 完全一致。正式環境應使用 HTTPS，並確保反向代理保留這些公開路徑。
+`[server] public_url`（`AVELIS_PUBLIC_URL`）為選填。設定時沿用既有正規化規則，不能含帳密、查詢參數或片段；OAuth `issuer` 使用正規化後的地址，資源 URI 為它直接串接 `/mcp`，不額外移除結尾斜線。未設定時，每次請求從經 uvicorn 代理標頭處理後的 scheme 與合法 Host（含選用埠）組成 origin，再加 ASGI `root_path` 得到 `issuer`；資源 URI 為 `issuer + "/mcp"`。例如 `http://avelis.test:8080` 與 `root_path = "/avelis"` 得到 issuer `http://avelis.test:8080/avelis`、resource `http://avelis.test:8080/avelis/mcp`。包含路徑、使用者資訊或非法字元的 Host 回傳 400。
 
-正式環境必須使用 HTTPS；`public_url` 須對應用戶端存取的外部 URL，反向代理還須正確傳遞請求通訊協定（scheme）與轉送標頭，並依 `[server] forwarded_allow_ips` 設定受信任的代理地址。本機 HTTP 開發或測試若遇到 Authlib 拒絕不安全傳輸，須明確設定 `AUTHLIB_INSECURE_TRANSPORT=1`。這是 Authlib 的標準環境變數，僅用於本機開發與測試，不是 `AVELIS_*` 設定項；服務不會無條件關閉該安全檢查。
+AS 中繼資料、受保護資源中繼資料（PRM）、授權回應的 `iss`、前端確認頁地址與 `WWW-Authenticate` 的 `resource_metadata` 均使用本次請求的同一組地址。授權、兌換授權碼、更新權杖時提交的 `resource` 必須逐字相符；權杖仍綁定簽發時的 resource，改用其他主機名稱存取會被拒絕，應在完整流程中保持同一存取地址。
 
-啟用後提供以下路徑：
+正式環境必須使用 HTTPS。反向代理須保留用戶端的 Host（含埠）及公開路徑，並正確傳遞通訊協定；用 `[server] forwarded_allow_ips`（`AVELIS_FORWARDED_ALLOW_IPS`）設定受信任的代理，或直接設定用戶端實際存取的 `AVELIS_PUBLIC_URL`。後端只使用 uvicorn 依既有信任規則處理後的 scheme，不額外信任 `X-Forwarded-Host` 等轉送標頭。本機 HTTP 開發或測試若遇到 Authlib 拒絕不安全傳輸，須明確設定 `AUTHLIB_INSECURE_TRANSPORT=1`。這是 Authlib 的標準環境變數，僅用於本機開發與測試，不是 `AVELIS_*` 設定項；服務不會無條件關閉該安全檢查。
+
+開發環境的 `frontend/vite.config.ts` 為 `/mcp`、OAuth 協定端點及 `/.well-known` 設定 `changeOrigin: false`，5173 → 8000 代理保留瀏覽器的 Host，因此未設定 `public_url` 時會推導為瀏覽器看到的 `http://127.0.0.1:5173`（或實際使用的主機名稱）。若自行改為 `changeOrigin: true`，Host 會變成後端地址，建議明確設定 `AVELIS_PUBLIC_URL` 為瀏覽器存取的地址。
+
+預設提供以下路徑：
 
 - `/mcp`：無狀態 Streamable HTTP，要求 `Mcp-Protocol-Version: 2026-07-28`。
 - `/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource/mcp`：授權伺服器與受保護資源中繼資料。
@@ -134,10 +138,12 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 
 | 設定檔 | 環境變數 | 預設值 | 說明 |
 |---|---|---|---|
-| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `false`（Docker 樣例為 `true`） | `avelis.server` 啟動時自動遷移中繼資料庫（PostgreSQL 諮詢鎖序列） |
-| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `false`（Docker 樣例為 `true`） | 啟動時建立首個管理員（庫裡已有管理員時跳過） |
+| `auto_migrate` | `AVELIS_AUTO_MIGRATE` | `true` | `avelis.server` 啟動時自動遷移中繼資料庫（PostgreSQL 諮詢鎖序列）；明確設為 `false` 可關閉 |
+| `auto_init_admin` | `AVELIS_AUTO_INIT_ADMIN` | `true` | 啟動時建立首個管理員（庫裡已有啟用的管理員時跳過）；明確設為 `false` 可關閉 |
 | `initial_admin_username` | `AVELIS_INITIAL_ADMIN_USERNAME` | `admin` | 首個管理員帳號 |
-| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（首次啟動**必填**） | 初始密碼：≥ 12 個字元、不含帳號、至少 4 種不同字元；首次登入必須修改 |
+| `initial_admin_password` | `AVELIS_INITIAL_ADMIN_PASSWORD` | 空（使用 `123456`） | 選填；未設定或留空時使用預設密碼 `123456`，不校驗強度、不強制改密，請登入後在介面修改。明確填寫時須為 12–128 個字元、不含帳號、至少 4 種不同字元，首次登入強制改密 |
+
+自動遷移與管理員初始化預設開啟，即使未寫 `[bootstrap]` 區段也使用上述規則，不區分環境或中繼資料庫是否位於本機。預設帳號為 `admin`，可透過 `initial_admin_username` 修改。已有啟用的管理員時跳過，不修改已有帳號；同名非管理員使用者已存在時仍報錯，不修改該使用者。
 
 ### 業務 `[business]`
 
@@ -188,8 +194,10 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 | `input_tokens` | `AVELIS_ANALYSIS_INPUT_TOKENS` | `552321` | 累計輸入 token 上限，`0` 為不限 |
 | `output_tokens` | `AVELIS_ANALYSIS_OUTPUT_TOKENS` | `30716` | 累計輸出 token 上限（含推理），`0` 為不限 |
 | `material_change_ratio` | `AVELIS_MATERIAL_CHANGE_RATIO` | `0.01` | 變化顯著性閾值（口徑未單獨設定時） |
-| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `false` | 中繼資料圖證據發現（實驗特性） |
-| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `false` | 證據解釋（實驗特性，本階段只定義開關） |
+| `retrieval` | `AVELIS_ANALYSIS_RETRIEVAL` | `true` | 中繼資料圖證據發現（實驗特性）；明確設為 `false` 可關閉 |
+| `investigation` | `AVELIS_ANALYSIS_INVESTIGATION` | `true` | 證據解釋（實驗特性）；明確設為 `false` 可關閉 |
+
+這兩項實驗特性預設開啟；未設定模型或沒有可用中繼資料圖時，直接跳過額外證據發現與解釋，不影響既有問數與分析流程。
 
 ### 模型 `[model]`
 
