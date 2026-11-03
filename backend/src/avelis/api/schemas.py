@@ -966,8 +966,9 @@ class ChartSeries(Out):
     name: str
     column: str
     label: str
-    axis: Literal[0, 1]
+    axis: Literal[0, 1, 2, 3]
     mark: Literal["bar", "line"]
+    other: bool = False
     unit: Json
     polarity: Literal["up_good", "down_good"] | None
     values: list[float | None]
@@ -990,7 +991,7 @@ class ChartOthers(Out):
 
 
 class ChartSpec(Out):
-    kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "combo"]
+    kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
     orientation: Literal["vertical", "horizontal"]
     reason: Literal[
         "kpi", "time_series", "time_by_dimension", "ranking", "composition", "comparison", "change", "multi_measure"

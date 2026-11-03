@@ -2267,6 +2267,8 @@ export interface components {
             column_roles?: {
                 [key: string]: components["schemas"]["ColumnRole"];
             };
+            /** Charts */
+            charts?: components["schemas"]["ChartSpec"][];
             /** Summary Units */
             summary_units: {
                 [key: string]: unknown;
@@ -2384,6 +2386,8 @@ export interface components {
             column_roles?: {
                 [key: string]: components["schemas"]["ColumnRole"];
             };
+            /** Charts */
+            charts?: components["schemas"]["ChartSpec"][];
         } & {
             [key: string]: unknown;
         };
@@ -3191,6 +3195,118 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChartKpi */
+        ChartKpi: {
+            /** Label */
+            label: string;
+            /** Column */
+            column: string;
+            /** Unit */
+            unit: {
+                [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity: ("up_good" | "down_good") | null;
+            /** Value */
+            value: number | null;
+            /** Previous */
+            previous: number | null;
+            /** Change */
+            change: number | null;
+            /** Rate */
+            rate: number | null;
+            /** Previous Label */
+            previous_label: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartOthers */
+        ChartOthers: {
+            /** Count */
+            count: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartSeries */
+        ChartSeries: {
+            /** Name */
+            name: string;
+            /** Column */
+            column: string;
+            /** Label */
+            label: string;
+            /**
+             * Axis
+             * @enum {integer}
+             */
+            axis: 0 | 1 | 2 | 3;
+            /**
+             * Mark
+             * @enum {string}
+             */
+            mark: "bar" | "line";
+            /**
+             * Other
+             * @default false
+             */
+            other?: boolean;
+            /** Unit */
+            unit: {
+                [key: string]: unknown;
+            };
+            /** Polarity */
+            polarity: ("up_good" | "down_good") | null;
+            /** Values */
+            values: (number | null)[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartSpec */
+        ChartSpec: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples";
+            /**
+             * Orientation
+             * @enum {string}
+             */
+            orientation: "vertical" | "horizontal";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "kpi" | "time_series" | "time_by_dimension" | "ranking" | "composition" | "comparison" | "change" | "multi_measure";
+            x: components["schemas"]["ChartX"] | null;
+            /** Categories */
+            categories: unknown[];
+            /** Series */
+            series: components["schemas"]["ChartSeries"][];
+            /** Kpis */
+            kpis: components["schemas"]["ChartKpi"][];
+            others: components["schemas"]["ChartOthers"] | null;
+            /** Dropped Series */
+            dropped_series: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartX */
+        ChartX: {
+            /** Column */
+            column: string;
+            /** Label */
+            label: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "time" | "dimension";
+            /** Grain */
+            grain: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** CheckBody */
         CheckBody: {
             /** Model Id */
@@ -3329,6 +3445,10 @@ export interface components {
             role: "time" | "dimension" | "measure" | "change" | "rate";
             /** Label */
             label: string;
+            /** Grain */
+            grain?: string | null;
+            /** Additive */
+            additive?: boolean | null;
         } & {
             [key: string]: unknown;
         };

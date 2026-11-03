@@ -5,6 +5,7 @@ from copy import deepcopy
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from avelis.analysis.dataset_projection import build_column_roles
 from avelis.api.schemas import ChartSpec
@@ -40,6 +41,8 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
         }
         if spec["kind"] != "kpi":
             assert all(len(s["values"]) == len(spec["categories"]) for s in spec["series"])
+        if spec["reason"] != "time_by_dimension" or spec["others"] is None:
+            assert all(s["other"] is False for s in spec["series"])
     return result
 
 
@@ -143,15 +146,30 @@ def test_time_by_many_members_merges_only_additive_units(kind):
     }
     result = recommend(["t", "d", "value"], rows, roles, {"value": {"kind": kind}}, {})
     default, candidate = result
+    for spec in result:
+        assert ChartSpec.model_validate(spec).model_dump(mode="json") == spec
+        assert all(s["other"] is False for s in spec["series"][:7])
     assert [s["name"] for s in default["series"][:7]] == [f"m{i}" for i in range(7, 0, -1)]
     if kind in {"level", "count", "delta", "share"}:
         assert default["others"] == {"count": 2} and default["dropped_series"] == 0
         assert default["series"][-1]["name"] == "其他"
         assert default["series"][-1]["values"] == [100.0, -100.0]
         assert candidate["kind"] == "stacked_bar"
+        assert default["series"][-1]["other"] is True
+        assert candidate["series"][-1]["other"] is True
     else:
         assert len(default["series"]) == 7 and default["others"] is None
         assert default["dropped_series"] == 2 and candidate["kind"] == "grouped_bar"
+
+
+@pytest.mark.parametrize("locale,other", [("en", "Other"), ("zh-TW", "其他")])
+def test_other_flag_distinguishes_merged_series_from_business_member(locale, other):
+    rows = [[t, other if i == 8 else f"m{i}", i] for t in ("01", "02") for i in range(9)]
+    with locale_context(locale):
+        result = charts(["t", "d", "value"], rows, dimensions=["d"], time="t")
+    for spec in result:
+        assert spec["series"][0]["name"] == spec["series"][-1]["name"] == other
+        assert [s["other"] for s in spec["series"]] == [False] * 7 + [True]
 
 
 def test_exactly_eight_members_are_not_reduced():
@@ -182,25 +200,45 @@ def test_same_units_multi_measure(temporal):
 
 @pytest.mark.parametrize("temporal", [False, True])
 @pytest.mark.parametrize("different", ["kind", "unit"])
-def test_combo_uses_two_axes_and_counts_omitted_measures(temporal, different):
+@pytest.mark.parametrize("count", [2, 3, 4, 6])
+def test_multiples_uses_one_panel_per_measure_and_caps_at_four(temporal, different, count):
+    measures = list("abcdef")[:count]
     units = {
         "a": {"kind": "level", "unit": "元"},
         "b": {"kind": "ratio" if different == "kind" else "level", "unit": "元" if different == "kind" else "件"},
-        "c": {"kind": "count", "unit": "人"},
+        **{column: {"kind": "count", "unit": "人"} for column in measures[2:]},
     }
     default, candidate = charts(
-        ["x", "a", "b", "c"],
-        [["02", 2, 0.3, 9], ["01", 3, 0.4, 8]],
+        ["x", *measures],
+        [["02", *range(count)], ["01", *range(10, 10 + count)]],
         time="x" if temporal else None,
         dimensions=[] if temporal else ["x"],
-        kinds={"a": "level", "b": "level", "c": "count"},
+        kinds={column: units[column]["kind"] for column in measures},
         units=units,
     )
-    assert default["kind"] == "combo" and default["orientation"] == "vertical"
-    assert default["dropped_series"] == 1
-    assert [(s["mark"], s["axis"]) for s in default["series"]] == [("bar", 0), ("line", 1)]
-    assert candidate["kind"] == "line" and len(candidate["series"]) == 1
+    assert default["kind"] == "multiples" and default["orientation"] == "vertical"
+    assert default["reason"] == candidate["reason"] == "multi_measure"
+    assert default["dropped_series"] == max(0, count - 4)
+    assert default["categories"] == candidate["categories"] == ["01", "02"]
+    assert [s["column"] for s in default["series"]] == measures[:4]
+    assert [(s["mark"], s["axis"]) for s in default["series"]] == [
+        ("line" if temporal else "bar", index) for index in range(min(count, 4))
+    ]
+    assert [s["values"] for s in default["series"]] == [[10.0 + index, float(index)] for index in range(min(count, 4))]
+    assert [s["unit"] for s in default["series"]] == [units[column] for column in measures[:4]]
+    assert candidate["kind"] == ("line" if temporal else "bar") and len(candidate["series"]) == 1
     assert candidate["series"][0]["column"] == "a"
+    assert candidate["series"][0]["mark"] == ("line" if temporal else "bar") and candidate["series"][0]["axis"] == 0
+    assert candidate["series"][0]["values"] == [10.0, 0.0]
+
+
+def test_chart_schema_defaults_other_to_false_and_rejects_combo():
+    spec = charts(["t", "value"], [["01", 1], ["02", 2]], time="t")[0]
+    del spec["series"][0]["other"]
+    assert ChartSpec.model_validate(spec).series[0].other is False
+    spec["kind"] = "combo"
+    with pytest.raises(ValidationError, match="kind"):
+        ChartSpec.model_validate(spec)
 
 
 @pytest.mark.parametrize("order", [None, "asc", "desc"])

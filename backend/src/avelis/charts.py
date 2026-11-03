@@ -70,7 +70,7 @@ def recommend(
     def additive(column):
         return (units.get(column) or {}).get("kind") in ADDITIVE_KINDS
 
-    def series(column, values, *, name=None, mark="bar", axis=0, direction=None):
+    def series(column, values, *, name=None, mark="bar", axis=0, direction=None, other=False):
         label = roles[column].get("label") or column
         return {
             "name": label if name is None else name,
@@ -78,6 +78,7 @@ def recommend(
             "label": label,
             "axis": axis,
             "mark": mark,
+            "other": other,
             "unit": dict(units.get(column) or {"kind": "unknown"}),
             "polarity": polarity.get(direction or column),
             "values": values,
@@ -180,14 +181,25 @@ def recommend(
             reason = "multi_measure"
         if not same_unit:
             chart = spec(
-                "combo",
+                "multiples",
                 reason,
                 x,
                 categories,
-                [series(measures[0], values[0]), series(measures[1], values[1], mark="line", axis=1)],
-                dropped=len(measures) - 2,
+                [
+                    series(column, items, mark="line" if temporal else "bar", axis=index)
+                    for index, (column, items) in enumerate(zip(measures[:4], values[:4], strict=True))
+                ],
+                dropped=max(0, len(measures) - 4),
             )
-            candidate = spec("line", reason, x, categories, [series(measures[0], values[0], mark="line")])
+            mark = "line" if temporal else "bar"
+            candidate = spec(
+                "line" if temporal else "bar",
+                reason,
+                x,
+                categories,
+                [series(measures[0], values[0], mark=mark)],
+                orientation="vertical" if temporal else "horizontal",
+            )
             return [chart, candidate]
         chart = spec(
             "line" if temporal else "grouped_bar",
@@ -229,6 +241,7 @@ def recommend(
                             [_sum(values.get((period, member)) for member in ranked[7:]) for period in periods],
                             name=gettext("其他"),
                             mark="line",
+                            other=True,
                         )
                     )
                 chart = spec("line", "time_by_dimension", time, periods, lines, others=merged, dropped=dropped)
