@@ -99,7 +99,7 @@ docker compose logs config
 
 ### 2.5 瀏覽器存取
 
-瀏覽器開啟 `http://<伺服器 IP>:8080`。未設定初始密碼時，用預設 `admin` / `123456` 登入後在介面修改密碼；明確設定了初始密碼時，用該密碼登入並按提示改密。之後在介面裡依次：設定模型（設定 → 模型設定）→ 登記資料來源並採集 → 建業務域與使用者 → 發布口徑。
+編排預設只監聽 `127.0.0.1`，在伺服器本機瀏覽器開啟 `http://127.0.0.1:8080`。未設定初始密碼時，用預設 `admin` / `123456` 登入後在介面修改密碼；明確設定了初始密碼時，用該密碼登入並按提示改密。從其他機器存取時，先修改預設管理員密碼，再在 `.env` 把 `AVELIS_BIND_ADDRESS` 設為 `0.0.0.0` 或具體網卡地址，存取 `http://<伺服器 IP>:8080`；生產環境建議放在 HTTPS 反向代理之後。之後在介面裡依次：設定模型（設定 → 模型設定）→ 登記資料來源並採集 → 建業務域與使用者 → 發布口徑。
 
 ### 2.6 常用操作
 
@@ -156,7 +156,7 @@ docker run -d --name avelis-worker --no-healthcheck \
 
 ## 5. 反向代理與 HTTPS
 
-生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並在 `.env` 把 `AVELIS_BIND_ADDRESS` 改為 `127.0.0.1` 只讓代理存取。登入失敗限流按「帳號 + 來源地址」計數；MCP 未設定對外地址時還要使用正確的外部 scheme 與 Host。代理須保留 Host（含埠），傳遞 `X-Forwarded-For` 與 `X-Forwarded-Proto`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只寫可信代理，`"*"` 表示全部信任）。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）設為使用者實際存取的地址（如 `https://avelis.example.com`）。後端不額外信任 `X-Forwarded-Host` 等轉送標頭；使用路徑前綴時須正確設定 ASGI `root_path` 並讓代理保留相應公開路徑。
+生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並保持 `AVELIS_BIND_ADDRESS` 的預設值 `127.0.0.1` 只讓本機代理存取。登入失敗限流按「帳號 + 來源地址」計數；MCP 未設定對外地址時還要使用正確的外部 scheme 與 Host。代理須保留 Host（含埠），傳遞 `X-Forwarded-For` 與 `X-Forwarded-Proto`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只寫可信代理，`"*"` 表示全部信任）。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）設為使用者實際存取的地址（如 `https://avelis.example.com`）。後端不額外信任 `X-Forwarded-Host` 等轉送標頭；使用路徑前綴時須正確設定 ASGI `root_path` 並讓代理保留相應公開路徑。
 
 Nginx 示例（同步分析介面最長等待約 7 分鐘，讀超時要留足）：
 

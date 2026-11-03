@@ -1604,5 +1604,7 @@
   "支持 Apache Ossie 0.2.0.dev0（提交 48da55a）的 YAML 或 JSON，也能读取旧版（提交 88e0011）的文件。导入只生成草稿版本，必须经过复核才能发布；关联路径不会自动创建。": "Accepts YAML or JSON in Apache Ossie 0.2.0.dev0 (commit 48da55a), and can also read files in the older format (commit 88e0011). Import only creates draft versions, which must be reviewed before publishing; join paths are not created automatically.",
   "可导入": "Ready to import",
   "MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），删掉这项或改为 true 即可恢复": "The MCP service is turned off in the deployment config (AVELIS_MCP_ENABLED=false); remove it or set it to true to turn it back on",
-  "服务已关闭": "Service is off"
+  "服务已关闭": "Service is off",
+  "保存并登录": "Save and sign in",
+  "返回登录": "Back to sign in"
 }

@@ -35,7 +35,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 ### Hardening notes
 
 - Change every password and the `[security] secret` in `avelis.toml` before the first start; never commit `avelis.toml` or `.env`.
-- If `[bootstrap] initial_admin_password` is left empty, the first start creates the administrator `admin` with the well-known password `123456`, without a forced change, so a new deployment can be signed in to right away. Change it right after the first sign-in from the user menu at the bottom left → **修改密码** (Change password). If the service is reachable from an untrusted network before you sign in, set `initial_admin_password` before the first start (the administrator then has to change it at first sign-in), or bind the service to `127.0.0.1` until the password is changed.
+- If `[bootstrap] initial_admin_password` is left empty, the first start creates the administrator `admin` with the well-known password `123456`, without a forced change, so a new deployment can be signed in to right away. Change it right after the first sign-in from the user menu at the bottom left → **修改密码** (Change password). The deployment stack binds only to `127.0.0.1` by default. Before exposing it to other machines, change the password first, then set `AVELIS_BIND_ADDRESS` to an external address. You can also set `initial_admin_password` before the first start (the administrator then has to change it at first sign-in).
 - Give Avelis a read-only account for queries and a metadata-only account for collection.
 - By default Avelis sends query results and (redacted) code snippets to the configured model provider, because the analysis agent needs them. To stop this, turn off **发送查询结果** (send query results) and **发送代码片段** (send code snippets) under **设置 → 模型配置** (Settings → Models). If your data must not leave your network, connect a locally hosted model through an OpenAI-compatible endpoint instead.
 - Put Avelis behind HTTPS in production; see the [deployment guide](docs/deployment.en.md).
@@ -67,7 +67,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 ### 加固建议
 
 - 首次启动前修改 `avelis.toml` 中的全部口令与 `[security] secret`；不要提交 `avelis.toml` 或 `.env`。
-- `[bootstrap] initial_admin_password` 留空时，首次启动会创建管理员 `admin`，口令是公开已知的 `123456`，不强制改密，新部署可以直接登录。首次登录后请立即在左下角用户菜单的**修改密码**里修改。如果在你登录改密之前服务就能从不受信任的网络访问，请在首次启动前填写 `initial_admin_password`（此时管理员首次登录必须改密），或者在改密之前把服务只绑定到 `127.0.0.1`。
+- `[bootstrap] initial_admin_password` 留空时，首次启动会创建管理员 `admin`，口令是公开已知的 `123456`，不强制改密，新部署可以直接登录。首次登录后请立即在左下角用户菜单的**修改密码**里修改。部署编排默认只监听 `127.0.0.1`；需要对外开放时，请先修改口令，再把 `AVELIS_BIND_ADDRESS` 改为对外地址。也可在首次启动前填写 `initial_admin_password`（此时管理员首次登录必须改密）。
 - 给 Avelis 分配只读查询账号与只读元数据的采集账号。
 - Avelis 默认把查询结果与（已脱敏的）代码片段发送给配置的模型服务，分析智能体需要它们。要停止发送，在 **设置 → 模型配置** 关闭“发送查询结果”与“发送代码片段”。数据不能离开内网时，请通过 OpenAI 兼容接口接入本地部署的模型。
 - 生产环境放在 HTTPS 之后，见[部署指南](docs/deployment.md)。
@@ -99,7 +99,7 @@ Out of scope: the local demo environment under `deploy/demo/` (it is for develop
 ### 加固建議
 
 - 首次啟動前修改 `avelis.toml` 中的全部密碼與 `[security] secret`；不要提交 `avelis.toml` 或 `.env`。
-- `[bootstrap] initial_admin_password` 留空時，首次啟動會建立管理員 `admin`，密碼是公開已知的 `123456`，不強制變更，新部署可以直接登入。首次登入後請立即在左下角使用者選單的**修改密碼**裡修改。如果在你登入改密碼之前服務就能從不受信任的網路存取，請在首次啟動前填寫 `initial_admin_password`（此時管理員首次登入必須變更密碼），或者在改密碼之前把服務只綁定到 `127.0.0.1`。
+- `[bootstrap] initial_admin_password` 留空時，首次啟動會建立管理員 `admin`，密碼是公開已知的 `123456`，不強制變更，新部署可以直接登入。首次登入後請立即在左下角使用者選單的**修改密碼**裡修改。部署編排預設只監聽 `127.0.0.1`；需要對外開放時，請先修改密碼，再把 `AVELIS_BIND_ADDRESS` 改為對外地址。也可在首次啟動前填寫 `initial_admin_password`（此時管理員首次登入必須變更密碼）。
 - 給 Avelis 分配唯讀查詢帳號與唯讀中繼資料的採集帳號。
 - Avelis 預設把查詢結果與（已脫敏的）程式碼片段傳送給設定的模型服務，分析代理需要它們。要停止傳送，在 **設定 → 模型設定** 關閉「傳送查詢結果」與「傳送程式碼片段」。資料不能離開內網時，請透過 OpenAI 相容介面接入本地部署的模型。
 - 生產環境放在 HTTPS 之後，見[部署指南](docs/deployment.zh-TW.md)。

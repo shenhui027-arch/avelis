@@ -184,7 +184,7 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False, mfg: bool
         json={
             "name": "电商维表库（MySQL）",
             "kind": "mysql",
-            "host": "127.0.0.1",
+            "host": env.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1"),
             "port": int(env["SHOP_MYSQL_PORT"]),
             "options": {"databases": ["shop_dim"]},
             "collect": {"username": "avelis_collector", "password": env["SHOP_MYSQL_COLLECTOR_PASSWORD"]},
@@ -196,7 +196,7 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False, mfg: bool
         json={
             "name": "演示 StarRocks",
             "kind": "starrocks",
-            "host": "127.0.0.1",
+            "host": env.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1"),
             "port": int(env["SR_QUERY_PORT"]),
             "options": {
                 "databases": ["shop", "ads", "dim"],
@@ -214,7 +214,7 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False, mfg: bool
             json={
                 "name": "门店库（PostgreSQL）",
                 "kind": "postgres",
-                "host": "127.0.0.1",
+                "host": env.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1"),
                 "port": int(env["SHOP_PG_PORT"]),
                 "options": {"database": "storedb", "schemas": ["store"]},
                 "collect": {"username": "avelis_collector", "password": env["SHOP_PG_COLLECTOR_PASSWORD"]},
@@ -311,7 +311,7 @@ def _setup_mfg(
         json={
             "name": MFG_SOURCE,
             "kind": "starrocks",
-            "host": "127.0.0.1",
+            "host": env.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1"),
             "port": int(env["SR_QUERY_PORT"]),
             "options": {"databases": list(mfg_data.DATABASES)},
             "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},
@@ -370,7 +370,7 @@ def _setup_ec(
         json={
             "name": EC_SOURCE,
             "kind": "starrocks",
-            "host": "127.0.0.1",
+            "host": env.get("AVELIS_DEMO_SOURCE_HOST", "127.0.0.1"),
             "port": int(env["SR_QUERY_PORT"]),
             "options": {"databases": list(ec_data.DATABASES)},
             "collect": {"username": "avelis_collector", "password": env["SR_COLLECTOR_PASSWORD"]},

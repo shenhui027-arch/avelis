@@ -31,6 +31,8 @@ uv run pytest -m acceptance                    # 验收（会重置演示库与�
 uv run python -m avelis.bootstrap demo --reset # 演示走查：重置并经 API 建好用户、业务域、数据源，完成首次采集
 ```
 
+`bootstrap demo` 可用 `AVELIS_DEMO_SOURCE_HOST` 指定新建演示数据源的主机（默认 `127.0.0.1`）；在 Docker 部署容器里连接宿主演示库时设为 `host.docker.internal`。同名数据源已存在时直接复用，不修改其连接地址。
+
 - **认证**：OAuth2 密码模式 + PyJWT 访问令牌（可在 Redis 吊销），口令用 pwdlib（Argon2）哈希；数据源口令用 Fernet 加密存储，接口永不回传。登录失败按“账号 + 来源地址”限流锁定（`AVELIS_LOGIN_MAX_FAILURES` / `AVELIS_LOGIN_LOCK_MINUTES`）；管理员创建或重置口令的账号首次登录必须修改；改口令、重置、停用后旧会话立即失效。
 - **角色**：管理员、维护者、复核者、查询者，加上业务域成员（负责人 / 维护者 / 可查询）。默认禁止自审，策略见 `/api/settings`。
 - **问数**：LangGraph 智能体，能多轮追问、结合上下文理解追问，会话状态存在 PostgreSQL。模型只提交结构化意图，SQL 由已发布口径确定性生成并校验。支持多个指标、排名与前 N、环比 / 同比，以及派生指标（如客单价 = 实付销售额 / 订单数），见 [ADR 0005](decisions/0005-ask-expressiveness.md)。未指定模型时用演示模型（规则匹配，答案中会标明）。

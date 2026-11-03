@@ -1,10 +1,11 @@
 // 登录：满屏极光背景 + 流动的血缘星图；左侧讲清产品（标题、三个价值点、一张“带依据的答案”预览），右侧玻璃登录卡。
 // 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
-import { ApiError, login } from "../api/client";
+import { api, ApiError, login, token, unwrap } from "../api/client";
+import { errorText } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
 import { currentLanguage, t } from "../i18n";
@@ -85,18 +86,101 @@ function AnswerPreview() {
   );
 }
 
+/** 登录卡片上的改密：先用当前密码登录，再改密并换用新凭证；不需要先进入系统。 */
+function PasswordForm({ target, onBack }: { target: string; onBack: () => void }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({ username: "", current: "", next: "", confirm: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // 表单离开后，迟到的响应不能再清除、改写之后建立的会话，也不能再跳转
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;  // StrictMode 会先卸载再挂载一次，重新挂载时要恢复
+    return () => { alive.current = false; };
+  }, []);
+  const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (form.next !== form.confirm) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await login(form.username, form.current);
+      let issued;
+      try {
+        issued = await unwrap(api.POST("/api/me/password", {
+          body: { current_password: form.current, new_password: form.next } }));
+      } catch (e) {
+        if (alive.current) token.clear();  // 改密没成功就不留下刚才的登录凭证
+        throw e;
+      }
+      if (!alive.current) return;
+      token.issue(issued);
+      queryClient.clear();
+      navigate(target, { replace: true });  // 与登录一致：回到登录前想去的页面（如 MCP 授权确认页）
+    } catch (e) {
+      if (alive.current) setError(e instanceof ApiError ? e.message : errorText(e));
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  return (
+    <form className="av-login__card" onSubmit={submit} noValidate>
+      <div className="av-login__card-hd">
+        <LogoMark size={44} />
+        <h2>{t("修改密码")}</h2>
+        <p>{t("修改后，其他设备上的登录将失效")}</p>
+      </div>
+      <label className="av-field">
+        <span className="av-label">{t("账号")}</span>
+        <span className="av-login__input"><Icon name="users" small />
+          <input autoComplete="username" autoFocus value={form.username} placeholder={t("输入账号")} onChange={set("username")} required /></span>
+      </label>
+      <label className="av-field">
+        <span className="av-label">{t("当前密码")}</span>
+        <span className="av-login__input"><Icon name="lock" small />
+          <input type="password" autoComplete="current-password" value={form.current} onChange={set("current")} required /></span>
+      </label>
+      <label className="av-field">
+        <span className="av-label">{t("新密码")}</span>
+        <span className="av-login__input"><Icon name="key" small />
+          <input type="password" autoComplete="new-password" value={form.next} placeholder={t("至少 8 位，不能包含账号")}
+            onChange={set("next")} required minLength={8} /></span>
+      </label>
+      <label className="av-field">
+        <span className="av-label">{t("确认新密码")}</span>
+        <span className="av-login__input"><Icon name="key" small />
+          <input type="password" autoComplete="new-password" value={form.confirm} aria-invalid={mismatch} onChange={set("confirm")} required /></span>
+        {mismatch ? <span className="av-help av-help--danger">{t("两次输入不一致")}</span> : null}
+      </label>
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
+      <button className="av-login__submit" type="submit"
+        disabled={busy || !form.username || !form.current || form.next.length < 8 || form.next !== form.confirm}>
+        {busy ? t("保存中…") : <>{t("保存并登录")}<Icon name="arrow" small /></>}
+      </button>
+      <p className="av-login__foot"><button type="button" className="av-login__switch" disabled={busy} onClick={onBack}>{t("返回登录")}</button></p>
+    </form>
+  );
+}
+
 export function Login() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   // 回到登录前想去的页面；直接打开登录页时进工作台
   const from = (useLocation().state as { from?: string } | null)?.from ?? params.get("from") ?? "/";
+  const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
   const expired = params.get("reason") === "expired";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<{ text: string; locked: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [changing, setChanging] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -105,7 +189,6 @@ export function Login() {
     try {
       const result = await login(username, password);
       queryClient.clear();  // 换账号登录：丢弃上一个会话的缓存
-      const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
       navigate(result.mustChangePassword ? "/account/password" : target,
         { replace: true, state: result.mustChangePassword ? { from: target } : undefined });
     } catch (e) {
@@ -141,6 +224,7 @@ export function Login() {
           <AnswerPreview />
         </section>
         <section className="av-login__panel">
+          {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
           <form className="av-login__card" onSubmit={submit} noValidate>
             <div className="av-login__card-hd">
               <LogoMark size={44} />
@@ -170,8 +254,12 @@ export function Login() {
             <button className="av-login__submit" type="submit" disabled={busy || !username || !password}>
               {busy ? t("登录中…") : <>{t("登录")}<Icon name="arrow" small /></>}
             </button>
-            <p className="av-login__foot">{t("忘记密码请联系管理员重置")}</p>
+            <p className="av-login__foot">
+              <button type="button" className="av-login__switch" disabled={busy} onClick={() => setChanging(true)}>{t("修改密码")}</button>
+              <span aria-hidden="true"> · </span>{t("忘记密码请联系管理员重置")}
+            </p>
           </form>
+          )}
           <ul className="av-login__trust">
             <li><Icon name="shield" small />{t("权限与审计全程留痕")}</li>
             <li><Icon name="db" small />{t("支持私有化部署")}</li>

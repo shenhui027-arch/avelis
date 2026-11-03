@@ -57,7 +57,7 @@ services:
     <<: *avelis
     restart: unless-stopped
     ports:
-      - "${AVELIS_BIND_ADDRESS:-0.0.0.0}:${AVELIS_HTTP_PORT:-8080}:8000"
+      - "${AVELIS_BIND_ADDRESS:-127.0.0.1}:${AVELIS_HTTP_PORT:-8080}:8000"
     depends_on:
       config:
         condition: service_completed_successfully

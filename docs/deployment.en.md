@@ -99,7 +99,7 @@ docker compose logs config
 
 ### 2.5 Open in a browser
 
-Open `http://<server-ip>:8080`. If no initial password was configured, sign in with the default `admin` / `123456` and change the password in the UI. If an initial password was explicitly configured, sign in with it and change it when prompted. Then, in the UI: configure a model (**设置 → 模型配置**, Settings → Models) → register a data source and collect it → create business domains and users → publish metric definitions.
+The stack binds to `127.0.0.1` by default. Open `http://127.0.0.1:8080` in a browser on the server. If no initial password was configured, sign in with the default `admin` / `123456` and change the password in the UI. If an initial password was explicitly configured, sign in with it and change it when prompted. For access from other machines, change the default administrator password first, then set `AVELIS_BIND_ADDRESS` in `.env` to `0.0.0.0` or a specific interface address and open `http://<server-ip>:8080`; use an HTTPS reverse proxy in production. Then, in the UI: configure a model (**设置 → 模型配置**, Settings → Models) → register a data source and collect it → create business domains and users → publish metric definitions.
 
 ### 2.6 Common operations
 
@@ -156,7 +156,7 @@ The image reads `/etc/avelis/avelis.toml` by default. Its built-in health check 
 
 ## 5. Reverse proxy and HTTPS
 
-In production, put a reverse proxy (Nginx, Caddy, a cloud load balancer) in front to terminate HTTPS, and set `AVELIS_BIND_ADDRESS` to `127.0.0.1` in `.env` so that only the proxy can connect. Sign-in rate limiting counts failures per account and client address; MCP also needs the correct external scheme and Host when no public address is configured. The proxy must preserve Host (including its port), send `X-Forwarded-For` and `X-Forwarded-Proto`, and have its address listed in `[server] forwarded_allow_ips` in `avelis.toml` (or `AVELIS_FORWARDED_ALLOW_IPS`; list trusted proxies only, as `"*"` trusts everyone). Alternatively, set `[server] public_url` (`AVELIS_PUBLIC_URL`) directly to the address users open (for example `https://avelis.example.com`). The backend does not add trust for `X-Forwarded-Host` or other forwarded headers. For a path prefix, set ASGI `root_path` correctly and preserve the corresponding public paths in the proxy.
+In production, put a reverse proxy (Nginx, Caddy, a cloud load balancer) in front to terminate HTTPS, and keep the default `AVELIS_BIND_ADDRESS` of `127.0.0.1` so that only a local proxy can connect. Sign-in rate limiting counts failures per account and client address; MCP also needs the correct external scheme and Host when no public address is configured. The proxy must preserve Host (including its port), send `X-Forwarded-For` and `X-Forwarded-Proto`, and have its address listed in `[server] forwarded_allow_ips` in `avelis.toml` (or `AVELIS_FORWARDED_ALLOW_IPS`; list trusted proxies only, as `"*"` trusts everyone). Alternatively, set `[server] public_url` (`AVELIS_PUBLIC_URL`) directly to the address users open (for example `https://avelis.example.com`). The backend does not add trust for `X-Forwarded-Host` or other forwarded headers. For a path prefix, set ASGI `root_path` correctly and preserve the corresponding public paths in the proxy.
 
 Nginx example (the synchronous analysis endpoint can wait up to about 7 minutes, so allow a long read timeout):
 

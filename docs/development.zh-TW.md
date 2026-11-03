@@ -31,6 +31,8 @@ uv run pytest -m acceptance                    # 驗收（會重置示範庫與�
 uv run python -m avelis.bootstrap demo --reset # 示範走查：重置並經 API 建好使用者、業務域、資料來源，完成首次採集
 ```
 
+`bootstrap demo` 可用 `AVELIS_DEMO_SOURCE_HOST` 指定新建示範資料來源的主機（預設 `127.0.0.1`）；在 Docker 部署容器裡連線至宿主示範庫時設為 `host.docker.internal`。同名資料來源已存在時直接重用，不修改其連線地址。
+
 - **認證**：OAuth2 密碼模式 + PyJWT 存取權杖（可在 Redis 吊銷），密碼用 pwdlib（Argon2）雜湊；資料來源密碼用 Fernet 加密儲存，介面永不回傳。登入失敗按「帳號 + 來源地址」限流鎖定（`AVELIS_LOGIN_MAX_FAILURES` / `AVELIS_LOGIN_LOCK_MINUTES`）；管理員建立或重置密碼的帳號首次登入必須修改；改密碼、重置、停用後舊會話立即失效。
 - **角色**：管理員、維護者、複核者、查詢者，加上業務域成員（負責人 / 維護者 / 可查詢）。預設禁止自審，策略見 `/api/settings`。
 - **問數**：LangGraph 代理，能多輪追問、結合上下文理解追問，會話狀態存在 PostgreSQL。模型只提交結構化意圖，SQL 由已發布口徑確定性生成並校驗。支援多個指標、排名與前 N、環比 / 同比，以及衍生指標（如客單價 = 實付銷售額 / 訂單數），見 [ADR 0005](decisions/0005-ask-expressiveness.md)（簡體中文）。未指定模型時用示範模型（規則匹配，答案中會標明）。
