@@ -11,6 +11,7 @@ import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
+import { ChartPanel } from "../../components/charts/ChartPanel";
 import { ArchivedConversations } from "../../layout/Conversations";
 import { DatasetChart, datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
@@ -328,7 +329,8 @@ function LookupAnswer({ a }: { a: Answer }) {
       {single ? <div className="av-lookup__value"><span>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
-      {!single && result.rows?.length ? <ResultTable result={result} dimensions={intent.group_by ?? []} /> : null}
+      {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
+        <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
       <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
     </section>
   );

@@ -8,6 +8,7 @@ import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../c
 import { formatClock, formatShortTime, formatTime } from "../../format";
 import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 import { t } from "../../i18n";
+import { ChartPanel } from "../../components/charts/ChartPanel";
 
 const STEP_LABEL: Record<string, string> = { understand: t("理解"), clarify: t("追问"), govern: t("版本与权限"), explain: t("解释") };
 
@@ -163,7 +164,9 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       {result?.rows && !single && result.rows.length ? (
-        <ResultTable result={result} dimensions={intent.group_by ?? []} />
+        <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
+          <ResultTable result={result} dimensions={intent.group_by ?? []} />
+        </ChartPanel>
       ) : null}
       {result?.truncated ? <span className="av-caption av-answer-warning">{typeof warning === "string" ? warning : t("结果已截断，仅展示返回的数据")}</span> : null}
       {a.status === "clarify" && clarification?.options?.length ? (

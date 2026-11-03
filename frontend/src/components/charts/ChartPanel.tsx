@@ -1,0 +1,91 @@
+// 结果的图：后端给出默认图与可切换的候选（同一份数据），这里只负责切换、渲染与导出。KPI 用 HTML，其余懒加载 ECharts。
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+
+import { useNumberStyle } from "../../api/hooks";
+import { Icon } from "../Icon";
+import { t } from "../../i18n";
+import { formatValue } from "../../numbers";
+import { changeColorTone, type ChartKind, type ChartKpi, type ChartSpec } from "./chartOption";
+import type { EChartHandle } from "./EChart";
+
+const EChart = lazy(() => import("./EChart"));
+
+export const KIND_LABEL: Record<ChartKind, string> = {
+  kpi: t("指标卡"), line: t("折线"), bar: t("条形"), grouped_bar: t("分组柱"), stacked_bar: t("堆叠柱"),
+  diverging_bar: t("变化"), donut: t("环形"), multiples: t("分图"),
+};
+
+/** 图与表切换：view 为 "table" 时只显示 children（表格）。 */
+export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; title: string; children: ReactNode }) {
+  const style = useNumberStyle();
+  const [index, setIndex] = useState(0);
+  const [view, setView] = useState<"chart" | "table">("chart");
+  const canvas = useRef<EChartHandle>(null);
+  const spec = charts[Math.min(index, charts.length - 1)];
+  if (!spec) return <>{children}</>;
+  if (spec.kind === "kpi") return <KpiCards kpis={spec.kpis} />;
+  const download = () => {
+    const url = canvas.current?.png();
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url; a.download = `${title || "chart"}.png`; a.click();
+  };
+  return (
+    <section className="av-chartpanel" aria-label={t("图表")}>
+      <div className="av-chartpanel__bar" onClick={(e) => e.stopPropagation()}>
+        <div className="av-seg" role="group" aria-label={t("视图")}>
+          {charts.map((c, i) => <button key={c.kind} type="button" aria-pressed={view === "chart" && i === index}
+            onClick={() => { setIndex(i); setView("chart"); }}>{KIND_LABEL[c.kind]}</button>)}
+          <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}><Icon name="table" small />{t("表格")}</button>
+        </div>
+        {view === "chart" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={download} title={t("下载图片")}>
+          <Icon name="download" small />PNG</button> : null}
+      </div>
+      {view === "table" ? children : <>
+        <Suspense fallback={<div className="av-chartpanel__loading" />}>
+          <EChart ref={canvas} spec={spec} style={style} label={title} />
+        </Suspense>
+        <ChartNote spec={spec} />
+      </>}
+    </section>
+  );
+}
+
+function ChartNote({ spec }: { spec: ChartSpec }) {
+  const notes = [
+    spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
+    spec.dropped_series ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series }) : "",
+  ].filter(Boolean);
+  return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
+}
+
+/** 差额的量纲：比率之差显示为“个百分点”，其余沿用原单位。 */
+function deltaUnit(unit: ChartKpi["unit"]): ChartKpi["unit"] {
+  return unit.kind === "ratio" && !unit.unit ? { kind: "delta", of_ratio: true } : { ...unit, kind: "delta" };
+}
+
+/** 指标卡：本期值为主，有对比期时给出对比值、差额与变化率；颜色只看期望方向，未知时不着色。 */
+export function KpiCards({ kpis }: { kpis: ChartKpi[] }) {
+  const style = useNumberStyle();
+  return (
+    <div className="av-kpis">
+      {kpis.map((k) => {
+        const tone = changeColorTone(k.change, k.polarity);
+        return (
+          <div key={k.column} className="av-kpi">
+            <span className="av-kpi__label">{k.label}</span>
+            <span className="av-kpi__value">{formatValue(k.value, k.unit, style)}</span>
+            {k.previous != null || k.change != null ? (
+              <span className="av-kpi__delta">
+                {k.change != null ? <span className={tone ? `is-${tone}` : ""}>
+                  {k.change > 0 ? "↑" : k.change < 0 ? "↓" : ""} {formatValue(k.change, deltaUnit(k.unit), style)}
+                  {k.rate != null ? ` · ${formatValue(k.rate, { kind: "rate_change" }, style)}` : ""}</span> : null}
+                {k.previous != null ? <span className="av-kpi__prev">{k.previous_label ?? t("对比期")} {formatValue(k.previous, k.unit, style)}</span> : null}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
