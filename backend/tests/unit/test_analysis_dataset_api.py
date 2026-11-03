@@ -169,7 +169,7 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "metric_codes": ["measure"],
         "window": {"start": "2026-01-01", "end": "2026-01-03"},
         "time_column": "period",
-        "units": {"指标": {"kind": "level", "unit": "件"}},
+        "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
         "polarity": {},
         "column_roles": {
             "period": {"role": "time", "label": "period", "grain": None, "additive": None},
@@ -187,6 +187,7 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "source": None,
         "meta": {
             **api.dataset.meta,
+            "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
             "polarity": {},
             "dimension_labels": {},
             "measure_labels": {"指标": "指标"},
@@ -208,6 +209,7 @@ def test_detail_fields_default_page_and_legacy_full_rows(api):
         "truncated": True,
         "meta": {
             **api.dataset.meta,
+            "units": {"指标": {"kind": "level", "unit": "件", "additive": True}},
             "polarity": {},
             "dimension_labels": {},
             "measure_labels": {"指标": "指标"},

@@ -199,13 +199,17 @@ def test_same_units_multi_measure(temporal):
 
 
 @pytest.mark.parametrize("temporal", [False, True])
-@pytest.mark.parametrize("different", ["kind", "unit"])
+@pytest.mark.parametrize("different", ["kind", "unit", "scale"])
 @pytest.mark.parametrize("count", [2, 3, 4, 6])
 def test_multiples_uses_one_panel_per_measure_and_caps_at_four(temporal, different, count):
     measures = list("abcdef")[:count]
     units = {
         "a": {"kind": "level", "unit": "元"},
-        "b": {"kind": "ratio" if different == "kind" else "level", "unit": "元" if different == "kind" else "件"},
+        "b": {
+            "kind": "ratio" if different == "kind" else "level",
+            "unit": "件" if different == "unit" else "元",
+            **({"scale": "10000"} if different == "scale" else {}),
+        },
         **{column: {"kind": "count", "unit": "人"} for column in measures[2:]},
     }
     default, candidate = charts(
@@ -294,16 +298,49 @@ def test_comparison_dimension_caps_each_chart_at_twenty_without_other():
 
 
 @pytest.mark.parametrize("kind", ["level", "ratio"])
-def test_two_dimensions_pivot_and_stacking_candidate(kind):
+def test_two_dimensions_flatten_single_measure(kind):
     rows = [["a", "x", 1], ["b", "y", 2], ["a", "y", 3]]
     result = charts(["d1", "d2", "value"], rows, dimensions=["d1", "d2"], kinds={"value": kind})
     spec = result[0]
-    assert spec["kind"] == "grouped_bar" and spec["orientation"] == "vertical"
-    assert spec["categories"] == ["a", "b"]
-    assert [s["values"] for s in spec["series"]] == [[1.0, None], [3.0, 2.0]]
+    assert spec["kind"] == "bar" and spec["orientation"] == "horizontal"
+    assert spec["categories"] == ["a / y", "b / y", "a / x"]
+    assert [s["values"] for s in spec["series"]] == [[3.0, 2.0, 1.0]]
     assert len(result) == (2 if kind == "level" else 1)
     if kind == "level":
-        assert result[1]["kind"] == "stacked_bar"
+        assert result[1]["kind"] == "donut"
+
+
+@pytest.mark.parametrize("dimension_count", [2, 3])
+@pytest.mark.parametrize("mixed_units", [False, True])
+def test_multiple_dimensions_and_measures_keep_every_dimension(dimension_count, mixed_units):
+    dimensions = ["区域", "渠道", "产品"][:dimension_count]
+    members = [["北", "线上", "甲"], ["北", "线下", "甲"], ["北", "线上", "乙"]]
+    if dimension_count == 2:
+        members = members[:2]
+    rows = [[*member[:dimension_count], 100 * (i + 1), 0.1 * (i + 1)] for i, member in enumerate(members)]
+    result = charts(
+        [*dimensions, "金额", "转化率"],
+        rows,
+        dimensions=dimensions,
+        kinds={"金额": "level", "转化率": "ratio" if mixed_units else "level"},
+    )
+    expected = list(reversed(rows))
+    for spec in result:
+        assert spec["categories"] == [" / ".join(row[:dimension_count]) for row in expected]
+    assert result[0]["kind"] == ("multiples" if mixed_units else "grouped_bar")
+    assert [s["values"] for s in result[0]["series"]] == [
+        [float(row[dimension_count + i]) for row in expected] for i in range(2)
+    ]
+
+
+def test_multiple_dimensions_comparison_keeps_member_combinations():
+    result = charts(
+        ["区域", "渠道", *comparison_columns()],
+        [["北", "线上", 10, 8, 2, 0.25], ["北", "线下", 30, 20, 10, 0.5]],
+        dimensions=["区域", "渠道"],
+        kinds=comparison_kinds(),
+    )
+    assert all(spec["categories"] == ["北 / 线下", "北 / 线上"] for spec in result)
 
 
 def test_many_second_dimension_members_flatten_categories():
