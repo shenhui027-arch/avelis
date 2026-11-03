@@ -4,6 +4,24 @@ msgstr ""
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "其他"
+msgstr "Other"
+
+msgid "日期"
+msgstr "Date"
+
+msgid "周"
+msgstr "Week"
+
+msgid "月份"
+msgstr "Month"
+
+msgid "季度"
+msgstr "Quarter"
+
+msgid "年"
+msgstr "Year"
+
 msgid "数据源不存在"
 msgstr "Data source not found"
 

@@ -6,6 +6,24 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "其他"
+msgstr "其他"
+
+msgid "日期"
+msgstr "日期"
+
+msgid "周"
+msgstr "週"
+
+msgid "月份"
+msgstr "月份"
+
+msgid "季度"
+msgstr "季度"
+
+msgid "年"
+msgstr "年"
+
 msgid " · 按{dimensions}"
 msgstr " · 按{dimensions}"
 

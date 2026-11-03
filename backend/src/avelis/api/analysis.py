@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import jobs, modelcfg
+from avelis import charts, jobs, modelcfg
 from avelis.analysis import export
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
@@ -316,6 +316,7 @@ def _dataset_detail(
 ) -> dict[str, Any]:
     meta = dataset_meta(session, d) if session is not None else d.meta or {}
     source = meta.get("rerun_of")
+    roles = build_column_roles(d.columns, meta)
     return {
         "ref": f"D{d.seq}",
         "kind": d.kind,
@@ -331,7 +332,10 @@ def _dataset_detail(
         "time_column": meta.get("time_column"),
         "units": meta.get("units", {}),
         "polarity": meta.get("polarity", {}),
-        "column_roles": build_column_roles(d.columns, meta),
+        "column_roles": roles,
+        "charts": charts.recommend(
+            d.columns, d.rows, roles, meta.get("units") or {}, meta.get("polarity") or {}, meta.get("intent")
+        ),
         "summary_units": meta.get("summary_units", {}),
         "purpose": meta.get("purpose"),
         "answer_id": d.answer_id,

@@ -274,15 +274,15 @@ def test_column_roles_follow_registered_semantics_and_labels():
     }
     original = deepcopy(meta)
     roles = dataset_projection.build_column_roles(columns, meta)
-    assert roles["time_a"] == {"role": "time", "label": "time_a"}
+    assert roles["time_a"] == {"role": "time", "label": "time_a", "grain": None}
     assert roles["dimension_a"] == {"role": "dimension", "label": "维度甲"}
     assert roles["dimension_b"] == {"role": "dimension", "label": "dimension_b"}
     assert roles["期间"]["role"] == "dimension"  # 没有 time_column，不凭名字猜时间列。
     assert roles["其他键"]["role"] == "dimension"
-    assert roles["列·变化率"] == {"role": "measure", "label": "指标甲"}
+    assert roles["列·变化率"] == {"role": "measure", "label": "指标甲", "additive": True}
     assert all(roles[column]["role"] == "measure" for column in ("count_a", "ratio_a", "share_a"))
-    assert roles["delta_a"] == {"role": "change", "label": "指标甲"}
-    assert roles["rate_a"] == {"role": "rate", "label": "指标甲"}
+    assert roles["delta_a"] == {"role": "change", "label": "指标甲", "additive": True}
+    assert roles["rate_a"] == {"role": "rate", "label": "指标甲", "additive": False}
     assert "unknown_a" not in roles and meta == original
 
 
@@ -294,7 +294,7 @@ def test_column_roles_do_not_invent_dimensions_when_units_are_missing():
         "dimensions": [{"name": "dimension_b", "label": "维度乙"}],
     }
     assert dataset_projection.build_column_roles(columns, meta) == {
-        "time_a": {"role": "time", "label": "time_a"},
+        "time_a": {"role": "time", "label": "time_a", "grain": None},
         "dimension_a": {"role": "dimension", "label": "dimension_a"},
         "dimension_b": {"role": "dimension", "label": "维度乙"},
     }
@@ -310,14 +310,14 @@ def test_registered_measure_role_wins_over_unused_dimension_with_same_name():
             "measure_labels": {"value": "指标甲"},
         },
     )
-    assert roles["value"] == {"role": "measure", "label": "指标甲"}
+    assert roles["value"] == {"role": "measure", "label": "指标甲", "additive": True}
     result = ask_service._result_contract(
         {"columns": ["value"], "rows": [[40]]},
         Intent(metric_code="metric_a"),
         [(_metric(), version)],
         value_column="value",
     )
-    assert result["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+    assert result["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
 
 
 @pytest.mark.parametrize("source", ["versions", "metric_version_ids"])
@@ -424,9 +424,9 @@ def test_dataset_detail_and_schema_keep_column_contract(kind):
     detail = analysis_api._dataset_detail(dataset, session=_Session())
     serialized = schemas.AnalysisDatasetDetailOut.model_validate(detail).model_dump(mode="json")
     assert serialized["column_roles"] == {
-        "time_a": {"role": "time", "label": "time_a"},
-        "dimension_a": {"role": "dimension", "label": "维度甲"},
-        "指标甲": {"role": "measure", "label": "指标甲"},
+        "time_a": {"role": "time", "label": "time_a", "grain": None, "additive": None},
+        "dimension_a": {"role": "dimension", "label": "维度甲", "grain": None, "additive": None},
+        "指标甲": {"role": "measure", "label": "指标甲", "grain": None, "additive": True},
     }
     assert serialized["polarity"] == {"指标甲": "down_good"}
     assert serialized["rows"] == [[202603, 3, 40]]
@@ -464,6 +464,7 @@ def test_run_view_restricted_dataset_does_not_leak_column_labels_or_polarity(mon
     projected = view["datasets"][0]
     assert projected["restricted"] and projected["rows"] == []
     assert projected["units"] == projected["polarity"] == projected["column_roles"] == {}
+    assert projected["charts"] == []
 
 
 @pytest.mark.parametrize("time_grain", [None, "month"])
@@ -478,7 +479,7 @@ def test_ask_simple_result_contract_labels_numeric_dimensions_and_time(time_grai
     assert projected["units"]["value"] == {"kind": "count", "unit": "单位甲"}
     assert projected["polarity"] == {"value": "down_good"}
     assert projected["column_roles"]["dimension_a"] == {"role": "dimension", "label": "维度甲"}
-    assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+    assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
     if time_grain:
         assert projected["column_roles"]["time_a"]["role"] == "time"
     assert projected["rows"] == result["rows"] and result == original
@@ -519,8 +520,8 @@ def test_no_comparison_metric_name_suffix_does_not_overwrite_another_metric_cont
     assert result["units"][first.name]["kind"] == "count"
     assert result["units"]["指标甲"]["kind"] == "ratio"
     assert result["column_roles"] == {
-        first.name: {"role": "measure", "label": first.name},
-        "指标甲": {"role": "measure", "label": "指标甲"},
+        first.name: {"role": "measure", "label": first.name, "additive": True},
+        "指标甲": {"role": "measure", "label": "指标甲", "additive": False},
     }
     assert result["polarity"] == {first.name: "up_good", "指标甲": "down_good"}
 
@@ -552,7 +553,7 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
     assert answer.result["column_roles"] and answer.result["polarity"]
     assert answer.result is not shared and shared == original
     if not planned:
-        assert answer.result["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+        assert answer.result["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
         assert answer.result["units"]["value"]["kind"] == "count"
         assert answer.result["polarity"] == {"value": "down_good"}
     if scenario == "inconsistent":
@@ -560,7 +561,7 @@ def test_ask_fulfil_attaches_contract_without_mutating_shared_cached_result(monk
             status="answered", result=shared, intent=intent.model_dump(mode="json"), metric_version_ids=["version_a"]
         )
         projected = ask_api._answer_result(historical, _Session(_version(value_kind="count")))
-        assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲"}
+        assert projected["column_roles"]["value"] == {"role": "measure", "label": "指标甲", "additive": True}
         assert projected["units"]["value"]["kind"] == "count"
 
 
@@ -578,6 +579,8 @@ def test_historical_answer_contract_uses_locked_version_without_mutating_saved_r
     assert projected["units"]["value"]["kind"] == "count"
     assert projected["polarity"] == {"value": "down_good"}
     assert answer.result is result and "column_roles" not in result
+    assert projected["charts"][0]["kind"] == "bar"
+    assert "charts" not in result
     assert (MetricVersion, "latest_a") not in session.reads
 
 
@@ -613,7 +616,11 @@ def test_historical_answer_preserves_existing_or_unavailable_contract(case):
     elif case == "blocked":
         answer.status = "blocked"
     session = _Session() if case != "no_session" else None
-    assert ask_api._answer_result(answer, session) is result
+    projected = ask_api._answer_result(answer, session)
+    if case == "existing_contract":
+        assert projected == {**result, "charts": []} and "charts" not in result
+    else:
+        assert projected is result
     assert session is None or session.reads == []
 
 

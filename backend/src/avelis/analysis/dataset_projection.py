@@ -24,7 +24,7 @@ def system_column_label(column: str, metric_name: str, period_label: str | None)
     return gettext("{metric}·{period}", metric=metric_name, period=suffix)
 
 
-def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, str]]:
+def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict]:
     """只按登记的量纲、分组和时间列构造列契约，不读取行值或猜列名。"""
     units = meta.get("units") or {}
     grouped = set((meta.get("intent") or {}).get("group_by") or [])
@@ -36,6 +36,14 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, st
     dimensions.update(meta.get("dimension_labels") or {})
     measures = meta.get("measure_labels") or {}
     labels = meta.get("column_labels") or {}
+    grain = (meta.get("intent") or {}).get("time_grain")
+    time_labels = {
+        "day": gettext("日期"),
+        "week": gettext("周"),
+        "month": gettext("月份"),
+        "quarter": gettext("季度"),
+        "year": gettext("年"),
+    }
     roles = {}
     for column in columns:
         kind = (units.get(column) or {}).get("kind")
@@ -54,7 +62,13 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict[str, st
         else:
             continue  # unknown 量纲没有足够信息，不能把数值列冒充维度。
         label = dimensions.get(column) if role == "dimension" else measures.get(column)
+        if role == "time":
+            label = time_labels.get(grain) or label
         roles[column] = {"role": role, "label": labels.get(column) or label or column}
+        if role == "time":
+            roles[column]["grain"] = grain
+        elif role in {"measure", "change", "rate"}:
+            roles[column]["additive"] = kind in {"level", "count", "delta", "share"}
     return roles
 
 
