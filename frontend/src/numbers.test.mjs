@@ -36,7 +36,7 @@ assert.equal(formatValue("0.012", { kind: "delta", of_ratio: true }, "cn"), "+1.
 // 未知量纲：最多 4 位小数、不带单位
 assert.equal(formatValue("1.23456", { kind: "unknown", unit: "元" }, "cn"), "1.2346");
 assert.equal(formatValue(undefined, yuan, "cn"), "—");
-assert.equal(formatValue("华东", yuan, "cn"), "华东");
+assert.equal(formatValue("成员甲", yuan, "cn"), "成员甲");
 // 坐标轴：去零、不带单位
 assert.equal(formatAxis(20000000, yuan, "cn"), "2000万");
 assert.equal(formatAxis(0.065, { kind: "ratio" }, "cn"), "6.5%");

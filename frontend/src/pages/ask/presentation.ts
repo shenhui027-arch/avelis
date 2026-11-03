@@ -14,7 +14,7 @@ export function columnRole(result: AskResult, column: string): ColumnRole["role"
   if (result.column_roles) return result.column_roles[column]?.role;
   return column.endsWith("·变化率") ? "rate" : column.endsWith("·变化") ? "change" : undefined;
 }
-/** 列标题：时间、维度用契约里的显示名；单指标的值列（value）用指标名；其余度量列名本身已可读（如“成交额·上一期”）。 */
+/** 列标题：时间、维度用契约里的显示名；单指标的值列（value）用指标名；其余度量列名本身已可读（如“<指标>·上一期”）。 */
 export function columnLabel(result: AskResult, column: string): string {
   const role = result.column_roles?.[column];
   if (role?.label && (role.role === "time" || role.role === "dimension" || column === "value")) return role.label;

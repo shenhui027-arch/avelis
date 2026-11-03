@@ -80,7 +80,7 @@ function RoleChart({ d, roles, limit }: { d: Chartable; roles: Record<string, { 
 
 type Labelled = { column_roles?: Record<string, { role: string; label?: string }> | null; units?: Record<string, unknown> | null };
 
-/** 数据集列标题：列契约里的显示名（含“成交额·本期”这类系统翻译过的期间名），没有时用列名。 */
+/** 数据集列标题：列契约里的显示名（含“<指标>·本期”这类系统翻译过的期间名），没有时用列名。 */
 export function datasetLabel(d: Labelled, column: string): string {
   return d.column_roles?.[column]?.label ?? column;
 }
