@@ -530,3 +530,23 @@ def test_tool_support_uses_saved_model_specific_check(monkeypatch, check, expect
     session.get.return_value = SimpleNamespace(last_check=check)
     assert agent._explain_supports_tools(session) is expected
     session.get.assert_called_once_with(ModelProvider, "p")
+
+
+def test_explain_payload_keeps_comparison_suffixes():
+    assert [
+        agent._payload_column(column, role)
+        for column, role in [
+            ("指标", {"role": "measure", "label": "指标"}),
+            ("指标·上一期", {"role": "measure", "label": "指标"}),
+            ("指标·变化", {"role": "change", "label": "指标"}),
+            ("指标·变化率", {"role": "rate", "label": "指标"}),
+            ("period", {"role": "time", "label": "月份"}),
+            ("value", {"role": "measure", "label": "指标"}),
+        ]
+    ] == ["指标", "指标·上一期", "指标·变化", "指标·变化率", "月份", "指标"]
+
+
+def test_two_explicit_domain_qualified_same_name_metrics_are_both_kept():
+    cards = duplicate_cards()
+    intent = DemoIntentModel().parse("2026-09-01 订单数（零售）和订单数（批发）", cards, today=date(2026, 9, 1))
+    assert sorted(intent.metric_codes) == ["retail", "wholesale"]

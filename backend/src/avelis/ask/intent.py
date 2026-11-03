@@ -183,17 +183,23 @@ class DemoIntentModel:
             return f"{card.name}（{card.domain}）" if card.name in duplicate_names else card.name
 
         # 追问原文会与最初问题拼接；明确选择带域名称后，排除该同名口径的其他候选。
-        selected = {c.name: c.code for c in metrics if c.domain and f"{c.name}（{c.domain}）" in text}
+        # 同一名称可以明确选了多个业务域（“订单数（甲）和订单数（乙）”），按编码记录，不互相覆盖。
+        selected: dict[str, set[str]] = {}
+        for c in metrics:
+            if c.domain and f"{c.name}（{c.domain}）" in text:
+                selected.setdefault(c.name, set()).add(c.code)
         spans: list[tuple[int, int, MetricCard]] = []  # (起点, 终点, 指标)
         for card in metrics:
-            if card.name in selected and selected[card.name] != card.code:
+            if card.name in selected and card.code not in selected[card.name]:
                 continue
-            for label in [
-                f"{card.name}（{card.domain}）" if card.domain else "",
-                card.name,
-                *card.aliases,
-                *card.ai_context.get("synonyms", []),
-            ]:
+            qualified = f"{card.name}（{card.domain}）" if card.domain else ""
+            # 明确选过的口径只按“名称（业务域）”匹配，裸名称会同时命中同名的其他选择。
+            labels = (
+                [qualified]
+                if card.name in selected
+                else [qualified, card.name, *card.aliases, *card.ai_context.get("synonyms", [])]
+            )
+            for label in labels:
                 start = text.find(label) if label else -1
                 while start >= 0:
                     spans.append((start, start + len(label), card))
