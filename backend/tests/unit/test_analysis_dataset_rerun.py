@@ -63,7 +63,9 @@ def state(monkeypatch):
         )
         session.commit()
         metric = SimpleNamespace(name="指标")
-        version = SimpleNamespace(id="current-version", kind="base", unit="件", unit_scale=1, expression="SUM(b.amount)")
+        version = SimpleNamespace(
+            id="current-version", kind="base", unit="件", unit_scale=1, expression="SUM(b.amount)"
+        )
         catalog = ask.Catalog([], {"metric": (metric, version)})
         calls, commits = [], []
         monkeypatch.setattr(dataset_access, "require_dataset_access", lambda *args: calls.append("access"))
