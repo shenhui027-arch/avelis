@@ -1357,6 +1357,8 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
             "claims": [],
             "unexplained": gettext("全部"),
             "incomplete": True,
+            # 模型已用 chart 选过的图照样放进未完成报告：没有结论，但读者能看到已取得的数据
+            "figures": [dict(figure) for figure in getattr(toolbox, "figures", [])],
         }
     scope = getattr(toolbox, "scope", None)
     report, result = ground_report(
