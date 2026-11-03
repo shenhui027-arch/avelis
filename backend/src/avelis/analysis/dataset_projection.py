@@ -68,7 +68,7 @@ def build_column_roles(columns: list[str], meta: dict) -> dict[str, dict]:
         if role == "time":
             roles[column]["grain"] = grain
         elif role in {"measure", "change", "rate"}:
-            roles[column]["additive"] = units[column].get("additive", kind in {"level", "count", "delta", "share"})
+            roles[column]["additive"] = units[column].get("additive") is True
     return roles
 
 
