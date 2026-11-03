@@ -56,9 +56,10 @@ export function formatValue(value: unknown, meta: UnitMeta | null | undefined, s
 
 /** 坐标轴刻度：同样按量纲换算，但去掉多余的零、不带单位（单位写在轴名或提示里）。 */
 export function formatAxis(value: number, meta: UnitMeta | null | undefined, style: NumberStyle): string {
-  const { kind, unit, scale } = unitOf(meta);
+  const { kind, unit, scale, ofRatio } = unitOf(meta);
   const sign = value < 0 ? "−" : "";
   const v = Math.abs(value);
+  if (kind === "delta" && ofRatio && !unit) return sign + rounded(v * 100, 1, true) + t("个百分点");
   if (kind === "rate_change" || kind === "share" || (kind === "ratio" && !unit)) return sign + rounded(v * 100, 1, true) + "%";
   if (kind === "ratio") return sign + rounded(v, 2, true);
   return sign + compact(v * scale, 2, style, true);
