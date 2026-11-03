@@ -121,7 +121,7 @@ class ChartArgs(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
-    title: str = Field(max_length=40, description="一句结论式标题，例如“华东环比下降最多”，不超过 40 字")
+    title: str = Field(max_length=40, description="一句结论式标题，例如“某成员环比下降最多”，不超过 40 字")
     top_n: int | None = Field(default=None, ge=2, le=20, description="可选：横向条形或排名图保留前 N 项，其他图忽略")
 
 
