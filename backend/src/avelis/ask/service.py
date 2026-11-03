@@ -978,7 +978,9 @@ def _fulfil_plan(
     answer.cache_hit = bool(cache_hits) and all(cache_hits)
     if truncated and (intent.order or intent.limit):
         answer.evidence["warning"] = "子查询结果超过行数上限被截断，排名可能不完整"
-    answer.message = _explain_plan(requested, intent, answer.result)
+    # 模板句按量纲显示数值，先用锁定口径补齐展示契约（调用方之后再补一次是幂等的）。
+    contracted = _result_contract(answer.result, intent, [(metric, version) for _, metric, version in requested])
+    answer.message = _explain_plan(requested, intent, contracted)
 
 
 def _answer_text(template: str, **params) -> str:
