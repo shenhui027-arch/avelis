@@ -69,10 +69,11 @@ def test_multiple_host_headers_are_rejected_before_discovery():
         assert "issuer" not in response.json()
 
 
-def test_explicit_public_url_keeps_existing_startup_transport_validation():
+def test_explicit_http_public_url_starts_without_https_metadata_validation():
+    # MCP 默认开启后，内网 http 对外地址的已有部署不能因 Authlib 的 https 校验整体起不来。
     settings = build_settings({"AVELIS_SECRET": "test-secret-admin-y", "AVELIS_PUBLIC_URL": "http://avelis.test:8080"})
-    with pytest.raises(ValueError, match="https"):
-        create_app(settings=settings)
+    with TestClient(create_app(settings=settings)) as client:
+        assert client.get("/.well-known/oauth-authorization-server").json()["issuer"] == "http://avelis.test:8080"
 
 
 def test_restored_consent_keeps_configured_issuer_over_internal_http(oauth_api):
