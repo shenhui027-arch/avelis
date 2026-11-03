@@ -17,7 +17,7 @@
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
 [![version](https://img.shields.io/badge/version-v1.0.2-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.2)
 
-[功能亮点](#功能亮点) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
+[功能亮点](#功能亮点) · [最近更新](#最近更新) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
 
 </div>
 
@@ -45,6 +45,16 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 - **分析智能体**：多步分析“为什么变了、什么关系、该怎么做”；取数只走受治理查询，报告中的数字逐个核验，结论分事实、计算、推断、建议；报告可导出 PDF / HTML / Markdown，分析可保存为定时任务。
 - **对话确认与经验学习**：模型发现的疑问与用户确认，沉淀为受治理的经验，供后续问数与分析使用。
 - **模型可替换**：在页面配置 DeepSeek、OpenAI、Anthropic、通义千问或任意 OpenAI 兼容接口，按用途指定模型；未配置时使用规则匹配的演示模型，并在答案中标明。
+
+## 最近更新
+
+| 版本 | 新增 |
+|---|---|
+| **v1.0.2** | MCP 服务：Claude、Cursor 等 AI 工具经 OAuth 授权后，按受治理的口径与血缘查数；治理事件与 Webhook：口径发布、采集失败、结构变化等 14 种事件推送到订阅地址；口径与 Apache Ossie 语义模型双向互通；口径语义提示（适用说明、同义词、示例问法）；部署开箱即用，默认管理员 admin / 123456，登录页可直接改密 |
+| **v1.0.1** | MySQL 完整引擎（视图列级血缘、只读问数）；MySQL、SQL Server、Oracle、StarRocks 的 DDL 变更归因到数据库用户 |
+| **v1.0.0** | 首个公开版本：元数据采集与列级血缘、口径治理与变更管理、有依据的智能问数、分析智能体 |
+
+完整变更见[更新日志](CHANGELOG.md)，下载见 [Releases](https://github.com/shenhui027-arch/avelis/releases)。
 
 ## 截图
 

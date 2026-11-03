@@ -17,7 +17,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
 [![version](https://img.shields.io/badge/version-v1.0.2-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.2)
 
-[Highlights](#highlights) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -45,6 +45,16 @@ AI has let developers like us be among the first to taste the rewards of this wa
 - **Analysis agent.** Multi-step analysis of "why did this change, what is related, what should we do". Data is fetched only through governed queries, every number in the report is verified, and conclusions are labelled as fact, calculation, inference or recommendation. Reports export to PDF, HTML or Markdown; analyses can be scheduled.
 - **Learns from confirmation.** Questions the model raises are confirmed with the user and stored as governed experience that later questions and analyses reuse.
 - **Pluggable models.** Configure DeepSeek, OpenAI, Anthropic, Qwen or any OpenAI-compatible endpoint in the UI and assign models per purpose. Without a model, a rule-based demo model is used and labelled as such.
+
+## What's new
+
+| Version | Added |
+|---|---|
+| **v1.0.2** | MCP server: AI tools such as Claude and Cursor query governed metrics and lineage after OAuth authorization; governance events and webhooks: 14 event types such as metric publishing, collection failures and schema changes are pushed to subscribed endpoints; two-way exchange of metrics with Apache Ossie semantic models; metric hints for models (when to use, synonyms, example questions); works out of the box, with a default administrator admin / 123456 and password change on the sign-in page |
+| **v1.0.1** | Full MySQL engine (view column lineage, read-only queries); DDL changes on MySQL, SQL Server, Oracle and StarRocks attributed to the database user |
+| **v1.0.0** | First public release: metadata collection and column-level lineage, metric governance and change management, grounded natural-language queries, analysis agent |
+
+See the [changelog](CHANGELOG.md) for every change and [Releases](https://github.com/shenhui027-arch/avelis/releases) for downloads.
 
 ## Screenshots
 
