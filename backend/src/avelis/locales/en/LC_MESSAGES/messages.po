@@ -2166,6 +2166,9 @@ msgstr "The derived metric's components do not share the same row set and cannot
 msgid "派生口径公式无法在 Ossie 核心模型中等价表达"
 msgstr "The derived metric formula cannot be represented equivalently in the Ossie core model"
 
+msgid "组成口径的同名维度映射到不同的列，内联后无法保持分组语义"
+msgstr "Component dimensions with the same name map to different columns; inlining cannot preserve grouping semantics"
+
 msgid "固定过滤条件无法在 Ossie 核心模型中保持分组结果；请使用已过滤的数据集或取消分组维度和时间分组"
 msgstr "Fixed filters cannot preserve grouped results in the Ossie core model; use a pre-filtered dataset or remove grouping dimensions and time grouping"
 

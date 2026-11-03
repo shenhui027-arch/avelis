@@ -448,8 +448,14 @@ def _check_derived_expression(
 
     try:
         components = [(entry["metric"], entry["version"]) for entry in versions]
+        dialect = next(
+            (data["dialect"] for data in datasets.values() if data["asset"].id == components[0][1].base_asset_id), ""
+        )
         _check_core_semantics(
-            MetricVersion(kind="derived", expression=formula), components=components, expression_path=""
+            MetricVersion(kind="derived", expression=formula),
+            components=components,
+            dialect=dialect,
+            expression_path="",
         )
         replacements = {}
         aliases = {}
