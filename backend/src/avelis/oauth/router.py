@@ -152,7 +152,12 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         if name == "authlib" or name.startswith("authlib."):
             logging.getLogger(name).setLevel(logging.INFO)
     logging.getLogger("authlib").setLevel(logging.INFO)
-    configured_metadata = authorization_metadata(settings) if settings.public_url else None
+    # Authlib 的元数据校验要求 issuer 必须是 https；内网 http 部署与按请求推导一样跳过这项校验，不能让整个应用起不来。
+    configured_metadata = (
+        authorization_metadata(settings, validate=urlsplit(settings.public_url).scheme == "https")
+        if settings.public_url
+        else None
+    )
 
     def external_settings(request: Request):
         return request_settings(settings, request)
