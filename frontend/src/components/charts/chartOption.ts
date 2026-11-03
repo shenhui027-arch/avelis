@@ -20,6 +20,11 @@ type Option = Record<string, unknown>;
 
 const BAR = 24;
 
+/** 折线只在期间不多、或有前后都为空的孤立值时显示数据点；孤立值不画点就既没有点也没有线。 */
+function showMarks(values: (number | null)[], periods: number): boolean {
+  return periods <= 12 || values.some((v, i) => v != null && values[i - 1] == null && values[i + 1] == null);
+}
+
 /** 系列颜色按固定顺序分配，“其他”用中性色；颜色跟着系列走，不按排名。 */
 export function seriesColor(spec: ChartSpec, index: number, theme: ChartTheme): string {
   return spec.series[index]?.other ? theme.neutral : theme.series[index % theme.series.length];
@@ -119,7 +124,8 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
       xAxis: spec.series.map((_, i) => categoryAxis(spec, theme, { gridIndex: i, axisLabel: { ...axisLabel(theme), show: i === n - 1 } })),
       yAxis: spec.series.map((s, i) => valueAxis(s.unit, style, theme, { gridIndex: i, splitNumber: 2 })),
       series: spec.series.map((s, i) => ({ type: s.mark, name: s.name, xAxisIndex: i, yAxisIndex: i, data: s.values,
-        color: seriesColor(spec, i, theme), showSymbol: false, lineStyle: { width: 2 }, barMaxWidth: BAR,
+        color: seriesColor(spec, i, theme), showSymbol: s.mark === "line" && showMarks(s.values, spec.categories.length),
+        symbolSize: 6, lineStyle: { width: 2 }, barMaxWidth: BAR,
         itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined })) };
   }
 
@@ -134,7 +140,7 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
   const series = spec.series.map((s, i) => {
     const color = seriesColor(spec, i, theme);
     if (spec.kind === "line") {
-      const marks = spec.categories.length <= 12;
+      const marks = showMarks(s.values, spec.categories.length);
       return { type: "line", name: s.name, data: s.values, color, connectNulls: false, showSymbol: marks, symbolSize: 8,
         lineStyle: { width: 2 }, itemStyle: { borderColor: theme.surface, borderWidth: 2 },
         areaStyle: spec.series.length === 1 ? { opacity: 0.1 } : undefined, emphasis: { focus: "series" } };

@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 from reportlab.graphics.shapes import Drawing
 
+from avelis import charts
 from avelis.analysis import export, service
 from avelis.analysis.figures import dataset_charts
 from avelis.api.analysis import _dataset_detail
@@ -41,6 +42,7 @@ def test_chart_panel_round_robin_and_response_schemas(measures, members, count, 
     chart = dataset_charts(data)[0]
     assert chart["kind"] == "multiples"
     assert len(chart["series"]) == count and chart["dropped_series"] == dropped
+    assert chart["others"] is None
     assert [s["axis"] for s in chart["series"]] == list(range(count))
     assert [s["name"] for s in chart["series"]] == [
         f"指标{i} / 区域{member}" for member in reversed(range(members)) for i in range(measures)
@@ -61,6 +63,30 @@ def test_chart_panel_round_robin_and_response_schemas(measures, members, count, 
     assert summary.columns == detail.columns == data["columns"]
     assert summary.rows == detail.rows == data["rows"]
     assert data == before
+
+
+@pytest.mark.parametrize("additive", [True, False])
+def test_chart_panel_limit_counts_original_members_of_discarded_others(additive):
+    data = panel_dataset(2, 9)
+    data["units"]["指标1"]["additive"] = additive
+    chart = dataset_charts(data)[0]
+    assert len(chart["series"]) == MAX_PANELS
+    assert all(not series["other"] for series in chart["series"])
+    assert chart["others"] is None
+    assert chart["dropped_series"] == 10  # 2 × 9 个原始序列，仅保留 8 个单成员面板。
+
+
+@pytest.mark.parametrize("members", [9, 11])
+@pytest.mark.parametrize("panel_limit,kept_others", [(15, 1), (16, 2)])
+def test_chart_panel_metadata_counts_only_retained_others(monkeypatch, members, panel_limit, kept_others):
+    # 每个指标先保留 7 个成员；放宽总上限，使一个或两个“其他”面板进入最终结果。
+    monkeypatch.setattr(charts, "MAX_PANELS", panel_limit)
+    chart = dataset_charts(panel_dataset(2, members))[0]
+    assert len(chart["series"]) == panel_limit
+    assert sum(series["other"] for series in chart["series"]) == kept_others
+    assert chart["others"] == {"count": kept_others * (members - 7)}
+    assert chart["dropped_series"] == (2 - kept_others) * (members - 7)
+    assert 14 + chart["others"]["count"] + chart["dropped_series"] == 2 * members
 
 
 @pytest.mark.parametrize("axis", [-1, MAX_PANELS, MAX_PANELS + 1])

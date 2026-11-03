@@ -84,8 +84,8 @@ def test_monthly_region_multi_measure_counts_actual_member_omissions():
     dataset = monthly_dataset()
     dataset["rows"] = [[period, f"区域{i}", i, i / 10] for period in ("2026-01", "2026-02") for i in range(9)]
     spec = dataset_charts(dataset)[0]
-    # 子图先省略两个不可加成员，再因面板上限省略七个系列（含合并的“其他”）。
-    assert spec["others"] == {"count": 2} and spec["dropped_series"] == 9
+    # 18 个原始“指标 / 成员”只展示 8 个，截掉的“其他”不再覆盖其两个成员。
+    assert spec["others"] is None and spec["dropped_series"] == 10
     assert len(spec["series"]) == 8
     assert [s["name"] for s in spec["series"]] == [
         f"{column} / 区域{i}" for i in range(8, 4, -1) for column in ("成交额", "转化率")

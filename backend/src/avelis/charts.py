@@ -334,13 +334,17 @@ def _recommend(
                         )
                     # 沿用各指标内部的成员优先级，逐轮分配面板，先让每个指标都有展示机会。
                     candidates = [
-                        s for members in zip_longest(*(chart["series"] for chart in charts)) for s in members if s
+                        (s, chart["others"]["count"] if s["other"] else 1)
+                        for members in zip_longest(*(chart["series"] for chart in charts))
+                        for chart, s in zip(charts, members, strict=True)
+                        if s
                     ]
+                    kept = candidates[:MAX_PANELS]
                     panels = [
-                        {**s, "name": f"{s['label']} / {s['name']}", "axis": index}
-                        for index, s in enumerate(candidates[:MAX_PANELS])
+                        {**s, "name": f"{s['label']} / {s['name']}", "axis": index} for index, (s, _) in enumerate(kept)
                     ]
-                    merged_count = sum((chart["others"] or {}).get("count", 0) for chart in charts)
+                    # 聚合面板按其覆盖的原始成员数计数；截掉的“其他”不能再覆盖任何成员。
+                    merged_count = sum(count for s, count in kept if s["other"])
                     return [
                         spec(
                             "multiples",
@@ -349,7 +353,8 @@ def _recommend(
                             periods,
                             panels,
                             others={"count": merged_count} if merged_count else None,
-                            dropped=sum(chart["dropped_series"] for chart in charts) + len(candidates) - len(panels),
+                            dropped=sum(chart["dropped_series"] for chart in charts)
+                            + sum(count for _, count in candidates[MAX_PANELS:]),
                         )
                     ]
                 column = measures[0]
