@@ -54,8 +54,8 @@ def test_monthly_region_multi_measure_ask_and_report_keep_all_table_series():
     assert spec["kind"] == "multiples" and spec["dropped_series"] == 0
     assert spec["categories"] == ["2026-01", "2026-02"]
     # SpecTable 按 series 生成表头及数值列；默认规格必须同时带两个指标及各区域。
-    assert [s["name"] for s in spec["series"]] == ["成交额 / 北", "成交额 / 南", "转化率 / 北", "转化率 / 南"]
-    assert [s["values"] for s in spec["series"]] == [[1, 3], [2, None], [0.1, 0.15], [0.2, None]]
+    assert [s["name"] for s in spec["series"]] == ["成交额 / 北", "转化率 / 北", "成交额 / 南", "转化率 / 南"]
+    assert [s["values"] for s in spec["series"]] == [[1, 3], [0.1, 0.15], [2, None], [0.2, None]]
     assert [s["axis"] for s in spec["series"]] == list(range(4))
     assert all(s["unit"] == dataset["units"][s["column"]] for s in spec["series"])
     assert set(result["columns"]) == set(export._table_data(dataset)[0]) == set(dataset["columns"])
@@ -63,7 +63,7 @@ def test_monthly_region_multi_measure_ask_and_report_keep_all_table_series():
 
 
 @pytest.mark.parametrize("same_units", [False, True])
-def test_monthly_region_does_not_cap_or_mix_measures_even_with_same_units(same_units):
+def test_monthly_region_caps_panels_but_keeps_each_measure_even_with_same_units(same_units):
     dataset = monthly_dataset()
     if same_units:
         dataset["units"]["转化率"] = dataset["units"]["成交额"]
@@ -76,18 +76,21 @@ def test_monthly_region_does_not_cap_or_mix_measures_even_with_same_units(same_u
             row.append(i)
     spec = dataset_charts(dataset)[0]
     assert {s["column"] for s in spec["series"]} == set(dataset["columns"][2:])
-    assert len(spec["series"]) == 14 and spec["dropped_series"] == 0
+    assert len(spec["series"]) == 8 and spec["dropped_series"] == 6
+    assert [s["column"] for s in spec["series"][:7]] == dataset["columns"][2:]
 
 
 def test_monthly_region_multi_measure_counts_actual_member_omissions():
     dataset = monthly_dataset()
     dataset["rows"] = [[period, f"区域{i}", i, i / 10] for period in ("2026-01", "2026-02") for i in range(9)]
     spec = dataset_charts(dataset)[0]
-    assert spec["others"] == {"count": 2} and spec["dropped_series"] == 2
-    assert len(spec["series"]) == 15
-    other = next(s for s in spec["series"] if s["other"])
-    assert other["column"] == "成交额" and other["values"] == [1, 1]
-    assert all(not s["other"] for s in spec["series"] if s["column"] == "转化率")
+    # 子图先省略两个不可加成员，再因面板上限省略七个系列（含合并的“其他”）。
+    assert spec["others"] == {"count": 2} and spec["dropped_series"] == 9
+    assert len(spec["series"]) == 8
+    assert [s["name"] for s in spec["series"]] == [
+        f"{column} / 区域{i}" for i in range(8, 4, -1) for column in ("成交额", "转化率")
+    ]
+    assert all(not s["other"] for s in spec["series"])
 
 
 def test_monthly_region_single_measure_keeps_original_candidates():
@@ -123,7 +126,7 @@ def test_monthly_multi_measure_pdf_panels_and_html_table_cover_both_units(monkey
     assert len(panels) == 4
     texts = [{s.text for s in panel.contents if isinstance(s, String)} for panel in panels]
     assert "成交额 / 北" in texts[0] and "1.00万元" in texts[0]
-    assert "转化率 / 北" in texts[2] and "10.0%" in texts[2]
+    assert "转化率 / 北" in texts[1] and "10.0%" in texts[1]
     markup = export.to_html(view, audience=audience, datasets=["D1"])
     svg = re.search(r"<svg\b.*?</svg>", markup, re.S).group()
     assert all(name in svg for name in ("成交额 / 北", "成交额 / 南", "转化率 / 北", "转化率 / 南"))

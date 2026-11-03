@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from avelis.charts import MAX_PANELS
 from avelis.i18n import gettext
 
 Json = dict[str, Any]
@@ -966,7 +967,7 @@ class ChartSeries(Out):
     name: str
     column: str
     label: str
-    axis: Literal[0, 1, 2, 3]
+    axis: int = Field(ge=0, le=MAX_PANELS - 1)
     mark: Literal["bar", "line"]
     other: bool = False
     unit: Json

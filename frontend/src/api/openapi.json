@@ -8681,6 +8681,13 @@
       ],
       "title": "Report"
      },
+     "figures": {
+      "items": {
+       "$ref": "#/components/schemas/ReportFigure"
+      },
+      "type": "array",
+      "title": "Figures"
+     },
      "answer": {
       "anyOf": [
        {
@@ -10708,12 +10715,8 @@
      },
      "axis": {
       "type": "integer",
-      "enum": [
-       0,
-       1,
-       2,
-       3
-      ],
+      "maximum": 7.0,
+      "minimum": 0.0,
       "title": "Axis"
      },
      "mark": {
@@ -10793,6 +10796,17 @@
        "multiples"
       ],
       "title": "Kind"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
      },
      "orientation": {
       "type": "string",
@@ -16051,6 +16065,35 @@
      "redirect_to"
     ],
     "title": "RedirectOut"
+   },
+   "ReportFigure": {
+    "properties": {
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "chart": {
+      "$ref": "#/components/schemas/ChartSpec"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref",
+     "chart"
+    ],
+    "title": "ReportFigure"
    },
    "Resolve": {
     "properties": {

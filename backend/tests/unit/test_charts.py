@@ -210,9 +210,9 @@ def test_same_units_multi_measure(temporal):
 
 @pytest.mark.parametrize("temporal", [False, True])
 @pytest.mark.parametrize("different", ["kind", "unit", "scale"])
-@pytest.mark.parametrize("count", [2, 3, 4, 6])
-def test_multiples_uses_one_panel_per_measure_and_caps_at_four(temporal, different, count):
-    measures = list("abcdef")[:count]
+@pytest.mark.parametrize("count", [2, 3, 4, 5, 6, 8, 10])
+def test_multiples_uses_one_panel_per_measure_and_caps_at_eight(temporal, different, count):
+    measures = list("abcdefghij")[:count]
     units = {
         "a": {"kind": "level", "unit": "元"},
         "b": {
@@ -232,14 +232,14 @@ def test_multiples_uses_one_panel_per_measure_and_caps_at_four(temporal, differe
     )
     assert default["kind"] == "multiples" and default["orientation"] == "vertical"
     assert default["reason"] == candidate["reason"] == "multi_measure"
-    assert default["dropped_series"] == max(0, count - 4)
+    assert default["dropped_series"] == max(0, count - 8)
     assert default["categories"] == candidate["categories"] == ["01", "02"]
-    assert [s["column"] for s in default["series"]] == measures[:4]
+    assert [s["column"] for s in default["series"]] == measures[:8]
     assert [(s["mark"], s["axis"]) for s in default["series"]] == [
-        ("line" if temporal else "bar", index) for index in range(min(count, 4))
+        ("line" if temporal else "bar", index) for index in range(min(count, 8))
     ]
-    assert [s["values"] for s in default["series"]] == [[10.0 + index, float(index)] for index in range(min(count, 4))]
-    assert [s["unit"] for s in default["series"]] == [units[column] for column in measures[:4]]
+    assert [s["values"] for s in default["series"]] == [[10.0 + index, float(index)] for index in range(min(count, 8))]
+    assert [s["unit"] for s in default["series"]] == [units[column] for column in measures[:8]]
     assert candidate["kind"] == ("line" if temporal else "bar") and len(candidate["series"]) == 1
     assert candidate["series"][0]["column"] == "a"
     assert candidate["series"][0]["mark"] == ("line" if temporal else "bar") and candidate["series"][0]["axis"] == 0

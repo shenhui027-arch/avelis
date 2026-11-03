@@ -6,9 +6,12 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import zip_longest
 
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
+
+MAX_PANELS = 8
 
 
 @dataclass(frozen=True)
@@ -285,9 +288,11 @@ def _recommend(
                 categories,
                 [
                     series(column, items, mark="line" if temporal else "bar", axis=index)
-                    for index, (column, items) in enumerate(zip(measures[:4], values[:4], strict=True))
+                    for index, (column, items) in enumerate(
+                        zip(measures[:MAX_PANELS], values[:MAX_PANELS], strict=True)
+                    )
                 ],
-                dropped=max(0, len(measures) - 4),
+                dropped=max(0, len(measures) - MAX_PANELS),
             )
             mark = "line" if temporal else "bar"
             candidate = spec(
@@ -327,9 +332,13 @@ def _recommend(
                         charts.append(
                             _recommend(selected_columns, selected_rows, roles, units, polarity, intent, top_n=top_n)[0]
                         )
+                    # 沿用各指标内部的成员优先级，逐轮分配面板，先让每个指标都有展示机会。
+                    candidates = [
+                        s for members in zip_longest(*(chart["series"] for chart in charts)) for s in members if s
+                    ]
                     panels = [
                         {**s, "name": f"{s['label']} / {s['name']}", "axis": index}
-                        for index, s in enumerate(s for chart in charts for s in chart["series"])
+                        for index, s in enumerate(candidates[:MAX_PANELS])
                     ]
                     merged_count = sum((chart["others"] or {}).get("count", 0) for chart in charts)
                     return [
@@ -340,7 +349,7 @@ def _recommend(
                             periods,
                             panels,
                             others={"count": merged_count} if merged_count else None,
-                            dropped=sum(chart["dropped_series"] for chart in charts),
+                            dropped=sum(chart["dropped_series"] for chart in charts) + len(candidates) - len(panels),
                         )
                     ]
                 column = measures[0]

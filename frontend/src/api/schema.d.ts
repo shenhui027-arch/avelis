@@ -2607,6 +2607,8 @@ export interface components {
             report?: {
                 [key: string]: unknown;
             } | null;
+            /** Figures */
+            figures?: components["schemas"]["ReportFigure"][];
             /** Answer */
             answer?: {
                 [key: string]: unknown;
@@ -3235,11 +3237,8 @@ export interface components {
             column: string;
             /** Label */
             label: string;
-            /**
-             * Axis
-             * @enum {integer}
-             */
-            axis: 0 | 1 | 2 | 3;
+            /** Axis */
+            axis: number;
             /**
              * Mark
              * @enum {string}
@@ -3268,6 +3267,8 @@ export interface components {
              * @enum {string}
              */
             kind: "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples";
+            /** Title */
+            title?: string | null;
             /**
              * Orientation
              * @enum {string}
@@ -5155,6 +5156,16 @@ export interface components {
         RedirectOut: {
             /** Redirect To */
             redirect_to: string;
+        };
+        /** ReportFigure */
+        ReportFigure: {
+            /** Ref */
+            ref: string;
+            /** Title */
+            title?: string | null;
+            chart: components["schemas"]["ChartSpec"];
+        } & {
+            [key: string]: unknown;
         };
         /** Resolve */
         Resolve: {
