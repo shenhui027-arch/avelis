@@ -12,8 +12,9 @@ import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupFo
 import { Evidence, ResultTable } from "../ask/AskPage";
 import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
 import { ChartPanel } from "../../components/charts/ChartPanel";
+import type { ChartSpec } from "../../components/charts/chartOption";
 import { ArchivedConversations } from "../../layout/Conversations";
-import { DatasetChart, datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
+import { datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
@@ -318,6 +319,20 @@ function Causes({ runId, causes, conclusion }: { runId: string; causes?: CauseVi
   </section>;
 }
 
+type Figure = { ref: string; title?: string | null; chart: ChartSpec };
+
+/** 报告插图：模型用 chart 工具选进报告的数据集（没选时为被引用最多的关键数据集），规格由后端校验并物化。 */
+function Figures({ runId, figures }: { runId: string; figures: Figure[] }) {
+  if (!figures.length) return null;
+  return <section className="av-doc__section av-figures" aria-label={t("图表")}>
+    {figures.map((f) => <figure key={f.ref} className="av-figure">
+      {!f.chart.title && f.title ? <h3 className="av-chartpanel__title">{f.title}</h3> : null}
+      <ChartPanel charts={[f.chart]} title={f.chart.title ?? f.title ?? f.ref} />
+      <figcaption className="av-caption">{t("数据")} <EvidenceLink runId={runId} refId={f.ref} /></figcaption>
+    </figure>)}
+  </section>;
+}
+
 /** 取数类问题（ADR 0013 合并入口）：由问数引擎直接给出受治理查询结果，不展开多步分析。 */
 function LookupAnswer({ a }: { a: Answer }) {
   const result = (a.result ?? {}) as AskResult;
@@ -461,6 +476,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
           <summary>{t("“{{field}}”里有内容没能核实来源（例如直接写了数字），这部分不算核验通过", { field: FIELD_LABEL[f.field] ?? f.field })}<span className="av-fieldcheck__more">{t("查看原因")}</span></summary>
           <ul>{(f.problems ?? []).map((p, i) => <li key={i}>{p}</li>)}</ul>
         </details>)}
+        <Figures runId={r.id} figures={(r as Run & { figures?: Figure[] }).figures ?? []} />
         <Causes runId={r.id} causes={report.causes} conclusion={report.conclusion} />
         <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
           onPick={onContinue ? (text) => onContinue(text) : undefined} />
@@ -541,7 +557,7 @@ function Datasets({ id }: { id: string }) {
             </button>
             {isOpen && d.restricted ? <div className="av-dataset__bd"><span className="av-caption">{t("你已没有该数据的访问权限")}</span></div>
               : isOpen ? <div className="av-dataset__bd">
-              <DatasetChart d={d} />
+              {d.charts?.length ? <ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /> : null}
               <div className="av-table-wrap"><table className="av-table av-dataset__table">
                 <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
                 <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>

@@ -7,76 +7,15 @@ import { Link, useSearchParams } from "react-router";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useNumberStyle } from "../../api/hooks";
 import { Code, DateInput, Drawer, Empty, Icon, Pill } from "../../components/ui";
-import { BarChart, LineChart } from "./charts";
+import { ChartPanel } from "../../components/charts/ChartPanel";
+import type { ChartSpec } from "../../components/charts/chartOption";
 import { t } from "../../i18n";
 import { formatValue, type NumberStyle, type UnitMeta } from "../../numbers";
 
 type Detail = Schemas["AnalysisDatasetDetailOut"];
-type Chartable = { columns: string[]; rows: unknown[][]; time_column?: string | null;
-  column_roles?: Record<string, { role: string; label?: string }> | null };
-
 export const DATASET_KIND: Record<string, [string, "ok" | "warn" | "info"]> = { governed: [t("受治理"), "ok"], calc: [t("计算"), "info"],
   context: [t("上下文"), "info"], explore: [t("探索"), "warn"], ungoverned: [t("未治理"), "warn"] };
 const PAGE = 100;
-
-function numeric(v: unknown): number | null {
-  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 有列契约（ADR 0014）时按角色选轴：时间列画趋势，变化列优先、其次度量列为数值，维度列为类目；契约里没有可画的列就不画。
- *  没有契约的旧运行退回原规则：首列是保存的时间段列时画趋势，否则对 change / contribution（或第一个数值列）画贡献条。空值不画。 */
-export function DatasetChart({ d, limit = 12 }: { d: Chartable; limit?: number }) {
-  if (d.column_roles) return <RoleChart d={d} roles={d.column_roles} limit={limit} />;
-  const cols = d.columns;
-  const trend = !!d.time_column && cols[0] === d.time_column;
-  const numCols = cols.map((_, i) => i).filter((i) => !(trend && i === 0) && d.rows.some((r) => numeric(r[i]) !== null)
-    && d.rows.every((r) => r[i] == null || numeric(r[i]) !== null));
-  if (!d.rows.length || !numCols.length) return null;
-  const value = numCols.find((i) => cols[i].endsWith("·变化") || cols[i] === "change" || cols[i] === "contribution")
-    ?? numCols.find((i) => !cols[i].endsWith("变化率") && cols[i] !== "change_rate") ?? numCols[0];
-  if (trend && d.rows.length > 2) {
-    const series = new Map<string, { x: string; y: number }[]>();
-    for (const r of d.rows) {
-      const key = r.slice(1, value).map(String).join(" / ") || cols[value];
-      const y = numeric(r[value]);
-      if (y !== null) series.set(key, [...(series.get(key) ?? []), { x: String(r[0]), y }]);
-    }
-    return <LineChart series={[...series].slice(0, 6).map(([name, points]) => ({ name, points }))} label={cols[value]} />;
-  }
-  if (d.rows.length < 2) return null;
-  const labelCols = cols.map((_, i) => i).filter((i) => !numCols.includes(i)).slice(0, 2);
-  const bars = d.rows.slice(0, limit).flatMap((r, i) => {
-    const v = numeric(r[value]);
-    return v === null ? [] : [{ label: labelCols.map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: v }];
-  });
-  return bars.length > 1 ? <BarChart bars={bars} label={cols[value]} /> : null;
-}
-
-function RoleChart({ d, roles, limit }: { d: Chartable; roles: Record<string, { role: string; label?: string }>; limit: number }) {
-  const cols = d.columns;
-  const of = (role: string) => cols.map((_, i) => i).filter((i) => roles[cols[i]]?.role === role);
-  const value = of("change")[0] ?? of("measure")[0];
-  if (value === undefined || !d.rows.length) return null;
-  const label = roles[cols[value]]?.label ?? cols[value];
-  const time = of("time")[0];
-  const dims = of("dimension");
-  if (time !== undefined && d.rows.length > 2) {
-    const series = new Map<string, { x: string; y: number }[]>();
-    for (const r of d.rows) {
-      const key = dims.map((i) => String(r[i] ?? "")).join(" / ") || label;
-      const y = numeric(r[value]);
-      if (y !== null) series.set(key, [...(series.get(key) ?? []), { x: String(r[time]), y }]);
-    }
-    return <LineChart series={[...series].slice(0, 6).map(([name, points]) => ({ name, points }))} label={label} />;
-  }
-  if (d.rows.length < 2) return null;
-  const bars = d.rows.slice(0, limit).flatMap((r, i) => {
-    const v = numeric(r[value]);
-    return v === null ? [] : [{ label: dims.slice(0, 2).map((c) => String(r[c] ?? "")).join(" / ") || String(i + 1), value: v }];
-  });
-  return bars.length > 1 ? <BarChart bars={bars} label={label} /> : null;
-}
 
 type Labelled = { column_roles?: Record<string, { role: string; label?: string }> | null; units?: Record<string, unknown> | null };
 
@@ -159,7 +98,7 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           {d.source ? <> {t("· 由")} <button type="button" className="av-dsview__link" onClick={() => onOpen(d.source!.ref)}>{d.source.ref}</button> {t("换时间重跑")}</> : null}
         </p>
         {d.purpose ? <p className="av-dsview__purpose">{d.purpose}</p> : null}
-        {offset === 0 ? <div className="av-dsview__chart"><DatasetChart d={d} limit={20} /></div> : null}
+        {offset === 0 && d.charts?.length ? <div className="av-dsview__chart"><ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /></div> : null}
         <div className="av-table-wrap av-dsview__table"><table className="av-table">
           <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
           <tbody>{d.rows.map((row, i) => <tr key={offset + i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
