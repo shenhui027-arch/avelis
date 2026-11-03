@@ -24,6 +24,7 @@ from sqlglot import exp
 from avelis import audit, cache
 from avelis.analysis import measures
 from avelis.analysis.dataset_projection import build_column_roles
+from avelis.analysis.grounding import _unit, display, number
 from avelis.ask.compiler import TIME_GRAINS, ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
 from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
@@ -986,6 +987,15 @@ def _answer_text(template: str, **params) -> str:
         return gettext(template, **params)
 
 
+def _display_measure(value: Any, column: str | None, result: dict[str, Any]) -> Any:
+    meta = _unit((result.get("units") or {}).get(column))
+    role = (result.get("column_roles") or {}).get(column, {}).get("role")
+    parsed = number(value)
+    if role not in ("time", "dimension") and meta["kind"] != "unknown" and parsed is not None:
+        return display(parsed, meta)
+    return value
+
+
 def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
     same_day = intent.start_date == intent.end_date
     period = (
@@ -1003,7 +1013,10 @@ def _explain_plan(requested, intent: Intent, result: dict[str, Any]) -> str:
         return _answer_text(
             "{head}：{value}",
             head=head,
-            value="；".join(f"{k} {_answer_text('无数据') if v is None else v}" for k, v in cells.items()),
+            value="；".join(
+                f"{k} {_answer_text('无数据') if v is None else _display_measure(v, k, result)}"
+                for k, v in cells.items()
+            ),
         )
     rank = (
         _answer_text(
@@ -1046,6 +1059,8 @@ def _explain(metric: Metric, version: MetricVersion, intent: Intent, result: dic
         return _answer_text("{head}：没有符合条件的数据", head=head)
     if not intent.group_by and len(result["rows"]) == 1:
         value = result["rows"][0][-1]
+        columns = result.get("columns") or []
+        value = _display_measure(value, columns[-1] if columns else None, result)
         return _answer_text("{head}：{value}", head=head, value=value if value is not None else _answer_text("无数据"))
     return _answer_text(
         "{head}：共 {row_count} 行{rank}{truncated}",
