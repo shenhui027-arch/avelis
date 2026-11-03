@@ -263,11 +263,11 @@ def test_column_roles_follow_registered_semantics_and_labels():
         "units": {
             "time_a": {"kind": "count"},
             "dimension_a": {"kind": "count"},
-            "列·变化率": {"kind": "level"},
+            "列·变化率": {"kind": "level", "additive": True},
             "count_a": {"kind": "count"},
             "ratio_a": {"kind": "ratio"},
             "share_a": {"kind": "share"},
-            "delta_a": {"kind": "delta"},
+            "delta_a": {"kind": "delta", "additive": True},
             "rate_a": {"kind": "rate_change"},
             "unknown_a": {"kind": "unknown"},
         },
@@ -305,7 +305,7 @@ def test_registered_measure_role_wins_over_unused_dimension_with_same_name():
     roles = dataset_projection.build_column_roles(
         ["value"],
         {
-            "units": {"value": {"kind": "count"}},
+            "units": {"value": {"kind": "count", "additive": True}},
             "dimensions": version.dimensions,
             "measure_labels": {"value": "指标甲"},
         },
@@ -414,7 +414,7 @@ def test_dataset_detail_and_schema_keep_column_contract(kind):
     meta = {
         "time_column": "time_a",
         "intent": {"group_by": ["dimension_a"]},
-        "units": {"指标甲": {"kind": "count"}},
+        "units": {"指标甲": {"kind": "count", "additive": True}},
         "dimension_labels": {"dimension_a": "维度甲"},
         "measure_labels": {"指标甲": "指标甲"},
         "polarity": {"指标甲": "down_good"},

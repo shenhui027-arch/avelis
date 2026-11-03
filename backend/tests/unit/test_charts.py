@@ -15,7 +15,10 @@ from avelis.i18n import locale_context
 
 def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, units=None, polarity=None):
     kinds = kinds or {"value": "level"}
-    units = units or {column: {"kind": kind, "unit": "元", "scale": 1} for column, kind in kinds.items()}
+    units = units or {
+        column: {"kind": kind, "unit": "元", "scale": 1, "additive": kind in {"level", "count", "delta", "share"}}
+        for column, kind in kinds.items()
+    }
     roles = {column: {"role": "dimension", "label": column} for column in dimensions}
     if time:
         roles[time] = {"role": "time", "label": "月份", "grain": "month"}
@@ -58,7 +61,7 @@ def test_kpi_without_comparison_numeric_parsing_and_metadata():
         {
             "label": "成交额",
             "column": "value",
-            "unit": {"kind": "level", "unit": "元", "scale": 1},
+            "unit": {"kind": "level", "unit": "元", "scale": 1, "additive": True},
             "polarity": "up_good",
             "value": 80.25,
             "previous": None,
@@ -145,7 +148,13 @@ def test_time_by_many_members_merges_only_additive_units(kind):
         "d": {"role": "dimension", "label": "维度"},
         "value": {"role": "measure", "label": "指标"},
     }
-    result = recommend(["t", "d", "value"], rows, roles, {"value": {"kind": kind}}, {})
+    result = recommend(
+        ["t", "d", "value"],
+        rows,
+        roles,
+        {"value": {"kind": kind, "additive": kind in {"level", "count", "delta", "share"}}},
+        {},
+    )
     default, candidate = result
     for spec in result:
         assert ChartSpec.model_validate(spec).model_dump(mode="json") == spec
@@ -417,7 +426,11 @@ def test_column_roles_time_labels_grain_and_explicit_override(grain, label):
     meta = {
         "time_column": "t",
         "intent": {"time_grain": grain, "group_by": ["d"]},
-        "units": {"v": {"kind": "share"}, "diff": {"kind": "delta"}, "r": {"kind": "rate_change"}},
+        "units": {
+            "v": {"kind": "share", "additive": True},
+            "diff": {"kind": "delta", "additive": True},
+            "r": {"kind": "rate_change", "additive": False},
+        },
     }
     columns = ["t", "d", "v", "diff", "r"]
     roles = build_column_roles(columns, meta)
@@ -456,3 +469,11 @@ def test_structured_value_does_not_merge_with_identical_plain_string():
     default = charts(["d", "value"], rows, dimensions=("d",))[0]
     assert default["categories"] == ['{"k": 1}', '{"k": 1}']
     assert default["series"][0]["values"] == [30.0, 10.0]
+
+
+def test_unregistered_additivity_does_not_merge_others_or_offer_donut():
+    rows = [[f"m{i:02d}", 25 - i] for i in range(25)]
+    units = {"value": {"kind": "level", "unit": "元"}}  # 探索结果只有量纲，没有登记可加性（如 AVG）
+    result = charts(["d", "value"], rows, dimensions=("d",), units=units)
+    assert [chart["kind"] for chart in result] == ["bar"]
+    assert result[0]["others"] is None and len(result[0]["categories"]) == 20
