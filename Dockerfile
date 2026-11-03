@@ -2,7 +2,7 @@
 # Avelis 应用镜像：前端构建 → 后端依赖安装 → 运行镜像（非 root）。
 # 同一镜像既跑 API（默认命令，同时托管前端），也跑 worker（命令改为 python -m avelis.jobs）。
 # 所有依赖（前端产物、Python 依赖、字体、tiktoken 编码表）都在构建期装进镜像；运行镜像不含 uv / pnpm，启动时不联网下载。
-#   docker build -t avelis:1.0.1 .
+#   docker build -t avelis:1.0.2 .
 # 部署编排见 deploy/docker/compose.yaml 与 docs/deployment.md。
 
 ARG NODE_IMAGE=node:24.13.0-slim
