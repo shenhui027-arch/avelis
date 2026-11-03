@@ -167,10 +167,13 @@ def _recommend(
     dimension = next(iter(dimensions), None)
 
     def member_key(row):
-        # 两个及以上维度时用全部维度值的组合，不按第一个维度合并。
+        # 两个及以上维度时用全部维度值的元组作分组键（不会因值里含“ / ”而撞车），显示时再拼成“甲 / 乙”。
         if len(dimensions) >= 2:
-            return " / ".join(str(cell(row, column)) for column in dimensions)
+            return tuple(cell(row, column) for column in dimensions)
         return cell(row, dimension)
+
+    def label(key):
+        return " / ".join(str(part) for part in key) if isinstance(key, tuple) else key
 
     category = member_key
 
@@ -200,7 +203,7 @@ def _recommend(
         def comparison_data(sort_column, columns):
             ranked = ordered(rows, lambda row: value(row, sort_column))
             kept, tail = ranked[:limit], ranked[limit:]
-            categories = [category(row) for row in kept]
+            categories = [label(category(row)) for row in kept]
             values = [[value(row, column) for row in kept] for column in columns]
             merged = None
             if top_n is not None and tail and all(additive(c) for c in columns):
@@ -313,7 +316,12 @@ def _recommend(
                     else:
                         dropped = len(ranked) - 7
                 lines = [
-                    series(column, [values.get((period, member)) for period in periods], name=str(member), mark="line")
+                    series(
+                        column,
+                        [values.get((period, member)) for period in periods],
+                        name=str(label(member)),
+                        mark="line",
+                    )
                     for member in selected
                 ]
                 if merged:
@@ -355,6 +363,7 @@ def _recommend(
     tail = categories[limit:]
     categories = categories[:limit]
     materialized = [[values[category][index] for category in categories] for index in range(len(measures))]
+    categories = [label(category) for category in categories]
     if len(measures) >= 2:
         result = multi(dimension, categories, materialized)
         for chart in result:
