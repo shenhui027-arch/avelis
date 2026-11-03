@@ -498,7 +498,7 @@ def _explain_payload(answer, intent: dict) -> dict:
         "question": answer.question,
         "metric": metric,
         "period": {"start_date": intent.get("start_date"), "end_date": intent.get("end_date")},
-        "columns": [roles.get(c, {}).get("label") or c for c in columns],
+        "columns": [_payload_column(c, roles.get(c, {})) for c in columns],
     }
     if len(rows) <= 20:
         payload["rows"] = [formatted(row) for row in rows]
@@ -524,6 +524,14 @@ def _explain_supports_tools(session: Session) -> bool:
     assignment = modelcfg.get_assignment(session, "explain")
     provider = session.get(ModelProvider, assignment.provider_id) if assignment else None
     return provider is not None and modelcfg._model_check(provider, assignment.model_id).get("tool_calling") is True
+
+
+def _payload_column(column: str, role: dict) -> str:
+    """发给解释模型的列名：一般用显示名；对比结果的本期、对比期、变化、变化率显示名相同，保留带“·期间”后缀的原列名。"""
+    label = role.get("label") or column
+    if role.get("role") in ("change", "rate") or column.startswith(f"{label}·"):
+        return column
+    return label
 
 
 def explain(state: AgentState, config) -> dict[str, Any]:
