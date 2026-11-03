@@ -16,13 +16,14 @@ export const KIND_LABEL: Record<ChartKind, string> = {
 };
 
 /** 图与表切换：view 为 "table" 时只显示 children（表格）。 */
-export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; title: string; children: ReactNode }) {
+export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; title: string; children?: ReactNode }) {
   const style = useNumberStyle();
   const [index, setIndex] = useState(0);
   const [view, setView] = useState<"chart" | "table">("chart");
   const canvas = useRef<EChartHandle>(null);
   const spec = charts[Math.min(index, charts.length - 1)];
   if (!spec) return <>{children}</>;
+  const table = children ?? <SpecTable spec={spec} />;
   if (spec.kind === "kpi") return <KpiCards kpis={spec.kpis} />;
   const download = () => {
     const url = canvas.current?.png();
@@ -42,20 +43,34 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
           <Icon name="download" small />PNG</button> : null}
       </div>
       {view === "chart" && spec.title ? <h3 className="av-chartpanel__title">{spec.title}</h3> : null}
-      {view === "table" ? children : <>
+      {view === "table" ? table : <>
         <Suspense fallback={<div className="av-chartpanel__loading" />}>
           <EChart ref={canvas} spec={spec} style={style} label={title} />
         </Suspense>
-        <ChartNote spec={spec} />
+        <ChartNote spec={spec} fullTable={children != null} />
       </>}
     </section>
   );
 }
 
-function ChartNote({ spec }: { spec: ChartSpec }) {
+/** 图的表格视图：没有原始结果表时（如报告插图），按规格里的类目与系列列出数值。 */
+export function SpecTable({ spec }: { spec: ChartSpec }) {
+  const style = useNumberStyle();
+  return (
+    <div className="av-table-wrap"><table className="av-table av-spec-table">
+      <thead><tr><th>{spec.x?.label ?? ""}</th>{spec.series.map((s, i) => <th key={i} className="av-spec-table__num">{s.name}</th>)}</tr></thead>
+      <tbody>{spec.categories.map((c, row) => <tr key={row}><td>{c == null ? "—" : String(c)}</td>
+        {spec.series.map((s, i) => <td key={i} className="av-spec-table__num">{formatValue(s.values[row], s.unit, style)}</td>)}</tr>)}</tbody>
+    </table></div>
+  );
+}
+
+/** fullTable：表格视图是否为完整结果（问数结果表）；报告插图的表格只含图里的系列，未画出的要去数据集里看。 */
+function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean }) {
   const notes = [
     spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
-    spec.dropped_series ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series }) : "",
+    spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
+      : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
 }

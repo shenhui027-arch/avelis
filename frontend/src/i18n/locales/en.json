@@ -436,8 +436,6 @@
   "最近一次": "Latest run",
   "运行中…": "Running…",
   "立即运行": "Run now",
-  "{{label}}条形图": "{{label}} bar chart",
-  "{{label}}趋势图": "{{label}} trend chart",
   "周日": "Sun",
   "周一": "Mon",
   "周二": "Tue",
@@ -1623,5 +1621,7 @@
   "另有 {{count}} 个系列未画出，见表格_one": "{{count}} more series not drawn; see the table",
   "另有 {{count}} 个系列未画出，见表格_other": "{{count}} more series not drawn; see the table",
   "对比期": "Comparison period",
-  "模型对结果的说明，只引用上面的数值": "Model summary of the result; it only cites the values above"
+  "模型对结果的说明，只引用上面的数值": "Model summary of the result; it only cites the values above",
+  "另有 {{count}} 个系列未画出，见下方数据集_one": "{{count}} more series not drawn; see the dataset below",
+  "另有 {{count}} 个系列未画出，见下方数据集_other": "{{count}} more series not drawn; see the dataset below"
 }

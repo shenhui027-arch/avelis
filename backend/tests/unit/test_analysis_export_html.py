@@ -146,7 +146,8 @@ def test_html_dataset_selection_and_table_limits_are_shared_with_pdf():
     text = Document(body).visible
     assert "D5 另一个可选指标" in text and "D2 主要成员的变化" not in text
     assert "指标甲分组对比" not in text and "1000" in text and "1,000" not in text
-    assert "成员10" in text and "成员11" not in text
+    table_text = Document(re.sub(r"<figure>.*?</figure>", "", body, flags=re.S)).visible
+    assert "成员10" in table_text and "成员11" not in table_text
     assert "第七列" not in text and "不可输出" not in text
     assert "共 12 行，显示前 10 行" in text
     assert len([tag for tag, _ in Document(body).tags if tag == "svg"]) == 2
@@ -218,7 +219,7 @@ def test_exports_keep_method_warning_separate_from_report_verdict(monkeypatch):
     assert "有 1 处数字未通过系统校验，请谨慎使用。" in export.to_markdown(view)
 
 
-def test_html_reuses_nearby_level_chart_suppression():
+def test_html_renders_recommended_chart_for_nearby_levels():
     view = sample_view()
     view["report"]["causes"] = []
     view["datasets"][4]["rows"] = [["本期", 100], ["对比期", 109]]
@@ -226,7 +227,7 @@ def test_html_reuses_nearby_level_chart_suppression():
     markup = export.to_html(view, datasets=["D5"])
 
     tags = [tag for tag, _ in Document(markup).tags]
-    assert "svg" not in tags and tags.count("table") == 1
+    assert "svg" in tags and tags.count("table") == 1
 
 
 def test_html_keeps_core_levels_dark_and_changes_use_pdf_sign_colors():

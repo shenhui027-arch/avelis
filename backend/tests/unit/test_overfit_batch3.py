@@ -7,12 +7,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import String
+from reportlab.graphics.shapes import Circle, String
 
 from avelis import config, configfile
 from avelis.analysis import calc, dataset_access, dataset_projection, explore, export, grounding, measures
 from avelis.analysis import service as analysis_service
+from avelis.analysis.figures import dataset_charts, report_figures
 from avelis.api import analysis as analysis_api
 from avelis.api import ask as ask_api
 from avelis.api import auth, schemas
@@ -633,21 +633,36 @@ def test_export_contract_uses_numeric_dimensions_and_rate_without_suffix():
             "value_a": {"role": "rate", "label": "指标甲"},
         },
     }
-    assert export._metric_columns(dataset) == [1]
-    assert export._chart_labels(dataset, [1]) == [0]
-    assert export._column_label(dataset, "value_a") == "指标甲"
-    chart = export._chart(dataset, "Helvetica")
+    # rate 不再单独成图，见 test_charts.py::test_empty_or_no_measure_and_unsupported_shapes。
+    assert dataset_charts(dataset) == []
+    dataset["column_roles"]["value_a"]["role"] = "measure"
+    spec = dataset_charts(dataset)[0]
+    assert spec["x"] == {"column": "dimension_a", "role": "dimension", "label": "维度甲", "grain": None}
+    assert spec["categories"] == [102, 101]
+    assert [(s["column"], s["label"], s["values"]) for s in spec["series"]] == [("value_a", "指标甲", [0.3, 0.2])]
+    chart = export._spec_chart(spec, "Helvetica")
     labels = [item.text for item in chart.contents if isinstance(item, String)]
     assert "101" in labels and "102" in labels
 
 
 def test_export_empty_and_partial_contracts_do_not_guess_numeric_columns():
-    dataset = {"columns": ["dimension_a", "value_a"], "rows": [[101, 1], [102, 3]], "column_roles": {}}
-    assert export._metric_columns(dataset) == [] and export._chart(dataset, "Helvetica") is None
-    dataset["column_roles"] = {"dimension_a": {"role": "dimension", "label": "维度甲"}}
-    assert export._chart(dataset, "Helvetica") is None
+    dataset = {
+        "ref": "D1",
+        "columns": ["dimension_a", "value_a"],
+        "rows": [[101, 1], [102, 3]],
+        "column_roles": {},
+    }
+    view = {"datasets": [dataset], "report": {"claims": [{"refs": ["D1"]}]}}
+    for roles in ({}, {"dimension_a": {"role": "dimension", "label": "维度甲"}}):
+        dataset["column_roles"] = roles
+        assert dataset_charts(dataset) == []
+        assert report_figures(view) == []
+        assert report_figures(view, ["D1"]) == []
     dataset.pop("column_roles")
-    assert export._chart(dataset, "Helvetica") is not None  # 没有契约的旧运行保留数值兼容路径。
+    # 旧运行也必须由元数据恢复契约，不再按单元格数值猜列。
+    assert dataset_charts(dataset) == [] and report_figures(view) == []
+    dataset["meta"] = {"units": {"value_a": {"kind": "count"}}}
+    assert report_figures(view)[0]["chart"]["series"][0]["column"] == "value_a"
 
 
 def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_keys():
@@ -661,17 +676,21 @@ def test_export_contract_time_overrides_legacy_time_column_and_numeric_series_ke
             "value_a": {"role": "measure", "label": "指标甲"},
         },
     }
-    chart = export._chart(dataset, "Helvetica")
-    line = next(item for item in chart.contents if isinstance(item, LinePlot))
-    assert list(line.data) == [[(0, 10), (1, 20), (2, 30)]]
-    assert export._time_column(dataset) == "time_a"
+    spec = dataset_charts(dataset)[0]
+    assert spec["kind"] == "line" and spec["x"]["column"] == "time_a"
+    assert spec["categories"] == ["2026-01", "2026-02", "2026-03"]
+    assert [(s["column"], s["name"], s["values"]) for s in spec["series"]] == [("value_a", "101", [10.0, 20.0, 30.0])]
+    chart = export._spec_chart(spec, "Helvetica")
+    assert len([item for item in chart.contents if isinstance(item, Circle)]) == 3
+    assert set(spec["categories"]) <= {item.text for item in chart.contents if isinstance(item, String)}
     dataset["meta"] = {"column_roles": dataset.pop("column_roles")}
-    assert export._time_column(dataset) == "time_a"
+    assert dataset_charts(dataset)[0] == spec
 
 
 def test_export_change_axis_comes_from_contract_instead_of_unit_or_column_name():
     dataset = {
         "columns": ["dimension_a", "列·变化", "value_a"],
+        "rows": [[101, 900, -7], [102, 800, 3]],
         "column_roles": {
             "dimension_a": {"role": "dimension", "label": "维度甲"},
             "列·变化": {"role": "measure", "label": "指标甲"},
@@ -679,7 +698,19 @@ def test_export_change_axis_comes_from_contract_instead_of_unit_or_column_name()
         },
         "units": {"列·变化": {"kind": "delta"}, "value_a": {"kind": "level"}},
     }
-    assert export._chart_value(dataset, export._metric_columns(dataset)) == 2
+    # 普通图不再一律优先 change；完整对比组的变化图由
+    # test_charts.py::test_comparison_dimension_precedes_time_and_sorts_each_chart_independently 覆盖。
+    spec = dataset_charts(dataset)[0]
+    assert spec["x"]["column"] == "dimension_a"
+    assert [(s["column"], s["values"]) for s in spec["series"]] == [("列·变化", [900.0, 800.0])]
+    # 去掉 measure 契约后才使用 change，不能由单位或“·变化”后缀决定系列。
+    del dataset["column_roles"]["列·变化"]
+    spec = dataset_charts(dataset)[0]
+    assert spec["categories"] == [102, 101]
+    assert [(s["column"], s["values"]) for s in spec["series"]] == [("value_a", [3.0, -7.0])]
+    chart = export._spec_chart(spec, "Helvetica")
+    labels = {item.text for item in chart.contents if isinstance(item, String)}
+    assert {"101", "102", "-7"} <= labels
 
 
 @pytest.mark.parametrize("render", [export.to_markdown, export.to_html])

@@ -1005,6 +1005,12 @@ class ChartSpec(Out):
     dropped_series: int
 
 
+class ReportFigure(Out):
+    ref: str
+    title: str | None = None
+    chart: ChartSpec
+
+
 class AnalysisDatasetOut(Out):
     ref: str
     seq: int
@@ -1120,6 +1126,7 @@ class AnalysisRunOut(Out):
     task_id: str | None = None
     plan: Json | None = None
     report: Json | None = None
+    figures: list[ReportFigure] = Field(default_factory=list)
     answer: Json | None = None
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
