@@ -63,3 +63,18 @@ assert.equal(mod.chartHeight(spec({ kind: "multiples", series: [series("a", []),
 const tip = mod.chartOption(spec({ categories: ["<b>"], series: [series("指标", [12345])] }), "cn", theme).tooltip.formatter([{ seriesIndex: 0, dataIndex: 0, marker: "", name: "<b>", seriesName: "指标", value: 12345 }]);
 assert.ok(tip.includes("&lt;b&gt;") && tip.includes("1.23万元"));
 console.log("chartOption: ok");
+
+// 孤立观测（前后都为空）必须显示数据点，否则既无点也无线：分图与普通折线、长序列都适用
+const sparse = (kind, n) => spec({ kind, orientation: "vertical", categories: Array.from({ length: n }, (_, i) => `m${i}`),
+  series: [series("北", Array.from({ length: n }, (_, i) => i + 1), { mark: "line" }),
+    series("南", Array.from({ length: n }, (_, i) => (i === 0 ? 2 : null)), { mark: "line", axis: kind === "multiples" ? 1 : 0 })] });
+option = mod.chartOption(sparse("multiples", 2), "cn", theme);
+assert.deepEqual(option.series.map((s) => s.showSymbol), [true, true]);
+option = mod.chartOption(sparse("multiples", 30), "cn", theme);
+assert.deepEqual(option.series.map((s) => s.showSymbol), [false, true]);
+option = mod.chartOption(sparse("line", 30), "cn", theme);
+assert.deepEqual(option.series.map((s) => s.showSymbol), [false, true]);
+// 分图里的柱形面板不需要数据点
+option = mod.chartOption(spec({ kind: "multiples", orientation: "vertical", categories: ["a", "b"], series: [series("甲", [1, null], { mark: "bar" })] }), "cn", theme);
+assert.equal(option.series[0].showSymbol, false);
+console.log("chartOption isolated-point tests ok");

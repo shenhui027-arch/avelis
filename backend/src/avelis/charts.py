@@ -6,9 +6,12 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import zip_longest
 
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
+
+MAX_PANELS = 8
 
 
 @dataclass(frozen=True)
@@ -285,9 +288,11 @@ def _recommend(
                 categories,
                 [
                     series(column, items, mark="line" if temporal else "bar", axis=index)
-                    for index, (column, items) in enumerate(zip(measures[:4], values[:4], strict=True))
+                    for index, (column, items) in enumerate(
+                        zip(measures[:MAX_PANELS], values[:MAX_PANELS], strict=True)
+                    )
                 ],
-                dropped=max(0, len(measures) - 4),
+                dropped=max(0, len(measures) - MAX_PANELS),
             )
             mark = "line" if temporal else "bar"
             candidate = spec(
@@ -315,6 +320,43 @@ def _recommend(
         periods = sorted(dict.fromkeys(cell(row, time) for row in rows), key=str)
         if len(periods) >= 2:
             if dimension:
+                if len(measures) > 1:
+                    # 现有分图契约每个系列一个面板；分别物化各指标，再按“指标 / 成员”分图。
+                    charts = []
+                    for column in measures:
+                        selected_columns = [time, *dimensions, column]
+                        selected_rows = [
+                            [row[indices[c]] if indices[c] < len(row) else None for c in selected_columns]
+                            for row in rows
+                        ]
+                        charts.append(
+                            _recommend(selected_columns, selected_rows, roles, units, polarity, intent, top_n=top_n)[0]
+                        )
+                    # 沿用各指标内部的成员优先级，逐轮分配面板，先让每个指标都有展示机会。
+                    candidates = [
+                        (s, chart["others"]["count"] if s["other"] else 1)
+                        for members in zip_longest(*(chart["series"] for chart in charts))
+                        for chart, s in zip(charts, members, strict=True)
+                        if s
+                    ]
+                    kept = candidates[:MAX_PANELS]
+                    panels = [
+                        {**s, "name": f"{s['label']} / {s['name']}", "axis": index} for index, (s, _) in enumerate(kept)
+                    ]
+                    # 聚合面板按其覆盖的原始成员数计数；截掉的“其他”不能再覆盖任何成员。
+                    merged_count = sum(count for s, count in kept if s["other"])
+                    return [
+                        spec(
+                            "multiples",
+                            "time_by_dimension",
+                            time,
+                            periods,
+                            panels,
+                            others={"count": merged_count} if merged_count else None,
+                            dropped=sum(chart["dropped_series"] for chart in charts)
+                            + sum(count for _, count in candidates[MAX_PANELS:]),
+                        )
+                    ]
                 column = measures[0]
                 _, members, values = pivot(time, member_key, column)
                 merged, dropped = None, 0
