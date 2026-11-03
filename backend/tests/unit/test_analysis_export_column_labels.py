@@ -74,7 +74,11 @@ def test_explicit_column_labels_win_over_metric_names_and_default_calculation_la
         "column_labels": {"current": "指标甲·当月"},
     }
     roles = dataset_projection.build_column_roles(["current"], meta)
-    assert roles["current"] == {"role": "measure", "label": "指标甲·当月", "additive": True}
+    assert roles["current"] == {
+        "role": "measure",
+        "label": "指标甲·当月",
+        "additive": False,
+    }  # 计算数据集没有登记可加性
     assert export._column_label({"kind": "calc", "meta": meta, "column_roles": roles}, "current") == "指标甲·当月"
     meta["column_labels"]["current"] = "current"
     assert export._column_label({"kind": "calc", "meta": meta, "column_roles": roles}, "current") == "current"

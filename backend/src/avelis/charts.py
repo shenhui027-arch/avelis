@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
 
-ADDITIVE_KINDS = {"level", "count", "delta", "share"}
-
 
 @dataclass(frozen=True)
 class _Structured:
@@ -88,8 +86,8 @@ def recommend(
         return _number(cell(row, column))
 
     def additive(column):
-        unit = units.get(column) or {}
-        return unit.get("additive", unit.get("kind") in ADDITIVE_KINDS)
+        # 只认登记过的可加性（受治理口径按表达式确认）；探索、计算结果与旧结果没有登记时不做相加类变换。
+        return (units.get(column) or {}).get("additive") is True
 
     def series(column, values, *, name=None, mark="bar", axis=0, direction=None, other=False):
         label = roles[column].get("label") or column
