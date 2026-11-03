@@ -5,11 +5,22 @@ from __future__ import annotations
 import json
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
 
 ADDITIVE_KINDS = {"level", "count", "delta", "share"}
+
+
+@dataclass(frozen=True)
+class _Structured:
+    """数组、JSON 等结构化单元格的分组键：带类型比较，不会与内容相同的普通字符串合并；显示时转成文本。"""
+
+    text: str
+
+    def __str__(self) -> str:
+        return self.text
 
 
 def _number(value) -> float | None:
@@ -103,10 +114,12 @@ def _recommend(
     def cell(row, column):
         index = indices[column]
         raw = row[index] if index < len(row) else None
-        # 探索结果可能保留数组、JSON 等原生值：转成稳定的文本，才能作类目与分组键。
+        # 探索结果可能保留数组、JSON 等原生值：转成稳定的文本作键，并保留“结构化”这一类型。
         if isinstance(raw, (list, dict, tuple, set)):
-            return json.dumps(
-                sorted(raw) if isinstance(raw, set) else raw, ensure_ascii=False, sort_keys=True, default=str
+            return _Structured(
+                json.dumps(
+                    sorted(raw) if isinstance(raw, set) else raw, ensure_ascii=False, sort_keys=True, default=str
+                )
             )
         return raw
 
@@ -145,7 +158,7 @@ def _recommend(
             }
             if x
             else None,
-            "categories": categories,
+            "categories": [str(c) if isinstance(c, _Structured) else c for c in categories],
             "series": series_list,
             "kpis": kpis or [],
             "others": others,

@@ -449,3 +449,10 @@ def test_dimension_combinations_with_separator_text_do_not_collide():
     default = charts(["d1", "d2", "value"], rows, dimensions=("d1", "d2"))[0]
     assert default["categories"] == ["a / b / c", "a / b / c"]
     assert default["series"][0]["values"] == [30.0, 10.0]
+
+
+def test_structured_value_does_not_merge_with_identical_plain_string():
+    rows = [[{"k": 1}, 10], ['{"k": 1}', 30]]
+    default = charts(["d", "value"], rows, dimensions=("d",))[0]
+    assert default["categories"] == ['{"k": 1}', '{"k": 1}']
+    assert default["series"][0]["values"] == [30.0, 10.0]
