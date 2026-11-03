@@ -1076,6 +1076,25 @@ def _axis(value: float) -> str:
     return compact(number(value), strip=True)
 
 
+def _nice_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
+    """覆盖 [lo, hi] 的整齐刻度（1、2、2.5、5 乘 10 的幂），包含 0。"""
+    import math
+
+    raw = (hi - lo) / count
+    magnitude = 10 ** math.floor(math.log10(raw))
+    step = next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= raw)
+    start, end = math.floor(lo / step), math.ceil(hi / step)
+    return [i * step for i in range(start, end + 1)]
+
+
+def _axis_label(value: float, unit: dict | None) -> str:
+    """坐标轴刻度：与界面一致，按量纲换算、去掉多余的零、不带单位。"""
+    meta = _unit(unit)
+    if meta["kind"] in ("rate_change", "share") or (meta["kind"] == "ratio" and not meta["unit"]):
+        return compact(number(value) * 100, 1, strip=True) + "%"
+    return compact(number(value) * (meta["scale"] if meta["kind"] != "ratio" else 1), 2, strip=True)
+
+
 def _bar_chart(
     data: list[tuple[str, float, str]], font: str, width: float = 468, *, references: list[str] | None = None
 ):
@@ -1219,6 +1238,13 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
         hi = max([0, *(sum(max(0, s["values"][i] or 0) for s in series) for i in range(len(categories)))])
     if lo == hi:
         hi = lo + 1
+    ticks = _nice_ticks(lo, hi)
+    lo, hi = ticks[0], ticks[-1]
+    labelled = kind != "line" and len(categories) <= 20
+    if horizontal and labelled:
+        # 条形末端外侧要放数值标注：两端各留出一段空白，标注不压到类目名或越出画布。
+        pad = (hi - lo) * 0.14
+        lo, hi = (lo - pad if lo < 0 else lo), (hi + pad if hi > 0 else hi)
     left, right, bottom, top = (105 if horizontal else 64), width - 65, 45, height - header - 25
     span = hi - lo
 
@@ -1227,9 +1253,9 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
             (right - left) if horizontal else (top - bottom)
         )
 
-    for tick in sorted({lo, 0, (lo + hi) / 2, hi}):
+    for tick in ticks:
         pos = coordinate(tick)
-        label = _formatted(tick, series[0]["unit"])
+        label = _axis_label(tick, series[0]["unit"])
         if horizontal:
             drawing.add(Line(pos, bottom, pos, top, strokeColor=HexColor(LINE), strokeWidth=0.4))
             text(pos, bottom - 14, label, anchor="middle")
@@ -1264,7 +1290,9 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
                         )
                     )
                 drawing.add(Circle(x, y, 2, fillColor=HexColor(color), strokeColor=None))
-                text(x, y + 5, _formatted(value, s["unit"]), color=color, anchor="middle", size=6)
+                # 数值标注要克制：期间不多时逐点标，否则只标最后一个点；文字用文字色，不用系列色。
+                if len(categories) <= 12 or i == len(categories) - 1:
+                    text(x, y + 5, _formatted(value, s["unit"]), anchor="middle", size=6)
                 continue
             start = 0
             if kind == "stacked_bar":
@@ -1282,26 +1310,26 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
                 drawing.add(
                     Rect(min(a, b), position, abs(b - a), breadth * 0.9, fillColor=HexColor(color), strokeColor=None)
                 )
-                text(
-                    b + (3 if value >= 0 else -3),
-                    position + 2,
-                    _formatted(value, s["unit"]),
-                    color=color,
-                    anchor="start" if value >= 0 else "end",
-                    size=6,
-                )
+                if labelled and len(series) == 1:
+                    text(
+                        b + (3 if value >= 0 else -3),
+                        position + 2,
+                        _formatted(value, s["unit"]),
+                        anchor="start" if value >= 0 else "end",
+                        size=6,
+                    )
             else:
                 drawing.add(
                     Rect(position, min(a, b), breadth * 0.9, abs(b - a), fillColor=HexColor(color), strokeColor=None)
                 )
-                text(
-                    position + breadth / 2,
-                    b + (3 if value >= 0 else -8),
-                    _formatted(value, s["unit"]),
-                    color=color,
-                    anchor="middle",
-                    size=6,
-                )
+                if labelled and len(series) == 1:
+                    text(
+                        position + breadth / 2,
+                        b + (3 if value >= 0 else -8),
+                        _formatted(value, s["unit"]),
+                        anchor="middle",
+                        size=6,
+                    )
     for i, s in enumerate(series):
         column, row = i % 4, i // 4
         text(left + column * 96, 19 - row * 10, s["name"], color=colors[i], limit=92)
