@@ -135,6 +135,8 @@
 .av-login__submit:hover:not(:disabled) { background-position: 100% 0; transform: translateY(-1px); box-shadow: 0 16px 36px rgba(79, 124, 255, .5); }
 .av-login__submit:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
 .av-login__foot { margin: 0; text-align: center; color: var(--login-faint); font: 400 12px/18px var(--font-sans); }
+.av-login__switch { padding: 0; border: none; background: transparent; color: var(--login-muted); font: 500 12px/18px var(--font-sans); cursor: pointer; }
+.av-login__switch:hover { color: var(--login-text); text-decoration: underline; }
 .av-login__trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--login-faint); font: 500 12px/18px var(--font-sans); }
 .av-login__trust li { display: inline-flex; align-items: center; gap: 6px; }
 

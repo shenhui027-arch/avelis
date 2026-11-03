@@ -6,6 +6,7 @@
   uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
+                                                   可用 AVELIS_DEMO_SOURCE_HOST 指定演示库主机（默认 127.0.0.1）
   uv run python -m avelis.bootstrap openapi PATH   导出 OpenAPI 文档（前端据此生成类型）
   uv run python -m avelis.bootstrap model          按配置（[model] 或 AVELIS_MODEL_*）登记一个模型提供方并设为问数模型
                                                    （之后在“模型配置”页面维护）
