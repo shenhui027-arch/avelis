@@ -27,7 +27,7 @@ def dataset(ref="D1", *, rows=None, time=False):
         "row_count": 2,
         "inputs": [],
         "meta": {
-            "units": {"value": {"kind": "level", "unit": "元", "scale": 10000}},
+            "units": {"value": {"kind": "level", "unit": "元", "scale": 10000, "additive": True}},
             **({"time_column": "category"} if time else {}),
         },
     }
@@ -197,7 +197,7 @@ def all_specs():
             **dataset(),
             "columns": ["t", "d", "value"],
             "rows": [["01", "a", 2], ["01", "b", 3], ["02", "a", 4], ["02", "b", 5]],
-            "meta": {"time_column": "t", "units": {"value": {"kind": "level"}}},
+            "meta": {"time_column": "t", "units": {"value": {"kind": "level", "additive": True}}},
         },
         {
             **dataset(),
