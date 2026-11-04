@@ -19,8 +19,16 @@ MAX_PANELS = 8
 
 
 def category_label(value) -> str:
-    """类目的显示名：与页面（chartOption 的类目轴）和导出一致，空值显示为“—”；highlight 按它匹配。"""
-    return "—" if value is None else str(value)
+    """类目的显示名：与页面（chartOption 的类目轴，JS 的 String()）和导出一致；highlight 按它匹配。
+
+    空值为“—”；布尔值写成 true / false；整数值的浮点数去掉“.0”（String(1.0) 是 "1"）。"""
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 class ChartPreference(BaseModel):

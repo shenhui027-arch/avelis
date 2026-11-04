@@ -194,3 +194,21 @@ def test_null_category_is_highlighted_by_its_rendered_label():
     assert choice(highlight=["—"]).materialize(**inputs)["highlight"] == ["—"]
     with pytest.raises(ValueError, match="可选 highlight：.*—"):
         choice(highlight=["None"]).materialize(**inputs)
+
+
+@pytest.mark.parametrize(
+    ("value", "label"), [(1.0, "1"), (2.5, "2.5"), (True, "true"), (None, "—"), ("华东", "华东"), (10, "10")]
+)
+def test_category_labels_match_the_browser_string_conversion(value, label):
+    """highlight 按页面显示的类目名匹配：与 JS 的 String() 一致（String(1.0) 是 "1"、String(true) 是 "true"）。"""
+    from avelis.charts import category_label
+
+    assert category_label(value) == label
+
+
+def test_integral_float_category_is_highlighted_by_its_browser_label():
+    inputs = data()
+    inputs["rows"] = [[1.0, 3], [2.0, 4]]
+    assert choice(highlight=["1"]).materialize(**inputs)["highlight"] == ["1"]
+    with pytest.raises(ValueError):
+        choice(highlight=["1.0"]).materialize(**inputs)
