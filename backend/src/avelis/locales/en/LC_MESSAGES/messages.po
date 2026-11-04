@@ -2267,3 +2267,63 @@ msgstr "The total imported version metadata exceeds the {limit}-byte limit; noth
 
 msgid "此导入口径的根级自定义扩展仅保留摘要，导出不包含扩展原文"
 msgstr "Only a digest of this imported metric's root custom extensions is retained; the export omits their original content"
+
+msgid "时间序列图不支持 sort；请省略 sort，时间轴保持自然顺序。"
+msgstr "Time-series charts do not support sort; omit sort to keep the time axis in chronological order."
+
+msgid "类目 {categories} 不在所示图中；可选 highlight：{available}"
+msgstr "Categories {categories} are not in the displayed chart; available highlight values: {available}"
+
+msgid "不支持 {kind}；可选 kind：{available}"
+msgstr "Unsupported kind {kind}; available kinds: {available}"
+
+msgid "所示系列没有可标注的数值；请取消 marks 或选择其他 measures。"
+msgstr "The displayed series have no numeric values to annotate; remove marks or select other measures."
+
+msgid "最高点"
+msgstr "Maximum"
+
+msgid "最低点"
+msgstr "Minimum"
+
+msgid "所示值平均：{series} · {value}"
+msgstr "Mean of displayed values: {series} · {value}"
+
+msgid "{label}：{series} · {category} · {value}"
+msgstr "{label}: {series} · {category} · {value}"
+
+msgid "平均标注表示各系列所示非空值的算术平均，不是加权平均。"
+msgstr "Average annotations show the arithmetic mean of each series' displayed non-null values, not a weighted average."
+
+msgid "突出显示：{categories}；其余类目已弱化。"
+msgstr "Highlighted: {categories}; the remaining categories are dimmed."
+
+msgid "上一轮没有可修改的图表，请先取得可画图的数据。"
+msgstr "The previous turn has no chart to edit; first obtain data that can be charted."
+
+msgid "请说明要修改哪张图（可选：{figures}）。"
+msgstr "Specify which chart to edit (available: {figures})."
+
+msgid "模型没有提交唯一且有效的 chart 调用。"
+msgstr "The model did not submit exactly one valid chart call."
+
+msgid "改图只能使用已选中的上一轮数据集。"
+msgstr "Chart edits can only use the selected dataset from the previous turn."
+
+msgid "改图所需的模型调用预算已用完。"
+msgstr "The model-call budget for editing the chart has been exhausted."
+
+msgid "已按要求调整图表，沿用上一轮数据。"
+msgstr "The chart has been adjusted as requested using data from the previous turn."
+
+msgid "无法按要求修改图表：{reason}"
+msgstr "Unable to edit the chart as requested: {reason}"
+
+msgid "可选图种：{kinds}；可选度量：{measures}；可选类目：{categories}。"
+msgstr "Available chart kinds: {kinds}; available measures: {measures}; available categories: {categories}."
+
+msgid "图表调整"
+msgstr "Chart adjustment"
+
+msgid "图表已更新"
+msgstr "Chart updated"

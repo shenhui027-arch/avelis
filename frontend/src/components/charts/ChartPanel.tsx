@@ -27,8 +27,8 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
   const table = children ?? <>{spec.omitted_categories ? <p className="av-caption av-chartpanel__note">
     {t("表格只列出图中的类目，完整数据见下方数据集")}</p> : null}<SpecTable spec={spec} /></>;
   if (spec.kind === "kpi") return <KpiCards kpis={spec.kpis} />;
-  const download = () => {
-    const url = canvas.current?.png();
+  const download = async () => {
+    const url = await canvas.current?.png(textMarks(spec, style) || undefined);
     if (!url) return;
     const a = document.createElement("a");
     a.href = url; a.download = `${title || "chart"}.png`; a.click();
@@ -41,7 +41,7 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
             onClick={() => { setIndex(i); setView("chart"); }}>{KIND_LABEL[c.kind]}</button>)}
           <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}><Icon name="table" small />{t("表格")}</button>
         </div>
-        {view === "chart" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={download} title={t("下载图片")}>
+        {view === "chart" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => void download()} title={t("下载图片")}>
           <Icon name="download" small />PNG</button> : null}
       </div>
       {view === "chart" && spec.title ? <h3 className="av-chartpanel__title">{spec.title}</h3> : null}
@@ -69,13 +69,32 @@ export function SpecTable({ spec }: { spec: ChartSpec }) {
 
 /** fullTable：表格视图是否为完整结果（问数结果表）；报告插图的表格只含图里的系列，未画出的要去数据集里看。 */
 function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean }) {
+  const style = useNumberStyle();
   const notes = [
     spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
     spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
       : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
     omitted(spec, fullTable),
+    textMarks(spec, style),
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
+}
+
+/** 图上画不出的标注改在图下用文字给出（数值来自规格）：环形图的全部标注，堆叠图的平均值。 */
+function textMarks(spec: ChartSpec, style: ReturnType<typeof useNumberStyle>): string {
+  if (spec.kind === "stacked_bar") {
+    return (spec.marks ?? []).filter((m) => m.type === "average" && m.value != null).map((m) => {
+      const s = spec.series[m.series_index];
+      return t("{{name}} 平均 {{value}}", { name: s?.name ?? m.series, value: formatValue(m.value, s?.unit, style) });
+    }).join(" · ");
+  }
+  if (spec.kind !== "donut" || !spec.marks?.length) return "";
+  const unit = spec.series[0]?.unit;
+  return spec.marks.filter((m) => m.value != null).map((m) => m.type === "average"
+    ? t("平均 {{value}}", { value: formatValue(m.value, unit, style) })
+    : m.type === "max" ? t("最高 {{x}} {{value}}", { x: m.x == null ? "—" : String(m.x), value: formatValue(m.value, unit, style) })
+      : t("最低 {{x}} {{value}}", { x: m.x == null ? "—" : String(m.x), value: formatValue(m.value, unit, style) }))
+    .join(" · ");
 }
 
 /** 类目截断：展示上限截掉的要说出去哪里看全；前 N 是用户自己的设置，只说明还有几项。 */

@@ -1639,5 +1639,12 @@
   "暂无资产": "No assets",
   "没有匹配项": "No matches",
   "资产不可用": "Asset unavailable",
-  "输入关键词搜索": "Type to search"
+  "输入关键词搜索": "Type to search",
+  "最高": "Max",
+  "最低": "Min",
+  "平均": "Avg",
+  "平均 {{value}}": "Avg {{value}}",
+  "最高 {{x}} {{value}}": "Max {{x}} {{value}}",
+  "最低 {{x}} {{value}}": "Min {{x}} {{value}}",
+  "{{name}} 平均 {{value}}": "{{name}} avg {{value}}"
 }

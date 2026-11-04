@@ -1,17 +1,20 @@
 """需要元数据库的测试（-m db 可单独运行；数据库不可用时跳过）。
 
-在同一 PostgreSQL 实例上新建独立的 avelis_m8_test 库并迁移到最新版本，测试只读写这个库，不触碰共用的元数据库。
+在同一 PostgreSQL 实例上新建独立的 avelis_m8_test_<会话编号> 库并迁移，测试只读写这个库，不触碰共用的元数据库。
 连接信息来自 .env / 进程环境变量，不打印。
 """
 
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 import pytest
 
-TEST_DB = "avelis_m8_test"
+# spawn 的子进程沿用同一会话编号；不同 worktree / pytest 进程不会互相重建测试库。
+TEST_DB = os.environ.setdefault("PYTEST_AVELIS_DB_NAME", f"avelis_m8_test_{uuid.uuid4().hex[:12]}")
+assert re.fullmatch(r"avelis_m8_test_[0-9a-f]{12}", TEST_DB)
 
 
 @pytest.fixture(scope="session")
@@ -52,6 +55,20 @@ def meta_db():
     else:
         os.environ["AVELIS_DATABASE_URL"] = previous
     config.get_settings.cache_clear()
+    # 每个会话一个库名：结束时删掉，不在共用的开发实例里留下测试库（FORCE 断开连接池里残留的连接）
+    try:
+        with psycopg.connect(
+            host=base.host,
+            port=base.port,
+            user=base.username,
+            password=base.password,
+            dbname="postgres",
+            autocommit=True,
+            connect_timeout=3,
+        ) as conn:
+            conn.execute(f"DROP DATABASE IF EXISTS {TEST_DB} WITH (FORCE)")
+    except psycopg.OperationalError:
+        pass
 
 
 @pytest.fixture

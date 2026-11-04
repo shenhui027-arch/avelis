@@ -43,6 +43,8 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
             "others",
             "omitted_categories",
             "dropped_series",
+            "marks",
+            "highlight",
         }
         if spec["kind"] != "kpi":
             assert all(len(s["values"]) == len(spec["categories"]) for s in spec["series"])

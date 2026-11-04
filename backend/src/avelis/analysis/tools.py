@@ -613,9 +613,13 @@ class OutlierArgs(BaseModel):
 class Scope(BaseModel):
     """理解阶段的结构化输出（ADR 0012）：问题类型、指标、筛选、窗口；确定不了时写追问。"""
 
-    question_type: Literal["lookup", "change", "relation", "other"] = Field(
+    question_type: Literal["lookup", "change", "relation", "chart", "other"] = Field(
         description="lookup：只取数值、排名、明细或对比；change：为什么变化 / 是否变化；"
-        "relation：什么关系、怎么分布；other：其他"
+        "relation：什么关系、怎么分布；chart：只调整上一轮图表的呈现，不需要新数据或新口径；other：其他"
+    )
+    chart_dataset: str | None = Field(
+        None,
+        description="chart：要改的上一轮图在 chart_targets 中的本轮数据集编号；有多张图而用户未明确指定时不填，并追问",
     )
     metric_codes: list[str] = Field(
         default_factory=list, max_length=4, description="所问的指标编码（只能取自候选口径）"

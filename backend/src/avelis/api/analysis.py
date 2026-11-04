@@ -317,6 +317,10 @@ def _dataset_detail(
     meta = dataset_meta(session, d) if session is not None else d.meta or {}
     source = meta.get("rerun_of")
     roles = build_column_roles(d.columns, meta)
+    from avelis.analysis.figures import report_chart_preference
+
+    run_id = getattr(d, "run_id", None)
+    run = session.get(AnalysisRun, run_id) if session is not None and run_id is not None else None
     return {
         "ref": f"D{d.seq}",
         "kind": d.kind,
@@ -334,7 +338,13 @@ def _dataset_detail(
         "polarity": meta.get("polarity", {}),
         "column_roles": roles,
         "charts": charts.recommend(
-            d.columns, d.rows, roles, meta.get("units") or {}, meta.get("polarity") or {}, meta.get("intent")
+            d.columns,
+            d.rows,
+            roles,
+            meta.get("units") or {},
+            meta.get("polarity") or {},
+            meta.get("intent"),
+            preference=report_chart_preference(run.report or {}, f"D{d.seq}") if run is not None else None,
         ),
         "summary_units": meta.get("summary_units", {}),
         "purpose": meta.get("purpose"),
