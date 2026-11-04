@@ -112,6 +112,11 @@ def test_events_migration_preserves_old_hash_and_independent_failure_is_sealed(i
     migrate(engine, "0020_governance_events")
     assert_history(engine, old_hash)
 
+    # Runtime models follow the current schema, including the dead_at column.
+    # Keep the 0020 round-trip checks above separate from current failure writes.
+    migrate(engine, "head")
+    assert_history(engine, old_hash)
+
     @contextmanager
     def independent_scope():
         with Session(engine) as session:

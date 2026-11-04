@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -9,7 +10,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 
 from avelis.api import catalog as api
+from avelis.api import governance
 from avelis.config import get_settings
+from avelis.engines import engines
+from avelis.engines.base import QUERY
 from avelis.governance import access
 from avelis.lineage.sql import PARSER_VERSION
 from avelis.models import (
@@ -19,12 +23,15 @@ from avelis.models import (
     ColumnFingerprint,
     ColumnVersion,
     Confirmation,
+    Datasource,
     Definition,
     Domain,
     DomainMember,
     Grain,
     IdentityLink,
+    JoinPath,
     LineageEdge,
+    Metric,
     ParseResult,
     User,
     UserRole,
@@ -127,6 +134,116 @@ def test_assets_filter_before_paging_and_use_stable_tiebreaker(catalog):
     session.commit()
     assert assets(catalog, q="b_match") == []
     assert [a["id"] for a in assets(catalog, q="b_match", include_deleted=True)] == ["first"]
+
+
+def test_asset_ids_intersect_visibility_filters_and_pagination(catalog):
+    session = catalog.session
+    add_asset(session, "deleted").status = "deleted"
+    session.commit()
+    ids = ["asset_b", "hidden_asset", "missing", "deleted", "asset", "asset"]
+    assert [a["id"] for a in assets(catalog, ids=ids)] == ["asset", "asset_b"]
+    assert [a["id"] for a in assets(catalog, ids=ids, q="records_b", domain_id="visible")] == ["asset_b"]
+    assert assets(catalog, ids=ids, datasource_id="missing") == []
+    assert assets(catalog, ids=ids, domain_id="hidden") == []
+    assert assets(catalog, ids=[]) == []
+    assert [a["id"] for a in assets(catalog, ids=["deleted"], include_deleted=True)] == ["deleted"]
+    assert [
+        a["id"] for a in api.list_assets(ids=ids, limit=1, offset=1, user=catalog.users["reader"], session=session)
+    ] == ["asset_b"]
+
+
+def test_asset_queryable_filters_registered_capabilities_in_sql(catalog, monkeypatch):
+    session = catalog.session
+    session.add(Datasource(id="metadata_only", name="仅采集", kind="hive", host="offline", port=1))
+    add_asset(session, "no_query").datasource_id = "metadata_only"
+    add_asset(session, "no_query_hidden", domain="hidden").datasource_id = "metadata_only"
+    session.commit()
+    with queries(session) as sql:
+        assert [a["id"] for a in assets(catalog, queryable=True)] == ["asset", "asset_b"]
+    assert len(sql) == 1 and "datasource.kind IN" in sql[0][0]
+    assert [a["id"] for a in assets(catalog, queryable=False)] == ["no_query"]
+    assert assets(catalog, queryable=True, ids=["no_query"]) == []
+    assert assets(catalog, queryable=False, datasource_id="source") == []
+    registered = engines()
+    monkeypatch.setattr(api, "engines", lambda: [replace(e, capabilities=e.capabilities - {QUERY}) for e in registered])
+    assert assets(catalog, queryable=True) == []
+    assert len(assets(catalog, queryable=False)) == 3
+
+
+@pytest.mark.parametrize("policy", ["allow", "deny"])
+def test_catalog_counts_match_all_lists_and_use_one_query(catalog, monkeypatch, policy):
+    monkeypatch.setattr(access, "get_settings", lambda: replace(get_settings(), unassigned_asset_policy=policy))
+    session = catalog.session
+    add_asset(session, "unassigned", domain=None)
+    add_asset(session, "deleted").status = "deleted"
+    session.add(UserRole(user_id="outsider", role="admin"))
+    for domain in ("visible", "hidden"):
+        session.add(
+            Metric(
+                code=f"metric_{domain}", name=domain, domain_id=domain, owner_id="maintainer", created_by="maintainer"
+            )
+        )
+    for identifier, left, right in (
+        ("visible_join", "asset", "asset_b"),
+        ("hidden_left", "hidden_asset", "asset"),
+        ("hidden_right", "asset", "hidden_asset"),
+        ("unassigned_join", "asset", "unassigned"),
+        ("deleted_join", "asset", "deleted"),
+    ):
+        session.add(
+            JoinPath(
+                code=identifier,
+                name=identifier,
+                left_asset_id=left,
+                right_asset_id=right,
+                left_columns=["value_a"],
+                right_columns=["value_a"],
+                cardinality="n1",
+                status="pending",
+                created_by="maintainer",
+            )
+        )
+    session.commit()
+    for username in ("maintainer", "reader", "reviewer", "outsider"):
+        user = catalog.users[username]
+        common = {"limit": None, "offset": 0, "user": user, "session": session}
+        expected = {
+            "metrics": len(governance.list_metrics(**common)),
+            "assets": len(api.list_assets(**common)),
+            "domains": len(api.list_domains(**common)),
+            "join_paths": len(governance.list_join_paths(**common)),
+        }
+        with queries(session) as sql:
+            assert api.catalog_counts(user=user, session=session) == expected
+        assert len(sql) == 1
+        if username == "reviewer":
+            assert expected == {
+                "metrics": 1,
+                "assets": 2 + (policy == "allow"),
+                "domains": 1,
+                "join_paths": 2 + (policy == "allow"),
+            }
+    totals = []
+    for count in (2, 50):
+        for n in range(0 if count == 2 else 2, count):
+            add_asset(session, f"counted_{n}")
+        session.commit()
+        with queries(session) as sql:
+            result = api.catalog_counts(user=catalog.users["reader"], session=session)
+        assert result["assets"] == 3 + count
+        totals.append(len(sql))
+    assert totals == [1, 1]
+
+
+def test_assets_accept_repeated_ids_and_reject_more_than_200():
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.current_user] = lambda: SimpleNamespace(id="reader")
+    app.dependency_overrides[api.get_session] = lambda: SimpleNamespace(execute=lambda _: [])
+    with TestClient(app) as client:
+        assert client.get("/api/assets", params=[("ids", f"asset_{n}") for n in range(200)]).status_code == 200
+        assert client.get("/api/assets", params=[("ids", f"asset_{n}") for n in range(201)]).status_code == 422
+        assert client.get("/api/assets", params={"queryable": "invalid"}).status_code == 422
 
 
 @pytest.mark.parametrize("policy", ["allow", "deny"])
@@ -369,3 +486,8 @@ def test_catalog_openapi_exposes_bounded_list_parameters():
         assert (
             spec["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["type"] == "array"
         )
+    parameters = {p["name"]: p["schema"] for p in spec["paths"]["/api/assets"]["get"]["parameters"]}
+    ids = next(s for s in parameters["ids"]["anyOf"] if s["type"] == "array")
+    assert ids["maxItems"] == 200 and ids["items"]["type"] == "string"
+    assert {"type": "boolean"} in parameters["queryable"]["anyOf"]
+    assert "/api/catalog/counts" in spec["paths"]

@@ -7,7 +7,7 @@
 from concurrent.futures import ThreadPoolExecutor, wait
 from multiprocessing import get_context
 from random import Random
-from threading import Barrier, Event, local
+from threading import Barrier, Event
 from time import sleep
 
 import pytest
@@ -103,6 +103,7 @@ def _enqueue(world, *, status="pending"):
         row.status = status
         if status == "dead":
             row.attempts, row.last_error = 5, "timeout"
+            row.dead_at = utcnow()
         session.flush()
         return row.id
 
@@ -141,6 +142,7 @@ def _delivery_process(pipe, barrier, worker_index):
     engine = get_engine()
     event.listen(engine, "begin", _timeouts)
     errors, sent, backend_pids = [], [], set()
+    scan_synchronized = False
 
     class Errors(logging.Handler):
         def emit(self, record):
@@ -153,10 +155,14 @@ def _delivery_process(pipe, barrier, worker_index):
         errors.append(getattr(context.original_exception, "sqlstate", type(context.original_exception).__name__))
 
     def before_scan(connection, _cursor, statement, _params, _context, _many):
+        nonlocal scan_synchronized
         if "FROM event_outbox JOIN webhook_subscription" in statement and "SKIP LOCKED" in statement:
             backend_pids.add(connection.scalar(text("SELECT pg_backend_pid()")))
-            barrier.wait(timeout=SYNC_TIMEOUT)
-            sleep(Random(round_no * 3 + worker_index).uniform(0, 0.01))
+            # 会话租约忙时可以继续扫描其他订阅；每轮只同步第一次认领，不能要求另一进程再次扫描。
+            if not scan_synchronized:
+                scan_synchronized = True
+                barrier.wait(timeout=SYNC_TIMEOUT)
+                sleep(Random(round_no * 3 + worker_index).uniform(0, 0.01))
 
     def receive(subscription, outbox, **_kwargs):
         sent.append(outbox.id)
@@ -171,6 +177,7 @@ def _delivery_process(pipe, barrier, worker_index):
         while (round_no := pipe.recv()) is not None:
             errors.clear()
             sent.clear()
+            scan_synchronized = False
             count = delivery.deliver_due(batch_size=1, budget_seconds=15)
             pipe.send((count, list(sent), list(errors), sorted(backend_pids)))
     finally:
@@ -219,27 +226,89 @@ def test_two_worker_processes_claim_once_for_twenty_rounds(world):
             child.close()
 
 
+def test_http_holds_subscription_lease_without_an_open_transaction(world, monkeypatch):
+    first_id, second_id = _enqueue(world), _enqueue(world)
+    with session_scope() as session:
+        healthy = WebhookSubscription(
+            name=f"healthy-{new_id()}",
+            url="https://8.8.4.4/healthy",
+            event_types=["collect.completed"],
+            enabled=True,
+            secret_enc="unused-offline-fixture",
+            created_by=world[0],
+        )
+        session.add(healthy)
+        session.flush()
+        healthy_id = healthy.id
+    sending, scanned = Event(), Event()
+    sent, lease_connections, observed_states = [], [], []
+
+    def capture_lease(connection, _cursor, statement, _params, _context, _many):
+        if "pg_try_advisory_lock" in statement:
+            lease_connections.append((connection, connection.scalar(text("SELECT pg_backend_pid()"))))
+
+    def receive(subscription, outbox, **_kwargs):
+        sent.append(outbox.id)
+        if outbox.id == first_id:
+            # 认领已提交，只有会话锁跨过 HTTP；真实 pg_stat_activity 也不得显示打开的事务。
+            connection, backend_pid = lease_connections[-1]
+            assert not connection.in_transaction()
+            with get_engine().connect() as observer:
+                observed_states.append(
+                    observer.execute(
+                        text("SELECT state, xact_start FROM pg_stat_activity WHERE pid = :pid"),
+                        {"pid": backend_pid},
+                    ).one()
+                )
+            sending.set()
+            assert scanned.wait(SYNC_TIMEOUT)
+
+    def other_scanner():
+        assert sending.wait(SYNC_TIMEOUT)
+        try:
+            return delivery.deliver_due(batch_size=1, budget_seconds=15)
+        finally:
+            scanned.set()
+
+    healthy_delivery = _enqueue((world[0], healthy_id))
+    monkeypatch.setattr(delivery, "send_webhook", receive)
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", capture_lease)
+    try:
+        assert _parallel(lambda: delivery.deliver_due(batch_size=1, budget_seconds=15), other_scanner) == [1, 1]
+        assert sent == [first_id, healthy_delivery]
+        assert observed_states == [("idle", None)]
+        _delivered(first_id)
+        _delivered(healthy_delivery)
+        with session_scope() as session:
+            untouched = session.get(EventOutbox, second_id)
+            assert untouched.status == "pending" and untouched.attempts == 0
+        assert delivery.deliver_due(batch_size=1) == 1
+        assert sent == [first_id, healthy_delivery, second_id]
+        _delivered(second_id)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_lease)
+        with session_scope() as session:
+            session.execute(delete(EventOutbox).where(EventOutbox.subscription_id == healthy_id))
+            session.execute(delete(WebhookSubscription).where(WebhookSubscription.id == healthy_id))
+
+
 @pytest.mark.parametrize("round_no", ROUNDS)
 @pytest.mark.parametrize("change", ["url", "event_types", "disable", "delete"])
 def test_subscription_mutation_during_delivery(world, monkeypatch, round_no, change):
     delivery_id = _enqueue(world)
-    sending, admin_attempted = Event(), Event()
-    thread = local()
+    sending, admin_committed = Event(), Event()
     sent = []
-
-    def before_lock(_conn, _cursor, statement, _params, _context, _many):
-        if getattr(thread, "admin", False) and "FROM webhook_subscription" in statement and "FOR UPDATE" in statement:
-            admin_attempted.set()
 
     def receive(subscription, outbox, **_kwargs):
         sent.append((subscription.url, outbox.id))
         sending.set()
-        assert admin_attempted.wait(SYNC_TIMEOUT)
+        # HTTP 期间不持行锁；管理事务必须能先提交，包括删除订阅及其发件箱。
+        assert admin_committed.wait(SYNC_TIMEOUT)
         sleep(Random(round_no).uniform(0.001, 0.02))
 
     def mutate():
         assert sending.wait(SYNC_TIMEOUT)
-        thread.admin = True
         with session_scope() as session:
             actor = session.get(User, world[0])
             if change == "delete":
@@ -251,14 +320,10 @@ def test_subscription_mutation_during_delivery(world, monkeypatch, round_no, cha
                     "disable": {"enabled": False},
                 }[change]
                 api.update_subscription(world[1], api.SubscriptionUpdate(**fields), user=actor, session=session)
+        admin_committed.set()
 
     monkeypatch.setattr(delivery, "send_webhook", receive)
-    engine = get_engine()
-    event.listen(engine, "before_cursor_execute", before_lock)
-    try:
-        count, _ = _parallel(lambda: delivery.deliver_due(batch_size=1, budget_seconds=15), mutate)
-    finally:
-        event.remove(engine, "before_cursor_execute", before_lock)
+    count, _ = _parallel(lambda: delivery.deliver_due(batch_size=1, budget_seconds=15), mutate)
     assert count == 1 and sent == [("https://8.8.8.8/old", delivery_id)]
     if change == "delete":
         with session_scope() as session:
@@ -347,8 +412,8 @@ def test_fair_scan_delivers_healthy_subscription_while_oldest_subscription_is_lo
 
         def receive(subscription, outbox, *, timeout_seconds, **kwargs):
             sent.append((subscription.id, outbox.id))
-            # 不加锁的订阅计数可以保守地把被管理员锁住的订阅算进预算，不能等待它。
-            assert 0 < timeout_seconds <= 2.5
+            # 忙订阅不能挡住健康订阅；并发请求不再按订阅数量切短期限。
+            assert 0 < timeout_seconds <= 5
 
         monkeypatch.setattr(delivery, "send_webhook", receive)
         with session_scope() as session:
@@ -487,7 +552,8 @@ def test_dead_letter_redelivery_and_scanner_claim_once(world, monkeypatch, round
 
     def redeliver():
         with session_scope() as session:
-            api.redeliver(delivery_id, user=session.get(User, world[0]), session=session)
+            item = api.redeliver(delivery_id, user=session.get(User, world[0]), session=session)
+            assert item.dead_at is None
             redelivery_flushed.set()
             assert scan_finished.wait(SYNC_TIMEOUT)
             sleep(Random(round_no).uniform(0.001, 0.02))
@@ -508,7 +574,8 @@ def test_dead_letter_redelivery_and_scanner_claim_once(world, monkeypatch, round
 
         def committed_redelivery():
             with session_scope() as session:
-                api.redeliver(delivery_id, user=session.get(User, world[0]), session=session)
+                item = api.redeliver(delivery_id, user=session.get(User, world[0]), session=session)
+                assert item.dead_at is None
                 barrier.wait(timeout=SYNC_TIMEOUT)
 
         def concurrent_scan():
