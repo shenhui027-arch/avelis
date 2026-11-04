@@ -366,6 +366,8 @@ class Toolbox:
             }
             for item in self.alignment_candidates
         ]
+        # 没有展示任何候选的项不保存：否则文字回答按首项匹配时会落到用户根本没被问到的那一项上。
+        offered = [item for item in offered if item["candidates"]]
         self.clarification = {
             "question": question,
             "options": options or [],

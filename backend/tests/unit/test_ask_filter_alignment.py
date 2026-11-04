@@ -112,6 +112,35 @@ def test_ask_confirmation_excludes_candidates_only_seen_by_model(monkeypatch):
     assert not box.filter_alignment
 
 
+def test_ask_confirmation_drops_items_the_question_did_not_offer(monkeypatch):
+    """模型问的是第二个未解决项时，第一项没有展示任何候选，不能留在记录里抢走文字回答。"""
+    box = make_box(monkeypatch)
+    box.alignment_candidates = [
+        {
+            "dimension": "region",
+            "original": "r",
+            "candidates": ["10", "11"],
+            "candidate_sources": {"10": ["a"], "11": ["a"]},
+            "has_dimension_table": True,
+        },
+        {
+            "dimension": "channel",
+            "original": "c",
+            "candidates": ["20", "21"],
+            "candidate_sources": {"20": ["b"], "21": ["b"]},
+            "has_dimension_table": True,
+        },
+    ]
+    box.ask_user("which channel", ["20", "21"])
+    assert [item["dimension"] for item in box.clarification["alignment_candidates"]] == ["channel"]
+    monkeypatch.setattr(agent, "interrupt", lambda _: "20")
+    monkeypatch.setattr(service, "filter_alignment_restricted", lambda *a: False)
+    config = {"configurable": {"session": None, "user": None, "answer": None}}
+    record = agent.clarify({"clarification": box.clarification}, config)["alignment_clarifications"][0]
+    confirmed = alignment_service.confirmed_values(record["items"], record["answer"])
+    assert [(c["dimension"], c["value"]) for c in confirmed] == [("channel", "20")]
+
+
 def make_box(monkeypatch, *, codes=("metric_a",), statuses=None):
     dimensions = [{"name": "dimension_a", "column": "column_a"}]
     statuses = statuses or ["published"] * len(codes)
