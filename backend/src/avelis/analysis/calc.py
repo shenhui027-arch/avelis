@@ -455,19 +455,26 @@ def coverage(
 
 
 def describe(values: list[Any]) -> dict[str, Any]:
-    nums = [float(number(v)) for v in values if v is not None]
+    """统计值不做展示舍入。标准差用 Decimal 平方根，在至少 28 位有效数字的上下文内近似。"""
+    nums = [n for v in values if (n := number(v)) is not None]
     if not nums:
         return {"count": 0}
-    out = {
-        "count": len(nums),
-        "sum": round(sum(nums), 4),
-        "mean": round(statistics.fmean(nums), 4),
-        "median": round(statistics.median(nums), 4),
-        "min": min(nums),
-        "max": max(nums),
-    }
-    if len(nums) > 1:
-        out["stdev"] = round(statistics.stdev(nums), 4)
+    if any(not n.is_finite() for n in nums):
+        raise CalcError("描述统计只接受有限数值")
+    # 覆盖输入的整数位、小数位以及求和进位，避免默认 28 位上下文吞掉抵消前的小数。
+    width = max(n.adjusted() for n in nums) - min(n.as_tuple().exponent for n in nums) + 1
+    with localcontext() as ctx:
+        ctx.prec = max(28, width + len(str(len(nums))) + 2)
+        out = {
+            "count": len(nums),
+            "sum": sum(nums, Decimal(0)),
+            "mean": statistics.mean(nums),
+            "median": statistics.median(nums),
+            "min": min(nums),
+            "max": max(nums),
+        }
+        if len(nums) > 1:
+            out["stdev"] = statistics.stdev(nums)
     return out
 
 

@@ -291,6 +291,7 @@ def test_real_fulfil_compiles_new_windows_into_cache_keys_and_records_partial_hi
     """保留真实计划展开、SQL 编译校验和缓存键，只替换来源元数据与连接器。"""
     monkeypatch.setattr(ask, "fulfil", REAL_FULFIL)
     metric, version = state.catalog.versions["metric"]
+    metric.id = "metric"
     metric.code = "metric"
     for name, value in {
         "status": "published",

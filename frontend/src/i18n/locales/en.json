@@ -1623,5 +1623,6 @@
   "对比期": "Comparison period",
   "模型对结果的说明，只引用上面的数值": "Model summary of the result; it only cites the values above",
   "另有 {{count}} 个系列未画出，见下方数据集_one": "{{count}} more series not drawn; see the dataset below",
-  "另有 {{count}} 个系列未画出，见下方数据集_other": "{{count}} more series not drawn; see the dataset below"
+  "另有 {{count}} 个系列未画出，见下方数据集_other": "{{count}} more series not drawn; see the dataset below",
+  "所用口径因上游变化待复核，下面的数值按当时的口径计算": "The metric this answer used is awaiting review after an upstream change; the figures below were calculated with the definition in effect at the time"
 }

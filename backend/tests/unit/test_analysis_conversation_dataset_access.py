@@ -1,14 +1,16 @@
 """续问历史证据在工具读取、计算和暂停恢复时按当前来源权限复核。"""
 
 import json
+from functools import wraps
 from unittest.mock import Mock
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sqlalchemy import JSON, MetaData, create_engine, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from avelis.analysis import service
+from avelis.analysis import agent, service
 from avelis.analysis.tools import AnalysisToolbox, Budget, PermissionDenied, PermissionLost
 from avelis.ask import agent as ask_agent
 from avelis.ask.service import Catalog
@@ -159,6 +161,98 @@ def test_current_run_without_copied_sources_keeps_existing_dataset_behavior(copi
     box.check_copied_permissions()
     assert set(box.readable_datasets()) == {"D1", "D2"}
     assert box._rows("D1")[1] == [{"value": 17}]
+
+
+@pytest.mark.parametrize("copied", [False, True])
+@pytest.mark.parametrize("revocation", ["asset_domain", "membership"])
+def test_model_context_after_revocation_keeps_current_rows_but_stops_copied_rows(
+    copied_box, monkeypatch, copied, revocation
+):
+    """ADR 0007 授权段逐次核对后续读取；本轮已取得的证据沿用，历史继承证据另行复核。
+
+    用真实工具分发与模型 spy 验证下一次 invoke 的消息，而非只检查 readable_datasets。
+    """
+    box, asset = copied_box
+    if not copied:
+        source = box.datasets()["D1"]
+        source.meta = {k: v for k, v in source.meta.items() if k != "copied_from"}
+        box.session.commit()
+    original = box.view_dataset
+
+    @wraps(original)
+    def read_then_revoke(ref, **kwargs):
+        result = original(ref, **kwargs)
+        assert json.loads(result)["rows"] == [[17]]  # 取数时仍有权，工具返回真实业务行。
+        if revocation == "asset_domain":
+            asset.domain_id = "hidden"
+        else:
+            member = box.session.scalar(
+                select(DomainMember).where(DomainMember.domain_id == "visible", DomainMember.user_id == box.user.id)
+            )
+            box.session.delete(member)
+        box.session.commit()
+        return result
+
+    monkeypatch.setattr(box, "view_dataset", read_then_revoke)
+
+    class Spy:
+        def __init__(self):
+            self.messages = []
+
+        def factory(self, **kwargs):
+            return self
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def invoke(self, messages):
+            self.messages.append(list(messages))
+            if len(self.messages) > 1:
+                delivered = [m for m in messages if isinstance(m, ToolMessage) and m.tool_call_id == "read"]
+                assert "rows" in json.loads(delivered[0].content), delivered[0].content
+            if len(self.messages) == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "view_dataset",
+                            "args": {"ref": "D1"},
+                            "id": "read",
+                        }
+                    ],
+                )
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "submit_report",
+                        "id": "report",
+                        "args": {
+                            "title": "分析",
+                            "summary": "完成",
+                            "claims": [],
+                            "conclusion": "insufficient_evidence",
+                        },
+                    }
+                ],
+            )
+
+    spy = Spy()
+    config = {"configurable": {"toolbox": box, "model": spy}}
+    state = {"messages": [HumanMessage("查看数据后继续分析")]}
+    if copied:
+        with pytest.raises(PermissionLost, match="续问继承的数据集已没有访问权限"):
+            agent.act(state, config)
+        assert len(spy.messages) == 1  # 含撤权行的旧工具消息不会再次发给模型。
+    else:
+        agent.act(state, config)
+        assert len(spy.messages) == 2
+        delivered = [m for m in spy.messages[1] if isinstance(m, ToolMessage) and m.tool_call_id == "read"]
+        assert len(delivered) == 1 and json.loads(delivered[0].content)["rows"] == [[17]]
+        assert box._rows("D2")[1] == [{"value": 34}]  # 同轮依赖计算也沿用既有证据。
+        # 已取证据可复用不等于整轮授权冻结：撤权后的新来源读取仍被拒绝。
+        denied = json.loads(box.describe_asset("local.data.facts"))
+        assert "error" in denied and "columns" not in denied
 
 
 def test_omitted_copies_keep_their_dataset_numbers_reserved_across_resume(copied_box):
