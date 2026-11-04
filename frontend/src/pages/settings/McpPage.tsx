@@ -9,7 +9,8 @@ import { formatTime } from "../../format";
 import { t } from "../../i18n";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 
-const SOURCE_LABEL: Record<string, string> = { cimd: t("元数据文档"), dynamic: t("动态注册"), pre_registered: t("预登记") };
+const CLIENT_PAGE = 50;
+const SOURCE_LABEL: Record<string, string> ={ cimd: t("元数据文档"), dynamic: t("动态注册"), pre_registered: t("预登记") };
 
 export function McpPage() {
   const roles = useRoles();
@@ -19,8 +20,11 @@ export function McpPage() {
   const [confirm, setConfirm] = useState<{ kind: "authorization" | "client"; id: string; name: string } | null>(null);
   const mine = useQuery({ queryKey: ["oauth-authorizations"], retry: false,
     queryFn: () => unwrap(api.GET("/api/oauth/authorizations")) });
-  const clients = useQuery({ queryKey: ["oauth-clients"], enabled: isAdmin, retry: false,
-    queryFn: () => unwrap(api.GET("/api/oauth/clients")) });
+  // 接口分页但不返回总数：多取一条判断是否还有下一页；翻页时不拿上一页占位，页码与数据始终对应
+  const [offset, setOffset] = useState(0);
+  const clients = useQuery({ queryKey: ["oauth-clients", offset], enabled: isAdmin, retry: false,
+    queryFn: () => unwrap(api.GET("/api/oauth/clients", { params: { query: { limit: CLIENT_PAGE + 1, offset } } })) });
+  const hasNext = (clients.data?.length ?? 0) > CLIENT_PAGE;
   const revokeMine = useAction((id: string) => unwrap(api.DELETE("/api/oauth/authorizations/{authorization_id}",
     { params: { path: { authorization_id: id } } })), ["oauth-authorizations", "oauth-clients"]);
   const revokeClient = useAction((id: string) => unwrap(api.POST("/api/oauth/clients/{client_record_id}/revoke",
@@ -79,10 +83,11 @@ export function McpPage() {
         </section>
 
         {isAdmin && !disabled ? <section className="av-pane">
-          <PaneHeader title={<>{t("全部客户端")} <Hint text={t("禁用后，该客户端的所有令牌立即失效，用户需要重新授权也无法再连接")} /></>} count={clients.data?.length} />
+          <PaneHeader title={<>{t("全部客户端")} <Hint text={t("禁用后，该客户端的所有令牌立即失效，用户需要重新授权也无法再连接")} /></>}
+            count={offset === 0 && !hasNext ? clients.data?.length : undefined} />
           <div className="av-pane__body">
             <QueryState query={clients} isEmpty={(d) => !d.length} emptyText={t("还没有客户端连接过")}>
-              {(items) => <table className="av-table">
+              {(page) => { const items = page.slice(0, CLIENT_PAGE); return <><table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>{t("客户端")}</th><th>{t("注册方式")}</th><th>{t("授权人数")}</th><th>{t("最近使用")}</th><th>{t("状态")}</th><th className="end" /></tr></thead>
                 <tbody>{items.map((c) => <tr key={c.id}>
                   <td style={{ paddingLeft: 16 }}>{c.client_name}<div className="av-caption av-mono av-mcp__id" title={c.client_id}>{c.client_id}</div></td>
@@ -93,7 +98,14 @@ export function McpPage() {
                   <td className="end">{c.disabled_at ? null : <button type="button" className="av-btn av-btn--secondary av-btn--sm"
                     onClick={() => setConfirm({ kind: "client", id: c.id, name: c.client_name })}>{t("禁用")}</button>}</td>
                 </tr>)}</tbody>
-              </table>}
+              </table>
+              {offset > 0 || hasNext ? <div className="av-actions av-webhooks__pager">
+                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - CLIENT_PAGE))}>{t("上一页")}</button>
+                <span className="av-caption av-mono">{offset + 1}–{offset + items.length}</span>
+                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext}
+                  onClick={() => setOffset(offset + CLIENT_PAGE)}>{t("下一页")}</button>
+              </div> : null}</>; }}
             </QueryState>
           </div>
         </section> : null}

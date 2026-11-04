@@ -11,7 +11,7 @@ from urllib.parse import urlencode, urlsplit
 from authlib.common.security import generate_token
 from authlib.oauth2.rfc6749 import InvalidClientError, InvalidRequestError, OAuth2Error
 from authlib.oauth2.rfc9207 import IssuerParameter
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -27,9 +27,11 @@ from avelis.i18n import gettext
 from avelis.models import Domain, OAuthClient, OAuthConsentTicket, OAuthGrant, User
 
 from .adapter import FastAPIAuthorizationServer, FastAPIJsonRequest, FastAPIOAuth2Request
+from .budgets import REGISTRATION_BYTES, authorization_within_budget, validate_metadata_budget
 from .cimd import CIMDError, fetch_client_metadata
 from .endpoints import RegistrationEndpoint, RevokeEndpoint, authorization_metadata
 from .grants import CodeGrant, RefreshGrant, ResourceBinding, S256CodeChallenge
+from .limits import check_source
 from .repository import Repository, aware, credential_hash, now
 from .urls import request_settings
 
@@ -91,6 +93,8 @@ class OkOut(BaseModel):
 
 
 async def resolve_client(repository: Repository, client_id: str, settings: Settings):
+    if len(client_id) > 2048:
+        raise InvalidClientError("Client ID exceeds its length budget.")
     client = repository.get_client(client_id)
     if client and (client.disabled_at is not None or client.source != "cimd"):
         return client
@@ -228,6 +232,15 @@ def create_oauth_router(settings: Settings) -> APIRouter:
 
     @router.get("/oauth/authorize", include_in_schema=False)
     async def authorize(request: Request, session: Session = Depends(get_session)):
+        # Reject locally, before Authlib can reflect state or redirect to a callback.
+        if not authorization_within_budget(request):
+            return JSONResponse(
+                {"error": "invalid_request", "error_description": "Authorization budget exceeded."}, 400
+            )
+        rejection = check_source(request, session, "consent", settings.mcp_consent_max_per_hour)
+        if rejection:
+            status, body, headers = rejection
+            return finish(session, JSONResponse(body, status, headers=headers))
         server = server_for(session, request)
         adapted = FastAPIOAuth2Request(request, allow_http=not settings.public_url)
         try:
@@ -289,11 +302,26 @@ def create_oauth_router(settings: Settings) -> APIRouter:
     @router.post("/oauth/register", include_in_schema=False)
     async def register(request: Request, session: Session = Depends(get_session)):
         try:
-            body = await request.json()
-        except (ValueError, UnicodeDecodeError):
+            if int(request.headers.get("content-length", "0")) > REGISTRATION_BYTES:
+                return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
+            raw = bytearray()
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > REGISTRATION_BYTES:
+                    return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
+                raw.extend(chunk)
+            body = json.loads(raw)
+        except (ValueError, UnicodeDecodeError, RecursionError):
             return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
+        try:
+            validate_metadata_budget(body)
+        except OAuth2Error as error:
+            return JSONResponse(dict(error.get_body()), status_code=400)
+        rejection = check_source(request, session, "registration", settings.mcp_registration_max_per_hour)
+        if rejection:
+            status, body, headers = rejection
+            return finish(session, JSONResponse(body, status, headers=headers))
         server = server_for(session, request)
         return finish(
             session, server.create_endpoint_response("client_registration", FastAPIJsonRequest(request, body))
@@ -415,12 +443,25 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         return {"ok": True}
 
     @router.get("/api/oauth/clients", response_model=list[ClientOut])
-    def clients(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    def clients(
+        user: User = Depends(current_user),
+        session: Session = Depends(get_session),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+    ):
         access.require_role(session, user, "admin")
+        page = list(
+            session.scalars(
+                select(OAuthClient)
+                .order_by(OAuthClient.created_at.desc(), OAuthClient.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        )
         counts = dict(
             session.execute(
                 select(OAuthGrant.client_record_id, func.count(func.distinct(OAuthGrant.user_id)))
-                .where(OAuthGrant.revoked_at.is_(None))
+                .where(OAuthGrant.revoked_at.is_(None), OAuthGrant.client_record_id.in_([c.id for c in page]))
                 .group_by(OAuthGrant.client_record_id)
             ).all()
         )
@@ -436,7 +477,7 @@ def create_oauth_router(settings: Settings) -> APIRouter:
                 "disabled_at": c.disabled_at,
                 "authorization_count": counts.get(c.id, 0),
             }
-            for c in session.scalars(select(OAuthClient).order_by(OAuthClient.created_at.desc()))
+            for c in page
         ]
 
     @router.post("/api/oauth/clients/{client_record_id}/revoke", response_model=OkOut)

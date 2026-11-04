@@ -10,8 +10,10 @@ from authlib.oauth2.rfc8414 import AuthorizationServerMetadata
 from avelis import audit
 from avelis.models import OAuthClient, User
 
+from .budgets import validate_metadata_budget
 from .cimd import CIMDError, validate_redirect_uri
 from .grants import CodeGrant
+from .limits import pending_quota_available
 from .repository import SCOPES, credential_hash
 
 
@@ -44,6 +46,7 @@ class RegistrationEndpoint(ClientRegistrationEndpoint):
 
     def extract_client_metadata(self, request):
         data = request.payload.data
+        validate_metadata_budget(data)
         for key in ("redirect_uris", "grant_types", "response_types"):
             if key in data and (
                 not isinstance(data[key], list) or not all(isinstance(x, str) and x for x in data[key])
@@ -71,6 +74,8 @@ class RegistrationEndpoint(ClientRegistrationEndpoint):
         return super().generate_client_secret(request)
 
     def save_client(self, client_info, client_metadata, request):
+        if not pending_quota_available(self.server.repository.session, self.server.settings.mcp_max_pending_clients):
+            raise InvalidClientMetadataError("The pending dynamic client quota is full.")
         secret = client_info.get("client_secret")
         row = OAuthClient(
             client_id=client_info["client_id"],

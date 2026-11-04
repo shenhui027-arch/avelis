@@ -7296,27 +7296,62 @@
     ],
     "summary": "Clients",
     "operationId": "clients_api_oauth_clients_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/ClientOut"
          },
-         "type": "array",
          "title": "Response Clients Api Oauth Clients Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/oauth/clients/{client_record_id}/revoke": {

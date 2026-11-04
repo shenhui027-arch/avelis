@@ -106,6 +106,12 @@ class Settings:
     workers: int = 1
     public_url: str = ""
     mcp_enabled: bool = True
+    mcp_registration_max_per_hour: int = 20
+    mcp_consent_max_per_hour: int = 120
+    mcp_max_pending_clients: int = 1000
+    mcp_pending_client_days: int = 7
+    mcp_replay_retention_days: int = 7
+    mcp_cleanup_batch_size: int = 500
     mcp_access_token_seconds: int = 900
     mcp_refresh_token_seconds: int = 30 * 24 * 3600
     mcp_cimd_cache_ttl_seconds: int = 3600
@@ -315,6 +321,18 @@ def _build_settings(env: dict[str, str]) -> Settings:
         workers=_positive_int(env, "AVELIS_WORKERS", Settings.workers),
         public_url=public_url,
         mcp_enabled=mcp_enabled,
+        mcp_registration_max_per_hour=_positive_int(
+            env, "AVELIS_MCP_REGISTRATION_MAX_PER_HOUR", Settings.mcp_registration_max_per_hour
+        ),
+        mcp_consent_max_per_hour=_positive_int(
+            env, "AVELIS_MCP_CONSENT_MAX_PER_HOUR", Settings.mcp_consent_max_per_hour
+        ),
+        mcp_max_pending_clients=_positive_int(env, "AVELIS_MCP_MAX_PENDING_CLIENTS", Settings.mcp_max_pending_clients),
+        mcp_pending_client_days=_positive_int(env, "AVELIS_MCP_PENDING_CLIENT_DAYS", Settings.mcp_pending_client_days),
+        mcp_replay_retention_days=_positive_int(
+            env, "AVELIS_MCP_REPLAY_RETENTION_DAYS", Settings.mcp_replay_retention_days
+        ),
+        mcp_cleanup_batch_size=_positive_int(env, "AVELIS_MCP_CLEANUP_BATCH_SIZE", Settings.mcp_cleanup_batch_size),
         mcp_access_token_seconds=_positive_int(
             env, "AVELIS_MCP_ACCESS_TOKEN_SECONDS", Settings.mcp_access_token_seconds
         ),
@@ -382,6 +400,12 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_ANALYSIS_EXPLORE_LIMIT",
         "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
+        "AVELIS_MCP_REGISTRATION_MAX_PER_HOUR",
+        "AVELIS_MCP_CONSENT_MAX_PER_HOUR",
+        "AVELIS_MCP_MAX_PENDING_CLIENTS",
+        "AVELIS_MCP_PENDING_CLIENT_DAYS",
+        "AVELIS_MCP_REPLAY_RETENTION_DAYS",
+        "AVELIS_MCP_CLEANUP_BATCH_SIZE",
         "AVELIS_MCP_ACCESS_TOKEN_SECONDS",
         "AVELIS_MCP_REFRESH_TOKEN_SECONDS",
         "AVELIS_MCP_CIMD_CACHE_TTL_SECONDS",

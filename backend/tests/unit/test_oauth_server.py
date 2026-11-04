@@ -25,7 +25,12 @@ SCOPES = "metrics:read lineage:read ask:execute"
 
 
 @pytest.fixture
-def oauth_api():
+def oauth_api(monkeypatch):
+    from avelis import cache
+    from tests.unit.oauth_helpers import CounterRedis
+
+    counter = CounterRedis()
+    monkeypatch.setattr(cache, "client", lambda: counter)
     from avelis.api.deps import current_user, get_session
     from avelis.config import build_settings
     from avelis.governance.errors import GovernanceError
@@ -103,6 +108,7 @@ def oauth_api():
             )
             session.commit()
             state = SimpleNamespace(
+                counter=counter,
                 session=session,
                 settings=settings,
                 user=user,

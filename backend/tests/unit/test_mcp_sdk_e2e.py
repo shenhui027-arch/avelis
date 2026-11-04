@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 
 from tests.unit.mcp_helpers import make_local_tls, tcp_server
+from tests.unit.oauth_helpers import CounterRedis
 
 
 @dataclass
@@ -102,6 +103,8 @@ def sdk_database(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "is_revoked", lambda _: False)
     monkeypatch.setattr(cache, "login_locked_seconds", lambda *_: 0)
     monkeypatch.setattr(cache, "clear_login_failures", lambda _: None)
+    counter = CounterRedis()
+    monkeypatch.setattr(cache, "client", lambda: counter)
     settings = config.build_settings({"AVELIS_SECRET": "test-secret-mcp-sdk-e2e"})
     state = SimpleNamespace(factory=factory, settings=settings, user_id="sdk-user", domain_id="sdk-domain")
     for module in (config, db, security, app_module, auth):
