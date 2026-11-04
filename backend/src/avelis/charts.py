@@ -322,17 +322,19 @@ def _recommend(
             len({_unit_identity(units.get(c)) for c in currents}) == 1
             and len({_unit_identity(units.get(c)) for c in changes}) == 1
         )
-        # 现有 multiples 每条 series 一个面板；不能把不同量纲挤进同一个坐标轴。
-        shown_groups = groups if same_unit else groups[:MAX_PANELS]
+        # 发散条形按涨跌着色，多条系列在同一张图里分不出属于哪个指标；多指标变化图每个指标一个面板
+        # （multiples 每条 series 一个面板，也不会把不同量纲挤进同一坐标轴）。
+        single = len(groups) == 1
+        shown_groups = groups if single else groups[:MAX_PANELS]
         shown_changes = [group[2] for group in shown_groups]
         categories, values, merged, omission = comparison_data(changes[0], shown_changes)
         default = spec(
-            "diverging_bar" if same_unit else "multiples",
+            "diverging_bar" if single else "multiples",
             "change",
             dimension,
             categories,
             [
-                series(change, items, direction=current, axis=0 if same_unit else index)
+                series(change, items, direction=current, axis=0 if single else index)
                 for index, ((current, _, change, _), items) in enumerate(zip(shown_groups, values, strict=True))
             ],
             orientation="horizontal",

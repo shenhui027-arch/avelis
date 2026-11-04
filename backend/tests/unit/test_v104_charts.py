@@ -53,8 +53,10 @@ def test_same_unit_comparisons_keep_all_groups_in_every_candidate():
     data = comparison_dataset()
     before = deepcopy(data)
     default, candidate = dataset_charts(data)
-    assert default["kind"] == "diverging_bar"
+    # 发散条形按涨跌着色，分不出多条系列属于哪个指标：多指标变化图每个指标一个面板。
+    assert default["kind"] == "multiples"
     assert [s["column"] for s in default["series"]] == ["指标0·变化", "指标1·变化"]
+    assert [s["axis"] for s in default["series"]] == [0, 1]
     assert candidate["kind"] == "grouped_bar"
     assert [s["column"] for s in candidate["series"]] == ["指标0", "指标0·对比期", "指标1", "指标1·对比期"]
     assert [s["name"] for s in candidate["series"]] == [
@@ -63,9 +65,22 @@ def test_same_unit_comparisons_keep_all_groups_in_every_candidate():
         "指标1 / 本期",
         "指标1 / 对比期",
     ]
-    assert all(s["axis"] == 0 for chart in (default, candidate) for s in chart["series"])
+    assert all(s["axis"] == 0 for s in candidate["series"])
     assert all(chart["dropped_series"] == 0 for chart in (default, candidate))
     assert data == before
+
+
+def test_single_metric_comparison_keeps_the_diverging_change_chart():
+    default, candidate = dataset_charts(comparison_dataset(1))
+    assert default["kind"] == "diverging_bar" and [s["axis"] for s in default["series"]] == [0]
+    assert candidate["kind"] == "grouped_bar"
+
+
+@pytest.mark.parametrize("count", [9])
+def test_same_unit_comparison_panels_record_omission_over_the_limit(count):
+    default = dataset_charts(comparison_dataset(count))[0]
+    assert default["kind"] == "multiples" and len(default["series"]) == charts.MAX_PANELS
+    assert default["dropped_series"] == count - charts.MAX_PANELS
 
 
 @pytest.mark.parametrize("count", [2, 10])
