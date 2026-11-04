@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.0.2-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.2)
+[![version](https://img.shields.io/badge/version-v1.0.3-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.3)
 
 [功能亮點](#功能亮點) · [最近更新](#最近更新) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.2 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.0.3 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
@@ -50,6 +50,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.0.3** | 圖表能力升級：問數回答自動出圖（趨勢、排名、構成、對比、指標卡、分圖），可切換候選圖與表格、下載 PNG；分析報告正文插圖，PDF / HTML 匯出依同一份圖表規格繪圖；數值依量綱顯示（百分比、萬 / 億、單位）；模型可透過 chart 工具選圖並給出結論式圖題 |
 | **v1.0.2** | MCP 服務：Claude、Cursor 等 AI 工具經 OAuth 授權後，依受治理的口徑與血緣查數；治理事件與 Webhook：口徑發布、採集失敗、結構變化等 14 種事件推送到訂閱位址；口徑與 Apache Ossie 語意模型雙向互通；口徑語意提示（適用說明、同義詞、範例問法）；部署開箱即用，預設管理員 admin / 123456，登入頁可直接改密碼 |
 | **v1.0.1** | MySQL 完整引擎（檢視表欄位級血緣、唯讀問數）；MySQL、SQL Server、Oracle、StarRocks 的 DDL 變更歸因到資料庫使用者 |
 | **v1.0.0** | 首個公開版本：中繼資料採集與欄位級血緣、口徑治理與變更管理、有依據的智慧問數、分析智慧體 |
