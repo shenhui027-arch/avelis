@@ -21,6 +21,7 @@ from avelis.events import delivery
 from avelis.history import integrity
 from avelis.importer import batch as importer
 from avelis.models import AuditEvent, Datasource, EventOutbox, ImportBatch, Job, User, WebhookSubscription
+from tests.db.conftest import TEST_DB
 
 pytestmark = pytest.mark.db
 ROUNDS = range(20)
@@ -38,7 +39,7 @@ def isolated_scans(meta_db):
     """屏蔽其他测试遗留的订阅，结束后恢复；不会扫描它们的 pending 条目。"""
     engine = get_engine()
     with session_scope() as session:
-        assert session.scalar(text("SELECT current_database()")) == "avelis_m8_test"
+        assert session.scalar(text("SELECT current_database()")) == TEST_DB
         subscriptions = list(session.scalars(select(WebhookSubscription).where(WebhookSubscription.enabled.is_(True))))
         enabled_ids = [row.id for row in subscriptions]
         for row in subscriptions:
@@ -172,7 +173,7 @@ def _delivery_process(pipe, barrier, worker_index):
     delivery.send_webhook = receive
     try:
         with session_scope() as session:
-            assert session.scalar(text("SELECT current_database()")) == "avelis_m8_test"
+            assert session.scalar(text("SELECT current_database()")) == TEST_DB
         while (round_no := pipe.recv()) is not None:
             errors.clear()
             sent.clear()

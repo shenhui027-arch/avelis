@@ -12,7 +12,8 @@ const url = (path, replace = (s) => s) => {
   return "data:text/javascript;base64," + Buffer.from(js).toString("base64");
 };
 const numbers = url("../../numbers.ts", (s) => s.replace(/^import \{ t \} from "\.\/i18n";$/m, "const t = (s) => s;"));
-const mod = await import(url("./chartOption.ts", (s) => s.replace('from "../../numbers"', `from "${numbers}"`)));
+const mod = await import(url("./chartOption.ts", (s) => s.replace('from "../../numbers"', `from "${numbers}"`)
+  .replace(/^import \{ t \} from "\.\.\/\.\.\/i18n";$/m, "const t = (s) => s;")));
 
 const theme = { series: ["#s1", "#s2", "#s3", "#s4", "#s5", "#s6", "#s7", "#s8"], neutral: "#n", good: "#g", bad: "#b",
   grid: "#grid", axis: "#axis", text: "#t", muted: "#m", surface: "#bg", font: "sans", mono: "mono" };
@@ -78,3 +79,53 @@ assert.deepEqual(option.series.map((s) => s.showSymbol), [false, true]);
 option = mod.chartOption(spec({ kind: "multiples", orientation: "vertical", categories: ["a", "b"], series: [series("甲", [1, null], { mark: "bar" })] }), "cn", theme);
 assert.equal(option.series[0].showSymbol, false);
 console.log("chartOption isolated-point tests ok");
+
+// 标注：极值点与平均线只画规格里给出的（位置与数值来自后端），横向条形的坐标是 [数值, 类目]
+option = mod.chartOption(spec({ marks: [
+  { type: "max", series: "value", series_index: 0, x: "甲", value: 3 },
+  { type: "average", series: "value", series_index: 0, x: null, value: 2 },
+] }), "cn", theme);
+assert.deepEqual(option.series[0].markPoint.data.map((d) => d.coord), [[3, "甲"]]);
+assert.equal(option.series[0].markPoint.data[0].label.formatter, "最高 3元");
+assert.equal(option.series[0].markLine.data[0].xAxis, 2);
+assert.equal(option.series[0].markLine.data[0].label.formatter, "平均 2元");
+assert.equal(mod.chartOption(spec(), "cn", theme).series[0].markPoint, undefined);
+
+// 突出类目：其余类目弱化，被突出的保持不透明
+option = mod.chartOption(spec({ highlight: ["乙"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.itemStyle.opacity), [0.32, 1, 0.32]);
+option = mod.chartOption(spec({ kind: "donut", highlight: ["甲"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.itemStyle.opacity), [1, 0.32, 0.32]);
+console.log("chartOption marks / highlight: ok");
+
+// 堆叠柱：第二个及之后系列的极值点指向本段末端（加上同方向前序段），标签仍是本段自身的值；正负分开堆叠；平均线不画在堆叠图上
+const stackedSpec = (marks) => spec({ kind: "stacked_bar", orientation: "vertical", categories: ["1月", "2月"],
+  series: [series("A", [100, -10]), series("B", [20, -30])], marks });
+option = mod.chartOption(stackedSpec([
+  { type: "max", series: "value", series_index: 1, x: "2月", value: -30 },
+  { type: "min", series: "value", series_index: 1, x: "1月", value: 20 },
+  { type: "average", series: "value", series_index: 1, x: null, value: -5 },
+]), "cn", theme);
+assert.deepEqual(option.series[1].markPoint.data.map((d) => d.coord), [["2月", -40], ["1月", 120]]);
+assert.equal(option.series[1].markPoint.data[1].label.formatter, "最低 20元");
+assert.equal(option.series[1].markLine, undefined);
+// 非堆叠图对照：坐标就是原值
+option = mod.chartOption(spec({ kind: "grouped_bar", orientation: "vertical", categories: ["1月"], series: [series("A", [100]), series("B", [20])],
+  marks: [{ type: "max", series: "value", series_index: 1, x: "1月", value: 20 }] }), "cn", theme);
+assert.deepEqual(option.series[1].markPoint.data[0].coord, ["1月", 20]);
+console.log("chartOption stacked marks: ok");
+
+// 折线突出某期：孤立观测（前后为空）保留弱化的小点，不被隐藏；分面板折线在期间多时也画出突出的点
+const lineSpec = (extra) => spec({ kind: "line", orientation: "vertical", categories: ["1月", "2月", "3月"],
+  series: [series("A", [null, 5, null], { mark: "line" })], ...extra });
+option = mod.chartOption(lineSpec({ highlight: ["1月"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.symbolSize), [10, 6, 0]);
+assert.equal(option.series[0].data[1].itemStyle.opacity, 0.32);
+const periods = Array.from({ length: 20 }, (_, i) => `D${i + 1}`);
+option = mod.chartOption(spec({ kind: "multiples", orientation: "vertical", categories: periods, highlight: ["D5"],
+  series: [series("A", periods.map((_, i) => i + 1), { mark: "line" })] }), "cn", theme);
+assert.equal(option.series[0].showSymbol, true);
+assert.equal(option.series[0].data[4].symbolSize, 10);
+assert.equal(option.series[0].data[0].symbolSize, 0);
+console.log("chartOption line highlight: ok");
+

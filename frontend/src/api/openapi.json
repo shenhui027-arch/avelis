@@ -11060,6 +11060,49 @@
     ],
     "title": "ChartKpi"
    },
+   "ChartMark": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "max",
+       "min",
+       "average"
+      ],
+      "title": "Type"
+     },
+     "series": {
+      "type": "string",
+      "title": "Series",
+      "description": "系列对应的稳定列名"
+     },
+     "series_index": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "Series Index",
+      "description": "对应当前规格 series 的下标，区分同列透视出的多个系列"
+     },
+     "x": {
+      "title": "X",
+      "description": "已显示的类目或时间值；average 为 null"
+     },
+     "value": {
+      "type": "number",
+      "title": "Value",
+      "description": "原始量纲的标注值；average 是该系列所示非空值的算术平均"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "type",
+     "series",
+     "series_index",
+     "x",
+     "value"
+    ],
+    "title": "ChartMark"
+   },
    "ChartOmittedCategories": {
     "properties": {
      "count": {
@@ -11283,6 +11326,36 @@
      "dropped_series": {
       "type": "integer",
       "title": "Dropped Series"
+     },
+     "marks": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/ChartMark"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Marks",
+      "description": "按最终显示数据计算的极值点与平均线"
+     },
+     "highlight": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Highlight",
+      "description": "要突出的显示类目名，其余类目应弱化"
      }
     },
     "additionalProperties": true,

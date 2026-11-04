@@ -122,6 +122,7 @@ ChartArgs = charts.ChartPreference
 
 CHART_DESCRIPTION = (
     "只有当图比表格更能说明结果时才调用；chart_options 是全部指标的可选图，默认图在前，选单指标后图种可变化。"
+    "可按工具参数排序、标注所示极值或平均值、突出显示类目；average 是所示非空值的算术平均，不代表整体或加权比率。"
     "最多调用一次。" + charts.ChartPreference.tool_description()
 )
 

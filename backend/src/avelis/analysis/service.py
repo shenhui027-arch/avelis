@@ -748,6 +748,9 @@ def followup_run(
     scope = (
         (parent.plan or {}).get("scope") if lookup else saved.get("confirmed_scope") or (parent.plan or {}).get("scope")
     ) or {}
+    if (parent.report or {}).get("kind") == "chart" or scope.get("question_type") == "chart":
+        # 改图轮次的范围只描述呈现，不是确认过的分析范围：下一轮重新理解，需要新数据时才能取数。
+        scope = {}
     window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
     inherited_choice = None
     if model is None and reasoning_effort is None and parent.model_choice is not None:
@@ -767,10 +770,13 @@ def followup_run(
     )
     run.parent_run_id = parent.id
     run.conversation_id = parent.conversation_id or parent.id
-    inherited = {"user_text": text}
-    if lookup:
-        inherited.update(previous_question=parent.question, previous_scope=scope, previous_window=parent.window or {})
-    else:
+    inherited = {
+        "user_text": text,
+        "previous_question": parent.question,
+        "previous_scope": scope,
+        "previous_window": parent.window or {},
+    }
+    if not lookup:
         inherited.update(scope=scope, items=saved.get("confirmed_items") or [])
     from avelis.analysis.conversation_context import build_followup_context
 
@@ -1160,6 +1166,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         restrict_report,
         restrict_verification,
     )
+    from avelis.analysis.figures import report_chart_preference
     from avelis.charts import recommend
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
@@ -1208,6 +1215,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     }
     if not full:
         title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
+        if (run.report or {}).get("kind") == "chart" and (run.report or {}).get("dataset"):
+            title_refs.add(run.report["dataset"])
         if user is not None and title_refs:
             datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
             known = {f"D{d.seq}": d for d in datasets}
@@ -1357,6 +1366,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                     metadata[d.id].get("units") or {},
                     metadata[d.id].get("polarity") or {},
                     metadata[d.id].get("intent"),
+                    preference=report_chart_preference(report, f"D{d.seq}"),
                 )
                 if d.id in readable
                 else [],

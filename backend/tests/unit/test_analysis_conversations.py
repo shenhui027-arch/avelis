@@ -166,3 +166,20 @@ def test_scheduled_runs_of_same_task_have_independent_conversations(api, model):
     assert all(r.parent_run_id is None for r in runs)
     data = api.client.get("/api/analysis/conversations").json()
     assert len(data) == 3 and all(c["turn_count"] == 1 for c in data)
+
+
+def test_followup_after_a_chart_edit_turn_does_not_inherit_the_presentation_scope(api, model):
+    """改图轮次的范围只描述呈现：下一轮不当作确认过的分析范围继承，需要新数据的续问才能取数。"""
+    child = followup(api, "画成饼图")
+    child.status = "succeeded"
+    child.report = {"kind": "chart", "dataset": "D1", "preference": {"kind": "donut"}, "figures": []}
+    child.plan = {**(child.plan or {}), "scope": {"question_type": "chart", "chart_dataset": "D1", "metric_codes": []}}
+    child.checkpoint = {
+        **(child.checkpoint or {}),
+        "confirmed_scope": {"question_type": "chart", "chart_dataset": "D1"},
+    }
+    api.session.flush()
+    grandchild = service.followup_run(api.session, api.user, child.id, "再看上个月的数据")
+    inherited = grandchild.checkpoint["inherited"]
+    assert not inherited.get("scope")
+    assert grandchild.question == "再看上个月的数据"

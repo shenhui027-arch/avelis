@@ -3255,6 +3255,36 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChartMark */
+        ChartMark: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "max" | "min" | "average";
+            /**
+             * Series
+             * @description 系列对应的稳定列名
+             */
+            series: string;
+            /**
+             * Series Index
+             * @description 对应当前规格 series 的下标，区分同列透视出的多个系列
+             */
+            series_index: number;
+            /**
+             * X
+             * @description 已显示的类目或时间值；average 为 null
+             */
+            x: unknown;
+            /**
+             * Value
+             * @description 原始量纲的标注值；average 是该系列所示非空值的算术平均
+             */
+            value: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** ChartOmittedCategories */
         ChartOmittedCategories: {
             /**
@@ -3339,6 +3369,16 @@ export interface components {
             omitted_categories?: components["schemas"]["ChartOmittedCategories"] | null;
             /** Dropped Series */
             dropped_series: number;
+            /**
+             * Marks
+             * @description 按最终显示数据计算的极值点与平均线
+             */
+            marks?: components["schemas"]["ChartMark"][] | null;
+            /**
+             * Highlight
+             * @description 要突出的显示类目名，其余类目应弱化
+             */
+            highlight?: string[] | null;
         } & {
             [key: string]: unknown;
         };

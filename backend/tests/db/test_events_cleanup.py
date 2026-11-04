@@ -11,6 +11,7 @@ from sqlalchemy import delete, event, inspect, select, text
 from avelis.db import get_engine, new_id, session_scope, utcnow
 from avelis.events import cleanup, delivery
 from avelis.models import EventOutbox, WebhookSubscription
+from tests.db.conftest import TEST_DB
 
 pytestmark = pytest.mark.db
 NOW = datetime(2001, 1, 1)
@@ -27,7 +28,7 @@ def _timeouts(connection):
 @pytest.fixture
 def world(meta_db):
     with session_scope() as session:
-        assert session.scalar(text("SELECT current_database()")) == "avelis_m8_test"
+        assert session.scalar(text("SELECT current_database()")) == TEST_DB
         enabled = list(session.scalars(select(WebhookSubscription).where(WebhookSubscription.enabled.is_(True))))
         previous_ids = [row.id for row in enabled]
         for row in enabled:
