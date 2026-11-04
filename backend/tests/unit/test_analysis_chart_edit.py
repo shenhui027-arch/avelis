@@ -474,3 +474,11 @@ def test_inherited_chart_scope_is_not_treated_as_a_confirmed_analysis_scope(monk
     result = agent.understand(state, config)
     assert result["phase"] != "chart_edit"
     assert (result["scope"] or {}).get("question_type") != "chart"
+
+
+def test_chart_edit_prompt_keeps_titles_descriptive_because_they_are_not_verified(monkeypatch):
+    """改图时不核对数据：图题只描述内容与画法，不能写排名、最高最低等判断（走查中出现过与数据不符的“某某居首”）。"""
+    box, model, config, state = configured(monkeypatch, "按从低到高排，突出乙", {"kind": "bar", "sort": "value_asc"})
+    agent.build_graph(MemorySaver()).invoke(state, config)
+    system = "\n".join(str(m.content) for m in model.seen[-1] if m.type == "system")
+    assert "不写排名" in system or "排名、最高最低" in system
