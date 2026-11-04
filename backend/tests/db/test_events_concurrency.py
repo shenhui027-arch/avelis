@@ -67,7 +67,9 @@ def no_hidden_failures(isolated_scans, caplog):
     finally:
         event.remove(engine, "handle_error", failed)
     assert errors == [], f"数据库异常（含可能被业务捕获的异常）: {errors}"
-    assert not [record.getMessage() for record in caplog.records if record.levelno >= 40]
+    # 收尾阶段 caplog.records 只剩收尾日志；要显式取准备与运行阶段，才能抓到并发过程中被业务捕获后记下的 ERROR
+    logged = [r for phase in ("setup", "call") for r in caplog.get_records(phase)]
+    assert not [record.getMessage() for record in logged if record.levelno >= 40]
 
 
 @pytest.fixture
