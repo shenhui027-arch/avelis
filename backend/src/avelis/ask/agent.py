@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from avelis import charts, modelcfg
 from avelis.analysis.grounding import _unit, display, number
 from avelis.ask import service
-from avelis.ask.alignment import AlignmentResult, align_filters, has_dimension_table
+from avelis.ask.alignment import AlignmentResult, align_filters, candidate_sources, has_dimension_table
 from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today, matched_dimension_values
 from avelis.ask.llm import DEMO_ADAPTER
 from avelis.config import get_settings
@@ -135,6 +135,7 @@ class Toolbox:
         self.clarification: dict | None = None
         self._values: dict[tuple[str, str], list[str]] = {}
         self.filter_alignment: list[dict[str, Any]] = []
+        self.alignment_candidates: list[dict] = []
         self.filter_alignment_unknown: list[dict[str, Any]] = []
 
     def _card(self, code: str):
@@ -242,6 +243,9 @@ class Toolbox:
         # 受影响 / 失效的指标交给治理步骤拦截，不让取值澄清遮住治理原因。
         alignment = self._align_filters(metric_codes, parsed) if all(c.status == "published" for c in cards) else None
         if alignment and alignment.unresolved:
+            projected, _ = service.project_alignment_clarifications(self.session, self.user, alignment.unresolved)
+            alignment.unresolved = projected
+            self.alignment_candidates.extend(projected)
             problems = [
                 gettext("维度 {dimension} 的取值 {original} 尚未确定；候选：{candidates}；请用 ask_user 确认").format(
                     dimension=item["dimension"], original=item["original"], candidates=item["candidates"]
@@ -310,6 +314,7 @@ class Toolbox:
                         "dimension": item.dimension,
                         "original": original,
                         "candidates": list(dict.fromkeys(candidates))[:10],
+                        **candidate_sources(pending, notes),
                         "has_dimension_table": has_table,
                     }
                     if record not in unresolved:
@@ -325,7 +330,11 @@ class Toolbox:
         return AlignmentResult(filters=aligned, explanations=explanations, unresolved=unresolved, unknown=unknown)
 
     def ask_user(self, question: str, options: list[str] | None = None) -> str:
-        self.clarification = {"question": question, "options": options or []}
+        self.clarification = {
+            "question": question,
+            "options": options or [],
+            **({"alignment_candidates": self.alignment_candidates} if self.alignment_candidates else {}),
+        }
         return json.dumps({"asked": True}, ensure_ascii=False)
 
     def tools(self) -> list[StructuredTool]:
@@ -463,6 +472,9 @@ def understand(state: AgentState, config) -> dict[str, Any]:
     bound = model.bind_tools(list(tools.values()))
     system = SystemMessage(SYSTEM_PROMPT.format(tz=settings.business_timezone, today=today))
     history = _history_for_model(list(state.get("messages", [])), modelcfg.policy(session)["send_results"])
+    _, restricted = service.project_alignment_clarifications(session, user, state.get("steps", []))
+    if restricted:
+        history = [m for m in history if isinstance(m, HumanMessage)][-1:]
     instruction = _reply_instruction(state, config)
     # 每次请求临时追加，不写进多轮历史，避免切换语言后沿用旧指令。
     language_messages = [HumanMessage(instruction)] if instruction else []
@@ -485,7 +497,15 @@ def understand(state: AgentState, config) -> dict[str, Any]:
             new_messages.append(ToolMessage(content=str(output), tool_call_id=call["id"]))
         if toolbox.intent or toolbox.clarification:
             break
-    step = {"node": "understand", "adapter": resolved.adapter, "tool_calls": calls, "at": utcnow().isoformat()}
+    step = {
+        "node": "understand",
+        "adapter": resolved.adapter,
+        "tool_calls": calls,
+        "at": utcnow().isoformat(),
+        **({"alignment_candidates": toolbox.alignment_candidates} if toolbox.alignment_candidates else {}),
+    }
+    if toolbox.alignment_candidates:
+        answer.evidence["alignment_candidates"] = toolbox.alignment_candidates
     if toolbox.intent:
         answer.evidence["filter_alignment"] = toolbox.filter_alignment
         answer.evidence["filter_alignment_unknown"] = toolbox.filter_alignment_unknown
@@ -502,6 +522,8 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         "question": gettext("没能确定要查询的指标与日期，请换个说法或补充信息"),
         "options": [],
     }
+    if toolbox.alignment_candidates:
+        clarification = {**clarification, "alignment_candidates": toolbox.alignment_candidates}
     return {
         "clarification": clarification,
         "intent": None,

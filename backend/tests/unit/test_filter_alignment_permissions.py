@@ -237,3 +237,180 @@ def test_analysis_projects_alignment_retained_only_in_earlier_steps(aligned_answ
     assert view["steps"][0]["output"] == ({"row_count": 1} if kind == "tool" else {"restricted": True})
     assert view["datasets"][0]["rows"] == dataset.rows
     assert "private_regions" not in str(view) and "private_label" not in str(view)
+
+
+@pytest.fixture
+def candidate_clarification(aligned_answer):
+    session, user, run, dataset, dimension, answer, _ = aligned_answer
+    item = {
+        "dimension": "region",
+        "original": "shared_alias",
+        "options": ["private_key_a", "private_key_b", "public_member"],
+        "candidate_sources": {"private_key_a": [dimension.id], "private_key_b": [dimension.id]},
+    }
+    clarification = {
+        "kind": "clarify",
+        "question": "Choose private_key_a, private_key_b or public_member",
+        "dimension": "region",
+        "options": item["options"],
+        "items": [item],
+    }
+    run.status = "waiting"
+    run.checkpoint = {
+        "pending": clarification,
+        "snapshot": {
+            "state": {
+                "clarification": clarification["question"],
+                "clarification_details": clarification,
+                "clarifications": [{**clarification, "answer": "private_key_a"}],
+            }
+        },
+    }
+    run.report = {
+        "summary": clarification["question"],
+        "clarification": clarification,
+        "clarifications": [{**clarification, "answer": "private_key_b"}],
+    }
+    step = AnalysisStep(
+        run_id=run.id, seq=1, kind="clarify", tool="understand", status="waiting", args={}, output=clarification
+    )
+    session.add(step)
+    answer.evidence = {"clarification": clarification, "alignment_candidates": [item]}
+    answer.steps = [
+        {
+            "node": "understand",
+            "alignment_candidates": [item],
+            "tool_calls": [{"args": {"question": clarification["question"]}}],
+        }
+    ]
+    answer.message = clarification["question"]
+    session.commit()
+    return session, user, run, dataset, dimension, answer, clarification
+
+
+@pytest.mark.parametrize("full", [True, False])
+@pytest.mark.parametrize("revoked", ["domain", "deleted", "upstream"])
+def test_run_projects_saved_candidate_clarifications_on_revocation(candidate_clarification, full, revoked):
+    session, user, run, dataset, dimension, _, clarification = candidate_clarification
+    saved_checkpoint, saved_report = deepcopy(run.checkpoint), deepcopy(run.report)
+    assert service.run_view(session, run, user=user, full=full)["pending"] == clarification
+    if revoked == "domain":
+        dimension.domain_id = "hidden"
+    elif revoked == "deleted":
+        session.delete(dimension)
+    else:
+        upstream = Asset(
+            id="private_upstream",
+            datasource_id="source",
+            kind="table",
+            catalog_name="local",
+            db_name="data",
+            name="upstream",
+            domain_id="hidden",
+        )
+        session.add_all(
+            [
+                upstream,
+                IdentityLink(
+                    source_asset_id=dimension.id, target_asset_id=upstream.id, status="confirmed", method="manual"
+                ),
+            ]
+        )
+    session.commit()
+
+    view = service.run_view(session, run, user=user, full=full)
+
+    assert "private_key_a" not in str(view) and "private_key_b" not in str(view)
+    assert view["pending"]["items"][0]["options"] == ["public_member"]
+    assert view["pending"]["options"] == ["public_member"]
+    if full:
+        assert view["steps"][0]["output"]["items"][0]["options"] == ["public_member"]
+        assert view["datasets"][0]["rows"] == dataset.rows
+    assert run.checkpoint == saved_checkpoint and run.report == saved_report
+
+
+def test_ask_projects_saved_candidate_text_and_preserves_original_evidence(candidate_clarification):
+    session, user, _, _, dimension, answer, _ = candidate_clarification
+    saved_evidence, saved_steps = deepcopy(answer.evidence), deepcopy(answer.steps)
+    assert "private_key_a" in str(ask.answer_view(answer, session, user=user))
+    dimension.domain_id = "hidden"
+    session.commit()
+
+    view = ask.answer_view(answer, session, user=user)
+
+    assert "private_key_a" not in str(view) and "private_key_b" not in str(view)
+    assert view["evidence"]["clarification"]["items"][0]["options"] == ["public_member"]
+    assert view["message"] is None and view["steps"] == []
+    assert answer.evidence == saved_evidence and answer.steps == saved_steps
+
+
+def test_ask_model_does_not_receive_revoked_candidate_history(candidate_clarification, monkeypatch):
+    from types import SimpleNamespace
+
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from avelis.ask import agent
+    from tests.unit.test_ask_filter_alignment import make_box
+
+    session, user, _, _, dimension, answer, _ = candidate_clarification
+    box = make_box(monkeypatch)
+    dimension.domain_id = "hidden"
+    session.commit()
+    seen = []
+
+    def invoke(messages):
+        seen.extend(messages)
+        return AIMessage("Please clarify")
+
+    model = SimpleNamespace(bind_tools=lambda _: SimpleNamespace(invoke=invoke))
+    monkeypatch.setattr(agent.service, "visible_catalog", lambda *args, **kwargs: box.catalog)
+    monkeypatch.setattr(agent.modelcfg, "resolve", lambda *args: SimpleNamespace(model=model, adapter="offline"))
+    monkeypatch.setattr(agent.modelcfg, "policy", lambda *args: {"send_results": True})
+    state = {
+        "steps": answer.steps,
+        "messages": [
+            HumanMessage("start"),
+            ToolMessage("private_key_a", tool_call_id="old"),
+            AIMessage("choose private_key_b"),
+            HumanMessage("continue"),
+        ],
+    }
+    agent.understand(state, {"configurable": {"session": session, "user": user, "answer": answer}})
+    assert "private_key_a" not in str(seen) and "private_key_b" not in str(seen)
+    assert "continue" in str(seen)
+
+
+def test_candidate_sources_survive_analysis_and_ask_merge(candidate_clarification, monkeypatch):
+    from avelis.analysis import agent as analysis_agent
+    from avelis.ask import agent as ask_agent
+    from avelis.ask.alignment import AlignmentResult
+    from avelis.ask.intent import DimensionFilter
+    from tests.unit.test_ask_filter_alignment import make_box
+
+    session, user, _, _, dimension, _, _ = candidate_clarification
+    box = make_box(monkeypatch, codes=("metric_a", "metric_b"))
+    box.session, box.user = session, user
+    pending = {
+        "dimension": "dimension_a",
+        "original": "alias",
+        "candidates": ["private_key_a", "public_member"],
+        "has_dimension_table": True,
+        "candidate_sources": {"private_key_a": [dimension.id]},
+    }
+    monkeypatch.setattr(
+        ask_agent,
+        "align_filters",
+        lambda *args: AlignmentResult(
+            [DimensionFilter(dimension="dimension_a", values=["alias"])], unresolved=[pending]
+        ),
+    )
+    result = box._align_filters(["metric_a", "metric_b"], [DimensionFilter(dimension="dimension_a", values=["alias"])])
+    _, details = analysis_agent._filter_clarification(result.unresolved)
+    assert details["items"][0]["candidate_sources"] == {"private_key_a": [dimension.id]}
+    dimension.domain_id = "hidden"
+    session.commit()
+    from avelis.ask.service import project_alignment_clarifications
+
+    projected, restricted = project_alignment_clarifications(session, user, details)
+    assert restricted and projected["items"][0]["options"] == ["public_member"]
+    assert "private_key_a" not in str(projected)

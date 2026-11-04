@@ -96,6 +96,55 @@ def filter_alignment_restricted(session: Session | None, user: User | None, expl
         return True
 
 
+def project_alignment_clarifications(session: Session | None, user: User | None, value: Any) -> tuple[Any, bool]:
+    """仅投影返回值，不改写检查点；自由文本可能复述候选，失权时保守移除。"""
+    if isinstance(value, list):
+        items = [project_alignment_clarifications(session, user, item) for item in value]
+        return [item for item, _ in items], any(restricted for _, restricted in items)
+    if not isinstance(value, dict):
+        return value, False
+    projected, restricted = {}, False
+    for key, item in value.items():
+        projected[key], hidden = project_alignment_clarifications(session, user, item)
+        restricted |= hidden
+    sources = value.get("candidate_sources", {})
+    hidden_values = {
+        candidate
+        for candidate, ids in sources.items()
+        if not ids
+        or filter_alignment_restricted(session, user, [{"method": "dimension_table", "asset_id": i} for i in ids])
+    }
+    if hidden_values:
+        restricted = True
+        projected["candidate_sources"] = {c: ids for c, ids in sources.items() if c not in hidden_values}
+        for key in ("options", "candidates"):
+            if key in projected:
+                projected[key] = [c for c in projected[key] if c not in hidden_values]
+    if restricted:
+        # 顶层 options 是第一项的副本；不可留着未投影的旧副本。
+        if projected.get("items"):
+            projected["options"] = projected["items"][0].get("options", [])
+        elif "candidate_sources" not in value and "options" in projected:
+            projected["options"] = []
+        question = gettext("请补充问题的指标与日期")
+        if projected.get("items"):
+            question = "\n".join(
+                gettext(
+                    "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。",
+                    original=item["original"],
+                    dimension=item["dimension"],
+                    candidates="、".join(item.get("options", [])),
+                )
+                for item in projected["items"]
+            )
+        for key in ("question", "summary", "message", "explanation", "reason", "answer", "notes", "errors"):
+            if key in projected:
+                projected[key] = (
+                    question if key in {"question", "summary", "message"} else "" if key == "answer" else None
+                )
+    return projected, restricted
+
+
 @dataclass
 class Catalog:
     """当前用户可检索的口径：只含有权业务域、且进入过发布流程的指标。"""

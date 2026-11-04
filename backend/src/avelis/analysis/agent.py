@@ -47,7 +47,7 @@ from avelis.analysis import conversation_context, investigation
 from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
-from avelis.ask.alignment import AlignmentResult, align_filters, has_dimension_table
+from avelis.ask.alignment import AlignmentResult, align_filters, candidate_sources, has_dimension_table
 from avelis.config import get_settings
 from avelis.engines import dialect_of, get_engine
 from avelis.governance import access, experiences, joins
@@ -842,6 +842,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
                         "dimension": dimension,
                         "original": original,
                         "candidates": candidates[:10],
+                        **candidate_sources(pending, notes),
                         "has_dimension_table": any(entry["has_dimension_table"] for entry in pending)
                         or any(entry["method"] == "dimension_table" for entry in notes)
                         or any(
@@ -905,7 +906,12 @@ def _filter_clarification(unresolved: list[dict]) -> tuple[str, dict]:
         "dimension": first["dimension"],
         "options": first["candidates"],
         "items": [
-            {"dimension": item["dimension"], "original": item["original"], "options": item["candidates"]}
+            {
+                "dimension": item["dimension"],
+                "original": item["original"],
+                "options": item["candidates"],
+                **candidate_sources([item]),
+            }
             for item in unresolved
         ],
         "unresolved": unresolved,
@@ -915,7 +921,12 @@ def _filter_clarification(unresolved: list[dict]) -> tuple[str, dict]:
 def _alignment_items(details: dict) -> list[dict]:
     """兼容旧检查点；新检查点的每个未解决值都有自己的可选项。"""
     return details.get("items") or [
-        {"dimension": item["dimension"], "original": item["original"], "options": item["candidates"]}
+        {
+            "dimension": item["dimension"],
+            "original": item["original"],
+            "options": item["candidates"],
+            **candidate_sources([item]),
+        }
         for item in details.get("unresolved", [])
     ]
 
@@ -941,11 +952,22 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     """理解范围；追问先保存再回到本节点暂停，恢复不会重做已完成的模型调用。"""
     toolbox, model = _ctx(config)
     previous_scope = toolbox.scope
-    clarifications = list(state.get("clarifications") or [])
-    details = state.get("clarification_details") or {}
+    clarifications, _ = service.project_alignment_clarifications(
+        toolbox.session, toolbox.user, list(state.get("clarifications") or [])
+    )
+    details, details_restricted = service.project_alignment_clarifications(
+        toolbox.session, toolbox.user, state.get("clarification_details") or {}
+    )
     alignment_items = []
     selections = {}
     if state.get("phase") == "clarify" and (question := state.get("clarification")):
+        if details_restricted:
+            question = _filter_clarification(
+                [
+                    {**item, "candidates": item["options"], "has_dimension_table": False}
+                    for item in _alignment_items(details)
+                ]
+            )[0]
         feedback = interrupt(
             {
                 "kind": "clarify",
@@ -1649,9 +1671,10 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
     if inherited.get("conversation"):
         lines.append(_conversation_text(inherited))
     if state.get("clarifications"):
-        lines.append(
-            "理解阶段的追问与用户回答（作为本次分析输入）：" + json.dumps(state["clarifications"], ensure_ascii=False)
+        clarifications, _ = service.project_alignment_clarifications(
+            toolbox.session, toolbox.user, state["clarifications"]
         )
+        lines.append("理解阶段的追问与用户回答（作为本次分析输入）：" + json.dumps(clarifications, ensure_ascii=False))
     if state.get("feedback"):
         lines.append("本次用户的逐项确认、否决和补充是本次分析输入；被否决的假设不得当成前提。")
     if user_text := (state.get("inherited") or {}).get("user_text"):

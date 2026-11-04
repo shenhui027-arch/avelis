@@ -12,7 +12,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask import agent
 from avelis.ask.intent import Intent
-from avelis.ask.service import _result_contract, filter_alignment_restricted
+from avelis.ask.service import _result_contract, filter_alignment_restricted, project_alignment_clarifications
 from avelis.governance import access
 from avelis.models import Answer, AskThread, AuditEvent, Metric, MetricVersion, User
 
@@ -85,7 +85,11 @@ def answer_view(a: Answer, session: Session | None = None, *, user: User | None 
     evidence = a.evidence or {}
     alignments = evidence.get("filter_alignment") or []
     historical_alignments = [entry for step in a.steps or [] for entry in step.get("filter_alignment") or []]
+    evidence, candidates_restricted = project_alignment_clarifications(session, user, evidence)
+    _, historical_candidates_restricted = project_alignment_clarifications(session, user, a.steps or [])
+    candidates_restricted |= historical_candidates_restricted
     restricted = filter_alignment_restricted(session, user, [*alignments, *historical_alignments])
+    restricted |= candidates_restricted
     if restricted:
         evidence = {
             key: value for key, value in evidence.items() if key not in {"filter_alignment", "filter_alignment_unknown"}
@@ -96,7 +100,7 @@ def answer_view(a: Answer, session: Session | None = None, *, user: User | None 
         "asked_by": a.asked_by,
         "asked_at": a.asked_at.isoformat(),
         "status": a.status,
-        "message": a.message,
+        "message": None if candidates_restricted else a.message,
         "error_code": a.error_code,
         "model_adapter": a.model_adapter,
         "intent": a.intent,
@@ -112,7 +116,9 @@ def answer_view(a: Answer, session: Session | None = None, *, user: User | None 
         "cache_hit": a.cache_hit,
         "recheck_status": a.recheck_status,
         "thread_id": a.thread_id,
-        "steps": [
+        "steps": []
+        if candidates_restricted
+        else [
             {key: value for key, value in step.items() if key not in {"filter_alignment", "filter_alignment_unknown"}}
             for step in a.steps
         ]

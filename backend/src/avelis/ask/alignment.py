@@ -67,6 +67,28 @@ def _candidates(original: str, sample: list[str]) -> list[str]:
     return (contained or values)[:_CANDIDATE_LIMIT]
 
 
+def _is_text_type(data_type: str) -> bool:
+    name = data_type.strip()
+    # 先解包标量包装，再排除数组；不能用文本前缀把 text[] 当作标量。
+    while match := re.fullmatch(r"(?:LowCardinality|Nullable)\s*\((.*)\)", name, re.I):
+        name = match[1].strip()
+    if name.endswith("[]") or name.startswith("_") or re.match(r"ARRAY\s*[<(]", name, re.I):
+        return False
+    return encoded_time_type(name) == "string" or bool(_TEXT_TYPE.match(name))
+
+
+def candidate_sources(pending: list[dict], explanations: list[dict] | None = None) -> dict:
+    """合并未解决候选及跨口径冲突值的来源，不丢失任何维表依赖。"""
+    sources: dict[str, list[str]] = {}
+    for item in pending:
+        for value, ids in item.get("candidate_sources", {}).items():
+            sources.setdefault(value, []).extend(ids)
+    for item in explanations or []:
+        if item.get("method") == "dimension_table":
+            sources.setdefault(item["value"], []).append(item.get("asset_id"))
+    return {"candidate_sources": {value: list(dict.fromkeys(ids)) for value, ids in sources.items()}} if sources else {}
+
+
 def _dimension_tables(session: Session, user: User, version: MetricVersion, dimension: str) -> list[_DimensionTable]:
     """关联方向和唯一性来自登记的路径；不从列名、数据值或业务词推断维表。"""
     resolved = service.validate_spec(session, version)
@@ -111,11 +133,7 @@ def _dimension_tables(session: Session, user: User, version: MetricVersion, dime
                 .order_by(ColumnVersion.ordinal)
             )
         )
-        text_columns = [
-            c.name
-            for c in columns
-            if encoded_time_type(c.data_type) == "string" or _TEXT_TYPE.match(c.data_type.strip())
-        ]
+        text_columns = [c.name for c in columns if _is_text_type(c.data_type)]
         if key in {c.name for c in columns} and text_columns:
             out.append(_DimensionTable(asset, key, text_columns, closure, path))
     return out
@@ -275,6 +293,12 @@ def _derived_alignment(session, user, version, filters, settings, remaining_seco
                         or has_dimension_table(session, user, version, item.dimension),
                     )
                 )
+                out.unresolved[-1].update(
+                    candidate_sources(
+                        unresolved,
+                        [e for r in results for e in r.explanations if (e["dimension"], e["original"]) == key],
+                    )
+                )
             elif unknown:
                 values.append(original)
                 out.unknown.append(_unknown(item.dimension, original, "component_unknown"))
@@ -326,11 +350,29 @@ def align_filters(
         samples = service._dimension_values(session, user, version, settings, **query_budget)
     except _READ_FAILURES:
         samples = {}
+    exact_by_dimension = {}
     for item in result.filters:
         sample = samples.get(item.dimension)
         # 取样接口和缓存只返回值列表，没有截断标志；达到上限就保守地视为可能截断。
         sample_complete = sample is not None and len(sample) < service.DIMENSION_VALUES_LIMIT
         tables: list[_DimensionTable] | None = None
+        if sample is not None and not sample_complete and item.dimension not in exact_by_dimension:
+            outside = list(
+                dict.fromkeys(
+                    value
+                    for f in result.filters
+                    if f.dimension == item.dimension
+                    for value in f.values
+                    if value not in sample
+                )
+            )
+            if outside and service._dimension_query_timeout(remaining_seconds) > 0:
+                try:
+                    exact_by_dimension[item.dimension] = service._existing_dimension_values(
+                        session, user, version, item.dimension, outside, settings, **query_budget
+                    )
+                except _READ_FAILURES:
+                    exact_by_dimension[item.dimension] = None
         for offset, original in enumerate(item.values):
             if service._dimension_query_timeout(remaining_seconds) <= 0:
                 result.unknown.append(_unknown(item.dimension, original, "budget_exhausted"))
@@ -341,12 +383,7 @@ def align_filters(
             value, method = original, "exact"
             if original not in sample:
                 if not sample_complete:
-                    try:
-                        existing = service._existing_dimension_values(
-                            session, user, version, item.dimension, [original], settings, **query_budget
-                        )
-                    except _READ_FAILURES:
-                        existing = None
+                    existing = exact_by_dimension.get(item.dimension)
                     if existing is None:
                         reason = (
                             "budget_exhausted"
@@ -411,6 +448,12 @@ def align_filters(
                             bool(tables),
                         )
                     )
+                    sources = {}
+                    for table, match in zip(tables or [], matches):
+                        for key in match[0] if match else []:
+                            sources.setdefault(key, []).append(table.asset.id)
+                    if sources:
+                        result.unresolved[-1]["candidate_sources"] = sources
                     continue
             item.values[offset] = value
             result.explanations.append(

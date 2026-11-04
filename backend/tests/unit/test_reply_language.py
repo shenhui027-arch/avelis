@@ -199,7 +199,9 @@ def test_ask_waiting_resume_updates_persisted_locale_without_old_instruction(mon
     monkeypatch.setattr(ask_agent.modelcfg, "policy", lambda *_: {"send_results": False})
     monkeypatch.setattr(ask_agent.service, "visible_catalog", lambda *_, **__: SimpleNamespace(cards=[]))
     monkeypatch.setattr(
-        ask_agent, "Toolbox", lambda *_: SimpleNamespace(intent=None, clarification=None, tools=lambda: [])
+        ask_agent,
+        "Toolbox",
+        lambda *_: SimpleNamespace(intent=None, clarification=None, alignment_candidates=[], tools=lambda: []),
     )
     app = ask_agent.build_graph(MemorySaver())
     graph_config = {

@@ -472,6 +472,7 @@ def test_derived_metric_conflicting_component_keys_require_confirmation(world):
     result = world.align(["AliasA"], derived)
     assert result.filters[0].values == ["AliasA"]
     assert result.unresolved[0]["candidates"] == ["MemberA", "MemberB"]
+    assert result.unresolved[0]["candidate_sources"] == {"MemberA": ["table"], "MemberB": ["table"]}
     assert not result.explanations
 
 
@@ -637,3 +638,62 @@ def test_derived_components_share_budget_and_exhaustion_overrides_pending(world)
     assert result.unknown == [{"dimension": "dimension_a", "original": "AliasA", "reason": "budget_exhausted"}]
     assert not result.unresolved and not result.explanations
     assert len(world.state.queries) == 1
+
+
+@pytest.mark.parametrize(
+    "data_type",
+    [
+        "text[]",
+        "character varying(32)[]",
+        "varchar(20)[][]",
+        "_text",
+        "_varchar",
+        "ARRAY(text)",
+        "Array(String)",
+        "ARRAY<VARCHAR(32)>",
+        "Nullable(Array(String))",
+        "LowCardinality(Nullable(text[]))",
+    ],
+)
+def test_array_columns_are_excluded_before_matching_text(world, data_type):
+    world.state.columns.append(NS(name="tags", data_type=data_type, ordinal=4))
+    result = world.align(["AliasA"])
+    assert result.filters[0].values == ["MemberA"] and not result.unknown
+    assert all('"tags"' not in sql for sql, _ in world.state.queries)
+
+
+def test_multiple_outside_sample_values_use_one_batched_existence_query_per_dimension(world):
+    world.state.sample = {"dimension_a": [f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT)]}
+    world.state.paths = []
+    world.state.exact = {"OutsideA", "OutsideB"}
+    filters = [
+        DimensionFilter(dimension="dimension_a", values=["OutsideA", "OutsideB", "OutsideA"]),
+        DimensionFilter(dimension="dimension_a", values=["OutsideC", "OutsideB"]),
+    ]
+    result = alignment.align_filters(world.session, NS(id="u"), world.version, filters, NS())
+    assert world.state.exact_calls == [["OutsideA", "OutsideB", "OutsideC"]]
+    assert [e["original"] for e in result.explanations] == ["OutsideA", "OutsideB", "OutsideA", "OutsideB"]
+    assert [u["original"] for u in result.unresolved] == ["OutsideC"]
+    assert not result.unknown
+
+
+def test_batched_existence_query_uses_budget_and_stops_after_exhaustion(world, monkeypatch):
+    world.state.sample = {"dimension_a": [f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT)]}
+    calls = []
+
+    def exact(*args, remaining_seconds):
+        calls.append((args[4], remaining_seconds()))
+        world.state.remaining = 0
+        return {"OutsideA"}
+
+    monkeypatch.setattr(service, "_existing_dimension_values", exact)
+    result = world.align(["OutsideA", "OutsideB"], remaining_seconds=lambda: world.state.remaining)
+    assert calls == [(["OutsideA", "OutsideB"], 60)]
+    assert [u["reason"] for u in result.unknown] == ["budget_exhausted"] * 2
+    assert not world.state.queries
+
+
+def test_multikey_candidates_keep_sources(world):
+    world.state.rows = [[["KeyA"], ["KeyB"]]]
+    result = world.align(["SharedAlias"])
+    assert result.unresolved[0]["candidate_sources"] == {"KeyA": ["table"], "KeyB": ["table"]}

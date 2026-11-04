@@ -266,6 +266,7 @@ def test_dimension_alias_with_multiple_keys_is_a_candidate_on_postgresql(alignme
             "original": "shared_label",
             "candidates": ["member_a", "member_b"],
             "has_dimension_table": True,
+            "candidate_sources": {"member_a": [world.dimension_id], "member_b": [world.dimension_id]},
         }
     ]
 
@@ -286,3 +287,51 @@ def test_truncated_normalized_sample_still_uses_dimension_table_on_postgresql(al
     assert result.explanations[0]["method"] == "dimension_table"
     assert result.explanations[0]["column"] == "alias"
     assert any('"dimension"' in statement and "DISTINCT" in statement for statement in world.statements)
+
+
+def test_array_column_does_not_block_scalar_alias_on_postgresql(alignment_pg):
+    world = alignment_pg
+    world.session.execute(text(f'ALTER TABLE "{world.schema}".dimension ADD COLUMN tags text[]'))
+    world.session.execute(text(f"UPDATE \"{world.schema}\".dimension SET tags = ARRAY['alias_a']"))
+    asset = world.session.get(Asset, world.dimension_id)
+    column = AssetColumn(asset_id=asset.id, name="tags")
+    world.session.add(column)
+    world.session.flush()
+    world.session.add(
+        ColumnVersion(
+            asset_version_id=asset.current_version_id, column_id=column.id, ordinal=4, name="tags", data_type="text[]"
+        )
+    )
+    world.session.commit()
+
+    result = align(world, "alias_a")
+
+    assert result.filters[0].values == ["member_a"]
+    assert not result.unknown and not result.unresolved
+    assert result.explanations[0]["column"] == "alias"
+    assert all('"tags"' not in sql for sql in world.statements)
+
+
+def test_outside_sample_values_share_one_existence_query_on_postgresql(alignment_pg, monkeypatch):
+    world = alignment_pg
+    monkeypatch.setattr(service, "DIMENSION_VALUES_LIMIT", 2)
+    dimension_values = service._dimension_values
+
+    def sampled(*args, **kwargs):
+        if kwargs.get("exact_values") is None:
+            return {"dimension_a": ["sample_a", "sample_b"]}
+        return dimension_values(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_dimension_values", sampled)
+    result = align_filters(
+        world.session,
+        world.user,
+        world.version,
+        [DimensionFilter(dimension="dimension_a", values=["member_a", "member_b", "member_a"])],
+        world.settings,
+    )
+
+    assert result.filters[0].values == ["member_a", "member_b", "member_a"]
+    assert not result.unknown and not result.unresolved
+    assert len(world.statements) == 1
+    assert "member_a" in world.statements[0] and "member_b" in world.statements[0]

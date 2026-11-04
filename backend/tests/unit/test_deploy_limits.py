@@ -103,7 +103,7 @@ def test_ask_understand_stops_at_configured_tool_rounds(monkeypatch, config_valu
     monkeypatch.setattr(ask_agent.modelcfg, "resolve", lambda *args: SimpleNamespace(model=model, adapter="offline"))
     monkeypatch.setattr(ask_agent.modelcfg, "policy", lambda *_: {"send_results": False})
     monkeypatch.setattr(ask_agent.service, "visible_catalog", lambda *args, **kwargs: SimpleNamespace(cards=[]))
-    box = SimpleNamespace(intent=None, clarification=None, tools=lambda: [])
+    box = SimpleNamespace(intent=None, clarification=None, alignment_candidates=[], tools=lambda: [])
     monkeypatch.setattr(ask_agent, "Toolbox", lambda *args: box)
     answer = SimpleNamespace(evidence={})
     result = ask_agent.understand({}, {"configurable": {"session": object(), "user": object(), "answer": answer}})

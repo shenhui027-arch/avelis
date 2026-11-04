@@ -1254,8 +1254,16 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         or (checkpoint.get("snapshot") or {}).get("state", {}).get("filter_alignment")
         or [],
     }
-    alignment_restricted = user is not None and ask_service.filter_alignment_restricted(
-        session, user, data["filter_alignment"]
+    checkpoint, candidates_restricted = ask_service.project_alignment_clarifications(session, user, checkpoint)
+    projected_report, report_candidates_restricted = ask_service.project_alignment_clarifications(
+        session, user, run.report or {}
+    )
+    candidates_restricted |= report_candidates_restricted
+    data["pending"] = checkpoint.get("pending")
+    alignment_restricted = (
+        candidates_restricted
+        or user is not None
+        and ask_service.filter_alignment_restricted(session, user, data["filter_alignment"])
     )
     if not full:
         data["filter_alignment"] = []
@@ -1297,6 +1305,19 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             if answer is not None:
                 data["answer"] = answer_view(answer, session=session, user=user)
     steps = list(session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq)))
+    for step in steps:
+        _, hidden = ask_service.project_alignment_clarifications(session, user, step.output or {})
+        candidates_restricted |= hidden
+    alignment_restricted |= candidates_restricted
+    if candidates_restricted:
+        # 早期澄清步骤也可能被后续报告复述；没有逐段来源信息的正文保守隐藏。
+        safe_clarification, hidden = ask_service.project_alignment_clarifications(
+            session, user, (run.report or {}).get("clarification") or {}
+        )
+        projected_report = restrict_report(projected_report, set(), lookup_restricted=True)
+        projected_report.pop("title", None)
+        if hidden:
+            projected_report["clarification"] = safe_clarification
     if user is not None:
         alignment_restricted = alignment_restricted or ask_service.filter_alignment_restricted(
             session,
@@ -1310,7 +1331,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
     readable = {d.id for d in datasets} - restricted
     report = restrict_report(
-        run.report or {},
+        projected_report,
         {f"D{d.seq}" for d in datasets if d.id in restricted},
         lookup_restricted=lookup_restricted or (alignment_restricted and (run.report or {}).get("kind") == "lookup"),
     )
@@ -1342,7 +1363,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
 
     def step_args(step) -> dict:
         args = dict(step.args)
-        if not has_restricted or step.kind == "user":
+        if not has_restricted or step.kind == "user" and not candidates_restricted:
             return args
         # 后续步骤可能复述任意来源的数据，只保留明确的结构字段。
         projected = {
@@ -1370,8 +1391,10 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         return projected
 
     def step_output(step) -> dict:
-        if not has_restricted or step.kind == "user":
+        if not has_restricted or step.kind == "user" and not candidates_restricted:
             return step.output
+        if step.kind == "clarify" and candidates_restricted and not restricted and not lookup_restricted:
+            return ask_service.project_alignment_clarifications(session, user, step.output)[0]
         if step.kind == "tool" and step.dataset_id in readable:
             return (
                 {
@@ -1395,7 +1418,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         report=report,
         title=report.get("title"),
         verification=restrict_verification(run.verification or {}, report),
-        messages=[message_view(message) for message in messages],
+        messages=[] if candidates_restricted else [message_view(message) for message in messages],
         proposal=checkpoint.get("proposal"),
         experience_candidates=checkpoint.get("candidates") or [],
         join_candidates=checkpoint.get("join_candidates") or [],
@@ -1408,7 +1431,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 "kind": s.kind,
                 "tool": s.tool,
                 "args": step_args(s),
-                "reason": None if has_restricted and s.kind != "user" else s.reason,
+                "reason": None if has_restricted and (s.kind != "user" or candidates_restricted) else s.reason,
                 "status": s.status,
                 "output": step_output(s),
                 "dataset": _ref(session, s.dataset_id),
