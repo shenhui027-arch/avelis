@@ -15,7 +15,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.en.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
-[![version](https://img.shields.io/badge/version-v1.0.2-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.2)
+[![version](https://img.shields.io/badge/version-v1.0.3-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.3)
 
 [Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.2 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis v1.0.3 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## A note from the author
 
@@ -50,6 +50,7 @@ AI has let developers like us be among the first to taste the rewards of this wa
 
 | Version | Added |
 |---|---|
+| **v1.0.3** | Chart upgrade: answers to questions now come with charts (trend, ranking, composition, comparison, KPI cards, small multiples), with alternative charts, a table view and PNG download; analysis reports embed charts in the text, and PDF / HTML exports draw from the same chart spec; numbers are formatted by measure type (percentages, thousands / millions, units); the model can pick a chart through the chart tool and give it a takeaway title |
 | **v1.0.2** | MCP server: AI tools such as Claude and Cursor query governed metrics and lineage after OAuth authorization; governance events and webhooks: 14 event types such as metric publishing, collection failures and schema changes are pushed to subscribed endpoints; two-way exchange of metrics with Apache Ossie semantic models; metric hints for models (when to use, synonyms, example questions); works out of the box, with a default administrator admin / 123456 and password change on the sign-in page |
 | **v1.0.1** | Full MySQL engine (view column lineage, read-only queries); DDL changes on MySQL, SQL Server, Oracle and StarRocks attributed to the database user |
 | **v1.0.0** | First public release: metadata collection and column-level lineage, metric governance and change management, grounded natural-language queries, analysis agent |

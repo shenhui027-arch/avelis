@@ -82,7 +82,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             raise ValueError(f"前端目录必须存在且包含目录内的 index.html：{frontend_dir}")
     app = FastAPI(
         title="Avelis API",
-        version="1.0.2",
+        version="1.0.3",
         openapi_url="/api/openapi.json",
         docs_url="/api/docs",
         redoc_url=None,
