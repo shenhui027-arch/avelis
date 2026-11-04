@@ -36,7 +36,8 @@ export function AssetPicker({ value, onChange, queryable, datasourceId, domainId
     <SearchSelect id={id} value={value} label={label} invalid={invalid} describedBy={describedBy} disabled={disabled} mono
       placeholder={placeholder ?? t("搜索资产")} clearLabel={clearLabel}
       selected={current ? name(current.qualified) : value && picked.isSuccess ? t("资产不可用") : undefined}
-      options={(search.data ?? []).map((a) => ({ value: a.id, label: name(a.qualified), hint: a.datasource.name }))}
+      // 筛选条件刚变（例如换了数据源）时显示的是上一组结果的占位：不能让它们被选中，等当前条件的结果到了再给选项
+      options={search.isPlaceholderData ? [] : (search.data ?? []).map((a) => ({ value: a.id, label: name(a.qualified), hint: a.datasource.name }))}
       loading={search.isFetching} onSearch={setQ} onChange={onChange}
       emptyText={term ? t("没有匹配的资产") : t("暂无资产")} />
   );

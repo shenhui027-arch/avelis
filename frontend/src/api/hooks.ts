@@ -1,6 +1,6 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
 import {
-  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey,
+  keepPreviousData, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type InfiniteData, type QueryKey,
 } from "@tanstack/react-query";
 
 import { t } from "../i18n";
@@ -63,6 +63,17 @@ export const useAssetsByIds = (ids: string[], extra: Omit<AssetQuery, "ids"> = {
   const unique = [...new Set(ids.filter(Boolean))].sort();
   return useAssetSearch({ ...extra, ids: unique }, unique.length > 0);
 };
+/** 按 id 取多个资产的名称：接口一次最多 200 个 id，超过时分批请求再合并，不截断。 */
+export function useAssetNames(ids: string[]): Map<string, string> {
+  const unique = [...new Set(ids.filter(Boolean))].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += 200) batches.push(unique.slice(i, i + 200));
+  const results = useQueries({ queries: batches.map((batch) => ({
+    queryKey: ["assets", { ids: batch }],
+    queryFn: () => unwrap(api.GET("/api/assets", { params: { query: { ids: batch } } })),
+  })) });
+  return new Map(results.flatMap((r) => r.data ?? []).map((a) => [a.id, a.qualified]));
+}
 /** 目录各类对象的可见数量（导航角标）：一次聚合查询，不加载列表。 */
 export const useCatalogCounts = () => useQuery({ queryKey: ["catalog-counts"], queryFn: () => unwrap(api.GET("/api/catalog/counts")) });
 export const useAsset = (id?: string) => useQuery({

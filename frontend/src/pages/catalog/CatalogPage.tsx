@@ -34,7 +34,9 @@ export function CatalogPage() {
   const [queries, setQueries] = useState<Record<string, string>>({});
   // 资产随数据规模增长：按服务端搜索与分页取当前一页（多取一条判断有无下一页），不整表加载
   const [assetOffset, setAssetOffset] = useState(0);
-  const assetTerm = useDebounced((queries.assets ?? "").trim());
+  // 输入的是资产类型名（如“视图”）时按类型代码查；其余按限定名与数据源名称搜索
+  const typed = useDebounced((queries.assets ?? "").trim());
+  const assetTerm = Object.entries(KIND_LABEL).find(([, label]) => label === typed)?.[0] ?? typed;
   useEffect(() => setAssetOffset(0), [assetTerm]);
   const assets = useAssetSearch({ q: assetTerm || undefined, limit: ASSET_PAGE + 1, offset: assetOffset }, section === "assets");
   const [creating, setCreating] = useState(false);
