@@ -203,7 +203,7 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.2...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.4...HEAD
 [1.0.4]: https://github.com/shenhui027-arch/avelis/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/shenhui027-arch/avelis/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/shenhui027-arch/avelis/compare/v1.0.1...v1.0.2
