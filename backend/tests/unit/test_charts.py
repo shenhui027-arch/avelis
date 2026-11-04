@@ -41,6 +41,7 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
             "series",
             "kpis",
             "others",
+            "omitted_categories",
             "dropped_series",
         }
         if spec["kind"] != "kpi":

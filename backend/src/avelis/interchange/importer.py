@@ -25,7 +25,7 @@ from avelis.governance.derived import parse_formula
 from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.governance.joins import effectively_approved
 from avelis.i18n import gettext
-from avelis.models import Asset, Datasource, Domain, JoinPath, Metric, MetricVersion, User
+from avelis.models import Asset, ColumnFingerprint, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
 from .expressions import equivalent_expressions, expand_derived_formula, fold_filters, physical_column_name
 from .validation import (
@@ -397,7 +397,11 @@ def _mapped_expression(
 
 
 def _pins(
-    session: Session, actor: User, formula: str, components: list[dict[str, Any]]
+    session: Session,
+    actor: User,
+    formula: str,
+    components: list[dict[str, Any]],
+    fingerprints: dict[tuple[str, str], ColumnFingerprint],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     codes = [c.get("metric_code") for c in components]
     if not components or len(set(codes)) != len(codes) or set(parse_formula(formula)) != set(codes):
@@ -413,7 +417,13 @@ def _pins(
         version = metrics.latest_governed_version(session, metric)
         if version is None or version.status != "published" or version.kind != "base":
             raise ValueError("组成口径的锁定版本必须是已发布的基础口径；需要先发布组成口径")
-        if metrics.dependency_drift(session, version):
+        # 此处已限定基础口径；与 dependency_drift 的基础口径规则一致，但复用本次操作的快照。
+        if any(
+            (fp := fingerprints.get((dep["asset_id"], dep["column"]))) is None
+            or fp.fingerprint != dep["fingerprint"]
+            or fp.status != "ok"
+            for dep in version.dependency or []
+        ):
             raise ValueError("组成口径的锁定版本依赖已变化")
         if any(
             component.get(key) is not None and component[key] != getattr(version, key)
@@ -503,6 +513,7 @@ def _plan(
     item: dict[str, Any],
     datasets: dict[str, dict[str, Any]],
     paths: dict[str, JoinPath],
+    fingerprints: dict[tuple[str, str], ColumnFingerprint],
 ) -> dict[str, Any]:
     options = _options(item)
     context = item.get("ai_context")
@@ -524,7 +535,7 @@ def _plan(
             raise ValueError("派生口径需要 avelis 扩展保留原公式")
         if item["name"] in parse_formula(formula):
             raise ValueError("派生口径不能引用自身")
-        pins, warnings = _pins(session, actor, formula, options.components)
+        pins, warnings = _pins(session, actor, formula, options.components, fingerprints)
         spec.update(expression=formula, base_asset_id=None, time_column="", joins=[], dimensions=[])
         versions = [
             {"metric": session.get(Metric, c["metric_id"]), "version": session.get(MetricVersion, c["version_id"])}
@@ -614,7 +625,9 @@ def _plan(
     temporary = MetricVersion(**{k: spec[k] for k in metrics.EDITABLE_FIELDS if k in spec}, kind=options.kind)
     metrics._validate_time_semantics(temporary)
     dependency = (
-        _dependencies(session, spec, datasets, aliases, unresolved=unresolved) if options.kind == "base" else []
+        _dependencies(session, spec, datasets, aliases, fingerprints, unresolved=unresolved)
+        if options.kind == "base"
+        else []
     )
     unknown_dialects = [
         deepcopy(d) for d in iter_expression_dialects(item["expression"]) if _read(d["dialect"]) is None
@@ -653,6 +666,7 @@ def _dependencies(
     spec: dict[str, Any],
     datasets: dict[str, dict[str, Any]],
     aliases: dict[str, str],
+    fingerprints: dict[tuple[str, str], ColumnFingerprint],
     *,
     unresolved: bool = False,
 ) -> list[dict[str, Any]]:
@@ -679,7 +693,6 @@ def _dependencies(
         path = session.get(JoinPath, join["join_path_id"])
         refs.update((join["from"], column, "join_key") for column in path.left_columns)
         refs.update((join["alias"], column, "join_key") for column in path.right_columns)
-    fingerprints = current_fingerprints(session)
     dependency = []
     for alias, column, role in sorted(refs):
         dataset = by_alias.get(alias)
@@ -739,6 +752,7 @@ def import_model(
     if report["errors"]:
         _reject(report)
     plans = []
+    fingerprints = current_fingerprints(session, asset_ids={data["asset"].id for data in datasets.values()})
     forbidden = False
     for scope, item, path in items:
         code = item["name"]
@@ -757,7 +771,7 @@ def import_model(
                 report["errors"].append(_error("catalog", path, "新建口径需要维护者角色"))
                 continue
         try:
-            plan = _plan(session, actor, document, scope, item, datasets, paths)
+            plan = _plan(session, actor, document, scope, item, datasets, paths, fingerprints)
         except (ValueError, TypeError, KeyError, GovernanceError, SqlglotError) as exc:
             reason = "avelis 扩展或 ai_context 字段无效" if isinstance(exc, ValidationError) else str(exc)
             report["errors"].append(_error("catalog", path, reason))

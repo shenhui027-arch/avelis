@@ -8,6 +8,19 @@ from collections import Counter
 from avelis.analysis.dataset_projection import build_column_roles
 from avelis.analysis.grounding import number
 from avelis.charts import recommend
+from avelis.i18n import gettext
+
+
+def category_omission_note(chart: dict) -> str:
+    omission = chart.get("omitted_categories")
+    if not omission:
+        return ""
+    return gettext(
+        "图表因展示上限省略了 {count} 个类目；完整数据请查看原数据集。"
+        if omission["reason"] == "display_limit"
+        else "图表按 Top N 设置省略了 {count} 个类目；完整数据请查看原数据集。",
+        count=omission["count"],
+    )
 
 
 def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:

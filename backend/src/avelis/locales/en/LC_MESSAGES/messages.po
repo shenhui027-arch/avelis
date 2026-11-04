@@ -2219,3 +2219,9 @@ msgstr "Data source query failed: {error}"
 msgid "模型调用失败：{error}"
 msgstr "Model invocation failed: {error}"
 
+
+msgid "图表因展示上限省略了 {count} 个类目；完整数据请查看原数据集。"
+msgstr "The chart omits {count} categories due to the display limit; see the source dataset for complete data."
+
+msgid "图表按 Top N 设置省略了 {count} 个类目；完整数据请查看原数据集。"
+msgstr "The chart omits {count} categories due to the Top N setting; see the source dataset for complete data."

@@ -10,7 +10,9 @@ export type ChartKpi = { label: string; column: string; unit: UnitMeta; polarity
   value: number | null; previous: number | null; change: number | null; rate: number | null; previous_label: string | null };
 export type ChartSpec = { kind: ChartKind; orientation: "vertical" | "horizontal"; reason: string; title?: string | null;
   x: { column: string; label: string; role: "time" | "dimension"; grain: string | null } | null;
-  categories: (string | number | null)[]; series: ChartSeries[]; kpis: ChartKpi[]; others: { count: number } | null; dropped_series: number };
+  categories: (string | number | null)[]; series: ChartSeries[]; kpis: ChartKpi[]; others: { count: number } | null; dropped_series: number;
+  /** 未画出、也没合并进“其他”的类目：display_limit 为展示上限，top_n 为显式的前 N 设置。 */
+  omitted_categories?: { count: number; reason: "display_limit" | "top_n" } | null };
 
 /** 主题取值：由组件从 CSS 令牌读出后传入。 */
 export type ChartTheme = { series: string[]; neutral: string; good: string; bad: string; grid: string; axis: string;
