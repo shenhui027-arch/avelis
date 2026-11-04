@@ -3,29 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import hmac
 import ipaddress
 import json
 import logging
 import socket
+import threading
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, or_, select, text
+from sqlalchemy.orm import Session
 
 from avelis.config import get_settings
-from avelis.db import session_scope, utcnow
+from avelis.db import get_engine, utcnow
 from avelis.events import GovernanceEvent, event_payload
 from avelis.models import EventOutbox, WebhookSubscription
 from avelis.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 _REQUEST_TIMEOUT_SECONDS = 5.0
-# 调度为公平切短了期限、在切短的期限内超时：不算接收端失败，不消耗重试次数，下一轮优先用完整期限重试。
+_DNS_SLOTS = threading.BoundedSemaphore(64)
+_CLAIM_SLOTS = threading.BoundedSemaphore(64)
+_DELIVERY_SLOTS = threading.BoundedSemaphore(64)
+_DNS_LOCK = threading.Lock()
+_DNS_IN_FLIGHT: dict[str, concurrent.futures.Future] = {}
+# 只有整轮剩余期限不足时的超时才推迟，不再按订阅数切分请求期限。
 BUDGET_TIMEOUT = "timeout_budget"
 _RESTRICTED_NETWORKS = tuple(
     ipaddress.ip_network(network)
@@ -88,19 +97,66 @@ def validate_url(url: str, *, allow_private: bool | None = None) -> list[str]:
         raise ValueError("Webhook URL 无效、无法解析或指向受限地址") from None
 
 
+def _background(function):
+    # DNS/连接池不支持取消；daemon 不会让进程退出再等一个系统级 DNS/连接期限。
+    future = concurrent.futures.Future()
+
+    def run():
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            future.set_result(function())
+        except BaseException as exc:
+            future.set_exception(exc)
+
+    threading.Thread(target=run, name="avelis-webhook-io", daemon=True).start()
+    return future
+
+
+def _resolve_before_deadline(url, deadline):
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    # 不用 asyncio 默认 executor：asyncio.run 退出会等待那个 executor 的阻塞 DNS。
+    # 同 URL 复用尚未返回的解析；即使系统 resolver 永不返回也最多留下 64 个 daemon。
+    with _DNS_LOCK:
+        future = _DNS_IN_FLIGHT.get(url)
+        if future is None:
+            slots = _DNS_SLOTS
+            if not slots.acquire(blocking=False):
+                raise TimeoutError
+
+            def resolve():
+                try:
+                    return validate_url(url)
+                finally:
+                    with _DNS_LOCK:
+                        _DNS_IN_FLIGHT.pop(url, None)
+                    slots.release()
+
+            future = _background(resolve)
+            _DNS_IN_FLIGHT[url] = future
+    return future.result(timeout=remaining)
+
+
 def send_webhook(
     subscription: WebhookSubscription,
     outbox: EventOutbox,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     timeout_seconds: float = _REQUEST_TIMEOUT_SECONDS,
+    deadline: float | None = None,
 ) -> None:
     """每次请求重新检查 URL；连接已验证的 IP，保留 HTTP Host 和 TLS 证书域名。"""
-    deadline = monotonic() + min(_REQUEST_TIMEOUT_SECONDS, timeout_seconds)
+    deadline = min(
+        monotonic() + min(_REQUEST_TIMEOUT_SECONDS, timeout_seconds), deadline if deadline is not None else float("inf")
+    )
     try:
-        addresses = validate_url(subscription.url)
+        addresses = _resolve_before_deadline(subscription.url, deadline)
     except ValueError:
         raise DeliveryError("url_rejected") from None
+    except TimeoutError:
+        raise DeliveryError("timeout") from None
     original = httpx.URL(subscription.url)
     # 独立客户端不复用另一域名的 IP 连接；sni_hostname 同时用于 TLS SNI 和证书域名校验。
     try:
@@ -202,83 +258,250 @@ def _due_statement(
     )
 
 
-def _due_subscription_count(session, now, handled, excluded_subscriptions):
-    # 只统计，不认领；被其他事务锁住的订阅也只会使预算预留更保守，不等待它们。
-    return session.scalar(
-        select(func.count(func.distinct(EventOutbox.subscription_id)))
-        .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
-        .where(*_due_filters(now, handled, excluded_subscriptions))
-    )
+@dataclass
+class _Claim:
+    connection: object
+    outbox: EventOutbox
+    subscription: WebhookSubscription
+    locked: bool = False
+
+
+def _transaction_deadline(session, deadline):
+    if session.bind.dialect.name == "postgresql":
+        milliseconds = max(1, int((deadline - monotonic()) * 1000))
+        session.execute(
+            text("SELECT set_config('statement_timeout', :timeout, true), set_config('lock_timeout', :timeout, true)"),
+            {"timeout": f"{milliseconds}ms"},
+        )
+
+
+def _release_claim(claim):
+    connection = claim.connection
+    try:
+        if claim.locked:
+            with Session(connection) as session:
+                _transaction_deadline(session, monotonic() + 1.0)
+                session.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                    {"key": f"webhook:{claim.subscription.id}"},
+                )
+                session.commit()
+    except BaseException:
+        # 会话级锁不能随连接返回池；解锁失败就丢弃连接，由 PostgreSQL 回收锁。
+        connection.invalidate()
+        raise
+    finally:
+        connection.close()
+
+
+def _claim_due(now, handled, excluded, include_deferred, deadline):
+    connection = get_engine().connect()
+    claim = None
+    try:
+        with Session(connection, expire_on_commit=False) as session:
+            _transaction_deadline(session, deadline)
+            while monotonic() < deadline:
+                row = session.execute(_due_statement(now, handled, excluded, include_deferred=include_deferred)).first()
+                if row is None:
+                    break
+                outbox, subscription = row
+                locked = connection.dialect.name == "postgresql"
+                if locked and not session.scalar(
+                    text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"),
+                    {"key": f"webhook:{subscription.id}"},
+                ):
+                    # 忙订阅不占槽；不等待别的 worker 的 HTTP，也不让它挡住健康订阅。
+                    excluded.add(subscription.id)
+                    continue
+                claim = _Claim(connection, outbox, subscription, locked)
+                break
+            session.commit()  # HTTP 前立即释放 outbox 和 subscription 的行锁。
+        if claim is not None and monotonic() >= deadline:
+            _release_claim(claim)
+            return None
+        if claim is None:
+            connection.close()
+        return claim
+    except BaseException:
+        if claim is not None:
+            _release_claim(claim)
+        else:
+            connection.close()
+        raise
+
+
+def _finish_claim(claim, error, defer, settings):
+    with Session(claim.connection, expire_on_commit=False) as session:
+        # 结果短事务有自己的小期限，不让管理员持锁把已结束的 HTTP 拖成无限等待。
+        _transaction_deadline(session, monotonic() + 1.0)
+        outbox = session.scalar(
+            select(EventOutbox).where(EventOutbox.id == claim.outbox.id).with_for_update(key_share=True)
+        )
+        # 管理员可能已删除订阅和级联发件箱，不能用旧对象 merge 回去。
+        if outbox is None or outbox.status != "pending":
+            return
+        if defer:
+            outbox.last_error = BUDGET_TIMEOUT
+        else:
+            outbox.attempts += 1
+            outbox.last_error = error
+            if error is None:
+                outbox.status = "delivered"
+                outbox.delivered_at = utcnow()
+                outbox.dead_at = None
+            elif outbox.attempts >= settings.webhook_max_attempts:
+                outbox.status = "dead"
+                outbox.dead_at = utcnow()
+            else:
+                minutes = min(2 ** min(outbox.attempts - 1, 30), settings.webhook_retry_max_minutes)
+                outbox.next_attempt_at = utcnow() + timedelta(minutes=minutes)
+        session.commit()
+
+
+def _deliver_claim(claim, transport, deadline, settings):
+    error = None
+    try:
+        timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, deadline - monotonic())
+        if timeout_seconds <= 0:
+            return claim.subscription.id, "deadline", False
+        try:
+            send_webhook(
+                claim.subscription,
+                claim.outbox,
+                transport=transport,
+                timeout_seconds=timeout_seconds,
+                deadline=deadline,
+            )
+        except DeliveryError as exc:
+            error = str(exc)
+        defer = (
+            error == "timeout"
+            and timeout_seconds < _REQUEST_TIMEOUT_SECONDS
+            and claim.outbox.last_error != BUDGET_TIMEOUT
+        )
+        _finish_claim(claim, error, defer, settings)
+        return claim.subscription.id, error, defer
+    except Exception:
+        logger.error("Webhook outbox transaction failed")
+        return claim.subscription.id, "transaction_error", False
+    finally:
+        try:
+            _release_claim(claim)
+        finally:
+            _DELIVERY_SLOTS.release()
+
+
+async def _claim_before_deadline(function, deadline):
+    if not _CLAIM_SLOTS.acquire(blocking=False):
+        return None
+
+    def claim():
+        try:
+            return function()
+        finally:
+            _CLAIM_SLOTS.release()
+
+    future = _background(claim)
+    try:
+        return await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(future)), max(0, deadline - monotonic()))
+    except TimeoutError:
+        # 池获取/连接建立也计入整轮期限；迟到的认领只解锁，不再发送。
+        def release_late(done):
+            try:
+                claim = done.result()
+                if claim is not None:
+                    _release_claim(claim)
+            except BaseException:
+                logger.error("Webhook outbox transaction failed")
+
+        future.add_done_callback(release_late)
+        return None
+
+
+async def _deliver_due(batch_size, transport, budget_seconds, settings):
+    deadline = monotonic() + budget_seconds
+    handled, blocked, served = set(), set(), set()
+    failures = {}
+    active = {}
+    attempts = 0
+
+    def completed():
+        for future in list(active):
+            if not future.done():
+                continue
+            subscription_id = active.pop(future)
+            try:
+                _identifier, error, deferred = future.result()
+            except BaseException:
+                logger.error("Webhook outbox transaction failed")
+                blocked.add(subscription_id)
+                continue
+            if error is None:
+                failures[subscription_id] = 0
+            else:
+                failures[subscription_id] = failures.get(subscription_id, 0) + 1
+                if deferred or error in ("timeout", "transaction_error") or failures[subscription_id] >= 2:
+                    blocked.add(subscription_id)
+
+    while attempts < batch_size and monotonic() < deadline:
+        completed()
+        if len(active) >= settings.webhook_concurrency:
+            done, _pending = await asyncio.wait(
+                active, timeout=max(0, deadline + 1.0 - monotonic()), return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:
+                break
+            continue
+        if not _DELIVERY_SLOTS.acquire(blocking=False):
+            break
+        excluded = blocked | served | set(active.values())
+        try:
+            claim = await _claim_before_deadline(
+                lambda: _claim_due(utcnow(), handled, excluded, attempts < settings.webhook_concurrency, deadline),
+                deadline,
+            )
+        except Exception:
+            _DELIVERY_SLOTS.release()
+            logger.error("Webhook outbox transaction failed")
+            break
+        if claim is None:
+            _DELIVERY_SLOTS.release()
+            if served:
+                served.clear()
+                continue
+            if active:
+                done, _pending = await asyncio.wait(
+                    active, timeout=max(0, deadline + 1.0 - monotonic()), return_when=asyncio.FIRST_COMPLETED
+                )
+                if not done:
+                    break
+                continue
+            break
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            _background(lambda: _release_claim(claim))
+            _DELIVERY_SLOTS.release()
+            break
+        handled.add(claim.outbox.id)
+        served.add(claim.subscription.id)
+        attempts += 1
+        future = asyncio.wrap_future(
+            _background(lambda claim=claim: _deliver_claim(claim, transport, deadline, settings))
+        )
+        active[future] = claim.subscription.id
+    if active:
+        # 请求已在轮期限停止；给短结果事务/解锁最多一秒，数据库断线不能卡死调度。
+        # 迟到线程仍持有租约直到 finally，下一轮不会重叠发送同一订阅。
+        await asyncio.wait(active, timeout=max(0, deadline + 1.0 - monotonic()))
+        completed()
+    return attempts
 
 
 def deliver_due(
     batch_size: int = 50, *, transport: httpx.AsyncBaseTransport | None = None, budget_seconds: float = 5.0
 ) -> int:
-    """逐条提交并释放行锁；远端已收而本地未提交时可重复投递，由事件 ID 去重。"""
-    settings = get_settings()
-    deadline = monotonic() + budget_seconds
-    handled: set[str] = set()
-    failures: dict[str, int] = {}
-    blocked_subscriptions: set[str] = set()
-    served_subscriptions: set[str] = set()
-    attempts = 0
-    for _ in range(batch_size):
-        if monotonic() >= deadline:
-            break
-        try:
-            with session_scope() as session:
-                now = utcnow()
-                excluded = blocked_subscriptions | served_subscriptions
-                # 被推迟的记录只能作为一轮的第一条发送（那时才拿得到整轮预算）；之后的留到下一轮。
-                first = attempts == 0
-                row = session.execute(_due_statement(now, handled, excluded, include_deferred=first)).first()
-                if row is None and served_subscriptions:
-                    # 每个可认领订阅先投一条，全部轮过后才能继续下一条。
-                    served_subscriptions.clear()
-                    excluded = blocked_subscriptions
-                    row = session.execute(_due_statement(now, handled, excluded, include_deferred=first)).first()
-                if row is None:
-                    break
-                outbox, subscription = row
-                subscription_count = _due_subscription_count(session, now, handled, excluded)
-                remaining = deadline - monotonic()
-                if remaining <= 0:
-                    break
-                # 当前订阅只能使用本轮的一份预算，给尚未轮到的订阅留出发送机会。
-                waiting = min(max(1, subscription_count), batch_size - attempts)
-                deferred = outbox.last_error == BUDGET_TIMEOUT
-                share = remaining if deferred else remaining / waiting
-                timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, share)
-                handled.add(outbox.id)
-                served_subscriptions.add(subscription.id)
-                outbox.attempts += 1
-                attempts += 1
-                try:
-                    send_webhook(subscription, outbox, transport=transport, timeout_seconds=timeout_seconds)
-                except DeliveryError as exc:
-                    if str(exc) == "timeout" and timeout_seconds < _REQUEST_TIMEOUT_SECONDS and not deferred:
-                        # 期限是调度切短的：不判接收端失败；本轮跳过该订阅，记录仍到期，下一轮作为第一条用整轮预算重试。
-                        # 只让一次：那次拿到了本轮能给的全部预算，再超时就照常计入重试次数，不会无限推迟。
-                        outbox.attempts -= 1
-                        outbox.last_error = BUDGET_TIMEOUT
-                        blocked_subscriptions.add(subscription.id)
-                        continue
-                    failures[subscription.id] = failures.get(subscription.id, 0) + 1
-                    if str(exc) == "timeout" or failures[subscription.id] >= 2:
-                        blocked_subscriptions.add(subscription.id)
-                    outbox.last_error = str(exc)
-                    if outbox.attempts >= settings.webhook_max_attempts:
-                        outbox.status = "dead"
-                    else:
-                        # 先截断指数，配置再大也不生成巨大整数。
-                        minutes = min(2 ** min(outbox.attempts - 1, 30), settings.webhook_retry_max_minutes)
-                        outbox.next_attempt_at = utcnow() + timedelta(minutes=minutes)
-                else:
-                    failures[subscription.id] = 0
-                    outbox.status = "delivered"
-                    outbox.delivered_at = utcnow()
-                    outbox.last_error = None
-        except Exception:
-            # 数据库故障也不能停止 worker。异常正文可能含连接串，不写进日志。
-            logger.error("Webhook outbox transaction failed")
-    return attempts
+    """并发请求各占独立连接和短 Session；HTTP 期间只持订阅会话锁，不持行锁或事务。
+
+    断线/进程退出自动释放会话锁。远端已收而结果未提交时仍会重复投递，由事件 ID 去重。
+    """
+    return asyncio.run(_deliver_due(batch_size, transport, budget_seconds, get_settings()))

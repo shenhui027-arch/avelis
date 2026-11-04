@@ -14,7 +14,7 @@ from avelis.models import EventOutbox, WebhookSubscription
 
 pytestmark = pytest.mark.db
 NOW = datetime(2001, 1, 1)
-SETTINGS = SimpleNamespace(events_delivered_retention_days=30)
+SETTINGS = SimpleNamespace(events_delivered_retention_days=30, events_dead_retention_days=90)
 SYNC_TIMEOUT = 5
 
 
@@ -55,7 +55,7 @@ def world(meta_db):
                 row.enabled = True
 
 
-def _row(subscription_id, *, status="delivered", delivered_at=None):
+def _row(subscription_id, *, status="delivered", delivered_at=None, dead_at=None):
     return EventOutbox(
         id=new_id(),
         event_id=new_id(),
@@ -66,6 +66,7 @@ def _row(subscription_id, *, status="delivered", delivered_at=None):
         created_at=NOW - timedelta(days=100),
         next_attempt_at=utcnow() - timedelta(minutes=1),
         delivered_at=delivered_at,
+        dead_at=dead_at,
     )
 
 
@@ -94,7 +95,7 @@ def test_cleanup_skips_locked_expired_rows_and_preserves_pending_and_dead(world)
         assert cleanup.purge_batch(session, SETTINGS, NOW) == {"event_outbox": 1}
 
 
-def test_delivery_holding_pending_and_subscription_locks_does_not_block_cleanup(world, monkeypatch):
+def test_delivery_in_flight_does_not_block_cleanup(world, monkeypatch):
     with session_scope() as session:
         pending = _row(world, status="pending")
         expired = _row(world, delivered_at=NOW - timedelta(days=31))
@@ -103,7 +104,7 @@ def test_delivery_holding_pending_and_subscription_locks_does_not_block_cleanup(
 
     def receive(_subscription, _outbox, **_kwargs):
         entered.set()
-        assert release.wait(SYNC_TIMEOUT), "cleanup did not finish while delivery held its row locks"
+        assert release.wait(SYNC_TIMEOUT), "cleanup did not finish while delivery was in flight"
 
     monkeypatch.setattr(delivery, "send_webhook", receive)
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -165,6 +166,60 @@ def test_delivered_retention_index_bounds_expired_snapshot_lookup(world):
             return {node.get("Index Name")} | {name for child in node.get("Plans", []) for name in index_names(child)}
 
         assert "ix_event_outbox_delivered_cleanup" in index_names(plan), plan
+
+
+def test_dead_cleanup_is_bounded_skips_locked_and_preserves_recent_missing_and_replayed(world):
+    cutoff = NOW - timedelta(days=90)
+    with session_scope() as session:
+        locked = _row(world, status="dead", dead_at=cutoff - timedelta(days=3))
+        first = _row(world, status="dead", dead_at=cutoff - timedelta(days=2))
+        second = _row(world, status="dead", dead_at=cutoff - timedelta(days=1))
+        boundary = _row(world, status="dead", dead_at=cutoff)
+        recent = _row(world, status="dead", dead_at=cutoff + timedelta(seconds=1))
+        missing = _row(world, status="dead")
+        replayed = _row(world, status="pending", dead_at=None)
+        session.add_all([locked, first, second, boundary, recent, missing, replayed])
+        preserved = {row.id for row in (boundary, recent, missing, replayed)}
+    with session_scope() as holder:
+        holder.execute(select(EventOutbox.id).where(EventOutbox.id == locked.id).with_for_update()).one()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+
+            def run_cleanup():
+                with session_scope() as session:
+                    return cleanup.purge_batch(session, SETTINGS, NOW, batch_size=1)
+
+            assert executor.submit(run_cleanup).result(timeout=SYNC_TIMEOUT) == {"event_outbox": 1}
+        assert holder.get(EventOutbox, locked.id) is not None
+        assert holder.get(EventOutbox, first.id) is None
+        assert holder.get(EventOutbox, second.id) is not None
+    with session_scope() as session:
+        assert cleanup.purge_batch(session, SETTINGS, NOW, batch_size=1) == {"event_outbox": 1}
+    with session_scope() as session:
+        assert cleanup.purge_batch(session, SETTINGS, NOW, batch_size=1) == {"event_outbox": 1}
+        remaining = set(session.scalars(select(EventOutbox.id).where(EventOutbox.subscription_id == world)))
+        assert remaining == preserved
+
+
+def test_dead_retention_index_bounds_expired_snapshot_lookup(world):
+    indexes = {item["name"]: item for item in inspect(get_engine()).get_indexes("event_outbox")}
+    index = indexes["ix_event_outbox_dead_cleanup"]
+    assert index["column_names"] == ["dead_at", "id"]
+    assert "dead" in str(index["dialect_options"]["postgresql_where"])
+    with session_scope() as session:
+        rows = [_row(world, status="pending") for _ in range(2000)]
+        rows += [_row(world, status="dead", dead_at=NOW) for _ in range(2000)]
+        rows += [_row(world, status="dead", dead_at=NOW - timedelta(days=91)) for _ in range(5)]
+        session.add_all(rows)
+        session.flush()
+        session.execute(text("ANALYZE event_outbox"))
+        statement = cleanup._expired_statement(NOW - timedelta(days=90), 500, status="dead")
+        sql = str(statement.compile(dialect=session.bind.dialect, compile_kwargs={"literal_binds": True}))
+        plan = session.scalar(text(f"EXPLAIN (FORMAT JSON) {sql}"))[0]["Plan"]
+
+        def index_names(node):
+            return {node.get("Index Name")} | {name for child in node.get("Plans", []) for name in index_names(child)}
+
+        assert "ix_event_outbox_dead_cleanup" in index_names(plan), plan
 
 
 def test_budget_deferred_delivery_is_claimed_before_fresh_rows_with_null_errors(world):

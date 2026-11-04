@@ -129,7 +129,11 @@ def test_governance_events_migration_roundtrip_preserves_audit_and_stored_snapsh
         assert delivery["delivered_at"] is None
         assert delivery["last_error"] is None
         for model, table in ((WebhookSubscription, subscription), (EventOutbox, outbox)):
-            assert set(model.__table__.columns.keys()) == set(table.columns.keys())
+            # 0020 predates the nullable dead_at column introduced by 0024.
+            columns = set(model.__table__.columns.keys())
+            if model is EventOutbox:
+                columns -= {"dead_at"}
+            assert columns == set(table.columns.keys())
         foreign_keys = inspect(connection).get_foreign_keys("event_outbox")
         assert len(foreign_keys) == 1
         assert foreign_keys[0]["referred_table"] == "webhook_subscription"

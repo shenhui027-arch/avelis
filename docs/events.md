@@ -82,15 +82,17 @@
 
 ## 投递与签名验证
 
-每个 worker 在 `jobs.py` 中运行一个独立的投递循环，按 `worker.schedule_seconds` 调度，不等待长业务任务或历史清理结束。每轮处理到期且订阅启用的 `pending` 条目，最多 50 条，共享固定 5 秒投递预算。按订阅公平轮转：每个订阅先取一条，全部轮到后再处理各订阅的下一条，避免较早的同订阅积压占满整轮。
+每个 worker 在 `jobs.py` 中运行一个独立的投递循环，按 `worker.schedule_seconds` 调度，不等待长业务任务或历史清理结束。每轮处理到期且订阅启用的 `pending` 条目，最多 50 条，共享固定 5 秒投递预算。按订阅公平轮转并发发送：每个订阅先取一条，全部轮到后再处理各订阅的下一条，避免较早的同订阅积压占满整轮。每个 worker 的并发上限由 `webhook.concurrency` 控制，默认 4；同一订阅同一时刻最多一个请求在途，包括多个 worker 同时运行时。
 
-请求的网络等待受总期限取消保护，单次最多 5 秒、连接最多 3 秒；单次期限还受本轮剩余预算的公平份额限制，为尚未轮到的订阅留出时间。预算到期后停止本轮，未尝试的条目保持原状态，下轮继续。预算之外仍有同步 DNS 校验、数据库事务和本地调度开销。同一订阅本轮出现一次超时后，跳过它的其余条目，继续处理其他订阅；其他失败仍在连续两次后跳过，成功会清零连续失败计数，下轮重新计数。请求不跟随重定向，不使用环境代理。只有 `2xx` 算成功。失败按 1、2、4、8……分钟退避，默认间隔上限 60 分钟、每条最多尝试 8 次；达到上限后为 `dead`，可由管理员重投。重投保留事件 ID 和发件箱 ID，把 attempts 清零并改回 pending。
+并发槽位和整轮预算都有限。如果排在前面的慢请求占满所有槽位直到本轮结束，后排健康订阅可能在下一轮才投递。并发降低慢订阅对其他订阅的影响，不保证任意数量的慢订阅同时存在时，所有健康订阅都能首轮投递；`timeout_budget` 保护的是已经启动的请求不因轮尾期限过短而耗尽重试次数。
+
+单次请求的 DNS 解析和网络等待共同受总期限约束，最多 5 秒、连接最多 3 秒，且不超过本轮剩余预算；不再按订阅数量分配公平份额、切短请求期限。DNS 卡住按 `timeout` 处理，不阻塞其他投递槽位；数据库短事务与本地调度仍有额外开销。预算到期后停止本轮，未尝试的条目保持原状态，下轮继续。条目首次因本轮剩余预算不足完整 5 秒而超时时，使用 `timeout_budget` 延后一次，不消耗尝试次数，并在下轮第一波优先重试，避免新记录插队。已经标记 `timeout_budget` 的条目在下一轮获得整轮能提供的期限；再次超时正常计入重试，避免不可达订阅始终不计次，并非每次轮尾超时都免计次。同一订阅本轮出现一次超时后，跳过它的其余条目；其他失败仍在连续两次后跳过，成功会清零连续失败计数，下轮重新计数。worker 退出时等待在途请求最多 5 秒。请求不跟随重定向，不使用环境代理。只有 `2xx` 算成功。失败按 1、2、4、8……分钟退避，默认间隔上限 60 分钟、每条最多尝试 8 次；达到上限后为 `dead` 并写入 `dead_at`，可由管理员在保留期内重投。重投保留事件 ID 和发件箱 ID，把 attempts 清零、`dead_at` 清空并改回 pending。
 
 采集或导入 Job 超时后，在同一事务的 `result.abandoned_governance` 写入 `pending`。之后的扫描会重试未完成的治理收尾，并在 Job 行锁下，把关联对象终态、失败审计、事件发件箱和 `done` 标记一起提交。收尾失败则全部回滚，后续重试不重复写审计或事件，也不会重跑业务任务。
 
-审计匹配订阅时，按订阅 ID 顺序以 `FOR KEY SHARE` 读取启用的订阅，防止并发删除订阅造成发件箱外键失败并回滚业务。投递事务使用 `FOR NO KEY UPDATE SKIP LOCKED` 锁住选中的行，逐条提交：投递 worker 与订阅管理操作仍互斥，同时兼容业务事务的 KEY SHARE 锁。
+审计匹配订阅时，按订阅 ID 顺序以 `FOR KEY SHARE` 读取启用的订阅，防止并发删除订阅造成发件箱外键失败并回滚业务。投递按条认领，每个请求使用独立 Session；认领与结果写回各自使用短事务，以 `FOR NO KEY UPDATE SKIP LOCKED` 跳过其他事务锁住的行。HTTP 等待期间不持有行锁或开放的数据库事务，避免阻塞业务与订阅管理。订阅级 PostgreSQL advisory lock 保证多个 worker 之间同一订阅也只有一个在途请求。选用逐条短事务而非在一批记录的行锁下等待 HTTP，让慢接收端不会延长行锁持有时间。
 
-远端已经接收、本地提交前进程退出时仍可能重复发送，因此语义是至少一次，接收方必须按事件 `id` 去重。不保证顺序；需要顺序时应结合 `at` 和业务对象版本判断。投递失败不回滚已经提交的业务或审计。`last_error` 只存安全错误码，例如 `timeout`、`network_error`、`url_rejected` 或 `http_500`，不保存响应正文。
+远端已经接收、本地提交前进程退出时仍可能重复发送，因此语义是至少一次，接收方必须按事件 `id` 去重。同一订阅逐条发送，不同订阅之间不保证顺序；判断业务顺序时仍应结合 `at` 和业务对象版本。投递失败不回滚已经提交的业务或审计。`last_error` 只存安全错误码，例如 `timeout`、`network_error`、`url_rejected` 或 `http_500`，不保存响应正文。
 
 每次发送带以下请求头：
 
@@ -136,17 +138,19 @@ def verify_webhook(secret: str, headers, raw_body: bytes) -> bool:
 
 ## URL 与配置
 
-URL 只接受 http/https，不接受 URL 用户名/口令、片段、控制字符或无效端口。创建、修改、测试、重投及每次实际发送都会验证目标。默认要求 DNS 解析出的全部地址都是允许的公网地址，拒绝内网、回环、链路本地、组播、保留地址和受限 IPv6 转换地址。实际连接钉住本次已验证的 IP，同时保留原 HTTP Host、TLS SNI 和证书域名校验，避免验证后再次解析造成 DNS 重绑定。仅 `ConnectError` 或 `ConnectTimeout` 时尝试其余已验证地址；所有地址共享单次请求最多 5 秒的剩余期限，连接阶段最多 3 秒，并受本轮剩余预算的公平份额限制。读超时、写入异常或 HTTP 失败不切换地址，交给发件箱后续重试。
+URL 只接受 http/https，不接受 URL 用户名/口令、片段、控制字符或无效端口。创建、修改、测试、重投及每次实际发送都会验证目标。默认要求 DNS 解析出的全部地址都是允许的公网地址，拒绝内网、回环、链路本地、组播、保留地址和受限 IPv6 转换地址。实际连接钉住本次已验证的 IP，同时保留原 HTTP Host、TLS SNI 和证书域名校验，避免验证后再次解析造成 DNS 重绑定。仅 `ConnectError` 或 `ConnectTimeout` 时尝试其余已验证地址；DNS 解析及所有地址共享单次请求最多 5 秒的期限，连接阶段最多 3 秒，并受本轮剩余预算限制。读超时、写入异常或 HTTP 失败不切换地址，交给发件箱后续重试。
 
 | 环境变量 | 配置文件键 | 默认值 | 作用 |
 |---|---|---|---|
 | `AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS` | `webhook.allow_private_urls` | `false` | 本地开发可显式允许内网地址；生产默认保持关闭。 |
 | `AVELIS_WEBHOOK_MAX_ATTEMPTS` | `webhook.max_attempts` | `8` | 单条发件箱记录的最大尝试次数，必须为正整数。 |
 | `AVELIS_WEBHOOK_RETRY_MAX_MINUTES` | `webhook.retry_max_minutes` | `60` | 指数退避的分钟上限，必须为正整数。 |
+| `AVELIS_WEBHOOK_CONCURRENCY` | `webhook.concurrency` | `4` | 每个 worker 的最大并发投递数，整数范围 `1..64`；`1` 为串行。默认 4 让慢订阅与健康订阅并行；上限 64 为投递线程及其 DNS、数据库等待设置后台资源硬上限。 |
 | `AVELIS_WORKER_SCHEDULE_SECONDS` | `worker.schedule_seconds` | `60` | 业务扫描与独立投递循环的间隔，单位秒；长业务任务不阻塞投递循环。 |
 | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `events.delivered_retention_days` | `30` | 已投递快照按 `delivered_at` 保留的天数；非负整数，`0` 为不清理。 |
+| `AVELIS_EVENTS_DEAD_RETENTION_DAYS` | `events.dead_retention_days` | `90` | 死信快照按 `dead_at` 保留的天数；非负整数，`0` 为不清理。 |
 
-成功投递快照默认保留 30 天，兼顾近期排障与存储增长。每次 worker 定时扫描与 OAuth 清理一起，最多删除 500 条已到期的 `delivered` 记录；不等待历史清理周期，并用 `SKIP LOCKED` 跳过正在使用的行。未到期记录和 `pending` 保留。`dead` 不自动清理，供管理员排查、修复后重投；当前没有可靠的死信终态时间，不能用创建时间代替保留期起点，因此不提供按天清理死信的配置。删除订阅仍会级联删除其全部发件箱条目。
+成功投递快照默认保留 30 天，死信默认保留 90 天，兼顾近期排障、人工修复重投与存储增长。每次 worker 定时扫描与 OAuth 清理一起，对 `delivered` 和 `dead` 分别最多删除 500 条超过各自保留期的记录，合计最多 1000 条；两类记录互不占用清理额度，避免成功记录持续积压时饿死死信清理。不等待历史清理周期，并用 `SKIP LOCKED` 跳过正在使用的行。未到期记录和 `pending` 保留。死信保留期从 `dead_at` 开始，重投清空该时间；存量死信在迁移时以迁移时刻回填，避免升级后立即删除。删除订阅仍会级联删除其全部发件箱条目。
 
 ## 管理接口与示例
 
@@ -220,7 +224,8 @@ Content-Type: application/json
     "next_attempt_at": "2026-11-03T08:02:00Z",
     "last_error": null,
     "created_at": "2026-11-03T08:02:00Z",
-    "delivered_at": null
+    "delivered_at": null,
+    "dead_at": null
   }],
   "total": 1,
   "limit": 50,
@@ -231,7 +236,7 @@ Content-Type: application/json
 ## FINDINGS：迁移、生命周期与验收边界
 
 - 新增表为 `webhook_subscription` 与 `event_outbox`。后者存事件 JSON 快照、订阅 ID、状态、次数、下次尝试时间、安全错误码及完成时间；`(subscription_id, event_id)` 唯一，避免同一订阅重复入箱。event_id 不对 audit_event 建外键，审计按保留期清理不会阻断剩余快照投递。
-- 迁移文件 `0020_governance_events` 接在 `0019_metric_ai_context` 之后，不增加审计列、不重算旧哈希。升级时还需应用接在 `0022_oauth_cleanup_indexes` 之后的 `0023_event_outbox_cleanup_index`：新增 `(delivered_at, id) WHERE status = 'delivered'` 部分索引，只用于已投递快照的保留期清理；原有 `(status, next_attempt_at)` 索引继续用于到期投递查询。
+- 迁移文件 `0020_governance_events` 接在 `0019_metric_ai_context` 之后，不增加审计列、不重算旧哈希。`0023_event_outbox_cleanup_index` 接在 `0022_oauth_cleanup_indexes` 之后，新增 `(delivered_at, id) WHERE status = 'delivered'` 部分索引。随后 `0024_event_outbox_dead_retention` 新增可空的 `dead_at` 列和 `(dead_at, id) WHERE status = 'dead'` 部分索引，为存量死信回填迁移事务时刻，保守地保留完整的死信保留期。两个部分索引用于终态清理；原有 `(status, next_attempt_at)` 索引继续用于到期投递查询。OutboxOut 新增 `dead_at`（时间或 `null`）；重新投递返回的该字段为 `null`。
 - 删除订阅会级联删除其所有发件箱条目，包括 pending、delivered 和 dead；原审计不删除。若要暂停并保留投递记录，应修改 enabled=false。停用不会取消已有 pending 条目，重新启用后可继续投递。
 - 发件箱保存的是事件快照；目标 URL、启用状态和签名密钥在投递时读取当前订阅。修改类型或 outcome 过滤只影响随后入箱，不删除已有快照；轮换密钥也用于旧快照的后续尝试。
 - 失败 error 只承诺安全错误码和预定义短原因，不承诺提供原始异常诊断。归因不可用不使采集失败；导入辅助模型失败也不改变既有确定性结果保留语义。

@@ -95,9 +95,11 @@ class Settings:
     worker_stale_seconds: int = 30
     worker_running_timeout_seconds: int = 3600
     webhook_allow_private_urls: bool = False
+    webhook_concurrency: int = 4
     webhook_max_attempts: int = 8
     webhook_retry_max_minutes: int = 60
     events_delivered_retention_days: int = 30
+    events_dead_retention_days: int = 90
     history_retention_days: int = 1095
     history_purge_interval_hours: int = 24
     history_export_max_rows: int = 50000
@@ -309,12 +311,16 @@ def _build_settings(env: dict[str, str]) -> Settings:
         webhook_allow_private_urls=_boolean(
             env, "AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS", Settings.webhook_allow_private_urls
         ),
+        webhook_concurrency=_bounded_int(env, "AVELIS_WEBHOOK_CONCURRENCY", Settings.webhook_concurrency, 64),
         webhook_max_attempts=_positive_int(env, "AVELIS_WEBHOOK_MAX_ATTEMPTS", Settings.webhook_max_attempts),
         webhook_retry_max_minutes=_positive_int(
             env, "AVELIS_WEBHOOK_RETRY_MAX_MINUTES", Settings.webhook_retry_max_minutes
         ),
         events_delivered_retention_days=_nonnegative_int(
             env, "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS", Settings.events_delivered_retention_days
+        ),
+        events_dead_retention_days=_nonnegative_int(
+            env, "AVELIS_EVENTS_DEAD_RETENTION_DAYS", Settings.events_dead_retention_days
         ),
         history_retention_days=int(env.get("AVELIS_HISTORY_RETENTION_DAYS", "1095")),
         history_purge_interval_hours=int(env.get("AVELIS_HISTORY_PURGE_INTERVAL_HOURS", "24")),
@@ -424,8 +430,14 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_ANALYSIS_OUTPUT_TOKENS",
         "AVELIS_REDIS_DB",
         "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS",
+        "AVELIS_EVENTS_DEAD_RETENTION_DAYS",
     }
-    bounded = {"AVELIS_PORT": 65535, "AVELIS_DB_PORT": 65535, "AVELIS_COLLECT_INTERVAL_MINUTES": 1440}
+    bounded = {
+        "AVELIS_PORT": 65535,
+        "AVELIS_DB_PORT": 65535,
+        "AVELIS_COLLECT_INTERVAL_MINUTES": 1440,
+        "AVELIS_WEBHOOK_CONCURRENCY": 64,
+    }
     for spec in CONFIG_KEYS.values():
         key, default = spec.env, spec.default
         try:
