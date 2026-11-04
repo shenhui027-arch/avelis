@@ -1651,5 +1651,6 @@
   "，依据维表 {{table}} 的 {{column}} 列": ", from column {{column}} of dimension table {{table}}",
   "候选取值": "Candidate values",
   "{{dimension}}：“{{original}}”": "{{dimension}}: “{{original}}”",
-  "按所选继续（{{count}}/{{total}}）": "Continue with selection ({{count}}/{{total}})"
+  "按所选继续（{{count}}/{{total}}）_one": "Continue with selection ({{count}}/{{total}})",
+  "按所选继续（{{count}}/{{total}}）_other": "Continue with selection ({{count}}/{{total}})"
 }
