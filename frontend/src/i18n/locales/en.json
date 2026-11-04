@@ -1633,5 +1633,11 @@
   "按前 N 项显示，另有 {{count}} 项未列出_one": "Showing the top N; {{count}} more not listed",
   "按前 N 项显示，另有 {{count}} 项未列出_other": "Showing the top N; {{count}} more not listed",
   "下载中…": "Downloading…",
-  "加载第 {{page}} 页…": "Loading page {{page}}…"
+  "加载第 {{page}} 页…": "Loading page {{page}}…",
+  "最高": "Max",
+  "最低": "Min",
+  "平均": "Avg",
+  "平均 {{value}}": "Avg {{value}}",
+  "最高 {{x}} {{value}}": "Max {{x}} {{value}}",
+  "最低 {{x}} {{value}}": "Min {{x}} {{value}}"
 }

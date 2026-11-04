@@ -12,7 +12,8 @@ const url = (path, replace = (s) => s) => {
   return "data:text/javascript;base64," + Buffer.from(js).toString("base64");
 };
 const numbers = url("../../numbers.ts", (s) => s.replace(/^import \{ t \} from "\.\/i18n";$/m, "const t = (s) => s;"));
-const mod = await import(url("./chartOption.ts", (s) => s.replace('from "../../numbers"', `from "${numbers}"`)));
+const mod = await import(url("./chartOption.ts", (s) => s.replace('from "../../numbers"', `from "${numbers}"`)
+  .replace(/^import \{ t \} from "\.\.\/\.\.\/i18n";$/m, "const t = (s) => s;")));
 
 const theme = { series: ["#s1", "#s2", "#s3", "#s4", "#s5", "#s6", "#s7", "#s8"], neutral: "#n", good: "#g", bad: "#b",
   grid: "#grid", axis: "#axis", text: "#t", muted: "#m", surface: "#bg", font: "sans", mono: "mono" };
@@ -78,3 +79,22 @@ assert.deepEqual(option.series.map((s) => s.showSymbol), [false, true]);
 option = mod.chartOption(spec({ kind: "multiples", orientation: "vertical", categories: ["a", "b"], series: [series("甲", [1, null], { mark: "bar" })] }), "cn", theme);
 assert.equal(option.series[0].showSymbol, false);
 console.log("chartOption isolated-point tests ok");
+
+// 标注：极值点与平均线只画规格里给出的（位置与数值来自后端），横向条形的坐标是 [数值, 类目]
+option = mod.chartOption(spec({ marks: [
+  { type: "max", series: "value", series_index: 0, x: "甲", value: 3 },
+  { type: "average", series: "value", series_index: 0, x: null, value: 2 },
+] }), "cn", theme);
+assert.deepEqual(option.series[0].markPoint.data.map((d) => d.coord), [[3, "甲"]]);
+assert.equal(option.series[0].markPoint.data[0].label.formatter, "最高 3元");
+assert.equal(option.series[0].markLine.data[0].xAxis, 2);
+assert.equal(option.series[0].markLine.data[0].label.formatter, "平均 2元");
+assert.equal(mod.chartOption(spec(), "cn", theme).series[0].markPoint, undefined);
+
+// 突出类目：其余类目弱化，被突出的保持不透明
+option = mod.chartOption(spec({ highlight: ["乙"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.itemStyle.opacity), [0.32, 1, 0.32]);
+option = mod.chartOption(spec({ kind: "donut", highlight: ["甲"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.itemStyle.opacity), [1, 0.32, 0.32]);
+console.log("chartOption marks / highlight: ok");
+

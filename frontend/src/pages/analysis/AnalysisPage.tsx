@@ -412,6 +412,8 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
     sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[] };
   const answer = (r as Run & { answer?: Answer | null }).answer;
   const lookup = (report as { kind?: string }).kind === "lookup";
+  // 对话改图的一轮：只换上一轮数据的画法，没有结论与依据，只显示说明与改好的图
+  const chartEdit = (report as { kind?: string }).kind === "chart";
   const hitl = r as Run & { parent_run_id?: string | null; proposal?: { items: ProposalItem[] } | null;
     pending?: { kind?: string; question?: string } | null;
     experience_candidates?: Parameters<typeof CandidatesPanel>[0]["candidates"] };
@@ -447,7 +449,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
         <div className="av-doc__actions">
           <RunState run={r} />
           {lookup && answer ? <BasisState a={answer} /> : null}
-          {done && !lookup ? <ExportMenu run={r} onError={setError} /> : null}
+          {done && !lookup && !chartEdit ? <ExportMenu run={r} onError={setError} /> : null}
         </div>
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
@@ -466,7 +468,11 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
-      {(done || stopped) && !lookup ? <>
+      {done && chartEdit ? <>
+        {report.summary ? <p className={verification.ok === false ? "av-banner av-banner--info" : "av-doc__method"}>{report.summary}</p> : null}
+        <Figures runId={r.id} figures={(r as Run & { figures?: Figure[] }).figures ?? []} />
+      </> : null}
+      {(done || stopped) && !lookup && !chartEdit ? <>
         <section className="av-doc__summary" aria-label={t("摘要")}>
           <p><Segments segments={report.fields?.summary?.segments} text={report.summary} /></p>
           <div className="av-doc__verdict">

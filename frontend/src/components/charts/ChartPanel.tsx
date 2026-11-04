@@ -69,13 +69,26 @@ export function SpecTable({ spec }: { spec: ChartSpec }) {
 
 /** fullTable：表格视图是否为完整结果（问数结果表）；报告插图的表格只含图里的系列，未画出的要去数据集里看。 */
 function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean }) {
+  const style = useNumberStyle();
   const notes = [
     spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
     spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
       : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
     omitted(spec, fullTable),
+    donutMarks(spec, style),
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
+}
+
+/** 环形图上不画标注点与平均线，改在图下用文字给出（数值来自规格）。 */
+function donutMarks(spec: ChartSpec, style: ReturnType<typeof useNumberStyle>): string {
+  if (spec.kind !== "donut" || !spec.marks?.length) return "";
+  const unit = spec.series[0]?.unit;
+  return spec.marks.filter((m) => m.value != null).map((m) => m.type === "average"
+    ? t("平均 {{value}}", { value: formatValue(m.value, unit, style) })
+    : m.type === "max" ? t("最高 {{x}} {{value}}", { x: m.x == null ? "—" : String(m.x), value: formatValue(m.value, unit, style) })
+      : t("最低 {{x}} {{value}}", { x: m.x == null ? "—" : String(m.x), value: formatValue(m.value, unit, style) }))
+    .join(" · ");
 }
 
 /** 类目截断：展示上限截掉的要说出去哪里看全；前 N 是用户自己的设置，只说明还有几项。 */

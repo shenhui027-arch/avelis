@@ -1,5 +1,6 @@
 // 图表规格（后端 charts.recommend 产出，已排序、截断、合并“其他”）→ ECharts 配置。纯函数：不读 DOM，便于单测。
 // 视觉规则：细线 2px、柱宽 ≤ 24px 且数据端 4px 圆角、网格线退后、文字用文字色而不用系列色、≥ 2 个系列才有图例。
+import { t } from "../../i18n";
 import { formatAxis, formatValue, type NumberStyle, type UnitMeta } from "../../numbers";
 
 export type ChartKind = "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples";
@@ -12,7 +13,13 @@ export type ChartSpec = { kind: ChartKind; orientation: "vertical" | "horizontal
   x: { column: string; label: string; role: "time" | "dimension"; grain: string | null } | null;
   categories: (string | number | null)[]; series: ChartSeries[]; kpis: ChartKpi[]; others: { count: number } | null; dropped_series: number;
   /** 未画出、也没合并进“其他”的类目：display_limit 为展示上限，top_n 为显式的前 N 设置。 */
-  omitted_categories?: { count: number; reason: "display_limit" | "top_n" } | null };
+  omitted_categories?: { count: number; reason: "display_limit" | "top_n" } | null;
+  /** 模型经 chart 工具要求的标注：极值点与平均线，后端已按所示数据算好（series_index 指向 series 的下标）。 */
+  marks?: ChartMark[] | null;
+  /** 要突出的类目（完整显示值）；其余类目弱化。 */
+  highlight?: string[] | null };
+export type ChartMark = { type: "max" | "min" | "average"; series: string; series_index: number;
+  x: string | number | null; value: number | null };
 
 /** 主题取值：由组件从 CSS 令牌读出后传入。 */
 export type ChartTheme = { series: string[]; neutral: string; good: string; bad: string; grid: string; axis: string;
@@ -93,6 +100,38 @@ function legend(spec: ChartSpec, theme: ChartTheme): Option | undefined {
     textStyle: { color: theme.text, fontFamily: theme.font, fontSize: 12 }, pageTextStyle: { color: theme.muted } };
 }
 
+const DIM = 0.32;
+
+function category(c: string | number | null): string {
+  return c == null ? "—" : String(c);
+}
+
+/** 突出类目时其余类目弱化；没有要求时全部正常。 */
+function dimmed(spec: ChartSpec, index: number): boolean {
+  return !!spec.highlight?.length && !spec.highlight.includes(category(spec.categories[index]));
+}
+
+/** 极值点与平均线：只画规格里给出的标注，位置与数值都来自后端，不在这里计算。 */
+function markOptions(spec: ChartSpec, index: number, style: NumberStyle, theme: ChartTheme, horizontal: boolean): Option {
+  const s = spec.series[index];
+  const marks = (spec.marks ?? []).filter((m) => m.series_index === index && m.value != null);
+  if (!s || !marks.length) return {};
+  const label = (m: ChartMark) => `${m.type === "max" ? t("最高") : m.type === "min" ? t("最低") : t("平均")} ${formatValue(m.value, s.unit, style)}`;
+  const text = { color: theme.text, fontFamily: theme.font, fontSize: 11 };
+  const points = marks.filter((m) => m.type !== "average").map((m) => {
+    const at = category(m.x);
+    return { name: label(m), coord: horizontal ? [m.value, at] : [at, m.value], value: m.value,
+      label: { ...text, formatter: label(m), position: horizontal ? "right" : "top", distance: 10 } };
+  });
+  const lines = marks.filter((m) => m.type === "average").map((m) => ({ name: label(m), ...(horizontal ? { xAxis: m.value } : { yAxis: m.value }),
+    label: { ...text, formatter: label(m), position: horizontal ? "end" : "insideEndTop" } }));
+  return {
+    markPoint: points.length ? { symbol: "circle", symbolSize: 9, itemStyle: { color: theme.surface, borderColor: theme.text, borderWidth: 2 },
+      data: points, silent: true } : undefined,
+    markLine: lines.length ? { symbol: "none", silent: true, lineStyle: { color: theme.muted, type: "dashed", width: 1 }, data: lines } : undefined,
+  };
+}
+
 function escape(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
@@ -113,7 +152,8 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
         label: { color: theme.text, fontFamily: theme.font, fontSize: 12, formatter: "{b}  {d}%" },
         labelLine: { lineStyle: { color: theme.axis } },
         data: spec.categories.map((name, i) => ({ name: name == null ? "—" : String(name), value: s.values[i],
-          itemStyle: { color: spec.others && i === spec.categories.length - 1 ? theme.neutral : theme.series[i % theme.series.length] } })) }] };
+          itemStyle: { color: spec.others && i === spec.categories.length - 1 ? theme.neutral : theme.series[i % theme.series.length],
+            opacity: dimmed(spec, i) ? DIM : 1 } })) }] };
   }
 
   if (spec.kind === "multiples") {
@@ -125,10 +165,11 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
       grid: spec.series.map((_, i) => ({ left: 8, right: 16, top: i * height + gap, height: height - gap - 22, containLabel: true })),
       xAxis: spec.series.map((_, i) => categoryAxis(spec, theme, { gridIndex: i, axisLabel: { ...axisLabel(theme), show: i === n - 1 } })),
       yAxis: spec.series.map((s, i) => valueAxis(s.unit, style, theme, { gridIndex: i, splitNumber: 2 })),
-      series: spec.series.map((s, i) => ({ type: s.mark, name: s.name, xAxisIndex: i, yAxisIndex: i, data: s.values,
+      series: spec.series.map((s, i) => ({ type: s.mark, name: s.name, xAxisIndex: i, yAxisIndex: i,
+        data: s.values.map((v, j) => ({ value: v, itemStyle: { opacity: dimmed(spec, j) ? DIM : 1 } })),
         color: seriesColor(spec, i, theme), showSymbol: s.mark === "line" && showMarks(s.values, spec.categories.length),
         symbolSize: 6, lineStyle: { width: 2 }, barMaxWidth: BAR,
-        itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined })) };
+        itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined, ...markOptions(spec, i, style, theme, false) })) };
   }
 
   const negative = spec.series.some((s) => s.values.some((v) => v != null && v < 0));
@@ -143,20 +184,24 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
     const color = seriesColor(spec, i, theme);
     if (spec.kind === "line") {
       const marks = showMarks(s.values, spec.categories.length);
-      return { type: "line", name: s.name, data: s.values, color, connectNulls: false, showSymbol: marks, symbolSize: 8,
+      // 折线上突出的期间：只在这些点画出数据点，其余点照常
+      const data = spec.highlight?.length ? s.values.map((v, j) => ({ value: v, symbolSize: dimmed(spec, j) ? 0 : 10 })) : s.values;
+      return { type: "line", name: s.name, data, color, connectNulls: false, showSymbol: marks || !!spec.highlight?.length, symbolSize: 8,
         lineStyle: { width: 2 }, itemStyle: { borderColor: theme.surface, borderWidth: 2 },
-        areaStyle: spec.series.length === 1 ? { opacity: 0.1 } : undefined, emphasis: { focus: "series" } };
+        areaStyle: spec.series.length === 1 ? { opacity: 0.1 } : undefined, emphasis: { focus: "series" },
+        ...markOptions(spec, i, style, theme, false) };
     }
     const diverging = spec.kind === "diverging_bar";
     return { type: "bar", name: s.name, barMaxWidth: BAR, stack: spec.kind === "stacked_bar" ? "total" : undefined,
       color, emphasis: { focus: "series" },
       // 数值标注放在条形末端外侧：负值在左（或下），正值在右（或上）
-      data: s.values.map((v) => ({ value: v, label: labelled ? { position: v != null && v < 0 ? (horizontal ? "left" : "bottom") : (horizontal ? "right" : "top") } : undefined, itemStyle: {
-        color: diverging ? changeColor(v, s.polarity, theme) : color,
+      data: s.values.map((v, j) => ({ value: v, label: labelled ? { position: v != null && v < 0 ? (horizontal ? "left" : "bottom") : (horizontal ? "right" : "top") } : undefined, itemStyle: {
+        color: diverging ? changeColor(v, s.polarity, theme) : color, opacity: dimmed(spec, j) ? DIM : 1,
         borderRadius: diverging && v != null && v < 0 ? (horizontal ? [4, 0, 0, 4] : [0, 0, 4, 4]) : spec.kind === "stacked_bar" ? 0 : radius,
         borderColor: spec.kind === "stacked_bar" ? theme.surface : undefined, borderWidth: spec.kind === "stacked_bar" ? 1 : 0 } })),
       label: labelled ? { show: true, position: horizontal ? "right" : "top", color: theme.muted, fontFamily: theme.mono, fontSize: 11,
-        formatter: (p: { dataIndex: number }) => formatValue(s.values[p.dataIndex], s.unit, style) } : undefined };
+        formatter: (p: { dataIndex: number }) => formatValue(s.values[p.dataIndex], s.unit, style) } : undefined,
+      ...markOptions(spec, i, style, theme, horizontal) };
   });
 
   return { ...base, grid, legend: legend(spec, theme), tooltip: tooltip(spec, style, theme, "axis"), dataZoom,
