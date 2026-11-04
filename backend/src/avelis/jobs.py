@@ -442,8 +442,8 @@ def main() -> None:
                     log.exception("任务 %s 执行异常", item[1])
     finally:
         delivery_stop.set()
-        # 等待当前轮结束，确保退出后没有后台投递继续访问数据库；DNS/数据库等待沿用现有限制。
-        delivery_thread.join()
+        # DNS、HTTP 和数据库认领各受期限约束；退出最多等待一个单次请求期限。
+        delivery_thread.join(timeout=5.0)
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=1)
         _guarded("删除 worker 心跳", lambda: cache.client().delete(cache.WORKER_HEARTBEAT))

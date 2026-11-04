@@ -13,32 +13,40 @@ log = logging.getLogger(__name__)
 BATCH_SIZE = 500
 
 
-def _expired_statement(cutoff, batch_size):
+def _expired_statement(cutoff, batch_size, *, status="delivered"):
+    terminal_at = EventOutbox.delivered_at if status == "delivered" else EventOutbox.dead_at
     return (
         select(EventOutbox.id)
-        .where(EventOutbox.status == "delivered", EventOutbox.delivered_at < cutoff)
-        .order_by(EventOutbox.delivered_at, EventOutbox.id)
+        .where(EventOutbox.status == status, terminal_at < cutoff)
+        .order_by(terminal_at, EventOutbox.id)
         .limit(batch_size)
         .with_for_update(skip_locked=True)
     )
 
 
 def purge_batch(session, settings, timestamp=None, *, batch_size=BATCH_SIZE) -> dict[str, int]:
-    """Delete at most one batch; pending and replayable dead snapshots stay.
+    """Delete one bounded batch per terminal state using its retention timestamp.
 
-    A dead row has no reliable terminal timestamp, so neither its creation time
-    nor its scheduled retry time can safely define a dead-letter retention age.
-    Lock only the expired delivered rows and skip rows used by another worker.
+    Separate ordered lookups use the two partial indexes without scanning pending
+    rows. Each state has its own limit so neither can starve the other; both skip
+    rows used by another worker.
     """
-    days = settings.events_delivered_retention_days
-    if days <= 0 or batch_size <= 0:
+    if batch_size <= 0:
         return {"event_outbox": 0}
     timestamp = timestamp or utcnow()
-    cutoff = timestamp - timedelta(days=days)
-    ids = list(session.scalars(_expired_statement(cutoff, batch_size)))
-    if ids:
-        session.execute(delete(EventOutbox).where(EventOutbox.id.in_(ids)))
-    return {"event_outbox": len(ids)}
+    deleted = 0
+    for status, days in (
+        ("delivered", settings.events_delivered_retention_days),
+        ("dead", settings.events_dead_retention_days),
+    ):
+        if days <= 0:
+            continue
+        cutoff = timestamp - timedelta(days=days)
+        ids = list(session.scalars(_expired_statement(cutoff, batch_size, status=status)))
+        if ids:
+            session.execute(delete(EventOutbox).where(EventOutbox.id.in_(ids)))
+            deleted += len(ids)
+    return {"event_outbox": deleted}
 
 
 def purge() -> dict[str, int]:

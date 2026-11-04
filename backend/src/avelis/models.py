@@ -639,6 +639,7 @@ class EventOutbox(Base):
         UTCDateTime, default=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
     )
     delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    dead_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class HistoryChainHead(Base):

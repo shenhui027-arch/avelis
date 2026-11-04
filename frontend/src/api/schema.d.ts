@@ -489,6 +489,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/catalog/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Counts
+         * @description 与无筛选列表相同的可见数量，在一条 SQL 中聚合，不加载目录对象。
+         */
+        get: operations["catalog_counts_api_catalog_counts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/domains": {
         parameters: {
             query?: never;
@@ -3060,6 +3080,19 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** CatalogCountsOut */
+        CatalogCountsOut: {
+            /** Metrics */
+            metrics: number;
+            /** Assets */
+            assets: number;
+            /** Domains */
+            domains: number;
+            /** Join Paths */
+            join_paths: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** ChainIssueOut */
         ChainIssueOut: {
             /** Kind */
@@ -4970,6 +5003,8 @@ export interface components {
             created_at: string;
             /** Delivered At */
             delivered_at: string | null;
+            /** Dead At */
+            dead_at: string | null;
         };
         /** OutboxPage */
         OutboxPage: {
@@ -6635,6 +6670,26 @@ export interface operations {
             };
         };
     };
+    catalog_counts_api_catalog_counts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogCountsOut"];
+                };
+            };
+        };
+    };
     list_domains_api_domains_get: {
         parameters: {
             query?: {
@@ -6810,6 +6865,8 @@ export interface operations {
                 domain_id?: string | null;
                 q?: string | null;
                 include_deleted?: boolean;
+                ids?: string[] | null;
+                queryable?: boolean | null;
                 limit?: number | null;
                 offset?: number;
             };

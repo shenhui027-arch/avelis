@@ -68,3 +68,34 @@ def test_delivered_retention_environment_overrides_toml(tmp_path):
     )
 
     assert settings.events_delivered_retention_days == 7
+
+
+def test_dead_retention_defaults_to_ninety_days():
+    assert build_settings({"AVELIS_SECRET": SECRET}).events_dead_retention_days == 90
+
+
+@pytest.mark.parametrize("days", ["0", "7", "180"])
+def test_dead_retention_environment_override(days):
+    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_EVENTS_DEAD_RETENTION_DAYS": days})
+
+    assert settings.events_dead_retention_days == int(days)
+
+
+@pytest.mark.parametrize("value", ["-1", "invalid", "1.5"])
+def test_invalid_dead_retention(value):
+    with pytest.raises(ConfigError, match="AVELIS_EVENTS_DEAD_RETENTION_DAYS"):
+        build_settings({"AVELIS_SECRET": SECRET, "AVELIS_EVENTS_DEAD_RETENTION_DAYS": value})
+
+
+@pytest.mark.parametrize("days", [0, 45])
+def test_dead_retention_toml_and_environment_precedence(tmp_path, days):
+    path = tmp_path / "avelis.toml"
+    path.write_text(
+        f'[security]\nsecret = "{SECRET}"\n[events]\ndead_retention_days = {days}\n',
+        encoding="utf-8",
+    )
+    toml = read_config({"AVELIS_CONFIG": str(path)})
+
+    assert build_settings(toml).events_dead_retention_days == days
+    overridden = merge_layers(toml, ConfigValues({"AVELIS_EVENTS_DEAD_RETENTION_DAYS": "7"}))
+    assert build_settings(overridden).events_dead_retention_days == 7

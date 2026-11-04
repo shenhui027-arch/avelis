@@ -194,15 +194,24 @@ Automatic migration and administrator initialization are enabled by default, eve
 | `[history] export_max_rows` | `AVELIS_HISTORY_EXPORT_MAX_ROWS` | `50000` | Maximum rows per change-record export |
 | `[import] max_bytes` | `AVELIS_IMPORT_MAX_BYTES` | `2097152` | Size limit for one uploaded file or pasted text when importing lineage, bytes |
 
-Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Each worker has one independent delivery loop, so long business jobs and history cleanup do not delay Webhook delivery. Each round processes at most 50 items within a fixed shared 5-second budget. Subscriptions take turns, each getting one item before the next pass. Requests allow at most 5 seconds, with at most 3 seconds for connecting, and receive a fair share of the remaining budget reserved for subscriptions still awaiting their turn. A timeout skips that subscription's remaining items for the round; other failures retain the existing two-consecutive-failures rule. The delivery budget currently has no environment variable or TOML setting; see [delivery rules](events.en.md#delivery-and-signature-verification).
+Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Each worker has one independent delivery loop, so long business jobs and history cleanup do not delay Webhook delivery. Each round processes at most 50 items, taking turns across subscriptions with concurrent requests. Each subscription has at most one request in flight. Each request allows at most 5 seconds including DNS resolution, with at most 3 seconds for connecting, and is capped by the round's remaining budget. Its deadline is not divided by the number of subscriptions. See [delivery rules](events.en.md#delivery-and-signature-verification).
+
+### Webhook `[webhook]`
+
+| Configuration file | Environment variable | Default | Description |
+|---|---|---|---|
+| `concurrency` | `AVELIS_WEBHOOK_CONCURRENCY` | `4` | Maximum concurrent deliveries per worker; integer in `1..64`, with `1` selecting serial delivery; each in-flight request holds one meta-database connection, so raise `[database] pool_size` along with it |
+
+The default of 4 lets slow and healthy subscriptions deliver concurrently while limiting network and database resource use. Setting `1` reduces resource use, but a slow subscription occupies the only delivery slot. The maximum of 64 places a hard limit on background resources used by delivery threads, DNS lookups, and database waits. See [event URLs and configuration](events.en.md#urls-and-configuration) for URL security and retry settings.
 
 ### Event outbox `[events]`
 
 | Configuration file | Environment variable | Default | Description |
 |---|---|---|---|
 | `delivered_retention_days` | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `30` | Retention in days for delivered event snapshots, measured from `delivered_at`; nonnegative integer, with `0` disabling cleanup |
+| `dead_retention_days` | `AVELIS_EVENTS_DEAD_RETENTION_DAYS` | `90` | Retention in days for dead event snapshots, measured from `dead_at`; nonnegative integer, with `0` disabling cleanup |
 
-The 30-day default keeps recent records for troubleshooting while limiting continued growth of successful delivery snapshots. Each worker scan deletes at most 500 expired `delivered` records alongside OAuth cleanup, independently of the history cleanup interval. `SKIP LOCKED` leaves rows currently in use for a later scan. `pending` records are never purged. `dead` records are also retained indefinitely for redelivery after manual repair. There is currently no reliable timestamp for entering the dead state, so event creation time cannot substitute for the start of a dead-record retention period.
+Successful delivery snapshots are retained for 30 days and dead snapshots for 90 days by default, allowing time for troubleshooting and manual repair while limiting storage growth. Each worker scan deletes at most 500 expired records of each state, `delivered` and `dead`, for at most 1000 records in total alongside OAuth cleanup, independently of the history cleanup interval. Each state uses its own retention period and batch allowance so a continuous delivered backlog cannot starve dead-record cleanup. `SKIP LOCKED` leaves rows currently in use for a later scan. `pending` records are never purged. Entering the dead state sets `dead_at`; redelivery clears it. Migration `0024` backfills existing dead records with the migration time, giving them a full retention period after upgrade rather than deleting them immediately. Event creation time is not used to infer when a record became dead.
 
 ### Analysis agent `[analysis]`
 
