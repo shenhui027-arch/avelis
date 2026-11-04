@@ -92,7 +92,7 @@ export function AnalysisPage() {
         {runId && view === "runs" && dataset.ref ? <div className="av-analysis__scroll">
           <DatasetView key={dataset.ref} runId={runId} refId={dataset.ref} onClose={dataset.close} onOpen={dataset.open}
             canRerun={!!run.data && !["queued", "running", "waiting"].includes(run.data.status)}
-            onDownload={(seq, ref) => void download(`/api/analysis/runs/${runId}/datasets/${seq}/csv`, `analysis-${runId}-${ref}.csv`)} />
+            onDownload={(seq, ref) => download(`/api/analysis/runs/${runId}/datasets/${seq}/csv`, `analysis-${runId}-${ref}.csv`)} />
         </div> : runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
           {view === "tasks" ? <div className="av-analysis__page"><PageHead title={t("定时任务")} /><TaskList /></div>
             : view === "archived" ? <div className="av-analysis__page"><PageHead title={t("已归档的对话")} hint={t("归档的对话可以打开查看、恢复到左侧，或永久删除")} /><ArchivedConversations /></div>

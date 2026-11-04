@@ -1,7 +1,7 @@
 // 数据集：证据栏里的卡片可以在主区域打开，看完整表格（分页）、图表、SQL 与口径版本；受治理数据集可以换时间窗口重跑。
 // 地址带 ?dataset=D3，可以直接分享到具体数据集。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
@@ -59,11 +59,17 @@ function useDetail(runId: string, ref: string, offset: number) {
 
 export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canRerun }: {
   runId: string; refId: string; onClose: () => void; onOpen: (ref: string) => void;
-  onDownload: (seq: number, ref: string) => void; canRerun: boolean;
+  onDownload: (seq: number, ref: string) => Promise<void>; canRerun: boolean;
 }) {
   const [offset, setOffset] = useState(0);
   const [rerun, setRerun] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const detail = useDetail(runId, refId, offset);
+  // 翻页时先保留上一页的行（避免表格闪空），页码跟着“正在显示的数据”走，不跟请求走；新页到达前暂停翻页。
+  const [shown, setShown] = useState(0);
+  useEffect(() => { if (detail.data && !detail.isPlaceholderData) setShown(offset); }, [detail.data, detail.isPlaceholderData, offset]);
+  const paging = detail.isPlaceholderData && detail.isFetching;
   const style = useNumberStyle();
   const d = detail.data;
   const forbidden = detail.isError && (detail.error as { status?: number }).status === 403;
@@ -85,10 +91,13 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
         {d ? <div className="av-actions">
           {d.rerunnable && canRerun ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setRerun(true)}>
             <Icon name="refresh" small />{t("换时间重跑")}</button> : null}
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => onDownload(Number(refId.slice(1)), refId)}>
-            <Icon name="download" small />CSV</button>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={downloading} onClick={() => {
+            setDownloading(true); setDownloadError(null);
+            onDownload(Number(refId.slice(1)), refId).catch((e) => setDownloadError(errorText(e))).finally(() => setDownloading(false));
+          }}><Icon name="download" small />{downloading ? t("下载中…") : "CSV"}</button>
         </div> : null}
       </header>
+      {downloadError ? <div className="av-banner av-banner--danger">{downloadError}</div> : null}
       {forbidden ? <Empty text={t("你已没有该数据的访问权限")} /> : detail.isError ? <div className="av-banner av-banner--danger">{errorText(detail.error)}</div> : null}
       {d ? <div className="av-dsview__bd">
         <p className="av-caption av-dsview__meta">
@@ -98,15 +107,15 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           {d.source ? <> {t("· 由")} <button type="button" className="av-dsview__link" onClick={() => onOpen(d.source!.ref)}>{d.source.ref}</button> {t("换时间重跑")}</> : null}
         </p>
         {d.purpose ? <p className="av-dsview__purpose">{d.purpose}</p> : null}
-        {offset === 0 && d.charts?.length ? <div className="av-dsview__chart"><ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /></div> : null}
-        <div className="av-table-wrap av-dsview__table"><table className="av-table">
+        {shown === 0 && d.charts?.length ? <div className="av-dsview__chart"><ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /></div> : null}
+        <div className="av-table-wrap av-dsview__table" aria-busy={paging}><table className="av-table">
           <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
-          <tbody>{d.rows.map((row, i) => <tr key={offset + i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
+          <tbody>{d.rows.map((row, i) => <tr key={shown + i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
         </table></div>
         {pages > 1 ? <div className="av-dsview__pager">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(offset - PAGE)}>{t("上一页")}</button>
-          <span className="av-caption">{t("第 {{page}} / {{pages}} 页", { page: offset / PAGE + 1, pages })}</span>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset + PAGE >= d.total} onClick={() => setOffset(offset + PAGE)}>{t("下一页")}</button>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown === 0} onClick={() => setOffset(shown - PAGE)}>{t("上一页")}</button>
+          <span className="av-caption">{paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}</span>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown + PAGE >= d.total} onClick={() => setOffset(shown + PAGE)}>{t("下一页")}</button>
         </div> : null}
         {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
           {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}

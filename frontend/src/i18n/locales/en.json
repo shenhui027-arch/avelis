@@ -1631,5 +1631,7 @@
   "另有 {{count}} 个类目未画出，见下方数据集_one": "{{count}} more category not drawn; see the dataset below",
   "另有 {{count}} 个类目未画出，见下方数据集_other": "{{count}} more categories not drawn; see the dataset below",
   "按前 N 项显示，另有 {{count}} 项未列出_one": "Showing the top N; {{count}} more not listed",
-  "按前 N 项显示，另有 {{count}} 项未列出_other": "Showing the top N; {{count}} more not listed"
+  "按前 N 项显示，另有 {{count}} 项未列出_other": "Showing the top N; {{count}} more not listed",
+  "下载中…": "Downloading…",
+  "加载第 {{page}} 页…": "Loading page {{page}}…"
 }
