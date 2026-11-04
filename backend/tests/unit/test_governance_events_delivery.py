@@ -574,7 +574,9 @@ def test_slow_backlog_consumes_its_share_and_healthy_subscription_delivers_in_fi
         for identifier, count in backlogs:
             for index in range(count):
                 item = session.get(EventOutbox, f"{identifier}-{index}")
-                assert item.status == "pending" and item.attempts == int(index == 0)
+                # 期限是为公平切短的：超时不消耗重试次数，只标记为下一轮优先。
+                assert item.status == "pending" and item.attempts == 0
+                assert item.last_error == (delivery.BUDGET_TIMEOUT if index == 0 else None)
     if slow_subscriptions == 1:
         # 后两轮处理同一慢订阅的剩余积压；健康事件第一轮已完成，不会连续三轮 pending。
         assert delivery.deliver_due() == 1
@@ -660,14 +662,15 @@ def test_scan_cancels_slow_receiver_at_total_budget_and_resumes_remaining_next_s
     with database() as session:
         attempted = session.get(EventOutbox, "delivery-0")
         untouched = session.get(EventOutbox, "delivery-1")
-        assert attempted.status == "pending" and attempted.attempts == 1 and attempted.last_error == "timeout"
+        # 0.3 秒的整轮预算短于单次请求上限：这次超时由调度造成，不计入重试次数。
+        assert attempted.status == "pending" and attempted.attempts == 0
+        assert attempted.last_error == delivery.BUDGET_TIMEOUT
         assert untouched.status == "pending" and untouched.attempts == 0
     success = httpx.MockTransport(lambda request: httpx.Response(204))
-    assert delivery.deliver_due(transport=success) == 1
-    monkeypatch.setattr(delivery, "utcnow", lambda: utcnow() + timedelta(minutes=2))
-    assert delivery.deliver_due(transport=success) == 1
+    assert delivery.deliver_due(transport=success) == 2
     with database() as session:
-        assert session.get(EventOutbox, "delivery-0").attempts == 2
+        first = session.get(EventOutbox, "delivery-0")
+        assert first.status == "delivered" and first.attempts == 1 and first.last_error is None
         assert session.get(EventOutbox, "delivery-1").status == "delivered"
 
 
@@ -694,7 +697,36 @@ def test_one_timeout_skips_subscription_without_consuming_other_attempts(
         for identifier in ("delivery-1", "delivery-2", "delivery-3"):
             row = session.get(EventOutbox, identifier)
             assert row.status == "pending" and row.attempts == 0 and row.last_error is None
-    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(204))) == 3
+    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(204))) == 4
+
+
+def test_scheduler_shortened_timeouts_do_not_exhaust_a_healthy_receivers_retries(database, monkeypatch, outbox):
+    """十个不可达订阅排在前面、健康接收端要 1 秒：切短的期限不能让健康事件耗尽重试变成死信。"""
+    monkeypatch.setattr(delivery, "session_scope", database)
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    queue_subscription_backlogs(database, outbox, [*[(f"down-{i}", 1) for i in range(10)], ("healthy", 1)])
+
+    def send(subscription, item, *, timeout_seconds, **kwargs):
+        need = 1.0 if subscription.id == "healthy" else float("inf")
+        if timeout_seconds < need:
+            clock[0] += timeout_seconds
+            raise delivery.DeliveryError("timeout")
+        clock[0] += need
+
+    monkeypatch.setattr(delivery, "send_webhook", send)
+    for _ in range(40):
+        delivery.deliver_due()
+        clock[0] += 60
+        with database() as session:
+            if session.get(EventOutbox, "healthy-0").status != "pending":
+                break
+        monkeypatch.setattr(delivery, "utcnow", lambda now=utcnow(): now + timedelta(hours=2))
+    with database() as session:
+        healthy = session.get(EventOutbox, "healthy-0")
+        assert healthy.status == "delivered"
+        # 不可达订阅每次计数的尝试都用了完整期限，仍按规则累计重试。
+        assert all(session.get(EventOutbox, f"down-{i}-0").attempts >= 1 for i in range(10))
 
 
 def test_success_resets_consecutive_failure_count(database, monkeypatch, subscription, outbox):

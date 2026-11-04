@@ -25,6 +25,8 @@ from avelis.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 _REQUEST_TIMEOUT_SECONDS = 5.0
+# 调度为公平切短了期限、在切短的期限内超时：不算接收端失败，不消耗重试次数，下一轮优先用完整期限重试。
+BUDGET_TIMEOUT = "timeout_budget"
 _RESTRICTED_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in ("192.88.99.0/24", "3ffe::/16", "2001:10::/28", "2001:20::/28", "64:ff9b::/96")
@@ -176,7 +178,13 @@ def _due_statement(now, handled: set[str], blocked_subscriptions: set[str] | fro
         select(EventOutbox, WebhookSubscription)
         .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
         .where(*_due_filters(now, handled, blocked_subscriptions))
-        .order_by(EventOutbox.next_attempt_at, EventOutbox.created_at, EventOutbox.id)
+        # 被调度切短过的记录排在最前，在一轮开头拿到完整期限，保证它们最终有一次完整尝试。
+        .order_by(
+            (EventOutbox.last_error == BUDGET_TIMEOUT).desc(),
+            EventOutbox.next_attempt_at,
+            EventOutbox.created_at,
+            EventOutbox.id,
+        )
         .limit(1)
         .with_for_update(skip_locked=True, key_share=True)
     )
@@ -224,7 +232,8 @@ def deliver_due(
                     break
                 # 当前订阅只能使用本轮的一份预算，给尚未轮到的订阅留出发送机会。
                 waiting = min(max(1, subscription_count), batch_size - attempts)
-                timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, remaining / waiting)
+                share = remaining if outbox.last_error == BUDGET_TIMEOUT else remaining / waiting
+                timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, share)
                 handled.add(outbox.id)
                 served_subscriptions.add(subscription.id)
                 outbox.attempts += 1
@@ -232,6 +241,14 @@ def deliver_due(
                 try:
                     send_webhook(subscription, outbox, transport=transport, timeout_seconds=timeout_seconds)
                 except DeliveryError as exc:
+                    deferred = outbox.last_error == BUDGET_TIMEOUT
+                    if str(exc) == "timeout" and timeout_seconds < _REQUEST_TIMEOUT_SECONDS and not deferred:
+                        # 期限是调度切短的：不判接收端失败；本轮跳过该订阅，记录仍到期，下一轮优先并用整轮剩余预算重试。
+                        # 只让一次：优先重试那次再超时就照常计入重试次数，不会无限推迟。
+                        outbox.attempts -= 1
+                        outbox.last_error = BUDGET_TIMEOUT
+                        blocked_subscriptions.add(subscription.id)
+                        continue
                     failures[subscription.id] = failures.get(subscription.id, 0) + 1
                     if str(exc) == "timeout" or failures[subscription.id] >= 2:
                         blocked_subscriptions.add(subscription.id)
