@@ -1,6 +1,6 @@
 // MCP 接入（ADR 0019）：外部 AI 工具的连接地址、我授权过的应用；管理员另看全部客户端并可禁用。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api, ApiError, unwrap } from "../../api/client";
 import { useAction, useTimeZone } from "../../api/hooks";
@@ -25,6 +25,10 @@ export function McpPage() {
   const clients = useQuery({ queryKey: ["oauth-clients", offset], enabled: isAdmin, retry: false,
     queryFn: () => unwrap(api.GET("/api/oauth/clients", { params: { query: { limit: CLIENT_PAGE + 1, offset } } })) });
   const hasNext = (clients.data?.length ?? 0) > CLIENT_PAGE;
+  // 清理任务可能在翻页间隙删掉客户端：非第一页取回为空就退回上一页，免得停在没有翻页按钮的空页
+  useEffect(() => {
+    if (offset > 0 && clients.data && !clients.data.length) setOffset((o) => Math.max(0, o - CLIENT_PAGE));
+  }, [offset, clients.data]);
   const revokeMine = useAction((id: string) => unwrap(api.DELETE("/api/oauth/authorizations/{authorization_id}",
     { params: { path: { authorization_id: id } } })), ["oauth-authorizations", "oauth-clients"]);
   const revokeClient = useAction((id: string) => unwrap(api.POST("/api/oauth/clients/{client_record_id}/revoke",

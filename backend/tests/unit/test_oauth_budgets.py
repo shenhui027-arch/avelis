@@ -17,7 +17,9 @@ from avelis.oauth.router import create_oauth_router
 from tests.unit.test_oauth_server import (
     BASE,
     REDIRECT,
+    RESOURCE,
     authorization_params,
+    exchange_params,
     issue_code,
     issue_ticket,
     issue_token,
@@ -227,7 +229,8 @@ def test_cleanup_preserves_replay_window_live_refresh_and_authorized_clients(oau
     api.session.commit()
     summary = purge_batch(api.session, api.settings, timestamp)
     api.session.commit()
-    assert summary["oauth_consent_ticket"] == 2 and summary["oauth_authorization_code"] == 2
+    # 只删未用过的那个授权码；已换过令牌的授权码是重放检测的依据，令牌族还在时保留
+    assert summary["oauth_consent_ticket"] == 2 and summary["oauth_authorization_code"] == 1
     assert summary["oauth_client"] == 1 and summary["oauth_token"] == 0
     assert api.session.get(api.OAuthClient, client.id) is not None
     old.expires_at = old.refresh_expires_at = timestamp - timedelta(days=8)
@@ -340,3 +343,28 @@ def test_client_list_is_a_compatible_bounded_page(oauth_api):
     assert "authorization_count" in first[0]
     for params in ({"limit": 201}, {"limit": 0}, {"offset": -1}):
         assert api.client.get("/api/oauth/clients", params=params).status_code == 422
+
+
+def test_cleanup_keeps_consumed_codes_as_replay_tripwire_until_family_is_gone(oauth_api):
+    api = oauth_api
+    code = issue_code(api)
+    token = api.client.post("/oauth/token", data=exchange_params(code)).json()
+    timestamp = now()
+    row = api.session.scalar(select(api.OAuthAuthorizationCode))
+    row.expires_at = timestamp - timedelta(days=30)
+    row.consumed_at = timestamp - timedelta(days=30)
+    api.session.commit()
+    # 授权码早已过期且超过重放窗口，但它换出的令牌族还在：必须保留，重放仍能撤销整族
+    assert purge_batch(api.session, api.settings, timestamp)["oauth_authorization_code"] == 0
+    api.session.commit()
+    replay = api.client.post("/oauth/token", data=exchange_params(code))
+    assert replay.status_code == 400 and replay.json()["error"] == "invalid_grant"
+    assert api.repository.verify_access_token(token["access_token"], RESOURCE) is None
+    # 令牌族全部清理之后，授权码才随之删除
+    for t in api.session.scalars(select(api.OAuthToken)):
+        t.expires_at = t.refresh_expires_at = timestamp - timedelta(days=30)
+        t.access_revoked_at = t.refresh_revoked_at = timestamp - timedelta(days=30)
+    api.session.commit()
+    assert purge_batch(api.session, api.settings, timestamp)["oauth_token"] >= 1
+    api.session.commit()
+    assert purge_batch(api.session, api.settings, timestamp)["oauth_authorization_code"] == 1

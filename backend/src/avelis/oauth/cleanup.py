@@ -3,7 +3,7 @@
 import logging
 from datetime import timedelta
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import and_, delete, exists, or_, select, update
 
 from avelis.config import get_settings
 from avelis.db import session_scope
@@ -39,7 +39,19 @@ def purge_batch(session, settings, timestamp=None) -> dict[str, int]:
         OAuthConsentTicket: (
             or_(OAuthConsentTicket.expires_at <= timestamp, OAuthConsentTicket.client_record_id.in_(stale_clients)),
         ),
-        OAuthAuthorizationCode: (OAuthAuthorizationCode.expires_at <= timestamp,),
+        # Unused codes go as soon as they expire. A consumed code is the replay
+        # tripwire (reuse revokes its token family), so it stays while any token of
+        # its family survives and until the replay window has passed.
+        OAuthAuthorizationCode: (
+            OAuthAuthorizationCode.expires_at <= timestamp,
+            or_(
+                OAuthAuthorizationCode.consumed_at.is_(None),
+                and_(
+                    OAuthAuthorizationCode.consumed_at <= cutoff,
+                    ~exists().where(OAuthToken.family_id == OAuthAuthorizationCode.family_id),
+                ),
+            ),
+        ),
         OAuthToken: expired_tokens,
     }
     candidates = {}
