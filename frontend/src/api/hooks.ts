@@ -1,6 +1,6 @@
 // 数据查询与操作。所有请求经 openapi-fetch，类型来自后端 OpenAPI。
 import {
-  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryKey,
+  keepPreviousData, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type InfiniteData, type QueryKey,
 } from "@tanstack/react-query";
 
 import { t } from "../i18n";
@@ -52,7 +52,30 @@ export const useExampleQuestions = (mode: "ask" | "analysis") => useQuery({
   queryKey: ["example-questions", mode], staleTime: 60_000,
   queryFn: () => unwrap(api.GET("/api/example-questions", { params: { query: { mode } } })),
 });
-export const useAssets = () => useQuery({ queryKey: ["assets"], queryFn: () => unwrap(api.GET("/api/assets")) });
+/** 资产按需查询：搜索、按数据源 / 业务域过滤、只要可查询的、按 id 批量取；不再整表加载（资产随数据规模增长）。 */
+export type AssetQuery = { q?: string; datasource_id?: string; domain_id?: string; queryable?: boolean; ids?: string[]; limit?: number; offset?: number };
+export const useAssetSearch = (query: AssetQuery, enabled = true) => useQuery({
+  queryKey: ["assets", query], enabled, placeholderData: (prev) => prev,
+  queryFn: () => unwrap(api.GET("/api/assets", { params: { query } })),
+});
+/** 按 id 取资产（显示名称、核对是否仍可见）；id 排序去重，同一组 id 共用缓存。 */
+export const useAssetsByIds = (ids: string[], extra: Omit<AssetQuery, "ids"> = {}) => {
+  const unique = [...new Set(ids.filter(Boolean))].sort();
+  return useAssetSearch({ ...extra, ids: unique }, unique.length > 0);
+};
+/** 按 id 取多个资产的名称：接口一次最多 200 个 id，超过时分批请求再合并，不截断。 */
+export function useAssetNames(ids: string[]): Map<string, string> {
+  const unique = [...new Set(ids.filter(Boolean))].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += 200) batches.push(unique.slice(i, i + 200));
+  const results = useQueries({ queries: batches.map((batch) => ({
+    queryKey: ["assets", { ids: batch }],
+    queryFn: () => unwrap(api.GET("/api/assets", { params: { query: { ids: batch } } })),
+  })) });
+  return new Map(results.flatMap((r) => r.data ?? []).map((a) => [a.id, a.qualified]));
+}
+/** 目录各类对象的可见数量（导航角标）：一次聚合查询，不加载列表。 */
+export const useCatalogCounts = () => useQuery({ queryKey: ["catalog-counts"], queryFn: () => unwrap(api.GET("/api/catalog/counts")) });
 export const useAsset = (id?: string) => useQuery({
   queryKey: ["asset", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/assets/{asset_id}", { params: { path: { asset_id: id! } } })),
@@ -133,12 +156,16 @@ export const useAudit = (objectType?: string, objectId?: string) => useQuery({
 });
 
 /** 操作：成功后刷新相关查询；失败抛出后端给出的原因。 */
+const CATALOG_KEYS = new Set(["metrics", "assets", "domains", "join-paths"]);
+
 export function useAction<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>, invalidate: string[] = []) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
     onSuccess: () => {
-      for (const key of [...invalidate, "workbench"]) qc.invalidateQueries({ queryKey: [key] });
+      // 目录对象增删改后，导航角标的计数也要刷新（计数接口独立于各列表的缓存）
+      const counted = invalidate.some((key) => CATALOG_KEYS.has(key));
+      for (const key of [...invalidate, "workbench", ...(counted ? ["catalog-counts"] : [])]) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

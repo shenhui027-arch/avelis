@@ -4,11 +4,12 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAssets, useDatasources, useTimeZone } from "../../api/hooks";
+import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
 import { Banner, Count, DateInput, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
-import { assetsOfDatasource, recordQuery, type RecordFilters } from "./recordFilters";
+import { recordQuery, type RecordFilters } from "./recordFilters";
+import { AssetPicker } from "../../components/AssetPicker";
 import { currentLanguage, t } from "../../i18n";
 
 type Record = Schemas["ChangeRecordOut"];
@@ -52,7 +53,6 @@ export function ChangeRecords() {
   const tz = useTimeZone();
   const me = useMe();
   const sources = useDatasources();
-  const assets = useAssets();
   const [filters, setFilters] = useState<RecordFilters>({ datasource_id: "", asset_id: "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
@@ -97,7 +97,6 @@ export function ChangeRecords() {
   };
 
   const data = records.data;
-  const dsAssets = assetsOfDatasource(assets.data ?? [], filters.datasource_id);
   return (
     <section className="av-pane" aria-label={t("变更记录")} style={{ gridColumn: "2 / -1" }}>
       <div className="av-pane__body">
@@ -119,10 +118,8 @@ export function ChangeRecords() {
               <option value="">{t("全部数据源")}</option>
               {(sources.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </Select>
-            <Select label={t("资产")} value={filters.asset_id} onChange={set("asset_id")}>
-              <option value="">{t("全部资产")}</option>
-              {dsAssets.map((a) => <option key={a.id} value={a.id}>{shortName(a.qualified)}</option>)}
-            </Select>
+            <AssetPicker label={t("资产")} value={filters.asset_id} onChange={set("asset_id")} datasourceId={filters.datasource_id}
+              clearLabel={t("全部资产")} short={shortName} />
             <input className="av-input" aria-label={t("字段")} placeholder={t("字段")} value={filters.column} onChange={(e) => set("column")(e.target.value.trim())} />
             <Select label={t("变更类型")} value={filters.kind} onChange={set("kind")}>
               <option value="">{t("全部类型")}</option>

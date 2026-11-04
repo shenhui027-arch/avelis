@@ -5,13 +5,14 @@ import { Link } from "react-router";
 
 import { api, ApiError, unwrap, type Schemas } from "../../api/client";
 import {
-  errorText, useAction, useAsset, useAssets, useDatasources, useDomains, useJoinPaths, useMetrics, useMetricVersion,
+  errorText, useAction, useAsset, useAssetSearch, useAssetsByIds, useDomains, useJoinPaths, useMetrics, useMetricVersion,
   useTimeZone, useUsers, type Metric, type MetricVersion,
 } from "../../api/hooks";
 import {
   Banner, CARD_LABEL, Code, Crumbs, Drawer, Empty, Hint, Icon, Pill, QueryState, Select, Status, SuggestInput, Switch, shortName, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
+import { AssetPicker } from "../../components/AssetPicker";
 import { useMe, useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
 
@@ -482,10 +483,9 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const queryClient = useQueryClient();
   const roles = useRoles();
   const canEdit = roles.has("steward") || roles.has("admin");
-  const assets = useAssets();
-  const sources = useDatasources();
   const paths = useJoinPaths();
-  const availableAssets = (assets.data ?? []).filter((a) => sources.data?.some((d) => d.id === a.datasource.id && d.engine.capabilities.includes("query")));
+  // 基础资产只能是可查询数据源上的资产：默认选第一个、核对当前选择是否仍可用，都按服务端过滤
+  const firstQueryable = useAssetSearch({ queryable: true, limit: 1 });
   const [form, setForm] = useState({
     description: base?.description ?? "", base_asset_id: String(base?.base_asset?.id ?? ""), expression: base?.expression ?? "",
     // 时区留空表示沿用系统业务时区（设置加载前后可能不同，提交时再取）
@@ -501,13 +501,14 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
   const [joins, setJoins] = useState<JoinRow[]>((base?.joins ?? []).map((j) => ({ alias: String(j.alias), join_path_id: String(j.join_path_id), from: String(j.from ?? "b"), pre_aggregate: !!j.pre_aggregate })));
   const [attempted, setAttempted] = useState(false);
   const editorId = useId();
-  const firstAssetId = availableAssets[0]?.id;
+  const firstAssetId = firstQueryable.data?.[0]?.id;
   const asset = useAsset(form.base_asset_id || undefined);
   const [message, setMessage] = useMessage();
   useEffect(() => {
     if (!form.base_asset_id && firstAssetId) setForm((f) => ({ ...f, base_asset_id: firstAssetId }));
   }, [firstAssetId, form.base_asset_id]);
-  const baseValid = availableAssets.some((a) => a.id === form.base_asset_id);
+  const chosen = useAssetsByIds(form.base_asset_id ? [form.base_asset_id] : [], { queryable: true });
+  const baseValid = !!chosen.data?.some((a) => a.id === form.base_asset_id);
   const dimsValid = dims.every((d) => d.name.trim() && d.column.trim());
   const joinsValid = joins.every((j) => j.alias.trim() && j.from.trim() && paths.data?.some((p) => p.id === j.join_path_id));
   const valid = canEdit && baseValid && !!form.description.trim() && !!form.expression.trim() && !!form.time_column.trim() && dimsValid && joinsValid;
@@ -531,7 +532,7 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
 
   return <Drawer title={mode === "edit" ? t("编辑草稿 V{{version_no}}", { version_no: base?.version_no }) : t("新建版本（草稿）")} width={640} onClose={onClose} footer={<>
     <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>{t("取消")}</button>
-    <button type="submit" form={`${editorId}-form`} className="av-btn av-btn--primary" disabled={!canEdit || save.isPending || !assets.isSuccess || !sources.isSuccess}
+    <button type="submit" form={`${editorId}-form`} className="av-btn av-btn--primary" disabled={!canEdit || save.isPending || !firstQueryable.isSuccess}
       aria-busy={save.isPending}>{save.isPending ? t("保存中…") : t("保存草稿")}</button>
   </>}>
     <form id={`${editorId}-form`} className="av-metric-form" onSubmit={(event) => {
@@ -548,15 +549,14 @@ function BaseVersionEditor({ metricId, base, mode, onClose, onSaved, kindControl
     }}>
       {kindControl}
       <label className="av-field"><span className="av-label">{t("说明")}</span><textarea required className="av-textarea" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-      <QueryState query={sources} rows={1}>{() => <QueryState query={assets} rows={1} compact isEmpty={() => !availableAssets.length} emptyText={t("暂无支持查询的基础资产")}>
+      <QueryState query={firstQueryable} rows={1} compact isEmpty={(items) => !items.length && !form.base_asset_id} emptyText={t("暂无支持查询的基础资产")}>
         {() => <label className="av-field"><span className="av-label">{t("基础资产")}</span>
-          <Select value={form.base_asset_id} onChange={(v) => setForm({ ...form, base_asset_id: v })}>
-            {!baseValid ? <option value={form.base_asset_id} disabled>{form.base_asset_id ? t("原资产当前不可用，请重新选择") : t("请选择基础资产")}</option> : null}
-            {availableAssets.map((a) => <option key={a.id} value={a.id}>{a.qualified}</option>)}
-          </Select>
-          {attempted && !baseValid ? <span className="av-help av-help--danger">{t("请选择可查询的基础资产")}</span> : null}
+          <AssetPicker queryable value={form.base_asset_id} invalid={attempted && !baseValid} label={t("基础资产")}
+            placeholder={t("请选择基础资产")} onChange={(v) => setForm({ ...form, base_asset_id: v })} />
+          {form.base_asset_id && chosen.isSuccess && !baseValid ? <span className="av-help av-help--danger">{t("原资产当前不可用，请重新选择")}</span>
+            : attempted && !baseValid ? <span className="av-help av-help--danger">{t("请选择可查询的基础资产")}</span> : null}
         </label>}
-      </QueryState>}</QueryState>
+      </QueryState>
       <label className="av-field"><span className="av-label">{t("表达式")} <Hint text={t("基础资产直接写列名；关联资产写 别名.列")} /></span>
         <input required className="av-input av-mono" placeholder="SUM(measure_col)" value={form.expression} onChange={(e) => setForm({ ...form, expression: e.target.value })} /></label>
       <div className="av-metric-form__columns">
