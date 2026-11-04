@@ -189,6 +189,28 @@ def fulfil(
         answer.error_code = "governance"
 
 
+def _check_version(session: Session, user: User, metric: Metric, version: MetricVersion, answer: Answer) -> bool:
+    """基础查询与派生计划共用版本状态和锁定依赖检查，不用另一版本替代失效依赖。"""
+    answer.evidence["metric_version"] = _version_evidence(session, metric, version)
+    if version.status != "published":
+        answer.status = "blocked"
+        answer.error_code = f"metric_{version.status}"
+        answer.message = _blocked_message(session, metric, version, user)
+        return False
+    drift = dependency_drift(session, version)
+    if drift:
+        answer.status = "blocked"
+        answer.error_code = "dependency_drift"
+        cols = "、".join(f"{d['qualified']}.{d['column']}" for d in drift)
+        answer.message = (
+            f"指标“{metric.name}”V{version.version_no} 的依赖 {cols} 与发布时不一致，"
+            f"已停止使用该口径，等待重新采集与复核"
+        )
+        answer.evidence["drift"] = drift
+        return False
+    return True
+
+
 def _fulfil(
     session: Session,
     user: User,
@@ -221,22 +243,7 @@ def _fulfil(
 
     # 版本与状态：两条状态线都要满足
     version_info = describe_version(session, version)
-    answer.evidence["metric_version"] = _version_evidence(session, metric, version)
-    if version.status != "published":
-        answer.status = "blocked"
-        answer.error_code = f"metric_{version.status}"
-        answer.message = _blocked_message(session, metric, version, user)
-        return
-    drift = dependency_drift(session, version)
-    if drift:
-        answer.status = "blocked"
-        answer.error_code = "dependency_drift"
-        cols = "、".join(f"{d['qualified']}.{d['column']}" for d in drift)
-        answer.message = (
-            f"指标“{metric.name}”V{version.version_no} 的依赖 {cols} 与发布时不一致，"
-            f"已停止使用该口径，等待重新采集与复核"
-        )
-        answer.evidence["drift"] = drift
+    if not _check_version(session, user, metric, version, answer):
         return
 
     resolved = validate_spec(session, version)
@@ -758,10 +765,11 @@ def _fulfil_plan(
         return
 
     requested = [(code, *catalog.versions[code]) for code in intent.metric_codes]
-    runs: dict[str, tuple[Metric, MetricVersion]] = {}
+    runs: dict[tuple[str, str], tuple[Metric, MetricVersion]] = {}
     allowed = access.domain_ids(session, user)
     for code, metric, version in requested:
-        answer.metric_version_ids = [*answer.metric_version_ids, version.id]
+        if version.kind == "derived" and version.id not in answer.metric_version_ids:
+            answer.metric_version_ids = [*answer.metric_version_ids, version.id]
         data_grain = getattr(version, "data_grain", None) or "day"
         if intent.time_grain and (
             data_grain not in TIME_GRAINS or TIME_GRAINS.index(intent.time_grain) < TIME_GRAINS.index(data_grain)
@@ -775,12 +783,9 @@ def _fulfil_plan(
                 )
             )
         if version.kind != "derived":
-            runs[code] = (metric, version)
+            runs[(metric.id, version.id)] = (metric, version)
             continue
-        if version.status != "published":  # 派生指标自身也有两条状态线
-            answer.status, answer.error_code = "blocked", f"metric_{version.status}"
-            answer.message = _blocked_message(session, metric, version, user)
-            answer.evidence["metric_version"] = _version_evidence(session, metric, version)
+        if not _check_version(session, user, metric, version, answer):
             return
         for c in version.components:
             cm, cv = session.get(Metric, c["metric_id"]), session.get(MetricVersion, c["version_id"])
@@ -788,11 +793,10 @@ def _fulfil_plan(
                 answer.status, answer.error_code = "denied", "permission"
                 answer.message = f"派生指标“{metric.name}”的组成指标 {c['metric_name']} 不在你可访问的业务域"
                 return
-            runs[c["metric_code"]] = (cm, cv)  # 用提交时锁定的组成版本，而不是组成指标的最新版本
-            answer.metric_version_ids = [*answer.metric_version_ids, cv.id]
+            runs[(cm.id, cv.id)] = (cm, cv)  # 同一版本复用，不同锁定版本独立执行
 
     used = {d for d in [*intent.group_by, *(f.dimension for f in intent.filters)]}
-    for code, (metric, version) in runs.items():
+    for metric, version in runs.values():
         missing = used - {d["name"] for d in version.dimensions or []}
         if missing:
             answer.status, answer.error_code = "denied", "invalid_intent"
@@ -811,12 +815,15 @@ def _fulfil_plan(
                 ),
             )
         )
-    values: dict[tuple[str, str], dict[tuple, Decimal | None]] = {}
+    values: dict[tuple[str, str, str], dict[tuple, Decimal | None]] = {}
     keys: list[tuple] = []
     comparison_keys: list[tuple] = []
     plan, sqls, sources, lineage = [], [], {}, []
     truncated, cache_hits = False, []
-    for code, (metric, version) in runs.items():
+    for (metric_id, version_id), (metric, version) in runs.items():
+        code = metric.code
+        if version_id not in answer.metric_version_ids:
+            answer.metric_version_ids = [*answer.metric_version_ids, version_id]
         for label, start, end in periods:
             sub = _scratch(answer, user)
             sub_intent = Intent(
@@ -861,7 +868,7 @@ def _fulfil_plan(
             if not execute:
                 continue
             rows = {tuple(r[:-1]): _decimal(r[-1]) for r in sub.result.get("rows", [])}
-            values[(code, label)] = rows
+            values[(metric_id, version_id, label)] = rows
             if label == "current":
                 keys += [k for k in rows if k not in keys]
             else:
@@ -888,14 +895,21 @@ def _fulfil_plan(
         if version.kind == "derived":
             return evaluate(
                 version.expression,
-                {c["metric_code"]: values[(c["metric_code"], label)].get(key) for c in version.components},
+                {
+                    c["metric_code"]: values[(c["metric_id"], c["version_id"], label)].get(key)
+                    for c in version.components
+                },
             )
-        return values[(code, label)].get(key)
+        return values[(metric.id, version.id, label)].get(key)
 
     def missing_row(code: str, label: str, key: tuple) -> bool:
-        _, version = catalog.versions[code]
-        components = [c["metric_code"] for c in version.components] if version.kind == "derived" else [code]
-        return all(key not in values[(component, label)] for component in components)
+        metric, version = catalog.versions[code]
+        components = (
+            [(c["metric_id"], c["version_id"]) for c in version.components]
+            if version.kind == "derived"
+            else [(metric.id, version.id)]
+        )
+        return all(key not in values[(*component, label)] for component in components)
 
     metric_columns = []
     for _, metric, _ in requested:

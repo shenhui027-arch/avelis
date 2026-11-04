@@ -147,7 +147,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         <Status value={a.status} />
         {mv ? <span className="av-tag">{mv.metric_name} V{mv.version_no}</span> : null}
         {a.cache_hit ? <span className="av-tag">{t("缓存")}</span> : null}
-        {a.recheck_status === "needs_recheck" ? <Pill tone="warn">{t("依据已受影响")}</Pill> : null}
+        <BasisState a={a} />
         <span className="av-caption av-mono" style={{ marginLeft: "auto" }}>{a.duration_ms ? `${(a.duration_ms / 1000).toFixed(2)} s` : ""}</span>
       </div>
       {intent.order || intent.compare ? (
@@ -248,6 +248,11 @@ function sortedRows(rows: unknown[][], sort: { index: number; desc: boolean } | 
     const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
     return sort.desc ? -c : c;
   });
+}
+
+/** 答案当前的依据状态：上游变化让所用口径待复核时标出来；历史数值保留，只是不再代表当前结构。 */
+export function BasisState({ a }: { a: Answer }) {
+  return a.recheck_status === "needs_recheck" ? <Pill tone="warn">{t("依据已受影响")}</Pill> : null;
 }
 
 export function Evidence({ a }: { a: Answer }) {

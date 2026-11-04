@@ -551,7 +551,7 @@ def _batch1_plan_catalog(monkeypatch):
     service = _batch1_ask_service
     dimensions = [{"name": "维度甲", "column": "column_a"}]
     metrics = {
-        code: _Batch1NS(id=code, name=name, domain_id="domain_a")
+        code: _Batch1NS(id=code, code=code, name=name, domain_id="domain_a")
         for code, name in [("metric_a", "指标甲"), ("metric_b", "指标乙"), ("metric_ratio", "指标丙")]
     }
     versions = {
@@ -585,6 +585,7 @@ def _batch1_plan_catalog(monkeypatch):
         answer.cache_hit = False
 
     monkeypatch.setattr(service, "_fulfil", fulfil)
+    monkeypatch.setattr(service, "dependency_drift", lambda *args: [])
     monkeypatch.setattr(service.access, "domain_ids", lambda *args: {"domain_a"})
     monkeypatch.setattr(service, "_version_evidence", lambda *args: {})
     monkeypatch.setattr(service, "validate_spec", lambda *args: {"aliases": {}})
