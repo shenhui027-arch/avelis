@@ -15,7 +15,7 @@ from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
@@ -180,7 +180,8 @@ def _due_statement(now, handled: set[str], blocked_subscriptions: set[str] | fro
         .where(*_due_filters(now, handled, blocked_subscriptions))
         # 被调度切短过的记录排在最前，在一轮开头拿到完整期限，保证它们最终有一次完整尝试。
         .order_by(
-            (EventOutbox.last_error == BUDGET_TIMEOUT).desc(),
+            # last_error 可为 NULL：PostgreSQL 的 DESC 默认 NULLS FIRST，用非空排序键避免新记录插到前面。
+            case((EventOutbox.last_error == BUDGET_TIMEOUT, 0), else_=1),
             EventOutbox.next_attempt_at,
             EventOutbox.created_at,
             EventOutbox.id,

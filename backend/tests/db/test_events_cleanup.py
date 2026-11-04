@@ -165,3 +165,19 @@ def test_delivered_retention_index_bounds_expired_snapshot_lookup(world):
             return {node.get("Index Name")} | {name for child in node.get("Plans", []) for name in index_names(child)}
 
         assert "ix_event_outbox_delivered_cleanup" in index_names(plan), plan
+
+
+def test_budget_deferred_delivery_is_claimed_before_fresh_rows_with_null_errors(world):
+    """PostgreSQL 的 DESC 默认 NULLS FIRST：被调度推迟的记录必须排在 last_error 为空的新记录之前。"""
+    with session_scope() as session:
+        fresh = [_row(world, status="pending") for _ in range(3)]
+        for index, row in enumerate(fresh):
+            row.next_attempt_at = utcnow() - timedelta(minutes=10 - index)
+        deferred = _row(world, status="pending")
+        deferred.last_error = delivery.BUDGET_TIMEOUT
+        session.add_all([*fresh, deferred])
+        session.flush()
+        expected = deferred.id
+    with session_scope() as session:
+        outbox, _subscription = session.execute(delivery._due_statement(utcnow(), set())).first()
+        assert outbox.id == expected
