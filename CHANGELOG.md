@@ -2,6 +2,32 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.5] - 2026-11-04
+
+筛选取值对齐：问数与分析把用户说的取值确定性地对到维度成员或业务维表，对不上时追问候选；修复 v1.0.4 资产选择与并发投递的问题。以下新功能从 v1.0.5 开始提供，v1.0.4 及更早版本不包含。
+
+### 新增
+
+- 筛选取值对齐（ADR 0021）：问数与分析共用同一套规则，对每个筛选值依次尝试——与维度成员完全相等；去掉全半角、空白、大小写差异后唯一相等（成员样本完整时）；经已审批的单列关联路径找到业务维表，在维表文本列（名称、别名等）里查用户原话、取对应的键。都不成时追问，候选可直接点选（多个值可逐项选好一并提交）；“包含”这类关系只作候选，不自动采用。答案里写明“按‘X’筛选（原话‘Y’）”及所用维表（[#118](https://github.com/shenhui027-arch/avelis/pull/118)）。
+- 产品不做同义词管理、不内置业务知识：别名由业务方在自己的维表里维护，并建立关联路径登记进来；还没有维表关联的维度，追问里会提示这样做（[#118](https://github.com/shenhui027-arch/avelis/pull/118)）。
+
+### 变更
+
+- 合并后的分析入口在取数与预检前核对筛选值，不再把对不上的取值原样拿去查询（[#118](https://github.com/shenhui027-arch/avelis/pull/118)）。
+- 资产搜索的多个关键词改为同时满足（如“数据源名 表名”），资产选择器结果满一页时可“加载更多”（[#117](https://github.com/shenhui027-arch/avelis/pull/117)）。
+
+### 修复
+
+- 资产选择器只取前 20 项，跨数据源同名表较多时，有权限的资产可能怎么搜都选不到（[#115](https://github.com/shenhui027-arch/avelis/issues/115)，[#117](https://github.com/shenhui027-arch/avelis/pull/117)）。
+- 并发投递在轮尾仍会认领已推迟的事件，并把被缩短的超时计入重试，健康接收端可能被拖成死信（[#116](https://github.com/shenhui027-arch/avelis/issues/116)，[#117](https://github.com/shenhui027-arch/avelis/pull/117)）。
+- 维度成员样本被截断时，“规范化后唯一”被当成全量唯一，可能静默只选中其中一个成员（[#119](https://github.com/shenhui027-arch/avelis/issues/119)，[#118](https://github.com/shenhui027-arch/avelis/pull/118)）。
+
+### 已知局限
+
+- 维度成员超过 200 个时，规范化匹配（全半角、空白、大小写）只作候选，需要用户确认；精确相等与维表对齐不受影响。
+- 维表对齐只用单列关联路径，在维表的文本列里做相等匹配，不做模糊匹配。
+- 业务域列表仍整表加载；Webhook 默认并发 4、整轮预算 5 秒，前 4 个请求都占满期限时后面的订阅要到下一轮才开始。
+
 ## [1.0.4] - 2026-11-04
 
 用对话改图，图上标注与高亮；Webhook 并发投递，发件箱按保留期清理；资产选择与目录检索按需查询。以下新功能从 v1.0.4 开始提供，v1.0.3 及更早版本不包含。
@@ -203,7 +229,8 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.4...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/shenhui027-arch/avelis/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/shenhui027-arch/avelis/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/shenhui027-arch/avelis/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/shenhui027-arch/avelis/compare/v1.0.1...v1.0.2
