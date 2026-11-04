@@ -2,6 +2,39 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.4] - 2026-11-04
+
+用对话改图，图上标注与高亮；Webhook 并发投递，发件箱按保留期清理；资产选择与目录检索按需查询。以下新功能从 v1.0.4 开始提供，v1.0.3 及更早版本不包含。
+
+### 新增
+
+- 用对话改图（ADR 0020 第 4 阶段）：续问只要求改呈现时（“画成饼图”“按从低到高排”“只看前 5”“标出最高点和平均线”“突出华东”“只画销售额”），沿用上一轮的数据、只让模型调用一次 `chart` 工具，不执行任何查询；有多张图时按用户说法选，选不出就追问；做不到时说明可选项，不硬画。需要新数据的续问照常取数（[#110](https://github.com/shenhui027-arch/avelis/pull/110)）。
+- `chart` 工具新增参数 `sort`（按数值升序 / 降序或按类目 / 时间顺序）、`marks`（标出最高 / 最低 / 平均）、`highlight`（突出最多 5 个类目）与 `measures`（指定画哪些度量及顺序，可用列名或显示名）。图表偏好只有一份契约 `ChartPreference`，分析与问数的 chart 工具、选图器校验与报告插图都从它派生（[#106](https://github.com/shenhui027-arch/avelis/pull/106)、[#110](https://github.com/shenhui027-arch/avelis/pull/110)）。
+- 图表规格新增 `marks` 与 `highlight`：页面画出极值点与平均线、弱化其余类目；环形图与堆叠图上画不出的标注在图下用文字给出；PDF / HTML 导出同样绘制，Markdown 在图下列出（[#110](https://github.com/shenhui027-arch/avelis/pull/110)）。
+- 资产选择器按服务端搜索：关联路径、指标基础资产、变更记录筛选输入即搜索，目录页与业务域详情的资产列表按页查询，不再整表加载；`GET /api/assets` 新增 `q`、`domain_id`、`ids`、`queryable`、`limit`、`offset`，新增 `GET /api/catalog/counts`（[#109](https://github.com/shenhui027-arch/avelis/pull/109)、[#111](https://github.com/shenhui027-arch/avelis/pull/111)、[#113](https://github.com/shenhui027-arch/avelis/pull/113)）。
+- 发件箱保留期：已投递的通知快照默认保留 30 天（`[events] delivered_retention_days`），死信默认保留 90 天（`[events] dead_retention_days`，迁移 0024 新增进入死信的时间），worker 分批清理；待投递的不清理（[#107](https://github.com/shenhui027-arch/avelis/pull/107)、[#111](https://github.com/shenhui027-arch/avelis/pull/111)）。
+
+### 变更
+
+- Webhook 改为并发投递：`[webhook] concurrency` 默认 4（1 为串行），同一订阅同一时刻最多一个请求在途，每个请求的期限覆盖 DNS 与 HTTP；慢订阅不再拖住其他订阅，投递与业务任务分开调度（[#107](https://github.com/shenhui027-arch/avelis/pull/107)、[#111](https://github.com/shenhui027-arch/avelis/pull/111)）。
+- 带维度的多指标对比图画全部指标：每个指标一个面板，超过 8 个面板在图下注明（[#106](https://github.com/shenhui027-arch/avelis/pull/106)）。
+- 分析的描述统计与分组统计遵守可加性：比率、均值等非可加列不再给出合计，工具返回里说明原因；同一次查询带齐分子分母时重算整体比率（[#106](https://github.com/shenhui027-arch/avelis/pull/106)）。
+- 导出里的“个百分点”“万 / 亿”等系统单位按导出语言显示（[#106](https://github.com/shenhui027-arch/avelis/pull/106)）。
+- 目录、MCP 检索与列表接口的权限、关键词、业务域过滤和分页在数据库里执行，消除逐个口径查询；资产详情只读本资产的字段指纹（[#109](https://github.com/shenhui027-arch/avelis/pull/109)）。
+- Ossie 导入时每个版本只保留自身引用的内容，根扩展每批只存一份原文（导出逐字还原），并有 20 MiB 总保留上限（[#109](https://github.com/shenhui027-arch/avelis/pull/109)）。
+- 数据集翻页时页码与显示的数据一致，新页到达前暂停翻页；全屏下载 CSV 显示进度与失败原因（[#108](https://github.com/shenhui027-arch/avelis/pull/108)）。
+- 迁移 0023、0024：发件箱清理用的部分索引与死信时间。
+
+### 修复
+
+- 堆叠柱图的极值标注指向本段末端，不再落进其他系列；堆叠图的平均值改为图下文字（[#112](https://github.com/shenhui027-arch/avelis/issues/112)，[#110](https://github.com/shenhui027-arch/avelis/pull/110)）。
+
+### 已知局限
+
+- 业务域列表仍整表加载（规模随组织结构，接口已在数据库侧过滤）。
+- Webhook 默认并发 4、整轮预算 5 秒：前 4 个请求都占满期限时，后面的订阅要到下一轮才开始；每个在途请求占用一个元数据库连接，调大并发时需同步调大 `[database] pool_size`。
+- 对话改图只改上一轮的图，不跨多轮回溯；页面用 ECharts、导出用 reportlab，线宽、字号等细节不完全相同。
+
 ## [1.0.3] - 2026-11-04
 
 图表能力升级：问数回答出图，分析报告正文插图，导出按同一份图表规格绘图，数值按量纲显示。以下新功能从 v1.0.3 开始提供，v1.0.2 及更早版本不包含。
@@ -170,6 +203,9 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.2...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/shenhui027-arch/avelis/compare/v1.0.3...v1.0.4
+[1.0.3]: https://github.com/shenhui027-arch/avelis/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/shenhui027-arch/avelis/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/shenhui027-arch/avelis/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.0

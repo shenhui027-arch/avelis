@@ -143,13 +143,13 @@ docker compose down                                                # 停止（�
 已有外部 PostgreSQL 與 Redis 時，可以只執行映像：
 
 ```bash
-docker build -t avelis:1.0.3 .                       # 在儲存庫根目錄建置
+docker build -t avelis:1.0.4 .                       # 在儲存庫根目錄建置
 docker run -d --name avelis -p 8080:8000 \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
-  avelis:1.0.3
+  avelis:1.0.4
 docker run -d --name avelis-worker --no-healthcheck \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
-  avelis:1.0.3 python -m avelis.jobs
+  avelis:1.0.4 python -m avelis.jobs
 ```
 
 映像預設讀取 `/etc/avelis/avelis.toml`；映像自帶的健康檢查針對 API，worker 容器用 `--no-healthcheck` 關閉。`[database]`、`[redis]` 寫外部服務的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 預設均為 `true`，可省略。也可以不掛載設定檔，全部用 `-e AVELIS_*` 環境變數傳入。
@@ -204,13 +204,13 @@ uv run python -m avelis.jobs                 # worker，另起一個程序
 
 ```bash
 # 聯網機器（儲存庫根目錄）
-docker build -t avelis:1.0.3 .
+docker build -t avelis:1.0.4 .
 docker pull postgres:18-alpine
 docker pull valkey/valkey:8-alpine
-docker save avelis:1.0.3 postgres:18-alpine valkey/valkey:8-alpine | gzip > avelis-1.0.3-images.tar.gz   # 約 260 MB
+docker save avelis:1.0.4 postgres:18-alpine valkey/valkey:8-alpine | gzip > avelis-1.0.4-images.tar.gz   # 約 260 MB
 
 # 伺服器（把映像包與 deploy/docker 目錄拷過去）
-docker load -i avelis-1.0.3-images.tar.gz
+docker load -i avelis-1.0.4-images.tar.gz
 cd deploy/docker
 cp avelis.example.toml avelis.toml   # 填寫
 docker compose up -d --no-build --pull never
