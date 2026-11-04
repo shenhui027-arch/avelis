@@ -199,7 +199,8 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
           if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-          else if (e.key === "Enter" && open && active >= 0 && active < items.length) { e.preventDefault(); pick(items[active]); }
+          // 列表打开时回车只用来确认选项：没选中有效项也要拦下，不能提交外层表单（否则会带着旧选择保存）
+          else if (e.key === "Enter" && open) { e.preventDefault(); if (active >= 0 && active < items.length) pick(items[active]); }
           else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); close(); }
           else if (e.key === "Tab") close();
         }} />

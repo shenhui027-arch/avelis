@@ -59,13 +59,14 @@ export function Count({ n }: { n: number }) {
 }
 
 /** 按 offset 翻页：列表按 page + 1 条取数，多出的那条只用来判断有没有下一页（没有总数也能翻）。 */
-export function Pager({ offset, shown, page, hasNext, onChange }: { offset: number; shown: number; page: number; hasNext: boolean;
-  onChange: (offset: number) => void }) {
+export function Pager({ offset, shown, page, hasNext, busy, onChange }: { offset: number; shown: number; page: number; hasNext: boolean;
+  /** 新一页还在加载（仍显示上一页占位）：暂停向后翻，避免连点越过末页 */
+  busy?: boolean; onChange: (offset: number) => void }) {
   if (offset === 0 && !hasNext) return null;
   return <div className="av-actions av-webhooks__pager">
     <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page))}>{t("上一页")}</button>
     <span className="av-caption av-mono">{shown ? `${offset + 1}–${offset + shown}` : "—"}</span>
-    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext} onClick={() => onChange(offset + page)}>{t("下一页")}</button>
+    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext || busy} onClick={() => onChange(offset + page)}>{t("下一页")}</button>
   </div>;
 }
 

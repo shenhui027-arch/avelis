@@ -43,6 +43,9 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   const query = searches[tab].trim().toLocaleLowerCase();
   const filteredAssets = (assets.data ?? []).slice(0, ASSET_PAGE);
   const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
+  useEffect(() => {
+    if (assets.isSuccess && !assets.isPlaceholderData && assetOffset > 0 && !assets.data.length) setAssetOffset(Math.max(0, assetOffset - ASSET_PAGE));
+  }, [assets.isSuccess, assets.isPlaceholderData, assets.data, assetOffset]);
   const filteredMetrics = domainMetrics.filter((m) => `${m.name} ${m.code} ${m.owner.display_name}`.toLocaleLowerCase().includes(query));
   const filteredMembers = (d?.members ?? []).filter((m) => `${m.display_name} ${m.username} ${ROLE[m.role] ?? m.role}`.toLocaleLowerCase().includes(query));
   const counts = { metrics: metrics.isSuccess ? domainMetrics.length : "—", assets: firstPage.isSuccess ? (firstPage.data.length > ASSET_PAGE ? `${ASSET_PAGE}+` : firstPage.data.length) : "—", members: d?.members.length ?? "—" };
@@ -106,7 +109,8 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               {() => <><div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("资产")}</th><th>{t("数据源")}</th></tr></thead><tbody>
                 {filteredAssets.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{a.datasource.name}</td></tr>)}
               </tbody></table></div>
-              <Pager offset={assetOffset} shown={filteredAssets.length} page={ASSET_PAGE} hasNext={moreAssets} onChange={setAssetOffset} /></>}
+              <Pager offset={assetOffset} shown={filteredAssets.length} page={ASSET_PAGE} hasNext={moreAssets}
+                busy={assets.isPlaceholderData || assets.isFetching} onChange={setAssetOffset} /></>}
             </QueryState> : null}
             {tab === "members" ? <QueryState query={domains} isEmpty={() => filteredMembers.length === 0} emptyText={query ? t("没有匹配的成员") : t("此业务域暂无成员")}
               emptyAction={query ? clearSearch : isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}>{t("添加成员")}</button> : undefined} compact>

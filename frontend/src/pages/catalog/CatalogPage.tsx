@@ -47,7 +47,12 @@ export function CatalogPage() {
   const metricList = (metrics.data ?? []).filter((m) => matches(m.name, m.code, ...m.aliases));
   const assetList = (assets.data ?? []).slice(0, ASSET_PAGE);
   const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
-  const assetPager = <Pager offset={assetOffset} shown={assetList.length} page={ASSET_PAGE} hasNext={moreAssets} onChange={setAssetOffset} />;
+  const assetPager = <Pager offset={assetOffset} shown={assetList.length} page={ASSET_PAGE} hasNext={moreAssets}
+    busy={assets.isPlaceholderData || assets.isFetching} onChange={setAssetOffset} />;
+  // 翻到空页（例如数据在两次请求之间减少）时退回上一页，不停在没有翻页按钮的空状态
+  useEffect(() => {
+    if (assets.isSuccess && !assets.isPlaceholderData && assetOffset > 0 && !assets.data.length) setAssetOffset(Math.max(0, assetOffset - ASSET_PAGE));
+  }, [assets.isSuccess, assets.isPlaceholderData, assets.data, assetOffset]);
   const domainList = (domains.data ?? []).filter((d) => matches(d.name, d.code, d.description));
   const currentQuery = section === "assets" ? assets : section === "domains" ? domains : metrics;
   const filteredIds = section === "assets" ? assetList : section === "domains" ? domainList : metricList;

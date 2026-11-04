@@ -145,12 +145,16 @@ export const useAudit = (objectType?: string, objectId?: string) => useQuery({
 });
 
 /** 操作：成功后刷新相关查询；失败抛出后端给出的原因。 */
+const CATALOG_KEYS = new Set(["metrics", "assets", "domains", "join-paths"]);
+
 export function useAction<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>, invalidate: string[] = []) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
     onSuccess: () => {
-      for (const key of [...invalidate, "workbench"]) qc.invalidateQueries({ queryKey: [key] });
+      // 目录对象增删改后，导航角标的计数也要刷新（计数接口独立于各列表的缓存）
+      const counted = invalidate.some((key) => CATALOG_KEYS.has(key));
+      for (const key of [...invalidate, "workbench", ...(counted ? ["catalog-counts"] : [])]) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }
