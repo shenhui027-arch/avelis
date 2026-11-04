@@ -152,12 +152,14 @@ def test_generic_normalization(world, value):
     assert not world.state.queries
 
 
-def test_normalization_collision_does_not_choose(world):
-    world.state.sample = {"dimension_a": ["Member A", "MemberA"]}
+@pytest.mark.parametrize("members", [["Member A", "MemberA"], ["MemberA", "membera"], ["ＭｅｍｂｅｒＡ", "MemberA"]])
+def test_normalization_collision_does_not_choose(world, members):
+    world.state.sample = {"dimension_a": members}
     world.state.paths = []
-    result = world.align(["membera"])
-    assert result.filters[0].values == ["membera"]
-    assert result.unresolved[0]["candidates"] == ["Member A", "MemberA"]
+    result = world.align(["mEmBeRa"])
+    assert result.filters[0].values == ["mEmBeRa"]
+    assert result.unresolved[0]["candidates"] == members
+    assert not result.explanations and not result.unknown
 
 
 def test_containment_is_candidate_only(world):
@@ -327,6 +329,84 @@ def test_truncated_sample_missing_exact_still_uses_dimension_table(world):
     assert result.filters[0].values == ["MemberA"]
     assert world.state.exact_calls == [["AliasA"]]
     assert result.explanations[0]["method"] == "dimension_table"
+
+
+@pytest.mark.parametrize("members", [("ACME", "acme"), ("ACME", "ＡＣＭＥ"), ("ACME", "AC ME")])
+@pytest.mark.parametrize("omitted", [0, 1])
+def test_truncated_normalization_collision_requires_confirmation(world, members, omitted):
+    # 201 个实际成员，只取 200 个；两个同形成员轮流落在样本外。
+    all_members = [f"AcmeAlias{i}" for i in range(service.DIMENSION_VALUES_LIMIT - 1)] + list(members)
+    world.state.sample = {"dimension_a": [value for value in all_members if value != members[omitted]]}
+    world.state.paths = []
+
+    result = world.align(["Acme"])
+
+    assert len(all_members) == 201 and len(world.state.sample["dimension_a"]) == service.DIMENSION_VALUES_LIMIT
+    assert result.filters[0].values == ["Acme"]
+    assert not result.explanations and not result.unknown
+    assert result.unresolved == [
+        {
+            "dimension": "dimension_a",
+            "original": "Acme",
+            "candidates": [members[1 - omitted], *all_members[:9]],
+            "has_dimension_table": False,
+        }
+    ]
+    assert world.state.exact_calls == [["Acme"]]
+    assert not world.state.queries
+
+
+def test_complete_sample_with_unique_normalized_match_still_aligns(world):
+    world.state.sample = {"dimension_a": ["ACME", *[f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT - 2)]]}
+
+    result = world.align(["Acme"])
+
+    assert result.filters[0].values == ["ACME"]
+    assert result.explanations == [
+        {"dimension": "dimension_a", "original": "Acme", "value": "ACME", "method": "normalized"}
+    ]
+    assert not result.unresolved and not result.unknown
+    assert not world.state.exact_calls and not world.state.queries
+
+
+@pytest.mark.parametrize("in_sample", [False, True])
+def test_truncated_sample_preserves_exact_before_normalized_match(world, in_sample):
+    sample = ["ACME", *[f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT - 1)]]
+    if in_sample:
+        sample[-1] = "Acme"
+    world.state.sample = {"dimension_a": sample}
+    world.state.exact = {"Acme"}
+
+    result = world.align(["Acme"])
+
+    assert result.filters[0].values == ["Acme"]
+    assert result.explanations == [{"dimension": "dimension_a", "original": "Acme", "value": "Acme", "method": "exact"}]
+    assert not result.unresolved and not result.unknown and not world.state.queries
+    assert world.state.exact_calls == ([] if in_sample else [["Acme"]])
+
+
+def test_truncated_normalized_match_still_uses_dimension_table(world):
+    world.state.sample = {"dimension_a": ["ALIASA", *[f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT - 1)]]}
+
+    result = world.align(["AliasA"])
+
+    assert result.filters[0].values == ["MemberA"]
+    assert result.explanations[0]["method"] == "dimension_table"
+    assert not result.unresolved and not result.unknown
+    assert world.state.exact_calls == [["AliasA"]]
+    assert len(world.state.queries) == 2
+
+
+def test_truncated_normalized_match_is_kept_with_ambiguous_table_candidates(world):
+    world.state.sample = {"dimension_a": ["ALIASA", *[f"Sample{i}" for i in range(service.DIMENSION_VALUES_LIMIT - 1)]]}
+    world.state.rows = [[["MemberA"], ["MemberB"]]]
+
+    result = world.align(["AliasA"])
+
+    assert result.filters[0].values == ["AliasA"]
+    assert not result.explanations and not result.unknown
+    assert result.unresolved[0]["candidates"] == ["MemberA", "MemberB", "ALIASA"]
+    assert result.unresolved[0]["has_dimension_table"] is True
 
 
 @pytest.mark.parametrize(

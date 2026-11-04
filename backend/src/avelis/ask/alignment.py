@@ -302,7 +302,7 @@ def align_filters(
 ) -> AlignmentResult:
     """保持筛选项和值的位置；未知值原样保留，只有 unresolved 需要用户确认。
 
-    精确相等优先，其次是唯一的 NFKC/去空白/casefold 相等，再查询有效的单列唯一侧维表。
+    精确相等优先，其次是完整样本中唯一的 NFKC/去空白/casefold 相等，再查询有效的单列唯一侧维表。
     不把包含关系当作相等，也不因取样、权限或查询失败宣称成员值不存在。
     """
     copied = [item.model_copy(deep=True) for item in filters]
@@ -328,6 +328,8 @@ def align_filters(
         samples = {}
     for item in result.filters:
         sample = samples.get(item.dimension)
+        # 取样接口和缓存只返回值列表，没有截断标志；达到上限就保守地视为可能截断。
+        sample_complete = sample is not None and len(sample) < service.DIMENSION_VALUES_LIMIT
         tables: list[_DimensionTable] | None = None
         for offset, original in enumerate(item.values):
             if service._dimension_query_timeout(remaining_seconds) <= 0:
@@ -338,7 +340,7 @@ def align_filters(
                 continue
             value, method = original, "exact"
             if original not in sample:
-                if len(sample) >= service.DIMENSION_VALUES_LIMIT:
+                if not sample_complete:
                     try:
                         existing = service._existing_dimension_values(
                             session, user, version, item.dimension, [original], settings, **query_budget
@@ -359,7 +361,7 @@ def align_filters(
                         )
                         continue
                 normalized = list(dict.fromkeys(v for v in sample if _normalized(v) == _normalized(original)))
-                if len(normalized) == 1:
+                if sample_complete and len(normalized) == 1:
                     value, method = normalized[0], "normalized"
                 else:
                     try:
@@ -398,11 +400,14 @@ def align_filters(
                                     }
                                 )
                         continue
+                    candidates = list(dict.fromkeys([*keys, *normalized]))
+                    if not keys:
+                        candidates = list(dict.fromkeys([*candidates, *_candidates(original, sample)]))
                     result.unresolved.append(
                         _unresolved(
                             item.dimension,
                             original,
-                            (keys or _candidates(original, sample))[:_CANDIDATE_LIMIT],
+                            candidates[:_CANDIDATE_LIMIT],
                             bool(tables),
                         )
                     )

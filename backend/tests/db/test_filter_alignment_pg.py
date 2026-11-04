@@ -202,6 +202,7 @@ def alignment_pg(factory, monkeypatch):
             settings=settings,
             statements=statements,
             table=f"{database.database}.{schema}.dimension",
+            schema=schema,
         )
 
 
@@ -267,3 +268,21 @@ def test_dimension_alias_with_multiple_keys_is_a_candidate_on_postgresql(alignme
             "has_dimension_table": True,
         }
     ]
+
+
+def test_truncated_normalized_sample_still_uses_dimension_table_on_postgresql(alignment_pg, monkeypatch):
+    world = alignment_pg
+    monkeypatch.setattr(service, "DIMENSION_VALUES_LIMIT", 2)
+    world.session.execute(
+        text(f'UPDATE "{world.schema}".fact SET member = :member WHERE member = :previous'),
+        {"member": "ALIAS_A", "previous": "member_b"},
+    )
+    world.session.commit()
+
+    result = align(world, "alias_a")
+
+    assert result.filters[0].values == ["member_a"]
+    assert result.unresolved == [] and result.unknown == []
+    assert result.explanations[0]["method"] == "dimension_table"
+    assert result.explanations[0]["column"] == "alias"
+    assert any('"dimension"' in statement and "DISTINCT" in statement for statement in world.statements)
