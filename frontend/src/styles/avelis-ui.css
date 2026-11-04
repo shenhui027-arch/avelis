@@ -48,6 +48,8 @@
 .av-listbox__item[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .av-listbox__check { display: inline-flex; flex: none; width: 16px; color: var(--accent-text); }
 .av-listbox__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-listbox__hint { flex: none; margin-left: auto; padding-left: var(--space-3); color: var(--text-tertiary); font-size: 12px; }
+.av-listbox__empty { padding: var(--space-2) var(--space-3); }
 .av-menu.av-datepick { width: 280px; padding: var(--space-2); gap: var(--space-2); }
 .av-datepick__hd { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .av-datepick__title { color: var(--text-primary); font: 600 13px/20px var(--font-sans); }

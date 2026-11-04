@@ -162,6 +162,65 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
   );
 }
 
+// --- 搜索选择 -----------------------------------------------------------------------
+
+export type SearchOption = { value: string; label: string; hint?: string };
+
+/** 选项来自服务端搜索的选择框：未聚焦时显示已选项，输入即搜索（防抖与取数由调用方负责）。
+ *  clearLabel 给出时多一个“不选”的选项（例如筛选里的“全部资产”）。 */
+export function SearchSelect({ value, selected, options, loading, onSearch, onChange, label, placeholder, emptyText, invalid,
+  describedBy, disabled, id, clearLabel, mono }: {
+  value: string; selected?: string; options: SearchOption[]; loading?: boolean; onSearch: (q: string) => void; onChange: (v: string) => void;
+  label?: string; placeholder?: string; emptyText?: string; invalid?: boolean; describedBy?: string; disabled?: boolean; id?: string;
+  clearLabel?: string; mono?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [active, setActive] = useState(-1);
+  const anchor = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const items: SearchOption[] = [...(clearLabel ? [{ value: "", label: clearLabel }] : []), ...options];
+  const close = useMemo(() => () => { setOpen(false); setText(""); onSearch(""); }, [onSearch]);
+  const place = useFloating(open, anchor, list, close);
+  const pick = (o: SearchOption) => { onChange(o.value); close(); anchor.current?.blur(); };
+  useEffect(() => { if (open && place) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [open, place, active]);
+  const shown = open ? text : (value ? selected ?? "" : "");
+  return (
+    <>
+      <input ref={anchor} id={id} className={`av-input${mono ? " av-mono" : ""}`} value={shown} disabled={disabled}
+        placeholder={open ? t("输入关键词搜索") : value ? undefined : placeholder ?? clearLabel}
+        aria-label={label} aria-invalid={invalid || undefined} aria-describedby={describedBy} role="combobox" aria-autocomplete="list"
+        aria-expanded={open} aria-controls={open ? listId : undefined} aria-busy={loading || undefined}
+        aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined} autoComplete="off"
+        onFocus={() => { setOpen(true); setActive(-1); }}
+        onChange={(e) => { setText(e.target.value); onSearch(e.target.value); setOpen(true); setActive(-1); }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+          else if (e.key === "Enter" && open && active >= 0 && active < items.length) { e.preventDefault(); pick(items[active]); }
+          else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); close(); }
+          else if (e.key === "Tab") close();
+        }} />
+      {open && place ? (
+        <Floating place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
+          {items.map((o, i) => (
+            <div key={o.value || "__clear"} id={`${listId}-${i}`} data-index={i} role="option" aria-selected={o.value === value}
+              className={`av-menu__item av-listbox__item${i === active ? " is-active" : ""}${mono && o.value ? " av-mono" : ""}`}
+              onMouseEnter={() => setActive(i)} onClick={() => pick(o)}>
+              <span className="av-listbox__check">{o.value === value ? <Icon name="check" small /> : null}</span>
+              <span className="av-listbox__label">{o.label}</span>
+              {o.hint ? <span className="av-listbox__hint">{o.hint}</span> : null}
+            </div>
+          ))}
+          {!options.length ? <div className="av-listbox__empty av-caption">{loading ? t("搜索中…") : emptyText ?? t("没有匹配项")}</div> : null}
+        </Floating>
+      ) : null}
+    </>
+  );
+}
+
 // --- 日期 ---------------------------------------------------------------------------
 
 const pad = (n: number) => String(n).padStart(2, "0");

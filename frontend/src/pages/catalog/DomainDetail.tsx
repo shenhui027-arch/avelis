@@ -1,15 +1,17 @@
 ﻿// 业务域：固定对象标题，分别浏览指标、资产和成员。
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
 import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useAssets, useDomains, useMetrics, useUsers } from "../../api/hooks";
-import { Banner, Crumbs, Drawer, Empty, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
+import { errorText, useAction, useAssetSearch, useDomains, useMetrics, useUsers } from "../../api/hooks";
+import { useDebounced } from "../../components/AssetPicker";
+import { Banner, Crumbs, Drawer, Empty, Icon, Pager, QueryState, Select, Status, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { OssieExportButton } from "./OssieInterchange";
 
 const ROLE: Record<string, string> = { owner: t("负责人"), maintainer: t("维护者"), viewer: t("可查询") };
+const ASSET_PAGE = 100;
 const TABS = [{ value: "metrics", label: t("指标") }, { value: "assets", label: t("资产") }, { value: "members", label: t("成员") }] as const;
 type DomainTab = typeof TABS[number]["value"];
 type MemberEditor = { user_id: string; role: string; name?: string };
@@ -17,7 +19,6 @@ type MemberEditor = { user_id: string; role: string; name?: string };
 export function DomainDetail({ domainId }: { domainId: string }) {
   const domains = useDomains();
   const users = useUsers();
-  const assets = useAssets();
   const metrics = useMetrics();
   const me = useMe();
   const d = domains.data?.find((x) => x.id === domainId);
@@ -32,13 +33,19 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   const isOwner = !!d && (me.data?.id === d.owner_id || !!me.data?.roles.includes("admin"));
   const canMaintain = isOwner || (!!d && d.members.some((m) => m.user_id === me.data?.id && m.role === "maintainer"));
   const [editingExamples, setEditingExamples] = useState(false);
-  const domainAssets = (assets.data ?? []).filter((a) => a.domain_id === domainId);
+  // 资产按服务端过滤与分页（按页多取一条判断有无下一页）；计数只在未搜索时显示，超过一页显示“N+”
+  const [assetOffset, setAssetOffset] = useState(0);
+  const assetTerm = useDebounced(searches.assets.trim());
+  useEffect(() => setAssetOffset(0), [assetTerm]);
+  const assets = useAssetSearch({ domain_id: domainId, q: assetTerm || undefined, limit: ASSET_PAGE + 1, offset: assetOffset });
+  const firstPage = useAssetSearch({ domain_id: domainId, limit: ASSET_PAGE + 1 });
   const domainMetrics = (metrics.data ?? []).filter((m) => m.domain_id === domainId);
   const query = searches[tab].trim().toLocaleLowerCase();
-  const filteredAssets = domainAssets.filter((a) => `${a.qualified} ${a.datasource.name}`.toLocaleLowerCase().includes(query));
+  const filteredAssets = (assets.data ?? []).slice(0, ASSET_PAGE);
+  const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
   const filteredMetrics = domainMetrics.filter((m) => `${m.name} ${m.code} ${m.owner.display_name}`.toLocaleLowerCase().includes(query));
   const filteredMembers = (d?.members ?? []).filter((m) => `${m.display_name} ${m.username} ${ROLE[m.role] ?? m.role}`.toLocaleLowerCase().includes(query));
-  const counts = { metrics: metrics.isSuccess ? domainMetrics.length : "—", assets: assets.isSuccess ? domainAssets.length : "—", members: d?.members.length ?? "—" };
+  const counts = { metrics: metrics.isSuccess ? domainMetrics.length : "—", assets: firstPage.isSuccess ? (firstPage.data.length > ASSET_PAGE ? `${ASSET_PAGE}+` : firstPage.data.length) : "—", members: d?.members.length ?? "—" };
   const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearches({ ...searches, [tab]: "" })}>{t("清除搜索")}</button>;
   const openMember = (value: MemberEditor) => { setMemberMessage(null); setMember(value); };
   const closeMember = () => { if (!saveMember.isPending) setMember(null); };
@@ -96,9 +103,10 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               </tbody></table></div>}
             </QueryState> : null}
             {tab === "assets" ? <QueryState query={assets} isEmpty={() => filteredAssets.length === 0} emptyText={query ? t("没有匹配的资产") : t("此业务域暂无资产")} emptyAction={query ? clearSearch : undefined} compact>
-              {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("资产")}</th><th>{t("数据源")}</th></tr></thead><tbody>
+              {() => <><div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("资产")}</th><th>{t("数据源")}</th></tr></thead><tbody>
                 {filteredAssets.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{a.datasource.name}</td></tr>)}
-              </tbody></table></div>}
+              </tbody></table></div>
+              <Pager offset={assetOffset} shown={filteredAssets.length} page={ASSET_PAGE} hasNext={moreAssets} onChange={setAssetOffset} /></>}
             </QueryState> : null}
             {tab === "members" ? <QueryState query={domains} isEmpty={() => filteredMembers.length === 0} emptyText={query ? t("没有匹配的成员") : t("此业务域暂无成员")}
               emptyAction={query ? clearSearch : isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}>{t("添加成员")}</button> : undefined} compact>

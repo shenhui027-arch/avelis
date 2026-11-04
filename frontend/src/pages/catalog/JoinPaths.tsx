@@ -4,9 +4,10 @@ import { Link } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
-  errorText, useAction, useAsset, useAssets, useDatasources, useDomains, useJoinPaths, type JoinPath,
+  errorText, useAction, useAsset, useAssetSearch, useDomains, useJoinPaths, type JoinPath,
 } from "../../api/hooks";
 import { Banner, CARD_LABEL, Drawer, Empty, Hint, Icon, QueryState, Select, Status, useMessage } from "../../components/ui";
+import { AssetPicker } from "../../components/AssetPicker";
 import { useMe, useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
 
@@ -128,8 +129,8 @@ function JoinReview({ path, onClose, onUpdated }: { path: JoinPath; onClose: () 
 
 type NewPathForm = { code: string; name: string; left_asset_id: string; left_columns: string[]; right_asset_id: string; right_columns: string[] };
 function NewPath({ onClose, onCreated }: { onClose: () => void; onCreated: (path: JoinPath) => void }) {
-  const assets = useAssets();
-  const sources = useDatasources();
+  // 只判断有没有可查询的资产；具体资产在选择器里按服务端搜索
+  const anyQueryable = useAssetSearch({ queryable: true, limit: 1 });
   const [form, setForm] = useState<NewPathForm>({ code: "", name: "", left_asset_id: "", left_columns: [], right_asset_id: "", right_columns: [] });
   const left = useAsset(form.left_asset_id || undefined);
   const right = useAsset(form.right_asset_id || undefined);
@@ -146,7 +147,7 @@ function NewPath({ onClose, onCreated }: { onClose: () => void; onCreated: (path
   const create = useAction(() => unwrap(api.POST("/api/join-paths", { body: { ...form, name: form.name.trim(), code: form.code.trim() } })), ["join-paths"]);
   const submit = () => {
     setSubmitted(true);
-    if (create.isPending || Object.values(errors).some(Boolean) || !assets.isSuccess || !sources.isSuccess || !left.isSuccess || !right.isSuccess) return;
+    if (create.isPending || Object.values(errors).some(Boolean) || !left.isSuccess || !right.isSuccess) return;
     create.mutate(undefined, { onSuccess: onCreated, onError: (e) => setMessage({ ok: false, text: errorText(e) }) });
   };
   const fieldError = (key: keyof typeof errors) => submitted && errors[key] ? <span id={`join-error-${key}`} className="av-join-field-error" role="alert">{errors[key]}</span> : null;
@@ -158,18 +159,15 @@ function NewPath({ onClose, onCreated }: { onClose: () => void; onCreated: (path
       <div className="av-formrow">{(["name", "code"] as const).map((key) => <label key={key} className="av-field" htmlFor={`join-${key}`}><span className="av-label">{key === "name" ? t("名称") : t("编码")} *</span>
         <input id={`join-${key}`} className={`av-input${key === "code" ? " av-mono" : ""}`} required value={form[key]} disabled={create.isPending} aria-invalid={submitted && !!errors[key]} aria-describedby={submitted && errors[key] ? `join-error-${key}` : undefined} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
         {fieldError(key)}</label>)}</div>
-      <QueryState query={sources}>{(datasources) => <QueryState query={assets}>{(allAssets) => {
-        const queryable = new Set(datasources.filter((d) => d.engine.capabilities.includes("query")).map((d) => d.id));
-        const options = allAssets.filter((a) => queryable.has(a.datasource.id));
-        return options.length ? <>{(["left", "right"] as const).map((side) => {
+      <QueryState query={anyQueryable}>{(sample) => {
+        return sample.length ? <>{(["left", "right"] as const).map((side) => {
           const assetKey = `${side}_asset_id` as const;
           const columnsKey = `${side}_columns` as const;
           const detail = side === "left" ? left : right;
           return <fieldset key={side} className="av-join-side" disabled={create.isPending}><legend>{side === "left" ? t("左侧（明细侧）") : t("右侧（被关联）")}</legend>
             <label className="av-field" htmlFor={`join-${side}-asset`}><span className="av-label">{t("资产 *")}</span>
-              <Select id={`join-${side}-asset`} value={form[assetKey]} invalid={submitted && !!errors[assetKey]} describedBy={submitted && errors[assetKey] ? `join-error-${assetKey}` : undefined} onChange={(v) => setForm({ ...form, [assetKey]: v, [columnsKey]: [] })}>
-                <option value="">{t("选择资产")}</option>{options.map((a) => <option key={a.id} value={a.id}>{a.qualified}</option>)}
-              </Select>{fieldError(assetKey)}</label>
+              <AssetPicker id={`join-${side}-asset`} queryable value={form[assetKey]} invalid={submitted && !!errors[assetKey]} describedBy={submitted && errors[assetKey] ? `join-error-${assetKey}` : undefined}
+                placeholder={t("选择资产")} onChange={(v) => setForm({ ...form, [assetKey]: v, [columnsKey]: [] })} />{fieldError(assetKey)}</label>
             {form[assetKey] ? <QueryState query={detail}>{(asset) => <>
               <label className="av-field" htmlFor={`join-${side}-columns`}><span className="av-label">{t("关联字段 *（按对应顺序添加）")}</span>
                 <Select id={`join-${side}-columns`} className="av-mono" value="" invalid={submitted && !!errors[columnsKey]} describedBy={submitted && errors[columnsKey] ? `join-error-${columnsKey}` : undefined} onChange={(v) => { if (v) setForm({ ...form, [columnsKey]: [...form[columnsKey], v] }); }}>
@@ -180,7 +178,7 @@ function NewPath({ onClose, onCreated }: { onClose: () => void; onCreated: (path
             </>}</QueryState> : fieldError(columnsKey)}
           </fieldset>;
         })}</> : <Empty compact text={t("暂无支持查询的资产")} action={<Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>} />;
-      }}</QueryState>}</QueryState>
+      }}</QueryState>
       <Banner message={message} />
     </form>
   </Drawer>;

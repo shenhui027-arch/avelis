@@ -52,7 +52,19 @@ export const useExampleQuestions = (mode: "ask" | "analysis") => useQuery({
   queryKey: ["example-questions", mode], staleTime: 60_000,
   queryFn: () => unwrap(api.GET("/api/example-questions", { params: { query: { mode } } })),
 });
-export const useAssets = () => useQuery({ queryKey: ["assets"], queryFn: () => unwrap(api.GET("/api/assets")) });
+/** 资产按需查询：搜索、按数据源 / 业务域过滤、只要可查询的、按 id 批量取；不再整表加载（资产随数据规模增长）。 */
+export type AssetQuery = { q?: string; datasource_id?: string; domain_id?: string; queryable?: boolean; ids?: string[]; limit?: number; offset?: number };
+export const useAssetSearch = (query: AssetQuery, enabled = true) => useQuery({
+  queryKey: ["assets", query], enabled, placeholderData: (prev) => prev,
+  queryFn: () => unwrap(api.GET("/api/assets", { params: { query } })),
+});
+/** 按 id 取资产（显示名称、核对是否仍可见）；id 排序去重，同一组 id 共用缓存。 */
+export const useAssetsByIds = (ids: string[], extra: Omit<AssetQuery, "ids"> = {}) => {
+  const unique = [...new Set(ids.filter(Boolean))].sort();
+  return useAssetSearch({ ...extra, ids: unique }, unique.length > 0);
+};
+/** 目录各类对象的可见数量（导航角标）：一次聚合查询，不加载列表。 */
+export const useCatalogCounts = () => useQuery({ queryKey: ["catalog-counts"], queryFn: () => unwrap(api.GET("/api/catalog/counts")) });
 export const useAsset = (id?: string) => useQuery({
   queryKey: ["asset", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/assets/{asset_id}", { params: { path: { asset_id: id! } } })),

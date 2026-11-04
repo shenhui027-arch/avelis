@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
-  errorText, useAction, useAssets, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
+  errorText, useAction, useAssetsByIds, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
 import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, Seg, Select, Status, Tabs, shortName, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
@@ -98,7 +98,9 @@ function Detail({ id }: { id: string }) {
   const tz = useTimeZone();
   const cs = useChangeSet(id);
   const metrics = useMetrics();
-  const assets = useAssets();
+  // 只取这组变化影响到的资产（显示名称），不整表加载；接口一次最多 200 个 id
+  const impactedAssets = [...new Set((cs.data?.impacts ?? []).filter((i) => i.object_type === "asset").map((i) => i.object_id))];
+  const assets = useAssetsByIds(impactedAssets.slice(0, 200));
   const datasourceName = useDatasourceName();
   const [expanded, setExpanded] = useState(false);
   // 复核面板不常驻：只有这组变化带复核任务时才给入口，点开后以抽屉显示

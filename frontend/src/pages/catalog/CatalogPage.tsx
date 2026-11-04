@@ -1,9 +1,10 @@
 ﻿// 目录入口展示对象列表；只有明确的 URL id 才进入对象详情。
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { useAssets, useDomains, useJoinPaths, useMetrics, type Asset } from "../../api/hooks";
-import { Count, Empty, Icon, KIND_LABEL, Pill, QueryState, Status } from "../../components/ui";
+import { useAssetSearch, useCatalogCounts, useDomains, useMetrics, type Asset } from "../../api/hooks";
+import { useDebounced } from "../../components/AssetPicker";
+import { Count, Empty, Icon, KIND_LABEL, Pager, Pill, QueryState, Status } from "../../components/ui";
 import { useRoles } from "../../layout/Shell";
 import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
@@ -11,6 +12,8 @@ import { JoinPaths } from "./JoinPaths";
 import { MetricDetail, NewMetric } from "./MetricDetail";
 import { OssieImportDrawer } from "./OssieInterchange";
 import { t } from "../../i18n";
+
+const ASSET_PAGE = 100;
 
 const SECTIONS = [
   { key: "metrics", label: t("指标"), icon: "chart" },
@@ -26,10 +29,14 @@ export function CatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const roles = useRoles();
   const metrics = useMetrics();
-  const assets = useAssets();
   const domains = useDomains();
-  const paths = useJoinPaths();
+  const catalogCounts = useCatalogCounts();
   const [queries, setQueries] = useState<Record<string, string>>({});
+  // 资产随数据规模增长：按服务端搜索与分页取当前一页（多取一条判断有无下一页），不整表加载
+  const [assetOffset, setAssetOffset] = useState(0);
+  const assetTerm = useDebounced((queries.assets ?? "").trim());
+  useEffect(() => setAssetOffset(0), [assetTerm]);
+  const assets = useAssetSearch({ q: assetTerm || undefined, limit: ASSET_PAGE + 1, offset: assetOffset }, section === "assets");
   const [creating, setCreating] = useState(false);
   const [creatingDomain, setCreatingDomain] = useState(false);
   const canCreateMetric = roles.has("steward") || roles.has("admin");
@@ -38,12 +45,16 @@ export function CatalogPage() {
   const term = query.trim().toLocaleLowerCase();
   const matches = (...values: (string | null | undefined)[]) => !term || values.some((value) => value?.toLocaleLowerCase().includes(term));
   const metricList = (metrics.data ?? []).filter((m) => matches(m.name, m.code, ...m.aliases));
-  const assetList = (assets.data ?? []).filter((a) => matches(a.qualified, a.datasource.name, KIND_LABEL[a.kind]));
+  const assetList = (assets.data ?? []).slice(0, ASSET_PAGE);
+  const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
+  const assetPager = <Pager offset={assetOffset} shown={assetList.length} page={ASSET_PAGE} hasNext={moreAssets} onChange={setAssetOffset} />;
   const domainList = (domains.data ?? []).filter((d) => matches(d.name, d.code, d.description));
   const currentQuery = section === "assets" ? assets : section === "domains" ? domains : metrics;
   const filteredIds = section === "assets" ? assetList : section === "domains" ? domainList : metricList;
-  const excluded = !!id && !!term && currentQuery.isSuccess && currentQuery.data.some((item) => item.id === id)
-    && !filteredIds.some((item) => item.id === id);
+  const excluded = section === "assets"
+    ? !!id && !!term && assets.isSuccess && !assetList.some((item) => item.id === id)
+    : !!id && !!term && currentQuery.isSuccess && currentQuery.data.some((item: { id: string }) => item.id === id)
+      && !filteredIds.some((item) => item.id === id);
   const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setQueries({ ...queries, [section]: "" })}>{t("清除搜索")}</button>;
   const [importing, setImporting] = useState(false);
   const createMetric = canCreateMetric ? <>
@@ -58,12 +69,8 @@ export function CatalogPage() {
       setSearchParams(next, { replace: true });
     }
   };
-  const counts: Record<Section, number | undefined> = {
-    metrics: metrics.isSuccess ? metrics.data.length : undefined,
-    assets: assets.isSuccess ? assets.data.length : undefined,
-    domains: domains.isSuccess ? domains.data.length : undefined,
-    joins: paths.isSuccess ? paths.data.length : undefined,
-  };
+  const c = catalogCounts.data;
+  const counts: Record<Section, number | undefined> = { metrics: c?.metrics, assets: c?.assets, domains: c?.domains, joins: c?.join_paths };
 
   return (
     <div className="av-catalog av-catalog-page" data-section={section}>
@@ -89,7 +96,7 @@ export function CatalogPage() {
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} compact isEmpty={() => assetList.length === 0}
               emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : undefined}>
-              {() => <CatalogAssetTree key={`${id ?? "list"}:${term}`} assets={assetList} selectedId={id} searching={!!term} />}
+              {() => <><CatalogAssetTree key={`${id ?? "list"}:${term}:${assetOffset}`} assets={assetList} selectedId={id} searching={!!term} />{assetPager}</>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} compact isEmpty={() => domainList.length === 0}
               emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : undefined}>
@@ -116,9 +123,9 @@ export function CatalogPage() {
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} isEmpty={() => assetList.length === 0}
               emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("数据源")}</th><th>{t("状态")}</th><th className="end">{t("操作")}</th></tr></thead>
+              {() => <><div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("数据源")}</th><th>{t("状态")}</th><th className="end">{t("操作")}</th></tr></thead>
                 <tbody>{assetList.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{KIND_LABEL[a.kind] ?? a.kind}</td>
-                  <td>{a.datasource.name}</td><td><Status value={a.status} /></td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/assets/${a.id}`}>{t("查看详情")}</Link></td></tr>)}</tbody></table></div>}
+                  <td>{a.datasource.name}</td><td><Status value={a.status} /></td><td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/catalog/assets/${a.id}`}>{t("查看详情")}</Link></td></tr>)}</tbody></table></div>{assetPager}</>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} isEmpty={() => domainList.length === 0}
               emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : createDomain}>

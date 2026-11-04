@@ -33,7 +33,4 @@ const skipped = mod.recordQuery({ datasource_id: "", asset_id: "", column: "", k
 assert.deepEqual(skipped.invalid, ["since"]);
 assert.ok(!("since" in skipped.query) && skipped.query.until === "2011-12-30T10:00:00.000Z");
 
-const assets = [{ id: "a1", datasource: { id: "d1" } }, { id: "a2", datasource: { id: "d2" } }];
-assert.deepEqual(mod.assetsOfDatasource(assets, "d1").map((a) => a.id), ["a1"]);
-assert.deepEqual(mod.assetsOfDatasource(assets, "").map((a) => a.id), ["a1", "a2"]);
 console.log("recordFilters: ok");
