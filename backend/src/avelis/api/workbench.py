@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from avelis.api import schemas as S
 from avelis.api.ask import answer_view
 from avelis.api.deps import current_user, get_session
+from avelis.api.governance import change_set_view
 from avelis.config import get_settings
 from avelis.db import utcnow
 from avelis.governance import access
@@ -20,7 +21,6 @@ from avelis.models import (
     Answer,
     Asset,
     CandidateEdge,
-    ChangeEvent,
     ChangeSet,
     CollectionRun,
     Datasource,
@@ -310,24 +310,30 @@ def workbench(user: User = Depends(current_user), session: Session = Depends(get
         blocked = [a for a in blocked if a.asked_by == user.id]
 
     recent = []
-    for cs in session.scalars(select(ChangeSet).order_by(ChangeSet.created_at.desc()).limit(6)):
-        events = list(session.scalars(select(ChangeEvent).where(ChangeEvent.change_set_id == cs.id)))
+    # 只看最近一段：可见变更很少的用户不能把全部历史逐条翻完
+    for cs in session.scalars(select(ChangeSet).order_by(ChangeSet.created_at.desc()).limit(200)):
+        visible = change_set_view(session, cs, full=True, user=user)
+        events = visible["events"]
+        if not events and not is_admin:
+            continue
         primary = next(
-            (e for e in events if e.kind not in ("derivation_changed", "identity_link_changed")),
+            (e for e in events if e["kind"] not in ("derivation_changed", "identity_link_changed")),
             events[0] if events else None,
         )
-        asset = session.get(Asset, primary.asset_id) if primary and primary.asset_id else None
+        asset = session.get(Asset, primary["asset_id"]) if primary and primary["asset_id"] else None
         recent.append(
             {
                 "id": cs.id,
                 "asset": f"{asset.db_name}.{asset.name}" if asset else "（数据源）",
-                "kind": gettext(EVENT_LABELS.get(primary.kind, primary.kind)) if primary else "",
+                "kind": gettext(EVENT_LABELS.get(primary["kind"], primary["kind"])) if primary else "",
                 "events": len(events),
-                "impacts": (cs.summary or {}).get("impacts", 0),
+                "impacts": (cs.summary or {}).get("impacts", 0) if is_admin else len(visible["impacts"]),
                 "status": cs.status,
                 "at": _iso(cs.created_at),
             }
         )
+        if len(recent) == 6:
+            break
 
     return {
         "stages": stages,

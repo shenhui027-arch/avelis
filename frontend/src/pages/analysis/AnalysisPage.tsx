@@ -9,7 +9,7 @@ import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useNumberS
 import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
 import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
-import { Evidence, ResultTable } from "../ask/AskPage";
+import { BasisState, Evidence, ResultTable } from "../ask/AskPage";
 import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import type { ChartSpec } from "../../components/charts/chartOption";
@@ -341,6 +341,8 @@ function LookupAnswer({ a }: { a: Answer }) {
   const style = useNumberStyle();
   return (
     <section className="av-doc__section" aria-label={t("结果")}>
+      {a.recheck_status === "needs_recheck"
+        ? <div className="av-banner av-banner--warn" role="status">{t("所用口径因上游变化待复核，下面的数值按当时的口径计算")}</div> : null}
       {single ? <div className="av-lookup__value"><span>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
@@ -444,6 +446,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
         </div>
         <div className="av-doc__actions">
           <RunState run={r} />
+          {lookup && answer ? <BasisState a={answer} /> : null}
           {done && !lookup ? <ExportMenu run={r} onError={setError} /> : null}
         </div>
       </header>
