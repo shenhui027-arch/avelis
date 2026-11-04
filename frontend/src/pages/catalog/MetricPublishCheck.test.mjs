@@ -26,7 +26,9 @@ const saved = { ...original, expression: "SUM(net_amount)", publish_check: {} };
 const metric = { id: "metric-1", code: "revenue", name: "收入", aliases: [], owner: { display_name: "管理员" }, versions: [{ id: original.id, version_no: 1, status: "draft" }] };
 for (const [key, data] of [
   [["metric-version", original.id], original], [["settings"], {}], [["users"], []], [["join-paths"], []],
-  [["assets"], [{ id: "asset-1", qualified: "db.public.orders", datasource: { id: "source-1" } }]],
+  // 基础资产按需查询：默认的第一个可查询资产，与按 id 核对当前选择
+  [["assets", { queryable: true, limit: 1 }], [{ id: "asset-1", qualified: "db.public.orders", datasource: { id: "source-1" } }]],
+  [["assets", { queryable: true, ids: ["asset-1"] }], [{ id: "asset-1", qualified: "db.public.orders", datasource: { id: "source-1" } }]],
   [["datasources"], [{ id: "source-1", engine: { capabilities: ["query"] } }]], [["asset", "asset-1"], { columns: [] }],
 ]) client.setQueryData(key, data);
 
@@ -74,6 +76,7 @@ function load(file, extra = "") {
     if (name.endsWith("api/hooks")) return load("../../api/hooks.ts");
     if (name.endsWith("components/ui")) return load("../../components/ui.tsx");
     if (name === "./controls") return load("../../components/controls.tsx");
+    if (name.endsWith("components/AssetPicker")) return load("../../components/AssetPicker.tsx");
     if (name === "./Icon") return { Icon: () => null, Hint: () => null };
     // 界面语言：键即简体原文，测试里按原文渲染并代入插值
     if (name.endsWith("/i18n")) return { currentLanguage: () => "zh-CN",

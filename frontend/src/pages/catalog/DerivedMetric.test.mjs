@@ -64,6 +64,7 @@ function load(file, extra = "") {
     if (name.endsWith("api/hooks")) return load("../../api/hooks.ts");
     if (name.endsWith("components/ui")) return load("../../components/ui.tsx");
     if (name === "./controls") return load("../../components/controls.tsx");
+    if (name.endsWith("components/AssetPicker")) return load("../../components/AssetPicker.tsx");
     if (name === "./Icon") return { Icon: () => null, Hint: () => null };
     // 界面语言：键即简体原文，测试里按原文渲染并代入插值
     if (name.endsWith("/i18n")) return { currentLanguage: () => "zh-CN",

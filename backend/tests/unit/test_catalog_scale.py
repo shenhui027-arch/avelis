@@ -491,3 +491,15 @@ def test_catalog_openapi_exposes_bounded_list_parameters():
     assert ids["maxItems"] == 200 and ids["items"]["type"] == "string"
     assert {"type": "boolean"} in parameters["queryable"]["anyOf"]
     assert "/api/catalog/counts" in spec["paths"]
+
+
+def test_asset_keyword_also_matches_datasource_name_and_kind_code(catalog):
+    """关键词除限定名外也匹配数据源名称与资产类型代码（原来页面上能按这两项找资产）。"""
+    session = catalog.session
+    add_asset(session, "plain_table", name="orders")
+    add_asset(session, "plain_view", name="orders_v", kind="view")
+    session.commit()
+    source = session.get(Datasource, "source")
+    by_source = {a["id"] for a in assets(catalog, q=source.name.upper())}
+    assert {"plain_table", "plain_view"} <= by_source
+    assert [a["id"] for a in assets(catalog, q="view")] == ["plain_view"]

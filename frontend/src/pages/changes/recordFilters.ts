@@ -59,6 +59,4 @@ export function recordQuery(filters: RecordFilters, timeZone: string): { query: 
 }
 
 /** 某个数据源下的资产（/api/assets 返回 datasource: {id, name, …}）；未选数据源时返回全部。 */
-export function assetsOfDatasource<T extends { datasource: { id: string } }>(assets: T[], datasourceId: string): T[] {
-  return assets.filter((a) => !datasourceId || a.datasource.id === datasourceId);
-}
+
