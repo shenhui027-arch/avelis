@@ -780,7 +780,11 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     inherited = _followup_inherited(state, toolbox)
     # 已确认的分析续问也要理解用户本轮原话，才能区分改图与新增取数；
     # 旧的无模型恢复路径仍可直接沿用已确认范围。
-    if inherited.get("scope") and not (inherited.get("conversation") and model is not None):
+    if (
+        inherited.get("scope")
+        and inherited["scope"].get("question_type") != "chart"
+        and not (inherited.get("conversation") and model is not None)
+    ):
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
         scope = Scope.model_validate({**inherited["scope"], "clarification": None})
         toolbox.record_scope(scope, scope.model_dump(mode="json"), None)
@@ -866,6 +870,8 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             if toolbox.stopped:
                 raise
     confirmed = inherited.get("scope")
+    if confirmed and confirmed.get("question_type") == "chart":
+        confirmed = None  # 改图轮次的范围不是确认过的分析范围（旧数据兜底；followup_run 已不再继承它）
     if confirmed and not (scope is not None and scope.question_type == "chart"):
         # 已确认范围的续问：这次理解只用来判断是不是改图；不是改图就照旧沿用确认过的范围，不让模型改写它。
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)

@@ -748,6 +748,9 @@ def followup_run(
     scope = (
         (parent.plan or {}).get("scope") if lookup else saved.get("confirmed_scope") or (parent.plan or {}).get("scope")
     ) or {}
+    if (parent.report or {}).get("kind") == "chart" or scope.get("question_type") == "chart":
+        # 改图轮次的范围只描述呈现，不是确认过的分析范围：下一轮重新理解，需要新数据时才能取数。
+        scope = {}
     window = {**parent.window, "kind": "fixed"} if not lookup and (parent.window or {}).get("start") else None
     inherited_choice = None
     if model is None and reasoning_effort is None and parent.model_choice is not None:

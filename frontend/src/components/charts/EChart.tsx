@@ -1,6 +1,6 @@
 // ECharts 画布（按需引入、单独分块懒加载）：主题从设计令牌读，深浅切换时重画；导出 PNG 用同一实例。
 import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { DataZoomComponent, GridComponent, LegendComponent, TitleComponent, TooltipComponent } from "echarts/components";
+import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, MarkPointComponent, TitleComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
@@ -8,7 +8,9 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { chartHeight, chartOption, type ChartSpec, type ChartTheme } from "./chartOption";
 import type { NumberStyle } from "../../numbers";
 
-echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent, CanvasRenderer]);
+// 标注（极值点、平均线）来自 chart 工具的 marks 参数，按需引入也要注册这两个组件
+echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent,
+  MarkPointComponent, MarkLineComponent, CanvasRenderer]);
 
 function readTheme(): ChartTheme {
   const css = getComputedStyle(document.documentElement);

@@ -463,3 +463,14 @@ def test_confirmed_followup_that_is_not_a_chart_edit_keeps_the_confirmed_scope(m
     assert result["scope"]["metric_codes"] == ["old_metric"] and result["scope"]["dimensions"] == ["old_dimension"]
     assert result["inherited"]["scope"] == confirmed
     assert len(model.seen) == 1
+
+
+def test_inherited_chart_scope_is_not_treated_as_a_confirmed_analysis_scope(monkeypatch):
+    """旧数据里继承来的改图范围不能把需要新数据的续问送回改图节点。"""
+    box, model, config, state = configured(
+        monkeypatch, "再看上个月的数据", None, scope={"question_type": "lookup", "metric_codes": []}
+    )
+    state["inherited"].update(user_text="再看上个月的数据", scope={"question_type": "chart", "chart_dataset": "D1"})
+    result = agent.understand(state, config)
+    assert result["phase"] != "chart_edit"
+    assert (result["scope"] or {}).get("question_type") != "chart"
