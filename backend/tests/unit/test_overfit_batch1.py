@@ -13,6 +13,7 @@ from sqlglot import exp
 
 from avelis.analysis import calc, measures
 from avelis.ask import agent as _batch1_ask_agent
+from avelis.ask import alignment as _batch1_ask_alignment
 from avelis.ask import service
 from avelis.ask import service as _batch1_ask_service
 from avelis.ask.intent import Intent, MetricCard
@@ -402,6 +403,9 @@ def _batch1_ask_toolbox(monkeypatch, sample):
     box = _batch1_ask_agent.Toolbox(None, None, catalog)
     box._values[("metric_a", "维度甲")] = sample
     monkeypatch.setattr(_batch1_ask_agent, "get_settings", lambda: object())
+    monkeypatch.setattr(_batch1_ask_service, "_dimension_values", lambda *_: {"维度甲": sample})
+    monkeypatch.setattr(_batch1_ask_service, "dependency_drift", lambda *_: [])
+    monkeypatch.setattr(_batch1_ask_alignment, "_dimension_tables", lambda *_: [])
     return box
 
 

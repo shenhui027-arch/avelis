@@ -1233,6 +1233,12 @@ msgstr "說明"
 msgid "请回答追问后继续分析"
 msgstr "請回答追問後繼續分析"
 
+msgid "请按待确认项提交筛选候选"
+msgstr "請依待確認項目送出篩選候選值"
+
+msgid "筛选回答包含未知、重复的待确认项或无效候选"
+msgstr "篩選回答包含未知或重複的待確認項目，或無效候選值"
+
 msgid "请指定有效的时间窗口"
 msgstr "請指定有效的時間範圍"
 
@@ -2332,3 +2338,15 @@ msgstr "圖表調整"
 
 msgid "图表已更新"
 msgstr "圖表已更新"
+
+msgid "维度 {dimension} 的取值 {original} 尚未确定；候选：{candidates}；请用 ask_user 确认"
+msgstr "維度 {dimension} 的取值 {original} 尚未確定；候選：{candidates}；請用 ask_user 確認"
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。"
+msgstr "篩選值「{original}」需要確認（維度：{dimension}）；候選：{candidates}。"
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；暂无可用候选。"
+msgstr "篩選值「{original}」需要確認（維度：{dimension}）；目前沒有可用候選。"
+
+msgid "可在维表中维护别名并建立关联路径。"
+msgstr "可在維度表中維護別名並建立關聯路徑。"

@@ -9,6 +9,7 @@ import { formatClock, formatShortTime, formatTime } from "../../format";
 import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 import { t } from "../../i18n";
 import { ChartPanel } from "../../components/charts/ChartPanel";
+import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
 
 const STEP_LABEL: Record<string, string> = { understand: t("理解"), clarify: t("追问"), govern: t("版本与权限"), explain: t("解释") };
 
@@ -163,6 +164,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
           <span className="av-caption">{a.message}</span>
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
+      <FilterAlignmentNote items={a.filter_alignment} />
       {a.explanation && a.explanation_source === "model" ? <p className="av-answer-insight" title={t("模型对结果的说明，只引用上面的数值")}>
         <Icon name="analysis" small />{a.explanation}</p> : null}
       {result?.rows && !single && result.rows.length ? (

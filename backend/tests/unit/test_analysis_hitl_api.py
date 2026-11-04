@@ -13,7 +13,7 @@ from avelis.api.deps import current_user, get_session
 from avelis.db import new_id, utcnow
 from avelis.governance.errors import GovernanceError
 from avelis.models import AnalysisRun
-from tests.unit.test_analysis_hitl import waiting_run
+from tests.unit.test_analysis_hitl import alignment_pending, waiting_run
 
 
 @pytest.fixture
@@ -103,6 +103,40 @@ def test_http_followup_inherits_user_text_and_accepts_the_documented_limit(api):
     assert child["experience_candidates"][0]["source"]["checkpoint"] == "conclusion"
     assert client.post(f"/api/analysis/runs/{parent.id}/followup", json={"text": text + "补"}).status_code == 422
     assert client.post(f"/api/analysis/runs/{parent.id}/followup", json={"text": "  "}).status_code == 422
+
+
+def test_http_alignment_resume_accepts_all_structured_selections_and_rejects_invalid_before_queue(api):
+    client, _, _, run, queued, wakes = api
+    path = f"/api/analysis/runs/{run.id}/resume"
+    run.checkpoint["pending"] = alignment_pending()
+    answer = [
+        {"dimension": item["dimension"], "original": item["original"], "value": item["options"][0]}
+        for item in run.checkpoint["pending"]["items"]
+    ]
+    for invalid in (
+        [],
+        [answer[0], answer[0]],
+        [{**answer[0], "value": "无效候选"}],
+        [{**answer[0], "original": "未知项"}],
+        [{**answer[0], "dimension": "x" * 201}],
+        answer * 34,
+    ):
+        response = client.post(path, json={"answer": invalid})
+        assert response.status_code == 422, response.text
+    assert queued == [] and wakes == [] and run.status == "waiting"
+    response = client.post(path, json={"answer": answer})
+    assert response.status_code == 200, response.text
+    assert run.checkpoint["feedback"] == {"answer": answer}
+    assert response.json()["status"] == "queued" and len(queued) == len(wakes) == 1
+
+
+def test_http_alignment_resume_keeps_trimmed_free_text_compatible(api):
+    client, _, _, run, queued, wakes = api
+    run.checkpoint["pending"] = alignment_pending()
+    response = client.post(f"/api/analysis/runs/{run.id}/resume", json={"answer": "  请改为华北  "})
+    assert response.status_code == 200, response.text
+    assert run.checkpoint["feedback"] == {"answer": "请改为华北"}
+    assert len(queued) == len(wakes) == 1
 
 
 @pytest.mark.parametrize(

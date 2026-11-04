@@ -745,6 +745,73 @@ def test_understand_resume_requires_a_nonblank_answer(monkeypatch, feedback):
     assert run.status == "waiting" and not queued and not run.checkpoint.get("candidates")
 
 
+def alignment_pending():
+    return {
+        "kind": "clarify",
+        "question": "请确认筛选值",
+        "items": [
+            {"dimension": "region", "original": "华东区", "options": ["华东", "华北"]},
+            {"dimension": "region", "original": "华南区", "options": ["华南"]},
+            {"dimension": "channel", "original": "直营店", "options": ["直营", "加盟"]},
+        ],
+    }
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_alignment_resume_preserves_structured_answers_and_serializes_experience(monkeypatch, partial):
+    session, user, run, queued = waiting_run(monkeypatch)
+    run.checkpoint["pending"] = alignment_pending()
+    answer = [
+        {"dimension": item["dimension"], "original": item["original"], "value": item["options"][0]}
+        for item in run.checkpoint["pending"]["items"]
+    ]
+    if partial:
+        answer = answer[1:2]
+    result = service.resume_run(session, user, run.id, {"answer": answer})
+    assert result.checkpoint["feedback"] == {"answer": answer}
+    assert len(queued) == 1 and result.status == "queued"
+    content = result.checkpoint["candidates"][0]["content"]
+    assert json.loads(content.split("回答：", 1)[1]) == answer
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        [],
+        [{"dimension": "missing", "original": "华东区", "value": "华东"}],
+        [{"dimension": "region", "original": "missing", "value": "华东"}],
+        [{"dimension": "region", "original": "华东区", "value": "华南"}],
+        [{"dimension": "region", "original": "华东区", "value": "华东"}] * 2,
+        [{"dimension": "region", "original": "华东区"}],
+        [{"dimension": "region", "original": "华东区", "value": []}],
+        ["华东"],
+        {"dimension": "region", "original": "华东区", "value": "华东"},
+        None,
+    ],
+)
+def test_alignment_resume_rejects_invalid_selections_before_claiming_run(monkeypatch, answer):
+    session, user, run, queued = waiting_run(monkeypatch)
+    run.checkpoint["pending"] = alignment_pending()
+    original = dict(run.checkpoint)
+
+    def forbidden_claim(statement):
+        pytest.fail("invalid answer reached compare and swap")
+
+    session.execute = forbidden_claim
+    with pytest.raises(Invalid):
+        service.resume_run(session, user, run.id, {"answer": answer})
+    assert run.status == "waiting" and run.checkpoint == original and not queued
+
+
+def test_structured_answer_requires_alignment_pending_items(monkeypatch):
+    session, user, run, queued = waiting_run(monkeypatch)
+    run.checkpoint["pending"] = {"kind": "clarify", "question": "请确认地区"}
+    answer = [{"dimension": "region", "original": "华东区", "value": "华东"}]
+    with pytest.raises(Invalid):
+        service.resume_run(session, user, run.id, {"answer": answer})
+    assert run.status == "waiting" and not queued
+
+
 def test_answer_cannot_replace_assumption_decisions(monkeypatch):
     session, user, run, queued = waiting_run(monkeypatch)
     with pytest.raises(Invalid):
@@ -772,6 +839,19 @@ def test_resume_schema_accepts_answer_without_decisions_and_limits_its_length():
     assert AnalysisResumeIn(answer="答" * 2000).answer == "答" * 2000
     with pytest.raises(ValidationError):
         AnalysisResumeIn(answer="答" * 2001)
+
+
+def test_resume_schema_accepts_and_bounds_structured_alignment_answers():
+    answer = [{"dimension": "region", "original": "华东区", "value": "华东"}]
+    assert AnalysisResumeIn.model_validate({"answer": answer}).model_dump()["answer"] == answer
+    assert len(AnalysisResumeIn.model_validate({"answer": answer * 100}).answer) == 100
+    for invalid in ([], answer * 101):
+        with pytest.raises(ValidationError):
+            AnalysisResumeIn.model_validate({"answer": invalid})
+    for field, limit in (("dimension", 200), ("original", 2000), ("value", 2000)):
+        for invalid in ("", "x" * (limit + 1)):
+            with pytest.raises(ValidationError):
+                AnalysisResumeIn.model_validate({"answer": [{**answer[0], field: invalid}]})
 
 
 @pytest.mark.parametrize("pending", [{"kind": "clarify", "question": "请确认地区？"}, {"kind": "assumptions"}, None])

@@ -7788,6 +7788,35 @@
     ],
     "title": "AliasOut"
    },
+   "AnalysisAlignmentAnswerIn": {
+    "properties": {
+     "dimension": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Dimension"
+     },
+     "original": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Original"
+     },
+     "value": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Value"
+     }
+    },
+    "type": "object",
+    "required": [
+     "dimension",
+     "original",
+     "value"
+    ],
+    "title": "AnalysisAlignmentAnswerIn"
+   },
    "AnalysisConversationDetailOut": {
     "properties": {
      "id": {
@@ -8853,9 +8882,22 @@
    "AnalysisResumeIn": {
     "properties": {
      "answer": {
-      "type": "string",
-      "maxLength": 2000,
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "items": {
+         "$ref": "#/components/schemas/AnalysisAlignmentAnswerIn"
+        },
+        "type": "array",
+        "maxItems": 100,
+        "minItems": 1
+       }
+      ],
       "title": "Answer",
+      "description": "澄清回答；筛选候选可按 pending.items 提交 [{dimension, original, value}]，允许部分回答；字符串兼容自由文本及首项候选。",
       "default": ""
      },
      "decisions": {
@@ -9046,6 +9088,13 @@
       ],
       "title": "Answer"
      },
+     "filter_alignment": {
+      "items": {
+       "$ref": "#/components/schemas/FilterAlignmentOut"
+      },
+      "type": "array",
+      "title": "Filter Alignment"
+     },
      "verification": {
       "anyOf": [
        {
@@ -9133,7 +9182,8 @@
         "type": "null"
        }
       ],
-      "title": "Pending"
+      "title": "Pending",
+      "description": "待确认内容；筛选澄清含完整 items:[{dimension, original, options:[str]}]，旧顶层 dimension/options 仅兼容首项；恢复时 answer 可提交 [{dimension, original, value}]。"
      },
      "experience_candidates": {
       "items": {
@@ -9413,6 +9463,13 @@
       "additionalProperties": true,
       "type": "object",
       "title": "Evidence"
+     },
+     "filter_alignment": {
+      "items": {
+       "$ref": "#/components/schemas/FilterAlignmentOut"
+      },
+      "type": "array",
+      "title": "Filter Alignment"
      },
      "freshness": {
       "additionalProperties": true,
@@ -13486,6 +13543,74 @@
      "models"
     ],
     "title": "FetchedOut"
+   },
+   "FilterAlignmentOut": {
+    "properties": {
+     "dimension": {
+      "type": "string",
+      "title": "Dimension"
+     },
+     "original": {
+      "type": "string",
+      "title": "Original"
+     },
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "method": {
+      "type": "string",
+      "enum": [
+       "exact",
+       "normalized",
+       "dimension_table",
+       "confirmed"
+      ],
+      "title": "Method"
+     },
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "table": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Table"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "dimension",
+     "original",
+     "value",
+     "method"
+    ],
+    "title": "FilterAlignmentOut"
    },
    "GovernanceEvent": {
     "properties": {

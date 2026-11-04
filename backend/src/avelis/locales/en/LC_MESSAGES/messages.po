@@ -139,6 +139,12 @@ msgstr "This confirmation was already submitted, or the analysis is not awaiting
 msgid "请回答追问后继续分析"
 msgstr "Answer the follow-up question to continue the analysis"
 
+msgid "请按待确认项提交筛选候选"
+msgstr "Submit filter candidates for the pending items"
+
+msgid "筛选回答包含未知、重复的待确认项或无效候选"
+msgstr "The filter answer contains unknown or duplicate pending items, or invalid candidates"
+
 msgid "这次确认已提交"
 msgstr "This confirmation was already submitted"
 
@@ -2327,3 +2333,15 @@ msgstr "Chart adjustment"
 
 msgid "图表已更新"
 msgstr "Chart updated"
+
+msgid "维度 {dimension} 的取值 {original} 尚未确定；候选：{candidates}；请用 ask_user 确认"
+msgstr "The value {original} for dimension {dimension} is unresolved; candidates: {candidates}; use ask_user to confirm"
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。"
+msgstr "Confirm filter value “{original}” (dimension: {dimension}); candidates: {candidates}."
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；暂无可用候选。"
+msgstr "Confirm filter value “{original}” (dimension: {dimension}); no candidates are available."
+
+msgid "可在维表中维护别名并建立关联路径。"
+msgstr "You can maintain aliases in your dimension table and register a join path."

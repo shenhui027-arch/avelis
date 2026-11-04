@@ -8,7 +8,8 @@ import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useNumberStyle, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
-import { CandidatesPanel, ClarifyPanel, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
+import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
+import { CandidatesPanel, ClarifyPanel, type ClarifyItem, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
 import { BasisState, Evidence, ResultTable } from "../ask/AskPage";
 import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
 import { ChartPanel } from "../../components/charts/ChartPanel";
@@ -415,7 +416,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
   // 对话改图的一轮：只换上一轮数据的画法，没有结论与依据，只显示说明与改好的图
   const chartEdit = (report as { kind?: string }).kind === "chart";
   const hitl = r as Run & { parent_run_id?: string | null; proposal?: { items: ProposalItem[] } | null;
-    pending?: { kind?: string; question?: string } | null;
+    pending?: { kind?: string; question?: string; options?: string[]; dimension?: string; items?: ClarifyItem[] } | null;
     experience_candidates?: Parameters<typeof CandidatesPanel>[0]["candidates"] };
   const verification = (r.verification ?? {}) as { ok?: boolean; status?: string; unverified?: number; claims?: Check[];
     fields?: FieldCheck[]; sources?: { direct?: Record<string, number>; with_explore?: number; assumption?: number;
@@ -464,9 +465,11 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       {r.status === "failed" ? <div className="av-banner av-banner--danger">{t("分析失败：")}{r.error}</div> : null}
       {r.status === "clarify" ? <div className="av-banner av-banner--info">{t("需要澄清：")}{report.summary}</div> : null}
       {stopped ? <div className="av-banner av-banner--info">{t("已停止，下面是停止前已经得到的部分结果")}</div> : null}
-      {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} /> : null}
+      {r.status === "waiting" && hitl.pending?.kind === "clarify" ? <ClarifyPanel key={r.id} runId={r.id} question={hitl.pending.question ?? ""} items={hitl.pending.items ?? (hitl.pending.options?.length && hitl.pending.dimension
+          ? [{ dimension: hitl.pending.dimension, original: "", options: hitl.pending.options }] : undefined)} /> : null}
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
+      {done ? <FilterAlignmentNote items={(r as Run & { filter_alignment?: Parameters<typeof FilterAlignmentNote>[0]["items"] }).filter_alignment} /> : null}
       {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
       {done && chartEdit ? <>
         {report.summary ? <p className={verification.ok === false ? "av-banner av-banner--info" : "av-doc__method"}>{report.summary}</p> : null}

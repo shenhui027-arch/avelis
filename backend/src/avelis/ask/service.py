@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -66,6 +67,82 @@ from avelis.models import (
 TRACEABLE_NOTE = "可追溯 ≠ 可复现：保存了 SQL、口径与元数据版本，但不保存数据快照，历史答案不保证能按当时数据重算。"
 DISCOVERY_NOTE = "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
 DIMENSION_VALUES_LIMIT = 200
+
+
+def filter_alignment_restricted(session: Session | None, user: User | None, explanations: list[dict]) -> bool:
+    """保存的维表说明按阅读者当前权限投影；旧说明缺少来源 id 时保守隐藏。"""
+    sources = [
+        item
+        for item in explanations
+        if item.get("method") == "dimension_table" or item.get("table") or item.get("column") or item.get("asset_id")
+    ]
+    if not sources:
+        return False
+    if session is None or user is None:
+        return True
+    ids = {item.get("asset_id") for item in sources}
+    if any(not isinstance(asset_id, str) or not asset_id for asset_id in ids):
+        return True
+    if any(session.get(Asset, asset_id, populate_existing=True) is None for asset_id in ids):
+        return True
+    allowed = access.domain_ids(session, user)
+    try:
+        closure = upstream_closure(session, list(ids))
+        return any(
+            not access.can_read_asset(session, user, session.get(Asset, asset_id, populate_existing=True), allowed)
+            for asset_id in closure
+        )
+    except GovernanceError:
+        return True
+
+
+def project_alignment_clarifications(session: Session | None, user: User | None, value: Any) -> tuple[Any, bool]:
+    """仅投影返回值，不改写检查点；自由文本可能复述候选，失权时保守移除。"""
+    if isinstance(value, list):
+        items = [project_alignment_clarifications(session, user, item) for item in value]
+        return [item for item, _ in items], any(restricted for _, restricted in items)
+    if not isinstance(value, dict):
+        return value, False
+    projected, restricted = {}, False
+    for key, item in value.items():
+        projected[key], hidden = project_alignment_clarifications(session, user, item)
+        restricted |= hidden
+    sources = value.get("candidate_sources", {})
+    hidden_values = {
+        candidate
+        for candidate, ids in sources.items()
+        if not ids
+        or filter_alignment_restricted(session, user, [{"method": "dimension_table", "asset_id": i} for i in ids])
+    }
+    if hidden_values:
+        restricted = True
+        projected["candidate_sources"] = {c: ids for c, ids in sources.items() if c not in hidden_values}
+        for key in ("options", "candidates"):
+            if key in projected:
+                projected[key] = [c for c in projected[key] if c not in hidden_values]
+    if restricted:
+        # 顶层 options 是第一项的副本；不可留着未投影的旧副本。
+        if projected.get("items"):
+            projected["options"] = projected["items"][0].get("options", [])
+        elif "candidate_sources" not in value and "options" in projected:
+            projected["options"] = []
+        question = gettext("请补充问题的指标与日期")
+        if projected.get("items"):
+            question = "\n".join(
+                gettext(
+                    "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。",
+                    original=item["original"],
+                    dimension=item["dimension"],
+                    candidates="、".join(item.get("options", [])),
+                )
+                for item in projected["items"]
+            )
+        for key in ("question", "summary", "message", "explanation", "reason", "answer", "notes", "errors"):
+            if key in projected:
+                projected[key] = (
+                    question if key in {"question", "summary", "message"} else "" if key == "answer" else None
+                )
+    return projected, restricted
 
 
 @dataclass
@@ -1281,15 +1358,31 @@ def _column_type(session: Session, asset: Asset, column: str) -> str:
     ).lower()
 
 
+def _dimension_query_timeout(remaining_seconds: Callable[[], float] | None = None) -> int:
+    """问数取值维持原有单次上限；分析按同一运行的剩余预算收紧。"""
+    # 连接器按整秒设置超时；不足一秒时不能传 0（数据库会解释为不限时）。
+    return 10 if remaining_seconds is None else max(0, min(10, int(remaining_seconds())))
+
+
 def _existing_dimension_values(
-    session: Session, user: User, version: MetricVersion, dimension: str, values: list[str], settings
+    session: Session,
+    user: User,
+    version: MetricVersion,
+    dimension: str,
+    values: list[str],
+    settings,
+    *,
+    remaining_seconds: Callable[[], float] | None = None,
 ) -> set[str] | None:
     """精确核验样本之外的取值；守卫或查询失败时返回未知，不据此宣称取值不存在。"""
     requested = list(dict.fromkeys(values))
     if not requested:
         return set()
+    if _dimension_query_timeout(remaining_seconds) <= 0:
+        return None
     if len(requested) > DIMENSION_VALUES_LIMIT:
         return None
+    query_budget = {"remaining_seconds": remaining_seconds} if remaining_seconds is not None else {}
     if version.kind == "derived":
         if (
             version.status != "published"
@@ -1301,7 +1394,9 @@ def _existing_dimension_values(
         for component in version.components or []:
             source = session.get(MetricVersion, component["version_id"])
             checked.append(
-                _existing_dimension_values(session, user, source, dimension, requested, settings) if source else None
+                _existing_dimension_values(session, user, source, dimension, requested, settings, **query_budget)
+                if source
+                else None
             )
         existing = set().union(*(values or set() for values in checked))
         return (
@@ -1309,25 +1404,36 @@ def _existing_dimension_values(
             if checked and (all(values is not None for values in checked) or set(requested) <= existing)
             else None
         )
-    result = _dimension_values(session, user, version, settings, exact_values={dimension: requested})
+    result = _dimension_values(session, user, version, settings, exact_values={dimension: requested}, **query_budget)
     return set(result[dimension]) if dimension in result else None
 
 
 def _dimension_values(
-    session: Session, user: User, version: MetricVersion, settings, *, exact_values: dict[str, list[str]] | None = None
+    session: Session,
+    user: User,
+    version: MetricVersion,
+    settings,
+    *,
+    exact_values: dict[str, list[str]] | None = None,
+    remaining_seconds: Callable[[], float] | None = None,
 ) -> dict[str, list[str]]:
     """维度可选值（只读查询，带超时与行数上限；按资产版本缓存）。只用于理解问题中的维度取值。
 
     与正式问数同一套守卫，且在读缓存之前执行：口径已发布且依赖未漂移；维度所在资产的完整来源闭包对当前用户都可见；
     真正查库前再做执行前核对。取值会进入模型上下文，不能成为绕过权限读取来源数据的旁路。"""
     out: dict[str, list[str]] = {}
+    if _dimension_query_timeout(remaining_seconds) <= 0:
+        return out
     if version.status != "published" or dependency_drift(session, version):
         return out
     if version.kind == "derived":  # 派生：取值来自锁定的组成指标（各自按完整来源权限过滤）
+        query_budget = {"remaining_seconds": remaining_seconds} if remaining_seconds is not None else {}
         for c in version.components or []:
             component = session.get(MetricVersion, c["version_id"])
             for name, vals in (
-                _dimension_values(session, user, component, settings, exact_values=exact_values) if component else {}
+                _dimension_values(session, user, component, settings, exact_values=exact_values, **query_budget)
+                if component
+                else {}
             ).items():
                 out.setdefault(name, vals)
         shared = {d["name"] for d in version.dimensions or []}
@@ -1340,6 +1446,8 @@ def _dimension_values(
     allowed = access.domain_ids(session, user)
     timezone = getattr(version, "timezone", None) or getattr(settings, "business_timezone", None)
     for dim in version.dimensions or []:
+        if _dimension_query_timeout(remaining_seconds) <= 0:
+            break
         if exact_values is not None and dim["name"] not in exact_values:
             continue
         alias, column = dim["column"].split(".", 1) if "." in dim["column"] else ("b", dim["column"])
@@ -1396,11 +1504,16 @@ def _dimension_values(
             )
             connector = query_connector(session, ds)
             dep = [{"asset_id": asset.id, "column": column}]
+            if _dimension_query_timeout(remaining_seconds) <= 0:
+                break
             if _live_check(session, ds, connector, closure.values(), dep, settings):
                 continue  # 库侧已变、尚未采集：不读取（已排队采集）
+            timeout = _dimension_query_timeout(remaining_seconds)
+            if timeout <= 0:
+                break
             result = connector.execute_select(
                 sql,
-                timeout_seconds=10,
+                timeout_seconds=timeout,
                 mem_limit_bytes=512 * 1024**2,
                 max_rows=DIMENSION_VALUES_LIMIT,
                 timezone=timezone,

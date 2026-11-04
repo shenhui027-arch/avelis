@@ -312,10 +312,15 @@ def big_catalog(n_extra):
         card("x_aov", "客单价", "dB"),
     ]
     entries += [card(f"a{i:02d}", f"无关指标{i}", "dA") for i in range(n_extra)]
-    version = SimpleNamespace(kind="base", expression="SUM(x)", unit=None, dimensions=[])
     return ask_service.Catalog(
         [c for c, _ in entries],
-        {c.code: (SimpleNamespace(id=c.code, name=c.name, domain_id=d), version) for c, d in entries},
+        {
+            c.code: (
+                SimpleNamespace(id=c.code, name=c.name, domain_id=d),
+                SimpleNamespace(kind="base", expression="SUM(x)", unit=None, dimensions=c.dimensions),
+            )
+            for c, d in entries
+        },
     )
 
 
