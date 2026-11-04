@@ -119,6 +119,110 @@ def _copy_datasets(session: Session, user: User, parent: AnalysisRun, run: Analy
             )
         )
     session.flush()
+    _copy_lookup_result(session, user, parent, run)
+
+
+def _copy_lookup_result(session: Session, user: User, parent: AnalysisRun, run: AnalysisRun) -> None:
+    """取数答案没有分析数据集；续问只复制已保存结果，不重新执行取数。"""
+    if (parent.report or {}).get("kind") != "lookup":
+        return
+    answer = session.get(Answer, parent.report.get("answer_id"))
+    if answer is None or answer.status != "answered":
+        return
+    existing = _datasets(session, run.id)
+    if any(
+        (dataset.meta or {}).get("copied_from") == {"run_id": parent.id, "ref": "answer"}
+        for dataset in existing.values()
+    ):
+        return
+    from avelis.api.ask import _answer_contract
+
+    result = _answer_contract(answer, session)
+    if not isinstance(result, dict):
+        return
+    roles = result.get("column_roles") or {}
+    meta = {
+        "metric_version_ids": deepcopy(answer.metric_version_ids or []),
+        "intent": deepcopy(answer.intent or {}),
+        "sql": answer.sql,
+        "units": deepcopy(result.get("units") or {}),
+        "polarity": deepcopy(result.get("polarity") or {}),
+        "time_column": next((column for column, role in roles.items() if role.get("role") == "time"), None),
+        "column_roles": deepcopy(roles),
+        "column_labels": {column: role.get("label") or column for column, role in roles.items()},
+        "copied_from": {"run_id": parent.id, "ref": "answer"},
+    }
+    dataset = AnalysisDataset(
+        run_id=run.id,
+        seq=max((dataset.seq for dataset in existing.values()), default=0) + 1,
+        kind="governed",
+        title=(parent.report.get("title") or parent.question)[:255],
+        answer_id=answer.id,
+        columns=deepcopy(result.get("columns") or []),
+        rows=deepcopy(result.get("rows") or []),
+        truncated=bool(result.get("truncated")),
+        meta=meta,
+    )
+    if can_read_dataset(session, user, dataset):
+        session.add(dataset)
+        session.flush()
+
+
+def _chart_targets(session: Session, user: User, parent: AnalysisRun, current: dict) -> list[dict]:
+    """只列上一轮实际展示的图，并将来源引用映射到本轮的可读副本。"""
+    from avelis.analysis.dataset_projection import dataset_meta
+    from avelis.analysis.figures import dataset_charts, report_figures
+    from avelis.charts import ChartPreference
+
+    copied = {
+        (dataset.meta or {}).get("copied_from", {}).get("ref"): (ref, dataset)
+        for ref, dataset in current.items()
+        if (dataset.meta or {}).get("copied_from", {}).get("run_id") == parent.id
+        and can_read_dataset(session, user, dataset, current)
+    }
+    if (parent.report or {}).get("kind") == "lookup":
+        if "answer" not in copied:
+            return []
+        ref, dataset = copied["answer"]
+        answer = session.get(Answer, dataset.answer_id)
+        preference = deepcopy((answer.evidence or {}).get("chart") or {})
+        specs = dataset_charts(
+            {"columns": dataset.columns, "rows": dataset.rows, "meta": dataset_meta(session, dataset)}, preference
+        )
+        return (
+            [{"dataset": ref, "title": dataset.title, "preference": preference, "current_kind": specs[0]["kind"]}]
+            if specs
+            else []
+        )
+    previous = _datasets(session, parent.id)
+    report, restricted = _project_report(session, user, parent, previous)
+    figures = report_figures(
+        {
+            "report": report,
+            "datasets": [
+                {
+                    "ref": ref,
+                    "kind": dataset.kind,
+                    "title": dataset.title,
+                    "columns": dataset.columns,
+                    "rows": dataset.rows,
+                    "meta": dataset_meta(session, dataset),
+                }
+                for ref, dataset in previous.items()
+                if ref not in restricted and ref in copied
+            ],
+        }
+    )
+    saved = {figure.get("dataset"): figure for figure in report.get("figures") or []}
+    return [
+        {
+            "dataset": copied[figure["ref"]][0],
+            "title": figure.get("title") or previous[figure["ref"]].title,
+            "preference": ChartPreference.from_record(saved.get(figure["ref"], {})),
+            "current_kind": figure["chart"]["kind"],
+        }
+        for figure in figures
+    ]
 
 
 def _project_report(
@@ -190,6 +294,18 @@ def _context(session: Session, user: User, parent: AnalysisRun, run: AnalysisRun
         "copied_datasets": copied[:MAX_DATASETS],
         "omitted_datasets": max(0, len(copied) - MAX_DATASETS),
         "omitted_turns": max(0, len(turns) - MAX_TURNS),
+        "chart_targets": [
+            {
+                **target,
+                "title": _text(target.get("title") or "", 180),
+                **(
+                    {"preference": {}, "preference_omitted": True}
+                    if _length(target.get("preference") or {}) > 2048
+                    else {}
+                ),
+            }
+            for target in _chart_targets(session, user, parent, current)
+        ],
     }
     for number, previous in list(enumerate(turns, 1))[:-MAX_TURNS][:6]:
         report, _ = _project_report(session, user, previous, datasets_for(previous.id))

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import zip_longest
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
@@ -33,6 +34,27 @@ class ChartPreference(BaseModel):
         exclude_if=lambda value: value is None,
         description="可选：按顺序指定度量列名或对比指标名；不传时画全部",
     )
+    sort: Literal["value_desc", "value_asc", "category"] | None = Field(
+        None,
+        exclude_if=lambda value: value is None,
+        description="可选：类目图按第一条所选系列的值降序、升序或类目自然顺序排列；时间序列不接受此参数",
+    )
+    marks: list[Literal["max", "min", "average"]] | None = Field(
+        None,
+        exclude_if=lambda value: value is None,
+        description="可选：每条系列标出最高点、最低点或平均线；average 是所示非空值的算术平均（比率也不加权）",
+    )
+    highlight: list[str] | None = Field(
+        None,
+        max_length=5,
+        exclude_if=lambda value: value is None,
+        description="可选：最多 5 个所示类目名，按完整显示值精确匹配；其余类目弱化",
+    )
+
+    @field_validator("marks", "highlight")
+    @classmethod
+    def distinct_items(cls, value):
+        return list(dict.fromkeys(value)) if value is not None else None
 
     @classmethod
     def from_record(cls, record: dict) -> dict:
@@ -43,8 +65,103 @@ class ChartPreference(BaseModel):
         return "；".join(f"{name}：{field.description}" for name, field in cls.model_fields.items()) + "。"
 
     def options(self, columns, rows, roles, units, polarity, intent=None) -> list[dict]:
+        """严格校验展示偏好；工具调用失败时保留可选项，读取旧偏好时由 recommend 回退。"""
         selected_measures(columns, roles, self.measures)
-        return _recommend(columns, rows, roles, units, polarity, intent, measures=self.measures)
+        options = _recommend(columns, rows, roles, units, polarity, intent, measures=self.measures)
+        selected = next((option for option in options if option["kind"] == self.kind), None)
+        if selected is None:
+            return options
+        if self.sort is not None and (selected.get("x") or {}).get("role") != "dimension":
+            raise ValueError(gettext("时间序列图不支持 sort；请省略 sort，时间轴保持自然顺序。"))
+        if self.top_n is not None and (
+            (selected["orientation"] == "horizontal" and self.kind in ("bar", "grouped_bar", "diverging_bar"))
+            or (self.kind == "multiples" and (selected.get("x") or {}).get("role") == "dimension")
+        ):
+            limit = self.top_n
+        else:
+            limit = None
+        if limit is not None or self.sort is not None:
+            tuned = _recommend(
+                columns,
+                rows,
+                roles,
+                units,
+                polarity,
+                intent,
+                top_n=limit,
+                measures=self.measures,
+                sort=self.sort,
+            )
+            selected = next(option for option in tuned if option["kind"] == self.kind)
+        available = [str(category) for category in selected["categories"]]
+        missing = [category for category in self.highlight or [] if category not in available]
+        if missing:
+            raise ValueError(
+                gettext(
+                    "类目 {categories} 不在所示图中；可选 highlight：{available}",
+                    categories="、".join(missing),
+                    available="、".join(available) or gettext("无"),
+                )
+            )
+        marks = _materialized_marks(selected, self.marks) if self.marks is not None else None
+        if self.marks and not marks:
+            raise ValueError(gettext("所示系列没有可标注的数值；请取消 marks 或选择其他 measures。"))
+        selected = {
+            **selected,
+            "title": self.title,
+            "marks": marks,
+            "highlight": list(self.highlight) if self.highlight is not None else None,
+        }
+        return [selected, *(option for option in options if option["kind"] != self.kind)]
+
+    def materialize(self, columns, rows, roles, units, polarity, intent=None) -> dict:
+        """返回已严格校验的所选图；不支持的图种报错并列出可选项。"""
+        options = self.options(columns, rows, roles, units, polarity, intent)
+        selected = next((option for option in options if option["kind"] == self.kind), None)
+        if selected is None:
+            raise ValueError(
+                gettext(
+                    "不支持 {kind}；可选 kind：{available}",
+                    kind=self.kind,
+                    available="、".join(option["kind"] for option in options if option["kind"] != "kpi")
+                    or gettext("无"),
+                )
+            )
+        return selected
+
+
+def _materialized_marks(chart: dict, requested: list[str]) -> list[dict]:
+    marks = []
+    for series_index, series in enumerate(chart["series"]):
+        present = [(index, value) for index, value in enumerate(series["values"]) if value is not None]
+        if not present:
+            continue
+        for kind in requested:
+            if kind == "average":
+                # 这是已显示值的均值，不把比率说成总体比率，也不将合并的“其他”拆回原成员。
+                value = _number(sum(value / len(present) for _, value in present))
+                x = None
+            else:
+                index, value = (max if kind == "max" else min)(present, key=lambda item: item[1])
+                x = chart["categories"][index]
+            if value is not None:
+                marks.append(
+                    {"type": kind, "series": series["column"], "series_index": series_index, "x": x, "value": value}
+                )
+    return marks
+
+
+def _category_order(value) -> tuple:
+    """按显示值自然排序；数字片段按数值比较，空类目置后。"""
+    if value is None:
+        return (True, ())
+    numeric = _number(value)
+    if numeric is not None:
+        return (False, ((0, numeric),))
+    return (
+        False,
+        tuple((0, int(part)) if part.isdigit() else (1, part.casefold()) for part in re.split(r"(\d+)", str(value))),
+    )
 
 
 def _unit_identity(unit: dict | None) -> tuple:
@@ -154,24 +271,14 @@ def recommend(
         choice = ChartPreference.model_validate(
             {**preference, "title": preference["title"] if preference.get("title") is not None else ""}
         )
-        selected_measures(columns, roles, choice.measures)
+        selected_specs = choice.options(columns, rows, roles, units, polarity, intent)
     except (ValidationError, ValueError):
         return specs
-    kind, title, top_n = choice.kind, preference.get("title"), choice.top_n
-    selected_specs = (
-        choice.options(columns, rows, roles, units, polarity, intent) if choice.measures is not None else specs
-    )
-    selected = next((s for s in selected_specs if s["kind"] == kind), None)
+    selected = next((s for s in selected_specs if s["kind"] == choice.kind), None)
     if selected is None:
         return specs
-    if top_n is not None and (
-        (selected["orientation"] == "horizontal" and kind in ("bar", "grouped_bar", "diverging_bar"))
-        or (kind == "multiples" and selected["x"] and selected["x"]["role"] == "dimension")
-    ):
-        tuned = _recommend(columns, rows, roles, units, polarity, intent, top_n=top_n, measures=choice.measures)
-        selected = next(s for s in tuned if s["kind"] == kind)
-    selected = {**selected, "title": title}
-    return [selected, *(s for s in selected_specs if s["kind"] != kind)]
+    selected = {**selected, "title": preference.get("title")}
+    return [selected, *(s for s in selected_specs if s["kind"] != choice.kind)]
 
 
 def _recommend(
@@ -184,6 +291,7 @@ def _recommend(
     *,
     top_n: int | None = None,
     measures: list[str] | None = None,
+    sort: str | None = None,
 ) -> list[dict]:
     """返回默认图及同数据候选的已物化规格；没有合适图表时返回空列表。"""
     intent = intent or {}
@@ -271,6 +379,8 @@ def _recommend(
             "others": others,
             "omitted_categories": omitted_categories,
             "dropped_series": dropped,
+            "marks": None,
+            "highlight": None,
         }
 
     def alternate(chart, kind, mark):
@@ -322,7 +432,11 @@ def _recommend(
     if groups and dimension and len(rows) >= 2:
 
         def comparison_data(sort_column, columns):
-            ranked = ordered(rows, lambda row: value(row, sort_column))
+            ranked = (
+                sorted(rows, key=lambda row: _category_order(label(category(row))))
+                if sort == "category"
+                else ordered(rows, lambda row: value(row, sort_column), asc=sort == "value_asc")
+            )
             kept, tail = ranked[:limit], ranked[limit:]
             categories = [label(category(row)) for row in kept]
             values = [[value(row, column) for row in kept] for column in columns]
@@ -537,7 +651,15 @@ def _recommend(
         ]
         for category, items in grouped.items()
     }
-    categories = ordered(list(grouped), lambda category: values[category][0], asc=intent.get("order") == "asc")
+    categories = (
+        sorted(grouped, key=lambda category: _category_order(label(category)))
+        if sort == "category"
+        else ordered(
+            list(grouped),
+            lambda category: values[category][0],
+            asc=sort == "value_asc" or (sort is None and intent.get("order") == "asc"),
+        )
+    )
     tail = categories[limit:]
     categories = categories[:limit]
     materialized = [[values[category][index] for category in categories] for index in range(len(measures))]

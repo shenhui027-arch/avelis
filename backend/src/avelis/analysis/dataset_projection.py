@@ -236,6 +236,15 @@ def restrict_report(report: dict, restricted_refs: set[str], *, lookup_restricte
         }
     if not restricted_refs:
         return report
+    if report.get("kind") == "chart" and report.get("dataset") in restricted_refs:
+        return {
+            "kind": "chart",
+            "dataset": report["dataset"],
+            "title": RESTRICTED_TEXT,
+            "summary": RESTRICTED_TEXT,
+            "figures": [],
+            "restricted": True,
+        }
     projected = deepcopy(report)
     for name, record in (projected.get("fields") or {}).items():
         if _record(record, restricted_refs):

@@ -956,6 +956,7 @@ def to_markdown(
                 f"### {title}",
                 "",
                 *_mermaid_chart(figure),
+                *[note for text in _chart_annotation_notes(figure["chart"]) for note in (text, "")],
                 *([category_omission_note(figure["chart"]), ""] if category_omission_note(figure["chart"]) else []),
                 *_markdown_table(_table_data(d, brief=brief)),
                 "",
@@ -1187,6 +1188,54 @@ def _bar_chart(
 # 浅色主题图表令牌；测试核对 tokens.json，运行时不依赖前端文件。
 VIZ_PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
 VIZ_NEUTRAL = "#9aa3b5"
+VIZ_DIM = "#d9dfe8"
+
+
+def _chart_marks(spec: dict, series_index: int) -> list[dict]:
+    """按规格中的系列索引定位；旧的无索引标注只按列名匹配。"""
+    column = spec["series"][series_index]["column"]
+    return [
+        mark
+        for mark in spec.get("marks") or []
+        if mark.get("series_index") == series_index
+        or (mark.get("series_index") is None and mark.get("series") == column)
+    ]
+
+
+def _chart_panel(spec: dict, series_index: int) -> dict:
+    series = spec["series"][series_index]
+    return {
+        **spec,
+        "kind": series["mark"],
+        "series": [series],
+        "title": None,
+        "marks": [{**mark, "series_index": 0} for mark in _chart_marks(spec, series_index)] or None,
+    }
+
+
+def _chart_annotation_notes(spec: dict, *, include_marks: bool = True) -> list[str]:
+    notes = []
+    for index, series in enumerate(spec["series"]):
+        for mark in _chart_marks(spec, index):
+            value = _formatted(mark["value"], series["unit"])
+            if mark["type"] == "average":
+                notes.append(gettext("所示值平均：{series} · {value}", series=series["name"], value=value))
+            elif include_marks:
+                label = gettext("最高点" if mark["type"] == "max" else "最低点")
+                notes.append(
+                    gettext(
+                        "{label}：{series} · {category} · {value}",
+                        label=label,
+                        series=series["name"],
+                        category=mark["x"],
+                        value=value,
+                    )
+                )
+    if any(mark["type"] == "average" for mark in spec.get("marks") or []):
+        notes.append(gettext("平均标注表示各系列所示非空值的算术平均，不是加权平均。"))
+    if spec.get("highlight"):
+        notes.append(gettext("突出显示：{categories}；其余类目已弱化。", categories="、".join(spec["highlight"])))
+    return notes
 
 
 def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float = 468):
@@ -1196,16 +1245,20 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
     drawing = _spec_chart_data(spec, font, title=title, width=width)
-    note = category_omission_note(spec)
-    if not note:
+    notes = _chart_annotation_notes(spec, include_marks=spec["kind"] == "donut")
+    if note := category_omission_note(spec):
+        notes.append(note)
+    if not notes:
         return drawing
-    lines, line = [], ""
-    for character in note:
-        if line and stringWidth(line + character, font, 8) > width:
-            lines.append(line)
-            line = ""
-        line += character
-    lines.append(line)
+    lines = []
+    for note in notes:
+        line = ""
+        for character in note:
+            if line and stringWidth(line + character, font, 8) > width:
+                lines.append(line)
+                line = ""
+            line += character
+        lines.append(line)
     footer = len(lines) * 12 + 8
     result = Drawing(width, drawing.height + footer)
     drawing.translate(0, footer)
@@ -1227,10 +1280,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
     header = 22 if title else 0
     if kind == "multiples":
         panels = [
-            _spec_chart_data(
-                {**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"], width=width
-            )
-            for s in series
+            _spec_chart_data(_chart_panel(spec, index), font, title=s["name"], width=width)
+            for index, s in enumerate(series)
         ]
         height = sum(panel.height for panel in panels) + header
         drawing = Drawing(width, height)
@@ -1270,6 +1321,11 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
     if not categories or not series:
         return drawing
     colors = [VIZ_NEUTRAL if s.get("other") else VIZ_PALETTE[i % len(VIZ_PALETTE)] for i, s in enumerate(series)]
+    highlight = set(spec.get("highlight") or [])
+
+    def category_color(category, color):
+        return color if not highlight or str(category) in highlight else VIZ_DIM
+
     if kind == "donut":
         values = series[0]["values"]
         total = sum(v or 0 for v in values)
@@ -1278,6 +1334,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
             color = (
                 VIZ_NEUTRAL if spec.get("others") and i == len(categories) - 1 else VIZ_PALETTE[i % len(VIZ_PALETTE)]
             )
+            color = category_color(category, color)
             if value is not None and value > 0 and total > 0:
                 end = angle + 360 * value / total
                 steps = max(2, math.ceil((end - angle) / 4))
@@ -1286,6 +1343,18 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                     radians = math.radians(angle + (end - angle) * step / steps)
                     points.extend([cx + radius * math.cos(radians), cy + radius * math.sin(radians)])
                 drawing.add(Polygon(points, fillColor=HexColor(color), strokeColor=None))
+                if any(mark["type"] in ("max", "min") and mark["x"] == category for mark in _chart_marks(spec, 0)):
+                    radians = math.radians((angle + end) / 2)
+                    drawing.add(
+                        Circle(
+                            cx + radius * 0.8 * math.cos(radians),
+                            cy + radius * 0.8 * math.sin(radians),
+                            4,
+                            fillColor=HexColor("#ffffff"),
+                            strokeColor=HexColor(DARK),
+                            strokeWidth=1.5,
+                        )
+                    )
                 angle = end
             text(
                 180,
@@ -1332,11 +1401,11 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
     for i, category in enumerate(categories):
         center = top - band * (i + 0.5) if horizontal else left + band * (i + 0.5)
         if horizontal:
-            text(left - 7, center - 2, category, anchor="end", limit=left - 10)
+            text(left - 7, center - 2, category, anchor="end", limit=left - 10, color=category_color(category, GRAY))
         else:
             # 保留数据点，密集类目仅稀疏显示轴标签。
             if i % max(1, math.ceil(len(categories) / 8)) == 0:
-                text(center, bottom - 13, category, anchor="middle", limit=55)
+                text(center, bottom - 13, category, anchor="middle", limit=55, color=category_color(category, GRAY))
         positive = negative = 0
         for j, s in enumerate(series):
             value = s["values"][i]
@@ -1347,18 +1416,46 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                 polarity = s.get("polarity")
                 good = (value >= 0) == (polarity == "up_good")
                 color = (POSITIVE if good else NEGATIVE) if polarity else VIZ_NEUTRAL
+            color = category_color(category, color)
             if kind == "line":
                 x, y = center, coordinate(value)
                 if i and s["values"][i - 1] is not None:
                     drawing.add(
                         Line(
-                            x - band, coordinate(s["values"][i - 1]), x, y, strokeColor=HexColor(color), strokeWidth=1.5
+                            x - band,
+                            coordinate(s["values"][i - 1]),
+                            x,
+                            y,
+                            strokeColor=HexColor(category_color(categories[i - 1], color)),
+                            strokeWidth=1.5,
                         )
                     )
                 drawing.add(Circle(x, y, 2, fillColor=HexColor(color), strokeColor=None))
                 # 数值标注要克制：期间不多时逐点标，否则只标最后一个点；文字用文字色，不用系列色。
                 if len(categories) <= 12 or i == len(categories) - 1:
-                    text(x, y + 5, _formatted(value, s["unit"]), anchor="middle", size=6)
+                    text(
+                        x,
+                        y + 5,
+                        _formatted(value, s["unit"]),
+                        anchor="middle",
+                        size=6,
+                        color=category_color(category, GRAY),
+                    )
+                point_x, point_y = x, y
+                for mark in _chart_marks(spec, j):
+                    if mark["type"] in ("max", "min") and mark["x"] == category:
+                        drawing.add(
+                            Circle(point_x, point_y, 4, fillColor=None, strokeColor=HexColor(DARK), strokeWidth=1.5)
+                        )
+                        label = gettext("最高点" if mark["type"] == "max" else "最低点")
+                        text(
+                            point_x,
+                            min(top + 10, point_y + 13) if mark["type"] == "max" else max(bottom + 2, point_y - 13),
+                            label,
+                            anchor="middle",
+                            color=DARK,
+                            size=6,
+                        )
                 continue
             start = 0
             if kind == "stacked_bar":
@@ -1383,6 +1480,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                         _formatted(value, s["unit"]),
                         anchor="start" if value >= 0 else "end",
                         size=6,
+                        color=category_color(category, GRAY),
                     )
             else:
                 drawing.add(
@@ -1395,7 +1493,34 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                         _formatted(value, s["unit"]),
                         anchor="middle",
                         size=6,
+                        color=category_color(category, GRAY),
                     )
+            point_x, point_y = (b, position + breadth * 0.45) if horizontal else (position + breadth * 0.45, b)
+            for mark in _chart_marks(spec, j):
+                if mark["type"] in ("max", "min") and mark["x"] == category:
+                    drawing.add(
+                        Circle(point_x, point_y, 4, fillColor=None, strokeColor=HexColor(DARK), strokeWidth=1.5)
+                    )
+                    label = gettext("最高点" if mark["type"] == "max" else "最低点")
+                    text(point_x, min(top + 10, point_y + 8), label, anchor="middle", color=DARK, size=6)
+    for index, s in enumerate(series):
+        for mark in _chart_marks(spec, index):
+            if mark["type"] != "average":
+                continue
+            position = coordinate(mark["value"])
+            a, b = ((position, bottom), (position, top)) if horizontal else ((left, position), (right, position))
+            drawing.add(Line(*a, *b, strokeColor=HexColor(colors[index]), strokeWidth=1, strokeDashArray=[4, 3]))
+            label = _formatted(mark["value"], s["unit"])
+            trailing = horizontal and position > (left + right) / 2
+            text(
+                position + (-3 if trailing else 3) if horizontal else right,
+                top + 5 if horizontal else min(top + 10, position + 4),
+                label,
+                anchor="start" if horizontal and not trailing else "end",
+                color=colors[index],
+                size=6,
+                limit=(position - left if trailing else width - position - 3) if horizontal else right - left,
+            )
     for i, s in enumerate(series):
         column, row = i % 4, i // 4
         text(left + column * 96, 19 - row * 10, s["name"], color=colors[i], limit=92)
@@ -1422,6 +1547,21 @@ def _display_figure(figure: dict, dataset: dict, *, brief: bool) -> dict:
         "chart": {
             **spec,
             "categories": categories,
+            "marks": [
+                {
+                    **mark,
+                    "x": categories[spec["categories"].index(mark["x"])]
+                    if mark["x"] in spec["categories"]
+                    else mark["x"],
+                }
+                for mark in spec.get("marks") or []
+            ]
+            or None,
+            "highlight": [
+                categories[spec["categories"].index(category)] if category in spec["categories"] else category
+                for category in spec.get("highlight") or []
+            ]
+            or None,
             "series": [
                 {
                     **s,
@@ -1718,11 +1858,11 @@ def to_pdf(
                     block.append(p(figure["title"]))
                 block.extend(
                     _spec_chart(
-                        {**spec, "kind": s["mark"], "series": [s], "title": None, "omitted_categories": None},
+                        {**_chart_panel(spec, index), "omitted_categories": None},
                         font,
                         title=s["name"],
                     )
-                    for s in spec["series"]
+                    for index, s in enumerate(spec["series"])
                 )
                 if note := category_omission_note(spec):
                     block.append(p(note, small))

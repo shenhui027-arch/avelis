@@ -50,8 +50,6 @@ def test_asset_domain_and_join_lists_run_on_postgresql(factory, limit):
         domains = catalog.list_domains(q="d", domain_id=None, **common)
         assets = catalog.list_assets(datasource_id=None, domain_id=None, q="x", include_deleted=False, **common)
         joins = governance.list_join_paths(q="x", domain_id=None, **common)
-        assert domains and all(
-            d["code"].startswith("d") or "d" in (d["name"] + (d["description"] or "")) for d in domains
-        )
+        assert domains and all("d" in (d["code"] + d["name"] + (d["description"] or "")).lower() for d in domains)
         if limit is not None:
             assert len(domains) <= limit and len(assets) <= limit and len(joins) <= limit

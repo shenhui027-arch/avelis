@@ -767,10 +767,13 @@ def followup_run(
     )
     run.parent_run_id = parent.id
     run.conversation_id = parent.conversation_id or parent.id
-    inherited = {"user_text": text}
-    if lookup:
-        inherited.update(previous_question=parent.question, previous_scope=scope, previous_window=parent.window or {})
-    else:
+    inherited = {
+        "user_text": text,
+        "previous_question": parent.question,
+        "previous_scope": scope,
+        "previous_window": parent.window or {},
+    }
+    if not lookup:
         inherited.update(scope=scope, items=saved.get("confirmed_items") or [])
     from avelis.analysis.conversation_context import build_followup_context
 
@@ -1160,6 +1163,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         restrict_report,
         restrict_verification,
     )
+    from avelis.analysis.figures import report_chart_preference
     from avelis.charts import recommend
     from avelis.models import AnalysisDataset, AnalysisStep, Answer
 
@@ -1208,6 +1212,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     }
     if not full:
         title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
+        if (run.report or {}).get("kind") == "chart" and (run.report or {}).get("dataset"):
+            title_refs.add(run.report["dataset"])
         if user is not None and title_refs:
             datasets = list(session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id)))
             known = {f"D{d.seq}": d for d in datasets}
@@ -1357,6 +1363,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                     metadata[d.id].get("units") or {},
                     metadata[d.id].get("polarity") or {},
                     metadata[d.id].get("intent"),
+                    preference=report_chart_preference(report, f"D{d.seq}"),
                 )
                 if d.id in readable
                 else [],

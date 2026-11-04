@@ -50,6 +50,13 @@ def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:
     return recommend(**dataset_chart_args(dataset), preference=preference)
 
 
+def report_chart_preference(report: dict, ref: str) -> dict | None:
+    """改图报告的数据集详情与插图沿用同一份偏好，普通报告保持默认选图。"""
+    if report.get("kind") == "chart" and report.get("dataset") == ref:
+        return report.get("preference")
+    return None
+
+
 def reference_counts(report: dict) -> Counter:
     counts: Counter = Counter()
     records = list((report.get("fields") or {}).values())
@@ -60,7 +67,8 @@ def reference_counts(report: dict) -> Counter:
         counts.update(r for r in refs if r and re.fullmatch(r"D[1-9]\d*", r))
         records.extend([claim, *details])
     for cause in report.get("causes") or []:
-        contribution = cause.get("contribution") or {}
+        contribution = cause.get("contribution")
+        contribution = contribution if isinstance(contribution, dict) else {}
         refs = set(cause.get("evidence") or [])
         refs.update(s.get("ref") for s in contribution.get("segments") or [])
         counts.update(r for r in refs if r and re.fullmatch(r"D[1-9]\d*", r))
@@ -89,7 +97,8 @@ def _duplicates_cause_chart(dataset: dict, report: dict, chart: dict) -> bool:
     dimension = x.get("column")
     for cause in report.get("causes") or []:
         evidence, entity = cause.get("evidence") or [], cause.get("entity") or {}
-        contribution = cause.get("contribution") or {}
+        contribution = cause.get("contribution")
+        contribution = contribution if isinstance(contribution, dict) else {}
         raw = number(contribution.get("raw"))
         if raw is None:
             raw = next(

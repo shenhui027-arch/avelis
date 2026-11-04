@@ -2272,3 +2272,63 @@ msgstr "匯入後版本中繼資料總量超過 {limit} 位元組上限，整批
 
 msgid "此导入口径的根级自定义扩展仅保留摘要，导出不包含扩展原文"
 msgstr "此匯入口徑的根層級自訂擴充僅保留摘要，匯出不包含擴充原文"
+
+msgid "时间序列图不支持 sort；请省略 sort，时间轴保持自然顺序。"
+msgstr "時間序列圖不支援 sort；請省略 sort，時間軸保持自然順序。"
+
+msgid "类目 {categories} 不在所示图中；可选 highlight：{available}"
+msgstr "類目 {categories} 不在顯示的圖中；可選 highlight：{available}"
+
+msgid "不支持 {kind}；可选 kind：{available}"
+msgstr "不支援 {kind}；可選 kind：{available}"
+
+msgid "所示系列没有可标注的数值；请取消 marks 或选择其他 measures。"
+msgstr "顯示的系列沒有可標註的數值；請取消 marks 或選擇其他 measures。"
+
+msgid "最高点"
+msgstr "最高點"
+
+msgid "最低点"
+msgstr "最低點"
+
+msgid "所示值平均：{series} · {value}"
+msgstr "所示值平均：{series} · {value}"
+
+msgid "{label}：{series} · {category} · {value}"
+msgstr "{label}：{series} · {category} · {value}"
+
+msgid "平均标注表示各系列所示非空值的算术平均，不是加权平均。"
+msgstr "平均標註表示各系列所示非空值的算術平均，不是加權平均。"
+
+msgid "突出显示：{categories}；其余类目已弱化。"
+msgstr "突出顯示：{categories}；其餘類目已弱化。"
+
+msgid "上一轮没有可修改的图表，请先取得可画图的数据。"
+msgstr "上一輪沒有可修改的圖表，請先取得可畫圖的資料。"
+
+msgid "请说明要修改哪张图（可选：{figures}）。"
+msgstr "請說明要修改哪張圖（可選：{figures}）。"
+
+msgid "模型没有提交唯一且有效的 chart 调用。"
+msgstr "模型沒有提交唯一且有效的 chart 呼叫。"
+
+msgid "改图只能使用已选中的上一轮数据集。"
+msgstr "改圖只能使用已選中的上一輪資料集。"
+
+msgid "改图所需的模型调用预算已用完。"
+msgstr "改圖所需的模型呼叫預算已用完。"
+
+msgid "已按要求调整图表，沿用上一轮数据。"
+msgstr "已按要求調整圖表，沿用上一輪資料。"
+
+msgid "无法按要求修改图表：{reason}"
+msgstr "無法按要求修改圖表：{reason}"
+
+msgid "可选图种：{kinds}；可选度量：{measures}；可选类目：{categories}。"
+msgstr "可選圖種：{kinds}；可選度量：{measures}；可選類目：{categories}。"
+
+msgid "图表调整"
+msgstr "圖表調整"
+
+msgid "图表已更新"
+msgstr "圖表已更新"

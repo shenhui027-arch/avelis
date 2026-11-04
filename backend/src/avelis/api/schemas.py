@@ -996,6 +996,14 @@ class ChartOmittedCategories(Out):
     reason: Literal["display_limit", "top_n"]
 
 
+class ChartMark(Out):
+    type: Literal["max", "min", "average"]
+    series: str = Field(description="系列对应的稳定列名")
+    series_index: int = Field(ge=0, description="对应当前规格 series 的下标，区分同列透视出的多个系列")
+    x: Any = Field(description="已显示的类目或时间值；average 为 null")
+    value: float = Field(description="原始量纲的标注值；average 是该系列所示非空值的算术平均")
+
+
 class ChartSpec(Out):
     kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
     title: str | None = None
@@ -1015,6 +1023,8 @@ class ChartSpec(Out):
         ),
     )
     dropped_series: int
+    marks: list[ChartMark] | None = Field(default=None, description="按最终显示数据计算的极值点与平均线")
+    highlight: list[str] | None = Field(default=None, description="要突出的显示类目名，其余类目应弱化")
 
 
 class ReportFigure(Out):
