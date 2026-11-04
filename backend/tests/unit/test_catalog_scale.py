@@ -503,3 +503,67 @@ def test_asset_keyword_also_matches_datasource_name_and_kind_code(catalog):
     by_source = {a["id"] for a in assets(catalog, q=source.name.upper())}
     assert {"plain_table", "plain_view"} <= by_source
     assert [a["id"] for a in assets(catalog, q="view")] == ["plain_view"]
+
+
+def test_asset_keywords_find_same_named_table_across_sources_before_paging(catalog):
+    session = catalog.session
+    for number in range(1, 22):
+        datasource_id = "source" if number == 1 else f"tenant{number:02}"
+        if number == 1:
+            session.get(Datasource, datasource_id).name = "tenant01"
+        else:
+            session.add(Datasource(id=datasource_id, name=datasource_id, kind="postgres", host="offline", port=1))
+        add_asset(session, f"orders_{number:02}", name="zz_orders").datasource_id = datasource_id
+    for number in range(20):
+        add_asset(session, f"other_{number:02}", name=f"aa_{number:02}").datasource_id = "tenant21"
+    session.commit()
+
+    def page(q, **kwargs):
+        return [
+            a["id"]
+            for a in api.list_assets(q=q, limit=20, offset=0, user=catalog.users["reader"], session=session, **kwargs)
+        ]
+
+    assert page("zz_orders") == [f"orders_{number:02}" for number in range(1, 21)]
+    assert page("tenant21") == [f"other_{number:02}" for number in range(20)]
+    with queries(session) as sql:
+        assert page(" \tTENANT21 \nzz_ORDERS ") == ["orders_21"]
+    assert len(sql) == 1 and "LIMIT" in sql[0][0]
+    assert page("tenant21 zz_orders TABLE") == ["orders_21"]
+    assert page("tenant21 zz_orders tab") == []  # 类型代码仍须全等，不按子串匹配。
+    assert page("zz_orders", datasource_id="tenant21") == ["orders_21"]
+    assert page("tenant21 zz_orders table table table table table table missing") == ["orders_21"]
+    assert page("\t \n") == page(None)
+
+
+@pytest.mark.parametrize(
+    ("q", "expected"),
+    [
+        ("100% table", {"literal", "percent"}),
+        ("_orders table", {"literal"}),
+        ("%_ table", {"literal"}),
+    ],
+)
+def test_asset_keywords_keep_percent_and_underscore_literal(catalog, q, expected):
+    session = catalog.session
+    for identifier, name in (("literal", "100%_orders"), ("percent", "100%Xorders"), ("decoy", "100XXorders")):
+        add_asset(session, identifier, name=name)
+    session.commit()
+    assert {a["id"] for a in assets(catalog, q=q)} == expected
+
+
+def test_asset_keywords_preserve_permissions_and_deleted_visibility(catalog):
+    session = catalog.session
+    session.get(Datasource, "source").name = "warehouse"
+    add_asset(session, "visible_orders", name="orders")
+    add_asset(session, "hidden_orders", name="orders", domain="hidden")
+    add_asset(session, "deleted_orders", name="orders").status = "deleted"
+    session.commit()
+
+    assert [a["id"] for a in assets(catalog, q="warehouse orders")] == ["visible_orders"]
+    assert [a["id"] for a in assets(catalog, q="warehouse orders", include_deleted=True)] == [
+        "deleted_orders",
+        "visible_orders",
+    ]
+    assert assets(catalog, q="warehouse orders", domain_id="hidden", include_deleted=True) == []
+    assert assets(catalog, q="warehouse orders", ids=["hidden_orders"], include_deleted=True) == []

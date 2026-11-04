@@ -165,14 +165,17 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
 // --- 搜索选择 -----------------------------------------------------------------------
 
 export type SearchOption = { value: string; label: string; hint?: string };
+const MORE = "__search_select_more__";
 
 /** 选项来自服务端搜索的选择框：未聚焦时显示已选项，输入即搜索（防抖与取数由调用方负责）。
  *  clearLabel 给出时多一个“不选”的选项（例如筛选里的“全部资产”）。 */
 export function SearchSelect({ value, selected, options, loading, onSearch, onChange, label, placeholder, emptyText, invalid,
-  describedBy, disabled, id, clearLabel, mono }: {
+  describedBy, disabled, id, clearLabel, mono, onMore }: {
   value: string; selected?: string; options: SearchOption[]; loading?: boolean; onSearch: (q: string) => void; onChange: (v: string) => void;
   label?: string; placeholder?: string; emptyText?: string; invalid?: boolean; describedBy?: string; disabled?: boolean; id?: string;
   clearLabel?: string; mono?: boolean;
+  /** 还有更多匹配项时给出：列表末尾多一项“加载更多”，选它只追加结果、不关闭列表 */
+  onMore?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -180,10 +183,14 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
   const anchor = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const listId = useId();
-  const items: SearchOption[] = [...(clearLabel ? [{ value: "", label: clearLabel }] : []), ...options];
+  const items: SearchOption[] = [...(clearLabel ? [{ value: "", label: clearLabel }] : []), ...options,
+    ...(onMore ? [{ value: MORE, label: loading ? t("加载中…") : t("加载更多") }] : [])];
   const close = useMemo(() => () => { setOpen(false); setText(""); onSearch(""); }, [onSearch]);
   const place = useFloating(open, anchor, list, close);
-  const pick = (o: SearchOption) => { onChange(o.value); close(); anchor.current?.blur(); };
+  const pick = (o: SearchOption) => {
+    if (o.value === MORE) { if (!loading) onMore?.(); return; }
+    onChange(o.value); close(); anchor.current?.blur();
+  };
   useEffect(() => { if (open && place) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [open, place, active]);
   const shown = open ? text : (value ? selected ?? "" : "");
   return (
@@ -208,7 +215,7 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
         <Floating place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
           {items.map((o, i) => (
             <div key={o.value || "__clear"} id={`${listId}-${i}`} data-index={i} role="option" aria-selected={o.value === value}
-              className={`av-menu__item av-listbox__item${i === active ? " is-active" : ""}${mono && o.value ? " av-mono" : ""}`}
+              className={`av-menu__item av-listbox__item${i === active ? " is-active" : ""}${mono && o.value && o.value !== MORE ? " av-mono" : ""}${o.value === MORE ? " av-listbox__more" : ""}`}
               onMouseEnter={() => setActive(i)} onClick={() => pick(o)}>
               <span className="av-listbox__check">{o.value === value ? <Icon name="check" small /> : null}</span>
               <span className="av-listbox__label">{o.label}</span>

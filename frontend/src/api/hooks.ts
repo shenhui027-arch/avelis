@@ -58,6 +58,12 @@ export const useAssetSearch = (query: AssetQuery, enabled = true) => useQuery({
   queryKey: ["assets", query], enabled, placeholderData: (prev) => prev,
   queryFn: () => unwrap(api.GET("/api/assets", { params: { query } })),
 });
+/** 资产分页搜索（选择器用）：每页多取一条判断有无下一页，“加载更多”时接着取，已显示的项不清空。 */
+export const useAssetPages = (query: Omit<AssetQuery, "limit" | "offset">, page: number, enabled = true) => useInfiniteQuery({
+  queryKey: ["assets", "pages", query, page], enabled, placeholderData: keepPreviousData, initialPageParam: 0,
+  queryFn: ({ pageParam }) => unwrap(api.GET("/api/assets", { params: { query: { ...query, limit: page + 1, offset: pageParam } } })),
+  getNextPageParam: (last, _all, offset) => (last.length > page ? offset + page : undefined),
+});
 /** 按 id 取资产（显示名称、核对是否仍可见）；id 排序去重，同一组 id 共用缓存。 */
 export const useAssetsByIds = (ids: string[], extra: Omit<AssetQuery, "ids"> = {}) => {
   const unique = [...new Set(ids.filter(Boolean))].sort();

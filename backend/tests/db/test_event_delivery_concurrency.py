@@ -107,6 +107,7 @@ def test_postgresql_three_unreachable_receivers_allow_healthy_delivery_in_first_
 
 def test_postgresql_blocked_dns_times_out_without_blocking_healthy_subscription(backlogs, monkeypatch):
     rows = backlogs([("dns", 1), ("healthy", 1)])
+    monkeypatch.setattr(delivery, "_REQUEST_TIMEOUT_SECONDS", 0.1)
     with session_scope() as session:
         session.get(WebhookSubscription, rows["dns"][0]).url = "https://blocked-dns.example.test/hook"
     release, resolving, healthy = threading.Event(), threading.Event(), threading.Event()
@@ -133,7 +134,50 @@ def test_postgresql_blocked_dns_times_out_without_blocking_healthy_subscription(
         assert resolving.is_set() and healthy.is_set()
         with session_scope() as session:
             blocked = session.get(EventOutbox, rows["dns"][1][0])
-            assert blocked.status == "pending" and blocked.last_error == delivery.BUDGET_TIMEOUT
+            assert blocked.status == "pending" and blocked.last_error == "timeout" and blocked.attempts == 1
             assert session.get(EventOutbox, rows["healthy"][1][0]).status == "delivered"
     finally:
         release.set()
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_postgresql_deferred_backlog_waits_for_a_full_deadline_without_dead_lettering(
+    backlogs, monkeypatch, concurrency
+):
+    rows = backlogs([("healthy", 2)])
+    identifiers = rows["healthy"][1]
+    settings = build_settings(
+        {
+            "AVELIS_SECRET": "offline-v104-concurrency",
+            "AVELIS_WEBHOOK_CONCURRENCY": str(concurrency),
+            "AVELIS_WEBHOOK_MAX_ATTEMPTS": "1",
+        }
+    )
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    with session_scope() as session:
+        for identifier in identifiers:
+            session.get(EventOutbox, identifier).last_error = delivery.BUDGET_TIMEOUT
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    sent = []
+
+    def receive(_subscription, outbox, **kwargs):
+        sent.append((outbox.id, kwargs["timeout_seconds"]))
+        # 保留原复现的 5 秒/3 秒比例及真实 PG 认领、订阅锁与结果事务，时钟可控以免测试变慢。
+        elapsed = min(3.0, kwargs["timeout_seconds"])
+        clock[0] += elapsed
+        if elapsed < 3.0:
+            raise delivery.DeliveryError("timeout")
+
+    monkeypatch.setattr(delivery, "send_webhook", receive)
+    assert delivery.deliver_due(budget_seconds=5.0) == 1
+    with session_scope() as session:
+        first, second = (session.get(EventOutbox, identifier) for identifier in identifiers)
+        assert first.status == "delivered" and first.attempts == 1
+        assert second.status == "pending" and second.attempts == 0 and second.dead_at is None
+        assert second.last_error == delivery.BUDGET_TIMEOUT
+    assert delivery.deliver_due(budget_seconds=5.0) == 1
+    with session_scope() as session:
+        second = session.get(EventOutbox, identifiers[1])
+        assert second.status == "delivered" and second.attempts == 1 and second.dead_at is None
+    assert sent == [(identifier, 5.0) for identifier in identifiers]
