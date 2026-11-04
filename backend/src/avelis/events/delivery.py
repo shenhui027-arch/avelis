@@ -29,8 +29,10 @@ from avelis.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 _REQUEST_TIMEOUT_SECONDS = 5.0
-# 认领（一次数据库往返）与线程调度要花几十毫秒：在认领前判定“能否给出完整期限”，留 0.2 秒余量。
+# 认领（一次数据库往返）与线程调度要花几十毫秒：判断“能否给出完整期限”时留余量——完整期限的 5%，最多 0.2 秒
+# （按比例，整轮预算很小时余量不会超过预算本身）。
 _REQUEST_BUDGET_TOLERANCE_SECONDS = 0.2
+_REQUEST_BUDGET_TOLERANCE_RATIO = 0.05
 _DNS_SLOTS = threading.BoundedSemaphore(64)
 _CLAIM_SLOTS = threading.BoundedSemaphore(64)
 _DELIVERY_SLOTS = threading.BoundedSemaphore(64)
@@ -361,7 +363,8 @@ def _finish_claim(claim, error, defer, settings):
 
 
 def _has_full_request_budget(remaining, full_request_timeout):
-    return remaining >= full_request_timeout - _REQUEST_BUDGET_TOLERANCE_SECONDS
+    tolerance = min(_REQUEST_BUDGET_TOLERANCE_SECONDS, full_request_timeout * _REQUEST_BUDGET_TOLERANCE_RATIO)
+    return remaining >= full_request_timeout - tolerance
 
 
 def _deliver_claim(claim, transport, deadline, full_request_timeout, full_budget, settings):
