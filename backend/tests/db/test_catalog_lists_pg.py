@@ -150,6 +150,56 @@ def test_asset_ids_and_queryable_intersect_permissions_in_postgresql(catalog_wor
         assert missing == []
 
 
+def test_asset_keywords_intersect_source_name_and_literal_table_name_in_postgresql(catalog_world):
+    world = catalog_world
+    with session_scope() as session:
+        source_name = session.get(Datasource, world.datasource).name
+        replica = Datasource(name=f"{world.prefix}_replica", kind="postgres", host="offline", port=1)
+        session.add(replica)
+        session.flush()
+        hidden_domain = session.get(Asset, world.assets["hidden"]).domain_id
+        identifiers = {}
+        for label, source, domain, status, name in (
+            ("target", world.datasource, world.domain, "active", "100%_orders"),
+            ("replica", replica.id, world.domain, "active", "100%_orders"),
+            ("hidden", world.datasource, hidden_domain, "active", "100%_orders"),
+            ("deleted", world.datasource, world.domain, "deleted", "100%_orders"),
+            ("decoy", world.datasource, world.domain, "active", "100XXorders"),
+        ):
+            asset = Asset(
+                name=name,
+                catalog_name="catalog",
+                db_name="schema_a",
+                kind="table",
+                datasource_id=source,
+                domain_id=domain,
+                status=status,
+            )
+            session.add(asset)
+            session.flush()
+            identifiers[label] = asset.id
+        user = session.get(User, world.reader)
+
+        def found(q, **kwargs):
+            return [
+                a["id"]
+                for a in catalog.list_assets(
+                    q=q, ids=list(identifiers.values()), limit=None, offset=0, user=user, session=session, **kwargs
+                )
+            ]
+
+        assert found("100%_orders") == sorted(identifiers[label] for label in ("target", "replica"))
+        for word in ("100%_orders", "100%", "_orders"):
+            assert found(f"\t{source_name.upper()}  {word} \n") == [identifiers["target"]]
+        assert found(f"{source_name} 100%_orders TABLE") == [identifiers["target"]]
+        assert found(f"{source_name} 100%_orders tab") == []
+        assert set(found(f"{source_name} 100%_orders", include_deleted=True)) == {
+            identifiers["target"],
+            identifiers["deleted"],
+        }
+        assert found(f"{source_name} 100%_orders", domain_id=hidden_domain, include_deleted=True) == []
+
+
 @pytest.mark.parametrize("policy", ["allow", "deny"])
 def test_catalog_counts_match_visible_lists_with_one_query_in_postgresql(catalog_world, monkeypatch, policy):
     world = catalog_world

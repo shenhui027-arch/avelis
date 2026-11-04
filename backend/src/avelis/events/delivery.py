@@ -29,6 +29,8 @@ from avelis.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 _REQUEST_TIMEOUT_SECONDS = 5.0
+# 认领（一次数据库往返）与线程调度要花几十毫秒：在认领前判定“能否给出完整期限”，留 0.2 秒余量。
+_REQUEST_BUDGET_TOLERANCE_SECONDS = 0.2
 _DNS_SLOTS = threading.BoundedSemaphore(64)
 _CLAIM_SLOTS = threading.BoundedSemaphore(64)
 _DELIVERY_SLOTS = threading.BoundedSemaphore(64)
@@ -245,7 +247,7 @@ def _due_statement(
         stmt = stmt.where(or_(EventOutbox.last_error.is_(None), EventOutbox.last_error != BUDGET_TIMEOUT))
     return (
         stmt
-        # 被调度切短过的记录排在最前，作为一轮的第一条拿到整轮预算，保证它们最终有一次完整尝试。
+        # 被调度切短过的记录优先拿到完整期限，避免它们一直在轮尾才得到缩短的尝试。
         .order_by(
             # last_error 可为 NULL：PostgreSQL 的 DESC 默认 NULLS FIRST，用非空排序键避免新记录插到前面。
             case((EventOutbox.last_error == BUDGET_TIMEOUT, 0), else_=1),
@@ -358,7 +360,11 @@ def _finish_claim(claim, error, defer, settings):
         session.commit()
 
 
-def _deliver_claim(claim, transport, deadline, settings):
+def _has_full_request_budget(remaining, full_request_timeout):
+    return remaining >= full_request_timeout - _REQUEST_BUDGET_TOLERANCE_SECONDS
+
+
+def _deliver_claim(claim, transport, deadline, full_request_timeout, full_budget, settings):
     error = None
     try:
         timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, deadline - monotonic())
@@ -374,11 +380,11 @@ def _deliver_claim(claim, transport, deadline, settings):
             )
         except DeliveryError as exc:
             error = str(exc)
-        defer = (
-            error == "timeout"
-            and timeout_seconds < _REQUEST_TIMEOUT_SECONDS
-            and claim.outbox.last_error != BUDGET_TIMEOUT
-        )
+        # 这次拿到的期限明显不足（认领卡住、轮尾）时超时不计入重试，推迟一次；
+        # 已推迟过、且这次认领时本能给出完整期限的照常计入：数据库再慢也最多推迟一次，连不上的接收端终会进死信。
+        shortened = not _has_full_request_budget(timeout_seconds, full_request_timeout)
+        already_deferred = claim.outbox.last_error == BUDGET_TIMEOUT
+        defer = error == "timeout" and shortened and not (already_deferred and full_budget)
         _finish_claim(claim, error, defer, settings)
         return claim.subscription.id, error, defer
     except Exception:
@@ -420,6 +426,7 @@ async def _claim_before_deadline(function, deadline):
 
 async def _deliver_due(batch_size, transport, budget_seconds, settings):
     deadline = monotonic() + budget_seconds
+    full_request_timeout = min(_REQUEST_TIMEOUT_SECONDS, budget_seconds)
     handled, blocked, served = set(), set(), set()
     failures = {}
     active = {}
@@ -455,9 +462,11 @@ async def _deliver_due(batch_size, transport, budget_seconds, settings):
         if not _DELIVERY_SLOTS.acquire(blocking=False):
             break
         excluded = blocked | served | set(active.values())
+        # 已延期的记录排在最前，只在还能给出完整期限时认领：每轮开头一定成立，所以最多推迟一次。
+        full_budget = _has_full_request_budget(deadline - monotonic(), full_request_timeout)
         try:
             claim = await _claim_before_deadline(
-                lambda: _claim_due(utcnow(), handled, excluded, attempts < settings.webhook_concurrency, deadline),
+                lambda: _claim_due(utcnow(), handled, excluded, full_budget, deadline),
                 deadline,
             )
         except Exception:
@@ -486,7 +495,11 @@ async def _deliver_due(batch_size, transport, budget_seconds, settings):
         served.add(claim.subscription.id)
         attempts += 1
         future = asyncio.wrap_future(
-            _background(lambda claim=claim: _deliver_claim(claim, transport, deadline, settings))
+            _background(
+                lambda claim=claim, full=full_budget: _deliver_claim(
+                    claim, transport, deadline, full_request_timeout, full, settings
+                )
+            )
         )
         active[future] = claim.subscription.id
     if active:

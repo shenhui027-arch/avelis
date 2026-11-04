@@ -294,16 +294,17 @@ def list_assets(
     if not include_deleted:
         stmt = stmt.where(Asset.status == "active")
     if q:
-        # 关键词匹配限定名、数据源名称与资产类型代码（前端把“视图”等类型名换成代码再查）
+        # 每个词都匹配限定名、数据源名称或类型代码；忽略第 8 个词之后的内容，保持参数兼容。
         name = Asset.catalog_name + "." + Asset.db_name + "." + Asset.name
-        needle = q.lower()
-        stmt = stmt.where(
-            or_(
-                func.lower(name).contains(needle, autoescape=True),
-                func.lower(Datasource.name).contains(needle, autoescape=True),
-                func.lower(Asset.kind) == needle,
+        for word in q.split()[:8]:
+            needle = word.lower()
+            stmt = stmt.where(
+                or_(
+                    func.lower(name).contains(needle, autoescape=True),
+                    func.lower(Datasource.name).contains(needle, autoescape=True),
+                    func.lower(Asset.kind) == needle,
+                )
             )
-        )
     stmt = stmt.order_by(Asset.catalog_name, Asset.db_name, Asset.name, Asset.id).offset(offset)
     if limit is not None:
         stmt = stmt.limit(limit)

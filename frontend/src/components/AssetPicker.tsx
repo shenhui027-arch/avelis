@@ -2,7 +2,7 @@
 // 资产随数据规模增长，选择器不整表加载（v1.0.4）。
 import { useEffect, useState } from "react";
 
-import { useAssetSearch, useAssetsByIds } from "../api/hooks";
+import { useAssetPages, useAssetsByIds } from "../api/hooks";
 import { SearchSelect } from "./controls";
 import { t } from "../i18n";
 
@@ -28,7 +28,9 @@ export function AssetPicker({ value, onChange, queryable, datasourceId, domainId
   const [q, setQ] = useState("");
   const term = useDebounced(q.trim());
   const filters = { queryable, datasource_id: datasourceId || undefined, domain_id: domainId || undefined };
-  const search = useAssetSearch({ ...filters, q: term || undefined, limit: LIMIT }, !disabled);
+  // 分页取匹配项：同名表多于一页时可以“加载更多”，所有匹配且有权限的资产都能选到
+  const search = useAssetPages({ ...filters, q: term || undefined }, LIMIT, !disabled);
+  const found = (search.data?.pages ?? []).flatMap((page) => page.slice(0, LIMIT));
   const picked = useAssetsByIds(value ? [value] : []);
   const name = (qualified: string) => (short ? short(qualified) : qualified);
   const current = picked.data?.find((a) => a.id === value);
@@ -37,8 +39,9 @@ export function AssetPicker({ value, onChange, queryable, datasourceId, domainId
       placeholder={placeholder ?? t("搜索资产")} clearLabel={clearLabel}
       selected={current ? name(current.qualified) : value && picked.isSuccess ? t("资产不可用") : undefined}
       // 筛选条件刚变（例如换了数据源）时显示的是上一组结果的占位：不能让它们被选中，等当前条件的结果到了再给选项
-      options={search.isPlaceholderData ? [] : (search.data ?? []).map((a) => ({ value: a.id, label: name(a.qualified), hint: a.datasource.name }))}
+      options={search.isPlaceholderData ? [] : found.map((a) => ({ value: a.id, label: name(a.qualified), hint: a.datasource.name }))}
       loading={search.isFetching} onSearch={setQ} onChange={onChange}
+      onMore={search.hasNextPage && !search.isPlaceholderData ? () => void search.fetchNextPage() : undefined}
       emptyText={term ? t("没有匹配的资产") : t("暂无资产")} />
   );
 }

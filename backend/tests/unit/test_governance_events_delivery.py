@@ -549,7 +549,7 @@ def test_due_subscriptions_rotate_before_processing_next_event(delivery_database
     assert claimed[: min(batch_size, 3)] == ["first-0", "second-0", "third-0"][:batch_size]
 
 
-@pytest.mark.parametrize(("budget_seconds", "batch_size"), [(12, 50), (5, 50), (5, 1)])
+@pytest.mark.parametrize(("budget_seconds", "batch_size"), [(12, 50), (5, 50), (5, 1), (0.2, 50)])
 def test_every_request_uses_full_remaining_deadline_without_fair_share(
     delivery_database, monkeypatch, outbox, budget_seconds, batch_size
 ):
@@ -560,7 +560,7 @@ def test_every_request_uses_full_remaining_deadline_without_fair_share(
         delivery, "send_webhook", lambda _subscription, _item, **kwargs: timeouts.append(kwargs["timeout_seconds"])
     )
     assert delivery.deliver_due(batch_size=batch_size, budget_seconds=budget_seconds) == min(batch_size, 2)
-    assert timeouts == [5.0] * min(batch_size, 2)
+    assert timeouts == pytest.approx([min(5.0, budget_seconds)] * min(batch_size, 2))
 
 
 def test_multiple_unreachable_subscriptions_do_not_block_healthy_first_round(delivery_database, outbox):
@@ -588,6 +588,7 @@ def test_multiple_unreachable_subscriptions_do_not_block_healthy_first_round(del
 
 def test_dns_deadline_does_not_block_another_subscription(delivery_database, monkeypatch, outbox):
     queue_subscription_backlogs(delivery_database, outbox, [("blocked-dns", 1), ("healthy", 1)])
+    monkeypatch.setattr(delivery, "_REQUEST_TIMEOUT_SECONDS", 0.05)
     release, blocked, healthy = threading.Event(), threading.Event(), threading.Event()
 
     def resolve(host, *args, **kwargs):
@@ -609,7 +610,8 @@ def test_dns_deadline_does_not_block_another_subscription(delivery_database, mon
         assert time.monotonic() - started < 0.6
         with delivery_database() as session:
             blocked_row = session.get(EventOutbox, "blocked-dns-0")
-            assert blocked_row.status == "pending" and blocked_row.last_error == delivery.BUDGET_TIMEOUT
+            assert blocked_row.status == "pending" and blocked_row.last_error == "timeout"
+            assert blocked_row.attempts == 1
             assert session.get(EventOutbox, "healthy-0").status == "delivered"
     finally:
         release.set()
@@ -683,6 +685,163 @@ def test_claim_wait_shortens_first_wave_without_consuming_healthy_retries(delive
     assert delivery.deliver_due() == 1
     with delivery_database() as session:
         assert session.get(EventOutbox, "healthy-0").status == "delivered"
+
+
+@pytest.mark.parametrize("concurrency", [None, 1], ids=["default-concurrency-4", "serial"])
+@pytest.mark.parametrize("max_attempts", [1, 5])
+def test_deferred_subscription_waits_for_full_request_budget_in_next_round(
+    delivery_database, monkeypatch, outbox, concurrency, max_attempts
+):
+    values = {"AVELIS_SECRET": SECRET, "AVELIS_WEBHOOK_MAX_ATTEMPTS": str(max_attempts)}
+    if concurrency is not None:
+        values["AVELIS_WEBHOOK_CONCURRENCY"] = str(concurrency)
+    settings = build_settings(values)
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    queue_subscription_backlogs(delivery_database, outbox, [("healthy", 2)])
+    with delivery_database() as session:
+        for index in range(2):
+            session.get(EventOutbox, f"healthy-{index}").last_error = delivery.BUDGET_TIMEOUT
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    sent = []
+
+    def send(_subscription, item, **kwargs):
+        sent.append((item.id, kwargs["timeout_seconds"]))
+        # 精确复现 5 秒整轮、3 秒健康请求，不依赖线程在真实时钟上的调度快慢。
+        if kwargs["timeout_seconds"] < 3.0:
+            clock[0] += kwargs["timeout_seconds"]
+            raise delivery.DeliveryError("timeout")
+        clock[0] += 3.0
+
+    monkeypatch.setattr(delivery, "send_webhook", send)
+    assert delivery.deliver_due(budget_seconds=5.0) == 1
+    with delivery_database() as session:
+        first = session.get(EventOutbox, "healthy-0")
+        second = session.get(EventOutbox, "healthy-1")
+        assert first.status == "delivered" and first.attempts == 1
+        assert second.status == "pending" and second.attempts == 0 and second.dead_at is None
+        assert second.last_error == delivery.BUDGET_TIMEOUT
+    assert delivery.deliver_due(budget_seconds=5.0) == 1
+    with delivery_database() as session:
+        second = session.get(EventOutbox, "healthy-1")
+        assert second.status == "delivered" and second.attempts == 1 and second.dead_at is None
+    assert sent == [("healthy-0", 5.0), ("healthy-1", 5.0)]
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_deferred_admission_depends_on_remaining_budget_not_attempt_count(
+    delivery_database, monkeypatch, outbox, concurrency
+):
+    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_WEBHOOK_CONCURRENCY": str(concurrency)})
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    queue_subscription_backlogs(delivery_database, outbox, [(f"deferred-{index}", 2) for index in range(4)])
+    with delivery_database() as session:
+        for index in range(4):
+            for position in range(2):
+                session.get(EventOutbox, f"deferred-{index}-{position}").last_error = delivery.BUDGET_TIMEOUT
+    monkeypatch.setattr(delivery, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(delivery, "send_webhook", lambda *args, **kwargs: None)
+    assert delivery.deliver_due(budget_seconds=5.0) == 8
+    with delivery_database() as session:
+        assert all(
+            session.get(EventOutbox, f"deferred-{index}-{position}").status == "delivered"
+            for index in range(4)
+            for position in range(2)
+        )
+
+
+def test_millisecond_claim_overhead_still_counts_full_timeout(delivery_database, monkeypatch, outbox):
+    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_WEBHOOK_MAX_ATTEMPTS": "1"})
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    queue_subscription_backlogs(delivery_database, outbox, [("unreachable", 1)])
+    with delivery_database() as session:
+        session.get(EventOutbox, "unreachable-0").last_error = delivery.BUDGET_TIMEOUT
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    original = delivery._claim_due
+
+    def claim(*args):
+        result = original(*args)
+        if result is not None:
+            clock[0] += 0.008
+        return result
+
+    def timeout(*args, **kwargs):
+        assert kwargs["timeout_seconds"] == pytest.approx(4.992)
+        raise delivery.DeliveryError("timeout")
+
+    monkeypatch.setattr(delivery, "_claim_due", claim)
+    monkeypatch.setattr(delivery, "send_webhook", timeout)
+    assert delivery.deliver_due() == 1
+    with delivery_database() as session:
+        row = session.get(EventOutbox, "unreachable-0")
+        assert row.status == "dead" and row.attempts == 1 and row.dead_at is not None
+        assert row.last_error == "timeout"
+
+
+@pytest.mark.parametrize("previous_error", [None, delivery.BUDGET_TIMEOUT])
+@pytest.mark.parametrize(
+    ("full_budget", "remaining", "deferred_when_fresh", "deferred_when_already_deferred"),
+    [
+        (True, 5.0, False, False),  # 完整期限：照常计入
+        (True, 4.95, False, False),  # 数据库往返的几十毫秒不算“期限不足”
+        (True, 2.0, True, False),  # 认领卡住：第一次推迟，已推迟过的照常计入
+        (False, 2.0, True, True),  # 轮尾：不计入
+    ],
+)
+def test_timeout_retry_counts_unless_the_budget_was_clearly_short(
+    monkeypatch, previous_error, full_budget, remaining, deferred_when_fresh, deferred_when_already_deferred
+):
+    """期限明显不足时推迟一次；已推迟过、认领时本能给出完整期限的照常计入，避免无限推迟。"""
+    full_request_timeout = 5.0
+    deferred = deferred_when_already_deferred if previous_error == delivery.BUDGET_TIMEOUT else deferred_when_fresh
+    claim = SimpleNamespace(
+        subscription=SimpleNamespace(id="healthy"), outbox=SimpleNamespace(last_error=previous_error)
+    )
+    finished = []
+    monkeypatch.setattr(delivery, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(delivery, "_finish_claim", lambda *args: finished.append(args))
+    monkeypatch.setattr(delivery, "_release_claim", lambda claim: None)
+    slots = threading.BoundedSemaphore(1)
+    assert slots.acquire(blocking=False)
+    monkeypatch.setattr(delivery, "_DELIVERY_SLOTS", slots)
+
+    def timeout(*args, **kwargs):
+        raise delivery.DeliveryError("timeout")
+
+    monkeypatch.setattr(delivery, "send_webhook", timeout)
+    settings = build_settings({"AVELIS_SECRET": SECRET})
+    assert delivery._deliver_claim(claim, None, 100.0 + remaining, full_request_timeout, full_budget, settings) == (
+        "healthy",
+        "timeout",
+        deferred,
+    )
+    assert finished == [(claim, "timeout", deferred, settings)]
+
+
+@pytest.mark.parametrize("exception", [httpx.ConnectError("offline"), httpx.ConnectTimeout("offline")])
+@pytest.mark.parametrize("budget_seconds", [0.2, 5.0, 12.0])
+def test_unreachable_receiver_still_exhausts_retry_limit(
+    delivery_database, monkeypatch, outbox, exception, budget_seconds
+):
+    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_WEBHOOK_MAX_ATTEMPTS": "2"})
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    monkeypatch.setattr(delivery, "monotonic", lambda: 100.0)
+    queue_subscription_backlogs(delivery_database, outbox, [("unreachable", 1)])
+
+    def fail(request):
+        raise exception
+
+    transport = httpx.MockTransport(fail)
+    for attempt in (1, 2):
+        assert delivery.deliver_due(transport=transport, budget_seconds=budget_seconds) == 1
+        with delivery_database() as session:
+            row = session.get(EventOutbox, "unreachable-0")
+            assert row.attempts == attempt
+            assert row.last_error == ("timeout" if isinstance(exception, httpx.TimeoutException) else "network_error")
+            assert row.status == ("pending" if attempt == 1 else "dead")
+            assert (row.dead_at is not None) == (attempt == 2)
+            row.next_attempt_at = utcnow() - timedelta(seconds=1)
 
 
 def test_blocked_dns_is_shared_and_resolver_threads_have_a_hard_limit(monkeypatch):
@@ -766,3 +925,35 @@ def test_disabled_future_and_terminal_entries_are_not_attempted(delivery_databas
         session.get(EventOutbox, "dead-0").status = "dead"
         session.get(EventOutbox, "delivered-0").status = "delivered"
     assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: pytest.fail("不能发送"))) == 0
+
+
+def test_unreachable_receiver_reaches_dead_even_when_each_claim_costs_database_latency(
+    delivery_database, monkeypatch, outbox
+):
+    """每次认领都耗掉几十毫秒时，请求拿到的期限略小于 5 秒：真正连不上的接收端仍要按次数进入死信。"""
+    database = delivery_database
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    queue_subscription_backlogs(database, outbox, [("down", 1)])
+    claim_due = delivery._claim_due
+
+    def slow_claim(*args, **kwargs):
+        clock[0] += 0.05  # 一次数据库往返
+        return claim_due(*args, **kwargs)
+
+    monkeypatch.setattr(delivery, "_claim_due", slow_claim)
+
+    def send(subscription, item, *, timeout_seconds, **kwargs):
+        clock[0] += timeout_seconds
+        raise delivery.DeliveryError("timeout")
+
+    monkeypatch.setattr(delivery, "send_webhook", send)
+    settings = build_settings({"AVELIS_SECRET": SECRET, "AVELIS_WEBHOOK_MAX_ATTEMPTS": "2"})
+    monkeypatch.setattr(delivery, "get_settings", lambda: settings)
+    for _ in range(6):
+        delivery.deliver_due()
+        clock[0] += 60
+        monkeypatch.setattr(delivery, "utcnow", lambda now=utcnow(): now + timedelta(hours=2))
+    with database() as session:
+        row = session.get(EventOutbox, "down-0")
+        assert row.status == "dead" and row.attempts == 2
