@@ -7,6 +7,27 @@ from avelis.configfile import CONFIG_KEYS, flatten, read_config
 
 SECRET = "test-secret-mcp-x"
 
+BUDGET_DEFAULTS = {
+    "registration_max_per_hour": 20,
+    "consent_max_per_hour": 120,
+    "max_pending_clients": 1000,
+    "pending_client_days": 7,
+    "replay_retention_days": 7,
+    "cleanup_batch_size": 500,
+}
+
+
+@pytest.mark.parametrize("name,default", BUDGET_DEFAULTS.items())
+def test_oauth_budget_configuration_defaults_and_overrides(name, default):
+    key = f"AVELIS_MCP_{name.upper()}"
+    assert CONFIG_KEYS[f"mcp.{name}"].env == key
+    assert CONFIG_KEYS[f"mcp.{name}"].default == default
+    assert getattr(settings(), f"mcp_{name}") == default
+    assert getattr(settings(**{key: "3"}), f"mcp_{name}") == 3
+    for value in ("0", "-1", "invalid"):
+        with pytest.raises(ConfigError, match=key):
+            settings(**{key: value})
+
 
 def settings(**values):
     return build_settings({"AVELIS_SECRET": SECRET, **values})

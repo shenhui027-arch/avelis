@@ -11,8 +11,11 @@ import ssl
 from urllib.parse import unquote, urlsplit
 
 import httpcore2
+from authlib.oauth2.rfc6749 import OAuth2Error
 from mcp.shared.auth import OAuthClientMetadata
 from pydantic import ValidationError
+
+from .budgets import validate_metadata_budget
 
 MAX_DOCUMENT_BYTES = 5 * 1024
 FETCH_TIMEOUT_SECONDS = 3.0
@@ -50,6 +53,10 @@ def validate_client_metadata(document: object, client_id: str, redirect_uri: str
     """Use the SDK's registration model, retaining exact strings for URI binding."""
     if not isinstance(document, dict) or document.get("client_id") != client_id:
         raise CIMDError("CIMD client_id does not exactly match the document URL")
+    try:
+        validate_metadata_budget(document)
+    except OAuth2Error as exc:
+        raise CIMDError("CIMD metadata exceeds field budgets") from exc
     if any(key in document for key in ("client_secret", "client_secret_expires_at")):
         raise CIMDError("CIMD must not supply a shared client secret")
     if document.get("token_endpoint_auth_method", "none") != "none":

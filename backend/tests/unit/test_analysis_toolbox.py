@@ -877,8 +877,9 @@ def test_worker_scan_continues_after_a_failing_step(monkeypatch, caplog):
     monkeypatch.setattr(jobs, "stale_jobs", lambda: calls.append("stale") or [])
     monkeypatch.setattr(jobs, "run_job", lambda job_id: calls.append(f"run {job_id}") or boom())
     monkeypatch.setattr(jobs, "purge_history_if_due", lambda: calls.append("purge"))
+    monkeypatch.setattr("avelis.oauth.cleanup.purge", lambda: calls.append("oauth purge"))
     jobs.scan_once()
-    assert calls == ["collect", "analysis", "stale", "run j1", "purge"]
+    assert calls == ["collect", "analysis", "stale", "run j1", "purge", "oauth purge"]
     assert "回收超时任务 失败" in caplog.text and "deadlock detected" in caplog.text
 
 

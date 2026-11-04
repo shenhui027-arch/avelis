@@ -351,6 +351,7 @@ def scan_once() -> None:
     """一轮定时扫描：回收超时任务、入队到期任务、执行排队过久的任务、清理超期历史。每一项单独容错。"""
     from avelis.analysis import service as analysis_service
     from avelis.events.delivery import deliver_due
+    from avelis.oauth.cleanup import purge as purge_oauth
 
     _guarded("回收超时任务", abandoned_jobs)
     due = [
@@ -361,6 +362,7 @@ def scan_once() -> None:
     for job_id in due:
         _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
     _guarded("清理超期历史", purge_history_if_due)
+    _guarded("清理 OAuth 过期记录", purge_oauth)
     _guarded("投递治理事件", deliver_due)
 
 

@@ -113,6 +113,22 @@ MCP 與 Avelis 後端在同一程序執行，預設開啟，部署後可直接�
 | `refresh_token_seconds` | `AVELIS_MCP_REFRESH_TOKEN_SECONDS` | `2592000` | OAuth 更新權杖有效期，秒（30 天），須為正整數；每次更新輪替權杖 |
 | `cimd_cache_ttl_seconds` | `AVELIS_MCP_CIMD_CACHE_TTL_SECONDS` | `3600` | CIMD 用戶端中繼資料快取有效期，秒；到期後重新擷取，須為正整數 |
 | `cimd_allowed_urls` | `AVELIS_MCP_CIMD_ALLOWED_URLS` | `[]` | 本機開發 CIMD 地址的精確允許清單（設定檔裡寫陣列，環境變數逗號分隔）；只接受完整的 `http(s)://127.0.0.1:PORT/path`，不允許任意私網地址或萬用字元 |
+| `registration_max_per_hour` | `AVELIS_MCP_REGISTRATION_MAX_PER_HOUR` | `20` | 每來源 IP 每個 UTC 固定小時允許的動態註冊請求數；正整數 |
+| `consent_max_per_hour` | `AVELIS_MCP_CONSENT_MAX_PER_HOUR` | `120` | 每來源 IP 每個 UTC 固定小時允許的授權確認票據請求數；正整數 |
+| `max_pending_clients` | `AVELIS_MCP_MAX_PENDING_CLIENTS` | `1000` | 從未被任何使用者授權過的動態用戶端總量上限；正整數 |
+| `pending_client_days` | `AVELIS_MCP_PENDING_CLIENT_DAYS` | `7` | 從未完成授權的動態用戶端保留天數；正整數 |
+| `replay_retention_days` | `AVELIS_MCP_REPLAY_RETENTION_DAYS` | `7` | 權杖過期及撤銷後的重放偵測保留視窗，單位為天；正整數 |
+| `cleanup_batch_size` | `AVELIS_MCP_CLEANUP_BATCH_SIZE` | `500` | worker 每輪每張 OAuth 表最多清理的記錄數；正整數 |
+
+匿名 OAuth 的固定輸入預算：動態註冊本文最多 16 KiB（按串流檢查，不依賴 Content-Length）；`redirect_uris` 最多 5 個，每個最多 512 字元；`client_name`、`scope` 最多 256 字元，`scope` 最多 16 項；`client_id` 最多 2048 字元，`token_endpoint_auth_method` 最多 32 字元；`client_uri`、`logo_uri` 等其他字串最多 512 字元，其他陣列（含 `grant_types`、`response_types`、`contacts`）最多 5 項、每項最多 256 字元。CIMD 文件共用這些欄位預算，原有 5 KiB 文件上限仍生效。註冊超限回傳 `invalid_client_metadata` 或 `invalid_redirect_uri`，不寫入用戶端或稽核。
+
+授權查詢字串最多 8192 位元組、32 個參數；參數名稱最多 64 字元，`client_id`、`resource` 最多 2048 字元，`scope` 最多 256 字元，`code_challenge` 最多 128 字元，`redirect_uri`、`state` 等其他參數最多 512 字元。超限在建立用戶端或票據前回傳本地 `invalid_request`，不重新導向。來源只取 uvicorn 按 `forwarded_allow_ips` 處理後的位址，不額外解析轉送標頭。頻率超限回傳 429 和 `Retry-After`；Redis 無法使用時回傳 503、拒絕匿名寫入，與登入限流的失敗關閉策略一致。固定小時邊界會重設配額。動態用戶端總量檢查在 PostgreSQL 交易鎖內執行；滿額回傳 `invalid_client_metadata`。來源超限每來源每小時稽核一次，總量超限全域每小時稽核一次。
+
+worker 每輪分批刪除過期確認票據與授權碼；存取與更新憑據均過期超過 `replay_retention_days`，且撤銷時間也早於該視窗後才刪除權杖，視窗內保留用於重放偵測。仍有有效更新憑據的權杖保留。從未授權的舊動態用戶端在其票據清理完後刪除；曾授權後撤銷的用戶端也保留。每次清理只寫一條彙總日誌，不逐條寫稽核。升級需套用 `0022_oauth_cleanup_indexes` 遷移。
+
+超過保留期的未授權動態用戶端，其尚未過期的確認票據也會按同一批量上限清除，防止持續建立新票據無限延長註冊壽命。清理先按統一順序鎖定用戶端，再複核並刪除關聯記錄；正在使用的用戶端留到下一輪處理。
+
+管理介面 `GET /api/oauth/clients` 保持回傳原來的物件陣列，新增 `limit`（預設 50，範圍 1–200）和 `offset`（預設 0，非負），按建立時間、ID 倒序分頁，授權人數只統計本頁。目前前端僅請求預設頁；前端需要增加分頁參數、翻頁控制項及分頁查詢鍵，並把顯示數量標為本頁數量，避免把第一頁當作全部用戶端。
 
 `[server] public_url`（`AVELIS_PUBLIC_URL`）為選填。設定時沿用既有正規化規則，不能含帳密、查詢參數或片段；OAuth `issuer` 使用正規化後的地址，資源 URI 為它直接串接 `/mcp`，不額外移除結尾斜線。未設定時，每次請求從經 uvicorn 代理標頭處理後的 scheme 與合法 Host（含選用埠）組成 origin，再加 ASGI `root_path` 得到 `issuer`；資源 URI 為 `issuer + "/mcp"`。例如 `http://avelis.test:8080` 與 `root_path = "/avelis"` 得到 issuer `http://avelis.test:8080/avelis`、resource `http://avelis.test:8080/avelis/mcp`。包含路徑、使用者資訊或非法字元的 Host 回傳 400。
 

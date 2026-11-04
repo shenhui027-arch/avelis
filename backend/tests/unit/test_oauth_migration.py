@@ -105,3 +105,37 @@ def test_oauth_migration_roundtrip_and_model_schema_agree(monkeypatch):
                 assert connection.scalar(select(original.c.id)) == "existing-user"
     finally:
         engine.dispose()
+
+
+def test_cleanup_indexes_roundtrip_and_postgresql_ddl(monkeypatch):
+    path = Path(__file__).resolve().parents[2] / "src/avelis/migrations/versions/0022_oauth_cleanup_indexes.py"
+    spec = importlib.util.spec_from_file_location("migration_0022", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0021_mcp_oauth"
+    ddl = io.StringIO()
+    context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": ddl})
+    with Operations.context(context):
+        migration.upgrade()
+        migration.downgrade()
+    assert "CREATE INDEX ix_oauth_token_cleanup ON oauth_token (expires_at, id)" in ddl.getvalue()
+    assert "CREATE INDEX ix_oauth_client_created_page" in ddl.getvalue()
+    initial = load_migration()
+    monkeypatch.setattr(initial, "JsonType", JSON())
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    Table("app_user", metadata, Column("id", String(32), primary_key=True))
+    metadata.create_all(engine)
+    try:
+        with engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                initial.upgrade()
+                migration.upgrade()
+            for table, columns in migration.INDEXES.items():
+                indexes = {i["name"]: i["column_names"] for i in inspect(connection).get_indexes(table)}
+                assert indexes[f"ix_{table}_cleanup"] == columns
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
+            assert not any(i["name"].endswith("_cleanup") for i in inspect(connection).get_indexes("oauth_token"))
+    finally:
+        engine.dispose()
