@@ -1639,5 +1639,6 @@
   "平均": "Avg",
   "平均 {{value}}": "Avg {{value}}",
   "最高 {{x}} {{value}}": "Max {{x}} {{value}}",
-  "最低 {{x}} {{value}}": "Min {{x}} {{value}}"
+  "最低 {{x}} {{value}}": "Min {{x}} {{value}}",
+  "{{name}} 平均 {{value}}": "{{name}} avg {{value}}"
 }
