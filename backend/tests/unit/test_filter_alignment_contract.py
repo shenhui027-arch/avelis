@@ -76,7 +76,7 @@ def test_analysis_schema_preserves_alignment_and_structured_clarification():
     assert response.filter_alignment[0].model_dump() == ALIGNMENT
     assert response.pending == pending
     contract = FilterAlignmentOut.model_json_schema()
-    assert contract["properties"]["method"]["enum"] == ["exact", "normalized", "dimension_table"]
+    assert contract["properties"]["method"]["enum"] == ["exact", "normalized", "dimension_table", "confirmed"]
 
 
 @pytest.mark.parametrize("locale", ["en", "zh-TW"])

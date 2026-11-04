@@ -1652,5 +1652,6 @@
   "候选取值": "Candidate values",
   "{{dimension}}：“{{original}}”": "{{dimension}}: “{{original}}”",
   "按所选继续（{{count}}/{{total}}）_one": "Continue with selection ({{count}}/{{total}})",
-  "按所选继续（{{count}}/{{total}}）_other": "Continue with selection ({{count}}/{{total}})"
+  "按所选继续（{{count}}/{{total}}）_other": "Continue with selection ({{count}}/{{total}})",
+  "，由你确认": ", confirmed by you"
 }

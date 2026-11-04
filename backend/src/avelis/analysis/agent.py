@@ -786,9 +786,16 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
         return scope, []
     versions = [toolbox.catalog.versions[code][1] for code in scope.metric_codes]
     common = set.intersection(*({d["name"] for d in version.dimensions or []} for version in versions))
-    shared = [item for item in scope.filters if item.dimension in common]
+    confirmed = {
+        (entry["dimension"], entry["value"]) for entry in toolbox.filter_alignment if entry["method"] == "confirmed"
+    }
+    shared_items = [item for item in scope.filters if item.dimension in common]
+    shared = [
+        item.model_copy(update={"values": [value for value in item.values if (item.dimension, value) not in confirmed]})
+        for item in shared_items
+    ]
     results: list[AlignmentResult] = []
-    for version in versions:
+    for version in versions if any(item.values for item in shared) else []:
         try:
             results.append(
                 align_filters(
@@ -818,7 +825,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
 
     for item in scope.filters:
         values = []
-        for index, original in enumerate(item.values):
+        for original in item.values:
             dimension = item.dimension
             if dimension not in common:
                 unresolved.append(
@@ -826,7 +833,12 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
                 )
                 values.append(original)
                 continue
-            position = next(i for i, shared_item in enumerate(shared) if shared_item is item)
+            # 候选已由用户明确选择，不再把它作为别名查询；部分回答的后续恢复也沿用确认。
+            if (dimension, original) in confirmed:
+                values.append(original)
+                continue
+            position = next(i for i, shared_item in enumerate(shared_items) if shared_item is item)
+            index = shared[position].values.index(original)
             choices = [result.filters[position].values[index] for result in results]
             pending = [entry for result in results for entry in matching(result.unresolved, dimension, original)]
             failures = [entry for result in results for entry in matching(result.unknown, dimension, original)]
@@ -1000,6 +1012,21 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         }
         if inherited.get("scope"):
             inherited = {**inherited, "scope": selected_scope}
+        for item in alignment_items:
+            value = selections.get((item["dimension"], item["original"]))
+            if value is None:
+                continue
+            # 多个维表可能共同提供同一候选，逐一保留依赖以复用现有撤权投影。
+            for asset_id in item.get("candidate_sources", {}).get(value) or [None]:
+                explanation = {
+                    "dimension": item["dimension"],
+                    "original": item["original"],
+                    "value": value,
+                    "method": "confirmed",
+                    **({"asset_id": asset_id} if asset_id else {}),
+                }
+                if explanation not in toolbox.filter_alignment:
+                    toolbox.filter_alignment.append(explanation)
     # 已确认的分析续问也要理解用户本轮原话，才能区分改图与新增取数；
     # 旧的无模型恢复路径仍可直接沿用已确认范围。
     shortcut = selected_scope is not None or (

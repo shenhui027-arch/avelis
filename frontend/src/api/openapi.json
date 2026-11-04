@@ -13563,7 +13563,8 @@
       "enum": [
        "exact",
        "normalized",
-       "dimension_table"
+       "dimension_table",
+       "confirmed"
       ],
       "title": "Method"
      },

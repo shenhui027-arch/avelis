@@ -4163,7 +4163,7 @@ export interface components {
              * Method
              * @enum {string}
              */
-            method: "exact" | "normalized" | "dimension_table";
+            method: "exact" | "normalized" | "dimension_table" | "confirmed";
             /** Asset Id */
             asset_id?: string | null;
             /** Table */

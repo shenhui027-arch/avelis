@@ -65,21 +65,28 @@ def test_all_pending_items_can_be_selected_in_one_structured_answer(monkeypatch)
     final = graph.invoke(Command(resume={"answer": answer}), config)
     assert final["phase"] == "done" and not final.get("__interrupt__")
     assert queries[0].filters[0].values == ["成员一", "成员二", "成员三"]
-    assert len(model.seen) == 1 and len(calls) == 2
+    assert len(model.seen) == 1 and len(calls) == 1
     assert final["clarifications"][-1]["answer"] == answer
     assert final["clarifications"][-1]["deterministic"] is True
 
 
 def test_legacy_string_answers_can_confirm_more_than_two_values(monkeypatch):
-    _, model, config, state, _, queries = multi_value_run(monkeypatch)
+    box, model, config, state, calls, queries = multi_value_run(monkeypatch)
     graph = agent.build_graph(MemorySaver())
     current = graph.invoke(state, config)
     for index, member in enumerate(("成员一", "成员二", "成员三")):
         assert len(current["__interrupt__"][0].value["items"]) == 3 - index
+        box.restore(box.snapshot())  # 保存后恢复也必须保留此前的明确确认。
         current = graph.invoke(Command(resume={"answer": member}), config)
     assert current["phase"] == "done" and not current.get("__interrupt__")
     assert queries[0].filters[0].values == ["成员一", "成员二", "成员三"]
     assert len(model.seen) == 1 and all(item["deterministic"] for item in current["clarifications"])
+    assert all(value.startswith("别名") for filters, _ in calls for item in filters for value in item["values"])
+    assert {entry["value"] for entry in box.filter_alignment if entry["method"] == "confirmed"} == {
+        "成员一",
+        "成员二",
+        "成员三",
+    }
 
 
 def test_partial_structured_answer_reprompts_remaining_items(monkeypatch):

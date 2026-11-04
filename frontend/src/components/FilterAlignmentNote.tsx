@@ -14,6 +14,7 @@ export function FilterAlignmentNote({ items }: { items?: FilterAlignment[] | nul
     {changed.map((i, n) => <span key={n}>
       {t("按“{{value}}”筛选（原话“{{original}}”）", { value: i.value, original: i.original })}
       {i.method === "dimension_table" && i.table ? t("，依据维表 {{table}} 的 {{column}} 列", { table: i.table, column: i.column ?? "" }) : ""}
+      {i.method === "confirmed" ? t("，由你确认") : ""}
     </span>)}
   </p>;
 }

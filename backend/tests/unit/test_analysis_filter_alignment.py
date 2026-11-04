@@ -10,10 +10,11 @@ from langgraph.types import Command
 
 from avelis.analysis import agent, service
 from avelis.analysis.tools import Scope
-from avelis.api.schemas import AnalysisRunOut
+from avelis.api.schemas import AnalysisRunOut, FilterAlignmentOut
 from avelis.ask import alignment
 from avelis.ask.alignment import AlignmentResult
 from avelis.ask.intent import DimensionFilter
+from avelis.models import Asset
 from tests.unit.test_analysis_entry import configured, fake_ask, scope_reply
 from tests.unit.test_analysis_hitl import reply, waiting_run
 from tests.unit.test_analysis_pipeline import Phased
@@ -106,6 +107,56 @@ def test_clicking_candidate_continues_without_model_reinterpreting_scope(monkeyp
             "deterministic": True,
         }
     ]
+
+
+@pytest.mark.parametrize("source", ["dimension_table", "member"])
+@pytest.mark.parametrize("structured", [False, True])
+def test_confirmed_candidate_executes_empty_lookup_without_realigning(monkeypatch, source, structured):
+    box, model, config, state, prechecks = configured_alignment(monkeypatch, table=source == "dimension_table")
+    asset = Asset(id="region-alias-asset", domain_id="dA", status="active")
+    box.session.store[(Asset, asset.id)] = asset
+    monkeypatch.setattr(alignment.service, "upstream_closure", lambda s, ids: {asset.id: asset})
+    sample = [] if source == "dimension_table" else ["华东", "华南"]
+    monkeypatch.setattr(alignment.service, "_dimension_values", lambda *args, **kwargs: {"地区": sample})
+    table_queries = []
+
+    def table_matches(session, version, table, original, *args):
+        table_queries.append(original)
+        return (["1", "2"], ["display_name"]) if original == "华东区" else ([], [])
+
+    monkeypatch.setattr(alignment, "_table_matches", table_matches)
+    aligned_inputs = []
+    align = agent.align_filters
+
+    def counted_align(session, user, version, filters, *args, **kwargs):
+        aligned_inputs.append([item.model_dump() for item in filters])
+        return align(session, user, version, filters, *args, **kwargs)
+
+    monkeypatch.setattr(agent, "align_filters", counted_align)
+    answer, queries = fake_ask(monkeypatch, box, explanation="没有符合条件的数据")
+    answer.result = {"columns": ["指标甲"], "rows": [], "row_count": 0, "truncated": False}
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke(state, config)
+    pending = first["__interrupt__"][0].value
+    value = "1" if source == "dimension_table" else "华东"
+    if source == "dimension_table":
+        assert pending["items"][0]["candidate_sources"] == {"1": [asset.id], "2": [asset.id]}
+    # 即使事实表成员已不在样本中，明确选择的成员值仍应直接采用。
+    sample.clear()
+    feedback = [{"dimension": "地区", "original": "华东区", "value": value}] if structured else value
+    final = graph.invoke(Command(resume={"answer": feedback}), config)
+
+    assert final["phase"] == "done" and not final.get("__interrupt__")
+    assert len(queries) == 1 and queries[0].filters[0].values == [value]
+    assert answer.status == "answered" and answer.result["rows"] == []
+    assert prechecks == [] and len(model.seen) == 1 and len(aligned_inputs) == 1
+    assert table_queries == (["华东区"] if source == "dimension_table" else [])
+    expected = {"dimension": "地区", "original": "华东区", "value": value, "method": "confirmed"}
+    if source == "dimension_table":
+        expected["asset_id"] = asset.id
+    assert answer.evidence["filter_alignment"] == box.report["evidence"]["filter_alignment"] == [expected]
+    assert box.snapshot()["state"]["filter_alignment"] == [expected]
+    assert FilterAlignmentOut.model_validate(expected).method == "confirmed"
 
 
 def test_unattended_unresolved_filter_ends_without_interrupt_or_query(monkeypatch):

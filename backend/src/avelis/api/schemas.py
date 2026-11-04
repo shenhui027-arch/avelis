@@ -609,7 +609,7 @@ class FilterAlignmentOut(Out):
     dimension: str
     original: str
     value: str
-    method: Literal["exact", "normalized", "dimension_table"]
+    method: Literal["exact", "normalized", "dimension_table", "confirmed"]
     asset_id: str | None = None
     table: str | None = None
     column: str | None = None

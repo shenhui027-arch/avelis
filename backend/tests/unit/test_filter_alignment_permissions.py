@@ -205,6 +205,45 @@ def test_lookup_run_checks_alignment_from_saved_answer_even_without_run_copy(ali
     assert "private_regions" not in str(view) and "private_label" not in str(view)
 
 
+@pytest.mark.parametrize("source", ["report", "snapshot"])
+def test_confirmed_candidate_keeps_source_dependency_for_revocation(aligned_answer, source):
+    session, user, run, dataset, dimension, answer, _ = aligned_answer
+    explanation = {
+        "dimension": "region",
+        "original": "alias_a",
+        "value": "member_a",
+        "method": "confirmed",
+        "asset_id": dimension.id,
+    }
+    answer.evidence = {"filter_alignment": [explanation], "note": "可读证据"}
+    answer.steps = [{"node": "understand", "filter_alignment": [explanation]}]
+    run.report = {"evidence": {"note": "可读证据"}}
+    if source == "report":
+        run.report["evidence"]["filter_alignment"] = [explanation]
+    else:
+        run.checkpoint = {"snapshot": {"state": {"filter_alignment": [explanation]}}}
+    step = AnalysisStep(run_id=run.id, seq=1, kind="plan", status="ok", output={"filter_alignment": [explanation]})
+    session.add(step)
+    session.commit()
+    saved_report, saved_evidence, saved_checkpoint = (
+        deepcopy(run.report),
+        deepcopy(answer.evidence),
+        deepcopy(run.checkpoint),
+    )
+    assert service.run_view(session, run, user=user)["filter_alignment"] == [explanation]
+    assert ask.answer_view(answer, session, user=user)["filter_alignment"] == [explanation]
+
+    dimension.domain_id = "hidden"
+    session.commit()
+
+    assert_answer_alignment_hidden(ask.answer_view(answer, session, user=user))
+    view = service.run_view(session, run, user=user)
+    assert view["filter_alignment"] == [] and view["report"]["evidence"] == {"note": "可读证据"}
+    assert view["steps"][0]["output"] == {"restricted": True}
+    assert view["datasets"][0]["rows"] == dataset.rows
+    assert run.report == saved_report and answer.evidence == saved_evidence and run.checkpoint == saved_checkpoint
+
+
 def test_answer_projects_alignment_retained_only_in_earlier_steps(aligned_answer):
     session, user, _, _, dimension, answer, _ = aligned_answer
     answer.evidence = {"note": "可读证据"}

@@ -11,9 +11,11 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
 from avelis import cache
+from avelis.analysis import agent
+from avelis.analysis.tools import Scope
 from avelis.ask import service
 from avelis.ask.alignment import align_filters
-from avelis.ask.intent import DimensionFilter
+from avelis.ask.intent import DimensionFilter, Intent
 from avelis.config import get_settings
 from avelis.connectors.postgres import PostgresConnector
 from avelis.db import get_engine, session_scope
@@ -35,11 +37,13 @@ pytestmark = pytest.mark.db
 
 
 @pytest.fixture
-def alignment_pg(factory, monkeypatch):
+def alignment_pg(factory, monkeypatch, request):
     """物理表、采集列、口径和已生效路径均在 tests/db 的临时库中建立。"""
     owner = factory.user(roles=("admin",))
     metric_code = factory.metric(owner)
     schema = f"alignment_{uuid.uuid4().hex[:10]}"
+    numeric_keys = getattr(request, "param", None) == "numeric"
+    key_type = "integer" if numeric_keys else "text"
     settings = replace(get_settings(), ask_live_check=True)
     database = make_url(settings.database_url)
     statements = []
@@ -74,21 +78,25 @@ def alignment_pg(factory, monkeypatch):
     with get_engine().begin() as connection:
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         connection.exec_driver_sql(
-            f'CREATE TABLE "{schema}".fact (member text NOT NULL, amount numeric NOT NULL, day date NOT NULL)'
+            f'CREATE TABLE "{schema}".fact (member {key_type} NOT NULL, amount numeric NOT NULL, day date NOT NULL)'
         )
         connection.exec_driver_sql(
-            f'CREATE TABLE "{schema}".dimension (member text PRIMARY KEY, alias text NOT NULL, label text NOT NULL)'
+            f'CREATE TABLE "{schema}".dimension '
+            f"(member {key_type} PRIMARY KEY, alias text NOT NULL, label text NOT NULL)"
         )
-        connection.execute(
-            text(f'INSERT INTO "{schema}".fact (member, amount, day) VALUES (:member, :amount, :day)'),
-            [
-                {"member": "member_a", "amount": 10, "day": "2026-01-01"},
-                {"member": "member_b", "amount": 20, "day": "2026-01-01"},
-            ],
-        )
+        if not numeric_keys:
+            connection.execute(
+                text(f'INSERT INTO "{schema}".fact (member, amount, day) VALUES (:member, :amount, :day)'),
+                [
+                    {"member": "member_a", "amount": 10, "day": "2026-01-01"},
+                    {"member": "member_b", "amount": 20, "day": "2026-01-01"},
+                ],
+            )
         connection.execute(
             text(f'INSERT INTO "{schema}".dimension (member, alias, label) VALUES (:member, :alias, :label)'),
-            [
+            [{"member": key, "alias": "shared_alias", "label": "shared_label"} for key in (1, 2)]
+            if numeric_keys
+            else [
                 {"member": "member_a", "alias": "alias_a", "label": "shared_label"},
                 {"member": "member_b", "alias": "x' OR 1=1 --", "label": "shared_label"},
             ],
@@ -153,8 +161,8 @@ def alignment_pg(factory, monkeypatch):
             session.flush()
             return current
 
-        fact = asset("fact", [("member", "text"), ("amount", "numeric"), ("day", "date")])
-        dimension = asset("dimension", [("member", "text"), ("alias", "text"), ("label", "text")], unique=True)
+        fact = asset("fact", [("member", key_type), ("amount", "numeric"), ("day", "date")])
+        dimension = asset("dimension", [("member", key_type), ("alias", "text"), ("label", "text")], unique=True)
         version = MetricVersion(
             metric_id=metric.id,
             version_no=1,
@@ -335,3 +343,65 @@ def test_outside_sample_values_share_one_existence_query_on_postgresql(alignment
     assert not result.unknown and not result.unresolved
     assert len(world.statements) == 1
     assert "member_a" in world.statements[0] and "member_b" in world.statements[0]
+
+
+@pytest.mark.parametrize("alignment_pg", ["numeric"], indirect=True)
+def test_confirmed_numeric_dimension_key_executes_empty_query_on_postgresql(alignment_pg):
+    world = alignment_pg
+    session = world.session
+    metric = session.get(Metric, world.version.metric_id)
+    catalog = service.Catalog([], {metric.code: (metric, world.version)})
+    box = SimpleNamespace(
+        session=session,
+        user=world.user,
+        catalog=catalog,
+        budget=SimpleNamespace(remaining=lambda: 60),
+        filter_alignment=[],
+        filter_alignment_unknown=[],
+    )
+    scope = Scope(
+        question_type="lookup",
+        metric_codes=[metric.code],
+        filters=[DimensionFilter(dimension="dimension_a", values=["shared_alias"])],
+        dimensions=["dimension_a"],
+    )
+    _, unresolved = agent._align_scope_filters(box, scope)
+    _, details = agent._filter_clarification(unresolved)
+    assert details["items"][0]["options"] == ["1", "2"]
+    assert details["items"][0]["candidate_sources"] == {"1": [world.dimension_id], "2": [world.dimension_id]}
+    selections = agent._alignment_selections("1", details["items"])
+    value = selections[("dimension_a", "shared_alias")]
+    scope.filters[0].values = [value]
+    box.filter_alignment = [
+        {
+            "dimension": "dimension_a",
+            "original": "shared_alias",
+            "value": value,
+            "method": "confirmed",
+            "asset_id": world.dimension_id,
+        }
+    ]
+    query_count = len(world.statements)
+
+    aligned, unresolved = agent._align_scope_filters(box, scope)
+
+    assert not unresolved and aligned.filters[0].values == ["1"]
+    assert len(world.statements) == query_count  # 确认的数字键不再进入别名匹配 SQL。
+    answer = service.start_answer(session, world.user, "shared_alias", "offline", None)
+    service.fulfil(
+        session,
+        world.user,
+        Intent(
+            metric_code=metric.code,
+            filters=aligned.filters,
+            group_by=aligned.dimensions,
+            start_date="2026-01-01",
+            end_date="2026-01-31",
+        ),
+        answer,
+        catalog,
+        settings=replace(world.settings, query_max_rows=service.DIMENSION_VALUES_LIMIT, query_timeout_seconds=10),
+    )
+    assert answer.status == "answered", (answer.error_code, answer.message)
+    assert answer.result["rows"] == [] and not answer.cache_hit
+    assert len(world.statements) == query_count + 1 and "'1'" in answer.sql
