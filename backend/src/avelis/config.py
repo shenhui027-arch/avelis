@@ -97,6 +97,7 @@ class Settings:
     webhook_allow_private_urls: bool = False
     webhook_max_attempts: int = 8
     webhook_retry_max_minutes: int = 60
+    events_delivered_retention_days: int = 30
     history_retention_days: int = 1095
     history_purge_interval_hours: int = 24
     history_export_max_rows: int = 50000
@@ -312,6 +313,9 @@ def _build_settings(env: dict[str, str]) -> Settings:
         webhook_retry_max_minutes=_positive_int(
             env, "AVELIS_WEBHOOK_RETRY_MAX_MINUTES", Settings.webhook_retry_max_minutes
         ),
+        events_delivered_retention_days=_nonnegative_int(
+            env, "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS", Settings.events_delivered_retention_days
+        ),
         history_retention_days=int(env.get("AVELIS_HISTORY_RETENTION_DAYS", "1095")),
         history_purge_interval_hours=int(env.get("AVELIS_HISTORY_PURGE_INTERVAL_HOURS", "24")),
         history_export_max_rows=int(env.get("AVELIS_HISTORY_EXPORT_MAX_ROWS", "50000")),
@@ -419,6 +423,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_ANALYSIS_INPUT_TOKENS",
         "AVELIS_ANALYSIS_OUTPUT_TOKENS",
         "AVELIS_REDIS_DB",
+        "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS",
     }
     bounded = {"AVELIS_PORT": 65535, "AVELIS_DB_PORT": 65535, "AVELIS_COLLECT_INTERVAL_MINUTES": 1440}
     for spec in CONFIG_KEYS.values():

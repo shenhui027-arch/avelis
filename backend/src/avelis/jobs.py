@@ -350,7 +350,7 @@ def _guarded(name: str, fn, default=None):
 def scan_once() -> None:
     """一轮定时扫描：回收超时任务、入队到期任务、执行排队过久的任务、清理超期历史。每一项单独容错。"""
     from avelis.analysis import service as analysis_service
-    from avelis.events.delivery import deliver_due
+    from avelis.events.cleanup import purge as purge_events
     from avelis.oauth.cleanup import purge as purge_oauth
 
     _guarded("回收超时任务", abandoned_jobs)
@@ -363,7 +363,20 @@ def scan_once() -> None:
         _guarded(f"执行任务 {job_id}", lambda job_id=job_id: run_job(job_id))
     _guarded("清理超期历史", purge_history_if_due)
     _guarded("清理 OAuth 过期记录", purge_oauth)
-    _guarded("投递治理事件", deliver_due)
+    _guarded("清理治理事件发件箱", purge_events)
+
+
+def _deliver_events_loop(stop: threading.Event) -> None:
+    """每个 worker 只有一个投递循环，不受同步业务任务或历史清理耗时影响。"""
+    from avelis.events.delivery import deliver_due
+
+    while not stop.is_set():
+        started = time.monotonic()
+        _guarded("投递治理事件", deliver_due)
+        # 单轮投递同步完成后才可能开始下一轮；慢请求不会产生重叠线程或积压任务。
+        interval = max(1, get_settings().worker_schedule_seconds)
+        if stop.wait(max(0, started + interval - time.monotonic())):
+            break
 
 
 def main() -> None:
@@ -376,16 +389,18 @@ def main() -> None:
         raise SystemExit(2) from None
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     stop = False
+    heartbeat_stop = threading.Event()
+    heartbeat_ready = threading.Event()
+    delivery_stop = threading.Event()
 
     def _stop(*_):
         nonlocal stop
         stop = True
+        delivery_stop.set()
 
     signal.signal(signal.SIGINT, _stop)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _stop)
-    heartbeat_stop = threading.Event()
-    heartbeat_ready = threading.Event()
 
     def _heartbeat():
         while True:
@@ -400,7 +415,11 @@ def main() -> None:
                 break
 
     heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+    delivery_thread = threading.Thread(
+        target=_deliver_events_loop, args=(delivery_stop,), name="avelis-webhooks", daemon=True
+    )
     heartbeat_thread.start()
+    delivery_thread.start()
     last_schedule = 0.0
     log.info("worker 已启动")
     try:
@@ -422,6 +441,9 @@ def main() -> None:
                 except Exception:  # noqa: BLE001 - 单个任务的意外错误不能让 worker 退出
                     log.exception("任务 %s 执行异常", item[1])
     finally:
+        delivery_stop.set()
+        # 等待当前轮结束，确保退出后没有后台投递继续访问数据库；DNS/数据库等待沿用现有限制。
+        delivery_thread.join()
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=1)
         _guarded("删除 worker 心跳", lambda: cache.client().delete(cache.WORKER_HEARTBEAT))

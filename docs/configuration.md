@@ -189,7 +189,7 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 |---|---|---|---|
 | `[collect] interval_minutes` | `AVELIS_COLLECT_INTERVAL_MINUTES` | `15` | 新建数据源的默认采集间隔，分钟（每个数据源可单独修改） |
 | `[collect] ddl_audit_slack_seconds` | `AVELIS_DDL_AUDIT_SLACK_SECONDS` | `5` | DDL 审计归因窗口两端的时钟容差，秒 |
-| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | 定时扫描间隔，秒 |
+| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | 业务任务扫描与独立 Webhook 投递循环的间隔，秒 |
 | `[worker] stale_seconds` | `AVELIS_WORKER_STALE_SECONDS` | `30` | 排队多久未执行的任务由扫描补执行，秒 |
 | `[worker] running_timeout_seconds` | `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS` | `3600` | 运行超时记为失败（不自动重跑），秒 |
 | `[history] retention_days` | `AVELIS_HISTORY_RETENTION_DAYS` | `1095` | 变更留底保留天数，`0` 为不清理 |
@@ -197,7 +197,15 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 | `[history] export_max_rows` | `AVELIS_HISTORY_EXPORT_MAX_ROWS` | `50000` | 变更记录一次导出的行数上限 |
 | `[import] max_bytes` | `AVELIS_IMPORT_MAX_BYTES` | `2097152` | 导入血缘时单个文件或粘贴内容的上限，字节 |
 
-超时采集和导入的治理收尾会在后续扫描中重试，业务任务本身不会自动重跑。Webhook 投递每轮共用固定 5 秒预算，单次请求最多 5 秒、连接最多 3 秒；连续失败两次的订阅在本轮跳过剩余条目。此预算暂无环境变量或 TOML 配置入口，详见[事件投递规则](events.md#投递与签名验证)。
+超时采集和导入的治理收尾会在后续扫描中重试，业务任务本身不会自动重跑。每个 worker 使用独立的单投递循环，长业务任务和历史清理不会推迟 Webhook 投递。每轮最多处理 50 条，共用固定 5 秒预算；按订阅轮转，每个订阅先取一条，再轮到下一条。单次请求最多 5 秒、连接最多 3 秒，并按尚未轮到的订阅公平分配剩余预算；同一订阅出现超时后，本轮跳过它的其余条目，其他失败仍沿用连续两次跳过的规则。投递预算暂无环境变量或 TOML 配置入口，详见[事件投递规则](events.md#投递与签名验证)。
+
+### 事件发件箱 `[events]`
+
+| 配置文件 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `delivered_retention_days` | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `30` | 已投递事件快照的保留天数，按 `delivered_at` 计算；非负整数，`0` 为不清理 |
+
+默认保留 30 天，为近期排障提供记录，同时限制成功投递快照的持续增长。每次 worker 定时扫描与 OAuth 清理一起，最多删除 500 条超过保留期的 `delivered` 记录，不等待历史清理周期；正在使用的行通过 `SKIP LOCKED` 留待后续扫描。`pending` 不清理。`dead` 也不自动清理，以保留人工修复后重投的机会；当前没有可靠的死信终态时间，不能用事件创建时间代替死信保留期起点。
 
 ### 分析智能体 `[analysis]`
 

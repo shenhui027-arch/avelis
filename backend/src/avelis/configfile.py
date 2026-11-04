@@ -84,6 +84,7 @@ CONFIG_KEYS = {
     "webhook.allow_private_urls": ConfigKey("AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS", bool, False),
     "webhook.max_attempts": ConfigKey("AVELIS_WEBHOOK_MAX_ATTEMPTS", int, 8),
     "webhook.retry_max_minutes": ConfigKey("AVELIS_WEBHOOK_RETRY_MAX_MINUTES", int, 60),
+    "events.delivered_retention_days": ConfigKey("AVELIS_EVENTS_DELIVERED_RETENTION_DAYS", int, 30),
     "history.retention_days": ConfigKey("AVELIS_HISTORY_RETENTION_DAYS", int, 1095),
     "history.purge_interval_hours": ConfigKey("AVELIS_HISTORY_PURGE_INTERVAL_HOURS", int, 24),
     "history.export_max_rows": ConfigKey("AVELIS_HISTORY_EXPORT_MAX_ROWS", int, 50000),

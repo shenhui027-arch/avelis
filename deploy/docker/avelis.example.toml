@@ -148,6 +148,9 @@ retention_days = 1095             # 变更留底保留天数，0 = 不清理。A
 purge_interval_hours = 24         # 清理间隔，小时。AVELIS_HISTORY_PURGE_INTERVAL_HOURS
 export_max_rows = 50000           # 变更记录一次导出的行数上限。AVELIS_HISTORY_EXPORT_MAX_ROWS
 
+[events]
+delivered_retention_days = 30     # 已投递的通知快照保留天数，0 = 不清理；待投递与死信不自动清理。AVELIS_EVENTS_DELIVERED_RETENTION_DAYS
+
 [import]
 max_bytes = 20971520              # 导入血缘时单个文件或粘贴内容的上限，20 MB，字节。AVELIS_IMPORT_MAX_BYTES
 max_batch_bytes = 104857600       # 导入血缘时整个批次的内容上限，100 MB，字节。AVELIS_IMPORT_MAX_BATCH_BYTES
