@@ -9,6 +9,7 @@ from alembic.operations import Operations
 from sqlalchemy import inspect, text
 
 from avelis.db import get_engine, new_id
+from tests.db.conftest import TEST_DB
 
 pytestmark = pytest.mark.db
 
@@ -22,7 +23,7 @@ def test_dead_retention_migration_backfills_only_dead_at_migration_time_and_down
     # The transaction rollback also removes this schema and its fixtures.
     schema = f"retention_{new_id()}"
     with get_engine().connect() as connection, connection.begin() as transaction:
-        assert connection.scalar(text("SELECT current_database()")) == "avelis_m8_test"
+        assert connection.scalar(text("SELECT current_database()")) == TEST_DB
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
         connection.exec_driver_sql("SET LOCAL TIME ZONE 'Pacific/Honolulu'")
