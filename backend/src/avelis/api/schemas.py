@@ -991,6 +991,11 @@ class ChartOthers(Out):
     count: int
 
 
+class ChartOmittedCategories(Out):
+    count: int = Field(ge=1, description="未展示且未合并进 others 的原始类目数")
+    reason: Literal["display_limit", "top_n"]
+
+
 class ChartSpec(Out):
     kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
     title: str | None = None
@@ -1003,6 +1008,12 @@ class ChartSpec(Out):
     series: list[ChartSeries]
     kpis: list[ChartKpi]
     others: ChartOthers | None
+    omitted_categories: ChartOmittedCategories | None = Field(
+        default=None,
+        description=(
+            "类目省略信息；非空时 categories/series 仅含展示数据，完整表格须从原数据集读取。与 others 不重复计数。"
+        ),
+    )
     dropped_series: int
 
 

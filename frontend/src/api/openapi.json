@@ -10720,6 +10720,31 @@
     ],
     "title": "ChartKpi"
    },
+   "ChartOmittedCategories": {
+    "properties": {
+     "count": {
+      "type": "integer",
+      "minimum": 1.0,
+      "title": "Count",
+      "description": "未展示且未合并进 others 的原始类目数"
+     },
+     "reason": {
+      "type": "string",
+      "enum": [
+       "display_limit",
+       "top_n"
+      ],
+      "title": "Reason"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "count",
+     "reason"
+    ],
+    "title": "ChartOmittedCategories"
+   },
    "ChartOthers": {
     "properties": {
      "count": {
@@ -10903,6 +10928,17 @@
         "type": "null"
        }
       ]
+     },
+     "omitted_categories": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChartOmittedCategories"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "类目省略信息；非空时 categories/series 仅含展示数据，完整表格须从原数据集读取。与 others 不重复计数。"
      },
      "dropped_series": {
       "type": "integer",

@@ -2224,3 +2224,9 @@ msgstr "查詢資料來源失敗：{error}"
 msgid "模型调用失败：{error}"
 msgstr "模型呼叫失敗：{error}"
 
+
+msgid "图表因展示上限省略了 {count} 个类目；完整数据请查看原数据集。"
+msgstr "圖表因顯示上限省略了 {count} 個類目；完整資料請查看原資料集。"
+
+msgid "图表按 Top N 设置省略了 {count} 个类目；完整数据请查看原数据集。"
+msgstr "圖表按 Top N 設定省略了 {count} 個類目；完整資料請查看原資料集。"

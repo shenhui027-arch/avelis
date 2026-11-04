@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
+from avelis.collect.service import current_fingerprints
 from avelis.engines import engine_of
 from avelis.governance import access
 from avelis.governance.derived import parse_formula
@@ -55,6 +56,7 @@ def _check_reimport(session: Session, actor: User, document: dict[str, Any]) -> 
         with session.no_autoflush:
             datasets, paths = _catalog(session, actor, document, errors)
             if not errors:
+                fingerprints = current_fingerprints(session, asset_ids={data["asset"].id for data in datasets.values()})
                 for scope, item, path in iter_metrics(document):
                     if len(item["name"]) > 64 or not re.fullmatch(r"[a-z0-9_]+", item["name"]):
                         errors.append(
@@ -66,7 +68,7 @@ def _check_reimport(session: Session, actor: User, document: dict[str, Any]) -> 
                         )
                         continue
                     try:
-                        _plan(session, actor, document, scope, item, datasets, paths)
+                        _plan(session, actor, document, scope, item, datasets, paths, fingerprints)
                     except (ValueError, TypeError, KeyError, GovernanceError, SqlglotError) as exc:
                         reason = "avelis 扩展或 ai_context 字段无效" if isinstance(exc, ValidationError) else str(exc)
                         errors.append({"layer": "catalog", "path": path, "reason": gettext(reason)})

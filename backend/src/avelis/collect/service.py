@@ -944,11 +944,16 @@ def relink_all(session: Session) -> list[dict[str, Any]]:
 # --- 指纹 -------------------------------------------------------------------------
 
 
-def current_fingerprints(session: Session) -> dict[tuple[str, str], ColumnFingerprint]:
-    return {
-        (f.asset_id, f.column_name): f
-        for f in session.scalars(select(ColumnFingerprint).where(ColumnFingerprint.superseded_at.is_(None)))
-    }
+def current_fingerprints(
+    session: Session, *, asset_ids: set[str] | None = None
+) -> dict[tuple[str, str], ColumnFingerprint]:
+    """读取活跃指纹；可按本次操作涉及的资产批量限定范围，空集合不查询。"""
+    if asset_ids is not None and not asset_ids:
+        return {}
+    statement = select(ColumnFingerprint).where(ColumnFingerprint.superseded_at.is_(None))
+    if asset_ids is not None:
+        statement = statement.where(ColumnFingerprint.asset_id.in_(asset_ids))
+    return {(f.asset_id, f.column_name): f for f in session.scalars(statement)}
 
 
 def refresh_fingerprints(session: Session, run_id: str | None) -> list[dict[str, Any]]:

@@ -23,7 +23,9 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
   const canvas = useRef<EChartHandle>(null);
   const spec = charts[Math.min(index, charts.length - 1)];
   if (!spec) return <>{children}</>;
-  const table = children ?? <SpecTable spec={spec} />;
+  // 报告插图没有原始结果表：规格里只有画出来的类目，省略了的要去数据集里看
+  const table = children ?? <>{spec.omitted_categories ? <p className="av-caption av-chartpanel__note">
+    {t("表格只列出图中的类目，完整数据见下方数据集")}</p> : null}<SpecTable spec={spec} /></>;
   if (spec.kind === "kpi") return <KpiCards kpis={spec.kpis} />;
   const download = () => {
     const url = canvas.current?.png();
@@ -71,8 +73,18 @@ function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean })
     spec.others ? t("其余 {{count}} 项合并为“其他”", { count: spec.others.count }) : "",
     spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
       : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
+    omitted(spec, fullTable),
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
+}
+
+/** 类目截断：展示上限截掉的要说出去哪里看全；前 N 是用户自己的设置，只说明还有几项。 */
+function omitted(spec: ChartSpec, fullTable: boolean): string {
+  const o = spec.omitted_categories;
+  if (!o?.count) return "";
+  if (o.reason === "top_n") return t("按前 N 项显示，另有 {{count}} 项未列出", { count: o.count });
+  return fullTable ? t("另有 {{count}} 个类目未画出，见表格", { count: o.count })
+    : t("另有 {{count}} 个类目未画出，见下方数据集", { count: o.count });
 }
 
 /** 差额的量纲：比率之差显示为“个百分点”，其余沿用原单位。 */

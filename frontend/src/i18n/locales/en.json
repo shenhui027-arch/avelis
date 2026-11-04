@@ -1623,5 +1623,13 @@
   "对比期": "Comparison period",
   "模型对结果的说明，只引用上面的数值": "Model summary of the result; it only cites the values above",
   "另有 {{count}} 个系列未画出，见下方数据集_one": "{{count}} more series not drawn; see the dataset below",
-  "另有 {{count}} 个系列未画出，见下方数据集_other": "{{count}} more series not drawn; see the dataset below"
+  "另有 {{count}} 个系列未画出，见下方数据集_other": "{{count}} more series not drawn; see the dataset below",
+  "所用口径因上游变化待复核，下面的数值按当时的口径计算": "The metric this answer used is awaiting review after an upstream change; the figures below were calculated with the definition in effect at the time",
+  "表格只列出图中的类目，完整数据见下方数据集": "The table lists only the categories in the chart; see the dataset below for all data",
+  "另有 {{count}} 个类目未画出，见表格_one": "{{count}} more category not drawn; see the table",
+  "另有 {{count}} 个类目未画出，见表格_other": "{{count}} more categories not drawn; see the table",
+  "另有 {{count}} 个类目未画出，见下方数据集_one": "{{count}} more category not drawn; see the dataset below",
+  "另有 {{count}} 个类目未画出，见下方数据集_other": "{{count}} more categories not drawn; see the dataset below",
+  "按前 N 项显示，另有 {{count}} 项未列出_one": "Showing the top N; {{count}} more not listed",
+  "按前 N 项显示，另有 {{count}} 项未列出_other": "Showing the top N; {{count}} more not listed"
 }
