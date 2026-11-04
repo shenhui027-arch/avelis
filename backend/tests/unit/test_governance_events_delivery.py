@@ -788,3 +788,35 @@ def test_persisted_disabled_future_and_terminal_entries_are_not_attempted(databa
     assert received == [outbox.id, "disabled"]
     with database() as session:
         assert session.get(EventOutbox, "disabled").status == "delivered"
+
+
+def test_second_deferred_delivery_waits_for_a_full_round_instead_of_the_leftover_budget(database, monkeypatch, outbox):
+    """两个已推迟的健康接收端各要 3 秒：前一个用掉本轮预算后，后一个留到下一轮当第一条，不拿剩余时间、不计失败。"""
+    monkeypatch.setattr(delivery, "session_scope", database)
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    queue_subscription_backlogs(database, outbox, [("a", 1), ("b", 1)])
+    with database() as session:
+        for identifier in ("a-0", "b-0"):
+            session.get(EventOutbox, identifier).last_error = delivery.BUDGET_TIMEOUT
+    sent = []
+
+    def send(subscription, item, *, timeout_seconds, **kwargs):
+        sent.append((item.id, timeout_seconds))
+        if timeout_seconds < 3:
+            clock[0] += timeout_seconds
+            raise delivery.DeliveryError("timeout")
+        clock[0] += 3
+
+    monkeypatch.setattr(delivery, "send_webhook", send)
+    assert delivery.deliver_due() == 1
+    assert sent == [("a-0", 5.0)]
+    with database() as session:
+        waiting = session.get(EventOutbox, "b-0")
+        assert waiting.status == "pending" and waiting.attempts == 0 and waiting.last_error == delivery.BUDGET_TIMEOUT
+    assert delivery.deliver_due() == 1
+    assert sent[-1] == ("b-0", 5.0)
+    with database() as session:
+        assert session.get(EventOutbox, "a-0").status == "delivered"
+        delivered = session.get(EventOutbox, "b-0")
+        assert delivered.status == "delivered" and delivered.attempts == 1

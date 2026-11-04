@@ -15,7 +15,7 @@ from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
@@ -173,12 +173,23 @@ def _due_filters(now, handled, excluded_subscriptions):
     )
 
 
-def _due_statement(now, handled: set[str], blocked_subscriptions: set[str] | frozenset[str] = frozenset()):
-    return (
+def _due_statement(
+    now,
+    handled: set[str],
+    blocked_subscriptions: set[str] | frozenset[str] = frozenset(),
+    *,
+    include_deferred: bool = True,
+):
+    stmt = (
         select(EventOutbox, WebhookSubscription)
         .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
         .where(*_due_filters(now, handled, blocked_subscriptions))
-        # 被调度切短过的记录排在最前，在一轮开头拿到完整期限，保证它们最终有一次完整尝试。
+    )
+    if not include_deferred:
+        stmt = stmt.where(or_(EventOutbox.last_error.is_(None), EventOutbox.last_error != BUDGET_TIMEOUT))
+    return (
+        stmt
+        # 被调度切短过的记录排在最前，作为一轮的第一条拿到整轮预算，保证它们最终有一次完整尝试。
         .order_by(
             # last_error 可为 NULL：PostgreSQL 的 DESC 默认 NULLS FIRST，用非空排序键避免新记录插到前面。
             case((EventOutbox.last_error == BUDGET_TIMEOUT, 0), else_=1),
@@ -218,12 +229,14 @@ def deliver_due(
             with session_scope() as session:
                 now = utcnow()
                 excluded = blocked_subscriptions | served_subscriptions
-                row = session.execute(_due_statement(now, handled, excluded)).first()
+                # 被推迟的记录只能作为一轮的第一条发送（那时才拿得到整轮预算）；之后的留到下一轮。
+                first = attempts == 0
+                row = session.execute(_due_statement(now, handled, excluded, include_deferred=first)).first()
                 if row is None and served_subscriptions:
                     # 每个可认领订阅先投一条，全部轮过后才能继续下一条。
                     served_subscriptions.clear()
                     excluded = blocked_subscriptions
-                    row = session.execute(_due_statement(now, handled, excluded)).first()
+                    row = session.execute(_due_statement(now, handled, excluded, include_deferred=first)).first()
                 if row is None:
                     break
                 outbox, subscription = row
@@ -233,7 +246,8 @@ def deliver_due(
                     break
                 # 当前订阅只能使用本轮的一份预算，给尚未轮到的订阅留出发送机会。
                 waiting = min(max(1, subscription_count), batch_size - attempts)
-                share = remaining if outbox.last_error == BUDGET_TIMEOUT else remaining / waiting
+                deferred = outbox.last_error == BUDGET_TIMEOUT
+                share = remaining if deferred else remaining / waiting
                 timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, share)
                 handled.add(outbox.id)
                 served_subscriptions.add(subscription.id)
@@ -242,10 +256,9 @@ def deliver_due(
                 try:
                     send_webhook(subscription, outbox, transport=transport, timeout_seconds=timeout_seconds)
                 except DeliveryError as exc:
-                    deferred = outbox.last_error == BUDGET_TIMEOUT
                     if str(exc) == "timeout" and timeout_seconds < _REQUEST_TIMEOUT_SECONDS and not deferred:
-                        # 期限是调度切短的：不判接收端失败；本轮跳过该订阅，记录仍到期，下一轮优先并用整轮剩余预算重试。
-                        # 只让一次：优先重试那次再超时就照常计入重试次数，不会无限推迟。
+                        # 期限是调度切短的：不判接收端失败；本轮跳过该订阅，记录仍到期，下一轮作为第一条用整轮预算重试。
+                        # 只让一次：那次拿到了本轮能给的全部预算，再超时就照常计入重试次数，不会无限推迟。
                         outbox.attempts -= 1
                         outbox.last_error = BUDGET_TIMEOUT
                         blocked_subscriptions.add(subscription.id)
