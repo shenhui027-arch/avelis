@@ -163,6 +163,13 @@ class JobOut(Out):
 # --- 目录、血缘 --------------------------------------------------------------------
 
 
+class CatalogCountsOut(Out):
+    metrics: int
+    assets: int
+    domains: int
+    join_paths: int
+
+
 class MemberOut(Out):
     user_id: str
     role: str

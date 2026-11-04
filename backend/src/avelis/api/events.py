@@ -94,6 +94,7 @@ class OutboxOut(BaseModel):
     last_error: str | None
     created_at: datetime
     delivered_at: datetime | None
+    dead_at: datetime | None
 
 
 class OutboxPage(BaseModel):
@@ -278,6 +279,7 @@ def redeliver(
     item.next_attempt_at = utcnow()
     item.last_error = None
     item.delivered_at = None
+    item.dead_at = None
     audit.record(session, user, "event_outbox.redeliver", "event_outbox", item.id)
     session.flush()
     return item

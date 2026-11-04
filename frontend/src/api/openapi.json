@@ -1319,6 +1319,33 @@
     }
    }
   },
+  "/api/catalog/counts": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Catalog Counts",
+    "description": "与无筛选列表相同的可见数量，在一条 SQL 中聚合，不加载目录对象。",
+    "operationId": "catalog_counts_api_catalog_counts_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CatalogCountsOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/domains": {
    "get": {
     "tags": [
@@ -1700,6 +1727,42 @@
        "type": "boolean",
        "default": false,
        "title": "Include Deleted"
+      }
+     },
+     {
+      "name": "ids",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "maxItems": 200
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Ids"
+      }
+     },
+     {
+      "name": "queryable",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Queryable"
       }
      },
      {
@@ -10463,6 +10526,35 @@
     ],
     "title": "CandidateOut"
    },
+   "CatalogCountsOut": {
+    "properties": {
+     "metrics": {
+      "type": "integer",
+      "title": "Metrics"
+     },
+     "assets": {
+      "type": "integer",
+      "title": "Assets"
+     },
+     "domains": {
+      "type": "integer",
+      "title": "Domains"
+     },
+     "join_paths": {
+      "type": "integer",
+      "title": "Join Paths"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "metrics",
+     "assets",
+     "domains",
+     "join_paths"
+    ],
+    "title": "CatalogCountsOut"
+   },
    "ChainIssueOut": {
     "properties": {
      "kind": {
@@ -15787,6 +15879,18 @@
        }
       ],
       "title": "Delivered At"
+     },
+     "dead_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dead At"
      }
     },
     "type": "object",
@@ -15800,7 +15904,8 @@
      "next_attempt_at",
      "last_error",
      "created_at",
-     "delivered_at"
+     "delivered_at",
+     "dead_at"
     ],
     "title": "OutboxOut"
    },

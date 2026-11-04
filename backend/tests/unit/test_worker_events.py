@@ -157,3 +157,38 @@ def test_delivery_loop_does_not_overlap_or_create_more_threads(monkeypatch):
 
     assert not thread.is_alive()
     assert calls == [thread, thread]
+
+
+def test_worker_limits_delivery_shutdown_wait_to_five_seconds(monkeypatch, worker):
+    started, release = threading.Event(), threading.Event()
+    joins, delivery_threads = [], []
+    original_thread = threading.Thread
+
+    class Thread(original_thread):
+        def join(self, timeout=None):
+            if self.name == "avelis-webhooks":
+                joins.append(timeout)
+                delivery_threads.append(self)
+                # 验证传入原生 join 的硬期限，不让测试本身等待五秒。
+                return super().join(timeout=min(timeout, 0.01) if timeout is not None else None)
+            return super().join(timeout)
+
+    def deliver():
+        started.set()
+        release.wait(2)
+
+    def scan():
+        assert started.wait(1)
+        worker.handlers[jobs.signal.SIGINT]()
+
+    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=Thread, Event=threading.Event))
+    monkeypatch.setattr(jobs, "scan_once", scan)
+    monkeypatch.setattr(delivery, "deliver_due", deliver)
+    try:
+        jobs.main()
+        assert joins == [5.0]
+        assert delivery_threads[0].is_alive()
+    finally:
+        release.set()
+        if delivery_threads:
+            original_thread.join(delivery_threads[0], timeout=1)

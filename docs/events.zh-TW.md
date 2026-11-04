@@ -82,15 +82,17 @@
 
 ## 投遞與簽章驗證
 
-每個 worker 在 `jobs.py` 中執行一個獨立的投遞迴圈，按 `worker.schedule_seconds` 排程，不等待長業務任務或歷史清理結束。每輪處理到期且訂閱啟用的 `pending` 項目，最多 50 筆，共用固定 5 秒投遞預算。按訂閱公平輪流處理：每個訂閱先取一筆，全部輪到後再處理各訂閱的下一筆，避免較早的同訂閱積壓佔滿整輪。
+每個 worker 在 `jobs.py` 中執行一個獨立的投遞迴圈，按 `worker.schedule_seconds` 排程，不等待長業務任務或歷史清理結束。每輪處理到期且訂閱啟用的 `pending` 項目，最多 50 筆，共用固定 5 秒投遞預算。按訂閱公平輪流並行傳送：每個訂閱先取一筆，全部輪到後再處理各訂閱的下一筆，避免較早的同訂閱積壓佔滿整輪。每個 worker 的並行上限由 `webhook.concurrency` 控制，預設 4；同一訂閱同一時間最多一個請求進行中，即使多個 worker 同時執行也一樣。
 
-請求的網路等待受總期限取消保護，單次最多 5 秒、連線最多 3 秒；單次期限也受本輪剩餘預算的公平份額限制，為尚未輪到的訂閱留出時間。預算到期後停止本輪，未嘗試的項目維持原狀，下輪繼續。預算之外仍有同步 DNS 驗證、資料庫交易與本機排程開銷。同一訂閱本輪發生一次逾時後，跳過其餘項目，繼續處理其他訂閱；其他失敗仍在連續兩次後跳過，成功會歸零連續失敗計數，下輪重新計數。請求不跟隨重新導向，不使用環境代理。只有 `2xx` 算成功。失敗按 1、2、4、8……分鐘退避，預設間隔上限 60 分鐘、每筆最多嘗試 8 次；達到上限後為 `dead`，可由管理員重投。重投保留事件 ID 與寄件匣 ID，將 attempts 歸零並改回 pending。
+並行名額與整輪預算都有限。如果排在前面的緩慢請求佔滿所有名額直到本輪結束，後排正常訂閱可能到下一輪才投遞。並行降低緩慢訂閱對其他訂閱的影響，不保證任意數量的緩慢訂閱同時存在時，所有正常訂閱都能首輪投遞；`timeout_budget` 保護的是已啟動的請求不因輪尾期限過短而耗盡重試次數。
+
+單次請求的 DNS 解析與網路等待共同受總期限約束，最多 5 秒、連線最多 3 秒，且不超過本輪剩餘預算；不再按訂閱數量分配公平份額、縮短請求期限。DNS 停滯按 `timeout` 處理，不阻塞其他投遞名額；資料庫短交易與本機排程仍有額外開銷。預算到期後停止本輪，未嘗試的項目維持原狀，下輪繼續。項目首次因本輪剩餘預算不足完整 5 秒而逾時時，使用 `timeout_budget` 延後一次，不消耗嘗試次數，並在下輪第一批優先重試，避免新記錄插隊。已標記 `timeout_budget` 的項目在下一輪取得整輪能提供的期限；再次逾時正常計入重試，避免無法連線的訂閱始終不計次，並非每次輪尾逾時都免計次。同一訂閱本輪發生一次逾時後，跳過其餘項目；其他失敗仍在連續兩次後跳過，成功會歸零連續失敗計數，下輪重新計數。worker 結束時等待進行中的請求最多 5 秒。請求不跟隨重新導向，不使用環境代理。只有 `2xx` 算成功。失敗按 1、2、4、8……分鐘退避，預設間隔上限 60 分鐘、每筆最多嘗試 8 次；達到上限後為 `dead` 並寫入 `dead_at`，可由管理員在保留期內重投。重投保留事件 ID 與寄件匣 ID，將 attempts 歸零、`dead_at` 清空並改回 pending。
 
 採集或匯入 Job 逾時後，在同一交易的 `result.abandoned_governance` 寫入 `pending`。後續掃描會重試未完成的治理收尾，並在 Job 資料列鎖定下，將關聯物件終態、失敗稽核、事件寄件匣及 `done` 標記一併提交。收尾失敗則全部回復，後續重試不重複寫入稽核或事件，也不會重跑業務任務。
 
-稽核比對訂閱時，按訂閱 ID 順序以 `FOR KEY SHARE` 讀取啟用的訂閱，防止並行刪除訂閱造成寄件匣外鍵失敗並回滾業務。投遞交易使用 `FOR NO KEY UPDATE SKIP LOCKED` 鎖住選中的列，逐筆提交：投遞 worker 與訂閱管理操作仍互斥，同時相容於業務交易的 KEY SHARE 鎖。
+稽核比對訂閱時，按訂閱 ID 順序以 `FOR KEY SHARE` 讀取啟用的訂閱，防止並行刪除訂閱造成寄件匣外鍵失敗並回滾業務。投遞逐筆認領，每個請求使用獨立 Session；認領與結果寫回各自使用短交易，以 `FOR NO KEY UPDATE SKIP LOCKED` 跳過其他交易鎖定的資料列。HTTP 等待期間不持有資料列鎖或開放的資料庫交易，避免阻塞業務與訂閱管理。訂閱級 PostgreSQL advisory lock 保證多個 worker 之間同一訂閱也只有一個請求進行中。選用逐筆短交易而非在一批記錄的資料列鎖下等待 HTTP，讓緩慢接收端不會延長鎖定時間。
 
-遠端已接收、本地提交前程序結束時仍可能重複傳送，因此語義為至少一次，接收方必須按事件 id 去重。不保證順序；需要順序時應結合 at 與業務物件版本判斷。投遞失敗不回滾已提交的業務或稽核。last_error 只存安全錯誤碼，例如 timeout、network_error、url_rejected 或 http_500，不儲存回應本文。
+遠端已接收、本地提交前程序結束時仍可能重複傳送，因此語義為至少一次，接收方必須按事件 id 去重。同一訂閱逐筆傳送，不同訂閱之間不保證順序；判斷業務順序時仍應結合 at 與業務物件版本。投遞失敗不回滾已提交的業務或稽核。last_error 只存安全錯誤碼，例如 timeout、network_error、url_rejected 或 http_500，不儲存回應本文。
 
 每次傳送帶以下請求標頭：
 
@@ -136,17 +138,19 @@ def verify_webhook(secret: str, headers, raw_body: bytes) -> bool:
 
 ## URL 與設定
 
-URL 只接受 http/https，不接受 URL 帳號／密碼、片段、控制字元或無效連接埠。建立、修改、測試、重投及每次實際傳送都會驗證目標。預設要求 DNS 解析出的全部位址都是允許的公網位址，拒絕內網、回環、鏈路本地、多播、保留位址與受限 IPv6 轉換位址。實際連線固定使用本次已驗證的 IP，同時保留原 HTTP Host、TLS SNI 與憑證網域驗證，避免驗證後再次解析造成 DNS 重綁定。僅 ConnectError 或 ConnectTimeout 時嘗試其餘已驗證位址；所有位址共用單次請求最多 5 秒的剩餘期限，連線階段最多 3 秒，並受本輪剩餘預算的公平份額限制。讀取逾時、寫入例外或 HTTP 失敗不切換位址，交給寄件匣後續重試。
+URL 只接受 http/https，不接受 URL 帳號／密碼、片段、控制字元或無效連接埠。建立、修改、測試、重投及每次實際傳送都會驗證目標。預設要求 DNS 解析出的全部位址都是允許的公網位址，拒絕內網、回環、鏈路本地、多播、保留位址與受限 IPv6 轉換位址。實際連線固定使用本次已驗證的 IP，同時保留原 HTTP Host、TLS SNI 與憑證網域驗證，避免驗證後再次解析造成 DNS 重綁定。僅 ConnectError 或 ConnectTimeout 時嘗試其餘已驗證位址；DNS 解析與所有位址共用單次請求最多 5 秒的期限，連線階段最多 3 秒，並受本輪剩餘預算限制。讀取逾時、寫入例外或 HTTP 失敗不切換位址，交給寄件匣後續重試。
 
 | 環境變數 | 設定檔鍵 | 預設值 | 作用 |
 |---|---|---|---|
 | `AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS` | `webhook.allow_private_urls` | `false` | 本地開發可明確允許內網位址；正式環境預設保持關閉。 |
 | `AVELIS_WEBHOOK_MAX_ATTEMPTS` | `webhook.max_attempts` | `8` | 單筆寄件匣記錄的最大嘗試次數，必須為正整數。 |
 | `AVELIS_WEBHOOK_RETRY_MAX_MINUTES` | `webhook.retry_max_minutes` | `60` | 指數退避的分鐘上限，必須為正整數。 |
+| `AVELIS_WEBHOOK_CONCURRENCY` | `webhook.concurrency` | `4` | 每個 worker 的最大並行投遞數，整數範圍 `1..64`；`1` 為循序投遞。預設 4 讓緩慢訂閱與正常訂閱並行；上限 64 為投遞執行緒及其 DNS、資料庫等待設定背景資源硬上限。 |
 | `AVELIS_WORKER_SCHEDULE_SECONDS` | `worker.schedule_seconds` | `60` | 業務掃描與獨立投遞迴圈的間隔，單位秒；長業務任務不阻塞投遞迴圈。 |
 | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `events.delivered_retention_days` | `30` | 已投遞快照按 `delivered_at` 保留的天數；非負整數，`0` 為不清理。 |
+| `AVELIS_EVENTS_DEAD_RETENTION_DAYS` | `events.dead_retention_days` | `90` | 死信快照按 `dead_at` 保留的天數；非負整數，`0` 為不清理。 |
 
-成功投遞快照預設保留 30 天，兼顧近期排障與儲存增長。每次 worker 定時掃描與 OAuth 清理一起，最多刪除 500 筆已到期的 `delivered` 記錄；不等待歷史清理週期，並使用 `SKIP LOCKED` 跳過正在使用的資料列。未到期記錄與 `pending` 保留。`dead` 不自動清理，供管理員排查、修復後重投；目前沒有可靠的死信終態時間，不能用建立時間代替保留期起點，因此不提供按天清理死信的設定。刪除訂閱仍會級聯刪除其全部寄件匣項目。
+成功投遞快照預設保留 30 天，死信預設保留 90 天，兼顧近期排障、人工修復重投與儲存增長。每次 worker 定時掃描與 OAuth 清理一起，對 `delivered` 與 `dead` 分別最多刪除 500 筆超過各自保留期的記錄，合計最多 1000 筆；兩類記錄不共用清理額度，避免成功記錄持續積壓時死信始終無法清理。不等待歷史清理週期，並使用 `SKIP LOCKED` 跳過正在使用的資料列。未到期記錄與 `pending` 保留。死信保留期從 `dead_at` 開始，重投清空該時間；既有死信在遷移時以遷移時間回填，避免升級後立即刪除。刪除訂閱仍會級聯刪除其全部寄件匣項目。
 
 ## 管理介面與範例
 
@@ -220,7 +224,8 @@ event_types 非空且去重，outcomes 省略或為 null 表示不過濾結果�
     "next_attempt_at": "2026-11-03T08:02:00Z",
     "last_error": null,
     "created_at": "2026-11-03T08:02:00Z",
-    "delivered_at": null
+    "delivered_at": null,
+    "dead_at": null
   }],
   "total": 1,
   "limit": 50,
@@ -231,7 +236,7 @@ event_types 非空且去重，outcomes 省略或為 null 表示不過濾結果�
 ## FINDINGS：遷移、生命週期與驗收邊界
 
 - 新增資料表為 webhook_subscription 與 event_outbox。後者存事件 JSON 快照、訂閱 ID、狀態、次數、下次嘗試時間、安全錯誤碼與完成時間；`(subscription_id, event_id)` 唯一，避免同一訂閱重複入匣。event_id 不對 audit_event 建外鍵，稽核按保留期清理不會阻斷剩餘快照投遞。
-- 遷移檔案 `0020_governance_events` 接在 `0019_metric_ai_context` 之後，不新增稽核欄位、不重算舊雜湊。升級時也須套用接在 `0022_oauth_cleanup_indexes` 之後的 `0023_event_outbox_cleanup_index`：新增 `(delivered_at, id) WHERE status = 'delivered'` 部分索引，只用於已投遞快照的保留期清理；原有 `(status, next_attempt_at)` 索引繼續用於到期投遞查詢。
+- 遷移檔案 `0020_governance_events` 接在 `0019_metric_ai_context` 之後，不新增稽核欄位、不重算舊雜湊。`0023_event_outbox_cleanup_index` 接在 `0022_oauth_cleanup_indexes` 之後，新增 `(delivered_at, id) WHERE status = 'delivered'` 部分索引。隨後 `0024_event_outbox_dead_retention` 新增可空的 `dead_at` 欄位與 `(dead_at, id) WHERE status = 'dead'` 部分索引，將既有死信回填為遷移交易時間，保守地保留完整的死信保留期。兩個部分索引用於終態清理；原有 `(status, next_attempt_at)` 索引繼續用於到期投遞查詢。OutboxOut 新增 `dead_at`（時間或 `null`）；重新投遞回傳的該欄位為 `null`。
 - 刪除訂閱會級聯刪除其全部寄件匣項目，包括 pending、delivered 與 dead；原稽核不刪除。若要暫停並保留投遞記錄，應修改 enabled=false。停用不會取消既有 pending 項目，重新啟用後可繼續投遞。
 - 寄件匣儲存事件快照；目標 URL、啟用狀態與簽章金鑰在投遞時讀取目前訂閱。修改類型或 outcome 過濾只影響隨後入匣，不刪除既有快照；輪替金鑰也用於舊快照的後續嘗試。
 - 失敗 error 只承諾安全錯誤碼與預定義短原因，不承諾提供原始例外診斷。歸因不可用不使擷取失敗；匯入輔助模型失敗也不改變既有確定性結果保留語義。

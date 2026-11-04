@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -17,7 +17,8 @@ from avelis.collect.service import current_fingerprints
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
 from avelis.db import utcnow
-from avelis.engines import CapabilityMissing, dialect_of, query_connector
+from avelis.engines import CapabilityMissing, dialect_of, engines, query_connector
+from avelis.engines.base import QUERY
 from avelis.governance import access
 from avelis.governance.metrics import current_fingerprint_map
 from avelis.i18n import Msg, gettext, translate
@@ -36,11 +37,57 @@ from avelis.models import (
     IdentityLink,
     JoinPath,
     LineageEdge,
+    Metric,
     ParseResult,
     User,
 )
 
 router = APIRouter(prefix="/api", tags=["目录与血缘"])
+
+
+@router.get("/catalog/counts", response_model=S.CatalogCountsOut)
+def catalog_counts(user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """与无筛选列表相同的可见数量，在一条 SQL 中聚合，不加载目录对象。"""
+    left, right = aliased(Asset), aliased(Asset)
+    metrics = (
+        select(func.count())
+        .select_from(Metric)
+        .join(User, User.id == Metric.owner_id)
+        .where(access.domain_visibility_clause(session, user, Metric.domain_id))
+        .scalar_subquery()
+    )
+    assets = (
+        select(func.count())
+        .select_from(Asset)
+        .join(Datasource, Datasource.id == Asset.datasource_id)
+        .where(Asset.status == "active", access.asset_visibility_clause(session, user))
+        .scalar_subquery()
+    )
+    domains = (
+        select(func.count()).select_from(Domain).where(access.domain_visibility_clause(session, user)).scalar_subquery()
+    )
+    join_paths = (
+        select(func.count())
+        .select_from(JoinPath)
+        .join(left, left.id == JoinPath.left_asset_id)
+        .join(right, right.id == JoinPath.right_asset_id)
+        .where(
+            access.asset_visibility_clause(session, user, left), access.asset_visibility_clause(session, user, right)
+        )
+        .scalar_subquery()
+    )
+    return dict(
+        session.execute(
+            select(
+                metrics.label("metrics"),
+                assets.label("assets"),
+                domains.label("domains"),
+                join_paths.label("join_paths"),
+            )
+        )
+        .one()
+        ._mapping
+    )
 
 
 # --- 业务域 -----------------------------------------------------------------------
@@ -222,6 +269,8 @@ def list_assets(
     domain_id: str | None = None,
     q: str | None = None,
     include_deleted: bool = False,
+    ids: Annotated[list[str] | None, Query(max_length=200)] = None,
+    queryable: bool | None = None,
     limit: int | None = Query(None, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
@@ -236,6 +285,12 @@ def list_assets(
         stmt = stmt.where(Asset.datasource_id == datasource_id)
     if domain_id:
         stmt = stmt.where(Asset.domain_id == domain_id)
+    if ids is not None:
+        stmt = stmt.where(Asset.id.in_(ids))
+    if queryable is not None:
+        query_kinds = [engine.kind for engine in engines() if engine.supports(QUERY)]
+        clause = Datasource.kind.in_(query_kinds)
+        stmt = stmt.where(clause if queryable else ~clause)
     if not include_deleted:
         stmt = stmt.where(Asset.status == "active")
     if q:

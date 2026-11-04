@@ -250,6 +250,7 @@ def test_only_dead_delivery_can_be_redelivered_and_retry_state_is_reset(api):
     assert api.client.post(path).status_code == 409
     stored = api.session.get(EventOutbox, item["id"])
     stored.status = "dead"
+    stored.dead_at = utcnow()
     stored.attempts = 8
     stored.last_error = "receiver unavailable"
     api.session.commit()
@@ -258,6 +259,7 @@ def test_only_dead_delivery_can_be_redelivered_and_retry_state_is_reset(api):
     retried = response.json()
     assert retried["id"] == item["id"] and retried["event_id"] == item["event_id"]
     assert retried["status"] == "pending" and retried["attempts"] == 0 and retried["last_error"] is None
+    assert retried["dead_at"] is None and api.session.get(EventOutbox, item["id"]).dead_at is None
     event = api.session.scalar(select(AuditEvent).where(AuditEvent.action == "event_outbox.redeliver"))
     assert event is not None and event.object_id == item["id"]
 
