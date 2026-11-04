@@ -687,13 +687,13 @@ def test_public_version_detail_hides_unused_cross_domain_original_document(catal
     model["datasets"].append(unused)
     assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
     version = latest_version(catalog)
-    # 导入人的完整文档仍可往返；只有本域阅读权限的用户不能通过口径详情拿到它。
+    # 未使用的数据集不保留；本域阅读权限也不能通过公开详情获取原始交换元数据。
     assert access.can_see_object(catalog.session, catalog.users["reader"], "metric_version", version.id)
     assert not access.can_read_asset(
         catalog.session, catalog.users["reader"], catalog.session.get(Asset, "hidden_asset")
     )
     original = version.publish_check["ossie"]["document"]
-    assert original["datasets"][1]["source"] == unused["source"]
+    assert [dataset["name"] for dataset in original["datasets"]] == ["records"]
     assert "version" not in original
     public_check = metrics.public_publish_check(version.publish_check)
     assert "ossie" not in public_check
@@ -1312,6 +1312,14 @@ def test_relationship_extensions_survive_reuse_and_roundtrip(catalog):
                 created_by=catalog.actor.id,
             ),
             JoinPathApproval(join_path_id="path", domain_id="visible", user_id="maintainer", decision="approved"),
+            Grain(
+                id="relationship_extension_grain",
+                asset_id="asset_b",
+                asset_version_id="asset_b_v1",
+                columns=["group_a"],
+                origin="observed",
+                status="verified",
+            ),
         ]
     )
     catalog.session.commit()
@@ -1319,11 +1327,12 @@ def test_relationship_extensions_survive_reuse_and_roundtrip(catalog):
     original = model["relationships"][0]
     original["custom_extensions"] = [deepcopy(THIRD_PARTY)]
     original["ai_context"] = {"instructions": "关联范围甲"}
-    # 导入保留路径本身，但口径无需使用关联侧，避免以无粒度证据的 n1 声明代替发布检查。
+    # Only actually used relationships are retained, with verified n1 grain evidence.
     options = json.loads(
         next(e["data"] for e in model["metrics"][0]["custom_extensions"] if e["vendor_name"] == "avelis")
     )
-    options["joins"] = []
+    options["joins"] = [{"relationship": original["name"], "alias": "r", "from": "b"}]
+    options["dimensions"] = [{"name": "remote_group", "column": "r.group_a"}]
     model["metrics"][0]["custom_extensions"] = [deepcopy(THIRD_PARTY), extension(**options)]
     assert import_model(catalog.session, catalog.actor, model, "visible", dry_run=False)["ok"]
     publish(catalog)

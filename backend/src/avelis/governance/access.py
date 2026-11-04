@@ -9,7 +9,7 @@ reviewer 复核者（批准 / 驳回指标版本）；analyst 查询者（问数
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, true
 from sqlalchemy.orm import Session
 
 from avelis.config import get_settings
@@ -40,6 +40,26 @@ def domain_ids(session: Session, user: User) -> set[str]:
     if is_admin(session, user):
         return set(session.scalars(select(Domain.id)))
     return set(session.scalars(select(DomainMember.domain_id).where(DomainMember.user_id == user.id)))
+
+
+def domain_visibility_clause(session: Session, user: User, domain_id_column=Domain.id):
+    """列表在 SQL 中筛选可见业务域，避免先加载全部对象再检查权限。"""
+    admin = select(UserRole.id).where(UserRole.user_id == user.id, UserRole.role == "admin").exists()
+    memberships = select(DomainMember.domain_id).where(DomainMember.user_id == user.id)
+    return or_(admin, domain_id_column.in_(memberships))
+
+
+def asset_visibility_clause(session: Session, user: User, asset=Asset):
+    """与 can_read_asset 相同的域和未归属策略，支持 Asset 的 SQL 别名。"""
+    unassigned = true()
+    if get_settings().unassigned_asset_policy != "allow":
+        unassigned = (
+            select(UserRole.id).where(UserRole.user_id == user.id, UserRole.role.in_(("admin", "steward"))).exists()
+        )
+    return or_(
+        and_(asset.domain_id.is_not(None), domain_visibility_clause(session, user, asset.domain_id)),
+        and_(asset.domain_id.is_(None), unassigned),
+    )
 
 
 def domain_role(session: Session, user: User, domain_id: str) -> str | None:

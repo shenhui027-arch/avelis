@@ -22,7 +22,7 @@ from avelis.ask.intent import DemoIntentModel, Intent, MetricCard
 from avelis.charts import recommend
 from avelis.i18n import locale_context
 from avelis.llm_protocol import ReasoningRoundTripChatOpenAI
-from avelis.models import AskThread, Domain, ModelProvider
+from avelis.models import AskThread, ModelProvider
 
 
 @pytest.fixture(autouse=True)
@@ -507,13 +507,11 @@ def test_unique_metric_name_and_alias_are_unchanged():
 def test_visible_catalog_and_search_tool_include_domain(monkeypatch):
     metric = SimpleNamespace(code="orders", name="订单数", aliases=[], ai_context={}, domain_id="domain")
     version = SimpleNamespace(dimensions=[], description="订单总数", status="published")
+    domain = SimpleNamespace(name="零售")
     session = Mock()
-    session.get.return_value = SimpleNamespace(name="零售")
-    monkeypatch.setattr(service.access, "require_role", lambda *_: None)
-    monkeypatch.setattr(service, "visible_metrics", lambda *_: [metric])
-    monkeypatch.setattr(service, "latest_governed_version", lambda *_: version)
+    monkeypatch.setattr(service, "metric_catalog_rows", lambda *_: [(metric, version, domain)])
     catalog = service.visible_catalog(session, object(), with_values=False)
-    session.get.assert_called_once_with(Domain, "domain")
+    session.get.assert_not_called()
     assert catalog.cards[0].domain == "零售"
     assert json.loads(agent.Toolbox(session, object(), catalog).search_metrics())[0]["domain"] == "零售"
 

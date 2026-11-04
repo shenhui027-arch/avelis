@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlglot
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from sqlglot import exp
@@ -44,7 +44,6 @@ from avelis.governance.metrics import (
     publish_check,
     resolve_joins,
     validate_spec,
-    visible_metrics,
 )
 from avelis.i18n import Msg, current_locale, gettext, locale_context, translate
 from avelis.lineage.sql import canonical_hash_of
@@ -77,24 +76,72 @@ class Catalog:
     versions: dict[str, tuple[Metric, MetricVersion]]
 
 
-def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catalog:
+def _metric_keyword_clause(session: Session, keyword: str):
+    """保持问数检索的大小写敏感、字面子串语义；JSON 只匹配数组元素，不匹配键或转义原文。"""
+    postgres = session.get_bind().dialect.name == "postgresql"
+    position = func.strpos if postgres else func.instr
+    matches = [position(Metric.name, keyword) > 0, position(Metric.code, keyword) > 0]
+    for values in (Metric.aliases, Metric.ai_context["synonyms"], Metric.ai_context["examples"]):
+        elements = (
+            func.jsonb_array_elements_text(values).table_valued("value").render_derived()
+            if postgres
+            else func.json_each(values).table_valued("value")
+        )
+        matches.append(select(1).select_from(elements).where(position(elements.c.value, keyword) > 0).exists())
+    return or_(*matches)
+
+
+def metric_catalog_rows(
+    session: Session,
+    user: User,
+    *,
+    keyword: str = "",
+    domain_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+    published_only: bool = False,
+) -> list[tuple[Metric, MetricVersion, Domain]]:
+    """权限、匹配、最新治理版本和分页都由 SQL 完成；草稿不会遮住已治理版本。"""
     access.require_role(session, user, "analyst", "steward", "reviewer")
+    latest = (
+        select(MetricVersion.id)
+        .where(
+            MetricVersion.metric_id == Metric.id,
+            MetricVersion.status.in_(("published", "affected", "retired")),
+        )
+        .order_by(MetricVersion.version_no.desc())
+        .limit(1)
+        .correlate(Metric)
+        .scalar_subquery()
+    )
+    statement = (
+        select(Metric, MetricVersion, Domain)
+        .join(MetricVersion, MetricVersion.id == latest)
+        .join(Domain, Domain.id == Metric.domain_id)
+        .where(access.domain_visibility_clause(session, user, Metric.domain_id))
+        .order_by(Metric.code, Metric.id)
+    )
+    if keyword:
+        statement = statement.where(_metric_keyword_clause(session, keyword))
+    if domain_id:
+        statement = statement.where(Metric.domain_id == domain_id)
+    if published_only:
+        statement = statement.where(MetricVersion.status == "published")
+    if limit is not None:
+        statement = statement.limit(limit)
+    return list(session.execute(statement.offset(offset)))
+
+
+def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catalog:
     settings = get_settings()
     cards, versions = [], {}
-    domains = {}
-    for metric in visible_metrics(session, user):
-        version = latest_governed_version(session, metric)
-        if version is None:
-            continue
+    for metric, version, domain in metric_catalog_rows(session, user):
         versions[metric.code] = (metric, version)
-        if metric.domain_id not in domains:
-            domain = session.get(Domain, metric.domain_id)
-            domains[metric.domain_id] = domain.name if domain else ""
         cards.append(
             MetricCard(
                 code=metric.code,
                 name=metric.name,
-                domain=domains[metric.domain_id],
+                domain=domain.name,
                 aliases=metric.aliases or [],
                 ai_context=metric_ai_context(metric),
                 dimensions=version.dimensions or [],

@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy.orm import Session, aliased
 
 from avelis import audit
 from avelis.api import schemas as S
@@ -72,12 +72,13 @@ def _grain_view(grain) -> dict:
     return {**grain.to_dict(), "note": translate(grain.note)}
 
 
-def domain_view(session: Session, d: Domain) -> dict:
-    members = session.execute(
-        select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
-        .join(User, User.id == DomainMember.user_id)
-        .where(DomainMember.domain_id == d.id)
-    )
+def domain_view(session: Session, d: Domain, members: list | None = None) -> dict:
+    if members is None:
+        members = session.execute(
+            select(DomainMember.user_id, DomainMember.role, User.username, User.display_name)
+            .join(User, User.id == DomainMember.user_id)
+            .where(DomainMember.domain_id == d.id)
+        )
     return {
         "id": d.id,
         "code": d.code,
@@ -92,8 +93,40 @@ def domain_view(session: Session, d: Domain) -> dict:
 
 
 @router.get("/domains", response_model=list[S.DomainOut])
-def list_domains(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return [domain_view(session, d) for d in session.scalars(select(Domain).order_by(Domain.code))]
+def list_domains(
+    q: str | None = None,
+    domain_id: str | None = None,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    stmt = select(Domain).where(access.domain_visibility_clause(session, user))
+    if domain_id:
+        stmt = stmt.where(Domain.id == domain_id)
+    if q:
+        stmt = stmt.where(
+            or_(
+                *(
+                    func.lower(column).contains(q.lower(), autoescape=True)
+                    for column in (Domain.code, Domain.name, Domain.description)
+                )
+            )
+        )
+    stmt = stmt.order_by(Domain.code, Domain.id).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    domains = list(session.scalars(stmt))
+    members: dict[str, list] = {d.id: [] for d in domains}
+    if domains:
+        for domain, *member in session.execute(
+            select(DomainMember.domain_id, DomainMember.user_id, DomainMember.role, User.username, User.display_name)
+            .join(User, User.id == DomainMember.user_id)
+            .where(DomainMember.domain_id.in_(members))
+            .order_by(DomainMember.user_id)
+        ):
+            members[domain].append(member)
+    return [domain_view(session, d, members[d.id]) for d in domains]
 
 
 @router.post("/domains", status_code=201, response_model=S.DomainOut)
@@ -167,8 +200,8 @@ def qualified(a: Asset) -> str:
     return f"{a.catalog_name}.{a.db_name}.{a.name}"
 
 
-def asset_summary(session: Session, a: Asset) -> dict:
-    ds = session.get(Datasource, a.datasource_id)
+def asset_summary(session: Session, a: Asset, ds: Datasource | None = None) -> dict:
+    ds = ds if ds is not None else session.get(Datasource, a.datasource_id)
     return {
         "id": a.id,
         "qualified": qualified(a),
@@ -189,25 +222,29 @@ def list_assets(
     domain_id: str | None = None,
     q: str | None = None,
     include_deleted: bool = False,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    stmt = select(Asset)
+    stmt = (
+        select(Asset, Datasource)
+        .join(Datasource, Datasource.id == Asset.datasource_id)
+        .where(access.asset_visibility_clause(session, user))
+    )
     if datasource_id:
         stmt = stmt.where(Asset.datasource_id == datasource_id)
     if domain_id:
         stmt = stmt.where(Asset.domain_id == domain_id)
     if not include_deleted:
         stmt = stmt.where(Asset.status == "active")
-    allowed = access.domain_ids(session, user)
-    out = []
-    for a in session.scalars(stmt.order_by(Asset.catalog_name, Asset.db_name, Asset.name)):
-        if not access.can_read_asset(session, user, a, allowed):
-            continue
-        if q and q.lower() not in qualified(a).lower():
-            continue
-        out.append(asset_summary(session, a))
-    return out
+    if q:
+        name = Asset.catalog_name + "." + Asset.db_name + "." + Asset.name
+        stmt = stmt.where(func.lower(name).contains(q.lower(), autoescape=True))
+    stmt = stmt.order_by(Asset.catalog_name, Asset.db_name, Asset.name, Asset.id).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return [asset_summary(session, a, ds) for a, ds in session.execute(stmt)]
 
 
 def readable_asset(session: Session, user: User, asset_id: str) -> Asset:
@@ -217,25 +254,156 @@ def readable_asset(session: Session, user: User, asset_id: str) -> Asset:
     return a
 
 
+def _detail_column_docs(
+    session: Session, user: User, asset: Asset, columns: list[ColumnVersion]
+) -> tuple[dict[str, dict], dict[str, Asset]]:
+    """按依赖层批取注释；指纹快照也只需这些资产，避免列数与全目录规模放大查询。"""
+    from avelis.governance.column_docs import EXTERNAL
+
+    assets = {asset.id: asset}
+    visible = {asset.id}
+    own = {(asset.id, c.name): c.comment for c in columns}
+    links: dict[str, IdentityLink] = {}
+    sources: dict[tuple[str, str], list[LineageEdge]] = {}
+    frontier = [asset]
+    for depth in range(10):
+        versions = {a.current_version_id: a.id for a in frontier if a.current_version_id}
+        if depth and versions:
+            for c in session.scalars(select(ColumnVersion).where(ColumnVersion.asset_version_id.in_(versions))):
+                own[(versions[c.asset_version_id], c.name)] = c.comment
+        if depth == 9:
+            break
+        parents: set[str] = set()
+        external = [a.id for a in frontier if a.kind in EXTERNAL]
+        if external:
+            for link in session.scalars(
+                select(IdentityLink).where(
+                    IdentityLink.source_asset_id.in_(external), IdentityLink.superseded_at.is_(None)
+                )
+            ):
+                links[link.source_asset_id] = link
+                if link.status in ("confirmed", "candidate") and link.target_asset_id:
+                    parents.add(link.target_asset_id)
+        views = {a.current_version_id: a for a in frontier if a.kind == "view" and a.current_version_id}
+        qualified_parents: set[tuple[str, str, str, str]] = set()
+        if views:
+            for edge in session.scalars(
+                select(LineageEdge).where(
+                    tuple_(LineageEdge.target_asset_id, LineageEdge.target_asset_version_id).in_(
+                        [(a.id, version_id) for version_id, a in views.items()]
+                    ),
+                    LineageEdge.status == "active",
+                    LineageEdge.origin.in_(("parsed", "manual")),
+                )
+            ):
+                if edge.source_asset_id:
+                    parents.add(edge.source_asset_id)
+                if edge.origin == "parsed" and edge.relation == "value_direct":
+                    sources.setdefault((edge.target_asset_id, edge.target_column), []).append(edge)
+            # 粒度透传还会沿解析结果中的 base / join 表走，不能只按列级边缩小指纹范围。
+            for version_id, details in session.execute(
+                select(Definition.asset_version_id, ParseResult.details)
+                .join(
+                    ParseResult,
+                    and_(ParseResult.definition_id == Definition.id, ParseResult.parser_version == PARSER_VERSION),
+                )
+                .where(Definition.asset_version_id.in_(views))
+            ):
+                if not (details or {}).get("passthrough"):
+                    continue
+                refs = [details["passthrough"].get("base")]
+                refs.extend(j.get("right_table") for j in details.get("joins", []))
+                for ref in refs:
+                    if isinstance(ref, str) and len(parts := ref.split(".")) == 3:
+                        qualified_parents.add((views[version_id].datasource_id, *parts))
+        parents.difference_update(assets)
+        if not parents and not qualified_parents:
+            break
+        clauses = [Asset.id.in_(parents)]
+        if qualified_parents:
+            clauses.append(
+                and_(
+                    Asset.status == "active",
+                    tuple_(Asset.datasource_id, Asset.catalog_name, Asset.db_name, Asset.name).in_(qualified_parents),
+                )
+            )
+        frontier = []
+        for parent, can_see in session.execute(
+            select(Asset, access.asset_visibility_clause(session, user)).where(or_(*clauses))
+        ):
+            if parent.id not in assets:
+                assets[parent.id] = parent
+                frontier.append(parent)
+            if can_see:
+                visible.add(parent.id)
+        if not frontier:
+            break
+
+    def doc(a: Asset, column: str, depth: int = 0) -> dict:
+        out = {
+            "asset_id": a.id,
+            "asset": qualified(a),
+            "column": column,
+            "comment": None,
+            "status": "missing",
+            "source": None,
+        }
+        comment = (own.get((a.id, column)) or "").strip()
+        if comment and comment.lower() != column.lower():
+            return {**out, "comment": comment, "status": "ok"}
+        if depth > 8:
+            return out
+        target, source_column, status = None, column, "linked"
+        if a.kind in EXTERNAL:
+            link = links.get(a.id)
+            if link and link.status in ("confirmed", "candidate"):
+                target = assets.get(link.target_asset_id)
+        elif a.kind == "view":
+            edges = sources.get((a.id, column), [])
+            if len(edges) == 1 and edges[0].source_column:
+                target = assets.get(edges[0].source_asset_id)
+                source_column = edges[0].source_column
+                status = "inherited"
+        if target is not None and target.id in visible:
+            upstream = doc(target, source_column, depth + 1)
+            if upstream["comment"]:
+                return {
+                    **out,
+                    "comment": upstream["comment"],
+                    "status": status,
+                    "source": f"{upstream['asset']}.{source_column}",
+                }
+        return out
+
+    return {c.name: doc(asset, c.name) for c in columns}, assets
+
+
 @router.get("/assets/{asset_id}", response_model=S.AssetDetailOut)
 def asset_detail(asset_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     a = readable_asset(session, user, asset_id)
-    fps = current_fingerprints(session)
     version = session.get(AssetVersion, a.current_version_id) if a.current_version_id else None
-    columns = []
-    from avelis.governance.column_docs import column_doc, visible_to
-
-    can_see = visible_to(session, user)
-    if version:
-        for c in session.scalars(
-            select(ColumnVersion).where(ColumnVersion.asset_version_id == version.id).order_by(ColumnVersion.ordinal)
-        ):
-            fp = fps.get((a.id, c.name))
-            confirmations = session.scalars(
-                select(Confirmation).where(
-                    Confirmation.asset_id == a.id, Confirmation.column_name == c.name, Confirmation.revoked_at.is_(None)
-                )
+    column_versions = (
+        list(
+            session.scalars(
+                select(ColumnVersion)
+                .where(ColumnVersion.asset_version_id == version.id)
+                .order_by(ColumnVersion.ordinal)
             )
+        )
+        if version
+        else []
+    )
+    docs, dependencies = _detail_column_docs(session, user, a, column_versions)
+    fps = current_fingerprints(session, asset_ids=set(dependencies))
+    confirmations: dict[str, list[Confirmation]] = {}
+    for confirmation in session.scalars(
+        select(Confirmation).where(Confirmation.asset_id == a.id, Confirmation.revoked_at.is_(None))
+    ):
+        confirmations.setdefault(confirmation.column_name, []).append(confirmation)
+    columns = []
+    if version:
+        for c in column_versions:
+            fp = fps.get((a.id, c.name))
             columns.append(
                 {
                     "name": c.name,
@@ -244,7 +412,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                     "comment": c.comment,
                     "is_key": c.is_key,
                     "column_id": c.column_id,
-                    "doc": column_doc(session, a, c.name, can_see=can_see),
+                    "doc": docs[c.name],
                     "fingerprint": fp.fingerprint if fp else None,
                     "fingerprint_status": fp.status if fp else None,
                     "fingerprint_reason": fp.reason if fp else None,
@@ -259,7 +427,7 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
                             if fp is not None and x.fingerprint == fp.fingerprint
                             else "字段推导已变化，此确认不再生效",
                         }
-                        for x in confirmations
+                        for x in confirmations.get(c.name, [])
                     ],
                 }
             )
@@ -277,12 +445,32 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
         if definition
         else None
     )
+    target = aliased(Asset)
     link = session.scalar(
-        select(IdentityLink).where(IdentityLink.source_asset_id == a.id, IdentityLink.superseded_at.is_(None))
+        select(IdentityLink)
+        .outerjoin(target, target.id == IdentityLink.target_asset_id)
+        .where(
+            IdentityLink.source_asset_id == a.id,
+            IdentityLink.superseded_at.is_(None),
+            or_(IdentityLink.target_asset_id.is_(None), access.asset_visibility_clause(session, user, target)),
+        )
     )
-    linked_from = session.scalars(
-        select(IdentityLink).where(IdentityLink.target_asset_id == a.id, IdentityLink.superseded_at.is_(None))
+    linked_from = list(
+        session.scalars(
+            select(IdentityLink)
+            .join(Asset, Asset.id == IdentityLink.source_asset_id)
+            .where(
+                IdentityLink.target_asset_id == a.id,
+                IdentityLink.superseded_at.is_(None),
+                access.asset_visibility_clause(session, user),
+            )
+        )
     )
+    link_asset_ids = {x.source_asset_id for x in linked_from}
+    if link and link.target_asset_id:
+        link_asset_ids.add(link.target_asset_id)
+    if missing := link_asset_ids - dependencies.keys():
+        dependencies.update({x.id: x for x in session.scalars(select(Asset).where(Asset.id.in_(missing)))})
     versions = session.scalars(
         select(AssetVersion).where(AssetVersion.asset_id == a.id).order_by(AssetVersion.version_no.desc())
     )
@@ -305,9 +493,9 @@ def asset_detail(asset_id: str, user: User = Depends(current_user), session: Ses
         }
         if parse
         else None,
-        "grains": [_grain_view(g) for g in effective_grains(session, a.id, current_fingerprint_map(session))],
-        "identity_link": _link_view(session, link) if link else None,
-        "linked_from": [_link_view(session, x) for x in linked_from],
+        "grains": [_grain_view(g) for g in effective_grains(session, a.id, {k: f.fingerprint for k, f in fps.items()})],
+        "identity_link": _link_view(session, link, dependencies) if link else None,
+        "linked_from": [_link_view(session, x, dependencies) for x in linked_from],
         "versions": [_version_view(v) for v in versions],
     }
 
@@ -330,10 +518,12 @@ def _version_view(v: AssetVersion) -> dict:
     }
 
 
-def _link_view(session: Session, link: IdentityLink) -> dict:
+def _link_view(session: Session, link: IdentityLink, assets: dict[str, Asset] | None = None) -> dict:
     source, target = (
-        session.get(Asset, link.source_asset_id),
-        session.get(Asset, link.target_asset_id) if link.target_asset_id else None,
+        assets.get(link.source_asset_id) if assets is not None else session.get(Asset, link.source_asset_id),
+        (assets.get(link.target_asset_id) if assets is not None else session.get(Asset, link.target_asset_id))
+        if link.target_asset_id
+        else None,
     )
     return {
         "id": link.id,
