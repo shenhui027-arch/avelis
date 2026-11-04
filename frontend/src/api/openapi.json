@@ -9046,6 +9046,13 @@
       ],
       "title": "Answer"
      },
+     "filter_alignment": {
+      "items": {
+       "$ref": "#/components/schemas/FilterAlignmentOut"
+      },
+      "type": "array",
+      "title": "Filter Alignment"
+     },
      "verification": {
       "anyOf": [
        {
@@ -9413,6 +9420,13 @@
       "additionalProperties": true,
       "type": "object",
       "title": "Evidence"
+     },
+     "filter_alignment": {
+      "items": {
+       "$ref": "#/components/schemas/FilterAlignmentOut"
+      },
+      "type": "array",
+      "title": "Filter Alignment"
      },
      "freshness": {
       "additionalProperties": true,
@@ -13486,6 +13500,62 @@
      "models"
     ],
     "title": "FetchedOut"
+   },
+   "FilterAlignmentOut": {
+    "properties": {
+     "dimension": {
+      "type": "string",
+      "title": "Dimension"
+     },
+     "original": {
+      "type": "string",
+      "title": "Original"
+     },
+     "value": {
+      "type": "string",
+      "title": "Value"
+     },
+     "method": {
+      "type": "string",
+      "enum": [
+       "exact",
+       "normalized",
+       "dimension_table"
+      ],
+      "title": "Method"
+     },
+     "table": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Table"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "dimension",
+     "original",
+     "value",
+     "method"
+    ],
+    "title": "FilterAlignmentOut"
    },
    "GovernanceEvent": {
     "properties": {

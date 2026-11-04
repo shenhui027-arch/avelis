@@ -753,6 +753,8 @@ class AnalysisToolbox:
         self.feedback: dict | None = None
         self.confirmed_scope: dict | None = None
         self.confirmed_items: list[dict] = []
+        self.filter_alignment: list[dict] = []
+        self.filter_alignment_unknown: list[dict] = []
         self.experiences: list[dict] = []
         self.interjections: list[dict] = []  # 已消费的插话批次，跨阶段和暂停恢复保留，始终追加在消息末尾
 
@@ -771,6 +773,8 @@ class AnalysisToolbox:
         "feedback",
         "confirmed_scope",
         "confirmed_items",
+        "filter_alignment",
+        "filter_alignment_unknown",
         "experiences",
         "interjections",
         "_dataset_seq_floor",
@@ -1685,10 +1689,27 @@ class AnalysisToolbox:
             "understand",
             raw or {},
             "ok" if scope else "error",
-            {"scope": self.plan["scope"]} if scope else {"error": problem},
+            {
+                "scope": self.plan["scope"],
+                "filter_alignment": self.filter_alignment,
+                **(
+                    {"filter_alignment_unknown": self.filter_alignment_unknown} if self.filter_alignment_unknown else {}
+                ),
+            }
+            if scope
+            else {"error": problem},
         )
 
-    def request_clarification(self, question: str, scope: Scope | None, raw: dict | None) -> None:
+    def request_clarification(
+        self,
+        question: str,
+        scope: Scope | None,
+        raw: dict | None,
+        *,
+        options: list[str] | None = None,
+        dimension: str | None = None,
+        unresolved: list[dict] | None = None,
+    ) -> None:
         """需要用户澄清（任务书 P0-A）：记一个 clarify 步骤，保存可恢复的上下文——原问题、模型给出的范围（含原始参数）、
         追问与此刻已用的预算（恢复时用 Budget.restore 接着计数，额度不清零）。等待用户的时间不计入分析耗时。"""
         self.clarification = {
@@ -1700,8 +1721,19 @@ class AnalysisToolbox:
                 "run_question": getattr(self.run, "question", None),
                 "window": getattr(self.run, "window", None),
             },
+            **({"options": options, "dimension": dimension, "unresolved": unresolved} if dimension else {}),
         }
-        self._step("clarify", "understand", raw or {}, "waiting", {"question": self.clarification["question"]})
+        self._step(
+            "clarify",
+            "understand",
+            raw or {},
+            "waiting",
+            {
+                key: self.clarification[key]
+                for key in ("question", "options", "dimension", "unresolved")
+                if key in self.clarification
+            },
+        )
 
     def precheck(self, scope: Scope) -> list[str]:
         """系统预检（确定性，不经模型）：变化类按顺序执行 describe_metric、changes、data_health、explain_change
@@ -2096,6 +2128,14 @@ class AnalysisToolbox:
             "scope_key": key,
             "causes": [_model(Cause, c).model_dump(exclude_none=True) for c in causes or []],
             "figures": [dict(figure) for figure in self.figures],
+            "evidence": {
+                "filter_alignment": list(self.filter_alignment),
+                **(
+                    {"filter_alignment_unknown": list(self.filter_alignment_unknown)}
+                    if self.filter_alignment_unknown
+                    else {}
+                ),
+            },
         }
         self._step("note", "submit_report", {"title": self.report["title"]}, "ok", {"claims": len(claims)})
         return _json({"ok": True})

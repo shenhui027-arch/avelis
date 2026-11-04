@@ -2332,3 +2332,15 @@ msgstr "圖表調整"
 
 msgid "图表已更新"
 msgstr "圖表已更新"
+
+msgid "维度 {dimension} 的取值 {original} 尚未确定；候选：{candidates}；请用 ask_user 确认"
+msgstr "維度 {dimension} 的取值 {original} 尚未確定；候選：{candidates}；請用 ask_user 確認"
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。"
+msgstr "篩選值「{original}」需要確認（維度：{dimension}）；候選：{candidates}。"
+
+msgid "筛选值“{original}”需要确认（维度：{dimension}）；暂无可用候选。"
+msgstr "篩選值「{original}」需要確認（維度：{dimension}）；目前沒有可用候選。"
+
+msgid "可在维表中维护别名并建立关联路径。"
+msgstr "可在維度表中維護別名並建立關聯路徑。"

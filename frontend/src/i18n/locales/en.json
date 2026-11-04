@@ -1646,5 +1646,8 @@
   "平均 {{value}}": "Avg {{value}}",
   "最高 {{x}} {{value}}": "Max {{x}} {{value}}",
   "最低 {{x}} {{value}}": "Min {{x}} {{value}}",
-  "{{name}} 平均 {{value}}": "{{name}} avg {{value}}"
+  "{{name}} 平均 {{value}}": "{{name}} avg {{value}}",
+  "按“{{value}}”筛选（原话“{{original}}”）": "Filtered by “{{value}}” (you said “{{original}}”)",
+  "，依据维表 {{table}} 的 {{column}} 列": ", from column {{column}} of dimension table {{table}}",
+  "候选取值": "Candidate values"
 }

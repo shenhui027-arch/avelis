@@ -2633,6 +2633,8 @@ export interface components {
             answer?: {
                 [key: string]: unknown;
             } | null;
+            /** Filter Alignment */
+            filter_alignment?: components["schemas"]["FilterAlignmentOut"][];
             /** Verification */
             verification?: {
                 [key: string]: unknown;
@@ -2761,6 +2763,8 @@ export interface components {
             evidence: {
                 [key: string]: unknown;
             };
+            /** Filter Alignment */
+            filter_alignment?: components["schemas"]["FilterAlignmentOut"][];
             /** Freshness */
             freshness: {
                 [key: string]: unknown;
@@ -4133,6 +4137,26 @@ export interface components {
         FetchedOut: {
             /** Models */
             models: string[];
+        };
+        /** FilterAlignmentOut */
+        FilterAlignmentOut: {
+            /** Dimension */
+            dimension: string;
+            /** Original */
+            original: string;
+            /** Value */
+            value: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "exact" | "normalized" | "dimension_table";
+            /** Table */
+            table?: string | null;
+            /** Column */
+            column?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** GovernanceEvent */
         GovernanceEvent: {

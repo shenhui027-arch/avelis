@@ -605,6 +605,15 @@ class HistoryStatusOut(Out):
 # --- 问数、审计 --------------------------------------------------------------------
 
 
+class FilterAlignmentOut(Out):
+    dimension: str
+    original: str
+    value: str
+    method: Literal["exact", "normalized", "dimension_table"]
+    table: str | None = None
+    column: str | None = None
+
+
 class AnswerOut(Out):
     id: str
     question: str
@@ -620,6 +629,7 @@ class AnswerOut(Out):
     metric_version_ids: list[str]
     result: Json
     evidence: Json
+    filter_alignment: list[FilterAlignmentOut] = Field(default_factory=list)
     freshness: Json
     executed_at: str | None = None
     duration_ms: int | None = None
@@ -1157,6 +1167,7 @@ class AnalysisRunOut(Out):
     report: Json | None = None
     figures: list[ReportFigure] = Field(default_factory=list)
     answer: Json | None = None
+    filter_alignment: list[FilterAlignmentOut] = Field(default_factory=list)
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
     datasets: list[AnalysisDatasetOut] | None = None

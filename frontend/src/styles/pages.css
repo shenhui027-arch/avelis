@@ -728,6 +728,8 @@
 .av-analysis__confirm, .av-analysis__candidates { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-default); border-radius: var(--radius-lg); background: var(--bg-surface); }
 .av-analysis__confirm { border-color: var(--line-strong); box-shadow: var(--shadow-glass), 0 0 0 3px var(--accent-subtle); }
 .av-analysis__question { margin: 0; color: var(--text-primary); font: 400 15px/24px var(--font-sans); }
+.av-analysis__options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.av-filter-alignment { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; }
 .av-analysis__confirm-hd { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .av-analysis__confirm h3, .av-analysis__sources h3, .av-analysis__candidates h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 600 13px/20px var(--font-sans); }
 .av-analysis__confirm-ft { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-3); }

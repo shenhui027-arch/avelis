@@ -97,6 +97,7 @@ def answer_view(a: Answer, session: Session | None = None) -> dict:
         "metric_version_ids": a.metric_version_ids,
         "result": _answer_result(a, session),
         "evidence": a.evidence,
+        "filter_alignment": (a.evidence or {}).get("filter_alignment", []),
         "freshness": a.freshness,
         "executed_at": a.executed_at.isoformat() if a.executed_at else None,
         "duration_ms": a.duration_ms,

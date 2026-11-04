@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from avelis import charts, modelcfg
 from avelis.analysis.grounding import _unit, display, number
 from avelis.ask import service
+from avelis.ask.alignment import AlignmentResult, align_filters, has_dimension_table
 from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today, matched_dimension_values
 from avelis.ask.llm import DEMO_ADAPTER
 from avelis.config import get_settings
@@ -133,6 +134,8 @@ class Toolbox:
         self.intent: Intent | None = None
         self.clarification: dict | None = None
         self._values: dict[tuple[str, str], list[str]] = {}
+        self.filter_alignment: list[dict[str, Any]] = []
+        self.filter_alignment_unknown: list[dict[str, Any]] = []
 
     def _card(self, code: str):
         return next((c for c in self.catalog.cards if c.code == code), None)
@@ -214,11 +217,13 @@ class Toolbox:
         compare_end: date | None = None,
         time_grain: str | None = None,
     ) -> str:
+        self.intent = None
+        self.filter_alignment = []
+        self.filter_alignment_unknown = []
         cards = [self._card(c) for c in metric_codes]
         missing = [c for c, card in zip(metric_codes, cards) if card is None]
         if missing:
             return json.dumps({"accepted": False, "error": f"没有可用指标 {'、'.join(missing)}"}, ensure_ascii=False)
-        card, metric_code = cards[0], metric_codes[0]
         dims = set.intersection(*({d["name"] for d in c.dimensions} for c in cards))  # 多指标只能用共有维度
         problems, parsed = [], []
         for f in filters or []:
@@ -226,18 +231,6 @@ class Toolbox:
             if f["dimension"] not in dims:
                 problems.append(f"维度 {f['dimension']} 不在允许范围")
                 continue
-            sample = self._dimension_values(metric_code, f["dimension"])
-            known = set(sample)
-            # 受影响 / 失效的指标不查取值：交给治理步骤给出拦截原因
-            unknown = [v for v in f["values"] if v not in known] if card.status == "published" else []
-            if unknown and len(sample) >= service.DIMENSION_VALUES_LIMIT:
-                _, version = self.catalog.versions[metric_code]
-                existing = service._existing_dimension_values(
-                    self.session, self.user, version, f["dimension"], unknown, get_settings()
-                )
-                unknown = [v for v in unknown if existing is not None and v not in existing]
-            if unknown:
-                problems.append(f"维度 {f['dimension']} 没有取值 {unknown}；请先用 match_dimension_values 核对")
             parsed.append(DimensionFilter(dimension=f["dimension"], values=f["values"]))
         problems += [f"分组维度 {g} 不在允许范围" for g in group_by or [] if g not in dims]
         if start_date > end_date:
@@ -246,11 +239,26 @@ class Toolbox:
             problems.append("排名需要分组维度（group_by）")
         if problems:
             return json.dumps({"accepted": False, "errors": problems}, ensure_ascii=False)
+        # 受影响 / 失效的指标交给治理步骤拦截，不让取值澄清遮住治理原因。
+        alignment = self._align_filters(metric_codes, parsed) if all(c.status == "published" for c in cards) else None
+        if alignment and alignment.unresolved:
+            problems = [
+                gettext("维度 {dimension} 的取值 {original} 尚未确定；候选：{candidates}；请用 ask_user 确认").format(
+                    dimension=item["dimension"], original=item["original"], candidates=item["candidates"]
+                )
+                + ("；" + gettext("可在维表中维护别名并建立关联路径。") if not item["has_dimension_table"] else "")
+                for item in alignment.unresolved
+            ]
+            return json.dumps(
+                {"accepted": False, "errors": problems, "unresolved_filters": alignment.unresolved}, ensure_ascii=False
+            )
+        self.filter_alignment = alignment.explanations if alignment else []
+        self.filter_alignment_unknown = alignment.unknown if alignment else []
         self.intent = Intent(
             metric_codes=list(dict.fromkeys(metric_codes)),
             start_date=start_date,
             end_date=end_date,
-            filters=parsed,
+            filters=alignment.filters if alignment else parsed,
             group_by=list(group_by or []),
             order=order,
             limit=limit,
@@ -260,6 +268,61 @@ class Toolbox:
             time_grain=time_grain,
         )
         return json.dumps({"accepted": True}, ensure_ascii=False)
+
+    def _align_filters(self, metric_codes: list[str], filters: list[DimensionFilter]) -> AlignmentResult:
+        if not filters:
+            return AlignmentResult(filters=[], explanations=[], unresolved=[], unknown=[])
+        settings = get_settings()
+        codes = list(dict.fromkeys(metric_codes))
+        results = [
+            align_filters(self.session, self.user, self.catalog.versions[code][1], filters, settings) for code in codes
+        ]
+        explanations, unresolved, unknown, aligned = [], [], [], []
+        table_availability = {}
+        for index, item in enumerate(filters):
+            values = []
+            for position, original in enumerate(item.values):
+                key = (item.dimension, original)
+
+                def matches(record):
+                    return (record["dimension"], record["original"]) == key
+
+                pending = [record for result in results for record in result.unresolved if matches(record)]
+                uncertain = [record for result in results for record in result.unknown if matches(record)]
+                notes = [record for result in results for record in result.explanations if matches(record)]
+                resolved = [result.filters[index].values[position] for result in results]
+                if pending or (not uncertain and len(set(resolved)) > 1):
+                    candidates = [value for record in pending for value in record["candidates"]]
+                    candidates += [value for value in resolved if value != original or not pending]
+                    has_table = any(record["has_dimension_table"] for record in pending) or any(
+                        record["method"] == "dimension_table" for record in notes
+                    )
+                    if not has_table:
+                        if item.dimension not in table_availability:
+                            table_availability[item.dimension] = any(
+                                has_dimension_table(
+                                    self.session, self.user, self.catalog.versions[code][1], item.dimension
+                                )
+                                for code in codes
+                            )
+                        has_table = table_availability[item.dimension]
+                    record = {
+                        "dimension": item.dimension,
+                        "original": original,
+                        "candidates": list(dict.fromkeys(candidates))[:10],
+                        "has_dimension_table": has_table,
+                    }
+                    if record not in unresolved:
+                        unresolved.append(record)
+                    values.append(original)
+                elif uncertain:
+                    values.append(original)
+                    unknown.extend(record for record in uncertain if record not in unknown)
+                else:
+                    values.append(resolved[0])
+                    explanations.extend(record for record in notes if record not in explanations)
+            aligned.append(DimensionFilter(dimension=item.dimension, values=values))
+        return AlignmentResult(filters=aligned, explanations=explanations, unresolved=unresolved, unknown=unknown)
 
     def ask_user(self, question: str, options: list[str] | None = None) -> str:
         self.clarification = {"question": question, "options": options or []}
@@ -424,6 +487,11 @@ def understand(state: AgentState, config) -> dict[str, Any]:
             break
     step = {"node": "understand", "adapter": resolved.adapter, "tool_calls": calls, "at": utcnow().isoformat()}
     if toolbox.intent:
+        answer.evidence["filter_alignment"] = toolbox.filter_alignment
+        answer.evidence["filter_alignment_unknown"] = toolbox.filter_alignment_unknown
+        step["filter_alignment"] = toolbox.filter_alignment
+        if toolbox.filter_alignment_unknown:
+            step["filter_alignment_unknown"] = toolbox.filter_alignment_unknown
         return {
             "intent": toolbox.intent.model_dump(mode="json"),
             "clarification": None,
@@ -456,7 +524,11 @@ def clarify(state: AgentState, config) -> dict[str, Any]:
 def govern(state: AgentState, config) -> dict[str, Any]:
     session, user, answer = _ctx(config)
     catalog = service.visible_catalog(session, user, with_values=False)
+    alignment_evidence = {
+        key: answer.evidence[key] for key in ("filter_alignment", "filter_alignment_unknown") if key in answer.evidence
+    }
     service.fulfil(session, user, Intent(**state["intent"]), answer, catalog)
+    answer.evidence.update(alignment_evidence)
     return {
         "steps": [
             {
@@ -496,6 +568,8 @@ def _explain_payload(answer, intent: dict) -> dict:
         "period": {"start_date": intent.get("start_date"), "end_date": intent.get("end_date")},
         "columns": [_payload_column(c, roles.get(c, {})) for c in columns],
     }
+    if answer.evidence.get("filter_alignment"):
+        payload["filter_alignment"] = answer.evidence["filter_alignment"]
     if len(rows) <= 20:
         payload["rows"] = [formatted(row) for row in rows]
     else:

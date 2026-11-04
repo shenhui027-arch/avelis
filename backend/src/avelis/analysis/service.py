@@ -431,6 +431,16 @@ def _execute(
     # 异常路径同样带上已记录的权限拒绝：定时任务据此暂停
     if toolbox is not None and (toolbox.permission_lost or toolbox.denials):
         report = {**report, "permission": {"lost": toolbox.permission_lost, "denials": toolbox.denials}}
+    if toolbox is not None:
+        report["evidence"] = {
+            **(report.get("evidence") or {}),
+            "filter_alignment": list(toolbox.filter_alignment),
+            **(
+                {"filter_alignment_unknown": list(toolbox.filter_alignment_unknown)}
+                if toolbox.filter_alignment_unknown
+                else {}
+            ),
+        }
     session.rollback()  # 丢弃未提交的半步写入；已完成的步骤与数据集已逐步提交
     # 加锁顺序全局一致：Job → 运行 → 任务（恢复器、领取、任务路径相同），并发收尾不会互等
     job = _own_job(session, job_id, attempt)
@@ -1212,8 +1222,12 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         "title": (run.report or {}).get("title"),
         "verified": (run.verification or {}).get("ok"),
         "messages": [],
+        "filter_alignment": (run.report or {}).get("evidence", {}).get("filter_alignment")
+        or (checkpoint.get("snapshot") or {}).get("state", {}).get("filter_alignment")
+        or [],
     }
     if not full:
+        data["filter_alignment"] = []
         title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
         if (run.report or {}).get("kind") == "chart" and (run.report or {}).get("dataset"):
             title_refs.add(run.report["dataset"])
@@ -1226,6 +1240,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 if f"D{d.seq}" in title_refs and not can_read_dataset(session, user, d, known)
             }
             data["title"] = restrict_report(run.report or {}, restricted_refs).get("title")
+            if restricted_refs:
+                data["filter_alignment"] = []
         return data
     lookup_restricted = False
     if user is not None and (run.report or {}).get("kind") == "lookup":
@@ -1258,6 +1274,17 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     report = report_dimension_labels(session, report, [d for d in datasets if d.id in readable])
     metadata = {d.id: dataset_meta(session, d) for d in datasets if d.id in readable}
     has_restricted = bool(restricted or lookup_restricted)
+    if has_restricted:
+        data["filter_alignment"] = []
+        if report.get("evidence"):
+            report = {
+                **report,
+                "evidence": {
+                    key: value
+                    for key, value in report["evidence"].items()
+                    if key not in {"filter_alignment", "filter_alignment_unknown"}
+                },
+            }
 
     def is_metric_code(value) -> bool:
         return isinstance(value, str) and re.fullmatch(r"[a-z0-9_]{1,64}", value) is not None

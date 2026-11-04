@@ -47,6 +47,7 @@ from avelis.analysis import conversation_context, investigation
 from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
+from avelis.ask.alignment import AlignmentResult, align_filters, has_dimension_table
 from avelis.config import get_settings
 from avelis.engines import dialect_of, get_engine
 from avelis.governance import access, experiences, joins
@@ -328,6 +329,7 @@ class AnalysisState(TypedDict, total=False):
     confirmation_mode: str
     unattended: bool
     clarification: str | None
+    clarification_details: dict | None
     clarifications: list[dict]
 
 
@@ -768,31 +770,182 @@ def _chart_target(scope: Scope, inherited: dict) -> tuple[dict | None, str | Non
     )
 
 
+def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope, list[dict]]:
+    """一个范围的筛选必须在所有所选口径上得到同一结果，未知值仍按原话执行。"""
+    if scope.question_type == "chart":
+        return scope, []
+    if not scope.filters or not scope.metric_codes:
+        toolbox.filter_alignment, toolbox.filter_alignment_unknown = [], []
+        return scope, []
+    if any(code not in toolbox.catalog.versions for code in scope.metric_codes):
+        toolbox.filter_alignment_unknown.extend(
+            {"dimension": item.dimension, "original": value, "reason": "metric_unavailable"}
+            for item in scope.filters
+            for value in item.values
+        )
+        return scope, []
+    versions = [toolbox.catalog.versions[code][1] for code in scope.metric_codes]
+    common = set.intersection(*({d["name"] for d in version.dimensions or []} for version in versions))
+    shared = [item for item in scope.filters if item.dimension in common]
+    results: list[AlignmentResult] = []
+    for version in versions:
+        try:
+            results.append(align_filters(toolbox.session, toolbox.user, version, shared, get_settings()))
+        except Exception as exc:  # noqa: BLE001 - 守卫或数据源核验失败不能改写用户的筛选值。
+            results.append(
+                AlignmentResult(
+                    filters=shared,
+                    unknown=[
+                        {"dimension": item.dimension, "original": value, "reason": type(exc).__name__}
+                        for item in shared
+                        for value in item.values
+                    ],
+                )
+            )
+    unresolved, explanations, unknown, aligned = [], [], [], []
+
+    def matching(items: list[dict], dimension: str, original: str) -> list[dict]:
+        return [item for item in items if item["dimension"] == dimension and item["original"] == original]
+
+    for item in scope.filters:
+        values = []
+        for index, original in enumerate(item.values):
+            dimension = item.dimension
+            if dimension not in common:
+                unresolved.append(
+                    {"dimension": dimension, "original": original, "candidates": [], "has_dimension_table": False}
+                )
+                values.append(original)
+                continue
+            position = next(i for i, shared_item in enumerate(shared) if shared_item is item)
+            choices = [result.filters[position].values[index] for result in results]
+            pending = [entry for result in results for entry in matching(result.unresolved, dimension, original)]
+            failures = [entry for result in results for entry in matching(result.unknown, dimension, original)]
+            notes = [entry for result in results for entry in matching(result.explanations, dimension, original)]
+            if pending or not failures and len(set(choices)) != 1:
+                candidates = list(dict.fromkeys([value for entry in pending for value in entry["candidates"]]))
+                candidates.extend(value for value in choices if value != original and value not in candidates)
+                unresolved.append(
+                    {
+                        "dimension": dimension,
+                        "original": original,
+                        "candidates": candidates[:10],
+                        "has_dimension_table": any(entry["has_dimension_table"] for entry in pending)
+                        or any(entry["method"] == "dimension_table" for entry in notes)
+                        or any(
+                            has_dimension_table(toolbox.session, toolbox.user, version, dimension)
+                            for version in versions
+                        ),
+                    }
+                )
+                values.append(original)
+            elif failures:
+                unknown.extend(failures)
+                values.append(original)
+            else:
+                values.append(choices[0])
+                explanations.extend(notes)
+        aligned.append(item.model_copy(update={"values": values}))
+    # 同一个取值可能在几个口径上用同一条关联路径核对，面向用户只保留一条说明。
+    toolbox.filter_alignment = [
+        entry
+        for entry in toolbox.filter_alignment
+        if any(item.dimension == entry["dimension"] and entry["value"] in item.values for item in aligned)
+    ]
+    toolbox.filter_alignment_unknown = [
+        entry
+        for entry in toolbox.filter_alignment_unknown
+        if any(item.dimension == entry["dimension"] and entry["original"] in item.values for item in aligned)
+    ]
+    for target, entries in ((toolbox.filter_alignment, explanations), (toolbox.filter_alignment_unknown, unknown)):
+        for entry in entries:
+            if entry not in target:
+                target.append(entry)
+    return scope.model_copy(update={"filters": aligned}), unresolved
+
+
+def _filter_clarification(unresolved: list[dict]) -> tuple[str, dict]:
+    lines = []
+    for item in unresolved:
+        if item["candidates"]:
+            lines.append(
+                gettext(
+                    "筛选值“{original}”需要确认（维度：{dimension}）；候选：{candidates}。",
+                    original=item["original"],
+                    dimension=item["dimension"],
+                    candidates="、".join(item["candidates"]),
+                )
+            )
+        else:
+            lines.append(
+                gettext(
+                    "筛选值“{original}”需要确认（维度：{dimension}）；暂无可用候选。",
+                    original=item["original"],
+                    dimension=item["dimension"],
+                )
+            )
+    if any(not item["has_dimension_table"] for item in unresolved):
+        lines.append(gettext("可在维表中维护别名并建立关联路径。"))
+    first = unresolved[0]
+    return "\n".join(lines), {"dimension": first["dimension"], "options": first["candidates"], "unresolved": unresolved}
+
+
 def understand(state: AnalysisState, config) -> dict[str, Any]:
     """理解范围；追问先保存再回到本节点暂停，恢复不会重做已完成的模型调用。"""
     toolbox, model = _ctx(config)
     previous_scope = toolbox.scope
     clarifications = list(state.get("clarifications") or [])
+    details = state.get("clarification_details") or {}
+    selected = None
     if state.get("phase") == "clarify" and (question := state.get("clarification")):
-        feedback = interrupt({"kind": "clarify", "question": question})
+        feedback = interrupt(
+            {
+                "kind": "clarify",
+                "question": question,
+                **{k: details[k] for k in ("options", "dimension") if k in details},
+            }
+        )
         toolbox.check_resume_permissions()
-        clarifications.append({"question": question, "answer": feedback["answer"]})
+        clarifications.append(
+            {
+                "question": question,
+                "answer": feedback["answer"],
+                **{k: details[k] for k in ("options", "dimension") if k in details},
+            }
+        )
+        toolbox.clarification = None
+        if feedback["answer"] in details.get("options", []):
+            selected = feedback["answer"]
     inherited = _followup_inherited(state, toolbox)
+    selected_scope = None
+    if selected is not None and state.get("scope"):
+        # 点击确定性候选无需模型再次解释；其余已确认范围仍沿用 #110 的规则。
+        original = details["unresolved"][0]["original"]
+        selected_scope = {
+            **state["scope"],
+            "filters": [
+                {**item, "values": [selected if value == original else value for value in item["values"]]}
+                if item["dimension"] == details["dimension"]
+                else item
+                for item in state["scope"].get("filters", [])
+            ],
+        }
+        if inherited.get("scope"):
+            inherited = {**inherited, "scope": selected_scope}
     # 已确认的分析续问也要理解用户本轮原话，才能区分改图与新增取数；
     # 旧的无模型恢复路径仍可直接沿用已确认范围。
-    if (
+    shortcut = selected_scope is not None or (
         inherited.get("scope")
         and inherited["scope"].get("question_type") != "chart"
         and not (inherited.get("conversation") and model is not None)
-    ):
+    )
+    if shortcut:
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
-        scope = Scope.model_validate({**inherited["scope"], "clarification": None})
-        toolbox.record_scope(scope, scope.model_dump(mode="json"), None)
-        return {"scope": scope.model_dump(mode="json"), "phase": "precheck", "rounds": 0, "inherited": inherited}
     ctx = state.get("context") or {}
     user_question = inherited.get("user_text") or state["question"]
-    scope, raw, problem, question = None, None, None, None
-    if _can_call_model(toolbox):
+    scope = Scope.model_validate(selected_scope) if selected_scope else None
+    raw, problem, question = selected_scope, None, None
+    if not shortcut and _can_call_model(toolbox):
         previous_question = inherited.get("previous_question")
         previous_codes = (inherited.get("previous_scope") or {}).get("metric_codes") or []
         candidate_question = (
@@ -872,32 +1025,40 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     confirmed = inherited.get("scope")
     if confirmed and confirmed.get("question_type") == "chart":
         confirmed = None  # 改图轮次的范围不是确认过的分析范围（旧数据兜底；followup_run 已不再继承它）
-    if confirmed and not (scope is not None and scope.question_type == "chart"):
+    retained_confirmed = confirmed and not (scope is not None and scope.question_type == "chart")
+    if retained_confirmed:
         # 已确认范围的续问：这次理解只用来判断是不是改图；不是改图就照旧沿用确认过的范围，不让模型改写它。
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
-        kept = Scope.model_validate({**confirmed, "clarification": None})
-        toolbox.record_scope(kept, kept.model_dump(mode="json"), None)
-        return {"scope": kept.model_dump(mode="json"), "phase": "precheck", "rounds": 1, "inherited": inherited}
+        scope = Scope.model_validate({**confirmed, "clarification": None})
+        raw, problem, question = scope.model_dump(mode="json"), None, None
+    details = {}
+    if scope is not None and not question and not problem and scope.question_type != "chart":
+        scope, unresolved = _align_scope_filters(toolbox, scope)
+        if unresolved:
+            question, details = _filter_clarification(unresolved)
     toolbox.record_scope(scope, raw, problem)
-    if inherited.get("conversation") and model is not None:
+    if inherited.get("conversation") and model is not None and not retained_confirmed:
         inherited = {key: value for key, value in inherited.items() if key != "scope"}
     if question and not state.get("unattended") and len(clarifications) < 2:
+        if details:
+            toolbox.request_clarification(question, scope, raw, **details)
         if problem:  # 候选外的范围保留在 plan 和图状态中，恢复授权仍以此前有效的范围为准。
             toolbox.scope = previous_scope
         return {
             "scope": scope.model_dump(mode="json") if scope else None,
             "phase": "clarify",
-            "rounds": 1,
+            "rounds": 0 if shortcut else 1,
             "clarification": question,
+            "clarification_details": details,
             "clarifications": clarifications,
             "inherited": inherited,
         }
     if question:  # 无人值守或已回答两次：沿原路径结束，不带着未澄清的范围继续。
-        toolbox.request_clarification(question, scope, raw)
+        toolbox.request_clarification(question, scope, raw, **details)
         return {
             "scope": scope.model_dump(mode="json") if scope else None,
             "phase": "clarify",
-            "rounds": 1,
+            "rounds": 0 if shortcut else 1,
             "clarification": None,
             "clarifications": clarifications,
             "notes": [f"需要澄清：{question}"],
@@ -906,8 +1067,9 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     return {
         "scope": scope.model_dump(mode="json") if scope else None,
         "phase": "chart_edit" if scope is not None and scope.question_type == "chart" else "precheck",
-        "rounds": 1,
+        "rounds": 0 if shortcut else 1,
         "clarification": None,
+        "clarification_details": None,
         "clarifications": clarifications,
         "notes": [problem] if problem else [],
         "inherited": inherited,
@@ -954,6 +1116,15 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
         answer = service.start_answer(toolbox.session, toolbox.user, question, toolbox.adapter, None)
         answer.intent = intent.model_dump(mode="json")
         service.fulfil(toolbox.session, toolbox.user, intent, answer, catalog)
+        answer.evidence = {
+            **(answer.evidence or {}),
+            "filter_alignment": list(toolbox.filter_alignment),
+            **(
+                {"filter_alignment_unknown": list(toolbox.filter_alignment_unknown)}
+                if toolbox.filter_alignment_unknown
+                else {}
+            ),
+        }
         service.finish_answer(toolbox.session, toolbox.user, answer, started)
         if answer.status == "denied" and answer.error_code == "permission":
             toolbox.denials.append(
@@ -965,6 +1136,14 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
                 "answer_id": answer.id,
                 "title": question,
                 "summary": answer.explanation or answer.message,
+                "evidence": {
+                    "filter_alignment": list(toolbox.filter_alignment),
+                    **(
+                        {"filter_alignment_unknown": list(toolbox.filter_alignment_unknown)}
+                        if toolbox.filter_alignment_unknown
+                        else {}
+                    ),
+                },
             }
             toolbox.verification = {"ok": True, "status": "lookup"}
         return {"answer_id": answer.id, "status": answer.status}, None, "ok" if answer.status == "answered" else "error"
