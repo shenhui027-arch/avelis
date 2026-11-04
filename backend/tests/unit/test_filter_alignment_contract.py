@@ -13,9 +13,10 @@ ALIGNMENT = {
     "dimension": "region",
     "original": "华东区",
     "value": "华东",
-    "method": "dimension_table",
-    "table": "catalog.public.regions",
-    "column": "label",
+    "method": "normalized",
+    "asset_id": None,
+    "table": None,
+    "column": None,
 }
 
 
@@ -87,3 +88,5 @@ def test_alignment_messages_are_translated_without_changing_member_values(locale
         assert rendered != message.format(original="华东区", dimension="region", candidates="华东")
         hint = "可在维表中维护别名并建立关联路径。"
         assert gettext(hint) != hint
+        for error in ("请按待确认项提交筛选候选", "筛选回答包含未知、重复的待确认项或无效候选"):
+            assert gettext(error) != error

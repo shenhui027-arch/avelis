@@ -190,7 +190,7 @@ def alignment_pg(factory, monkeypatch):
                 decision="approved",
             )
         )
-        ids = SimpleNamespace(owner=owner, version=version.id, path=path.id)
+        ids = SimpleNamespace(owner=owner, version=version.id, path=path.id, dimension=dimension.id)
 
     with session_scope() as session:
         yield SimpleNamespace(
@@ -198,6 +198,7 @@ def alignment_pg(factory, monkeypatch):
             user=session.get(User, ids.owner),
             version=session.get(MetricVersion, ids.version),
             path=session.get(JoinPath, ids.path),
+            dimension_id=ids.dimension,
             settings=settings,
             statements=statements,
             table=f"{database.database}.{schema}.dimension",
@@ -232,6 +233,7 @@ def test_approved_dimension_alias_executes_on_postgresql(alignment_pg, reverse):
             "original": "alias_a",
             "value": "member_a",
             "method": "dimension_table",
+            "asset_id": world.dimension_id,
             "table": world.table,
             "column": "alias",
         }

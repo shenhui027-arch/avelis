@@ -12,7 +12,7 @@ from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask import agent
 from avelis.ask.intent import Intent
-from avelis.ask.service import _result_contract
+from avelis.ask.service import _result_contract, filter_alignment_restricted
 from avelis.governance import access
 from avelis.models import Answer, AskThread, AuditEvent, Metric, MetricVersion, User
 
@@ -81,7 +81,15 @@ def _answer_contract(a: Answer, session: Session | None) -> dict:
     return _result_contract(result, intent, requested, value_column="value" if simple else None)
 
 
-def answer_view(a: Answer, session: Session | None = None) -> dict:
+def answer_view(a: Answer, session: Session | None = None, *, user: User | None = None) -> dict:
+    evidence = a.evidence or {}
+    alignments = evidence.get("filter_alignment") or []
+    historical_alignments = [entry for step in a.steps or [] for entry in step.get("filter_alignment") or []]
+    restricted = filter_alignment_restricted(session, user, [*alignments, *historical_alignments])
+    if restricted:
+        evidence = {
+            key: value for key, value in evidence.items() if key not in {"filter_alignment", "filter_alignment_unknown"}
+        }
     return {
         "id": a.id,
         "question": a.question,
@@ -96,23 +104,28 @@ def answer_view(a: Answer, session: Session | None = None) -> dict:
         "sql": a.sql,
         "metric_version_ids": a.metric_version_ids,
         "result": _answer_result(a, session),
-        "evidence": a.evidence,
-        "filter_alignment": (a.evidence or {}).get("filter_alignment", []),
+        "evidence": evidence,
+        "filter_alignment": [] if restricted else alignments,
         "freshness": a.freshness,
         "executed_at": a.executed_at.isoformat() if a.executed_at else None,
         "duration_ms": a.duration_ms,
         "cache_hit": a.cache_hit,
         "recheck_status": a.recheck_status,
         "thread_id": a.thread_id,
-        "steps": a.steps,
-        "explanation": a.explanation,
-        "explanation_source": a.explanation_source,
+        "steps": [
+            {key: value for key, value in step.items() if key not in {"filter_alignment", "filter_alignment_unknown"}}
+            for step in a.steps
+        ]
+        if restricted
+        else a.steps,
+        "explanation": None if restricted else a.explanation,
+        "explanation_source": None if restricted else a.explanation_source,
     }
 
 
 @router.post("/ask", response_model=S.AnswerOut)
 def ask(body: Question, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
-    return answer_view(agent.run_turn(session, user, body.question, body.thread_id), session)
+    return answer_view(agent.run_turn(session, user, body.question, body.thread_id), session, user=user)
 
 
 @router.get("/ask/threads", response_model=list[S.ThreadOut])
@@ -137,7 +150,12 @@ def get_thread(thread_id: str, user: User = Depends(current_user), session: Sess
     if t is None or t.user_id != user.id:
         raise HTTPException(404, "会话不存在")
     answers = session.scalars(select(Answer).where(Answer.thread_id == t.id).order_by(Answer.asked_at))
-    return {"id": t.id, "title": t.title, "status": t.status, "answers": [answer_view(a, session) for a in answers]}
+    return {
+        "id": t.id,
+        "title": t.title,
+        "status": t.status,
+        "answers": [answer_view(a, session, user=user) for a in answers],
+    }
 
 
 @router.get("/answers", response_model=list[S.AnswerOut])
@@ -147,7 +165,7 @@ def list_answers(
     stmt = select(Answer).order_by(Answer.asked_at.desc()).limit(200)
     if not (all_users and access.is_admin(session, user)):
         stmt = stmt.where(Answer.asked_by == user.id)
-    return [answer_view(a, session) for a in session.scalars(stmt)]
+    return [answer_view(a, session, user=user) for a in session.scalars(stmt)]
 
 
 @router.get("/answers/{answer_id}", response_model=S.AnswerOut)
@@ -155,7 +173,7 @@ def get_answer(answer_id: str, user: User = Depends(current_user), session: Sess
     a = session.get(Answer, answer_id)
     if a is None or (a.asked_by != user.id and not access.is_admin(session, user)):
         raise HTTPException(404, "答案不存在或无权访问")
-    return answer_view(a, session)
+    return answer_view(a, session, user=user)
 
 
 @router.get("/audit", response_model=list[S.AuditOut])

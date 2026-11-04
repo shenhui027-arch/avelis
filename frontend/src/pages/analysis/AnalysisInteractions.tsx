@@ -94,20 +94,38 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
 }
 
 /** 理解阶段的追问：用户回答后在同一次分析里继续（回答也会整理成可保存的经验候选）。 */
-export function ClarifyPanel({ runId, question, options }: { runId: string; question: string; options?: string[] }) {
+export type ClarifyItem = { dimension: string; original: string; options: string[] };
+type AlignmentAnswer = Schemas["AnalysisAlignmentAnswerIn"];
+
+export function ClarifyPanel({ runId, question, items }: { runId: string; question: string; items?: ClarifyItem[] }) {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // 候选取值可直接点选：选中的值原样作为回答，后端用它替换范围里的取值后继续，不再经模型解释
-  const resume = useAction((value: string) => unwrap(api.POST("/api/analysis/runs/{run_id}/resume", {
-    params: { path: { run_id: runId } }, body: { answer: value } as never })), ["analysis-run", "analysis-runs"]);
-  const submit = (value: string) => { setError(null); resume.mutate(value, { onError: (err) => setError(errorText(err)) }); };
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  // 候选取值可直接点选：选中的值原样作为回答，后端逐项替换范围里的取值后继续，不再经模型解释（ADR 0021）
+  const resume = useAction((value: string | AlignmentAnswer[]) => unwrap(api.POST("/api/analysis/runs/{run_id}/resume", {
+    params: { path: { run_id: runId } }, body: { answer: value } })), ["analysis-run", "analysis-runs"]);
+  const submit = (value: string | AlignmentAnswer[]) => { setError(null); resume.mutate(value, { onError: (err) => setError(errorText(err)) }); };
+  const key = (i: ClarifyItem) => `${i.dimension}|${i.original}`;
+  const pick = (i: ClarifyItem, o: string) => {
+    // 只有一项待确认时点选即提交；多项时逐项选好再一起提交（可只提交一部分，剩下的会接着问）
+    if ((items ?? []).length === 1) submit([{ dimension: i.dimension, original: i.original, value: o }]);
+    else setChosen((c) => ({ ...c, [key(i)]: c[key(i)] === o ? "" : o }));
+  };
+  const selections = (items ?? []).filter((i) => chosen[key(i)]).map((i) => ({ dimension: i.dimension, original: i.original, value: chosen[key(i)] }));
   return (
     <section className="av-analysis__confirm" aria-label={t("回答追问")}>
       <header className="av-analysis__confirm-hd"><h3>{t("需要你确认范围")}</h3></header>
       <p className="av-analysis__question">{question}</p>
-      {options?.length ? <div className="av-analysis__options" role="group" aria-label={t("候选取值")}>
-        {options.map((o) => <button key={o} type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={resume.isPending}
-          onClick={() => submit(o)}>{o}</button>)}
+      {(items ?? []).map((i) => <div key={key(i)} className="av-analysis__choice">
+        <span className="av-caption">{t("{{dimension}}：“{{original}}”", { dimension: i.dimension, original: i.original })}</span>
+        <div className="av-analysis__options" role="group" aria-label={t("候选取值")}>
+          {i.options.map((o) => <button key={o} type="button" disabled={resume.isPending} aria-pressed={chosen[key(i)] === o}
+            className={`av-btn av-btn--sm ${chosen[key(i)] === o ? "av-btn--primary" : "av-btn--secondary"}`} onClick={() => pick(i, o)}>{o}</button>)}
+        </div>
+      </div>)}
+      {(items ?? []).length > 1 ? <div className="av-actions">
+        <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={resume.isPending || !selections.length}
+          onClick={() => submit(selections)}>{t("按所选继续（{{count}}/{{total}}）", { count: selections.length, total: (items ?? []).length })}</button>
       </div> : null}
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <form className="av-analysis__confirm-ft" onSubmit={(e) => {

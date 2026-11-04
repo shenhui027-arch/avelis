@@ -2187,6 +2187,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisAlignmentAnswerIn */
+        AnalysisAlignmentAnswerIn: {
+            /** Dimension */
+            dimension: string;
+            /** Original */
+            original: string;
+            /** Value */
+            value: string;
+        };
         /** AnalysisConversationDetailOut */
         AnalysisConversationDetailOut: {
             /** Id */
@@ -2569,9 +2578,10 @@ export interface components {
         AnalysisResumeIn: {
             /**
              * Answer
+             * @description 澄清回答；筛选候选可按 pending.items 提交 [{dimension, original, value}]，允许部分回答；字符串兼容自由文本及首项候选。
              * @default
              */
-            answer?: string;
+            answer?: string | components["schemas"]["AnalysisAlignmentAnswerIn"][];
             /** Decisions */
             decisions?: components["schemas"]["AnalysisDecisionIn"][];
             /**
@@ -2654,7 +2664,10 @@ export interface components {
              */
             confirmation_mode?: "auto" | "always";
             proposal?: components["schemas"]["AnalysisProposalOut"] | null;
-            /** Pending */
+            /**
+             * Pending
+             * @description 待确认内容；筛选澄清含完整 items:[{dimension, original, options:[str]}]，旧顶层 dimension/options 仅兼容首项；恢复时 answer 可提交 [{dimension, original, value}]。
+             */
             pending?: {
                 [key: string]: unknown;
             } | null;
@@ -4151,6 +4164,8 @@ export interface components {
              * @enum {string}
              */
             method: "exact" | "normalized" | "dimension_table";
+            /** Asset Id */
+            asset_id?: string | null;
             /** Table */
             table?: string | null;
             /** Column */

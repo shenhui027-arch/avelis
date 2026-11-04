@@ -1708,6 +1708,7 @@ class AnalysisToolbox:
         *,
         options: list[str] | None = None,
         dimension: str | None = None,
+        items: list[dict] | None = None,
         unresolved: list[dict] | None = None,
     ) -> None:
         """需要用户澄清（任务书 P0-A）：记一个 clarify 步骤，保存可恢复的上下文——原问题、模型给出的范围（含原始参数）、
@@ -1721,7 +1722,11 @@ class AnalysisToolbox:
                 "run_question": getattr(self.run, "question", None),
                 "window": getattr(self.run, "window", None),
             },
-            **({"options": options, "dimension": dimension, "unresolved": unresolved} if dimension else {}),
+            **(
+                {"options": options, "dimension": dimension, "items": items, "unresolved": unresolved}
+                if dimension
+                else {}
+            ),
         }
         self._step(
             "clarify",
@@ -1730,7 +1735,7 @@ class AnalysisToolbox:
             "waiting",
             {
                 key: self.clarification[key]
-                for key in ("question", "options", "dimension", "unresolved")
+                for key in ("question", "options", "dimension", "items", "unresolved")
                 if key in self.clarification
             },
         )

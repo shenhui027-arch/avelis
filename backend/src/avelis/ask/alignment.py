@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +22,7 @@ from avelis.engines.base import QUERY
 from avelis.governance.errors import GovernanceError
 from avelis.governance.joins import effectively_approved
 from avelis.governance.metric_sql import column_ref
+from avelis.governance.metrics import encoded_time_type
 from avelis.models import Asset, ColumnVersion, Datasource, JoinPath, MetricVersion, User
 
 _TEXT_TYPE = re.compile(
@@ -109,7 +111,11 @@ def _dimension_tables(session: Session, user: User, version: MetricVersion, dime
                 .order_by(ColumnVersion.ordinal)
             )
         )
-        text_columns = [c.name for c in columns if _TEXT_TYPE.match(c.data_type.strip())]
+        text_columns = [
+            c.name
+            for c in columns
+            if encoded_time_type(c.data_type) == "string" or _TEXT_TYPE.match(c.data_type.strip())
+        ]
         if key in {c.name for c in columns} and text_columns:
             out.append(_DimensionTable(asset, key, text_columns, closure, path))
     return out
@@ -142,7 +148,12 @@ def has_dimension_table(session: Session, user: User, version: MetricVersion, di
 
 
 def _table_matches(
-    session: Session, version: MetricVersion, table: _DimensionTable, original: str, settings
+    session: Session,
+    version: MetricVersion,
+    table: _DimensionTable,
+    original: str,
+    settings,
+    remaining_seconds: Callable[[], float] | None = None,
 ) -> tuple[list[str], list[str]] | None:
     """先仅取不同键；唯一时再查命中列的布尔标志，不把其他维表内容带进说明。"""
     asset = table.asset
@@ -160,15 +171,20 @@ def _table_matches(
     dependency = [*table.path.dependency, *({"asset_id": asset.id, "column": c} for c in columns)]
 
     def execute(tree):
+        if service._dimension_query_timeout(remaining_seconds) <= 0:
+            return None
         sql = tree.sql(dialect=dialect.name, identify=True)
         service.validate_sql(
             sql, dialect=dialect, allowed_tables={qualified}, schema={qualified: columns}, max_rows=_TABLE_LIMIT
         )
         if service._live_check(session, datasource, connector, table.closure.values(), dependency, settings):
             return None
+        timeout = service._dimension_query_timeout(remaining_seconds)
+        if timeout <= 0:
+            return None
         return connector.execute_select(
             sql,
-            timeout_seconds=10,
+            timeout_seconds=timeout,
             mem_limit_bytes=512 * 1024**2,
             max_rows=_TABLE_LIMIT,
             timezone=timezone,
@@ -216,14 +232,17 @@ def _unresolved(dimension: str, original: str, candidates: list[str], has_table:
     return {"dimension": dimension, "original": original, "candidates": candidates, "has_dimension_table": has_table}
 
 
-def _derived_alignment(session, user, version, filters, settings) -> AlignmentResult:
+def _derived_alignment(session, user, version, filters, settings, remaining_seconds) -> AlignmentResult:
     components = [session.get(MetricVersion, c["version_id"]) for c in version.components or []]
     if not components or any(component is None for component in components):
         return AlignmentResult(
             filters,
             unknown=[_unknown(f.dimension, value, "component_unavailable") for f in filters for value in f.values],
         )
-    results = [align_filters(session, user, component, filters, settings) for component in components]
+    results = [
+        align_filters(session, user, component, filters, settings, remaining_seconds=remaining_seconds)
+        for component in components
+    ]
     out = AlignmentResult([])
     for index, item in enumerate(filters):
         values = []
@@ -232,7 +251,10 @@ def _derived_alignment(session, user, version, filters, settings) -> AlignmentRe
             unresolved = [u for result in results for u in result.unresolved if (u["dimension"], u["original"]) == key]
             unknown = [u for result in results for u in result.unknown if (u["dimension"], u["original"]) == key]
             aligned = [result.filters[index].values[offset] for result in results]
-            if unresolved or (not unknown and len(set(aligned)) != 1):
+            if any(u["reason"] == "budget_exhausted" for u in unknown):
+                values.append(original)
+                out.unknown.append(_unknown(item.dimension, original, "budget_exhausted"))
+            elif unresolved or (not unknown and len(set(aligned)) != 1):
                 values.append(original)
                 candidates = list(
                     dict.fromkeys(
@@ -270,7 +292,13 @@ def _derived_alignment(session, user, version, filters, settings) -> AlignmentRe
 
 
 def align_filters(
-    session: Session, user: User, version: MetricVersion, filters: list[DimensionFilter], settings
+    session: Session,
+    user: User,
+    version: MetricVersion,
+    filters: list[DimensionFilter],
+    settings,
+    *,
+    remaining_seconds: Callable[[], float] | None = None,
 ) -> AlignmentResult:
     """保持筛选项和值的位置；未知值原样保留，只有 unresolved 需要用户确认。
 
@@ -281,6 +309,9 @@ def align_filters(
     result = AlignmentResult(copied)
     if not copied:
         return result
+    if service._dimension_query_timeout(remaining_seconds) <= 0:
+        result.unknown = [_unknown(f.dimension, v, "budget_exhausted") for f in copied for v in f.values]
+        return result
     try:
         unavailable = version.status != "published" or bool(service.dependency_drift(session, version))
     except _READ_FAILURES:
@@ -289,15 +320,19 @@ def align_filters(
         result.unknown = [_unknown(f.dimension, v, "version_unavailable") for f in copied for v in f.values]
         return result
     if version.kind == "derived":
-        return _derived_alignment(session, user, version, copied, settings)
+        return _derived_alignment(session, user, version, copied, settings, remaining_seconds)
+    query_budget = {"remaining_seconds": remaining_seconds} if remaining_seconds is not None else {}
     try:
-        samples = service._dimension_values(session, user, version, settings)
+        samples = service._dimension_values(session, user, version, settings, **query_budget)
     except _READ_FAILURES:
         samples = {}
     for item in result.filters:
         sample = samples.get(item.dimension)
         tables: list[_DimensionTable] | None = None
         for offset, original in enumerate(item.values):
+            if service._dimension_query_timeout(remaining_seconds) <= 0:
+                result.unknown.append(_unknown(item.dimension, original, "budget_exhausted"))
+                continue
             if sample is None:
                 result.unknown.append(_unknown(item.dimension, original, "member_values_unavailable"))
                 continue
@@ -306,12 +341,17 @@ def align_filters(
                 if len(sample) >= service.DIMENSION_VALUES_LIMIT:
                     try:
                         existing = service._existing_dimension_values(
-                            session, user, version, item.dimension, [original], settings
+                            session, user, version, item.dimension, [original], settings, **query_budget
                         )
                     except _READ_FAILURES:
                         existing = None
                     if existing is None:
-                        result.unknown.append(_unknown(item.dimension, original, "exact_check_unavailable"))
+                        reason = (
+                            "budget_exhausted"
+                            if service._dimension_query_timeout(remaining_seconds) <= 0
+                            else "exact_check_unavailable"
+                        )
+                        result.unknown.append(_unknown(item.dimension, original, reason))
                         continue
                     if original in existing:
                         result.explanations.append(
@@ -325,11 +365,19 @@ def align_filters(
                     try:
                         if tables is None:
                             tables = _dimension_tables(session, user, version, item.dimension)
-                        matches = [_table_matches(session, version, table, original, settings) for table in tables]
+                        matches = [
+                            _table_matches(session, version, table, original, settings, remaining_seconds)
+                            for table in tables
+                        ]
                     except _READ_FAILURES:
                         matches = [None]
                     if any(match is None for match in matches):
-                        result.unknown.append(_unknown(item.dimension, original, "dimension_table_unavailable"))
+                        reason = (
+                            "budget_exhausted"
+                            if service._dimension_query_timeout(remaining_seconds) <= 0
+                            else "dimension_table_unavailable"
+                        )
+                        result.unknown.append(_unknown(item.dimension, original, reason))
                         continue
                     keys = list(dict.fromkeys(key for match in matches if match is not None for key in match[0]))
                     if len(keys) == 1:
@@ -344,6 +392,7 @@ def align_filters(
                                         "original": original,
                                         "value": keys[0],
                                         "method": "dimension_table",
+                                        "asset_id": table.asset.id,
                                         "table": f"{table.asset.catalog_name}.{table.asset.db_name}.{table.asset.name}",
                                         "column": column,
                                     }

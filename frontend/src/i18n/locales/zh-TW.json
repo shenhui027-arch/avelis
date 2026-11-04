@@ -1596,5 +1596,7 @@
   "{{name}} 平均 {{value}}": "{{name}} 平均 {{value}}",
   "按“{{value}}”筛选（原话“{{original}}”）": "依「{{value}}」篩選（原話「{{original}}」）",
   "，依据维表 {{table}} 的 {{column}} 列": "，依據維度表 {{table}} 的 {{column}} 欄",
-  "候选取值": "候選取值"
+  "候选取值": "候選取值",
+  "{{dimension}}：“{{original}}”": "{{dimension}}：「{{original}}」",
+  "按所选继续（{{count}}/{{total}}）": "依所選繼續（{{count}}/{{total}}）"
 }

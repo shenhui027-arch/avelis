@@ -610,6 +610,7 @@ class FilterAlignmentOut(Out):
     original: str
     value: str
     method: Literal["exact", "normalized", "dimension_table"]
+    asset_id: str | None = None
     table: str | None = None
     column: str | None = None
 
@@ -864,8 +865,23 @@ class AnalysisDecisionIn(BaseModel):
     decision: Literal["confirmed", "rejected"]
 
 
+class AnalysisAlignmentAnswerIn(BaseModel):
+    dimension: str = Field(min_length=1, max_length=200)
+    original: str = Field(min_length=1, max_length=2000)
+    value: str = Field(min_length=1, max_length=2000)
+
+
 class AnalysisResumeIn(BaseModel):
-    answer: str = Field(default="", max_length=2000)
+    answer: (
+        Annotated[str, Field(max_length=2000)]
+        | Annotated[list[AnalysisAlignmentAnswerIn], Field(min_length=1, max_length=100)]
+    ) = Field(
+        default="",
+        description=(
+            "澄清回答；筛选候选可按 pending.items 提交 [{dimension, original, value}]，"
+            "允许部分回答；字符串兼容自由文本及首项候选。"
+        ),
+    )
     decisions: list[AnalysisDecisionIn] = Field(default_factory=list, max_length=100)
     supplement: str = Field(default="", max_length=4000)
 
@@ -1175,7 +1191,13 @@ class AnalysisRunOut(Out):
     parent_run_id: str | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
     proposal: AnalysisProposalOut | None = None
-    pending: Json | None = None
+    pending: Json | None = Field(
+        default=None,
+        description=(
+            "待确认内容；筛选澄清含完整 items:[{dimension, original, options:[str]}]，"
+            "旧顶层 dimension/options 仅兼容首项；恢复时 answer 可提交 [{dimension, original, value}]。"
+        ),
+    )
     experience_candidates: list[ExperienceCandidate] = Field(default_factory=list)
     join_candidates: list[Json] = Field(default_factory=list)
     checkpoint_warnings: list[str] = Field(default_factory=list)

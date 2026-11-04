@@ -139,6 +139,12 @@ msgstr "This confirmation was already submitted, or the analysis is not awaiting
 msgid "请回答追问后继续分析"
 msgstr "Answer the follow-up question to continue the analysis"
 
+msgid "请按待确认项提交筛选候选"
+msgstr "Submit filter candidates for the pending items"
+
+msgid "筛选回答包含未知、重复的待确认项或无效候选"
+msgstr "The filter answer contains unknown or duplicate pending items, or invalid candidates"
+
 msgid "这次确认已提交"
 msgstr "This confirmation was already submitted"
 

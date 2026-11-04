@@ -30,11 +30,15 @@ def configured_alignment(monkeypatch, *, table=True, unattended=False, question_
     monkeypatch.setattr(alignment.service, "dependency_drift", lambda session, version: False)
     monkeypatch.setattr(alignment.service, "version_sources", lambda session, version: {})
     monkeypatch.setattr(
-        alignment.service, "_dimension_values", lambda session, user, version, settings: {"地区": ["华东", "华南"]}
+        alignment.service,
+        "_dimension_values",
+        lambda session, user, version, settings, **kwargs: {"地区": ["华东", "华南"]},
     )
-    dimension_table = SimpleNamespace(asset=SimpleNamespace(catalog_name="c", db_name="d", name="region_alias"))
+    dimension_table = SimpleNamespace(
+        asset=SimpleNamespace(id="region-alias-asset", catalog_name="c", db_name="d", name="region_alias")
+    )
     monkeypatch.setattr(alignment, "_dimension_tables", lambda *args: [dimension_table] if table else [])
-    monkeypatch.setattr(alignment, "_table_matches", lambda *args: (["华东"], ["display_name"]))
+    monkeypatch.setattr(alignment, "_table_matches", lambda *args, **kwargs: (["华东"], ["display_name"]))
     state["question"] = "华东区各城市的门店成交额"
     return box, model, config, state, prechecks
 
@@ -52,6 +56,7 @@ def test_lookup_aligns_with_dimension_table_and_exposes_explanation(monkeypatch)
         "original": "华东区",
         "value": "华东",
         "method": "dimension_table",
+        "asset_id": "region-alias-asset",
         "table": "c.d.region_alias",
         "column": "display_name",
     }
@@ -92,7 +97,14 @@ def test_clicking_candidate_continues_without_model_reinterpreting_scope(monkeyp
     assert len(model.seen) == 1 and queries[0].filters[0].values == ["华东"]
     assert answer.intent["filters"][0]["values"] == ["华东"] and box.clarification is None
     assert final["clarifications"] == [
-        {"question": first["clarification"], "answer": "华东", "options": ["华东"], "dimension": "地区"}
+        {
+            "question": first["clarification"],
+            "answer": "华东",
+            "options": ["华东"],
+            "dimension": "地区",
+            "items": [{"dimension": "地区", "original": "华东区", "options": ["华东"]}],
+            "deterministic": True,
+        }
     ]
 
 
@@ -170,7 +182,7 @@ def test_multi_metric_alignment_requires_shared_dimension_and_agreement(monkeypa
     )
     calls = []
 
-    def align(session, user, version, filters, settings):
+    def align(session, user, version, filters, settings, **kwargs):
         calls.append(version)
         if kind == "unknown" and version is second:
             return AlignmentResult(filters, unknown=[{"dimension": "地区", "original": "华东区", "reason": "timeout"}])
@@ -182,7 +194,7 @@ def test_multi_metric_alignment_requires_shared_dimension_and_agreement(monkeypa
 
     if kind == "not_shared":
         second.dimensions = []
-        monkeypatch.setattr(agent, "align_filters", lambda *args: AlignmentResult(args[3]))
+        monkeypatch.setattr(agent, "align_filters", lambda *args, **kwargs: AlignmentResult(args[3]))
     else:
         monkeypatch.setattr(agent, "align_filters", align)
     monkeypatch.setattr(agent, "has_dimension_table", lambda *args: kind == "conflicting_with_path")

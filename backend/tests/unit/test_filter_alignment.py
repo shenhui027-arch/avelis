@@ -66,6 +66,8 @@ def world(monkeypatch):
         exact_calls=[],
         error=None,
         truncated=False,
+        remaining=60.0,
+        query_cost=0.0,
     )
     stored = {(Asset, table.id): table, (Datasource, "ds"): source}
 
@@ -75,7 +77,7 @@ def world(monkeypatch):
 
     session = NS(get=lambda model, key: stored.get((model, key)), scalars=scalars)
     monkeypatch.setattr(service, "dependency_drift", lambda *args: state.drift)
-    monkeypatch.setattr(service, "_dimension_values", lambda *args: state.sample)
+    monkeypatch.setattr(service, "_dimension_values", lambda *args, **kwargs: state.sample)
     monkeypatch.setattr(service, "validate_spec", lambda *args: {"aliases": {"b": fact}})
     monkeypatch.setattr(
         service, "upstream_closure", lambda *args: {fact.id: fact, table.id: table, upstream.id: upstream}
@@ -90,7 +92,7 @@ def world(monkeypatch):
     monkeypatch.setattr(service, "engine_of", lambda *args: NS(supports=lambda capability: True))
     monkeypatch.setattr(service, "dialect_of", lambda *args: SqlDialect("postgres", "catalog", catalog_in_sql=False))
 
-    def exact(session, user, metric, dimension, values, settings):
+    def exact(session, user, metric, dimension, values, settings, **kwargs):
         state.exact_calls.append(values)
         return state.exact
 
@@ -99,6 +101,7 @@ def world(monkeypatch):
     def execute(sql, **limits):
         state.events.append("execute")
         state.queries.append((sql, limits))
+        state.remaining -= state.query_cost
         if state.error:
             raise state.error
         return NS(rows=state.rows.pop(0), truncated=state.truncated)
@@ -117,13 +120,14 @@ def world(monkeypatch):
 
     monkeypatch.setattr(service, "validate_sql", checked)
 
-    def align(values, metric=version):
+    def align(values, metric=version, *, remaining_seconds=None):
         return alignment.align_filters(
             session,
             NS(id="user_a"),
             metric,
             [DimensionFilter(dimension="dimension_a", values=values)],
             NS(business_timezone="UTC"),
+            remaining_seconds=remaining_seconds,
         )
 
     return NS(
@@ -187,6 +191,7 @@ def test_approved_single_key_dimension_table_aligns_in_both_directions(world, re
             "original": "AliasA",
             "value": "MemberA",
             "method": "dimension_table",
+            "asset_id": "table",
             "table": "catalog.schema_a.dimension_a",
             "column": "label_a",
         }
@@ -219,7 +224,20 @@ def test_sql_literal_is_escaped_and_unicode_keys_use_national_strings(world, mon
 
 
 @pytest.mark.parametrize(
-    "data_type", ["VARCHAR2(64)", "NVARCHAR2(64)", "CHARACTER VARYING(32)", "STRING", "CLOB", "citext"]
+    "data_type",
+    [
+        "VARCHAR2(64)",
+        "NVARCHAR2(64)",
+        "CHARACTER VARYING(32)",
+        "STRING",
+        "CLOB",
+        "citext",
+        "LowCardinality(String)",
+        "LowCardinality(Nullable(String))",
+        "Nullable(String)",
+        "FixedString(32)",
+        "Nullable(LowCardinality(FixedString(32)))",
+    ],
 )
 def test_collected_text_types_are_used(world, data_type):
     world.state.columns[1].data_type = data_type
@@ -477,3 +495,65 @@ def test_public_table_availability_handles_guard_failure(world, monkeypatch):
 
     monkeypatch.setattr(service, "dependency_drift", fail)
     assert alignment.has_dimension_table(world.session, NS(id="u"), world.version, "dimension_a") is False
+
+
+def test_exhausted_budget_keeps_all_values_unknown_without_sampling(world, monkeypatch):
+    monkeypatch.setattr(service, "_dimension_values", lambda *args, **kwargs: pytest.fail("预算耗尽后不再取样"))
+    result = world.align(["membera", "AliasA"], remaining_seconds=lambda: 0)
+    assert result.filters[0].values == ["membera", "AliasA"]
+    assert result.unknown == [
+        {"dimension": "dimension_a", "original": value, "reason": "budget_exhausted"} for value in ["membera", "AliasA"]
+    ]
+    assert not result.unresolved and not result.explanations and not world.state.queries
+
+
+def test_each_table_query_uses_remaining_budget_and_stops_between_values(world):
+    world.state.remaining = 3.0
+    world.state.query_cost = 1.0
+    world.state.rows = [[["MemberA"]], [[0, 1]], [["MemberB"]]]
+    result = world.align(["AliasA", "AliasB", "memberb"], remaining_seconds=lambda: world.state.remaining)
+    assert result.filters[0].values == ["MemberA", "AliasB", "memberb"]
+    assert [limits["timeout_seconds"] for _, limits in world.state.queries] == [3.0, 2.0, 1.0]
+    assert [item["original"] for item in result.explanations] == ["AliasA"]
+    assert result.unknown == [
+        {"dimension": "dimension_a", "original": value, "reason": "budget_exhausted"} for value in ["AliasB", "memberb"]
+    ]
+    assert not result.unresolved
+
+
+def test_alignment_keeps_existing_query_limit_when_budget_is_larger(world):
+    world.align(["AliasA"], remaining_seconds=lambda: 20)
+    assert [limits["timeout_seconds"] for _, limits in world.state.queries] == [10, 10]
+
+
+def test_budget_is_rechecked_after_table_live_check(world, monkeypatch):
+    def live(*args):
+        world.state.remaining = 0
+        return []
+
+    monkeypatch.setattr(service, "_live_check", live)
+    result = world.align(["AliasA"], remaining_seconds=lambda: world.state.remaining)
+    assert result.filters[0].values == ["AliasA"]
+    assert result.unknown[0]["reason"] == "budget_exhausted"
+    assert not world.state.queries and not result.unresolved
+
+
+def test_derived_components_share_budget_and_exhaustion_overrides_pending(world):
+    second = NS(**{**vars(world.version), "id": "metric_v2"})
+    derived = NS(
+        id="derived_v1",
+        kind="derived",
+        status="published",
+        dimensions=[{"name": "dimension_a"}],
+        components=[{"version_id": world.version.id}, {"version_id": second.id}],
+    )
+    world.stored[(MetricVersion, world.version.id)] = world.version
+    world.stored[(MetricVersion, second.id)] = second
+    world.state.remaining = 1
+    world.state.query_cost = 1
+    world.state.rows = [[["MemberA"], ["MemberB"]]]
+    result = world.align(["AliasA"], derived, remaining_seconds=lambda: world.state.remaining)
+    assert result.filters[0].values == ["AliasA"]
+    assert result.unknown == [{"dimension": "dimension_a", "original": "AliasA", "reason": "budget_exhausted"}]
+    assert not result.unresolved and not result.explanations
+    assert len(world.state.queries) == 1

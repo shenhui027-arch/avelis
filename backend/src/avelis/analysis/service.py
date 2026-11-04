@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -684,6 +685,34 @@ def _propose_confirmed_joins(session: Session, user: User, run: AnalysisRun, che
     checkpoint.update(proposal=proposal, join_candidates=candidates, warnings=warnings)
 
 
+def _clarification_answer(pending: dict, answer: Any) -> str | list[dict[str, str]]:
+    if isinstance(answer, str):
+        answer = answer.strip()
+        if answer:
+            return answer
+        raise Invalid("请回答追问后继续分析")
+    if not isinstance(answer, list) or not answer or len(answer) > 100:
+        raise Invalid("请按待确认项提交筛选候选")
+    items = {
+        (item.get("dimension"), item.get("original")): item.get("options") or []
+        for item in pending.get("items") or []
+        if isinstance(item, dict)
+    }
+    selections, seen = [], set()
+    for selection in answer:
+        if not isinstance(selection, dict) or any(
+            not isinstance(selection.get(field), str) or not selection[field]
+            for field in ("dimension", "original", "value")
+        ):
+            raise Invalid("请按待确认项提交筛选候选")
+        key = (selection["dimension"], selection["original"])
+        if key not in items or key in seen or selection["value"] not in items[key]:
+            raise Invalid("筛选回答包含未知、重复的待确认项或无效候选")
+        seen.add(key)
+        selections.append({field: selection[field] for field in ("dimension", "original", "value")})
+    return selections
+
+
 def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> AnalysisRun:
     """只领取一次暂停；新 Job、反馈、状态转换与审计由 API 在同一事务提交。"""
     from avelis import jobs
@@ -696,14 +725,13 @@ def resume_run(session: Session, user: User, run_id: str, feedback: dict) -> Ana
     checkpoint = dict(run.checkpoint or {})
     pending = checkpoint["pending"]
     if pending["kind"] == "clarify":
-        answer = (feedback.get("answer") or "").strip()
-        if not answer:
-            raise Invalid("请回答追问后继续分析")
+        answer = _clarification_answer(pending, feedback.get("answer", ""))
         feedback = {"answer": answer}
+        answer_text = answer if isinstance(answer, str) else json.dumps(answer, ensure_ascii=False)
         candidates = experiences.candidates_from_feedback(
             run_id=run.id,
             proposal={},
-            feedback={"supplement": f"问题：{pending['question']} 回答：{answer}"},
+            feedback={"supplement": f"问题：{pending['question']} 回答：{answer_text}"},
             refs=_scope_metric_refs(session, checkpoint),
             checkpoint="understand",
         )
@@ -1226,6 +1254,9 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         or (checkpoint.get("snapshot") or {}).get("state", {}).get("filter_alignment")
         or [],
     }
+    alignment_restricted = user is not None and ask_service.filter_alignment_restricted(
+        session, user, data["filter_alignment"]
+    )
     if not full:
         data["filter_alignment"] = []
         title_refs = record_refs(((run.report or {}).get("fields") or {}).get("title") or {})
@@ -1248,6 +1279,10 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         from avelis.api.ask import answer_view
 
         source = session.get(Answer, run.report.get("answer_id"))
+        if source is not None:
+            alignment_restricted = alignment_restricted or ask_service.filter_alignment_restricted(
+                session, user, (source.evidence or {}).get("filter_alignment") or []
+            )
         lookup_restricted = source is None or not can_read_dataset(
             session,
             user,
@@ -1260,8 +1295,14 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 select(Answer).where(Answer.id == run.report.get("answer_id"), Answer.asked_by == user.id)
             )
             if answer is not None:
-                data["answer"] = answer_view(answer, session=session)
-    steps = session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq))
+                data["answer"] = answer_view(answer, session=session, user=user)
+    steps = list(session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == run.id).order_by(AnalysisStep.seq)))
+    if user is not None:
+        alignment_restricted = alignment_restricted or ask_service.filter_alignment_restricted(
+            session,
+            user,
+            [entry for step in steps for entry in (step.output or {}).get("filter_alignment") or []],
+        )
     datasets = list(
         session.scalars(select(AnalysisDataset).where(AnalysisDataset.run_id == run.id).order_by(AnalysisDataset.seq))
     )
@@ -1269,11 +1310,13 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
     restricted = {d.id for d in datasets if user is not None and not can_read_dataset(session, user, d, known)}
     readable = {d.id for d in datasets} - restricted
     report = restrict_report(
-        run.report or {}, {f"D{d.seq}" for d in datasets if d.id in restricted}, lookup_restricted=lookup_restricted
+        run.report or {},
+        {f"D{d.seq}" for d in datasets if d.id in restricted},
+        lookup_restricted=lookup_restricted or (alignment_restricted and (run.report or {}).get("kind") == "lookup"),
     )
     report = report_dimension_labels(session, report, [d for d in datasets if d.id in readable])
     metadata = {d.id: dataset_meta(session, d) for d in datasets if d.id in readable}
-    has_restricted = bool(restricted or lookup_restricted)
+    has_restricted = bool(restricted or lookup_restricted or alignment_restricted)
     if has_restricted:
         data["filter_alignment"] = []
         if report.get("evidence"):
@@ -1330,7 +1373,15 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         if not has_restricted or step.kind == "user":
             return step.output
         if step.kind == "tool" and step.dataset_id in readable:
-            return step.output
+            return (
+                {
+                    key: value
+                    for key, value in step.output.items()
+                    if key not in {"filter_alignment", "filter_alignment_unknown"}
+                }
+                if alignment_restricted
+                else step.output
+            )
         # 模型与其他步骤可能复述任意来源；工具只有明确关联可读数据集时才保留输出。
         return {"rows": [], "restricted": True} if step.kind == "tool" else {"restricted": True}
 
