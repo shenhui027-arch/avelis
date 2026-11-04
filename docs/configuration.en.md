@@ -263,5 +263,5 @@ Manage model providers and keys on the **设置 → 模型配置** (Settings →
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | Published port |
 | `AVELIS_BIND_ADDRESS` | `127.0.0.1` | Local access only by default; for access from other machines, set to `0.0.0.0` or a specific interface address after changing the default administrator password; use an HTTPS reverse proxy in production |
-| `AVELIS_IMAGE` | `avelis:1.0.3` | Image name |
+| `AVELIS_IMAGE` | `avelis:1.0.4` | Image name |
 | `COMPOSE_FILE` | — | Set to `compose.yaml:compose.external.yaml` when using an external PostgreSQL / Redis |

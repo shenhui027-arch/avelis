@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8C%81%E7%9A%84%E6%95%B0%E6%8D%AE%E5%BA%93)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
-[![version](https://img.shields.io/badge/version-v1.0.3-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.3)
+[![version](https://img.shields.io/badge/version-v1.0.4-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.4)
 
 [功能亮点](#功能亮点) · [最近更新](#最近更新) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然语言回答关于业务数据的问题，并说清每个数从�
 ![分析会话：结论优先的报告、原因排序、证据栏与模型栏](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.3 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
+> Avelis v1.0.4 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
 
 ## 写在前面
 
@@ -50,6 +50,7 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.0.4** | 用对话改图：续问里说“画成饼图”“标出最高点”“突出华东”即可改图，不重新取数；图上标注极值点、平均线与高亮，导出同步；Webhook 并发投递，发件箱按保留期清理；资产选择与目录检索按需查询，大目录不再整表加载 |
 | **v1.0.3** | 图表能力升级：问数回答自动出图（趋势、排名、构成、对比、指标卡、分图），可切换候选图与表格、下载 PNG；分析报告正文插图，PDF / HTML 导出按同一份图表规格绘图；数值按量纲显示（百分比、万 / 亿、单位）；模型可通过 chart 工具选图并给出结论式图题 |
 | **v1.0.2** | MCP 服务：Claude、Cursor 等 AI 工具经 OAuth 授权后，按受治理的口径与血缘查数；治理事件与 Webhook：口径发布、采集失败、结构变化等 14 种事件推送到订阅地址；口径与 Apache Ossie 语义模型双向互通；口径语义提示（适用说明、同义词、示例问法）；部署开箱即用，默认管理员 admin / 123456，登录页可直接改密 |
 | **v1.0.1** | MySQL 完整引擎（视图列级血缘、只读问数）；MySQL、SQL Server、Oracle、StarRocks 的 DDL 变更归因到数据库用户 |
