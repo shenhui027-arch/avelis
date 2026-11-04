@@ -1,4 +1,4 @@
-"""导出只翻译产品固定标签，保存的正文、元数据与数据值保持原文。"""
+"""导出翻译固定标签与系统数字后缀，保存的正文、元数据与原值保持原文。"""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def test_pdf_fixed_titles_follow_the_request_language(monkeypatch):
     assert view["report"]["summary"] in rendered
 
 
-def test_source_csv_translates_headers_but_preserves_source_text():
+def test_source_csv_translates_headers_and_number_suffixes_but_preserves_source_text():
     view = sample_view()
     with locale_context("en"):
         rendered = export.sources_csv(view).decode("utf-8-sig")
@@ -55,8 +55,10 @@ def test_source_csv_translates_headers_but_preserves_source_text():
     assert not any(re.search(r"[\u4e00-\u9fff]", label) for label in rows[0])
     with locale_context("zh-CN"):
         original = list(csv.reader(io.StringIO(export.sources_csv(view).decode("utf-8-sig"))))
-    # 位置、类型、量纲等产品标签可翻译，显示值、来源名、路径、单位及原值必须相同。
-    preserved = (2, 3, 4, 5, 7, 8, 11)
+    # 系统生成的显示后缀随语言变化；来源名、路径、业务单位、小数位及原值必须相同。
+    assert rows[1][2] == "125.30×10,000元"
+    assert original[1][2] == "125.30万元"
+    preserved = (3, 4, 5, 7, 8, 11)
     assert [[row[index] for index in preserved] for row in rows[1:]] == [
         [row[index] for index in preserved] for row in original[1:]
     ]

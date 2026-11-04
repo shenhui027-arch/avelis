@@ -7,11 +7,44 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import zip_longest
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from avelis.analysis.grounding import number
 from avelis.i18n import gettext
 
 MAX_PANELS = 8
+
+
+class ChartPreference(BaseModel):
+    """图表偏好的唯一契约；两个智能体与保存偏好的投影均从这里派生。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"] = Field(
+        description="只能选该数据集可画的图种"
+    )
+    title: str = Field(max_length=40, description="用一句结论概括结果，不超过 40 字")
+    top_n: int | None = Field(None, ge=2, le=20, description="可选：横向条形或排名图保留前 N 项，其他图忽略")
+    measures: list[str] | None = Field(
+        None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+        description="可选：按顺序指定度量列名或对比指标名；不传时画全部",
+    )
+
+    @classmethod
+    def from_record(cls, record: dict) -> dict:
+        return {name: record[name] for name in cls.model_fields if name in record}
+
+    @classmethod
+    def tool_description(cls) -> str:
+        return "；".join(f"{name}：{field.description}" for name, field in cls.model_fields.items()) + "。"
+
+    def options(self, columns, rows, roles, units, polarity, intent=None) -> list[dict]:
+        selected_measures(columns, roles, self.measures)
+        return _recommend(columns, rows, roles, units, polarity, intent, measures=self.measures)
 
 
 def _unit_identity(unit: dict | None) -> tuple:
@@ -65,6 +98,45 @@ def _comparison_groups(columns: list[str], roles: dict) -> list[tuple[str, str, 
     return groups
 
 
+def selected_measures(columns: list[str], roles: dict, requested: list[str] | None = None) -> list[str]:
+    groups = _comparison_groups(columns, roles)
+    previous = {group[1] for group in groups}
+    available = [c for c in columns if roles.get(c, {}).get("role") == "measure" and c not in previous]
+    available = available or [c for c in columns if roles.get(c, {}).get("role") == "change"]
+    aliases: dict[str, str | None] = {column: column for column in available}
+    # 模型看到的是显示名（问数解释用 column_roles 的 label）：唯一的显示名也能指定度量；
+    # 重复的显示名有歧义，要求改用列名。
+    labels: dict[str, list[str]] = {}
+    for column in available:
+        label = roles.get(column, {}).get("label")
+        if label and label != column:
+            labels.setdefault(label, []).append(column)
+    for label, owners in labels.items():
+        aliases.setdefault(label, owners[0] if len(owners) == 1 else None)
+    aliases.update({group[2].rpartition("·")[0]: group[0] for group in groups})
+    if requested is None:
+        return available
+    ambiguous = [name for name in requested if name in aliases and aliases[name] is None]
+    if ambiguous:
+        raise ValueError(
+            gettext(
+                "度量名 {measures} 对应多列，请改用列名：{columns}",
+                measures="、".join(ambiguous),
+                columns="、".join(c for name in ambiguous for c in labels[name]),
+            )
+        )
+    missing = [name for name in requested if name not in aliases]
+    if missing:
+        raise ValueError(
+            gettext(
+                "度量 {measures} 不存在；可选 measures：{available}",
+                measures="、".join(missing),
+                available="、".join(name for name, column in aliases.items() if column is not None) or gettext("无"),
+            )
+        )
+    return list(dict.fromkeys(aliases[name] for name in requested))
+
+
 def recommend(
     columns: list[str],
     rows: list[list],
@@ -76,24 +148,30 @@ def recommend(
 ) -> list[dict]:
     """校验可选展示偏好；非法偏好整体忽略，原始查询结果不变。"""
     specs = _recommend(columns, rows, roles, units, polarity, intent)
-    if not isinstance(preference, dict) or set(preference) - {"kind", "title", "top_n"}:
+    if not isinstance(preference, dict):
         return specs
-    kind, title, top_n = (preference.get(key) for key in ("kind", "title", "top_n"))
-    selected = next((s for s in specs if s["kind"] == kind and kind != "kpi"), None)
-    if (
-        selected is None
-        or (title is not None and (not isinstance(title, str) or len(title) > 40))
-        or (top_n is not None and (type(top_n) is not int or not 2 <= top_n <= 20))
-    ):
+    try:
+        choice = ChartPreference.model_validate(
+            {**preference, "title": preference["title"] if preference.get("title") is not None else ""}
+        )
+        selected_measures(columns, roles, choice.measures)
+    except (ValidationError, ValueError):
+        return specs
+    kind, title, top_n = choice.kind, preference.get("title"), choice.top_n
+    selected_specs = (
+        choice.options(columns, rows, roles, units, polarity, intent) if choice.measures is not None else specs
+    )
+    selected = next((s for s in selected_specs if s["kind"] == kind), None)
+    if selected is None:
         return specs
     if top_n is not None and (
         (selected["orientation"] == "horizontal" and kind in ("bar", "grouped_bar", "diverging_bar"))
         or (kind == "multiples" and selected["x"] and selected["x"]["role"] == "dimension")
     ):
-        tuned = _recommend(columns, rows, roles, units, polarity, intent, top_n=top_n)
+        tuned = _recommend(columns, rows, roles, units, polarity, intent, top_n=top_n, measures=choice.measures)
         selected = next(s for s in tuned if s["kind"] == kind)
     selected = {**selected, "title": title}
-    return [selected, *(s for s in specs if s["kind"] != kind)]
+    return [selected, *(s for s in selected_specs if s["kind"] != kind)]
 
 
 def _recommend(
@@ -105,6 +183,7 @@ def _recommend(
     intent: dict | None = None,
     *,
     top_n: int | None = None,
+    measures: list[str] | None = None,
 ) -> list[dict]:
     """返回默认图及同数据候选的已物化规格；没有合适图表时返回空列表。"""
     intent = intent or {}
@@ -202,8 +281,9 @@ def _recommend(
         return sorted(items, key=lambda item: (key(item) is None, (key(item) or 0) * (1 if asc else -1)))
 
     groups = _comparison_groups(columns, roles)
-    previous_columns = {group[1] for group in groups}
-    measures = [column for column in by_role["measure"] if column not in previous_columns] or by_role["change"]
+    measures = selected_measures(columns, roles, measures)
+    comparisons = {group[0]: group for group in groups}
+    groups = [comparisons[column] for column in measures if column in comparisons]
     time = next(iter(by_role["time"]), None)
     dimensions = by_role["dimension"]
     dimension = next(iter(dimensions), None)
@@ -240,7 +320,6 @@ def _recommend(
         return [spec("kpi", "kpi", None, [], [], kpis=kpis)]
 
     if groups and dimension and len(rows) >= 2:
-        current, previous, change, _ = groups[0]
 
         def comparison_data(sort_column, columns):
             ranked = ordered(rows, lambda row: value(row, sort_column))
@@ -255,26 +334,54 @@ def _recommend(
                     items.append(_sum(value(row, column) for row in tail))
             return categories, values, merged, omitted(len(tail), merged)
 
-        categories, values, merged, omission = comparison_data(change, [change])
+        currents = [group[0] for group in groups]
+        changes = [group[2] for group in groups]
+        same_unit = (
+            len({_unit_identity(units.get(c)) for c in currents}) == 1
+            and len({_unit_identity(units.get(c)) for c in changes}) == 1
+        )
+        # 发散条形按涨跌着色，多条系列在同一张图里分不出属于哪个指标；多指标变化图每个指标一个面板
+        # （multiples 每条 series 一个面板，也不会把不同量纲挤进同一坐标轴）。
+        single = len(groups) == 1
+        shown_groups = groups if single else groups[:MAX_PANELS]
+        shown_changes = [group[2] for group in shown_groups]
+        categories, values, merged, omission = comparison_data(changes[0], shown_changes)
         default = spec(
-            "diverging_bar",
+            "diverging_bar" if single else "multiples",
             "change",
             dimension,
             categories,
-            [series(change, values[0], direction=current)],
+            [
+                series(change, items, direction=current, axis=0 if single else index)
+                for index, ((current, _, change, _), items) in enumerate(zip(shown_groups, values, strict=True))
+            ],
             orientation="horizontal",
             others=merged,
+            dropped=len(groups) - len(shown_groups),
             omitted_categories=omission,
         )
-        categories, values, merged, omission = comparison_data(current, [current, previous])
+        if not same_unit:
+            return [default]
+        comparison_columns = [column for current, previous, _, _ in groups for column in (current, previous)]
+        categories, values, merged, omission = comparison_data(currents[0], comparison_columns)
         candidate = spec(
             "grouped_bar",
             "comparison",
             dimension,
             categories,
             [
-                series(current, values[0], name=gettext("本期")),
-                series(previous, values[1], name=gettext(previous.rsplit("·", 1)[1])),
+                series(
+                    column,
+                    items,
+                    name=(period if len(groups) == 1 else f"{roles[current].get('label') or current} / {period}"),
+                )
+                for (current, previous, _, _), pair in zip(
+                    groups, zip(values[::2], values[1::2], strict=True), strict=True
+                )
+                for column, items, period in (
+                    (current, pair[0], gettext("本期")),
+                    (previous, pair[1], gettext(previous.rsplit("·", 1)[1])),
+                )
             ],
             orientation="horizontal",
             others=merged,

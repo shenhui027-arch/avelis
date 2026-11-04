@@ -239,13 +239,14 @@ def test_pdf_html_render_each_materialized_kind(monkeypatch, kind, audience):
 @pytest.mark.parametrize(
     "kind", ["line", "bar", "donut", "grouped_bar", "stacked_bar", "diverging_bar", "multiples", "kpi"]
 )
-def test_markdown_only_line_and_bar_use_raw_values(kind):
+def test_markdown_line_bar_and_multiples_use_raw_values(kind):
     spec = all_specs()[kind]
     spec = {**spec, "series": spec["series"][:1]}  # 多系列没有图例可表达，另有用例覆盖回退
     lines = export._mermaid_chart({"chart": spec, "title": "结论"})
-    if kind in ("line", "bar"):
+    if kind in ("line", "bar", "multiples"):
         assert "xychart-beta" in lines
-        assert '    title "结论"' in lines
+        title = spec["series"][0]["name"] if kind == "multiples" else "结论"
+        assert f'    title "{title}"' in lines
         assert str(spec["series"][0]["values"][0]) in "\n".join(lines)
     else:
         assert lines == []

@@ -33,6 +33,7 @@ from avelis.analysis.grounding import Cause, NumberRef, Part, decode_parts, desc
 from avelis.analysis.measures import col, like
 from avelis.ask import service
 from avelis.ask.intent import MAX_LIMIT, DimensionFilter, Intent, comparison_range
+from avelis.charts import ChartPreference
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
 from avelis.connectors.base import QueryError
@@ -498,11 +499,8 @@ _TITLE_PERIOD = re.compile(
 )
 
 
-class ChartArgs(BaseModel):
+class ChartArgs(ChartPreference):
     dataset: str = Field(description="本次运行可读的数据集编号，如 D3")
-    kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
-    title: str = Field(max_length=40, description="一句结论式标题，不写数字（期间写法如“9 月”可以）")
-    top_n: int | None = Field(None, ge=2, le=20, strict=True)
 
     @field_validator("title")
     @classmethod
@@ -1166,35 +1164,60 @@ class AnalysisToolbox:
         except (ParseError, TokenError):
             return None
 
-    def _require_additive(self, ref: str, columns: list[str]) -> None:
-        """成员相加只放行可确认的可加指标；计算列按已登记的量纲核对。"""
+    def _aggregation_rules(self, ref: str, columns: list[str]) -> dict[str, dict]:
+        """统一确认成员聚合适用性；分布统计可保留不可加列，并向模型说明限制。"""
         ds = self._datasets[ref]
         if ds.kind != "governed":
+            rules = {}
             for column in columns:
+                reason = ""
                 expression = self._column_expression(ref, column)
                 if expression is not None and any(
                     attribution._NON_ADDITIVE.match(node.sql(dialect=explore.STANDARD_DIALECT))
                     for node in expression.walk()
                     if isinstance(node, exp.Func)
                 ):
-                    raise calc.CalcError(f"列 {column} 的表达式含不可加聚合，不能按成员相加")
-                kind = self._unit(ref, column).get("kind", "unknown")
-                if kind in {"ratio", "rate_change", "share", "unknown"}:
-                    raise calc.CalcError(f"列 {column} 的量纲为 {kind}，不能按成员相加")
-            return
+                    reason = f"列 {column} 的表达式含不可加聚合，不能按成员相加"
+                unit = self._unit(ref, column)
+                kind = unit.get("kind", "unknown")
+                if not reason and (
+                    kind in {"ratio", "rate_change", "share", "unknown"}
+                    or unit.get("of_ratio")
+                    or unit.get("additive") is False
+                ):
+                    reason = (
+                        f"列 {column} 的量纲为 {kind}，不能按成员相加"
+                        if kind in {"ratio", "rate_change", "share", "unknown"}
+                        else gettext("列 {column} 已登记为不可加，不能按成员相加", column=column)
+                    )
+                rules[column] = {"algorithm": None if reason else "additive", "reason": reason}
+            return rules
         intent = ds.meta.get("intent") or {}
         codes = intent.get("metric_codes") or ([intent["metric_code"]] if intent.get("metric_code") else [])
         if not codes:
-            raise calc.CalcError("受治理数据集缺少指标意图，无法确认可加性，不能按成员相加")
+            return {
+                column: {"algorithm": None, "reason": "受治理数据集缺少指标意图，无法确认可加性，不能按成员相加"}
+                for column in columns
+            }
         rules = {}
+        names_by_code = {}
+        metric_by_column = {}
+        components_by_name = {}
         for code in codes:
             metric, _ = self._metric(code)
+            names_by_code[code] = metric.name
             version_id = (ds.meta.get("versions") or {}).get(code)
             if not version_id:
-                raise calc.CalcError(f"指标 {code} 缺少锁定的查询版本，无法确认可加性")
+                rule = {"algorithm": None, "reason": f"指标 {code} 缺少锁定的查询版本，无法确认可加性"}
+                rules[metric.name] = rule
+                continue
             version = self.session.get(MetricVersion, version_id)
             if version is None:
-                raise calc.CalcError(f"指标 {code} 的查询版本不可用，无法确认可加性")
+                rules[metric.name] = {
+                    "algorithm": None,
+                    "reason": f"指标 {code} 的查询版本不可用，无法确认可加性",
+                }
+                continue
             components = (
                 {c["metric_code"]: self.session.get(MetricVersion, c["version_id"]) for c in version.components or []}
                 if version.kind == "derived"
@@ -1227,16 +1250,58 @@ class AnalysisToolbox:
                 ):
                     rule = {"algorithm": "additive", "reason": ""}
             if getattr(version, "value_kind", None) == "ratio":
-                rule = {"algorithm": None, "reason": Msg("口径声明为比率量纲")}
+                rule = {**rule, "algorithm": None, "reason": Msg("口径声明为比率量纲")}
+            components_by_name[metric.name] = {
+                c["metric_code"]: c["version_id"] for c in (getattr(version, "components", None) or [])
+            }
             names = [metric.name, f"{metric.name}·变化"]
             if intent.get("compare"):
                 names.append(f"{metric.name}·{service.PERIOD_LABEL[intent['compare']]}")
             rules.update({name: rule for name in names})
+            metric_by_column.update({name: metric.name for name in names})
+        # 只重算同一次治理查询中已带回、且锁定版本与比率组成一致的分子分母；不补查或推测权重。
+        for column, rule in list(rules.items()):
+            numerator, denominator = rule.get("numerator"), rule.get("denominator")
+            if not numerator or not denominator:
+                continue
+            name = metric_by_column.get(column)
+            suffix = column[len(name) :] if name else ""
+            if name is None or suffix == "·变化":
+                continue
+            component_versions = components_by_name[name]
+            codes = (numerator, denominator)
+            component_columns = tuple(f"{names_by_code.get(code, '')}{suffix}" for code in codes)
+            if all(
+                code in names_by_code
+                and (ds.meta.get("versions") or {}).get(code) == component_versions.get(code)
+                and component_column in ds.columns
+                and (rules.get(component_column) or {}).get("algorithm") == "additive"
+                for code, component_column in zip(codes, component_columns)
+            ):
+                rules[column] = {**rule, "ratio_columns": component_columns}
+        return {
+            column: rules.get(column) or {"algorithm": None, "reason": "无法确认该列对应的可加指标"}
+            for column in columns
+        }
+
+    def _require_additive(self, ref: str, columns: list[str]) -> None:
+        """成员相加只放行同一适用性规则确认的可加指标。"""
+        rules = self._aggregation_rules(ref, columns)
         for column in columns:
-            rule = rules.get(column)
-            if rule is None or rule["algorithm"] != "additive":
-                reason = (rule.get("reason") or "派生比率不能按成员相加") if rule else "无法确认该列对应的可加指标"
+            rule = rules[column]
+            if rule["algorithm"] != "additive":
+                reason = rule.get("reason") or "派生比率不能按成员相加"
                 raise calc.CalcError(Msg("列 {column} 不能按成员相加：{reason}", column=column, reason=reason))
+
+    @staticmethod
+    def _aggregation_note(column: str, rule: dict, mean: str) -> str:
+        return gettext(
+            "列 {column} 未生成合计：{reason}。{mean} 是输入值的未加权平均，不代表整体业务均值；"
+            "整体比率需由分子、分母分别汇总后重算。",
+            column=column,
+            reason=translate(rule.get("reason") or Msg("派生比率不能按成员相加")),
+            mean=mean,
+        )
 
     def _time_versions(self, version: MetricVersion, seen: set[str] | None = None) -> list[MetricVersion]:
         """递归读取锁定的组成版本；元数据缺失或成环时不推测时间语义。"""
@@ -1341,26 +1406,31 @@ class AnalysisToolbox:
 
         return self._guard("view_dataset", {"ref": ref, "offset": offset, "limit": limit}, run)
 
-    def chart(self, dataset: str, kind: str, title: str, top_n: int | None = None) -> str:
+    def chart(self, dataset: str, *args, **preference) -> str:
+        # 兼容已有内部位置调用；工具 schema 及新增偏好均由同一契约决定。
+        preference = {**dict(zip(ChartPreference.model_fields, args, strict=False)), **preference}
+
         def run():
             from avelis.analysis.dataset_access import can_read_dataset
             from avelis.analysis.dataset_projection import dataset_meta
-            from avelis.analysis.figures import dataset_charts
+            from avelis.analysis.figures import dataset_chart_args
 
-            choice = ChartArgs(dataset=dataset, kind=kind, title=title, top_n=top_n).model_dump()
+            parsed = ChartArgs(dataset=dataset, **preference)
+            choice = parsed.model_dump()
             ds, _ = self._rows(dataset)
             if not can_read_dataset(self.session, self.user, ds, self._datasets):
                 self._deny("你已没有该数据的访问权限", dataset=dataset)
-            options = dataset_charts({"columns": ds.columns, "rows": ds.rows, "meta": dataset_meta(self.session, ds)})
+            data = {"columns": ds.columns, "rows": ds.rows, "meta": dataset_meta(self.session, ds)}
+            options = parsed.options(**dataset_chart_args(data))
             kinds = [option["kind"] for option in options if option["kind"] != "kpi"]
-            if kind not in kinds:
-                raise calc.CalcError(f"{dataset} 不支持 {kind}；可选 kind：{'、'.join(kinds) or '无'}")
+            if parsed.kind not in kinds:
+                raise calc.CalcError(f"{dataset} 不支持 {parsed.kind}；可选 kind：{'、'.join(kinds) or '无'}")
             if len(self.figures) >= 4 and not any(f["dataset"] == dataset for f in self.figures):
                 raise calc.CalcError("每份报告最多 4 张图")
             self.figures = [f for f in self.figures if f["dataset"] != dataset] + [choice]
             return {"ok": True}, ds, "ok"
 
-        return self._guard("chart", {"dataset": dataset, "kind": kind, "title": title, "top_n": top_n}, run)
+        return self._guard("chart", {"dataset": dataset, **preference}, run)
 
     # -- 授权 --
     def _expire_governed(self) -> None:
@@ -3665,19 +3735,27 @@ class AnalysisToolbox:
 
     def describe(self, dataset: str, column: str, match: dict[str, str] | None = None) -> str:
         def fn():
-            _, rows = self._rows(dataset)
+            ds, rows = self._rows(dataset)
             picked = [r for r in rows if all(str(r.get(k)) == str(v) for k, v in (match or {}).items())]
-            if picked and column not in picked[0]:
+            if column not in ds.columns:
                 raise calc.CalcError(f"{dataset} 没有列 {column}")
-            out = calc.describe([r.get(column) for r in picked])
+            rule = self._aggregation_rules(dataset, [column])[column]
+            additive = rule["algorithm"] == "additive"
+            out = calc.describe([r.get(column) for r in picked], include_sum=additive)
             cols = list(out)
             base = self._unit(dataset, column)
-            units = {c: col("count") if c == "count" else dict(base) for c in cols}
+            units = {
+                c: col("count") if c == "count" else {**base, **({"additive": False} if c != "sum" else {})}
+                for c in cols
+            }
+            summary = dict(out)
+            if not additive:
+                summary["note"] = self._aggregation_note(column, rule, "mean")
             return (
                 f"{dataset} {column}的描述统计",
                 cols,
                 [[out[c] for c in cols]],
-                out,
+                summary,
                 {"units": units, "summary_units": units},
             )
 
@@ -3685,13 +3763,51 @@ class AnalysisToolbox:
 
     def segment_compare(self, dataset: str, segment: str, measures: list[str]) -> str:
         def fn():
-            _, rows = self._rows(dataset)
-            out = calc.segment_compare(rows, segment, measures)
+            ds, rows = self._rows(dataset)
+            for column in [segment, *measures]:
+                if column not in ds.columns:
+                    raise calc.CalcError(f"{dataset} 没有列 {column}")
+            rules = self._aggregation_rules(dataset, measures)
+            additive = {m for m, rule in rules.items() if rule["algorithm"] == "additive"}
+            ratios = {m: rule["ratio_columns"] for m, rule in rules.items() if rule.get("ratio_columns")}
+            out = calc.segment_compare(rows, segment, measures, additive=additive, ratios=ratios)
             cols = list(out[0]) if out else [segment]
             units = {"count": col("count")}
+            notes = []
             for m in measures:
-                units.update({f"{m}_{k}": self._unit(dataset, m) for k in ("sum", "mean", "median")})
-            return f"{dataset} 按{segment}分组对比", cols, [[r[c] for c in cols] for r in out], None, {"units": units}
+                base = self._unit(dataset, m)
+                units.update({f"{m}_{k}": {**base, "additive": False} for k in ("mean", "median")})
+                if m in additive:
+                    units[f"{m}_sum"] = base
+                else:
+                    notes.append(self._aggregation_note(m, rules[m], f"{m}_mean"))
+                if m in ratios:
+                    units[f"{m}_ratio"] = {**base, "additive": False}
+                    notes.append(
+                        gettext(
+                            "列 {column} 的整体比率已从分子 {numerator} 与分母 {denominator} 重算，登记为 {result}；"
+                            "分母为 0 或组成值缺失时不计算。",
+                            column=m,
+                            numerator=ratios[m][0],
+                            denominator=ratios[m][1],
+                            result=f"{m}_ratio",
+                        )
+                    )
+                elif base.get("kind") == "ratio" or rules[m].get("numerator"):
+                    notes.append(
+                        gettext(
+                            "列 {column} 缺少可重算的同版本分子、分母列，已省略整体比率；不会以比率之和或平均值代替。",
+                            column=m,
+                        )
+                    )
+            summary = {"note": "\n".join(notes)} if notes else None
+            return (
+                f"{dataset} 按{segment}分组对比",
+                cols,
+                [[r[c] for c in cols] for r in out],
+                summary,
+                {"units": units},
+            )
 
         return self._calc(
             "segment_compare", {"dataset": dataset, "segment": segment, "measures": measures}, [dataset], fn
@@ -3734,7 +3850,8 @@ class AnalysisToolbox:
                 self.chart,
                 ChartArgs,
                 "把一个数据集作为图放进报告正文：只在图比表格更能说明结论时用，每份报告最多 4 张；"
-                "kind 必须是该数据集可画的图（可先用 view_dataset 看列）；title 写这张图要说明的结论，不写数字。",
+                "可先用 view_dataset 看列；title 不写数字（期间写法如“9 月”可以）。"
+                + ChartPreference.tool_description(),
             ),
             t(
                 self.view_dataset,

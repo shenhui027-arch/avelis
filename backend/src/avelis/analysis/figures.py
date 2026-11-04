@@ -7,7 +7,7 @@ from collections import Counter
 
 from avelis.analysis.dataset_projection import build_column_roles
 from avelis.analysis.grounding import number
-from avelis.charts import recommend
+from avelis.charts import ChartPreference, recommend
 from avelis.i18n import gettext
 
 
@@ -23,9 +23,7 @@ def category_omission_note(chart: dict) -> str:
     )
 
 
-def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:
-    if dataset.get("restricted"):
-        return []
+def dataset_chart_args(dataset: dict) -> dict:
     meta = {**(dataset.get("meta") or {})}
     for key in ("units", "polarity", "intent", "time_column"):
         if key in dataset:
@@ -36,15 +34,20 @@ def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:
         roles = meta.get("column_roles")
     if roles is None:
         roles = build_column_roles(columns, meta)
-    return recommend(
-        columns,
-        dataset.get("rows") or [],
-        roles,
-        meta.get("units") or {},
-        meta.get("polarity") or {},
-        meta.get("intent"),
-        preference=preference,
-    )
+    return {
+        "columns": columns,
+        "rows": dataset.get("rows") or [],
+        "roles": roles,
+        "units": meta.get("units") or {},
+        "polarity": meta.get("polarity") or {},
+        "intent": meta.get("intent"),
+    }
+
+
+def dataset_charts(dataset: dict, preference: dict | None = None) -> list[dict]:
+    if dataset.get("restricted"):
+        return []
+    return recommend(**dataset_chart_args(dataset), preference=preference)
 
 
 def reference_counts(report: dict) -> Counter:
@@ -144,14 +147,14 @@ def report_figures(view: dict, datasets: list[str] | None = None) -> list[dict]:
         if dataset is None or dataset.get("restricted"):
             continue
         explicit = "kind" in request
-        preference = {k: request[k] for k in ("kind", "title", "top_n") if k in request} if explicit else None
+        preference = ChartPreference.from_record(request) if explicit else None
         options = dataset_charts(dataset, preference)
         requested_kind = request.get("kind")
         if (
             options
-            and requested_kind in ("line", "stacked_bar", "grouped_bar")
+            and requested_kind in ("line", "stacked_bar", "grouped_bar", "diverging_bar")
             and options[0]["kind"] == "multiples"
-            and options[0]["reason"] == "time_by_dimension"
+            and options[0]["reason"] in ("time_by_dimension", "change", "comparison")
         ):
             # 旧报告曾保存只含首个指标的图种；沿用新分图并保留标题，避免升级后整张插图消失。
             requested_kind = "multiples"

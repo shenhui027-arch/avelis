@@ -4,6 +4,42 @@ msgstr ""
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "个百分点"
+msgstr " pp"
+
+msgid "列 {column} 已登记为不可加，不能按成员相加"
+msgstr "Column {column} is marked as non-additive and cannot be summed across members"
+
+msgid "值"
+msgstr "value"
+
+msgid "无"
+msgstr "None"
+
+msgid "派生比率不能按成员相加"
+msgstr "Derived ratios cannot be summed across members"
+
+msgid "列 {column} 缺少可重算的同版本分子、分母列，已省略整体比率；不会以比率之和或平均值代替。"
+msgstr "The overall ratio for column {column} was omitted because numerator and denominator columns from the same version are unavailable for recalculation; it is not replaced by a sum or average of ratios."
+
+msgid "列 {column} 未生成合计：{reason}。{mean} 是输入值的未加权平均，不代表整体业务均值；整体比率需由分子、分母分别汇总后重算。"
+msgstr "No total was generated for column {column}: {reason}. {mean} is the unweighted average of the input values, not the overall business average; an overall ratio must be recalculated from separately aggregated numerators and denominators."
+
+msgid "列 {column} 的整体比率已从分子 {numerator} 与分母 {denominator} 重算，登记为 {result}；分母为 0 或组成值缺失时不计算。"
+msgstr "The overall ratio for column {column} was recalculated from numerator {numerator} and denominator {denominator} and recorded as {result}; it is not calculated when the denominator is zero or a component value is missing."
+
+msgid "度量名 {measures} 对应多列，请改用列名：{columns}"
+msgstr "Measure name {measures} matches several columns; use the column name instead: {columns}"
+
+msgid "度量 {measures} 不存在；可选 measures：{available}"
+msgstr "Measures {measures} do not exist; available measures: {available}"
+
+msgid "万"
+msgstr "×10,000"
+
+msgid "亿"
+msgstr "×100,000,000"
+
 msgid "其他"
 msgstr "Other"
 

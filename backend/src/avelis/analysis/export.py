@@ -335,13 +335,47 @@ def _meta(d: dict) -> dict:
 RESTRICTED_NOTE = "你已没有该数据的访问权限"
 
 
+def _localized_number(text: str, unit: str = "") -> str:
+    """只翻译系统数字后缀；数据集的业务单位与自由文字保留原样。"""
+    if unit and not text.endswith(unit):
+        return text
+    numeric = text.removesuffix(unit) if unit else text
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)(个百分点|万|亿)", numeric)
+    if not match:
+        return text
+    suffixes = {"个百分点": gettext("个百分点"), "万": gettext("万"), "亿": gettext("亿")}
+    return match[1] + suffixes[match[2]] + unit
+
+
+def _localized_report(report: dict) -> dict:
+    """导出副本只调整已落地的数值片段，再同步其保存的拼接文字。"""
+
+    def localize(value):
+        if isinstance(value, list):
+            return [localize(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {key: localize(item) for key, item in value.items()}
+        if value.get("kind") == "value":
+            result["text"] = _localized_number(str(value.get("text") or ""), str(value.get("unit") or ""))
+        if value.get("segments") and value.get("text") == _rendered(value):
+            result["text"] = _rendered(result)
+        for key in ("fields", "details"):
+            for name, record in (value.get(key) or {}).items():
+                if record.get("segments") and value.get(name) == _rendered(record):
+                    result[name] = _rendered(result[key][name])
+        return result
+
+    return localize(report)
+
+
 def _export_view(view: dict) -> dict:
     """受限标记是导出的权限边界；不信任同一对象里残留的行、元数据或已渲染文字。"""
     from avelis.analysis.dataset_projection import restrict_report, restrict_verification
 
     restricted = {d["ref"] for d in view.get("datasets") or [] if d.get("restricted")}
     if not restricted:
-        return view
+        return {**view, "report": _localized_report(view.get("report") or {})}
     report = restrict_report(view.get("report") or {}, restricted)
     fields = {name: record for name, record in (report.get("fields") or {}).items() if not record.get("restricted")}
     claims = []
@@ -379,7 +413,7 @@ def _export_view(view: dict) -> dict:
         verification[key] = [{**checks[old], "index": new} for new, old in enumerate(readable) if old in checks]
     return {
         **view,
-        "report": projected,
+        "report": _localized_report(projected),
         "verification": verification,
         "datasets": [
             {"ref": d["ref"], "kind": d.get("kind"), "restricted": True, "rows": []} if d.get("restricted") else d
@@ -480,7 +514,8 @@ def _formatted(value: Any, meta: dict | None = None) -> str:
     if value is None:
         return "—"
     n = number(value)
-    return display(n, _unit(meta)) if n is not None else str(value)
+    unit = _unit(meta)
+    return _localized_number(display(n, unit), unit["unit"]) if n is not None else str(value)
 
 
 def _table_value(value: Any, meta: dict | None = None) -> str:
@@ -1074,7 +1109,7 @@ def _ellipsis(text: str, font: str, size: float, width: float) -> str:
 
 
 def _axis(value: float) -> str:
-    return compact(number(value), strip=True)
+    return _localized_number(compact(number(value), strip=True))
 
 
 def _nice_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
@@ -1092,10 +1127,10 @@ def _axis_label(value: float, unit: dict | None) -> str:
     """坐标轴刻度按量纲换算；比率之差复用数据标注的换算与百分点文案。"""
     meta = _unit(unit)
     if meta["kind"] == "delta" and meta["of_ratio"] and not meta["unit"]:
-        return display(number(value), meta).removeprefix("+")
+        return _localized_number(display(number(value), meta)).removeprefix("+")
     if meta["kind"] in ("rate_change", "share") or (meta["kind"] == "ratio" and not meta["unit"]):
-        return compact(number(value) * 100, 1, strip=True) + "%"
-    return compact(number(value) * (meta["scale"] if meta["kind"] != "ratio" else 1), 2, strip=True)
+        return _localized_number(compact(number(value) * 100, 1, strip=True)) + "%"
+    return _localized_number(compact(number(value) * (meta["scale"] if meta["kind"] != "ratio" else 1), 2, strip=True))
 
 
 def _bar_chart(
@@ -1403,6 +1438,18 @@ def _display_figure(figure: dict, dataset: dict, *, brief: bool) -> dict:
 
 def _mermaid_chart(figure: dict) -> list[str]:
     spec = figure["chart"]
+    if spec["kind"] == "multiples":
+        return [
+            line
+            for series in spec["series"]
+            for line in _mermaid_chart(
+                {
+                    **figure,
+                    "title": series["name"],
+                    "chart": {**spec, "kind": "line" if series["mark"] == "line" else "bar", "series": [series]},
+                }
+            )
+        ]
     # xychart-beta 没有图例：多个系列画出来分不清是谁，只在单系列时输出图，否则保留表格。
     if spec["kind"] not in ("line", "bar") or len(spec["series"]) != 1:
         return []

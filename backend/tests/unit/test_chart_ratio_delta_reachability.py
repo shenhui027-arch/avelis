@@ -97,7 +97,7 @@ def test_time_grouped_comparison_is_rejected_before_dataset_creation(monkeypatch
     assert box.datasets() == {}
 
 
-def test_real_comparison_and_analysis_tools_do_not_select_mixed_deltas(monkeypatch):
+def test_real_comparison_and_analysis_tools_split_mixed_deltas(monkeypatch):
     box, answer = comparison_box(monkeypatch)
     ds = box.datasets()["D1"]
     units = dataset_meta(box.session, ds)["units"]
@@ -109,7 +109,9 @@ def test_real_comparison_and_analysis_tools_do_not_select_mixed_deltas(monkeypat
     data = {"columns": ds.columns, "rows": ds.rows, "meta": dataset_meta(box.session, ds)}
     charts = dataset_charts(data)
     selected = {s["column"] for chart in charts for s in chart["series"]}
-    assert not {"转化率·变化", "数量·变化"} <= selected
+    assert {"转化率·变化", "数量·变化"} <= selected
+    assert charts[0]["kind"] == "multiples"
+    assert [s["axis"] for s in charts[0]["series"]] == [0, 1]
     # 对比工具可以保留两种差额元数据，但同时产出 count 度量；选图继续优先 measure。
     segment = ds.columns[0]
     result = json.loads(
