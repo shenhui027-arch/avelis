@@ -118,12 +118,24 @@ function markOptions(spec: ChartSpec, index: number, style: NumberStyle, theme: 
   if (!s || !marks.length) return {};
   const label = (m: ChartMark) => `${m.type === "max" ? t("最高") : m.type === "min" ? t("最低") : t("平均")} ${formatValue(m.value, s.unit, style)}`;
   const text = { color: theme.text, fontFamily: theme.font, fontSize: 11 };
+  const stacked = spec.kind === "stacked_bar";
+  // 堆叠柱里标注要指向本段的末端：位置 = 同方向前序各段之和 + 本段值（正负分开堆叠，与 ECharts 一致）；标签仍是本段自身的值
+  const end = (m: ChartMark) => {
+    const v = m.value as number;
+    if (!stacked) return v;
+    const j = spec.categories.findIndex((c) => category(c) === category(m.x));
+    return spec.series.slice(0, index).reduce((sum, other) => {
+      const w = j >= 0 ? other.values[j] : null;
+      return w != null && (w < 0) === (v < 0) ? sum + w : sum;
+    }, v);
+  };
   const points = marks.filter((m) => m.type !== "average").map((m) => {
     const at = category(m.x);
-    return { name: label(m), coord: horizontal ? [m.value, at] : [at, m.value], value: m.value,
+    return { name: label(m), coord: horizontal ? [end(m), at] : [at, end(m)], value: m.value,
       label: { ...text, formatter: label(m), position: horizontal ? "right" : "top", distance: 10 } };
   });
-  const lines = marks.filter((m) => m.type === "average").map((m) => ({ name: label(m), ...(horizontal ? { xAxis: m.value } : { yAxis: m.value }),
+  // 堆叠图上平均线画不到本段的位置，改在图下用文字给出（ChartPanel）
+  const lines = marks.filter((m) => m.type === "average" && !stacked).map((m) => ({ name: label(m), ...(horizontal ? { xAxis: m.value } : { yAxis: m.value }),
     label: { ...text, formatter: label(m), position: horizontal ? "end" : "insideEndTop" } }));
   return {
     markPoint: points.length ? { symbol: "circle", symbolSize: 9, itemStyle: { color: theme.surface, borderColor: theme.text, borderWidth: 2 },

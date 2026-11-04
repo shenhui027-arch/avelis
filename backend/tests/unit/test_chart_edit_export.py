@@ -183,3 +183,53 @@ def test_legacy_text_contribution_keeps_its_readable_chart_target():
     source = chart_view()
     source["report"] = {"causes": [{"type": "member", "contribution": "原有文字说明", "evidence": ["D1"]}]}
     assert report_figures(source)[0]["ref"] == "D1"
+
+
+def test_stacked_export_anchors_extrema_to_segment_ends_and_lists_average_as_text():
+    """堆叠柱：极值点画在本段末端；平均线画不到本段位置，不画线，改由图下注释给出。"""
+    spec = {
+        "kind": "stacked_bar",
+        "orientation": "vertical",
+        "reason": "composition",
+        "title": None,
+        "x": {"column": "month", "label": "月份", "role": "time", "grain": "month"},
+        "categories": ["1月", "2月"],
+        "series": [
+            {
+                "name": "A",
+                "column": "value",
+                "label": "值",
+                "axis": 0,
+                "mark": "bar",
+                "unit": {"kind": "level", "unit": "元"},
+                "polarity": None,
+                "values": [100, 100],
+            },
+            {
+                "name": "B",
+                "column": "value",
+                "label": "值",
+                "axis": 0,
+                "mark": "bar",
+                "unit": {"kind": "level", "unit": "元"},
+                "polarity": None,
+                "values": [20, 30],
+            },
+        ],
+        "kpis": [],
+        "others": None,
+        "dropped_series": 0,
+        "marks": [
+            {"type": "max", "series": "value", "series_index": 1, "x": "2月", "value": 30},
+            {"type": "average", "series": "value", "series_index": 1, "x": None, "value": 25},
+        ],
+        "highlight": None,
+    }
+    font, _ = export.pdf_font()
+    drawn = list(shapes(export._spec_chart_data(spec, font)))
+    assert not [item for item in drawn if isinstance(item, Line) and item.strokeDashArray == [4, 3]]
+    rings = [item for item in drawn if isinstance(item, Circle) and item.r == 4]
+    bars = [item for item in drawn if isinstance(item, Rect) and item.fillColor == HexColor(export.VIZ_PALETTE[1])]
+    february = max(bars, key=lambda rect: rect.x)
+    assert len(rings) == 1 and rings[0].cy == pytest.approx(february.y + february.height)
+    assert any("25" in note for note in export._chart_annotation_notes(spec, include_marks=False))

@@ -75,13 +75,19 @@ function ChartNote({ spec, fullTable }: { spec: ChartSpec; fullTable: boolean })
     spec.dropped_series ? (fullTable ? t("另有 {{count}} 个系列未画出，见表格", { count: spec.dropped_series })
       : t("另有 {{count}} 个系列未画出，见下方数据集", { count: spec.dropped_series })) : "",
     omitted(spec, fullTable),
-    donutMarks(spec, style),
+    textMarks(spec, style),
   ].filter(Boolean);
   return notes.length ? <p className="av-caption av-chartpanel__note">{notes.join(" · ")}</p> : null;
 }
 
-/** 环形图上不画标注点与平均线，改在图下用文字给出（数值来自规格）。 */
-function donutMarks(spec: ChartSpec, style: ReturnType<typeof useNumberStyle>): string {
+/** 图上画不出的标注改在图下用文字给出（数值来自规格）：环形图的全部标注，堆叠图的平均值。 */
+function textMarks(spec: ChartSpec, style: ReturnType<typeof useNumberStyle>): string {
+  if (spec.kind === "stacked_bar") {
+    return (spec.marks ?? []).filter((m) => m.type === "average" && m.value != null).map((m) => {
+      const s = spec.series[m.series_index];
+      return t("{{name}} 平均 {{value}}", { name: s?.name ?? m.series, value: formatValue(m.value, s?.unit, style) });
+    }).join(" · ");
+  }
   if (spec.kind !== "donut" || !spec.marks?.length) return "";
   const unit = spec.series[0]?.unit;
   return spec.marks.filter((m) => m.value != null).map((m) => m.type === "average"

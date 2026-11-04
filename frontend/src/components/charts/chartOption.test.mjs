@@ -98,3 +98,20 @@ option = mod.chartOption(spec({ kind: "donut", highlight: ["甲"] }), "cn", them
 assert.deepEqual(option.series[0].data.map((d) => d.itemStyle.opacity), [1, 0.32, 0.32]);
 console.log("chartOption marks / highlight: ok");
 
+// 堆叠柱：第二个及之后系列的极值点指向本段末端（加上同方向前序段），标签仍是本段自身的值；正负分开堆叠；平均线不画在堆叠图上
+const stackedSpec = (marks) => spec({ kind: "stacked_bar", orientation: "vertical", categories: ["1月", "2月"],
+  series: [series("A", [100, -10]), series("B", [20, -30])], marks });
+option = mod.chartOption(stackedSpec([
+  { type: "max", series: "value", series_index: 1, x: "2月", value: -30 },
+  { type: "min", series: "value", series_index: 1, x: "1月", value: 20 },
+  { type: "average", series: "value", series_index: 1, x: null, value: -5 },
+]), "cn", theme);
+assert.deepEqual(option.series[1].markPoint.data.map((d) => d.coord), [["2月", -40], ["1月", 120]]);
+assert.equal(option.series[1].markPoint.data[1].label.formatter, "最低 20元");
+assert.equal(option.series[1].markLine, undefined);
+// 非堆叠图对照：坐标就是原值
+option = mod.chartOption(spec({ kind: "grouped_bar", orientation: "vertical", categories: ["1月"], series: [series("A", [100]), series("B", [20])],
+  marks: [{ type: "max", series: "value", series_index: 1, x: "1月", value: 20 }] }), "cn", theme);
+assert.deepEqual(option.series[1].markPoint.data[0].coord, ["1月", 20]);
+console.log("chartOption stacked marks: ok");
+

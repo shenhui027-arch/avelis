@@ -1505,7 +1505,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                     text(point_x, min(top + 10, point_y + 8), label, anchor="middle", color=DARK, size=6)
     for index, s in enumerate(series):
         for mark in _chart_marks(spec, index):
-            if mark["type"] != "average":
+            # 堆叠图上平均线画不到本段的位置（会落进其他系列）；平均值已在图下注释里列出
+            if mark["type"] != "average" or kind == "stacked_bar":
                 continue
             position = coordinate(mark["value"])
             a, b = ((position, bottom), (position, top)) if horizontal else ((left, position), (right, position))
