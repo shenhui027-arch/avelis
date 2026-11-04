@@ -274,5 +274,5 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | 对外端口 |
 | `AVELIS_BIND_ADDRESS` | `127.0.0.1` | 默认只监听本机；从其他机器访问时设为 `0.0.0.0` 或具体网卡地址，并先修改默认管理员口令；生产环境建议放在 HTTPS 反向代理之后 |
-| `AVELIS_IMAGE` | `avelis:1.0.4` | 镜像名 |
+| `AVELIS_IMAGE` | `avelis:1.0.5` | 镜像名 |
 | `COMPOSE_FILE` | — | 使用外部 PostgreSQL / Redis 时设为 `compose.yaml:compose.external.yaml` |
