@@ -3222,6 +3222,21 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChartOmittedCategories */
+        ChartOmittedCategories: {
+            /**
+             * Count
+             * @description 未展示且未合并进 others 的原始类目数
+             */
+            count: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "display_limit" | "top_n";
+        } & {
+            [key: string]: unknown;
+        };
         /** ChartOthers */
         ChartOthers: {
             /** Count */
@@ -3287,6 +3302,8 @@ export interface components {
             /** Kpis */
             kpis: components["schemas"]["ChartKpi"][];
             others: components["schemas"]["ChartOthers"] | null;
+            /** @description 类目省略信息；非空时 categories/series 仅含展示数据，完整表格须从原数据集读取。与 others 不重复计数。 */
+            omitted_categories?: components["schemas"]["ChartOmittedCategories"] | null;
             /** Dropped Series */
             dropped_series: number;
         } & {

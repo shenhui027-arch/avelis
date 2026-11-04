@@ -23,8 +23,8 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from avelis.analysis.figures import category_omission_note, report_figures
 from avelis.analysis.figures import reference_counts as _reference_counts
-from avelis.analysis.figures import report_figures
 from avelis.analysis.grounding import _unit, compact, display, number
 from avelis.i18n import gettext
 
@@ -921,6 +921,7 @@ def to_markdown(
                 f"### {title}",
                 "",
                 *_mermaid_chart(figure),
+                *([category_omission_note(figure["chart"]), ""] if category_omission_note(figure["chart"]) else []),
                 *_markdown_table(_table_data(d, brief=brief)),
                 "",
                 _row_note(d),
@@ -1154,6 +1155,32 @@ VIZ_NEUTRAL = "#9aa3b5"
 
 
 def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float = 468):
+    """PDF 与 HTML 共用的图形和图下注释；提示按宽度折行，不裁掉信息。"""
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.lib.colors import HexColor
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    drawing = _spec_chart_data(spec, font, title=title, width=width)
+    note = category_omission_note(spec)
+    if not note:
+        return drawing
+    lines, line = [], ""
+    for character in note:
+        if line and stringWidth(line + character, font, 8) > width:
+            lines.append(line)
+            line = ""
+        line += character
+    lines.append(line)
+    footer = len(lines) * 12 + 8
+    result = Drawing(width, drawing.height + footer)
+    drawing.translate(0, footer)
+    result.add(drawing)
+    for index, line in enumerate(lines):
+        result.add(String(0, footer - 14 - index * 12, line, fontName=font, fontSize=8, fillColor=HexColor(GRAY)))
+    return result
+
+
+def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: float = 468):
     """只渲染已物化规格，不排序、不聚合、不另选数据。"""
     import math
 
@@ -1165,7 +1192,9 @@ def _spec_chart(spec: dict, font: str, *, title: str | None = None, width: float
     header = 22 if title else 0
     if kind == "multiples":
         panels = [
-            _spec_chart({**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"], width=width)
+            _spec_chart_data(
+                {**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"], width=width
+            )
             for s in series
         ]
         height = sum(panel.height for panel in panels) + header
@@ -1641,9 +1670,15 @@ def to_pdf(
                 if figure["title"]:
                     block.append(p(figure["title"]))
                 block.extend(
-                    _spec_chart({**spec, "kind": s["mark"], "series": [s], "title": None}, font, title=s["name"])
+                    _spec_chart(
+                        {**spec, "kind": s["mark"], "series": [s], "title": None, "omitted_categories": None},
+                        font,
+                        title=s["name"],
+                    )
                     for s in spec["series"]
                 )
+                if note := category_omission_note(spec):
+                    block.append(p(note, small))
             elif chart is not None:
                 block.append(chart)
             block += [table(_table_data(d, brief=brief)), p(_row_note(d), small), Spacer(1, 3)]

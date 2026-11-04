@@ -14,6 +14,11 @@ from avelis.i18n import gettext
 MAX_PANELS = 8
 
 
+def _unit_identity(unit: dict | None) -> tuple:
+    unit = unit or {}
+    return (unit.get("kind", "unknown"), unit.get("unit"), str(unit.get("scale") or 1), bool(unit.get("of_ratio")))
+
+
 @dataclass(frozen=True)
 class _Structured:
     """数组、JSON 等结构化单元格的分组键：带类型比较，不会与内容相同的普通字符串合并；显示时转成文本。"""
@@ -147,7 +152,27 @@ def _recommend(
             "values": values,
         }
 
-    def spec(kind, reason, x, categories, series_list, *, orientation="vertical", others=None, dropped=0, kpis=None):
+    def omitted(count, merged=None):
+        # 合并进“其他”的成员仍被展示，不再计入省略；规格的类目与系列只包含展示数据。
+        return (
+            {"count": count, "reason": "top_n" if top_n is not None else "display_limit"}
+            if count and not merged
+            else None
+        )
+
+    def spec(
+        kind,
+        reason,
+        x,
+        categories,
+        series_list,
+        *,
+        orientation="vertical",
+        others=None,
+        dropped=0,
+        kpis=None,
+        omitted_categories=None,
+    ):
         return {
             "kind": kind,
             "title": None,
@@ -165,6 +190,7 @@ def _recommend(
             "series": series_list,
             "kpis": kpis or [],
             "others": others,
+            "omitted_categories": omitted_categories,
             "dropped_series": dropped,
         }
 
@@ -227,9 +253,9 @@ def _recommend(
                 categories.append(gettext("其他"))
                 for column, items in zip(columns, values, strict=True):
                     items.append(_sum(value(row, column) for row in tail))
-            return categories, values, merged
+            return categories, values, merged, omitted(len(tail), merged)
 
-        categories, values, merged = comparison_data(change, [change])
+        categories, values, merged, omission = comparison_data(change, [change])
         default = spec(
             "diverging_bar",
             "change",
@@ -238,8 +264,9 @@ def _recommend(
             [series(change, values[0], direction=current)],
             orientation="horizontal",
             others=merged,
+            omitted_categories=omission,
         )
-        categories, values, merged = comparison_data(current, [current, previous])
+        categories, values, merged, omission = comparison_data(current, [current, previous])
         candidate = spec(
             "grouped_bar",
             "comparison",
@@ -251,6 +278,7 @@ def _recommend(
             ],
             orientation="horizontal",
             others=merged,
+            omitted_categories=omission,
         )
         return [default, candidate]
 
@@ -264,19 +292,7 @@ def _recommend(
         return categories, keys, values
 
     def multi(x, categories, values, *, temporal=False):
-        same_unit = (
-            len(
-                {
-                    (
-                        (units.get(c) or {}).get("kind", "unknown"),
-                        (units.get(c) or {}).get("unit"),
-                        str((units.get(c) or {}).get("scale") or 1),
-                    )
-                    for c in measures
-                }
-            )
-            == 1
-        )
+        same_unit = len({_unit_identity(units.get(c)) for c in measures}) == 1
         reason = "multi_measure" if len(measures) > 1 else "time_series"
         if not temporal:
             reason = "multi_measure"
@@ -428,6 +444,7 @@ def _recommend(
                 for s in chart["series"]:
                     index = measures.index(s["column"])
                     s["values"] = [*s["values"], _sum(values[category][index] for category in tail)]
+            chart["omitted_categories"] = omitted(len(tail), chart["others"])
         return result
     column = measures[0]
     merged = None
@@ -437,7 +454,14 @@ def _recommend(
         materialized[0].append(_sum(values[category][0] for category in tail))
     reason = "ranking" if intent.get("order") is not None or intent.get("limit") is not None else "composition"
     chart = spec(
-        "bar", reason, dimension, categories, [series(column, materialized[0])], orientation="horizontal", others=merged
+        "bar",
+        reason,
+        dimension,
+        categories,
+        [series(column, materialized[0])],
+        orientation="horizontal",
+        others=merged,
+        omitted_categories=omitted(len(tail), merged),
     )
     if additive(column) and len(categories) <= 8 and all(v is not None and v >= 0 for v in materialized[0]):
         return [chart, alternate(chart, "donut", "bar")]
