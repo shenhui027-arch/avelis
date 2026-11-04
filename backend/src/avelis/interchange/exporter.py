@@ -10,7 +10,7 @@ from typing import Any
 
 import sqlglot
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
@@ -27,7 +27,7 @@ from avelis.models import Asset, ColumnVersion, Datasource, Domain, JoinPath, Me
 
 from .constants import OSSIE_SPEC_COMMIT, OSSIE_SPEC_VERSION
 from .expressions import equivalent_expressions, expand_derived_formula, fold_filters, physical_column_name
-from .importer import _catalog, _plan
+from .importer import _catalog, _plan, _root_extensions_summary
 from .validation import (
     _matching,
     _read_dialect,
@@ -57,6 +57,7 @@ def _check_reimport(session: Session, actor: User, document: dict[str, Any]) -> 
             datasets, paths = _catalog(session, actor, document, errors)
             if not errors:
                 fingerprints = current_fingerprints(session, asset_ids={data["asset"].id for data in datasets.values()})
+                root_summary = _root_extensions_summary(document)
                 for scope, item, path in iter_metrics(document):
                     if len(item["name"]) > 64 or not re.fullmatch(r"[a-z0-9_]+", item["name"]):
                         errors.append(
@@ -68,7 +69,17 @@ def _check_reimport(session: Session, actor: User, document: dict[str, Any]) -> 
                         )
                         continue
                     try:
-                        _plan(session, actor, document, scope, item, datasets, paths, fingerprints)
+                        _plan(
+                            session,
+                            actor,
+                            document,
+                            scope,
+                            item,
+                            datasets,
+                            paths,
+                            fingerprints,
+                            root_extensions_summary=root_summary,
+                        )
                     except (ValueError, TypeError, KeyError, GovernanceError, SqlglotError) as exc:
                         reason = "avelis 扩展或 ai_context 字段无效" if isinstance(exc, ValidationError) else str(exc)
                         errors.append({"layer": "catalog", "path": path, "reason": gettext(reason)})
@@ -110,6 +121,36 @@ def _metadata(version: MetricVersion) -> tuple[dict[str, Any], dict[str, Any]]:
         container = next((d for d in document.get("datasets", []) if d["name"] == metadata["dataset_name"]), {})
     metric = next((m for m in container.get("metrics", []) if m["name"] == metadata.get("metric_name")), {})
     return document, metric
+
+
+def _root_extension_originals(session: Session, versions: list[MetricVersion]) -> dict[str, list[dict[str, Any]]]:
+    """Resolve each shared root once, including originals outside the export selection."""
+    originals = {}
+    required = set()
+    for version in versions:
+        metadata = (version.publish_check or {}).get("ossie", {})
+        summary = metadata.get("root_extensions_summary")
+        if not summary:
+            continue
+        digest = summary["sha256"]
+        required.add(digest)
+        document = metadata.get("document", {})
+        if digest not in originals and "custom_extensions" in document:
+            originals[digest] = document["custom_extensions"]
+    missing = required - originals.keys()
+    if missing:
+        digest = MetricVersion.publish_check["ossie"]["root_extensions_summary"]["sha256"].as_string()
+        extensions = MetricVersion.publish_check["ossie"]["document"]["custom_extensions"]
+        holders = (
+            select(func.min(MetricVersion.id).label("id"))
+            .where(digest.in_(missing), extensions.as_string().is_not(None))
+            .group_by(digest)
+            .subquery()
+        )
+        originals.update(
+            session.execute(select(digest, extensions).join(holders, MetricVersion.id == holders.c.id)).all()
+        )
+    return originals
 
 
 def _dialect(session: Session, asset: Asset) -> str:
@@ -387,6 +428,8 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
     for _, _, components in selected:
         versions.update({v.id: v for _, v in components})
     resolved = {key: value for key, value in resolved.items() if key in versions}
+    root_originals = _root_extension_originals(session, list(versions.values()))
+    restored_roots = set()
     core_expressions = {}
     for index, (_, version, components) in enumerate(selected):
         expression_path = f"$.metrics[{index}].expression"
@@ -409,6 +452,7 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
         for a in session.scalars(select(Asset).where(Asset.status == "active"))
         if access.can_read_asset(session, actor, a, allowed)
     }
+    warned_root_summary = False
     for version in versions.values():
         document, original = deepcopy(_metadata(version))
         renamed = {}
@@ -449,8 +493,22 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             if any(key in existing_context and existing_context[key] != value for key, value in context.items()):
                 raise GovernanceError("所选口径来自语义提示不同的模型，请分别导出或统一模型语义提示")
             existing_context.update(deepcopy(context))
-        root_extensions = _extensions(out.get("custom_extensions", []), document.get("custom_extensions", []))
-        if root_extensions:
+        summary = (version.publish_check or {}).get("ossie", {}).get("root_extensions_summary")
+        if summary:
+            digest = summary["sha256"]
+            if digest in restored_roots:
+                root_extensions = out.get("custom_extensions", [])
+            elif digest in root_originals:
+                root_extensions = _extensions(out.get("custom_extensions", []), root_originals[digest])
+                restored_roots.add(digest)
+            else:
+                root_extensions = out.get("custom_extensions", [])
+                if not warned_root_summary:
+                    logger.warning("%s", gettext("此导入口径的根级自定义扩展仅保留摘要，导出不包含扩展原文"))
+                    warned_root_summary = True
+        else:
+            root_extensions = _extensions(out.get("custom_extensions", []), document.get("custom_extensions", []))
+        if root_extensions or "custom_extensions" in document or (summary and digest in root_originals):
             out["custom_extensions"] = root_extensions
         for dataset in document.get("datasets", []):
             asset = readable_assets.get(dataset.get("source"))
@@ -916,6 +974,10 @@ def export_model(session: Session, actor: User, domain_id: str, metric_ids: list
             {"vendor_name": "avelis", "data": json.dumps(data, ensure_ascii=False, sort_keys=True)}
         )
         out["metrics"].append(item)
+    # Retention prunes unused fields; rebuilding collected columns must not move
+    # fields on every import/export cycle.
+    for dataset in datasets.values():
+        dataset["fields"].sort(key=lambda field: (field["name"].casefold(), field["name"]))
     out["datasets"] = list(datasets.values())
     out["relationships"] = list(relationships.values())
     errors = validate_structure(out)

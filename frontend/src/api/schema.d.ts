@@ -6637,7 +6637,12 @@ export interface operations {
     };
     list_domains_api_domains_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string | null;
+                domain_id?: string | null;
+                limit?: number | null;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6651,6 +6656,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DomainOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -6796,6 +6810,8 @@ export interface operations {
                 domain_id?: string | null;
                 q?: string | null;
                 include_deleted?: boolean;
+                limit?: number | null;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -7061,7 +7077,12 @@ export interface operations {
     };
     list_metrics_api_metrics_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string | null;
+                domain_id?: string | null;
+                limit?: number | null;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7075,6 +7096,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7448,7 +7478,12 @@ export interface operations {
     };
     list_join_paths_api_join_paths_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string | null;
+                domain_id?: string | null;
+                limit?: number | null;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7462,6 +7497,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JoinPathOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

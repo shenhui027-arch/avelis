@@ -6,6 +6,7 @@ import json
 import re
 from collections import deque
 from copy import deepcopy
+from hashlib import sha256
 from typing import Any, Literal
 
 import sqlglot
@@ -27,6 +28,7 @@ from avelis.governance.joins import effectively_approved
 from avelis.i18n import gettext
 from avelis.models import Asset, ColumnFingerprint, Datasource, Domain, JoinPath, Metric, MetricVersion, User
 
+from .constants import MAX_RETAINED_METADATA_BYTES
 from .expressions import equivalent_expressions, expand_derived_formula, fold_filters, physical_column_name
 from .validation import (
     _matching,
@@ -505,6 +507,117 @@ def _check_derived_expression(
         raise ValueError(gettext("核心表达式与扩展中的派生公式不一致，需人工处理"))
 
 
+def _root_extensions_summary(document: dict[str, Any]) -> dict[str, Any] | None:
+    if "custom_extensions" not in document:
+        return None
+    extensions = {"custom_extensions": document["custom_extensions"]}
+    raw = json.dumps(extensions, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {"sha256": sha256(raw).hexdigest(), "bytes": len(raw), "top_level_keys": sorted(extensions)}
+
+
+def _retained_document(
+    document: dict[str, Any],
+    scope: str | None,
+    item: dict[str, Any],
+    datasets: dict[str, dict[str, Any]],
+    paths: dict[str, JoinPath],
+    aliases: dict[str, str],
+    options: _Options,
+    spec: dict[str, Any],
+    dependency: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Keep the metric's logical metadata and the catalogue subset needed to read it."""
+    retained = {
+        key: value
+        for key, value in document.items()
+        if key not in ("version", "metrics", "datasets", "relationships", "custom_extensions")
+    }
+    join_ids = {join["join_path_id"] for join in spec["joins"]}
+    if options.joins is not None:
+        relationship_names = {join["relationship"] for join in options.joins}
+    elif aliases:
+        base = next(name for name, alias in aliases.items() if alias == "b")
+        previous, _ = _relationship_paths(document, base)
+        relationship_names = {relationship["name"] for name, relationship in previous.items() if name in aliases}
+    else:
+        relationship_names = set()
+    relationships = [
+        relationship
+        for relationship in document.get("relationships", [])
+        if relationship["name"] in relationship_names and paths[relationship["name"]].id in join_ids
+    ]
+    needed_fields = {name: set() for name in aliases}
+    base = next((name for name, alias in aliases.items() if alias == "b"), None)
+    opaque = False
+    dialects = list(iter_expression_dialects(item["expression"]))
+    for extension in item.get("custom_extensions", []):
+        if extension["vendor_name"] != "avelis":
+            continue
+        original = json.loads(extension["data"]).get("original_expression")
+        if isinstance(original, dict):
+            try:
+                previous = list(iter_expression_dialects(original))
+                if all(
+                    isinstance(entry["dialect"], str) and isinstance(entry["expression"], str) for entry in previous
+                ):
+                    dialects.extend(previous)
+            except (KeyError, TypeError):
+                pass  # Unknown extension members remain opaque and cannot change execution.
+    for dialect in dialects:
+        node = _tree(dialect["expression"], _read(dialect["dialect"]))
+        if node is None:
+            opaque = True
+            continue
+        for column in node.find_all(exp.Column):
+            name = _matching(column.args["table"], set(aliases)) if column.table else base
+            if name in aliases:
+                field = _matching(column.this, set(datasets[name]["fields"]))
+                if field is not None:
+                    needed_fields[name].add(field)
+    for relationship in relationships:
+        for side in ("from", "to"):
+            needed_fields[relationship[side]].update(relationship[f"{side}_columns"])
+    retained_datasets = []
+    for dataset in document["datasets"]:
+        name = dataset["name"]
+        if name not in aliases:
+            continue
+        fields = dataset.get("fields", [])
+        keys = dataset.get("primary_key", []) + [key for group in dataset.get("unique_keys", []) for key in group]
+        needed_fields[name].update(keys)
+        physical = {entry["column"] for entry in dependency if entry["asset_id"] == datasets[name]["asset"].id}
+        for field in fields:
+            node = datasets[name]["fields"][field["name"]]
+            is_time = field.get("dimension", {}).get(
+                "is_time", field.get("datatype") in ("Date", "Time", "DateTime", "DateTimeTz")
+            )
+            if (
+                opaque
+                or (isinstance(node, exp.Column) and node.name in physical)
+                or ("dimension" in field and not is_time and options.dimensions is None)
+                or (is_time and options.time_column is None and bool(spec["time_column"]))
+            ):
+                needed_fields[name].add(field["name"])
+        retained_dataset = {key: value for key, value in dataset.items() if key not in ("metrics", "fields")}
+        retained_dataset["fields"] = [field for field in fields if field["name"] in needed_fields[name]]
+        retained_datasets.append(retained_dataset)
+    retained["datasets"] = retained_datasets
+    if relationships:
+        retained["relationships"] = relationships
+    if scope is None:
+        retained["metrics"] = [item]
+    else:
+        if scope not in aliases:
+            dataset = next(dataset for dataset in document["datasets"] if dataset["name"] == scope)
+            retained_datasets.append({"name": scope, "source": dataset["source"], "fields": []})
+        next(dataset for dataset in retained_datasets if dataset["name"] == scope)["metrics"] = [item]
+    return retained
+
+
+def _publish_check(plan: dict[str, Any]) -> dict[str, Any]:
+    return {"ossie": plan["metadata"], "warnings": plan["metadata"]["warnings"]}
+
+
 def _plan(
     session: Session,
     actor: User,
@@ -514,6 +627,8 @@ def _plan(
     datasets: dict[str, dict[str, Any]],
     paths: dict[str, JoinPath],
     fingerprints: dict[tuple[str, str], ColumnFingerprint],
+    *,
+    root_extensions_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     options = _options(item)
     context = item.get("ai_context")
@@ -529,6 +644,9 @@ def _plan(
     warnings = []
     pins = []
     unresolved = False
+    retained_options = options
+    retained_spec = None
+    retained_dependency = None
     if options.kind == "derived":
         formula = options.formula or options.expression
         if not formula:
@@ -543,7 +661,45 @@ def _plan(
         ]
         _check_derived_expression(session, actor, item, datasets, paths, formula, versions)
         spec["dimensions"] = metrics._shared_dimensions(versions)
-        aliases = {}
+        retained_dependency = []
+        retained_join_ids = set()
+        retained_asset_ids = set()
+        for entry in versions:
+            component = entry["version"]
+            component_aliases, component_steps = metrics.resolve_joins(session, component)
+            retained_asset_ids.update(asset.id for asset in component_aliases.values())
+            retained_dependency.extend(component.dependency or [])
+            retained_join_ids.update(step["path"].id for step in component_steps)
+        referenced = {scope} if scope is not None else set()
+        for dialect in iter_expression_dialects(item["expression"]):
+            node = _tree(dialect["expression"], _read(dialect["dialect"]))
+            if node is not None:
+                referenced.update(
+                    name
+                    for column in node.find_all(exp.Column)
+                    if column.table and (name := _matching(column.args["table"], set(datasets))) is not None
+                )
+        retained_names = {name for name in referenced if datasets[name]["asset"].id in retained_asset_ids}
+        for asset_id in retained_asset_ids:
+            if not any(datasets[name]["asset"].id == asset_id for name in retained_names):
+                retained_names.add(next(name for name, data in datasets.items() if data["asset"].id == asset_id))
+        retained_relationships = []
+        for path_id in sorted(retained_join_ids):
+            relationship = min(
+                (r for r in document.get("relationships", []) if paths[r["name"]].id == path_id),
+                key=lambda r: (-(int(r["from"] in retained_names) + int(r["to"] in retained_names)), r["name"]),
+            )
+            retained_relationships.append(relationship)
+            retained_names.update((relationship["from"], relationship["to"]))
+        aliases = {
+            name: "b" if data["asset"].id == versions[0]["version"].base_asset_id else f"j{index}"
+            for index, (name, data) in enumerate(datasets.items())
+            if name in retained_names
+        }
+        retained_options = options.model_copy(
+            update={"joins": [{"relationship": relationship["name"]} for relationship in retained_relationships]}
+        )
+        retained_spec = {**spec, "joins": [{"join_path_id": path_id} for path_id in retained_join_ids]}
     else:
         base = options.base_dataset or scope
         if base is None:
@@ -632,16 +788,18 @@ def _plan(
     unknown_dialects = [
         deepcopy(d) for d in iter_expression_dialects(item["expression"]) if _read(d["dialect"]) is None
     ]
-    # 文档已由 normalize_document 隔离。每个版本只保留自身指标和共享目录信息，
-    # 避免 N 个指标反复复制并存储其余 N-1 个指标；规范版本只由代码常量锁定。
-    retained = {key: value for key, value in document.items() if key not in ("version", "metrics", "datasets")}
-    retained["datasets"] = [
-        {key: value for key, value in dataset.items() if key != "metrics"} for dataset in document["datasets"]
-    ]
-    if scope is None:
-        retained["metrics"] = [item]
-    else:
-        next(dataset for dataset in retained["datasets"] if dataset["name"] == scope)["metrics"] = [item]
+    retained = _retained_document(
+        document,
+        scope,
+        item,
+        datasets,
+        paths,
+        aliases,
+        retained_options,
+        retained_spec or spec,
+        retained_dependency if retained_dependency is not None else dependency,
+    )
+    root_extensions_summary = root_extensions_summary or _root_extensions_summary(document)
     return {
         "spec": spec,
         "name": options.name or item["name"],
@@ -657,6 +815,7 @@ def _plan(
             "components": pins,
             "unresolved_dialect": unresolved,
             "unknown_dialects": unknown_dialects,
+            **({"root_extensions_summary": root_extensions_summary} if root_extensions_summary is not None else {}),
         },
     }
 
@@ -752,6 +911,8 @@ def import_model(
     if report["errors"]:
         _reject(report)
     plans = []
+    retained_bytes = 0
+    root_extensions_summary = _root_extensions_summary(document)
     fingerprints = current_fingerprints(session, asset_ids={data["asset"].id for data in datasets.values()})
     forbidden = False
     for scope, item, path in items:
@@ -771,13 +932,36 @@ def import_model(
                 report["errors"].append(_error("catalog", path, "新建口径需要维护者角色"))
                 continue
         try:
-            plan = _plan(session, actor, document, scope, item, datasets, paths, fingerprints)
+            plan = _plan(
+                session,
+                actor,
+                document,
+                scope,
+                item,
+                datasets,
+                paths,
+                fingerprints,
+                root_extensions_summary=root_extensions_summary,
+            )
         except (ValueError, TypeError, KeyError, GovernanceError, SqlglotError) as exc:
             reason = "avelis 扩展或 ai_context 字段无效" if isinstance(exc, ValidationError) else str(exc)
             report["errors"].append(_error("catalog", path, reason))
             continue
         plan.update(existing=existing, code=code)
+        if not plans and root_extensions_summary is not None:
+            # Every version keeps the digest; one version owns the shared original.
+            plan["metadata"]["document"]["custom_extensions"] = document["custom_extensions"]
         plans.append(plan)
+        retained_bytes += len(json.dumps(_publish_check(plan)).encode("utf-8"))
+        if retained_bytes > MAX_RETAINED_METADATA_BYTES:
+            report["errors"].append(
+                _error(
+                    "model",
+                    "$",
+                    gettext("导入后版本元数据总量超过 {limit} 字节上限，整体未写入", limit=MAX_RETAINED_METADATA_BYTES),
+                )
+            )
+            _reject(report)
         report["warnings"].extend(
             {"metric": code, "path": path, "reason": reason} for reason in plan["metadata"]["warnings"]
         )
@@ -809,7 +993,7 @@ def import_model(
                     version = metrics.create_version(session, actor, metric, plan["spec"], defer_validation=True)
                     version.dependency = plan["dependency"]
                     version.components = plan["components"]
-                    version.publish_check = {"ossie": plan["metadata"], "warnings": plan["metadata"]["warnings"]}
+                    version.publish_check = _publish_check(plan)
                     version.dependency_fingerprint = metrics.dependency_fingerprint(
                         version, version.components if version.kind == "derived" else version.dependency
                     )

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from avelis import events
 from avelis.api import schemas as S
@@ -162,9 +162,80 @@ def _visible_metric(session: Session, user: User, metric_id: str) -> Metric:
     return metric
 
 
+def _metric_list_keyword_clause(session: Session, q: str):
+    """别名按解码后的 JSON 元素匹配，避免转义和 JSON 结构成为搜索词。"""
+    aliases = (
+        func.jsonb_array_elements_text(Metric.aliases).table_valued("value").render_derived()
+        if session.get_bind().dialect.name == "postgresql"
+        else func.json_each(Metric.aliases).table_valued("value")
+    )
+    return or_(
+        *(func.lower(c).contains(q.lower(), autoescape=True) for c in (Metric.code, Metric.name)),
+        select(1).select_from(aliases).where(func.lower(aliases.c.value).contains(q.lower(), autoescape=True)).exists(),
+    )
+
+
 @router.get("/metrics", response_model=list[S.MetricOut])
-def list_metrics(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return [metric_view(session, m) for m in metrics.visible_metrics(session, user)]
+def list_metrics(
+    q: str | None = None,
+    domain_id: str | None = None,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    stmt = (
+        select(Metric, User)
+        .join(User, User.id == Metric.owner_id)
+        .where(access.domain_visibility_clause(session, user, Metric.domain_id))
+        .order_by(Metric.code, Metric.id)
+        .offset(offset)
+    )
+    if domain_id:
+        stmt = stmt.where(Metric.domain_id == domain_id)
+    if q:
+        stmt = stmt.where(_metric_list_keyword_clause(session, q))
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = list(session.execute(stmt))
+    versions: dict[str, list[dict]] = {m.id: [] for m, _ in rows}
+    if versions:
+        for metric_id, version_id, number, status, reason, unit, published_at in session.execute(
+            select(
+                MetricVersion.metric_id,
+                MetricVersion.id,
+                MetricVersion.version_no,
+                MetricVersion.status,
+                MetricVersion.status_reason,
+                MetricVersion.unit,
+                MetricVersion.published_at,
+            )
+            .where(MetricVersion.metric_id.in_(versions))
+            .order_by(MetricVersion.metric_id, MetricVersion.version_no.desc(), MetricVersion.id)
+        ):
+            versions[metric_id].append(
+                {
+                    "id": version_id,
+                    "version_no": number,
+                    "status": status,
+                    "status_reason": reason,
+                    "unit": unit,
+                    "published_at": published_at.isoformat() if published_at else None,
+                }
+            )
+    return [
+        {
+            "id": metric.id,
+            "code": metric.code,
+            "name": metric.name,
+            "aliases": metric.aliases,
+            "ai_context": metrics.metric_ai_context(metric),
+            "domain_id": metric.domain_id,
+            "owner": {"id": owner.id, "display_name": owner.display_name},
+            "versions": versions[metric.id],
+        }
+        for metric, owner in rows
+    ]
 
 
 @router.post("/metrics", status_code=201, response_model=S.MetricOut)
@@ -331,13 +402,78 @@ def join_path_view(session: Session, path: JoinPath) -> dict:
 
 
 @router.get("/join-paths", response_model=list[S.JoinPathOut])
-def list_join_paths(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    allowed = access.domain_ids(session, user)
-    return [
-        join_path_view(session, p)
-        for p in session.scalars(select(JoinPath).order_by(JoinPath.code))
-        if access.can_see_object(session, user, "join_path", p.id, allowed)
-    ]
+def list_join_paths(
+    q: str | None = None,
+    domain_id: str | None = None,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    left, right, creator = aliased(Asset), aliased(Asset), aliased(User)
+    stmt = (
+        select(JoinPath, left, right, creator)
+        .join(left, left.id == JoinPath.left_asset_id)
+        .join(right, right.id == JoinPath.right_asset_id)
+        .outerjoin(creator, creator.id == JoinPath.created_by)
+        .where(
+            access.asset_visibility_clause(session, user, left), access.asset_visibility_clause(session, user, right)
+        )
+        .order_by(JoinPath.code, JoinPath.id)
+        .offset(offset)
+    )
+    if domain_id:
+        stmt = stmt.where(or_(left.domain_id == domain_id, right.domain_id == domain_id))
+    if q:
+        stmt = stmt.where(
+            or_(*(func.lower(c).contains(q.lower(), autoescape=True) for c in (JoinPath.code, JoinPath.name)))
+        )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = list(session.execute(stmt))
+    approvals: dict[str, list[dict]] = {p.id: [] for p, *_ in rows}
+    if approvals:
+        for approval in session.scalars(
+            select(JoinPathApproval)
+            .where(JoinPathApproval.join_path_id.in_(approvals))
+            .order_by(JoinPathApproval.domain_id, JoinPathApproval.id)
+        ):
+            approvals[approval.join_path_id].append(
+                {
+                    "domain_id": approval.domain_id,
+                    "user_id": approval.user_id,
+                    "decision": approval.decision,
+                    "note": approval.note,
+                    "at": approval.at.isoformat(),
+                }
+            )
+    result = []
+    for path, left_asset, right_asset, actor in rows:
+        try:
+            required = joins.required_domains(session, path)
+        except metrics.Conflict as exc:
+            required = [exc.message]
+        result.append(
+            {
+                "id": path.id,
+                "code": path.code,
+                "name": path.name,
+                "status": path.status,
+                "source": path.source,
+                "created_by": actor.display_name if actor else None,
+                "left": {"asset_id": left_asset.id, "qualified": qualified(left_asset), "columns": path.left_columns},
+                "right": {
+                    "asset_id": right_asset.id,
+                    "qualified": qualified(right_asset),
+                    "columns": path.right_columns,
+                },
+                "cardinality": path.cardinality,
+                "cardinality_basis": path.cardinality_basis,
+                "required_domains": required,
+                "approvals": approvals[path.id],
+            }
+        )
+    return result
 
 
 @router.post("/join-paths", status_code=201, response_model=S.JoinPathOut)

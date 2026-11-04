@@ -324,7 +324,8 @@ def test_export_import_preserves_physical_column_semantics(catalogue, column_nam
         {"name": "observed_at", "expression": {"sql": "observed_at"}, "dimension": {"is_time": True}},
     ]
     if occupied:
-        fields.append({"name": "VALUE_A__COLUMN", "expression": {"sql": "value_b"}})
+        # A used dimension reserves the colliding name after unused fields are pruned.
+        fields.append({"name": "VALUE_A__COLUMN", "expression": {"sql": "value_b"}, "dimension": {"is_time": False}})
     reference = sqlglot.exp.column(column_name, table="records", quoted=not column_name.isidentifier()).sql(
         dialect="postgres"
     )

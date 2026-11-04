@@ -1326,27 +1326,100 @@
     ],
     "summary": "List Domains",
     "operationId": "list_domains_api_domains_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 500,
+         "minimum": 1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/DomainOut"
          },
-         "type": "array",
          "title": "Response List Domains Api Domains Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    },
    "post": {
     "tags": [
@@ -1354,15 +1427,20 @@
     ],
     "summary": "Create Domain",
     "operationId": "create_domain_api_domains_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/DomainCreate"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -1385,12 +1463,7 @@
        }
       }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/domains/{domain_id}/members": {
@@ -1627,6 +1700,35 @@
        "type": "boolean",
        "default": false,
        "title": "Include Deleted"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 500,
+         "minimum": 1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
       }
      }
     ],
@@ -2070,27 +2172,100 @@
     ],
     "summary": "List Metrics",
     "operationId": "list_metrics_api_metrics_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 500,
+         "minimum": 1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/MetricOut"
          },
-         "type": "array",
          "title": "Response List Metrics Api Metrics Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    },
    "post": {
     "tags": [
@@ -2098,15 +2273,20 @@
     ],
     "summary": "Create Metric",
     "operationId": "create_metric_api_metrics_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/MetricCreate"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -2129,12 +2309,7 @@
        }
       }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/metrics/{metric_id}": {
@@ -2673,27 +2848,100 @@
     ],
     "summary": "List Join Paths",
     "operationId": "list_join_paths_api_join_paths_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 500,
+         "minimum": 1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/JoinPathOut"
          },
-         "type": "array",
          "title": "Response List Join Paths Api Join Paths Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    },
    "post": {
     "tags": [
@@ -2701,15 +2949,20 @@
     ],
     "summary": "Create Join Path",
     "operationId": "create_join_path_api_join_paths_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/JoinPathCreate"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -2732,12 +2985,7 @@
        }
       }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/join-paths/{path_id}/decisions": {

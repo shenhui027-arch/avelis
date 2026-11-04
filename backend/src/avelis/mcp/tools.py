@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from typing import Literal
 
@@ -12,7 +11,6 @@ from sqlalchemy.orm import Session
 from avelis import modelcfg
 from avelis.api.governance import change_set_view
 from avelis.ask import service
-from avelis.ask.agent import Toolbox
 from avelis.ask.intent import DimensionFilter, Intent
 from avelis.governance import access, metrics
 from avelis.governance.errors import GovernanceError, Invalid, NotFound
@@ -22,7 +20,6 @@ from avelis.models import (
     AssetColumn,
     ChangeEvent,
     ChangeSet,
-    Domain,
     Impact,
     JoinPath,
     LineageEdge,
@@ -71,15 +68,10 @@ class ToolService:
     def search_metrics(self, keyword: str = "", domain_id: str | None = None, limit: int = 50) -> list[dict]:
         if not 1 <= limit <= 100:
             raise Invalid("limit 必须在 1 到 100 之间")
-        catalog = service.visible_catalog(self.session, self.user, with_values=False)
-        # 与页面问数使用相同的名称、编码、别名、ai_context 同义词和问法匹配。
-        matches = json.loads(Toolbox(self.session, self.user, catalog).search_metrics(keyword))
         out = []
-        for item in matches:
-            metric, version = catalog.versions[item["code"]]
-            if version.status != "published" or (domain_id and metric.domain_id != domain_id):
-                continue
-            domain = self.session.get(Domain, metric.domain_id)
+        for metric, version, domain in service.metric_catalog_rows(
+            self.session, self.user, keyword=keyword, domain_id=domain_id, limit=limit, published_only=True
+        ):
             context = metrics.metric_ai_context(metric)
             out.append(
                 {
@@ -93,8 +85,6 @@ class ToolService:
                     },
                 }
             )
-            if len(out) == limit:
-                break
         return out
 
     def get_metric(self, metric: str) -> dict:
