@@ -38,7 +38,13 @@ from sqlalchemy.orm import Session
 from avelis import charts, modelcfg
 from avelis.analysis.grounding import _unit, display, number
 from avelis.ask import service
-from avelis.ask.alignment import AlignmentResult, align_filters, candidate_sources, has_dimension_table
+from avelis.ask.alignment import (
+    AlignmentResult,
+    align_filters,
+    candidate_sources,
+    confirmed_values,
+    has_dimension_table,
+)
 from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today, matched_dimension_values
 from avelis.ask.llm import DEMO_ADAPTER
 from avelis.config import get_settings
@@ -65,6 +71,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]  # 与模型的对话（跨问题保留，用于理解上下文）
     intent: dict | None
     clarification: dict | None
+    alignment_clarifications: list[dict]  # 实际展示的候选和用户回答；每个新问题重置
     steps: Annotated[list[dict], operator.add]
     context: dict  # 当前轮的请求语言，随既有会话检查点保存
 
@@ -137,6 +144,7 @@ class Toolbox:
         self.filter_alignment: list[dict[str, Any]] = []
         self.alignment_candidates: list[dict] = []
         self.filter_alignment_unknown: list[dict[str, Any]] = []
+        self.confirmed: list[dict] = []
 
     def _card(self, code: str):
         return next((c for c in self.catalog.cards if c.code == code), None)
@@ -279,17 +287,28 @@ class Toolbox:
         settings = get_settings()
         codes = list(dict.fromkeys(metric_codes))
         results = [
-            align_filters(self.session, self.user, self.catalog.versions[code][1], filters, settings) for code in codes
+            align_filters(
+                self.session,
+                self.user,
+                self.catalog.versions[code][1],
+                filters,
+                settings,
+                **({"confirmed": self.confirmed} if self.confirmed else {}),
+            )
+            for code in codes
         ]
         explanations, unresolved, unknown, aligned = [], [], [], []
         table_availability = {}
         for index, item in enumerate(filters):
             values = []
             for position, original in enumerate(item.values):
-                key = (item.dimension, original)
 
                 def matches(record):
-                    return (record["dimension"], record["original"]) == key
+                    return record["dimension"] == item.dimension and (
+                        record["original"] == original
+                        or record.get("method") == "confirmed"
+                        and record["value"] == original
+                    )
 
                 pending = [record for result in results for record in result.unresolved if matches(record)]
                 uncertain = [record for result in results for record in result.unknown if matches(record)]
@@ -330,10 +349,27 @@ class Toolbox:
         return AlignmentResult(filters=aligned, explanations=explanations, unresolved=unresolved, unknown=unknown)
 
     def ask_user(self, question: str, options: list[str] | None = None) -> str:
+        # 工具返回给模型的候选不等于用户见过的选项，只保存实际展示的交集。
+        offered = [
+            {
+                **item,
+                "candidates": [value for value in item["candidates"] if value in (options or [])],
+                **(
+                    {
+                        "candidate_sources": {
+                            v: ids for v, ids in item["candidate_sources"].items() if v in (options or [])
+                        }
+                    }
+                    if "candidate_sources" in item
+                    else {}
+                ),
+            }
+            for item in self.alignment_candidates
+        ]
         self.clarification = {
             "question": question,
             "options": options or [],
-            **({"alignment_candidates": self.alignment_candidates} if self.alignment_candidates else {}),
+            **({"alignment_candidates": offered} if offered else {}),
         }
         return json.dumps({"asked": True}, ensure_ascii=False)
 
@@ -468,6 +504,10 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         }
 
     toolbox = Toolbox(session, user, catalog)
+    records, _ = service.project_alignment_clarifications(session, user, state.get("alignment_clarifications", []))
+    toolbox.confirmed = [
+        selection for record in records for selection in confirmed_values(record["items"], record["answer"])
+    ]
     tools = {t.name: t for t in toolbox.tools()}
     bound = model.bind_tools(list(tools.values()))
     system = SystemMessage(SYSTEM_PROMPT.format(tz=settings.business_timezone, today=today))
@@ -522,8 +562,6 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         "question": gettext("没能确定要查询的指标与日期，请换个说法或补充信息"),
         "options": [],
     }
-    if toolbox.alignment_candidates:
-        clarification = {**clarification, "alignment_candidates": toolbox.alignment_candidates}
     return {
         "clarification": clarification,
         "intent": None,
@@ -533,11 +571,21 @@ def understand(state: AgentState, config) -> dict[str, Any]:
 
 
 def clarify(state: AgentState, config) -> dict[str, Any]:
-    reply = interrupt(state["clarification"])
+    session, user, _ = _ctx(config)
+    offered, _ = service.project_alignment_clarifications(session, user, state["clarification"])
+    reply = interrupt(offered)
+    items = [
+        {**item, "options": [value for value in item["candidates"] if value in offered.get("options", [])]}
+        for item in offered.get("alignment_candidates", [])
+    ]
     return {
         "turns": [str(reply)],
         "messages": [HumanMessage(str(reply))],
         "clarification": None,
+        "alignment_clarifications": [
+            *state.get("alignment_clarifications", []),
+            {"items": items, "answer": str(reply)},
+        ],
         "context": _request_context(state, config),
         "steps": [{"node": "clarify", "at": utcnow().isoformat()}],
     }
@@ -854,6 +902,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
                     "messages": [HumanMessage(question)],
                     "intent": None,
                     "clarification": None,
+                    "alignment_clarifications": [],
                     "context": {"request_locale": locale},
                 },
                 config,

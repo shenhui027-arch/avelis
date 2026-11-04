@@ -5,12 +5,111 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
 
 from avelis.ask import agent, service
 from avelis.ask import alignment as alignment_service
 from avelis.ask.alignment import AlignmentResult
 from avelis.ask.intent import DimensionFilter, Intent, MetricCard
+
+
+@pytest.mark.parametrize("source", ["dimension_table", "member"])
+def test_resume_adopts_only_actual_offered_candidates_in_new_toolbox(monkeypatch, source):
+    box = make_box(monkeypatch)
+    monkeypatch.setattr(service, "visible_catalog", lambda *a, **kw: box.catalog)
+    monkeypatch.setattr(service, "dependency_drift", lambda *a: [])
+    samples = [] if source == "dimension_table" else ["1", "2"]
+    sample_calls = []
+
+    def sample(*a, **kw):
+        sample_calls.append(True)
+        return {"dimension_a": samples.copy()}
+
+    monkeypatch.setattr(service, "_dimension_values", sample)
+    table = SimpleNamespace(asset=SimpleNamespace(id="dimension_source", catalog_name="c", db_name="d", name="t"))
+    monkeypatch.setattr(
+        alignment_service, "_dimension_tables", lambda *a: [table] if source == "dimension_table" else []
+    )
+    monkeypatch.setattr(alignment_service, "_table_matches", lambda *a: (["1", "2"], []))
+    monkeypatch.setattr(service, "filter_alignment_restricted", lambda *a: False)
+
+    def call(name, args):
+        return AIMessage("", tool_calls=[{"id": name, "name": name, "args": args}])
+
+    args = {
+        "metric_codes": ["metric_a"],
+        "start_date": "2026-01-01",
+        "end_date": "2026-01-31",
+        "filters": [{"dimension": "dimension_a", "values": ["alias_a"]}],
+    }
+    replies = iter(
+        [
+            call("submit_intent", args),
+            call("ask_user", {"question": "choose", "options": ["1", "2"]}),
+            call("submit_intent", {**args, "filters": [{"dimension": "dimension_a", "values": ["1"]}]}),
+        ]
+    )
+    model = SimpleNamespace(bind_tools=lambda _: SimpleNamespace(invoke=lambda _: next(replies)))
+    monkeypatch.setattr(agent.modelcfg, "resolve", lambda *a, **kw: SimpleNamespace(model=model, adapter="offline"))
+    monkeypatch.setattr(agent.modelcfg, "policy", lambda *a: {"send_results": False})
+    executions = []
+
+    def fulfil(session, user, intent, answer, catalog):
+        executions.append(intent)
+        answer.status, answer.result, answer.message = "answered", {"columns": [], "rows": []}, "empty"
+        answer.evidence = {}
+
+    monkeypatch.setattr(service, "fulfil", fulfil)
+    answer = SimpleNamespace(evidence={}, executed_at=None, cache_hit=False, error_code=None)
+    config = {"configurable": {"thread_id": "ask-confirmed", "session": None, "user": None, "answer": answer}}
+    graph = agent.build_graph(MemorySaver())
+    first = graph.invoke({"turns": ["question"], "messages": [HumanMessage("question")]}, config)
+    pending = first["__interrupt__"][0].value
+    assert pending["alignment_candidates"][0]["candidates"] == ["1", "2"]
+    assert answer.evidence["alignment_candidates"][0]["original"] == "alias_a"
+    samples.clear()  # 连成员值候选也不能因事实表变空而重新追问。
+    answer.evidence = {}  # 与 run_turn 一样，为恢复请求使用新的答案证据。
+    final = graph.invoke(Command(resume="1"), config)
+    assert not final.get("__interrupt__") and answer.status == "answered" and answer.result["rows"] == []
+    assert len(executions) == 1 and executions[0].filters[0].values == ["1"]
+    assert len(sample_calls) == 1
+    assert answer.evidence["filter_alignment"] == [
+        {
+            "dimension": "dimension_a",
+            "original": "alias_a",
+            "value": "1",
+            "method": "confirmed",
+            **({"asset_id": "dimension_source"} if source == "dimension_table" else {}),
+        }
+    ]
+
+
+def test_ask_confirmation_excludes_candidates_only_seen_by_model(monkeypatch):
+    box = make_box(monkeypatch)
+    box.alignment_candidates = [
+        {
+            "dimension": "dimension_a",
+            "original": "alias_a",
+            "candidates": ["1", "2"],
+            "candidate_sources": {"1": ["asset_a"], "2": ["asset_a"]},
+            "has_dimension_table": True,
+        }
+    ]
+    box.ask_user("choose 1", ["1"])
+    monkeypatch.setattr(agent, "interrupt", lambda _: "2")
+    config = {"configurable": {"session": None, "user": None, "answer": None}}
+    monkeypatch.setattr(service, "filter_alignment_restricted", lambda *a: False)
+    resumed = agent.clarify({"clarification": box.clarification}, config)
+    record = resumed["alignment_clarifications"][0]
+    assert alignment_service.confirmed_values(record["items"], record["answer"]) == []
+    box.confirmed = alignment_service.confirmed_values(record["items"], record["answer"])
+    monkeypatch.setattr(service, "dependency_drift", lambda *a: [])
+    monkeypatch.setattr(service, "_dimension_values", lambda *a: {"dimension_a": []})
+    monkeypatch.setattr(alignment_service, "_dimension_tables", lambda *a: [])
+    assert submit(box, value="2")["accepted"] is False
+    assert not box.filter_alignment
 
 
 def make_box(monkeypatch, *, codes=("metric_a",), statuses=None):

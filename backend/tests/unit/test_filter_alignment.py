@@ -14,6 +14,49 @@ from avelis.lineage.sql import SqlDialect
 from avelis.models import Asset, ColumnVersion, Datasource, JoinPath, MetricVersion
 
 
+@pytest.mark.parametrize("asset_ids", [[], ["dimension_a", "dimension_b"]])
+@pytest.mark.parametrize("kind", ["base", "derived"])
+def test_confirmed_values_skip_all_member_and_alias_queries(monkeypatch, asset_ids, kind):
+    items = [{"dimension": "d", "original": "alias", "options": ["1", "2"]}]
+    if asset_ids:
+        items[0]["candidate_sources"] = {"1": asset_ids}
+    confirmed = alignment.confirmed_values(items, "1")
+    monkeypatch.setattr(service, "_dimension_values", lambda *a, **kw: pytest.fail("确认值不应重新取样"))
+    monkeypatch.setattr(service, "dependency_drift", lambda *a: pytest.fail("确认值不应重做对齐"))
+    result = alignment.align_filters(
+        None,
+        None,
+        NS(kind=kind),
+        [DimensionFilter(dimension="d", values=["1"])],
+        NS(),
+        confirmed=confirmed,
+        remaining_seconds=lambda: 0,
+    )
+    assert result.filters[0].values == ["1"] and not result.unresolved and not result.unknown
+    assert result.explanations == [
+        {
+            "dimension": "d",
+            "original": "alias",
+            "value": "1",
+            "method": "confirmed",
+            **({"asset_id": asset_id} if asset_id else {}),
+        }
+        for asset_id in asset_ids or [None]
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "3",
+        [{"dimension": "other", "original": "alias", "value": "1"}],
+        [{"dimension": "d", "original": "other", "value": "1"}],
+    ],
+)
+def test_confirmation_requires_offered_dimension_original_and_value(answer):
+    assert alignment.confirmed_values([{"dimension": "d", "original": "alias", "options": ["1", "2"]}], answer) == []
+
+
 @pytest.fixture
 def world(monkeypatch):
     fact = NS(id="fact", datasource_id="ds", catalog_name="catalog", db_name="schema_a", name="fact_a")

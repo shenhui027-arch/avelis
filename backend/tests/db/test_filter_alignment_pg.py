@@ -7,14 +7,17 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
 from avelis import cache
 from avelis.analysis import agent
 from avelis.analysis.tools import Scope
+from avelis.ask import agent as ask_agent
 from avelis.ask import service
-from avelis.ask.alignment import align_filters
+from avelis.ask.alignment import align_filters, confirmed_values
 from avelis.ask.intent import DimensionFilter, Intent
 from avelis.config import get_settings
 from avelis.connectors.postgres import PostgresConnector
@@ -372,18 +375,10 @@ def test_confirmed_numeric_dimension_key_executes_empty_query_on_postgresql(alig
     selections = agent._alignment_selections("1", details["items"])
     value = selections[("dimension_a", "shared_alias")]
     scope.filters[0].values = [value]
-    box.filter_alignment = [
-        {
-            "dimension": "dimension_a",
-            "original": "shared_alias",
-            "value": value,
-            "method": "confirmed",
-            "asset_id": world.dimension_id,
-        }
-    ]
+    confirmed = confirmed_values(details["items"], "1")
     query_count = len(world.statements)
 
-    aligned, unresolved = agent._align_scope_filters(box, scope)
+    aligned, unresolved = agent._align_scope_filters(box, scope, confirmed=confirmed)
 
     assert not unresolved and aligned.filters[0].values == ["1"]
     assert len(world.statements) == query_count  # 确认的数字键不再进入别名匹配 SQL。
@@ -405,3 +400,65 @@ def test_confirmed_numeric_dimension_key_executes_empty_query_on_postgresql(alig
     assert answer.status == "answered", (answer.error_code, answer.message)
     assert answer.result["rows"] == [] and not answer.cache_hit
     assert len(world.statements) == query_count + 1 and "'1'" in answer.sql
+
+
+@pytest.mark.parametrize("alignment_pg", ["numeric"], indirect=True)
+def test_ask_resume_confirmed_numeric_key_executes_empty_postgresql_query(alignment_pg, monkeypatch):
+    world = alignment_pg
+    session = world.session
+    metric = session.get(Metric, world.version.metric_id)
+    settings = replace(
+        world.settings,
+        query_max_rows=service.DIMENSION_VALUES_LIMIT,
+        query_timeout_seconds=10,
+    )
+    monkeypatch.setattr(ask_agent, "get_settings", lambda: settings)
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    graph = ask_agent.build_graph(MemorySaver())
+    monkeypatch.setattr(ask_agent, "graph", lambda: graph)
+
+    def call(name, args):
+        return AIMessage("", tool_calls=[{"id": name, "name": name, "args": args}])
+
+    args = {
+        "metric_codes": [metric.code],
+        "start_date": "2026-01-01",
+        "end_date": "2026-01-31",
+        "filters": [{"dimension": "dimension_a", "values": ["shared_alias"]}],
+        "group_by": ["dimension_a"],
+    }
+    replies = iter(
+        [
+            call("submit_intent", args),
+            call("ask_user", {"question": "choose", "options": ["1", "2"]}),
+            call("submit_intent", {**args, "filters": [{"dimension": "dimension_a", "values": ["1"]}]}),
+        ]
+    )
+    model = SimpleNamespace(bind_tools=lambda _: SimpleNamespace(invoke=lambda _: next(replies)))
+    monkeypatch.setattr(ask_agent.modelcfg, "resolve", lambda *a, **kw: SimpleNamespace(model=model, adapter="offline"))
+    monkeypatch.setattr(ask_agent.modelcfg, "policy", lambda *a: {"send_results": False})
+
+    first = ask_agent.run_turn(session, world.user, "shared_alias", None)
+    assert first.status == "clarify", (first.error_code, first.message)
+    session.flush()
+    session.expire(first, ["evidence"])
+    candidate = first.evidence["clarification"]["alignment_candidates"][0]
+    assert candidate["candidates"] == ["1", "2"]
+    assert candidate["candidate_sources"] == {"1": [world.dimension_id], "2": [world.dimension_id]}
+    count = len(world.statements)
+
+    answer = ask_agent.run_turn(session, world.user, "1", first.thread_id)
+    assert answer.status == "answered", (answer.error_code, answer.message)
+    assert answer.result["rows"] == [] and answer.executed_at is not None and not answer.cache_hit
+    assert len(world.statements) == count + 1 and "'1'" in answer.sql
+    session.flush()
+    session.expire(answer, ["evidence"])
+    assert answer.evidence["filter_alignment"] == [
+        {
+            "dimension": "dimension_a",
+            "original": "shared_alias",
+            "value": "1",
+            "method": "confirmed",
+            "asset_id": world.dimension_id,
+        }
+    ]

@@ -89,6 +89,28 @@ def candidate_sources(pending: list[dict], explanations: list[dict] | None = Non
     return {"candidate_sources": {value: list(dict.fromkeys(ids)) for value, ids in sources.items()}} if sources else {}
 
 
+def confirmed_values(items: list[dict], answer: str | list[dict]) -> list[dict]:
+    """只接受已展示候选中同维度、同原话的选择；字符串兼容首项回答。"""
+    if isinstance(answer, str):
+        answer = [{**items[0], "value": answer}] if items else []
+    offered = {(item["dimension"], item["original"]): item for item in items}
+    confirmed = []
+    for selection in answer:
+        item = offered.get((selection["dimension"], selection["original"]))
+        value = selection["value"]
+        if item is None or value not in item.get("options", []):
+            continue
+        confirmed.append(
+            {
+                "dimension": item["dimension"],
+                "original": item["original"],
+                "value": value,
+                "asset_ids": item.get("candidate_sources", {}).get(value, []),
+            }
+        )
+    return confirmed
+
+
 def _dimension_tables(session: Session, user: User, version: MetricVersion, dimension: str) -> list[_DimensionTable]:
     """关联方向和唯一性来自登记的路径；不从列名、数据值或业务词推断维表。"""
     resolved = service.validate_spec(session, version)
@@ -322,16 +344,52 @@ def align_filters(
     filters: list[DimensionFilter],
     settings,
     *,
+    confirmed: list[dict] | None = None,
     remaining_seconds: Callable[[], float] | None = None,
 ) -> AlignmentResult:
     """保持筛选项和值的位置；未知值原样保留，只有 unresolved 需要用户确认。
 
-    精确相等优先，其次是完整样本中唯一的 NFKC/去空白/casefold 相等，再查询有效的单列唯一侧维表。
+    confirmed 由 confirmed_values 按已展示候选校验，包含 dimension/original/value/asset_ids。
+    输入中的 (dimension, value) 命中确认记录时直接采用，并保留原话与全部来源依赖。
+    其余值精确相等优先，其次是完整样本中唯一的 NFKC/去空白/casefold 相等，再查询有效的单列唯一侧维表。
     不把包含关系当作相等，也不因取样、权限或查询失败宣称成员值不存在。
     """
     copied = [item.model_copy(deep=True) for item in filters]
     result = AlignmentResult(copied)
     if not copied:
+        return result
+    # 在共用入口消费确认；仅未确认值递归进入成员、规范化及维表查询。
+    accepted: dict[tuple[str, str], list[dict]] = {}
+    for selection in confirmed or []:
+        accepted.setdefault((selection["dimension"], selection["value"]), []).append(selection)
+    pending = []
+    for item in copied:
+        values = []
+        for value in item.values:
+            selections = accepted.get((item.dimension, value))
+            if not selections:
+                values.append(value)
+                continue
+            for selection in selections:
+                for asset_id in selection["asset_ids"] or [None]:
+                    note = {
+                        "dimension": item.dimension,
+                        "original": selection["original"],
+                        "value": value,
+                        "method": "confirmed",
+                        **({"asset_id": asset_id} if asset_id else {}),
+                    }
+                    if note not in result.explanations:
+                        result.explanations.append(note)
+        pending.append(item.model_copy(update={"values": values}))
+    if result.explanations:
+        if any(item.values for item in pending):
+            remaining = align_filters(session, user, version, pending, settings, remaining_seconds=remaining_seconds)
+            for item, rest in zip(copied, remaining.filters):
+                aligned = iter(rest.values)
+                item.values = [v if (item.dimension, v) in accepted else next(aligned) for v in item.values]
+            result.explanations.extend(remaining.explanations)
+            result.unresolved, result.unknown = remaining.unresolved, remaining.unknown
         return result
     if service._dimension_query_timeout(remaining_seconds) <= 0:
         result.unknown = [_unknown(f.dimension, v, "budget_exhausted") for f in copied for v in f.values]

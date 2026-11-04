@@ -149,7 +149,8 @@ def test_confirmed_candidate_executes_empty_lookup_without_realigning(monkeypatc
     assert final["phase"] == "done" and not final.get("__interrupt__")
     assert len(queries) == 1 and queries[0].filters[0].values == [value]
     assert answer.status == "answered" and answer.result["rows"] == []
-    assert prechecks == [] and len(model.seen) == 1 and len(aligned_inputs) == 1
+    assert prechecks == [] and len(model.seen) == 1 and len(aligned_inputs) == 2
+    assert aligned_inputs[-1][0]["values"] == [value]  # 确认也交给共用函数消费。
     assert table_queries == (["华东区"] if source == "dimension_table" else [])
     expected = {"dimension": "地区", "original": "华东区", "value": value, "method": "confirmed"}
     if source == "dimension_table":

@@ -10,6 +10,7 @@ from avelis.analysis import agent
 from avelis.analysis.service import _clarification_answer
 from avelis.analysis.tools import Scope
 from avelis.ask.alignment import AlignmentResult
+from avelis.ask.alignment import align_filters as shared_align_filters
 from avelis.ask.intent import DimensionFilter
 from tests.unit.test_analysis_entry import configured, fake_ask, scope_reply
 
@@ -22,10 +23,33 @@ def multi_value_run(monkeypatch):
     calls = []
     choices = {"别名一": "成员一", "别名二": "成员二", "别名三": "成员三"}
 
-    def align(session, user, version, filters, settings, *, remaining_seconds):
-        calls.append(([item.model_dump() for item in filters], remaining_seconds()))
+    def align(session, user, version, filters, settings, *, remaining_seconds, confirmed=None):
+        selected = {(item["dimension"], item["value"]) for item in confirmed or []}
+        pending = [
+            item.model_copy(update={"values": [v for v in item.values if (item.dimension, v) not in selected]})
+            for item in filters
+        ]
+        if any(item.values for item in pending):
+            calls.append(([item.model_dump() for item in pending], remaining_seconds()))
+        notes = (
+            shared_align_filters(
+                session,
+                user,
+                version,
+                [
+                    item.model_copy(update={"values": [v for v in item.values if (item.dimension, v) in selected]})
+                    for item in filters
+                ],
+                settings,
+                remaining_seconds=remaining_seconds,
+                confirmed=confirmed,
+            ).explanations
+            if confirmed
+            else []
+        )
         return AlignmentResult(
             filters,
+            explanations=notes,
             unresolved=[
                 {
                     "dimension": item.dimension,

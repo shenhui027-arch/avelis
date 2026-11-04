@@ -47,7 +47,13 @@ from avelis.analysis import conversation_context, investigation
 from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
-from avelis.ask.alignment import AlignmentResult, align_filters, candidate_sources, has_dimension_table
+from avelis.ask.alignment import (
+    AlignmentResult,
+    align_filters,
+    candidate_sources,
+    confirmed_values,
+    has_dimension_table,
+)
 from avelis.config import get_settings
 from avelis.engines import dialect_of, get_engine
 from avelis.governance import access, experiences, joins
@@ -770,7 +776,9 @@ def _chart_target(scope: Scope, inherited: dict) -> tuple[dict | None, str | Non
     )
 
 
-def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope, list[dict]]:
+def _align_scope_filters(
+    toolbox: AnalysisToolbox, scope: Scope, *, confirmed: list[dict] | None = None
+) -> tuple[Scope, list[dict]]:
     """一个范围的筛选必须在所有所选口径上得到同一结果，未知值仍按原话执行。"""
     if scope.question_type == "chart":
         return scope, []
@@ -786,14 +794,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
         return scope, []
     versions = [toolbox.catalog.versions[code][1] for code in scope.metric_codes]
     common = set.intersection(*({d["name"] for d in version.dimensions or []} for version in versions))
-    confirmed = {
-        (entry["dimension"], entry["value"]) for entry in toolbox.filter_alignment if entry["method"] == "confirmed"
-    }
-    shared_items = [item for item in scope.filters if item.dimension in common]
-    shared = [
-        item.model_copy(update={"values": [value for value in item.values if (item.dimension, value) not in confirmed]})
-        for item in shared_items
-    ]
+    shared = [item for item in scope.filters if item.dimension in common]
     results: list[AlignmentResult] = []
     for version in versions if any(item.values for item in shared) else []:
         try:
@@ -804,6 +805,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
                     version,
                     shared,
                     get_settings(),
+                    **({"confirmed": confirmed} if confirmed else {}),
                     remaining_seconds=toolbox.budget.remaining,
                 )
             )
@@ -821,7 +823,12 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
     unresolved, explanations, unknown, aligned = [], [], [], []
 
     def matching(items: list[dict], dimension: str, original: str) -> list[dict]:
-        return [item for item in items if item["dimension"] == dimension and item["original"] == original]
+        return [
+            item
+            for item in items
+            if item["dimension"] == dimension
+            and (item["original"] == original or item.get("method") == "confirmed" and item["value"] == original)
+        ]
 
     for item in scope.filters:
         values = []
@@ -833,11 +840,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
                 )
                 values.append(original)
                 continue
-            # 候选已由用户明确选择，不再把它作为别名查询；部分回答的后续恢复也沿用确认。
-            if (dimension, original) in confirmed:
-                values.append(original)
-                continue
-            position = next(i for i, shared_item in enumerate(shared_items) if shared_item is item)
+            position = next(i for i, shared_item in enumerate(shared) if shared_item is item)
             index = shared[position].values.index(original)
             choices = [result.filters[position].values[index] for result in results]
             pending = [entry for result in results for entry in matching(result.unresolved, dimension, original)]
@@ -876,6 +879,7 @@ def _align_scope_filters(toolbox: AnalysisToolbox, scope: Scope) -> tuple[Scope,
         entry
         for entry in toolbox.filter_alignment
         if any(item.dimension == entry["dimension"] and entry["value"] in item.values for item in aligned)
+        and (entry["method"] != "confirmed" or entry in explanations)
     ]
     toolbox.filter_alignment_unknown = [
         entry
@@ -944,16 +948,7 @@ def _alignment_items(details: dict) -> list[dict]:
 
 
 def _alignment_selections(answer: str | list[dict], items: list[dict]) -> dict[tuple[str, str], str]:
-    if isinstance(answer, str):
-        if items and answer in items[0]["options"]:
-            return {(items[0]["dimension"], items[0]["original"]): answer}
-        return {}
-    options = {(item["dimension"], item["original"]): item["options"] for item in items}
-    return {
-        (item["dimension"], item["original"]): item["value"]
-        for item in answer
-        if item["value"] in options.get((item["dimension"], item["original"]), [])
-    }
+    return {(item["dimension"], item["original"]): item["value"] for item in confirmed_values(items, answer)}
 
 
 def _clarification_answer_text(answer: str | list[dict]) -> str:
@@ -1012,21 +1007,6 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         }
         if inherited.get("scope"):
             inherited = {**inherited, "scope": selected_scope}
-        for item in alignment_items:
-            value = selections.get((item["dimension"], item["original"]))
-            if value is None:
-                continue
-            # 多个维表可能共同提供同一候选，逐一保留依赖以复用现有撤权投影。
-            for asset_id in item.get("candidate_sources", {}).get(value) or [None]:
-                explanation = {
-                    "dimension": item["dimension"],
-                    "original": item["original"],
-                    "value": value,
-                    "method": "confirmed",
-                    **({"asset_id": asset_id} if asset_id else {}),
-                }
-                if explanation not in toolbox.filter_alignment:
-                    toolbox.filter_alignment.append(explanation)
     # 已确认的分析续问也要理解用户本轮原话，才能区分改图与新增取数；
     # 旧的无模型恢复路径仍可直接沿用已确认范围。
     shortcut = selected_scope is not None or (
@@ -1148,7 +1128,12 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             raw, problem, question = scope.model_dump(mode="json"), None, None
     details = {}
     if scope is not None and not question and not problem and scope.question_type != "chart":
-        scope, unresolved = _align_scope_filters(toolbox, scope)
+        confirmed = [
+            selection
+            for record in clarifications
+            for selection in confirmed_values(_alignment_items(record), record["answer"])
+        ]
+        scope, unresolved = _align_scope_filters(toolbox, scope, confirmed=confirmed)
         if unresolved:
             question, details = _filter_clarification(unresolved)
     toolbox.record_scope(scope, raw, problem)
