@@ -102,6 +102,17 @@ function legend(spec: ChartSpec, theme: ChartTheme): Option | undefined {
 
 const DIM = 0.32;
 
+/** 前后都为空的孤立观测：折线画不出线段，只剩数据点，弱化时也不能把点藏掉。 */
+function isolated(values: (number | null)[], j: number): boolean {
+  return values[j] != null && values[j - 1] == null && values[j + 1] == null;
+}
+
+/** 折线上突出某些期间：只在这些点画大号数据点，其余点隐藏；孤立观测保留弱化的小点。 */
+function linePoints(spec: ChartSpec, values: (number | null)[]) {
+  return values.map((v, j) => !dimmed(spec, j) ? { value: v, symbolSize: 10 }
+    : isolated(values, j) ? { value: v, symbolSize: 6, itemStyle: { opacity: DIM } } : { value: v, symbolSize: 0 });
+}
+
 function category(c: string | number | null): string {
   return c == null ? "—" : String(c);
 }
@@ -178,8 +189,11 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
       xAxis: spec.series.map((_, i) => categoryAxis(spec, theme, { gridIndex: i, axisLabel: { ...axisLabel(theme), show: i === n - 1 } })),
       yAxis: spec.series.map((s, i) => valueAxis(s.unit, style, theme, { gridIndex: i, splitNumber: 2 })),
       series: spec.series.map((s, i) => ({ type: s.mark, name: s.name, xAxisIndex: i, yAxisIndex: i,
-        data: s.values.map((v, j) => ({ value: v, itemStyle: { opacity: dimmed(spec, j) ? DIM : 1 } })),
-        color: seriesColor(spec, i, theme), showSymbol: s.mark === "line" && showMarks(s.values, spec.categories.length),
+        // 折线面板的点平时可能不显示（期间多时），突出期间时要把那些点画出来
+        data: s.mark === "line" && spec.highlight?.length ? linePoints(spec, s.values)
+          : s.values.map((v, j) => ({ value: v, itemStyle: { opacity: dimmed(spec, j) ? DIM : 1 } })),
+        color: seriesColor(spec, i, theme),
+        showSymbol: s.mark === "line" && (showMarks(s.values, spec.categories.length) || !!spec.highlight?.length),
         symbolSize: 6, lineStyle: { width: 2 }, barMaxWidth: BAR,
         itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined, ...markOptions(spec, i, style, theme, false) })) };
   }
@@ -196,8 +210,7 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
     const color = seriesColor(spec, i, theme);
     if (spec.kind === "line") {
       const marks = showMarks(s.values, spec.categories.length);
-      // 折线上突出的期间：只在这些点画出数据点，其余点照常
-      const data = spec.highlight?.length ? s.values.map((v, j) => ({ value: v, symbolSize: dimmed(spec, j) ? 0 : 10 })) : s.values;
+      const data = spec.highlight?.length ? linePoints(spec, s.values) : s.values;
       return { type: "line", name: s.name, data, color, connectNulls: false, showSymbol: marks || !!spec.highlight?.length, symbolSize: 8,
         lineStyle: { width: 2 }, itemStyle: { borderColor: theme.surface, borderWidth: 2 },
         areaStyle: spec.series.length === 1 ? { opacity: 0.1 } : undefined, emphasis: { focus: "series" },

@@ -27,8 +27,8 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
   const table = children ?? <>{spec.omitted_categories ? <p className="av-caption av-chartpanel__note">
     {t("表格只列出图中的类目，完整数据见下方数据集")}</p> : null}<SpecTable spec={spec} /></>;
   if (spec.kind === "kpi") return <KpiCards kpis={spec.kpis} />;
-  const download = () => {
-    const url = canvas.current?.png();
+  const download = async () => {
+    const url = await canvas.current?.png(textMarks(spec, style) || undefined);
     if (!url) return;
     const a = document.createElement("a");
     a.href = url; a.download = `${title || "chart"}.png`; a.click();
@@ -41,7 +41,7 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
             onClick={() => { setIndex(i); setView("chart"); }}>{KIND_LABEL[c.kind]}</button>)}
           <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}><Icon name="table" small />{t("表格")}</button>
         </div>
-        {view === "chart" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={download} title={t("下载图片")}>
+        {view === "chart" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => void download()} title={t("下载图片")}>
           <Icon name="download" small />PNG</button> : null}
       </div>
       {view === "chart" && spec.title ? <h3 className="av-chartpanel__title">{spec.title}</h3> : null}

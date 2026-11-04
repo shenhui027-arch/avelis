@@ -33,7 +33,38 @@ function useTheme(): ChartTheme {
   return theme;
 }
 
-export type EChartHandle = { png: () => string | null };
+/** note：图上画不出、只在图下以文字给出的标注；下载 PNG 时一并画进图片底部，图片单独拿出去也不丢信息。 */
+export type EChartHandle = { png: (note?: string) => Promise<string | null> };
+
+const RATIO = 2;
+
+/** 把文字说明按宽度折行后画在图片底部。 */
+async function withNote(url: string, note: string, background: string, theme: ChartTheme): Promise<string> {
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = reject; image.src = url; });
+  const size = 12 * RATIO, line = 18 * RATIO, pad = 12 * RATIO;
+  const probe = document.createElement("canvas").getContext("2d")!;
+  probe.font = `${size}px ${theme.font}`;
+  const lines: string[] = [];
+  let current = "";
+  for (const char of note) {
+    if (current && probe.measureText(current + char).width > image.width - pad * 2) { lines.push(current); current = ""; }
+    current += char;
+  }
+  if (current) lines.push(current);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height + pad + lines.length * line;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0);
+  ctx.fillStyle = theme.text;
+  ctx.font = `${size}px ${theme.font}`;
+  ctx.textBaseline = "top";
+  lines.forEach((text, i) => ctx.fillText(text, pad, image.height + pad / 2 + i * line));
+  return canvas.toDataURL("image/png");
+}
 
 const EChart = forwardRef<EChartHandle, { spec: ChartSpec; style: NumberStyle; label: string }>(function EChart({ spec, style, label }, ref) {
   const host = useRef<HTMLDivElement>(null);
@@ -54,8 +85,12 @@ const EChart = forwardRef<EChartHandle, { spec: ChartSpec; style: NumberStyle; l
   }, [spec, style, theme]);
 
   useImperativeHandle(ref, () => ({
-    png: () => chart.current?.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--bg-base").trim() }) ?? null,
-  }), []);
+    png: async (note?: string) => {
+      const background = getComputedStyle(document.documentElement).getPropertyValue("--bg-base").trim();
+      const url = chart.current?.getDataURL({ type: "png", pixelRatio: RATIO, backgroundColor: background }) ?? null;
+      return url && note ? withNote(url, note, background, theme) : url;
+    },
+  }), [theme]);
 
   return <div ref={host} className="av-echart" role="img" aria-label={label} style={{ height: chartHeight(spec) }} />;
 });

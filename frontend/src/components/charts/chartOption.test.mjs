@@ -115,3 +115,17 @@ option = mod.chartOption(spec({ kind: "grouped_bar", orientation: "vertical", ca
 assert.deepEqual(option.series[1].markPoint.data[0].coord, ["1月", 20]);
 console.log("chartOption stacked marks: ok");
 
+// 折线突出某期：孤立观测（前后为空）保留弱化的小点，不被隐藏；分面板折线在期间多时也画出突出的点
+const lineSpec = (extra) => spec({ kind: "line", orientation: "vertical", categories: ["1月", "2月", "3月"],
+  series: [series("A", [null, 5, null], { mark: "line" })], ...extra });
+option = mod.chartOption(lineSpec({ highlight: ["1月"] }), "cn", theme);
+assert.deepEqual(option.series[0].data.map((d) => d.symbolSize), [10, 6, 0]);
+assert.equal(option.series[0].data[1].itemStyle.opacity, 0.32);
+const periods = Array.from({ length: 20 }, (_, i) => `D${i + 1}`);
+option = mod.chartOption(spec({ kind: "multiples", orientation: "vertical", categories: periods, highlight: ["D5"],
+  series: [series("A", periods.map((_, i) => i + 1), { mark: "line" })] }), "cn", theme);
+assert.equal(option.series[0].showSymbol, true);
+assert.equal(option.series[0].data[4].symbolSize, 10);
+assert.equal(option.series[0].data[0].symbolSize, 0);
+console.log("chartOption line highlight: ok");
+

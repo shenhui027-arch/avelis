@@ -1029,7 +1029,7 @@ def _chart_edit_context(target: dict, data: dict) -> tuple[dict, dict]:
         pass  # 遗留失效偏好仍可由模型按已列出的合法选项修正。
     categories = list(
         dict.fromkeys(
-            str(category)
+            charts.category_label(category)
             for option in all_options
             for panel in [option, *(option.get("panels") or [])]
             for category in panel.get("categories") or []

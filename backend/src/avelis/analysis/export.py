@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from avelis.analysis.figures import category_omission_note, report_figures
 from avelis.analysis.figures import reference_counts as _reference_counts
 from avelis.analysis.grounding import _unit, compact, display, number
+from avelis.charts import category_label
 from avelis.i18n import gettext
 
 TYPE_LABEL = {"fact": "事实", "calc": "计算", "inference": "推断", "recommendation": "建议"}
@@ -1324,7 +1325,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
     highlight = set(spec.get("highlight") or [])
 
     def category_color(category, color):
-        return color if not highlight or str(category) in highlight else VIZ_DIM
+        return color if not highlight or category_label(category) in highlight else VIZ_DIM
 
     if kind == "donut":
         values = series[0]["values"]

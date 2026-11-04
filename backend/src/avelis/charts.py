@@ -18,6 +18,11 @@ from avelis.i18n import gettext
 MAX_PANELS = 8
 
 
+def category_label(value) -> str:
+    """类目的显示名：与页面（chartOption 的类目轴）和导出一致，空值显示为“—”；highlight 按它匹配。"""
+    return "—" if value is None else str(value)
+
+
 class ChartPreference(BaseModel):
     """图表偏好的唯一契约；两个智能体与保存偏好的投影均从这里派生。"""
 
@@ -93,7 +98,7 @@ class ChartPreference(BaseModel):
                 sort=self.sort,
             )
             selected = next(option for option in tuned if option["kind"] == self.kind)
-        available = [str(category) for category in selected["categories"]]
+        available = [category_label(category) for category in selected["categories"]]
         missing = [category for category in self.highlight or [] if category not in available]
         if missing:
             raise ValueError(

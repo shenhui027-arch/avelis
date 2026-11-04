@@ -185,3 +185,12 @@ def test_marks_with_no_numeric_values_are_rejected_instead_of_silently_omitted()
     with pytest.raises(ValueError, match="没有可标注的数值"):
         choice(marks=["max"]).materialize(**inputs)
     assert recommend(**inputs, preference={"kind": "bar", "title": "不可应用", "marks": ["max"]}) == recommend(**inputs)
+
+
+def test_null_category_is_highlighted_by_its_rendered_label():
+    """空类目在页面与导出里显示为“—”：highlight 按显示名匹配，不认 Python 的 "None"。"""
+    inputs = data()
+    inputs["rows"] = [["item1", 1], [None, 4]]
+    assert choice(highlight=["—"]).materialize(**inputs)["highlight"] == ["—"]
+    with pytest.raises(ValueError, match="可选 highlight：.*—"):
+        choice(highlight=["None"]).materialize(**inputs)
