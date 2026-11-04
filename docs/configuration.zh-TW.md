@@ -186,7 +186,7 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 |---|---|---|---|
 | `[collect] interval_minutes` | `AVELIS_COLLECT_INTERVAL_MINUTES` | `15` | 新建資料來源的預設採集間隔，分鐘（每個資料來源可單獨修改） |
 | `[collect] ddl_audit_slack_seconds` | `AVELIS_DDL_AUDIT_SLACK_SECONDS` | `5` | DDL 審計歸因視窗兩端的時鐘容差，秒 |
-| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | 定時掃描間隔，秒 |
+| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | 業務任務掃描與獨立 Webhook 投遞迴圈的間隔，秒 |
 | `[worker] stale_seconds` | `AVELIS_WORKER_STALE_SECONDS` | `30` | 排隊多久未執行的任務由掃描補執行，秒 |
 | `[worker] running_timeout_seconds` | `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS` | `3600` | 執行超時記為失敗（不自動重跑），秒 |
 | `[history] retention_days` | `AVELIS_HISTORY_RETENTION_DAYS` | `1095` | 變更留存保留天數，`0` 為不清理 |
@@ -194,7 +194,15 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 | `[history] export_max_rows` | `AVELIS_HISTORY_EXPORT_MAX_ROWS` | `50000` | 變更記錄一次匯出的行數上限 |
 | `[import] max_bytes` | `AVELIS_IMPORT_MAX_BYTES` | `2097152` | 匯入血緣時單個檔案或貼上內容的上限，位元組 |
 
-逾時採集與匯入的治理收尾會在後續掃描中重試，業務任務本身不會自動重跑。Webhook 投遞每輪共用固定 5 秒預算，單次請求最多 5 秒、連線最多 3 秒；連續失敗兩次的訂閱在本輪跳過其餘項目。此預算尚無環境變數或 TOML 設定入口，詳見[事件投遞規則](events.zh-TW.md#投遞與簽章驗證)。
+逾時採集與匯入的治理收尾會在後續掃描中重試，業務任務本身不會自動重跑。每個 worker 使用獨立的單投遞迴圈，長業務任務與歷史清理不會延後 Webhook 投遞。每輪最多處理 50 筆，共用固定 5 秒預算；按訂閱輪流處理，每個訂閱先取一筆，再輪到下一筆。單次請求最多 5 秒、連線最多 3 秒，並按尚未輪到的訂閱公平分配剩餘預算；同一訂閱發生逾時後，本輪跳過其餘項目，其他失敗仍沿用連續兩次跳過的規則。投遞預算尚無環境變數或 TOML 設定入口，詳見[事件投遞規則](events.zh-TW.md#投遞與簽章驗證)。
+
+### 事件寄件匣 `[events]`
+
+| 設定檔 | 環境變數 | 預設值 | 說明 |
+|---|---|---|---|
+| `delivered_retention_days` | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `30` | 已投遞事件快照的保留天數，按 `delivered_at` 計算；非負整數，`0` 為不清理 |
+
+預設保留 30 天，為近期排障提供記錄，同時限制成功投遞快照的持續增長。每次 worker 定時掃描與 OAuth 清理一起，最多刪除 500 筆超過保留期的 `delivered` 記錄，不等待歷史清理週期；正在使用的資料列透過 `SKIP LOCKED` 留待後續掃描。`pending` 不清理。`dead` 也不自動清理，以保留人工修復後重投的機會；目前沒有可靠的死信終態時間，不能以事件建立時間代替死信保留期起點。
 
 ### 分析代理 `[analysis]`
 

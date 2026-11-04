@@ -397,6 +397,7 @@ def fake_transactions(monkeypatch, rows, *, fail_commit_once=False):
             raise
 
     monkeypatch.setattr(delivery, "session_scope", scope)
+    monkeypatch.setattr(delivery, "_due_subscription_count", lambda *args: 1)
     return transactions
 
 
@@ -510,6 +511,127 @@ def queue_deliveries(database, subscription, outbox, *, count, healthy=False):
             )
 
 
+def queue_subscription_backlogs(database, outbox, backlogs):
+    start = utcnow() - timedelta(minutes=5)
+    position = 0
+    with database() as session:
+        for identifier, count in backlogs:
+            session.add(
+                WebhookSubscription(
+                    id=identifier,
+                    name=identifier,
+                    url=f"https://{identifier}.example.test/hook",
+                    secret_enc="unused",
+                    event_types=["metric_version.published"],
+                    enabled=True,
+                )
+            )
+            for index in range(count):
+                event_id = f"{identifier}-{index}"
+                session.add(
+                    EventOutbox(
+                        id=event_id,
+                        event_id=event_id,
+                        subscription_id=identifier,
+                        payload={**outbox.payload, "id": event_id},
+                        status="pending",
+                        attempts=0,
+                        next_attempt_at=start + timedelta(seconds=position),
+                    )
+                )
+                position += 1
+
+
+@pytest.mark.parametrize("slow_subscriptions", [1, 3])
+def test_slow_backlog_consumes_its_share_and_healthy_subscription_delivers_in_first_scan(
+    database, monkeypatch, outbox, slow_subscriptions
+):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    backlogs = [(f"slow-{index}", 3 // slow_subscriptions) for index in range(slow_subscriptions)]
+    queue_subscription_backlogs(database, outbox, [*backlogs, ("healthy", 1)])
+    sent = []
+
+    def send(subscription, item, *, timeout_seconds, **kwargs):
+        sent.append((subscription.id, item.id, timeout_seconds))
+        if subscription.id != "healthy":
+            # 慢接收器确实耗尽分到的期限，不能用立即抛错掩盖整轮预算耗尽问题。
+            clock[0] += timeout_seconds
+            raise delivery.DeliveryError("timeout")
+        clock[0] += 0.01
+
+    monkeypatch.setattr(delivery, "send_webhook", send)
+    assert delivery.deliver_due() == slow_subscriptions + 1
+    assert [identifier for identifier, _item, _timeout in sent] == [
+        *[identifier for identifier, _count in backlogs],
+        "healthy",
+    ]
+    assert sent[0][2] == pytest.approx(5 / (slow_subscriptions + 1))
+    assert clock[0] < 105
+    with database() as session:
+        assert session.get(EventOutbox, "healthy-0").status == "delivered"
+        for identifier, count in backlogs:
+            for index in range(count):
+                item = session.get(EventOutbox, f"{identifier}-{index}")
+                assert item.status == "pending" and item.attempts == int(index == 0)
+    if slow_subscriptions == 1:
+        # 后两轮处理同一慢订阅的剩余积压；健康事件第一轮已完成，不会连续三轮 pending。
+        assert delivery.deliver_due() == 1
+        assert delivery.deliver_due() == 1
+        with database() as session:
+            assert session.get(EventOutbox, "healthy-0").attempts == 1
+
+
+@pytest.mark.parametrize("batch_size", [2, 3, 50])
+def test_due_subscriptions_rotate_before_processing_the_next_event(database, monkeypatch, outbox, batch_size):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    queue_subscription_backlogs(database, outbox, [("first", 3), ("second", 2), ("third", 2)])
+    sent = []
+    monkeypatch.setattr(delivery, "send_webhook", lambda _subscription, item, **kwargs: sent.append(item.id))
+    expected = ["first-0", "second-0", "third-0", "first-1", "second-1", "third-1", "first-2"]
+    assert delivery.deliver_due(batch_size=batch_size) == min(batch_size, len(expected))
+    assert sent == expected[:batch_size]
+
+
+@pytest.mark.parametrize(("budget_seconds", "batch_size", "expected_timeout"), [(12, 50, 5), (5, 50, 2.5), (5, 1, 5)])
+def test_request_timeout_caps_and_reserves_only_available_batch_slots(
+    database, monkeypatch, outbox, budget_seconds, batch_size, expected_timeout
+):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    monkeypatch.setattr(delivery, "monotonic", lambda: 100.0)
+    queue_subscription_backlogs(database, outbox, [("first", 1), ("second", 1)])
+    timeouts = []
+    monkeypatch.setattr(
+        delivery, "send_webhook", lambda _subscription, _item, **kwargs: timeouts.append(kwargs["timeout_seconds"])
+    )
+    assert delivery.deliver_due(batch_size=batch_size, budget_seconds=budget_seconds) == min(batch_size, 2)
+    assert timeouts[0] == expected_timeout
+    assert all(0 < timeout <= 5 for timeout in timeouts)
+
+
+@pytest.mark.parametrize("expires_during_claim", [False, True])
+def test_exhausted_budget_does_not_mutate_claimed_event(database, monkeypatch, outbox, expires_during_claim):
+    monkeypatch.setattr(delivery, "session_scope", database)
+    clock = [100.0]
+    monkeypatch.setattr(delivery, "monotonic", lambda: clock[0])
+    queue_subscription_backlogs(database, outbox, [("first", 1)])
+    if expires_during_claim:
+        count = delivery._due_subscription_count
+
+        def delayed_count(*args):
+            result = count(*args)
+            clock[0] = 105.0
+            return result
+
+        monkeypatch.setattr(delivery, "_due_subscription_count", delayed_count)
+    monkeypatch.setattr(delivery, "send_webhook", lambda *args, **kwargs: pytest.fail("预算耗尽后不能发送"))
+    assert delivery.deliver_due(budget_seconds=5 if expires_during_claim else 0) == 0
+    with database() as session:
+        item = session.get(EventOutbox, "first-0")
+        assert item.status == "pending" and item.attempts == 0 and item.last_error is None
+
+
 def test_scan_cancels_slow_receiver_at_total_budget_and_resumes_remaining_next_scan(
     database,
     monkeypatch,
@@ -549,7 +671,7 @@ def test_scan_cancels_slow_receiver_at_total_budget_and_resumes_remaining_next_s
         assert session.get(EventOutbox, "delivery-1").status == "delivered"
 
 
-def test_two_consecutive_timeouts_skip_subscription_without_consuming_other_attempts(
+def test_one_timeout_skips_subscription_without_consuming_other_attempts(
     database,
     monkeypatch,
     subscription,
@@ -565,14 +687,14 @@ def test_two_consecutive_timeouts_skip_subscription_without_consuming_other_atte
             raise httpx.ReadTimeout("unavailable")
         return httpx.Response(204)
 
-    assert delivery.deliver_due(transport=httpx.MockTransport(timeout)) == 3
-    assert received == ["delivery-0", "delivery-1", "delivery-4"]
+    assert delivery.deliver_due(transport=httpx.MockTransport(timeout)) == 2
+    assert received == ["delivery-0", "delivery-4"]
     with database() as session:
         assert session.get(EventOutbox, "delivery-4").status == "delivered"
-        for identifier in ("delivery-2", "delivery-3"):
+        for identifier in ("delivery-1", "delivery-2", "delivery-3"):
             row = session.get(EventOutbox, identifier)
             assert row.status == "pending" and row.attempts == 0 and row.last_error is None
-    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(204))) == 2
+    assert delivery.deliver_due(transport=httpx.MockTransport(lambda request: httpx.Response(204))) == 3
 
 
 def test_success_resets_consecutive_failure_count(database, monkeypatch, subscription, outbox):

@@ -326,6 +326,43 @@ def test_scanner_skips_subscription_locked_by_admin(world, monkeypatch, round_no
         _delivered(delivery_id)
 
 
+def test_fair_scan_delivers_healthy_subscription_while_oldest_subscription_is_locked(world, monkeypatch):
+    oldest_id = _enqueue(world)
+    with session_scope() as session:
+        healthy = WebhookSubscription(
+            name=f"healthy-{new_id()}",
+            url="https://8.8.4.4/healthy",
+            event_types=["collect.completed"],
+            enabled=True,
+            secret_enc="unused-offline-fixture",
+            created_by=world[0],
+        )
+        session.add(healthy)
+        session.flush()
+        healthy_id = healthy.id
+    try:
+        healthy_delivery = _enqueue((world[0], healthy_id))
+        sent = []
+
+        def receive(subscription, outbox, *, timeout_seconds, **kwargs):
+            sent.append((subscription.id, outbox.id))
+            # 不加锁的订阅计数可以保守地把被管理员锁住的订阅算进预算，不能等待它。
+            assert 0 < timeout_seconds <= 2.5
+
+        monkeypatch.setattr(delivery, "send_webhook", receive)
+        with session_scope() as session:
+            session.scalar(select(WebhookSubscription).where(WebhookSubscription.id == world[1]).with_for_update())
+            assert delivery.deliver_due() == 1
+            assert sent == [(healthy_id, healthy_delivery)]
+            oldest = session.get(EventOutbox, oldest_id)
+            assert oldest.status == "pending" and oldest.attempts == 0
+        _delivered(healthy_delivery)
+    finally:
+        with session_scope() as session:
+            session.execute(delete(EventOutbox).where(EventOutbox.subscription_id == healthy_id))
+            session.execute(delete(WebhookSubscription).where(WebhookSubscription.id == healthy_id))
+
+
 @pytest.mark.parametrize("round_no", ROUNDS)
 def test_business_outbox_and_delivery_commit_keep_history(world, monkeypatch, round_no):
     first_id = _enqueue(world)

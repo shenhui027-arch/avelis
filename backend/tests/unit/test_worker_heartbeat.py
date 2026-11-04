@@ -22,6 +22,7 @@ def worker(monkeypatch):
     monkeypatch.setattr(jobs.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(jobs.time, "sleep", MagicMock())
     monkeypatch.setattr(jobs, "scan_once", scan)
+    monkeypatch.setattr(jobs, "_deliver_events_loop", lambda stop: stop.wait())
     monkeypatch.setattr(jobs, "run_job", run)
     monkeypatch.setattr(cache, "client", lambda: connection)
     return SimpleNamespace(connection=connection, handlers=handlers, scan=scan, run=run)
@@ -58,9 +59,15 @@ def heartbeat(monkeypatch):
             return super().join(timeout)
 
     stop = StopEvent()
-    events = iter([stop, threading.Event()])
+    events = iter([stop, threading.Event(), threading.Event()])
+
+    def thread(*args, **kwargs):
+        if kwargs.get("name") == "avelis-webhooks":
+            return threading.Thread(*args, **kwargs)
+        return HeartbeatThread(*args, **kwargs)
+
     # 只替换 worker 引用，保留真实 Thread 内部使用的 threading.Event。
-    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=HeartbeatThread, Event=lambda: next(events)))
+    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=thread, Event=lambda: next(events)))
     return SimpleNamespace(tick=ticks, threads=threads, waits=waits, actions=actions, stop=stop)
 
 

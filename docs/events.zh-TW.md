@@ -82,11 +82,13 @@
 
 ## 投遞與簽章驗證
 
-worker 在 jobs.py 的定時掃描中處理到期且訂閱啟用的 pending 項目，每輪最多 50 筆，共用固定 5 秒投遞預算。請求的網路等待受總期限取消保護，單次最多 5 秒、連線最多 3 秒，並依本輪剩餘預算縮短；到期後停止本輪，未嘗試的項目維持原狀，下輪繼續。預算之外仍有同步 DNS 驗證、資料庫交易與本機排程開銷。同一訂閱本輪連續失敗兩次後，跳過其餘項目，繼續處理其他訂閱；成功會歸零連續失敗計數，下輪重新計數。請求不跟隨重新導向，不使用環境代理。只有 `2xx` 算成功。失敗按 1、2、4、8……分鐘退避，預設間隔上限 60 分鐘、最多嘗試 8 次；達到上限後為 dead，可由管理員重投。重投保留事件 ID 與寄件匣 ID，將 attempts 歸零並改回 pending。
+每個 worker 在 `jobs.py` 中執行一個獨立的投遞迴圈，按 `worker.schedule_seconds` 排程，不等待長業務任務或歷史清理結束。每輪處理到期且訂閱啟用的 `pending` 項目，最多 50 筆，共用固定 5 秒投遞預算。按訂閱公平輪流處理：每個訂閱先取一筆，全部輪到後再處理各訂閱的下一筆，避免較早的同訂閱積壓佔滿整輪。
+
+請求的網路等待受總期限取消保護，單次最多 5 秒、連線最多 3 秒；單次期限也受本輪剩餘預算的公平份額限制，為尚未輪到的訂閱留出時間。預算到期後停止本輪，未嘗試的項目維持原狀，下輪繼續。預算之外仍有同步 DNS 驗證、資料庫交易與本機排程開銷。同一訂閱本輪發生一次逾時後，跳過其餘項目，繼續處理其他訂閱；其他失敗仍在連續兩次後跳過，成功會歸零連續失敗計數，下輪重新計數。請求不跟隨重新導向，不使用環境代理。只有 `2xx` 算成功。失敗按 1、2、4、8……分鐘退避，預設間隔上限 60 分鐘、每筆最多嘗試 8 次；達到上限後為 `dead`，可由管理員重投。重投保留事件 ID 與寄件匣 ID，將 attempts 歸零並改回 pending。
 
 採集或匯入 Job 逾時後，在同一交易的 `result.abandoned_governance` 寫入 `pending`。後續掃描會重試未完成的治理收尾，並在 Job 資料列鎖定下，將關聯物件終態、失敗稽核、事件寄件匣及 `done` 標記一併提交。收尾失敗則全部回復，後續重試不重複寫入稽核或事件，也不會重跑業務任務。
 
-稽核比對訂閱時，按訂閱 ID 順序以 `FOR KEY SHARE` 讀取啟用的訂閱，防止並行刪除訂閱造成寄件匣外鍵失敗並回滾業務。投遞交易使用 `FOR NO KEY UPDATE SKIP LOCKED` 鎖住選中的列，逐筆提交：投遞 worker 與訂閱管理操作仍互斥，同時相容於業務交易的 KEY SHARE 鎖。本次鎖變更目前只有 PostgreSQL SQL 編譯與靜態檢查證據，尚未通過真實 PostgreSQL 並行驗證。
+稽核比對訂閱時，按訂閱 ID 順序以 `FOR KEY SHARE` 讀取啟用的訂閱，防止並行刪除訂閱造成寄件匣外鍵失敗並回滾業務。投遞交易使用 `FOR NO KEY UPDATE SKIP LOCKED` 鎖住選中的列，逐筆提交：投遞 worker 與訂閱管理操作仍互斥，同時相容於業務交易的 KEY SHARE 鎖。
 
 遠端已接收、本地提交前程序結束時仍可能重複傳送，因此語義為至少一次，接收方必須按事件 id 去重。不保證順序；需要順序時應結合 at 與業務物件版本判斷。投遞失敗不回滾已提交的業務或稽核。last_error 只存安全錯誤碼，例如 timeout、network_error、url_rejected 或 http_500，不儲存回應本文。
 
@@ -134,14 +136,17 @@ def verify_webhook(secret: str, headers, raw_body: bytes) -> bool:
 
 ## URL 與設定
 
-URL 只接受 http/https，不接受 URL 帳號／密碼、片段、控制字元或無效連接埠。建立、修改、測試、重投及每次實際傳送都會驗證目標。預設要求 DNS 解析出的全部位址都是允許的公網位址，拒絕內網、回環、鏈路本地、多播、保留位址與受限 IPv6 轉換位址。實際連線固定使用本次已驗證的 IP，同時保留原 HTTP Host、TLS SNI 與憑證網域驗證，避免驗證後再次解析造成 DNS 重綁定。僅 ConnectError 或 ConnectTimeout 時嘗試其餘已驗證位址；所有位址共用單次請求最多 5 秒的剩餘期限，連線階段最多 3 秒，並受本輪剩餘預算限制。讀取逾時、寫入例外或 HTTP 失敗不切換位址，交給寄件匣後續重試。
+URL 只接受 http/https，不接受 URL 帳號／密碼、片段、控制字元或無效連接埠。建立、修改、測試、重投及每次實際傳送都會驗證目標。預設要求 DNS 解析出的全部位址都是允許的公網位址，拒絕內網、回環、鏈路本地、多播、保留位址與受限 IPv6 轉換位址。實際連線固定使用本次已驗證的 IP，同時保留原 HTTP Host、TLS SNI 與憑證網域驗證，避免驗證後再次解析造成 DNS 重綁定。僅 ConnectError 或 ConnectTimeout 時嘗試其餘已驗證位址；所有位址共用單次請求最多 5 秒的剩餘期限，連線階段最多 3 秒，並受本輪剩餘預算的公平份額限制。讀取逾時、寫入例外或 HTTP 失敗不切換位址，交給寄件匣後續重試。
 
 | 環境變數 | 設定檔鍵 | 預設值 | 作用 |
 |---|---|---|---|
 | `AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS` | `webhook.allow_private_urls` | `false` | 本地開發可明確允許內網位址；正式環境預設保持關閉。 |
-| `AVELIS_WEBHOOK_MAX_ATTEMPTS` | `webhook.max_attempts` | `8` | 單輪投遞的最大嘗試次數，必須為正整數。 |
+| `AVELIS_WEBHOOK_MAX_ATTEMPTS` | `webhook.max_attempts` | `8` | 單筆寄件匣記錄的最大嘗試次數，必須為正整數。 |
 | `AVELIS_WEBHOOK_RETRY_MAX_MINUTES` | `webhook.retry_max_minutes` | `60` | 指數退避的分鐘上限，必須為正整數。 |
-| `AVELIS_WORKER_SCHEDULE_SECONDS` | `worker.schedule_seconds` | `60` | worker 定時掃描間隔；寄件匣實際處理時間也受掃描與其他工作耗時影響。 |
+| `AVELIS_WORKER_SCHEDULE_SECONDS` | `worker.schedule_seconds` | `60` | 業務掃描與獨立投遞迴圈的間隔，單位秒；長業務任務不阻塞投遞迴圈。 |
+| `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `events.delivered_retention_days` | `30` | 已投遞快照按 `delivered_at` 保留的天數；非負整數，`0` 為不清理。 |
+
+成功投遞快照預設保留 30 天，兼顧近期排障與儲存增長。每次 worker 定時掃描與 OAuth 清理一起，最多刪除 500 筆已到期的 `delivered` 記錄；不等待歷史清理週期，並使用 `SKIP LOCKED` 跳過正在使用的資料列。未到期記錄與 `pending` 保留。`dead` 不自動清理，供管理員排查、修復後重投；目前沒有可靠的死信終態時間，不能用建立時間代替保留期起點，因此不提供按天清理死信的設定。刪除訂閱仍會級聯刪除其全部寄件匣項目。
 
 ## 管理介面與範例
 
@@ -226,7 +231,7 @@ event_types 非空且去重，outcomes 省略或為 null 表示不過濾結果�
 ## FINDINGS：遷移、生命週期與驗收邊界
 
 - 新增資料表為 webhook_subscription 與 event_outbox。後者存事件 JSON 快照、訂閱 ID、狀態、次數、下次嘗試時間、安全錯誤碼與完成時間；`(subscription_id, event_id)` 唯一，避免同一訂閱重複入匣。event_id 不對 audit_event 建外鍵，稽核按保留期清理不會阻斷剩餘快照投遞。
-- 遷移檔案為 `0020_governance_events`，目前 `down_revision = "0018_import_batches"`。PR #81 已使用 `0019_metric_ai_context`；合併前 Claude 必須按實際 head 調整銜接。本遷移不新增稽核欄位、不重算舊雜湊。
+- 遷移檔案 `0020_governance_events` 接在 `0019_metric_ai_context` 之後，不新增稽核欄位、不重算舊雜湊。升級時也須套用接在 `0022_oauth_cleanup_indexes` 之後的 `0023_event_outbox_cleanup_index`：新增 `(delivered_at, id) WHERE status = 'delivered'` 部分索引，只用於已投遞快照的保留期清理；原有 `(status, next_attempt_at)` 索引繼續用於到期投遞查詢。
 - 刪除訂閱會級聯刪除其全部寄件匣項目，包括 pending、delivered 與 dead；原稽核不刪除。若要暫停並保留投遞記錄，應修改 enabled=false。停用不會取消既有 pending 項目，重新啟用後可繼續投遞。
 - 寄件匣儲存事件快照；目標 URL、啟用狀態與簽章金鑰在投遞時讀取目前訂閱。修改類型或 outcome 過濾只影響隨後入匣，不刪除既有快照；輪替金鑰也用於舊快照的後續嘗試。
 - 失敗 error 只承諾安全錯誤碼與預定義短原因，不承諾提供原始例外診斷。歸因不可用不使擷取失敗；匯入輔助模型失敗也不改變既有確定性結果保留語義。

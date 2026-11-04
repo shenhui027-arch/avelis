@@ -186,7 +186,7 @@ Automatic migration and administrator initialization are enabled by default, eve
 |---|---|---|---|
 | `[collect] interval_minutes` | `AVELIS_COLLECT_INTERVAL_MINUTES` | `15` | Default collection interval for new data sources, minutes (each data source can change it) |
 | `[collect] ddl_audit_slack_seconds` | `AVELIS_DDL_AUDIT_SLACK_SECONDS` | `5` | Clock tolerance at both ends of the DDL attribution window, seconds |
-| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | Scheduler scan interval, seconds |
+| `[worker] schedule_seconds` | `AVELIS_WORKER_SCHEDULE_SECONDS` | `60` | Interval for business job scans and the independent Webhook delivery loop, seconds |
 | `[worker] stale_seconds` | `AVELIS_WORKER_STALE_SECONDS` | `30` | Queued jobs not started after this long are picked up by the scan, seconds |
 | `[worker] running_timeout_seconds` | `AVELIS_WORKER_RUNNING_TIMEOUT_SECONDS` | `3600` | Jobs running longer are marked failed (not retried), seconds |
 | `[history] retention_days` | `AVELIS_HISTORY_RETENTION_DAYS` | `1095` | Change history retention, days; `0` keeps everything |
@@ -194,7 +194,15 @@ Automatic migration and administrator initialization are enabled by default, eve
 | `[history] export_max_rows` | `AVELIS_HISTORY_EXPORT_MAX_ROWS` | `50000` | Maximum rows per change-record export |
 | `[import] max_bytes` | `AVELIS_IMPORT_MAX_BYTES` | `2097152` | Size limit for one uploaded file or pasted text when importing lineage, bytes |
 
-Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Webhook delivery shares a fixed 5-second budget per scan, with at most 5 seconds per request and 3 seconds for connecting. Two consecutive failures skip the subscription's remaining items for that scan. This budget currently has no environment variable or TOML setting; see [delivery rules](events.en.md#delivery-and-signature-verification).
+Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Each worker has one independent delivery loop, so long business jobs and history cleanup do not delay Webhook delivery. Each round processes at most 50 items within a fixed shared 5-second budget. Subscriptions take turns, each getting one item before the next pass. Requests allow at most 5 seconds, with at most 3 seconds for connecting, and receive a fair share of the remaining budget reserved for subscriptions still awaiting their turn. A timeout skips that subscription's remaining items for the round; other failures retain the existing two-consecutive-failures rule. The delivery budget currently has no environment variable or TOML setting; see [delivery rules](events.en.md#delivery-and-signature-verification).
+
+### Event outbox `[events]`
+
+| Configuration file | Environment variable | Default | Description |
+|---|---|---|---|
+| `delivered_retention_days` | `AVELIS_EVENTS_DELIVERED_RETENTION_DAYS` | `30` | Retention in days for delivered event snapshots, measured from `delivered_at`; nonnegative integer, with `0` disabling cleanup |
+
+The 30-day default keeps recent records for troubleshooting while limiting continued growth of successful delivery snapshots. Each worker scan deletes at most 500 expired `delivered` records alongside OAuth cleanup, independently of the history cleanup interval. `SKIP LOCKED` leaves rows currently in use for a later scan. `pending` records are never purged. `dead` records are also retained indefinitely for redelivery after manual repair. There is currently no reliable timestamp for entering the dead state, so event creation time cannot substitute for the start of a dead-record retention period.
 
 ### Analysis agent `[analysis]`
 

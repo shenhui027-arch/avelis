@@ -15,7 +15,7 @@ from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
@@ -24,6 +24,7 @@ from avelis.models import EventOutbox, WebhookSubscription
 from avelis.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
+_REQUEST_TIMEOUT_SECONDS = 5.0
 _RESTRICTED_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in ("192.88.99.0/24", "3ffe::/16", "2001:10::/28", "2001:20::/28", "64:ff9b::/96")
@@ -90,10 +91,10 @@ def send_webhook(
     outbox: EventOutbox,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
-    timeout_seconds: float = 5.0,
+    timeout_seconds: float = _REQUEST_TIMEOUT_SECONDS,
 ) -> None:
     """每次请求重新检查 URL；连接已验证的 IP，保留 HTTP Host 和 TLS 证书域名。"""
-    deadline = monotonic() + min(5.0, timeout_seconds)
+    deadline = monotonic() + min(_REQUEST_TIMEOUT_SECONDS, timeout_seconds)
     try:
         addresses = validate_url(subscription.url)
     except ValueError:
@@ -148,7 +149,7 @@ async def _post_webhook(original, addresses, body, headers, deadline, transport)
                         original.copy_with(host=address),
                         content=body,
                         headers=headers,
-                        timeout=httpx.Timeout(min(5.0, remaining), connect=min(3.0, remaining)),
+                        timeout=httpx.Timeout(min(_REQUEST_TIMEOUT_SECONDS, remaining), connect=min(3.0, remaining)),
                         extensions={"sni_hostname": original.raw_host.decode("ascii")},
                     ) as response:
                         if not 200 <= response.status_code < 300:
@@ -160,20 +161,33 @@ async def _post_webhook(original, addresses, body, headers, deadline, transport)
                         raise
 
 
+def _due_filters(now, handled, excluded_subscriptions):
+    return (
+        EventOutbox.status == "pending",
+        EventOutbox.next_attempt_at <= now,
+        WebhookSubscription.enabled.is_(True),
+        EventOutbox.id.not_in(handled),
+        EventOutbox.subscription_id.not_in(excluded_subscriptions),
+    )
+
+
 def _due_statement(now, handled: set[str], blocked_subscriptions: set[str] | frozenset[str] = frozenset()):
     return (
         select(EventOutbox, WebhookSubscription)
         .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
-        .where(
-            EventOutbox.status == "pending",
-            EventOutbox.next_attempt_at <= now,
-            WebhookSubscription.enabled.is_(True),
-            EventOutbox.id.not_in(handled),
-            EventOutbox.subscription_id.not_in(blocked_subscriptions),
-        )
+        .where(*_due_filters(now, handled, blocked_subscriptions))
         .order_by(EventOutbox.next_attempt_at, EventOutbox.created_at, EventOutbox.id)
         .limit(1)
         .with_for_update(skip_locked=True, key_share=True)
+    )
+
+
+def _due_subscription_count(session, now, handled, excluded_subscriptions):
+    # 只统计，不认领；被其他事务锁住的订阅也只会使预算预留更保守，不等待它们。
+    return session.scalar(
+        select(func.count(func.distinct(EventOutbox.subscription_id)))
+        .join(WebhookSubscription, EventOutbox.subscription_id == WebhookSubscription.id)
+        .where(*_due_filters(now, handled, excluded_subscriptions))
     )
 
 
@@ -186,27 +200,40 @@ def deliver_due(
     handled: set[str] = set()
     failures: dict[str, int] = {}
     blocked_subscriptions: set[str] = set()
+    served_subscriptions: set[str] = set()
     attempts = 0
     for _ in range(batch_size):
         if monotonic() >= deadline:
             break
         try:
             with session_scope() as session:
-                row = session.execute(_due_statement(utcnow(), handled, blocked_subscriptions)).first()
+                now = utcnow()
+                excluded = blocked_subscriptions | served_subscriptions
+                row = session.execute(_due_statement(now, handled, excluded)).first()
+                if row is None and served_subscriptions:
+                    # 每个可认领订阅先投一条，全部轮过后才能继续下一条。
+                    served_subscriptions.clear()
+                    excluded = blocked_subscriptions
+                    row = session.execute(_due_statement(now, handled, excluded)).first()
                 if row is None:
                     break
                 outbox, subscription = row
+                subscription_count = _due_subscription_count(session, now, handled, excluded)
                 remaining = deadline - monotonic()
                 if remaining <= 0:
                     break
+                # 当前订阅只能使用本轮的一份预算，给尚未轮到的订阅留出发送机会。
+                waiting = min(max(1, subscription_count), batch_size - attempts)
+                timeout_seconds = min(_REQUEST_TIMEOUT_SECONDS, remaining / waiting)
                 handled.add(outbox.id)
+                served_subscriptions.add(subscription.id)
                 outbox.attempts += 1
                 attempts += 1
                 try:
-                    send_webhook(subscription, outbox, transport=transport, timeout_seconds=remaining)
+                    send_webhook(subscription, outbox, transport=transport, timeout_seconds=timeout_seconds)
                 except DeliveryError as exc:
                     failures[subscription.id] = failures.get(subscription.id, 0) + 1
-                    if failures[subscription.id] >= 2:
+                    if str(exc) == "timeout" or failures[subscription.id] >= 2:
                         blocked_subscriptions.add(subscription.id)
                     outbox.last_error = str(exc)
                     if outbox.attempts >= settings.webhook_max_attempts:
