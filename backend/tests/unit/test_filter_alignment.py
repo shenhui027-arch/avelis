@@ -740,3 +740,26 @@ def test_multikey_candidates_keep_sources(world):
     world.state.rows = [[["KeyA"], ["KeyB"]]]
     result = world.align(["SharedAlias"])
     assert result.unresolved[0]["candidate_sources"] == {"KeyA": ["table"], "KeyB": ["table"]}
+
+
+def test_derived_metric_disagreement_keeps_the_exact_original_as_a_candidate(monkeypatch):
+    """派生口径的组成口径结果不一致、且都已对齐时，原值（某个组成里精确存在）也列入候选。"""
+    first, second = NS(id="component_a"), NS(id="component_b")
+    derived = NS(components=[{"version_id": "component_a"}, {"version_id": "component_b"}])
+    session = NS(get=lambda _model, key: {"component_a": first, "component_b": second}[key])
+
+    def align(_session, _user, component, filters, _settings, **_kwargs):
+        if component is second:
+            return alignment.AlignmentResult(
+                [DimensionFilter(dimension="dimension_a", values=["WEST"])],
+                explanations=[
+                    {"dimension": "dimension_a", "original": "West", "value": "WEST", "method": "normalized"}
+                ],
+            )
+        return alignment.AlignmentResult([DimensionFilter(dimension="dimension_a", values=["West"])])
+
+    monkeypatch.setattr(alignment, "align_filters", align)
+    monkeypatch.setattr(alignment, "has_dimension_table", lambda *args: False)
+    filters = [DimensionFilter(dimension="dimension_a", values=["West"])]
+    out = alignment._derived_alignment(session, NS(id="u"), derived, filters, NS(), None)
+    assert out.unresolved[0]["candidates"] == ["West", "WEST"]

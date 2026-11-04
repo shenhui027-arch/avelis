@@ -851,7 +851,12 @@ def _align_scope_filters(
                 values.append(original)
             elif pending or not failures and len(set(choices)) != 1:
                 candidates = list(dict.fromkeys([value for entry in pending for value in entry["candidates"]]))
-                candidates.extend(value for value in choices if value != original and value not in candidates)
+                # 各口径都对齐出了结果、只是互相不一致时，原值也是合法选项（某个口径里它精确存在）；
+                # 有口径未解决时，它留下的原值不是对齐结果，不作为候选。
+                disagreement_only = not pending and not failures
+                candidates.extend(
+                    value for value in choices if (value != original or disagreement_only) and value not in candidates
+                )
                 unresolved.append(
                     {
                         "dimension": dimension,

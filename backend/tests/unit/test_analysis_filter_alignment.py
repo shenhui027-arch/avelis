@@ -261,3 +261,27 @@ def test_multi_metric_alignment_requires_shared_dimension_and_agreement(monkeypa
         assert unresolved[0]["dimension"] == "地区" and unresolved[0]["candidates"] == []
     else:
         assert unresolved == [] and box.filter_alignment_unknown[0]["reason"] == "timeout"
+
+
+def test_multi_metric_disagreement_keeps_the_exact_original_as_a_candidate(monkeypatch):
+    """一个口径里原值精确存在、另一个口径规范化成别的成员：原值也是合法选项，不能只给另一个。"""
+    box, _, _, _, _ = configured_alignment(monkeypatch)
+    first = box.catalog.versions["m_a"][1]
+    second = SimpleNamespace(**vars(first))
+    box.catalog.versions["m_b"] = (box.catalog.versions["m_b"][0], second)
+    scope = Scope(
+        question_type="relation", metric_codes=["m_a", "m_b"], filters=[{"dimension": "地区", "values": ["West"]}]
+    )
+
+    def align(session, user, version, filters, settings, **kwargs):
+        if version is second:
+            return AlignmentResult(
+                [DimensionFilter(dimension="地区", values=["WEST"])],
+                explanations=[{"dimension": "地区", "original": "West", "value": "WEST", "method": "normalized"}],
+            )
+        return AlignmentResult([DimensionFilter(dimension="地区", values=["West"])])
+
+    monkeypatch.setattr(agent, "align_filters", align)
+    monkeypatch.setattr(agent, "has_dimension_table", lambda *args: False)
+    _aligned, unresolved = agent._align_scope_filters(box, scope)
+    assert unresolved[0]["candidates"] == ["West", "WEST"]

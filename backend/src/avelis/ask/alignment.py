@@ -298,7 +298,10 @@ def _derived_alignment(session, user, version, filters, settings, remaining_seco
                 values.append(original)
                 candidates = list(
                     dict.fromkeys(
-                        [*(v for v in aligned if v != original), *(v for u in unresolved for v in u["candidates"])]
+                        [
+                            *(v for v in aligned if v != original or not unresolved),
+                            *(v for u in unresolved for v in u["candidates"]),
+                        ]
                     )
                 )
                 out.unresolved.append(
