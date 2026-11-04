@@ -28,6 +28,9 @@ msgstr "No total was generated for column {column}: {reason}. {mean} is the unwe
 msgid "列 {column} 的整体比率已从分子 {numerator} 与分母 {denominator} 重算，登记为 {result}；分母为 0 或组成值缺失时不计算。"
 msgstr "The overall ratio for column {column} was recalculated from numerator {numerator} and denominator {denominator} and recorded as {result}; it is not calculated when the denominator is zero or a component value is missing."
 
+msgid "度量名 {measures} 对应多列，请改用列名：{columns}"
+msgstr "Measure name {measures} matches several columns; use the column name instead: {columns}"
+
 msgid "度量 {measures} 不存在；可选 measures：{available}"
 msgstr "Measures {measures} do not exist; available measures: {available}"
 

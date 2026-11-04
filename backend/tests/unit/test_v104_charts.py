@@ -199,3 +199,19 @@ def test_legacy_saved_comparison_kind_keeps_new_mixed_unit_panels():
     assert figure["chart"]["kind"] == "multiples"
     assert len(figure["chart"]["series"]) == 2
     assert figure["title"] == "对比结论"
+
+
+def test_measures_accept_the_display_label_the_model_sees_and_reject_ambiguous_labels():
+    roles = {
+        "区域": {"role": "dimension"},
+        "amount": {"role": "measure", "label": "成交额"},
+        "orders": {"role": "measure", "label": "订单数"},
+        "x1": {"role": "measure", "label": "重复名"},
+        "x2": {"role": "measure", "label": "重复名"},
+    }
+    columns = list(roles)
+    assert charts.selected_measures(columns, roles, ["成交额"]) == ["amount"]
+    assert charts.selected_measures(columns, roles, ["订单数", "amount"]) == ["orders", "amount"]
+    with pytest.raises(ValueError, match="x1、x2"):
+        charts.selected_measures(columns, roles, ["重复名"])
+    assert charts.selected_measures(columns, roles, ["x2"]) == ["x2"]

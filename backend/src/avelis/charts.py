@@ -103,17 +103,35 @@ def selected_measures(columns: list[str], roles: dict, requested: list[str] | No
     previous = {group[1] for group in groups}
     available = [c for c in columns if roles.get(c, {}).get("role") == "measure" and c not in previous]
     available = available or [c for c in columns if roles.get(c, {}).get("role") == "change"]
-    aliases = {column: column for column in available}
+    aliases: dict[str, str | None] = {column: column for column in available}
+    # 模型看到的是显示名（问数解释用 column_roles 的 label）：唯一的显示名也能指定度量；
+    # 重复的显示名有歧义，要求改用列名。
+    labels: dict[str, list[str]] = {}
+    for column in available:
+        label = roles.get(column, {}).get("label")
+        if label and label != column:
+            labels.setdefault(label, []).append(column)
+    for label, owners in labels.items():
+        aliases.setdefault(label, owners[0] if len(owners) == 1 else None)
     aliases.update({group[2].rpartition("·")[0]: group[0] for group in groups})
     if requested is None:
         return available
+    ambiguous = [name for name in requested if name in aliases and aliases[name] is None]
+    if ambiguous:
+        raise ValueError(
+            gettext(
+                "度量名 {measures} 对应多列，请改用列名：{columns}",
+                measures="、".join(ambiguous),
+                columns="、".join(c for name in ambiguous for c in labels[name]),
+            )
+        )
     missing = [name for name in requested if name not in aliases]
     if missing:
         raise ValueError(
             gettext(
                 "度量 {measures} 不存在；可选 measures：{available}",
                 measures="、".join(missing),
-                available="、".join(aliases) or gettext("无"),
+                available="、".join(name for name, column in aliases.items() if column is not None) or gettext("无"),
             )
         )
     return list(dict.fromkeys(aliases[name] for name in requested))

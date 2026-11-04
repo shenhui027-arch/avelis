@@ -30,6 +30,9 @@ msgstr "欄位 {column} 未產生合計：{reason}。{mean} 是輸入值的未�
 msgid "列 {column} 的整体比率已从分子 {numerator} 与分母 {denominator} 重算，登记为 {result}；分母为 0 或组成值缺失时不计算。"
 msgstr "欄位 {column} 的整體比率已從分子 {numerator} 與分母 {denominator} 重新計算，登記為 {result}；分母為 0 或組成值缺漏時不計算。"
 
+msgid "度量名 {measures} 对应多列，请改用列名：{columns}"
+msgstr "度量名 {measures} 對應多欄，請改用欄名：{columns}"
+
 msgid "度量 {measures} 不存在；可选 measures：{available}"
 msgstr "度量 {measures} 不存在；可選 measures：{available}"
 
