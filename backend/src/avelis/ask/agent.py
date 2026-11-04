@@ -32,7 +32,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import Command, interrupt
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from avelis import charts, modelcfg
@@ -117,17 +117,12 @@ class AskUserArgs(BaseModel):
     options: list[str] = Field(default_factory=list, description="可选答案（如候选指标名称）")
 
 
-class ChartArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
-    title: str = Field(max_length=40, description="一句结论式标题，例如“某成员环比下降最多”，不超过 40 字")
-    top_n: int | None = Field(default=None, ge=2, le=20, description="可选：横向条形或排名图保留前 N 项，其他图忽略")
+ChartArgs = charts.ChartPreference
 
 
 CHART_DESCRIPTION = (
-    "只有当图比表格更能说明结果时才调用；kind 只能从输入 chart_options 给出的可选图里选，默认图在前。"
-    "最多调用一次；title 用一句结论概括结果；top_n 只适用于横向条形或排名图。"
+    "只有当图比表格更能说明结果时才调用；chart_options 是全部指标的可选图，默认图在前，选单指标后图种可变化。"
+    "最多调用一次。" + charts.ChartPreference.tool_description()
 )
 
 
@@ -587,8 +582,17 @@ def explain(state: AgentState, config) -> dict[str, Any]:
                     tool_results.append(ToolMessage(content=output, tool_call_id=call["id"]))
                     continue
                 try:
-                    choice = ChartArgs.model_validate(call["args"]).model_dump()
-                    if choice["kind"] not in kinds:
+                    parsed = ChartArgs.model_validate(call["args"])
+                    choice = parsed.model_dump()
+                    choices = parsed.options(
+                        result.get("columns") or [],
+                        result.get("rows") or [],
+                        result.get("column_roles") or {},
+                        result.get("units") or {},
+                        result.get("polarity") or {},
+                        intent,
+                    )
+                    if parsed.kind not in [option["kind"] for option in choices]:
                         raise ValueError("unavailable chart kind")
                 except (ValidationError, ValueError):
                     args = call["args"]

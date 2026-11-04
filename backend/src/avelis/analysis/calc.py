@@ -454,7 +454,7 @@ def coverage(
 # --- 分组对比、描述统计、异常值 -----------------------------------------------------------
 
 
-def describe(values: list[Any]) -> dict[str, Any]:
+def describe(values: list[Any], *, include_sum: bool = True) -> dict[str, Any]:
     """统计值不做展示舍入。标准差用 Decimal 平方根，在至少 28 位有效数字的上下文内近似。"""
     nums = [n for v in values if (n := number(v)) is not None]
     if not nums:
@@ -467,7 +467,7 @@ def describe(values: list[Any]) -> dict[str, Any]:
         ctx.prec = max(28, width + len(str(len(nums))) + 2)
         out = {
             "count": len(nums),
-            "sum": sum(nums, Decimal(0)),
+            **({"sum": sum(nums, Decimal(0))} if include_sum else {}),
             "mean": statistics.mean(nums),
             "median": statistics.median(nums),
             "min": min(nums),
@@ -478,8 +478,15 @@ def describe(values: list[Any]) -> dict[str, Any]:
     return out
 
 
-def segment_compare(rows: list[Row], segment: str, measures: list[str]) -> list[Row]:
-    """按分组列对比各度量：每组的个数、合计、均值、中位数。"""
+def segment_compare(
+    rows: list[Row],
+    segment: str,
+    measures: list[str],
+    *,
+    additive: set[str] | None = None,
+    ratios: dict[str, tuple[str, str]] | None = None,
+) -> list[Row]:
+    """按分组列对比各度量；合计与整体比率只按调用方确认的适用规则计算。"""
     groups: dict[Any, list[Row]] = {}
     for r in rows:
         groups.setdefault(r.get(segment), []).append(r)
@@ -487,8 +494,15 @@ def segment_compare(rows: list[Row], segment: str, measures: list[str]) -> list[
     for key in sorted(groups, key=lambda k: (k is None, str(k))):
         item: Row = {segment: key, "count": len(groups[key])}
         for m in measures:
-            d = describe([r.get(m) for r in groups[key]])
-            item.update({f"{m}_sum": d.get("sum"), f"{m}_mean": d.get("mean"), f"{m}_median": d.get("median")})
+            include_sum = additive is None or m in additive
+            d = describe([r.get(m) for r in groups[key]], include_sum=include_sum)
+            stats = ("sum", "mean", "median") if include_sum else ("mean", "median")
+            item.update({f"{m}_{stat}": d.get(stat) for stat in stats})
+            if m in (ratios or {}):
+                numerator, denominator = ratios[m]
+                components = [[number(r.get(c)) for r in groups[key]] for c in (numerator, denominator)]
+                totals = [describe(values).get("sum") if None not in values else None for values in components]
+                item[f"{m}_ratio"] = totals[0] / totals[1] if totals[0] is not None and totals[1] else None
         out.append(item)
     return out
 

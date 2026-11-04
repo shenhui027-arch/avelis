@@ -6,6 +6,39 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "个百分点"
+msgstr "個百分點"
+
+msgid "列 {column} 已登记为不可加，不能按成员相加"
+msgstr "欄位 {column} 已登記為不可加，不能按成員相加"
+
+msgid "值"
+msgstr "值"
+
+msgid "无"
+msgstr "無"
+
+msgid "派生比率不能按成员相加"
+msgstr "衍生比率不能按成員相加"
+
+msgid "列 {column} 缺少可重算的同版本分子、分母列，已省略整体比率；不会以比率之和或平均值代替。"
+msgstr "欄位 {column} 缺少可供重新計算的相同版本分子、分母欄位，已省略整體比率；不會以比率之和或平均值代替。"
+
+msgid "列 {column} 未生成合计：{reason}。{mean} 是输入值的未加权平均，不代表整体业务均值；整体比率需由分子、分母分别汇总后重算。"
+msgstr "欄位 {column} 未產生合計：{reason}。{mean} 是輸入值的未加權平均，不代表整體業務均值；整體比率須將分子、分母分別彙總後重新計算。"
+
+msgid "列 {column} 的整体比率已从分子 {numerator} 与分母 {denominator} 重算，登记为 {result}；分母为 0 或组成值缺失时不计算。"
+msgstr "欄位 {column} 的整體比率已從分子 {numerator} 與分母 {denominator} 重新計算，登記為 {result}；分母為 0 或組成值缺漏時不計算。"
+
+msgid "度量 {measures} 不存在；可选 measures：{available}"
+msgstr "度量 {measures} 不存在；可選 measures：{available}"
+
+msgid "万"
+msgstr "萬"
+
+msgid "亿"
+msgstr "億"
+
 msgid "其他"
 msgstr "其他"
 

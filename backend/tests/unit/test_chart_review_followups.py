@@ -12,7 +12,7 @@ from avelis.analysis.dataset_projection import build_column_roles
 from avelis.analysis.figures import dataset_charts, report_figures
 from avelis.api.ask import _answer_result
 from avelis.api.schemas import ChartSpec
-from avelis.i18n import locale_context
+from avelis.i18n import gettext, locale_context
 from tests.unit.test_analysis_export import _flowables, _pdf_story, sample_view
 
 
@@ -138,9 +138,10 @@ def test_monthly_multi_measure_pdf_panels_and_html_table_cover_both_units(monkey
 def test_ratio_delta_axis_reuses_grounding_in_each_locale(locale, value):
     meta = {"kind": "delta", "of_ratio": True, "scale": 10000}
     with locale_context(locale):
-        expected = grounding.display(grounding.number(value), grounding._unit(meta)).removeprefix("+")
+        source = grounding.display(grounding.number(value), grounding._unit(meta)).removeprefix("+")
+        expected = source.replace("个百分点", gettext("个百分点"))
         assert export._axis_label(value, meta) == expected
-        assert expected == {0.05: "5.0个百分点", -0.05: "-5.0个百分点", 0: "0.0个百分点"}[value]
+        assert source == {0.05: "5.0个百分点", -0.05: "-5.0个百分点", 0: "0.0个百分点"}[value]
 
 
 @pytest.mark.parametrize(
