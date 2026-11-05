@@ -1,9 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
+import "@fontsource-variable/noto-sans-sc";
+import { MotionConfig } from "motion/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
 import { keepSessionAlive } from "./api/client";
+import { TooltipLayer } from "./components/Tooltip";
 import "./i18n";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
@@ -28,6 +33,7 @@ import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
 import "./styles/pages.css";
+import "./styles/motion.css";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },
@@ -75,8 +81,12 @@ keepSessionAlive();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    {/* 动效遵循系统“减少动态效果”；全局一条缓动曲线（与 motion.css 的 --ease-out 一致） */}
+    <MotionConfig reducedMotion="user" transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <TooltipLayer />
+      </QueryClientProvider>
+    </MotionConfig>
   </StrictMode>,
 );

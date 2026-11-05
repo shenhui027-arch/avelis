@@ -199,12 +199,12 @@ export function Interject({ run }: { run: Run }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
         <div className="av-compose__bar">
-          <span className="av-caption">{t("Enter 发送 · Shift+Enter 换行")}</span>
           <span className="av-compose__spacer" />
           <ContextMeter run={run} live />
           <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={stop.isPending}
             onClick={() => stop.mutate(undefined, { onError: (e) => setError(errorText(e)) })}>{t("停止")}</button>
-          <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={send.isPending || !text.trim()} onClick={submit}>
+          <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={send.isPending || !text.trim()} onClick={submit}
+            title={t("Enter 发送 · Shift+Enter 换行")}>
             <Icon name="send" />{t("发送")}</button>
         </div>
       </div>

@@ -465,7 +465,6 @@ function DerivedVersionEditor({ metricId, base, mode, onClose, onSaved, kindCont
             const metric = metrics.data.find((item) => item.code === code);
             return <Pill key={code} tone={metric ? "ok" : "danger"}>{code} · {metric ? t("已存在") : t("不存在")}</Pill>;
           })}</div> : <span className="av-help">{t("输入公式以查看引用指标")}</span>}
-        <span className="av-help">{t("引用提示仅检查编码，最终以后端校验为准")}</span>
       </div>
       <div className="av-metric-form__row">
         <label className="av-field"><span className="av-label">{t("单位")} <Hint text={t("报告里的数字由系统带上单位，如 元、件、吨、kWh；比率类可不填。缺单位的口径会列为待补")} /></span>

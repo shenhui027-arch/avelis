@@ -51,7 +51,8 @@ export function McpPage() {
       </div>
       <div className="av-workspace av-mcp">
         <section className="av-pane">
-          <PaneHeader title={<>{t("连接地址")} <Hint text={t("在支持 MCP 的 AI 工具里添加远程服务器，填入这个地址；首次连接会跳到这里登录并确认授权")} /></>}>
+          <PaneHeader title={<>{t("连接地址")} <Hint text={`${t("在支持 MCP 的 AI 工具里添加远程服务器，填入这个地址；首次连接会跳到这里登录并确认授权")}
+${t("外部工具只能读取口径与血缘，或按已发布口径查询数据；不能提交 SQL，也不能修改任何内容。每次调用都记入审计。")}`} /></>}>
             {disabled ? <Pill tone="warn">{t("已关闭")}</Pill> : mine.isSuccess ? <Pill tone="ok">{t("已开启")}</Pill> : null}
           </PaneHeader>
           <div className="av-pane__body av-mcp__body">
@@ -62,7 +63,6 @@ export function McpPage() {
                 navigator.clipboard?.writeText(endpoint).then(() => setMessage({ ok: true, text: t("已复制") }), () => setMessage({ ok: false, text: t("复制失败，请手动选择") }));
               }}>{t("复制")}</button>
             </div>
-            <p className="av-caption">{t("外部工具只能读取口径与血缘，或按已发布口径查询数据；不能提交 SQL，也不能修改任何内容。每次调用都记入审计。")}</p>
             <Banner message={message} />
           </div>
         </section>

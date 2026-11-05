@@ -7,7 +7,7 @@ import {
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
@@ -105,21 +105,13 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   labelBgStyle }: EdgeProps<Edge<FlowData>>) {
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const d = data!;
-  const gid = `flow${useId().replace(/[^\w-]/g, "")}`;
-  const dots = d.onPath ? [0, 0.8] : d.ambient && !d.dim && d.tone !== "identity" && d.tone !== "join" ? [0] : [];
+  const dots = d.onPath ? [0, 0.8] : [];
   return (
     <>
-      {d.onPath ? <>
-        <defs>
-          <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={sourceX} y1={sourceY} x2={targetX} y2={targetY}>
-            <stop offset="0" stopColor="#3d6cf0" /><stop offset=".6" stopColor="#6d5cff" /><stop offset="1" stopColor="#22d3ee" />
-          </linearGradient>
-        </defs>
-        <path d={path} className="av-flow__glow" />
-      </> : null}
+      {d.onPath ? <path d={path} className="av-flow__glow" /> : null}
       <BaseEdge id={id} path={path} label={label} labelX={labelX} labelY={labelY} labelStyle={labelStyle} labelBgStyle={labelBgStyle}
         className={`av-flow av-flow--${d.tone}${d.design ? " is-design" : ""}${d.onPath ? " is-path" : ""}${d.dim ? " is-dim" : ""}`}
-        style={d.onPath ? { stroke: `url(#${gid})` } : undefined} />
+        />
       {dots.length ? <g className={`av-flow__dots${d.onPath ? " is-path" : ""}`}>
         {dots.map((delay) => (
           <circle key={delay} r={d.onPath ? 3 : 1.8}>
@@ -492,8 +484,6 @@ function NodeSearch({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
 function Legend({ tone, label }: { tone: "value" | "influence" | "identity" | "join" | "design" | "path"; label: string }) {
   return <span className={"av-caption av-lineage__legend-item av-lineage__legend-item--" + tone}>
     <svg width="24" height="6" aria-hidden="true">
-      {tone === "path" ? <defs><linearGradient id="av-legend-flow" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
-        <stop offset="0" stopColor="#3d6cf0" /><stop offset="1" stopColor="#22d3ee" /></linearGradient></defs> : null}
       <line x1="0" y1="3" x2="24" y2="3" />
     </svg>{label}
   </span>;
@@ -572,7 +562,6 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
             ))}
           </details>
         ) : null}
-        <span className="av-caption">{column ? t("点上下游的表可以跳过去。") : t("切到“显示字段”后点列，可以高亮这一列的上下游。")}</span>
       </div>
     </>
   );

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -39,6 +40,17 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** 向上弹出的菜单：从按钮处升起，收起时更快 */
+const MENU_MOTION = {
+  initial: { opacity: 0, y: 6, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.14 } }, style: { transformOrigin: "bottom left" },
+} as const;
+
+/** 当前导航项的底块：同一个 layoutId，切换页面时从上一项滑到新项。 */
+function NavPill({ active }: { active: boolean }) {
+  return active ? <motion.span layoutId="av-sb-pill" className="av-sb__pill" aria-hidden /> : null;
+}
+
 const ROLE_LABEL: Record<string, string> = { admin: t("管理员"), steward: t("维护者"), reviewer: t("复核者"), analyst: t("查询者") };
 const THEMES: [ThemePref, string][] = [["system", t("跟随系统")], ["dark", t("深色")], ["light", t("浅色")]];
 
@@ -75,8 +87,8 @@ function UserMenu() {
         <span className="av-sb__label av-sb__who"><b>{u.display_name}</b>
           <span>{u.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}</span></span>
       </button>
-      {open ? (
-        <div className="av-menu av-menu--up" role="menu">
+      <AnimatePresence>{open ? (
+        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
           <div className="av-menu__head">
             <b>{u.display_name}</b>
             <span className="av-mono">{u.username}</span>
@@ -105,8 +117,8 @@ function UserMenu() {
             }}>
             <Icon name="logout" />{t("退出登录")}
           </button>
-        </div>
-      ) : null}
+        </motion.div>
+      ) : null}</AnimatePresence>
     </div>
   );
 }
@@ -127,8 +139,8 @@ function NotificationBell() {
         <Icon name="bell" />
         {unread ? <span className="av-notices__count">{unread > 99 ? "99+" : unread}</span> : null}
       </button>
-      {open ? (
-        <div className="av-menu av-menu--up" role="menu">
+      <AnimatePresence>{open ? (
+        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
           {items.length === 0 ? <div className="av-menu__head">{t("没有通知")}</div> : null}
           {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
             <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
@@ -146,8 +158,8 @@ function NotificationBell() {
               <span>{formatTime(n.created_at)}</span>
             </button>
           ))}
-        </div>
-      ) : null}
+        </motion.div>
+      ) : null}</AnimatePresence>
     </div>
   );
 }
@@ -216,25 +228,25 @@ function Sidebar() {
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
         <Link key={n.to} to={n.to} className="av-sb__nv" title={n.label}
           aria-current={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname) ? "page" : undefined}>
+          <NavPill active={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname)} />
           <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
         </Link>
       ) : (
         <NavLink key={n.to} to={n.to} end={n.end} className="av-sb__nv" title={n.label}>
-          <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
+          {({ isActive }) => <><NavPill active={isActive} /><Icon name={n.icon} /><span className="av-sb__label">{n.label}</span></>}
         </NavLink>
       ))}
       <div className="av-sb__sec av-sb__label">{t("我的")}</div>
       <NavLink to="/analysis/experiences" className="av-sb__nv" title={t("个人经验")}>
-        <Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span>
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span></>}
       </NavLink>
       <NavLink to="/analysis/tasks" className="av-sb__nv" title={t("定时任务")}>
-        <Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>
-        {tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>{tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}</>}
       </NavLink>
       {collapsed ? null : <RecentConversations />}
       <span className="av-sb__spacer" />
       <NavLink to="/settings" className="av-sb__nv" title={t("设置")}>
-        <Icon name="settings" /><span className="av-sb__label">{t("设置")}</span>
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="settings" /><span className="av-sb__label">{t("设置")}</span></>}
       </NavLink>
       <div className="av-sb__foot">
         <UserMenu />
@@ -254,7 +266,10 @@ export function Shell() {
     <div className="av-root av-app">
       <Sidebar />
       <main className="av-main">
-        <Outlet />
+        <motion.div key={location.pathname.split("/")[1] || "home"} className="av-route"
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Outlet />
+        </motion.div>
       </main>
     </div>
   );
@@ -266,8 +281,9 @@ export function SettingsTabs({ current }: { current: "datasources" | "models" | 
   return (
     <nav className="av-seg" aria-label={t("设置分区")}>
       {items.map(([key, label]) => (
-        <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}
-          >{label}</Link>
+        <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}>
+          {key === current ? <motion.span layoutId="av-settings-pill" className="av-seg__pill" aria-hidden /> : null}
+          <span className="av-seg__label">{label}</span></Link>
       ))}
     </nav>
   );

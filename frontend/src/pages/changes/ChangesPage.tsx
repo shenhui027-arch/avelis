@@ -43,8 +43,8 @@ export function ChangesPage() {
   const openCount = (sets.data ?? []).filter((c) => c.status === "open").length;
 
   return (
-    <div className="av-main" style={{ height: "calc(100vh - 48px)", display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)" }}>
-      <section className="av-pane av-pane--rail" style={{ borderRight: "1px solid var(--line-subtle)" }} aria-label={t("变更列表")}>
+    <div className="av-changes">
+      <section className="av-pane av-changes__list" aria-label={t("变更列表")}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "16px 16px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <h1 style={{ margin: 0, font: "600 18px/26px var(--font-sans)" }}>{t("变更")} <Hint text={t("每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核")} /></h1>

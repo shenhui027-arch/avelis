@@ -75,11 +75,18 @@ pnpm gen:api        # regenerate types after backend API changes
 pnpm gen:tokens     # regenerate tokens.css after design token changes
 ```
 
-All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, and component styles are in `src/styles/avelis-ui.css`.
+All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, component styles are in `src/styles/avelis-ui.css`, and motion is in `src/styles/motion.css`.
+
+### Visuals and copy
+
+- Design system v4 (soft workbench, light first, dark just as finished), following the rules of [unslop](https://github.com/heydamir/unslop) (Damir Sokolovsky, CC BY 4.0): the chrome uses a neutral graphite ramp, primary buttons are ink (near white in dark), azurite (`--accent`) is only for selection, links, focus and the one figure that matters, and ochre (`--flow`) appears only in a few moments such as the current lineage path. No gradients, glows, frosted glass, background images or greeting headlines; weights 400–500 (600 only for the logo), tabular figures. Fonts are Geist and Noto Sans SC, bundled with the image and never downloaded at runtime.
+- No slogans, tutorial paragraphs or explanatory text under sections; let layout, hierarchy and the primary action explain themselves. When extra context is needed, use `Hint` (ⓘ + tooltip). Keep form labels and accessible names, and keep consequence notes on destructive or permanent actions.
+- Tooltips come from the global tooltip layer (`src/components/Tooltip.tsx`): use `data-tip` or `Hint`; existing `title` attributes are switched to the same tooltip automatically.
+- Motion only answers the user's actions (open, expand, switch, confirm) with one curve, `cubic-bezier(.22,1,.36,1)`: simple entrances and presses use `motion.css`, and the selection in the sidebar, segmented controls and tabs slides with Motion (`motion/react`) shared layout. No looping decoration; all motion stops under reduced motion (`MotionConfig reducedMotion="user"`).
 
 ### Form controls
 
-Every control with a popup uses the components in `src/components/controls.tsx` (import them from `components/ui`), never the browser's native controls. Native popups are drawn by the operating system and turn white or system-styled in the dark glass UI; this has already happened in the Ask composer and in change records.
+Every control with a popup uses the components in `src/components/controls.tsx` (import them from `components/ui`), never the browser's native controls. Native popups are drawn by the operating system and turn white or system-styled in the dark UI; this has already happened in the Ask composer and in change records.
 
 | Need | Use | Don't use |
 |---|---|---|

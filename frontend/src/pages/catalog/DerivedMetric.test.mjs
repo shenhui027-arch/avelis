@@ -129,7 +129,6 @@ const unknown = render(page.VersionEditor, { metricId: version.metric_id, base: 
 assert.match(unknown, /missing_metric · 不存在/);
 assert.equal((unknown.match(/paid_sales · 已存在/g) ?? []).length, 1, "Repeated references appear once");
 assert.doesNotMatch(unknown, /e3 · 不存在/, "Scientific numeric literals are not metric references");
-assert.match(unknown, /最终以后端校验为准/);
 for (const literal of ["1_000", "1_000.25_0", ".1_25", "1_0e+1_0", "1_0E-1_0", "1_0.e+2", "0x10", "0xDE_AD", "0X_FF", "0o7_7", "0O_77", "0b1_010", "0B_1010"]) {
   const numericEditor = render(page.VersionEditor, {
     metricId: version.metric_id, base: { ...version, expression: `paid_sales / ${literal} + orders_cnt` },

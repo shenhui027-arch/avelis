@@ -54,6 +54,7 @@ function Capabilities({ engine }: { engine: Schemas["EngineOut"] }) {
       ? <Pill key={c} tone="ok">{CAPABILITY_LABEL[c]}</Pill>
       : <Pill key={c} title={t("适配器未声明该能力")}>{t("{{capability}}：不支持", { capability: CAPABILITY_LABEL[c] })}</Pill>)}
     {extra.map((c) => <Pill key={c} tone="ok">{CAPABILITY_LABEL[c] ?? c}</Pill>)}
+    {engine.note ? <Hint text={engine.note} /> : null}
   </span>;
 }
 
@@ -173,7 +174,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
             <h3 id="datasource-connection">{t("连接")}</h3>
             <dl className="av-kv">
               <dt>{t("引擎")}</dt><dd>{ds.engine.label}</dd>
-              <dt>{t("能力")}</dt><dd><Capabilities engine={ds.engine} />{ds.engine.note ? <span className="av-help av-datasources__engine-note">{ds.engine.note}</span> : null}</dd>
+              <dt>{t("能力")}</dt><dd><Capabilities engine={ds.engine} /></dd>
               <dt>{t("地址")}</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
               <dt>{t("实例")}</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
             </dl>

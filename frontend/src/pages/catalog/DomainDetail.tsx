@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useAssetSearch, useDomains, useMetrics, useUsers } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Banner, Crumbs, Drawer, Empty, Icon, Pager, QueryState, Select, Status, useMessage } from "../../components/ui";
+import { Banner, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { OssieExportButton } from "./OssieInterchange";
@@ -168,8 +168,7 @@ function ExampleQuestionsEditor({ domainId, questions, onClose }: { domainId: st
       {save.isPending ? t("保存中…") : t("保存")}</button>
   </>}>
     <div className="av-metric-form">
-      <span className="av-help">{t("每行一个问题，最多 12 个。没有配置时，问数页和分析页按本域口径自动生成示例。")}</span>
-      <label className="av-field"><span className="av-label">{t("问数示例")}</span>
+      <label className="av-field"><span className="av-label">{t("问数示例")} <Hint text={t("每行一个问题，最多 12 个。没有配置时，问数页和分析页按本域口径自动生成示例。")} /></span>
         <textarea className="av-textarea" rows={4} value={ask} onChange={(e) => setAsk(e.target.value)} /></label>
       <label className="av-field"><span className="av-label">{t("分析示例")}</span>
         <textarea className="av-textarea" rows={4} value={analysis} onChange={(e) => setAnalysis(e.target.value)} /></label>

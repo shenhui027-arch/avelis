@@ -75,11 +75,18 @@ pnpm gen:api        # 後端介面變化後重新生成型別
 pnpm gen:tokens     # 設計權杖變化後重新生成 tokens.css
 ```
 
-樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`。
+樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`，動效在 `src/styles/motion.css`。
+
+### 視覺與文案
+
+- 設計系統 v4（柔光工作台，以淺色為主，深色同等完成度），參照 [unslop](https://github.com/heydamir/unslop)（Damir Sokolovsky，CC BY 4.0）的規範：介面框架用中性的石墨色階，主按鈕是墨色（深色主題為近白），石青（`--accent`）只用於選取、連結、焦點和唯一需要強調的數字，赭石（`--flow`）只在血緣目前路徑等少數「重點時刻」出現。不用漸層、輝光、毛玻璃、背景圖與問候式標題；字重 400–500（600 只用於 Logo），數字用等寬數字。字型 Geist + Noto Sans SC（隨映像打包，執行期不下載）。
+- 不寫口號、教學段落和區塊下的說明文字，讓版面、層級和主操作自己說明；確需補充時用 `Hint`（ⓘ + 提示）。表單標籤與無障礙名稱保留；刪除、提交永久變更等操作保留後果提示。
+- 提示統一由全域提示層顯示（`src/components/Tooltip.tsx`）：寫 `data-tip` 或用 `Hint`；既有的 `title` 也會自動換成同樣的提示。
+- 動效只回應使用者的操作（開啟、展開、切換、確認），一條緩動曲線 `cubic-bezier(.22,1,.36,1)`：簡單的進入與按壓用 `motion.css`，側邊欄、分段控制項、分頁的選取塊用 Motion（`motion/react`）共享版面滑動；不放循環裝飾動畫；「減少動態效果」時全部關閉（`MotionConfig reducedMotion="user"`）。
 
 ### 介面控制項
 
-帶彈出層的控制項一律用 `src/components/controls.tsx` 裡的元件（從 `components/ui` 匯入），不用瀏覽器原生控制項。原生彈出層由作業系統繪製，在深色玻璃介面裡會變成白底或系統風格；問數輸入框和變更記錄都出過這個問題。
+帶彈出層的控制項一律用 `src/components/controls.tsx` 裡的元件（從 `components/ui` 匯入），不用瀏覽器原生控制項。原生彈出層由作業系統繪製，在深色介面裡會變成白底或系統風格；問數輸入框和變更記錄都出過這個問題。
 
 | 需要 | 用 | 不用 |
 |---|---|---|
