@@ -29,7 +29,7 @@ export const MotionLink = motion.create(Link);
 /** 数字变化时逐位滚动（@number-flow/react）；不是纯数字时原样显示。减少动态效果时由库自行关闭动画。 */
 export function CountUp({ value, ...rest }: { value: string | number } & ComponentProps<"span">) {
   const text = String(value).trim();
-  const target = /^-?d+(.d+)?$/.test(text) ? Number(text) : null;
+  const target = /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : null;
   if (target === null) return <span {...rest}>{text}</span>;
   return <Rolling target={target} decimals={text.split(".")[1]?.length ?? 0} {...rest} />;
 }

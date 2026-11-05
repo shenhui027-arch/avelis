@@ -77,6 +77,7 @@ export function DatasourcesPage() {
   const navigate = useNavigate();
   const roles = useRoles();
   const sources = useDatasources();
+  const tz = useTimeZone();
   const [adding, setAdding] = useState(false);
   const canEdit = roles.has("admin") || roles.has("steward");
   const addButton = canEdit ? <button type="button" className="av-btn av-btn--primary" onClick={() => setAdding(true)}>
@@ -100,7 +101,7 @@ export function DatasourcesPage() {
                   <span className="av-row__main">
                     <span className="av-row__title">{d.name}</span>
                     <span className="av-row__meta av-mono">{d.host}:{d.port}</span>
-                    <RunStrip id={d.id} count={20} />
+                    <RunStrip id={d.id} count={20} tz={tz} />
                   </span>
                   <span className="av-datasources__list-status"><Plat kind={d.kind} /><Status value={d.last_run?.status ?? "never"} /></span>
                 </button>

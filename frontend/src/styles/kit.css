@@ -24,7 +24,11 @@
   color: var(--text-secondary); font: 500 11px/18px var(--font-mono); }
 .av-pill { height: 22px; padding: 0 8px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-raised);
   color: var(--text-secondary); font: 500 12px/20px var(--font-sans); }
-.av-pill--ok, .av-pill--warn, .av-pill--danger, .av-pill--info { border-color: transparent; }
+/* 语气胶囊：在基础定义之后重新给出底色与文字色（本文件晚于 avelis-ui.css 加载，否则会被上面的中性底色盖掉） */
+.av-pill--ok { border-color: transparent; background: var(--ok-subtle); color: var(--ok); }
+.av-pill--warn { border-color: transparent; background: var(--warn-subtle); color: var(--warn); }
+.av-pill--danger { border-color: transparent; background: var(--danger-subtle); color: var(--danger); }
+.av-pill--info { border-color: transparent; background: var(--accent-subtle); color: var(--accent-text); }
 
 /* --- 进度轨：用量、比例、采集状态条共用 ------------------------------------------------------------- */
 .av-meter { position: relative; display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--bg-active); }
