@@ -213,7 +213,15 @@ export function Drawer({ title, onClose, children, footer, width }: {
   const close = useRef(onClose);
   close.current = onClose;
   const done = useRef(false);
-  const finish = () => { if (!done.current) { done.current = true; close.current(); } };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // 调用方可以拒绝关闭（如保存进行中时 onClose 不卸载）：仍挂着就恢复显示，下次还能再关
+  const finish = () => {
+    if (done.current) return;
+    done.current = true;
+    close.current();
+    window.setTimeout(() => { if (mounted.current) { done.current = false; setClosing(false); } }, 0);
+  };
   const requestClose = () => setClosing(true);
   // 动画帧被暂停（后台标签页等）时也要能关上：滑出时长之后兜底收尾
   useEffect(() => {
