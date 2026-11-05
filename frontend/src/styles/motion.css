@@ -1,19 +1,19 @@
 /* 动效（设计系统 v3）：只回应用户的操作——打开、展开、切换、确认——让人看到“什么变了”。
    一套缓动与三档时长；进入有动画，收起立即完成（不拖慢下一步）。减少动态效果时全部关闭。 */
 :root {
-  --ease-out: cubic-bezier(.16, 1, .3, 1);
-  --ease-standard: cubic-bezier(.2, 0, 0, 1);
-  --dur-fast: 120ms;
-  --dur-base: 180ms;
-  --dur-slow: 260ms;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-standard: cubic-bezier(.22, 1, .36, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 360ms;
 }
 
 @keyframes av-in-down { from { opacity: 0; transform: translateY(-4px) scale(.985); } }
 @keyframes av-in-up { from { opacity: 0; transform: translateY(4px) scale(.985); } }
 @keyframes av-in-fade { from { opacity: 0; } }
-@keyframes av-in-right { from { opacity: .4; transform: translateX(28px); } }
+@keyframes av-in-right { from { opacity: 0; transform: translateX(12px); } }
 @keyframes av-in-scale { from { opacity: 0; transform: scale(.97); } }
-@keyframes av-in-page { from { opacity: 0; transform: translateY(3px); } }
+@keyframes av-in-page { from { opacity: 0; transform: translateY(8px); } }
 
 /* 浮层：菜单、下拉、日期、通知 */
 .av-menu { animation: av-in-down var(--dur-base) var(--ease-out); transform-origin: top center; }
@@ -36,7 +36,7 @@
 
 /* 按压反馈：按钮与可点卡片按下时略微收紧 */
 .av-btn, .av-sb__new, .av-compose__send, .av-entry, .av-login__submit { transition-property: background-color, border-color, color, opacity, transform, filter; transition-duration: var(--dur-fast); transition-timing-function: var(--ease-standard); }
-.av-btn:active:not([disabled]), .av-sb__new:active, .av-compose__send:active:not(:disabled), .av-login__submit:active:not(:disabled) { transform: scale(.97); }
+.av-btn:active:not([disabled]), .av-sb__new:active, .av-compose__send:active:not(:disabled), .av-login__submit:active:not(:disabled) { transform: scale(.98); }
 
 /* 悬停：行、导航、树节点的底色平滑过渡 */
 .av-sb__nv, .av-tree__item, .av-row, .av-table tbody tr, .av-menu__item, .av-tab, .av-seg button, .av-seg a, .av-provider, .av-hint {

@@ -105,7 +105,7 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   labelBgStyle }: EdgeProps<Edge<FlowData>>) {
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const d = data!;
-  const dots = d.onPath ? [0, 0.8] : d.ambient && !d.dim && d.tone !== "identity" && d.tone !== "join" ? [0] : [];
+  const dots = d.onPath ? [0, 0.8] : [];
   return (
     <>
       {d.onPath ? <path d={path} className="av-flow__glow" /> : null}

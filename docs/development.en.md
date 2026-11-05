@@ -79,10 +79,10 @@ All styles come from the Avelis UI design system: `frontend/design/tokens.json` 
 
 ### Visuals and copy
 
-- Color carries meaning only: azurite (`--accent`) is the single action color, ochre (`--flow`) marks data flow and the current path, and status colors are for status. Panels are solid; no gradients, glows, frosted glass or background images.
+- Design system v4 (soft workbench, light first, dark just as finished), following the rules of [unslop](https://github.com/heydamir/unslop) (Damir Sokolovsky, CC BY 4.0): the chrome uses a neutral graphite ramp, primary buttons are ink (near white in dark), azurite (`--accent`) is only for selection, links, focus and the one figure that matters, and ochre (`--flow`) appears only in a few moments such as the current lineage path. No gradients, glows, frosted glass, background images or greeting headlines; weights 400–500 (600 only for the logo), tabular figures. Fonts are Geist and Noto Sans SC, bundled with the image and never downloaded at runtime.
 - No slogans, tutorial paragraphs or explanatory text under sections; let layout, hierarchy and the primary action explain themselves. When extra context is needed, use `Hint` (ⓘ + tooltip). Keep form labels and accessible names, and keep consequence notes on destructive or permanent actions.
 - Tooltips come from the global tooltip layer (`src/components/Tooltip.tsx`): use `data-tip` or `Hint`; existing `title` attributes are switched to the same tooltip automatically.
-- Motion only answers the user's actions (open, expand, switch, confirm) and uses the easing and duration tokens in `motion.css`; all of it stops under reduced motion.
+- Motion only answers the user's actions (open, expand, switch, confirm) with one curve, `cubic-bezier(.22,1,.36,1)`: simple entrances and presses use `motion.css`, and the selection in the sidebar, segmented controls and tabs slides with Motion (`motion/react`) shared layout. No looping decoration; all motion stops under reduced motion (`MotionConfig reducedMotion="user"`).
 
 ### Form controls
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,7 +10,7 @@
       try {
         var p = localStorage.getItem("avelis.theme");
         document.documentElement.dataset.theme = p === "dark" || p === "light" ? p
-          : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          : p === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : "light";
       } catch (e) {}
     </script>
   </head>

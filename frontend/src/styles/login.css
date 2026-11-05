@@ -1,15 +1,7 @@
-/* 登录页：实色底 + 一张安静的血缘线图（赭石光点沿线汇入答案预览）；左侧标题与预览，右侧登录卡。
+/* 登录页：左侧标题与产品示意（主视觉），右侧登录卡。
    全部取自设计令牌，深浅主题自动适配；不用渐变、辉光与毛玻璃。 */
 .av-login { position: relative; isolation: isolate; display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; overflow: clip;
   background: var(--bg-canvas); color: var(--text-primary); }
-
-/* 背景线图：纯装饰 */
-.av-login__stars { position: absolute; left: 0; top: 0; z-index: -1; width: 62%; height: 100%; }
-.av-login__link { fill: none; stroke: var(--line-default); stroke-width: 1.2; }
-.av-login__spark { fill: var(--flow); }
-.av-login__star circle { fill: var(--bg-canvas); stroke: var(--line-strong); stroke-width: 1.5; }
-.av-login__star.is-sink circle { fill: var(--flow); stroke: none; animation: av-login-pulse 3.2s ease-in-out infinite; }
-@keyframes av-login-pulse { 50% { opacity: .6; } }
 
 /* 顶栏 */
 .av-login__top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 28px clamp(24px, 5vw, 72px) 0; }
@@ -24,7 +16,7 @@
 .av-login__main { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, 400px); align-items: center;
   gap: clamp(32px, 6vw, 96px); padding: 32px clamp(24px, 5vw, 72px) 56px; }
 .av-login__hero { display: flex; flex-direction: column; gap: 40px; max-width: 620px; }
-.av-login__hero h1 { margin: 0; font: 600 clamp(36px, 4.2vw, 56px)/1.14 var(--font-sans); letter-spacing: -0.03em; color: var(--text-primary); }
+.av-login__hero h1 { margin: 0; font: 500 clamp(36px, 4.2vw, 56px)/1.08 var(--font-sans); letter-spacing: -0.03em; color: var(--text-primary); }
 
 /* 产品预览：带依据的答案 */
 .av-login__preview { position: relative; display: flex; flex-direction: column; gap: 10px; max-width: 540px; }
@@ -37,7 +29,7 @@
 .av-login__ok { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 2px 8px; border-radius: var(--radius-full); background: var(--ok-subtle); color: var(--ok); }
 .av-login__kpi { display: grid; grid-template-columns: auto auto 1fr; align-items: end; gap: 22px; }
 .av-login__kpi small { display: block; color: var(--text-tertiary); font: 500 11px/16px var(--font-sans); }
-.av-login__kpi b { display: block; color: var(--text-primary); font: 600 24px/30px var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.av-login__kpi b { display: block; color: var(--text-primary); font: 500 24px/30px var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .av-login__kpi b em { margin-left: 2px; font-style: normal; font-size: 14px; color: var(--text-secondary); }
 .av-login__kpi b.is-up { color: var(--ok); }
 .av-login__spark-bars { display: flex; align-items: flex-end; gap: 4px; height: 40px; }
@@ -45,7 +37,7 @@
 .av-login__spark-bars i:last-child { opacity: 1; }
 .av-login__answer p { margin: 0; color: var(--text-secondary); font: 400 13px/21px var(--font-sans); }
 .av-login__answer mark { padding: 0 3px; border-radius: 3px; background: var(--signal-subtle); color: var(--text-primary); }
-.av-login__answer sup { margin-left: 3px; padding: 0 4px; border-radius: 3px; background: var(--bg-raised); color: var(--signal); font: 600 9px/14px var(--font-mono); }
+.av-login__answer sup { margin-left: 3px; padding: 0 4px; border-radius: 3px; background: var(--bg-raised); color: var(--signal); font: 500 9px/14px var(--font-mono); }
 .av-login__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .av-login__chips span { padding: 3px 9px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); color: var(--text-tertiary); font: 500 11px/16px var(--font-sans); }
 .av-login__chips .av-login__demo { margin-left: auto; border-style: dashed; }
@@ -56,7 +48,7 @@
   border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-overlay);
   animation: av-in-up var(--dur-slow) var(--ease-out); }
 .av-login__card-hd { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
-.av-login__card-hd h2 { margin: 0; color: var(--text-primary); font: 600 22px/30px var(--font-sans); letter-spacing: -0.015em; }
+.av-login__card-hd h2 { margin: 0; color: var(--text-primary); font: 500 22px/30px var(--font-sans); letter-spacing: -0.01em; }
 .av-login__card-hd p { margin: 0; color: var(--text-tertiary); font: 400 13px/20px var(--font-sans); }
 .av-login__card .av-label { color: var(--text-secondary); }
 .av-login__input { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px 0 14px; border: 1px solid var(--line-default);
@@ -69,8 +61,8 @@
 .av-login__reveal:hover { background: var(--bg-active); color: var(--text-primary); }
 .av-login__reveal:focus-visible, .av-login__switch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .av-login__submit { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin-top: 4px; border: none; border-radius: var(--radius-md);
-  background: var(--accent); color: var(--text-on-accent); font: 600 15px/22px var(--font-sans); cursor: pointer; }
-.av-login__submit:hover:not(:disabled) { background: var(--accent-hover); }
+  background: var(--brand-gradient); color: var(--text-on-primary); font: 500 15px/22px var(--font-sans); cursor: pointer; box-shadow: var(--shadow-brand); }
+.av-login__submit:hover:not(:disabled) { background: color-mix(in srgb, var(--brand-gradient) 86%, var(--bg-base)); }
 .av-login__submit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .av-login__submit:disabled { opacity: .45; cursor: not-allowed; }
 .av-login__foot { display: flex; align-items: center; justify-content: space-between; margin: 0; color: var(--text-tertiary); font: 400 12px/18px var(--font-sans); }
@@ -86,14 +78,12 @@
   .av-login__main { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 28px; padding-top: 24px; }
   .av-login__hero, .av-login__panel { width: 100%; max-width: 400px; }
   .av-login__hero h1 { font-size: 32px; }
-  .av-login__stars { width: 100%; opacity: .5; }
 }
 @media (max-width: 480px) {
   .av-login__top, .av-login__main { padding-inline: 16px; }
   .av-login__card { padding: 24px 20px 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .av-login__star.is-sink circle, .av-login__card { animation: none; }
-  .av-login__spark { display: none; }
+  .av-login__card { animation: none; }
   .av-login__submit:active:not(:disabled) { transform: none; }
 }

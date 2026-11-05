@@ -10,9 +10,9 @@ const listeners = new Set<() => void>();
 function read(): ThemePref {
   try {
     const v = localStorage.getItem(KEY);
-    return v === "dark" || v === "light" ? v : "system";
+    return v === "dark" || v === "light" || v === "system" ? v : "light";
   } catch {
-    return "system";
+    return "light";
   }
 }
 

@@ -1,4 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
+import "@fontsource-variable/noto-sans-sc";
+import { MotionConfig } from "motion/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
@@ -77,9 +81,12 @@ keepSessionAlive();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <TooltipLayer />
-    </QueryClientProvider>
+    {/* 动效遵循系统“减少动态效果”；全局一条缓动曲线（与 motion.css 的 --ease-out 一致） */}
+    <MotionConfig reducedMotion="user" transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <TooltipLayer />
+      </QueryClientProvider>
+    </MotionConfig>
   </StrictMode>,
 );

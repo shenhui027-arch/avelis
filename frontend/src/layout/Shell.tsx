@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -37,6 +38,11 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <>{children}</>;
+}
+
+/** 当前导航项的底块：同一个 layoutId，切换页面时从上一项滑到新项。 */
+function NavPill({ active }: { active: boolean }) {
+  return active ? <motion.span layoutId="av-sb-pill" className="av-sb__pill" aria-hidden /> : null;
 }
 
 const ROLE_LABEL: Record<string, string> = { admin: t("管理员"), steward: t("维护者"), reviewer: t("复核者"), analyst: t("查询者") };
@@ -216,25 +222,25 @@ function Sidebar() {
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
         <Link key={n.to} to={n.to} className="av-sb__nv" title={n.label}
           aria-current={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname) ? "page" : undefined}>
+          <NavPill active={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname)} />
           <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
         </Link>
       ) : (
         <NavLink key={n.to} to={n.to} end={n.end} className="av-sb__nv" title={n.label}>
-          <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
+          {({ isActive }) => <><NavPill active={isActive} /><Icon name={n.icon} /><span className="av-sb__label">{n.label}</span></>}
         </NavLink>
       ))}
       <div className="av-sb__sec av-sb__label">{t("我的")}</div>
       <NavLink to="/analysis/experiences" className="av-sb__nv" title={t("个人经验")}>
-        <Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span>
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span></>}
       </NavLink>
       <NavLink to="/analysis/tasks" className="av-sb__nv" title={t("定时任务")}>
-        <Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>
-        {tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>{tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}</>}
       </NavLink>
       {collapsed ? null : <RecentConversations />}
       <span className="av-sb__spacer" />
       <NavLink to="/settings" className="av-sb__nv" title={t("设置")}>
-        <Icon name="settings" /><span className="av-sb__label">{t("设置")}</span>
+        {({ isActive }) => <><NavPill active={isActive} /><Icon name="settings" /><span className="av-sb__label">{t("设置")}</span></>}
       </NavLink>
       <div className="av-sb__foot">
         <UserMenu />
@@ -266,8 +272,9 @@ export function SettingsTabs({ current }: { current: "datasources" | "models" | 
   return (
     <nav className="av-seg" aria-label={t("设置分区")}>
       {items.map(([key, label]) => (
-        <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}
-          >{label}</Link>
+        <Link key={key} to={`/settings/${key}`} aria-current={key === current ? "page" : undefined}>
+          {key === current ? <motion.span layoutId="av-settings-pill" className="av-seg__pill" aria-hidden /> : null}
+          <span className="av-seg__label">{label}</span></Link>
       ))}
     </nav>
   );

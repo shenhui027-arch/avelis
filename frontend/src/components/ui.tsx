@@ -1,6 +1,7 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
 import type { UseQueryResult } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion } from "motion/react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 
@@ -105,11 +106,13 @@ export function Switch({ checked, onChange, disabled, label }: {
 export function Seg<T extends string>({ value, options, onChange, label }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void; label: string;
 }) {
+  const id = useId();
   return (
     <div className="av-seg" role="group" aria-label={label}>
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
-          {o.label}
+          {o.value === value ? <motion.span layoutId={`seg${id}`} className="av-seg__pill" aria-hidden /> : null}
+          <span className="av-seg__label">{o.label}</span>
         </button>
       ))}
     </div>
@@ -119,11 +122,13 @@ export function Seg<T extends string>({ value, options, onChange, label }: {
 export function Tabs<T extends string>({ value, options, onChange }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void;
 }) {
+  const id = useId();
   return (
     <div className="av-tabs" role="tablist">
       {options.map((o) => (
         <button key={o.value} type="button" className="av-tab" role="tab" aria-selected={o.value === value}
-          onClick={() => onChange(o.value)}>{o.label}</button>
+          onClick={() => onChange(o.value)}>{o.label}
+          {o.value === value ? <motion.span layoutId={`tab${id}`} className="av-tab__bar" aria-hidden /> : null}</button>
       ))}
     </div>
   );

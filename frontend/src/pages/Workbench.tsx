@@ -2,13 +2,12 @@
 import { Link, useNavigate } from "react-router";
 
 import { useTimeZone, useWorkbench } from "../api/hooks";
-import { Empty, Icon, Plat, QueryState, Seg, Status, statusOf } from "../components/ui";
+import { Empty, Plat, QueryState, Seg, Status, statusOf } from "../components/ui";
 import { formatClock } from "../format";
 import { t } from "../i18n";
 import { useRoles } from "../layout/Shell";
 import { useState } from "react";
 
-const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
 const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/ask" };
 const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
 
@@ -36,7 +35,7 @@ export function Workbench() {
           const [tone] = statusOf(s.status);
           return (
             <Link key={s.key} to={STAGE_LINK[s.key]} className="av-stage">
-              <span className="av-stage__hd"><Icon name={STAGE_ICON[s.key]} />{s.label}</span>
+              <span className="av-stage__hd">{s.label}</span>
               <span className="av-stage__val">{s.value}<small>{s.unit}</small></span>
               <span className={`av-status${tone ? ` av-status--${tone}` : ""}`}>{s.note}</span>
             </Link>

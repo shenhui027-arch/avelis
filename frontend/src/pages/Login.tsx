@@ -1,4 +1,4 @@
-// 登录：左侧是标题与一张“带依据的答案”预览，血缘线从左向右汇入它；右侧是登录卡。不写口号与说明段落。
+// 登录：左侧是标题与一张“带依据的答案”预览（产品本身就是主视觉），右侧是登录卡。不写口号与说明段落。
 // 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -11,42 +11,6 @@ import { Logo, LogoMark } from "../components/Logo";
 import { currentLanguage, t } from "../i18n";
 import { LanguageSelect } from "../i18n/LanguageMenu";
 import "../styles/login.css";
-
-// 背景星图：几列节点，曲线从左向右汇流，光点沿线流动。纯装饰。
-const STARS = [
-  [70, 120], [60, 300], [90, 480], [80, 640],
-  [330, 210], [300, 420], [340, 590],
-  [580, 300], [600, 520],
-  [840, 410],
-] as const;
-const LINKS = [[0, 4], [1, 4], [1, 5], [2, 5], [3, 6], [2, 6], [4, 7], [5, 7], [5, 8], [6, 8], [7, 9], [8, 9]] as const;
-
-function Constellation() {
-  const curve = (a: readonly number[], b: readonly number[]) => {
-    const mx = (a[0] + b[0]) / 2;
-    return `M${a[0]} ${a[1]} C${mx} ${a[1]} ${mx} ${b[1]} ${b[0]} ${b[1]}`;
-  };
-  return (
-    <svg className="av-login__stars" viewBox="0 0 900 760" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
-      {LINKS.map(([a, b], i) => {
-        const d = curve(STARS[a], STARS[b]);
-        return (
-          <g key={i}>
-            <path d={d} className="av-login__link" />
-            <circle r="2.2" className="av-login__spark">
-              <animateMotion dur={`${4 + (i % 4)}s`} begin={`${(i * 0.7) % 4}s`} repeatCount="indefinite" path={d} />
-            </circle>
-          </g>
-        );
-      })}
-      {STARS.map(([x, y], i) => (
-        <g key={i} className={i === STARS.length - 1 ? "av-login__star is-sink" : "av-login__star"}>
-          <circle cx={x} cy={y} r={i === STARS.length - 1 ? 9 : 4.5} />
-        </g>
-      ))}
-    </svg>
-  );
-}
 
 /** 示意数字的缩写写法跟随语言：中文 1284.6 万，英文 12.8 M；数值与单位分开排版。 */
 function compactParts(n: number): { value: string; unit: string } {
@@ -193,7 +157,6 @@ export function Login() {
 
   return (
     <div className="av-root av-login">
-      <Constellation />
       <header className="av-login__top">
         <Logo size={30} />
         <LanguageSelect className="av-login__lang" />
