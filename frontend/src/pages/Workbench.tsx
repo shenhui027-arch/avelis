@@ -13,7 +13,7 @@ import { useRoles } from "../layout/Shell";
 import { useState } from "react";
 
 const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
-const TONE_OF: Record<string, KitTone> = { ok: "ok", warn: "warn", danger: "danger", info: "accent" };
+const STAGE_MOD: Record<string, KitTone> = { collect: "collect", lineage: "lineage", change: "change", metric: "catalog", ask: "ask" };
 const STATUS_PARTS: [string, KitTone][] = [["published", "ok"], ["pending_review", "accent"], ["affected", "warn"], ["draft", "neutral"], ["retired", "danger"]];
 const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/ask" };
 const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
@@ -36,13 +36,15 @@ export function Workbench() {
         </div>
       </div>
 
-      <QueryState query={wb}>{(d) => { const maxRuns = Math.max(1, ...d.cadence.map((c) => Number(c.runs) || 0)); return <>
+      <QueryState query={wb}>{(d) => { const maxRuns = Math.max(1, ...d.cadence.map((c) => Number(c.runs) || 0));
+        const todayRuns = d.cadence.reduce((sum, c) => sum + (Number(c.runs) || 0), 0);
+        const changedHours = d.cadence.filter((c) => c.changed).length; return <>
       <RevealGroup as="nav" className="av-stages" aria-label={t("治理闭环")}>
         {d.stages.map((s) => {
           const [tone] = statusOf(s.status);
           return (
-            <MotionLink key={s.key} to={STAGE_LINK[s.key]} className="av-stage" variants={revealItem}>
-              <span className="av-stage__hd"><Tile icon={STAGE_ICON[s.key] ?? "chart"} tone={TONE_OF[tone] ?? "accent"} size="sm" />{s.label}</span>
+            <MotionLink key={s.key} to={STAGE_LINK[s.key]} className={`av-stage tone-${STAGE_MOD[s.key] ?? "collect"}`} variants={revealItem}>
+              <span className="av-stage__hd"><Tile icon={STAGE_ICON[s.key] ?? "chart"} tone={STAGE_MOD[s.key] ?? "collect"} size="sm" />{s.label}</span>
               <span className="av-stage__val"><CountUp value={s.value} /><small>{s.unit}</small></span>
               <span className={`av-status${tone ? ` av-status--${tone}` : ""}`}>{s.note}</span>
             </MotionLink>
@@ -96,7 +98,7 @@ export function Workbench() {
                   <thead><tr><th>{t("指标")}</th><th>{t("版本")}</th><th>{t("状态")}</th><th>{t("粒度")}</th><th className="num">{t("本周问数")}</th></tr></thead>
                   <tbody>{d.my_metrics.map((m) => (
                     <tr key={String(m.id)} className="is-link" onClick={(e) => { if (!(e.target as Element).closest("a")) navigate(`/catalog/metrics/${String(m.id)}`); }}>
-                      <td><span className="av-cell"><Tile icon="chart" tone="accent" size="sm" /><Link to={`/catalog/metrics/${String(m.id)}`}>{String(m.name)}</Link></span></td>
+                      <td><span className="av-cell"><Tile icon="chart" tone="catalog" size="sm" /><Link to={`/catalog/metrics/${String(m.id)}`}>{String(m.name)}</Link></span></td>
                       <td>{m.version_no ? <span className="av-tag">V{String(m.version_no)}</span> : null}</td>
                       <td><Status value={String(m.status)} /></td>
                       <td className="av-mono">{(m.grain as string[]).join(" × ")}</td>
@@ -124,8 +126,10 @@ export function Workbench() {
               </div>
             </div>
             <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("采集节奏")}</h2><span className="av-tag">{t("今日")}</span></div>
-              <div className="av-workbench__cadence">
+              <div className="av-hero-card">
+                <div className="av-hero-card__hd"><span>{t("采集节奏")}</span><span className="av-tag">{t("今日")}</span></div>
+                <div className="av-hero-card__val"><CountUp value={todayRuns} /><small>{t("次采集")}</small></div>
+                <div className="av-hero-card__meta">{changedHours ? t("{{count}} 个小时发现变化", { count: changedHours }) : t("今日没有发现变化")}</div>
                 <div className="av-heat" role="img" aria-label={t("今日每小时的采集")}>
                   {d.cadence.map((c) => (
                     <i key={Number(c.hour)} data-tip={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
