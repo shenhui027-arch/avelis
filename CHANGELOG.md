@@ -2,6 +2,12 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- 收起侧边栏后，导航项与“新问题”按钮在提示显示期间丢失可访问名称：提示层借走 title 时，改按渲染出来的文字判断是否需要临时补 aria-label（[#122](https://github.com/shenhui027-arch/avelis/issues/122)）。
+
 ## [1.0.7] - 2026-11-05
 
 修正 v1.0.6 登录页在宽屏上的排布；只改前端样式，接口与数据不变。
