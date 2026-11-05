@@ -1,5 +1,8 @@
 // 工作台：页头 + 闭环条 + 工作区（待办、负责的指标、被拦截的提问 | 数据源、采集节奏、最近变更）。
+import { motion } from "motion/react";
 import { Link, useNavigate } from "react-router";
+
+import { CountUp, MotionLink, RevealGroup, revealItem } from "../components/Motion";
 
 import { useTimeZone, useWorkbench } from "../api/hooks";
 import { Empty, Plat, QueryState, Seg, Status, statusOf } from "../components/ui";
@@ -30,20 +33,21 @@ export function Workbench() {
       </div>
 
       <QueryState query={wb}>{(d) => <>
-      <nav className="av-stages" aria-label={t("治理闭环")}>
+      <RevealGroup as="nav" className="av-stages" aria-label={t("治理闭环")}>
         {d.stages.map((s) => {
           const [tone] = statusOf(s.status);
           return (
-            <Link key={s.key} to={STAGE_LINK[s.key]} className="av-stage">
+            <MotionLink key={s.key} to={STAGE_LINK[s.key]} className="av-stage" variants={revealItem}>
               <span className="av-stage__hd">{s.label}</span>
-              <span className="av-stage__val">{s.value}<small>{s.unit}</small></span>
+              <span className="av-stage__val"><CountUp value={s.value} /><small>{s.unit}</small></span>
               <span className={`av-status${tone ? ` av-status--${tone}` : ""}`}>{s.note}</span>
-            </Link>
+            </MotionLink>
           );
         })}
-      </nav>
+      </RevealGroup>
 
-      <section aria-label={t("工作区")} className="av-workspace av-workbench__workspace">
+      <motion.section aria-label={t("工作区")} className="av-workspace av-workbench__workspace"
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42, delay: 0.18 }}>
         <div className="av-pane">
           <div className="av-pane__body">
             <div className="av-section">
@@ -141,7 +145,7 @@ export function Workbench() {
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
       </>}</QueryState>
     </div>
   );

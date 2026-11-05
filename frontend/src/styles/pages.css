@@ -615,23 +615,23 @@
 .av-analysis__menu { position: relative; display: inline-flex; }
 
 /* 新建分析 */
-.av-analysis__compose { display: flex; flex-direction: column; gap: var(--space-4); max-width: 760px; margin: 0 auto; padding: max(48px, 14vh) 40px var(--space-8); }
-.av-compose__title { margin: 0 0 var(--space-2); font: 500 28px/36px var(--font-sans); letter-spacing: -.015em; color: var(--text-primary); }
+/* 问数首页：整组内容在视口里光学居中（下方留白多于上方），标题居中，示例是一行行居中的节片 */
+.av-analysis__compose { display: flex; flex-direction: column; justify-content: center; gap: var(--space-5); box-sizing: border-box; width: 100%; max-width: 760px; min-height: 100%; margin: 0 auto; padding: var(--space-12, 48px) 40px 16vh; }
+.av-compose__title { margin: 0; font: 500 30px/38px var(--font-sans); letter-spacing: -.02em; color: var(--text-primary); text-align: center; }
 .av-compose { position: relative; z-index: 1; }
 .av-hero + .av-compose { margin: -76px 24px 0; }
 .av-compose { display: flex; flex-direction: column; border: 1px solid var(--line-default); border-radius: var(--radius-xl); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 .av-compose:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
-.av-compose textarea { min-height: 80px; padding: var(--space-4); border: none; background: transparent; color: var(--text-primary); font: 400 15px/24px var(--font-sans); resize: vertical; }
+.av-compose textarea { min-height: 88px; max-height: 280px; padding: var(--space-4) var(--space-5); border: none; background: transparent; color: var(--text-primary); font: 400 15px/24px var(--font-sans); resize: none; field-sizing: content; }
 .av-compose textarea:focus { outline: none; }
 .av-compose textarea::placeholder { color: var(--text-disabled); }
 .av-compose__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line-subtle); }
 .av-compose__spacer { flex: 1; }
-.av-compose__examples { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-2); }
-.av-compose__example { display: flex; align-items: center; gap: var(--space-3); min-height: 36px; padding: 6px var(--space-3); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: 400 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
-.av-compose__example .av-icon { flex: none; color: var(--text-disabled); transition: color var(--dur-fast); }
-.av-compose__example:hover { background: var(--bg-raised); color: var(--text-primary); }
-.av-compose__example:hover .av-icon { color: var(--accent-text); }
-.av-compose__example:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.av-compose__examples { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+.av-compose__example { display: inline-flex; align-items: center; max-width: 100%; min-height: 32px; padding: 6px 12px; border: 1px solid var(--line-default); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-secondary); font: 400 13px/20px var(--font-sans); text-align: left; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.av-compose__example:hover { border-color: var(--line-strong); color: var(--text-primary); }
+.av-compose__example:active { transform: scale(.98); }
+.av-compose__example:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* 报告文档 */
 .av-doc { --doc-pad: var(--space-8); display: flex; flex-direction: column; gap: var(--space-4); max-width: 800px; margin: 0 auto; padding: 0 var(--doc-pad) var(--space-6); }

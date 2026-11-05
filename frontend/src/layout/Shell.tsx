@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -39,6 +39,12 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <>{children}</>;
 }
+
+/** 向上弹出的菜单：从按钮处升起，收起时更快 */
+const MENU_MOTION = {
+  initial: { opacity: 0, y: 6, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.14 } }, style: { transformOrigin: "bottom left" },
+} as const;
 
 /** 当前导航项的底块：同一个 layoutId，切换页面时从上一项滑到新项。 */
 function NavPill({ active }: { active: boolean }) {
@@ -81,8 +87,8 @@ function UserMenu() {
         <span className="av-sb__label av-sb__who"><b>{u.display_name}</b>
           <span>{u.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}</span></span>
       </button>
-      {open ? (
-        <div className="av-menu av-menu--up" role="menu">
+      <AnimatePresence>{open ? (
+        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
           <div className="av-menu__head">
             <b>{u.display_name}</b>
             <span className="av-mono">{u.username}</span>
@@ -111,8 +117,8 @@ function UserMenu() {
             }}>
             <Icon name="logout" />{t("退出登录")}
           </button>
-        </div>
-      ) : null}
+        </motion.div>
+      ) : null}</AnimatePresence>
     </div>
   );
 }
@@ -133,8 +139,8 @@ function NotificationBell() {
         <Icon name="bell" />
         {unread ? <span className="av-notices__count">{unread > 99 ? "99+" : unread}</span> : null}
       </button>
-      {open ? (
-        <div className="av-menu av-menu--up" role="menu">
+      <AnimatePresence>{open ? (
+        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
           {items.length === 0 ? <div className="av-menu__head">{t("没有通知")}</div> : null}
           {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
             <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
@@ -152,8 +158,8 @@ function NotificationBell() {
               <span>{formatTime(n.created_at)}</span>
             </button>
           ))}
-        </div>
-      ) : null}
+        </motion.div>
+      ) : null}</AnimatePresence>
     </div>
   );
 }
@@ -260,7 +266,10 @@ export function Shell() {
     <div className="av-root av-app">
       <Sidebar />
       <main className="av-main">
-        <Outlet />
+        <motion.div key={location.pathname.split("/")[1] || "home"} className="av-route"
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Outlet />
+        </motion.div>
       </main>
     </div>
   );

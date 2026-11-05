@@ -208,6 +208,19 @@ export function Drawer({ title, onClose, children, footer, width }: {
   title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number;
 }) {
   const ref = useRef<HTMLElement>(null);
+  // Esc、点遮罩、✕ 先播放滑出，播完再通知调用方卸载；调用方直接卸载（如底栏“取消”）时立即消失
+  const [closing, setClosing] = useState(false);
+  const close = useRef(onClose);
+  close.current = onClose;
+  const done = useRef(false);
+  const finish = () => { if (!done.current) { done.current = true; close.current(); } };
+  const requestClose = () => setClosing(true);
+  // 动画帧被暂停（后台标签页等）时也要能关上：滑出时长之后兜底收尾
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(finish, 320);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
   // 模态行为：打开时聚焦第一个可操作元素，Tab 在抽屉内循环，Escape 关闭，关闭后把焦点还给触发者
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -215,7 +228,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
       "input, select, textarea, button, a[href], [tabindex]:not([tabindex='-1'])") ?? []).filter((el) => !el.hasAttribute("disabled"));
     (focusables().find((el) => el.tagName !== "BUTTON") ?? focusables()[0])?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") setClosing(true);
       if (e.key !== "Tab") return;
       const items = focusables();
       if (!items.length) return;
@@ -225,20 +238,24 @@ export function Drawer({ title, onClose, children, footer, width }: {
     };
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
-  }, [onClose]);
-  // 挂到 body：玻璃面板的 backdrop-filter 会成为 fixed 子元素的包含块，抽屉不能留在面板里
+  }, []);
+  // 挂到 body：面板的 overflow 与层叠上下文不能裁掉抽屉
   return createPortal(
     <div className="av-root">
-      <div className="av-backdrop" onClick={onClose} />
-      <aside ref={ref} className="av-drawer" role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}>
+      <motion.div className="av-backdrop" data-motion onClick={requestClose}
+        initial={{ opacity: 0 }} animate={{ opacity: closing ? 0 : 1 }} transition={{ duration: closing ? 0.18 : 0.24 }} />
+      <motion.aside ref={ref} className="av-drawer" data-motion role="dialog" aria-modal="true" aria-label={title} style={width ? { width } : undefined}
+        initial={{ opacity: 0, x: 24 }} animate={closing ? { opacity: 0, x: 24 } : { opacity: 1, x: 0 }}
+        transition={{ duration: closing ? 0.2 : 0.36 }}
+        onAnimationComplete={() => { if (closing) finish(); }}>
         <PaneHeader title={title}>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭")} onClick={onClose}>
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭")} onClick={requestClose}>
             <Icon name="close" />
           </button>
         </PaneHeader>
         <div className="av-drawer__bd">{children}</div>
         {footer ? <div className="av-drawer__ft">{footer}</div> : null}
-      </aside>
+      </motion.aside>
     </div>,
     document.body,
   );

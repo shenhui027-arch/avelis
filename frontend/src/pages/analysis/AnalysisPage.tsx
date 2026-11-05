@@ -17,6 +17,8 @@ import type { ChartSpec } from "../../components/charts/chartOption";
 import { ArchivedConversations } from "../../layout/Conversations";
 import { datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
+import { motion } from "motion/react";
+import { RevealGroup, revealItem } from "../../components/Motion";
 import { CronPicker, describeCron } from "./CronPicker";
 import { ModelPicker, useModelChoice } from "./ModelPicker";
 import { Interject, RunTranscript } from "./RunTranscript";
@@ -138,10 +140,10 @@ function Composer() {
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", {
     body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode, ...picker.body } as never })), ["analysis-runs"]);
   return (
-    <section className="av-analysis__compose">
-      <h1 className="av-compose__title">{t("想知道什么？")}</h1>
+    <RevealGroup as="section" className="av-analysis__compose">
+      <motion.h1 className="av-compose__title" variants={revealItem}>{t("想知道什么？")}</motion.h1>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <form className="av-compose" onSubmit={(e) => {
+      <motion.form className="av-compose" variants={revealItem} onSubmit={(e) => {
         e.preventDefault();
         setError(null);
         start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
@@ -174,14 +176,13 @@ function Composer() {
             aria-label={t("提问")} title={t("提问（Ctrl + Enter）")}>
             {start.isPending ? <span className="av-compose__spin" aria-hidden /> : <Icon name="send" />}</button>
         </div>
-      </form>
-      {examples.length ? <div className="av-compose__examples" role="group" aria-label={t("问题示例")}>
+      </motion.form>
+      {examples.length ? <motion.div className="av-compose__examples" role="group" aria-label={t("问题示例")} variants={revealItem}>
         {examples.map((e) => <button key={e} type="button" className="av-compose__example"
-          onClick={() => { setText(e); document.getElementById("aq")?.focus(); }}>
-          <Icon name="ask" small />{e}</button>)}
-      </div> : null}
+          onClick={() => { setText(e); document.getElementById("aq")?.focus(); }}>{e}</button>)}
+      </motion.div> : null}
       {scheduling ? <ScheduleDrawer body={{ question: text, window: windowBody(kind, fixed) }} onClose={() => setScheduling(false)} /> : null}
-    </section>
+    </RevealGroup>
   );
 }
 

@@ -6,6 +6,7 @@ import {
   type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode, type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 
 import { errorText } from "../api/hooks";
 import { currentLanguage, t } from "../i18n";
@@ -64,7 +65,12 @@ function Floating({ place, innerRef, className, children, ...rest }: {
   id?: string; role?: string; "aria-label"?: string; onMouseDown?: (e: React.MouseEvent) => void; onKeyDown?: (e: ReactKeyboardEvent) => void;
 }) {
   const style: CSSProperties = { top: place.top, bottom: place.bottom, left: place.left, minWidth: place.minWidth, maxHeight: place.maxHeight };
-  return createPortal(<div className="av-root av-float-root"><div ref={innerRef} className={`av-menu av-popover ${className}`} style={style} {...rest}>{children}</div></div>, document.body);
+  const up = place.bottom !== undefined;
+  return createPortal(<div className="av-root av-float-root"><motion.div ref={innerRef} className={`av-menu av-popover ${className}`} data-motion
+    style={{ ...style, transformOrigin: up ? "bottom left" : "top left" }}
+    initial={{ opacity: 0, y: up ? 4 : -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+    exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }} transition={{ duration: 0.2 }}
+    {...rest}>{children}</motion.div></div>, document.body);
 }
 
 // --- 下拉选择 -----------------------------------------------------------------------
@@ -145,8 +151,8 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
         <span className="av-select__value">{current?.label}</span>
       </button>
       <Icon name="chevron" small />
-      {open && place ? (
-        <Floating place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox"
+      <AnimatePresence>{open && place ? (
+        <Floating key="float" place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox"
           onMouseDown={(e) => e.preventDefault()}>
           {options.map((o, i) => (
             <div key={`${o.value}-${i}`} id={`${listId}-${i}`} data-index={i} role="option" aria-selected={o.value === value}
@@ -157,7 +163,7 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
             </div>
           ))}
         </Floating>
-      ) : null}
+      ) : null}</AnimatePresence>
     </span>
   );
 }
@@ -211,8 +217,8 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
           else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); close(); }
           else if (e.key === "Tab") close();
         }} />
-      {open && place ? (
-        <Floating place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
+      <AnimatePresence>{open && place ? (
+        <Floating key="float" place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
           {items.map((o, i) => (
             <div key={o.value || "__clear"} id={`${listId}-${i}`} data-index={i} role="option" aria-selected={o.value === value}
               className={`av-menu__item av-listbox__item${i === active ? " is-active" : ""}${mono && o.value && o.value !== MORE ? " av-mono" : ""}${o.value === MORE ? " av-listbox__more" : ""}`}
@@ -224,7 +230,7 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
           ))}
           {!options.length ? <div className="av-listbox__empty av-caption">{loading ? t("搜索中…") : emptyText ?? t("没有匹配项")}</div> : null}
         </Floating>
-      ) : null}
+      ) : null}</AnimatePresence>
     </>
   );
 }
@@ -298,8 +304,8 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
         <span className={`av-select__value${value ? " av-mono" : " av-select__placeholder"}`}>{value || placeholder || t("选择日期")}</span>
       </button>
       <Icon name="calendar" small />
-      {open && place ? (
-        <Floating place={place} innerRef={panel} role="dialog" aria-label={label ?? t("选择日期")} className="av-datepick" onKeyDown={onGridKey}>
+      <AnimatePresence>{open && place ? (
+        <Floating key="float" place={place} innerRef={panel} role="dialog" aria-label={label ?? t("选择日期")} className="av-datepick" onKeyDown={onGridKey}>
           <div className="av-datepick__hd">
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("上个月")} onClick={() => month(-1)}><Icon name="back" small /></button>
             <span className="av-datepick__title">{monthTitle}</span>
@@ -320,7 +326,7 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
             {clearable && value ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => choose(null)}>{t("清除")}</button> : null}
           </div>
         </Floating>
-      ) : null}
+      ) : null}</AnimatePresence>
     </span>
   );
 }
@@ -360,8 +366,8 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
           else if (e.key === "Escape" && visible) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
           else if (e.key === "Tab") setOpen(false);
         }} />
-      {visible && place ? (
-        <Floating place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
+      <AnimatePresence>{visible && place ? (
+        <Floating key="float" place={place} innerRef={list} id={listId} role="listbox" aria-label={label} className="av-listbox" onMouseDown={(e) => e.preventDefault()}>
           {items.map((s, i) => (
             <div key={s} id={`${listId}-${i}`} data-index={i} role="option" aria-selected={i === active}
               className={`av-menu__item av-listbox__item av-mono${i === active ? " is-active" : ""}`}
@@ -370,7 +376,7 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
             </div>
           ))}
         </Floating>
-      ) : null}
+      ) : null}</AnimatePresence>
     </>
   );
 }

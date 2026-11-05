@@ -4,6 +4,7 @@
 // 行为对照 Radix Tooltip：首次悬停延迟显示，在提示之间移动时立即切换；Esc、按下、滚动时收起。
 // 触屏没有悬停：轻点 ⓘ（.av-hint）打开或收起它的提示。
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { createPortal } from "react-dom";
 
 const SHOW_DELAY = 380;
@@ -13,7 +14,8 @@ const EDGE = 8;
 
 /** 借用的 title：收起时放回；为没有可见文字的元素临时补的 aria-label 一并撤掉。 */
 type Borrowed = { title: string; label: boolean };
-type Tip = { el: HTMLElement; text: string; borrowed?: Borrowed };
+type Tip = { el: HTMLElement; text: string; borrowed?: Borrowed; seq: number };
+let seq = 0;
 
 function tipTarget(node: EventTarget | null): HTMLElement | null {
   if (!(node instanceof Element)) return null;
@@ -24,12 +26,12 @@ function tipTarget(node: EventTarget | null): HTMLElement | null {
 
 function borrow(el: HTMLElement): Tip {
   const tip = el.dataset.tip?.trim();
-  if (tip) return { el, text: tip };
+  if (tip) return { el, text: tip, seq: ++seq };
   const title = el.getAttribute("title") ?? "";
   const label = !el.hasAttribute("aria-label") && !el.textContent?.trim();
   el.removeAttribute("title");
   if (label) el.setAttribute("aria-label", title);
-  return { el, text: title, borrowed: { title, label } };
+  return { el, text: title, borrowed: { title, label }, seq: ++seq };
 }
 
 function giveBack(tip: Tip) {
@@ -132,11 +134,15 @@ export function TooltipLayer() {
     setPos({ left, top, side });
   }, [tip]);
 
-  if (!tip) return null;
+  // 进入时朝箭头方向轻移，收起时淡出；切换到另一个提示时旧的淡出、新的淡入
   return createPortal(
     <div className="av-root av-float-root">
-      <div ref={box} id={id} role="tooltip" className="av-tooltip" data-side={pos?.side}
-        style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999, visibility: "hidden" }}>{tip.text}</div>
+      <AnimatePresence>{tip ? (
+        <motion.div key={tip.seq} ref={box} id={id} role="tooltip" className="av-tooltip" data-side={pos?.side}
+          style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999, visibility: "hidden" }}
+          initial={{ opacity: 0, y: pos?.side === "bottom" ? -3 : 3 }} animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, transition: { duration: 0.1 } }} transition={{ duration: 0.16 }}>{tip.text}</motion.div>
+      ) : null}</AnimatePresence>
     </div>,
     document.body,
   );
