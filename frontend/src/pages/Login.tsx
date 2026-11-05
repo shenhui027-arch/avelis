@@ -1,4 +1,4 @@
-// 登录：左侧是标题与一张“带依据的答案”预览（产品本身就是主视觉），右侧是登录卡。不写口号与说明段落。
+// 登录：左侧淡蓝点阵面板上是大标题与三张错落的产品示意卡（分析结论、口径、血缘路径），右侧白底登录表单。
 // 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -7,7 +7,8 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { api, ApiError, login, token, unwrap } from "../api/client";
 import { errorText } from "../api/hooks";
 import { Hint, Icon } from "../components/Icon";
-import { Logo, LogoMark } from "../components/Logo";
+import { LogoMark } from "../components/Logo";
+import { Tile } from "../components/ui";
 import { currentLanguage, t } from "../i18n";
 import { LanguageSelect } from "../i18n/LanguageMenu";
 import "../styles/login.css";
@@ -19,26 +20,42 @@ function compactParts(n: number): { value: string; unit: string } {
     unit: parts.filter((p) => p.type === "compact").map((p) => p.value).join("") };
 }
 
-/** 产品预览：一条带依据的答案卡片。数字与名称是中性的示意。 */
-function AnswerPreview() {
-  const bars = [42, 55, 48, 61, 58, 72, 66, 80, 76, 88, 84, 96];
+/** 品牌标记：蓝色圆角块里的白色“A”（块内把 Logo 用到的令牌换成白色）。 */
+function BrandMark({ size = 34 }: { size?: number }) {
+  return <span className="av-login__mark" style={{ width: size, height: size }} aria-hidden="true"><LogoMark size={Math.round(size * 0.62)} /></span>;
+}
+
+/** 产品拼贴：分析结论、口径卡、血缘路径三张示意卡错落叠放，说明产品在做什么。数字与名称都是中性的示意。 */
+function Collage() {
+  const bars = [40, 55, 48, 62, 58, 72, 66, 80, 96];
   const kpi = compactParts(12_846_000);
   return (
-    <div className="av-login__preview" aria-hidden="true">
-      <div className="av-login__q"><span className="av-login__avatar" />{t("本季度核心指标为什么上升？")}</div>
-      <div className="av-login__answer">
-        <div className="av-login__answer-hd">
-          <LogoMark size={18} />
-          <span>{t("分析完成")}</span>
-          <span className="av-login__ok"><Icon name="check" small />{t("来源已校验")}</span>
-        </div>
+    <div className="av-login__collage" aria-hidden="true">
+      <div className="av-login__c av-login__c--metric">
+        <div className="av-login__c-hd"><Tile icon="chart" tone="catalog" size="sm" />{t("口径")}</div>
+        <b className="av-login__metric">39</b><small>{t("已发布")}</small>
+      </div>
+      <div className="av-login__c av-login__c--answer">
+        <div className="av-login__c-hd"><BrandMark size={22} />{t("分析完成")}
+          <span className="av-login__ok"><Icon name="check" small />{t("来源已校验")}</span></div>
         <div className="av-login__kpi">
           <div><small>{t("本期")}</small><b>{kpi.value}<em>{kpi.unit}</em></b></div>
           <div><small>{t("环比")}</small><b className="is-up">+12.4%</b></div>
           <div className="av-login__spark-bars">{bars.map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}</div>
         </div>
-        <p>{t("变化主要来自 ")}<mark>{t("两个成员")}</mark>{t(" 的增长，合计贡献 83%")}<sup>D3</sup><sup>D7</sup>{t("，口径与数据均可追溯")}</p>
-        <div className="av-login__chips"><span>{t("口径 V3 · 已审核")}</span><span>{t("列级血缘 12 条")}</span><span>{t("2 个仍待验证")}</span><span className="av-login__demo">{t("产品示意")}</span></div>
+        <p>{t("变化主要来自 ")}<mark>{t("两个成员")}</mark>{t(" 的增长，合计贡献 83%")}{t("，口径与数据均可追溯")}</p>
+      </div>
+      <div className="av-login__c av-login__c--lineage">
+        <div className="av-login__c-hd"><Tile icon="lineage" tone="lineage" size="sm" />{t("核心指标的来源")}</div>
+        <svg viewBox="0 0 340 90" className="av-login__graph">
+          <rect x="4" y="12" width="84" height="26" rx="7" className="is-node" /><text x="14" y="29">src_events</text>
+          <rect x="4" y="52" width="84" height="26" rx="7" className="is-node" /><text x="14" y="69">src_users</text>
+          <rect x="128" y="32" width="92" height="26" rx="7" className="is-mid" /><text x="138" y="49" className="is-mid">dwd_fact</text>
+          <rect x="250" y="32" width="86" height="26" rx="7" className="is-end" /><text x="262" y="49" className="is-end">{t("核心指标")}</text>
+          <path d="M88 25 C110 25 106 45 128 45" className="is-edge" />
+          <path d="M88 65 C110 65 106 45 128 45" className="is-path" />
+          <path d="M220 45 L250 45" className="is-path" />
+        </svg>
       </div>
     </div>
   );
@@ -157,20 +174,22 @@ export function Login() {
 
   return (
     <div className="av-root av-login">
-      <header className="av-login__top">
-        <Logo size={30} />
-        <LanguageSelect className="av-login__lang" />
-      </header>
-      <main className="av-login__main">
-        <section className="av-login__hero" aria-label="Avelis">
+      {/* 左：品牌色面板（标题 + 产品示意）；右：登录表单。两栏同高，窄屏时品牌面板收成顶部色带 */}
+      <section className="av-login__brand" aria-label="Avelis">
+        <span className="av-login__logo"><BrandMark /><b>Avelis</b></span>
+        <div className="av-login__brand-body">
           <h1>{t("让每一条数据")}<br />{t("都有出处")}</h1>
-          <AnswerPreview />
-        </section>
+          <Collage />
+        </div>
+      </section>
+      <main className="av-login__side">
+        <div className="av-login__side-top"><LanguageSelect className="av-login__lang" /></div>
         <section className="av-login__panel">
           {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
           <form className="av-login__card" onSubmit={submit} noValidate>
             <div className="av-login__card-hd">
               <h2>{t("登录")}</h2>
+              <p>{t("使用你的 Avelis 账号")}</p>
             </div>
             {expired && !error ? (
               <div className="av-banner av-banner--info" role="status"><Icon name="info" />{t("会话已过期或已在其他位置失效，请重新登录")}</div>

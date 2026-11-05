@@ -127,7 +127,6 @@
   "数据源": "Data sources",
   "模型配置": "Models",
   "用户": "Users",
-  "本季度核心指标为什么上升？": "Why did the key metric rise this quarter?",
   "分析完成": "Analysis complete",
   "来源已校验": "Sources verified",
   "本期": "Current",
@@ -136,10 +135,6 @@
   "两个成员": "two members",
   " 的增长，合计贡献 83%": ", contributing 83% combined",
   "，口径与数据均可追溯": "; definitions and data are fully traceable",
-  "口径 V3 · 已审核": "Definition V3 · Reviewed",
-  "列级血缘 12 条": "12 column lineage edges",
-  "2 个仍待验证": "2 still to verify",
-  "产品示意": "Illustration",
   "都有出处": "has a source",
   "会话已过期或已在其他位置失效，请重新登录": "Your session expired or was ended elsewhere. Please sign in again.",
   "账号": "Username",
@@ -1628,5 +1623,8 @@
   "次采集": "runs",
   "{{count}} 个小时发现变化_one": "Changes found in {{count}} hour",
   "{{count}} 个小时发现变化_other": "Changes found in {{count}} hours",
-  "今日没有发现变化": "No changes found today"
+  "今日没有发现变化": "No changes found today",
+  "核心指标的来源": "Where the key metric comes from",
+  "核心指标": "Key metric",
+  "使用你的 Avelis 账号": "Use your Avelis account"
 }
