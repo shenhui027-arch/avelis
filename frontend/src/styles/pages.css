@@ -15,6 +15,11 @@
 .av-workbench__workspace { grid-template-columns: minmax(0, 1fr) var(--size-inspector); gap: var(--space-3); overflow: visible; border: none; background: transparent; box-shadow: none; }
 .av-workbench__workspace > .av-pane { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 .av-workbench__workspace > .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
+/* 左栏拆成两张卡片（待办 / 被拦截的提问、我负责的指标），标题固定，内容各自滚动 */
+.av-workbench__col { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; min-height: 0; }
+.av-workbench__card { flex: 1 1 0; min-height: 0; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
+.av-workbench__card--metrics { flex-grow: 1.4; }
+.av-workbench__card--metrics thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-surface); }
 .av-workbench .av-btn--sm { min-width: calc(var(--space-8) * 2); }
 .av-workbench .av-btn--icon { min-width: var(--size-control-sm); }
 .av-workbench .av-pagehd .av-btn { min-width: calc(var(--size-row) * 2); }
@@ -36,6 +41,7 @@
   .av-workbench { height: 100%; overflow: auto; }
   .av-fill > .av-workbench__workspace { flex: none; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
   .av-workbench__workspace .av-pane__body { overflow: visible; }
+  .av-workbench__card { flex: none; }
   .av-workbench__workspace > .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
   .av-workbench .av-stages { grid-template-columns: repeat(5, minmax(calc(var(--space-6) * 5), 1fr)); overflow-x: auto; }
 }

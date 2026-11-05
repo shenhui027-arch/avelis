@@ -48,13 +48,13 @@ export function Workbench() {
 
       <motion.section aria-label={t("工作区")} className="av-workspace av-workbench__workspace"
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42, delay: 0.18 }}>
-        <div className="av-pane">
-          <div className="av-pane__body">
-            <div className="av-section">
+        <div className="av-workbench__col">
+          <div className="av-pane av-workbench__card">
               <div className="av-pane-hd">
                 <h2>{scope === "todo" ? t("待办") : t("被拦截的提问")} <span className="av-count">{scope === "todo" ? d.todos.length : d.blocked_answers.length}</span></h2>
                 <Seg value={scope} onChange={setScope} label={t("范围")} options={[{ value: "todo", label: t("待我处理") }, { value: "blocked", label: t("被拦截的提问") }]} />
               </div>
+              <div className="av-pane__body">
               {scope === "todo" ? (
                 <div className="av-list">
                   {d.todos.map((todo, i) => (
@@ -80,11 +80,12 @@ export function Workbench() {
                   {!d.blocked_answers.length ? <Empty compact text={t("没有被拦截的提问")} action={<Link to="/ask" className="av-btn av-btn--secondary av-btn--sm">{t("开始问数")}</Link>} /> : null}
                 </div>
               )}
-            </div>
-            <div className="av-section">
+              </div>
+          </div>
+          <div className="av-pane av-workbench__card av-workbench__card--metrics">
               <div className="av-pane-hd"><h2>{t("我负责的指标")} <span className="av-count">{d.my_metrics.length}</span></h2>
                 <Link to="/catalog/metrics" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
-              <div className="av-table-wrap">
+              <div className="av-pane__body">
                 <table className="av-table av-workbench__metrics">
                   <thead><tr><th>{t("指标")}</th><th>{t("版本")}</th><th>{t("状态")}</th><th>{t("粒度")}</th><th className="num">{t("本周问数")}</th></tr></thead>
                   <tbody>{d.my_metrics.map((m) => (
@@ -98,7 +99,6 @@ export function Workbench() {
                 </table>
                 {!d.my_metrics.length ? <Empty compact icon="chart" text={t("你还没有负责的指标")} action={<div className="av-actions"><Link to="/catalog/metrics" className="av-btn av-btn--secondary av-btn--sm">{t("浏览指标")}</Link>{canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary av-btn--sm">{t("新建指标")}</Link> : null}</div>} /> : null}
               </div>
-            </div>
           </div>
         </div>
 
