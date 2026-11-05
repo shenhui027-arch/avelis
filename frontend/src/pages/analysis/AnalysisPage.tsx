@@ -134,18 +134,12 @@ function Composer() {
   const [mode, setMode] = useState<"auto" | "always">("auto");
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const tasks = useTasks();
   const picker = useModelChoice();
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", {
     body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode, ...picker.body } as never })), ["analysis-runs"]);
   return (
     <section className="av-analysis__compose">
-      <div className="av-hero">
-        <div className="av-hero__text">
-          <h1>{t("想知道什么？")}</h1>
-          <p>{t("问一个数，或者问它为什么变了。每一步查了什么都看得见，随时可以插话纠偏。")}</p>
-        </div>
-      </div>
+      <h1 className="av-compose__title">{t("想知道什么？")}</h1>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <form className="av-compose" onSubmit={(e) => {
         e.preventDefault();
@@ -181,19 +175,10 @@ function Composer() {
             {start.isPending ? <span className="av-compose__spin" aria-hidden /> : <Icon name="send" />}</button>
         </div>
       </form>
-      <div className="av-entries">
-        <button type="button" className="av-entry" onClick={() => setText(askExamples[0]?.text ?? "")}>
-          <span className="av-entry__icon is-lookup" aria-hidden /><b>{t("取数")}</b><span>{t("查一个数，带口径和来源")}</span></button>
-        <button type="button" className="av-entry" onClick={() => setText(analysisExamples[0]?.text ?? "")}>
-          <span className="av-entry__icon is-analysis" aria-hidden /><b>{t("归因分析")}</b><span>{t("为什么变了，逐步给出依据")}</span></button>
-        <Link className="av-entry" to="/analysis/experiences">
-          <span className="av-entry__icon is-experience" aria-hidden /><b>{t("个人经验")}</b><span>{t("分析时按口径与资产自动召回")}</span></Link>
-        <Link className="av-entry" to="/analysis/tasks">
-          <span className="av-entry__icon is-schedule" aria-hidden /><b>{t("定时任务")}</b><span>{tasks.data?.length ? t("{{count}} 个", { count: tasks.data.length }) : t("按时自动分析")}</span></Link>
-      </div>
-      {examples.length ? <div className="av-compose__examples" aria-label={t("问题示例")}>
-        <span className="av-compose__examples-hd">{t("试试这些")}</span>
-        {examples.map((e) => <button key={e} type="button" className="av-compose__example" onClick={() => setText(e)}>{e}</button>)}
+      {examples.length ? <div className="av-compose__examples" role="group" aria-label={t("问题示例")}>
+        {examples.map((e) => <button key={e} type="button" className="av-compose__example"
+          onClick={() => { setText(e); document.getElementById("aq")?.focus(); }}>
+          <Icon name="ask" small />{e}</button>)}
       </div> : null}
       {scheduling ? <ScheduleDrawer body={{ question: text, window: windowBody(kind, fixed) }} onClose={() => setScheduling(false)} /> : null}
     </section>
@@ -493,7 +478,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
         <NextSteps text={report.unexplained} unverified={verification.ok === false ? verification.unverified ?? 0 : 0}
           onPick={onContinue ? (text) => onContinue(text) : undefined} />
         <details className="av-fold" open={!!(verification.ok === false && verification.unverified)}>
-          <summary>{t("结论依据")} <span className="av-caption">{report.claims?.length ?? 0} {t("条事实、计算与推断")}</span></summary>
+          <summary>{t("结论依据")} <span className="av-count">{report.claims?.length ?? 0}</span></summary>
           <ol className="av-claims">
             {(report.claims ?? []).map((c, i) => {
               const check = checks.get(i);

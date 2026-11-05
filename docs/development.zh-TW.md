@@ -75,11 +75,18 @@ pnpm gen:api        # 後端介面變化後重新生成型別
 pnpm gen:tokens     # 設計權杖變化後重新生成 tokens.css
 ```
 
-樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`。
+樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`，動效在 `src/styles/motion.css`。
+
+### 視覺與文案
+
+- 顏色只表達含義：石青（`--accent`）是唯一的操作色，赭石（`--flow`）表示資料流動與目前路徑，狀態色只用於狀態。面板是實色，不用漸層、輝光、毛玻璃與背景圖。
+- 不寫口號、教學段落和區塊下的說明文字，讓版面、層級和主操作自己說明；確需補充時用 `Hint`（ⓘ + 提示）。表單標籤與無障礙名稱保留；刪除、提交永久變更等操作保留後果提示。
+- 提示統一由全域提示層顯示（`src/components/Tooltip.tsx`）：寫 `data-tip` 或用 `Hint`；既有的 `title` 也會自動換成同樣的提示。
+- 動效只回應使用者的操作（開啟、展開、切換、確認），用 `motion.css` 裡的緩動與時長權杖；「減少動態效果」時全部關閉。
 
 ### 介面控制項
 
-帶彈出層的控制項一律用 `src/components/controls.tsx` 裡的元件（從 `components/ui` 匯入），不用瀏覽器原生控制項。原生彈出層由作業系統繪製，在深色玻璃介面裡會變成白底或系統風格；問數輸入框和變更記錄都出過這個問題。
+帶彈出層的控制項一律用 `src/components/controls.tsx` 裡的元件（從 `components/ui` 匯入），不用瀏覽器原生控制項。原生彈出層由作業系統繪製，在深色介面裡會變成白底或系統風格；問數輸入框和變更記錄都出過這個問題。
 
 | 需要 | 用 | 不用 |
 |---|---|---|

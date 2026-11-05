@@ -75,11 +75,18 @@ pnpm gen:api        # regenerate types after backend API changes
 pnpm gen:tokens     # regenerate tokens.css after design token changes
 ```
 
-All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, and component styles are in `src/styles/avelis-ui.css`.
+All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, component styles are in `src/styles/avelis-ui.css`, and motion is in `src/styles/motion.css`.
+
+### Visuals and copy
+
+- Color carries meaning only: azurite (`--accent`) is the single action color, ochre (`--flow`) marks data flow and the current path, and status colors are for status. Panels are solid; no gradients, glows, frosted glass or background images.
+- No slogans, tutorial paragraphs or explanatory text under sections; let layout, hierarchy and the primary action explain themselves. When extra context is needed, use `Hint` (ⓘ + tooltip). Keep form labels and accessible names, and keep consequence notes on destructive or permanent actions.
+- Tooltips come from the global tooltip layer (`src/components/Tooltip.tsx`): use `data-tip` or `Hint`; existing `title` attributes are switched to the same tooltip automatically.
+- Motion only answers the user's actions (open, expand, switch, confirm) and uses the easing and duration tokens in `motion.css`; all of it stops under reduced motion.
 
 ### Form controls
 
-Every control with a popup uses the components in `src/components/controls.tsx` (import them from `components/ui`), never the browser's native controls. Native popups are drawn by the operating system and turn white or system-styled in the dark glass UI; this has already happened in the Ask composer and in change records.
+Every control with a popup uses the components in `src/components/controls.tsx` (import them from `components/ui`), never the browser's native controls. Native popups are drawn by the operating system and turn white or system-styled in the dark UI; this has already happened in the Ask composer and in change records.
 
 | Need | Use | Don't use |
 |---|---|---|

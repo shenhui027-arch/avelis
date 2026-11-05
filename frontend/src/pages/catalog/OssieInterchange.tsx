@@ -91,12 +91,12 @@ export function OssieImportDrawer({ onClose }: { onClose: () => void }) {
     </>}
   </div>}>
     <div className="av-ossie">
-      <p className="av-caption">{t("支持 Apache Ossie 0.2.0.dev0（提交 48da55a）的 YAML 或 JSON，也能读取旧版（提交 88e0011）的文件。导入只生成草稿版本，必须经过复核才能发布；关联路径不会自动创建。")}</p>
       <div className="av-field"><span className="av-label">{t("目标业务域")}</span>
         {targets.length ? <Select label={t("目标业务域")} value={target} disabled={!!done} onChange={setDomainId}>
           {targets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
           : <span className="av-caption">{t("你没有可导入的业务域（需要业务域负责人或维护者身份）")}</span>}</div>
-      <div className="av-field"><span className="av-label">{t("文件")} <Hint text={t("不超过 5 MiB")} /></span>
+      <div className="av-field"><span className="av-label">{t("文件")} <Hint text={`${t("支持 Apache Ossie 0.2.0.dev0（提交 48da55a）的 YAML 或 JSON，也能读取旧版（提交 88e0011）的文件。导入只生成草稿版本，必须经过复核才能发布；关联路径不会自动创建。")}
+${t("不超过 5 MiB")}`} /></span>
         <div className="av-ossie__file">
           <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!!done} onClick={() => input.current?.click()}>
             <Icon name="upload" small />{t("选择文件")}</button>

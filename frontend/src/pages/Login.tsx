@@ -1,4 +1,4 @@
-// 登录：满屏极光背景 + 流动的血缘星图；左侧讲清产品（标题、三个价值点、一张“带依据的答案”预览），右侧玻璃登录卡。
+// 登录：左侧是标题与一张“带依据的答案”预览，血缘线从左向右汇入它；右侧是登录卡。不写口号与说明段落。
 // 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -6,17 +6,11 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { api, ApiError, login, token, unwrap } from "../api/client";
 import { errorText } from "../api/hooks";
-import { Icon } from "../components/Icon";
+import { Hint, Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
 import { currentLanguage, t } from "../i18n";
 import { LanguageSelect } from "../i18n/LanguageMenu";
 import "../styles/login.css";
-
-const VALUES = [
-  { icon: "lineage", title: t("列级血缘"), text: t("从源表到指标，每一列的来龙去脉自动采集、随时可查") },
-  { icon: "shield", title: t("口径治理"), text: t("指标口径有版本、有审核，上游一变，受影响的口径立即拦截") },
-  { icon: "analysis", title: t("有依据的分析"), text: t("问一句话，得到能追溯到数据和口径的结论，而不是一段猜测") },
-];
 
 // 背景星图：几列节点，曲线从左向右汇流，光点沿线流动。纯装饰。
 const STARS = [
@@ -131,7 +125,6 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
   return (
     <form className="av-login__card" onSubmit={submit} noValidate>
       <div className="av-login__card-hd">
-        <LogoMark size={44} />
         <h2>{t("修改密码")}</h2>
         <p>{t("修改后，其他设备上的登录将失效")}</p>
       </div>
@@ -200,36 +193,21 @@ export function Login() {
 
   return (
     <div className="av-root av-login">
-      <div className="av-login__aurora" aria-hidden="true"><i /><i /><i /></div>
-      <div className="av-login__grid" aria-hidden="true" />
       <Constellation />
       <header className="av-login__top">
-        <Logo size={34} />
-        <span className="av-login__top-end">
-          <span className="av-login__tag"><i />{t("企业数据治理与智能分析平台")}</span>
-          <LanguageSelect className="av-login__lang" />
-        </span>
+        <Logo size={30} />
+        <LanguageSelect className="av-login__lang" />
       </header>
       <main className="av-login__main">
         <section className="av-login__hero" aria-label="Avelis">
-          <span className="av-login__eyebrow">{t("血缘 · 口径 · 有依据的智能分析")}</span>
-          <h1>{t("让每一条数据")}<br /><span>{t("都有出处")}</span></h1>
-          <p>{t("Avelis 把元数据、列级血缘和指标口径治理成一张可信的数据底座，再让智能分析在这张底座上回答问题——每个结论都能追溯到数据、口径与权限。")}</p>
-          <ul className="av-login__values">
-            {VALUES.map((v) => (
-              <li key={v.title}><span className="av-login__icon"><Icon name={v.icon} /></span>
-                <div><b>{v.title}</b><small>{v.text}</small></div></li>
-            ))}
-          </ul>
+          <h1>{t("让每一条数据")}<br />{t("都有出处")}</h1>
           <AnswerPreview />
         </section>
         <section className="av-login__panel">
           {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
           <form className="av-login__card" onSubmit={submit} noValidate>
             <div className="av-login__card-hd">
-              <LogoMark size={44} />
-              <h2>{t("欢迎回来")}</h2>
-              <p>{t("使用管理员分配的账号登录 Avelis")}</p>
+              <h2>{t("登录")}</h2>
             </div>
             {expired && !error ? (
               <div className="av-banner av-banner--info" role="status"><Icon name="info" />{t("会话已过期或已在其他位置失效，请重新登录")}</div>
@@ -256,15 +234,10 @@ export function Login() {
             </button>
             <p className="av-login__foot">
               <button type="button" className="av-login__switch" disabled={busy} onClick={() => setChanging(true)}>{t("修改密码")}</button>
-              <span aria-hidden="true"> · </span>{t("忘记密码请联系管理员重置")}
+              <span className="av-login__forgot">{t("忘记密码")}<Hint text={t("忘记密码请联系管理员重置")} /></span>
             </p>
           </form>
           )}
-          <ul className="av-login__trust">
-            <li><Icon name="shield" small />{t("权限与审计全程留痕")}</li>
-            <li><Icon name="db" small />{t("支持私有化部署")}</li>
-            <li><Icon name="key" small />{t("可接入本地模型")}</li>
-          </ul>
         </section>
       </main>
     </div>

@@ -223,7 +223,7 @@ export function CandidatesPanel({ candidates }: { candidates?: Candidate[] }) {
   const saved = new Set((list.data ?? []).map(candidateKey));
   return (
     <details className="av-fold av-analysis__candidates" aria-label={t("保存为经验")}>
-      <summary>{t("保存为经验")} <span className="av-caption">{candidates.length} {t("条你确认或纠正过的内容")}</span></summary>
+      <summary>{t("保存为经验")} <span className="av-count">{candidates.length}</span></summary>
       <ol className="av-proposals">
         {candidates.map((c, i) => <CandidateRow key={`${i}-${candidateKey(c)}`} candidate={c} saved={saved.has(candidateKey(c))} />)}
       </ol>

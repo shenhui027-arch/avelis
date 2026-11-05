@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 
 import { keepSessionAlive } from "./api/client";
+import { TooltipLayer } from "./components/Tooltip";
 import "./i18n";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
@@ -28,6 +29,7 @@ import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
 import "./styles/pages.css";
+import "./styles/motion.css";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },
@@ -77,6 +79,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <TooltipLayer />
     </QueryClientProvider>
   </StrictMode>,
 );

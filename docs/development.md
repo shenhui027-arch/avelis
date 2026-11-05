@@ -75,11 +75,18 @@ pnpm gen:api        # 后端接口变化后重新生成类型
 pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
 ```
 
-样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`。
+样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`，动效在 `src/styles/motion.css`。
+
+### 视觉与文案
+
+- 颜色只表达含义：石青（`--accent`）是唯一的操作色，赭石（`--flow`）表示数据流动与当前路径，状态色只用于状态。面板是实色，不用渐变、辉光、毛玻璃与背景图。
+- 不写口号、教学段落和区块下的说明文字，让布局、层级和主操作自己说明；确需补充时用 `Hint`（ⓘ + 提示）。表单标签与可访问名称保留；删除、提交永久变更等操作保留后果提示。
+- 提示统一由全局提示层显示（`src/components/Tooltip.tsx`）：写 `data-tip` 或用 `Hint`；已有的 `title` 也会自动换成同样的提示。
+- 动效只回应用户的操作（打开、展开、切换、确认），用 `motion.css` 里的缓动与时长令牌；“减少动态效果”时全部关闭。
 
 ### 界面控件
 
-带弹出层的控件一律用 `src/components/controls.tsx` 里的组件（从 `components/ui` 导入），不用浏览器原生控件。原生弹出层由操作系统绘制，在深色玻璃界面里会变成白底或系统风格；问数输入框和变更记录都出过这个问题。
+带弹出层的控件一律用 `src/components/controls.tsx` 里的组件（从 `components/ui` 导入），不用浏览器原生控件。原生弹出层由操作系统绘制，在深色界面里会变成白底或系统风格；问数输入框和变更记录都出过这个问题。
 
 | 需要 | 用 | 不用 |
 |---|---|---|

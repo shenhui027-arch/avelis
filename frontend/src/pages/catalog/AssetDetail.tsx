@@ -146,7 +146,7 @@ function Definition({ a }: { a: AssetDetailT }) {
   return (
     <>
       <section className="av-panel">
-        <div className="av-panel__hd"><h2 className="av-panel__title">{t("视图定义")} <span className="av-caption">{t("（数据库返回的原文）")}</span></h2>
+        <div className="av-panel__hd"><h2 className="av-panel__title">{t("视图定义")} <Hint text={t("（数据库返回的原文）")} /></h2>
           {parse ? <Status value={parse.status} /> : null}</div>
         <div className="av-panel__bd av-asset-stack">
           <Code sql={a.definition?.raw_sql ?? ""} />

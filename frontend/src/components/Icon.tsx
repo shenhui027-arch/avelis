@@ -57,10 +57,10 @@ export function Icon({ name, small, title }: { name: keyof typeof PATHS | string
   );
 }
 
-/** ⓘ 提示：解释收进提示里，不在页面上写说明段落。 */
+/** ⓘ 提示：解释收进提示里（全局提示层显示，见 Tooltip.tsx），不在页面上写说明段落。 */
 export function Hint({ text }: { text: string }) {
   return (
-    <span className="av-hint" title={text} aria-label={text} tabIndex={0}>
+    <span className="av-hint" data-tip={text} aria-label={text} role="img" tabIndex={0}>
       <Icon name="info" small />
     </span>
   );

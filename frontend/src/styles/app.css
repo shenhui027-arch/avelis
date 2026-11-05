@@ -2,12 +2,8 @@
    后续回收进 Avelis UI 设计系统。 */
 
 html, body, #root { height: 100%; margin: 0; }
-/* 应用背景：主题渐变图铺满并固定，玻璃面板透出它（素材见 public/brand，规范见设计系统 v2） */
-body { background: var(--bg-canvas) url("/brand/app-dark.webp") center / cover fixed no-repeat; }
-:root[data-theme="light"] body { background-image: url("/brand/app-light.webp"); }
-/* 玻璃面板：半透明底 + 模糊 + 顶部细高光 */
-.av-panel, .av-workspace, .av-inspector, .av-stages, .av-answer, .av-composer, .av-auth__card, .av-drawer, .av-menu, .av-float, .av-minimap {
-  -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); }
+/* 应用背景：实色（设计系统 v3 去掉了背景图与毛玻璃，颜色只表达操作、状态与数据流动） */
+body { background: var(--bg-canvas); }
 .av-panel, .av-workspace, .av-stages, .av-answer, .av-composer { box-shadow: var(--shadow-glass); }
 body { font-family: var(--font-sans); }
 .av-app { height: 100vh; min-height: 0; }

@@ -63,9 +63,6 @@ export function ModelSettings() {
       qc.invalidateQueries({ queryKey: ["model-settings"] }),
     ]);
   };
-  const addAction = isAdmin ? (
-    <button type="button" className="av-btn av-btn--secondary" onClick={() => setAdding(true)}>{t("添加提供方")}</button>
-  ) : undefined;
 
   return (
     <div className="av-fill av-models">
@@ -90,7 +87,7 @@ export function ModelSettings() {
         <section className="av-pane av-models__providers" aria-label={t("提供方")}>
           <div className="av-pane-hd"><h2>{t("提供方")} {providers.isSuccess ? <span className="av-count">{list.length}</span> : null}</h2></div>
           <div className="av-scroll">
-            <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText={t("还没有模型提供方")} emptyAction={addAction} compact>
+            <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText={t("还没有模型提供方")} compact>
               {(items) => items.map((p) => {
                 const status = providerStatus(p);
                 return (
@@ -113,11 +110,12 @@ export function ModelSettings() {
 
         <section className="av-pane av-models__main" aria-label={t("模型配置")}>
           <div className="av-scroll av-models__sections">
-            <section className="av-panel" aria-label={t("连接与模型")}>
-              <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText={t("添加提供方，开始配置连接与模型")} emptyAction={addAction} rows={5} compact>
+            {/* 还没有提供方时不放空面板：页头的“添加提供方”是唯一入口 */}
+            {providers.isSuccess && list.length === 0 ? null : <section className="av-panel" aria-label={t("连接与模型")}>
+              <QueryState query={providers} rows={5} compact>
                 {() => selected ? <ProviderDetail key={selected.id} provider={selected} isAdmin={isAdmin} onChanged={refresh} /> : null}
               </QueryState>
-            </section>
+            </section>}
             <section className="av-panel" aria-label={t("默认用途与数据外发")}>
               <QueryState query={settings} rows={4}>
                 {(data) => (
@@ -375,7 +373,7 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
 
   return (
     <form aria-label={t("默认用途与数据外发")} aria-busy={save.isPending} onSubmit={(e) => { e.preventDefault(); if (!disabled && dirty) save.mutate(); }}>
-      <div className="av-pane-hd"><h2>{t("默认用途")}</h2><span className="av-caption">{t("与数据外发统一保存")}</span></div>
+      <div className="av-pane-hd"><h2>{t("默认用途")}</h2></div>
       <div className="av-stack">
         <div className="av-models__assignments">
           {purposes.map(([key, p]) => {
@@ -402,7 +400,7 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
           })}
         </div>
         <section className="av-models__policy" aria-labelledby="model-policy-title">
-          <h3 id="model-policy-title" className="av-models__section-title">{t("数据外发")}</h3>
+          <h3 id="model-policy-title" className="av-models__section-title">{t("数据外发")} <Hint text={t("默认发送查询结果与代码片段，分析模式需要它们；需保密请接入本地模型（OpenAI 兼容接口）")} /></h3>
           <div className="av-toggle-row">
             <span className="av-toggle-row__text"><span>{t("发送查询结果")} <Hint text={t("问数结果发给结果解释模型与分析模型；关闭时使用模板解释，分析模式不可用")} /></span></span>
             <Switch label={t("发送查询结果")} checked={policy.send_results} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_results: v })} />
@@ -411,7 +409,6 @@ function DefaultModels({ settings, providers, isAdmin, onSaved }: {
             <span className="av-toggle-row__text"><span>{t("发送代码片段")} <Hint text={t("未能解析的代码脱敏后发给导入血缘推断模型；脱敏是尽力而为，敏感环境请使用本地模型；关闭时使用演示规则")} /></span></span>
             <Switch label={t("发送代码片段")} checked={policy.send_code} disabled={disabled} onChange={(v) => setPolicy({ ...policy, send_code: v })} />
           </div>
-          <p className="av-caption av-models__policy-note"><Icon name="shield" small />{t("默认发送查询结果与代码片段，分析模式需要它们；需保密请接入本地模型（OpenAI 兼容接口）")}</p>
         </section>
         <ModelFeedback message={message} busy={save.isPending} />
         <div className="av-actions">

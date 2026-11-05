@@ -133,7 +133,7 @@
 
 /* App shell: 248px 侧边栏（可收起到 72px）+ 主区；背景是主题渐变图，面板为玻璃 */
 .av-app { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100vh; background: transparent; }
-.av-sb { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; width: var(--size-rail); height: 100vh; padding: 14px 12px 10px; overflow: visible; z-index: 30; border-right: 1px solid var(--line-subtle); background: var(--bg-surface); -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%); transition: width .18s ease; }
+.av-sb { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; width: var(--size-rail); height: 100vh; padding: 14px 12px 10px; overflow: visible; z-index: 30; border-right: 1px solid var(--line-subtle); background: var(--bg-canvas); transition: width .18s ease; }
 .av-sb.is-collapsed { width: 72px; padding-inline: 12px; }
 .av-sb.is-collapsed .av-sb__label { display: none; }
 .av-sb__brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); height: 40px; padding: 0 2px 0 6px; margin-bottom: 10px; }
@@ -195,7 +195,7 @@
 .av-catalog { height: calc(100vh - var(--size-topbar)); display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .av-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
-.av-pane--rail { background: var(--bg-surface); -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); }
+.av-pane--rail { background: var(--bg-surface); }
 .av-pane__body { flex: 1; min-height: 0; overflow: auto; }
 .av-pane-hd { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-3); height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-subtle); }
 .av-pane-hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-title); color: var(--text-primary); }
