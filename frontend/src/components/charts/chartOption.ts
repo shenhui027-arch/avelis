@@ -199,12 +199,13 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
   }
 
   const negative = spec.series.some((s) => s.values.some((v) => v != null && v < 0));
-  const grid = { left: horizontal && negative ? 64 : 8, right: horizontal ? 64 : 16, top, bottom: many ? 48 : 8, containLabel: true };
+  const grid = { left: 8, right: horizontal ? 64 : 16, top, bottom: many ? 48 : 8, containLabel: true };
   const cats = categoryAxis(spec, theme, horizontal ? { inverse: true } : { boundaryGap: spec.kind !== "line" });
-  const vals = valueAxis(unit, style, theme);
+  const labelled = spec.series.length === 1 && spec.categories.length <= 20 && spec.kind !== "line";
+  // 负值的数值标注在条形外侧：数值轴向负方向留出余量，最长的负值条不顶到边，标注不压住类目轴文字
+  const vals = valueAxis(unit, style, theme, labelled && negative ? { boundaryGap: ["18%", 0] } : {});
   const dataZoom = many && !horizontal ? [{ type: "inside" }, { type: "slider", height: 18, bottom: 8, borderColor: theme.grid,
     textStyle: { color: theme.muted }, fillerColor: "rgba(127,127,127,0.12)", handleSize: 14 }] : undefined;
-  const labelled = spec.series.length === 1 && spec.categories.length <= 20 && spec.kind !== "line";
 
   const series = spec.series.map((s, i) => {
     const color = seriesColor(spec, i, theme);
