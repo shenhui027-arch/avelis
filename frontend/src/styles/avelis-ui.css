@@ -82,11 +82,16 @@
 .av-seg button[aria-pressed="true"], .av-seg a[aria-current="page"] { color: var(--text-primary); }
 .av-seg__pill { position: absolute; inset: 0; z-index: 0; border-radius: 6px; background: var(--bg-surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
 :root:not([data-theme="light"]) .av-seg__pill { background: #38383c; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
+/* 还没接 Motion 的分段控件（直接写 .av-seg 按钮的地方）：选中块用静态底色兜底 */
+.av-seg button[aria-pressed="true"]:not(:has(> .av-seg__pill)), .av-seg a[aria-current="page"]:not(:has(> .av-seg__pill)) { background: var(--bg-surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+:root:not([data-theme="light"]) .av-seg button[aria-pressed="true"]:not(:has(> .av-seg__pill)), :root:not([data-theme="light"]) .av-seg a[aria-current="page"]:not(:has(> .av-seg__pill)) { background: #38383c; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
 .av-tabs { display: flex; gap: var(--space-5); border-bottom: 1px solid var(--line-subtle); }
 .av-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0; border: none; background: none; color: var(--text-tertiary); font: 500 13px/20px var(--font-sans); cursor: pointer; }
 .av-tab:hover { color: var(--text-primary); }
 .av-tab[aria-selected="true"] { color: var(--text-primary); }
 .av-tab__bar { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--text-primary); }
+/* 还没接 Motion 的标签页：下划线用伪元素兜底 */
+.av-tab[aria-selected="true"]:not(:has(> .av-tab__bar))::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--text-primary); }
 
 /* Status, pill, tag, count, avatar, swatch */
 .av-status { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--font-sans); color: var(--text-secondary); white-space: nowrap; }

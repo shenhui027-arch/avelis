@@ -5,7 +5,11 @@
 /* 变更：左侧列表是一张卡片，右侧详情落在页面底色上（详情里的分区各自是卡片） */
 .av-changes { display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100vh; padding: var(--space-3) 0 var(--space-3) var(--space-3); }
 .av-changes__list { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
-@media (max-width: 900px) { .av-changes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: auto; min-height: 100vh; padding-right: var(--space-3); } }
+/* 窄屏上下堆叠：外层在视口高度内整体滚动，列表与详情按内容展开 */
+@media (max-width: 900px) {
+  .av-changes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; row-gap: var(--space-3); overflow-y: auto; padding-right: var(--space-3); }
+  .av-changes > .av-pane, .av-changes .av-pane__body { overflow: visible; }
+}
 
 /* 两栏是两张独立的卡片：宽的放待办与指标，窄的放数据源、采集节奏与最近变更 */
 .av-workbench__workspace { grid-template-columns: minmax(0, 1fr) var(--size-inspector); gap: var(--space-3); overflow: visible; border: none; background: transparent; box-shadow: none; }
