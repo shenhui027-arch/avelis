@@ -2,19 +2,17 @@
 
 English | [简体中文](product-tour.md) | [繁體中文](product-tour.zh-TW.md)
 
-This tour walks through the main pages of Avelis with screenshots. The screenshots were taken from build a8dce65 of main (some pages include two style fixes made while taking them on 2026-11-01), at a 1440×900 viewport in the dark theme, plus two in the light theme. The data on the pages is synthetic e-commerce, store and manufacturing demo data, and all names are fictional.
-
-> The screenshots show the current Simplified Chinese interface. Screenshots of the English and Traditional Chinese interfaces will be added once the interface supports those languages.
+This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-05 from main after v1.0.7 (4a30eee, plus four interface fixes made while taking them), at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved from this analysis's conclusions before the screenshots were taken.
 
 ## Sign-in
 
-The sign-in page shows the product's key points and an example of a grounded analysis on the left, and the sign-in form on the right. Accounts whose password was created or reset by an administrator must change it on first sign-in.
+The sign-in page shows the product's tagline and an example of a grounded analysis on the left, and the sign-in form on the right. Accounts whose password was created or reset by an administrator must change it on first sign-in.
 
-![Sign-in page (dark)](images/en/login.png)
+![Sign-in page](images/en/login.png)
 
-A light theme is available (follows the system, and can be switched in the app):
+A dark theme is available (switch it in the app, or follow the system):
 
-![Sign-in page (light)](images/en/login-light.png)
+![Sign-in page (dark)](images/en/login-dark.png)
 
 ## Workbench
 
@@ -26,7 +24,7 @@ The home page after sign-in: overviews of collection, lineage, changes, metric d
 
 ### Asking a question
 
-Start from **问数** (Ask) or **新问题** (New question). You can ask for a single number, or ask “why did this change, what is related”. Below the input box you can choose how time is interpreted, how confirmations are handled and which model to use; example questions configured for the business domain are listed underneath.
+Start from **Ask** or **New question**. You can ask for a single number, or ask “why did this change, what is related”. Below the input box you can choose how time is interpreted, how confirmations are handled and which model to use; example questions configured for the business domain are listed underneath.
 
 ![Ask home](images/en/ask-home.png)
 
@@ -41,25 +39,25 @@ An analysis is a conversation in time order:
 
 ![Analysis session](images/en/analysis.png)
 
-Further down the report is “not yet explained · let the model keep investigating”: each unexplained point can be investigated further with one click. Below that are the basis for the conclusions, the basis for the analysis, and the confirmations and corrections that can be saved as experience.
+Further down the report is “Still unresolved · the model can keep investigating”: each unexplained point can be investigated further with one click. Below that are the basis for the conclusions, the basis for the analysis, and the confirmations and corrections that can be saved as experience.
 
 ![Report: open questions and further investigation](images/en/analysis-report.png)
 
 ### Export
 
-Reports export to PDF, HTML or Markdown. The default is a brief for decision makers; tick “include evidence” to export the full report with data sources and query details.
+Reports export to PDF, HTML or Markdown. The default is a brief for decision makers; tick “Include basis” to export the full report with data sources and query details.
 
 ![Export menu](images/en/analysis-export.png)
 
 ### Dataset view
 
-Click a dataset in the evidence panel or a dataset reference in the report (such as D13) to open it in the main area: a chart and the rows, the window and notes. You can rerun it with a different time window or export it as CSV; “back to report” returns to the conversation.
+Click a dataset in the evidence panel or a dataset reference in the report (such as D4) to open it in the main area: a chart and the rows, the window and notes. You can rerun it with a different time window or export it as CSV; “Back to report” returns to the conversation.
 
 ![Dataset view](images/en/analysis-dataset.png)
 
-An analysis session in the light theme:
+An analysis session in the dark theme:
 
-![Analysis session (light)](images/en/analysis-light.png)
+![Analysis session (dark)](images/en/analysis-dark.png)
 
 ## Personal experience
 
@@ -81,6 +79,6 @@ Metrics, assets, business domains and join paths. The metric detail page shows t
 
 ## Settings
 
-Data sources, model settings and users. The data source page shows the connection, endpoint aliases, collection scope and interval, and the result of each collection run.
+Data sources, models, users, business calendar, notifications and MCP access. The data source page shows the connection, endpoint aliases, collection scope and interval, and the result of each collection run.
 
 ![Settings: data sources](images/en/settings.png)
