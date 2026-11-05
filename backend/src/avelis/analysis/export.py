@@ -1188,8 +1188,8 @@ def _bar_chart(
 
 # 浅色主题图表令牌；测试核对 tokens.json，运行时不依赖前端文件。
 VIZ_PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
-VIZ_NEUTRAL = "#9aa3b5"
-VIZ_DIM = "#d9dfe8"
+VIZ_NEUTRAL = "#a3a29d"
+VIZ_DIM = "#dddcd7"
 
 
 def _chart_marks(spec: dict, series_index: int) -> list[dict]:

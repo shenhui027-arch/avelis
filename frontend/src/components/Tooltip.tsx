@@ -74,6 +74,8 @@ export function TooltipLayer() {
     };
     const over = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
+      // 仍在当前提示的元素里（移到它的图标、文字上）：保持打开。借走 title 后 tipTarget 找不到它
+      if (current.current && e.target instanceof Node && current.current.el.contains(e.target)) return;
       const el = tipTarget(e.target);
       if (el) show(el, false);
       else if (current.current || timer.current) hide();
