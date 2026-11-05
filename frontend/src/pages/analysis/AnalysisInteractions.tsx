@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
-import { Drawer, Empty, Icon, Pill, Seg, Select, shortName } from "../../components/ui";
+import { Drawer, Empty, Icon, Pill, Seg, Select, shortName, Tile } from "../../components/ui";
 import { formatTime } from "../../format";
 import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 import { t } from "../../i18n";
@@ -58,8 +58,9 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
   ["analysis-run", "analysis-runs"]);
   const pending = items.filter((i) => !decisions[i.id]).length;
   return (
-    <section className="av-analysis__confirm" aria-label={t("确认分析依据")}>
-      <header className="av-analysis__confirm-hd">
+    <section className="av-analysis__confirm av-approve" aria-label={t("确认分析依据")}>
+      <header className="av-analysis__confirm-hd av-approve__hd">
+        <Tile icon="shield" tone="accent" />
         <h3>{t("确认分析依据")} {pending ? <Pill tone="warn">{t("{{count}} 项待定", { count: pending })}</Pill> : null}</h3>
         <button type="button" className="av-btn av-btn--ghost av-btn--sm"
           onClick={() => setDecisions(Object.fromEntries(items.map((i) => [i.id, "confirmed"])))}>{t("全部确认")}</button>
@@ -113,8 +114,8 @@ export function ClarifyPanel({ runId, question, items }: { runId: string; questi
   };
   const selections = (items ?? []).filter((i) => chosen[key(i)]).map((i) => ({ dimension: i.dimension, original: i.original, value: chosen[key(i)] }));
   return (
-    <section className="av-analysis__confirm" aria-label={t("回答追问")}>
-      <header className="av-analysis__confirm-hd"><h3>{t("需要你确认范围")}</h3></header>
+    <section className="av-analysis__confirm av-approve" aria-label={t("回答追问")}>
+      <header className="av-analysis__confirm-hd av-approve__hd"><Tile icon="ask" tone="warn" /><h3>{t("需要你确认范围")}</h3></header>
       <p className="av-analysis__question">{question}</p>
       {(items ?? []).map((i) => <div key={key(i)} className="av-analysis__choice">
         <span className="av-caption">{t("{{dimension}}：“{{original}}”", { dimension: i.dimension, original: i.original })}</span>

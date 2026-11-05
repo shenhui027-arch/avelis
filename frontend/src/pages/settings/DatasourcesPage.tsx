@@ -10,6 +10,7 @@ import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
   Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, Switch, useMessage,
 } from "../../components/ui";
+import { RunStrip, useRuns } from "../../components/RunStrip";
 import { t } from "../../i18n";
 
 type Datasource = Schemas["DatasourceOut"];
@@ -76,6 +77,7 @@ export function DatasourcesPage() {
   const navigate = useNavigate();
   const roles = useRoles();
   const sources = useDatasources();
+  const tz = useTimeZone();
   const [adding, setAdding] = useState(false);
   const canEdit = roles.has("admin") || roles.has("steward");
   const addButton = canEdit ? <button type="button" className="av-btn av-btn--primary" onClick={() => setAdding(true)}>
@@ -99,6 +101,7 @@ export function DatasourcesPage() {
                   <span className="av-row__main">
                     <span className="av-row__title">{d.name}</span>
                     <span className="av-row__meta av-mono">{d.host}:{d.port}</span>
+                    <RunStrip id={d.id} count={20} tz={tz} />
                   </span>
                   <span className="av-datasources__list-status"><Plat kind={d.kind} /><Status value={d.last_run?.status ?? "never"} /></span>
                 </button>
@@ -333,12 +336,6 @@ function optionText(value: unknown): string {
   return String(value);
 }
 
-function useRuns(id: string) {
-  return useQuery({
-    queryKey: ["runs", id],
-    queryFn: () => unwrap(api.GET("/api/datasources/{datasource_id}/runs", { params: { path: { datasource_id: id } } })),
-  });
-}
 
 function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
   ds: Datasource; purpose: CredentialPurpose; onClose: () => void; onSaved: () => void;

@@ -5,12 +5,16 @@ import { Link, useNavigate } from "react-router";
 import { CountUp, MotionLink, RevealGroup, revealItem } from "../components/Motion";
 
 import { useTimeZone, useWorkbench } from "../api/hooks";
-import { Empty, Plat, QueryState, Seg, Status, statusOf } from "../components/ui";
+import { Empty, Parts, Plat, QueryState, Seg, Status, statusOf, Tile, type KitTone } from "../components/ui";
+import { RunStrip } from "../components/RunStrip";
 import { formatClock } from "../format";
 import { t } from "../i18n";
 import { useRoles } from "../layout/Shell";
 import { useState } from "react";
 
+const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
+const TONE_OF: Record<string, KitTone> = { ok: "ok", warn: "warn", danger: "danger", info: "accent" };
+const STATUS_PARTS: [string, KitTone][] = [["published", "ok"], ["pending_review", "accent"], ["affected", "warn"], ["draft", "neutral"], ["retired", "danger"]];
 const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/ask" };
 const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
 
@@ -32,13 +36,13 @@ export function Workbench() {
         </div>
       </div>
 
-      <QueryState query={wb}>{(d) => <>
+      <QueryState query={wb}>{(d) => { const maxRuns = Math.max(1, ...d.cadence.map((c) => Number(c.runs) || 0)); return <>
       <RevealGroup as="nav" className="av-stages" aria-label={t("治理闭环")}>
         {d.stages.map((s) => {
           const [tone] = statusOf(s.status);
           return (
             <MotionLink key={s.key} to={STAGE_LINK[s.key]} className="av-stage" variants={revealItem}>
-              <span className="av-stage__hd">{s.label}</span>
+              <span className="av-stage__hd"><Tile icon={STAGE_ICON[s.key] ?? "chart"} tone={TONE_OF[tone] ?? "accent"} size="sm" />{s.label}</span>
               <span className="av-stage__val"><CountUp value={s.value} /><small>{s.unit}</small></span>
               <span className={`av-status${tone ? ` av-status--${tone}` : ""}`}>{s.note}</span>
             </MotionLink>
@@ -85,12 +89,14 @@ export function Workbench() {
           <div className="av-pane av-workbench__card av-workbench__card--metrics">
               <div className="av-pane-hd"><h2>{t("我负责的指标")} <span className="av-count">{d.my_metrics.length}</span></h2>
                 <Link to="/catalog/metrics" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
+              {d.my_metrics.length ? <div className="av-workbench__parts"><Parts label={t("口径状态构成")}
+                parts={STATUS_PARTS.map(([status, tone]) => ({ label: statusOf(status)[1], tone, value: d.my_metrics.filter((m) => String(m.status) === status).length }))} /></div> : null}
               <div className="av-pane__body">
                 <table className="av-table av-workbench__metrics">
                   <thead><tr><th>{t("指标")}</th><th>{t("版本")}</th><th>{t("状态")}</th><th>{t("粒度")}</th><th className="num">{t("本周问数")}</th></tr></thead>
                   <tbody>{d.my_metrics.map((m) => (
                     <tr key={String(m.id)} className="is-link" onClick={(e) => { if (!(e.target as Element).closest("a")) navigate(`/catalog/metrics/${String(m.id)}`); }}>
-                      <td><Link to={`/catalog/metrics/${String(m.id)}`}>{String(m.name)}</Link></td>
+                      <td><span className="av-cell"><Tile icon="chart" tone="accent" size="sm" /><Link to={`/catalog/metrics/${String(m.id)}`}>{String(m.name)}</Link></span></td>
                       <td>{m.version_no ? <span className="av-tag">V{String(m.version_no)}</span> : null}</td>
                       <td><Status value={String(m.status)} /></td>
                       <td className="av-mono">{(m.grain as string[]).join(" × ")}</td>
@@ -109,7 +115,8 @@ export function Workbench() {
               <div className="av-list">
                 {d.datasources.map((s) => (
                   <Link key={String(s.id)} to={`/settings/datasources/${String(s.id)}`} className="av-row av-workbench__source">
-                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{count}} 分钟", { count: Number(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span></span>
+                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{count}} 分钟", { count: Number(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span>
+                      <RunStrip id={String(s.id)} count={20} tz={tz} /></span>
                     <span className="av-row__end"><Status value={String(s.status) === "ok" ? "ok" : String(s.status)} /></span>
                   </Link>
                 ))}
@@ -119,10 +126,11 @@ export function Workbench() {
             <div className="av-section">
               <div className="av-pane-hd"><h2>{t("采集节奏")}</h2><span className="av-tag">{t("今日")}</span></div>
               <div className="av-workbench__cadence">
-                <div className="av-cadence" aria-label={t("今日每小时的采集")}>
+                <div className="av-heat" role="img" aria-label={t("今日每小时的采集")}>
                   {d.cadence.map((c) => (
-                    <i key={Number(c.hour)} title={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
-                      className={c.future ? "is-future" : c.changed ? "is-change" : !c.runs ? "is-idle" : undefined} />
+                    <i key={Number(c.hour)} data-tip={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
+                      data-level={c.future || !Number(c.runs) ? 0 : Math.max(1, Math.ceil((Number(c.runs) / maxRuns) * 4))}
+                      className={c.future ? "is-future" : c.changed ? "is-change" : undefined} />
                   ))}
                 </div>
                 <div className="av-cadence-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
@@ -146,7 +154,7 @@ export function Workbench() {
           </div>
         </div>
       </motion.section>
-      </>}</QueryState>
+      </>; }}</QueryState>
     </div>
   );
 }

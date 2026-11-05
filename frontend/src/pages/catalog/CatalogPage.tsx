@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useAssetSearch, useCatalogCounts, useDomains, useMetrics, type Asset } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Count, Empty, Icon, KIND_LABEL, Pager, Pill, QueryState, Status } from "../../components/ui";
+import { Count, Empty, Icon, KIND_LABEL, Pager, Pill, QueryState, Status, Tile } from "../../components/ui";
 import { useRoles } from "../../layout/Shell";
 import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
@@ -45,6 +45,9 @@ export function CatalogPage() {
   useEffect(() => setAssetOffset(0), [assetTerm]);
   const assets = useAssetSearch({ q: assetTerm || undefined, limit: ASSET_PAGE + 1, offset: assetOffset }, section === "assets");
   const [creating, setCreating] = useState(false);
+  // 资产表按数据源分组，组可以收起（默认全部展开）
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const toggleGroup = (key: string) => setCollapsed((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
   const [creatingDomain, setCreatingDomain] = useState(false);
   const canCreateMetric = roles.has("steward") || roles.has("admin");
   const current = SECTIONS.find((item) => item.key === section);
@@ -128,21 +131,30 @@ export function CatalogPage() {
           <div className="av-pane__body">
             {section === "metrics" ? <QueryState query={metrics} isEmpty={() => metricList.length === 0}
               emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : createMetric}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("指标")}</th><th>{t("编码")}</th><th>{t("状态")}</th><th>{t("负责人")}</th></tr></thead>
-                <tbody>{metricList.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
-                  {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title={t("口径没有单位：报告里的数字不带单位，请在新版本中补上")}>{t("单位待补")}</Pill></> : null}</td><td className="av-mono">{m.code}</td>
+              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("指标")}</th><th>{t("状态")}</th><th>{t("负责人")}</th></tr></thead>
+                <tbody>{metricList.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><span className="av-cell"><Tile icon="chart" tone="accent" />
+                  <span className="av-cell__text"><span><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
+                  {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title={t("口径没有单位：报告里的数字不带单位，请在新版本中补上")}>{t("单位待补")}</Pill></> : null}</span><span>{m.code}</span></span></span></td>
                   <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td></tr>)}</tbody></table></div>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} isEmpty={() => assetList.length === 0}
               emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>}>
-              {() => <><div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("数据源")}</th><th>{t("状态")}</th></tr></thead>
-                <tbody>{assetList.map((a) => <tr key={a.id} className="is-link" onClick={rowLink(`/catalog/assets/${a.id}`)}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{KIND_LABEL[a.kind] ?? a.kind}</td>
-                  <td>{a.datasource.name}</td><td><Status value={a.status} /></td></tr>)}</tbody></table></div>{assetPager}</>}
+              {() => <><div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("状态")}</th></tr></thead>
+                <tbody>{[...groupBySource(assetList)].map(([sourceId, rows]) => {
+                  const open = !collapsed.has(sourceId);
+                  return [<tr key={`g-${sourceId}`} className="av-group-row" onClick={() => toggleGroup(sourceId)}><td colSpan={3}>
+                    <button type="button" className="av-group-row__toggle" aria-expanded={open} onClick={(e) => { e.stopPropagation(); toggleGroup(sourceId); }}>
+                      <Icon name="chevron" small /><Icon name="db" small />{rows[0].datasource.name}<span className="av-count">{rows.length}</span></button></td></tr>,
+                  ...(open ? rows.map((a) => <tr key={a.id} className="is-link" onClick={rowLink(`/catalog/assets/${a.id}`)}><td><span className="av-cell"><Tile icon={a.kind === "view" || a.kind === "materialized_view" ? "view" : "table"} />
+                    <span className="av-cell__text"><Link to={`/catalog/assets/${a.id}`}>{a.qualified.split(".").pop()}</Link><span>{a.qualified}</span></span></span></td>
+                    <td>{KIND_LABEL[a.kind] ?? a.kind}</td><td><Status value={a.status} /></td></tr>) : [])];
+                })}</tbody></table></div>{assetPager}</>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} isEmpty={() => domainList.length === 0}
               emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : createDomain}>
-              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("业务域")}</th><th>{t("编码")}</th><th>{t("说明")}</th><th>{t("成员")}</th></tr></thead>
-                <tbody>{domainList.map((d) => <tr key={d.id} className="is-link" onClick={rowLink(`/catalog/domains/${d.id}`)}><td><Link to={`/catalog/domains/${d.id}`}>{d.name}</Link></td><td className="av-mono">{d.code}</td><td>{d.description || "—"}</td>
+              {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("业务域")}</th><th>{t("说明")}</th><th>{t("成员")}</th></tr></thead>
+                <tbody>{domainList.map((d) => <tr key={d.id} className="is-link" onClick={rowLink(`/catalog/domains/${d.id}`)}><td><span className="av-cell"><Tile icon="users" />
+                  <span className="av-cell__text"><Link to={`/catalog/domains/${d.id}`}>{d.name}</Link><span>{d.code}</span></span></span></td><td>{d.description || "—"}</td>
                   <td className="num">{d.members.length}</td></tr>)}</tbody></table></div>}
             </QueryState> : null}
           </div>
@@ -159,6 +171,13 @@ export function CatalogPage() {
       {importing && canCreateMetric ? <OssieImportDrawer onClose={() => setImporting(false)} /> : null}
     </div>
   );
+}
+
+/** 按数据源分组，保持原有顺序。 */
+function groupBySource(assets: Asset[]): Map<string, Asset[]> {
+  const groups = new Map<string, Asset[]>();
+  for (const a of assets) groups.set(a.datasource.id, [...(groups.get(a.datasource.id) ?? []), a]);
+  return groups;
 }
 
 function CatalogAssetTree({ assets, selectedId, searching }: { assets: Asset[]; selectedId?: string; searching: boolean }) {

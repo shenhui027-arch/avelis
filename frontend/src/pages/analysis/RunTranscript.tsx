@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
-import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { Code, Icon, Pill, shortName, Tile } from "../../components/ui";
 import { EvidenceLink } from "./DatasetView";
 import { ContextMeter } from "./ModelPicker";
 import { t } from "../../i18n";
@@ -97,9 +97,12 @@ function StepRow({ s, runId }: { s: Step; runId: string }) {
     <li className="av-runlog__user"><span className="av-runlog__bubble">{d.user}</span><span className="av-caption">{t("已生效")}</span></li>);
   return (
     <li className={`av-runlog__step is-${s.kind}${bad ? " is-bad" : ""}`}>
-      <span className="av-runlog__icon"><Icon name={d.icon} small /></span>
+      {/* 任务清单的状态块：完成 / 失败 / 推理 / 跳过；工具图标放在标题前 */}
+      <Tile size="sm" icon={bad ? "close" : s.kind === "model" ? "chip" : s.status === "skipped" ? "more" : "check"}
+        tone={bad ? "danger" : s.kind === "model" ? "accent" : s.status === "skipped" ? "neutral" : "ok"} />
       <div className="av-runlog__body">
         <div className="av-runlog__line">
+          {s.kind !== "model" ? <Icon name={d.icon} small /> : null}
           <span className="av-runlog__title">{d.title}</span>
           {s.reason && s.kind !== "model" ? <span className="av-runlog__reason">{s.reason}</span> : null}
           {s.dataset ? <EvidenceLink runId={runId} refId={s.dataset} /> : null}
@@ -166,7 +169,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
         {messages.map((m) => (
           <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">{t("待生效")}</Pill></li>))}
-        {live && run.status !== "waiting" ? <li className="av-runlog__step is-pending"><span className="av-spinner" aria-hidden />
+        {live && run.status !== "waiting" ? <li className="av-runlog__step is-pending"><span className="av-tile av-tile--sm tone-accent" aria-hidden><span className="av-spinner" /></span>
           {run.status === "queued" ? <Queued /> : <span className="av-caption">{t("正在进行下一步…")}</span>}</li> : null}
       </ol>
       {footer && !live ? <div className="av-think__ft">{footer}</div> : null}

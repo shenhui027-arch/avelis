@@ -1,0 +1,158 @@
+/* 组件套件（v1.0.8）：从 21st.dev 选来的组件形态，全部用同一套令牌重做——同一组语气色、同一种图标块、
+   同一种标签、同一条进度轨、同一套圆角与间距。页面里只组合这些件，不为单个组件另起配色，避免“拼凑感”。
+   加载顺序在 pages.css 之后：这里的定义覆盖旧的同名样式。 */
+
+/* --- 语气：一个类同时给出主色与淡底，图标块、标签、进度、提示条共用 ------------------------------ */
+.tone-neutral { --tone: var(--text-secondary); --tone-bg: var(--bg-active); }
+.tone-accent { --tone: var(--accent-text); --tone-bg: var(--accent-subtle); }
+.tone-ok { --tone: var(--ok); --tone-bg: var(--ok-subtle); }
+.tone-warn { --tone: var(--warn); --tone-bg: var(--warn-subtle); }
+.tone-danger { --tone: var(--danger); --tone-bg: var(--danger-subtle); }
+.tone-flow { --tone: var(--flow); --tone-bg: var(--signal-subtle); }
+
+/* --- 图标块：统计卡、空态、审计流、确认卡、表格行首共用 --------------------------------------------- */
+.av-tile { display: inline-grid; flex: none; place-items: center; width: 32px; height: 32px; border-radius: 9px;
+  background: var(--tone-bg, var(--bg-active)); color: var(--tone, var(--text-secondary)); }
+.av-tile .av-icon { width: 16px; height: 16px; }
+.av-tile--sm { width: 24px; height: 24px; border-radius: 7px; }
+.av-tile--sm .av-icon { width: 14px; height: 14px; }
+.av-tile--lg { width: 40px; height: 40px; border-radius: 11px; }
+.av-tile--lg .av-icon { width: 18px; height: 18px; }
+
+/* --- 标签：一种形状两种用法（中性小标签、语气胶囊） ------------------------------------------------- */
+.av-tag { height: 20px; padding: 0 6px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-raised);
+  color: var(--text-secondary); font: 500 11px/18px var(--font-mono); }
+.av-pill { height: 22px; padding: 0 8px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--bg-raised);
+  color: var(--text-secondary); font: 500 12px/20px var(--font-sans); }
+/* 语气胶囊：在基础定义之后重新给出底色与文字色（本文件晚于 avelis-ui.css 加载，否则会被上面的中性底色盖掉） */
+.av-pill--ok { border-color: transparent; background: var(--ok-subtle); color: var(--ok); }
+.av-pill--warn { border-color: transparent; background: var(--warn-subtle); color: var(--warn); }
+.av-pill--danger { border-color: transparent; background: var(--danger-subtle); color: var(--danger); }
+.av-pill--info { border-color: transparent; background: var(--accent-subtle); color: var(--accent-text); }
+
+/* --- 进度轨：用量、比例、采集状态条共用 ------------------------------------------------------------- */
+.av-meter { position: relative; display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--bg-active); }
+.av-meter > i { display: block; height: 100%; border-radius: inherit; background: var(--tone, var(--accent)); transition: width .5s cubic-bezier(.22, 1, .36, 1); }
+/* 分段比例条：每段一个语气色，段间留 2px 缝 */
+.av-parts { display: flex; gap: 2px; height: 8px; overflow: hidden; border-radius: 4px; }
+.av-parts > i { min-width: 2px; height: 100%; background: var(--tone, var(--text-tertiary)); transition: flex-grow .5s cubic-bezier(.22, 1, .36, 1); }
+.av-parts > i:first-child { border-radius: 4px 0 0 4px; } .av-parts > i:last-child { border-radius: 0 4px 4px 0; }
+.av-parts > i:only-child { border-radius: 4px; }
+.av-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-secondary); font: 400 12px/18px var(--font-sans); }
+.av-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.av-legend span::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--tone, var(--text-tertiary)); }
+.av-legend b { color: var(--text-primary); font: 500 12px/18px var(--font-mono); }
+
+/* --- 采集状态条：最近 N 次运行，一根一次（成功 / 失败 / 进行中 / 空） -------------------------------- */
+.av-strip { display: flex; align-items: stretch; gap: 2px; height: 14px; }
+.av-strip > i { flex: 1; min-width: 3px; max-width: 5px; border-radius: 1.5px; background: var(--bg-active); }
+.av-strip > i.is-ok { background: color-mix(in srgb, var(--ok) 55%, var(--bg-surface)); }
+.av-strip > i.is-danger { background: color-mix(in srgb, var(--danger) 60%, var(--bg-surface)); }
+.av-strip > i.is-warn { background: color-mix(in srgb, var(--warn) 60%, var(--bg-surface)); }
+.av-strip > i:last-child.is-ok { background: var(--ok); } .av-strip > i:last-child.is-danger { background: var(--danger); }
+
+/* --- 热力格：一格一个时段，强度 0–4 用强调色的深浅，发现变化的格用赭石 ------------------------------ */
+.av-heat { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
+.av-heat > i { aspect-ratio: 1; border-radius: 3px; background: var(--bg-active); }
+.av-heat > i[data-level="1"] { background: color-mix(in srgb, var(--accent) 25%, var(--bg-surface)); }
+.av-heat > i[data-level="2"] { background: color-mix(in srgb, var(--accent) 45%, var(--bg-surface)); }
+.av-heat > i[data-level="3"] { background: color-mix(in srgb, var(--accent) 68%, var(--bg-surface)); }
+.av-heat > i[data-level="4"] { background: var(--accent); }
+.av-heat > i.is-change { box-shadow: inset 0 0 0 2px var(--flow); }
+.av-heat > i.is-future { background: transparent; box-shadow: inset 0 0 0 1px var(--line-subtle); }
+
+/* --- 提示条：信息 / 成功 / 注意 / 错误，左侧图标随语气（图标用遮罩画，所有 .av-banner 自动带上） -------- */
+.av-banner { position: relative; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 36px; border: 1px solid color-mix(in srgb, var(--tone, var(--accent)) 22%, transparent);
+  border-radius: 10px; background: var(--tone-bg, var(--accent-subtle)); color: var(--text-primary); font: 400 13px/20px var(--font-sans); }
+.av-banner::before { content: ""; position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; background: var(--tone, var(--accent-text));
+  -webkit-mask: var(--banner-icon) center / contain no-repeat; mask: var(--banner-icon) center / contain no-repeat; }
+.av-banner > .av-icon:first-child { display: none; }
+.av-banner--info { --tone: var(--accent-text); --tone-bg: var(--accent-subtle); }
+.av-banner--ok { --tone: var(--ok); --tone-bg: var(--ok-subtle); }
+.av-banner--warn { --tone: var(--warn); --tone-bg: var(--warn-subtle); }
+.av-banner--danger { --tone: var(--danger); --tone-bg: var(--danger-subtle); }
+.av-banner, .av-banner--info { --banner-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M8 10.5V7.5M8 5.5v-.01'/%3E%3C/svg%3E"); }
+.av-banner--ok { --banner-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M5.5 8.2 7.2 9.8 10.5 6.3'/%3E%3C/svg%3E"); }
+.av-banner--warn { --banner-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.5 14 13H2z'/%3E%3Cpath d='M8 6.5v3M8 11.2v-.01'/%3E%3C/svg%3E"); }
+.av-banner--danger { --banner-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M6 6l4 4M10 6l-4 4'/%3E%3C/svg%3E"); }
+
+/* --- 空态：三块叠放的图标块 + 一句话 + 一个主操作 ------------------------------------------------- */
+.av-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); min-height: 200px; height: 100%;
+  padding: var(--space-6); color: var(--text-secondary); text-align: center; font: 400 13px/20px var(--font-sans); }
+.av-empty--compact { height: auto; min-height: 140px; padding: var(--space-5); }
+.av-empty__art { position: relative; display: flex; justify-content: center; width: 120px; height: 48px; margin-bottom: var(--space-2); }
+.av-empty__art .av-tile { position: absolute; top: 4px; width: 36px; height: 36px; border: 1px solid var(--line-subtle); border-radius: 10px;
+  background: var(--bg-surface); color: var(--text-tertiary); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+.av-empty__art .av-tile:nth-child(1) { left: 14px; transform: rotate(-10deg) translateY(6px); }
+.av-empty__art .av-tile:nth-child(3) { right: 14px; transform: rotate(10deg) translateY(6px); }
+.av-empty__art .av-tile:nth-child(2) { z-index: 1; top: 0; left: 42px; color: var(--text-secondary); box-shadow: 0 2px 6px rgba(0, 0, 0, .08); }
+.av-empty__text { max-width: 36ch; }
+.av-empty .av-actions { justify-content: center; }
+
+/* --- 来源角标：正文里的依据做成小药丸，编号 + 名称，点开看数据集 ------------------------------------- */
+.av-cite { display: inline-flex; align-items: center; gap: 5px; height: 22px; margin: 0 2px; padding: 0 8px 0 3px; border-radius: 6px;
+  background: var(--accent-subtle); color: var(--accent-text); font: 500 12px/1 var(--font-sans); text-decoration: none; vertical-align: 1px;
+  transition: background-color .15s cubic-bezier(.22, 1, .36, 1); }
+.av-cite b { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px;
+  background: var(--accent); color: var(--text-on-accent); font: 500 10px/1 var(--font-mono); }
+.av-cite:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.av-cite:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* 正文数字上的依据编号：与 .av-cite 的编号块同一种样式 */
+.av-num sup { display: inline-grid; place-items: center; min-width: 16px; height: 15px; margin-left: 2px; padding: 0 3px; border-radius: 4px; vertical-align: 6px;
+  background: var(--accent-subtle); color: var(--accent-text); font: 500 9.5px/1 var(--font-mono); }
+
+/* --- 表格：统一的表头、行高、悬停与数字列；外层卡片里不再画重复边框 ------------------------------------ */
+.av-table th { height: 40px; padding: 0 var(--space-4); background: transparent; color: var(--text-tertiary); font: 400 12px/16px var(--font-sans); }
+.av-table td { height: 48px; padding: 0 var(--space-4); }
+.av-table tbody tr { transition: background-color .15s cubic-bezier(.22, 1, .36, 1); }
+.av-table tfoot td { height: 44px; border-top: 1px solid var(--line-default); border-bottom: none; color: var(--text-primary); font-weight: 500; }
+/* 富行：行首图标块 + 两行文字（名称 / 编码或说明） */
+.av-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.av-cell__text { display: flex; flex-direction: column; min-width: 0; }
+.av-cell__text > :first-child { overflow: hidden; color: var(--text-primary); font: 500 13px/18px var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
+.av-cell__text > :last-child:not(:first-child) { overflow: hidden; color: var(--text-tertiary); font: 400 12px/16px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+/* 分组展开行 */
+.av-table tr.av-group-row td { height: 40px; background: var(--bg-raised); cursor: pointer; }
+.av-group-row__toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: none; background: none; color: var(--text-primary); font: 500 13px/18px var(--font-sans); cursor: pointer; }
+.av-group-row__toggle .av-icon { color: var(--text-tertiary); transform: rotate(-90deg); transition: transform .2s cubic-bezier(.22, 1, .36, 1); }
+.av-group-row__toggle[aria-expanded="true"] .av-icon { transform: none; }
+.av-group-row__toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+
+/* --- 审计时间流：图标块 + 标题与说明 + 标签行，时间在右 ------------------------------------------- */
+.av-audit { display: flex; flex-direction: column; margin: 0; padding: var(--space-2) 0; list-style: none; }
+.av-audit > li { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 4px 14px; padding: 12px var(--space-5); }
+.av-audit > li:not(:last-child)::after { content: ""; position: absolute; left: calc(var(--space-5) + 15.5px); top: 48px; bottom: -8px; width: 1px; background: var(--line-default); }
+.av-audit__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 5px; }
+.av-audit__title { color: var(--text-primary); font: 500 13px/20px var(--font-sans); overflow-wrap: anywhere; }
+.av-audit__title.av-mono { font-family: var(--font-mono); }
+.av-audit__desc { color: var(--text-secondary); font: 400 12px/18px var(--font-sans); overflow-wrap: anywhere; }
+.av-audit__tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.av-audit__tags a.av-tag { text-decoration: none; }
+.av-audit__tags a.av-tag:hover { border-color: var(--line-strong); color: var(--text-primary); }
+.av-audit__time { padding-top: 5px; color: var(--text-tertiary); font: 400 12px/20px var(--font-mono); white-space: nowrap; }
+
+/* --- 确认卡（人在回路）：图标块 + 问题与说明，操作靠右；整张卡与其他卡同一套圆角与阴影 ------------------- */
+.av-approve { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5); border: 1px solid var(--line-default);
+  border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
+.av-approve__hd { display: flex; align-items: flex-start; gap: 12px; }
+.av-approve__hd h3 { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0 0; color: var(--text-primary); font: 500 14px/22px var(--font-sans); }
+.av-approve__hd > .av-btn { margin-top: 2px; }
+/* 等待确认的卡片：边框与一圈淡强调色，提示“这里需要你” */
+.av-approve.av-analysis__confirm { border-color: color-mix(in srgb, var(--accent) 35%, var(--line-default)); box-shadow: var(--shadow-glass), 0 0 0 3px var(--accent-subtle); }
+.av-approve > .av-actions:last-child { justify-content: flex-end; padding-top: var(--space-1); }
+
+/* --- 树：缩进引导线 + 可旋转的展开箭头 ------------------------------------------------------------- */
+.av-tree__children { position: relative; margin-left: 18px; padding-left: 8px; }
+.av-tree__children::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 1px; background: var(--line-default); }
+.av-tree__caret { color: var(--text-tertiary); transition: transform .2s cubic-bezier(.22, 1, .36, 1); }
+[aria-expanded="false"] > .av-tree__caret { transform: rotate(-90deg); }
+
+/* --- 输入框（Prompt Composer 形态）：底栏按钮与其他控件同一种圆角与描边 --------------------------------- */
+.av-compose__bar { border-top: none; padding: var(--space-1) var(--space-3) var(--space-3); }
+.av-chip__btn, .av-compose__bar .av-mbar__btn { height: 30px; border-color: var(--line-default); border-radius: 8px; background: var(--bg-raised); }
+.av-mbar__remain { margin-top: 6px; color: var(--text-tertiary); font: 400 12px/16px var(--font-sans); }
+.av-mbar__ctx .av-meter { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .av-meter > i, .av-parts > i, .av-group-row__toggle .av-icon, .av-tree__caret { transition: none; }
+}

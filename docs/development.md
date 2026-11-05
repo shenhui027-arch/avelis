@@ -75,7 +75,7 @@ pnpm gen:api        # 后端接口变化后重新生成类型
 pnpm gen:tokens     # 设计令牌变化后重新生成 tokens.css
 ```
 
-样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`，动效在 `src/styles/motion.css`。
+样式全部来自 Avelis UI 设计系统：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，组件样式在 `src/styles/avelis-ui.css`，动效在 `src/styles/motion.css`，组件套件（图标块、标签、进度轨、提示条、空态等共用件）在 `src/styles/kit.css`，新组件只组合这些件，不另起配色。
 
 ### 视觉与文案
 
