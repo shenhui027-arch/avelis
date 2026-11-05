@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.0.5-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.5)
+[![version](https://img.shields.io/badge/version-v1.0.6-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.6)
 
 [功能亮點](#功能亮點) · [最近更新](#最近更新) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.5 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.0.6 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
@@ -50,6 +50,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.0.6** | 介面重新設計：柔光工作台（淺色為主、深色同等），去掉漸層、輝光與冗餘說明文字，補充說明收進 ⓘ 提示；引入 Motion，選取塊滑動、頁面切換與浮層開合有過渡；問數首頁與工作台重新排版；字型隨映像打包，執行期不再下載 |
 | **v1.0.5** | 篩選取值對齊：使用者說的「華東區」這類取值，確定性地對到維度成員或業務維度表（別名由業務方在自己的維度表裡維護、經關聯路徑登記），對不上時追問候選、可直接點選；資產搜尋支援組合關鍵字與載入更多；修正並行投遞在輪尾誤計重試 |
 | **v1.0.4** | 用對話改圖：續問裡說「畫成圓餅圖」「標出最高點」「突出華東」即可改圖，不重新取數；圖上標註極值點、平均線與醒目顯示，匯出同步；Webhook 並行投遞，發件匣依保留期清理；資產選擇與目錄檢索依需查詢，大型目錄不再整表載入 |
 | **v1.0.3** | 圖表能力升級：問數回答自動出圖（趨勢、排名、構成、對比、指標卡、分圖），可切換候選圖與表格、下載 PNG；分析報告正文插圖，PDF / HTML 匯出依同一份圖表規格繪圖；數值依量綱顯示（百分比、萬 / 億、單位）；模型可透過 chart 工具選圖並給出結論式圖題 |
