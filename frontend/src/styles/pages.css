@@ -615,8 +615,8 @@
 .av-analysis__menu { position: relative; display: inline-flex; }
 
 /* 新建分析 */
-/* 问数首页：整组内容在视口里光学居中（下方留白多于上方），标题居中，示例是一行行居中的节片 */
-.av-analysis__compose { display: flex; flex-direction: column; justify-content: center; gap: var(--space-5); box-sizing: border-box; width: 100%; max-width: 760px; min-height: 100%; margin: 0 auto; padding: var(--space-12, 48px) 40px 16vh; }
+/* 问数首页：整组内容在视口里垂直居中（略偏下），标题居中，示例是一行行居中的节片 */
+.av-analysis__compose { display: flex; flex-direction: column; justify-content: center; gap: var(--space-5); box-sizing: border-box; width: 100%; max-width: 760px; min-height: 100%; margin: 0 auto; padding: 8vh 40px 6vh; }
 .av-compose__title { margin: 0; font: 500 30px/38px var(--font-sans); letter-spacing: -.02em; color: var(--text-primary); text-align: center; }
 .av-compose { position: relative; z-index: 1; }
 .av-hero + .av-compose { margin: -76px 24px 0; }
