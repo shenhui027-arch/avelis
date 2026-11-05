@@ -132,7 +132,7 @@ export function CatalogPage() {
             {section === "metrics" ? <QueryState query={metrics} isEmpty={() => metricList.length === 0}
               emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : createMetric}>
               {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("指标")}</th><th>{t("状态")}</th><th>{t("负责人")}</th></tr></thead>
-                <tbody>{metricList.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><span className="av-cell"><Tile icon="chart" tone="accent" />
+                <tbody>{metricList.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><span className="av-cell"><Tile icon="chart" tone="catalog" />
                   <span className="av-cell__text"><span><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
                   {m.versions[0] && !m.versions[0].unit ? <> <Pill tone="warn" title={t("口径没有单位：报告里的数字不带单位，请在新版本中补上")}>{t("单位待补")}</Pill></> : null}</span><span>{m.code}</span></span></span></td>
                   <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td></tr>)}</tbody></table></div>}
@@ -145,7 +145,7 @@ export function CatalogPage() {
                   return [<tr key={`g-${sourceId}`} className="av-group-row" onClick={() => toggleGroup(sourceId)}><td colSpan={3}>
                     <button type="button" className="av-group-row__toggle" aria-expanded={open} onClick={(e) => { e.stopPropagation(); toggleGroup(sourceId); }}>
                       <Icon name="chevron" small /><Icon name="db" small />{rows[0].datasource.name}<span className="av-count">{rows.length}</span></button></td></tr>,
-                  ...(open ? rows.map((a) => <tr key={a.id} className="is-link" onClick={rowLink(`/catalog/assets/${a.id}`)}><td><span className="av-cell"><Tile icon={a.kind === "view" || a.kind === "materialized_view" ? "view" : "table"} />
+                  ...(open ? rows.map((a) => <tr key={a.id} className="is-link" onClick={rowLink(`/catalog/assets/${a.id}`)}><td><span className="av-cell"><Tile icon={a.kind === "view" || a.kind === "materialized_view" ? "view" : "table"} tone="collect" />
                     <span className="av-cell__text"><Link to={`/catalog/assets/${a.id}`}>{a.qualified.split(".").pop()}</Link><span>{a.qualified}</span></span></span></td>
                     <td>{KIND_LABEL[a.kind] ?? a.kind}</td><td><Status value={a.status} /></td></tr>) : [])];
                 })}</tbody></table></div>{assetPager}</>}
@@ -153,7 +153,7 @@ export function CatalogPage() {
             {section === "domains" ? <QueryState query={domains} isEmpty={() => domainList.length === 0}
               emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : createDomain}>
               {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("业务域")}</th><th>{t("说明")}</th><th>{t("成员")}</th></tr></thead>
-                <tbody>{domainList.map((d) => <tr key={d.id} className="is-link" onClick={rowLink(`/catalog/domains/${d.id}`)}><td><span className="av-cell"><Tile icon="users" />
+                <tbody>{domainList.map((d) => <tr key={d.id} className="is-link" onClick={rowLink(`/catalog/domains/${d.id}`)}><td><span className="av-cell"><Tile icon="users" tone="ask" />
                   <span className="av-cell__text"><Link to={`/catalog/domains/${d.id}`}>{d.name}</Link><span>{d.code}</span></span></span></td><td>{d.description || "—"}</td>
                   <td className="num">{d.members.length}</td></tr>)}</tbody></table></div>}
             </QueryState> : null}

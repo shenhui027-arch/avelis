@@ -172,7 +172,7 @@ export function Empty({ text, action, compact, icon }: { text: string; action?: 
 
 // --- 套件件（styles/kit.css）：图标块、进度轨、分段比例条、来源角标 --------------------------------------
 
-export type KitTone = "neutral" | "accent" | "ok" | "warn" | "danger" | "flow";
+export type KitTone = "neutral" | "accent" | "ok" | "warn" | "danger" | "flow" | "collect" | "ask" | "lineage" | "catalog" | "change";
 
 /** 图标块：统计卡、空态、审计流、确认卡、表格行首共用一种形状。 */
 export function Tile({ icon, tone = "neutral", size }: { icon: string; tone?: KitTone; size?: "sm" | "lg" }) {

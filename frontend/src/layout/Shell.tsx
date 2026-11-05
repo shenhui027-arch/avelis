@@ -17,12 +17,12 @@ import { setThemePref, useThemePref, type ThemePref } from "../theme";
 // 侧边栏：品牌、数据源、新问题、主导航、我的（经验与定时任务）、最近对话，底部是设置、通知与用户菜单。
 // 收起后只留图标（72px），偏好存在本机浏览器。
 
-const NAV: { to: string; label: string; icon: string; end?: boolean }[] = [
-  { to: "/", label: t("工作台"), icon: "home", end: true },
-  { to: "/analysis", label: t("问数"), icon: "ask" },
-  { to: "/lineage", label: t("血缘"), icon: "lineage" },
-  { to: "/catalog", label: t("目录"), icon: "catalog" },
-  { to: "/changes", label: t("变更"), icon: "change" },
+const NAV: { to: string; label: string; icon: string; mod: string; end?: boolean }[] = [
+  { to: "/", label: t("工作台"), icon: "home", mod: "collect", end: true },
+  { to: "/analysis", label: t("问数"), icon: "ask", mod: "ask" },
+  { to: "/lineage", label: t("血缘"), icon: "lineage", mod: "lineage" },
+  { to: "/catalog", label: t("目录"), icon: "catalog", mod: "catalog" },
+  { to: "/changes", label: t("变更"), icon: "change", mod: "change" },
 ];
 
 export function useMe() {
@@ -226,21 +226,21 @@ function Sidebar() {
       </button>
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
-        <Link key={n.to} to={n.to} className="av-sb__nv" title={n.label}
+        <Link key={n.to} to={n.to} className={`av-sb__nv tone-${n.mod}`} data-mod={n.mod} title={n.label}
           aria-current={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname) ? "page" : undefined}>
           <NavPill active={/^\/analysis\/?(runs(\/.*)?)?$/.test(location.pathname)} />
           <Icon name={n.icon} /><span className="av-sb__label">{n.label}</span>
         </Link>
       ) : (
-        <NavLink key={n.to} to={n.to} end={n.end} className="av-sb__nv" title={n.label}>
+        <NavLink key={n.to} to={n.to} end={n.end} className={`av-sb__nv tone-${n.mod}`} data-mod={n.mod} title={n.label}>
           {({ isActive }) => <><NavPill active={isActive} /><Icon name={n.icon} /><span className="av-sb__label">{n.label}</span></>}
         </NavLink>
       ))}
       <div className="av-sb__sec av-sb__label">{t("我的")}</div>
-      <NavLink to="/analysis/experiences" className="av-sb__nv" title={t("个人经验")}>
+      <NavLink to="/analysis/experiences" className="av-sb__nv tone-ask" data-mod="ask" title={t("个人经验")}>
         {({ isActive }) => <><NavPill active={isActive} /><Icon name="chip" /><span className="av-sb__label">{t("个人经验")}</span></>}
       </NavLink>
-      <NavLink to="/analysis/tasks" className="av-sb__nv" title={t("定时任务")}>
+      <NavLink to="/analysis/tasks" className="av-sb__nv tone-ask" data-mod="ask" title={t("定时任务")}>
         {({ isActive }) => <><NavPill active={isActive} /><Icon name="refresh" /><span className="av-sb__label">{t("定时任务")}</span>{tasks.data?.length ? <i className="av-sb__label">{tasks.data.length}</i> : null}</>}
       </NavLink>
       {collapsed ? null : <RecentConversations />}

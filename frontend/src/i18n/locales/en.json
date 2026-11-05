@@ -1624,5 +1624,9 @@
   "最近 {{count}} 次采集，成功 {{ok}} 次_one": "Last {{count}} collection, {{ok}} succeeded",
   "最近 {{count}} 次采集，成功 {{ok}} 次_other": "Last {{count}} collections, {{ok}} succeeded",
   "剩余 {{v1}} tokens": "{{v1}} tokens left",
-  "口径状态构成": "Metric status breakdown"
+  "口径状态构成": "Metric status breakdown",
+  "次采集": "runs",
+  "{{count}} 个小时发现变化_one": "Changes found in {{count}} hour",
+  "{{count}} 个小时发现变化_other": "Changes found in {{count}} hours",
+  "今日没有发现变化": "No changes found today"
 }
