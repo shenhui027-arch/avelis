@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8C%81%E7%9A%84%E6%95%B0%E6%8D%AE%E5%BA%93)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
-[![version](https://img.shields.io/badge/version-v1.0.6-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.6)
+[![version](https://img.shields.io/badge/version-v1.0.7-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.7)
 
 [功能亮点](#功能亮点) · [最近更新](#最近更新) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然语言回答关于业务数据的问题，并说清每个数从�
 ![分析会话：结论优先的报告、原因排序、证据栏与模型栏](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.6 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
+> Avelis v1.0.7 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
 
 ## 写在前面
 
@@ -50,6 +50,7 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.0.7** | 登录页修正：页头与主体收进居中的内容宽度，宽屏上标题、产品示意与登录卡成为一组，不再被拉到屏幕两端 |
 | **v1.0.6** | 界面重新设计：柔光工作台（浅色为主、深色同等），去掉渐变、辉光与冗余说明文字，补充说明收进 ⓘ 提示；引入 Motion，选中块滑动、页面切换与浮层开合有过渡；问数首页与工作台重新排版；字体随镜像打包，运行期不再下载 |
 | **v1.0.5** | 筛选取值对齐：用户说的“华东区”这类取值，确定性地对到维度成员或业务维表（别名由业务方在自己的维表里维护、经关联路径登记），对不上时追问候选、可直接点选；资产搜索支持组合关键词与加载更多；修复并发投递在轮尾误计重试 |
 | **v1.0.4** | 用对话改图：续问里说“画成饼图”“标出最高点”“突出华东”即可改图，不重新取数；图上标注极值点、平均线与高亮，导出同步；Webhook 并发投递，发件箱按保留期清理；资产选择与目录检索按需查询，大目录不再整表加载 |

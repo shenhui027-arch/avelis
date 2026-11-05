@@ -143,13 +143,13 @@ A data source's host is resolved **from inside the container**:
 With an external PostgreSQL and Redis, you can run the image on its own:
 
 ```bash
-docker build -t avelis:1.0.6 .                       # build at the repository root
+docker build -t avelis:1.0.7 .                       # build at the repository root
 docker run -d --name avelis -p 8080:8000 \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
-  avelis:1.0.6
+  avelis:1.0.7
 docker run -d --name avelis-worker --no-healthcheck \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
-  avelis:1.0.6 python -m avelis.jobs
+  avelis:1.0.7 python -m avelis.jobs
 ```
 
 The image reads `/etc/avelis/avelis.toml` by default. Its built-in health check targets the API, so the worker container disables it with `--no-healthcheck`. Point `[database]` and `[redis]` at the external services; `[bootstrap] auto_migrate` and `auto_init_admin` both default to `true` and may be omitted. You can also skip the configuration file and pass everything as `-e AVELIS_*` environment variables.
@@ -204,13 +204,13 @@ The image is self-contained: the built frontend, all Python dependencies, CJK fo
 
 ```bash
 # Connected machine (repository root)
-docker build -t avelis:1.0.6 .
+docker build -t avelis:1.0.7 .
 docker pull postgres:18-alpine
 docker pull valkey/valkey:8-alpine
-docker save avelis:1.0.6 postgres:18-alpine valkey/valkey:8-alpine | gzip > avelis-1.0.6-images.tar.gz   # about 260 MB
+docker save avelis:1.0.7 postgres:18-alpine valkey/valkey:8-alpine | gzip > avelis-1.0.7-images.tar.gz   # about 260 MB
 
 # Server (copy the image archive and the deploy/docker directory)
-docker load -i avelis-1.0.6-images.tar.gz
+docker load -i avelis-1.0.7-images.tar.gz
 cd deploy/docker
 cp avelis.example.toml avelis.toml   # fill it in
 docker compose up -d --no-build --pull never

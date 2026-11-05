@@ -2,7 +2,9 @@
 
 本文件记录 Avelis 各版本的主要变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.0.7] - 2026-11-05
+
+修正 v1.0.6 登录页在宽屏上的排布；只改前端样式，接口与数据不变。
 
 ### 修复
 
@@ -256,7 +258,8 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.6...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/shenhui027-arch/avelis/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/shenhui027-arch/avelis/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/shenhui027-arch/avelis/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/shenhui027-arch/avelis/compare/v1.0.3...v1.0.4
