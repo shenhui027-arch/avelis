@@ -7,40 +7,12 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { createPortal } from "react-dom";
 
+import { borrow, giveBack, tipTarget, type Tip } from "./tipTarget";
+
 const SHOW_DELAY = 380;
 const SKIP_DELAY = 300; // 刚收起一个提示后在这段时间内指向另一个，立即显示
 const GAP = 8;
 const EDGE = 8;
-
-/** 借用的 title：收起时放回；为没有可见文字的元素临时补的 aria-label 一并撤掉。 */
-type Borrowed = { title: string; label: boolean };
-type Tip = { el: HTMLElement; text: string; borrowed?: Borrowed; seq: number };
-let seq = 0;
-
-function tipTarget(node: EventTarget | null): HTMLElement | null {
-  if (!(node instanceof Element)) return null;
-  const el = node.closest<HTMLElement>("[data-tip], [title]");
-  if (!el || el instanceof SVGElement) return null;
-  return (el.dataset.tip ?? el.getAttribute("title") ?? "").trim() ? el : null;
-}
-
-function borrow(el: HTMLElement): Tip {
-  const tip = el.dataset.tip?.trim();
-  if (tip) return { el, text: tip, seq: ++seq };
-  const title = el.getAttribute("title") ?? "";
-  const label = !el.hasAttribute("aria-label") && !el.textContent?.trim();
-  el.removeAttribute("title");
-  if (label) el.setAttribute("aria-label", title);
-  return { el, text: title, borrowed: { title, label }, seq: ++seq };
-}
-
-function giveBack(tip: Tip) {
-  tip.el.removeAttribute("aria-describedby");
-  if (!tip.borrowed) return;
-  // 显示期间 React 写入了新的 title：以它为准，不覆盖
-  if (!tip.el.hasAttribute("title")) tip.el.setAttribute("title", tip.borrowed.title);
-  if (tip.borrowed.label && tip.el.getAttribute("aria-label") === tip.borrowed.title) tip.el.removeAttribute("aria-label");
-}
 
 export function TooltipLayer() {
   const [tip, setTip] = useState<Tip | null>(null);
