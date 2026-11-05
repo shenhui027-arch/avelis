@@ -695,7 +695,7 @@
 .av-cause:last-child { border-bottom: none; }
 .av-cause.is-unverified { background: var(--danger-subtle); }
 .av-cause__rank { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--bg-raised); color: var(--text-tertiary); font: 500 11px/1 var(--font-mono); }
-.av-cause.is-primary .av-cause__rank { background: var(--brand-gradient); color: var(--text-on-accent); }
+.av-cause.is-primary .av-cause__rank { background: var(--brand-gradient); color: var(--text-on-primary); }
 .av-cause__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .av-cause__entity { color: var(--text-primary); font: var(--type-body-strong); }
 .av-cause__type { color: var(--text-tertiary); font: var(--type-caption); }
@@ -865,7 +865,7 @@
 }
 .av-models__ctx { width: 120px; height: var(--size-control-sm); }
 /* 血缘：搜索表、可点击的上下游、缩放比例、分组的影响条件 */
-.av-lineage__search { position: relative; display: flex; align-items: center; gap: var(--space-2); width: min(280px, 32vw); height: var(--size-control-sm, 28px); padding: 0 var(--space-2); border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-tertiary); }
+.av-lineage__search { position: relative; display: flex; align-items: center; gap: var(--space-2); flex: 0 1 280px; width: auto; min-width: 140px; /* 工具栏放不下时（如英文）先收窄搜索框，不挤出右侧 */ height: var(--size-control-sm, 28px); padding: 0 var(--space-2); border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-tertiary); }
 .av-lineage__search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
 .av-lineage__search input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--text-primary); font: 400 13px/20px var(--font-sans); outline: none; }
 .av-menu.av-lineage__search-menu { position: absolute; top: calc(100% + 4px); left: 0; right: auto; min-width: 100%; max-width: 420px; z-index: 20; }

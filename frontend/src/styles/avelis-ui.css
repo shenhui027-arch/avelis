@@ -225,7 +225,8 @@
 .av-stage__hd { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font: 400 13px/20px var(--font-sans); }
 .av-stage__val { display: flex; align-items: baseline; gap: 6px; margin-top: var(--space-1); font: 500 30px/36px var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .av-stage__val small { font: 400 13px/16px var(--font-sans); letter-spacing: 0; color: var(--text-tertiary); }
-.av-stage .av-status { color: var(--text-tertiary); font-weight: 400; }
+.av-stage .av-status { align-items: flex-start; color: var(--text-tertiary); font-weight: 400; white-space: normal; }
+.av-stage .av-status::before { margin-top: 5px; } /* 概况说明较长时换行（英文），圆点对齐首行 */
 
 /* Catalog tree */
 .av-tree { display: flex; flex-direction: column; gap: 1px; padding: var(--space-2); }
