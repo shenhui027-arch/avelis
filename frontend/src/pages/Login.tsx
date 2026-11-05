@@ -157,15 +157,16 @@ export function Login() {
 
   return (
     <div className="av-root av-login">
-      <header className="av-login__top">
+      {/* 左：品牌色面板（标题 + 产品示意）；右：登录表单。两栏同高，窄屏时品牌面板收成顶部色带 */}
+      <section className="av-login__brand" aria-label="Avelis">
         <Logo size={30} />
-        <LanguageSelect className="av-login__lang" />
-      </header>
-      <main className="av-login__main">
-        <section className="av-login__hero" aria-label="Avelis">
+        <div className="av-login__brand-body">
           <h1>{t("让每一条数据")}<br />{t("都有出处")}</h1>
           <AnswerPreview />
-        </section>
+        </div>
+      </section>
+      <main className="av-login__side">
+        <div className="av-login__side-top"><LanguageSelect className="av-login__lang" /></div>
         <section className="av-login__panel">
           {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
           <form className="av-login__card" onSubmit={submit} noValidate>
